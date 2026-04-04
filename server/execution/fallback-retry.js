@@ -17,6 +17,7 @@ const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider-ro
 const serverConfig = require('../config');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
 const { safeJsonParse } = require('../utils/json');
+const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { formatResumeContextForPrompt } = require('../utils/resume-context');
 
 const BASE_RETRY_DELAY_MS = 5000;   // 5 seconds for first retry
@@ -207,8 +208,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
 
   // Use metadata counter as the authoritative local attempt count.
   // Counting [Local-First] markers in error_output is unreliable when output is truncated.
-  let metadata = {};
-  try { metadata = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {}; } catch { /* corrupt metadata */ }
+  let metadata = normalizeMetadata(task.metadata);
   const localAttempts = typeof metadata.local_first_attempts === 'number' ? metadata.local_first_attempts : 0;
 
   // Also keep raw error string for model/provider deduplication checks (capped to avoid regex on huge strings).
@@ -465,8 +465,7 @@ function tryStallRecovery(taskId, activity) {
 
   // Store edit format override in task metadata for next run
   if (newSettings.editFormat) {
-    let metadata = {};
-    try { metadata = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {}; } catch { /* corrupt metadata */ }
+    let metadata = normalizeMetadata(task.metadata);
     metadata.stallRecoveryEditFormat = newSettings.editFormat;
     updateFields.metadata = JSON.stringify(metadata);
   }
@@ -766,7 +765,7 @@ function selectHashlineFormat(model, task) {
   // 1. Check metadata override (set by fallback chain)
   if (task && task.metadata) {
     try {
-      const meta = typeof task.metadata === 'string' ? safeJsonParse(task.metadata, {}) : task.metadata;
+      const meta = normalizeMetadata(task.metadata);
       if (meta.hashline_format_override) {
         return { format: meta.hashline_format_override, reason: 'fallback_override' };
       }

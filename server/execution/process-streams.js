@@ -9,6 +9,7 @@
 const logger = require('../logger').child({ component: 'process-streams' });
 const { COMPLETION_GRACE_MS, COMPLETION_GRACE_CODEX_MS } = require('../constants');
 const { OutputBuffer } = require('./output-buffer');
+const { normalizeMetadata } = require('../utils/normalize-metadata');
 
 // Dependencies injected via init()
 let deps = null;
@@ -85,7 +86,7 @@ function setupStdoutHandler(child, taskId, streamId) {
   if (proc && !proc._scoutSignalParser) {
     try {
       const task = deps.db.getTask(taskId);
-      const meta = task?.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
+      const meta = normalizeMetadata(task?.metadata);
       if (meta.mode === 'scout') {
         const { StreamSignalParser } = require('../diffusion/stream-signal-parser');
         const { dispatchTaskEvent } = require('../hooks/event-dispatch');

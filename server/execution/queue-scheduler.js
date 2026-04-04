@@ -11,11 +11,13 @@
  */
 
 const logger = require('../logger').child({ component: 'queue-scheduler' });
+const { getEffectiveGlobalMaxConcurrent: sharedGetEffective } = require('./effective-concurrency');
 const { classifyTaskType } = require('../db/model-capabilities');
 const providerRegistry = require('../providers/registry');
 const serverConfig = require('../config');
 const gpuMetrics = require('../scripts/gpu-metrics-server');
 const { safeJsonParse } = require('../utils/json');
+const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
 const modelRoles = require('../db/model-roles');
@@ -197,7 +199,7 @@ function resolveEffectiveProvider(task) {
   }
   // Deferred assignment: read intended_provider from metadata
   try {
-    const meta = typeof task?.metadata === 'string' ? safeJsonParse(task.metadata, {}) : task?.metadata;
+    const meta = normalizeMetadata(task?.metadata);
     if (meta?.intended_provider) {
       return meta.intended_provider.trim().toLowerCase();
     }
@@ -245,10 +247,7 @@ function categorizeQueuedTasks(queuedTasks, codexEnabled) {
     if (category === 'codex') {
       if (provider === 'codex' && !codexEnabled) {
         // When codex is disabled, only keep user-override tasks in queue
-        let meta = {};
-        try {
-          meta = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {};
-        } catch { /* malformed metadata — treat as empty */ }
+        const meta = normalizeMetadata(task.metadata);
         if (meta.user_provider_override) {
           codexTasks.push(task);
           logger.info(`[categorize] User-override codex task ${(task.id || '').slice(0,8)} kept in queue despite codex disabled`);
@@ -310,28 +309,13 @@ function shouldSkipTaskForApproval(task) {
 }
 
 function getEffectiveGlobalMaxConcurrent(preRead = {}) {
-  const maxOllamaConcurrent = preRead.maxOllamaConcurrent ?? _safeConfigInt('max_ollama_concurrent', 8);
-  const maxCodexConcurrent = preRead.maxCodexConcurrent ?? _safeConfigInt('max_codex_concurrent', 6);
-  const maxApiConcurrent = preRead.maxApiConcurrent ?? _safeConfigInt('max_api_concurrent', 4);
-  const fallbackProviderSum = maxOllamaConcurrent + maxCodexConcurrent + maxApiConcurrent;
-  const configuredMaxConcurrent = _safeConfigInt('max_concurrent', 20);
-  const autoComputeMaxConcurrent = serverConfig.getBool('auto_compute_max_concurrent');
-
-  if (db && typeof db.getEffectiveMaxConcurrent === 'function') {
-    const details = db.getEffectiveMaxConcurrent({
-      configuredMaxConcurrent,
-      autoComputeMaxConcurrent,
-      logger,
-    });
-    const effectiveMaxConcurrent = Number(details?.effectiveMaxConcurrent);
-    if (Number.isFinite(effectiveMaxConcurrent) && effectiveMaxConcurrent > 0) {
-      return effectiveMaxConcurrent;
-    }
-  }
-
-  return autoComputeMaxConcurrent
-    ? Math.max(configuredMaxConcurrent, fallbackProviderSum)
-    : configuredMaxConcurrent;
+  return sharedGetEffective({
+    preRead,
+    safeConfigInt: _safeConfigInt,
+    serverConfig,
+    db,
+    logger,
+  });
 }
 
 // NOTE: parsePositiveInt rejects 0 (returns fallback). For running-task counts
@@ -499,9 +483,7 @@ function attemptFreeProviderOverflow(codexTasks, capacity = {}) {
     try {
       if (task?.user_provider_override) continue;
 
-      const metadata = typeof task.metadata === 'object' && task.metadata !== null
-        ? task.metadata
-        : task.metadata ? JSON.parse(task.metadata) : {};
+      const metadata = normalizeMetadata(task.metadata);
 
       if (metadata.user_provider_override) continue;
       if (!metadata.smart_routing && !metadata.auto_routed) continue;
@@ -558,9 +540,7 @@ function attemptCodexOverflow(codexTask) {
   if (!overflowEnabled) return false;
 
   try {
-    const metadata = typeof codexTask.metadata === 'object' && codexTask.metadata !== null
-      ? codexTask.metadata
-      : codexTask.metadata ? JSON.parse(codexTask.metadata) : {};
+    const metadata = normalizeMetadata(codexTask.metadata);
 
     if (metadata.user_provider_override) {
       logger.info(`processQueue: skipping overflow for user-override Codex task ${codexTask.id.slice(0,8)}`);
@@ -642,7 +622,7 @@ function tryOllamaQueueFallback(task, model, selection) {
   }
 
   try {
-    const metadata = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {};
+    const metadata = normalizeMetadata(task.metadata);
     const isUserSpecifiedModel = !metadata.smart_routing && task.model;
     if (isUserSpecifiedModel) {
       logger.info(`processQueue: P92 skipping P71 fallback for user-specified model '${model}' on task ${task.id.slice(0,8)} — host at capacity, task stays queued`);
@@ -708,13 +688,11 @@ function processQueueInternal(options = {}) {
 
   // Expire stale queued tasks
   const queueTtlMinutes = _safeConfigInt ? _safeConfigInt('queue_task_ttl_minutes', 0) : 0;
-  if (queueTtlMinutes > 0 && db && typeof db.prepare === 'function') {
+  if (queueTtlMinutes > 0 && db && typeof db.getExpiredQueuedTasks === 'function') {
     let expired = [];
     try {
       const cutoff = new Date(Date.now() - queueTtlMinutes * 60000).toISOString();
-      expired = db.prepare(
-        "SELECT id FROM tasks WHERE status IN ('queued', 'pending') AND created_at < ? AND provider != 'workflow'"
-      ).all(cutoff);
+      expired = db.getExpiredQueuedTasks(cutoff);
     } catch (ttlErr) {
       logger.warn(`[queue] TTL expiry query failed: ${ttlErr.message}`);
     }

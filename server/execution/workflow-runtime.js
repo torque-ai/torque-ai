@@ -15,6 +15,7 @@ const logger = require('../logger').child({ component: 'workflow-runtime' });
 const serverConfig = require('../config');
 const { resolveWorkflowConflicts } = require('./conflict-resolver');
 const { safeJsonParse } = require('../utils/json');
+const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { stripAnsiEscapes } = require('../utils/sanitize');
 const eventBus = require('../event-bus');
 
@@ -640,7 +641,7 @@ function applyOutputInjection(taskId, workflowId) {
   let contextFrom = null;
   if (task.metadata) {
     try {
-      const meta = typeof task.metadata === 'string' ? safeJsonParse(task.metadata, {}) : task.metadata;
+      const meta = normalizeMetadata(task.metadata);
       if (Array.isArray(meta.context_from)) {
         contextFrom = meta.context_from;
       }
@@ -1071,12 +1072,8 @@ function checkWorkflowCompletion(workflowId) {
   const tasks = db.getWorkflowTasks(workflowId);
   const isSuperseded = (task) => {
     if (task.status !== 'cancelled') return false;
-    try {
-      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {});
-      return !!meta.resubmitted_as;
-    } catch {
-      return false;
-    }
+    const meta = normalizeMetadata(task.metadata);
+    return !!meta.resubmitted_as;
   };
   const effectiveTasks = tasks.filter(t => !isSuperseded(t));
   const stats = {
@@ -1194,13 +1191,9 @@ function maybeProcessAuditTaskResult(task) {
     const auditStore = require('../db/audit-store');
 
     const filePaths = [];
-    if (task.metadata) {
-      const meta = typeof task.metadata === 'string'
-        ? JSON.parse(task.metadata)
-        : task.metadata;
-      if (Array.isArray(meta.file_paths)) {
-        filePaths.push(...meta.file_paths);
-      }
+    const meta = normalizeMetadata(task.metadata);
+    if (Array.isArray(meta.file_paths)) {
+      filePaths.push(...meta.file_paths);
     }
 
     aggregator.processTaskResult({

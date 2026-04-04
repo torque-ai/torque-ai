@@ -1,16 +1,11 @@
 'use strict';
 
 const PASSING_OUTCOMES = ['no_change', 'early_exit'];
+const { normalizeMetadata } = require('../utils/normalize-metadata');
 
 function safeParseMetadata(task) {
-  if (!task || typeof task.metadata === 'undefined' || task.metadata === null) return {};
-  if (typeof task.metadata === 'object') return task.metadata || {};
-  if (typeof task.metadata !== 'string') return {};
-  try {
-    return JSON.parse(task.metadata);
-  } catch (_) {
-    return {};
-  }
+  if (!task) return {};
+  return normalizeMetadata(task.metadata);
 }
 
 function createVerificationLedgerStage({ verificationLedger, projectConfigCore }) {

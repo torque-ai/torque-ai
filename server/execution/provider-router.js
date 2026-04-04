@@ -13,6 +13,7 @@ const { execFile: execFileCb } = require('child_process');
 const { promisify } = require('util');
 const execFile = promisify(execFileCb);
 const logger = require('../logger').child({ component: 'provider-router' });
+const { getEffectiveGlobalMaxConcurrent: sharedGetEffective } = require('./effective-concurrency');
 
 let _db = null;
 let _serverConfig = null;
@@ -322,28 +323,12 @@ function getProviderSlotLimits(provider, providerConfig = null) {
 }
 
 function getEffectiveGlobalMaxConcurrent() {
-  const maxOllama = safeConfigInt('max_ollama_concurrent', 8, 1, 50);
-  const maxCodex = safeConfigInt('max_codex_concurrent', 6, 1, 20);
-  const maxApi = safeConfigInt('max_api_concurrent', 4, 1, 20);
-  const fallbackProviderSum = maxOllama + maxCodex + maxApi;
-  const configuredMaxConcurrent = safeConfigInt('max_concurrent', 20, 1, 1000);
-  const autoComputeMaxConcurrent = _serverConfig && _serverConfig.getBool('auto_compute_max_concurrent');
-
-  if (_db && typeof _db.getEffectiveMaxConcurrent === 'function') {
-    const details = _db.getEffectiveMaxConcurrent({
-      configuredMaxConcurrent,
-      autoComputeMaxConcurrent,
-      logger,
-    });
-    const effectiveMaxConcurrent = Number(details?.effectiveMaxConcurrent);
-    if (Number.isFinite(effectiveMaxConcurrent) && effectiveMaxConcurrent > 0) {
-      return effectiveMaxConcurrent;
-    }
-  }
-
-  return autoComputeMaxConcurrent
-    ? Math.max(configuredMaxConcurrent, fallbackProviderSum)
-    : configuredMaxConcurrent;
+  return sharedGetEffective({
+    safeConfigInt,
+    serverConfig: _serverConfig,
+    db: _db,
+    logger,
+  });
 }
 
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────

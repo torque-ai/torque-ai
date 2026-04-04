@@ -987,6 +987,23 @@ function getRunningTasksLightweight() {
 }
 
 /**
+ * Get queued/pending tasks that exceeded the scheduler TTL cutoff.
+ * Keeps the exact SQL semantics used by the scheduler, including provider filtering.
+ * @param {string} cutoffIso
+ * @returns {Array<{id: string}>}
+ */
+function getExpiredQueuedTasks(cutoffIso) {
+  if (!db || dbClosed || !cutoffIso) return [];
+  return db.prepare(`
+    SELECT id
+    FROM tasks
+    WHERE status IN ('queued', 'pending')
+      AND created_at < ?
+      AND provider != 'workflow'
+  `).all(cutoffIso);
+}
+
+/**
  * Get next queued task (highest priority, oldest first).
  * Uses Wave 5 intelligent priority scoring when available.
  * @returns {object|null}
@@ -1370,6 +1387,7 @@ module.exports = {
   getRunningCount,
   getRunningCountByProvider,
   getRunningTasksLightweight,
+  getExpiredQueuedTasks,
   // Queue / slot management
   getNextQueuedTask,
   tryClaimTaskSlot,

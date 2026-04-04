@@ -46,6 +46,7 @@ describe('Queue Scheduler', () => {
         }
         return { all: vi.fn().mockReturnValue([]), run: vi.fn(), get: vi.fn() };
       }),
+      getExpiredQueuedTasks: vi.fn().mockReturnValue([]),
       listTasks: vi.fn().mockReturnValue([]),
       listOllamaHosts: vi.fn().mockReturnValue([]),
       getConfig: vi.fn().mockReturnValue(null),
@@ -381,23 +382,10 @@ describe('Queue Scheduler', () => {
     it('cancels tasks older than queue TTL', () => {
       const now = 2000000;
       const expiredTask = { id: 'expired-task', provider: 'ollama', created_at: new Date(now - 20 * 60000).toISOString() };
-      const selectStatement = {
-        all: vi.fn().mockReturnValue([expiredTask]),
-      };
       const expectedCutoff = new Date(now - 10 * 60000).toISOString();
 
       const selectRow = vi.spyOn(Date, 'now').mockReturnValue(now);
-
-      mockDb.prepare.mockImplementation((sql) => {
-        if (sql.includes("SELECT id FROM tasks")) return selectStatement;
-        if (sql.includes('SELECT value FROM config')) {
-          return { get: (key) => {
-            const val = mockDb.getConfig(key);
-            return val != null ? { value: val } : undefined;
-          }};
-        }
-        return { all: vi.fn().mockReturnValue([]), run: vi.fn(), get: vi.fn() };
-      });
+      mockDb.getExpiredQueuedTasks.mockReturnValue([expiredTask]);
 
       const eventBus = require('../event-bus');
       const emitSpy = vi.spyOn(eventBus, 'emitTaskEvent');
@@ -421,10 +409,7 @@ describe('Queue Scheduler', () => {
         status: 'cancelled',
         error_output: 'Expired: exceeded queue TTL',
       });
-      expect(selectStatement.all).toHaveBeenCalledWith(expectedCutoff);
-      expect(mockDb.prepare).toHaveBeenCalledWith(
-        "SELECT id FROM tasks WHERE status IN ('queued', 'pending') AND created_at < ? AND provider != 'workflow'"
-      );
+      expect(mockDb.getExpiredQueuedTasks).toHaveBeenCalledWith(expectedCutoff);
       expect(emitSpy).toHaveBeenCalledWith({
         taskId: 'expired-task',
         type: 'cancelled',
@@ -450,27 +435,11 @@ describe('Queue Scheduler', () => {
 
       scheduler.processQueueInternal();
 
-      expect(mockDb.prepare).not.toHaveBeenCalledWith(
-        expect.stringContaining("SELECT id FROM tasks")
-      );
+      expect(mockDb.getExpiredQueuedTasks).not.toHaveBeenCalled();
     });
 
     it('excludes workflow tasks from queue TTL cleanup', () => {
-      const selectStatement = {
-        all: vi.fn().mockReturnValue([]),
-      };
-      const runStatement = { run: vi.fn() };
-      mockDb.prepare.mockImplementation((sql) => {
-        if (sql.includes("SELECT id FROM tasks")) return selectStatement;
-        if (sql.includes("UPDATE tasks SET status = 'cancelled'")) return runStatement;
-        if (sql.includes('SELECT value FROM config')) {
-          return { get: (key) => {
-            const val = mockDb.getConfig(key);
-            return val != null ? { value: val } : undefined;
-          }};
-        }
-        return { all: vi.fn().mockReturnValue([]), run: vi.fn(), get: vi.fn() };
-      });
+      mockDb.getExpiredQueuedTasks.mockReturnValue([]);
 
       mockDb.getRunningCount.mockReturnValue(0);
       mockDb.listTasks.mockReturnValue([]);
@@ -486,8 +455,8 @@ describe('Queue Scheduler', () => {
 
       scheduler.processQueueInternal();
 
-      expect(selectStatement.all).toHaveBeenCalledTimes(1);
-      expect(runStatement.run).not.toHaveBeenCalled();
+      expect(mockDb.getExpiredQueuedTasks).toHaveBeenCalledTimes(1);
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
     });
 
     it('calls periodic budget reset when due and tracks interval', () => {

@@ -15,6 +15,7 @@
 const logger = require('../logger').child({ component: 'slot-pull-scheduler' });
 const capabilities = require('../db/provider-capabilities');
 const perfTracker = require('../db/provider-performance');
+const { normalizeMetadata } = require('../utils/normalize-metadata');
 
 let _db = null;
 let _startTask = null;
@@ -76,8 +77,7 @@ function hasOllamaHostCapacity(provider) {
 }
 
 function parseTaskMeta(task) {
-  if (!task?.metadata) return {};
-  try { return typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata; } catch { return {}; }
+  return normalizeMetadata(task?.metadata);
 }
 
 function getUnassignedQueuedTasks(limit = 200) {
@@ -168,7 +168,7 @@ function runSlotPullPass() {
         // Create coordination claim for the submitting agent
         try {
           const task = _db.getTask(taskId);
-          const taskMeta = task?.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
+          const taskMeta = normalizeMetadata(task?.metadata);
           const agentId = taskMeta.submitted_by_agent || null;
           if (agentId) {
             const coord = require('../db/coordination');

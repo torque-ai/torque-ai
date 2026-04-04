@@ -13,6 +13,12 @@ const modelCapabilities = require('../db/model-capabilities');
 const perfTracker = require('../db/provider-performance');
 const { smartDiagnosisStage } = require('./smart-diagnosis-stage');
 const { strategicReviewStage } = require('./strategic-review-stage');
+const { createVerificationLedgerStage } = require('./verification-ledger-stage');
+const { createAdversarialReviewStage } = require('./adversarial-review-stage');
+const { parseDiffusionSignal } = require('../diffusion/signal-parser');
+const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
+const { expandApplyTaskDescription } = require('../diffusion/planner');
+const { v4: uuidv4 } = require('uuid');
 
 let deps = {};
 let handleVerificationLedger = null;
@@ -29,7 +35,6 @@ function init(nextDeps = {}) {
   handleAdversarialReview = typeof deps.handleAdversarialReview === 'function' ? deps.handleAdversarialReview : handleAdversarialReview;
 
   try {
-    const { createVerificationLedgerStage } = require('./verification-ledger-stage');
     const { defaultContainer } = require('../container');
     if (typeof handleVerificationLedger !== 'function' && defaultContainer && typeof defaultContainer.has === 'function' && typeof defaultContainer.get === 'function') {
       const vl = defaultContainer.has('verificationLedger') ? defaultContainer.get('verificationLedger') : null;
@@ -46,7 +51,6 @@ function init(nextDeps = {}) {
   }
 
   try {
-    const { createAdversarialReviewStage } = require('./adversarial-review-stage');
     const { defaultContainer } = require('../container');
     if (typeof handleAdversarialReview !== 'function' && defaultContainer && typeof defaultContainer.has === 'function' && typeof defaultContainer.get === 'function') {
       const ar = defaultContainer.has('adversarialReviews') ? defaultContainer.get('adversarialReviews') : null;
@@ -295,7 +299,6 @@ function recordProviderPerformance(ctx) {
 
 function handleDiffusionSignalDetection(ctx) {
   try {
-    const { parseDiffusionSignal } = require('../diffusion/signal-parser');
     const signal = parseDiffusionSignal(ctx.output || '');
     if (signal) {
       const task = deps.db.getTask(ctx.taskId);
@@ -321,9 +324,6 @@ function handleComputeApplyCreation(ctx) {
       : {};
 
     if (meta.diffusion_role !== 'compute' || ctx.status !== 'completed') return;
-
-    const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
-    const { expandApplyTaskDescription } = require('../diffusion/planner');
 
     const parsed = parseComputeOutput(ctx.output || '');
     if (!parsed) {
@@ -353,7 +353,7 @@ function handleComputeApplyCreation(ctx) {
     const applyProvider = applyProviderList[applyIndex];
     const workingDir = task.working_directory;
     const applyDesc = expandApplyTaskDescription(parsed, workingDir);
-    const applyId = require('uuid').v4();
+    const applyId = uuidv4();
 
     deps.db.createTask({
       id: applyId,
