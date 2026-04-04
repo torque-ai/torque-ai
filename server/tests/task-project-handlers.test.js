@@ -152,6 +152,23 @@ function createVirtualFs(initialEntries = {}) {
       }
       return { size: Buffer.byteLength(files.get(resolved), 'utf8') };
     }),
+    lstatSync: vi.fn((filePath) => {
+      const resolved = normalizePath(filePath);
+      const isFile = files.has(resolved);
+      const isDir = dirs.has(resolved);
+      if (!isFile && !isDir) {
+        const error = new Error(`ENOENT: no such file or directory, lstat '${filePath}'`);
+        error.code = 'ENOENT';
+        throw error;
+      }
+      return {
+        isSymbolicLink: () => false,
+        isFile: () => isFile,
+        isDirectory: () => isDir,
+        size: isFile ? Buffer.byteLength(files.get(resolved), 'utf8') : 0,
+      };
+    }),
+    realpathSync: vi.fn((filePath) => normalizePath(filePath)),
     __addDir: addDir,
     __addFile: addFile,
     __getFile: (filePath) => files.get(normalizePath(filePath)),
