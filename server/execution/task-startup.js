@@ -274,7 +274,7 @@ function recordTaskStartedAuditEvent(task, taskId, provider) {
  * @param {string} taskId - Task ID to start
  * @returns {{ queued: boolean, task?: Object, rateLimited?: boolean, retryAfter?: number }}
  */
-function startTask(taskId) {
+async function startTask(taskId) {
   let task = db.getTask(taskId);
   if (!task) {
     throw new Error(`Task not found: ${taskId}`);

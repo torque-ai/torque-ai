@@ -619,7 +619,8 @@ function handleCreateWorkflow(args) {
   const workDir = args.working_directory || null;
   if (workDir) {
     try {
-      const rawDb = require('../../database').getDbInstance();
+      const { defaultContainer } = require('../../container');
+      const rawDb = defaultContainer.get('db');
       if (rawDb && isProjectVersioned(rawDb, workDir)) {
         const workflowIntent = args.version_intent;
         if (!workflowIntent) {
