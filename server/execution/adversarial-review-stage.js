@@ -2,11 +2,16 @@
 
 const { randomUUID } = require('crypto');
 const childProcess = require('child_process');
-const { promisify } = require('util');
 
-// Use a getter so tests can spy on childProcess.execFile
-function execFileAsync(...args) {
-  return promisify(childProcess.execFile)(...args);
+// Wrap execFile manually (not promisify) so tests can spy on childProcess.execFile.
+// promisify(execFile) uses a custom Symbol that doesn't transfer to spies.
+function execFileAsync(cmd, args, opts) {
+  return new Promise((resolve, reject) => {
+    childProcess.execFile(cmd, args, opts, (err, stdout, stderr) => {
+      if (err) reject(err);
+      else resolve({ stdout, stderr });
+    });
+  });
 }
 
 const DEFAULT_REVIEW_CHAIN = ['codex', 'deepinfra', 'claude-cli', 'ollama'];
