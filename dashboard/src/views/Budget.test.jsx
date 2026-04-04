@@ -14,16 +14,17 @@ vi.mock('../api', () => ({
 import { budget as budgetApi } from '../api';
 
 const mockSummary = {
-  total_cost: 12.50,
+  total_cost: 20.50,
   by_provider: {
-    codex: { cost: 8.00 },
-    'claude-cli': { cost: 4.50 },
+    codex: { tasks: 32 },
+    'claude-cli': { tasks: 18 },
+    openai: { cost: 12.50, tasks: 50 },
   },
   daily: [
     { date: '2026-01-01', cost: 1.50 },
     { date: '2026-01-02', cost: 2.00 },
   ],
-  task_count: 50,
+  task_count: 100,
 };
 
 const mockBudgetStatus = {
@@ -53,7 +54,7 @@ describe('Budget', () => {
   it('renders heading after data loads', async () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Budget & Costs')).toBeInTheDocument();
+      expect(screen.getByText('Budget & Usage')).toBeInTheDocument();
     });
   });
 
@@ -98,6 +99,16 @@ describe('Budget', () => {
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
       expect(screen.getByText('Provider Breakdown')).toBeInTheDocument();
+    });
+  });
+
+  it('shows subscription providers separately from API provider costs', async () => {
+    renderWithProviders(<Budget />, { route: '/budget' });
+    await waitFor(() => {
+      expect(screen.getByText('Subscription Providers')).toBeInTheDocument();
+      expect(screen.getByText('32 tasks')).toBeInTheDocument();
+      expect(screen.getByText('18 tasks')).toBeInTheDocument();
+      expect(screen.getByText('API providers only')).toBeInTheDocument();
     });
   });
 
@@ -149,7 +160,7 @@ describe('Budget', () => {
     budgetApi.status.mockResolvedValue({ limit: 0, used: 0 });
     renderWithProviders(<Budget />, { route: '/budget' });
     await waitFor(() => {
-      expect(screen.getByText('Budget & Costs')).toBeInTheDocument();
+      expect(screen.getByText('Budget & Usage')).toBeInTheDocument();
     });
     expect(screen.queryByText('Budget Progress')).toBeFalsy();
   });

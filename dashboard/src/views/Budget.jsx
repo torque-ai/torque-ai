@@ -6,6 +6,8 @@ import LoadingSkeleton from '../components/LoadingSkeleton';
 import { PROVIDER_HEX_COLORS } from '../constants';
 import { SVGLineChart, SVGBarChart, SVGPieChart } from '../components/charts';
 
+const SUBSCRIPTION_PROVIDERS = new Set(['codex', 'claude-cli', 'codex-spark']);
+
 function ProgressRing({ percent, size = 80, strokeWidth = 8 }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
@@ -119,22 +121,38 @@ export default function Budget() {
   }
 
   // Extract data for charts from summary
-  const totalCost = summary?.total_cost || summary?.totalCost || 0;
+  const totalCost = summary?.total_cost ?? summary?.totalCost ?? 0;
   const providerBreakdown = summary?.by_provider || summary?.byProvider || summary?.providers || {};
   const dailyCosts = summary?.daily || summary?.dailyCosts || [];
+  const taskCount = summary?.task_count || summary?.taskCount || summary?.total_tasks || 0;
 
-  const pieData = Object.entries(providerBreakdown)
-    .filter(([_, v]) => {
-      const cost = typeof v === 'object' ? (v.cost || v.total_cost || 0) : v;
-      return cost > 0;
-    })
-    .map(([name, v]) => ({
-      name,
-      value: typeof v === 'object' ? (v.cost || v.total_cost || 0) : v,
-    }));
+  // Separate subscription providers (flat-rate) from API providers (per-call cost)
+  const apiProviderCosts = {};
+  const subscriptionProviderTasks = {};
+  let apiTaskCount = 0;
+
+  for (const [name, v] of Object.entries(providerBreakdown)) {
+    if (SUBSCRIPTION_PROVIDERS.has(name)) {
+      subscriptionProviderTasks[name] = typeof v === 'object' ? (v.tasks || v.total_tasks || 0) : 0;
+      continue;
+    }
+
+    const providerCost = typeof v === 'object' ? (v.cost || v.total_cost || 0) : v;
+    apiProviderCosts[name] = providerCost;
+    apiTaskCount += typeof v === 'object' ? (Number(v.tasks || v.total_tasks || 0) || 0) : 0;
+  }
+
+  // API-only cost (exclude subscription providers from totals)
+  const apiCost = Object.values(apiProviderCosts).reduce((s, v) => s + (Number(v) || 0), 0);
+  const subscriptionTaskCount = Object.values(subscriptionProviderTasks).reduce((sum, count) => sum + (Number(count) || 0), 0);
+  const effectiveApiTaskCount = apiTaskCount > 0 ? apiTaskCount : Math.max(0, taskCount - subscriptionTaskCount);
+
+  const pieData = Object.entries(apiProviderCosts)
+    .filter(([_, cost]) => cost > 0)
+    .map(([name, cost]) => ({ name, value: cost }));
 
   const budgetLimit = budgetStatus?.limit || budgetStatus?.budget_limit || 0;
-  const budgetUsed = budgetStatus?.used || budgetStatus?.budget_used || totalCost;
+  const budgetUsed = budgetStatus?.used ?? budgetStatus?.budget_used ?? (totalCost || apiCost);
   const budgetPct = budgetLimit > 0 ? Math.round((budgetUsed / budgetLimit) * 100) : 0;
 
   // Use server-side linear regression forecast when available, fall back to client-side naive avg
@@ -147,8 +165,7 @@ export default function Budget() {
     ? forecast.projected_monthly
     : dailyAvg * 30;
   const trendDirection = forecast?.trend_direction || 'stable';
-  const taskCount = summary?.task_count || summary?.taskCount || summary?.total_tasks || 0;
-  const costPerTask = taskCount > 0 ? totalCost / taskCount : 0;
+  const costPerTask = effectiveApiTaskCount > 0 ? apiCost / effectiveApiTaskCount : 0;
 
   return (
     <div className="p-6">
@@ -185,7 +202,7 @@ export default function Budget() {
       )}
 
       <div className="flex items-center justify-between mb-6">
-        <h2 className="heading-lg text-white">Budget & Costs</h2>
+        <h2 className="heading-lg text-white">Budget & Usage</h2>
         <select
           aria-label="Filter budget stats by time range"
           value={days}
@@ -202,8 +219,8 @@ export default function Budget() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <StatCard
           label="Total Cost"
-          value={`$${Number(totalCost).toFixed(2)}`}
-          subtext={`Last ${days} days`}
+          value={`$${Number(apiCost).toFixed(2)}`}
+          subtext="API providers only"
           gradient="blue"
           icon="\uD83D\uDCB0"
         />
@@ -230,7 +247,7 @@ export default function Budget() {
         <StatCard
           label="Cost per Task"
           value={`$${costPerTask.toFixed(3)}`}
-          subtext={`${taskCount} tasks total`}
+          subtext={`${effectiveApiTaskCount} API tasks`}
           gradient="purple"
           icon="\u2601\uFE0F"
         />
@@ -362,6 +379,28 @@ export default function Budget() {
           )}
         </div>
       </div>
+
+      {/* Subscription Providers */}
+      {Object.keys(subscriptionProviderTasks).length > 0 && (
+        <div className="glass-card p-6 mt-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Subscription Providers</h3>
+          <p className="text-xs text-slate-500 mb-4">Flat-rate subscriptions - cost not tracked per task</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {Object.entries(subscriptionProviderTasks).map(([name, tasks]) => (
+              <div key={name} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg border border-slate-700/50">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PROVIDER_HEX_COLORS[name] || '#6b7280' }} />
+                  <span className="text-sm font-medium text-white capitalize">{name}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm text-white font-medium">{tasks} tasks</span>
+                  <span className="text-xs text-slate-500 ml-2">subscription</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Budget progress */}
       {budgetLimit > 0 && (
