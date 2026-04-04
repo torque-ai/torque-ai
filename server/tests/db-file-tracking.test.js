@@ -91,14 +91,14 @@ describe('db/file-tracking module', () => {
     expect(comparison.lineDelta).toBe(1);
   });
 
-  it('captures directory baselines and filters by extension', () => {
+  it('captures directory baselines and filters by extension', async () => {
     const task = createTask();
     const workDir = nextTaskDir(task.id);
     createFile(workDir, 'src/keep.ts', 'export {}');
     createFile(workDir, 'src/ignore.md', '# readme');
     createFile(workDir, 'node_modules/skip.js', 'module.exports = 1;');
 
-    const captured = fileTracking.captureDirectoryBaselines(workDir, ['.ts', '.js']);
+    const captured = await fileTracking.captureDirectoryBaselines(workDir, ['.ts', '.js']);
     const capturedForward = captured.map(toForwardSlashes);
 
     expect(capturedForward).toContain('src/keep.ts');

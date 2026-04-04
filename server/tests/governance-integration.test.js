@@ -312,7 +312,7 @@ describe('governance integration', () => {
     expect(governanceLogger.__child.info).not.toHaveBeenCalled();
   });
 
-  it('runs the task_complete stage checker after finalization', () => {
+  it('runs the task_complete stage checker after finalization', async () => {
     const execSpy = vi.spyOn(childProcess, 'execFileSync')
       .mockReturnValue('server/handlers/task/core.js | 3 ++-\n');
     const updatedTask = {

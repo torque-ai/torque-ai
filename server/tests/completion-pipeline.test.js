@@ -309,8 +309,8 @@ describe('completion-pipeline', () => {
       mockDeps.db.getTask.mockReturnValue({ ...baseTask, metadata: '{}' });
     });
 
-    it('fires task_complete hook for completed status', () => {
-      handlePostCompletion({
+    it('fires task_complete hook for completed status', async () => {
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'completed', output: 'done',
       });
@@ -325,8 +325,8 @@ describe('completion-pipeline', () => {
       }));
     });
 
-    it('fires task_fail hook for failed status', () => {
-      handlePostCompletion({
+    it('fires task_fail hook for failed status', async () => {
+      await handlePostCompletion({
         taskId: 'task-100', code: 1, task: baseTask,
         status: 'failed', errorOutput: 'crash', output: 'partial',
       });
@@ -340,8 +340,8 @@ describe('completion-pipeline', () => {
       }));
     });
 
-    it('does not fire hook for non-terminal statuses', () => {
-      handlePostCompletion({
+    it('does not fire hook for non-terminal statuses', async () => {
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'pending_provider_switch',
       });
@@ -349,8 +349,8 @@ describe('completion-pipeline', () => {
       expect(mockFireHook).not.toHaveBeenCalled();
     });
 
-    it('records provider usage with duration and success', () => {
-      handlePostCompletion({
+    it('records provider usage with duration and success', async () => {
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'completed',
       });
@@ -364,8 +364,8 @@ describe('completion-pipeline', () => {
       );
     });
 
-    it('records provider usage with quota error_type for pending_provider_switch', () => {
-      handlePostCompletion({
+    it('records provider usage with quota error_type for pending_provider_switch', async () => {
+      await handlePostCompletion({
         taskId: 'task-100', code: 1, task: baseTask,
         status: 'pending_provider_switch',
       });
@@ -379,8 +379,8 @@ describe('completion-pipeline', () => {
       );
     });
 
-    it('records provider usage with failure error_type for non-zero exit code', () => {
-      handlePostCompletion({
+    it('records provider usage with failure error_type for non-zero exit code', async () => {
+      await handlePostCompletion({
         taskId: 'task-100', code: 1, task: baseTask,
         status: 'failed',
       });
@@ -394,8 +394,8 @@ describe('completion-pipeline', () => {
       );
     });
 
-    it('defaults provider to codex when task has no provider', () => {
-      handlePostCompletion({
+    it('defaults provider to codex when task has no provider', async () => {
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: {},
         status: 'completed',
       });
@@ -405,11 +405,11 @@ describe('completion-pipeline', () => {
       );
     });
 
-    it('triggers webhooks with updated task', () => {
+    it('triggers webhooks with updated task', async () => {
       const updatedTask = { ...baseTask, status: 'completed' };
       mockDeps.db.getTask.mockReturnValue(updatedTask);
 
-      handlePostCompletion({
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'completed',
       });
@@ -417,10 +417,10 @@ describe('completion-pipeline', () => {
       expect(mockTriggerWebhooks).toHaveBeenCalledWith('completed', updatedTask);
     });
 
-    it('calls handleWorkflowTermination when task has workflow_id', () => {
+    it('calls handleWorkflowTermination when task has workflow_id', async () => {
       mockDeps.db.getTask.mockReturnValue({ ...baseTask, workflow_id: 'wf-1', metadata: '{}' });
 
-      handlePostCompletion({
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'completed',
       });
@@ -428,10 +428,10 @@ describe('completion-pipeline', () => {
       expect(mockDeps.handleWorkflowTermination).toHaveBeenCalledWith('task-100');
     });
 
-    it('does not call handleWorkflowTermination when task has no workflow_id', () => {
+    it('does not call handleWorkflowTermination when task has no workflow_id', async () => {
       mockDeps.db.getTask.mockReturnValue({ ...baseTask, metadata: '{}' });
 
-      handlePostCompletion({
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'completed',
       });
@@ -439,8 +439,8 @@ describe('completion-pipeline', () => {
       expect(mockDeps.handleWorkflowTermination).not.toHaveBeenCalled();
     });
 
-    it('calls handleProjectDependencyResolution with taskId and status', () => {
-      handlePostCompletion({
+    it('calls handleProjectDependencyResolution with taskId and status', async () => {
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'completed',
       });
@@ -448,14 +448,14 @@ describe('completion-pipeline', () => {
       expect(mockDeps.handleProjectDependencyResolution).toHaveBeenCalledWith('task-100', 'completed');
     });
 
-    it('calls handlePipelineStepCompletion for terminal statuses', () => {
+    it('calls handlePipelineStepCompletion for terminal statuses', async () => {
       for (const status of ['completed', 'failed', 'cancelled']) {
         vi.clearAllMocks();
         mockDeps.db.getTask.mockReturnValue({ ...baseTask, metadata: '{}' });
         mockTriggerWebhooks.mockResolvedValue(undefined);
         mockDeps.runOutputSafeguards.mockResolvedValue(undefined);
 
-        handlePostCompletion({
+        await handlePostCompletion({
           taskId: 'task-100', code: status === 'completed' ? 0 : 1, task: baseTask,
           status,
         });
@@ -464,10 +464,10 @@ describe('completion-pipeline', () => {
       }
     });
 
-    it('does not call handlePipelineStepCompletion for non-terminal statuses', () => {
+    it('does not call handlePipelineStepCompletion for non-terminal statuses', async () => {
       mockDeps.db.getTask.mockReturnValue({ ...baseTask, metadata: '{}' });
 
-      handlePostCompletion({
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'running',
       });
@@ -475,11 +475,11 @@ describe('completion-pipeline', () => {
       expect(mockDeps.handlePipelineStepCompletion).not.toHaveBeenCalled();
     });
 
-    it('calls runOutputSafeguards', () => {
+    it('calls runOutputSafeguards', async () => {
       const updatedTask = { ...baseTask, status: 'completed' };
       mockDeps.db.getTask.mockReturnValue(updatedTask);
 
-      handlePostCompletion({
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'completed',
       });
@@ -487,11 +487,11 @@ describe('completion-pipeline', () => {
       expect(mockDeps.runOutputSafeguards).toHaveBeenCalledWith('task-100', 'completed', updatedTask);
     });
 
-    it('calls dispatchTaskEvent', () => {
+    it('calls dispatchTaskEvent', async () => {
       const updatedTask = { ...baseTask, status: 'completed' };
       mockDeps.db.getTask.mockReturnValue(updatedTask);
 
-      handlePostCompletion({
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'completed',
       });
@@ -499,13 +499,13 @@ describe('completion-pipeline', () => {
       expect(mockDispatchTaskEvent).toHaveBeenCalledWith('completed', updatedTask);
     });
 
-    it('skips model outcome recording when already finalized by task-finalizer', () => {
+    it('skips model outcome recording when already finalized by task-finalizer', async () => {
       mockDeps.db.getTask.mockReturnValue({ ...baseTask, metadata: '{}' });
       mockDeps.parseTaskMetadata.mockReturnValue({
         finalization: { finalized_at: '2026-03-10T10:01:00Z' },
       });
 
-      handlePostCompletion({
+      await handlePostCompletion({
         taskId: 'task-100', code: 0, task: baseTask,
         status: 'completed',
       });
@@ -516,29 +516,25 @@ describe('completion-pipeline', () => {
       expect(mockDeps.db.recordProviderOutcome).toHaveBeenCalled();
     });
 
-    it('survives recordProviderUsage throwing', () => {
+    it('survives recordProviderUsage throwing', async () => {
       mockDeps.db.recordProviderUsage.mockImplementation(() => { throw new Error('usage db error'); });
 
-      expect(() => {
-        handlePostCompletion({
-          taskId: 'task-100', code: 0, task: baseTask,
-          status: 'completed',
-        });
-      }).not.toThrow();
+      await handlePostCompletion({
+        taskId: 'task-100', code: 0, task: baseTask,
+        status: 'completed',
+      });
     });
 
-    it('survives outcome recording throwing', () => {
+    it('survives outcome recording throwing', async () => {
       mockDeps.db.getTask.mockImplementation(() => { throw new Error('getTask error'); });
 
-      expect(() => {
-        handlePostCompletion({
-          taskId: 'task-100', code: 0, task: baseTask,
-          status: 'completed',
-        });
-      }).not.toThrow();
+      await handlePostCompletion({
+        taskId: 'task-100', code: 0, task: baseTask,
+        status: 'completed',
+      });
     });
 
-    it('survives webhook/workflow section throwing', () => {
+    it('survives webhook/workflow section throwing', async () => {
       // Make getTask succeed for outcome section but fail on second call
       let callCount = 0;
       mockDeps.db.getTask.mockImplementation(() => {
@@ -547,16 +543,14 @@ describe('completion-pipeline', () => {
         throw new Error('second getTask fails');
       });
 
-      expect(() => {
-        handlePostCompletion({
-          taskId: 'task-100', code: 0, task: baseTask,
-          status: 'completed',
-        });
-      }).not.toThrow();
+      await handlePostCompletion({
+        taskId: 'task-100', code: 0, task: baseTask,
+        status: 'completed',
+      });
     });
 
-    it('uses proc output/errorOutput as fallback when ctx fields are absent', () => {
-      handlePostCompletion({
+    it('uses proc output/errorOutput as fallback when ctx fields are absent', async () => {
+      await handlePostCompletion({
         taskId: 'task-100', code: 1, task: baseTask,
         status: 'failed',
         proc: { output: 'proc-output', errorOutput: 'proc-error' },

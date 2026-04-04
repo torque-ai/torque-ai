@@ -53,7 +53,7 @@ function resetMockDefaults() {
     allow_subdirs: true,
   });
   checkFileLocationAnomalies.mockReturnValue([]);
-  mockDb.checkDuplicateFiles.mockReturnValue([]);
+  mockDb.checkDuplicateFiles.mockResolvedValue([]);
   getAllFileLocationIssues.mockReturnValue({
     total_issues: 0,
     anomalies: [],
@@ -68,7 +68,7 @@ function resetMockDefaults() {
   resolveFileLocationIssue.mockReturnValue({ resolved: 1 });
   resolveFileLocationAnomaly.mockReturnValue({ resolved: 1 });
   mockDb.resolveDuplicateFile.mockReturnValue({ resolved: 1 });
-  mockDb.searchSimilarFiles.mockReturnValue({
+  mockDb.searchSimilarFiles.mockResolvedValue({
     task_id: 'task-default',
     status: 'no_matches',
     matches_found: 0,
@@ -216,8 +216,8 @@ describe('validation/file handlers', () => {
   });
 
   describe('handleCheckDuplicateFiles', () => {
-    it('returns MISSING_REQUIRED_PARAM when task_id is missing', () => {
-      const result = handlers.handleCheckDuplicateFiles({ working_directory: '/repo/project' });
+    it('returns MISSING_REQUIRED_PARAM when task_id is missing', async () => {
+      const result = await handlers.handleCheckDuplicateFiles({ working_directory: '/repo/project' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
@@ -225,8 +225,8 @@ describe('validation/file handlers', () => {
       expect(mockDb.getTask).not.toHaveBeenCalled();
     });
 
-    it('returns MISSING_REQUIRED_PARAM when working_directory is missing', () => {
-      const result = handlers.handleCheckDuplicateFiles({ task_id: 'task-3' });
+    it('returns MISSING_REQUIRED_PARAM when working_directory is missing', async () => {
+      const result = await handlers.handleCheckDuplicateFiles({ task_id: 'task-3' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
@@ -234,10 +234,10 @@ describe('validation/file handlers', () => {
       expect(mockDb.getTask).not.toHaveBeenCalled();
     });
 
-    it('returns TASK_NOT_FOUND when the task does not exist', () => {
+    it('returns TASK_NOT_FOUND when the task does not exist', async () => {
       mockDb.getTask.mockReturnValue(null);
 
-      const result = handlers.handleCheckDuplicateFiles({
+      const result = await handlers.handleCheckDuplicateFiles({
         task_id: 'task-missing',
         working_directory: '/repo/project',
       });
@@ -247,8 +247,8 @@ describe('validation/file handlers', () => {
       expect(mockDb.checkDuplicateFiles).not.toHaveBeenCalled();
     });
 
-    it('returns duplicate results and duplicates_found status', () => {
-      mockDb.checkDuplicateFiles.mockReturnValue([
+    it('returns duplicate results and duplicates_found status', async () => {
+      mockDb.checkDuplicateFiles.mockResolvedValue([
         {
           id: 41,
           file_name: 'Widget.ts',
@@ -257,7 +257,7 @@ describe('validation/file handlers', () => {
         },
       ]);
 
-      const payload = getJson(handlers.handleCheckDuplicateFiles({
+      const payload = getJson(await handlers.handleCheckDuplicateFiles({
         task_id: 'task-3',
         working_directory: '/repo/project',
         file_extensions: ['.ts'],
@@ -481,8 +481,8 @@ describe('validation/file handlers', () => {
   });
 
   describe('handleSearchSimilarFiles', () => {
-    it('returns MISSING_REQUIRED_PARAM when task_id is missing', () => {
-      const result = handlers.handleSearchSimilarFiles({
+    it('returns MISSING_REQUIRED_PARAM when task_id is missing', async () => {
+      const result = await handlers.handleSearchSimilarFiles({
         search_term: 'Widget',
         working_directory: '/repo/project',
       });
@@ -493,8 +493,8 @@ describe('validation/file handlers', () => {
       expect(mockDb.getTask).not.toHaveBeenCalled();
     });
 
-    it('returns MISSING_REQUIRED_PARAM when search_term is missing', () => {
-      const result = handlers.handleSearchSimilarFiles({
+    it('returns MISSING_REQUIRED_PARAM when search_term is missing', async () => {
+      const result = await handlers.handleSearchSimilarFiles({
         task_id: 'task-6',
         working_directory: '/repo/project',
       });
@@ -505,8 +505,8 @@ describe('validation/file handlers', () => {
       expect(mockDb.getTask).not.toHaveBeenCalled();
     });
 
-    it('returns MISSING_REQUIRED_PARAM when working_directory is missing', () => {
-      const result = handlers.handleSearchSimilarFiles({
+    it('returns MISSING_REQUIRED_PARAM when working_directory is missing', async () => {
+      const result = await handlers.handleSearchSimilarFiles({
         task_id: 'task-6',
         search_term: 'Widget',
       });
@@ -517,10 +517,10 @@ describe('validation/file handlers', () => {
       expect(mockDb.getTask).not.toHaveBeenCalled();
     });
 
-    it('returns TASK_NOT_FOUND when the task does not exist', () => {
+    it('returns TASK_NOT_FOUND when the task does not exist', async () => {
       mockDb.getTask.mockReturnValue(null);
 
-      const result = handlers.handleSearchSimilarFiles({
+      const result = await handlers.handleSearchSimilarFiles({
         task_id: 'task-missing',
         search_term: 'Widget',
         working_directory: '/repo/project',
@@ -531,8 +531,8 @@ describe('validation/file handlers', () => {
       expect(mockDb.searchSimilarFiles).not.toHaveBeenCalled();
     });
 
-    it('searches similar files using the default filename strategy', () => {
-      mockDb.searchSimilarFiles.mockReturnValue({
+    it('searches similar files using the default filename strategy', async () => {
+      mockDb.searchSimilarFiles.mockResolvedValue({
         task_id: 'task-6',
         status: 'similar_files_exist',
         matches_found: 2,
@@ -540,7 +540,7 @@ describe('validation/file handlers', () => {
         recommendation: 'Consider reusing an existing similar file.',
       });
 
-      const payload = getJson(handlers.handleSearchSimilarFiles({
+      const payload = getJson(await handlers.handleSearchSimilarFiles({
         task_id: 'task-6',
         search_term: 'Widget',
         working_directory: '/repo/project',

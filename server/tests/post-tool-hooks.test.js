@@ -156,7 +156,7 @@ describe('post-tool hooks', () => {
     ]));
   });
 
-  it('fires terminal task hooks from handlePostCompletion', () => {
+  it('fires terminal task hooks from handlePostCompletion', async () => {
     const fireSpy = vi.spyOn(postToolHooks, 'fireHook').mockResolvedValue([]);
 
     const completedTask = createTask({
@@ -171,7 +171,7 @@ describe('post-tool hooks', () => {
     });
     taskCore.updateTaskStatus(failedTask.id, 'failed', { error_output: 'boom' });
 
-    taskManager.handlePostCompletion({
+    await taskManager.handlePostCompletion({
       taskId: completedTask.id,
       code: 0,
       status: 'completed',
@@ -181,7 +181,7 @@ describe('post-tool hooks', () => {
       proc: { output: 'done', errorOutput: '' },
     });
 
-    taskManager.handlePostCompletion({
+    await taskManager.handlePostCompletion({
       taskId: failedTask.id,
       code: 1,
       status: 'failed',

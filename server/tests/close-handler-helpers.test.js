@@ -714,32 +714,32 @@ describe('handlePostCompletion', () => {
     if (safeguardSpy) safeguardSpy.mockRestore();
   });
 
-  it('records provider usage for completed tasks', () => {
+  it('records provider usage for completed tasks', async () => {
     const startedAt = new Date(Date.now() - 5000).toISOString();
     const task = createTask({ started_at: startedAt });
     const proc = makeProc();
     const c = makeCtx(task, proc, { status: 'completed', code: 0 });
 
-    // Should not throw (triggerWebhooks + runOutputSafeguards are fire-and-forget)
-    expect(() => tm.handlePostCompletion(c)).not.toThrow();
+    // Should not reject (triggerWebhooks + runOutputSafeguards are fire-and-forget)
+    await tm.handlePostCompletion(c);
   }, 5000);
 
-  it('records provider usage for failed tasks', () => {
+  it('records provider usage for failed tasks', async () => {
     const task = createTask();
     const proc = makeProc({ errorOutput: 'failed' });
     const c = makeCtx(task, proc, { status: 'failed', code: 1 });
 
-    expect(() => tm.handlePostCompletion(c)).not.toThrow();
+    await tm.handlePostCompletion(c);
   }, 5000);
 
-  it('handles missing task gracefully', () => {
+  it('handles missing task gracefully', async () => {
     const _proc = makeProc();
     const c = { taskId: 'nonexistent', code: 0, status: 'completed', task: null, earlyExit: false };
 
-    expect(() => tm.handlePostCompletion(c)).not.toThrow();
+    await tm.handlePostCompletion(c);
   }, 5000);
 
-  it('evaluates workflow dependencies for workflow tasks', () => {
+  it('evaluates workflow dependencies for workflow tasks', async () => {
     // Create a workflow first
     const workflowId = randomUUID();
     try {
@@ -750,11 +750,11 @@ describe('handlePostCompletion', () => {
     const proc = makeProc();
     const c = makeCtx(task, proc, { status: 'completed', code: 0 });
 
-    // Should not throw even with workflow evaluation
-    expect(() => tm.handlePostCompletion(c)).not.toThrow();
+    // Should not reject even with workflow evaluation
+    await tm.handlePostCompletion(c);
   }, 5000);
 
-  it('records model outcomes for cloud providers on manual post-completion fallback paths', () => {
+  it('records model outcomes for cloud providers on manual post-completion fallback paths', async () => {
     const startedAt = new Date(Date.now() - 8000).toISOString();
     const task = createTask({
       provider: 'codex',
@@ -775,7 +775,7 @@ describe('handlePostCompletion', () => {
     const updatedTask = db.getTask(task.id);
     const c = makeCtx(updatedTask, makeProc({ output: 'done' }), { status: 'completed', code: 0 });
 
-    expect(() => tm.handlePostCompletion(c)).not.toThrow();
+    await tm.handlePostCompletion(c);
 
     const row = rawDb.prepare(`
       SELECT model_name, task_type, success, duration_s
@@ -792,7 +792,7 @@ describe('handlePostCompletion', () => {
     expect(row.duration_s).toBeLessThanOrEqual(9);
   }, 5000);
 
-  it('skips legacy model outcome recording when finalizer metadata is already present', () => {
+  it('skips legacy model outcome recording when finalizer metadata is already present', async () => {
     const startedAt = new Date(Date.now() - 5000).toISOString();
     const task = createTask({
       provider: 'codex',
@@ -814,7 +814,7 @@ describe('handlePostCompletion', () => {
     const updatedTask = db.getTask(task.id);
     const c = makeCtx(updatedTask, makeProc({ output: 'done' }), { status: 'completed', code: 0 });
 
-    expect(() => tm.handlePostCompletion(c)).not.toThrow();
+    await tm.handlePostCompletion(c);
 
     const count = rawDb.prepare(`
       SELECT COUNT(*) AS count
@@ -971,7 +971,7 @@ describe('ctx.earlyExit pipeline flow', () => {
     tm.handleAutoValidation(c);
     // Skip handleBuildTestStyleCommit — tested in its own describe block
     tm.handleProviderFailover(c);      expect(c.earlyExit).toBe(false);
-    tm.handlePostCompletion(c);
+    await tm.handlePostCompletion(c);
 
     expect(c.status).toBe('completed');
   }, 15000);
@@ -1028,7 +1028,7 @@ describe('ctx.earlyExit pipeline flow', () => {
       progress_percent: upstreamCtx.status === 'completed' ? 100 : 0,
     });
 
-    tm.handlePostCompletion(upstreamCtx);
+    await tm.handlePostCompletion(upstreamCtx);
 
     const updatedUpstream = db.getTask(upstream.id);
     const upstreamFiles = Array.isArray(updatedUpstream.files_modified)
@@ -1050,7 +1050,7 @@ describe('ctx.earlyExit pipeline flow', () => {
       code: 0,
       filesModified: [],
     });
-    tm.handlePostCompletion(summaryCtx);
+    await tm.handlePostCompletion(summaryCtx);
     tm.checkWorkflowCompletion(workflowId);
     expect(db.getWorkflow(workflowId).status).toBe('completed');
   }, 15000);

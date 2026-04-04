@@ -165,21 +165,21 @@ describe('compareFileToBaseline', () => {
 });
 
 describe('captureDirectoryBaselines', () => {
-  it('captures baselines for files matching extensions', () => {
+  it('captures baselines for files matching extensions', async () => {
     const subDir = path.join(testDir, 'dir-baseline-test');
     fs.mkdirSync(subDir, { recursive: true });
     fs.writeFileSync(path.join(subDir, 'a.js'), 'const a = 1;', 'utf8');
     fs.writeFileSync(path.join(subDir, 'b.ts'), 'const b = 2;', 'utf8');
     fs.writeFileSync(path.join(subDir, 'c.txt'), 'not captured', 'utf8');
 
-    const captured = mod.captureDirectoryBaselines(subDir, ['.js', '.ts']);
+    const captured = await mod.captureDirectoryBaselines(subDir, ['.js', '.ts']);
 
     expect(captured.length).toBe(2);
     expect(captured).toContain('a.js');
     expect(captured).toContain('b.ts');
   });
 
-  it('recurses into subdirectories (skipping node_modules)', () => {
+  it('recurses into subdirectories (skipping node_modules)', async () => {
     const subDir = path.join(testDir, 'dir-recurse-test');
     const nested = path.join(subDir, 'src');
     const nodeModules = path.join(subDir, 'node_modules');
@@ -188,7 +188,7 @@ describe('captureDirectoryBaselines', () => {
     fs.writeFileSync(path.join(nested, 'd.js'), 'x', 'utf8');
     fs.writeFileSync(path.join(nodeModules, 'lib.js'), 'y', 'utf8');
 
-    const captured = mod.captureDirectoryBaselines(subDir, ['.js']);
+    const captured = await mod.captureDirectoryBaselines(subDir, ['.js']);
 
     // Should capture nested/d.js but not node_modules/lib.js
     const capturedNames = captured.map(c => path.basename(c));
@@ -196,7 +196,7 @@ describe('captureDirectoryBaselines', () => {
     expect(capturedNames).not.toContain('lib.js');
   });
 
-  it('skips bin and obj directories', () => {
+  it('skips bin and obj directories', async () => {
     const subDir = path.join(testDir, 'dir-skip-test');
     const binDir = path.join(subDir, 'bin');
     const objDir = path.join(subDir, 'obj');
@@ -205,16 +205,16 @@ describe('captureDirectoryBaselines', () => {
     fs.writeFileSync(path.join(binDir, 'output.js'), 'compiled', 'utf8');
     fs.writeFileSync(path.join(objDir, 'temp.js'), 'temp', 'utf8');
 
-    const captured = mod.captureDirectoryBaselines(subDir, ['.js']);
+    const captured = await mod.captureDirectoryBaselines(subDir, ['.js']);
     expect(captured).toHaveLength(0);
   });
 
-  it('returns empty array for directory with no matching files', () => {
+  it('returns empty array for directory with no matching files', async () => {
     const emptyDir = path.join(testDir, 'dir-empty-test');
     fs.mkdirSync(emptyDir, { recursive: true });
     fs.writeFileSync(path.join(emptyDir, 'readme.md'), '# Hello', 'utf8');
 
-    const captured = mod.captureDirectoryBaselines(emptyDir, ['.js', '.ts']);
+    const captured = await mod.captureDirectoryBaselines(emptyDir, ['.js', '.ts']);
     expect(captured).toHaveLength(0);
   });
 });
@@ -846,7 +846,7 @@ describe('resolveDuplicateFile', () => {
 });
 
 describe('checkDuplicateFiles', () => {
-  it('detects duplicate filenames in a directory tree', () => {
+  it('detects duplicate filenames in a directory tree', async () => {
     const scanDir = path.join(testDir, 'dup-scan');
     const dirA = path.join(scanDir, 'dirA');
     const dirB = path.join(scanDir, 'dirB');
@@ -855,7 +855,7 @@ describe('checkDuplicateFiles', () => {
     fs.writeFileSync(path.join(dirA, 'Widget.js'), 'export class Widget {}', 'utf8');
     fs.writeFileSync(path.join(dirB, 'Widget.js'), 'export class Widget2 {}', 'utf8');
 
-    const dups = mod.checkDuplicateFiles('task-dup4', scanDir, { fileExtensions: ['.js'] });
+    const dups = await mod.checkDuplicateFiles('task-dup4', scanDir, { fileExtensions: ['.js'] });
 
     expect(dups.length).toBeGreaterThanOrEqual(1);
     const widgetDup = dups.find(d => d.file_name === 'Widget.js');
@@ -864,16 +864,16 @@ describe('checkDuplicateFiles', () => {
     expect(widgetDup.locations).toHaveLength(2);
   });
 
-  it('returns empty when no duplicates', () => {
+  it('returns empty when no duplicates', async () => {
     const scanDir = path.join(testDir, 'no-dup');
     fs.mkdirSync(scanDir, { recursive: true });
     fs.writeFileSync(path.join(scanDir, 'unique.js'), 'x', 'utf8');
 
-    const dups = mod.checkDuplicateFiles('task-dup5', scanDir, { fileExtensions: ['.js'] });
+    const dups = await mod.checkDuplicateFiles('task-dup5', scanDir, { fileExtensions: ['.js'] });
     expect(dups).toHaveLength(0);
   });
 
-  it('skips node_modules and .git directories', () => {
+  it('skips node_modules and .git directories', async () => {
     const scanDir = path.join(testDir, 'dup-skip');
     const nmDir = path.join(scanDir, 'node_modules', 'pkg');
     const srcDir = path.join(scanDir, 'src');
@@ -882,7 +882,7 @@ describe('checkDuplicateFiles', () => {
     fs.writeFileSync(path.join(nmDir, 'index.js'), 'x', 'utf8');
     fs.writeFileSync(path.join(srcDir, 'index.js'), 'y', 'utf8');
 
-    const dups = mod.checkDuplicateFiles('task-dup-skip', scanDir, { fileExtensions: ['.js'] });
+    const dups = await mod.checkDuplicateFiles('task-dup-skip', scanDir, { fileExtensions: ['.js'] });
     // index.js in node_modules should be skipped, so no duplicate
     expect(dups).toHaveLength(0);
   });
@@ -924,14 +924,14 @@ describe('getAllFileLocationIssues', () => {
 // ============================================
 
 describe('searchSimilarFiles', () => {
-  it('finds files by filename match', () => {
+  it('finds files by filename match', async () => {
     const searchDir = path.join(testDir, 'similar-search');
     fs.mkdirSync(searchDir, { recursive: true });
     fs.writeFileSync(path.join(searchDir, 'UserService.ts'), 'export class UserService {}', 'utf8');
     fs.writeFileSync(path.join(searchDir, 'UserController.ts'), 'export class UserController {}', 'utf8');
     fs.writeFileSync(path.join(searchDir, 'OrderService.ts'), 'export class OrderService {}', 'utf8');
 
-    const result = mod.searchSimilarFiles('task-sf1', 'UserService', searchDir, 'filename');
+    const result = await mod.searchSimilarFiles('task-sf1', 'UserService', searchDir, 'filename');
 
     expect(result.matches_found).toBeGreaterThanOrEqual(1);
     expect(result.status).toBe('similar_files_exist');
@@ -939,46 +939,46 @@ describe('searchSimilarFiles', () => {
     expect(result.recommendation).toContain('similar file');
   });
 
-  it('returns no matches for non-existent term', () => {
+  it('returns no matches for non-existent term', async () => {
     const searchDir = path.join(testDir, 'similar-empty');
     fs.mkdirSync(searchDir, { recursive: true });
     fs.writeFileSync(path.join(searchDir, 'App.js'), 'x', 'utf8');
 
-    const result = mod.searchSimilarFiles('task-sf2', 'ZzzzNonExistent', searchDir, 'filename');
+    const result = await mod.searchSimilarFiles('task-sf2', 'ZzzzNonExistent', searchDir, 'filename');
 
     expect(result.matches_found).toBe(0);
     expect(result.status).toBe('no_matches');
     expect(result.recommendation).toBeNull();
   });
 
-  it('searches by classname inside file content', () => {
+  it('searches by classname inside file content', async () => {
     const searchDir = path.join(testDir, 'class-search');
     fs.mkdirSync(searchDir, { recursive: true });
     fs.writeFileSync(path.join(searchDir, 'services.ts'), 'export class PaymentProcessor { }', 'utf8');
     fs.writeFileSync(path.join(searchDir, 'other.ts'), 'const x = 1;', 'utf8');
 
-    const result = mod.searchSimilarFiles('task-sf3', 'PaymentProcessor', searchDir, 'classname');
+    const result = await mod.searchSimilarFiles('task-sf3', 'PaymentProcessor', searchDir, 'classname');
 
     expect(result.matches_found).toBe(1);
     expect(result.matches[0]).toContain('services.ts');
   });
 
-  it('finds partial filename matches', () => {
+  it('finds partial filename matches', async () => {
     const searchDir = path.join(testDir, 'partial-match');
     fs.mkdirSync(searchDir, { recursive: true });
     fs.writeFileSync(path.join(searchDir, 'AuthService.js'), 'x', 'utf8');
     fs.writeFileSync(path.join(searchDir, 'AuthMiddleware.js'), 'y', 'utf8');
 
-    const result = mod.searchSimilarFiles('task-sf-partial', 'Auth', searchDir, 'filename');
+    const result = await mod.searchSimilarFiles('task-sf-partial', 'Auth', searchDir, 'filename');
 
     expect(result.matches_found).toBeGreaterThanOrEqual(2);
   });
 
-  it('records search result to database', () => {
+  it('records search result to database', async () => {
     const searchDir = path.join(testDir, 'search-record');
     fs.mkdirSync(searchDir, { recursive: true });
 
-    mod.searchSimilarFiles('task-sf-record', 'Something', searchDir, 'filename');
+    await mod.searchSimilarFiles('task-sf-record', 'Something', searchDir, 'filename');
 
     const rows = rawDb().prepare('SELECT * FROM similar_file_search WHERE task_id = ?').all('task-sf-record');
     expect(rows).toHaveLength(1);
@@ -988,13 +988,13 @@ describe('searchSimilarFiles', () => {
 });
 
 describe('getSimilarFileSearchResults', () => {
-  it('retrieves past search results for a task', () => {
+  it('retrieves past search results for a task', async () => {
     const searchDir = path.join(testDir, 'similar-history');
     fs.mkdirSync(searchDir, { recursive: true });
     fs.writeFileSync(path.join(searchDir, 'Foo.js'), 'x', 'utf8');
 
-    mod.searchSimilarFiles('task-sf4', 'Foo', searchDir, 'filename');
-    mod.searchSimilarFiles('task-sf4', 'Bar', searchDir, 'filename');
+    await mod.searchSimilarFiles('task-sf4', 'Foo', searchDir, 'filename');
+    await mod.searchSimilarFiles('task-sf4', 'Bar', searchDir, 'filename');
 
     const results = mod.getSimilarFileSearchResults('task-sf4');
     expect(results).toHaveLength(2);
@@ -1007,12 +1007,12 @@ describe('getSimilarFileSearchResults', () => {
     expect(results).toEqual([]);
   });
 
-  it('parses match_files JSON into array', () => {
+  it('parses match_files JSON into array', async () => {
     const searchDir = path.join(testDir, 'similar-parse');
     fs.mkdirSync(searchDir, { recursive: true });
     fs.writeFileSync(path.join(searchDir, 'Target.ts'), 'x', 'utf8');
 
-    mod.searchSimilarFiles('task-sf-parse', 'Target', searchDir, 'filename');
+    await mod.searchSimilarFiles('task-sf-parse', 'Target', searchDir, 'filename');
 
     const results = mod.getSimilarFileSearchResults('task-sf-parse');
     expect(results).toHaveLength(1);

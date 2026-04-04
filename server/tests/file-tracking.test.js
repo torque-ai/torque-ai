@@ -158,8 +158,8 @@ describe('file-tracking module (db-integrated)', () => {
       expect(baseline.task_id).toBe('task-baseline');
     });
 
-    it('captureDirectoryBaselines handles empty file list', () => {
-      const captured = db.captureDirectoryBaselines(workDir);
+    it('captureDirectoryBaselines handles empty file list', async () => {
+      const captured = await db.captureDirectoryBaselines(workDir);
       expect(captured).toEqual([]);
     });
 
@@ -168,24 +168,24 @@ describe('file-tracking module (db-integrated)', () => {
       expect(result).toBeNull();
     });
 
-    it('captureDirectoryBaselines captures only configured source extensions', () => {
+    it('captureDirectoryBaselines captures only configured source extensions', async () => {
       createTestFile('src/a.js', 'console.log("a");\n');
       createTestFile('src/b.ts', 'export const b = 1;\n');
       createTestFile('src/c.txt', 'ignore me\n');
 
-      const captured = db.captureDirectoryBaselines(workDir).map(toForwardSlashes);
+      const captured = (await db.captureDirectoryBaselines(workDir)).map(toForwardSlashes);
 
       expect(captured).toContain('src/a.js');
       expect(captured).toContain('src/b.ts');
       expect(captured).not.toContain('src/c.txt');
     });
 
-    it('captureDirectoryBaselines skips node_modules and hidden directories', () => {
+    it('captureDirectoryBaselines skips node_modules and hidden directories', async () => {
       createTestFile('node_modules/pkg/ignored.js', 'module.exports = 1;\n');
       createTestFile('.git/hooks/ignored.js', 'echo test\n');
       createTestFile('src/kept.js', 'export default 1;\n');
 
-      const captured = db.captureDirectoryBaselines(workDir);
+      const captured = await db.captureDirectoryBaselines(workDir);
       const normalized = captured.map(toForwardSlashes);
 
       expect(normalized).toContain('src/kept.js');
