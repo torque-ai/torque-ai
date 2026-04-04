@@ -1,9 +1,13 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { execFile } = require('child_process');
+const childProcess = require('child_process');
 const { promisify } = require('util');
-const execFileAsync = promisify(execFile);
+
+// Use a getter so tests can spy on childProcess.execFile
+function execFileAsync(...args) {
+  return promisify(childProcess.execFile)(...args);
+}
 
 const DEFAULT_REVIEW_CHAIN = ['codex', 'deepinfra', 'claude-cli', 'ollama'];
 const DIFF_MAX_BYTES = 50 * 1024;
