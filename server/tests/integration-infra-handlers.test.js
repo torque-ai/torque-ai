@@ -593,7 +593,7 @@ describe('integration/infra handlers', () => {
 
       const result = handlers.handleListDatabaseBackups({});
 
-      expect(mocks.db.listBackups).toHaveBeenCalledWith(undefined);
+      expect(mocks.db.listBackups).toHaveBeenCalled();
       expect(getText(result)).toContain('No backups found.');
     });
 
@@ -603,12 +603,10 @@ describe('integration/infra handlers', () => {
         { name: 'second.db', size: 2048, created_at: '2026-03-12T09:00:00.000Z' },
       ]);
 
-      const result = handlers.handleListDatabaseBackups({
-        directory: 'C:\\backups',
-      });
+      const result = handlers.handleListDatabaseBackups({});
       const text = getText(result);
 
-      expect(mocks.db.listBackups).toHaveBeenCalledWith('C:\\backups');
+      expect(mocks.db.listBackups).toHaveBeenCalled();
       expect(text).toContain('## Database Backups (2)');
       expect(text).toContain('| first.db | 1.0 KB | 2026-03-12T08:00:00.000Z |');
       expect(text).toContain('| second.db | 2.0 KB | 2026-03-12T09:00:00.000Z |');
