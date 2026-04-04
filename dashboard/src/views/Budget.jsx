@@ -131,6 +131,11 @@ export default function Budget() {
   const subscriptionProviderTasks = {};
   let apiTaskCount = 0;
 
+  // Always show all known subscription providers
+  for (const name of SUBSCRIPTION_PROVIDERS) {
+    subscriptionProviderTasks[name] = 0;
+  }
+
   for (const [name, v] of Object.entries(providerBreakdown)) {
     if (SUBSCRIPTION_PROVIDERS.has(name)) {
       subscriptionProviderTasks[name] = typeof v === 'object' ? (v.tasks || v.total_tasks || 0) : 0;
@@ -405,7 +410,8 @@ export default function Budget() {
       {/* Budget progress */}
       {budgetLimit > 0 && (
         <div className="glass-card p-6 mt-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Budget Progress</h3>
+          <h3 className="text-lg font-semibold text-white mb-1">Budget Progress</h3>
+          <p className="text-xs text-slate-500 mb-4">API providers only — subscriptions excluded</p>
           <div className="flex items-center gap-8">
             <ProgressRing percent={budgetPct} size={100} strokeWidth={10} />
             <div className="flex-1 grid grid-cols-3 gap-4">
