@@ -278,7 +278,7 @@ describe('Concurrent task submission', () => {
     expect(matches.length).toBe(2);
   });
 
-  it('rate limiting: respects max_concurrent as rate limiter', () => {
+  it('rate limiting: respects max_concurrent as rate limiter', async () => {
     ctx.db.setConfig('max_concurrent', '3');
     ctx.db.setConfig('max_codex_concurrent', '3');
     ctx.db.setConfig('max_ollama_concurrent', '0');
@@ -288,7 +288,7 @@ describe('Concurrent task submission', () => {
     const ids = bulkCreateTasks(10);
     let queuedCount = 0;
     for (const id of ids) {
-      const result = ctx.tm.startTask(id);
+      const result = await ctx.tm.startTask(id);
       if (result && result.queued) queuedCount++;
     }
 

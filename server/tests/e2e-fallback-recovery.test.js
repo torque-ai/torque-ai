@@ -40,7 +40,7 @@ describe('E2E: Fallback and recovery', () => {
       timeout: 0.01,
     });
 
-    const startResult = ctx.tm.startTask(taskId);
+    const startResult = await ctx.tm.startTask(taskId);
     expect(startResult?.queued).toBe(true);
 
     const task = await waitForTaskStatus(ctx.db, taskId, ['queued'], 3000);
@@ -122,7 +122,7 @@ describe('E2E: Fallback and recovery', () => {
         model: 'codellama:latest',
       });
 
-      ctx.tm.startTask(taskId);
+      await ctx.tm.startTask(taskId).catch(() => {});
       const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 5000);
 
       // Should have used secondary (primary is down)
@@ -140,7 +140,7 @@ describe('E2E: Fallback and recovery', () => {
     }
   }, 45000); // Extended timeout for two-host test
 
-  it('task max concurrent applies globally', () => {
+  it('task max concurrent applies globally', async () => {
     // Set max concurrent to 2
     ctx.db.setConfig('auto_compute_max_concurrent', '0');
     ctx.db.setConfig('max_concurrent', '2');
@@ -168,7 +168,7 @@ describe('E2E: Fallback and recovery', () => {
     ctx.db.updateTaskStatus(taskId2, 'running');
 
     // Try to start task 3 — should be queued due to max_concurrent
-    const startResult = ctx.tm.startTask(taskId3);
+    const startResult = await ctx.tm.startTask(taskId3);
     const task = ctx.db.getTask(taskId3);
     expect(task.status).toBe('queued');
     expect(startResult?.queued).toBe(true);

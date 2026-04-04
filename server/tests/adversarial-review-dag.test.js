@@ -13,7 +13,10 @@ describe('adversarial-review-dag-injection', () => {
     vi.restoreAllMocks();
     vi.resetModules();
 
-    vi.spyOn(childProcess, 'execFileSync').mockReturnValue(Buffer.from('diff output'));
+    vi.spyOn(childProcess, 'execFile').mockImplementation((_cmd, _args, _opts, cb) => {
+      if (typeof _opts === 'function') { cb = _opts; }
+      cb(null, 'diff output', '');
+    });
 
     mockAdversarialReviews = { insertReview: vi.fn() };
     mockFileRiskAdapter = { scoreAndPersist: vi.fn().mockReturnValue([]) };

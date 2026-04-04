@@ -327,7 +327,7 @@ describe('governance integration', () => {
     };
 
     completionPipeline.init(createCompletionDeps(updatedTask));
-    completionPipeline.handlePostCompletion({
+    await completionPipeline.handlePostCompletion({
       taskId: updatedTask.id,
       code: 0,
       task: updatedTask,

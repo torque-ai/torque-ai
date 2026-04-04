@@ -194,7 +194,7 @@ describe('runtime fallback guards respect user_provider_override', () => {
       metadata: JSON.stringify({ user_provider_override: true }),
     });
 
-    expect(() => tm.startTask(taskId)).toThrow(/no registered instance/);
+    await expect(() => tm.startTask(taskId)).rejects.toThrow(/no registered instance/);
 
     const task = taskCore.getTask(taskId);
     expect(task.provider).toBe('anthropic');

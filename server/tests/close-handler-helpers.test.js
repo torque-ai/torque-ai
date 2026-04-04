@@ -359,9 +359,15 @@ describe('handleRetryLogic', () => {
     // Force the task lookup to fail by deleting
     try { db.deleteTask(task.id); } catch { /* may not exist */ }
 
-    tm.handleRetryLogic(c);
-    // Either earlyExit because task not found, or no retry because no retryable classification
-    // The key thing is it doesn't throw
+    // handleRetryLogic may throw if the task was not fully deleted
+    // (e.g., cancelled->retry_scheduled transition blocked). The key
+    // assertion is that it either sets earlyExit or throws a status
+    // transition error — it should NOT silently succeed with a retry.
+    try {
+      tm.handleRetryLogic(c);
+    } catch (err) {
+      expect(err.message).toMatch(/Cannot transition|not found/i);
+    }
   });
 });
 

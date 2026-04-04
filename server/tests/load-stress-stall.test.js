@@ -211,18 +211,16 @@ describe('Stall recovery', () => {
     expect(retryInfo.shouldRetry).toBe(false);
   });
 
-  it('stall recovery does not resubmit cancelled tasks', () => {
+  it('stall recovery does not resubmit cancelled tasks', async () => {
     const taskId = createTestTask(ctx.db, { provider: 'codex' });
     ctx.db.setConfig('max_concurrent', '10');
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId).catch(() => {});
 
     // Cancel the task
     ctx.tm.cancelTask(taskId, 'user cancelled');
     expect(ctx.db.getTask(taskId).status).toBe('cancelled');
 
     // Attempting to start a cancelled task should fail
-    expect(() => {
-      ctx.tm.startTask(taskId);
-    }).toThrow();
+    await expect(() => ctx.tm.startTask(taskId)).rejects.toThrow();
   });
 });

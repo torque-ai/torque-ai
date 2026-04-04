@@ -208,7 +208,7 @@ describe('resource gating', () => {
         workingDirectory: ctx.testDir,
       });
 
-      expect(() => ctx.tm.startTask(taskId)).toThrow(/critical/i);
+      await expect(() => ctx.tm.startTask(taskId)).rejects.toThrow(/critical/i);
       expect(ctx.executeOllamaTaskMock).not.toHaveBeenCalled();
     });
 

@@ -79,7 +79,7 @@ describe('task distribution runtime truth', () => {
       tm = null;
     });
 
-    it('requeues without leaving slot-claim artifacts behind', () => {
+    it('requeues without leaving slot-claim artifacts behind', async () => {
       const id = 'disabled-provider-requeue';
       db.createTask({
         id,
@@ -89,7 +89,7 @@ describe('task distribution runtime truth', () => {
         provider: 'claude-cli',
       });
 
-      const result = tm.startTask(id);
+      const result = await tm.startTask(id);
       const task = db.getTask(id);
 
       expect(result).toEqual(expect.objectContaining({ queued: true }));

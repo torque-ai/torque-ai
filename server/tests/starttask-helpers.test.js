@@ -70,17 +70,17 @@ describe('runPreflightChecks (via startTask)', () => {
   beforeEach(setup);
   afterEach(cleanup);
 
-  it('throws when working_directory does not exist', () => {
+  it('throws when working_directory does not exist', async () => {
     const id = createTask({ working_directory: process.cwd() });
     // Bypass db.createTask validation by patching the row directly
     const rawDb = db.getDbInstance();
     rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?')
       .run('/nonexistent/path/that/does/not/exist', id);
 
-    expect(() => tm.startTask(id)).toThrow(/does not exist/);
+    await expect(() => tm.startTask(id)).rejects.toThrow(/does not exist/);
   });
 
-  it('throws when working_directory is a file, not a directory', () => {
+  it('throws when working_directory is a file, not a directory', async () => {
     // Create a temporary file
     const tmpFile = path.join(os.tmpdir(), `starttask-test-file-${Date.now()}.txt`);
     fs.writeFileSync(tmpFile, 'not a directory');
@@ -91,13 +91,13 @@ describe('runPreflightChecks (via startTask)', () => {
       rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?')
         .run(tmpFile, id);
 
-      expect(() => tm.startTask(id)).toThrow(/not a directory/);
+      await expect(() => tm.startTask(id)).rejects.toThrow(/not a directory/);
     } finally {
       fs.unlinkSync(tmpFile);
     }
   });
 
-  it('throws when task_description is empty', () => {
+  it('throws when task_description is empty', async () => {
     const id = randomUUID();
     // Insert directly with empty description to bypass any createTask validation
     const rawDb = db.getDbInstance();
@@ -106,10 +106,10 @@ describe('runPreflightChecks (via startTask)', () => {
       VALUES (?, 'pending', '', ?, 30, 0, ?)
     `).run(id, process.cwd(), new Date().toISOString());
 
-    expect(() => tm.startTask(id)).toThrow(/empty/i);
+    await expect(() => tm.startTask(id)).rejects.toThrow(/empty/i);
   });
 
-  it('throws when task_description is whitespace-only', () => {
+  it('throws when task_description is whitespace-only', async () => {
     const id = randomUUID();
     const rawDb = db.getDbInstance();
     rawDb.prepare(`
@@ -117,15 +117,15 @@ describe('runPreflightChecks (via startTask)', () => {
       VALUES (?, 'pending', '   ', ?, 30, 0, ?)
     `).run(id, process.cwd(), new Date().toISOString());
 
-    expect(() => tm.startTask(id)).toThrow(/empty/i);
+    await expect(() => tm.startTask(id)).rejects.toThrow(/empty/i);
   });
 
-  it('does NOT throw when working_directory is valid', () => {
+  it('does NOT throw when working_directory is valid', async () => {
     const id = createTask({ working_directory: os.tmpdir() });
     // startTask will proceed past preflight checks — it may throw later
     // (e.g. during ollama execution) but NOT during preflight
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch (err) {
       // Preflight errors are specific; execution errors are different
       expect(err.message).not.toMatch(/does not exist/);
@@ -134,28 +134,28 @@ describe('runPreflightChecks (via startTask)', () => {
     }
   });
 
-  it('does NOT throw preflight error when working_directory is null', () => {
+  it('does NOT throw preflight error when working_directory is null', async () => {
     const id = createTask({ working_directory: null });
     // Null working_directory is allowed — task-manager skips the directory check
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch (err) {
       expect(err.message).not.toMatch(/does not exist/);
       expect(err.message).not.toMatch(/not a directory/);
     }
   });
 
-  it('throws for nonexistent task ID', () => {
-    expect(() => tm.startTask('nonexistent-task-id')).toThrow(/not found/i);
+  it('throws for nonexistent task ID', async () => {
+    await expect(() => tm.startTask('nonexistent-task-id')).rejects.toThrow(/not found/i);
   });
 
-  it('returns alreadyRunning flag when task is already running', () => {
+  it('returns alreadyRunning flag when task is already running', async () => {
     const id = createTask({ status: 'pending' });
     // Manually set to running via raw DB
     const rawDb = db.getDbInstance();
     rawDb.prepare('UPDATE tasks SET status = ? WHERE id = ?').run('running', id);
 
-    const result = tm.startTask(id);
+    const result = await tm.startTask(id);
     expect(result).toEqual({ queued: false, alreadyRunning: true });
   });
 });
@@ -167,7 +167,7 @@ describe('slot enforcement (via startTask)', () => {
     await cleanup();
   });
 
-  it('blocks a second start when provider max_concurrent is 1 even if the category allows more', () => {
+  it('blocks a second start when provider max_concurrent is 1 even if the category allows more', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -183,8 +183,8 @@ describe('slot enforcement (via startTask)', () => {
     const firstId = createTask({ provider: 'claude-cli' });
     const secondId = createTask({ provider: 'claude-cli' });
 
-    tm.startTask(firstId);
-    const secondResult = tm.startTask(secondId);
+    await tm.startTask(firstId);
+    const secondResult = await tm.startTask(secondId);
 
     expect(spawnSpy).toHaveBeenCalledTimes(1);
     expect(secondResult).toBeDefined();
@@ -193,7 +193,7 @@ describe('slot enforcement (via startTask)', () => {
     expect(db.getTask(secondId).status).toBe('queued');
   });
 
-  it('does not record task_started when slot claim queues the task', () => {
+  it('does not record task_started when slot claim queues the task', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -212,8 +212,8 @@ describe('slot enforcement (via startTask)', () => {
     const firstId = createTask({ provider: 'claude-cli' });
     const secondId = createTask({ provider: 'claude-cli' });
 
-    tm.startTask(firstId);
-    const secondResult = tm.startTask(secondId);
+    await tm.startTask(firstId);
+    const secondResult = await tm.startTask(secondId);
 
     expect(spawnSpy).toHaveBeenCalledTimes(1);
     expect(secondResult.queued).toBe(true);
@@ -225,7 +225,7 @@ describe('slot enforcement (via startTask)', () => {
     expect(taskStartedCalls[0][4]).toBe('claude-cli');
   });
 
-  it('clears slot-claim fields when a disabled provider re-queues after claim', () => {
+  it('clears slot-claim fields when a disabled provider re-queues after claim', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -240,7 +240,7 @@ describe('slot enforcement (via startTask)', () => {
       task,
     }));
     const id = createTask({ provider: 'claude-cli' });
-    const result = tm.startTask(id);
+    const result = await tm.startTask(id);
     const task = db.getTask(id);
 
     expect(result).toBeDefined();
@@ -254,7 +254,7 @@ describe('slot enforcement (via startTask)', () => {
     expect(taskStartedCalls).toHaveLength(0);
   });
 
-  it('releases a claimed slot when startTask throws after claim', () => {
+  it('releases a claimed slot when startTask throws after claim', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -266,7 +266,7 @@ describe('slot enforcement (via startTask)', () => {
     const id = createTask({ provider: 'claude-cli' });
 
     try {
-      expect(() => tm.startTask(id)).toThrow(/spawn exploded/);
+      await expect(() => tm.startTask(id)).rejects.toThrow(/spawn exploded/);
 
       const task = db.getTask(id);
       expect(task.status).toBe('failed');
@@ -308,7 +308,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
   beforeEach(setup);
   afterEach(cleanup);
 
-  it('returns queued result when rate limit is exceeded', () => {
+  it('returns queued result when rate limit is exceeded', async () => {
     db.setConfig('rate_limit_enabled', '1');
     const spy = vi.spyOn(db, 'checkRateLimit').mockReturnValue({
       allowed: false,
@@ -316,7 +316,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     });
 
     const id = createTask();
-    const result = tm.startTask(id);
+    const result = await tm.startTask(id);
 
     expect(result).toBeDefined();
     expect(result.queued).toBe(true);
@@ -329,7 +329,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     spy.mockRestore();
   });
 
-  it('throws when budget is exceeded', () => {
+  it('throws when budget is exceeded', async () => {
     db.setConfig('budget_check_enabled', '1');
     db.setConfig('rate_limit_enabled', '0');
     const spy = vi.spyOn(db, 'isBudgetExceeded').mockReturnValue({
@@ -340,12 +340,12 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     });
 
     const id = createTask();
-    expect(() => tm.startTask(id)).toThrow(/Budget exceeded/);
+    await expect(() => tm.startTask(id)).rejects.toThrow(/Budget exceeded/);
 
     spy.mockRestore();
   });
 
-  it('checks the routed provider budget before execution after rerouting to ollama', () => {
+  it('checks the routed provider budget before execution after rerouting to ollama', async () => {
     db.setConfig('budget_check_enabled', '1');
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
@@ -368,12 +368,10 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     });
 
     const id = createTask({ provider: 'codex' });
-    let execution;
-    expect(() => {
-      execution = tm.startTask(id);
-    }).not.toThrow(/Budget exceeded/);
-    if (execution && typeof execution.then === 'function') {
-      void execution.catch(() => {});
+    try {
+      await tm.startTask(id);
+    } catch (err) {
+      expect(err.message).not.toMatch(/Budget exceeded/);
     }
 
     expect(budgetSpy.mock.calls.map(([provider]) => provider)).toEqual(['codex', 'ollama']);
@@ -382,7 +380,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('checks rate limits against the routed provider after rerouting to ollama', () => {
+  it('checks rate limits against the routed provider after rerouting to ollama', async () => {
     db.setConfig('rate_limit_enabled', '1');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -408,13 +406,9 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     });
 
     const id = createTask({ provider: 'codex' });
-    let execution;
-    expect(() => {
-      execution = tm.startTask(id);
-    }).not.toThrow();
-    if (execution && typeof execution.then === 'function') {
-      void execution.catch(() => {});
-    }
+    try {
+      await tm.startTask(id);
+    } catch { /* may fail in execution */ }
 
     expect(rateSpy).toHaveBeenCalledTimes(1);
     expect(rateSpy).toHaveBeenCalledWith('ollama', id);
@@ -424,7 +418,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     rateSpy.mockRestore();
   });
 
-  it('logs duplicate warning but does not block task', () => {
+  it('logs duplicate warning but does not block task', async () => {
     db.setConfig('duplicate_check_enabled', '1');
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -438,7 +432,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     const id = createTask();
     // Task should NOT throw — duplicates only log a warning
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch (err) {
       // May fail later (execution), but not for duplicate reasons
       expect(err.message).not.toMatch(/duplicate/i);
@@ -451,7 +445,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     fpSpy.mockRestore();
   });
 
-  it('records audit event when both backup and audit are enabled', () => {
+  it('records audit event when both backup and audit are enabled', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -462,7 +456,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
 
     const id = createTask({ working_directory: os.tmpdir() });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail in execution, but we just want to verify the audit call
     }
@@ -479,13 +473,13 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     auditSpy.mockRestore();
   });
 
-  it('skips rate limit check when rate_limit_enabled is 0', () => {
+  it('skips rate limit check when rate_limit_enabled is 0', async () => {
     db.setConfig('rate_limit_enabled', '0');
     const spy = vi.spyOn(db, 'checkRateLimit');
 
     const id = createTask();
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail later in execution
     }
@@ -494,14 +488,14 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     spy.mockRestore();
   });
 
-  it('skips budget check when budget_check_enabled is 0', () => {
+  it('skips budget check when budget_check_enabled is 0', async () => {
     db.setConfig('budget_check_enabled', '0');
     db.setConfig('rate_limit_enabled', '0');
     const spy = vi.spyOn(db, 'isBudgetExceeded');
 
     const id = createTask();
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail later in execution
     }
@@ -511,7 +505,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     spy.mockRestore();
   });
 
-  it('does not record audit when backup is disabled', () => {
+  it('does not record audit when backup is disabled', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -522,7 +516,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
 
     const id = createTask({ working_directory: os.tmpdir() });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail in execution
     }
@@ -534,7 +528,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
     auditSpy.mockRestore();
   });
 
-  it('does not record audit when audit trail is disabled', () => {
+  it('does not record audit when audit trail is disabled', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -545,7 +539,7 @@ describe('runSafeguardPreChecks (via startTask)', () => {
 
     const id = createTask({ working_directory: os.tmpdir() });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail in execution
     }
@@ -566,7 +560,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     await cleanup();
   });
 
-  it('routes paid provider to ollama when budget exceeded and Ollama hosts exist', () => {
+  it('routes paid provider to ollama when budget exceeded and Ollama hosts exist', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -583,7 +577,7 @@ describe('resolveProviderRouting (via startTask)', () => {
 
     const id = createTask({ provider: 'codex' });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail in execution
     }
@@ -595,7 +589,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('records task_started with the resolved provider after routing', () => {
+  it('records task_started with the resolved provider after routing', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -612,10 +606,9 @@ describe('resolveProviderRouting (via startTask)', () => {
     });
 
     const id = createTask({ provider: 'codex', working_directory: os.tmpdir() });
-    const execution = tm.startTask(id);
-    if (execution && typeof execution.then === 'function') {
-      void execution.catch(() => {});
-    }
+    try {
+      await tm.startTask(id);
+    } catch { /* may fail in execution */ }
 
     // Budget routing re-routes codex → ollama; verify the provider was resolved correctly.
     // The ollama provider takes a direct execution path that does not emit a task_started
@@ -624,7 +617,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     expect(task.provider).toBe('ollama');
   });
 
-  it('keeps paid provider when budget exceeded but no Ollama hosts available', () => {
+  it('keeps paid provider when budget exceeded but no Ollama hosts available', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -639,7 +632,7 @@ describe('resolveProviderRouting (via startTask)', () => {
 
     const id = createTask({ provider: 'codex' });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // Will likely fail trying to execute codex
     }
@@ -651,7 +644,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('routes non-critical smart-routed tasks to ollama on budget warning', () => {
+  it('routes non-critical smart-routed tasks to ollama on budget warning', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -674,7 +667,7 @@ describe('resolveProviderRouting (via startTask)', () => {
       metadata: JSON.stringify({ smart_routing: true }),
     });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail in execution
     }
@@ -685,7 +678,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('keeps critical tasks on paid provider even with budget warning', () => {
+  it('keeps critical tasks on paid provider even with budget warning', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -705,7 +698,7 @@ describe('resolveProviderRouting (via startTask)', () => {
       task_description: 'implement the authentication middleware',
     });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail in execution
     }
@@ -716,7 +709,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('keeps ollama review tasks on ollama when budget is healthy', () => {
+  it('keeps ollama review tasks on ollama when budget is healthy', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -734,7 +727,7 @@ describe('resolveProviderRouting (via startTask)', () => {
       task_description: 'review the code and report any bugs found',
     });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail in execution
     }
@@ -745,7 +738,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('keeps ollama for edit/fix tasks (not review)', () => {
+  it('keeps ollama for edit/fix tasks (not review)', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -763,7 +756,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     });
 
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // Will fail trying to execute ollama (no real binary)
     }
@@ -775,7 +768,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('keeps ollama review tasks when user_provider_override is set', () => {
+  it('keeps ollama review tasks when user_provider_override is set', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -793,7 +786,7 @@ describe('resolveProviderRouting (via startTask)', () => {
       metadata: JSON.stringify({ user_provider_override: true }),
     });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail in execution
     }
@@ -805,7 +798,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('persists provider change to DB when routing changes it', () => {
+  it('persists provider change to DB when routing changes it', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -821,7 +814,7 @@ describe('resolveProviderRouting (via startTask)', () => {
 
     const id = createTask({ provider: 'anthropic' });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // May fail in execution
     }
@@ -833,7 +826,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     budgetSpy.mockRestore();
   });
 
-  it('clears stale model and records provider switch metadata when budget routing switches to ollama', () => {
+  it('clears stale model and records provider switch metadata when budget routing switches to ollama', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -876,7 +869,7 @@ describe('resolveProviderRouting (via startTask)', () => {
         task_description: 'review the API integration for edge cases',
       });
 
-      const result = tm.startTask(id);
+      const result = await tm.startTask(id);
       const task = db.getTask(id);
 
       expect(result).toBeDefined();
@@ -915,7 +908,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     }
   });
 
-  it('switches missing API provider instances to codex before spawning', () => {
+  it('switches missing API provider instances to codex before spawning', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -941,7 +934,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     });
 
     try {
-      const result = tm.startTask(id);
+      const result = await tm.startTask(id);
       const task = db.getTask(id);
 
       expect(result).toBeDefined();
@@ -959,7 +952,7 @@ describe('resolveProviderRouting (via startTask)', () => {
     }
   });
 
-  it('does not change provider when budget is within limits', () => {
+  it('does not change provider when budget is within limits', async () => {
     db.setConfig('rate_limit_enabled', '0');
     db.setConfig('duplicate_check_enabled', '0');
     db.setConfig('budget_check_enabled', '0');
@@ -973,7 +966,7 @@ describe('resolveProviderRouting (via startTask)', () => {
 
     const id = createTask({ provider: 'codex' });
     try {
-      tm.startTask(id);
+      await tm.startTask(id);
     } catch {
       // Will fail trying to execute codex
     }
