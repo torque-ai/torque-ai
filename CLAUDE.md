@@ -4,42 +4,30 @@
 
 TORQUE requires two things to work in Claude Code:
 
-1. **MCP server** � auto-configured on first startup (provides ~600 tools, ~30 core + progressive unlock)
-2. **Slash commands** � located in `.claude/commands/` (provides the `/torque-*` commands)
+1. **MCP server** — auto-configured on first startup (provides ~600 tools, ~30 core + progressive unlock)
+2. **Slash commands** — located in `.claude/commands/` (provides the `/torque-*` commands)
 
-Slash commands are auto-discovered from `.claude/commands/`. In local mode, the TORQUE server auto-injects the keyless MCP SSE connection `http://127.0.0.1:3458/sse` into your global `~/.claude/.mcp.json` when it starts � no manual configuration needed.
+Slash commands are auto-discovered from `.claude/commands/`. In local mode, the TORQUE server auto-injects the keyless MCP SSE connection `http://127.0.0.1:3458/sse` into your global `~/.claude/.mcp.json` when it starts — no manual configuration needed.
 
 **Manual setup (optional):** If auto-injection doesn't work, copy `.mcp.json.example` to `.mcp.json` and set the URL to `http://127.0.0.1:3458/sse`.
 
 ### Local Mode (default)
 
-TORQUE runs in **local mode** by default. There is no authentication layer: no API keys, no login, and no user setup. The server binds to `127.0.0.1` only, so REST and SSE connections are accepted from the local machine only.
+TORQUE runs in **local mode** by default. No authentication layer — the server binds to `127.0.0.1` only.
 
 **First-time setup:**
-1. Start TORQUE � MCP config is auto-injected into `~/.claude/.mcp.json`
-2. Open any Claude Code session � TORQUE tools are available immediately
-
-No API keys, no login, and no local auth configuration needed.
+1. Start TORQUE — MCP config is auto-injected into `~/.claude/.mcp.json`
+2. Open any Claude Code session — TORQUE tools are available immediately
 
 ### Enterprise Mode (optional plugin)
 
-For multi-user or network-accessible deployments, set `TORQUE_AUTH_MODE=enterprise` and restart TORQUE. On startup, `server/plugins/loader.js` loads the auth plugin from `server/plugins/auth/`.
-
-**To enable:**
-1. Set `TORQUE_AUTH_MODE=enterprise`
-2. Restart TORQUE
-3. The loader installs the `auth` plugin from `server/plugins/auth/`
-4. On first enterprise startup, a bootstrap admin API key is created if no keys exist
-
-The auth plugin provides API key management (HMAC-SHA-256), user/password auth (bcrypt), role-based access control, session management, SSE ticket exchange, and rate limiting.
+For multi-user or network-accessible deployments, set `TORQUE_AUTH_MODE=enterprise` and restart TORQUE. The loader installs the `auth` plugin from `server/plugins/auth/`.
 
 ### Plugins
 
 TORQUE supports optional plugins in `server/plugins/`. `server/plugins/plugin-contract.js` validates the plugin contract, and `server/plugins/loader.js` resolves plugins from `server/plugins/<name>/index.js` at startup.
 
 The current plugin contract includes `name`, `version`, `install`, `uninstall`, `middleware`, `mcpTools`, `eventHandlers`, and `configSchema`.
-
-To enable enterprise auth, set `TORQUE_AUTH_MODE=enterprise` and restart. The loader will add the `auth` plugin from `server/plugins/auth/`.
 
 ## Version Control — Worktree Workflow
 
@@ -78,18 +66,18 @@ Document the bypass in the commit message.
 
 ## Quick Start
 
-Use the `/torque-*` commands to interact with TORQUE. Commands compose multiple tools automatically � you rarely need to call raw MCP tools directly.
+Use the `/torque-*` commands to interact with TORQUE. Commands compose multiple tools automatically — you rarely need to call raw MCP tools directly.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `/torque-submit [task]` | Submit work � auto-routes provider, captures baselines, configures retry |
-| `/torque-status [filter]` | Queue overview � running, queued, failed, hosts, or specific task |
-| `/torque-review [task-id]` | Review output � validate, quality score, build check, approve/reject |
-| `/torque-workflow [name]` | DAG pipelines � create, add tasks, monitor |
+| `/torque-submit [task]` | Submit work — auto-routes provider, captures baselines, configures retry |
+| `/torque-status [filter]` | Queue overview — running, queued, failed, hosts, or specific task |
+| `/torque-review [task-id]` | Review output — validate, quality score, build check, approve/reject |
+| `/torque-workflow [name]` | DAG pipelines — create, add tasks, monitor |
 | `/torque-budget` | Cost tracking, budget status, provider performance |
-| `/torque-config [setting]` | Configuration � tuning, hardware, safeguards |
+| `/torque-config [setting]` | Configuration — tuning, hardware, safeguards |
 | `/torque-cancel [task-id]` | Cancel running or queued tasks |
 
 For advanced/direct MCP tool access, use the raw tool names (e.g., `smart_submit_task`).
@@ -106,11 +94,7 @@ Run on your local Ollama instance or registered LAN hosts. Free, private, no API
 |----------|------------|----------|
 | **ollama** | Raw prompt -> text response | General prompts, documentation, lightweight local edits |
 
-Local Ollama tasks share the same host and GPU pool. Configure hosts with `add_ollama_host` or let TORQUE auto-discover.
-
 ### Cloud (Subscription CLI Tools)
-
-Run locally but require the CLI tool installed and authenticated.
 
 | Provider | Requirement | Best For |
 |----------|------------|----------|
@@ -118,9 +102,9 @@ Run locally but require the CLI tool installed and authenticated.
 | **codex-spark** | Codex CLI installed + authenticated | Fast single-file edits (gpt-5.3-codex-spark model) |
 | **claude-cli** | Claude Code CLI installed + authenticated | Architectural decisions, complex debugging |
 
-### Cloud (API � Bring Your Own Key)
+### Cloud (API — Bring Your Own Key)
 
-Call cloud LLM APIs directly using your API keys. Start disabled � set your key and enable with `configure_provider`.
+Call cloud LLM APIs directly using your API keys. Start disabled — set your key and enable with `configure_provider`.
 
 | Provider | API Key Env Var | Best For |
 |----------|----------------|----------|
@@ -142,13 +126,11 @@ To enable a cloud API provider:
 `smart_submit_task` analyzes task complexity and routes automatically:
 - **Simple** (docs, comments, config) -> ollama on local host
 - **Normal** (tests, single-file code) -> ollama or codex-spark
-- **Normal greenfield** (new file creation) ? codex
-- **Complex reasoning/large code** ? deepinfra or hyperbolic (large models)
-- **Complex multi-file** ? codex or claude-cli
-- **Security/XAML/architecture** ? anthropic
-- **Documentation/boilerplate** ? groq
-
-**Route XAML/WPF tasks to cloud** � local LLMs struggle with WPF semantics.
+- **Normal greenfield** (new file creation) → codex
+- **Complex reasoning/large code** → deepinfra or hyperbolic (large models)
+- **Complex multi-file** → codex or claude-cli
+- **Security/XAML/architecture** → anthropic
+- **Documentation/boilerplate** → groq
 
 ### Routing Templates
 
@@ -168,19 +150,6 @@ Smart routing's defaults work well, but **routing templates** give you explicit 
 
 **Task categories** (auto-detected from task description):
 `security`, `xaml_wpf`, `architectural`, `reasoning`, `large_code_gen`, `documentation`, `simple_generation`, `targeted_file_edit`, `default`
-
-**How to use:**
-- **Activate globally:** `activate_routing_template({ name: "Cost Saver" })` � all tasks use this template
-- **Per-task override:** `smart_submit_task({ ..., routing_template: "Quality First" })` � one task only
-- **Check active:** `get_active_routing()` � see current template + category mappings
-- **List all:** `list_routing_templates()` � see all presets + custom templates
-- **Create custom:** `set_routing_template({ name: "My Template", rules: { ... } })`
-
-**When to activate a template:**
-- Starting a new project ? activate the template matching the project's cost/quality needs
-- Switching between exploration (Cost Saver) and production work (Quality First)
-- Running batch workflows ? Cloud Sprint for maximum parallelism
-- Budget running low ? Cost Saver or Free Agentic
 
 **Template precedence:** User override (`provider: "X"`) > per-task template > global active template > smart routing defaults.
 
@@ -215,15 +184,7 @@ When the runtime cannot answer those questions cleanly, it has drifted from orch
 
 ## Model Tiers
 
-All tiers are configured via `set_project_defaults` and the tier config in the database. Example setup with a remote Ollama host:
-
-| Tier | Model | Temp | Context | Use Case |
-|------|-------|------|---------|----------|
-| **Fast** | qwen3-coder:30b | 0.2 | 16384 | Quick edits, docs, config |
-| **Balanced** | qwen3-coder:30b | 0.2 | 16384 | Standard code tasks, tests |
-| **Quality** | qwen3-coder:30b | 0.2 | 16384 | Complex code generation |
-
-### Available Models
+All tiers are configured via `set_project_defaults` and the tier config in the database.
 
 Models are auto-discovered from registered Ollama hosts via health checks. Use `list_ollama_hosts` to see what's available.
 
@@ -238,31 +199,26 @@ If local LLM unavailable:
 4. Falls back to `codex` or `claude-cli` if all other options exhausted
 5. Auto-recovers when Ollama returns
 
-Common fallback chains:
-- `codex` -> `claude-cli` -> `deepinfra` -> `ollama-cloud` -> `ollama`
-- `deepinfra` -> `ollama-cloud` -> `hyperbolic` -> `claude-cli` -> `codex`
-- `hyperbolic` -> `deepinfra` -> `ollama-cloud` -> `claude-cli` -> `codex`
-
 Chains are user-configurable via `configure_fallback_chain`. Anthropic is not in any default fallback chain.
 
 ## Stall Recovery
 
-Stall detection is user-configurable per provider via `configure_stall_detection`. No hardcoded defaults � thresholds are set in the database. Recommended values:
+Stall detection is user-configurable per provider via `configure_stall_detection`. No hardcoded defaults — thresholds are set in the database. Recommended values:
 - **Ollama / DeepInfra / Hyperbolic**: 120-180 seconds
-- **Codex**: 120-180 seconds (previously 600s, but Codex tasks are fast enough for shorter thresholds)
+- **Codex**: 120-180 seconds
 
 Stalled tasks are automatically cancelled and resubmitted with provider fallback.
 
 ## Quality Safeguards
 
 Built into `/torque-submit` and `/torque-review`:
-- **Baselines** � file snapshots captured before changes, compared after
-- **Validation** � stub detection, empty methods, truncation, tiny files
-- **Approval gates** � triggered by >50% file size decrease, validation failures
-- **Build checks** � compile verification after code tasks
-- **Auto-verify-retry** � runs `verify_command` after Codex/Codex-Spark task completion; auto-submits error-feedback fix task on failure (Phase 6.5 in close-handler pipeline). Enabled by default for Codex providers; opt-in for others via `auto_verify_on_completion` in `set_project_defaults`. Requires `verify_command` to be set.
-- **Rollback** � undo task changes on failure
-- **Adaptive retry** � auto-retry with provider fallback
+- **Baselines** — file snapshots captured before changes, compared after
+- **Validation** — stub detection, empty methods, truncation, tiny files
+- **Approval gates** — triggered by >50% file size decrease, validation failures
+- **Build checks** — compile verification after code tasks
+- **Auto-verify-retry** — runs `verify_command` after Codex/Codex-Spark task completion; auto-submits error-feedback fix task on failure (Phase 6.5 in close-handler pipeline). Enabled by default for Codex providers; opt-in for others via `auto_verify_on_completion` in `set_project_defaults`. Requires `verify_command` to be set.
+- **Rollback** — undo task changes on failure
+- **Adaptive retry** — auto-retry with provider fallback
 
 ### Default Plugins
 
@@ -290,20 +246,11 @@ that checks for configured remote agents and falls back to local execution.
 **To disable:** Remove `'remote-agents'` from `DEFAULT_PLUGIN_NAMES` in `server/index.js`.
 The validation pipeline will fall back to local-only command execution.
 
-**Plugin contents:**
-- `agent-registry.js` - RemoteAgentRegistry class (persists to SQLite, manages clients)
-- `agent-client.js` - HTTP client for remote agent communication
-- `agent-server.js` - Standalone HTTP server for remote execution agents
-- `remote-test-routing.js` - Router that checks project config and routes to remote or local
-- `handlers.js` - MCP tool handlers (register, list, remove, health check, run command)
-- `tool-defs.js` - MCP tool definitions
-- `bootstrap.js` - Workstation bootstrap endpoint
-
 ## Remote Workstation
 
 Heavy commands (builds, tests, compilation) route to the configured remote workstation automatically. Enforceable remote-execution rules are managed by the governance engine; see `Operational Governance` for the rule source of truth.
 
-**TORQUE's own post-task verification also routes to remote.** The close-handler pipeline (Phases 6 and 6.5) automatically runs build verification, test verification, and verify_command on the remote workstation when one is configured with `test_runners` capability. No manual intervention needed � tasks completed by any provider get their verification routed to remote.
+**TORQUE's own post-task verification also routes to remote.** The close-handler pipeline (Phases 6 and 6.5) automatically runs build verification, test verification, and verify_command on the remote workstation when one is configured with `test_runners` capability. No manual intervention needed — tasks completed by any provider get their verification routed to remote.
 
 Use `torque-remote` for heavy commands when a remote workstation is configured:
 
@@ -314,9 +261,9 @@ Use `torque-remote` for heavy commands when a remote workstation is configured:
 If the remote is unreachable or overloaded, `torque-remote` falls back to local execution automatically.
 
 **Configuration:**
-- `~/.torque-remote.json` � global config (transport, timeout, intercept list). Not in any repo.
-- `~/.torque-remote.local.json` � personal SSH details (host, user, project path). Not in any repo.
-- `.torque-remote.json` in project root � per-project override (optional, safe to commit).
+- `~/.torque-remote.json` — global config (transport, timeout, intercept list). Not in any repo.
+- `~/.torque-remote.local.json` — personal SSH details (host, user, project path). Not in any repo.
+- `.torque-remote.json` in project root — per-project override (optional, safe to commit).
 - Configure via: `set_project_defaults { remote_agent_id: "...", remote_project_path: "...", prefer_remote_tests: true, verify_command: "..." }`
 
 **If no remote is configured** (transport: "local" or no config), commands run locally as before.
@@ -325,38 +272,23 @@ If the remote is unreachable or overloaded, `torque-remote` falls back to local 
 
 TORQUE pushes notifications through the MCP SSE transport when tasks complete or fail. **You do not need to poll `check_status` in a loop.**
 
-### How it works
-
-- **Auto-subscribe:** When you call `submit_task` or `smart_submit_task`, the session is automatically subscribed to that task's events. No extra step needed.
-- **Push notifications:** When a task completes/fails, TORQUE sends a `notifications/message` log notification (visible in your output) and queues a structured event.
-- **`check_notifications`:** Call this to retrieve and clear all pending task events for your session. Returns structured data (taskId, status, exitCode, duration, description).
-- **`subscribe_task_events`:** Call this to subscribe to additional task IDs or change event filters (default: completed + failed). Pass `task_ids` to watch specific tasks, or omit for all tasks.
-- **`await_workflow`:** Wakes instantly when tasks complete (no polling delay). Use this for workflow-based task batches.
-- **`await_task`:** Blocks until a standalone task completes or fails, then returns its result. Wakes instantly via event-bus. Supports `verify_command`, `auto_commit`, `commit_message`, `auto_push`. Use this for single tasks instead of polling `check_status`.
+- **Auto-subscribe:** `submit_task` or `smart_submit_task` auto-subscribes the session.
+- **Push notifications:** Completion/failure events are pushed instantly via SSE.
+- **`check_notifications`:** Retrieve and clear pending events.
+- **`await_task`:** Blocks until task completes. Supports `verify_command`, `auto_commit`, `auto_push`.
+- **`await_workflow`:** Same, for workflows. Wakes instantly per-task via event bus.
 
 ### Recommended patterns
 
-- **Single task:** Submit ? `await_task` (heartbeats every 5 min, wakes instantly on completion) ? review result or heartbeat ? re-invoke if heartbeat
-- **Workflow:** Submit workflow ? `await_workflow` (heartbeats every 5 min, wakes instantly per task) ? review each yield/heartbeat ? re-invoke
-- **Restart recovery:** `await_task({ task_id: "...", auto_resubmit_on_restart: true })` -- automatically resubmits tasks cancelled by server restart and continues waiting. The await loop detects restart-related cancellations via the `cancel_reason` field (`server_restart` or `orphan_cleanup`) and server epoch comparison. Without `auto_resubmit_on_restart`, returns a structured recovery response with partial output and recovery options.
-- **Batch monitoring:** `subscribe_task_events` with no task_ids ? `check_notifications` periodically
-
-### Do NOT
-
-- Poll `check_status` in a loop � this wastes context tokens and adds latency
-- Set short `poll_interval_ms` on `await_workflow` � the event bus wakes it instantly; the interval is only a fallback
-- Worry about server restarts during await -- use `auto_resubmit_on_restart: true` for automatic recovery, or re-invoke `await_task`/`await_workflow` after restart for manual recovery
+- **Single task:** Submit → `await_task` with heartbeats → review
+- **Workflow:** Submit → `await_workflow` with heartbeats → review each
+- **Restart recovery:** `await_task({ ..., auto_resubmit_on_restart: true })`
 
 ### Heartbeat check-ins
 
-`await_task` and `await_workflow` return periodic **heartbeat** responses (default: every 5 minutes) with progress snapshots including running tasks, elapsed time, partial output, and alerts. Notable events (task started, stall warning, retry, provider fallback) trigger an immediate heartbeat.
+`await_task` and `await_workflow` return periodic **heartbeat** responses (default: every 5 minutes) with progress snapshots. Notable events (task started, stall warning, retry, provider fallback) trigger an immediate heartbeat.
 
-On receiving a heartbeat:
-- Update the user on progress
-- Check alerts � if stall warning, consider cancelling/resubmitting
-- Re-invoke the await tool to continue waiting
-
-Set `heartbeat_minutes: 0` to disable heartbeats (legacy behavior).
+On receiving a heartbeat: update user on progress, check alerts, re-invoke await.
 
 ## Operational Governance
 
@@ -475,27 +407,9 @@ TORQUE exposes ~200 MCP tools organized into categories. Key categories:
 
 Use `get_tool_schema { tool_name: "<name>" }` for full parameter details on any tool.
 
-## Best Practices
-
-1. Use `/torque-submit` � it handles routing, baselines, and retry automatically
-2. Use `/torque-review` after tasks complete � it runs the full validation pipeline
-3. Use `/torque-budget` to monitor provider performance and costs
-4. Use `/torque-config safeguards` to tune quality gates
-5. Route XAML/WPF tasks to cloud providers
-6. Let push notifications tell you when tasks finish � don't poll
-
 ## Multi-Host Setup
 
 TORQUE distributes tasks across multiple Ollama hosts on the LAN.
-
-### Example Deployment
-
-| Host | Machine | GPU | VRAM | Priority | Max Concurrent |
-|------|---------|-----|------|----------|----------------|
-| **local-host** | localhost | RTX 4060 | 8 GB | 10 (primary) | 3 |
-| **remote-gpu-host** | 192.0.2.100 | RTX 3090 | 24 GB | 8 | 2 |
-
-The primary host handles fast/balanced tier tasks. The remote host handles quality tier and serves as fallback.
 
 ### Adding a Remote Host
 
@@ -512,137 +426,12 @@ On the remote machine:
 2. Bind to all interfaces: `OLLAMA_HOST=0.0.0.0:11434 ollama serve`
 3. Ensure firewall allows inbound TCP on port `11434`
 
-### Load Balancing
-
-Tasks are routed to the least-loaded host that has the requested model:
-1. Filter enabled hosts with status != 'down'
-2. Filter to hosts that have the requested model
-3. Sort by running_tasks (ascending)
-4. Pick the least loaded
-
-### Health Monitoring
-
-TORQUE checks all enabled hosts every 60 seconds (configurable via `health_check_interval_seconds`):
-- Hosts that come back online are **auto-recovered** � no manual intervention needed
-- Model lists are **refreshed automatically** on each successful health check
-- First check runs 15 seconds after server startup
-- 3 consecutive failures ? host marked as `down`
-
 ### Verification
 
-- `check_ollama_health` � checks connectivity to all hosts
-- `list_ollama_hosts` � shows status, models, and health of each host
+- `check_ollama_health` — checks connectivity to all hosts
+- `list_ollama_hosts` — shows status, models, and health of each host
 
-### Troubleshooting
-
-- Host stuck as "down"? It will auto-recover on the next successful health check
-- Models not appearing? They refresh automatically; or call `refresh_host_models` manually
-- Connection refused? Verify Ollama is bound to `0.0.0.0` (not `127.0.0.1`) on the remote machine
-
-## Distributed Development � Provider Capability Matrix
-
-Empirically validated (2026-03-26):
-
-| Capability | Best Provider | Notes |
-|-----------|--------------|-------|
-| **New file creation** | Codex | Ollama agentic can create files via write_file |
-| **Small file edits** (<300 lines) | Ollama | Free, fast, reliable with edit_file or replace_lines |
-| **Medium file edits** (300-500 lines) | Ollama | Use replace_lines + line-range reads (not edit_file) |
-| **Large file edits** (500-1500 lines) | Ollama or Codex | Ollama works with search?read range?replace_lines workflow |
-| **Huge file edits** (>1500 lines) | Codex | Ollama context may stall on full-file reads |
-| **Complex multi-file tasks** | Codex | 97%+ success rate on Codex |
-| **Test generation** | Codex | Ollama can write tests but Codex is more reliable |
-| **Architecture/review** | Claude Code | Strategic thinking, conflict resolution |
-| **Task decomposition** | Claude Code | Provider-optimal splitting |
-
-### Ollama Task Authoring � CRITICAL
-
-When submitting tasks to Ollama, the task description IS the instruction set. Ollama has 7 tools available: `read_file` (with start_line/end_line), `write_file`, `edit_file`, `replace_lines`, `search_files`, `list_directory`, `run_command`. How you write the task determines which tools the model uses.
-
-**For files under ~300 lines:**
-- Simple instructions work fine: "In file X, change Y to Z"
-- The model will read the file and use edit_file or replace_lines
-
-**For files over ~300 lines � you MUST instruct the workflow:**
-- Tell the model to use `search_files` first to find the target line numbers
-- Tell it to use `read_file` with `start_line`/`end_line` to read only the relevant section
-- Tell it to use `replace_lines` (not `edit_file`) to make changes by line number
-- Example: "Search for 'def handle_foo' in path/to/large_file.py, read 30 lines around it, then use replace_lines to make the change"
-- **NEVER** say "read the file and edit it" for large files � the full read fills the context window and stalls inference
-
-**General rules:**
-- Include exact file paths in the task description
-- Be specific about what to change � "add X after Y" not "improve the code"
-- One file per task for files over 500 lines
-- **Include approximate line numbers when you know them** � `search_files` can miss functions in large files. "Around line 450" is more reliable than "search for def handle_foo"
-- If a task needs multiple edits in a large file, list them explicitly with function/class names AND line numbers
-- **Split multi-function refactors into separate tasks** � Ollama has 15 iterations max (20 for complex). A task that modifies 3+ functions AND needs to verify/recover will run out of iterations. One function per task is more reliable.
-- End task descriptions with "After making the edits, stop." to prevent unnecessary verification loops
-
-### Codex Sandbox Safety
-
-**Codex sandbox contamination is a systemic issue.** Codex tasks start from a potentially stale repo state, and file-level locking only prevents concurrent overwrites. Enforceable post-task diff inspection is managed by the governance engine; see `Operational Governance`.
-
-### Review Gate
-
-Tasks flagged `needs_review: true` in metadata (complex/system tasks) require manual diff review before committing:
-1. Read full diff via `get_result`
-2. Check for: stub implementations, missing error handling, unused imports, hallucinated APIs
-3. Issues found ? submit targeted Ollama fix task
-4. Clean ? commit
-
-Simple tasks (types, docs, config) skip review � auto-verify via `tsc`/`vitest` is sufficient.
-
-### Split Advisory
-
-When `split_advisory: true` appears in task metadata (complexity='complex' + 3 files), consider decomposing into subtasks rather than sending as one large task.
-
-## Slot-Pull Scheduler
-
-An alternative scheduling mode where execution slots actively pull tasks from the queue, instead of the default push model (where task submission triggers queue processing).
-
-**Enable with:**
-```
-scheduling_mode = 'slot-pull'   (set via DB config or set_project_defaults)
-```
-
-**Location:** `server/execution/slot-pull-scheduler.js`
-
-When `scheduling_mode` is `slot-pull`, the scheduler starts a heartbeat on server init (`slotPullScheduler.startHeartbeat()`). Each heartbeat cycle scans for open provider slots and pulls queued tasks into them. This model reduces queue contention in high-concurrency scenarios where many tasks complete near-simultaneously.
-
-The default scheduling mode (`push`) has event-driven queue processing triggered by task completion events, with a 5-second safety-net poll as fallback.
-
-## Policy Engine
-
-A rule-based evaluation engine that applies governance policies to tasks before and during execution. Lives in `server/policy-engine/`.
-
-### Components
-
-| File | Purpose |
-|------|---------|
-| `engine.js` | Core evaluation loop � evaluates profiles against tasks |
-| `matchers.js` | Predicate functions � match tasks by provider, project, tags, etc. |
-| `profile-store.js` | Persistent storage for named policy profiles |
-| `profile-loader.js` | Loads profiles from DB and the default built-in set |
-| `evaluation-store.js` | Caches evaluation results for audit/reporting |
-| `promotion.js` | Promotes tasks to higher-priority providers based on policy |
-| `shadow-enforcer.js` | Shadow enforcement � logs policy violations without blocking |
-| `task-hooks.js` | Pre-submission hooks that apply policy before a task starts |
-| `task-execution-hooks.js` | Mid-execution hooks for running tasks |
-| `adapters/` | Domain-specific policy adapters (approval gates, release gates, file risk, architecture, etc.) |
-
-### Shadow enforcement
-
-Shadow enforcement mode (`shadow-enforcer.js`) evaluates policies but does not block � it logs what *would* have been blocked. Use to audit policy impact before enforcement goes live. Enable per-profile via the `shadow` flag.
-
-### How policies are applied
-
-1. At submission time, `task-hooks.js` evaluates the task against all active profiles.
-2. Matching profiles may block the task, reroute it, or annotate it with metadata.
-3. At execution time, `task-execution-hooks.js` applies mid-run governance (e.g., output filtering, rate limiting).
-4. Results are stored in `evaluation-store.js` for audit.
-
-## Architecture � DI Container
+## Architecture — DI Container
 
 TORQUE uses a dependency injection container (`server/container.js`) as its composition root. Every module exports a `createXxx` factory function and is registered in the container.
 
@@ -651,7 +440,7 @@ TORQUE uses a dependency injection container (`server/container.js`) as its comp
 Use the container to access services instead of `require('./database')`:
 
 ```js
-// OLD (legacy � do not use in new code):
+// OLD (legacy — do not use in new code):
 const db = require('./database');
 db.getTask(id);
 
@@ -661,44 +450,7 @@ const taskCore = defaultContainer.get('taskCore');
 taskCore.getTask(id);
 ```
 
-### Container API
-
-- `createContainer()` � create a new container instance
-- `container.register(name, deps, factory)` � register a factory with dependencies
-- `container.registerValue(name, value)` � register a pre-built value
-- `container.boot()` � resolve dependency graph via topological sort, instantiate all services
-- `container.get(name)` � retrieve an instantiated service
-- `container.resetForTest()` � reset to pre-boot state for test isolation
-
-### Module factory pattern
-
-Every module exports a `createXxx` factory alongside its existing API:
-
-```js
-// At the bottom of any module:
-function createMyModule(deps) {
-  return { fn1, fn2, fn3 };
-}
-module.exports = { ..., createMyModule };
-```
-
-### Migration status
-
-- **~48 modules** export `create*` factory functions for the DI container
-- **~36 modules** use the `init(deps)` dependency injection pattern
-- **database.js** is a legacy facade that merges ~44 sub-modules � new code should use the container or init() DI
-- **DI lint rule:** `npm run lint:di` (in server/) reports files still importing database.js directly
-- **Test helper:** `server/tests/test-container.js` provides DI-based test isolation
-
-### Key files
-
-| File | Role |
-|------|------|
-| `server/container.js` | DI container � composition root |
-| `server/database.js` | Legacy facade � merges 47 db modules (being replaced) |
-| `server/event-bus.js` | Event bus with `createEventBus` factory |
-| `server/scripts/check-no-direct-db-import.js` | DI migration lint rule |
-| `server/tests/test-container.js` | Test helper for DI-based test isolation |
+**DI lint rule:** `npm run lint:di` (in server/) reports files still importing database.js directly.
 
 ## File Safety
 
