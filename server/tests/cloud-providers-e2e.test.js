@@ -612,7 +612,7 @@ describe('E2E: Cross-provider behavior', () => {
     // - fail the task in the DB
     let threw = false;
     try {
-      ctx.tm.startTask(taskId);
+      await ctx.tm.startTask(taskId);
     } catch {
       threw = true;
     }

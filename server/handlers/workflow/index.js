@@ -548,6 +548,10 @@ function startWorkflowExecution(workflow) {
       try {
         attemptedToStart += 1;
         const startResult = taskManager.startTask(task.id);
+        // startTask is async — catch unhandled rejections from the returned Promise
+        if (startResult && typeof startResult.catch === 'function') {
+          startResult.catch(() => {});
+        }
         const startOutcome = classifyWorkflowStartOutcome(task.id, startResult);
         if (startOutcome === 'queued') {
           queued += 1;
