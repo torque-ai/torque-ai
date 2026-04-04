@@ -14,10 +14,10 @@ let taskCore;
 let executeOllama;
 let executeApi;
 const hostManagement = require('../db/host-management');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 function setup() {
-  ({ db, testDir } = setupTestDb('p1-streaming-'));
+  ({ db, testDir } = setupTestDbOnly('p1-streaming-'));
 
   taskCore = require('../db/task-core');
   executeOllama = require('../providers/execute-ollama');

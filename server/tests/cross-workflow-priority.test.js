@@ -2,7 +2,7 @@ const { randomUUID } = require('crypto');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 const SCHEDULER_MODULE_PATH = require.resolve('../execution/slot-pull-scheduler');
@@ -100,7 +100,7 @@ function createQueuedTask(overrides = {}) {
 describe('cross-workflow priority', () => {
   beforeAll(() => {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF);
-    ({ db } = setupTestDb('cross-workflow-priority'));
+    ({ db } = setupTestDbOnly('cross-workflow-priority'));
     taskCore = require('../db/task-core');
     workflowEngine = require('../db/workflow-engine');
   });

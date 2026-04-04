@@ -14,10 +14,10 @@ let saveBuildResultSpy;
 
 const originalExecFileSync = childProcess.execFileSync;
 const originalSpawnSync = childProcess.spawnSync;
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 function setup() {
-  ({ testDir } = setupTestDb('post-task'));
+  ({ testDir } = setupTestDbOnly('post-task'));
 
   mockExecFileSync = vi.fn();
   mockSpawnSync = vi.fn();

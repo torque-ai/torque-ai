@@ -2,11 +2,11 @@ const { randomUUID } = require('crypto');
 
 let db;
 let mod;
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
 function setup() {
-  ({ db } = setupTestDb('tier-pref-'));
+  ({ db } = setupTestDbOnly('tier-pref-'));
   const taskCore = require('../db/task-core');
   mod = require('../db/host-management');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());

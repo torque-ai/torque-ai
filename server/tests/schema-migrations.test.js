@@ -9,14 +9,14 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const dataDir = require('../data-dir');
 
 let db;
 let configCore;
 
 function setupDb() {
-  ({ db } = setupTestDb('schema-migrations'));
+  ({ db } = setupTestDbOnly('schema-migrations'));
   configCore = require('../db/config-core');
   return db;
 }

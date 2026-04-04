@@ -11,11 +11,11 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const costTracking = require('../db/cost-tracking');
 const workflowEngine = require('../db/workflow-engine');
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 
 function setupDb() {
-  setupTestDb('cost');
+  setupTestDbOnly('cost');
 }
 
 function teardownDb() {

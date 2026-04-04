@@ -13,7 +13,7 @@
 
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const hostManagement = require('../db/host-management');
 const { TEST_MODELS } = require('./test-helpers');
 
@@ -109,7 +109,7 @@ function setup() {
   spawnMock = vi.fn();
   cp.spawn = spawnMock;
 
-  ({ db, testDir } = setupTestDb('exec-cli'));
+  ({ db, testDir } = setupTestDbOnly('exec-cli'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
   mod = require('../providers/execute-cli');

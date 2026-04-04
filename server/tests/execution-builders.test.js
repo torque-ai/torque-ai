@@ -1,6 +1,6 @@
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
 vi.mock('child_process', () => ({
@@ -59,7 +59,7 @@ function initExecution(overrides = {}) {
 }
 
 function setup() {
-  ({ db, testDir } = setupTestDb('execution-builders'));
+  ({ db, testDir } = setupTestDbOnly('execution-builders'));
   hostMgmt = require('../db/host-management');
   const dbHandle = db.getDb ? db.getDb() : db.getDbInstance();
   hostMgmt.setDb(dbHandle);

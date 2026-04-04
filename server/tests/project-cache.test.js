@@ -9,14 +9,14 @@
 const { randomUUID } = require('crypto');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 let testDir;
 let db;
 let mod;
 
 function setup() {
-  ({ db, testDir } = setupTestDb('projcache-'));
+  ({ db, testDir } = setupTestDbOnly('projcache-'));
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
 
   mod = require('../db/project-cache');

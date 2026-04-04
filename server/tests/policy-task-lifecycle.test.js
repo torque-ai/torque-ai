@@ -1,6 +1,6 @@
 'use strict';
 
-const { setupTestDb, teardownTestDb, getText, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, getText, rawDb } = require('./vitest-setup');
 const taskManager = require('../task-manager');
 const taskHooks = require('../policy-engine/task-hooks');
 const { handleSmartSubmitTask } = require('../handlers/integration/routing');
@@ -10,7 +10,7 @@ describe('policy task lifecycle', () => {
   let testDir;
 
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('policy-task-lifecycle'));
+    ({ db, testDir } = setupTestDbOnly('policy-task-lifecycle'));
     taskManager._testing.resetForTest();
     taskManager.initSubModules();
   });

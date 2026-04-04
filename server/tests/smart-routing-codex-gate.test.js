@@ -9,7 +9,7 @@
  */
 const taskCore = require('../db/task-core');
 const configCore = require('../db/config-core');
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 
 let testDir;
 let mod; // integration-routing module (handler)
@@ -30,7 +30,7 @@ function createTaskManagerMock() {
 }
 
 function setup() {
-  ({ testDir } = setupTestDb('smart-routing-gate'));
+  ({ testDir } = setupTestDbOnly('smart-routing-gate'));
 
   // Mock task-manager before requiring integration-routing
   taskManagerMock = createTaskManagerMock();

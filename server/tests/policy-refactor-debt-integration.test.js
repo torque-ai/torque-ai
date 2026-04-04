@@ -7,7 +7,7 @@ const promotion = require('../policy-engine/promotion');
 const { loadTorqueDefaults } = require('../policy-engine/profile-loader');
 const {
   rawDb,
-  setupTestDb,
+  setupTestDbOnly,
   teardownTestDb,
 } = require('./vitest-setup');
 
@@ -44,7 +44,7 @@ describe.skipIf(!hasSeedFile)('policy refactor debt integration', () => {
   let testDir;
 
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('policy-refactor-debt-integration'));
+    ({ db, testDir } = setupTestDbOnly('policy-refactor-debt-integration'));
     loadTorqueDefaults(projectRoot);
   });
 

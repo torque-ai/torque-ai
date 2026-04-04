@@ -3,7 +3,7 @@
 
 const { randomUUID } = require('crypto');
 const analytics = require('../db/analytics');
-const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 
 let db;
 let testDir;
@@ -151,7 +151,7 @@ function insertRetryHistory(taskId, attemptNumber, strategyUsed, errorMessage, t
 
 describe('server/db/analytics (real DB)', () => {
   beforeAll(() => {
-    ({ db, testDir } = setupTestDb('db-analytics'));
+    ({ db, testDir } = setupTestDbOnly('db-analytics'));
     ensureColumn('templates', 'avg_duration', 'avg_duration REAL');
     ensureColumn('retry_history', 'strategy_used', 'strategy_used TEXT');
     ensureColumn('retry_history', 'timestamp', 'timestamp TEXT');

@@ -3,7 +3,7 @@
 
 const { randomUUID } = require('crypto');
 const Database = require('better-sqlite3');
-const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
 const SUBJECT_PATH = '../db/host-selection';
@@ -150,7 +150,7 @@ function insertRegistryModel(modelName, parameterSizeB, overrides = {}) {
 
 describe('db/host-selection (real DB)', () => {
   beforeAll(() => {
-    ({ db } = setupTestDb('db-host-sel'));
+    ({ db } = setupTestDbOnly('db-host-sel'));
     ensureColumn('ollama_hosts', 'memory_limit_mb', 'memory_limit_mb INTEGER');
     ensureColumn('ollama_hosts', 'max_concurrent', 'max_concurrent INTEGER DEFAULT 1');
     ensureColumn('ollama_hosts', 'last_model_used', 'last_model_used TEXT');

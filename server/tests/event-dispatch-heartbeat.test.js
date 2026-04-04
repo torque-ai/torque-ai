@@ -33,12 +33,12 @@ describe('event classification exports', () => {
 // ──────────────────────────────────────────────────────────────
 
 describe('task:started event', () => {
-  const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+  const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
   const { randomUUID } = require('crypto');
   let db;
 
   beforeAll(() => {
-    ({ db } = setupTestDb('event-dispatch-heartbeat-started'));
+    ({ db } = setupTestDbOnly('event-dispatch-heartbeat-started'));
   });
 
   afterAll(() => {

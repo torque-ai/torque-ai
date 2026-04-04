@@ -1,7 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, getText } = require('./vitest-setup');
 const { v4: uuidv4 } = require('uuid');
 
 const automationTsTools = require('../handlers/automation-ts-tools');
@@ -40,7 +40,7 @@ function expectInvalidParam(result) {
 
 describe('Path traversal hardening', () => {
   beforeAll(() => {
-    const env = setupTestDb('p0-path-traversal');
+    const env = setupTestDbOnly('p0-path-traversal');
     db = env.db;
   });
 

@@ -8,7 +8,7 @@ const dbCoord = require('../db/coordination');
 const eventDispatch = require('../hooks/event-dispatch');
 const mcpSse = require('../mcp-sse');
 
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function createMockResponse() {
   const chunks = [];
@@ -78,7 +78,7 @@ function rawDb() {
 describe('P1 infra fixes', () => {
   describe('Coordination lock stale detection uses lease expiry', () => {
     beforeAll(() => {
-      setupTestDb('p1-coord');
+      setupTestDbOnly('p1-coord');
       dbCoord.setDb(getDbInstance());
       dbCoord.setGetTask(taskCore.getTask);
 

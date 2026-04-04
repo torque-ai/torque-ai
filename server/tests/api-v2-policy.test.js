@@ -11,7 +11,7 @@ import {
 
 const { EventEmitter } = require('events');
 const http = require('http');
-const { setupTestDb, teardownTestDb, resetTables } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, resetTables } = require('./vitest-setup');
 
 let api;
 let db;
@@ -193,7 +193,7 @@ function seedEvaluation(overrides = {}) {
 }
 
 beforeAll(async () => {
-  ({ db } = setupTestDb('api-v2-policy'));
+  ({ db } = setupTestDbOnly('api-v2-policy'));
   api = require('../api-server.core');
 
   const mockServer = {

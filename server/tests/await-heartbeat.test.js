@@ -170,7 +170,7 @@ describe('formatHeartbeat', () => {
 // Heartbeat integration tests for handleAwaitTask
 // ---------------------------------------------------------------------------
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 const workflowEngine = require('../db/workflow-engine');
 const hostMonitoring = require('../utils/host-monitoring');
@@ -237,7 +237,7 @@ function finalizeTask(taskId, status = 'completed', overrides = {}) {
 
 describe('handleAwaitTask heartbeat integration', () => {
   beforeEach(() => {
-    setupTestDb(`await-heartbeat-${Date.now()}`);
+    setupTestDbOnly(`await-heartbeat-${Date.now()}`);
     installCjsModuleMock('../hooks/event-dispatch', {
       taskEvents: mocks.taskEvents,
       NOTABLE_EVENTS: ['started', 'stall_warning', 'retry', 'fallback'],
@@ -499,7 +499,7 @@ function createWorkflowWithTasks(taskDefs) {
 
 describe('handleAwaitWorkflow heartbeat integration', () => {
   beforeEach(() => {
-    setupTestDb(`await-wf-heartbeat-${Date.now()}`);
+    setupTestDbOnly(`await-wf-heartbeat-${Date.now()}`);
     installCjsModuleMock('../hooks/event-dispatch', {
       taskEvents: mocks.taskEvents,
       NOTABLE_EVENTS: ['started', 'stall_warning', 'retry', 'fallback'],
@@ -762,7 +762,7 @@ describe('handleAwaitWorkflow heartbeat integration', () => {
 
 describe('heartbeat integration', () => {
   beforeEach(() => {
-    setupTestDb(`await-e2e-heartbeat-${Date.now()}`);
+    setupTestDbOnly(`await-e2e-heartbeat-${Date.now()}`);
     installCjsModuleMock('../hooks/event-dispatch', {
       taskEvents: mocks.taskEvents,
       NOTABLE_EVENTS: ['started', 'stall_warning', 'retry', 'fallback'],

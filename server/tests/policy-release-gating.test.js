@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const featureFlagAdapter = require('../policy-engine/adapters/feature-flag');
 const releaseGateAdapter = require('../policy-engine/adapters/release-gate');
 
@@ -9,7 +9,7 @@ describe('policy release gating adapters', () => {
   let testDir;
 
   beforeEach(() => {
-    ({ testDir } = setupTestDb('policy-release-gating'));
+    ({ testDir } = setupTestDbOnly('policy-release-gating'));
   });
 
   afterEach(() => {

@@ -1,9 +1,9 @@
 let db;
 const costTracking = require('../db/cost-tracking');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 function setupDb() {
-  ({ db } = setupTestDb('budget-completeness-'));
+  ({ db } = setupTestDbOnly('budget-completeness-'));
 }
 
 function teardownDb() {

@@ -3,7 +3,7 @@ const http = require('http');
 const https = require('https');
 const { EventEmitter } = require('events');
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let db;
 let hostCreds;
@@ -95,7 +95,7 @@ beforeAll(async () => {
   vi.spyOn(fs, 'fsyncSync').mockImplementation(() => {});
   vi.spyOn(fs, 'closeSync').mockImplementation(() => {});
 
-  const env = setupTestDb('hosts-routes');
+  const env = setupTestDbOnly('hosts-routes');
   db = env.db;
   hostCreds = require('../db/host-management');
   emailPeek = require('../db/email-peek');

@@ -1,5 +1,5 @@
 const { createHash } = require('crypto');
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const refactorDebtAdapter = require('../policy-engine/adapters/refactor-debt');
 
 describe('policy refactor debt adapter', () => {
@@ -7,7 +7,7 @@ describe('policy refactor debt adapter', () => {
   let testDir;
 
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('policy-refactor-debt'));
+    ({ db, testDir } = setupTestDbOnly('policy-refactor-debt'));
   });
 
   afterEach(() => {

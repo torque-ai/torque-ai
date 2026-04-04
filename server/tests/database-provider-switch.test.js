@@ -7,14 +7,14 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 const taskCore = require('../db/task-core');
 
 let db;
 
 function setupDb() {
-  ({ db } = setupTestDb('prov-switch'));
+  ({ db } = setupTestDbOnly('prov-switch'));
   return db;
 }
 

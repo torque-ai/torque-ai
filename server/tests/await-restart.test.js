@@ -10,7 +10,7 @@ const { mocks } = vi.hoisted(() => {
   };
 });
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 const hostMonitoring = require('../utils/host-monitoring');
 
@@ -62,7 +62,7 @@ function createTask(overrides = {}) {
 
 describe('await_restart', () => {
   beforeEach(() => {
-    setupTestDb(`await-restart-${Date.now()}`);
+    setupTestDbOnly(`await-restart-${Date.now()}`);
     installCjsModuleMock('../hooks/event-dispatch', {
       taskEvents: mocks.taskEvents,
       NOTABLE_EVENTS: ['started', 'stall_warning', 'retry', 'fallback'],

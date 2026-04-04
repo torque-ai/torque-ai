@@ -1,6 +1,6 @@
 const { randomUUID } = require('crypto');
 
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 vi.mock('../providers/registry', () => ({
   getProviderInstance: vi.fn().mockReturnValue({}),
@@ -18,7 +18,7 @@ let hostManagement;
 let taskCore;
 
 function setup() {
-  ({ db, testDir } = setupTestDb('p2-approval-gate-'));
+  ({ db, testDir } = setupTestDbOnly('p2-approval-gate-'));
   const conn = db.getDbInstance();
   for (const table of ['tasks', 'approval_requests', 'approval_rules', 'ollama_hosts']) {
     try { conn.prepare(`DELETE FROM ${table}`).run(); } catch { /* ignore */ }

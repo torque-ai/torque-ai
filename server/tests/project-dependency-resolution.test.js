@@ -2,7 +2,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
 let templateBuffer;
@@ -14,7 +14,7 @@ let projectConfigCore;
 let taskManager;
 
 function setup() {
-  ({ db, testDir } = setupTestDb('project-deps'));
+  ({ db, testDir } = setupTestDbOnly('project-deps'));
   if (!templateBuffer) templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);
 
   taskCore = require('../db/task-core');

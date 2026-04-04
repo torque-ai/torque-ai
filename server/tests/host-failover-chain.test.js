@@ -9,14 +9,14 @@
  * Also tests auto-recovery and multi-task failover.
  */
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
 describe('Host Failover Chain', () => {
   let db;
 
   beforeAll(() => {
-    const setup = setupTestDb('host-failover-chain');
+    const setup = setupTestDbOnly('host-failover-chain');
     db = setup.db;
   });
   afterAll(() => { teardownTestDb(); });

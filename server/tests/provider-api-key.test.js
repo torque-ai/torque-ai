@@ -53,13 +53,13 @@ describe('provider API key encryption helpers', () => {
 });
 
 describe('config.js getApiKey() with encrypted keys', () => {
-  const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+  const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
   let db;
   let config;
   let encryptApiKey;
 
   beforeAll(() => {
-    ({ db } = setupTestDb('provider-api-key-config'));
+    ({ db } = setupTestDbOnly('provider-api-key-config'));
     config = require('../config');
     config.init({ db });
     ({ encryptApiKey } = require('../handlers/provider-crud-handlers'));

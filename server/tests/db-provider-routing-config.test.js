@@ -1,6 +1,6 @@
 const os = require('os');
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 const configMod = require('../db/provider-routing-core');
 
@@ -45,7 +45,7 @@ function createWorkflow(overrides = {}) {
 }
 
 beforeEach(() => {
-  ({ db } = setupTestDb('provider-routing-config'));
+  ({ db } = setupTestDbOnly('provider-routing-config'));
   configMod.setDb(rawDb());
 });
 

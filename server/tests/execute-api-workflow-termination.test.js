@@ -1,7 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 
 let testDir;
@@ -10,7 +10,7 @@ let templateBuffer;
 let executeApi;
 
 function setup() {
-  ({ db, testDir } = setupTestDb('api-wt'));
+  ({ db, testDir } = setupTestDbOnly('api-wt'));
   // Cache template buffer for beforeEach resets
   const path = require('path');
   const os = require('os');

@@ -2,7 +2,7 @@
  * Integration Test: Stall Detection & Recovery
  */
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const configCore = require('../db/config-core');
 
 let db;
@@ -16,7 +16,7 @@ function deleteConfig(key) {
 
 describe('Integration: Stall Detection & Recovery', () => {
   beforeAll(() => {
-    ({ db } = setupTestDb('integration-stall'));
+    ({ db } = setupTestDbOnly('integration-stall'));
     tm = require('../task-manager');
     if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
     if (typeof tm.initSubModules === 'function') tm.initSubModules();

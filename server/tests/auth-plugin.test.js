@@ -3,7 +3,7 @@
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const { validatePlugin } = require('../plugins/plugin-contract');
 const { createAuthPlugin } = require('../plugins/auth/index');
 
@@ -11,7 +11,7 @@ let plugin;
 let tmpDir;
 
 beforeAll(() => {
-  setupTestDb('auth-plugin-entry');
+  setupTestDbOnly('auth-plugin-entry');
 
   const handle = rawDb();
   handle.exec(`

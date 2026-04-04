@@ -4,7 +4,7 @@
 
 const { v4: uuidv4 } = require('uuid');
 const workflowEngine = require('../db/workflow-engine');
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 
 let testDir;
 let taskCore;
@@ -47,7 +47,7 @@ function insertBrokenDependency(workflowId, taskId, dependsOnTaskId, onFail = 's
 
 describe('Integration: Workflow DAG', () => {
   beforeAll(() => {
-    ({ testDir } = setupTestDb('integration-wfdag'));
+    ({ testDir } = setupTestDbOnly('integration-wfdag'));
     taskCore = require('../db/task-core');
   });
   afterAll(() => { teardownTestDb(); });

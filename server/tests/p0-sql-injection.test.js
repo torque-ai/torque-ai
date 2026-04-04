@@ -10,10 +10,10 @@ let projectCache;
 const costTracking = require('../db/cost-tracking');
 const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
-  ({ db, testDir } = setupTestDb('injection-'));
+  ({ db, testDir } = setupTestDbOnly('injection-'));
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
 
   projectCache = require('../db/project-cache');

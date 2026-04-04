@@ -4,10 +4,10 @@ let schedulingMod;
 let hostMod;
 
 const projectConfigCore = require('../db/project-config-core');
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
-  ({ db } = setupTestDb('p1-atomicity-'));
+  ({ db } = setupTestDbOnly('p1-atomicity-'));
   taskCore = require('../db/task-core');
 
   schedulingMod = require('../db/scheduling-automation');

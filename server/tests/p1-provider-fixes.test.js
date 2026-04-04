@@ -13,7 +13,7 @@ let mockOllamaA;
 let mockOllamaB;
 let mockUrlA;
 let mockUrlB;
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function makeDeps(overrides = {}) {
   return {
@@ -38,7 +38,7 @@ function makeDeps(overrides = {}) {
 }
 
 function setup() {
-  ({ db, testDir } = setupTestDb('provider-fixes-'));
+  ({ db, testDir } = setupTestDbOnly('provider-fixes-'));
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   hostMgmt = require('../db/host-management');
   hostMgmt.setDb(db.getDb());

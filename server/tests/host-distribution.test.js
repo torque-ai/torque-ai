@@ -1,4 +1,4 @@
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
 /**
@@ -18,7 +18,7 @@ describe('Host Distribution & Load Balancing', () => {
   let db;
 
   beforeAll(() => {
-    const setup = setupTestDb('host-distribution');
+    const setup = setupTestDbOnly('host-distribution');
     db = setup.db;
   });
   afterAll(() => { teardownTestDb(); });

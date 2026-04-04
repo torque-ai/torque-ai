@@ -3,7 +3,7 @@ const os = require('os');
 const path = require('path');
 const { randomUUID } = require('crypto');
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let db;
 let testDir;
@@ -16,7 +16,7 @@ let featureWorkflow;
 
 beforeAll(() => {
   templateBuffer = fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'));
-  ({ db, testDir } = setupTestDb('adversarial-review-workflow'));
+  ({ db, testDir } = setupTestDbOnly('adversarial-review-workflow'));
   taskCore = require('../db/task-core');
   workflowEngine = require('../db/workflow-engine');
   workflowRuntime = require('../execution/workflow-runtime');

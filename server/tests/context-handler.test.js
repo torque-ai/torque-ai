@@ -1,12 +1,12 @@
 'use strict';
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 describe('context-handler', () => {
   let workflowEngine;
 
   beforeAll(() => {
-    setupTestDb('context-handler');
+    setupTestDbOnly('context-handler');
     workflowEngine = require('../db/workflow-engine');
   });
 

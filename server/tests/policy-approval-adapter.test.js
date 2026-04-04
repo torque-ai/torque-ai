@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const approvalAdapter = require('../policy-engine/adapters/approval');
 const schedulingAutomation = require('../db/scheduling-automation');
 
@@ -10,7 +10,7 @@ describe('policy approval adapter', () => {
   let testDir;
 
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('policy-approval-adapter'));
+    ({ db, testDir } = setupTestDbOnly('policy-approval-adapter'));
   });
 
   afterEach(() => {

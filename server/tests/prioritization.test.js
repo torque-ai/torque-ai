@@ -2,10 +2,10 @@ const { randomUUID } = require('crypto');
 const taskCore = require('../db/task-core');
 
 let testDir, db, mod;
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 function setup() {
-  ({ db, testDir } = setupTestDb('prioritization-'));
+  ({ db, testDir } = setupTestDbOnly('prioritization-'));
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
   mod = require('../db/analytics');
   mod.setDb(db.getDb());

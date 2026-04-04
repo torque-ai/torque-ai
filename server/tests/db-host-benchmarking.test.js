@@ -4,7 +4,7 @@
 const http = require('http');
 const Database = require('better-sqlite3');
 const { TEST_MODELS } = require('./test-helpers');
-const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 
 const SUBJECT_PATH = '../db/host-benchmarking';
 const RESET_TABLES = ['benchmark_results', 'ollama_hosts'];
@@ -191,7 +191,7 @@ async function waitFor(predicate, { timeoutMs = 2000, intervalMs = 20 } = {}) {
 
 describe('db/host-benchmarking (real DB)', () => {
   beforeAll(() => {
-    ({ db: _db } = setupTestDb('db-host-bench'));
+    ({ db: _db } = setupTestDbOnly('db-host-bench'));
     ensureColumn('ollama_hosts', 'memory_limit_mb', 'memory_limit_mb INTEGER');
     ensureColumn('ollama_hosts', 'max_concurrent', 'max_concurrent INTEGER DEFAULT 1');
     ensureColumn('ollama_hosts', 'priority', 'priority INTEGER DEFAULT 10');

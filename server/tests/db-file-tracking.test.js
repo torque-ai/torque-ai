@@ -3,14 +3,14 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const fileTracking = require('../db/file-tracking');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 
 let db, templateBuffer;
 
 beforeAll(() => {
   templateBuffer = fs.readFileSync(path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'));
-  ({ db } = setupTestDb('db-file-tracking'));
+  ({ db } = setupTestDbOnly('db-file-tracking'));
 });
 
 beforeEach(() => {

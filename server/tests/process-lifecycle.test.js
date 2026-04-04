@@ -4,7 +4,7 @@
  * killProcessGraceful, safeTriggerWebhook, cleanupProcessTracking
  */
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { createMockChild } = require('./mocks/process-mock');
 const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
@@ -27,7 +27,7 @@ const FILE_RESOLUTION_MODULE = '../utils/file-resolution';
 const WEBHOOK_MODULE = '../handlers/webhook-handlers';
 
 beforeAll(() => {
-  const setup = setupTestDb('process-lifecycle');
+  const setup = setupTestDbOnly('process-lifecycle');
   db = setup.db;
   lifecycle = require('../execution/process-lifecycle');
 });

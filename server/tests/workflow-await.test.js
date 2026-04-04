@@ -16,7 +16,7 @@ const { mocks } = vi.hoisted(() => {
 });
 
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const serverConfig = require('../config');
 const taskCore = require('../db/task-core');
 const workflowEngine = require('../db/workflow-engine');
@@ -134,7 +134,7 @@ function storePeekArtifact(taskId, name, contractVersion = 1) {
 
 describe('workflow-await handlers with DB-backed state', () => {
   beforeEach(() => {
-    setupTestDb(`workflow-await-${Date.now()}`);
+    setupTestDbOnly(`workflow-await-${Date.now()}`);
     installCjsModuleMock('../hooks/event-dispatch', { taskEvents: mocks.taskEvents });
     installCjsModuleMock('../execution/command-policy', {
       executeValidatedCommandSync: mocks.executeValidatedCommandSync,

@@ -8,12 +8,12 @@
 const { v4: uuidv4 } = require('uuid');
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let db;
 
 function setupDb() {
-  ({ db } = setupTestDb('workflow'));
+  ({ db } = setupTestDbOnly('workflow'));
   return db;
 }
 

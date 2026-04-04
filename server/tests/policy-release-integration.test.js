@@ -9,7 +9,7 @@ const shadowEnforcer = require('../policy-engine/shadow-enforcer');
 const taskHooks = require('../policy-engine/task-hooks');
 const {
   rawDb,
-  setupTestDb,
+  setupTestDbOnly,
   teardownTestDb,
 } = require('./vitest-setup');
 
@@ -112,7 +112,7 @@ describe.skipIf(!hasSeedFile)('policy release integration', () => {
   }
 
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('policy-release-integration'));
+    ({ db, testDir } = setupTestDbOnly('policy-release-integration'));
     setLivePolicyFlags();
     loadTorqueDefaults(projectRoot);
   });

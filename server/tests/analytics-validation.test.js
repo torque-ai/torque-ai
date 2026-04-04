@@ -7,7 +7,7 @@
  */
 
 const crypto = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const fileQuality = require('../db/file-quality');
 
 let db;
@@ -27,7 +27,7 @@ function createTask(overrides = {}) {
 
 describe('Analytics & Validation proxy modules', () => {
   beforeAll(() => {
-    const env = setupTestDb('analytics-validation');
+    const env = setupTestDbOnly('analytics-validation');
     db = env.db;
     fileQuality.setDb(db.getDbInstance());
   });

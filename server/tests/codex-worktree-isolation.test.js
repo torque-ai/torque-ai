@@ -33,7 +33,7 @@ const _originalSpawn = childProcess.spawn;
 const spawnMock = vi.fn();
 childProcess.spawn = spawnMock;
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let db;
 let mod; // execute-cli module
@@ -133,7 +133,7 @@ describe('Codex worktree isolation integration', () => {
     }
 
     // Load DB and reset using vitest-setup
-    ({ db, testDir } = setupTestDb('codex-worktree'));
+    ({ db, testDir } = setupTestDbOnly('codex-worktree'));
 
     // Load execute-cli module (spawn is already patched at file top)
     mod = require('../providers/execute-cli');

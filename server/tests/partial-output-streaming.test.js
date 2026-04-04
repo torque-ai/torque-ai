@@ -7,12 +7,12 @@
  */
 
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let testDir, db, taskCore, mod;
 
 function setup() {
-  ({ db, testDir } = setupTestDb('partial-output-'));
+  ({ db, testDir } = setupTestDbOnly('partial-output-'));
   taskCore = require('../db/task-core');
   mod = require('../db/webhooks-streaming');
   mod.setDb(db.getDb ? db.getDb() : db.getDbInstance());

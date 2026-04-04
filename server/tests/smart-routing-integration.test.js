@@ -3,7 +3,7 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
 let db;
@@ -176,7 +176,7 @@ function getSubmittedTask(result) {
 }
 
 beforeAll(() => {
-  const env = setupTestDb('smart-routing-integration');
+  const env = setupTestDbOnly('smart-routing-integration');
   db = env.db;
   hostManagement = require('../db/host-management');
   templateBuffer = fs.readFileSync(TEMPLATE_BUF_PATH);

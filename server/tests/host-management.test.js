@@ -6,11 +6,11 @@ const configCore = require('../db/config-core');
 const taskCore = require('../db/task-core');
 
 let testDir, db, mod;
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
 function setup() {
-  ({ db, testDir } = setupTestDb('host-mgmt-'));
+  ({ db, testDir } = setupTestDbOnly('host-mgmt-'));
   mod = require('../db/host-management');
   mod.setDb(db.getDbInstance());
   mod.setGetTask((id) => taskCore.getTask(id));
@@ -489,7 +489,7 @@ describe('host-management module', () => {
 
     it('returns null when curl fails (connection refused)', async () => {
       // Use a non-routable address to trigger failure
-      const result = await mod.fetchHostModelsSync('http://192.168.254.254:11434', 1000);
+      const result = await mod.fetchHostModelsSync('http://192.0.2.254:11434', 1000);
       expect(result).toBeNull();
     });
   });

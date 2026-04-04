@@ -1,5 +1,5 @@
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
 let db;
@@ -12,7 +12,7 @@ let startCalls;
 let cancelCalls;
 
 function setup() {
-  ({ db, testDir } = setupTestDb('wf-output-inj'));
+  ({ db, testDir } = setupTestDbOnly('wf-output-inj'));
 
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');

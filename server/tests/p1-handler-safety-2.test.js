@@ -10,12 +10,12 @@
 
 const { randomUUID } = require('crypto');
 const taskCore = require('../db/task-core');
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 let testDir;
 
 function setup() {
-  ({ testDir } = setupTestDb('p1-handler2-'));
+  ({ testDir } = setupTestDbOnly('p1-handler2-'));
 }
 
 function teardown() {

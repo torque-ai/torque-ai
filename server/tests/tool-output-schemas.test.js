@@ -1,12 +1,12 @@
 'use strict';
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { getOutputSchema, OUTPUT_SCHEMAS } = require('../tool-output-schemas');
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
 
 function setupSchemaTestDb(suiteName) {
-  setupTestDb(suiteName);
+  setupTestDbOnly(suiteName);
   const tm = require('../task-manager');
   if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
   if (typeof tm.initSubModules === 'function') tm.initSubModules();

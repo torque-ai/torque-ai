@@ -1,5 +1,5 @@
 const path = require('path');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const shared = require('../handlers/shared');
 
 function getText(result) {
@@ -8,7 +8,7 @@ function getText(result) {
 
 describe('handler:shared', () => {
   beforeAll(() => {
-    setupTestDb('handler-shared');
+    setupTestDbOnly('handler-shared');
   });
 
   afterAll(() => {

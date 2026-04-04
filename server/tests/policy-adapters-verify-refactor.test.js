@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { createConfigMock } = require('./test-helpers');
 
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 
 const VERIFICATION_SUBJECT_MODULE = '../policy-engine/adapters/verification';
 const REFACTOR_DEBT_SUBJECT_MODULE = '../policy-engine/adapters/refactor-debt';
@@ -1614,7 +1614,7 @@ describe('policy adapters verify/refactor combined coverage', () => {
 
     beforeEach(() => {
       clearModuleCaches([...UNIT_MODULES, ...INTEGRATION_MODULES]);
-      ({ db, testDir } = setupTestDb('policy-adapters-verify-refactor'));
+      ({ db, testDir } = setupTestDbOnly('policy-adapters-verify-refactor'));
       installMock(DATABASE_MODULE, {
         getDbInstance: vi.fn(() => rawDb()),
       });

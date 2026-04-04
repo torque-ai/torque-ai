@@ -9,14 +9,14 @@
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
 let taskCore;
 let tm;
 
 function setupTm() {
-  ({ testDir } = setupTestDb('taskmgr'));
+  ({ testDir } = setupTestDbOnly('taskmgr'));
   taskCore = require('../db/task-core');
   tm = require('../task-manager');
   if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();

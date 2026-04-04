@@ -6,7 +6,7 @@
  */
 
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 let testDir;
 let db;
@@ -14,7 +14,7 @@ let taskCore;
 let mod;
 
 function setup() {
-  ({ db, testDir } = setupTestDb('pipeline-'));
+  ({ db, testDir } = setupTestDbOnly('pipeline-'));
   taskCore = require('../db/task-core');
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
 

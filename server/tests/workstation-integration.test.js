@@ -1,4 +1,4 @@
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
 const failover = require('../workstation/failover');
@@ -53,7 +53,7 @@ function createWs(overrides = {}) {
 
 describe('workstation integration', () => {
   beforeAll(() => {
-    setupTestDb('workstation-integration');
+    setupTestDbOnly('workstation-integration');
     bindModules();
   });
 

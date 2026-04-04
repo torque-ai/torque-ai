@@ -1,6 +1,6 @@
 const os = require('os');
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 const FIXED_NOW = new Date('2026-03-09T18:00:00.000Z');
 
@@ -140,7 +140,7 @@ function getOutcomeBreakdown(provider, days = 30) {
 }
 
 beforeEach(() => {
-  ({ db } = setupTestDb('provider-routing-stats'));
+  ({ db } = setupTestDbOnly('provider-routing-stats'));
   statsMod = require('../db/provider-routing-core');
   seq = 0;
   vi.useFakeTimers();

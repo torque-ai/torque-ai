@@ -43,7 +43,7 @@ function textOfResult(result) {
 }
 
 describeV('await verify routing', () => {
-  const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+  const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
   const taskCore = require('../db/task-core');
   const workflowEngine = require('../db/workflow-engine');
   const hostMonitoring = require('../utils/host-monitoring');
@@ -85,7 +85,7 @@ describeV('await verify routing', () => {
     tmpDir = path.join(os.tmpdir(), `torque-await-routing-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     fs.mkdirSync(tmpDir, { recursive: true });
 
-    setupTestDb(`await-routing-${Date.now()}`);
+    setupTestDbOnly(`await-routing-${Date.now()}`);
 
     installAwaitMock('../hooks/event-dispatch', { taskEvents: awaitMocks.taskEvents });
     installAwaitMock('../execution/command-policy', {

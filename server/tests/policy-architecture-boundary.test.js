@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const architectureAdapter = require('../policy-engine/adapters/architecture');
 
 describe('policy architecture boundary adapter', () => {
@@ -9,7 +9,7 @@ describe('policy architecture boundary adapter', () => {
   let testDir;
 
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('policy-architecture-boundary'));
+    ({ db, testDir } = setupTestDbOnly('policy-architecture-boundary'));
   });
 
   afterEach(() => {

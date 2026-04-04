@@ -16,7 +16,7 @@ const { randomUUID } = require('crypto');
 
 const taskManager = require('../task-manager');
 const providerRoutingCore = require('../db/provider-routing-core');
-const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, getText } = require('./vitest-setup');
 
 // Use real modules for index and routing tests, with temporary DB roots per test.
 
@@ -106,7 +106,7 @@ describe('integration-routing file-size probing guards traversal', () => {
   let routing;
 
   beforeAll(() => {
-    const env = setupTestDb('p1-routing');
+    const env = setupTestDbOnly('p1-routing');
     db = env.db;
     routing = require('../handlers/integration/routing');
     providerRoutingCore.checkOllamaHealth = async () => true;
@@ -167,7 +167,7 @@ describe('event-tracking rollups are idempotent', () => {
   let conn;
 
   beforeAll(() => {
-    const env = setupTestDb('p1-analytics');
+    const env = setupTestDbOnly('p1-analytics');
     db = env.db;
     tracking = require('../db/event-tracking');
     conn = db.getDb ? db.getDb() : db.getDbInstance();
@@ -232,7 +232,7 @@ describe('validation-rules regex safety', () => {
   let conn;
 
   beforeAll(() => {
-    const env = setupTestDb('p1-validation');
+    const env = setupTestDbOnly('p1-validation');
     db = env.db;
     validation = require('../db/validation-rules');
     conn = db.getDb ? db.getDb() : db.getDbInstance();

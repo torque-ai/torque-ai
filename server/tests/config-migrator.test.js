@@ -7,13 +7,13 @@
  * and writes into model_roles, model_capabilities, and model_registry tables.
  */
 
-const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 
 let migrateConfigToRegistry;
 
 describe('discovery/config-migrator', () => {
   beforeAll(() => {
-    setupTestDb('config-migrator');
+    setupTestDbOnly('config-migrator');
     migrateConfigToRegistry = require('../discovery/config-migrator').migrateConfigToRegistry;
   });
 

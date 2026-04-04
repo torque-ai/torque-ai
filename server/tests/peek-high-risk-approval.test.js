@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 function createRecoveryTask(db, testDir, overrides = {}) {
   return db.createTask({
@@ -104,7 +104,7 @@ function listApprovalRows(action, taskId) {
 
 describe('peek high-risk recovery approvals', () => {
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('peek-high-risk-approval'));
+    ({ db, testDir } = setupTestDbOnly('peek-high-risk-approval'));
     vi.clearAllMocks();
 
     sharedModule.peekHttpGetWithRetry = mockShared.peekHttpGetWithRetry;

@@ -2,7 +2,7 @@
 
 const { randomUUID } = require('crypto');
 
-const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 const registry = require('../models/registry');
 const eventBus = require('../event-bus');
 
@@ -116,7 +116,7 @@ function insertQueuedTask(overrides = {}) {
 
 describe('models/registry', () => {
   beforeAll(() => {
-    setupTestDb('model-registry');
+    setupTestDbOnly('model-registry');
     registry.setDb(rawDb());
   });
 

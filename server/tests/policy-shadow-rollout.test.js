@@ -1,4 +1,4 @@
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const profileStore = require('../policy-engine/profile-store');
 const engine = require('../policy-engine/engine');
 const shadowEnforcer = require('../policy-engine/shadow-enforcer');
@@ -9,7 +9,7 @@ describe('policy shadow rollout', () => {
   let testDir;
 
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('policy-shadow-rollout'));
+    ({ db, testDir } = setupTestDbOnly('policy-shadow-rollout'));
   });
 
   afterEach(() => {

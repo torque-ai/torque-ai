@@ -10,7 +10,7 @@ const {
 const shadowEnforcer = require('../policy-engine/shadow-enforcer');
 const taskHooks = require('../policy-engine/task-hooks');
 const {
-  setupTestDb,
+  setupTestDbOnly,
   teardownTestDb,
 } = require('./vitest-setup');
 
@@ -68,7 +68,7 @@ describe.skipIf(!hasSeedFile)('policy phase 5 integration', () => {
   }
 
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('policy-phase5-integration'));
+    ({ db, testDir } = setupTestDbOnly('policy-phase5-integration'));
     setLivePolicyFlags();
     loadTorqueDefaults(projectRoot);
   });

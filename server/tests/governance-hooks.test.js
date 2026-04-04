@@ -1,7 +1,7 @@
 'use strict';
 
 const childProcess = require('child_process');
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const { CHECKERS, createGovernanceHooks } = require('../governance/hooks');
 
 function createLoggerMock() {
@@ -85,7 +85,7 @@ describe('governance/hooks', () => {
   let hooks;
 
   beforeEach(() => {
-    ({ testDir } = setupTestDb('governance-hooks'));
+    ({ testDir } = setupTestDbOnly('governance-hooks'));
     rawDb().exec(`
       CREATE TABLE IF NOT EXISTS governance_rules (
         id TEXT PRIMARY KEY,

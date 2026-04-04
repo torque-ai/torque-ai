@@ -2,7 +2,7 @@ const { randomUUID } = require('crypto');
 const { installMock } = require('./cjs-mock');
 const { STALL_REQUEUE_DEBOUNCE_MS } = require('../constants');
 const { classifyError, findLargerAvailableModel, BASE_RETRY_DELAY_MS } = require('../execution/fallback-retry');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
 let testDir;
@@ -31,7 +31,7 @@ const ORIGINAL_ROUTING_CORE_CACHE = require.cache[ROUTING_CORE_MODULE_PATH];
 function setup() {
   origOpenAiKey = process.env.OPENAI_API_KEY;
 
-  ({ db, testDir } = setupTestDb('fallback-retry'));
+  ({ db, testDir } = setupTestDbOnly('fallback-retry'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
   hostManagement = require('../db/host-management');

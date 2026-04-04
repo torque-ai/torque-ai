@@ -7,10 +7,10 @@ let hostMod;
 
 const projectConfigCore = require('../db/project-config-core');
 const taskCore = require('../db/task-core');
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
-  ({ db, testDir } = setupTestDb('p1-sched-approval-'));
+  ({ db, testDir } = setupTestDbOnly('p1-sched-approval-'));
 
   schedulingMod = require('../db/scheduling-automation');
   schedulingMod.setDb(db.getDb ? db.getDb() : db.getDbInstance());

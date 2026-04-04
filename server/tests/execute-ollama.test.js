@@ -12,7 +12,7 @@
 
 const { randomUUID } = require('crypto');
 const hostManagement = require('../db/host-management');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
 let db;
@@ -40,7 +40,7 @@ function makeDeps(overrides = {}) {
 }
 
 function setup() {
-  ({ db, testDir } = setupTestDb('exec-ollama'));
+  ({ db, testDir } = setupTestDbOnly('exec-ollama'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
   mod = require('../providers/execute-ollama');

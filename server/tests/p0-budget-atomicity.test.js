@@ -3,10 +3,10 @@ const { v4: uuidv4 } = require('uuid');
 let db;
 let taskCore;
 let costTracking;
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 function setupDb() {
-  ({ db } = setupTestDb('budget-atomicity-'));
+  ({ db } = setupTestDbOnly('budget-atomicity-'));
   taskCore = require('../db/task-core');
   costTracking = require('../db/cost-tracking');
   costTracking.setDb(db.getDbInstance());

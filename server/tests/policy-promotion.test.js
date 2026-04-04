@@ -6,7 +6,7 @@ const profileLoader = require('../policy-engine/profile-loader');
 const profileStore = require('../policy-engine/profile-store');
 const promotion = require('../policy-engine/promotion');
 const {
-  setupTestDb,
+  setupTestDbOnly,
   teardownTestDb,
 } = require('./vitest-setup');
 
@@ -92,7 +92,7 @@ describe.skipIf(!hasSeedFile)('policy promotion', () => {
   }
 
   beforeEach(() => {
-    setupTestDb('policy-promotion');
+    setupTestDbOnly('policy-promotion');
     profileLoader.loadTorqueDefaults(projectRoot);
   });
 

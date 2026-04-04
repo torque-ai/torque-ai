@@ -2,7 +2,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const dataDir = require('../data-dir');
 
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
@@ -14,7 +14,7 @@ describe('Database backup scheduler', () => {
   let backupDataDir;
 
   beforeAll(() => {
-    const context = setupTestDb('db-backup-scheduler');
+    const context = setupTestDbOnly('db-backup-scheduler');
     db = context.db;
     testDir = context.testDir;
     templateBuffer = fs.readFileSync(TEMPLATE_BUF);

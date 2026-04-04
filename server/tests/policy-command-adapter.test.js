@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const engine = require('../policy-engine/engine');
 const { collectCommandPolicyEvidence } = require('../policy-engine/adapters/command');
 
@@ -56,7 +56,7 @@ describe('policy command adapter', () => {
     let testDir;
 
     beforeEach(() => {
-      ({ db, testDir } = setupTestDb('policy-command-adapter'));
+      ({ db, testDir } = setupTestDbOnly('policy-command-adapter'));
     });
 
     afterEach(() => {

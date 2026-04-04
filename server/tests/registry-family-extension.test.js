@@ -8,12 +8,12 @@
  * columns for pre-migration rows where they are NULL.
  */
 
-const { setupTestDb, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
 const registry = require('../models/registry');
 
 describe('registry — family + parameter_size_b on registration', () => {
   beforeAll(() => {
-    setupTestDb('registry-family-extension');
+    setupTestDbOnly('registry-family-extension');
     registry.setDb(rawDb());
   });
 

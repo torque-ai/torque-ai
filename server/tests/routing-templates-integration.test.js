@@ -1,5 +1,5 @@
 'use strict';
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 describe('analyzeTaskForRouting with routing templates', () => {
   let db;
@@ -7,7 +7,7 @@ describe('analyzeTaskForRouting with routing templates', () => {
   let templateStore;
 
   beforeAll(() => {
-    ({ db } = setupTestDb('routing-templates-integration'));
+    ({ db } = setupTestDbOnly('routing-templates-integration'));
     providerRouting = require('../db/provider-routing-core');
     templateStore = require('../routing/template-store');
 

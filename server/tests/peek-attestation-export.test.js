@@ -7,7 +7,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const { createRequire } = require('module');
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 function loadCompliance(injectedModules = {}) {
   const resolvedPath = path.resolve(__dirname, '../plugins/snapscope/handlers/compliance.js');
@@ -261,7 +261,7 @@ describe('peek attestation export api', () => {
   let createServerSpy;
 
   beforeAll(async () => {
-    ({ db } = setupTestDb('peek-attestation-export'));
+    ({ db } = setupTestDbOnly('peek-attestation-export'));
     api = require('../api-server.core');
 
     const mockServer = {

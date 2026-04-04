@@ -2,7 +2,7 @@
  * Unit tests for server/ci/watcher.js
  */
 
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const {
   watchRepo,
   stopWatch,
@@ -15,7 +15,7 @@ describe('ci watcher', () => {
   let originalPushNotification;
 
   beforeEach(() => {
-    setupTestDb('ci-watcher');
+    setupTestDbOnly('ci-watcher');
     vi.useFakeTimers();
     originalPushNotification = mcpSse.pushNotification;
     mcpSse.pushNotification = vi.fn();

@@ -9,7 +9,7 @@ const { TEST_MODELS } = require('./test-helpers');
 let db;
 let configCore;
 let monitoring;
-const { setupTestDb } = require('./vitest-setup');
+const { setupTestDbOnly } = require('./vitest-setup');
 
 function loadHostMonitoring() {
   const monitoringPath = require.resolve('../utils/host-monitoring');
@@ -93,7 +93,7 @@ function addHost(overrides = {}) {
 
 describe('host-monitoring utility module', () => {
   beforeAll(() => {
-    ({ db } = setupTestDb('host-monitoring'));
+    ({ db } = setupTestDbOnly('host-monitoring'));
     configCore = require('../db/config-core');
   });
 

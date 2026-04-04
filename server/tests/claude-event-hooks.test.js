@@ -3,7 +3,7 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const vitestSetup = require('./vitest-setup');
-const { setupTestDb, teardownTestDb } = vitestSetup;
+const { setupTestDbOnly, teardownTestDb } = vitestSetup;
 
 function makeReq(method, url, body = null) {
   const bodyStr = body ? JSON.stringify(body) : '';
@@ -43,7 +43,7 @@ let _claudeEventLog;
 
 describe('Claude Code hook bridge', () => {
   beforeEach(() => {
-    setupTestDb('claude-event-hooks');
+    setupTestDbOnly('claude-event-hooks');
     const core = require('../api-server.core');
     handleClaudeEvent = core._testing.handleClaudeEvent;
     handleClaudeFiles = core._testing.handleClaudeFiles;

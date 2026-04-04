@@ -8,7 +8,7 @@
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let db;
 let testDir;
@@ -22,7 +22,7 @@ let emitShutdownSpy;
 let emitTaskUpdatedSpy;
 
 function setupDb() {
-  ({ db, testDir } = setupTestDb('database'));
+  ({ db, testDir } = setupTestDbOnly('database'));
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
   fileTracking = require('../db/file-tracking');

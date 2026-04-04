@@ -4,7 +4,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
 let db;
@@ -13,7 +13,7 @@ let fileTracking;
 
 describe('Integration: Safeguard Cascades', () => {
   beforeAll(() => {
-    ({ db, testDir } = setupTestDb('integration-safeguards'));
+    ({ db, testDir } = setupTestDbOnly('integration-safeguards'));
     fileTracking = require('../db/file-tracking');
     fileTracking.setDb(db.getDb ? db.getDb() : db.getDbInstance());
     tm = require('../task-manager');

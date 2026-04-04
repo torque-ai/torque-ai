@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
 let db;
@@ -17,7 +17,7 @@ let queueCalls;
 let dashboardCalls;
 
 function setup() {
-  ({ db, testDir } = setupTestDb('workflow-runtime'));
+  ({ db, testDir } = setupTestDbOnly('workflow-runtime'));
 
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');

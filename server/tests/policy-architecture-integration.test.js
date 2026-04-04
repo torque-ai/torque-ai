@@ -7,7 +7,7 @@ const promotion = require('../policy-engine/promotion');
 const { loadTorqueDefaults } = require('../policy-engine/profile-loader');
 const {
   rawDb,
-  setupTestDb,
+  setupTestDbOnly,
   teardownTestDb,
 } = require('./vitest-setup');
 
@@ -45,7 +45,7 @@ describe.skipIf(!hasSeedFile)('policy architecture integration', () => {
   let testDir;
 
   beforeEach(() => {
-    ({ db, testDir } = setupTestDb('policy-architecture-integration'));
+    ({ db, testDir } = setupTestDbOnly('policy-architecture-integration'));
     loadTorqueDefaults(projectRoot);
     db.setProjectMetadata('Torque', 'policy_profile_id', 'torque-dev');
   });

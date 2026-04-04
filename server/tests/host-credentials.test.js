@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 const {
-  setupTestDb,
+  setupTestDbOnly,
   teardownTestDb,
 } = require('./vitest-setup');
 
@@ -14,7 +14,7 @@ beforeAll(() => {
   vi.spyOn(fs, 'fsyncSync').mockImplementation(() => {});
   vi.spyOn(fs, 'closeSync').mockImplementation(() => {});
 
-  const env = setupTestDb('host-credentials');
+  const env = setupTestDbOnly('host-credentials');
   db = env.db;
   hostCreds = require('../db/host-management');
   db.registerPeekHost('test-omen', 'http://192.0.2.100:9876', null, true, 'windows');

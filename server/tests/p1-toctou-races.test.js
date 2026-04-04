@@ -4,10 +4,10 @@ let taskCore;
 let mod;
 let seq = 0;
 
-const { setupTestDb, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function setup() {
-  ({ db, testDir } = setupTestDb('toctou-'));
+  ({ db, testDir } = setupTestDbOnly('toctou-'));
   taskCore = require('../db/task-core');
   if (!db.getDb && db.getDbInstance) db.getDb = db.getDbInstance;
 

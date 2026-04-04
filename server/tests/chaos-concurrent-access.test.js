@@ -10,7 +10,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 let testDir;
 let db;
@@ -20,7 +20,7 @@ let workflowEngine;
 let coordination;
 
 function setupDb() {
-  ({ db, testDir } = setupTestDb('chaos'));
+  ({ db, testDir } = setupTestDbOnly('chaos'));
   taskCore = require('../db/task-core');
   hostManagement = require('../db/host-management');
   workflowEngine = require('../db/workflow-engine');
