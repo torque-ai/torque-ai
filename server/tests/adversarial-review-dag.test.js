@@ -1,13 +1,4 @@
-const realChildProcess = require('child_process');
-const mockExecFile = vi.fn((_cmd, _args, _opts, cb) => {
-  if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
-  cb(null, 'diff output', '');
-});
-
-vi.mock('child_process', () => ({
-  ...realChildProcess,
-  execFile: (...args) => mockExecFile(...args),
-}));
+const childProcess = require('child_process');
 
 describe('adversarial-review-dag-injection', () => {
   let createStage;
@@ -22,7 +13,7 @@ describe('adversarial-review-dag-injection', () => {
     vi.restoreAllMocks();
     vi.resetModules();
 
-    mockExecFile.mockImplementation((_cmd, _args, _opts, cb) => {
+    vi.spyOn(childProcess, 'execFile').mockImplementation((_cmd, _args, _opts, cb) => {
       if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
       cb(null, 'diff output', '');
     });
