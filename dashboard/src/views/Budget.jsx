@@ -306,6 +306,28 @@ export default function Budget() {
             >
               {savingBudget ? 'Saving...' : 'Save Budget'}
             </button>
+            {budgetLimit > 0 && (
+              <button
+                type="button"
+                disabled={savingBudget}
+                onClick={async () => {
+                  setSavingBudget(true);
+                  try {
+                    await budgetApi.set({ budget_usd: 0, period: budgetForm.period, alert_threshold: 0 });
+                    toast.success('Budget removed');
+                    setShowBudgetForm(false);
+                    loadData();
+                  } catch (err) {
+                    toast.error(`Failed to remove budget: ${err.message}`);
+                  } finally {
+                    setSavingBudget(false);
+                  }
+                }}
+                className="px-4 py-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 text-sm rounded-lg disabled:opacity-50 transition-colors border border-red-600/30"
+              >
+                Remove Budget
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowBudgetForm(false)}
