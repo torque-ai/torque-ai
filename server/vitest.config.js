@@ -8,7 +8,7 @@ module.exports = defineConfig({
     hookTimeout: 15000,
     teardownTimeout: 5000,
     include: ['tests/**/*.test.js', 'plugins/**/tests/**/*.test.js'],
-    exclude: ['**/node_modules/**', '**/dist/**', 'tests/test-container.js'],
+    exclude: ['**/node_modules/**', '**/dist/**'],
     setupFiles: ['tests/worker-setup.js'],
     pool: 'forks',
     // Suppresses unhandled rejection noise from provider mocks in CI pipelines.

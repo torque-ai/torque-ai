@@ -819,7 +819,7 @@ function listQueuedTasksLightweight(limit = 1000) {
  * Delete all child records for a specific task ID from all FK-linked tables.
  */
 function _cleanOrphanedTaskChildren(taskId) {
-  const childTables = Object.freeze([
+  const childTables = new Set([
     'pipeline_steps', 'token_usage', 'retry_history', 'task_file_changes', 'task_file_writes',
     'task_streams', 'task_checkpoints', 'task_event_subscriptions', 'task_events',
     'task_suggestions', 'approval_requests', 'peek_recovery_approvals', 'task_comments', 'resource_usage',

@@ -5,7 +5,7 @@
  * for test isolation. New tests should use this instead of require('../database').
  *
  * Usage:
- *   const { createTestContainer } = require('./test-container');
+ *   const { createTestContainer } = require('./test-container-helper');
  *
  *   let container, db;
  *   beforeEach(() => {

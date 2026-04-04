@@ -78,4 +78,4 @@ function createModelRegistryHandlers(deps) {
   };
 }
 
-module.exports = { handleListModels, handleAssignModelRole, createModelRegistryHandlers };
+module.exports = { createModelRegistryHandlers };

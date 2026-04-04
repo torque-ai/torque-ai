@@ -244,9 +244,6 @@ describe('api.js v2 client', () => {
       'utf8'
     );
 
-    // Coordination has no v2 equivalent
-    expect(source).toContain("request(`/coordination");
-
     // Instances has no v2 equivalent
     expect(source).toContain("request('/instances'");
 

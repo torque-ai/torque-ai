@@ -226,12 +226,12 @@ function resolveProviderRouting(task, taskId) {
   let switchReason = null;
   if (circuitBreaker) {
     let selectedCandidate = null;
-    for (const candidate of fallbackCandidates) {
-      if (circuitBreaker.allowRequest(candidate.provider)) {
-        selectedCandidate = candidate;
+    for (let i = fallbackCandidates.length - 1; i >= 0; i--) {
+      if (circuitBreaker.allowRequest(fallbackCandidates[i].provider)) {
+        selectedCandidate = fallbackCandidates[i];
         break;
       }
-      logger.info(`Circuit open for ${candidate.provider}, skipping`);
+      logger.info(`Circuit open for ${fallbackCandidates[i].provider}, skipping`);
     }
 
     if (!selectedCandidate) {

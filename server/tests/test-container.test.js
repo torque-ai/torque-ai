@@ -1,7 +1,7 @@
 'use strict';
 
 const os = require('os');
-const { createTestContainer } = require('./test-container');
+const { createTestContainer } = require('./test-container-helper');
 
 describe('createTestContainer', () => {
   it('returns a booted container with db access', () => {
