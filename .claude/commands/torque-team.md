@@ -61,12 +61,12 @@ Set task 2 blocked by task 1.
 
 ### 5. Spawn agents
 
-For each agent to spawn, read its definition file and build the prompt:
+For each agent to spawn, read its definition file. Try project-local first, fall back to global:
 
-- Read `~/.claude/agents/torque-planner.md`
-- Read `~/.claude/agents/torque-qc.md`
-- Read `~/.claude/agents/torque-remediation.md`
-- If `spawn_ui_reviewer`: Read `~/.claude/agents/torque-ui-reviewer.md`
+- Read `.claude/agents/torque-planner.md` (project) or `~/.claude/agents/torque-planner.md` (global)
+- Read `.claude/agents/torque-qc.md` (project) or `~/.claude/agents/torque-qc.md` (global)
+- Read `.claude/agents/torque-remediation.md` (project) or `~/.claude/agents/torque-remediation.md` (global)
+- If `spawn_ui_reviewer`: Read `.claude/agents/torque-ui-reviewer.md` (project) or `~/.claude/agents/torque-ui-reviewer.md` (global)
 
 For each file, extract the markdown body (everything after the closing `---` of the YAML frontmatter). Build the agent prompt as:
 
