@@ -10,6 +10,16 @@ function createSessionManager(options = {}) {
     ? options.sessionTtlMs
     : 86400000;
   const sessions = new Map();
+  // Periodic eviction sweep - removes expired sessions every 10 minutes
+  const evictionInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [id, entry] of sessions) {
+      if (now - entry.lastAccess > sessionTtlMs) {
+        sessions.delete(id);
+      }
+    }
+  }, 600000);
+  evictionInterval.unref();
 
   function getActiveEntry(sessionId) {
     const entry = sessions.get(sessionId);
@@ -121,6 +131,11 @@ function createSessionManager(options = {}) {
     return sessions.size;
   }
 
+  function destroy() {
+    clearInterval(evictionInterval);
+    sessions.clear();
+  }
+
   return {
     createSession,
     getSession,
@@ -128,6 +143,7 @@ function createSessionManager(options = {}) {
     destroySessionsByIdentityId,
     validateCsrf,
     getSessionCount,
+    destroy,
   };
 }
 

@@ -119,6 +119,7 @@ function init(deps) {
   };
   _queueChangedListener[QUEUE_CHANGED_LISTENER_TAG] = true;
   process.on(QUEUE_CHANGED_EVENT, _queueChangedListener);
+  ensureExitCleanup();
 }
 
 function normalizeTaskStartOutcome(result) {
@@ -168,6 +169,19 @@ function stop() {
     _queueChangedListener = null;
   }
   _lastQueueProcessAt = 0;
+}
+
+// Safety net: remove listener on process exit to prevent leak during abnormal shutdown
+let _exitCleanupRegistered = false;
+function ensureExitCleanup() {
+  if (_exitCleanupRegistered) return;
+  _exitCleanupRegistered = true;
+  process.once('exit', () => {
+    if (_queueChangedListener) {
+      process.removeListener(QUEUE_CHANGED_EVENT, _queueChangedListener);
+      _queueChangedListener = null;
+    }
+  });
 }
 
 /**

@@ -8,6 +8,7 @@ const logger = require('../logger').child({ component: 'strategic-hooks' });
 
 const { resolveOllamaModel } = require('../providers/ollama-shared');
 const modelRoles = require('../db/model-roles');
+const { normalizeMetadata } = require('../utils/normalize-metadata');
 
 function getDefaultModel() {
   try { return modelRoles.getModelForRole('ollama', 'default') || null; }
@@ -15,20 +16,6 @@ function getDefaultModel() {
 }
 
 const DEFAULT_PROVIDER = 'ollama';
-
-function normalizeMetadata(rawMetadata) {
-  if (!rawMetadata) return {};
-  if (typeof rawMetadata === 'object' && !Array.isArray(rawMetadata)) {
-    return { ...rawMetadata };
-  }
-  if (typeof rawMetadata !== 'string') return {};
-  try {
-    const parsed = JSON.parse(rawMetadata);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...parsed } : {};
-  } catch {
-    return {};
-  }
-}
 
 function normalizeTags(rawTags) {
   if (Array.isArray(rawTags)) return rawTags;

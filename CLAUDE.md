@@ -264,6 +264,18 @@ Built into `/torque-submit` and `/torque-review`:
 - **Rollback** � undo task changes on failure
 - **Adaptive retry** � auto-retry with provider fallback
 
+### Default Plugins
+
+TORQUE loads three plugins by default (configured in `DEFAULT_PLUGIN_NAMES` in `server/index.js`):
+
+| Plugin | Location | Tools |
+|--------|----------|-------|
+| **snapscope** | `server/plugins/snapscope/` | `capture_screenshots`, `capture_view`, `capture_views`, `validate_manifest`, `peek_ui`, `peek_diagnose` |
+| **version-control** | `server/plugins/version-control/` | `vc_create_worktree`, `vc_list_worktrees`, `vc_switch_worktree`, `vc_merge_worktree`, `vc_cleanup_stale`, `vc_generate_commit`, `vc_commit_status`, `vc_get_policy`, `vc_prepare_pr`, `vc_create_pr`, `vc_generate_changelog`, `vc_update_changelog_file`, `vc_create_release` |
+| **remote-agents** | `server/plugins/remote-agents/` | `register_remote_agent`, `list_remote_agents`, `get_remote_agent`, `remove_remote_agent`, `check_remote_agent_health`, `run_remote_command`, `run_tests` |
+
+To disable a plugin, remove it from `DEFAULT_PLUGIN_NAMES` in `server/index.js` and restart.
+
 ### Remote Agent Federation (Plugin)
 
 Remote agent registration, health checks, and distributed test routing are provided
@@ -305,7 +317,7 @@ If the remote is unreachable or overloaded, `torque-remote` falls back to local 
 - `~/.torque-remote.json` � global config (transport, timeout, intercept list). Not in any repo.
 - `~/.torque-remote.local.json` � personal SSH details (host, user, project path). Not in any repo.
 - `.torque-remote.json` in project root � per-project override (optional, safe to commit).
-- Configure via: `set_project_defaults { test_station_host: "...", test_station_user: "...", test_station_project_path: "...", verify_command: "..." }`
+- Configure via: `set_project_defaults { remote_agent_id: "...", remote_project_path: "...", prefer_remote_tests: true, verify_command: "..." }`
 
 **If no remote is configured** (transport: "local" or no config), commands run locally as before.
 
@@ -394,6 +406,74 @@ Every task, workflow, and schedule submission to a versioned project **must** in
 ### For Direct Claude Changes
 
 When editing versioned projects outside TORQUE, **always use conventional commit messages**. The completion pipeline auto-scans for untracked commits and records them with inferred intent.
+
+## MCP Tool Reference
+
+TORQUE exposes ~200 MCP tools organized into categories. Key categories:
+
+| Category | Tools |
+|----------|-------|
+| **Core** | `ping`, `restart_server`, `await_restart`, `unlock_all_tools`, `unlock_tier` |
+| **Hashline** | `hashline_read`, `hashline_edit` |
+| **Task Submission** | `smart_submit_task`, `submit_task`, `submit_chunked_review`, `test_routing` |
+| **Task Management** | `list_tasks`, `task_info`, `cancel_task`, `check_notifications`, `subscribe_task_events`, `await_task` |
+| **Workflows** | `create_workflow`, `add_workflow_task`, `run_workflow`, `workflow_status`, `list_workflows`, `await_workflow` |
+| **Automation** | `set_project_defaults`, `get_project_defaults`, `configure_stall_detection`, `auto_verify_and_fix`, `generate_test_tasks`, `get_batch_summary`, `generate_feature_tasks`, `run_batch`, `detect_file_conflicts`, `auto_commit_batch`, `configure_quota_auto_scale` |
+| **TypeScript Tools** | `add_ts_interface_members`, `inject_class_dependency`, `add_ts_union_members`, `inject_method_calls`, `normalize_interface_formatting`, `add_ts_enum_members`, `add_ts_method_to_class`, `replace_ts_method_body`, `add_import_statement` |
+| **Orchestrator/Strategic** | `strategic_decompose`, `strategic_diagnose`, `strategic_review`, `strategic_usage`, `strategic_benchmark` |
+| **Strategic Config** | `strategic_config_get`, `strategic_config_set`, `strategic_config_templates`, `strategic_config_apply_template` |
+| **Intelligence** | `predict_failure`, `intelligence_dashboard`, `log_intelligence_outcome`, `export_metrics_prometheus`, `cache_stats`, `database_stats` |
+| **Experiments** | `submit_ab_test`, `compare_ab_test`, `create_experiment`, `experiment_status`, `conclude_experiment` |
+| **Circuit Breaker** | `get_circuit_breaker_status` |
+| **Provider Scoring** | `get_provider_scores` |
+| **Symbol Indexer** | `search_symbols`, `get_file_outline`, `index_project` |
+| **Routing Templates** | `list_routing_templates`, `get_routing_template`, `set_routing_template`, `delete_routing_template`, `activate_routing_template`, `get_active_routing` |
+| **Competitive Features** | `get_tool_schema`, `polish_task_description`, `get_symbol_source` |
+| **Templates** | `get_project_template`, `list_project_templates`, `detect_project_type` |
+| **Diffusion/Scouts** | `submit_scout`, `create_diffusion_plan`, `diffusion_status` |
+| **Comparison** | `compare_providers` |
+| **Baselines** | `capture_file_baselines`, `compare_file_baseline`, `list_rollbacks`, `list_backups`, `restore_backup`, `capture_test_baseline`, `capture_config_baselines`, `perform_auto_rollback`, `get_auto_rollback_history` |
+| **Approval** | `reject_task`, `approve_diff`, `check_approval_gate` |
+| **Governance** | `get_governance_rules`, `set_governance_rule_mode`, `toggle_governance_rule` |
+| **Policy** | `list_policies`, `get_policy`, `set_policy_mode`, `evaluate_policies`, `list_policy_evaluations`, `override_policy_decision` |
+| **Evidence/Risk** | `get_file_risk`, `get_task_risk_summary`, `set_file_risk_override`, `get_high_risk_files`, `get_verification_checks`, `get_verification_summary`, `get_adversarial_reviews`, `request_adversarial_review` |
+| **CI** | `await_ci_run`, `watch_ci_repo`, `stop_ci_watch`, `ci_run_status`, `diagnose_ci_failure`, `list_ci_runs`, `configure_ci_provider` |
+| **Concurrency** | `get_concurrency_limits`, `set_concurrency_limit` |
+| **Discovery** | `discover_models`, `list_models`, `assign_model_role`, `discover_agents` |
+| **Model Approval** | `list_pending_models`, `approve_model`, `deny_model`, `bulk_approve_models`, `configure_model_roles`, `list_model_roles` |
+| **Workstations** | `list_workstations`, `add_workstation` |
+| **Audit** | `audit_codebase`, `list_audit_runs`, `get_audit_findings`, `update_audit_finding`, `get_audit_run_summary`, `get_audit_log`, `export_audit_report`, `configure_audit` |
+| **Integration** | `full_project_audit`, `scan_project`, `task_changes`, `rollback_file`, `stash_changes`, `list_rollback_points`, `success_rates`, `compare_performance` |
+| **Advanced** | Scheduling (`create_cron_schedule`, `list_schedules`, `toggle_schedule`, `create_one_time_schedule`), Resources (`get_resource_usage`, `set_resource_limits`, `resource_report`), Artifacts (`store_artifact`, `list_artifacts`, `get_artifact`, `delete_artifact`), Debug (`set_breakpoint`, `list_breakpoints`, `clear_breakpoint`, `step_execution`, `inspect_state`), Cache (`cache_task_result`, `lookup_cache`, `invalidate_cache`, `configure_cache`, `warm_cache`), Priority (`compute_priority`, `get_priority_queue`, `configure_priority_weights`, `explain_priority`, `boost_priority`) |
+| **Context** | `get_context` |
+| **Budget** | `get_budget_status` |
+
+### TORQUE Automation Tools
+
+- **`set_project_defaults`**: Configure default provider, model, verification, privacy, review, and remote-test behavior for a project.
+  **Full `set_project_defaults` parameters:**
+  | Parameter | Type | Description |
+  |-----------|------|-------------|
+  | `working_directory` | string | Project directory (required) |
+  | `provider` | string | Default provider (codex, claude-cli, ollama, etc.) |
+  | `model` | string | Default model for this project |
+  | `verify_command` | string | Post-task verify command (e.g., "npx tsc --noEmit && npx vitest run") |
+  | `auto_fix` | boolean | Auto-fix type errors after task completion |
+  | `test_pattern` | string | Test file suffix pattern (default: ".test.ts") |
+  | `verification_ledger` | boolean | Enable structured verification ledger (default: false) |
+  | `verification_ledger_retention_days` | number | Retention period for verification ledger in days (default: 90) |
+  | `adversarial_review` | string | Adversarial review trigger mode: off, auto, always (default: off) |
+  | `adversarial_review_chain` | array | Provider chain for adversarial reviews |
+  | `adversarial_review_mode` | string | async or blocking (default: async) |
+  | `adversarial_review_timeout_seconds` | number | Timeout for blocking mode reviews (default: 300) |
+  | `step_providers` | object | Default per-step provider routing for feature workflows |
+  | `pii_guard` | object | PII guard config: enabled, builtin_categories, custom_patterns |
+  | `remote_agent_id` | string | Remote agent ID for test execution |
+  | `remote_project_path` | string | Project path on the remote agent |
+  | `prefer_remote_tests` | boolean | Route verify/test commands to remote agent |
+- **`get_project_defaults`**: Return the current default settings for a project, including provider, model, verification, and automation configuration.
+
+Use `get_tool_schema { tool_name: "<name>" }` for full parameter details on any tool.
 
 ## Best Practices
 
@@ -549,7 +629,7 @@ A rule-based evaluation engine that applies governance policies to tasks before 
 | `shadow-enforcer.js` | Shadow enforcement � logs policy violations without blocking |
 | `task-hooks.js` | Pre-submission hooks that apply policy before a task starts |
 | `task-execution-hooks.js` | Mid-execution hooks for running tasks |
-| `adapters/` | Provider-specific policy adapters |
+| `adapters/` | Domain-specific policy adapters (approval gates, release gates, file risk, architecture, etc.) |
 
 ### Shadow enforcement
 

@@ -16,6 +16,7 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'task-core' });
 const { safeJsonParse } = require('../utils/json');
+const { normalizeMetadata: normalizeMetadataObject } = require('../utils/normalize-metadata');
 const { buildTaskFilterConditions, appendWhereClause } = require('./query-filters');
 const { MAX_METADATA_SIZE } = require('../constants');
 const { ErrorCodes } = require('../handlers/error-codes');
@@ -146,25 +147,6 @@ function normalizeApprovalStatus(value) {
     return 'not_required';
   }
   return normalized;
-}
-
-function normalizeMetadataObject(value) {
-  if (value === null || value === undefined) {
-    return {};
-  }
-  if (Array.isArray(value)) {
-    return {};
-  }
-  if (typeof value === 'object') {
-    return { ...value };
-  }
-  if (typeof value === 'string') {
-    const parsed = safeJsonParse(value, null);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return { ...parsed };
-    }
-  }
-  return {};
 }
 
 function applyProviderSwitchEnrichment(sourceTask, targetProvider, additionalFields = {}, providerSwitchReason = null) {
@@ -852,6 +834,7 @@ function _cleanOrphanedTaskChildren(taskId) {
     'xaml_consistency_results', 'smoke_test_results'
   ]);
   for (const table of childTables) {
+    if (!childTables.has(table)) throw new Error(`Disallowed table: ${table}`);
     try { db.prepare(`DELETE FROM ${table} WHERE task_id = ?`).run(taskId); } catch (_e) { void _e; /* skip */ }
   }
   // Tables with non-standard FK columns

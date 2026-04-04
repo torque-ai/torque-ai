@@ -399,26 +399,26 @@ function handlePipelineStepCompletion(taskId, status) {
   const task = db.getTask(taskId);
 
   // Debug logging
-  logger.info(`[Pipeline] Checking task ${taskId} for pipeline context`);
-  logger.info(`[Pipeline] Task context: ${JSON.stringify(task?.context)}`);
+  logger.debug(`[Pipeline] Checking task ${taskId} for pipeline context`);
+  logger.debug(`[Pipeline] Task context: ${JSON.stringify(task?.context)}`);
 
   if (!task || !task.context || !task.context.pipeline_id) {
-    logger.info(`[Pipeline] Task ${taskId} is not a pipeline task (no context.pipeline_id)`);
+    logger.debug(`[Pipeline] Task ${taskId} is not a pipeline task (no context.pipeline_id)`);
     return; // Not a pipeline task
   }
 
   const pipelineId = task.context.pipeline_id;
   const stepId = task.context.step_id;
 
-  logger.info(`[Pipeline] Task ${taskId} belongs to pipeline ${pipelineId}, step ${stepId}`);
+  logger.debug(`[Pipeline] Task ${taskId} belongs to pipeline ${pipelineId}, step ${stepId}`);
 
   const pipeline = db.getPipeline(pipelineId);
   if (!pipeline) {
-    logger.info(`[Pipeline] ERROR: Pipeline ${pipelineId} not found!`);
+    logger.warn(`[Pipeline] ERROR: Pipeline ${pipelineId} not found!`);
     return;
   }
 
-  logger.info(`[Pipeline] Found pipeline: ${pipeline.name}, current_step: ${pipeline.current_step}, status: ${pipeline.status}`);
+  logger.debug(`[Pipeline] Found pipeline: ${pipeline.name}, current_step: ${pipeline.current_step}, status: ${pipeline.status}`);
 
   // Update the current step status
   const stepStatus = status === 'completed' ? 'completed' : 'failed';
@@ -427,18 +427,18 @@ function handlePipelineStepCompletion(taskId, status) {
       status: stepStatus,
       task_id: taskId
     });
-    logger.info(`[Pipeline] Updated step ${stepId} status to: ${stepStatus}`);
+    logger.debug(`[Pipeline] Updated step ${stepId} status to: ${stepStatus}`);
   } catch (err) {
-    logger.info(`[Pipeline] ERROR updating step ${stepId}:`, err.message);
+    logger.warn(`[Pipeline] ERROR updating step ${stepId}:`, err.message);
   }
 
-  logger.info(`[Pipeline] Task ${taskId} is part of pipeline ${pipelineId}, step ${stepId}`);
-  logger.info(`[Pipeline] Step status updated to: ${stepStatus}`);
+  logger.debug(`[Pipeline] Task ${taskId} is part of pipeline ${pipelineId}, step ${stepId}`);
+  logger.debug(`[Pipeline] Step status updated to: ${stepStatus}`);
 
   if (status === 'completed') {
     // Check for next step
     const nextStep = db.getNextPipelineStep(pipelineId);
-    logger.info(`[Pipeline] Next step: ${nextStep ? nextStep.name : 'none (pipeline complete)'}`);
+    logger.debug(`[Pipeline] Next step: ${nextStep ? nextStep.name : 'none (pipeline complete)'}`);
 
     if (nextStep) {
       // Start next step
@@ -463,16 +463,16 @@ function handlePipelineStepCompletion(taskId, status) {
 
       db.updatePipelineStatus(pipelineId, 'running', { current_step: nextStep.step_order });
 
-      logger.info(`[Pipeline] Created task ${newTaskId} for step ${nextStep.step_order}: ${nextStep.name}`);
+      logger.debug(`[Pipeline] Created task ${newTaskId} for step ${nextStep.step_order}: ${nextStep.name}`);
 
       // Start the next task
       try {
         const startResult = _startTask(newTaskId);
         const stepStatus = isQueuedStartResult(startResult) ? 'queued' : 'running';
         db.updatePipelineStep(nextStep.id, { task_id: newTaskId, status: stepStatus });
-        logger.info(`[Pipeline] ${stepStatus === 'queued' ? 'Queued' : 'Started'} task ${newTaskId} for step ${nextStep.step_order}`);
+        logger.debug(`[Pipeline] ${stepStatus === 'queued' ? 'Queued' : 'Started'} task ${newTaskId} for step ${nextStep.step_order}`);
       } catch (err) {
-        logger.info(`[Pipeline] Failed to start pipeline step ${nextStep.step_order}:`, err.message);
+        logger.warn(`[Pipeline] Failed to start pipeline step ${nextStep.step_order}:`, err.message);
         db.updatePipelineStatus(pipelineId, 'failed', { error: err.message });
       }
     } else {
