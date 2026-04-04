@@ -239,7 +239,7 @@ describe('api.js v2 client', () => {
     expect(source).toContain("requestV2(`/tasks");
   });
 
-  it('legacy-only endpoints still use request()', () => {
+  it('all endpoints have been migrated to v2', () => {
     const fs = require('fs');
     const path = require('path');
     const source = fs.readFileSync(
@@ -247,8 +247,9 @@ describe('api.js v2 client', () => {
       'utf8'
     );
 
-    // Verify legacy request() is still used for some endpoints
-    expect(source).toContain('request(');
+    // All endpoints now use requestV2 — legacy migration is complete
+    expect(source).toContain('requestV2(');
+    expect(source).not.toMatch(/[^V2]\brequest\(/);
   });
 });
 
