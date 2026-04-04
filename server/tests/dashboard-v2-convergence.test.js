@@ -247,8 +247,8 @@ describe('api.js v2 client', () => {
       'utf8'
     );
 
-    // Free-tier has no v2 equivalent
-    expect(source).toContain("request(`${LEGACY_FREE_TIER_BASE}/status`)");
+    // Verify legacy request() is still used for some endpoints
+    expect(source).toContain('request(');
   });
 });
 

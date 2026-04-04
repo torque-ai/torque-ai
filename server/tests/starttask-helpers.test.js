@@ -38,6 +38,8 @@ function setup() {
   // provider. These tests verify routing decisions, not fallback execution.
   db.setConfig('codex_enabled', '0');
   db.setConfig('claude_cli_enabled', '0');
+  // Clear any active routing template so it doesn't override provider decisions
+  db.prepare("DELETE FROM config WHERE key = 'active_routing_template'").run();
 }
 
 async function cleanup() {
