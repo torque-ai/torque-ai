@@ -1,0 +1,52 @@
+{
+  "name": "Codex Primary",
+  "description": "Codex for everything, fallback to Claude CLI then local Ollama",
+  "rules": {
+    "security": [
+      {"provider": "codex"},
+      {"provider": "claude-cli"},
+      {"provider": "ollama"}
+    ],
+    "xaml_wpf": [
+      {"provider": "codex"},
+      {"provider": "claude-cli"},
+      {"provider": "ollama"}
+    ],
+    "architectural": [
+      {"provider": "codex"},
+      {"provider": "claude-cli"},
+      {"provider": "ollama"}
+    ],
+    "reasoning": [
+      {"provider": "codex"},
+      {"provider": "claude-cli"},
+      {"provider": "ollama"}
+    ],
+    "large_code_gen": [
+      {"provider": "codex"},
+      {"provider": "claude-cli"},
+      {"provider": "ollama"}
+    ],
+    "documentation": [
+      {"provider": "codex"},
+      {"provider": "claude-cli"},
+      {"provider": "ollama"}
+    ],
+    "simple_generation": [
+      {"provider": "codex"},
+      {"provider": "claude-cli"},
+      {"provider": "ollama"}
+    ],
+    "targeted_file_edit": [
+      {"provider": "codex"},
+      {"provider": "claude-cli"},
+      {"provider": "ollama"}
+    ],
+    "default": [
+      {"provider": "codex"},
+      {"provider": "claude-cli"},
+      {"provider": "ollama"}
+    ]
+  },
+  "complexity_overrides": {}
+}
