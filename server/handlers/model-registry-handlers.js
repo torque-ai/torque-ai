@@ -1,5 +1,11 @@
 'use strict';
 
+let _deps = {};
+
+function init(deps = {}) {
+  _deps = { ...deps };
+}
+
 function handleListModels(args, deps) {
   const db = deps?.db || require('../database').getDbInstance();
   const provider = args?.provider;
@@ -78,4 +84,9 @@ function createModelRegistryHandlers(deps) {
   };
 }
 
-module.exports = { createModelRegistryHandlers };
+module.exports = {
+  init,
+  createModelRegistryHandlers,
+  handleListModels: (args) => handleListModels(args, _deps),
+  handleAssignModelRole: (args) => handleAssignModelRole(args, _deps),
+};

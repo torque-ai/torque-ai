@@ -232,6 +232,9 @@ describe('api.js v2 client', () => {
     // Schedules should use v2
     expect(source).toContain("requestV2('/schedules')");
 
+    // Instances should use v2
+    expect(source).toContain("requestV2('/instances'");
+
     // Tasks should use v2 for list
     expect(source).toContain("requestV2(`/tasks");
   });
@@ -243,9 +246,6 @@ describe('api.js v2 client', () => {
       path.join(__dirname, '..', '..', 'dashboard', 'src', 'api.js'),
       'utf8'
     );
-
-    // Instances has no v2 equivalent
-    expect(source).toContain("request('/instances'");
 
     // Free-tier has no v2 equivalent
     expect(source).toContain("request(`${LEGACY_FREE_TIER_BASE}/status`)");

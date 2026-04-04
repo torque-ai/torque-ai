@@ -34,6 +34,10 @@ function setup() {
   tm = ctx.tm;
   // Ensure ample concurrency so tasks reach the helpers under test
   db.setConfig('max_concurrent', '10');
+  // Disable cloud fallbacks so execution failures do not rewrite the routed
+  // provider. These tests verify routing decisions, not fallback execution.
+  db.setConfig('codex_enabled', '0');
+  db.setConfig('claude_cli_enabled', '0');
 }
 
 async function cleanup() {
@@ -858,6 +862,12 @@ describe('resolveProviderRouting (via startTask)', () => {
       delete require.cache[taskManagerPath];
       tm = require('../task-manager');
       ctx.tm = tm;
+      if (typeof tm.initEarlyDeps === 'function') {
+        tm.initEarlyDeps();
+      }
+      if (typeof tm.initSubModules === 'function') {
+        tm.initSubModules();
+      }
       if (tm._testing && tm._testing.resetForTest) {
         tm._testing.resetForTest();
         tm._testing.skipGitInCloseHandler = true;
