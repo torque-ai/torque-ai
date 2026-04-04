@@ -440,8 +440,10 @@ describe('Item 23: pending_provider_switch in workflow lifecycle', () => {
 
   // Integration test skipped: db.resetForTest not exported via CJS require path.
   // cancelDependentTasks coverage is in workflow-runtime.test.js unit tests instead.
-  // Integration test skipped: db.resetForTest not exported via CJS require path.
-  // cancelDependentTasks coverage is in workflow-runtime.test.js unit tests instead.
+  // SKIP REASON: db.resetForTest is not exported via the CJS require path used here.
+  // This test needs the DI container's resetForTest() which is only accessible via
+  // container.get('db'). cancelDependentTasks has unit test coverage in
+  // workflow-runtime.test.js instead. Unskip when DI migration is complete.
   describe.skip('cancelDependentTasks cancels pending_provider_switch tasks', () => {
     const path = require('path');
     const os = require('os');

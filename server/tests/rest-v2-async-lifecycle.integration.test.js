@@ -1,3 +1,5 @@
+// SKIP REASON: Requires a running TORQUE server with an async-capable provider.
+// Set TORQUE_INTEGRATION_BASE_URL, _KEY, _ASYNC_PROVIDER, _ASYNC_MODEL to enable.
 const BASE_URL = (process.env.TORQUE_INTEGRATION_BASE_URL || '').trim();
 const API_KEY = process.env.TORQUE_INTEGRATION_KEY || '';
 const ASYNC_PROVIDER = (process.env.TORQUE_INTEGRATION_ASYNC_PROVIDER || '').trim();

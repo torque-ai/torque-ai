@@ -1,3 +1,5 @@
+// SKIP REASON: Requires a running TORQUE server with 2 providers configured.
+// Set TORQUE_INTEGRATION_BASE_URL, _KEY, _CONCURRENCY_PROVIDER_A/B, _MODEL_A/B to enable.
 const BASE_URL = (process.env.TORQUE_INTEGRATION_BASE_URL || '').trim();
 const API_KEY = process.env.TORQUE_INTEGRATION_KEY || '';
 const PROVIDER_A = (process.env.TORQUE_INTEGRATION_CONCURRENCY_PROVIDER_A || '').trim();

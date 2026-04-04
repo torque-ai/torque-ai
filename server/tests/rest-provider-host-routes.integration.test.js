@@ -1,3 +1,5 @@
+// SKIP REASON: Requires a running TORQUE server. Set TORQUE_INTEGRATION_BASE_URL
+// and TORQUE_INTEGRATION_KEY env vars to enable. Skipped in CI/unit test runs.
 const BASE_URL = (process.env.TORQUE_INTEGRATION_BASE_URL || '').trim();
 const API_KEY = process.env.TORQUE_INTEGRATION_KEY || '';
 const TEST_HOST_ID = process.env.TORQUE_INTEGRATION_HOST_ID || 'non-existent-host-for-route-check';

@@ -164,7 +164,7 @@ describe('Close Phases', () => {
       expect(ctx.status).toBe('completed');
     });
 
-    it.skip('detects quality issues and reverts files, sets status=failed (disabled — was aider-only)', () => {
+    it('detects quality issues and reverts files, sets status=failed', () => {
       mockExecFileSync.mockImplementation((cmd, args) => {
         if (args[0] === 'diff' && args[1] === '--name-only') return 'src/foo.js\n';
         if (args[0] === 'show') return 'line1\nline2\nline3\n';
