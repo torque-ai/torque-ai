@@ -1,4 +1,12 @@
-const childProcess = require('child_process');
+const mockExecFile = vi.fn((_cmd, _args, _opts, cb) => {
+  if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
+  cb(null, 'diff output', '');
+});
+
+vi.mock('child_process', async (importOriginal) => {
+  const original = await importOriginal();
+  return { ...original, execFile: mockExecFile };
+});
 
 describe('adversarial-review-dag-injection', () => {
   let createStage;
@@ -9,22 +17,8 @@ describe('adversarial-review-dag-injection', () => {
   let mockProjectConfig;
   let mockWorkflowEngine;
 
-  beforeAll(() => {
-    vi.spyOn(childProcess, 'execFile').mockImplementation((_cmd, _args, _opts, cb) => {
-      if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
-      cb(null, 'diff output', '');
-    });
-  });
-
-  afterAll(() => {
-    vi.restoreAllMocks();
-  });
-
   beforeEach(() => {
-    childProcess.execFile.mockImplementation((_cmd, _args, _opts, cb) => {
-      if (typeof _opts === 'function') { cb = _opts; _opts = {}; }
-      cb(null, 'diff output', '');
-    });
+    mockExecFile.mockClear();
 
     mockAdversarialReviews = { insertReview: vi.fn() };
     mockFileRiskAdapter = { scoreAndPersist: vi.fn().mockReturnValue([]) };
