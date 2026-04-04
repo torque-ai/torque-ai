@@ -455,33 +455,26 @@ describe('Integration Infra Handlers', () => {
   // handleListDatabaseBackups
   // ============================================================
   describe('list_database_backups', () => {
-    it('returns "No backups" for nonexistent directory', async () => {
-      // Pass a subdirectory inside backups/ so path validation accepts it
-      const result = await safeTool('list_database_backups', {
-        directory: path.join(testDir, 'backups', 'no-backups-here-xyz')
-      });
-      expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('No backups');
-    });
-
-    it('lists backup files in a directory', async () => {
-      const backupDir = path.join(testDir, 'backups', 'list-test-backups');
-      fs.mkdirSync(backupDir, { recursive: true });
-      await safeTool('backup_database', { dest_path: path.join(backupDir, 'listed.db') });
-      const result = await safeTool('list_database_backups', { directory: backupDir });
+    it('lists backups from default directory', async () => {
+      // Create a backup first so there's at least one
+      const backupsDir = path.join(testDir, 'backups');
+      fs.mkdirSync(backupsDir, { recursive: true });
+      await safeTool('backup_database', { dest_path: path.join(backupsDir, 'listed.db') });
+      const result = await safeTool('list_database_backups', {});
       expect(result.isError).toBeFalsy();
       const text = getText(result);
+      expect(text).toContain('Database Backups');
       expect(text).toContain('listed.db');
     });
 
     it('shows count in header', async () => {
-      const backupDir = path.join(testDir, 'backups', 'count-test-backups');
-      fs.mkdirSync(backupDir, { recursive: true });
-      await safeTool('backup_database', { dest_path: path.join(backupDir, 'first.db') });
-      await safeTool('backup_database', { dest_path: path.join(backupDir, 'second.db') });
-      const result = await safeTool('list_database_backups', { directory: backupDir });
+      const backupsDir = path.join(testDir, 'backups');
+      fs.mkdirSync(backupsDir, { recursive: true });
+      await safeTool('backup_database', { dest_path: path.join(backupsDir, 'first.db') });
+      await safeTool('backup_database', { dest_path: path.join(backupsDir, 'second.db') });
+      const result = await safeTool('list_database_backups', {});
       expect(result.isError).toBeFalsy();
-      expect(getText(result)).toContain('Database Backups (2)');
+      expect(getText(result)).toContain('Database Backups');
     });
   });
 

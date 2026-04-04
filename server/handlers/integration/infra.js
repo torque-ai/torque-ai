@@ -226,7 +226,7 @@ async function handleRestoreDatabase(args) {
 
 function handleListDatabaseBackups(args) {
   try {
-    const backups = backupCore.listBackups(args.directory);
+    const backups = backupCore.listBackups();
     if (backups.length === 0) {
       return { content: [{ type: 'text', text: '## Database Backups\n\nNo backups found.' }] };
     }
