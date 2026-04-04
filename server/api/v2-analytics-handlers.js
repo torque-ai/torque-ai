@@ -469,13 +469,17 @@ async function handleSetBudget(req, res) {
 
   try {
     if (budgetUsd === 0) {
-      // Clear budget
-      if (typeof costTracking.clearBudget === 'function') {
-        costTracking.clearBudget(body.provider || null);
-      } else if (typeof costTracking.setBudget === 'function') {
-        costTracking.setBudget(body.name || 'Monthly Budget', 0, body.provider || null, body.period || 'monthly', 0);
+      // Clear all budgets
+      const budgets = costTracking.getBudgetStatus ? costTracking.getBudgetStatus() : [];
+      const arr = Array.isArray(budgets) ? budgets : budgets ? [budgets] : [];
+      let deleted = 0;
+      for (const b of arr) {
+        if (b.id && typeof costTracking.deleteBudget === 'function') {
+          costTracking.deleteBudget(b.id);
+          deleted++;
+        }
       }
-      sendSuccess(res, requestId, { cleared: true }, 200, req);
+      sendSuccess(res, requestId, { cleared: true, deleted }, 200, req);
       return;
     }
     const result = costTracking.setBudget(
