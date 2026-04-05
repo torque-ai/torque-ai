@@ -234,8 +234,13 @@ async function handleModelStats(req, res) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   try {
-    const { defaultContainer } = require('../container');
-    const sqlDb = defaultContainer.get('db');
+    let sqlDb;
+    try {
+      const { defaultContainer } = require('../container');
+      sqlDb = defaultContainer.get('db');
+    } catch (_e) {
+      sqlDb = require('../database');
+    }
     if (!sqlDb || !sqlDb.prepare) {
       return sendSuccess(res, requestId, { models: [], days }, 200, req);
     }

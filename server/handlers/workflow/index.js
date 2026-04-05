@@ -32,11 +32,19 @@ const { safeJsonParse } = require('../../utils/json');
 const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
 
 function getTaskCore() {
-  return defaultContainer.get('taskCore');
+  try {
+    return defaultContainer.get('taskCore');
+  } catch (_e) {
+    return require('../../database');
+  }
 }
 
 function getRawDb() {
-  return defaultContainer.get('db');
+  try {
+    return defaultContainer.get('db');
+  } catch (_e) {
+    return require('../../database');
+  }
 }
 
 const workflowTemplates = require('./templates');

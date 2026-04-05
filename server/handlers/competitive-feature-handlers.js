@@ -56,8 +56,13 @@ async function handleListProjectTemplates(_args) {
 
 async function handleGetProviderScores(args) {
   const scoring = require('../db/provider-scoring');
-  const { defaultContainer } = require('../container');
-  const inst = defaultContainer.get('db');
+  let inst;
+  try {
+    const { defaultContainer } = require('../container');
+    inst = defaultContainer.get('db');
+  } catch (_e) {
+    inst = require('../database');
+  }
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   scoring.init(inst);
   const trustedOnly = args.trusted_only !== false;
@@ -114,8 +119,13 @@ async function handlePolishTaskDescription(args) {
 
 async function handleIndexProject(args) {
   const indexer = require('../utils/symbol-indexer');
-  const { defaultContainer } = require('../container');
-  const inst = defaultContainer.get('db');
+  let inst;
+  try {
+    const { defaultContainer } = require('../container');
+    inst = defaultContainer.get('db');
+  } catch (_e) {
+    inst = require('../database');
+  }
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   const workingDir = args.working_directory;
   if (!workingDir) return { content: [{ type: 'text', text: 'working_directory is required' }], isError: true };
@@ -131,8 +141,13 @@ async function handleIndexProject(args) {
 
 async function handleSearchSymbols(args) {
   const indexer = require('../utils/symbol-indexer');
-  const { defaultContainer } = require('../container');
-  const inst = defaultContainer.get('db');
+  let inst;
+  try {
+    const { defaultContainer } = require('../container');
+    inst = defaultContainer.get('db');
+  } catch (_e) {
+    inst = require('../database');
+  }
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   indexer.init(inst);
   const results = indexer.searchSymbols(args.query || '', args.working_directory || '', {
@@ -154,8 +169,13 @@ async function handleSearchSymbols(args) {
 
 async function handleGetSymbolSource(args) {
   const indexer = require('../utils/symbol-indexer');
-  const { defaultContainer } = require('../container');
-  const inst = defaultContainer.get('db');
+  let inst;
+  try {
+    const { defaultContainer } = require('../container');
+    inst = defaultContainer.get('db');
+  } catch (_e) {
+    inst = require('../database');
+  }
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   indexer.init(inst);
   const result = indexer.getSymbolSource(args.symbol_id);
@@ -168,8 +188,13 @@ async function handleGetSymbolSource(args) {
 
 async function handleGetFileOutline(args) {
   const indexer = require('../utils/symbol-indexer');
-  const { defaultContainer } = require('../container');
-  const inst = defaultContainer.get('db');
+  let inst;
+  try {
+    const { defaultContainer } = require('../container');
+    inst = defaultContainer.get('db');
+  } catch (_e) {
+    inst = require('../database');
+  }
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   indexer.init(inst);
   const results = indexer.getFileOutline(args.file_path || '', args.working_directory || '');

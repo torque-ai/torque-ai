@@ -363,7 +363,7 @@ describe('handler:workflow-handlers', () => {
       vi.spyOn(database, 'createTask').mockReturnValue(undefined);
       vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'startTask').mockReturnValue({ queued: true });
-      vi.spyOn(taskCore, 'getTask').mockReturnValue({ status: 'pending' });
+      vi.spyOn(database, 'getTask').mockReturnValue({ status: 'pending' });
 
       const result = handlers.handleAddWorkflowTask({
         workflow_id: 'wf-1',
@@ -506,7 +506,7 @@ describe('handler:workflow-handlers', () => {
       const updateTaskStatusSpy = vi.spyOn(database, 'updateTaskStatus').mockReturnValue(undefined);
       // Track call counts to distinguish pre-start check from post-start classification
       const getTaskCallCount = {};
-      vi.spyOn(taskCore, 'getTask').mockImplementation((taskId) => {
+      vi.spyOn(database, 'getTask').mockImplementation((taskId) => {
         getTaskCallCount[taskId] = (getTaskCallCount[taskId] || 0) + 1;
         const isPreCheck = getTaskCallCount[taskId] === 1;
         if (taskId === 't1') return { id: 't1', status: isPreCheck ? 'pending' : 'running' };
@@ -556,6 +556,11 @@ describe('handler:workflow-handlers', () => {
         return null;
       });
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(database, 'getTask').mockImplementation((id) => {
+        if (id === 't1') return { id: 't1', status: 'pending' };
+        if (id === 't2') return { id: 't2', status: 'running' };
+        return null;
+      });
       vi.spyOn(taskManager, 'startTask')
         .mockReturnValueOnce({ queued: true })
         .mockReturnValueOnce(undefined);
@@ -594,6 +599,11 @@ describe('handler:workflow-handlers', () => {
         return null;
       });
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(database, 'getTask').mockImplementation((id) => {
+        if (id === 't1') return { id: 't1', status: 'pending' };
+        if (id === 't2') return { id: 't2', status: 'running' };
+        return null;
+      });
       vi.spyOn(taskManager, 'startTask')
         .mockImplementationOnce(() => { throw new Error('capacity'); })
         .mockImplementationOnce(() => undefined);
@@ -630,6 +640,7 @@ describe('handler:workflow-handlers', () => {
         return null;
       });
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(database, 'getTask').mockReturnValue({ id: 't1', status: 'running' });
       vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
       vi.spyOn(shadowEnforcer, 'isEngineEnabled').mockReturnValue(true);
       vi.spyOn(shadowEnforcer, 'isShadowOnly').mockReturnValue(false);
@@ -767,13 +778,15 @@ describe('handler:workflow-handlers', () => {
   describe('handleCancelWorkflow', () => {
     it('cancels running/pending/blocked/queued tasks and records cancellation reason', () => {
       vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'WF' });
-      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
-        { id: 'run-1', status: 'running' },
-        { id: 'pen-1', status: 'pending' },
-        { id: 'blk-1', status: 'blocked' },
-        { id: 'que-1', status: 'queued' },
-        { id: 'done-1', status: 'completed' }
-      ]);
+      const taskMap = {
+        'run-1': { id: 'run-1', status: 'running' },
+        'pen-1': { id: 'pen-1', status: 'pending' },
+        'blk-1': { id: 'blk-1', status: 'blocked' },
+        'que-1': { id: 'que-1', status: 'queued' },
+        'done-1': { id: 'done-1', status: 'completed' },
+      };
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue(Object.values(taskMap));
+      vi.spyOn(database, 'getTask').mockImplementation((id) => taskMap[id] || null);
       vi.spyOn(taskManager, 'cancelTask').mockReturnValue(undefined);
       const updateTaskStatusSpy = vi.spyOn(database, 'updateTaskStatus').mockReturnValue(undefined);
       const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
@@ -1076,6 +1089,11 @@ describe('handler:workflow-handlers', () => {
         { id: 't2', status: 'blocked' },
         { id: 't3', status: 'pending' }
       ]);
+      vi.spyOn(database, 'getTask').mockImplementation((id) => {
+        if (id === 't1') return { id: 't1', status: 'pending' };
+        if (id === 't3') return { id: 't3', status: 'running' };
+        return null;
+      });
       vi.spyOn(taskManager, 'startTask')
         .mockImplementationOnce(() => { throw new Error('busy'); })
         .mockImplementationOnce(() => undefined);

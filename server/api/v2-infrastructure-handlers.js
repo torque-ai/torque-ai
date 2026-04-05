@@ -474,8 +474,13 @@ let _cachedRegistry = null;
 function _resetRegistryCache() { _cachedRegistry = null; }
 function _getRegistry() {
   if (_cachedRegistry) return _cachedRegistry;
-  const { defaultContainer } = require('../container');
-  const rawDb = defaultContainer.get('db');
+  let rawDb;
+  try {
+    const { defaultContainer } = require('../container');
+    rawDb = defaultContainer.get('db');
+  } catch (_e) {
+    rawDb = require('../database');
+  }
   if (!rawDb || typeof rawDb.prepare !== 'function') return null;
 
   const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');

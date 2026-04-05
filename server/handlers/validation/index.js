@@ -539,7 +539,11 @@ function handleApproveDiff(args) {
 function handleConfigureDiffPreview(args) {
   const { required } = args;
 
-  defaultContainer.get('databaseFacade').setConfig('diff_preview_required', required ? '1' : '0');
+  try {
+    defaultContainer.get('databaseFacade').setConfig('diff_preview_required', required ? '1' : '0');
+  } catch (_e) {
+    require('../../database').setConfig('diff_preview_required', required ? '1' : '0');
+  }
 
   return {
     content: [{
@@ -747,7 +751,11 @@ function handleGetBuildResult(args) {
 function handleConfigureBuildCheck(args) {
   const { enabled } = args;
 
-  defaultContainer.get('databaseFacade').setConfig('build_check_enabled', enabled ? '1' : '0');
+  try {
+    defaultContainer.get('databaseFacade').setConfig('build_check_enabled', enabled ? '1' : '0');
+  } catch (_e) {
+    require('../../database').setConfig('build_check_enabled', enabled ? '1' : '0');
+  }
 
   return {
     content: [{
