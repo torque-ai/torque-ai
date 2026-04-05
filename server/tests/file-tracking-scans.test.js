@@ -11,6 +11,7 @@ const scans = require('../db/file-tracking-scans');
 
 let dbModule;
 let db;
+let testDir;
 let existsSyncMock;
 let readdirSyncMock;
 let readFileSyncMock;
@@ -202,7 +203,7 @@ function createMockProcess({ stdout = '', stderr = '', closeCode, exitCode, erro
 
 describe('db/file-tracking-scans', () => {
   beforeAll(() => {
-    ({ db: dbModule } = setupTestDbOnly('file-tracking-scans'));
+    ({ db: dbModule, testDir } = setupTestDbOnly('file-tracking-scans'));
     db = dbModule.getDbInstance();
     ensureScanTables(db);
     scans.setDb(db);
@@ -500,7 +501,7 @@ describe('db/file-tracking-scans', () => {
   it('runAppSmokeTest stores both passing and failing runs based on spawned exit codes', async () => {
     const successTaskId = makeTaskId('smoke-pass');
     const failureTaskId = makeTaskId('smoke-fail');
-    const workingDirectory = 'C:\\repo\\smoke-app';
+    const workingDirectory = testDir;
 
     mkTask(dbModule, { id: successTaskId, working_directory: workingDirectory });
     mkTask(dbModule, { id: failureTaskId, working_directory: workingDirectory });
