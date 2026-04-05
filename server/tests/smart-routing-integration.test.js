@@ -400,7 +400,7 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
 
   it('returns actionable workflow subscription metadata when smart submit auto-decomposes', async () => {
     vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
-      provider: 'codex',
+      provider: 'ollama',
       complexity: 'complex',
       reason: 'Complex C# task',
       rule: null,

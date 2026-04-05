@@ -1124,7 +1124,7 @@ describe('integration routing handlers', () => {
     });
 
     it('auto-decomposes large JS files into function batches', async () => {
-      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(620));
+      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(1600));
       mockTaskManager.extractJsFunctionBoundaries.mockReturnValueOnce([
         { name: 'alpha', startLine: 1, endLine: 80, lineCount: 80 },
         { name: 'beta', startLine: 81, endLine: 160, lineCount: 80 },
