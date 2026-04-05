@@ -1,10 +1,29 @@
 'use strict';
 
-const childProcess = require('child_process');
 const { promisify } = require('util');
 const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 let CHECKERS;
 let createGovernanceHooks;
+
+// Mutable result object — updated per-test
+let _execFileResult = { stdout: '', stderr: '' };
+let _execFileSpy = vi.fn();
+
+// Mock child_process BEFORE hooks.js loads — promisify will use our mock
+vi.mock('child_process', async (importOriginal) => {
+  const original = await importOriginal();
+  const mockExecFile = vi.fn((_file, _args, _options, callback) => {
+    if (typeof _options === 'function') _options(null, _execFileResult.stdout, _execFileResult.stderr);
+    else if (typeof callback === 'function') callback(null, _execFileResult.stdout, _execFileResult.stderr);
+  });
+  mockExecFile[promisify.custom] = async (..._args) => {
+    _execFileSpy(..._args);
+    return _execFileResult;
+  };
+  return { ...original, execFile: mockExecFile };
+});
+
+const childProcess = require('child_process');
 
 function loadHooksModule() {
   const resolved = require.resolve('../governance/hooks');
@@ -26,15 +45,10 @@ function createLoggerMock() {
   };
 }
 
-// Global mock function that gets updated per-test by mockExecFileSuccess
-let _execFileResult = { stdout: '', stderr: '' };
-// Set promisify.custom BEFORE any module loads — this is what hooks.js captures
-childProcess.execFile[promisify.custom] = async (..._args) => _execFileResult;
-
 function mockExecFileSuccess(stdout = '', stderr = '') {
   _execFileResult = { stdout, stderr };
-  const mock = vi.spyOn(childProcess, 'execFile');
-  return mock;
+  _execFileSpy = vi.fn();
+  return _execFileSpy;
 }
 
 function createGovernanceRulesStore(dbHandle) {
@@ -384,7 +398,8 @@ describe('governance/hooks', () => {
     });
 
     it('checkPushedBeforeRemote skips local execution tasks', async () => {
-      const execSpy = vi.spyOn(childProcess, 'execFile');
+      _execFileSpy = vi.fn();
+      const execSpy = _execFileSpy;
 
       const result = await CHECKERS.checkPushedBeforeRemote({
         id: 'remote-1',
@@ -414,7 +429,7 @@ describe('governance/hooks', () => {
         encoding: 'utf8',
         timeout: 5000,
         windowsHide: true,
-      }, expect.any(Function));
+      });
     });
 
     it('checkPushedBeforeRemote passes when no unpushed commits exist', async () => {
@@ -483,7 +498,7 @@ describe('governance/hooks', () => {
         encoding: 'utf8',
         timeout: 5000,
         windowsHide: true,
-      }, expect.any(Function));
+      });
     });
 
     it('checkDiffAfterCodex skips non-codex providers', async () => {

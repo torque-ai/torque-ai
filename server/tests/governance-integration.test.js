@@ -1,8 +1,25 @@
 'use strict';
 /* global describe, it, expect, beforeEach, afterEach, vi */
 
-const childProcess = require('child_process');
 const { promisify } = require('util');
+
+let _execFileResult = { stdout: '', stderr: '' };
+let _execFileSpy = vi.fn();
+
+vi.mock('child_process', async (importOriginal) => {
+  const original = await importOriginal();
+  const mockExecFile = vi.fn((_file, _args, _options, callback) => {
+    if (typeof _options === 'function') _options(null, _execFileResult.stdout, _execFileResult.stderr);
+    else if (typeof callback === 'function') callback(null, _execFileResult.stdout, _execFileResult.stderr);
+  });
+  mockExecFile[promisify.custom] = async (..._args) => {
+    _execFileSpy(..._args);
+    return _execFileResult;
+  };
+  return { ...original, execFile: mockExecFile };
+});
+
+const childProcess = require('child_process');
 
 function installMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -29,15 +46,10 @@ function getText(result) {
   return result?.content?.[0]?.text || '';
 }
 
-// Global mock result updated per-test
-let _execFileResult = { stdout: '', stderr: '' };
-// Set promisify.custom BEFORE module load
-childProcess.execFile[promisify.custom] = async (..._args) => _execFileResult;
-
 function mockExecFileSuccess(stdout = '', stderr = '') {
   _execFileResult = { stdout, stderr };
-  const mock = vi.spyOn(childProcess, 'execFile');
-  return mock;
+  _execFileSpy = vi.fn();
+  return _execFileSpy;
 }
 
 function createLoggerMock() {
@@ -354,6 +366,6 @@ describe('governance integration', () => {
       encoding: 'utf8',
       timeout: 5000,
       windowsHide: true,
-    }, expect.any(Function));
+    });
   });
 });
