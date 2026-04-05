@@ -28,13 +28,12 @@ function createLoggerMock() {
 
 function mockExecFileSuccess(stdout = '', stderr = '') {
   const mock = vi.spyOn(childProcess, 'execFile').mockImplementation((_file, _args, _options, callback) => {
-    callback(null, stdout, stderr);
+    if (typeof _options === 'function') {
+      _options(null, stdout, stderr); // callback in 3rd position
+    } else if (typeof callback === 'function') {
+      callback(null, stdout, stderr);
+    }
   });
-  const customFn = vi.fn(async () => ({ stdout, stderr }));
-  mock[promisify.custom] = customFn;
-  // Also set on the installed property directly — vitest spy may be a different
-  // reference from what childProcess.execFile points to after spyOn.
-  childProcess.execFile[promisify.custom] = customFn;
   return mock;
 }
 
