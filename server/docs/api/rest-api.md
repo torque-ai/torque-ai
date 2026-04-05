@@ -12,13 +12,15 @@ The API binds to localhost only. It is not accessible from other machines.
 
 ## Authentication
 
-Authentication is optional. When configured, include the API key in the `X-Torque-Key` header.
+Authentication is optional. When configured through the enterprise auth plugin, include the API key in the `X-Torque-Key` header.
 
-### Set an API Key
+### Project Defaults
 
-```
-configure { key: "api_key", value: "your-secret-key" }
-```
+Project defaults are the primary configuration mechanism for provider and runtime behavior:
+
+    set_project_defaults { working_directory: "/path/to/project", provider: "codex" }
+
+API key management is handled by the enterprise auth plugin when enabled. See the Authentication section in `CLAUDE.md` for setup details.
 
 ### Using the Key
 
@@ -88,15 +90,13 @@ Maps to `smart_submit_task`. Automatically selects the best provider.
 
 **Request body:**
 
-```json
-{
-  "task": "Write unit tests for src/utils/parser.js",
-  "working_directory": "/path/to/project",
-  "provider": "hashline-ollama",
-  "model": "codellama",
-  "priority": 5
-}
-```
+    {
+      "task": "Write unit tests for src/utils/parser.js",
+      "working_directory": "/path/to/project",
+      "provider": "ollama",
+      "model": "qwen3-coder:30b",
+      "priority": 5
+    }
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -349,3 +349,43 @@ Both servers enforce a 10MB request body limit. Requests exceeding this limit re
 | 401 | Unauthorized (missing or invalid API key) |
 | 404 | Not found |
 | 500 | Server error |
+
+## Discovery Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/openapi.json` | OpenAPI specification for the REST API |
+| `GET` | `/api/version` | Server version information |
+| `GET` | `/api/tools` | List all available MCP tools |
+| `POST` | `/api/tools/:tool_name` | Invoke any MCP tool via REST (generic bridge) |
+
+These endpoints are always available and do not require authentication.
+
+### Generic Tool Bridge
+
+Any MCP tool can be called via the REST API:
+
+    curl -X POST http://127.0.0.1:3457/api/tools/ping \
+      -H "Content-Type: application/json" \
+      -d '{}'
+
+The request body is passed as the tool's input parameters.
+
+## v2 API
+
+TORQUE exposes a comprehensive v2 control-plane API under `/api/v2/`. Key surface areas include:
+
+| Prefix | Description |
+|--------|-------------|
+| `/api/v2/tasks` | Task CRUD, status, output retrieval |
+| `/api/v2/inference` | Direct inference requests |
+| `/api/v2/workflows` | Workflow management |
+| `/api/v2/providers` | Provider configuration and status |
+| `/api/v2/governance` | Governance rules and policy management |
+| `/api/v2/analytics` | Usage analytics and metrics |
+| `/api/v2/routing` | Routing template management |
+| `/api/v2/infrastructure` | Host and workstation management |
+
+For the complete v2 schema, retrieve the OpenAPI document:
+
+    curl http://127.0.0.1:3457/api/openapi.json

@@ -164,7 +164,8 @@ function getHealthSummary() {
  */
 function cleanupHealthHistory(daysToKeep = 7) {
   // Bound daysToKeep to reasonable range (1-3650 days)
-  const boundedDays = Math.max(1, Math.min(parseInt(daysToKeep, 10) || 7, 3650));
+  const parsed = parseInt(daysToKeep, 10);
+  const boundedDays = Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 7, 3650));
 
   // Pre-calculate cutoff time to ensure consistent behavior
   // and avoid race conditions when multiple cleanups run concurrently

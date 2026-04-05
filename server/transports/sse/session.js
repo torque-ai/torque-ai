@@ -281,11 +281,19 @@ function mergeSubscriptionTargetIntoResult(result, subscriptionTarget) {
  * Conditional blocks: { (}{duration}s{)} — only included when the token has a value.
  */
 function renderNotificationTemplate(template, data) {
-  let result = template.replace(/\{([^}]*)\}\{(\w+)\}\{([^}]*)\}/g, (match, prefix, token, suffix) => {
+  // Three-part conditional: {prefix}{token}literal{suffix}
+  let result = template.replace(/\{([^}]*)\}\{(\w+)\}([^{]*)\{([^}]*)\}/g, (match, prefix, token, literal, suffix) => {
     const value = data[token];
     if (value == null || value === '') return '';
-    return `${prefix}${value}${suffix}`;
+    return `${prefix}${value}${literal}${suffix}`;
   });
+  // Two-part conditional: {prefix}{token} (no suffix)
+  result = result.replace(/\{([^}\w][^}]*)\}\{(\w+)\}/g, (match, prefix, token) => {
+    const value = data[token];
+    if (value == null || value === '') return '';
+    return `${prefix}${value}`;
+  });
+  // Simple token replacement
   result = result.replace(/\{(\w+)\}/g, (match, token) => {
     const value = data[token];
     return value != null ? String(value) : '';
@@ -752,6 +760,7 @@ function clearAllSessionState() {
     if (buf.timer) clearTimeout(buf.timer);
   }
   aggregationBuffers.clear();
+  _perIpSessionCount.clear();
 }
 
 /**

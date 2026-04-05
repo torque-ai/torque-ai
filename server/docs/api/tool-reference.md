@@ -12,9 +12,11 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 |------|-------------|
 | `smart_submit_task` | Submit task with automatic provider selection (preferred) |
 | `submit_task` | Submit task with explicit provider |
+| `await_task` | Block until a standalone task completes or fails |
 | `queue_task` | Add task to queue without starting |
 | `check_status` | Check task status |
 | `get_result` | Get completed task result |
+| `task_info` | Get detailed information about a specific task |
 | `list_tasks` | List tasks with filtering |
 | `cancel_task` | Cancel a running or queued task |
 | `retry_task` | Retry a failed task |
@@ -23,6 +25,8 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 | `pause_task` | Pause a running task |
 | `resume_task` | Resume a paused task |
 | `skip_task` | Manually skip a blocked task |
+| `unlock_tier` | Unlock additional tool tiers (2 for extended, 3 for all) |
+| `await_restart` | Wait for TORQUE server restart to complete |
 
 ## Task Templates
 
@@ -102,6 +106,12 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 | `export_report_csv` | Export as CSV |
 | `export_report_json` | Export as JSON |
 
+## Context
+
+| Tool | Description |
+|------|-------------|
+| `get_context` | Get contextual information about the current environment |
+
 ---
 
 ## Workflow & DAG
@@ -112,6 +122,7 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 | `add_workflow_task` | Add task with dependencies |
 | `run_workflow` | Start workflow execution |
 | `workflow_status` | Get workflow progress |
+| `await_workflow` | Block until workflow completes, with heartbeat check-ins |
 | `cancel_workflow` | Cancel workflow and pending tasks |
 | `pause_workflow` | Pause workflow |
 | `list_workflows` | List workflows with filters |
@@ -156,6 +167,15 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 | `get_pipeline_status` | Pipeline status |
 | `list_pipelines` | List pipelines |
 | `duplicate_pipeline` | Clone pipeline |
+
+---
+
+## Scouts & Diffusion
+
+| Tool | Description |
+|------|-------------|
+| `submit_scout` | Deploy a scout to discover issues in a project |
+| `create_diffusion_plan` | Generate a workflow from a diffusion plan |
 
 ---
 
@@ -379,8 +399,6 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 
 | Tool | Description |
 |------|-------------|
-| `run_llm_safeguards` | Run safeguards on files |
-| `configure_llm_safeguards` | Project-level config |
 | `get_safeguard_tools` | List safeguard tools |
 | `setup_precommit_hook` | Install git hooks |
 
@@ -440,6 +458,7 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 | `webhook_stats` | Delivery statistics |
 | `notify_slack` | Send Slack notification |
 | `notify_discord` | Send Discord notification |
+| `subscribe_task_events` | Subscribe SSE session to task completion/failure events. Parameters: `task_ids` (optional array), `event_filter` (optional) |
 
 ---
 
@@ -453,8 +472,6 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 | `test_integration` | Test integration |
 | `enable_integration` | Enable integration |
 | `disable_integration` | Disable integration |
-| `link_github_issue` | Link task to GitHub issue |
-| `list_github_issues` | List linked issues |
 
 ---
 
@@ -707,7 +724,6 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 | `list_bulk_operations` | Recent bulk operations |
 | `bulk_operation_status` | Bulk operation result |
 | `dry_run_bulk` | Preview bulk action |
-| `subscribe_task_events` | Register for events |
 | `poll_task_events` | Poll for events |
 | `list_report_exports` | Previous exports |
 

@@ -7,13 +7,17 @@ TORQUE routes tasks across multiple execution providers, balancing cost, speed, 
 | Provider | ID | Execution | Cost | Best For |
 |----------|----|-----------|------|----------|
 | **Ollama (direct)** | `ollama` | Local HTTP | Free | Text generation, docs |
-| **Ollama (hashline)** | `hashline-ollama` | Local HTTP | Free | Targeted file edits |
 | **Claude CLI** | `claude-cli` | Cloud API | Paid | Complex tasks, architecture |
 | **Codex** | `codex` | Cloud API | Paid | Multi-file refactoring |
+| **Codex Spark** | `codex-spark` | Cloud API | Paid | Fast single-file edits |
 | **Anthropic API** | `anthropic` | Cloud HTTP | Paid | Direct API access |
+| **Cerebras** | `cerebras` | Cloud HTTP | Paid | Fast inference |
+| **Google AI** | `google-ai` | Cloud HTTP | Paid | Large context (800K+ tokens) |
 | **Groq** | `groq` | Cloud HTTP | Paid | Fast inference |
 | **DeepInfra** | `deepinfra` | OpenAI-compatible Cloud API | Paid | High-throughput batch model routing |
 | **Hyperbolic** | `hyperbolic` | OpenAI-compatible Cloud API | Paid | High-capacity 70B–405B inference |
+| **Ollama Cloud** | `ollama-cloud` | Cloud HTTP | Paid | Remote Ollama-compatible endpoint |
+| **OpenRouter** | `openrouter` | Cloud HTTP | Paid | Multi-model gateway |
 
 ## Smart Routing
 
@@ -36,12 +40,12 @@ When `smart_routing_enabled` is `1` (default), TORQUE automatically selects the 
 |------|-------------------|----------|
 | Documentation | readme, documentation, docs, changelog | `ollama` |
 | Code comments | comment, docstring, jsdoc, tsdoc | `ollama` |
-| Simple tests | write test, add test, unit test | `hashline-ollama` |
+| Simple tests | write test, add test, unit test | `ollama` |
 | Commit messages | commit message, git commit | `ollama` |
 | Code explanation | explain, what does, how does | `ollama` |
-| Simple refactoring | rename, move, extract, inline | `hashline-ollama` |
-| Config edits | .json, .yaml, .yml, .toml, .ini, .env | `hashline-ollama` |
-| Boilerplate | boilerplate, scaffold, template | `hashline-ollama` |
+| Simple refactoring | rename, move, extract, inline | `ollama` |
+| Config edits | .json, .yaml, .yml, .toml, .ini, .env | `ollama` |
+| Boilerplate | boilerplate, scaffold, template | `ollama` |
 
 **Tier 2: Cloud Provider** (fallback for complex tasks)
 
@@ -185,14 +189,14 @@ Hyperbolic provides OpenAI-compatible API access and is provisioned but starts d
 When a provider fails, TORQUE falls back through a configured chain:
 
 ```
-Default: hashline-ollama -> codex -> claude-cli
+Default: ollama -> codex -> claude-cli
 ```
 
 Configure the chain:
 
 ```
 configure_fallback_chain {
-  chain: ["hashline-ollama", "ollama", "codex", "claude-cli", "anthropic"]
+  chain: ["ollama", "codex", "claude-cli", "anthropic"]
 }
 ```
 
@@ -264,7 +268,7 @@ Wrap task descriptions with provider-specific instructions:
 ```
 get_instruction_templates {}
 set_instruction_template {
-  provider: "hashline-ollama",
+  provider: "ollama",
   template: "You are a code assistant. {TASK_DESCRIPTION}\nFiles: {FILES}"
 }
 ```
@@ -285,7 +289,7 @@ toggle_instruction_wrapping { enabled: true }
 Track provider performance over time:
 
 ```
-provider_stats { provider: "hashline-ollama" }
+provider_stats { provider: "ollama" }
 ```
 
 Returns:

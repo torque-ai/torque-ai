@@ -4,7 +4,7 @@
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
-| **Node.js** | 18.0+ | Runtime |
+| **Node.js** | 20.0+ | Runtime |
 | **Claude Code** | Latest | MCP host (IDE integration) |
 | **Ollama** | Latest | Local LLM execution (optional) |
 | **Git** | Any | Version control, baselines, rollback |
@@ -45,7 +45,7 @@ When you open the project in Claude Code:
 
 1. The MCP server starts automatically via `.mcp.json`
 2. Slash commands load from `.claude/commands/`
-3. The database is created at `~/.local/share/torque/tasks.db`
+3. The database is created at `~/.torque/tasks.db`
 
 No additional configuration is required.
 
@@ -93,9 +93,9 @@ TORQUE stores configuration in a SQLite key-value table. All settings have sensi
 | Config Key | Default | Description |
 |------------|---------|-------------|
 | `max_concurrent` | 3 | Maximum parallel tasks |
-| `default_provider` | `hashline-ollama` | Default execution provider |
+| `default_provider` | `ollama` | Default execution provider |
 | `ollama_host` | `http://localhost:11434` | Local Ollama URL |
-| `ollama_model` | `deepseek-r1:14b` | Default Ollama model |
+| `ollama_model` | `(auto-discovered from hosts)` | Default Ollama model |
 | `ollama_fallback_provider` | `claude-cli` | Fallback when Ollama unavailable |
 
 ### Smart Routing
@@ -103,7 +103,7 @@ TORQUE stores configuration in a SQLite key-value table. All settings have sensi
 | Config Key | Default | Description |
 |------------|---------|-------------|
 | `smart_routing_enabled` | `1` | Enable automatic provider selection |
-| `smart_routing_default_provider` | `hashline-ollama` | Default for routed tasks |
+| `smart_routing_default_provider` | `ollama` | Default for routed tasks |
 | `ollama_health_check_enabled` | `1` | Auto-check Ollama availability |
 
 ### LLM Tuning
@@ -197,8 +197,8 @@ TORQUE stores its database and logs in:
 
 | Platform | Path |
 |----------|------|
-| Linux/macOS | `~/.local/share/torque/` |
-| Windows | `~/.local/share/torque/` (under MSYS/Git Bash) |
+| Linux/macOS | `~/.torque/` |
+| Windows | `~/.torque/` |
 | Custom | Set `TORQUE_DATA_DIR` environment variable |
 
 Contents:
@@ -234,4 +234,4 @@ When TORQUE starts, it automatically launches:
 - [Provider Guide](providers.md) - Configure providers and routing
 - [Multi-Host Guide](multi-host.md) - Set up remote Ollama hosts
 - [Safeguards](../safeguards.md) - Quality gates and validation
-- [Tool Reference](../api/tool-reference.md) - All 462+ MCP tools
+- [Tool Reference](../api/tool-reference.md) - All ~600 MCP tools

@@ -202,7 +202,7 @@ describe('server/transports/sse/session', () => {
         duration: 12,
         description: 'deploy ready',
       }),
-    ).toBe('[TORQUE] Task task-1 completed (12s): deploy ready');
+    ).toBe('[TORQUE] Task task-1 completed (12s) : deploy ready');
 
     expect(
       sessionModule.renderNotificationTemplate(template, {
