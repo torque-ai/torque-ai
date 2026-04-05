@@ -1491,7 +1491,7 @@ describe('api/v2-infrastructure-handlers', () => {
     });
 
     it('returns 500 when the agent registry is not initialized', async () => {
-      mockDb.getDbInstance.mockReturnValue(null);
+      _mockRegistryEnabled = false;
       const res = createMockRes();
 
       await handlers.handleCreateAgent(
@@ -1511,6 +1511,7 @@ describe('api/v2-infrastructure-handlers', () => {
         code: 'not_initialized',
         message: 'Agent registry not initialized',
       });
+      _mockRegistryEnabled = true;
     });
 
     it('parses the body, applies defaults, and returns 201', async () => {
