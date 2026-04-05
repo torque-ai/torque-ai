@@ -224,11 +224,17 @@ function peekHttpGetUrl(fullUrl, timeoutMs = DEFAULT_PEEK_TIMEOUT) {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
-        const body = Buffer.concat(chunks).toString('utf8');
-        try {
-          resolve({ data: JSON.parse(body), status: res.statusCode });
-        } catch (err) {
-          resolve({ error: `Invalid JSON: ${err.message}`, status: res.statusCode });
+        const buf = Buffer.concat(chunks);
+        const contentType = (res.headers['content-type'] || '').toLowerCase();
+        if (contentType.includes('image/') || contentType.includes('octet-stream')) {
+          resolve({ data: buf.toString('base64'), status: res.statusCode, contentType, binary: true });
+        } else {
+          const body = buf.toString('utf8');
+          try {
+            resolve({ data: JSON.parse(body), status: res.statusCode });
+          } catch (err) {
+            resolve({ error: `Invalid JSON: ${err.message}`, status: res.statusCode });
+          }
         }
       });
     });
@@ -255,15 +261,21 @@ function peekHttpPost(fullUrl, payload, timeoutMs = DEFAULT_PEEK_TIMEOUT) {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf8');
-        try {
-          resolve({ data: JSON.parse(raw), status: res.statusCode });
-        } catch (err) {
-          resolve({
-            error: `Invalid JSON: ${err.message}`,
-            raw: raw.substring(0, INVALID_JSON_PREVIEW_LENGTH),
-            status: res.statusCode,
-          });
+        const buf = Buffer.concat(chunks);
+        const contentType = (res.headers['content-type'] || '').toLowerCase();
+        if (contentType.includes('image/') || contentType.includes('octet-stream')) {
+          resolve({ data: buf.toString('base64'), status: res.statusCode, contentType, binary: true });
+        } else {
+          const raw = buf.toString('utf8');
+          try {
+            resolve({ data: JSON.parse(raw), status: res.statusCode });
+          } catch (err) {
+            resolve({
+              error: `Invalid JSON: ${err.message}`,
+              raw: raw.substring(0, INVALID_JSON_PREVIEW_LENGTH),
+              status: res.statusCode,
+            });
+          }
         }
       });
     });

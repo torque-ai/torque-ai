@@ -85,17 +85,16 @@ Report to user:
 
 Read the sweep plan JSON. For each target with status "pending":
 
-1. **Build steps** using the navigation spec:
-   - `nav_element`: `[{action:"click", element:"<target>"}, {action:"sleep", ms:<settle_ms>}, {action:"capture"}]`
-   - `url`: `[{action:"hotkey", keys:"ctrl+l"}, {action:"type", text:"<target>"}, {action:"hotkey", keys:"Enter"}, {action:"sleep", ms:<settle_ms>}, {action:"capture"}]`
-   - `keyboard`: `[{action:"hotkey", keys:"<target>"}, {action:"sleep", ms:<settle_ms>}, {action:"capture"}]`
-   - `menu`: `[{action:"click", element:"<item1>"}, {action:"click", element:"<item2>"}, ..., {action:"sleep", ms:<settle_ms>}, {action:"capture"}]`
-   - `discovered`: `[{action:"click", element:"<element>"}, {action:"sleep", ms:<settle_ms>}, {action:"capture"}]`
-   - Default `settle_ms`: 1000. Override per-section in manifest with `"settle_ms": N`.
+1. **Navigate** to the section using `peek_interact` based on the navigation type:
+   - `nav_element`: `peek_interact({ process: "<process>", action: "click", element: "<navigation.target>" })`
+   - `url`: `peek_interact({ process: "<process>", action: "hotkey", keys: "ctrl+l" })` then `peek_interact({ process: "<process>", action: "type", text: "<navigation.target>" })` then `peek_interact({ process: "<process>", action: "hotkey", keys: "Enter" })`
+   - `keyboard`: `peek_interact({ process: "<process>", action: "hotkey", keys: "<navigation.target>" })`
+   - `menu`: for each item in the path, `peek_interact({ process: "<process>", action: "click", element: "<item>" })`
+   - `discovered`: `peek_interact({ process: "<process>", action: "click", element: "<navigation.element>" })`
 
-2. **Validate steps** — check each step has a valid action and required fields. If invalid, mark target as `"status": "invalid"` and skip.
+2. **Wait for settle** — `peek_wait({ process: "<process>", conditions: [{ type: "element_exists", name: "*" }], wait_timeout: <settle_seconds> })` where settle_seconds defaults to 2. Override per-section in manifest with `"settle_seconds": N`.
 
-3. **Execute** via `peek_action_sequence({ process: "<process>", steps: <built steps> })`.
+3. **Capture full bundle** via `peek_diagnose({ process: "<process>", screenshot: true, annotated: true, elements: true, layout: true, text_content: true })`. This returns the full diagnostic bundle needed for pre-analysis (element tree + layout measurements + screenshots).
 
 4. **Save** the capture result to `<working_directory>/docs/visual-sweep-captures/<target.id>.json`.
 
@@ -104,7 +103,7 @@ Read the sweep plan JSON. For each target with status "pending":
 Report to user:
 
     Phase 2 — Capture complete:
-      - <N> sections captured, <F> failed, <I> invalid
+      - <N> sections captured, <F> failed
       - Captures in: <capture_dir>
 
 **Fallback:** If the manifest has `"capture_mode": "agent"`, spawn the capture coordinator agent instead (original Phase 2 behavior). Read `.claude/agents/visual-sweep-capture.md` and spawn as before.
