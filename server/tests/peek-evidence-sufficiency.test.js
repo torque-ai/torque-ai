@@ -55,6 +55,7 @@ function createHttpRequestMock(queue) {
 
         const res = new EventEmitter();
         res.statusCode = next.statusCode ?? 200;
+        res.headers = { 'content-type': 'application/json' };
         cb(res);
 
         if (next.body !== undefined) {

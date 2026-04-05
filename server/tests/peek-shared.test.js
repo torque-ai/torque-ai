@@ -87,6 +87,7 @@ function createHttpGetMock(responses) {
 
       const res = new EventEmitter();
       res.statusCode = next.statusCode ?? 200;
+      res.headers = { 'content-type': 'application/json' };
       callback(res);
 
       if (next.body !== undefined) {
@@ -131,6 +132,7 @@ function createHttpRequestMock(responses, bodies) {
 
         const res = new EventEmitter();
         res.statusCode = next.statusCode ?? 200;
+        res.headers = { 'content-type': 'application/json' };
         callback(res);
 
         if (next.body !== undefined) {

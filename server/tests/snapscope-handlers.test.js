@@ -133,6 +133,7 @@ function installHttpGetMock() {
 
       const res = new EventEmitter();
       res.statusCode = next.statusCode ?? 200;
+      res.headers = { 'content-type': 'application/json' };
       cb(res);
 
       if (next.body !== undefined) {
@@ -176,6 +177,7 @@ function installHttpRequestMock() {
 
         const res = new EventEmitter();
         res.statusCode = next.statusCode ?? 200;
+        res.headers = { 'content-type': 'application/json' };
         cb(res);
 
         if (next.body !== undefined) {

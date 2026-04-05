@@ -27,6 +27,7 @@ function createHttpGetMock(queue) {
       }
       const res = new EventEmitter();
       res.statusCode = next.statusCode ?? 200;
+      res.headers = { 'content-type': 'application/json' };
       cb(res);
       if (next.body !== undefined) {
         const payload = typeof next.body === 'string' ? next.body : JSON.stringify(next.body);
