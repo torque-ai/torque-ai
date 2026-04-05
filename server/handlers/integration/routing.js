@@ -313,7 +313,13 @@ function extractSmartSubmitInputs(args) {
   }
   if (working_directory) {
     try {
-      const rawDb = require('../../database').getDbInstance();
+      let rawDb;
+      try {
+        const { defaultContainer } = require('../../container');
+        rawDb = defaultContainer.get('db');
+      } catch {
+        rawDb = require('../../database').getDbInstance();
+      }
       const versionIntentError = enforceVersionIntentForProject(
         rawDb,
         working_directory,

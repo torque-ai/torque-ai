@@ -92,6 +92,59 @@ describe('handler:task-core (extended)', () => {
     }));
   });
 
+  it('handleSubmitTask prefers container db for version intent enforcement', () => {
+    mockSubmissionDefaults();
+    const containerPath = require.resolve('../container');
+    const databasePath = require.resolve('../database');
+    const originalContainer = require.cache[containerPath];
+    const originalDatabase = require.cache[databasePath];
+    const containerDb = {
+      prepare: vi.fn(() => ({
+        get: vi.fn(() => null),
+        all: vi.fn(() => []),
+      })),
+    };
+    const containerGet = vi.fn((name) => {
+      if (name === 'db') return containerDb;
+      throw new Error(`Unknown service: ${name}`);
+    });
+    const getDbInstance = vi.fn(() => {
+      throw new Error('database fallback should not be used');
+    });
+
+    require.cache[containerPath] = {
+      ...(originalContainer || {}),
+      id: containerPath,
+      filename: containerPath,
+      loaded: true,
+      exports: { defaultContainer: { get: containerGet } },
+    };
+    require.cache[databasePath] = {
+      ...(originalDatabase || {}),
+      id: databasePath,
+      filename: databasePath,
+      loaded: true,
+      exports: { getDbInstance },
+    };
+
+    try {
+      const result = handlers.handleSubmitTask({
+        task: 'Use container db',
+        auto_route: false,
+        working_directory: 'C:/repo',
+      });
+
+      expect(result.isError).not.toBe(true);
+      expect(containerGet).toHaveBeenCalledWith('db');
+      expect(getDbInstance).not.toHaveBeenCalled();
+    } finally {
+      if (originalContainer) require.cache[containerPath] = originalContainer;
+      else delete require.cache[containerPath];
+      if (originalDatabase) require.cache[databasePath] = originalDatabase;
+      else delete require.cache[databasePath];
+    }
+  });
+
   it('handleQueueTask respects budget gate and rejects when over budget', () => {
     mockSubmissionDefaults();
     vi.spyOn(costTracking, 'checkBudgetBeforeSubmission').mockReturnValue({

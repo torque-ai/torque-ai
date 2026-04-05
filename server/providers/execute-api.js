@@ -487,7 +487,10 @@ async function executeApiProvider(task, provider) {
             }
             try {
               const taskManager = require('../task-manager');
-              taskManager.startTask(applyId);
+              const startPromise = taskManager.startTask(applyId);
+              if (startPromise && typeof startPromise.catch === 'function') {
+                startPromise.catch(err => logger.info(`[Diffusion] Async failure starting apply task ${applyId}: ${err.message}`));
+              }
             } catch (startErr) {
               logger.info(`[Diffusion] Failed to auto-start apply task ${applyId}: ${startErr.message}`);
             }

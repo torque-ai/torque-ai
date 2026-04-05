@@ -486,15 +486,18 @@ function expireStaleLeases() {
       SELECT * FROM task_claims
       WHERE status = 'active' AND lease_expires_at < ?
     `).all(now) || [];
+    const updateClaimStmt = db.prepare(`UPDATE task_claims SET status = 'expired' WHERE id = ?`);
+    const returnTaskStmt = db.prepare(`UPDATE tasks SET claimed_by_agent = NULL, status = 'queued' WHERE id = ? AND status = 'running'`);
+    const updateLoadStmt = db.prepare(`UPDATE agents SET current_load = MAX(0, current_load - 1) WHERE id = ?`);
 
     for (const claim of expired) {
       if (!claim) continue;
-      db.prepare(`UPDATE task_claims SET status = 'expired' WHERE id = ?`).run(claim.id);
-      const returnedTasks = db.prepare(`UPDATE tasks SET claimed_by_agent = NULL, status = 'queued' WHERE id = ? AND status = 'running'`).run(claim.task_id);
+      updateClaimStmt.run(claim.id);
+      const returnedTasks = returnTaskStmt.run(claim.task_id);
       if (returnedTasks && returnedTasks.changes > 0) {
         emitQueueChanged();
       }
-      db.prepare(`UPDATE agents SET current_load = MAX(0, current_load - 1) WHERE id = ?`).run(claim.agent_id);
+      updateLoadStmt.run(claim.agent_id);
 
       recordCoordinationEvent('lease_expired', claim.agent_id, claim.task_id, null);
     }
@@ -581,13 +584,16 @@ function getAgentGroup(groupId) {
  * @returns {any}
  */
 function listAgentGroups() {
-  const groups = db.prepare('SELECT * FROM agent_groups ORDER BY name').all();
-
-  for (const group of groups) {
-    group.member_count = db.prepare(
-      'SELECT COUNT(*) as count FROM agent_group_members WHERE group_id = ?'
-    ).get(group.id).count;
-  }
+  const groups = db.prepare(`
+    SELECT g.*, COALESCE(counts.member_count, 0) AS member_count
+    FROM agent_groups g
+    LEFT JOIN (
+      SELECT group_id, COUNT(*) AS member_count
+      FROM agent_group_members
+      GROUP BY group_id
+    ) counts ON counts.group_id = g.id
+    ORDER BY g.name
+  `).all();
 
   return groups;
 }
@@ -893,21 +899,25 @@ function triggerFailover(agentId, reassignTo = null) {
     const claims = db.prepare(`
       SELECT * FROM task_claims WHERE agent_id = ? AND status = 'active'
     `).all(agentId);
+    const releaseClaimStmt = db.prepare(`
+      UPDATE task_claims
+      SET status = 'released', released_at = ?, release_reason = ?
+      WHERE id = ?
+    `);
+    const clearClaimedStmt = db.prepare(`UPDATE tasks SET claimed_by_agent = NULL WHERE id = ?`);
+    const updateLoadStmt = db.prepare(`UPDATE agents SET current_load = MAX(0, current_load - 1) WHERE id = ?`);
+    const requeueStmt = db.prepare(`UPDATE tasks SET status = 'queued' WHERE id = ? AND status = 'running'`);
 
     for (const claim of claims || []) {
       if (!claim) continue;
 
       // Release the claim
-      db.prepare(`
-        UPDATE task_claims
-        SET status = 'released', released_at = ?, release_reason = ?
-        WHERE id = ?
-      `).run(new Date().toISOString(), 'failover', claim.id);
+      releaseClaimStmt.run(new Date().toISOString(), 'failover', claim.id);
 
-      db.prepare(`UPDATE tasks SET claimed_by_agent = NULL WHERE id = ?`).run(claim.task_id);
+      clearClaimedStmt.run(claim.task_id);
 
       if (claim.agent_id) {
-        db.prepare(`UPDATE agents SET current_load = MAX(0, current_load - 1) WHERE id = ?`).run(claim.agent_id);
+        updateLoadStmt.run(claim.agent_id);
       }
 
       recordCoordinationEvent('task_released', claim.agent_id, claim.task_id, JSON.stringify({ reason: 'failover' }));
@@ -915,7 +925,7 @@ function triggerFailover(agentId, reassignTo = null) {
       results.tasks_released++;
 
       // Return task to queue — only if still running (avoid re-queuing completed tasks)
-      const returnedTasks = db.prepare(`UPDATE tasks SET status = 'queued' WHERE id = ? AND status = 'running'`).run(claim.task_id);
+      const returnedTasks = requeueStmt.run(claim.task_id);
       if (returnedTasks && returnedTasks.changes > 0) {
         emitQueueChanged();
       }

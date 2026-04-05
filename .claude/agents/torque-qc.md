@@ -30,6 +30,8 @@ As task IDs arrive:
 5. On each completion: proceed immediately to Phase 2 (review) for that task.
 6. If a task fails at the TORQUE level (exit code != 0): still review it — include failure context in your rejection to remediation.
 
+**Active monitoring:** While awaiting tasks, check `check_notifications` every 2-3 minutes. Do NOT go fully idle while tasks are running in the queue. If no completions arrive after 5 minutes, use `task_info` to poll task statuses directly. Under queue contention (multiple projects competing for Codex slots), tasks may take 10-15 minutes — use `heartbeat_minutes: 15` in that case.
+
 **Rules:**
 - Use `await_task`/`await_workflow` — NEVER poll `check_status` in a loop.
 - Do NOT start reviewing until a task has actually completed. Do NOT proactively read files before a task finishes.

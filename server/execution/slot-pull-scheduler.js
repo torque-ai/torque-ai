@@ -163,6 +163,9 @@ function runSlotPullPass() {
             skipped++;
             continue;
           }
+          if (startResult && typeof startResult.catch === 'function') {
+            startResult.catch(err => logger.info('Slot-pull async failure for task ' + taskId + ': ' + err.message));
+          }
         }
         assigned++;
         // Create coordination claim for the submitting agent

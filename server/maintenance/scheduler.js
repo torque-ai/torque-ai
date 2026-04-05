@@ -147,7 +147,10 @@ function startMaintenanceScheduler(opts = {}) {
               });
               db.markScheduledTaskRun(schedule.id);
               const taskManager = require('../task-manager');
-              taskManager.startTask(taskId);
+              const startPromise = taskManager.startTask(taskId);
+              if (startPromise && typeof startPromise.catch === 'function') {
+                startPromise.catch(err => logger.info(`Scheduled task async start failure for ${taskId}: ${err.message}`));
+              }
               debugLog(`Executed scheduled task "${schedule.name}" -> task ${taskId}`);
             }
           } catch (schedErr) {

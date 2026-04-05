@@ -299,7 +299,13 @@ function handleSubmitTask(args) {
   const workDir = args.working_directory || null;
   if (workDir) {
     try {
-      const rawDb = require('../../database').getDbInstance();
+      let rawDb;
+      try {
+        const { defaultContainer } = require('../../container');
+        rawDb = defaultContainer.get('db');
+      } catch {
+        rawDb = require('../../database').getDbInstance();
+      }
       const versionIntentError = enforceVersionIntentForProject(
         rawDb,
         workDir,

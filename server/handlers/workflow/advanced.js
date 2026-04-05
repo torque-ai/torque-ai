@@ -432,7 +432,10 @@ function handleRetryWorkflowFrom(args) {
   for (const t of tasks) {
     if (t.status === 'pending') {
       try {
-        taskManager.startTask(t.id);
+        const startPromise = taskManager.startTask(t.id);
+        if (startPromise && typeof startPromise.catch === 'function') {
+          startPromise.catch(err => logger.debug('[workflow-handlers] async error restarting pending workflow task:', err.message || err));
+        }
       } catch (err) {
         // May be queued
         logger.debug('[workflow-handlers] non-critical error restarting pending workflow task:', err.message || err);

@@ -359,7 +359,10 @@ async function handleAutoVerifyRetry(ctx) {
     // Start the fix task
     if (_startTask) {
       try {
-        _startTask(fixTaskId);
+        const startPromise = _startTask(fixTaskId);
+        if (startPromise && typeof startPromise.catch === 'function') {
+          startPromise.catch(err => logger.info(`[auto-verify] Async failure starting fix task ${fixTaskId}: ${err.message}`));
+        }
       } catch (startErr) {
         logger.info(`[auto-verify] Failed to start fix task ${fixTaskId}: ${startErr.message}`);
         // Task is queued — processQueue will pick it up

@@ -79,7 +79,26 @@ function resolveGovernanceRules() {
     void containerError;
   }
 
-  // Fallback: create directly from the database module
+  // Fallback: try a container-managed db before requiring the database module
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.get === 'function') {
+      try {
+        const db = defaultContainer.get('db');
+        if (db && typeof db.prepare === 'function') {
+          const rules = createGovernanceRules({ db });
+          rules.seedBuiltinRules();
+          return { governanceRules: rules };
+        }
+      } catch (containerDbLookupError) {
+        void containerDbLookupError;
+      }
+    }
+  } catch (containerError) {
+    void containerError;
+  }
+
+  // Last resort: create directly from the database module
   try {
     const database = require('../database');
     const db = database.getDbInstance ? database.getDbInstance() : null;

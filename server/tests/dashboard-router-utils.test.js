@@ -18,6 +18,11 @@ const ROUTER_MODULES = [
   '../dashboard/routes/admin',
 ];
 
+const ROUTER_DB_MODULES = [
+  '../container',
+  '../database',
+];
+
 function installMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = {
@@ -152,13 +157,16 @@ function createRouterMocks() {
   return { tasks, infrastructure, analytics, admin, utils };
 }
 
-function loadRouter(mocks) {
-  clearModules(ROUTER_MODULES);
+function loadRouter(mocks, extraMocks = {}) {
+  clearModules([...ROUTER_MODULES, ...ROUTER_DB_MODULES, ...Object.keys(extraMocks)]);
   installMock('../dashboard/utils', mocks.utils);
   installMock('../dashboard/routes/tasks', mocks.tasks);
   installMock('../dashboard/routes/infrastructure', mocks.infrastructure);
   installMock('../dashboard/routes/analytics', mocks.analytics);
   installMock('../dashboard/routes/admin', mocks.admin);
+  for (const [modulePath, exportsValue] of Object.entries(extraMocks)) {
+    installMock(modulePath, exportsValue);
+  }
   return require('../dashboard/router');
 }
 
@@ -476,7 +484,7 @@ describe('dashboard/router', () => {
   });
 
   afterEach(() => {
-    clearModules(ROUTER_MODULES);
+    clearModules([...ROUTER_MODULES, ...ROUTER_DB_MODULES]);
     vi.restoreAllMocks();
   });
 
@@ -712,6 +720,117 @@ describe('dashboard/router', () => {
         'retry',
         context,
       );
+    });
+
+    it('uses request context db for governance resets before fallback resolvers', async () => {
+      let currentRule = {
+        id: 'rule-1',
+        enabled: 1,
+        config: '{"mode":"warn"}',
+        violation_count: 3,
+        updated_at: '2026-04-01T00:00:00.000Z',
+      };
+      const dbHandle = {
+        prepare: vi.fn((sql) => {
+          if (sql.includes('SELECT * FROM governance_rules WHERE id = ?')) {
+            return { get: vi.fn(() => ({ ...currentRule })) };
+          }
+          if (sql.includes('UPDATE governance_rules')) {
+            return {
+              run: vi.fn((updatedAt, ruleId) => {
+                currentRule = {
+                  ...currentRule,
+                  id: ruleId,
+                  violation_count: 0,
+                  updated_at: updatedAt,
+                };
+              }),
+            };
+          }
+          throw new Error(`Unexpected SQL: ${sql}`);
+        }),
+      };
+      const dbService = { getDbInstance: vi.fn(() => dbHandle) };
+      const containerGet = vi.fn(() => {
+        throw new Error('container fallback should not be used');
+      });
+      const directGetDbInstance = vi.fn(() => {
+        throw new Error('database fallback should not be used');
+      });
+
+      router = loadRouter(mocks, {
+        '../container': { defaultContainer: { get: containerGet } },
+        '../database': { getDbInstance: directGetDbInstance },
+      });
+      context = { ...context, db: dbService };
+
+      const req = createMockReq({
+        method: 'POST',
+        url: '/api/governance/rules/rule-1/reset',
+        headers: { 'x-requested-with': 'xmlhttprequest' },
+      });
+      const res = createMockRes();
+
+      await router.dispatch(req, res, context);
+
+      expect(dbService.getDbInstance).toHaveBeenCalledTimes(1);
+      expect(containerGet).not.toHaveBeenCalled();
+      expect(directGetDbInstance).not.toHaveBeenCalled();
+      expect(readJson(res.body)).toEqual({
+        reset: true,
+        rule: {
+          id: 'rule-1',
+          enabled: true,
+          config: { mode: 'warn' },
+          violation_count: 0,
+          updated_at: currentRule.updated_at,
+        },
+      });
+    });
+
+    it('uses request context db for version-control worktrees before fallback resolvers', async () => {
+      const dbHandle = {
+        prepare: vi.fn((sql) => {
+          if (sql.includes("PRAGMA table_info('vc_worktrees')")) {
+            return { all: vi.fn(() => []) };
+          }
+          throw new Error(`Unexpected SQL: ${sql}`);
+        }),
+      };
+      const dbService = { getDb: vi.fn(() => dbHandle) };
+      const containerGet = vi.fn(() => {
+        throw new Error('container fallback should not be used');
+      });
+      const directGetDb = vi.fn(() => {
+        throw new Error('database fallback should not be used');
+      });
+
+      router = loadRouter(mocks, {
+        '../container': { defaultContainer: { get: containerGet } },
+        '../database': { getDb: directGetDb },
+      });
+      context = { ...context, db: dbService };
+
+      const req = createMockReq({
+        method: 'GET',
+        url: '/api/version-control/worktrees',
+      });
+      const res = createMockRes();
+
+      await router.dispatch(req, res, context);
+
+      expect(dbService.getDb).toHaveBeenCalledTimes(1);
+      expect(containerGet).not.toHaveBeenCalled();
+      expect(directGetDb).not.toHaveBeenCalled();
+      expect(readJson(res.body)).toEqual({
+        worktrees: [],
+        count: 0,
+        summary: {
+          active_worktrees: 0,
+          stale_worktrees: 0,
+          policy_violations: 0,
+        },
+      });
     });
 
     it('returns a 404 error when no route matches', async () => {

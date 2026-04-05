@@ -1084,7 +1084,12 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
                 logger.info(`[Diffusion] Workflow count update error: ${wfErr.message}`);
               }
             }
-            try { require('../task-manager').startTask(applyId); } catch (startErr) {
+            try {
+              const startPromise = require('../task-manager').startTask(applyId);
+              if (startPromise && typeof startPromise.catch === 'function') {
+                startPromise.catch(err => logger.info(`[Diffusion] Async failure starting apply task ${applyId}: ${err.message}`));
+              }
+            } catch (startErr) {
               logger.info(`[Diffusion] Failed to auto-start apply task ${applyId}: ${startErr.message}`);
             }
             } // close: if (filteredOutput.file_edits.length > 0)

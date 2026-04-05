@@ -1,0 +1,26 @@
+��ߊ�A	��ʃ2�(��t��y�A�e�.��� T1�`�
+`hux���W(�7�	�	|	�	�	�	�	p	�3��	�	�	�	�	�	��� ����<�	�	�	�	�	�	@
+��q`A�Sb�qRa��|�basenameRa����dirnameRajۯrmRa�c
+mkdirRb����PackageJsonRa&�8BcacacheRarW�2fsmRbV��getContentsRaN�2npaRaQretryRa��ossriRaޤ�vtarRa���Minipass¦�+Razg��cacheDirRb��isPackageBinRc�TqremoveTrailingSlashesRcj=CpackageJsonPrepareRc�K#�packageJsonNormalizeRb�!�
+GitFetcherRb��Y�RegistryFetcherRb�f�FileFetcherRb�K�
+DirFetcherRb�mw�RemoteFetcherx��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?��?I`����Da�ARb�_�&	node:pathRb�Snode:fs/promises $Rc��z@npmcli/package-json,Rbj�!�fs-minipassRe�Ie"@npmcli/installed-package-contentsRbB�@�npm-package-argRbr��promise-retry@DRav�minipassHRar*��proc-log¦RcB�5�./util/protected.jsRc�zK./util/cache-dir.jsRc&��./util/is-package-bin.jsRd�{|./util/trailing-slashes.js T	X`��H�
+4RkƎl�VC:\Users\<user>\AppData\Roaming\npm\node_modules\npm\node_modules\pacote\lib\fetcher.jsaDb3L`�Ra��requireRa�y�5moduleRb�L83
+__filenameRb�D�	__dirname`Y`A T$�`�
+�`uaĎ�q`b�� SbA0Ib�����A�`�b���D T	\`-e��b��D T�I`��Rb�s~FetcherBaselSb @
+Rc�)#tarballFromCacheRaj`��#istreamRb^���#assertTypeRa&Ă#emptyRa��
+k#mkdirRaΒ��#toFileRa�'	�#extractRb�Ѩ�
+#entryModeRb�%"E#tarxOptions�k��?��?��?��?��?��?��?��?��?��?gZ>��b�� T�I`�Qbget integrity�b�� T�I`#bQbset integrity��b�� T�I`~�Qcget notImplementedError��b��	 T�I`?����b��
+ T�I`��Rb���	packument��b
+�� T�I`�Ra"8l�manifest��b	�� T�I`��`��b� T�I`(Ra�~a�tarball��b���D T�I`����b��� T�I`	!`��b�	 T�I`.�"	��b	����D T	I`�"##Rc���pickIntegrityAlgorithm��b��
+ T�I`�#�#Rc���isDataCorruptionError��b�� T�I`�#$Qb	get types��b
+�� T�I`#$%��b��� T�I`�%c&Rb�" isRetriableError��b��  T�I`�(�/RbB���tarballStream��b��!�D T�I`�/<0Rb�p�[cleanupCached��b��) T�I`G0�0��b��*��D T�I`�0R1�b�Q-� T�I`�142Ra~��extract��b�Q.D T�I`@2�3��b��0��D T�I`94�4Rbvp�tarballFile��b�Q6 T�I`�4�6��b	��7��D T�I`�79!��b��<� T	I`09X>%��b��=��D T��`�Qa.get`�?�AI�b�@D`
+�D]Db��� �
+`T`��`/��`/��`?�	`��
+agZ>�D]��ff �DRc���notImplementedError}
+`F`	}a�a�a�aRa��y^types�`F`	ia�D�a�D�a�DRb®o>	integrity�a`		�a�D�a�D]a�Da�DaH�c�DLb$1������!)�)5AMUaRc*��ptarballFromResolvedmuRbV%�cacheFetches���������Ra.��./git.jsRbF*G�./registry.jsRb���	./file.jsRaҧ�l./dir.jsRb�3&�./remote.js1��0��%%%%%%%%	%
+%%%%%%%%%%%%%%%%�e��/�%/�%�e��/�%/�
+%�e�%�e�%	�e�%
+�e�%	�e�%
+�e�%�e�%�e�%�e��/�%�e� �/�"%�e�$%�e�&%�e�(%�e�*%�%�%���h��%�%�%�%�%� %�!%�"%�#	%	�$
+%
+Å%�Ņ&'��(��)��*��+���/�,,w��-��.���/�/.w�0�1�2�3�4�5�6�7�8���h+�����590:�e�2%;�e�4%<�e�6%=�e�8%>�e�:%�?5�@<� �f>PP@@@P@P@@�b�

@@ -700,6 +700,7 @@ async function start(options = {}) {
     broadcastTaskUpdate,
     clients,
     serverPort,
+    db,
   };
 
   // Create HTTP server

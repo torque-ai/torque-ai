@@ -1,0 +1,17 @@
+��ߊ��q��P�](��t��y��e�.��` Th�`��
+`(uh?l8	<;
+�	�	�$<�	X�`�d�d�h��
+��`q`LSb�qRaNN�buffer_1Ra����ERRORSRb"L�isFiniteIntegerRc*I�checkOffsetOrLengthValue�Id��?��?��?��?��?I`����Da� T	I`�qRbf�p�checkEncodingH�
+8Rlj�'\C:\Users\<user>\AppData\Roaming\npm\node_modules\npm\node_modules\smart-buffer\build\utils.jsaDb�L`�Ra��requireRa�y�5moduleRb�L83
+__filenameRb�D�	__dirname`0Y`
+ T$�`�
+X`uaą�q`b�� SbA0Ib������`4bA$�( T	I`H� �b@D$ T�I`�.
+$��b!@E$ T�I`�
+Rb>y�[checkLengthValue��b@F$ T�I`�Rbާ�-checkOffsetValue��b@G$ T�I`:�Rc
+�z�checkTargetOffset��b@H$ T�I`Y��I��b@I$ T�I`!PRdf���bigIntAndBufferInt64Check��b"@	J$D`
+DRb�[utils.js.map]Db@C$px�������Rb`Ma
+__esModule�b�GYp�bRb���MINVALID_ENCODING8Rl`!`Invalid encoding provided. Please specify a valid encoding the internal Node.js Buffer supports.Rc�C%�INVALID_SMARTBUFFER_SIZE,Rin��-FInvalid size provided. Size must be a valid integer greater than zero.Rd~�;xINVALID_SMARTBUFFER_BUFFER Rf"��|.Invalid Buffer provided in SmartBufferOptions.Rd���INVALID_SMARTBUFFER_OBJECT8RlAWoYInvalid SmartBufferOptions object supplied to SmartBuffer constructor or factory methods.RbP�INVALID_OFFSETRe��E�%An invalid offset value was provided.RdpeINVALID_OFFSET_NON_NUMBER,Ri�~:�BAn invalid offset value was provided. A numeric value is required.Rb
+�INVALID_LENGTHRe0�%An invalid length value was provided.Rd>Y�INVALID_LENGTH_NON_NUMBER,Ri���BAn invalid length value was provived. A numeric value is required.Rc"d��INVALID_TARGET_OFFSET,Ri�4DTarget offset is beyond the bounds of the internal SmartBuffer data.Rc~�
+INVALID_TARGET_LENGTH4Rk� :WSpecified length value moves cursor beyong the bounds of the internal SmartBuffer data.RdҼ�INVALID_READ_BEYOND_BOUNDS$Rg��8Attempted to read beyond the bounds of the managed data.Rdv��INVALID_WRITE_BEYOND_BOUNDS(Rh~x"�9Attempted to write beyond the bounds of the managed data.0 ����sX0��%%�Ʌ%�%�ȅǅƅ%��!	�/�
+���)��_���e�%�	)%5
+�55�5�5�5�5��b0	���,�,�4b@B$

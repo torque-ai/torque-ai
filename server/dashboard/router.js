@@ -76,36 +76,53 @@ function normalizeGovernanceRuleRow(row) {
   };
 }
 
-function resolveDashboardGovernanceDb() {
+function unwrapDashboardDb(dbService) {
+  if (!dbService) {
+    return null;
+  }
+
+  const db = typeof dbService.getDbInstance === 'function'
+    ? dbService.getDbInstance()
+    : (typeof dbService.getDb === 'function' ? dbService.getDb() : dbService);
+
+  return db && typeof db.prepare === 'function' ? db : null;
+}
+
+function resolveDashboardGovernanceDb(dbService) {
   try {
+    const providedDb = unwrapDashboardDb(dbService);
+    if (providedDb) {
+      return { db: providedDb };
+    }
+
     const { defaultContainer } = require('../container');
     if (defaultContainer && typeof defaultContainer.get === 'function') {
       try {
-        const db = defaultContainer.get('db');
-        if (db && typeof db.prepare === 'function') return { db };
+        const db = unwrapDashboardDb(defaultContainer.get('db'));
+        if (db) return { db };
       } catch { /* container not booted — fall through */ }
     }
-    const database = require('../database');
-    const db = database && typeof database.getDbInstance === 'function'
-      ? database.getDbInstance()
-      : (database && typeof database.getDb === 'function' ? database.getDb() : database);
-    if (db && typeof db.prepare === 'function') return { db };
+
+    const db = unwrapDashboardDb(require('../database'));
+    if (db) return { db };
     throw new Error('No database available');
   } catch (error) {
     return { error };
   }
 }
 
-function resolveDashboardVersionControlDb() {
+function resolveDashboardVersionControlDb(dbService) {
   try {
+    const providedDb = unwrapDashboardDb(dbService);
+    if (providedDb) {
+      return { db: providedDb };
+    }
+
     // Try container first
     const { defaultContainer } = require('../container');
     if (defaultContainer && typeof defaultContainer.get === 'function') {
       try {
-        const dbService = defaultContainer.get('db');
-        const db = dbService && typeof dbService.getDbInstance === 'function'
-          ? dbService.getDbInstance()
-          : (dbService && typeof dbService.getDb === 'function' ? dbService.getDb() : dbService);
+        const db = unwrapDashboardDb(defaultContainer.get('db'));
         if (db && typeof db.prepare === 'function') {
           return { db };
         }
@@ -113,10 +130,7 @@ function resolveDashboardVersionControlDb() {
     }
 
     // Fallback: require database.js directly (same pattern as version-control plugin)
-    const database = require('../database');
-    const db = database && typeof database.getDbInstance === 'function'
-      ? database.getDbInstance()
-      : (database && typeof database.getDb === 'function' ? database.getDb() : database);
+    const db = unwrapDashboardDb(require('../database'));
     if (db && typeof db.prepare === 'function') {
       return { db };
     }
@@ -510,8 +524,8 @@ async function handlePatchGovernanceRuleRoute(req, res, _query, ruleId) {
   return sendJson(res, extractGovernancePayload(result), Number.isInteger(result?.status) ? result.status : 200);
 }
 
-async function handleResetGovernanceRuleRoute(_req, res, _query, ruleId) {
-  const { db, error } = resolveDashboardGovernanceDb();
+async function handleResetGovernanceRuleRoute(_req, res, _query, ruleId, context) {
+  const { db, error } = resolveDashboardGovernanceDb(context?.db);
   if (error) {
     return sendJson(res, {
       error: 'Governance rules not initialized',
@@ -541,8 +555,8 @@ async function handleResetGovernanceRuleRoute(_req, res, _query, ruleId) {
   }
 }
 
-async function handleGetVersionControlWorktreesRoute(_req, res, query) {
-  const { db, error } = resolveDashboardVersionControlDb();
+async function handleGetVersionControlWorktreesRoute(_req, res, query, context) {
+  const { db, error } = resolveDashboardVersionControlDb(context?.db);
   if (error) {
     return sendJson(res, {
       error: 'Version control data unavailable',
@@ -618,8 +632,8 @@ async function handleGetVersionControlWorktreesRoute(_req, res, query) {
   }
 }
 
-async function handleGetVersionControlCommitsRoute(_req, res, query) {
-  const { db, error } = resolveDashboardVersionControlDb();
+async function handleGetVersionControlCommitsRoute(_req, res, query, context) {
+  const { db, error } = resolveDashboardVersionControlDb(context?.db);
   if (error) {
     return sendJson(res, {
       error: 'Version control data unavailable',
@@ -674,8 +688,8 @@ async function handleGetVersionControlCommitsRoute(_req, res, query) {
   }
 }
 
-async function handleGetVersionControlReleasesRoute(_req, res, query) {
-  const { db, error } = resolveDashboardVersionControlDb();
+async function handleGetVersionControlReleasesRoute(_req, res, query, context) {
+  const { db, error } = resolveDashboardVersionControlDb(context?.db);
   if (error) {
     return sendJson(res, { error: 'Version control data unavailable', details: error.message }, 503);
   }
@@ -728,8 +742,8 @@ async function handleGetVersionControlReleasesRoute(_req, res, query) {
   }
 }
 
-async function handleCreateVersionControlReleaseRoute(req, res) {
-  const { db, error } = resolveDashboardVersionControlDb();
+async function handleCreateVersionControlReleaseRoute(req, res, _query, context) {
+  const { db, error } = resolveDashboardVersionControlDb(context?.db);
   if (error) {
     return sendJson(res, {
       error: 'Version control data unavailable',
@@ -763,8 +777,8 @@ async function handleCreateVersionControlReleaseRoute(req, res) {
   }
 }
 
-async function handleDeleteVersionControlWorktreeRoute(_req, res, _query, worktreeId) {
-  const { db, error } = resolveDashboardVersionControlDb();
+async function handleDeleteVersionControlWorktreeRoute(_req, res, _query, worktreeId, context) {
+  const { db, error } = resolveDashboardVersionControlDb(context?.db);
   if (error) {
     return sendJson(res, {
       error: 'Version control data unavailable',
@@ -791,8 +805,8 @@ async function handleDeleteVersionControlWorktreeRoute(_req, res, _query, worktr
   }
 }
 
-async function handleMergeVersionControlWorktreeRoute(req, res, _query, worktreeId) {
-  const { db, error } = resolveDashboardVersionControlDb();
+async function handleMergeVersionControlWorktreeRoute(req, res, _query, worktreeId, context) {
+  const { db, error } = resolveDashboardVersionControlDb(context?.db);
   if (error) {
     return sendJson(res, {
       error: 'Version control data unavailable',
@@ -833,7 +847,7 @@ async function handleMergeVersionControlWorktreeRoute(req, res, _query, worktree
  * handler signature: (req, res, query, ...captureGroups, context) => void
  *   - query: parsed query parameters
  *   - captureGroups: regex match groups from the URL pattern
- *   - context: { broadcastTaskUpdate, clients, serverPort } — injected by dispatch
+ *   - context: { broadcastTaskUpdate, clients, serverPort, db } — injected by dispatch
  *
  * Order matters for overlapping patterns — more specific patterns must come first.
  */
@@ -991,7 +1005,7 @@ const routes = [
  * @param {http.IncomingMessage} req - HTTP request
  * @param {http.ServerResponse} res - HTTP response
  * @param {Object} context - Shared server state:
- *   { broadcastTaskUpdate: fn, clients: Set, serverPort: number }
+ *   { broadcastTaskUpdate: fn, clients: Set, serverPort: number, db: object }
  */
 async function dispatch(req, res, context) {
   const url = req.url.split('?')[0];

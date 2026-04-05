@@ -718,6 +718,54 @@ describe('integration routing handlers', () => {
       expect(textOf(result)).toContain('tuning must be an object');
     });
 
+    it('enforces version intent with the container db when available', async () => {
+      const containerPath = require.resolve('../container');
+      const originalContainerCache = require.cache[containerPath];
+      const versionedDb = {
+        prepare: (sql) => {
+          if (sql === "SELECT project FROM project_metadata WHERE project = ? AND key = 'versioning_enabled' AND (value = '1' OR value = 'true')") {
+            return {
+              get: (workingDirectory) => ({ project: workingDirectory }),
+            };
+          }
+          throw new Error(`Unexpected SQL: ${sql}`);
+        },
+      };
+
+      require.cache[containerPath] = {
+        id: containerPath,
+        filename: containerPath,
+        loaded: true,
+        exports: {
+          defaultContainer: {
+            get: vi.fn((name) => {
+              if (name !== 'db') {
+                throw new Error(`Unexpected service lookup: ${name}`);
+              }
+              return versionedDb;
+            }),
+          },
+        },
+      };
+
+      try {
+        const result = await routing.handleSmartSubmitTask({
+          task: 'Create a formatter',
+          working_directory: process.cwd(),
+        });
+
+        expect(result.isError).toBe(true);
+        expect(textOf(result)).toContain('version_intent is required for versioned project');
+        expect(mockDb.getDbInstance).not.toHaveBeenCalled();
+      } finally {
+        if (originalContainerCache) {
+          require.cache[containerPath] = originalContainerCache;
+        } else {
+          delete require.cache[containerPath];
+        }
+      }
+    });
+
     it('applies preset tuning and explicit overrides to stored metadata', async () => {
       const result = await routing.handleSmartSubmitTask({
         task: 'Create a formatter',

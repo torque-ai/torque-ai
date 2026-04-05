@@ -843,7 +843,12 @@ async function executeOllamaTask(task) {
                   }
                 } catch (wfErr) { logger.info(`[Diffusion] Workflow update error: ${wfErr.message}`); }
               }
-              try { require('../task-manager').startTask(applyId); } catch (startErr) {
+              try {
+                const startPromise = require('../task-manager').startTask(applyId);
+                if (startPromise && typeof startPromise.catch === 'function') {
+                  startPromise.catch(err => logger.info(`[Diffusion] Async failure starting apply task ${applyId}: ${err.message}`));
+                }
+              } catch (startErr) {
                 logger.info(`[Diffusion] Failed to auto-start apply task ${applyId}: ${startErr.message}`);
               }
             } else {
