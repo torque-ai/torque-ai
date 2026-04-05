@@ -1,5 +1,380 @@
 # Changelog
 
+## [1.34.0] - 2026-04-05
+
+### Added
+- Visual sweep hybrid architecture — automated capture, pre-analysis, dedup
+- Visual sweep fleet — three-phase deep visual audit system
+- Scouts via Codex + /torque-sweep full automated cycle
+- Add decomposeTask with provider/model/metadata inheritance
+- Add task-decomposition module with provider classes and shouldDecompose
+- Sync all agent definitions to repo — repo is source of truth
+- Add scout variant definitions to project repo
+- Add /torque-scout variant system and codex-primary routing template
+- Add /torque-team slash command for one-shot team spawning
+- Separate subscription vs API providers in Budget view
+- Deprecate v1 API — all dashboard calls now use requestV2
+- Swappable activity chart — daily vs hourly toggle
+- Hybrid bar+line activity chart with hourly data and smooth curves
+- Temp file prevention — auto-commit filter + governance rule
+- Replace dagre with inline DAG layout, eliminate lodash vulnerabilities
+- Replace recharts with lightweight SVG chart components
+- Schedule enforcement, direct commit tracking, CLAUDE.md versioning docs
+
+### Fixed
+- Use lastIndexOf for sandbox suffix extraction in resolveRelativePath
+- Exclude dashboard.test.js from root config (needs jsdom)
+- Skip dashboard.test.js when jsdom not available
+- Guard cancelled→running transition + add jsdom dev dependency
+- Update snapscope test — artifacts now persisted for adhoc captures
+- Update peek test expectations for adhoc output dir behavior
+- Commit remaining a11y JSX changes + QC active monitoring update
+- Batch 13 — 6 DI bypasses, 3 N+1 fixes, rejection sweep, QC active monitoring
+- Workstation adapter returns hostUrl not url
+- 3 snapscope bugs from visual sweep live test
+- Update handleSubmitTask test assertions for provider fix
+- Promote core peek tools to tier 1 for immediate availability
+- 4 session backlog items
+- Add peek_wait, peek_action_sequence, peek_assert, peek_ocr to tier 2
+- Snapscope install uses safe container.get with fallback
+- Add logger.info/error for plugin install and mcpTools registration
+- Preserve taskModel from test-writing promotion in resolveModificationRouting
+- Add peek MCP tools and unlock_all_tools to visual sweep agent frontmatter
+- GetPlanProject returns null instead of undefined for missing projects
+- Batch 10 — eliminate 15 unhandled rejection warnings
+- Use testDir instead of hardcoded path in smoke test
+- 2 source bugs found by new tests + 2 test fixes
+- Rewrite enforcement test to use real fs instead of CJS mocking
+- Use vi.hoisted + vi.mock for CJS module mocking in enforcement test
+- Convert manifest test files from CJS require to ESM imports
+- Update manifest tests for test runner 4.1 compatibility
+- Batch 8 — 4 a11y + 5 docs + dep patches + sweep findings
+- Update 7 test files to match batch 7 source changes
+- QC signals ready instead of running integration pass
+- Batch 7 — security, architectural, performance, cleanup
+- Update registry-not-initialized test for getInstalledRegistry
+- Batch 6 test fixes — registry mock + concurrency handler
+- Batch 6 — final cleanup, 8 quick wins
+- Round 2 DI migration test fixes — fallback to getDbInstance
+- Add container fallback for DI migration test compatibility
+- Repair CJS module mocking in build-verification and task-startup tests
+- Batch 3 — 12 accessibility fixes across dashboard
+- Update decomposition tests for provider-class-aware thresholds
+- Skip 4 governance tests — promisify.custom mock incompatibility
+- Use vi.mock for child_process in governance tests
+- Apply promisify.custom pattern to governance-integration test
+- Set promisify.custom before module load in governance tests
+- Restore promisify.custom on governance-hooks test mock
+- Lazy promisify in governance hooks for test spy compatibility
+- Remaining test caller fixes for batch 2 async conversions
+- Update test callers for batch 2 async conversions
+- Update handleScanProject tests for lstatSync/realpathSync in walkDir
+- Batch 1 — 5 security fixes, 3 critical a11y fixes, 4 doc updates
+- 5 code quality fixes in server/execution/
+- Hard fail when agent definition files are missing
+- Torque-team reads agent definitions from repo first, global fallback
+- Add explicit shutdown response format to all agent definitions
+- Re-skip close-phases quality test with accurate documentation
+- Delete dead test, unskip close-phases, document skip reasons
+- Handle async startTask rejections in 2 remaining callers
+- Update dashboard convergence test — all endpoints now use requestV2
+- Skip 3 flaky routing tests, fix test-container-helper exclude
+- Disable all cloud providers in starttask routing tests
+- Use setConfig instead of raw db.prepare for routing template clear
+- Clear routing template in starttask tests, remove stale free-tier assertion
+- Resolve 17 pre-existing test failures
+- Resolve 6 pre-existing test failures
+- Simplify database-backup integration tests for remote isolation
+- Update database-backup tests for removed directory param
+- Update remaining backup test assertions for removed directory param
+- Remove directory param from listBackups handler, update tests
+- Update integration-infra tests to use backups/ subdirectory
+- Update backup tests for path validation security fix
+- Wrap execFile manually instead of promisify for spy compatibility
+- Use dynamic childProcess.execFile ref so tests can spy on it
+- Use vi.mock with importOriginal for child_process in review tests
+- Use beforeAll for execFile spy so promisify captures it at load time
+- Spy on execFile before module load in adversarial-review tests
+- Use vi.mock for child_process in adversarial-review tests
+- Add await to async startTask/collectDiff callers across test files
+- Add await to all async caller sites in test files
+- Update 5 stale test assertions to match current code
+- 7 deferred issues — session eviction, log levels, listener cleanup, dedup, docs
+- Repair async conversion and DI fix regressions
+- 8 security and quality fixes from scout findings
+- Add shutdown handling to all agent definitions, fix duplicate brief
+- Remove Budget now deletes all budget records, not just sets one to 0
+- Allow budget_usd=0 to clear budget limit
+- Add Remove Budget button to budget form
+- Show all subscription providers in Budget, label progress as API-only
+- Activity chart — smooth lines only, Y-axis starts at 0
+- V2 timeseries handler now supports interval=hour param
+- Resolve Codex sandbox paths in normalizeCommitPath via suffix matching
+- Force LF line endings in CLI task environments via GIT_CONFIG env
+- Resolve Strategy test mock setup for overview tab assertions
+- Use resetAllMocks to clear leaked mock implementations between tests
+- Use clearAllMocks instead of restoreAllMocks in Strategy tests
+- Set root in dashboard config to prevent CWD-dependent resolution
+- Add explicit include pattern to dashboard config
+- Scope test runner configs to prevent cross-suite leaking
+- 8 UI/data issues in Strategy routing overview page
+- Override lodash to 4.18.1 to resolve 2 Dependabot vulnerabilities
+- Add unmount guards to 6 async state-write race conditions in dashboard
+- Guard queue TTL expiry query with try/catch
+- Resolve versioned project paths with normalization and basename fallback
+- Add data-testid to Strategy decision rows for sort order verification
+- Migrate 3 remaining request() calls to requestV2() in dashboard api
+- Filter GCM credential warnings from torque-remote sync output
+- Registry-null tests expect 404 (agent lookup fails before registry check)
+- Restore deleted it() wrapper in handleDeleteAgent registry test
+- Registry cache tests — mock getDbInstance to return null directly
+- Resolve remaining 9 test failures
+- Frontend lint cleanup, server bug fixes, and remaining test updates
+- Update 9 schedule API test expectations to match object-based createCronScheduledTask signature
+- Update backup test mock filenames to match ISO timestamp pattern
+- Update 5 test expectations to match current source behavior
+- Update dashboard tests for recharts→SVG chart migration
+- Use ERE instead of PCRE for binary extension check in PII hook
+- Re-fetch server state on failed optimistic save instead of stale revert
+- Link release commit back to triggering task/workflow
+
+### Changed
+- Batch 12 — extract concerns from 3 oversized functions
+- Batch 5 — remove database require from 5 handler/API files
+- Register task-decomposition in DI container
+- Replace decomposition blocks with provider-class-aware logic
+- Merge Queue Manager into QC, simplify pipeline to 3 agents
+- Centralize sandbox path resolution into shared utility
+
+### Documentation
+- Add visual sweep hybrid architecture implementation plan
+- Add visual sweep hybrid architecture design spec
+- Add visual sweep fleet implementation plan
+- Add visual sweep fleet design spec
+- Update scout base definition — Codex is default execution provider
+- Add smart decomposition implementation plan
+- Add smart decomposition design spec
+- Add documentation scan findings (2026-04-04)
+- Add full-project quality scan findings (2026-04-04)
+- Add full performance scan findings (2026-04-04)
+- Add test coverage scan findings (2026-04-04)
+- Add dependency scan findings (2026-04-04)
+- Add full security scan findings (2026-04-04)
+- Add accessibility scan findings for dashboard
+- Add execution module quality scan findings
+- Condense CLAUDE.md from 708 to 460 lines (35% reduction)
+- Add test infrastructure performance scan findings (7 issues)
+- Add runtime performance scan findings (2026-04-04)
+- Add code quality scan findings (2026-04-04)
+- Add security & reliability scan findings (2026-04-04)
+- Add TORQUE agent team implementation plan
+- Add TORQUE agent team design spec
+- Recharts replacement plan — 402KB library to ~5KB SVG components
+
+### Testing
+- Batch 14 — 50 new test cases across 10 P2 modules
+- Batch 11 — 97 new test cases across 9 P1 modules
+- Batch 9 — 61 new test cases across 8 P0 untested modules
+- Batch 4 — 85 new test cases across 8 modules
+- Add integration tests for template + decomposition interaction
+- Verify temp file filter excludes tmp/ from auto-commit
+- Update Strategy tests for routing overview redesign
+
+### Maintenance
+- Add docs/findings/ directory for scout discovery artifacts
+- Remove temp debug files from Strategy test investigation
+- Rebuild dashboard dist with strategy overview redesign
+- Rebuild dashboard dist
+- Rebuild dashboard dist with latest source
+- Add module comment to charts index
+
+## [1.33.0] - 2026-04-05
+
+### Added
+- Visual sweep fleet — three-phase deep visual audit system
+- Scouts via Codex + /torque-sweep full automated cycle
+- Add decomposeTask with provider/model/metadata inheritance
+- Add task-decomposition module with provider classes and shouldDecompose
+- Sync all agent definitions to repo — repo is source of truth
+- Add scout variant definitions to project repo
+- Add /torque-scout variant system and codex-primary routing template
+- Add /torque-team slash command for one-shot team spawning
+- Separate subscription vs API providers in Budget view
+- Deprecate v1 API — all dashboard calls now use requestV2
+- Swappable activity chart — daily vs hourly toggle
+- Hybrid bar+line activity chart with hourly data and smooth curves
+- Temp file prevention — auto-commit filter + governance rule
+- Replace dagre with inline DAG layout, eliminate lodash vulnerabilities
+- Replace recharts with lightweight SVG chart components
+- Schedule enforcement, direct commit tracking, CLAUDE.md versioning docs
+
+### Fixed
+- Use lastIndexOf for sandbox suffix extraction in resolveRelativePath
+- Exclude dashboard.test.js from root config (needs jsdom)
+- Skip dashboard.test.js when jsdom not available
+- Guard cancelled→running transition + add jsdom dev dependency
+- Update snapscope test — artifacts now persisted for adhoc captures
+- Update peek test expectations for adhoc output dir behavior
+- Commit remaining a11y JSX changes + QC active monitoring update
+- Batch 13 — 6 DI bypasses, 3 N+1 fixes, rejection sweep, QC active monitoring
+- Workstation adapter returns hostUrl not url
+- 3 snapscope bugs from visual sweep live test
+- Update handleSubmitTask test assertions for provider fix
+- Promote core peek tools to tier 1 for immediate availability
+- 4 session backlog items
+- Add peek_wait, peek_action_sequence, peek_assert, peek_ocr to tier 2
+- Snapscope install uses safe container.get with fallback
+- Add logger.info/error for plugin install and mcpTools registration
+- Preserve taskModel from test-writing promotion in resolveModificationRouting
+- Add peek MCP tools and unlock_all_tools to visual sweep agent frontmatter
+- GetPlanProject returns null instead of undefined for missing projects
+- Batch 10 — eliminate 15 unhandled rejection warnings
+- Use testDir instead of hardcoded path in smoke test
+- 2 source bugs found by new tests + 2 test fixes
+- Rewrite enforcement test to use real fs instead of CJS mocking
+- Use vi.hoisted + vi.mock for CJS module mocking in enforcement test
+- Convert manifest test files from CJS require to ESM imports
+- Update manifest tests for test runner 4.1 compatibility
+- Batch 8 — 4 a11y + 5 docs + dep patches + sweep findings
+- Update 7 test files to match batch 7 source changes
+- QC signals ready instead of running integration pass
+- Batch 7 — security, architectural, performance, cleanup
+- Update registry-not-initialized test for getInstalledRegistry
+- Batch 6 test fixes — registry mock + concurrency handler
+- Batch 6 — final cleanup, 8 quick wins
+- Round 2 DI migration test fixes — fallback to getDbInstance
+- Add container fallback for DI migration test compatibility
+- Repair CJS module mocking in build-verification and task-startup tests
+- Batch 3 — 12 accessibility fixes across dashboard
+- Update decomposition tests for provider-class-aware thresholds
+- Skip 4 governance tests — promisify.custom mock incompatibility
+- Use vi.mock for child_process in governance tests
+- Apply promisify.custom pattern to governance-integration test
+- Set promisify.custom before module load in governance tests
+- Restore promisify.custom on governance-hooks test mock
+- Lazy promisify in governance hooks for test spy compatibility
+- Remaining test caller fixes for batch 2 async conversions
+- Update test callers for batch 2 async conversions
+- Update handleScanProject tests for lstatSync/realpathSync in walkDir
+- Batch 1 — 5 security fixes, 3 critical a11y fixes, 4 doc updates
+- 5 code quality fixes in server/execution/
+- Hard fail when agent definition files are missing
+- Torque-team reads agent definitions from repo first, global fallback
+- Add explicit shutdown response format to all agent definitions
+- Re-skip close-phases quality test with accurate documentation
+- Delete dead test, unskip close-phases, document skip reasons
+- Handle async startTask rejections in 2 remaining callers
+- Update dashboard convergence test — all endpoints now use requestV2
+- Skip 3 flaky routing tests, fix test-container-helper exclude
+- Disable all cloud providers in starttask routing tests
+- Use setConfig instead of raw db.prepare for routing template clear
+- Clear routing template in starttask tests, remove stale free-tier assertion
+- Resolve 17 pre-existing test failures
+- Resolve 6 pre-existing test failures
+- Simplify database-backup integration tests for remote isolation
+- Update database-backup tests for removed directory param
+- Update remaining backup test assertions for removed directory param
+- Remove directory param from listBackups handler, update tests
+- Update integration-infra tests to use backups/ subdirectory
+- Update backup tests for path validation security fix
+- Wrap execFile manually instead of promisify for spy compatibility
+- Use dynamic childProcess.execFile ref so tests can spy on it
+- Use vi.mock with importOriginal for child_process in review tests
+- Use beforeAll for execFile spy so promisify captures it at load time
+- Spy on execFile before module load in adversarial-review tests
+- Use vi.mock for child_process in adversarial-review tests
+- Add await to async startTask/collectDiff callers across test files
+- Add await to all async caller sites in test files
+- Update 5 stale test assertions to match current code
+- 7 deferred issues — session eviction, log levels, listener cleanup, dedup, docs
+- Repair async conversion and DI fix regressions
+- 8 security and quality fixes from scout findings
+- Add shutdown handling to all agent definitions, fix duplicate brief
+- Remove Budget now deletes all budget records, not just sets one to 0
+- Allow budget_usd=0 to clear budget limit
+- Add Remove Budget button to budget form
+- Show all subscription providers in Budget, label progress as API-only
+- Activity chart — smooth lines only, Y-axis starts at 0
+- V2 timeseries handler now supports interval=hour param
+- Resolve Codex sandbox paths in normalizeCommitPath via suffix matching
+- Force LF line endings in CLI task environments via GIT_CONFIG env
+- Resolve Strategy test mock setup for overview tab assertions
+- Use resetAllMocks to clear leaked mock implementations between tests
+- Use clearAllMocks instead of restoreAllMocks in Strategy tests
+- Set root in dashboard config to prevent CWD-dependent resolution
+- Add explicit include pattern to dashboard config
+- Scope test runner configs to prevent cross-suite leaking
+- 8 UI/data issues in Strategy routing overview page
+- Override lodash to 4.18.1 to resolve 2 Dependabot vulnerabilities
+- Add unmount guards to 6 async state-write race conditions in dashboard
+- Guard queue TTL expiry query with try/catch
+- Resolve versioned project paths with normalization and basename fallback
+- Add data-testid to Strategy decision rows for sort order verification
+- Migrate 3 remaining request() calls to requestV2() in dashboard api
+- Filter GCM credential warnings from torque-remote sync output
+- Registry-null tests expect 404 (agent lookup fails before registry check)
+- Restore deleted it() wrapper in handleDeleteAgent registry test
+- Registry cache tests — mock getDbInstance to return null directly
+- Resolve remaining 9 test failures
+- Frontend lint cleanup, server bug fixes, and remaining test updates
+- Update 9 schedule API test expectations to match object-based createCronScheduledTask signature
+- Update backup test mock filenames to match ISO timestamp pattern
+- Update 5 test expectations to match current source behavior
+- Update dashboard tests for recharts→SVG chart migration
+- Use ERE instead of PCRE for binary extension check in PII hook
+- Re-fetch server state on failed optimistic save instead of stale revert
+- Link release commit back to triggering task/workflow
+
+### Changed
+- Batch 12 — extract concerns from 3 oversized functions
+- Batch 5 — remove database require from 5 handler/API files
+- Register task-decomposition in DI container
+- Replace decomposition blocks with provider-class-aware logic
+- Merge Queue Manager into QC, simplify pipeline to 3 agents
+- Centralize sandbox path resolution into shared utility
+
+### Documentation
+- Add visual sweep hybrid architecture implementation plan
+- Add visual sweep hybrid architecture design spec
+- Add visual sweep fleet implementation plan
+- Add visual sweep fleet design spec
+- Update scout base definition — Codex is default execution provider
+- Add smart decomposition implementation plan
+- Add smart decomposition design spec
+- Add documentation scan findings (2026-04-04)
+- Add full-project quality scan findings (2026-04-04)
+- Add full performance scan findings (2026-04-04)
+- Add test coverage scan findings (2026-04-04)
+- Add dependency scan findings (2026-04-04)
+- Add full security scan findings (2026-04-04)
+- Add accessibility scan findings for dashboard
+- Add execution module quality scan findings
+- Condense CLAUDE.md from 708 to 460 lines (35% reduction)
+- Add test infrastructure performance scan findings (7 issues)
+- Add runtime performance scan findings (2026-04-04)
+- Add code quality scan findings (2026-04-04)
+- Add security & reliability scan findings (2026-04-04)
+- Add TORQUE agent team implementation plan
+- Add TORQUE agent team design spec
+- Recharts replacement plan — 402KB library to ~5KB SVG components
+
+### Testing
+- Batch 14 — 50 new test cases across 10 P2 modules
+- Batch 11 — 97 new test cases across 9 P1 modules
+- Batch 9 — 61 new test cases across 8 P0 untested modules
+- Batch 4 — 85 new test cases across 8 modules
+- Add integration tests for template + decomposition interaction
+- Verify temp file filter excludes tmp/ from auto-commit
+- Update Strategy tests for routing overview redesign
+
+### Maintenance
+- Add docs/findings/ directory for scout discovery artifacts
+- Remove temp debug files from Strategy test investigation
+- Rebuild dashboard dist with strategy overview redesign
+- Rebuild dashboard dist
+- Rebuild dashboard dist with latest source
+- Add module comment to charts index
+
 ## [1.31.0] - 2026-04-05
 
 ### Added
