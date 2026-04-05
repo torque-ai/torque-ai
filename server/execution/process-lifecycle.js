@@ -414,6 +414,13 @@ function spawnAndTrackProcess(taskId, task, {
   if (child.pid) {
     statusUpdate.pid = child.pid;
   }
+  // Guard: task may have been cancelled between spawn and this point
+  const currentTask = taskCoreDb.getTask(taskId);
+  if (currentTask && currentTask.status === 'cancelled') {
+    logger.info(`[TaskManager] Task ${taskId} was cancelled before spawn completed — skipping status update`);
+    try { child.kill(); } catch (_) {}
+    return;
+  }
   taskCoreDb.updateTaskStatus(taskId, 'running', statusUpdate);
   if (baselineCommit) {
     try {
