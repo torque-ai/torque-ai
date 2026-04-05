@@ -1040,7 +1040,9 @@ async function handleSmartSubmitTask(args) {
   });
   if (modResult.error) return modResult.error;
   selectedProvider = modResult.selectedProvider;
-  taskModel = modResult.taskModel;
+  // Preserve a previously-set taskModel (e.g. from test-writing promotion) when the
+  // modification helper had no opinion (returned null).
+  if (modResult.taskModel != null) taskModel = modResult.taskModel;
   modRoutingReason = modResult.modRoutingReason;
 
   // P71: Multi-host load distribution with smart model fallback
