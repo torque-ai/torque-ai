@@ -620,7 +620,7 @@ describe('task-core handlers', () => {
       expect(mockRouting.handleSmartSubmitTask).not.toHaveBeenCalled();
       expect(lastCreatedTask()).toMatchObject({
         task_description: 'Use explicit provider',
-        provider: null,
+        provider: 'ollama',
       });
     });
 
@@ -665,7 +665,7 @@ describe('task-core handlers', () => {
         timeout_minutes: 90,
         auto_approve: true,
         priority: 7,
-        provider: null,
+        provider: 'ollama',
         model: TEST_MODELS.DEFAULT,
       });
       expect(JSON.parse(createdTask.metadata)).toEqual({
@@ -786,7 +786,7 @@ describe('task-core handlers', () => {
       });
 
       expect(lastCreatedTask()).toMatchObject({
-        provider: null,
+        provider: 'ollama',
         timeout_minutes: 90,
       });
     });
