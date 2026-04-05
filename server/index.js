@@ -778,9 +778,9 @@ function init() {
     for (const plugin of loadedPlugins) {
       try {
         plugin.install(defaultContainer);
-        debugLog('Plugin installed: ' + plugin.name + ' v' + plugin.version);
+        logger.info('[plugin-loader] Plugin installed: ' + plugin.name + ' v' + plugin.version);
       } catch (pluginErr) {
-        debugLog('Plugin install failed: ' + plugin.name + ' — ' + pluginErr.message);
+        logger.error('[plugin-loader] Plugin install FAILED: ' + plugin.name + ' — ' + pluginErr.message);
       }
     }
   } catch (err) {
@@ -1153,7 +1153,14 @@ function init() {
   const pluginTier1 = [];
   const pluginTier2 = [];
   for (const plugin of loadedPlugins) {
-    const tools = plugin.mcpTools();
+    let tools;
+    try {
+      tools = plugin.mcpTools();
+      logger.info(`[plugin-tools] ${plugin.name}: mcpTools() returned ${Array.isArray(tools) ? tools.length : typeof tools} tools`);
+    } catch (mcpErr) {
+      logger.error(`[plugin-tools] ${plugin.name}: mcpTools() threw: ${mcpErr.message}`);
+      continue;
+    }
     if (Array.isArray(tools)) {
       for (const tool of tools) {
         if (builtInNames.has(tool.name)) {
