@@ -30,7 +30,7 @@ const buildReadFile = (files) => (filePath) => {
 };
 
 describe('audit chunking', () => {
-  it('batches small files into groups of SMALL_BATCH_SIZE', () => {
+  it('batches small files into groups of SMALL_BATCH_SIZE', async () => {
     const files = [
       makeFile('small-a', 100, 'small'),
       makeFile('small-b', 150, 'small'),
@@ -38,7 +38,7 @@ describe('audit chunking', () => {
       makeFile('small-d', 250, 'small'),
     ];
 
-    const units = createReviewUnits(files, {
+    const units = await createReviewUnits(files, {
       readFile: buildReadFile(files),
     });
 
@@ -47,13 +47,13 @@ describe('audit chunking', () => {
     expect(units[1].files).toHaveLength(1);
   });
 
-  it('assigns each medium file to its own non-chunked unit', () => {
+  it('assigns each medium file to its own non-chunked unit', async () => {
     const files = [
       makeFile('medium-a', 600, 'medium'),
       makeFile('medium-b', 700, 'medium'),
     ];
 
-    const units = createReviewUnits(files, {
+    const units = await createReviewUnits(files, {
       readFile: buildReadFile(files),
     });
 
@@ -66,12 +66,12 @@ describe('audit chunking', () => {
     }
   });
 
-  it('splits large files into multiple chunked units', () => {
+  it('splits large files into multiple chunked units', async () => {
     const files = [
       makeFile('large-a', 1700, 'large'),
     ];
 
-    const units = createReviewUnits(files, {
+    const units = await createReviewUnits(files, {
       maxChunkLines: 800,
       readFile: buildReadFile(files),
     });
