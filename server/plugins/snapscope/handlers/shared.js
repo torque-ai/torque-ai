@@ -107,12 +107,10 @@ function resolvePeekHost(args) {
     const wsHost = wsAdapters.resolvePeekHost(args);
     if (wsHost) {
       return {
-        name: wsHost.name,
-        url: `http://${wsHost.host}:9876`,
-        host: wsHost.host,
+        hostName: wsHost.name,
+        hostUrl: `http://${wsHost.host}:9876`,
         ssh: null,
-        is_default: !!wsHost.is_default,
-        enabled: !!wsHost.enabled,
+        platform: wsHost.platform || null,
       };
     }
   } catch { /* fall through to legacy */ }
