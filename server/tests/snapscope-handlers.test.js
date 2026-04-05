@@ -1043,7 +1043,7 @@ describe('Snapscope Handlers', () => {
         output_dir: expect.stringContaining('_adhoc'),
       });
       expect(result.content[2].text).toContain('**Bundle Contract:** peek_investigation_bundle v1');
-      expect(result.content[2].text).toContain('**Artifacts Persisted:** No');
+      expect(result.content[2].text).toContain('**Artifacts Persisted:** Yes');
       expect(result.content[2].text).toContain('**Bundle Signed:** No');
     });
 
