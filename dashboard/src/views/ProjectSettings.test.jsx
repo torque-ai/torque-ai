@@ -37,13 +37,15 @@ describe('ProjectSettings', () => {
     globalThis.fetch = vi.fn((url, options = {}) => {
       const method = String(options.method || 'GET').toUpperCase();
 
-      if (url === '/api/project-config?project=alpha') {
+      if (url === '/api/v2/project-config?project=alpha') {
         return createResponse({
-          default_provider: 'codex',
-          default_model: 'gpt-5.3-codex-spark',
-          verify_command: 'npm test',
-          auto_fix_enabled: 1,
-          default_timeout: 45,
+          data: {
+            default_provider: 'codex',
+            default_model: 'gpt-5.3-codex-spark',
+            verify_command: 'npm test',
+            auto_fix_enabled: 1,
+            default_timeout: 45,
+          },
         });
       }
 
@@ -65,7 +67,7 @@ describe('ProjectSettings', () => {
         });
       }
 
-      if (url === '/api/provider-scores') {
+      if (url === '/api/v2/provider-scores') {
         return createResponse([
           {
             provider: 'codex',
@@ -79,7 +81,7 @@ describe('ProjectSettings', () => {
         ]);
       }
 
-      if (url === '/api/cost-budgets') {
+      if (url === '/api/v2/cost-budgets') {
         return createResponse([
           {
             id: 'budget-1',
@@ -91,9 +93,9 @@ describe('ProjectSettings', () => {
         ]);
       }
 
-      if (url === '/api/project-config' && method === 'POST') {
+      if (url === '/api/v2/project-config' && method === 'POST') {
         postedBody = JSON.parse(options.body);
-        return createResponse({ ok: true });
+        return createResponse({ data: { ok: true } });
       }
 
       throw new Error(`Unhandled fetch: ${method} ${url}`);

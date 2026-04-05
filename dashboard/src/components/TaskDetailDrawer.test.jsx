@@ -120,8 +120,10 @@ describe('TaskDetailDrawer', () => {
     await act(async () => {
       renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={onClose} />);
     });
+    // Escape listener is on the drawer element (focus trap), not document
+    const drawer = document.querySelector('.animate-slide-in-right');
     await act(async () => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      fireEvent.keyDown(drawer, { key: 'Escape' });
     });
     expect(onClose).toHaveBeenCalled();
   });

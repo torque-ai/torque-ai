@@ -71,7 +71,9 @@ describe('ShortcutHelpOverlay', () => {
         <ShortcutHelpOverlay onClose={onClose} />
       </MemoryRouter>
     );
-    fireEvent.keyDown(window, { key: 'Escape' });
+    // Escape listener is on the modal element (focus trap), not window
+    const modal = screen.getByRole('dialog');
+    fireEvent.keyDown(modal, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
