@@ -205,7 +205,15 @@ function ProviderRow({ provider, quota, sparkData, onToggle, onUpdateConcurrency
       {/* Main row */}
       <div
         className="flex items-center gap-4 px-4 py-2.5 hover:bg-slate-800/30 cursor-pointer transition-colors"
+        tabIndex={0}
+        role="button"
         onClick={() => setExpanded(!expanded)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setExpanded(!expanded);
+          }
+        }}
       >
         <span
           aria-hidden="true"

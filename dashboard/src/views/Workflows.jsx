@@ -76,7 +76,15 @@ function DAGTaskRow({ task, depth = 0, onOpenDrawer, now }) {
   return (
     <tr
       className="border-b border-slate-700/20 hover:bg-slate-700/20 cursor-pointer transition-colors"
+      tabIndex={0}
+      role="button"
       onClick={() => onOpenDrawer?.(task.id || task.task_id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpenDrawer?.(task.id || task.task_id);
+        }
+      }}
     >
       <td className="px-4 py-2" style={{ paddingLeft: `${16 + depth * 24}px` }}>
         <div className="flex items-center gap-2">

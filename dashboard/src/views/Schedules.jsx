@@ -315,7 +315,19 @@ export default function Schedules() {
                 const schedType = schedule.schedule_type || 'cron';
                 const isOnce = schedType === 'once';
                 return (
-                  <tr key={schedule.id} onClick={() => setSelectedScheduleId(schedule.id)} className="border-b border-slate-700/30 hover:bg-slate-700/30 transition-colors cursor-pointer">
+                  <tr
+                    key={schedule.id}
+                    tabIndex={0}
+                    role="button"
+                    onClick={() => setSelectedScheduleId(schedule.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedScheduleId(schedule.id);
+                      }
+                    }}
+                    className="border-b border-slate-700/30 hover:bg-slate-700/30 transition-colors cursor-pointer"
+                  >
                     <td className="p-4">
                       <div className="flex items-center gap-2">
                         <p className="text-white text-sm font-medium">{schedule.name}</p>
@@ -356,7 +368,7 @@ export default function Schedules() {
 
       {showConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowConfirm(null)}>
-          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" aria-label="Delete Schedule" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">Delete Schedule</h3>
             <p className="text-slate-300 text-sm mb-4">Delete this schedule? This action is irreversible.</p>
             <div className="flex gap-3 justify-end">

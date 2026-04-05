@@ -165,7 +165,7 @@ export default memo(function ReleaseDetailDrawer({ release, onClose }) {
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
 
-      <div className="fixed top-0 right-0 h-full w-[400px] bg-slate-900 border-l-2 border-blue-500 z-50 overflow-y-auto shadow-2xl">
+      <div className="fixed top-0 right-0 h-full w-[400px] bg-slate-900 border-l-2 border-blue-500 z-50 overflow-y-auto shadow-2xl" role="dialog" aria-modal="true" aria-label="Release details">
         <div className="p-5 space-y-4">
           <div className="flex justify-between items-start gap-3">
             <div className="flex-1 min-w-0">

@@ -89,7 +89,15 @@ function TaskBreakdownRow({ task, onOpenDrawer, now }) {
   return (
     <tr
       className="border-b border-slate-700/20 hover:bg-slate-700/20 cursor-pointer transition-colors"
+      tabIndex={0}
+      role="button"
       onClick={() => onOpenDrawer?.(task.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpenDrawer?.(task.id);
+        }
+      }}
     >
       <td className="px-6 py-2">
         <span className={`font-mono text-sm ${statusInfo.color}`}>{statusInfo.icon}</span>
@@ -562,7 +570,15 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
                 return (
                   <React.Fragment key={wf.id}>
                     <tr
+                      tabIndex={0}
+                      role="button"
                       onClick={() => setExpandedId(isExpanded ? null : wf.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setExpandedId(isExpanded ? null : wf.id);
+                        }
+                      }}
                       className={`border-b border-slate-700/30 hover:bg-slate-700/30 cursor-pointer transition-colors ${
                         isExpanded ? 'bg-slate-800/50' : ''
                       }`}

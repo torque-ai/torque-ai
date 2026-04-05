@@ -53,7 +53,15 @@ function ProjectCard({ project, onSelect, onAction }) {
 
   return (
     <div
+      tabIndex={0}
+      role="button"
       onClick={() => onSelect(project.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(project.id);
+        }
+      }}
       className="bg-slate-800 rounded-lg p-4 cursor-pointer hover:bg-slate-700 transition-colors"
     >
       <div className="flex items-start justify-between gap-2 mb-3">

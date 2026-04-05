@@ -6,7 +6,7 @@ TORQUE routes tasks across 12 execution providers. This guide covers how to conf
 
 | Type | How It Works | Examples |
 |------|-------------|----------|
-| **Local** | Runs on your Ollama instance (local or LAN) | Ollama, Hashline-Ollama |
+| **Local** | Runs on your Ollama instance (local or LAN) | Ollama |
 | **CLI** | Invokes an installed CLI tool | Codex, Codex Spark, Claude Code |
 | **API (BYOK)** | Calls a cloud API with your key | DeepInfra, Anthropic, Groq, Cerebras, Google AI, Hyperbolic, OpenRouter |
 
@@ -46,14 +46,6 @@ TORQUE auto-detects Ollama at `http://localhost:11434` during `torque init`. No 
 - `temperature` — controls randomness (default: 0.2)
 - `num_ctx` — context window size (default: 8192)
 - `num_predict` — max output tokens (default: -1, unlimited)
-
-### Hashline-Ollama
-
-Uses the same Ollama instance but with a specialized line-hash editing format. Best for targeted single-file edits where precision matters.
-
-Hashline-Ollama annotates each line with a number:hash pair, allowing the model to reference exact lines without reproducing surrounding content. This significantly reduces edit errors on large files.
-
-No separate setup needed — if Ollama works, Hashline-Ollama works.
 
 ## CLI Providers
 
@@ -114,11 +106,10 @@ configure_provider { provider: "deepinfra", enabled: true }
 ```
 
 Or via REST API:
-```bash
-curl -X POST http://127.0.0.1:3457/api/providers/deepinfra \
-  -H "Content-Type: application/json" \
-  -d '{"enabled": true}'
-```
+
+    curl -X POST http://127.0.0.1:3457/api/tools/configure_provider \
+      -H "Content-Type: application/json" \
+      -d '{"provider": "deepinfra", "enabled": true}'
 
 ### Ollama Cloud
 
@@ -137,7 +128,7 @@ TORQUE can distribute tasks across multiple Ollama instances on your LAN.
 ### Adding a Remote Host
 
 ```
-add_ollama_host { name: "gpu-server", url: "http://192.168.1.100:11434" }
+add_ollama_host { name: "gpu-server", url: "http://192.0.2.100:11434" }
 ```
 
 ### Remote Host Prerequisites
@@ -171,8 +162,8 @@ check_ollama_health
 
 When a provider fails, TORQUE retries on the next provider in the fallback chain. Default chains:
 
-- **Codex** → Claude CLI → DeepInfra → Ollama Cloud → Hashline-Ollama → Ollama
-- **DeepInfra** → Ollama Cloud → Hyperbolic → Claude CLI → Codex → Hashline-Ollama
+- **Codex** → Claude CLI → DeepInfra → Ollama Cloud → Ollama
+- **DeepInfra** → Ollama Cloud → Hyperbolic → Claude CLI → Codex → Ollama
 - **Ollama** → fallback model on alternate host → DeepInfra → Codex
 
 Customize chains:
@@ -204,9 +195,7 @@ activate_routing_template { name: "Quality First" }
 
 ### Per-Task Override
 
-```
-smart_submit_task { description: "...", routing_template: "Cost Saver" }
-```
+    smart_submit_task { task: "...", routing_template: "Cost Saver" }
 
 ## Concurrency
 
@@ -220,7 +209,7 @@ Each provider has independent concurrency limits:
 | `max_api_concurrent` | 4 | Per-API-provider limit |
 | `max_per_host` | 4 | Per-Ollama-host limit |
 
-Ollama-based providers (Ollama + Hashline-Ollama) share host-level VRAM limits, so their combined running tasks respect the per-host cap.
+Ollama tasks share host-level VRAM limits, so their combined running tasks respect the per-host cap.
 
 ## Stall Detection
 

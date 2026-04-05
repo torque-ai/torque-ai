@@ -603,7 +603,15 @@ const NeedsAttentionCard = memo(function NeedsAttentionCard({ task, reason, onOp
   const shortId = task.id?.substring(0, 8) || 'unknown';
   return (
     <div
+      tabIndex={0}
+      role="button"
       onClick={() => onOpenDrawer?.(task.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpenDrawer?.(task.id);
+        }
+      }}
       className="bg-amber-900/30 border border-amber-600/40 rounded-lg p-2 cursor-pointer hover:bg-amber-800/40 transition-all"
     >
       <div className="flex items-center justify-between gap-2">
@@ -1501,7 +1509,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       <ActivityPanel events={activityLog} isOpen={activityOpen} onToggle={toggleActivityPanel} />
       {showConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowConfirm(null)}>
-          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" aria-label="Confirm Retry" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">Confirm Retry</h3>
             <p className="text-slate-300 text-sm mb-4">
               Retry {showConfirm.count} failed task{showConfirm.count !== 1 ? 's' : ''}?

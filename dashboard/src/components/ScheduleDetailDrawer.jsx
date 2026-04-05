@@ -239,7 +239,7 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, onClose, onUpdat
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
 
       {/* Drawer */}
-      <div className={`fixed top-0 right-0 h-full w-[400px] bg-slate-900 border-l-2 ${borderColor} z-50 overflow-y-auto shadow-2xl`}>
+      <div className={`fixed top-0 right-0 h-full w-[400px] bg-slate-900 border-l-2 ${borderColor} z-50 overflow-y-auto shadow-2xl`} role="dialog" aria-modal="true" aria-label="Schedule details">
         {loading ? (
           <div className="p-6 text-slate-400">Loading...</div>
         ) : !schedule ? (
