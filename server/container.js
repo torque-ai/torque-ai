@@ -364,6 +364,9 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('providerRouter', require('./execution/provider-router'));
     _defaultContainer.registerValue('slotPullScheduler', require('./execution/slot-pull-scheduler'));
   }
+  if (!_defaultContainer.has('taskDecomposition')) {
+    _defaultContainer.registerValue('taskDecomposition', require('./execution/task-decomposition'));
+  }
   if (!_defaultContainer.has('circuitBreaker')) {
     const { createCircuitBreaker } = require('./execution/circuit-breaker');
     const eventBus = _defaultContainer.has('eventBus')
