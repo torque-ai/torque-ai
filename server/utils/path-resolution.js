@@ -67,7 +67,7 @@ function resolveRelativePath(absoluteFilePath, projectPath) {
   const projectBase = normalizePath(resolvedProject).split('/').filter(Boolean).pop();
   if (projectBase) {
     const marker = '/' + projectBase + '/';
-    const idx = fwd.toLowerCase().indexOf(marker.toLowerCase());
+    const idx = fwd.toLowerCase().lastIndexOf(marker.toLowerCase());
     if (idx !== -1) {
       const suffix = fwd.slice(idx + marker.length);
       if (suffix && !suffix.startsWith('..')) {
