@@ -1,5 +1,6 @@
-'use strict';
-
+import { describe, it, expect, beforeEach } from 'vitest';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 const { registerBuiltInHook, listHooks, removeHook } = require('../hooks/post-tool-hooks');
 
 describe('manifest-enforcement integration', () => {

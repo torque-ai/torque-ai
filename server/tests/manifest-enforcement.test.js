@@ -1,4 +1,6 @@
-'use strict';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
 describe('manifest-enforcement hook', () => {
   let manifestEnforcement;

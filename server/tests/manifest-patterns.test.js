@@ -1,5 +1,6 @@
-'use strict';
-
+import { describe, it, expect } from 'vitest';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 const { detectVisualSurfaces, loadManifest, findUnregistered } = require('../hooks/manifest-patterns');
 
 describe('manifest-patterns', () => {
