@@ -25,6 +25,7 @@ function SortHeader({ column, label, sortCol, sortDir, onSort }) {
   const active = sortCol === column;
   return (
     <th
+      scope="col"
       className="text-left p-4 heading-sm cursor-pointer select-none hover:text-white transition-colors group"
       onClick={() => onSort(column)}
     >
@@ -203,7 +204,7 @@ export default function Coordination() {
                 <tr className="border-b border-slate-700/50">
                   <SortHeader column="name" label="Name" sortCol={agentSort.col} sortDir={agentSort.dir} onSort={makeSort(setAgentSort)} />
                   <SortHeader column="status" label="Status" sortCol={agentSort.col} sortDir={agentSort.dir} onSort={makeSort(setAgentSort)} />
-                  <th className="text-left p-4 heading-sm">Last Heartbeat</th>
+                  <th scope="col" className="text-left p-4 heading-sm">Last Heartbeat</th>
                   <SortHeader column="capabilities" label="Capabilities" sortCol={agentSort.col} sortDir={agentSort.dir} onSort={makeSort(setAgentSort)} />
                 </tr>
               </thead>
@@ -335,8 +336,8 @@ export default function Coordination() {
                 <tr className="border-b border-slate-700/50">
                   <SortHeader column="task_id" label="Task ID" sortCol={claimsSort.col} sortDir={claimsSort.dir} onSort={makeSort(setClaimsSort)} />
                   <SortHeader column="agent_id" label="Agent" sortCol={claimsSort.col} sortDir={claimsSort.dir} onSort={makeSort(setClaimsSort)} />
-                  <th className="text-left p-4 heading-sm">Claimed At</th>
-                  <th className="text-left p-4 heading-sm">Expires At</th>
+                  <th scope="col" className="text-left p-4 heading-sm">Claimed At</th>
+                  <th scope="col" className="text-left p-4 heading-sm">Expires At</th>
                   <SortHeader column="status" label="Status" sortCol={claimsSort.col} sortDir={claimsSort.dir} onSort={makeSort(setClaimsSort)} />
                 </tr>
               </thead>

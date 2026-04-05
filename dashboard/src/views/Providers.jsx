@@ -207,7 +207,11 @@ function ProviderRow({ provider, quota, sparkData, onToggle, onUpdateConcurrency
         className="flex items-center gap-4 px-4 py-2.5 hover:bg-slate-800/30 cursor-pointer transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+        <span
+          aria-hidden="true"
+          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+          style={{ backgroundColor: color }}
+        />
         <span className="text-sm font-semibold text-white w-36 truncate">{provider.provider}</span>
         <QuotaStatusBadge quota={quota} />
         <div className="flex items-center gap-1 w-20">
@@ -632,12 +636,12 @@ export default function Providers({ statsVersion, tasksTick }) {
           <h3 className="text-lg font-semibold text-white mb-3">Add Provider</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Name</label>
-              <input value={newProvider.name} onChange={e => setNewProvider({...newProvider, name: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" placeholder="my-provider" />
+              <label htmlFor="provider-name" className="text-xs text-slate-400 block mb-1">Name</label>
+              <input id="provider-name" value={newProvider.name} onChange={e => setNewProvider({...newProvider, name: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" placeholder="my-provider" />
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Type</label>
-              <select value={newProvider.provider_type} onChange={e => setNewProvider({...newProvider, provider_type: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm">
+              <label htmlFor="provider-type" className="text-xs text-slate-400 block mb-1">Type</label>
+              <select id="provider-type" value={newProvider.provider_type} onChange={e => setNewProvider({...newProvider, provider_type: e.target.value})} className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm">
                 <option value="ollama">Ollama</option>
                 <option value="cloud-api">Cloud API</option>
                 <option value="cloud-cli">Cloud CLI</option>
@@ -645,12 +649,12 @@ export default function Providers({ statsVersion, tasksTick }) {
               </select>
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">API Base URL</label>
-              <input value={newProvider.api_base_url} onChange={e => setNewProvider({...newProvider, api_base_url: e.target.value})} placeholder="https://api.example.com/v1" className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" />
+              <label htmlFor="provider-api-base-url" className="text-xs text-slate-400 block mb-1">API Base URL</label>
+              <input id="provider-api-base-url" value={newProvider.api_base_url} onChange={e => setNewProvider({...newProvider, api_base_url: e.target.value})} placeholder="https://api.example.com/v1" className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" />
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Max Concurrent</label>
-              <input type="number" value={newProvider.max_concurrent} onChange={e => setNewProvider({...newProvider, max_concurrent: parseInt(e.target.value) || 3})} className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" />
+              <label htmlFor="provider-max-concurrent" className="text-xs text-slate-400 block mb-1">Max Concurrent</label>
+              <input id="provider-max-concurrent" type="number" value={newProvider.max_concurrent} onChange={e => setNewProvider({...newProvider, max_concurrent: parseInt(e.target.value) || 3})} className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded text-white text-sm" />
             </div>
           </div>
           <div className="flex gap-2 mt-4">

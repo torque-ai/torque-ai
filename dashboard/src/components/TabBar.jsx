@@ -74,12 +74,14 @@ export default function TabBar({ tabs = [], defaultTab, onTabChange }) {
   }
 
   return (
-    <div className="flex flex-wrap gap-1 border-b border-slate-700 mb-6">
+    <div className="flex flex-wrap gap-1 border-b border-slate-700 mb-6" role="tablist">
       {tabs.map((tab) => (
         <a
           key={tab.id}
           href={`#${tab.id}`}
           onClick={() => handleClick(tab.id)}
+          role="tab"
+          aria-selected={active === tab.id}
           className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors border-b-2 ${
             active === tab.id
               ? 'bg-slate-700 text-white border-blue-500'

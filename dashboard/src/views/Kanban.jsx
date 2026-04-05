@@ -311,15 +311,26 @@ const TaskCard = memo(function TaskCard({
               gpuActive === false ? 'text-slate-400 bg-slate-600/30' :
               'text-teal-300 bg-teal-600/30'
             }`}>
-              {gpuActive === true && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}
-              {gpuActive === false && <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />}
+              {gpuActive === true && (
+                <>
+                  <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  <span className="sr-only">GPU status: active.</span>
+                </>
+              )}
+              {gpuActive === false && (
+                <>
+                  <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                  <span className="sr-only">GPU status: inactive.</span>
+                </>
+              )}
               {hostLabel}
             </span>
           )}
           {/* GPU badge for running tasks without a host label (shouldn't happen, but fallback) */}
           {!hostLabel && gpuActive === true && (
             <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-green-300 bg-green-600/30">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              <span className="sr-only">GPU status: active.</span>
               GPU
             </span>
           )}
@@ -1070,6 +1081,22 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
 
   const [cancellingIds, setCancellingIds] = useState(new Set());
   const [showConfirm, setShowConfirm] = useState(null);
+  const confirmRef = useRef(null);
+  useEffect(() => {
+    const modal = confirmRef.current;
+    if (!showConfirm || !modal) return;
+    const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { setShowConfirm(null); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
+  }, [showConfirm]);
   const mainContentClassName = activityOpen ? 'flex-1 overflow-auto pr-[300px]' : 'flex-1 overflow-auto';
 
   async function handleCancelStuck(taskId) {
@@ -1290,7 +1317,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
                       onChange={() => toggleColumnVisibility(col.id)}
                       className="rounded border-slate-600 bg-slate-700 accent-blue-500"
                     />
-                    <span className={`w-2 h-2 rounded-full ${col.dotColor}`} />
+                    <span aria-hidden="true" className={`w-2 h-2 rounded-full ${col.dotColor}`} />
                     <span className="text-slate-300">{col.label}</span>
                   </label>
                 ))}
@@ -1367,37 +1394,39 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
               </button>
             </div>
           </div>
-          {activityView === 'hourly' ? (
-            <SVGLineChart
-              data={activityData} xKey="date" height={220} smooth showLegend
-              yDomain={[0, undefined]}
-              formatX={(d) => {
-                const dt = new Date(d);
-                return dt.getHours() === 0 ? `${dt.getMonth() + 1}/${dt.getDate()}` : '';
-              }}
-              formatTooltip={(v, _name, entry) => {
-                const dt = new Date(entry?.date || '');
-                return isNaN(dt.getTime()) ? `${v}` : `${v} at ${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:00`;
-              }}
-              lines={[
-                { dataKey: 'completed', color: '#10b981', name: 'Completed' },
-                { dataKey: 'failed', color: '#ef4444', name: 'Failed' },
-              ]}
-            />
-          ) : (
-            <SVGLineChart
-              data={activityDaily} xKey="date" height={220} smooth showLegend
-              yDomain={[0, undefined]}
-              formatX={(d) => {
-                const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d);
-                return `${dt.getMonth() + 1}/${dt.getDate()}`;
-              }}
-              lines={[
-                { dataKey: 'completed', color: '#10b981', name: 'Completed', dot: true },
-                { dataKey: 'failed', color: '#ef4444', name: 'Failed', dot: true },
-              ]}
-            />
-          )}
+          <div role="img" aria-label="Task activity over time">
+            {activityView === 'hourly' ? (
+              <SVGLineChart
+                data={activityData} xKey="date" height={220} smooth showLegend
+                yDomain={[0, undefined]}
+                formatX={(d) => {
+                  const dt = new Date(d);
+                  return dt.getHours() === 0 ? `${dt.getMonth() + 1}/${dt.getDate()}` : '';
+                }}
+                formatTooltip={(v, _name, entry) => {
+                  const dt = new Date(entry?.date || '');
+                  return isNaN(dt.getTime()) ? `${v}` : `${v} at ${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:00`;
+                }}
+                lines={[
+                  { dataKey: 'completed', color: '#10b981', name: 'Completed' },
+                  { dataKey: 'failed', color: '#ef4444', name: 'Failed' },
+                ]}
+              />
+            ) : (
+              <SVGLineChart
+                data={activityDaily} xKey="date" height={220} smooth showLegend
+                yDomain={[0, undefined]}
+                formatX={(d) => {
+                  const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d);
+                  return `${dt.getMonth() + 1}/${dt.getDate()}`;
+                }}
+                lines={[
+                  { dataKey: 'completed', color: '#10b981', name: 'Completed', dot: true },
+                  { dataKey: 'failed', color: '#ef4444', name: 'Failed', dot: true },
+                ]}
+              />
+            )}
+          </div>
         </div>
       )}
 
@@ -1405,7 +1434,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       {stuckTasks && stuckTasks.total_needs_attention > 0 && (
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-3">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+            <span aria-hidden="true" className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
             <h3 className="font-medium text-amber-400 text-sm">Needs Attention</h3>
             <span className="bg-amber-600/40 text-amber-300 text-xs px-2 py-0.5 rounded-full font-medium">
               {stuckTasks.total_needs_attention}
@@ -1471,8 +1500,8 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       </div>
       <ActivityPanel events={activityLog} isOpen={activityOpen} onToggle={toggleActivityPanel} />
       {showConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowConfirm(null)}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">Confirm Retry</h3>
             <p className="text-slate-300 text-sm mb-4">
               Retry {showConfirm.count} failed task{showConfirm.count !== 1 ? 's' : ''}?

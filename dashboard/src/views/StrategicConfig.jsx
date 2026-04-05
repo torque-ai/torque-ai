@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { strategic as api } from '../api';
 import { useToast } from '../components/Toast';
 import LoadingSkeleton from '../components/LoadingSkeleton';
@@ -55,7 +55,7 @@ function PillTag({ label, onRemove }) {
 
 // ─── Inline Add Input ────────────────────────────────────────
 
-function InlineAddInput({ placeholder, onAdd }) {
+function InlineAddInput({ placeholder, onAdd, id }) {
   const [value, setValue] = useState('');
 
   function handleAdd() {
@@ -69,6 +69,7 @@ function InlineAddInput({ placeholder, onAdd }) {
   return (
     <span className="inline-flex items-center gap-1">
       <input
+        id={id}
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -90,10 +91,11 @@ function InlineAddInput({ placeholder, onAdd }) {
 
 function Toggle({ checked, onChange, label }) {
   return (
-    <label className="flex items-center gap-2 cursor-pointer">
+    <div className="flex items-center gap-2 cursor-pointer">
       <button
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         onClick={() => onChange(!checked)}
         className={`relative w-10 h-5 rounded-full transition-colors border-0 p-0 ${checked ? 'bg-blue-600' : 'bg-slate-600'}`}
       >
@@ -102,7 +104,7 @@ function Toggle({ checked, onChange, label }) {
         />
       </button>
       {label && <span className="text-sm text-slate-300">{label}</span>}
-    </label>
+    </div>
   );
 }
 
@@ -127,14 +129,23 @@ function SummaryCard({ title, icon, children, onClick }) {
 
 function DrawerEditor({ title, isOpen, onClose, onSave, onReset, children, advancedContent }) {
   const [tab, setTab] = useState('form');
+  const drawerRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen) return;
-    function handleEsc(e) {
-      if (e.key === 'Escape') onClose();
+    const modal = drawerRef.current;
+    if (!modal) return;
+    const focusable = modal.querySelectorAll('input, select, textarea, button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
@@ -145,7 +156,7 @@ function DrawerEditor({ title, isOpen, onClose, onSave, onReset, children, advan
       <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
 
       {/* Drawer */}
-      <div className="w-full max-w-xl bg-slate-900 border-l border-slate-700 flex flex-col animate-slide-in-right overflow-hidden" role="dialog" aria-modal="true" aria-label={title}>
+      <div ref={drawerRef} className="w-full max-w-xl bg-slate-900 border-l border-slate-700 flex flex-col animate-slide-in-right overflow-hidden" role="dialog" aria-modal="true" aria-label={title}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
           <h2 className="text-lg font-semibold text-white">{title}</h2>
@@ -215,12 +226,13 @@ function DrawerEditor({ title, isOpen, onClose, onSave, onReset, children, advan
 
 // ─── Advanced Tab Content ────────────────────────────────────
 
-function AdvancedPromptEditor({ customPrompt, onChange, variables }) {
+function AdvancedPromptEditor({ customPrompt, onChange, variables, id }) {
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-slate-300 mb-2">Custom Prompt</label>
+        <label htmlFor={id} className="block text-sm font-medium text-slate-300 mb-2">Custom Prompt</label>
         <textarea
+          id={id}
           value={customPrompt || ''}
           onChange={(e) => onChange(e.target.value || null)}
           placeholder="Leave empty to use auto-generated prompt..."
@@ -375,7 +387,24 @@ export default function StrategicConfig() {
   const [hasChanges, setHasChanges] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showConfirm, setShowConfirm] = useState(null);
+  const confirmRef = useRef(null);
   const toast = useToast();
+
+  useEffect(() => {
+    const modal = confirmRef.current;
+    if (!showConfirm || !modal) return;
+    const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { setShowConfirm(null); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
+  }, [showConfirm]);
 
   // ─── Data Loading ────────────────────────────────────────
 
@@ -557,8 +586,9 @@ export default function StrategicConfig() {
       {templates.length > 0 && (
         <div className="glass-card p-4">
           <div className="flex items-center gap-3">
-            <label className="text-sm text-slate-400 shrink-0">Template:</label>
+            <label htmlFor="strategic-template-select" className="text-sm text-slate-400 shrink-0">Template:</label>
             <select
+              id="strategic-template-select"
               value={selectedTemplate}
               onChange={(e) => setSelectedTemplate(e.target.value)}
               className="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500 flex-1 max-w-xs"
@@ -587,8 +617,9 @@ export default function StrategicConfig() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Provider */}
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">Provider</label>
+            <label htmlFor="strategic-provider" className="block text-xs text-slate-400 mb-1.5">Provider</label>
             <select
+              id="strategic-provider"
               value={editingConfig.provider ?? ''}
               onChange={(e) => markChanged((prev) => ({ ...prev, provider: e.target.value || null }))}
               className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
@@ -603,8 +634,9 @@ export default function StrategicConfig() {
 
           {/* Model */}
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">Model</label>
+            <label htmlFor="strategic-model" className="block text-xs text-slate-400 mb-1.5">Model</label>
             <input
+              id="strategic-model"
               type="text"
               value={editingConfig.model || ''}
               onChange={(e) => markChanged((prev) => ({ ...prev, model: e.target.value || null }))}
@@ -615,10 +647,11 @@ export default function StrategicConfig() {
 
           {/* Confidence Threshold */}
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">
+            <label htmlFor="strategic-confidence-threshold" className="block text-xs text-slate-400 mb-1.5">
               Confidence Threshold: <span className="text-white">{(editingConfig.confidence_threshold ?? 0.7).toFixed(2)}</span>
             </label>
             <input
+              id="strategic-confidence-threshold"
               type="range"
               min="0"
               max="1"
@@ -631,10 +664,11 @@ export default function StrategicConfig() {
 
           {/* Temperature */}
           <div>
-            <label className="block text-xs text-slate-400 mb-1.5">
+            <label htmlFor="strategic-temperature" className="block text-xs text-slate-400 mb-1.5">
               Temperature: <span className="text-white">{(editingConfig.temperature ?? 0.3).toFixed(2)}</span>
             </label>
             <input
+              id="strategic-temperature"
               type="range"
               min="0"
               max="2"
@@ -674,6 +708,7 @@ export default function StrategicConfig() {
         onReset={resetDrawer}
         advancedContent={
           <AdvancedPromptEditor
+            id="decompose-custom-prompt"
             customPrompt={decompose.custom_prompt}
             onChange={(v) => setCapabilityField('decompose', 'custom_prompt', v)}
             variables={DECOMPOSE_VARIABLES}
@@ -683,7 +718,7 @@ export default function StrategicConfig() {
         <div className="space-y-5">
           {/* Steps */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Steps</label>
+            <label htmlFor="decompose-step-input" className="block text-sm font-medium text-slate-300 mb-2">Steps</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {decomposeSteps.map((step) => (
                 <PillTag
@@ -693,6 +728,7 @@ export default function StrategicConfig() {
                 />
               ))}
               <InlineAddInput
+                id="decompose-step-input"
                 placeholder="Add step..."
                 onAdd={(name) => {
                   if (!decomposeSteps.includes(name)) {
@@ -705,7 +741,7 @@ export default function StrategicConfig() {
 
           {/* Provider hints */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Provider Hints per Step</label>
+            <p className="block text-sm font-medium text-slate-300 mb-2">Provider Hints per Step</p>
             <div className="space-y-2">
               {decomposeSteps.map((step) => (
                 <div key={step} className="flex items-center gap-3">
@@ -740,8 +776,9 @@ export default function StrategicConfig() {
 
           {/* Project context */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Project Context</label>
+            <label htmlFor="decompose-project-context" className="block text-sm font-medium text-slate-300 mb-2">Project Context</label>
             <textarea
+              id="decompose-project-context"
               value={decompose.project_context || ''}
               onChange={(e) => setCapabilityField('decompose', 'project_context', e.target.value)}
               placeholder="Describe project structure, conventions, etc."
@@ -752,8 +789,9 @@ export default function StrategicConfig() {
 
           {/* Coding standards */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Coding Standards</label>
+            <label htmlFor="decompose-coding-standards" className="block text-sm font-medium text-slate-300 mb-2">Coding Standards</label>
             <textarea
+              id="decompose-coding-standards"
               value={decompose.coding_standards || ''}
               onChange={(e) => setCapabilityField('decompose', 'coding_standards', e.target.value)}
               placeholder="Key coding rules, naming conventions, etc."
@@ -773,6 +811,7 @@ export default function StrategicConfig() {
         onReset={resetDrawer}
         advancedContent={
           <AdvancedPromptEditor
+            id="diagnose-custom-prompt"
             customPrompt={diagnose.custom_prompt}
             onChange={(v) => setCapabilityField('diagnose', 'custom_prompt', v)}
             variables={DIAGNOSE_VARIABLES}
@@ -782,7 +821,7 @@ export default function StrategicConfig() {
         <div className="space-y-5">
           {/* Recovery actions */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Recovery Actions</label>
+            <label htmlFor="diagnose-recovery-action-input" className="block text-sm font-medium text-slate-300 mb-2">Recovery Actions</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {diagnoseActions.map((action) => (
                 <PillTag
@@ -792,6 +831,7 @@ export default function StrategicConfig() {
                 />
               ))}
               <InlineAddInput
+                id="diagnose-recovery-action-input"
                 placeholder="Add action..."
                 onAdd={(name) => {
                   if (!diagnoseActions.includes(name)) {
@@ -804,7 +844,7 @@ export default function StrategicConfig() {
 
           {/* Custom patterns */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Custom Patterns</label>
+            <p className="block text-sm font-medium text-slate-300 mb-2">Custom Patterns</p>
             <PatternList
               patterns={diagnose.custom_patterns || []}
               onChange={(patterns) => setCapabilityField('diagnose', 'custom_patterns', patterns)}
@@ -813,8 +853,9 @@ export default function StrategicConfig() {
 
           {/* Escalation threshold */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Escalation Threshold</label>
+            <label htmlFor="diagnose-escalation-threshold" className="block text-sm font-medium text-slate-300 mb-2">Escalation Threshold</label>
             <input
+              id="diagnose-escalation-threshold"
               type="number"
               min={1}
               max={10}
@@ -838,6 +879,7 @@ export default function StrategicConfig() {
         onReset={resetDrawer}
         advancedContent={
           <AdvancedPromptEditor
+            id="review-custom-prompt"
             customPrompt={review.custom_prompt}
             onChange={(v) => setCapabilityField('review', 'custom_prompt', v)}
             variables={REVIEW_VARIABLES}
@@ -847,7 +889,7 @@ export default function StrategicConfig() {
         <div className="space-y-5">
           {/* Criteria */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Review Criteria</label>
+            <p className="block text-sm font-medium text-slate-300 mb-2">Review Criteria</p>
             <CriteriaList
               criteria={reviewCriteria}
               onChange={(c) => setCapabilityField('review', 'criteria', c)}
@@ -856,10 +898,11 @@ export default function StrategicConfig() {
 
           {/* Auto-approve threshold */}
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label htmlFor="review-auto-approve-threshold" className="block text-sm font-medium text-slate-300 mb-2">
               Auto-Approve Threshold: <span className="text-white">{review.auto_approve_threshold ?? 80}%</span>
             </label>
             <input
+              id="review-auto-approve-threshold"
               type="range"
               min="0"
               max="100"
@@ -889,8 +932,8 @@ export default function StrategicConfig() {
       </DrawerEditor>
 
       {showConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center" role="dialog" aria-modal="true">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center" onClick={() => setShowConfirm(null)}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">Reset Configuration</h3>
             <p className="text-slate-300 text-sm mb-4">
               Reset all configuration to defaults? Any custom settings will be lost.

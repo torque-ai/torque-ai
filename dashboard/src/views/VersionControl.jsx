@@ -225,6 +225,24 @@ function isSameDay(dateA, dateB) {
 }
 
 function ConfirmDialog({ action, pending, onCancel, onConfirm }) {
+  const modalRef = useRef(null);
+
+  useEffect(() => {
+    const modal = modalRef.current;
+    if (!action?.worktree || !modal) return;
+    const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { onCancel(); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
+  }, [action, onCancel]);
+
   if (!action?.worktree) {
     return null;
   }
@@ -243,6 +261,7 @@ function ConfirmDialog({ action, pending, onCancel, onConfirm }) {
       onClick={onCancel}
     >
       <div
+        ref={modalRef}
         className="glass-card p-6 max-w-md mx-4"
         role="dialog"
         aria-modal="true"
@@ -522,13 +541,13 @@ export default function VersionControl() {
           <table className="w-full min-w-[920px]">
             <thead>
               <tr className="border-b border-slate-700/50">
-                <th className="text-left p-4 heading-sm">Branch</th>
-                <th className="text-left p-4 heading-sm">Feature</th>
-                <th className="text-left p-4 heading-sm">Repo</th>
-                <th className="text-left p-4 heading-sm">Status</th>
-                <th className="text-left p-4 heading-sm">Commits</th>
-                <th className="text-left p-4 heading-sm">Last Activity</th>
-                <th className="text-left p-4 heading-sm">Actions</th>
+                <th scope="col" className="text-left p-4 heading-sm">Branch</th>
+                <th scope="col" className="text-left p-4 heading-sm">Feature</th>
+                <th scope="col" className="text-left p-4 heading-sm">Repo</th>
+                <th scope="col" className="text-left p-4 heading-sm">Status</th>
+                <th scope="col" className="text-left p-4 heading-sm">Commits</th>
+                <th scope="col" className="text-left p-4 heading-sm">Last Activity</th>
+                <th scope="col" className="text-left p-4 heading-sm">Actions</th>
               </tr>
             </thead>
             <tbody>

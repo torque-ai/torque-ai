@@ -16,6 +16,7 @@ function SortHeader({ column, label, sortCol, sortDir, onSort }) {
   const active = sortCol === column;
   return (
     <th
+      scope="col"
       className="text-left p-4 heading-sm cursor-pointer select-none hover:text-white transition-colors group"
       onClick={() => onSort(column)}
       onKeyDown={(e) => {
@@ -239,11 +240,11 @@ export default function Approvals() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-700/50">
-                  <th className="text-left p-4 heading-sm">ID</th>
-                  <th className="text-left p-4 heading-sm">Description</th>
-                  <th className="text-left p-4 heading-sm">Rule</th>
+                  <th scope="col" className="text-left p-4 heading-sm">ID</th>
+                  <th scope="col" className="text-left p-4 heading-sm">Description</th>
+                  <th scope="col" className="text-left p-4 heading-sm">Rule</th>
                   <SortHeader column="created_at" label="Created At" sortCol={pendingSort.col} sortDir={pendingSort.dir} onSort={makeSort(setPendingSort)} />
-                  <th className="text-left p-4 heading-sm">Actions</th>
+                  <th scope="col" className="text-left p-4 heading-sm">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -319,10 +320,10 @@ export default function Approvals() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-700/50">
-                  <th className="text-left p-4 heading-sm">ID</th>
-                  <th className="text-left p-4 heading-sm">Description</th>
+                  <th scope="col" className="text-left p-4 heading-sm">ID</th>
+                  <th scope="col" className="text-left p-4 heading-sm">Description</th>
                   <SortHeader column="decision" label="Decision" sortCol={historySort.col} sortDir={historySort.dir} onSort={makeSort(setHistorySort)} />
-                  <th className="text-left p-4 heading-sm">Decided By</th>
+                  <th scope="col" className="text-left p-4 heading-sm">Decided By</th>
                   <SortHeader column="decided_at" label="Decided At" sortCol={historySort.col} sortDir={historySort.dir} onSort={makeSort(setHistorySort)} />
                 </tr>
               </thead>

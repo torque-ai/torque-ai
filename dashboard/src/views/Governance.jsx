@@ -194,11 +194,11 @@ export default function Governance() {
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-700/50">
-              <th className="text-left p-4 heading-sm">Rule</th>
-              <th className="text-left p-4 heading-sm">Stage</th>
-              <th className="text-left p-4 heading-sm">Mode</th>
-              <th className="text-left p-4 heading-sm">Violations</th>
-              <th className="text-left p-4 heading-sm">Enabled</th>
+              <th scope="col" className="text-left p-4 heading-sm">Rule</th>
+              <th scope="col" className="text-left p-4 heading-sm">Stage</th>
+              <th scope="col" className="text-left p-4 heading-sm">Mode</th>
+              <th scope="col" className="text-left p-4 heading-sm">Violations</th>
+              <th scope="col" className="text-left p-4 heading-sm">Enabled</th>
             </tr>
           </thead>
           <tbody>

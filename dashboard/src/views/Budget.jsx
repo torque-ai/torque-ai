@@ -264,8 +264,9 @@ export default function Budget() {
           <h3 className="text-lg font-semibold text-white">Set Budget</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">{budgetForm.period === 'weekly' ? 'Weekly' : budgetForm.period === 'daily' ? 'Daily' : 'Monthly'} Limit ($)</label>
+              <label htmlFor="budget-limit" className="block text-sm text-slate-400 mb-1">{budgetForm.period === 'weekly' ? 'Weekly' : budgetForm.period === 'daily' ? 'Daily' : 'Monthly'} Limit ($)</label>
               <input
+                id="budget-limit"
                 type="number"
                 step="0.01"
                 min="0"
@@ -276,8 +277,9 @@ export default function Budget() {
               />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Alert Threshold (%)</label>
+              <label htmlFor="budget-alert-threshold" className="block text-sm text-slate-400 mb-1">Alert Threshold (%)</label>
               <input
+                id="budget-alert-threshold"
                 type="number"
                 min="1"
                 max="100"
@@ -287,8 +289,9 @@ export default function Budget() {
               />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Period</label>
+              <label htmlFor="budget-period" className="block text-sm text-slate-400 mb-1">Period</label>
               <select
+                id="budget-period"
                 value={budgetForm.period}
                 onChange={(e) => setBudgetForm({ ...budgetForm, period: e.target.value })}
                 className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
@@ -416,7 +419,11 @@ export default function Budget() {
             {Object.entries(subscriptionProviderTasks).map(([name, tasks]) => (
               <div key={name} className="flex items-center justify-between p-3 bg-slate-700/30 rounded-lg border border-slate-700/50">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PROVIDER_HEX_COLORS[name] || '#6b7280' }} />
+                  <span
+                    aria-hidden="true"
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: PROVIDER_HEX_COLORS[name] || '#6b7280' }}
+                  />
                   <span className="text-sm font-medium text-white capitalize">{name}</span>
                 </div>
                 <div className="text-right">

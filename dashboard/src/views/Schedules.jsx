@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { schedules as schedulesApi } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
@@ -10,6 +10,7 @@ function SortHeader({ column, label, sortCol, sortDir, onSort }) {
   const active = sortCol === column;
   return (
     <th
+      scope="col"
       className="text-left p-4 heading-sm cursor-pointer select-none hover:text-white transition-colors group"
       onClick={() => onSort(column)}
       onKeyDown={(e) => {
@@ -54,10 +55,27 @@ export default function Schedules() {
   const [sortDir, setSortDir] = useState('asc');
   const [showForm, setShowForm] = useState(false);
   const [showConfirm, setShowConfirm] = useState(null);
+  const confirmRef = useRef(null);
   const [form, setForm] = useState({ name: '', schedule_type: 'cron', cron_expression: '', run_at: '', task_description: '', provider: '', model: '', working_directory: '' });
   const [submitting, setSubmitting] = useState(false);
   const [selectedScheduleId, setSelectedScheduleId] = useState(null);
   const toast = useToast();
+
+  useEffect(() => {
+    const modal = confirmRef.current;
+    if (!showConfirm || !modal) return;
+    const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { setShowConfirm(null); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
+  }, [showConfirm]);
 
   const loadSchedules = useCallback(async () => {
     try {
@@ -227,11 +245,11 @@ export default function Schedules() {
           <h3 className="text-lg font-semibold text-white mb-2">New Scheduled Task</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Name</label>
-              <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Nightly test run" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+              <label htmlFor="schedule-name" className="block text-sm text-slate-400 mb-1">Name</label>
+              <input id="schedule-name" type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Nightly test run" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Type</label>
+              <p className="block text-sm text-slate-400 mb-1">Type</p>
               <div className="flex rounded-lg overflow-hidden border border-slate-700/50">
                 <button type="button" onClick={() => setForm({ ...form, schedule_type: 'cron' })} className={`flex-1 px-4 py-2 text-sm transition-colors ${form.schedule_type === 'cron' ? 'bg-blue-600 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'}`}>Cron</button>
                 <button type="button" onClick={() => setForm({ ...form, schedule_type: 'once' })} className={`flex-1 px-4 py-2 text-sm transition-colors ${form.schedule_type === 'once' ? 'bg-blue-600 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'}`}>One-Time</button>
@@ -241,32 +259,32 @@ export default function Schedules() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {form.schedule_type === 'cron' ? (
               <div>
-                <label className="block text-sm text-slate-400 mb-1">Cron Expression</label>
-                <input type="text" value={form.cron_expression} onChange={(e) => setForm({ ...form, cron_expression: e.target.value })} placeholder="0 0 * * * (every midnight)" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+                <label htmlFor="schedule-cron-expression" className="block text-sm text-slate-400 mb-1">Cron Expression</label>
+                <input id="schedule-cron-expression" type="text" value={form.cron_expression} onChange={(e) => setForm({ ...form, cron_expression: e.target.value })} placeholder="0 0 * * * (every midnight)" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
               </div>
             ) : (
               <div>
-                <label className="block text-sm text-slate-400 mb-1">Run At</label>
-                <input type="datetime-local" value={form.run_at} onChange={(e) => setForm({ ...form, run_at: e.target.value })} min={new Date().toISOString().slice(0, 16)} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [color-scheme:dark]" />
+                <label htmlFor="schedule-run-at" className="block text-sm text-slate-400 mb-1">Run At</label>
+                <input id="schedule-run-at" type="datetime-local" value={form.run_at} onChange={(e) => setForm({ ...form, run_at: e.target.value })} min={new Date().toISOString().slice(0, 16)} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [color-scheme:dark]" />
               </div>
             )}
           </div>
           <div>
-            <label className="block text-sm text-slate-400 mb-1">Task Description</label>
-            <textarea value={form.task_description} onChange={(e) => setForm({ ...form, task_description: e.target.value })} placeholder="What should the task do?" rows={3} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y" />
+            <label htmlFor="schedule-task-description" className="block text-sm text-slate-400 mb-1">Task Description</label>
+            <textarea id="schedule-task-description" value={form.task_description} onChange={(e) => setForm({ ...form, task_description: e.target.value })} placeholder="What should the task do?" rows={3} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Provider (optional)</label>
-              <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"><option value="">Auto</option><option value="codex">Codex</option><option value="claude-cli">Claude CLI</option><option value="ollama">Ollama</option></select>
+              <label htmlFor="schedule-provider" className="block text-sm text-slate-400 mb-1">Provider (optional)</label>
+              <select id="schedule-provider" value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"><option value="">Auto</option><option value="codex">Codex</option><option value="claude-cli">Claude CLI</option><option value="ollama">Ollama</option></select>
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Model (optional)</label>
-              <input type="text" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="e.g. qwen3:8b" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+              <label htmlFor="schedule-model" className="block text-sm text-slate-400 mb-1">Model (optional)</label>
+              <input id="schedule-model" type="text" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="e.g. qwen3:8b" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Working Directory (optional)</label>
-              <input type="text" value={form.working_directory} onChange={(e) => setForm({ ...form, working_directory: e.target.value })} placeholder="e.g. C:/Projects/MyApp" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+              <label htmlFor="schedule-working-directory" className="block text-sm text-slate-400 mb-1">Working Directory (optional)</label>
+              <input id="schedule-working-directory" type="text" value={form.working_directory} onChange={(e) => setForm({ ...form, working_directory: e.target.value })} placeholder="e.g. C:/Projects/MyApp" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
           </div>
           <div className="flex gap-3">
@@ -283,9 +301,9 @@ export default function Schedules() {
               <SortHeader column="name" label="Name" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               <SortHeader column="cron_expression" label="Schedule" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               <SortHeader column="next_run" label="Next Run" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
-              <th className="text-left p-4 heading-sm">Last Run</th>
+              <th scope="col" className="text-left p-4 heading-sm">Last Run</th>
               <SortHeader column="status" label="Status" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
-              <th className="text-left p-4 heading-sm">Actions</th>
+              <th scope="col" className="text-left p-4 heading-sm">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -337,8 +355,8 @@ export default function Schedules() {
       </div>
 
       {showConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowConfirm(null)}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">Delete Schedule</h3>
             <p className="text-slate-300 text-sm mb-4">Delete this schedule? This action is irreversible.</p>
             <div className="flex gap-3 justify-end">

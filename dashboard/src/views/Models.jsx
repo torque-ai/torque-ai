@@ -161,21 +161,25 @@ export default function Models() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-slate-400 text-left border-b border-slate-700">
-                    <th className="px-4 py-2">Model</th>
-                    <th className="px-4 py-2 text-right">Tasks</th>
-                    <th className="px-4 py-2 text-right">Success</th>
-                    <th className="px-4 py-2 text-right">Failed</th>
-                    <th className="px-4 py-2 text-right">Rate</th>
-                    <th className="px-4 py-2 text-right">Avg Duration</th>
-                    <th className="px-4 py-2 text-right">Cost</th>
-                    <th className="px-4 py-2">Providers</th>
+                    <th scope="col" className="px-4 py-2">Model</th>
+                    <th scope="col" className="px-4 py-2 text-right">Tasks</th>
+                    <th scope="col" className="px-4 py-2 text-right">Success</th>
+                    <th scope="col" className="px-4 py-2 text-right">Failed</th>
+                    <th scope="col" className="px-4 py-2 text-right">Rate</th>
+                    <th scope="col" className="px-4 py-2 text-right">Avg Duration</th>
+                    <th scope="col" className="px-4 py-2 text-right">Cost</th>
+                    <th scope="col" className="px-4 py-2">Providers</th>
                   </tr>
                 </thead>
                 <tbody>
                   {models.map((m, i) => (
                     <tr key={m.model} className="border-b border-slate-700/50 hover:bg-slate-700/30">
                       <td className="px-4 py-2 font-medium text-white flex items-center gap-2">
-                        <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: getModelColor(i) }} />
+                        <span
+                          aria-hidden="true"
+                          className="w-3 h-3 rounded-full inline-block"
+                          style={{ backgroundColor: getModelColor(i) }}
+                        />
                         {m.model}
                       </td>
                       <td className="px-4 py-2 text-right text-slate-300">{m.total}</td>
@@ -202,14 +206,16 @@ export default function Models() {
             {successData.length > 0 && (
               <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
                 <h3 className="text-white font-medium mb-4">Success Rate by Model</h3>
-                <SVGBarChart
-                  data={successData} xKey="name" height={300} horizontal yWidth={140}
-                  bars={[{
-                    dataKey: 'Success %',
-                    colorFn: (entry) => entry['Success %'] >= 80 ? '#22c55e' : entry['Success %'] >= 50 ? '#f59e0b' : '#ef4444',
-                  }]}
-                  formatTooltip={(v, _name, entry) => `${v}% (${entry.Tasks} tasks)`}
-                />
+                <div role="img" aria-label="Success rate by model">
+                  <SVGBarChart
+                    data={successData} xKey="name" height={300} horizontal yWidth={140}
+                    bars={[{
+                      dataKey: 'Success %',
+                      colorFn: (entry) => entry['Success %'] >= 80 ? '#22c55e' : entry['Success %'] >= 50 ? '#f59e0b' : '#ef4444',
+                    }]}
+                    formatTooltip={(v, _name, entry) => `${v}% (${entry.Tasks} tasks)`}
+                  />
+                </div>
               </div>
             )}
 
@@ -217,13 +223,15 @@ export default function Models() {
             {dailyData.length > 0 && (
               <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
                 <h3 className="text-white font-medium mb-4">Tasks per Day by Model</h3>
-                <SVGLineChart
-                  data={dailyData} xKey="date" height={300} showLegend
-                  formatX={formatChartDate}
-                  lines={modelNames.map((name, i) => ({
-                    dataKey: name, color: getModelColor(i), name, connectNulls: true,
-                  }))}
-                />
+                <div role="img" aria-label="Tasks per day by model">
+                  <SVGLineChart
+                    data={dailyData} xKey="date" height={300} showLegend
+                    formatX={formatChartDate}
+                    lines={modelNames.map((name, i) => ({
+                      dataKey: name, color: getModelColor(i), name, connectNulls: true,
+                    }))}
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -245,11 +253,11 @@ export default function Models() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-slate-400 text-left border-b border-slate-700">
-                    <th className="px-4 py-2 text-center w-16">Rank</th>
-                    <th className="px-4 py-2">Model</th>
-                    <th className="px-4 py-2 text-right">Success Rate</th>
-                    <th className="px-4 py-2 text-right">Avg Duration</th>
-                    <th className="px-4 py-2 text-right">Tasks</th>
+                    <th scope="col" className="px-4 py-2 text-center w-16">Rank</th>
+                    <th scope="col" className="px-4 py-2">Model</th>
+                    <th scope="col" className="px-4 py-2 text-right">Success Rate</th>
+                    <th scope="col" className="px-4 py-2 text-right">Avg Duration</th>
+                    <th scope="col" className="px-4 py-2 text-right">Tasks</th>
                   </tr>
                 </thead>
                 <tbody>

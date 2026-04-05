@@ -236,11 +236,11 @@ function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, now }) {
               <table className="w-full">
                 <thead>
                   <tr className="text-xs text-slate-500">
-                    <th className="px-4 py-1 text-left">Node</th>
-                    <th className="px-4 py-1 text-left">Status</th>
-                    <th className="px-4 py-1 text-left">Provider</th>
-                    <th className="px-4 py-1 text-left">Model</th>
-                    <th className="px-4 py-1 text-left">Duration</th>
+                    <th scope="col" className="px-4 py-1 text-left">Node</th>
+                    <th scope="col" className="px-4 py-1 text-left">Status</th>
+                    <th scope="col" className="px-4 py-1 text-left">Provider</th>
+                    <th scope="col" className="px-4 py-1 text-left">Model</th>
+                    <th scope="col" className="px-4 py-1 text-left">Duration</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -419,12 +419,12 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-slate-400 text-left border-b border-slate-700">
-              <th className="px-4 py-3 w-8"></th>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Progress</th>
-              <th className="px-4 py-3">Duration</th>
-              <th className="px-4 py-3">Created</th>
+              <th scope="col" className="px-4 py-3 w-8"></th>
+              <th scope="col" className="px-4 py-3">Name</th>
+              <th scope="col" className="px-4 py-3">Status</th>
+              <th scope="col" className="px-4 py-3">Progress</th>
+              <th scope="col" className="px-4 py-3">Duration</th>
+              <th scope="col" className="px-4 py-3">Created</th>
             </tr>
           </thead>
           <tbody>

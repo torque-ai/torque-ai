@@ -309,6 +309,23 @@ function ImportModal({ onClose, onImport }) {
   const [previewTasks, setPreviewTasks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const modalRef = useRef(null);
+
+  useEffect(() => {
+    const modal = modalRef.current;
+    if (!modal) return;
+    const focusable = modal.querySelectorAll('input, textarea, button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
+  }, [onClose]);
 
   async function handlePreview() {
     if (!planContent.trim()) {
@@ -360,12 +377,12 @@ function ImportModal({ onClose, onImport }) {
       onClick={onClose}
     >
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-label="Import project"
         className="bg-slate-800 rounded-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
       >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-white">Import Plan</h2>
@@ -511,7 +528,24 @@ export default function PlanProjects() {
   const [searchInput, setSearchInput] = useState(searchParams.get('q') || '');
   const [search, setSearch] = useState(searchParams.get('q') || '');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const deleteConfirmRef = useRef(null);
   const searchTimerRef = useRef(null);
+
+  useEffect(() => {
+    const modal = deleteConfirmRef.current;
+    if (!deleteConfirm || !modal) return;
+    const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { setDeleteConfirm(null); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
+  }, [deleteConfirm]);
 
   const toast = useToast();
   const { execute } = useAbortableRequest();
@@ -700,13 +734,14 @@ export default function PlanProjects() {
 
       {/* Delete confirmation dialog */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setDeleteConfirm(null)}>
           <div
+            ref={deleteConfirmRef}
             role="dialog"
             aria-modal="true"
             aria-label="Delete project confirmation"
             className="bg-slate-800 rounded-lg p-6 max-w-sm w-full"
-            onKeyDown={(e) => { if (e.key === 'Escape') setDeleteConfirm(null); }}
+            onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold text-white mb-2">Delete Project</h3>
             <p className="text-slate-400 text-sm mb-4">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { routingTemplates as api } from '../api';
 import { useToast } from '../components/Toast';
 import { PROVIDER_HEX_COLORS } from '../constants';
@@ -39,6 +39,7 @@ function ProviderSelect({ value, onChange, allowInherit = false }) {
   return (
     <div className="flex items-center gap-2">
       <span
+        aria-hidden="true"
         className="w-2.5 h-2.5 rounded-full shrink-0"
         style={{ backgroundColor: (!allowInherit || value !== '__inherit__') ? (PROVIDER_HEX_COLORS[value] || '#6b7280') : '#475569' }}
       />
@@ -105,6 +106,7 @@ function ChainSummary({ chain }) {
         <span key={i} className="flex items-center gap-1 shrink-0">
           {i > 0 && <span className="text-slate-600 text-xs">→</span>}
           <span
+            aria-hidden="true"
             className="w-2 h-2 rounded-full shrink-0"
             style={{ backgroundColor: PROVIDER_HEX_COLORS[entry.provider] || '#6b7280' }}
           />
@@ -217,7 +219,24 @@ export default function RoutingTemplates() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [showConfirm, setShowConfirm] = useState(null);
+  const confirmRef = useRef(null);
   const toast = useToast();
+
+  useEffect(() => {
+    const modal = confirmRef.current;
+    if (!showConfirm || !modal) return;
+    const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { setShowConfirm(null); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
+  }, [showConfirm]);
 
   // ─── Data Loading ───────────────────────────────────────────────────
 
@@ -455,7 +474,10 @@ export default function RoutingTemplates() {
           ? 'bg-green-500/10 border-green-500/30'
           : 'bg-slate-800/50 border-slate-700/50'
       }`}>
-        <span className={`w-2.5 h-2.5 rounded-full ${activeTemplateName ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+        <span
+          aria-hidden="true"
+          className={`w-2.5 h-2.5 rounded-full ${activeTemplateName ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`}
+        />
         <span className="text-sm text-slate-300">
           {activeTemplateName
             ? <>Routing via template: <span className="font-medium text-green-300">{activeTemplateName}</span></>
@@ -467,8 +489,9 @@ export default function RoutingTemplates() {
       {/* Template Selector Bar */}
       <div className="glass-card p-4">
         <div className="flex items-center gap-3 flex-wrap">
-          <label className="text-sm text-slate-400 shrink-0">Template:</label>
+          <label htmlFor="routing-template-select" className="text-sm text-slate-400 shrink-0">Template:</label>
           <select
+            id="routing-template-select"
             value={selectedId || ''}
             onChange={(e) => selectTemplate(e.target.value)}
             className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500 min-w-[200px]"
@@ -529,8 +552,9 @@ export default function RoutingTemplates() {
         )}
         {selectedTemplate && !selectedTemplate.preset && (
           <div className="flex items-center gap-3 mt-3 pt-3 border-t border-slate-700/50">
-            <label className="text-sm text-slate-400 shrink-0">Name:</label>
+            <label htmlFor="routing-template-name" className="text-sm text-slate-400 shrink-0">Name:</label>
             <input
+              id="routing-template-name"
               type="text"
               value={editingName}
               onChange={(e) => { setEditingName(e.target.value); setHasChanges(true); }}
@@ -696,8 +720,8 @@ export default function RoutingTemplates() {
       )}
 
       {showConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowConfirm(null)}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">Delete Template</h3>
             <p className="text-slate-300 text-sm mb-4">
               Delete template &ldquo;{showConfirm.name}&rdquo;? This action is irreversible.

@@ -151,6 +151,7 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const toast = useToast();
+  const drawerRef = useRef(null);
   const outputEndRef = useRef(null);
   const mountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
@@ -250,13 +251,21 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
     setSelectedProvider(defaultProvider);
   }, [task?.id, task?.status, task?.provider, providerOptions]);
 
-  // Close on Escape key
+  // Focus trap + Escape
   useEffect(() => {
-    function handleKeyDown(e) {
-      if (e.key === 'Escape') onClose();
+    const modal = drawerRef.current;
+    if (!modal) return;
+    const focusable = modal.querySelectorAll('input, select, button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
   }, [onClose]);
 
   async function handleAction(action) {
@@ -332,7 +341,7 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
       />
 
       {/* Drawer */}
-      <div className="fixed right-0 top-0 bottom-0 w-[520px] max-w-full bg-slate-900 border-l border-slate-700 z-50 animate-slide-in-right flex flex-col" role="dialog" aria-modal="true" aria-label={`Task details for ${taskId?.substring(0, 8) || 'unknown'}`}>
+      <div ref={drawerRef} className="fixed right-0 top-0 bottom-0 w-[520px] max-w-full bg-slate-900 border-l border-slate-700 z-50 animate-slide-in-right flex flex-col" role="dialog" aria-modal="true" aria-label={`Task details for ${taskId?.substring(0, 8) || 'unknown'}`}>
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-700">
           <div className="flex items-center gap-3 min-w-0">

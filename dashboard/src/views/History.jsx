@@ -118,6 +118,7 @@ function SortHeader({ column, label, sortCol, sortDir, onSort }) {
   const active = sortCol === column;
   return (
     <th
+      scope="col"
       className="text-left p-4 heading-sm cursor-pointer select-none hover:text-white transition-colors group"
       onClick={() => onSort(column)}
       onKeyDown={(e) => {
@@ -203,12 +204,29 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [focusedIdx, setFocusedIdx] = useState(-1);
   const [showConfirm, setShowConfirm] = useState(null);
+  const confirmRef = useRef(null);
   const searchTimerRef = useRef(null);
   const tableRef = useRef(null);
   const toast = useToast();
   const { execute } = useAbortableRequest();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [relativeTimeTick]);
+
+  useEffect(() => {
+    const modal = confirmRef.current;
+    if (!showConfirm || !modal) return;
+    const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { setShowConfirm(null); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
+  }, [showConfirm]);
 
   // Extract unique tags from loaded tasks
   const uniqueTags = useMemo(() => {
@@ -527,6 +545,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
         <input
           type="text"
           placeholder="Search tasks..."
+          aria-label="Search tasks"
           value={searchInput}
           onChange={(e) => handleSearchChange(e.target.value)}
           className="flex-1 bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
@@ -613,7 +632,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-700/50">
-              <th className="p-4 w-8">
+              <th scope="col" className="p-4 w-8">
                 <input
                   type="checkbox"
                   checked={sortedTasks.length > 0 && selectedIds.size === sortedTasks.length}
@@ -625,7 +644,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
               {Object.entries(SORTABLE_COLUMNS).map(([key, { label }]) => (
                 <SortHeader key={key} column={key} label={label} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               ))}
-              <th className="text-left p-4 heading-sm">Actions</th>
+              <th scope="col" className="text-left p-4 heading-sm">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -794,8 +813,8 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
       </div>
 
       {showConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowConfirm(null)}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">
               {showConfirm.action === 'bulkRetry' ? 'Confirm Retry' : 'Confirm Cancel'}
             </h3>

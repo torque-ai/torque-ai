@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { concurrency, hosts as hostsApi, peekHosts as peekHostsApi, workstations as workstationsApi, models } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
@@ -250,7 +250,10 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
             <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${host.enabled ? 'left-[18px]' : 'left-0.5'}`} />
           </button>
           <span className={`px-2.5 py-1 rounded-full text-xs font-medium text-white ${status.badge}`}>
-            <span className={`inline-block w-1.5 h-1.5 rounded-full ${status.dot} mr-1.5 ${effectiveStatus === 'healthy' ? 'pulse-dot' : ''}`} />
+            <span
+              aria-hidden="true"
+              className={`inline-block w-1.5 h-1.5 rounded-full ${status.dot} mr-1.5 ${effectiveStatus === 'healthy' ? 'pulse-dot' : ''}`}
+            />
             {status.label}
           </span>
           {activity?.gpuMetrics && (
@@ -477,7 +480,10 @@ function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus,
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium text-white ${status.badge}`}>
-            <span className={`inline-block w-2 h-2 rounded-full ${status.dot} ${effectiveStatus === 'healthy' ? 'pulse-dot' : ''}`} />
+            <span
+              aria-hidden="true"
+              className={`inline-block w-2 h-2 rounded-full ${status.dot} ${effectiveStatus === 'healthy' ? 'pulse-dot' : ''}`}
+            />
             {status.label}
           </span>
           <button
@@ -573,7 +579,10 @@ function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus,
             <span className="text-xs font-medium text-slate-400">Peek Server</span>
             {peekStatus ? (
               <span className="flex items-center gap-1">
-                <span className={`w-2 h-2 rounded-full ${peekStatus === 'online' ? 'bg-green-500 pulse-dot' : 'bg-red-500'}`} />
+                <span
+                  aria-hidden="true"
+                  className={`w-2 h-2 rounded-full ${peekStatus === 'online' ? 'bg-green-500 pulse-dot' : 'bg-red-500'}`}
+                />
                 <span className={`text-[11px] ${peekStatus === 'online' ? 'text-green-400' : 'text-red-400'}`}>
                   {peekStatus === 'online' ? 'Online' : 'Offline'}
                 </span>
@@ -810,7 +819,7 @@ const CRED_TYPES = ['ssh', 'http_auth', 'windows'];
 const CRED_FIELDS = {
   ssh: [
     { key: 'username', label: 'Username', placeholder: 'user' },
-    { key: 'host', label: 'Host', placeholder: '192.168.1.100' },
+    { key: 'host', label: 'Host', placeholder: '192.0.2.100' },
     { key: 'port', label: 'Port', placeholder: '22' },
     { key: 'privateKey', label: 'Private Key (paste)', placeholder: '-----BEGIN OPENSSH PRIVATE KEY-----', multiline: true },
     { key: 'password', label: 'Password (if no key)', placeholder: '', secret: true },
@@ -835,11 +844,22 @@ function CredentialModal({ hostName, existingTypes, onSave, onDelete, onClose })
   const [values, setValues] = useState({});
   const [label, setLabel] = useState('');
   const [saving, setSaving] = useState(false);
+  const modalRef = useRef(null);
 
   useEffect(() => {
-    function handleEsc(e) { if (e.key === 'Escape') onClose(); }
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
+    const modal = modalRef.current;
+    if (!modal) return;
+    const focusable = modal.querySelectorAll('input, select, button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
   }, [onClose]);
 
   const fields = CRED_FIELDS[credType] || [];
@@ -872,7 +892,7 @@ function CredentialModal({ hostName, existingTypes, onSave, onDelete, onClose })
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="glass-card p-6 max-w-md w-full mx-4" role="dialog" aria-modal="true" aria-label="Manage credentials" onClick={(e) => e.stopPropagation()}>
+      <div ref={modalRef} className="glass-card p-6 max-w-md w-full mx-4" role="dialog" aria-modal="true" aria-label="Manage credentials" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold text-white mb-1">Credentials for {hostName}</h3>
         <p className="text-xs text-slate-400 mb-4">Stored encrypted at rest (AES-256-GCM)</p>
 
@@ -1090,12 +1110,12 @@ function AddPeekHostForm({ onAdd, onCancel }) {
         </div>
         <div>
           <label className="text-xs text-slate-400 block mb-1">URL *</label>
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://192.168.1.100:9876"
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://192.0.2.100:9876"
             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none" />
         </div>
         <div>
           <label className="text-xs text-slate-400 block mb-1">SSH</label>
-          <input value={ssh} onChange={(e) => setSsh(e.target.value)} placeholder="user@192.168.1.100"
+          <input value={ssh} onChange={(e) => setSsh(e.target.value)} placeholder="user@192.0.2.100"
             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none" />
         </div>
         <div>
@@ -1241,17 +1261,27 @@ export default function Hosts({ hostActivity }) {
     }
   }
 
+  const confirmDialogRef = useRef(null);
   useEffect(() => {
     if (!confirmRemove && !confirmRemoveWorkstation && !confirmRemovePeek) return;
-    function handleEsc(e) {
+    const modal = confirmDialogRef.current;
+    if (!modal) return;
+    const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
+    if (focusable.length) focusable[0].focus();
+    function trap(e) {
       if (e.key === 'Escape') {
         setConfirmRemove(null);
         setConfirmRemoveWorkstation(null);
         setConfirmRemovePeek(null);
+        return;
       }
+      if (e.key !== 'Tab' || !focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
+    modal.addEventListener('keydown', trap);
+    return () => modal.removeEventListener('keydown', trap);
   }, [confirmRemove, confirmRemoveWorkstation, confirmRemovePeek]);
 
   function handleRemoveClick(hostId, hostName) {
@@ -1595,6 +1625,7 @@ export default function Hosts({ hostActivity }) {
       {confirmRemoveWorkstation ? (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setConfirmRemoveWorkstation(null)}>
           <div
+            ref={confirmDialogRef}
             className="glass-card p-6 max-w-sm mx-4"
             role="dialog"
             aria-modal="true"
@@ -1626,7 +1657,7 @@ export default function Hosts({ hostActivity }) {
       {/* Peek host remove confirmation dialog */}
       {confirmRemovePeek && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setConfirmRemovePeek(null)}>
-          <div className="glass-card p-6 max-w-sm mx-4" role="dialog" aria-modal="true" aria-label="Confirm remove peek host" onClick={(e) => e.stopPropagation()}>
+          <div ref={confirmDialogRef} className="glass-card p-6 max-w-sm mx-4" role="dialog" aria-modal="true" aria-label="Confirm remove peek host" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-white mb-2">Remove Peek Host</h3>
             <p className="text-sm text-slate-300 mb-4">
               Remove <strong>{confirmRemovePeek.name}</strong> and all stored credentials? This cannot be undone.
@@ -1642,7 +1673,7 @@ export default function Hosts({ hostActivity }) {
       {/* Remove confirmation dialog */}
       {confirmRemove && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setConfirmRemove(null)}>
-          <div className="glass-card p-6 max-w-sm mx-4" role="dialog" aria-modal="true" aria-label="Confirm remove host" onClick={(e) => e.stopPropagation()}>
+          <div ref={confirmDialogRef} className="glass-card p-6 max-w-sm mx-4" role="dialog" aria-modal="true" aria-label="Confirm remove host" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-white mb-2">Remove Host</h3>
             <p className="text-sm text-slate-300 mb-4">
               Are you sure you want to remove <strong>{confirmRemove.name}</strong>? This cannot be undone.

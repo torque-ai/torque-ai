@@ -45,6 +45,13 @@ describe('Layout', () => {
     expect(settingsLinks.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('marks the active navigation link with aria-current', () => {
+    renderLayout({}, '/providers');
+
+    expect(screen.getByRole('link', { name: 'Providers' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'History' })).not.toHaveAttribute('aria-current');
+  });
+
   it('renders child route content', () => {
     renderLayout({}, '/');
     expect(screen.getByText('Kanban Content')).toBeInTheDocument();

@@ -162,7 +162,7 @@ function ProviderHealthCard({ data }) {
     <div className={`rounded-xl border p-4 ${style.bg} ${style.border}`}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className={`w-2.5 h-2.5 rounded-full ${healthStyle.dot}`} />
+          <span aria-hidden="true" className={`w-2.5 h-2.5 rounded-full ${healthStyle.dot}`} />
           <span className={`text-sm font-semibold ${style.text} capitalize`}>{data.provider}</span>
         </div>
         <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded ${
@@ -225,6 +225,7 @@ function DecisionSortHeader({ field, label, sortField, sortDir, onSort }) {
   const isActive = sortField === field;
   return (
     <th
+      scope="col"
       className="pb-2 pr-4 cursor-pointer select-none hover:text-slate-200 transition-colors"
       onClick={() => onSort(field)}
       onKeyDown={(e) => {
@@ -302,13 +303,13 @@ function DecisionHistoryTable({ decisions }) {
           <thead>
             <tr className="text-left text-slate-400 border-b border-slate-700/50">
               <DecisionSortHeader field="created_at" label="Time" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <th className="pb-2 pr-4">Task ID</th>
+              <th scope="col" className="pb-2 pr-4">Task ID</th>
               <DecisionSortHeader field="complexity" label="Complexity" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
               <DecisionSortHeader field="provider" label="Provider" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <th className="pb-2 pr-4">Model</th>
+              <th scope="col" className="pb-2 pr-4">Model</th>
               <DecisionSortHeader field="status" label="Status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
-              <th className="pb-2 pr-4">Flags</th>
-              <th className="pb-2">Description</th>
+              <th scope="col" className="pb-2 pr-4">Flags</th>
+              <th scope="col" className="pb-2">Description</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -404,10 +405,10 @@ function OperationsTable({ operations }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-slate-400 border-b border-slate-700/50">
-              <th className="pb-2 pr-4">Task</th>
-              <th className="pb-2 pr-4">Status</th>
-              <th className="pb-2 pr-4">Provider</th>
-              <th className="pb-2 pr-4">Created</th>
+              <th scope="col" className="pb-2 pr-4">Task</th>
+              <th scope="col" className="pb-2 pr-4">Status</th>
+              <th scope="col" className="pb-2 pr-4">Provider</th>
+              <th scope="col" className="pb-2 pr-4">Created</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
@@ -647,31 +648,33 @@ export default function Strategic() {
                   return <p className="text-slate-500 text-sm">No task data yet</p>;
                 }
                 return (
-                  <SVGBarChart
-                    data={chartData}
-                    xKey="name"
-                    bars={[{
-                      dataKey: 'tasks',
-                      colorFn: (entry) => {
-                        const colorMap = {
-                          codex: '#3b82f6',
-                          'claude-cli': '#8b5cf6',
-                          ollama: '#22c55e',
-                          groq: '#ec4899',
-                          deepinfra: '#f97316',
-                          hyperbolic: '#a855f7',
-                          cerebras: '#06b6d4',
-                          'google-ai': '#10b981',
-                          openrouter: '#f59e0b',
-                          'ollama-cloud': '#14b8a6',
-                          anthropic: '#f59e0b',
-                        };
-                        return colorMap[entry.name] || '#64748b';
-                      },
-                    }]}
-                    height={180}
-                    formatTooltip={(v) => `${v} tasks`}
-                  />
+                  <div role="img" aria-label="Task distribution by provider">
+                    <SVGBarChart
+                      data={chartData}
+                      xKey="name"
+                      bars={[{
+                        dataKey: 'tasks',
+                        colorFn: (entry) => {
+                          const colorMap = {
+                            codex: '#3b82f6',
+                            'claude-cli': '#8b5cf6',
+                            ollama: '#22c55e',
+                            groq: '#ec4899',
+                            deepinfra: '#f97316',
+                            hyperbolic: '#a855f7',
+                            cerebras: '#06b6d4',
+                            'google-ai': '#10b981',
+                            openrouter: '#f59e0b',
+                            'ollama-cloud': '#14b8a6',
+                            anthropic: '#f59e0b',
+                          };
+                          return colorMap[entry.name] || '#64748b';
+                        },
+                      }]}
+                      height={180}
+                      formatTooltip={(v) => `${v} tasks`}
+                    />
+                  </div>
                 );
               })()}
             </div>

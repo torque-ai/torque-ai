@@ -20,11 +20,12 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 
 function ToggleSwitch({ checked, onChange, label }) {
   return (
-    <label className="flex items-center gap-3 cursor-pointer">
+    <div className="flex items-center gap-3 cursor-pointer">
       <button
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         onClick={() => onChange(!checked)}
         className={`relative h-5 w-10 rounded-full transition-colors ${checked ? 'bg-blue-600' : 'bg-slate-600'}`}
       >
@@ -33,14 +34,14 @@ function ToggleSwitch({ checked, onChange, label }) {
         />
       </button>
       <span className="text-sm text-slate-300">{label}</span>
-    </label>
+    </div>
   );
 }
 
-function FormField({ label, children, hint }) {
+function FormField({ label, children, hint, id }) {
   return (
     <div>
-      <label className="block text-xs text-slate-400 mb-1.5">{label}</label>
+      <label htmlFor={id} className="block text-xs text-slate-400 mb-1.5">{label}</label>
       {children}
       {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
     </div>
@@ -368,8 +369,9 @@ export default function ProjectSettings({ project: projectProp = '' }) {
       <div className="glass-card p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
           <div className="flex-1">
-            <label className="block text-xs text-slate-400 mb-1.5">Project Name</label>
+            <label htmlFor="project-name" className="block text-xs text-slate-400 mb-1.5">Project Name</label>
             <input
+              id="project-name"
               type="text"
               value={projectInput}
               onChange={(event) => setProjectInput(event.target.value)}
@@ -433,8 +435,9 @@ export default function ProjectSettings({ project: projectProp = '' }) {
               </div>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <FormField label="Provider">
+                <FormField id="project-provider" label="Provider">
                   <input
+                    id="project-provider"
                     type="text"
                     value={form.provider}
                     onChange={(event) => setForm((prev) => ({ ...prev, provider: event.target.value }))}
@@ -443,8 +446,9 @@ export default function ProjectSettings({ project: projectProp = '' }) {
                   />
                 </FormField>
 
-                <FormField label="Model">
+                <FormField id="project-model" label="Model">
                   <input
+                    id="project-model"
                     type="text"
                     value={form.model}
                     onChange={(event) => setForm((prev) => ({ ...prev, model: event.target.value }))}
@@ -454,8 +458,9 @@ export default function ProjectSettings({ project: projectProp = '' }) {
                 </FormField>
 
                 <div className="md:col-span-2">
-                  <FormField label="Verify Command">
+                  <FormField id="project-verify-command" label="Verify Command">
                     <textarea
+                      id="project-verify-command"
                       value={form.verifyCommand}
                       onChange={(event) => setForm((prev) => ({ ...prev, verifyCommand: event.target.value }))}
                       rows={4}
@@ -465,8 +470,9 @@ export default function ProjectSettings({ project: projectProp = '' }) {
                   </FormField>
                 </div>
 
-                <FormField label="Timeout (minutes)">
+                <FormField id="project-timeout" label="Timeout (minutes)">
                   <input
+                    id="project-timeout"
                     type="number"
                     min={1}
                     value={form.timeout}
@@ -496,10 +502,12 @@ export default function ProjectSettings({ project: projectProp = '' }) {
               </div>
 
               <FormField
+                id="project-routing-template"
                 label="Template"
                 hint="Choose a template to explicitly activate, or use System Default to clear the override."
               >
                 <select
+                  id="project-routing-template"
                   value={selectedTemplateId}
                   onChange={(event) => setSelectedTemplateId(event.target.value)}
                   className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
@@ -551,11 +559,11 @@ export default function ProjectSettings({ project: projectProp = '' }) {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-700 text-left text-xs uppercase tracking-wider text-slate-500">
-                      <th className="px-3 py-2 font-medium">Budget</th>
-                      <th className="px-3 py-2 font-medium">Provider</th>
-                      <th className="px-3 py-2 font-medium">Spend</th>
-                      <th className="px-3 py-2 font-medium">Limit</th>
-                      <th className="px-3 py-2 font-medium">Period</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Budget</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Provider</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Spend</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Limit</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Period</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -593,13 +601,13 @@ export default function ProjectSettings({ project: projectProp = '' }) {
                 <table className="min-w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-700 text-left text-xs uppercase tracking-wider text-slate-500">
-                      <th className="px-3 py-2 font-medium">Provider</th>
-                      <th className="px-3 py-2 font-medium">Composite</th>
-                      <th className="px-3 py-2 font-medium">Reliability</th>
-                      <th className="px-3 py-2 font-medium">Quality</th>
-                      <th className="px-3 py-2 font-medium">Speed</th>
-                      <th className="px-3 py-2 font-medium">Avg Cost</th>
-                      <th className="px-3 py-2 font-medium">Trusted</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Provider</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Composite</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Reliability</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Quality</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Speed</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Avg Cost</th>
+                      <th scope="col" className="px-3 py-2 font-medium">Trusted</th>
                     </tr>
                   </thead>
                   <tbody>

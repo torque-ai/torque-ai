@@ -240,6 +240,7 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
                 className="p-1 rounded hover:bg-slate-700/50 transition-colors"
               >
                 <span
+                  aria-hidden="true"
                   className={`block w-2 h-2 rounded-full shrink-0 ${
                     isConnected ? 'bg-green-500 pulse-dot' : isReconnecting ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
                   }`}

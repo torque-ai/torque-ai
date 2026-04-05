@@ -55,6 +55,7 @@ function SortHeader({ column, label, sortCol, sortDir, onSort }) {
   const active = sortCol === column;
   return (
     <th
+      scope="col"
       className="text-left p-4 heading-sm cursor-pointer select-none hover:text-white transition-colors group"
       onClick={() => onSort(column)}
       onKeyDown={(e) => {
@@ -176,12 +177,12 @@ function ExpandedWorkflow({ workflowId, onOpenDrawer, now }) {
             <table className="w-full">
               <thead>
                 <tr className="text-xs text-slate-500">
-                  <th className="px-6 py-1 text-left w-8"></th>
-                  <th className="px-4 py-1 text-left">Node</th>
-                  <th className="px-4 py-1 text-left">Status</th>
-                  <th className="px-4 py-1 text-left">Provider</th>
-                  <th className="px-4 py-1 text-left">Model</th>
-                  <th className="px-4 py-1 text-left">Duration</th>
+                  <th scope="col" className="px-6 py-1 text-left w-8"></th>
+                  <th scope="col" className="px-4 py-1 text-left">Node</th>
+                  <th scope="col" className="px-4 py-1 text-left">Status</th>
+                  <th scope="col" className="px-4 py-1 text-left">Provider</th>
+                  <th scope="col" className="px-4 py-1 text-left">Model</th>
+                  <th scope="col" className="px-4 py-1 text-left">Duration</th>
                 </tr>
               </thead>
               <tbody>
@@ -271,12 +272,14 @@ function Charts({ workflows, getWorkflowMeta }) {
       <div className="glass-card p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Completion Rate Trend</h3>
         {completionRateData.length > 1 ? (
-          <SVGLineChart
-            data={completionRateData} xKey="date" height={220}
-            yDomain={[0, 100]} formatX={formatChartDate} formatY={(v) => `${Math.round(v)}%`}
-            formatTooltip={(v) => `${v}%`}
-            lines={[{ dataKey: 'successRate', color: '#22c55e', name: 'Success Rate' }]}
-          />
+          <div role="img" aria-label="Completion rate trend over time">
+            <SVGLineChart
+              data={completionRateData} xKey="date" height={220}
+              yDomain={[0, 100]} formatX={formatChartDate} formatY={(v) => `${Math.round(v)}%`}
+              formatTooltip={(v) => `${v}%`}
+              lines={[{ dataKey: 'successRate', color: '#22c55e', name: 'Success Rate' }]}
+            />
+          </div>
         ) : (
           <div className="h-[220px] flex items-center justify-center text-slate-500 text-sm">
             Need 2+ days of data
@@ -288,11 +291,13 @@ function Charts({ workflows, getWorkflowMeta }) {
       <div className="glass-card p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Duration Distribution</h3>
         {durationDistData.some(d => d.count > 0) ? (
-          <SVGBarChart
-            data={durationDistData} xKey="range" height={220}
-            bars={[{ dataKey: 'count', color: '#3b82f6', name: 'Workflows' }]}
-            formatTooltip={(v) => `${v} workflows`}
-          />
+          <div role="img" aria-label="Task duration distribution">
+            <SVGBarChart
+              data={durationDistData} xKey="range" height={220}
+              bars={[{ dataKey: 'count', color: '#3b82f6', name: 'Workflows' }]}
+              formatTooltip={(v) => `${v} workflows`}
+            />
+          </div>
         ) : (
           <div className="h-[220px] flex items-center justify-center text-slate-500 text-sm">
             No duration data
@@ -304,11 +309,13 @@ function Charts({ workflows, getWorkflowMeta }) {
       <div className="glass-card p-6">
         <h3 className="text-lg font-semibold text-white mb-4">Throughput Over Time</h3>
         {throughputData.length > 1 ? (
-          <SVGLineChart
-            data={throughputData} xKey="date" height={220}
-            formatX={formatChartDate} formatTooltip={(v) => `${v} workflows`}
-            lines={[{ dataKey: 'count', color: '#3b82f6', name: 'Workflows', fill: true, fillOpacity: 0.3 }]}
-          />
+          <div role="img" aria-label="Task throughput over time">
+            <SVGLineChart
+              data={throughputData} xKey="date" height={220}
+              formatX={formatChartDate} formatTooltip={(v) => `${v} workflows`}
+              lines={[{ dataKey: 'count', color: '#3b82f6', name: 'Workflows', fill: true, fillOpacity: 0.3 }]}
+            />
+          </div>
         ) : (
           <div className="h-[220px] flex items-center justify-center text-slate-500 text-sm">
             Need 2+ days of data
@@ -520,7 +527,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-700/50">
-              <th className="p-4 w-8"></th>
+              <th scope="col" className="p-4 w-8"></th>
               <SortHeader column="name" label="Name" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               <SortHeader column="status" label="Status" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               <SortHeader column="tasks" label="Tasks" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
