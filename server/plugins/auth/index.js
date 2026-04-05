@@ -118,7 +118,7 @@ function createAuthPlugin() {
       if (!migratedKeyId) {
         const createdKey = keyManager.createKey({ name: BOOTSTRAP_KEY_NAME, role: 'admin' });
         bootstrapKey = createdKey.key;
-        logger.info(`[auth-plugin] Bootstrap admin API key created: ${createdKey.key}`);
+        logger.info(`[auth-plugin] Bootstrap admin API key created (id: ${createdKey.id}). Key written to bootstrap file.`);
 
         const dataDir = dbService && typeof dbService.getDataDir === 'function'
           ? dbService.getDataDir()

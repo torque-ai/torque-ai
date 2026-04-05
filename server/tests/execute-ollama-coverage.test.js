@@ -35,7 +35,7 @@ function makeDeps(overrides = {}) {
     tryReserveHostSlotWithFallback: overrides.tryReserveHostSlotWithFallback || vi.fn(() => ({ success: true })),
     tryOllamaCloudFallback: overrides.tryOllamaCloudFallback || vi.fn(() => false),
     isLargeModelBlockedOnHost: overrides.isLargeModelBlockedOnHost || vi.fn(() => ({ blocked: false })),
-    buildFileContext: overrides.buildFileContext || vi.fn(() => ''),
+    buildFileContext: overrides.buildFileContext || vi.fn().mockResolvedValue(''),
     processQueue: overrides.processQueue || vi.fn(),
   };
 }

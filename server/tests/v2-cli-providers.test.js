@@ -1,5 +1,8 @@
 'use strict';
 
+const { EventEmitter } = require('events');
+const { PassThrough } = require('stream');
+
 function installMock(modulePath, exports) {
   require.cache[require.resolve(modulePath)] = {
     id: require.resolve(modulePath),
@@ -88,6 +91,53 @@ function createPromptsMock(overrides = {}) {
   };
 }
 
+function createMockChild({
+  stdout = [],
+  stderr = [],
+  code = 0,
+  signal = null,
+  error = null,
+  deferClose = false,
+} = {}) {
+  const child = new EventEmitter();
+  const stdinChunks = [];
+
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.stdin = new PassThrough();
+  child.stdin.on('data', (chunk) => {
+    stdinChunks.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
+  });
+  child.kill = vi.fn(() => {
+    queueMicrotask(() => child.emit('close', null, 'SIGTERM'));
+    return true;
+  });
+  child.getStdinText = () => stdinChunks.join('');
+
+  if (!deferClose) {
+    queueMicrotask(() => {
+      if (error) {
+        child.emit('error', error);
+        return;
+      }
+
+      for (const chunk of stdout) {
+        child.stdout.write(chunk);
+      }
+      child.stdout.end();
+
+      for (const chunk of stderr) {
+        child.stderr.write(chunk);
+      }
+      child.stderr.end();
+
+      child.emit('close', code, signal);
+    });
+  }
+
+  return child;
+}
+
 function loadProviders(options = {}) {
   clearModuleCaches();
 
@@ -105,6 +155,10 @@ function loadProviders(options = {}) {
     child: vi.fn(() => providerLogger),
   };
   const childProcess = {
+    spawn: vi.fn(() => createMockChild({
+      stdout: ['cli output'],
+      code: 0,
+    })),
     spawnSync: vi.fn(() => ({
       status: 0,
       stdout: 'cli output',
@@ -158,6 +212,7 @@ function loadProviders(options = {}) {
 
 afterEach(() => {
   clearModuleCaches();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   process.env.OPENAI_API_KEY = originalOpenAiApiKey;
 
@@ -249,16 +304,20 @@ describe('v2-cli-providers', () => {
 
   it('submits Codex CLI jobs with resolved Windows cli_path, prompt input, and spawn options', async () => {
     setPlatform('win32');
+    let spawnedChild;
     const loaded = loadProviders({
       providerRoutingCore: {
         getProvider: vi.fn(() => ({ cli_path: 'C:\\Tools\\codex' })),
       },
       childProcess: {
-        spawnSync: vi.fn(() => ({
-          status: 0,
-          stdout: '  completed from stdout  ',
-          stderr: 'ignored',
-        })),
+        spawn: vi.fn(() => {
+          spawnedChild = createMockChild({
+            stdout: ['  completed from stdout  '],
+            stderr: ['ignored'],
+            code: 0,
+          });
+          return spawnedChild;
+        }),
       },
     });
     const provider = new loaded.CodexCliProvider();
@@ -271,16 +330,13 @@ describe('v2-cli-providers', () => {
     });
 
     expect(loaded.providerRoutingCore.getProvider).toHaveBeenCalledWith('codex');
-    expect(loaded.childProcess.spawnSync).toHaveBeenCalledWith(
+    expect(loaded.childProcess.spawn).toHaveBeenCalledWith(
       'C:\\Tools\\codex.cmd',
       ['exec', '--skip-git-repo-check', '-m', 'gpt-5-codex', '--full-auto', '-C', 'C:\\repo', '-'],
       expect.objectContaining({
         cwd: 'C:\\repo',
-        input: 'stdin prompt',
-        encoding: 'utf8',
-        timeout: 120000,
-        maxBuffer: 10 * 1024 * 1024,
         windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
         shell: true,
         env: expect.objectContaining({
           FORCE_COLOR: '0',
@@ -293,6 +349,7 @@ describe('v2-cli-providers', () => {
         }),
       }),
     );
+    expect(spawnedChild.getStdinText()).toBe('stdin prompt');
     expect(result).toEqual({
       output: 'completed from stdout',
       status: 'completed',
@@ -308,13 +365,17 @@ describe('v2-cli-providers', () => {
 
   it('submits Claude CLI jobs with the default non-Windows binary and stderr fallback output', async () => {
     setPlatform('linux');
+    let spawnedChild;
     const loaded = loadProviders({
       childProcess: {
-        spawnSync: vi.fn(() => ({
-          status: 0,
-          stdout: '   ',
-          stderr: '  from stderr  ',
-        })),
+        spawn: vi.fn(() => {
+          spawnedChild = createMockChild({
+            stdout: ['   '],
+            stderr: ['  from stderr  '],
+            code: 0,
+          });
+          return spawnedChild;
+        }),
       },
     });
     const provider = new loaded.ClaudeCliProvider();
@@ -325,16 +386,16 @@ describe('v2-cli-providers', () => {
       timeout: 0,
     });
 
-    expect(loaded.childProcess.spawnSync).toHaveBeenCalledWith(
+    expect(loaded.childProcess.spawn).toHaveBeenCalledWith(
       'claude-cli',
       ['--dangerously-skip-permissions', '--disable-slash-commands', '--strict-mcp-config', '-p'],
       expect.objectContaining({
         cwd: process.cwd(),
-        input: 'claude stdin',
-        timeout: loaded.constants.PROVIDER_DEFAULT_TIMEOUTS['claude-cli'] * 60 * 1000,
+        stdio: ['pipe', 'pipe', 'pipe'],
         shell: false,
       }),
     );
+    expect(spawnedChild.getStdinText()).toBe('claude stdin');
     expect(result.output).toBe('from stderr');
     expect(result.usage.model).toBe('claude-3-7');
   });
@@ -342,10 +403,10 @@ describe('v2-cli-providers', () => {
   it('throws a descriptive error when a CLI process exits non-zero', async () => {
     const loaded = loadProviders({
       childProcess: {
-        spawnSync: vi.fn(() => ({
-          status: 2,
-          stdout: '',
-          stderr: '  broken pipe  ',
+        spawn: vi.fn(() => createMockChild({
+          stdout: [''],
+          stderr: ['  broken pipe  '],
+          code: 2,
         })),
       },
     });
@@ -363,11 +424,8 @@ describe('v2-cli-providers', () => {
     const spawnError = new Error('spawn exploded');
     const loaded = loadProviders({
       childProcess: {
-        spawnSync: vi.fn(() => ({
+        spawn: vi.fn(() => createMockChild({
           error: spawnError,
-          status: null,
-          stdout: '',
-          stderr: '',
         })),
       },
     });
@@ -375,6 +433,53 @@ describe('v2-cli-providers', () => {
 
     await expect(provider.submit('fail', 'gpt-5-codex')).rejects.toThrow('spawn exploded');
     expect(loaded.providerLogger.info).toHaveBeenCalledWith('[v2 codex] spawn error: spawn exploded');
+  });
+
+  it('kills the CLI when combined stdout and stderr exceed maxBuffer', async () => {
+    let spawnedChild;
+    const loaded = loadProviders({
+      childProcess: {
+        spawn: vi.fn(() => {
+          spawnedChild = createMockChild({
+            stdout: ['x'.repeat((10 * 1024 * 1024) + 1)],
+            code: 0,
+          });
+          return spawnedChild;
+        }),
+      },
+    });
+    const provider = new loaded.CodexCliProvider();
+
+    await expect(provider.submit('big output', 'gpt-5-codex')).rejects.toThrow('maxBuffer length exceeded');
+    expect(spawnedChild.kill).toHaveBeenCalledTimes(1);
+    expect(loaded.providerLogger.info).toHaveBeenCalledWith(
+      '[v2 codex] spawn error: stdout/stderr maxBuffer length exceeded',
+    );
+  });
+
+  it('kills the CLI when the async spawn exceeds the timeout', async () => {
+    vi.useFakeTimers();
+
+    let spawnedChild;
+    const loaded = loadProviders({
+      childProcess: {
+        spawn: vi.fn(() => {
+          spawnedChild = createMockChild({ deferClose: true });
+          return spawnedChild;
+        }),
+      },
+    });
+    const provider = new loaded.CodexCliProvider();
+
+    const pending = provider.submit('slow task', 'gpt-5-codex', { timeout: 1 });
+    const rejection = expect(pending).rejects.toThrow('Command timed out after 60000ms');
+
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    await rejection;
+    expect(spawnedChild.kill).toHaveBeenCalledTimes(1);
+    expect(loaded.providerLogger.info).toHaveBeenCalledWith(
+      '[v2 codex] spawn error: Command timed out after 60000ms',
+    );
   });
 
   it('rejects API transport for Claude CLI providers', async () => {

@@ -8,6 +8,7 @@
 const BaseProvider = require('./base');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
 const { buildErrorMessage } = require('./shared');
+const logger = require('../logger');
 
 class CerebrasProvider extends BaseProvider {
   constructor(config = {}) {
@@ -66,14 +67,14 @@ class CerebrasProvider extends BaseProvider {
       try {
         const { getQuotaStore } = require('../db/provider-quotas');
         getQuotaStore().updateFromHeaders('cerebras', response.headers);
-      } catch {}
+      } catch (e) { logger.debug('[cerebras] quota header tracking error:', e.message); }
 
       if (!response.ok) {
         if (response.status === 429) {
           try {
             const { getQuotaStore } = require('../db/provider-quotas');
             getQuotaStore().record429('cerebras');
-          } catch {}
+          } catch (e) { logger.debug('[cerebras] quota 429 tracking error:', e.message); }
         }
         const errorBody = await response.text();
         const retryAfterSeconds = this.getRetryAfterSeconds(response);
@@ -158,14 +159,14 @@ class CerebrasProvider extends BaseProvider {
       try {
         const { getQuotaStore } = require('../db/provider-quotas');
         getQuotaStore().updateFromHeaders('cerebras', response.headers);
-      } catch {}
+      } catch (e) { logger.debug('[cerebras] quota header tracking error:', e.message); }
 
       if (!response.ok) {
         if (response.status === 429) {
           try {
             const { getQuotaStore } = require('../db/provider-quotas');
             getQuotaStore().record429('cerebras');
-          } catch {}
+          } catch (e) { logger.debug('[cerebras] quota 429 tracking error:', e.message); }
         }
         const errorBody = await response.text();
         const retryAfterSeconds = this.getRetryAfterSeconds(response);

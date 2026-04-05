@@ -98,9 +98,9 @@ describe('buildClaudeCliCommand', () => {
 // ── buildCodexCommand ───────────────────────────────────────────
 
 describe('buildCodexCommand', () => {
-  it('returns cliPath, finalArgs, and stdinPrompt', () => {
+  it('returns cliPath, finalArgs, and stdinPrompt', async () => {
     const task = makeTask({ provider: 'codex' });
-    const result = tm.buildCodexCommand(task, null, '');
+    const result = await tm.buildCodexCommand(task, null, '');
 
     expect(result).toHaveProperty('cliPath');
     expect(result).toHaveProperty('finalArgs');
@@ -108,65 +108,65 @@ describe('buildCodexCommand', () => {
     expect(typeof result.stdinPrompt).toBe('string');
   });
 
-  it('includes exec in args', () => {
+  it('includes exec in args', async () => {
     const task = makeTask({ provider: 'codex' });
-    const result = tm.buildCodexCommand(task, null, '');
+    const result = await tm.buildCodexCommand(task, null, '');
 
     // On nvm-managed Node, finalArgs may be prepended with the codex path
     expect(result.finalArgs).toContain('exec');
   });
 
-  it('includes --skip-git-repo-check', () => {
+  it('includes --skip-git-repo-check', async () => {
     const task = makeTask({ provider: 'codex' });
-    const result = tm.buildCodexCommand(task, null, '');
+    const result = await tm.buildCodexCommand(task, null, '');
 
     expect(result.finalArgs).toContain('--skip-git-repo-check');
   });
 
-  it('includes model flag when specified', () => {
+  it('includes model flag when specified', async () => {
     const task = makeTask({ provider: 'codex', model: 'gpt-5.3-codex-spark' });
-    const result = tm.buildCodexCommand(task, null, '');
+    const result = await tm.buildCodexCommand(task, null, '');
 
     expect(result.finalArgs).toContain('-m');
     const mIdx = result.finalArgs.indexOf('-m');
     expect(result.finalArgs[mIdx + 1]).toBe('gpt-5.3-codex-spark');
   });
 
-  it('uses --full-auto by default', () => {
+  it('uses --full-auto by default', async () => {
     const task = makeTask({ provider: 'codex', auto_approve: false });
-    const result = tm.buildCodexCommand(task, null, '');
+    const result = await tm.buildCodexCommand(task, null, '');
 
     expect(result.finalArgs).toContain('--full-auto');
     expect(result.finalArgs).not.toContain('--dangerously-bypass-approvals-and-sandbox');
   });
 
-  it('uses --dangerously-bypass-approvals-and-sandbox when auto_approve', () => {
+  it('uses --dangerously-bypass-approvals-and-sandbox when auto_approve', async () => {
     const task = makeTask({ provider: 'codex', auto_approve: true });
-    const result = tm.buildCodexCommand(task, null, '');
+    const result = await tm.buildCodexCommand(task, null, '');
 
     expect(result.finalArgs).toContain('--dangerously-bypass-approvals-and-sandbox');
     expect(result.finalArgs).not.toContain('--full-auto');
   });
 
-  it('includes -C with working directory', () => {
+  it('includes -C with working directory', async () => {
     const task = makeTask({ provider: 'codex', workingDirectory: '/tmp/test' });
-    const result = tm.buildCodexCommand(task, null, '');
+    const result = await tm.buildCodexCommand(task, null, '');
 
     expect(result.finalArgs).toContain('-C');
     const cIdx = result.finalArgs.indexOf('-C');
     expect(result.finalArgs[cIdx + 1]).toBe('/tmp/test');
   });
 
-  it('reads prompt from stdin (- arg)', () => {
+  it('reads prompt from stdin (- arg)', async () => {
     const task = makeTask({ provider: 'codex' });
-    const result = tm.buildCodexCommand(task, null, '');
+    const result = await tm.buildCodexCommand(task, null, '');
 
     expect(result.finalArgs).toContain('-');
   });
 
-  it('uses provider cli_path override', () => {
+  it('uses provider cli_path override', async () => {
     const task = makeTask({ provider: 'codex' });
-    const result = tm.buildCodexCommand(task, { cli_path: '/usr/local/bin/codex' }, '');
+    const result = await tm.buildCodexCommand(task, { cli_path: '/usr/local/bin/codex' }, '');
 
     if (process.platform === 'win32') {
       expect(result.cliPath).toBe('/usr/local/bin/codex.cmd');
@@ -175,17 +175,17 @@ describe('buildCodexCommand', () => {
     }
   });
 
-  it('uses codex.cmd on Windows', () => {
+  it('uses codex.cmd on Windows', async () => {
     if (process.platform !== 'win32') return;
     const task = makeTask({ provider: 'codex' });
-    const result = tm.buildCodexCommand(task, null, '');
+    const result = await tm.buildCodexCommand(task, null, '');
 
     expect(result.cliPath).toBe('codex.cmd');
   });
 
-  it('wraps task description with instructions', () => {
+  it('wraps task description with instructions', async () => {
     const task = makeTask({ description: 'Create a REST API', provider: 'codex' });
-    const result = tm.buildCodexCommand(task, null, '');
+    const result = await tm.buildCodexCommand(task, null, '');
 
     expect(result.stdinPrompt).toContain('Create a REST API');
   });

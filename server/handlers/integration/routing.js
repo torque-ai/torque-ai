@@ -18,7 +18,7 @@ const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const { resolveOllamaModel } = require('../../providers/ollama-shared');
 const { shouldDecompose, decomposeTask: buildDecomposedTasks, GUIDED_FILE_THRESHOLD, GUIDED_MIN_FUNCTIONS } = require('../../execution/task-decomposition');
-const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
+const { enforceVersionIntentForProject } = require('../../versioning/version-intent');
 const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
 const logger = require('../../logger').child({ component: 'integration-routing' });
@@ -304,16 +304,14 @@ async function handleSmartSubmitTask(args) {
   if (working_directory) {
     try {
       const rawDb = require('../../database').getDbInstance();
-      if (rawDb && isProjectVersioned(rawDb, working_directory)) {
-        if (!version_intent) {
-          return makeError(ErrorCodes.MISSING_REQUIRED_PARAM,
-            'version_intent is required for versioned project. Use: feature, fix, breaking, or internal');
-        }
-        const intentCheck = validateVersionIntent(version_intent);
-        if (!intentCheck.valid) {
-          return makeError(ErrorCodes.INVALID_PARAM, intentCheck.error);
-        }
-      }
+      const versionIntentError = enforceVersionIntentForProject(
+        rawDb,
+        working_directory,
+        version_intent,
+        makeError,
+        ErrorCodes
+      );
+      if (versionIntentError) return versionIntentError;
     } catch (_e) { /* version-intent module unavailable — allow */ }
   }
 

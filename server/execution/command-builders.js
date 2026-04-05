@@ -70,9 +70,9 @@ function buildClaudeCliCommand(task, providerConfig, resolvedFileContext) {
  * @param {object} providerConfig - Provider configuration from DB
  * @param {string} resolvedFileContext - Pre-resolved file context string (fallback)
  * @param {Array<{actual: string, mentioned: string}>} resolvedFiles - Resolved file references
- * @returns {{ cliPath: string, finalArgs: string[], stdinPrompt: string }}
+ * @returns {Promise<{ cliPath: string, finalArgs: string[], stdinPrompt: string }>}
  */
-function buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles) {
+async function buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles) {
   let stdinPrompt;
 
   if (resolvedFiles && resolvedFiles.length > 0 && task.working_directory) {
@@ -81,7 +81,7 @@ function buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFi
     let enrichment = '';
     if (codexEnrichCfg.enabled) {
       try {
-        enrichment = _contextEnrichment.enrichResolvedContext(
+        enrichment = await _contextEnrichment.enrichResolvedContextAsync(
           resolvedFiles, task.working_directory, task.task_description, _db, codexEnrichCfg
         );
       } catch (e) {

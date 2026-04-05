@@ -10,7 +10,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const BaseProvider = require('./base');
 const configCore = require('../db/config-core');
 const providerRoutingCore = require('../db/provider-routing-core');
@@ -155,37 +155,83 @@ class CliProviderAdapter extends BaseProvider {
     const timeoutMs = resolveTimeoutMinutes(options, this.providerId) * 60 * 1000;
     const useShell = process.platform === 'win32' && /\.cmd$/i.test(cliPath);
 
-    // TODO(issue-4): spawnSync blocks the Node.js event loop for the entire CLI duration.
-    // For short tasks this is acceptable, but long-running CLIs (e.g., codex) can starve
-    // the 4 HTTP servers and the synchronous DB layer.  Replace with an async spawn()
-    // wrapped in a Promise (pipe stdout/stderr into buffers, resolve on 'close').
-    // The full submit() method is already async — the only blocker is re-implementing
-    // the timeout and maxBuffer limits without spawnSync's built-in support.
-    const result = spawnSync(cliPath, finalArgs, {
-      cwd: options.working_directory || process.cwd(),
-      input: stdinPrompt,
-      encoding: 'utf8',
-      timeout: timeoutMs,
-      maxBuffer: 10 * 1024 * 1024,
-      windowsHide: true,
-      env: buildSafeEnv(this.providerId, {
-        FORCE_COLOR: '0',
-        NO_COLOR: '1',
-        TERM: 'dumb',
-        CI: '1',
-        CODEX_NON_INTERACTIVE: '1',
-        CLAUDE_NON_INTERACTIVE: '1',
-        PYTHONIOENCODING: 'utf-8',
-      }),
-      shell: useShell,
-    });
+    const maxBuffer = 10 * 1024 * 1024;
+    let result;
+    try {
+      result = await new Promise((resolve, reject) => {
+        const child = spawn(cliPath, finalArgs, {
+          cwd: options.working_directory || process.cwd(),
+          env: buildSafeEnv(this.providerId, {
+            FORCE_COLOR: '0',
+            NO_COLOR: '1',
+            TERM: 'dumb',
+            CI: '1',
+            CODEX_NON_INTERACTIVE: '1',
+            CLAUDE_NON_INTERACTIVE: '1',
+            PYTHONIOENCODING: 'utf-8',
+          }),
+          shell: useShell,
+          windowsHide: true,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        const stdoutChunks = [];
+        const stderrChunks = [];
+        let totalBytes = 0;
+        let settled = false;
+        let timeoutHandle = null;
+
+        const finish = (fn, value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutHandle);
+          fn(value);
+        };
+
+        const appendChunk = (chunks, chunk) => {
+          if (settled) return;
+          const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+          totalBytes += Buffer.byteLength(text);
+          if (totalBytes > maxBuffer) {
+            const maxBufferError = new Error('stdout/stderr maxBuffer length exceeded');
+            maxBufferError.code = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
+            child.kill();
+            finish(reject, maxBufferError);
+            return;
+          }
+          chunks.push(text);
+        };
+
+        timeoutHandle = setTimeout(() => {
+          const timeoutError = new Error(`Command timed out after ${timeoutMs}ms`);
+          timeoutError.code = 'ETIMEDOUT';
+          child.kill();
+          finish(reject, timeoutError);
+        }, timeoutMs);
+
+        child.stdout?.on('data', (chunk) => appendChunk(stdoutChunks, chunk));
+        child.stderr?.on('data', (chunk) => appendChunk(stderrChunks, chunk));
+        child.once('close', (code, signal) => {
+          finish(resolve, {
+            stdout: stdoutChunks.join(''),
+            stderr: stderrChunks.join(''),
+            status: code,
+            signal,
+          });
+        });
+        child.once('error', (error) => finish(reject, error));
+
+        if (child.stdin) {
+          child.stdin.write(stdinPrompt);
+          child.stdin.end();
+        }
+      });
+    } catch (error) {
+      logger.info(`[v2 ${this.providerId}] spawn error: ${error.message}`);
+      throw error;
+    }
 
     const elapsedMs = Date.now() - startTime;
-
-    if (result.error) {
-      logger.info(`[v2 ${this.providerId}] spawn error: ${result.error.message}`);
-      throw result.error;
-    }
 
     const stdoutText = cleanText(result.stdout);
     const stderrText = cleanText(result.stderr);

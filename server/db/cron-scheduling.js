@@ -12,6 +12,7 @@
 let db;
 
 const { safeJsonParse } = require('../utils/json');
+const { enforceVersionIntentForProject } = require('../versioning/version-intent');
 
 function setDb(dbInstance) {
   db = dbInstance;
@@ -380,20 +381,8 @@ function createCronScheduledTask(data) {
   // Version intent enforcement for versioned projects
   const workDir = (data.task_config && data.task_config.working_directory) || null;
   if (workDir) {
-    try {
-      const { isProjectVersioned, validateVersionIntent } = require('../versioning/version-intent');
-      if (isProjectVersioned(db, workDir)) {
-        const intent = data.version_intent || (data.task_config && data.task_config.version_intent);
-        if (!intent) {
-          throw new Error('version_intent is required for versioned project. Use: feature, fix, breaking, or internal');
-        }
-        const check = validateVersionIntent(intent);
-        if (!check.valid) throw new Error(check.error);
-      }
-    } catch (e) {
-      if (e.message.includes('version_intent')) throw e;
-      // version-intent module unavailable — allow
-    }
+    const intent = data.version_intent || (data.task_config && data.task_config.version_intent);
+    enforceVersionIntentForProject(db, workDir, intent);
   }
 
   // Validate cron expression
@@ -450,19 +439,8 @@ function createOneTimeSchedule(data) {
   // Version intent enforcement for versioned projects
   const workDir = (data.task_config && data.task_config.working_directory) || null;
   if (workDir) {
-    try {
-      const { isProjectVersioned, validateVersionIntent } = require('../versioning/version-intent');
-      if (isProjectVersioned(db, workDir)) {
-        const intent = data.version_intent || (data.task_config && data.task_config.version_intent);
-        if (!intent) {
-          throw new Error('version_intent is required for versioned project. Use: feature, fix, breaking, or internal');
-        }
-        const check = validateVersionIntent(intent);
-        if (!check.valid) throw new Error(check.error);
-      }
-    } catch (e) {
-      if (e.message.includes('version_intent')) throw e;
-    }
+    const intent = data.version_intent || (data.task_config && data.task_config.version_intent);
+    enforceVersionIntentForProject(db, workDir, intent);
   }
   const { v4: uuidv4 } = require('uuid');
   const now = new Date();

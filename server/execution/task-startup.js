@@ -558,7 +558,7 @@ async function startTask(taskId) {
         task.model = null;
       }
 
-      const codexResult = buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles);
+      const codexResult = await buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles);
       cliPath = codexResult.cliPath;
       finalArgs = codexResult.finalArgs;
       stdinPrompt = codexResult.stdinPrompt;
@@ -572,7 +572,7 @@ async function startTask(taskId) {
     stdinPrompt = claudeResult.stdinPrompt;
   } else {
     // Codex (default)
-    const codexResult = buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles);
+    const codexResult = await buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles);
     cliPath = codexResult.cliPath;
     finalArgs = codexResult.finalArgs;
     stdinPrompt = codexResult.stdinPrompt;

@@ -271,7 +271,7 @@ function getCurrentSpend(database, budget) {
     const row = database.prepare(`
       SELECT COALESCE(SUM(estimated_cost), 0) AS spend
       FROM cost_tracking
-      WHERE provider = ? AND created_at >= ? AND created_at < ?
+      WHERE provider = ? AND tracked_at >= ? AND tracked_at < ?
     `).get(provider, start, end);
     return Number(Number(row?.spend || 0).toFixed(6));
   }
@@ -287,7 +287,7 @@ function getCurrentSpend(database, budget) {
   const row = database.prepare(`
     SELECT COALESCE(SUM(estimated_cost), 0) AS spend
     FROM cost_tracking
-    WHERE created_at >= ? AND created_at < ?
+    WHERE tracked_at >= ? AND tracked_at < ?
   `).get(start, end);
   return Number(Number(row?.spend || 0).toFixed(6));
 }

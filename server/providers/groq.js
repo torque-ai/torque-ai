@@ -7,6 +7,7 @@
 const BaseProvider = require('./base');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
 const { buildErrorMessage } = require('./shared');
+const logger = require('../logger');
 
 class GroqProvider extends BaseProvider {
   constructor(config = {}) {
@@ -62,14 +63,14 @@ class GroqProvider extends BaseProvider {
       try {
         const { getQuotaStore } = require('../db/provider-quotas');
         getQuotaStore().updateFromHeaders('groq', response.headers);
-      } catch {}
+      } catch (e) { logger.debug('[groq] quota header tracking error:', e.message); }
 
       if (!response.ok) {
         if (response.status === 429) {
           try {
             const { getQuotaStore } = require('../db/provider-quotas');
             getQuotaStore().record429('groq');
-          } catch {}
+          } catch (e) { logger.debug('[groq] quota 429 tracking error:', e.message); }
         }
         const errorBody = await response.text();
         const retryAfterSeconds = this.getRetryAfterSeconds(response);
@@ -160,14 +161,14 @@ class GroqProvider extends BaseProvider {
       try {
         const { getQuotaStore } = require('../db/provider-quotas');
         getQuotaStore().updateFromHeaders('groq', response.headers);
-      } catch {}
+      } catch (e) { logger.debug('[groq] quota header tracking error:', e.message); }
 
       if (!response.ok) {
         if (response.status === 429) {
           try {
             const { getQuotaStore } = require('../db/provider-quotas');
             getQuotaStore().record429('groq');
-          } catch {}
+          } catch (e) { logger.debug('[groq] quota 429 tracking error:', e.message); }
         }
         const errorBody = await response.text();
         const retryAfterSeconds = this.getRetryAfterSeconds(response);

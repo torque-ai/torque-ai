@@ -242,7 +242,7 @@ describe('provider execution attempted-start cleanup', () => {
       tryReserveHostSlotWithFallback: vi.fn(() => ({ success: false, reason: 'Host at capacity' })),
       tryOllamaCloudFallback: vi.fn(() => false),
       isLargeModelBlockedOnHost: vi.fn(() => ({ blocked: false })),
-      buildFileContext: vi.fn(() => ''),
+      buildFileContext: vi.fn().mockResolvedValue(''),
       processQueue: vi.fn(),
       recordTaskStartedAuditEvent,
     });

@@ -34,7 +34,7 @@ function init(deps = {}) {
  * @param {Array<{mentioned: string, actual: string, confidence: string}>} resolvedFiles
  * @param {string} workingDirectory
  * @param {number} maxBytes - Total context budget (default 30KB)
- * @returns {string} Formatted context block or empty string
+ * @returns {Promise<string>} Formatted context block or empty string
  */
 /**
  * Try to build context from the symbol index instead of whole files.
@@ -171,7 +171,7 @@ async function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 3000
   const enrichCfg = _providerCfg && _providerCfg.getEnrichmentConfig();
   if (enrichCfg && enrichCfg.enabled) {
     try {
-      enrichment = _contextEnrichment.enrichResolvedContext(
+      enrichment = await _contextEnrichment.enrichResolvedContextAsync(
         resolvedFiles, workingDirectory, taskDescription, _db, enrichCfg
       );
     } catch (e) {

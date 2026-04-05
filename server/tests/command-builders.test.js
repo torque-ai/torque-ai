@@ -33,6 +33,7 @@ function makeProviderCfg(overrides = {}) {
 function makeContextEnrichment() {
   return {
     enrichResolvedContext: vi.fn(() => 'enriched-context'),
+    enrichResolvedContextAsync: vi.fn().mockResolvedValue('enriched-context'),
   };
 }
 
@@ -179,7 +180,7 @@ describe('execution/command-builders', () => {
   describe('buildCodexCommand', () => {
     // --- Fallback path (no resolvedFiles or no working_directory) ---
     describe('fallback path (no resolved files)', () => {
-      it('uses wrapWithInstructions when resolvedFiles is null', () => {
+      it('uses wrapWithInstructions when resolvedFiles is null', async () => {
         const deps = initModule();
         const task = {
           task_description: 'Write tests',
@@ -189,7 +190,7 @@ describe('execution/command-builders', () => {
           files: ['f.js'],
           project: 'p',
         };
-        const result = commandBuilders.buildCodexCommand(task, null, 'fallback-ctx', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, 'fallback-ctx', null);
 
         expect(deps.wrapWithInstructions).toHaveBeenCalledWith(
           'Write tests', 'codex', null,
@@ -198,20 +199,20 @@ describe('execution/command-builders', () => {
         expect(result.stdinPrompt).toBe('[wrapped:codex] Write tests\nfallback-ctx');
       });
 
-      it('uses wrapWithInstructions when resolvedFiles is empty array', () => {
+      it('uses wrapWithInstructions when resolvedFiles is empty array', async () => {
         const deps = initModule();
         const task = {
           task_description: 'Build feature',
           model: 'gpt-5-codex',
           working_directory: '/proj',
         };
-        const result = commandBuilders.buildCodexCommand(task, null, 'ctx', []);
+        const result = await commandBuilders.buildCodexCommand(task, null, 'ctx', []);
 
         expect(deps.wrapWithInstructions).toHaveBeenCalled();
         expect(result.stdinPrompt).toContain('[wrapped:codex]');
       });
 
-      it('uses wrapWithInstructions when task has no working_directory', () => {
+      it('uses wrapWithInstructions when task has no working_directory', async () => {
         const deps = initModule();
         const task = {
           task_description: 'Something',
@@ -219,7 +220,7 @@ describe('execution/command-builders', () => {
           working_directory: null,
         };
         const resolvedFiles = [{ actual: 'a.js', mentioned: 'a.js' }];
-        const result = commandBuilders.buildCodexCommand(task, null, 'ctx', resolvedFiles);
+        const result = await commandBuilders.buildCodexCommand(task, null, 'ctx', resolvedFiles);
 
         expect(deps.wrapWithInstructions).toHaveBeenCalled();
         expect(result.stdinPrompt).toContain('[wrapped:codex]');
@@ -228,7 +229,7 @@ describe('execution/command-builders', () => {
 
     // --- Enriched path (resolvedFiles + working_directory) ---
     describe('enriched path (resolved files present)', () => {
-      it('uses codexIntelligence when resolvedFiles and working_directory are present', () => {
+      it('uses codexIntelligence when resolvedFiles and working_directory are present', async () => {
         const deps = initModule({
           providerCfg: makeProviderCfg({ enabled: false }),
         });
@@ -238,7 +239,7 @@ describe('execution/command-builders', () => {
           working_directory: '/proj',
         };
         const resolvedFiles = [{ actual: '/proj/a.js', mentioned: 'a.js' }];
-        const result = commandBuilders.buildCodexCommand(task, null, 'ctx', resolvedFiles);
+        const result = await commandBuilders.buildCodexCommand(task, null, 'ctx', resolvedFiles);
 
         expect(deps.codexIntelligence.buildCodexEnrichedPrompt).toHaveBeenCalledWith(
           task, resolvedFiles, '/proj', ''
@@ -246,7 +247,7 @@ describe('execution/command-builders', () => {
         expect(result.stdinPrompt).toContain('enriched:Implement feature');
       });
 
-      it('calls contextEnrichment when enrichment config is enabled', () => {
+      it('calls contextEnrichment when enrichment config is enabled', async () => {
         const providerCfg = makeProviderCfg({ enabled: true });
         const contextEnrichment = makeContextEnrichment();
         const codexIntelligence = makeCodexIntelligence();
@@ -258,9 +259,9 @@ describe('execution/command-builders', () => {
           working_directory: '/proj',
         };
         const resolvedFiles = [{ actual: '/proj/b.ts', mentioned: 'b.ts' }];
-        commandBuilders.buildCodexCommand(task, null, '', resolvedFiles);
+        await commandBuilders.buildCodexCommand(task, null, '', resolvedFiles);
 
-        expect(contextEnrichment.enrichResolvedContext).toHaveBeenCalledWith(
+        expect(contextEnrichment.enrichResolvedContextAsync).toHaveBeenCalledWith(
           resolvedFiles, '/proj', 'Add tests', db, expect.objectContaining({ enabled: true })
         );
         expect(codexIntelligence.buildCodexEnrichedPrompt).toHaveBeenCalledWith(
@@ -268,10 +269,10 @@ describe('execution/command-builders', () => {
         );
       });
 
-      it('handles enrichment errors gracefully (non-fatal)', () => {
+      it('handles enrichment errors gracefully (non-fatal)', async () => {
         const providerCfg = makeProviderCfg({ enabled: true });
         const contextEnrichment = {
-          enrichResolvedContext: vi.fn(() => { throw new Error('enrichment boom'); }),
+          enrichResolvedContextAsync: vi.fn().mockRejectedValue(new Error('enrichment boom')),
         };
         const codexIntelligence = makeCodexIntelligence();
         initModule({ providerCfg, contextEnrichment, codexIntelligence });
@@ -283,7 +284,7 @@ describe('execution/command-builders', () => {
         const resolvedFiles = [{ actual: '/proj/c.js', mentioned: 'c.js' }];
 
         // Should not throw
-        const result = commandBuilders.buildCodexCommand(task, null, '', resolvedFiles);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', resolvedFiles);
 
         // Falls through with empty enrichment
         expect(codexIntelligence.buildCodexEnrichedPrompt).toHaveBeenCalledWith(
@@ -292,7 +293,7 @@ describe('execution/command-builders', () => {
         expect(result.stdinPrompt).toContain('enriched:Fix bug');
       });
 
-      it('skips enrichment call when config is disabled', () => {
+      it('skips enrichment call when config is disabled', async () => {
         const providerCfg = makeProviderCfg({ enabled: false });
         const contextEnrichment = makeContextEnrichment();
         initModule({ providerCfg, contextEnrichment });
@@ -302,102 +303,102 @@ describe('execution/command-builders', () => {
           working_directory: '/proj',
         };
         const resolvedFiles = [{ actual: '/proj/d.js', mentioned: 'd.js' }];
-        commandBuilders.buildCodexCommand(task, null, '', resolvedFiles);
+        await commandBuilders.buildCodexCommand(task, null, '', resolvedFiles);
 
-        expect(contextEnrichment.enrichResolvedContext).not.toHaveBeenCalled();
+        expect(contextEnrichment.enrichResolvedContextAsync).not.toHaveBeenCalled();
       });
     });
 
     // --- CLI args construction ---
     describe('codex CLI args', () => {
-      it('always starts with exec and --skip-git-repo-check', () => {
+      it('always starts with exec and --skip-git-repo-check', async () => {
         initModule();
         const task = { task_description: 'test', model: 'gpt-5', working_directory: '/w' };
-        const result = commandBuilders.buildCodexCommand(task, null, 'ctx', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, 'ctx', null);
 
         expect(result.finalArgs[0]).toBe('exec');
         expect(result.finalArgs[1]).toBe('--skip-git-repo-check');
       });
 
-      it('includes -m flag when model differs from "codex"', () => {
+      it('includes -m flag when model differs from "codex"', async () => {
         initModule();
         const task = { task_description: 'test', model: 'gpt-5-codex' };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         const mIdx = result.finalArgs.indexOf('-m');
         expect(mIdx).toBeGreaterThan(-1);
         expect(result.finalArgs[mIdx + 1]).toBe('gpt-5-codex');
       });
 
-      it('omits -m flag when model is "codex"', () => {
+      it('omits -m flag when model is "codex"', async () => {
         initModule();
         const task = { task_description: 'test', model: 'codex' };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         expect(result.finalArgs).not.toContain('-m');
       });
 
-      it('omits -m flag when model is null/undefined', () => {
+      it('omits -m flag when model is null/undefined', async () => {
         initModule();
         const task = { task_description: 'test', model: null };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         expect(result.finalArgs).not.toContain('-m');
       });
 
-      it('omits -m flag when model is empty string (falsy)', () => {
+      it('omits -m flag when model is empty string (falsy)', async () => {
         initModule();
         const task = { task_description: 'test', model: '' };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         expect(result.finalArgs).not.toContain('-m');
       });
 
-      it('adds --full-auto when auto_approve is falsy', () => {
+      it('adds --full-auto when auto_approve is falsy', async () => {
         initModule();
         const task = { task_description: 'test', auto_approve: 0 };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         expect(result.finalArgs).toContain('--full-auto');
         expect(result.finalArgs).not.toContain('--dangerously-bypass-approvals-and-sandbox');
       });
 
-      it('adds --dangerously-bypass-approvals-and-sandbox when auto_approve is truthy', () => {
+      it('adds --dangerously-bypass-approvals-and-sandbox when auto_approve is truthy', async () => {
         initModule();
         const task = { task_description: 'test', auto_approve: 1 };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         expect(result.finalArgs).toContain('--dangerously-bypass-approvals-and-sandbox');
         expect(result.finalArgs).not.toContain('--full-auto');
       });
 
-      it('adds -C working_directory when present', () => {
+      it('adds -C working_directory when present', async () => {
         initModule();
         const task = { task_description: 'test', working_directory: '/my/project' };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         const cIdx = result.finalArgs.indexOf('-C');
         expect(cIdx).toBeGreaterThan(-1);
         expect(result.finalArgs[cIdx + 1]).toBe('/my/project');
       });
 
-      it('omits -C when working_directory is null', () => {
+      it('omits -C when working_directory is null', async () => {
         initModule();
         const task = { task_description: 'test', working_directory: null };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         expect(result.finalArgs).not.toContain('-C');
       });
 
-      it('always ends with "-" (stdin prompt marker)', () => {
+      it('always ends with "-" (stdin prompt marker)', async () => {
         initModule();
         const task = { task_description: 'test', model: 'x', working_directory: '/w', auto_approve: 1 };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         expect(result.finalArgs[result.finalArgs.length - 1]).toBe('-');
       });
 
-      it('arg order: exec, --skip-git-repo-check, [-m model], approval flag, [-C dir], -', () => {
+      it('arg order: exec, --skip-git-repo-check, [-m model], approval flag, [-C dir], -', async () => {
         initModule();
         const task = {
           task_description: 'test',
@@ -405,7 +406,7 @@ describe('execution/command-builders', () => {
           auto_approve: 0,
           working_directory: '/proj',
         };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         const args = result.finalArgs;
         expect(args[0]).toBe('exec');
@@ -419,10 +420,10 @@ describe('execution/command-builders', () => {
 
     // --- CLI path resolution ---
     describe('cliPath resolution', () => {
-      it('uses providerConfig.cli_path when provided', () => {
+      it('uses providerConfig.cli_path when provided', async () => {
         initModule();
         const task = { task_description: 'test' };
-        const result = commandBuilders.buildCodexCommand(task, { cli_path: '/usr/bin/codex' }, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, { cli_path: '/usr/bin/codex' }, '', null);
 
         if (isWin) {
           expect(result.cliPath).toBe('/usr/bin/codex.cmd');
@@ -431,18 +432,18 @@ describe('execution/command-builders', () => {
         }
       });
 
-      it('does not append .cmd when providerConfig.cli_path has extension', () => {
+      it('does not append .cmd when providerConfig.cli_path has extension', async () => {
         initModule();
         const task = { task_description: 'test' };
-        const result = commandBuilders.buildCodexCommand(task, { cli_path: 'C:\\bin\\codex.exe' }, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, { cli_path: 'C:\\bin\\codex.exe' }, '', null);
 
         expect(result.cliPath).toBe('C:\\bin\\codex.exe');
       });
 
-      it('defaults to codex/codex.cmd when no providerConfig', () => {
+      it('defaults to codex/codex.cmd when no providerConfig', async () => {
         initModule({ nvmNodePath: null });
         const task = { task_description: 'test' };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         if (isWin) {
           expect(result.cliPath).toBe('codex.cmd');
@@ -452,33 +453,33 @@ describe('execution/command-builders', () => {
       });
 
       if (!isWin) {
-        it('uses nvmNodePath when set (non-Windows, no providerConfig)', () => {
-          initModule({ nvmNodePath: '/home/user/.nvm/versions/node/v20/bin' });
+        it('uses nvmNodePath when set (non-Windows, no providerConfig)', async () => {
+          initModule({ nvmNodePath: '/home/<user>/.nvm/versions/node/v20/bin' });
           const task = { task_description: 'test' };
-          const result = commandBuilders.buildCodexCommand(task, null, '', null);
+          const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
-          expect(result.cliPath).toBe('/home/user/.nvm/versions/node/v20/bin/node');
-          expect(result.finalArgs[0]).toBe('/home/user/.nvm/versions/node/v20/bin/codex');
+          expect(result.cliPath).toBe('/home/<user>/.nvm/versions/node/v20/bin/node');
+          expect(result.finalArgs[0]).toBe('/home/<user>/.nvm/versions/node/v20/bin/codex');
           // Original args follow
           expect(result.finalArgs[1]).toBe('exec');
         });
       }
 
-      it('providerConfig.cli_path takes priority over nvmNodePath', () => {
+      it('providerConfig.cli_path takes priority over nvmNodePath', async () => {
         initModule({ nvmNodePath: '/nvm/bin' });
         const task = { task_description: 'test' };
         const cliPathValue = isWin ? 'C:\\tools\\codex.exe' : '/tools/codex';
-        const result = commandBuilders.buildCodexCommand(task, { cli_path: cliPathValue }, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, { cli_path: cliPathValue }, '', null);
 
         expect(result.cliPath).toBe(cliPathValue);
         // Should NOT prepend nvm args
         expect(result.finalArgs[0]).toBe('exec');
       });
 
-      it('providerConfig with empty object (no cli_path) falls through to default', () => {
+      it('providerConfig with empty object (no cli_path) falls through to default', async () => {
         initModule({ nvmNodePath: null });
         const task = { task_description: 'test' };
-        const result = commandBuilders.buildCodexCommand(task, {}, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, {}, '', null);
 
         expect(result.cliPath).toBe(isWin ? 'codex.cmd' : 'codex');
       });
@@ -486,7 +487,7 @@ describe('execution/command-builders', () => {
 
     // --- Combined scenarios ---
     describe('full integration', () => {
-      it('builds complete codex command with all options set', () => {
+      it('builds complete codex command with all options set', async () => {
         initModule();
         const task = {
           task_description: 'Implement auth system',
@@ -496,7 +497,7 @@ describe('execution/command-builders', () => {
           files: ['src/auth.ts'],
           project: 'myapp',
         };
-        const result = commandBuilders.buildCodexCommand(task, null, 'file-context', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, 'file-context', null);
 
         expect(result.finalArgs).toEqual([
           'exec',
@@ -510,12 +511,12 @@ describe('execution/command-builders', () => {
         expect(result.cliPath).toBe(isWin ? 'codex.cmd' : 'codex');
       });
 
-      it('builds minimal codex command (no model, no working_directory, no auto_approve)', () => {
+      it('builds minimal codex command (no model, no working_directory, no auto_approve)', async () => {
         initModule();
         const task = {
           task_description: 'Quick fix',
         };
-        const result = commandBuilders.buildCodexCommand(task, null, '', null);
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         expect(result.finalArgs).toEqual([
           'exec',

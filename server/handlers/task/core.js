@@ -29,7 +29,7 @@ const { formatTime, calculateDuration } = require('./utils');
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../../constants');
-const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
+const { enforceVersionIntentForProject } = require('../../versioning/version-intent');
 const logger = require('../../logger');
 
 /**
@@ -300,16 +300,14 @@ function handleSubmitTask(args) {
   if (workDir) {
     try {
       const rawDb = require('../../database').getDbInstance();
-      if (rawDb && isProjectVersioned(rawDb, workDir)) {
-        if (!args.version_intent) {
-          return makeError(ErrorCodes.MISSING_REQUIRED_PARAM,
-            'version_intent is required for versioned project. Use: feature, fix, breaking, or internal');
-        }
-        const intentCheck = validateVersionIntent(args.version_intent);
-        if (!intentCheck.valid) {
-          return makeError(ErrorCodes.INVALID_PARAM, intentCheck.error);
-        }
-      }
+      const versionIntentError = enforceVersionIntentForProject(
+        rawDb,
+        workDir,
+        args.version_intent,
+        makeError,
+        ErrorCodes
+      );
+      if (versionIntentError) return versionIntentError;
     } catch (_e) { /* version-intent module unavailable — allow */ }
   }
 

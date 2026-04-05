@@ -114,11 +114,11 @@ function createDeps({ task = createTask(), depOverrides = {} } = {}) {
       finalArgs: ['claude-cli.js'],
       stdinPrompt: 'claude prompt',
     })),
-    buildCodexCommand: vi.fn(() => ({
+    buildCodexCommand: vi.fn().mockResolvedValue({
       cliPath: 'node',
       finalArgs: ['codex.js'],
       stdinPrompt: 'codex prompt',
-    })),
+    }),
     buildFileContext: vi.fn(async () => 'FILE_CONTEXT'),
     resolveFileReferences: vi.fn(() => ({ resolved: [] })),
     executeOllamaTask: vi.fn(() => ({ queued: false, started: true, provider: 'ollama' })),

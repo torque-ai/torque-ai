@@ -34,6 +34,30 @@ function validateVersionIntent(intent) {
   return { valid: true, intent: normalized };
 }
 
+function enforceVersionIntentForProject(db, workDir, versionIntent, makeError, ErrorCodes) {
+  if (!db || !workDir || !isProjectVersioned(db, workDir)) {
+    return null;
+  }
+
+  if (!versionIntent) {
+    const message = 'version_intent is required for versioned project. Use: feature, fix, breaking, or internal';
+    if (typeof makeError === 'function' && ErrorCodes) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, message);
+    }
+    throw new Error(message);
+  }
+
+  const intentCheck = validateVersionIntent(versionIntent);
+  if (!intentCheck.valid) {
+    if (typeof makeError === 'function' && ErrorCodes) {
+      return makeError(ErrorCodes.INVALID_PARAM, intentCheck.error);
+    }
+    throw new Error(intentCheck.error);
+  }
+
+  return null;
+}
+
 const { pathMatchesProject } = require('../utils/path-resolution');
 
 /**
@@ -122,6 +146,7 @@ module.exports = {
   INTENT_PRIORITY,
   isValidIntent,
   validateVersionIntent,
+  enforceVersionIntentForProject,
   isProjectVersioned,
   resolveVersionedProject,
   getVersioningConfig,

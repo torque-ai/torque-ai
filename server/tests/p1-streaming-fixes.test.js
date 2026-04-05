@@ -59,7 +59,7 @@ function makeOllamaDeps(overrides = {}) {
     tryReserveHostSlotWithFallback: vi.fn(() => ({ success: true })),
     tryOllamaCloudFallback: vi.fn(() => false),
     isLargeModelBlockedOnHost: vi.fn(() => ({ blocked: false })),
-    buildFileContext: vi.fn(() => ''),
+    buildFileContext: vi.fn().mockResolvedValue(''),
     processQueue: vi.fn(),
     ...overrides,
   };

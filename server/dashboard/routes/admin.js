@@ -217,9 +217,10 @@ async function handleImportPlanApi(req, res) {
     const fs = require('fs');
     const os = require('os');
     const path = require('path');
+    const crypto = require('crypto');
 
-    const tempFile = path.join(os.tmpdir(), `plan-${Date.now()}.md`);
-    fs.writeFileSync(tempFile, plan_content);
+    const tempFile = path.join(os.tmpdir(), `plan-${crypto.randomUUID()}.md`);
+    fs.writeFileSync(tempFile, plan_content, { flag: 'wx' });
 
     try {
       // Import the tools module to use handleToolCall

@@ -24,7 +24,7 @@ const taskCore = require('./db/task-core');
 const hostManagement = require('./db/host-management');
 const serverConfig = require('./config');
 const { dispatch } = require('./dashboard/router');
-const { sendError } = require('./dashboard/utils');
+const { sendError, isLocalhostOrigin } = require('./dashboard/utils');
 const { dispatchV2, init: initV2Dispatch } = require('./api/v2-dispatch');
 const eventBus = require('./event-bus');
 
@@ -707,6 +707,19 @@ async function start(options = {}) {
     const urlPath = req.url.split('?')[0];
 
     if (urlPath.startsWith('/api/v2/')) {
+      const isMutatingV2Request = req.method === 'POST'
+        || req.method === 'PUT'
+        || req.method === 'PATCH'
+        || req.method === 'DELETE';
+      if (isMutatingV2Request) {
+        const origin = req.headers.origin;
+        const requestedWith = req.headers['x-requested-with'];
+        if ((origin && !isLocalhostOrigin(origin)) || requestedWith !== 'XMLHttpRequest') {
+          sendError(res, 'CSRF validation failed', 403);
+          return;
+        }
+      }
+
       // Pre-parse request body for mutating v2 requests so the body stream
       // is available when async handlers call readJsonBody(req). Without this,
       // the request stream's data events can be lost between the sync callback
