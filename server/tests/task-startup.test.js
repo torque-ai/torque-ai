@@ -1,7 +1,16 @@
-import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const require = createRequire(import.meta.url);
+const MODULE_PATH = require.resolve('../execution/task-startup.js');
+
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
 
 function createTask(overrides = {}) {
   return {
@@ -130,8 +139,7 @@ function createDeps({ task = createTask(), depOverrides = {} } = {}) {
   return { deps, tasks };
 }
 
-async function loadTaskStartup(options = {}) {
-  vi.resetModules();
+function loadTaskStartup(options = {}) {
   vi.stubEnv('CODEX_NODE_PATH', '');
   vi.stubEnv('NVM_BIN', '');
   vi.stubEnv('NVM_DIR', '');
@@ -170,20 +178,17 @@ async function loadTaskStartup(options = {}) {
     Object.assign(mockChildProcess, options.childProcessOverrides);
   }
 
-  vi.doMock('fs', () => mockFs);
-  vi.doMock('child_process', () => mockChildProcess);
-  vi.doMock('../logger', () => ({
-    child: vi.fn(() => mockLogger),
-  }));
-  vi.doMock('../constants', () => ({
-    TASK_TIMEOUTS: { GIT_STATUS: 1000 },
-  }));
-  vi.doMock('../utils/git', () => ({
-    parseGitStatusLine: mockParseGitStatusLine,
-  }));
+  const loggerMock = { child: vi.fn(() => mockLogger) };
+  const constantsMock = { TASK_TIMEOUTS: { GIT_STATUS: 1000 } };
+  const gitMock = { parseGitStatusLine: mockParseGitStatusLine };
 
-  const modulePath = require.resolve('../execution/task-startup.js');
-  delete require.cache[modulePath];
+  installCjsModuleMock('fs', mockFs);
+  installCjsModuleMock('child_process', mockChildProcess);
+  installCjsModuleMock('../logger', loggerMock);
+  installCjsModuleMock('../constants', constantsMock);
+  installCjsModuleMock('../utils/git', gitMock);
+
+  delete require.cache[MODULE_PATH];
   const taskStartup = require('../execution/task-startup.js');
   const { deps, tasks } = createDeps(options);
   taskStartup.init(deps);
@@ -216,7 +221,7 @@ describe('task-startup', () => {
       ['task-2', { output: '', provider: 'codex', startTime: Date.now() }],
     ]);
     const task = createTask();
-    const ctx = await loadTaskStartup({
+    const ctx = loadTaskStartup({
       task,
       depOverrides: {
         runningProcesses,
@@ -240,7 +245,7 @@ describe('task-startup', () => {
 
   it('startTask calls runPreflightChecks and proceeds to execution on success', async () => {
     const task = createTask({ working_directory: 'C:/valid-repo' });
-    const ctx = await loadTaskStartup({ task });
+    const ctx = loadTaskStartup({ task });
 
     const result = await ctx.module.startTask(task.id);
 
@@ -262,7 +267,7 @@ describe('task-startup', () => {
 
   it('startTask fails gracefully when runPreflightChecks rejects the task', async () => {
     const task = createTask({ working_directory: 'C:/missing-repo' });
-    const ctx = await loadTaskStartup({ task });
+    const ctx = loadTaskStartup({ task });
     ctx.mockFs.statSync.mockImplementation(() => {
       const err = new Error('not found');
       err.code = 'ENOENT';
@@ -276,7 +281,7 @@ describe('task-startup', () => {
   });
 
   it('runPreflightChecks validates description and working_directory', async () => {
-    const ctx = await loadTaskStartup();
+    const ctx = loadTaskStartup();
 
     ctx.mockFs.statSync.mockImplementation(() => {
       const err = new Error('missing');
@@ -296,7 +301,7 @@ describe('task-startup', () => {
   });
 
   it('estimateProgress returns bounded progress from output heuristics', async () => {
-    const ctx = await loadTaskStartup();
+    const ctx = loadTaskStartup();
     const largeOutput = Array.from({ length: 500 }, (_, index) => `line ${index}`).join('\n');
 
     expect(ctx.module.estimateProgress('', 'codex')).toBe(0);
@@ -312,7 +317,7 @@ describe('task-startup', () => {
       ['task-2', {}],
       ['task-3', {}],
     ]);
-    const ctx = await loadTaskStartup({
+    const ctx = loadTaskStartup({
       depOverrides: {
         runningProcesses,
       },
@@ -325,7 +330,7 @@ describe('task-startup', () => {
     const runningProcesses = new Map([
       ['task-1', {}],
     ]);
-    const ctx = await loadTaskStartup({
+    const ctx = loadTaskStartup({
       depOverrides: {
         runningProcesses,
       },
@@ -342,7 +347,7 @@ describe('task-startup', () => {
       ['missing-task', { id: 2 }],
       ['queued-task', { id: 3 }],
     ]);
-    const ctx = await loadTaskStartup({
+    const ctx = loadTaskStartup({
       depOverrides: {
         pendingRetryTimeouts,
       },
@@ -363,7 +368,7 @@ describe('task-startup', () => {
   });
 
   it('safeStartTask catches and logs startTask errors without throwing', async () => {
-    const ctx = await loadTaskStartup();
+    const ctx = loadTaskStartup();
     ctx.deps.db.getTask.mockReturnValue(null);
 
     let result;
@@ -372,7 +377,8 @@ describe('task-startup', () => {
     }).not.toThrow();
 
     expect(result).toBe(false);
-    await Promise.resolve();
+    // Flush microtask queue so the .catch() handler in attemptTaskStart fires
+    await new Promise((r) => setTimeout(r, 0));
 
     expect(ctx.mockLogger.error).toHaveBeenCalledWith(
       'processQueue: async failure for codex task missing-task',
@@ -381,7 +387,7 @@ describe('task-startup', () => {
   });
 
   it('setSkipGitInCloseHandler and getSkipGitInCloseHandler toggle correctly', async () => {
-    const ctx = await loadTaskStartup();
+    const ctx = loadTaskStartup();
 
     expect(ctx.module.getSkipGitInCloseHandler()).toBe(false);
     ctx.module.setSkipGitInCloseHandler(true);

@@ -1,44 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  existsSyncMock,
-  readdirSyncMock,
-  spawnSyncMock,
-  loggerChildMock,
-  loggerModuleMock,
-  createTestRunnerRegistryMock,
-} = vi.hoisted(() => ({
-  existsSyncMock: vi.fn(),
-  readdirSyncMock: vi.fn(),
-  spawnSyncMock: vi.fn(),
-  loggerChildMock: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-  loggerModuleMock: {
-    child: vi.fn(),
-  },
-  createTestRunnerRegistryMock: vi.fn(),
-}));
+const MODULE_PATH = require.resolve('../validation/build-verification.js');
 
-vi.mock('fs', () => ({
-  existsSync: existsSyncMock,
-  readdirSync: readdirSyncMock,
-}));
-
-vi.mock('child_process', () => ({
-  spawnSync: spawnSyncMock,
-}));
-
-vi.mock('../logger', () => ({
-  child: loggerModuleMock.child,
-}));
-
-vi.mock('../test-runner-registry', () => ({
-  createTestRunnerRegistry: createTestRunnerRegistryMock,
-}));
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
 
 const WORKING_DIR = 'C:/repo/app';
 
@@ -55,10 +27,43 @@ function defaultParseCommand(command) {
   return { executable, args };
 }
 
-async function loadBuildVerification(deps) {
-  vi.resetModules();
-  const mod = await import('../validation/build-verification.js');
-  const buildVerification = mod.default ?? mod;
+function createMocks() {
+  return {
+    existsSyncMock: vi.fn(),
+    readdirSyncMock: vi.fn(),
+    spawnSyncMock: vi.fn(),
+    loggerChildMock: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+    createTestRunnerRegistryMock: vi.fn(),
+  };
+}
+
+function loadBuildVerification(deps, mocks) {
+  const fsMock = {
+    existsSync: mocks.existsSyncMock,
+    readdirSync: mocks.readdirSyncMock,
+  };
+  const childProcessMock = {
+    spawnSync: mocks.spawnSyncMock,
+  };
+  const loggerMock = {
+    child: vi.fn(() => mocks.loggerChildMock),
+  };
+  const testRunnerRegistryMock = {
+    createTestRunnerRegistry: mocks.createTestRunnerRegistryMock,
+  };
+
+  installCjsModuleMock('fs', fsMock);
+  installCjsModuleMock('child_process', childProcessMock);
+  installCjsModuleMock('../logger', loggerMock);
+  installCjsModuleMock('../test-runner-registry', testRunnerRegistryMock);
+
+  delete require.cache[MODULE_PATH];
+  const buildVerification = require('../validation/build-verification.js');
   buildVerification.init(deps);
   return buildVerification;
 }
@@ -70,19 +75,21 @@ describe('build-verification', () => {
   let parseCommandMock;
   let extractBuildErrorFilesMock;
   let injectedRegistry;
+  let mocks;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks();
 
-    loggerModuleMock.child.mockReturnValue(loggerChildMock);
-    existsSyncMock.mockReturnValue(false);
-    readdirSyncMock.mockReturnValue([]);
-    spawnSyncMock.mockReturnValue({
+    mocks = createMocks();
+
+    mocks.existsSyncMock.mockReturnValue(false);
+    mocks.readdirSyncMock.mockReturnValue([]);
+    mocks.spawnSyncMock.mockReturnValue({
       status: 0,
       stdout: 'build ok',
       stderr: '',
     });
-    createTestRunnerRegistryMock.mockReturnValue({
+    mocks.createTestRunnerRegistryMock.mockReturnValue({
       runVerifyCommand: vi.fn(),
     });
 
@@ -104,12 +111,12 @@ describe('build-verification', () => {
       }),
     };
 
-    buildVerification = await loadBuildVerification({
+    buildVerification = loadBuildVerification({
       db: dbMock,
       parseCommand: parseCommandMock,
       extractBuildErrorFiles: extractBuildErrorFilesMock,
       testRunnerRegistry: injectedRegistry,
-    });
+    }, mocks);
   });
 
   it('init stores db, parseCommand, extractBuildErrorFiles, and testRunnerRegistry dependencies', async () => {
@@ -148,12 +155,12 @@ describe('build-verification', () => {
       }),
     };
 
-    const mod = await loadBuildVerification({
+    const mod = loadBuildVerification({
       db: firstDb,
       parseCommand: firstParseCommand,
       extractBuildErrorFiles: firstExtractBuildErrorFiles,
       testRunnerRegistry: firstRegistry,
-    });
+    }, mocks);
 
     mod.init({
       db: secondDb,
@@ -190,7 +197,7 @@ describe('build-verification', () => {
     expect(firstDb.getProjectFromPath).not.toHaveBeenCalled();
     expect(firstRegistry.runVerifyCommand).not.toHaveBeenCalled();
 
-    spawnSyncMock.mockReturnValueOnce({
+    mocks.spawnSyncMock.mockReturnValueOnce({
       status: 0,
       stdout: 'local ok',
       stderr: '',
@@ -204,7 +211,7 @@ describe('build-verification', () => {
 
     expect(localResult.success).toBe(true);
     expect(secondParseCommand).toHaveBeenCalledWith('npm run build');
-    expect(spawnSyncMock).toHaveBeenCalledWith(
+    expect(mocks.spawnSyncMock).toHaveBeenCalledWith(
       'npm',
       ['run', 'build'],
       expect.objectContaining({
@@ -222,7 +229,7 @@ describe('build-verification', () => {
       build_verification_enabled: true,
       build_timeout: 45,
     };
-    existsSyncMock.mockImplementation((filePath) => String(filePath).endsWith('package.json'));
+    mocks.existsSyncMock.mockImplementation((filePath) => String(filePath).endsWith('package.json'));
 
     await buildVerification.runBuildVerification('task-npm', { provider: 'codex' }, WORKING_DIR);
 
@@ -231,7 +238,7 @@ describe('build-verification', () => {
       WORKING_DIR,
       expect.objectContaining({ timeout: 45000, provider: 'codex' }),
     );
-    expect(spawnSyncMock).not.toHaveBeenCalled();
+    expect(mocks.spawnSyncMock).not.toHaveBeenCalled();
   });
 
   it("runBuildVerification detects 'cargo build' when Cargo.toml exists", async () => {
@@ -239,7 +246,7 @@ describe('build-verification', () => {
       build_verification_enabled: true,
       build_timeout: 45,
     };
-    existsSyncMock.mockImplementation((filePath) => String(filePath).endsWith('Cargo.toml'));
+    mocks.existsSyncMock.mockImplementation((filePath) => String(filePath).endsWith('Cargo.toml'));
 
     await buildVerification.runBuildVerification('task-cargo', { provider: 'codex' }, WORKING_DIR);
 
@@ -255,7 +262,7 @@ describe('build-verification', () => {
       build_verification_enabled: true,
       build_timeout: 45,
     };
-    existsSyncMock.mockImplementation((filePath) => String(filePath).endsWith('go.mod'));
+    mocks.existsSyncMock.mockImplementation((filePath) => String(filePath).endsWith('go.mod'));
 
     await buildVerification.runBuildVerification('task-go', { provider: 'codex' }, WORKING_DIR);
 
@@ -267,7 +274,7 @@ describe('build-verification', () => {
   });
 
   it('runBuildVerification returns { success: true } when the local build passes', async () => {
-    spawnSyncMock.mockReturnValueOnce({
+    mocks.spawnSyncMock.mockReturnValueOnce({
       status: 0,
       stdout: 'compiled successfully',
       stderr: '',
@@ -296,7 +303,7 @@ describe('build-verification', () => {
   });
 
   it('runBuildVerification returns { success: false, error } when the local build fails', async () => {
-    spawnSyncMock.mockReturnValueOnce({
+    mocks.spawnSyncMock.mockReturnValueOnce({
       status: 2,
       stdout: 'partial build output',
       stderr: 'compile error',
@@ -338,7 +345,7 @@ describe('build-verification', () => {
       skipped: true,
       reason: 'no_project',
     });
-    expect(spawnSyncMock).not.toHaveBeenCalled();
+    expect(mocks.spawnSyncMock).not.toHaveBeenCalled();
     expect(injectedRegistry.runVerifyCommand).not.toHaveBeenCalled();
     expect(dbMock.saveBuildResult).not.toHaveBeenCalled();
   });
@@ -361,7 +368,7 @@ describe('build-verification', () => {
       skipped: true,
       reason: 'disabled',
     });
-    expect(spawnSyncMock).not.toHaveBeenCalled();
+    expect(mocks.spawnSyncMock).not.toHaveBeenCalled();
     expect(injectedRegistry.runVerifyCommand).not.toHaveBeenCalled();
     expect(dbMock.saveBuildResult).not.toHaveBeenCalled();
   });
@@ -372,7 +379,7 @@ describe('build-verification', () => {
       build_command: 'go build ./...',
       build_timeout: 10,
     };
-    spawnSyncMock
+    mocks.spawnSyncMock
       .mockReturnValueOnce({
         status: 0,
         stdout: 'build passed',
