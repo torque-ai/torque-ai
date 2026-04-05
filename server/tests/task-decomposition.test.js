@@ -1,13 +1,14 @@
 'use strict';
 /* global describe, it, expect */
 
+const mod = require('../execution/task-decomposition');
 const {
   PROVIDER_CLASSES,
   GUIDED_FILE_THRESHOLD,
   GUIDED_MIN_FUNCTIONS,
   getProviderClass,
   shouldDecompose,
-} = require('../execution/task-decomposition');
+} = mod;
 
 // ---------------------------------------------------------------------------
 // PROVIDER_CLASSES shape
@@ -318,5 +319,64 @@ describe('shouldDecompose — edge cases', () => {
     const result = shouldDecompose(makeTask('simple task'), makeRouting('codex'));
     expect(typeof result.decompose).toBe('boolean');
     expect(typeof result.reason).toBe('string');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// decomposeTask
+// ---------------------------------------------------------------------------
+
+describe('decomposeTask', () => {
+  it('locks sub-tasks to parent provider', () => {
+    const result = mod.decomposeTask(
+      { task: 'refactor server/big-file.js', working_directory: '/tmp/test', files: [] },
+      { provider: 'ollama', model: 'qwen3-coder:30b' },
+      { subtasks: ['Fix function A', 'Fix function B'], version_intent: 'fix', ui_review: false }
+    );
+    expect(result.tasks).toHaveLength(2);
+    expect(result.tasks[0].provider).toBe('ollama');
+    expect(result.tasks[0].model).toBe('qwen3-coder:30b');
+    expect(result.tasks[0].version_intent).toBe('fix');
+    expect(result.tasks[0].metadata.decomposed).toBe(true);
+    expect(result.tasks[0].metadata.ui_review).toBe(false);
+    expect(result.tasks[1].provider).toBe('ollama');
+  });
+
+  it('includes parent reference in sub-task metadata', () => {
+    const result = mod.decomposeTask(
+      { task: 'refactor', working_directory: '/tmp', files: [] },
+      { provider: 'ollama' },
+      { subtasks: ['A'], version_intent: 'fix', parent_task_id: 'parent-123', ui_review: false }
+    );
+    expect(result.tasks[0].metadata.parent_task_id).toBe('parent-123');
+  });
+
+  it('returns empty tasks array when no subtasks provided', () => {
+    const result = mod.decomposeTask(
+      { task: 'small fix', working_directory: '/tmp', files: [] },
+      { provider: 'ollama' },
+      { subtasks: [], version_intent: 'fix', ui_review: false }
+    );
+    expect(result.tasks).toHaveLength(0);
+  });
+
+  it('sets batch_index sequentially', () => {
+    const result = mod.decomposeTask(
+      { task: 'refactor', working_directory: '/tmp', files: [] },
+      { provider: 'ollama' },
+      { subtasks: ['A', 'B', 'C'], version_intent: 'fix', ui_review: false }
+    );
+    expect(result.tasks[0].metadata.batch_index).toBe(0);
+    expect(result.tasks[1].metadata.batch_index).toBe(1);
+    expect(result.tasks[2].metadata.batch_index).toBe(2);
+  });
+
+  it('defaults model to null when not provided', () => {
+    const result = mod.decomposeTask(
+      { task: 'fix', working_directory: '/tmp', files: [] },
+      { provider: 'ollama' },
+      { subtasks: ['A'], version_intent: 'fix', ui_review: false }
+    );
+    expect(result.tasks[0].model).toBeNull();
   });
 });

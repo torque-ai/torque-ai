@@ -119,10 +119,43 @@ function shouldDecompose(taskInfo, routingResult) {
   return { decompose: false, reason: 'task is within guided provider scope' };
 }
 
+/**
+ * Create sub-task definitions with inherited routing context.
+ * Sub-tasks are locked to the parent's provider — no re-routing.
+ *
+ * @param {object} taskInfo - { task, working_directory, files }
+ * @param {object} routingResult - { provider, model, ... }
+ * @param {object} options - { subtasks: string[], version_intent, parent_task_id, ui_review }
+ * @returns {{ tasks: object[] }}
+ */
+function decomposeTask(taskInfo, routingResult, options) {
+  const { subtasks = [], version_intent, parent_task_id, ui_review } = options;
+  const { working_directory } = taskInfo;
+  const { provider, model } = routingResult;
+
+  const tasks = subtasks.map((description, index) => ({
+    task: description,
+    provider,
+    model: model || null,
+    working_directory,
+    version_intent: version_intent || null,
+    priority: 0,
+    metadata: {
+      decomposed: true,
+      parent_task_id: parent_task_id || null,
+      batch_index: index,
+      ui_review: ui_review || false,
+    },
+  }));
+
+  return { tasks };
+}
+
 module.exports = {
   PROVIDER_CLASSES,
   GUIDED_FILE_THRESHOLD,
   GUIDED_MIN_FUNCTIONS,
   getProviderClass,
   shouldDecompose,
+  decomposeTask,
 };
