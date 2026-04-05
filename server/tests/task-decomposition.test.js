@@ -380,3 +380,77 @@ describe('decomposeTask', () => {
     expect(result.tasks[0].model).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// integration: template + decomposition interaction
+// ---------------------------------------------------------------------------
+
+describe('integration: template + decomposition interaction', () => {
+  it('codex via template → no decomposition even for complex tasks', () => {
+    const result = mod.shouldDecompose(
+      {
+        task: 'refactor server/handlers/integration/routing.js — complex multi-function cleanup',
+        complexity: 'complex',
+        files: ['server/handlers/integration/routing.js'],
+        working_directory: '/tmp/test',
+      },
+      { provider: 'codex', template: 'Codex Primary' }
+    );
+    expect(result.decompose).toBe(false);
+    expect(result.reason).toContain('agentic');
+  });
+
+  it('ollama via template → decomposition possible for huge C# tasks', () => {
+    const result = mod.shouldDecompose(
+      {
+        task: 'implement a full WPF dashboard with MVVM pattern in App.xaml.cs',
+        complexity: 'complex',
+        files: ['App.xaml.cs'],
+        working_directory: '/tmp/test',
+      },
+      { provider: 'ollama', template: 'All Local' }
+    );
+    expect(result.decompose).toBe(true);
+    expect(result.type).toBe('csharp');
+  });
+
+  it('cerebras via template → no decomposition (prompt-only)', () => {
+    const result = mod.shouldDecompose(
+      {
+        task: 'refactor everything in the project',
+        complexity: 'complex',
+        files: [],
+        working_directory: '/tmp/test',
+      },
+      { provider: 'cerebras', template: 'Cloud Sprint' }
+    );
+    expect(result.decompose).toBe(false);
+    expect(result.reason).toContain('prompt-only');
+  });
+
+  it('claude-cli via template → no decomposition (agentic)', () => {
+    const result = mod.shouldDecompose(
+      {
+        task: 'add error handling to all .cs files in the project',
+        complexity: 'complex',
+        files: ['App.xaml.cs'],
+        working_directory: '/tmp/test',
+      },
+      { provider: 'claude-cli', template: 'Quality First' }
+    );
+    expect(result.decompose).toBe(false);
+    expect(result.reason).toContain('agentic');
+  });
+
+  it('codex-spark via template → no decomposition (agentic)', () => {
+    const result = mod.shouldDecompose(
+      {
+        task: 'refactor and add tests for server/big-file.js',
+        complexity: 'complex',
+        files: ['server/big-file.js'],
+      },
+      { provider: 'codex-spark' }
+    );
+    expect(result.decompose).toBe(false);
+  });
+});

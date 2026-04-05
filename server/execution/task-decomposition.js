@@ -94,7 +94,7 @@ function shouldDecompose(taskInfo, routingResult) {
   }
 
   // guided provider — evaluate task characteristics
-  const description = (taskInfo && taskInfo.task_description) || '';
+  const description = (taskInfo && (taskInfo.task_description || taskInfo.task)) || '';
   const complexity = (taskInfo && taskInfo.complexity) || 'normal';
   const isComplex = complexity === 'complex';
 
