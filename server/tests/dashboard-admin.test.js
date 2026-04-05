@@ -804,7 +804,7 @@ describe('dashboard/admin handlers', () => {
       await admin.handleImportPlanApi({}, res);
 
       const [tempPath, fileContent] = mockFs.writeFileSync.mock.calls[0];
-      expect(tempPath).toMatch(/plan-\d+\.md$/);
+      expect(tempPath).toMatch(/plan-[0-9a-f-]{36}\.md$/);
       expect(fileContent).toBe('# example plan\n');
       expect(mockTools.handleToolCall).toHaveBeenCalledWith('import_plan', {
         file_path: tempPath,

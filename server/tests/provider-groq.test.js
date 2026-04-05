@@ -27,6 +27,7 @@ function loadBuildErrorMessage() {
       if (specifier === './base') return FakeBaseProvider;
       if (specifier === '../constants') return { MAX_STREAMING_OUTPUT: 1 };
       if (specifier === './shared') return require('../providers/shared');
+      if (specifier === '../logger') return { child: () => ({ debug: () => {} }), debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
       throw new Error(`Unexpected require: ${specifier}`);
     },
     process,

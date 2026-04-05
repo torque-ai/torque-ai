@@ -456,7 +456,6 @@ describe('dashboard/routes/admin', () => {
 
   it('imports a plan through the tools layer and cleans up the temp file', async () => {
     const res = createMockRes();
-    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
     mockUtils.parseBody.mockResolvedValue({
       plan_content: '# Plan\n',
       project_name: 'alpha',
@@ -467,7 +466,11 @@ describe('dashboard/routes/admin', () => {
 
     await admin.handleImportPlanApi({}, res);
 
-    expect(mockFs.writeFileSync).toHaveBeenCalledWith(expect.stringMatching(/plan-1700000000000\.md$/), '# Plan\n');
+    expect(mockFs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringMatching(/plan-[0-9a-f-]{36}\.md$/),
+      '# Plan\n',
+      { flag: 'wx' },
+    );
     const tempFile = mockFs.writeFileSync.mock.calls[0][0];
     expect(mockTools.handleToolCall).toHaveBeenCalledWith('import_plan', {
       file_path: tempFile,

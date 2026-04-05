@@ -174,8 +174,8 @@ describe('Concurrent task submission', () => {
     const id1 = createTestTask(ctx.db, { description: 'Task 1', provider: 'codex' });
     const id2 = createTestTask(ctx.db, { description: 'Task 2', provider: 'codex' });
 
-    ctx.tm.startTask(id1);
-    try { ctx.tm.startTask(id2); } catch { /* expected: capacity */ }
+    await ctx.tm.startTask(id1);
+    try { await ctx.tm.startTask(id2); } catch { /* expected: capacity */ }
 
     const task1 = ctx.db.getTask(id1);
     const task2Before = ctx.db.getTask(id2);

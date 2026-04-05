@@ -48,7 +48,7 @@ function insertCost({
       input_tokens,
       output_tokens,
       estimated_cost,
-      created_at
+      tracked_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(provider, 'task-1', 'model', 1, 1, estimatedCost, createdAt);
 }
@@ -73,7 +73,7 @@ beforeEach(() => {
       input_tokens INTEGER,
       output_tokens INTEGER,
       estimated_cost REAL,
-      created_at TEXT
+      tracked_at TEXT
     );
   `);
 

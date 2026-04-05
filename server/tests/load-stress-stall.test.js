@@ -101,12 +101,12 @@ function _completeAllMockChildren(output = 'done\n') {
 // ============================================================
 // 1. Concurrent Task Submission (8 tests)
 describe('Stall recovery', () => {
-  it('task stalls beyond threshold: detected by checkStalledTasks', () => {
+  it('task stalls beyond threshold: detected by checkStalledTasks', async () => {
     ctx.db.setConfig('max_concurrent', '10');
     ctx.db.setConfig('stall_recovery_enabled', '0'); // disable auto-recovery for clean detection
 
     const taskId = createTestTask(ctx.db, { provider: 'codex' });
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
 
     // Inject a fake entry into runningProcesses with old lastOutputAt
     const procs = ctx.tm._testing.runningProcesses;

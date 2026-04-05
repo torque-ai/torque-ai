@@ -78,7 +78,7 @@ describe('E2E: CLI provider execution', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    const startResult = ctx.tm.startTask(taskId);
+    const startResult = await ctx.tm.startTask(taskId);
 
     // If task was queued due to concurrency, that's still a valid path
     if (startResult && startResult.queued) {
@@ -109,7 +109,7 @@ describe('E2E: CLI provider execution', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    const startResult = ctx.tm.startTask(taskId);
+    const startResult = await ctx.tm.startTask(taskId);
     if (startResult?.queued) {
       const task = ctx.db.getTask(taskId);
       expect(task.status).toBe('queued');
@@ -135,7 +135,7 @@ describe('E2E: CLI provider execution', () => {
       workingDirectory: testWorkDir,
     });
 
-    const startResult = ctx.tm.startTask(taskId);
+    const startResult = await ctx.tm.startTask(taskId);
     if (startResult?.queued) {
       const task = ctx.db.getTask(taskId);
       expect(task.status).toBe('queued');
@@ -165,7 +165,7 @@ describe('E2E: CLI provider execution', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    const startResult = ctx.tm.startTask(taskId);
+    const startResult = await ctx.tm.startTask(taskId);
     if (startResult?.queued) {
       const task = ctx.db.getTask(taskId);
       expect(task.status).toBe('queued');
@@ -213,7 +213,7 @@ describe('E2E: CLI provider execution', () => {
       timeout: 1, // 1 minute — we won't actually wait, just verify setup
     });
 
-    const startResult = ctx.tm.startTask(taskId);
+    const startResult = await ctx.tm.startTask(taskId);
     if (startResult?.queued) {
       const task = ctx.db.getTask(taskId);
       expect(task.status).toBe('queued');
