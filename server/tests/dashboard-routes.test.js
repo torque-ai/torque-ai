@@ -665,6 +665,8 @@ describe('route handlers with mock db', () => {
 
   describe('agents routes', () => {
     const agents = require('../dashboard/routes/infrastructure');
+    const remoteAgentsPlugin = require('../plugins/remote-agents');
+    const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');
 
     function setupAgentDb(initialRows = []) {
       const rowsById = new Map(initialRows.map(row => [row.id, { ...row }]));
@@ -688,7 +690,11 @@ describe('route handlers with mock db', () => {
         }
         return { all: () => [], get: () => undefined, run: () => {} };
       });
-      vi.spyOn(db, 'getDbInstance').mockReturnValue({ prepare });
+      const mockDbHandle = { prepare };
+      vi.spyOn(db, 'getDbInstance').mockReturnValue(mockDbHandle);
+      vi.spyOn(remoteAgentsPlugin, 'getInstalledRegistry').mockReturnValue(
+        new RemoteAgentRegistry(mockDbHandle),
+      );
       return rowsById;
     }
 

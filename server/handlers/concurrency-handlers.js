@@ -41,9 +41,18 @@ function parseVramFactor(value) {
   return { value: number };
 }
 
+function getDb() {
+  try {
+    return defaultContainer.get('db');
+  } catch {
+    const database = require('../database');
+    return typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
+  }
+}
+
 function getConcurrencyLimits() {
   try {
-    const db = defaultContainer.get('db');
+    const db = getDb();
 
     const vramOverheadFactor = hostManagement.getVramOverheadFactor();
 
