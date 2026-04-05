@@ -556,9 +556,14 @@ describe('handler:workflow-handlers', () => {
         return null;
       });
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      const getTaskCounts = {};
       vi.spyOn(database, 'getTask').mockImplementation((id) => {
+        getTaskCounts[id] = (getTaskCounts[id] || 0) + 1;
+        const isPreCheck = getTaskCounts[id] === 1;
+        // Pre-start check returns 'pending' so startTask is called;
+        // post-start classification returns the outcome status
         if (id === 't1') return { id: 't1', status: 'pending' };
-        if (id === 't2') return { id: 't2', status: 'running' };
+        if (id === 't2') return { id: 't2', status: isPreCheck ? 'pending' : 'running' };
         return null;
       });
       vi.spyOn(taskManager, 'startTask')
@@ -599,9 +604,12 @@ describe('handler:workflow-handlers', () => {
         return null;
       });
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      const getTaskCounts = {};
       vi.spyOn(database, 'getTask').mockImplementation((id) => {
+        getTaskCounts[id] = (getTaskCounts[id] || 0) + 1;
+        const isPreCheck = getTaskCounts[id] === 1;
         if (id === 't1') return { id: 't1', status: 'pending' };
-        if (id === 't2') return { id: 't2', status: 'running' };
+        if (id === 't2') return { id: 't2', status: isPreCheck ? 'pending' : 'running' };
         return null;
       });
       vi.spyOn(taskManager, 'startTask')
@@ -640,7 +648,11 @@ describe('handler:workflow-handlers', () => {
         return null;
       });
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
-      vi.spyOn(database, 'getTask').mockReturnValue({ id: 't1', status: 'running' });
+      let t1CallCount = 0;
+      vi.spyOn(database, 'getTask').mockImplementation(() => {
+        t1CallCount++;
+        return { id: 't1', status: t1CallCount === 1 ? 'pending' : 'running' };
+      });
       vi.spyOn(taskManager, 'startTask').mockReturnValue(undefined);
       vi.spyOn(shadowEnforcer, 'isEngineEnabled').mockReturnValue(true);
       vi.spyOn(shadowEnforcer, 'isShadowOnly').mockReturnValue(false);
@@ -1089,9 +1101,12 @@ describe('handler:workflow-handlers', () => {
         { id: 't2', status: 'blocked' },
         { id: 't3', status: 'pending' }
       ]);
+      const getTaskCounts = {};
       vi.spyOn(database, 'getTask').mockImplementation((id) => {
+        getTaskCounts[id] = (getTaskCounts[id] || 0) + 1;
+        const isPreCheck = getTaskCounts[id] === 1;
         if (id === 't1') return { id: 't1', status: 'pending' };
-        if (id === 't3') return { id: 't3', status: 'running' };
+        if (id === 't3') return { id: 't3', status: isPreCheck ? 'pending' : 'running' };
         return null;
       });
       vi.spyOn(taskManager, 'startTask')

@@ -239,7 +239,8 @@ async function handleModelStats(req, res) {
       const { defaultContainer } = require('../container');
       sqlDb = defaultContainer.get('db');
     } catch (_e) {
-      sqlDb = require('../database');
+      const database = require('../database');
+      sqlDb = typeof database.getDbInstance === 'function' ? database.getDbInstance() : database;
     }
     if (!sqlDb || !sqlDb.prepare) {
       return sendSuccess(res, requestId, { models: [], days }, 200, req);

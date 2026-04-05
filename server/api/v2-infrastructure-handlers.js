@@ -479,7 +479,8 @@ function _getRegistry() {
     const { defaultContainer } = require('../container');
     rawDb = defaultContainer.get('db');
   } catch (_e) {
-    rawDb = require('../database');
+    const dbModule = require('../database');
+    rawDb = typeof dbModule.getDbInstance === 'function' ? dbModule.getDbInstance() : null;
   }
   if (!rawDb || typeof rawDb.prepare !== 'function') return null;
 
