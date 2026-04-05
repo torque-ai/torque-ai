@@ -49,7 +49,7 @@ function createPlanProject(project) {
  */
 function getPlanProject(projectId) {
   const stmt = db.prepare('SELECT * FROM plan_projects WHERE id = ?');
-  return stmt.get(projectId);
+  return stmt.get(projectId) || null;
 }
 
 /**
