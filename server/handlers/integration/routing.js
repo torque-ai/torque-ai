@@ -17,6 +17,7 @@ const { MAX_TASK_LENGTH, isPathTraversalSafe, checkProviderAvailability } = requ
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const { resolveOllamaModel } = require('../../providers/ollama-shared');
+const { shouldDecompose, decomposeTask: buildDecomposedTasks, GUIDED_FILE_THRESHOLD, GUIDED_MIN_FUNCTIONS } = require('../../execution/task-decomposition');
 const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
 const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
@@ -479,13 +480,16 @@ async function handleSmartSubmitTask(args) {
     return blockedError;
   }
 
-  // AUTO-DECOMPOSE: For complex code-gen tasks, try to decompose into local-friendly subtasks
-  // Only applies when: complexity is complex, no override provider, and task matches decomposition patterns
-  // P68: Decomposition templates are C#-only. Gate on C#/.NET indicators to avoid
-  // generating .cs files for TypeScript/Python/etc tasks.
-  const isCSharpTask = /\.cs\b|c#|\.net|csproj|xaml|wpf|winui|maui|blazor|asp\.net|nuget/i.test(task) ||
-    (files && files.some(f => /\.cs$|\.csproj$|\.xaml$|\.sln$/i.test(f)));
-  if (complexity === 'complex' && !override_provider && isCSharpTask) {
+  // AUTO-DECOMPOSE: Use task-decomposition module to decide whether to split
+  // shouldDecompose checks provider class (agentic/guided/prompt-only), complexity,
+  // and task patterns — replaces the old inline C# and JS/TS decomposition blocks.
+  const decomposeDecision = shouldDecompose(
+    { task_description: task, complexity, files },
+    routingResult
+  );
+
+  if (decomposeDecision.decompose && decomposeDecision.type === 'csharp') {
+    // C# decomposition: use hostManagement templates to generate subtask descriptions
     const subtasks = hostManagement.decomposeTask(task, workingDirectory);
 
     if (subtasks && subtasks.length > 1) {
@@ -494,24 +498,28 @@ async function handleSmartSubmitTask(args) {
       if (!fs.existsSync(workingDirectory)) {
         const parentDir = path.dirname(workingDirectory);
         if (fs.existsSync(parentDir)) {
-          // Parent exists, safe to create the target directory
           try {
             fs.mkdirSync(workingDirectory, { recursive: false });
             logger.info(`Created working directory for decomposed task: ${workingDirectory}`);
           } catch (mkdirErr) {
             logger.warn(`Failed to create working directory ${workingDirectory}: ${mkdirErr.message}`);
-            // Continue anyway - the subtasks might still work or fail gracefully
           }
         } else {
           logger.warn(`Working directory parent does not exist: ${parentDir} - decomposed tasks may fail`);
         }
       }
 
-      // Create a workflow instead of a single task
+      // Build sub-task definitions with provider locked to routing result
+      const { tasks: taskDefs } = buildDecomposedTasks(
+        { task, working_directory: workingDirectory, files },
+        routingResult,
+        { subtasks, version_intent, parent_task_id: submissionTaskId }
+      );
+
+      // Create a workflow
       const workflowId = require('uuid').v4();
       const workflowName = `Auto: ${task.substring(0, 60)}${task.length > 60 ? '...' : ''}`;
 
-      // Create the workflow
       workflowEngine.createWorkflow({
         id: workflowId,
         name: workflowName,
@@ -519,36 +527,34 @@ async function handleSmartSubmitTask(args) {
         status: 'pending'
       });
 
-      // Determine model for subtasks - use balanced tier (14B) since subtasks are simpler
+      // Determine model for subtasks - use balanced tier since subtasks are simpler
       const subtaskTier = hostManagement.getModelTierForComplexity('normal');
       const subtaskModel = model || subtaskTier.modelConfig;
-      const subtaskProvider = 'ollama';
 
-      let _prevNodeId = null;
       let prevTaskId = null;
       const createdTasks = [];
 
-      for (let i = 0; i < subtasks.length; i++) {
+      for (let i = 0; i < taskDefs.length; i++) {
+        const def = taskDefs[i];
         const nodeId = `step-${i + 1}`;
         const subtaskId = require('uuid').v4();
 
-        // Create the subtask — provider deferred until slot claim
         taskCore.createTask({
           id: subtaskId,
           task_description: subtasks[i],
           working_directory: workingDirectory,
-          status: prevTaskId ? 'waiting' : 'queued',  // First task queued, rest waiting
-          provider: null,  // deferred assignment
+          status: prevTaskId ? 'waiting' : 'queued',
+          provider: def.provider,  // locked to routed provider
           model: subtaskModel,
           timeout_minutes: effectiveTimeout,
           priority: priority || 0,
-          complexity: 'normal',  // Subtasks are simpler
+          complexity: 'normal',
           workflow_id: workflowId,
           workflow_node_id: nodeId,
           ollama_host_id: routingResult.selectedHost || routingResult.hostId || null,
           metadata: JSON.stringify({
             smart_routing: true,
-            intended_provider: subtaskProvider,
+            intended_provider: def.provider,
             decomposed_from: task,
             subtask_index: i + 1,
             total_subtasks: subtasks.length,
@@ -557,45 +563,34 @@ async function handleSmartSubmitTask(args) {
           })
         });
 
-        // Add task dependency if not the first task
         if (prevTaskId) {
           workflowEngine.addTaskDependency({
             workflow_id: workflowId,
             task_id: subtaskId,
             depends_on_task_id: prevTaskId,
-            on_fail: 'skip'  // Skip subsequent tasks if one fails
+            on_fail: 'skip'
           });
         }
 
-        createdTasks.push({
-          taskId: subtaskId,
-          step: i + 1,
-          description: subtasks[i],
-          nodeId
-        });
-
-        _prevNodeId = nodeId;
+        createdTasks.push({ taskId: subtaskId, step: i + 1, description: subtasks[i], nodeId });
         prevTaskId = subtaskId;
       }
 
-      // Update workflow status to running and set task counts
       workflowEngine.updateWorkflow(workflowId, {
         status: 'running',
         total_tasks: subtasks.length,
         started_at: new Date().toISOString()
       });
 
-      // Start processing
       taskManager.processQueue();
 
-      // Return workflow info instead of single task
       let output = `## Task Auto-Decomposed into Workflow\n\n`;
       output += `Complex task was automatically split into ${subtasks.length} simpler subtasks for local LLM processing.\n\n`;
       output += `| Field | Value |\n`;
       output += `|-------|-------|\n`;
       output += `| Workflow ID | \`${workflowId}\` |\n`;
       output += `| Subtasks | ${subtasks.length} |\n`;
-      output += `| Provider | **${subtaskProvider}** |\n`;
+      output += `| Provider | **${routingResult.provider}** |\n`;
       output += `| Model | ${subtaskModel} |\n`;
       if (routingResult.selectedHost || routingResult.hostId) {
         output += `| Host | ${routingResult.selectedHost || routingResult.hostId} |\n`;
@@ -607,8 +602,7 @@ async function handleSmartSubmitTask(args) {
         output += `| ${t.step} | \`${t.taskId.slice(0, 12)}...\` | ${t.description.slice(0, 50)}${t.description.length > 50 ? '...' : ''} |\n`;
       }
       output += `\n### Why Decomposed?\n`;
-      output += `The original task "${task.slice(0, 80)}${task.length > 80 ? '...' : ''}" was classified as complex. `;
-      output += `By breaking it into focused subtasks, each can be handled by the local 32B model (free, no rate limits).\n\n`;
+      output += `${decomposeDecision.reason}\n\n`;
       output += `Use \`workflow_status\` with id \`${workflowId}\` to check progress.\n`;
       output += `If a subtask fails, it will auto-retry with cloud provider.`;
       const subscriptionTarget = buildSubscriptionTarget({
@@ -628,133 +622,145 @@ async function handleSmartSubmitTask(args) {
     }
   }
 
-  // AUTO-DECOMPOSE: Large JS/TS files into function-level batches for local LLMs
-  {
-    const jsDecomposePatterns = /\b(jsdoc|add docs|add documentation|add logging|add error handling|refactor|cleanup|clean up|add types|add comments|lint fix|add tests for)\b/i;
+  if (decomposeDecision.decompose && decomposeDecision.type === 'js') {
+    // JS/TS decomposition: resolve files, measure line counts, extract function boundaries
+    const jsFilePattern = /\b([\w./-]+\.(?:js|ts|mjs|cjs|jsx|tsx))\b/gi;
+    const mentionedFiles = task.match(jsFilePattern) || [];
+    const allFiles = [...new Set([...(files || []), ...mentionedFiles])];
 
-    if (jsDecomposePatterns.test(task) && !override_provider) {
-      const jsFilePattern = /\b([\w./-]+\.(?:js|ts|mjs|cjs|jsx|tsx))\b/gi;
-      const mentionedFiles = task.match(jsFilePattern) || [];
-      const allFiles = [...new Set([...(files || []), ...mentionedFiles])];
+    const jsWorkDir = working_directory || process.cwd();
+    let resolvedJsFiles = allFiles;
+    try {
+      const resolution = taskManager.resolveFileReferences(task, jsWorkDir);
+      if (resolution.resolved.length > 0) resolvedJsFiles = resolution.resolved.map(r => r.actual);
+    } catch (err) {
+      logger.debug('[integration-routing] non-critical error resolving file references for route sizing:', err.message || err);
+    }
 
-      const jsWorkDir = working_directory || process.cwd();
-      let resolvedJsFiles = allFiles;
+    let largestFile = null;
+    let largestLineCount = 0;
+    for (const f of resolvedJsFiles) {
       try {
-        const resolution = taskManager.resolveFileReferences(task, jsWorkDir);
-        if (resolution.resolved.length > 0) resolvedJsFiles = resolution.resolved.map(r => r.actual);
+        const absPath = path.isAbsolute(f) ? f : path.join(jsWorkDir, f);
+        if (!/\.(?:js|ts|mjs|cjs|jsx|tsx)$/i.test(absPath)) continue;
+        if (!isPathTraversalSafe(absPath, jsWorkDir)) continue;
+        const content = await fsPromises.readFile(absPath, 'utf-8');
+        const lineCount = content.split('\n').length;
+        if (lineCount > largestLineCount) { largestLineCount = lineCount; largestFile = f; }
       } catch (err) {
-        logger.debug('[integration-routing] non-critical error resolving file references for route sizing:', err.message || err);
+        logger.debug('[integration-routing] non-critical error reading routed file size:', err.message || err);
       }
+    }
 
-      let largestFile = null;
-      let largestLineCount = 0;
-      for (const f of resolvedJsFiles) {
-        try {
-          const absPath = path.isAbsolute(f) ? f : path.join(jsWorkDir, f);
-          if (!/\.(?:js|ts|mjs|cjs|jsx|tsx)$/i.test(absPath)) continue;
-          if (!isPathTraversalSafe(absPath, jsWorkDir)) continue;
-          const content = await fsPromises.readFile(absPath, 'utf-8');
-          const lineCount = content.split('\n').length;
-          if (lineCount > largestLineCount) { largestLineCount = lineCount; largestFile = f; }
-        } catch (err) {
-          logger.debug('[integration-routing] non-critical error reading routed file size:', err.message || err);
+    if (largestFile && largestLineCount > GUIDED_FILE_THRESHOLD) {
+      const absLargest = path.isAbsolute(largestFile) ? largestFile : path.join(jsWorkDir, largestFile);
+      let boundaries;
+      try { boundaries = await taskManager.extractJsFunctionBoundaries(absLargest); }
+      catch (e) { logger.warn(`[JSDecompose] Failed to parse ${largestFile}: ${e.message}`); boundaries = []; }
+
+      if (boundaries.length >= GUIDED_MIN_FUNCTIONS) {
+        const BATCH_LINE_LIMIT = PROVIDER_DEFAULTS.BATCH_LINE_LIMIT;
+        const batches = [];
+        let currentBatch = [], currentLines = 0;
+        for (const fn of boundaries) {
+          if (currentLines + fn.lineCount > BATCH_LINE_LIMIT && currentBatch.length > 0) { batches.push(currentBatch); currentBatch = []; currentLines = 0; }
+          currentBatch.push(fn); currentLines += fn.lineCount;
         }
-      }
+        if (currentBatch.length > 0) batches.push(currentBatch);
 
-      if (largestFile && largestLineCount > 500) {
-        const absLargest = path.isAbsolute(largestFile) ? largestFile : path.join(jsWorkDir, largestFile);
-        let boundaries;
-        try { boundaries = await taskManager.extractJsFunctionBoundaries(absLargest); }
-        catch (e) { logger.warn(`[JSDecompose] Failed to parse ${largestFile}: ${e.message}`); boundaries = []; }
+        const actionMatch = task.match(/^(.*?)(?:\s+(?:to|for|in)\s+)/i);
+        const action = actionMatch ? actionMatch[1].trim() : task.split(/\s+/).slice(0, 3).join(' ');
 
-        if (boundaries.length >= 3) {
-          const BATCH_LINE_LIMIT = PROVIDER_DEFAULTS.BATCH_LINE_LIMIT;
-          const batches = [];
-          let currentBatch = [], currentLines = 0;
-          for (const fn of boundaries) {
-            if (currentLines + fn.lineCount > BATCH_LINE_LIMIT && currentBatch.length > 0) { batches.push(currentBatch); currentBatch = []; currentLines = 0; }
-            currentBatch.push(fn); currentLines += fn.lineCount;
-          }
-          if (currentBatch.length > 0) batches.push(currentBatch);
+        // Build subtask descriptions from batches
+        const subtaskDescs = batches.map((batch) => {
+          const fnNames = batch.map(fn => fn.name).join(', ');
+          const startLine = batch[0].startLine;
+          const endLine = batch[batch.length - 1].endLine;
+          return `${action} for functions: ${fnNames} in file \`${largestFile}\` (lines ${startLine}-${endLine}). Only modify these specific functions. Do not change any code outside lines ${startLine}-${endLine}.`;
+        });
 
-          const actionMatch = task.match(/^(.*?)(?:\s+(?:to|for|in)\s+)/i);
-          const action = actionMatch ? actionMatch[1].trim() : task.split(/\s+/).slice(0, 3).join(' ');
-          const workflowId = require('uuid').v4();
+        // Build sub-task definitions with provider locked to routing result
+        const { tasks: taskDefs } = buildDecomposedTasks(
+          { task, working_directory: jsWorkDir, files },
+          routingResult,
+          { subtasks: subtaskDescs, version_intent, parent_task_id: submissionTaskId }
+        );
 
-          workflowEngine.createWorkflow({ id: workflowId, name: `JS Auto: ${task.substring(0, 55)}${task.length > 55 ? '...' : ''}`, description: `Auto-decomposed: ${largestFile} (${largestLineCount} lines, ${boundaries.length} fns, ${batches.length} batches)`, status: 'pending' });
+        const workflowId = require('uuid').v4();
+        workflowEngine.createWorkflow({ id: workflowId, name: `JS Auto: ${task.substring(0, 55)}${task.length > 55 ? '...' : ''}`, description: `Auto-decomposed: ${largestFile} (${largestLineCount} lines, ${boundaries.length} fns, ${batches.length} batches)`, status: 'pending' });
 
-          const subtaskModel = resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
-          const subtaskProvider = 'ollama';
-          let prevTaskId = null;
-          const createdTasks = [];
+        const subtaskModel = model || resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
+        let prevTaskId = null;
+        const createdTasks = [];
 
-          for (let i = 0; i < batches.length; i++) {
-            const batch = batches[i];
-            const fnNames = batch.map(fn => fn.name).join(', ');
-            const startLine = batch[0].startLine;
-            const endLine = batch[batch.length - 1].endLine;
-            const nodeId = `step-${i + 1}`;
-            const subtaskId = require('uuid').v4();
-            const subtaskDesc = `${action} for functions: ${fnNames} in file \`${largestFile}\` (lines ${startLine}-${endLine}). Only modify these specific functions. Do not change any code outside lines ${startLine}-${endLine}.`;
+        for (let i = 0; i < batches.length; i++) {
+          const batch = batches[i];
+          const fnNames = batch.map(fn => fn.name).join(', ');
+          const startLine = batch[0].startLine;
+          const endLine = batch[batch.length - 1].endLine;
+          const nodeId = `step-${i + 1}`;
+          const subtaskId = require('uuid').v4();
+          const def = taskDefs[i];
 
-            taskCore.createTask({
-              id: subtaskId,
-              task_description: subtaskDesc,
-              working_directory: jsWorkDir,
-              status: prevTaskId ? 'waiting' : 'queued',
-              provider: null,  // deferred assignment
-              model: subtaskModel,
-              timeout_minutes: effectiveTimeout,
-              priority: priority || 0,
-              complexity: 'normal',
-              workflow_id: workflowId,
-              workflow_node_id: nodeId,
-              ollama_host_id: routingResult.selectedHost || routingResult.hostId || null,
-              metadata: JSON.stringify({
-                smart_routing: true,
-                intended_provider: subtaskProvider,
-                decomposed_from: task,
-                js_decomposition: true,
-                subtask_index: i + 1,
-                total_subtasks: batches.length,
-                target_file: largestFile,
-                function_names: batch.map(fn => fn.name),
-                line_range: { start: startLine, end: endLine },
-                tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
-                mcp_session_id: __sessionId || undefined,
-              })
-            });
-
-            if (prevTaskId) { workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: subtaskId, depends_on_task_id: prevTaskId, on_fail: 'continue' }); }
-            createdTasks.push({ taskId: subtaskId, step: i + 1, description: subtaskDesc, nodeId, functions: batch.map(fn => fn.name), lines: `${startLine}-${endLine}` });
-            prevTaskId = subtaskId;
-          }
-
-          workflowEngine.updateWorkflow(workflowId, { status: 'running', total_tasks: batches.length, started_at: new Date().toISOString() });
-          taskManager.processQueue();
-
-          let output = `## JS File Auto-Decomposed into Workflow\n\n`;
-          output += `\`${largestFile}\` (${largestLineCount} lines, ${boundaries.length} functions) split into ${batches.length} batches.\n\n`;
-          output += `| Field | Value |\n|-------|-------|\n`;
-          output += `| Workflow ID | \`${workflowId}\` |\n| Target File | \`${largestFile}\` |\n| Batches | ${batches.length} |\n| Provider | **${subtaskProvider}** |\n| Model | ${subtaskModel} |\n| On Failure | continue |\n`;
-          output += `\n### Batches\n\n| Batch | Lines | Functions |\n|-------|-------|-----------|\n`;
-          for (const t of createdTasks) { output += `| ${t.step} | ${t.lines} | ${t.functions.join(', ')} |\n`; }
-          output += `\nUse \`workflow_status\` with id \`${workflowId}\` to check progress.`;
-          const subscriptionTarget = buildSubscriptionTarget({
-            workflowId,
-            taskIds: createdTasks.map(taskRecord => taskRecord.taskId),
-          });
-          output += formatSubscriptionInstructions(subscriptionTarget);
-          logger.info(`[JSDecompose] ${largestFile}: ${batches.length} batches, ${boundaries.length} fns, ${largestLineCount} lines`);
-          return {
-            __subscribe_workflow_id: workflowId,
-            __subscribe_task_ids: subscriptionTarget.task_ids,
+          taskCore.createTask({
+            id: subtaskId,
+            task_description: def.task,
+            working_directory: jsWorkDir,
+            status: prevTaskId ? 'waiting' : 'queued',
+            provider: def.provider,  // locked to routed provider
+            model: subtaskModel,
+            timeout_minutes: effectiveTimeout,
+            priority: priority || 0,
+            complexity: 'normal',
             workflow_id: workflowId,
-            task_ids: subscriptionTarget.task_ids,
-            subscription_target: subscriptionTarget,
-            content: [{ type: 'text', text: output }],
-          };
+            workflow_node_id: nodeId,
+            ollama_host_id: routingResult.selectedHost || routingResult.hostId || null,
+            metadata: JSON.stringify({
+              smart_routing: true,
+              intended_provider: def.provider,
+              decomposed_from: task,
+              js_decomposition: true,
+              subtask_index: i + 1,
+              total_subtasks: batches.length,
+              target_file: largestFile,
+              function_names: batch.map(fn => fn.name),
+              line_range: { start: startLine, end: endLine },
+              tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
+              mcp_session_id: __sessionId || undefined,
+            })
+          });
+
+          if (prevTaskId) { workflowEngine.addTaskDependency({ workflow_id: workflowId, task_id: subtaskId, depends_on_task_id: prevTaskId, on_fail: 'continue' }); }
+          createdTasks.push({ taskId: subtaskId, step: i + 1, description: def.task, nodeId, functions: batch.map(fn => fn.name), lines: `${startLine}-${endLine}` });
+          prevTaskId = subtaskId;
         }
+
+        workflowEngine.updateWorkflow(workflowId, { status: 'running', total_tasks: batches.length, started_at: new Date().toISOString() });
+        taskManager.processQueue();
+
+        let output = `## JS File Auto-Decomposed into Workflow\n\n`;
+        output += `\`${largestFile}\` (${largestLineCount} lines, ${boundaries.length} functions) split into ${batches.length} batches.\n\n`;
+        output += `| Field | Value |\n|-------|-------|\n`;
+        output += `| Workflow ID | \`${workflowId}\` |\n| Target File | \`${largestFile}\` |\n| Batches | ${batches.length} |\n| Provider | **${routingResult.provider}** |\n| Model | ${subtaskModel} |\n| On Failure | continue |\n`;
+        output += `\n### Batches\n\n| Batch | Lines | Functions |\n|-------|-------|-----------|\n`;
+        for (const t of createdTasks) { output += `| ${t.step} | ${t.lines} | ${t.functions.join(', ')} |\n`; }
+        output += `\n### Why Decomposed?\n`;
+        output += `${decomposeDecision.reason}\n\n`;
+        output += `Use \`workflow_status\` with id \`${workflowId}\` to check progress.`;
+        const subscriptionTarget = buildSubscriptionTarget({
+          workflowId,
+          taskIds: createdTasks.map(taskRecord => taskRecord.taskId),
+        });
+        output += formatSubscriptionInstructions(subscriptionTarget);
+        logger.info(`[JSDecompose] ${largestFile}: ${batches.length} batches, ${boundaries.length} fns, ${largestLineCount} lines`);
+        return {
+          __subscribe_workflow_id: workflowId,
+          __subscribe_task_ids: subscriptionTarget.task_ids,
+          workflow_id: workflowId,
+          task_ids: subscriptionTarget.task_ids,
+          subscription_target: subscriptionTarget,
+          content: [{ type: 'text', text: output }],
+        };
       }
     }
   }
