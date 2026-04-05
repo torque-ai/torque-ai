@@ -59,14 +59,15 @@ function getTorqueArtifactStorageRoot() {
 }
 
 function buildPeekPersistOutputDir(context, args) {
-  if (!context.taskId && !context.workflowId) {
-    return null;
-  }
-
   const root = getTorqueArtifactStorageRoot();
-  const ownerDir = context.taskId
-    ? path.join(root, context.taskId, PEEK_DIAGNOSE_DIRNAME)
-    : path.join(root, '_workflows', context.workflowId, PEEK_DIAGNOSE_DIRNAME);
+  let ownerDir;
+  if (context.taskId) {
+    ownerDir = path.join(root, context.taskId, PEEK_DIAGNOSE_DIRNAME);
+  } else if (context.workflowId) {
+    ownerDir = path.join(root, '_workflows', context.workflowId, PEEK_DIAGNOSE_DIRNAME);
+  } else {
+    ownerDir = path.join(root, '_adhoc', PEEK_DIAGNOSE_DIRNAME);
+  }
   const targetValue = args.process || args.title || context.taskLabel || 'window';
   const targetKey = sanitizePeekTargetKey(targetValue, PEEK_DIAGNOSE_DIRNAME);
   // SECURITY (M7): Use crypto.randomUUID() instead of Math.random()

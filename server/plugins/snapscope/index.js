@@ -156,6 +156,7 @@ function createSnapScopePlugin() {
       tier2: [
         'peek_hit_test', 'peek_discover', 'peek_health_all',
         'peek_build_and_open', 'peek_assert', 'peek_ocr',
+        'register_peek_host', 'unregister_peek_host', 'list_peek_hosts',
       ],
     };
   }

@@ -30,13 +30,26 @@ function createPeekClient({ url = '', hostRegistry = null }) {
           headers: { 'Content-Type': 'application/json' },
         },
         (res) => {
-          let data = '';
-          res.on('data', (chunk) => { data += chunk; });
+          const chunks = [];
+          res.on('data', (chunk) => { chunks.push(chunk); });
           res.on('end', () => {
-            try {
-              resolve({ status: res.statusCode, data: JSON.parse(data) });
-            } catch {
-              resolve({ status: res.statusCode, data });
+            const buf = Buffer.concat(chunks);
+            const contentType = (res.headers['content-type'] || '').toLowerCase();
+            const isBinary = contentType.includes('image/') || contentType.includes('octet-stream');
+            if (isBinary) {
+              resolve({
+                status: res.statusCode,
+                data: buf.toString('base64'),
+                contentType,
+                binary: true,
+              });
+            } else {
+              const text = buf.toString('utf-8');
+              try {
+                resolve({ status: res.statusCode, data: JSON.parse(text) });
+              } catch {
+                resolve({ status: res.statusCode, data: text });
+              }
             }
           });
         }
