@@ -958,6 +958,10 @@ function handleAddWorkflowTask(args) {
       // No deps and workflow is running → start immediately
       try {
         const startResult = taskManager.startTask(taskId);
+        // startTask is async — catch unhandled rejections from the returned Promise
+        if (startResult && typeof startResult.catch === 'function') {
+          startResult.catch(() => {});
+        }
         const updated = getTaskCore().getTask(taskId);
         if (isQueuedStartResult(startResult)) {
           actualStatus = updated && updated.status && updated.status !== 'pending'

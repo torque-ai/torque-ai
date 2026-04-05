@@ -201,7 +201,7 @@ describe('E2E: DeepInfra provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const _task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     // Verify fetch was called with the correct endpoint
@@ -234,7 +234,7 @@ describe('E2E: DeepInfra provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(task.status).toBe('completed');
@@ -252,7 +252,7 @@ describe('E2E: DeepInfra provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(task.status).toBe('failed');
@@ -270,7 +270,7 @@ describe('E2E: DeepInfra provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(task.status).toBe('failed');
@@ -289,7 +289,7 @@ describe('E2E: DeepInfra provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(fetchMock).toHaveBeenCalled();
@@ -313,7 +313,7 @@ describe('E2E: Hyperbolic provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(fetchMock).toHaveBeenCalled();
@@ -334,7 +334,7 @@ describe('E2E: Hyperbolic provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(task.status).toBe('completed');
@@ -358,7 +358,7 @@ describe('E2E: Hyperbolic provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     // AbortError in the provider causes executeApiProvider to catch and fail
@@ -378,7 +378,7 @@ describe('E2E: Hyperbolic provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(task.status).toBe('failed');
@@ -401,7 +401,7 @@ describe('E2E: Anthropic provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(fetchMock).toHaveBeenCalled();
@@ -427,7 +427,7 @@ describe('E2E: Anthropic provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(task.status).toBe('completed');
@@ -449,7 +449,7 @@ describe('E2E: Anthropic provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     // Without an API key, the provider should throw and the task should fail.
@@ -468,7 +468,7 @@ describe('E2E: Anthropic provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(fetchMock).toHaveBeenCalled();
@@ -494,7 +494,7 @@ describe('E2E: Groq provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(fetchMock).toHaveBeenCalled();
@@ -518,7 +518,7 @@ describe('E2E: Groq provider', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(task.status).toBe('completed');
@@ -539,7 +539,7 @@ describe('E2E: Groq provider', () => {
       extra: { metadata: JSON.stringify({ free_provider_retry: true }) },
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(task.status).toBe('failed');
@@ -567,7 +567,7 @@ describe('E2E: Cross-provider behavior', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     // The task should fail since the explicit provider (deepinfra) returned an error.
@@ -592,7 +592,7 @@ describe('E2E: Cross-provider behavior', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(task.status).toBe('completed');
@@ -649,7 +649,7 @@ describe('E2E: Cross-provider behavior', () => {
       workingDirectory: os.tmpdir(),
     });
 
-    ctx.tm.startTask(taskId);
+    await ctx.tm.startTask(taskId);
     const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
 
     expect(task.status).toBe('completed');

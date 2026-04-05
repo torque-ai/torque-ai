@@ -120,7 +120,7 @@ function _completeAllMockChildren(output = 'done\n') {
 // ============================================================
 // 1. Concurrent Task Submission (8 tests)
 describe('Concurrent task submission', () => {
-  it('submits 20 tasks with max_concurrent=5: only 5 run, 15 queue', () => {
+  it('submits 20 tasks with max_concurrent=5: only 5 run, 15 queue', async () => {
     ctx.db.setConfig('max_concurrent', '5');
     ctx.db.setConfig('max_codex_concurrent', '5');
     ctx.db.setConfig('max_ollama_concurrent', '0');
@@ -128,7 +128,7 @@ describe('Concurrent task submission', () => {
     const ids = bulkCreateTasks(20);
 
     for (const id of ids) {
-      try { ctx.tm.startTask(id); } catch { /* may throw if already running */ }
+      try { await ctx.tm.startTask(id); } catch { /* may throw if already running */ }
     }
 
     const running = ctx.db.listTasks({ status: 'running' });
@@ -138,7 +138,7 @@ describe('Concurrent task submission', () => {
     expect(running.length + queued.length).toBe(20);
   });
 
-  it('higher priority tasks start first', () => {
+  it('higher priority tasks start first', async () => {
     ctx.db.setConfig('max_concurrent', '2');
     ctx.db.setConfig('max_codex_concurrent', '2');
     ctx.db.setConfig('max_ollama_concurrent', '0');
@@ -152,7 +152,7 @@ describe('Concurrent task submission', () => {
     // Start all tasks (low first, then high)
     const allIds = [...lowIds, ...highIds];
     for (const id of allIds) {
-      try { ctx.tm.startTask(id); } catch { /* ignore capacity */ }
+      try { await ctx.tm.startTask(id); } catch { /* ignore capacity */ }
     }
 
     const running = ctx.db.listTasks({ status: 'running' });
@@ -196,7 +196,7 @@ describe('Concurrent task submission', () => {
     const task2Check = ctx.db.getTask(id2);
     if (task2Check.status === 'queued') {
       try {
-        ctx.tm.startTask(id2);
+        await ctx.tm.startTask(id2);
       } catch { /* may throw — try processQueue */ }
     }
 
@@ -204,7 +204,7 @@ describe('Concurrent task submission', () => {
     const deadline = Date.now() + 3000;
     let task2Status = ctx.db.getTask(id2).status;
     while (task2Status === 'queued' && Date.now() < deadline) {
-      try { ctx.tm.processQueue(); } catch { /* ignore */ }
+      try { await ctx.tm.processQueue(); } catch { /* ignore */ }
       await new Promise(resolve => setTimeout(resolve, 50));
       task2Status = ctx.db.getTask(id2).status;
     }
@@ -212,7 +212,7 @@ describe('Concurrent task submission', () => {
     expect(['running', 'completed', 'failed']).toContain(task2Status);
   });
 
-  it('submits tasks from multiple agent instance IDs', () => {
+  it('submits tasks from multiple agent instance IDs', async () => {
     ctx.db.setConfig('max_concurrent', '10');
 
     // Create tasks claiming different agents
@@ -227,7 +227,7 @@ describe('Concurrent task submission', () => {
     }
 
     for (const id of ids) {
-      try { ctx.tm.startTask(id); } catch { /* ignore */ }
+      try { await ctx.tm.startTask(id); } catch { /* ignore */ }
     }
 
     const running = ctx.db.listTasks({ status: 'running' });
@@ -242,11 +242,11 @@ describe('Concurrent task submission', () => {
     }
   });
 
-  it('task status transitions are atomic (no race in DB)', () => {
+  it('task status transitions are atomic (no race in DB)', async () => {
     ctx.db.setConfig('max_concurrent', '20');
 
     const id = createTestTask(ctx.db, { provider: 'codex' });
-    ctx.tm.startTask(id);
+    await ctx.tm.startTask(id);
 
     const task = ctx.db.getTask(id);
     expect(task.status).toBe('running');
@@ -307,8 +307,8 @@ describe('Concurrent task submission', () => {
     const id1 = createTestTask(ctx.db, { description: 'will cancel', provider: 'codex' });
     const id2 = createTestTask(ctx.db, { description: 'should start after cancel', provider: 'codex' });
 
-    ctx.tm.startTask(id1);
-    try { ctx.tm.startTask(id2); } catch { /* capacity */ }
+    await ctx.tm.startTask(id1);
+    try { await ctx.tm.startTask(id2); } catch { /* capacity */ }
 
     expect(ctx.db.getTask(id1).status).toBe('running');
     expect(ctx.db.getTask(id2).status).toBe('queued');
@@ -325,7 +325,7 @@ describe('Concurrent task submission', () => {
     const task2Check = ctx.db.getTask(id2);
     if (task2Check.status === 'queued') {
       try {
-        ctx.tm.startTask(id2);
+        await ctx.tm.startTask(id2);
       } catch { /* may throw if capacity — try processQueue as fallback */ }
     }
 
@@ -333,7 +333,7 @@ describe('Concurrent task submission', () => {
     const deadline = Date.now() + 3000;
     let task2Status = ctx.db.getTask(id2).status;
     while (task2Status === 'queued' && Date.now() < deadline) {
-      try { ctx.tm.processQueue(); } catch { /* ignore */ }
+      try { await ctx.tm.processQueue(); } catch { /* ignore */ }
       await new Promise(resolve => setTimeout(resolve, 50));
       task2Status = ctx.db.getTask(id2).status;
     }
