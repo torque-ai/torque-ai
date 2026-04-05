@@ -26,7 +26,7 @@ Deploy scout agents to discover issues in the codebase. Most variants run as Cod
 | `test-coverage` | Untested modules, test quality, missing edge cases | Codex |
 | `documentation` | Stale docs, undocumented APIs, broken references | Codex |
 | `accessibility` | WCAG compliance, keyboard nav, semantic HTML | Codex |
-| `visual` | UI layout, rendering, visual regressions via peek_ui | Claude Agent |
+| `visual` | UI layout, rendering, visual regressions via peek_ui (quick scan — use `/torque-visual-sweep` for deep audits) | Claude Agent |
 
 ## Instructions
 

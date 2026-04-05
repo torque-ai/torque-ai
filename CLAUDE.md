@@ -86,6 +86,7 @@ Use the `/torque-*` commands to interact with TORQUE. Commands compose multiple 
 | `/torque-team [brief]` | Spawn development team — Planner, QC, Remediation pipeline |
 | `/torque-templates` | View, activate, and manage routing templates |
 | `/torque-validate` | Run code quality validation — syntax, build checks, regression detection |
+| `/torque-visual-sweep` | Deep visual audit — discovery, capture, analysis fleet for one app |
 
 For advanced/direct MCP tool access, use the raw tool names (e.g., `smart_submit_task`).
 
@@ -215,6 +216,30 @@ Stall detection is user-configurable per provider via `configure_stall_detection
 - **Codex**: 120-180 seconds
 
 Stalled tasks are automatically cancelled and resubmitted with provider fallback.
+
+## Visual Sweep
+
+Deep visual audit for a single application. Runs on-demand or via one-time schedule.
+
+### Usage
+
+    /torque-visual-sweep <app>                                        # sweep all pages
+    /torque-visual-sweep <app> --depth component --section dashboard  # deep dive one section
+    /torque-visual-sweep <app> --schedule "11pm"                      # schedule for later
+
+### Peek Manifest
+
+Each project with UI declares its visual surfaces in `peek-manifest.json` at the project root. New visual surfaces are enforced by:
+- **Pre-commit hook** — blocks commits with unregistered surfaces
+- **TORQUE post-task hook** — flags unregistered surfaces after task completion
+
+### Three Phases
+
+1. **Discovery** — reads manifest, validates against live UI, detects unmanifested surfaces
+2. **Capture** — navigates to each section sequentially, captures via `peek_diagnose`
+3. **Analysis** — fleet of parallel Claude agents, one per section, writing findings
+
+Findings output to `docs/findings/<date>-visual-sweep-<app>-summary.md`.
 
 ## Quality Safeguards
 

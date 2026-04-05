@@ -266,6 +266,16 @@ registerBuiltInHookFactory(
   'Runs learn_failure_pattern for failed task output.'
 );
 
+registerBuiltInHookFactory(
+  'task_complete',
+  'manifest_enforcement',
+  () => {
+    const { createHook } = require('./manifest-enforcement');
+    return createHook();
+  },
+  'Check completed tasks for new visual surfaces not in peek-manifest.json'
+);
+
 registerDefaultHooks();
 
 module.exports = {
