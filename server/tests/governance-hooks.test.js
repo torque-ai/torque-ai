@@ -29,11 +29,15 @@ function createLoggerMock() {
 function mockExecFileSuccess(stdout = '', stderr = '') {
   const mock = vi.spyOn(childProcess, 'execFile').mockImplementation((_file, _args, _options, callback) => {
     if (typeof _options === 'function') {
-      _options(null, stdout, stderr); // callback in 3rd position
+      _options(null, stdout, stderr);
     } else if (typeof callback === 'function') {
       callback(null, stdout, stderr);
     }
   });
+  // Node's execFile has a custom promisify that returns { stdout, stderr }
+  // We need to match this so promisify(childProcess.execFile) works correctly
+  mock[require('util').promisify.custom] = vi.fn(async () => ({ stdout, stderr }));
+  childProcess.execFile[require('util').promisify.custom] = vi.fn(async () => ({ stdout, stderr }));
   return mock;
 }
 
