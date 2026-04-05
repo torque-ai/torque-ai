@@ -1,27 +1,21 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createRequire } from 'module';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
-const { mockDetect, mockLoad, mockFind, mockSuggest } = vi.hoisted(() => ({
-  mockDetect: vi.fn(),
-  mockLoad: vi.fn(),
-  mockFind: vi.fn(),
-  mockSuggest: vi.fn()
-}));
-
-vi.mock('../hooks/manifest-patterns', () => ({
-  detectVisualSurfaces: mockDetect,
-  loadManifest: mockLoad,
-  findUnregistered: mockFind,
-  suggestManifestEntry: mockSuggest
-}));
-
-const { createHook } = await import('../hooks/manifest-enforcement');
+const require = createRequire(import.meta.url);
+const { createHook } = require('../hooks/manifest-enforcement');
 
 describe('manifest-enforcement hook', () => {
+  let tmpDir;
+
   beforeEach(() => {
-    mockDetect.mockReset().mockReturnValue([]);
-    mockLoad.mockReset().mockReturnValue(null);
-    mockFind.mockReset().mockReturnValue([]);
-    mockSuggest.mockReset().mockReturnValue({ id: 'test', label: 'Test' });
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'manifest-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('exports a createHook factory', () => {
@@ -30,60 +24,68 @@ describe('manifest-enforcement hook', () => {
 
   it('hook returns null when task has no changed_files', async () => {
     const hook = createHook();
-    const result = await hook({ taskId: '1', task: { working_directory: '/proj' } });
+    const result = await hook({ taskId: '1', task: { working_directory: tmpDir } });
     expect(result).toBeNull();
   });
 
   it('hook returns null when no manifest exists', async () => {
-    mockLoad.mockReturnValue(null);
     const hook = createHook();
     const result = await hook({
       taskId: '1',
-      task: { working_directory: '/proj' },
+      task: { working_directory: tmpDir },
       changed_files: ['src/Views/New.xaml']
     });
     expect(result).toBeNull();
   });
 
   it('hook detects unregistered surfaces and returns approval gate info', async () => {
-    const manifest = { framework: 'wpf', sections: [] };
-    mockLoad.mockReturnValue(manifest);
-    mockDetect.mockReturnValue([
-      { file: 'src/Views/New.xaml', type: 'Window', id: 'New' }
-    ]);
-    mockFind.mockReturnValue([
-      { file: 'src/Views/New.xaml', type: 'Window', id: 'New' }
-    ]);
+    // Create a peek-manifest.json with no sections
+    fs.writeFileSync(path.join(tmpDir, 'peek-manifest.json'), JSON.stringify({
+      app: 'TestApp',
+      process: 'TestApp.Desktop',
+      framework: 'wpf',
+      sections: []
+    }));
+
+    // Create a XAML file that counts as a visual surface
+    const viewDir = path.join(tmpDir, 'src', 'Views');
+    fs.mkdirSync(viewDir, { recursive: true });
+    fs.writeFileSync(path.join(viewDir, 'NewPage.xaml'), '<Window x:Class="App.Views.NewPage">');
 
     const hook = createHook();
     const result = await hook({
       taskId: 'task-1',
-      task: { working_directory: '/proj' },
-      changed_files: ['src/Views/New.xaml']
+      task: { working_directory: tmpDir },
+      changed_files: ['src/Views/NewPage.xaml']
     });
 
-    expect(result).toEqual({
-      gate: 'manifest_update',
-      task_id: 'task-1',
-      unregistered: [{ file: 'src/Views/New.xaml', type: 'Window', id: 'New' }],
-      suggested_entries: [{ id: 'test', label: 'Test' }],
-      message: expect.stringContaining('New visual surface')
-    });
+    expect(result).not.toBeNull();
+    expect(result.gate).toBe('manifest_update');
+    expect(result.task_id).toBe('task-1');
+    expect(result.unregistered).toHaveLength(1);
+    expect(result.unregistered[0].id).toBe('NewPage');
+    expect(result.suggested_entries).toHaveLength(1);
+    expect(result.message).toContain('New visual surface');
   });
 
   it('hook returns null when all surfaces are registered', async () => {
-    const manifest = { framework: 'wpf', sections: [{ id: 'new' }] };
-    mockLoad.mockReturnValue(manifest);
-    mockDetect.mockReturnValue([
-      { file: 'src/Views/New.xaml', type: 'Window', id: 'New' }
-    ]);
-    mockFind.mockReturnValue([]);
+    // Create manifest with the surface already registered
+    fs.writeFileSync(path.join(tmpDir, 'peek-manifest.json'), JSON.stringify({
+      app: 'TestApp',
+      process: 'TestApp.Desktop',
+      framework: 'wpf',
+      sections: [{ id: 'newpage', label: 'New Page' }]
+    }));
+
+    const viewDir = path.join(tmpDir, 'src', 'Views');
+    fs.mkdirSync(viewDir, { recursive: true });
+    fs.writeFileSync(path.join(viewDir, 'NewPage.xaml'), '<Window x:Class="App.Views.NewPage">');
 
     const hook = createHook();
     const result = await hook({
       taskId: 'task-1',
-      task: { working_directory: '/proj' },
-      changed_files: ['src/Views/New.xaml']
+      task: { working_directory: tmpDir },
+      changed_files: ['src/Views/NewPage.xaml']
     });
 
     expect(result).toBeNull();
