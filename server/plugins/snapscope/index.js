@@ -14,13 +14,23 @@ function createSnapScopePlugin() {
   let _eventBus = null;
   let _serverConfig = null;
 
-  function install(container) {
-    _db = container.get('db');
-    _serverConfig = container.get('serverConfig');
-    _eventBus = container.get('eventBus');
+  function getContainerService(container, name) {
+    if (!container || typeof container.get !== 'function') return null;
+    try { return container.get(name); } catch { return null; }
+  }
 
-    const rawDb = typeof _db.getDbInstance === 'function' ? _db.getDbInstance() : _db;
-    hostRegistry = createHostRegistry(rawDb);
+  function install(container) {
+    _db = getContainerService(container, 'db');
+    if (!_db) {
+      try { _db = require('../../database'); } catch { /* fallback unavailable */ }
+    }
+    _serverConfig = getContainerService(container, 'serverConfig');
+    _eventBus = getContainerService(container, 'eventBus');
+
+    if (_db) {
+      const rawDb = typeof _db.getDbInstance === 'function' ? _db.getDbInstance() : _db;
+      hostRegistry = createHostRegistry(rawDb);
+    }
 
     const peekUrl = _serverConfig && typeof _serverConfig.get === 'function'
       ? (_serverConfig.get('peek_server_url') || '')
