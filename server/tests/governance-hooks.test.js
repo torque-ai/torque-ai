@@ -26,18 +26,14 @@ function createLoggerMock() {
   };
 }
 
+// Global mock function that gets updated per-test by mockExecFileSuccess
+let _execFileResult = { stdout: '', stderr: '' };
+// Set promisify.custom BEFORE any module loads — this is what hooks.js captures
+childProcess.execFile[promisify.custom] = async (..._args) => _execFileResult;
+
 function mockExecFileSuccess(stdout = '', stderr = '') {
-  const mock = vi.spyOn(childProcess, 'execFile').mockImplementation((_file, _args, _options, callback) => {
-    if (typeof _options === 'function') {
-      _options(null, stdout, stderr);
-    } else if (typeof callback === 'function') {
-      callback(null, stdout, stderr);
-    }
-  });
-  // Node's execFile has a custom promisify that returns { stdout, stderr }
-  // We need to match this so promisify(childProcess.execFile) works correctly
-  mock[require('util').promisify.custom] = vi.fn(async () => ({ stdout, stderr }));
-  childProcess.execFile[require('util').promisify.custom] = vi.fn(async () => ({ stdout, stderr }));
+  _execFileResult = { stdout, stderr };
+  const mock = vi.spyOn(childProcess, 'execFile');
   return mock;
 }
 

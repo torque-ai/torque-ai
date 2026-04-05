@@ -2,10 +2,7 @@
 
 const childProcess = require('child_process');
 const { promisify } = require('util');
-// Lazy promisify — resolved on first call so test spies can intercept
-function execFileAsync(...args) {
-  return promisify(childProcess.execFile)(...args);
-}
+const execFileAsync = promisify(childProcess.execFile);
 
 const DEFAULT_VISIBLE_PROVIDERS = Object.freeze(['codex', 'claude-cli']);
 const DEFAULT_TEST_COMMANDS = Object.freeze(['vitest', 'jest', 'pytest', 'dotnet test']);
