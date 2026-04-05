@@ -94,6 +94,7 @@ function createTestDb() {
       last_health_check TEXT,
       last_healthy TEXT,
       metrics TEXT,
+      os_platform TEXT,
       tls INTEGER DEFAULT 0,
       rejectUnauthorized INTEGER DEFAULT 1,
       created_at TEXT DEFAULT (datetime('now')),
@@ -413,9 +414,11 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
       expect(agentRow.last_health_check).toBeTruthy();
       expect(agentRow.last_healthy).toBeTruthy();
       expect(agentRow.metrics).toBeTruthy();
+      expect(typeof agentRow.os_platform).toBe('string');
 
       // Metrics should contain system info from the real agent
       const metrics = JSON.parse(agentRow.metrics);
+      expect(metrics.platform).toBe(agentRow.os_platform);
       expect(typeof metrics.memory_total_mb).toBe('number');
       expect(typeof metrics.cpu_percent).toBe('number');
     });

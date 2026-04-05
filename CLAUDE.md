@@ -373,95 +373,36 @@ When editing versioned projects outside TORQUE, **always use conventional commit
 
 ## MCP Tool Reference
 
-TORQUE exposes ~590 MCP tools organized into categories. Key categories:
+TORQUE tools are progressively unlocked. Start with the core set, use `get_tool_schema` for signatures, and call `unlock_all_tools` to see all ~488 tools.
 
 | Category | Tools |
 |----------|-------|
-| **Core** | `ping`, `restart_server`, `await_restart`, `unlock_all_tools`, `unlock_tier` |
-| **Hashline** | `hashline_read`, `hashline_edit` |
-| **Task Submission** | `smart_submit_task`, `submit_task`, `submit_chunked_review`, `test_routing` |
-| **Task Management** | `list_tasks`, `task_info`, `cancel_task`, `check_notifications`, `subscribe_task_events`, `await_task` |
-| **Workflows** | `create_workflow`, `add_workflow_task`, `run_workflow`, `workflow_status`, `list_workflows`, `await_workflow` |
-| **Automation** | `set_project_defaults`, `get_project_defaults`, `configure_stall_detection`, `auto_verify_and_fix`, `generate_test_tasks`, `get_batch_summary`, `generate_feature_tasks`, `run_batch`, `detect_file_conflicts`, `auto_commit_batch`, `configure_quota_auto_scale` |
-| **TypeScript Tools** | `add_ts_interface_members`, `inject_class_dependency`, `add_ts_union_members`, `inject_method_calls`, `normalize_interface_formatting`, `add_ts_enum_members`, `add_ts_method_to_class`, `replace_ts_method_body`, `add_import_statement` |
-| **Orchestrator/Strategic** | `strategic_decompose`, `strategic_diagnose`, `strategic_review`, `strategic_usage`, `strategic_benchmark` |
-| **Strategic Config** | `strategic_config_get`, `strategic_config_set`, `strategic_config_templates`, `strategic_config_apply_template` |
-| **Intelligence** | `predict_failure`, `intelligence_dashboard`, `log_intelligence_outcome`, `export_metrics_prometheus`, `cache_stats`, `database_stats` |
-| **Experiments** | `submit_ab_test`, `compare_ab_test`, `create_experiment`, `experiment_status`, `conclude_experiment` |
-| **Circuit Breaker** | `get_circuit_breaker_status` |
-| **Provider Scoring** | `get_provider_scores` |
-| **Symbol Indexer** | `search_symbols`, `get_file_outline`, `index_project` |
-| **Routing Templates** | `list_routing_templates`, `get_routing_template`, `set_routing_template`, `delete_routing_template`, `activate_routing_template`, `get_active_routing` |
-| **Competitive Features** | `get_tool_schema`, `polish_task_description`, `get_symbol_source` |
-| **Templates** | `get_project_template`, `list_project_templates`, `detect_project_type` |
-| **Diffusion/Scouts** | `submit_scout`, `create_diffusion_plan`, `diffusion_status` |
-| **Comparison** | `compare_providers` |
-| **Baselines** | `capture_file_baselines`, `compare_file_baseline`, `list_rollbacks`, `list_backups`, `restore_backup`, `capture_test_baseline`, `capture_config_baselines`, `perform_auto_rollback`, `get_auto_rollback_history` |
-| **Approval** | `reject_task`, `approve_diff`, `check_approval_gate` |
-| **Governance** | `get_governance_rules`, `set_governance_rule_mode`, `toggle_governance_rule` |
-| **Policy** | `list_policies`, `get_policy`, `set_policy_mode`, `evaluate_policies`, `list_policy_evaluations`, `override_policy_decision` |
-| **Evidence/Risk** | `get_file_risk`, `get_task_risk_summary`, `set_file_risk_override`, `get_high_risk_files`, `get_verification_checks`, `get_verification_summary`, `get_adversarial_reviews`, `request_adversarial_review` |
-| **CI** | `await_ci_run`, `watch_ci_repo`, `stop_ci_watch`, `ci_run_status`, `diagnose_ci_failure`, `list_ci_runs`, `configure_ci_provider` |
-| **Concurrency** | `get_concurrency_limits`, `set_concurrency_limit` |
-| **Discovery** | `discover_models`, `list_models`, `assign_model_role`, `discover_agents` |
-| **Model Approval** | `list_pending_models`, `approve_model`, `deny_model`, `bulk_approve_models`, `configure_model_roles`, `list_model_roles` |
-| **Workstations** | `list_workstations`, `add_workstation` |
-| **Audit** | `audit_codebase`, `list_audit_runs`, `get_audit_findings`, `update_audit_finding`, `get_audit_run_summary`, `get_audit_log`, `export_audit_report`, `configure_audit` |
-| **Integration** | `full_project_audit`, `scan_project`, `task_changes`, `rollback_file`, `stash_changes`, `list_rollback_points`, `success_rates`, `compare_performance` |
-| **Advanced** | Scheduling (`create_cron_schedule`, `list_schedules`, `toggle_schedule`, `create_one_time_schedule`), Resources (`get_resource_usage`, `set_resource_limits`, `resource_report`), Artifacts (`store_artifact`, `list_artifacts`, `get_artifact`, `delete_artifact`), Debug (`set_breakpoint`, `list_breakpoints`, `clear_breakpoint`, `step_execution`, `inspect_state`), Cache (`cache_task_result`, `lookup_cache`, `invalidate_cache`, `configure_cache`, `warm_cache`), Priority (`compute_priority`, `get_priority_queue`, `configure_priority_weights`, `explain_priority`, `boost_priority`) |
-| **Context** | `get_context` |
-| **Budget** | `get_budget_status` |
+| **Core** | `ping`, `restart_server`, `await_restart`, `unlock_tier`, `unlock_all_tools` |
+| **Task** | `submit_task`, `smart_submit_task`, `task_info`, `await_task`, `cancel_task` |
+| **Workflow** | `create_workflow`, `add_workflow_task`, `run_workflow`, `workflow_status`, `await_workflow` |
+| **Automation** | `set_project_defaults`, `get_project_defaults`, `scan_project`, `submit_scout`, `create_diffusion_plan` |
+| **TypeScript Tools** | `add_ts_interface_members`, `add_ts_method_to_class`, `replace_ts_method_body`, `add_import_statement` |
 
 ### TORQUE Automation Tools
 
-- **`set_project_defaults`**: Configure default provider, model, verification, privacy, review, and remote-test behavior for a project.
-  **Full `set_project_defaults` parameters:**
-  | Parameter | Type | Description |
-  |-----------|------|-------------|
-  | `working_directory` | string | Project directory (required) |
-  | `provider` | string | Default provider (codex, claude-cli, ollama, etc.) |
-  | `model` | string | Default model for this project |
-  | `verify_command` | string | Post-task verify command (e.g., "npx tsc --noEmit && npx vitest run") |
-  | `auto_fix` | boolean | Auto-fix type errors after task completion |
-  | `test_pattern` | string | Test file suffix pattern (default: ".test.ts") |
-  | `verification_ledger` | boolean | Enable structured verification ledger (default: false) |
-  | `verification_ledger_retention_days` | number | Retention period for verification ledger in days (default: 90) |
-  | `adversarial_review` | string | Adversarial review trigger mode: off, auto, always (default: off) |
-  | `adversarial_review_chain` | array | Provider chain for adversarial reviews |
-  | `adversarial_review_mode` | string | async or blocking (default: async) |
-  | `adversarial_review_timeout_seconds` | number | Timeout for blocking mode reviews (default: 300) |
-  | `step_providers` | object | Default per-step provider routing for feature workflows |
-  | `pii_guard` | object | PII guard config: enabled, builtin_categories, custom_patterns |
-  | `remote_agent_id` | string | Remote agent ID for test execution |
-  | `remote_project_path` | string | Project path on the remote agent |
-  | `prefer_remote_tests` | boolean | Route verify/test commands to remote agent |
-- **`get_project_defaults`**: Return the current default settings for a project, including provider, model, verification, and automation configuration.
+- `set_project_defaults` configures default provider, model, verification, privacy, review, and remote-test behavior for a project.
+- `get_project_defaults` returns the current defaults for a project.
 
 Use `get_tool_schema { tool_name: "<name>" }` for full parameter details on any tool.
 
 ## Multi-Host Setup
 
-TORQUE distributes tasks across multiple Ollama hosts on the LAN.
+TORQUE distributes Ollama work across registered LAN hosts.
 
 ### Adding a Remote Host
 
 Use `add_ollama_host` to register a new machine:
 
-```
-add_ollama_host { name: "NewHost", url: "http://192.168.1.x:11434" }
-```
+    add_ollama_host { name: "NewHost", url: "http://192.168.1.x:11434" }
 
-### Network Prerequisites
+### Load Balancing
 
-On the remote machine:
-1. Install and start Ollama
-2. Bind to all interfaces: `OLLAMA_HOST=0.0.0.0:11434 ollama serve`
-3. Ensure firewall allows inbound TCP on port `11434`
-
-### Verification
-
-- `check_ollama_health` — checks connectivity to all hosts
-- `list_ollama_hosts` — shows status, models, and health of each host
+TORQUE assigns work across healthy hosts automatically. Use `list_ollama_hosts` to inspect host status and `check_ollama_health` to verify connectivity before relying on a remote host.
 
 ## Architecture — DI Container
 

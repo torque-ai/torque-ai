@@ -342,6 +342,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     } catch (e) { logger.debug(`Schema migration (model settings R115): ${e.message}`); }
   safeAddColumn('remote_agents', 'tls INTEGER DEFAULT 0');
   safeAddColumn('remote_agents', 'rejectUnauthorized INTEGER DEFAULT 1');
+  safeAddColumn('remote_agents', 'os_platform TEXT');
 
   // peek_hosts table for multi-host peek_ui registry
   try {

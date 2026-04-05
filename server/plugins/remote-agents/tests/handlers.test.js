@@ -309,6 +309,7 @@ describe('remote-agent-handlers', () => {
           rejectUnauthorized: 1,
           status: 'healthy',
           enabled: 1,
+          os_platform: 'linux',
           last_health_check: '2026-03-10T12:00:00.000Z',
         },
       ]);
@@ -321,8 +322,10 @@ describe('remote-agent-handlers', () => {
       expect(getText(listResult)).toContain('https://10.0.0.10:3460');
       expect(getText(listResult)).toContain('healthy');
       expect(getText(listResult)).toContain('enabled');
+      expect(getText(listResult)).toContain('os: linux');
       expect(getText(listResult)).not.toContain('do-not-show');
       expect(getText(detailResult)).toContain('Build One');
+      expect(getText(detailResult)).toContain('os: linux');
       expect(getText(detailResult)).toContain('last check: 2026-03-10T12:00:00.000Z');
       expect(getText(detailResult)).not.toContain('do-not-show');
     });
@@ -351,7 +354,7 @@ describe('remote-agent-handlers', () => {
         checkHealth: vi.fn().mockResolvedValue({
           running_tasks: 2,
           max_concurrent: 5,
-          system: { memory_available_mb: 2048 },
+          system: { memory_available_mb: 2048, platform: 'linux' },
         }),
       };
       const registry = createMockRegistry([
@@ -370,6 +373,7 @@ describe('remote-agent-handlers', () => {
       expect(getText(result)).toContain('Build One: healthy');
       expect(getText(result)).toContain('running: 2/5');
       expect(getText(result)).toContain('2048MB free');
+      expect(getText(result)).toContain('os: linux');
     });
 
     it('returns bulk health summaries for all agents', async () => {

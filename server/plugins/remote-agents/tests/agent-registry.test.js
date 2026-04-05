@@ -316,7 +316,7 @@ describe('RemoteAgentRegistry', () => {
           status: 'healthy',
           running_tasks: 0,
           max_concurrent: 3,
-          system: { cpu: 0.5, memory: 0.6 },
+          system: { cpu: 0.5, memory: 0.6, platform: 'linux' },
         },
       }));
 
@@ -332,8 +332,10 @@ describe('RemoteAgentRegistry', () => {
       expect(agent.last_health_check).toBeTruthy();
       expect(agent.last_healthy).toBeTruthy();
       expect(agent.metrics).toBeTruthy();
+      expect(agent.os_platform).toBe('linux');
       const metrics = JSON.parse(agent.metrics);
       expect(metrics.cpu).toBe(0.5);
+      expect(metrics.platform).toBe('linux');
     });
 
     it('should mark agent as degraded on first failure', async () => {

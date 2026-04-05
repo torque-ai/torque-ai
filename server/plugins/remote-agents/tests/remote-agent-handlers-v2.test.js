@@ -267,6 +267,7 @@ describe('remote agent handlers', () => {
           rejectUnauthorized: 0,
           status: 'healthy',
           enabled: 1,
+          os_platform: 'linux',
           last_health_check: '2026-03-01T00:00:00.000Z',
         },
       ]);
@@ -282,6 +283,7 @@ describe('remote agent handlers', () => {
       expect(text).toContain('rejectUnauthorized: false');
       expect(text).toContain('healthy');
       expect(text).toContain('enabled');
+      expect(text).toContain('os: linux');
       expect(text).toContain('last check: 2026-03-01T00:00:00.000Z');
       expect(text).not.toContain('do-not-show');
     });
@@ -565,7 +567,7 @@ describe('remote agent handlers', () => {
         checkHealth: vi.fn().mockResolvedValue({
           running_tasks: 1,
           max_concurrent: 3,
-          system: { memory_available_mb: 4096 },
+          system: { memory_available_mb: 4096, platform: 'linux' },
         }),
       };
       setRegistry([
@@ -588,6 +590,7 @@ describe('remote agent handlers', () => {
       expect(getText(result)).toContain('Build One');
       expect(getText(result)).toContain('healthy');
       expect(getText(result)).toContain('1/3');
+      expect(getText(result)).toContain('os: linux');
       expect(getText(result)).toContain('4096MB free');
     });
 

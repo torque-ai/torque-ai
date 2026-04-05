@@ -38,7 +38,7 @@ const tools = [
       type: 'object',
       properties: {
         timeout_minutes: { type: 'number', description: 'Max wait before giving up (default: 30, min: 1, max: 60)' },
-        heartbeat_minutes: { type: 'number', description: 'Progress snapshot interval in minutes (default: 5, 0 to disable, max: 30)' },
+        heartbeat_minutes: { type: 'number', description: 'Minutes between scheduled progress heartbeats. Default 5. Set to 0 to disable. Max: 30.', minimum: 0, maximum: 30 },
         reason: { type: 'string', description: 'Restart reason (logged and passed to shutdown event)' },
       },
     },

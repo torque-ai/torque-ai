@@ -792,8 +792,10 @@ const tools = [
         poll_interval_ms: { type: 'number', description: 'Fallback poll interval in ms if push notifications unavailable (default: 5000). Usually not needed — tasks wake the loop instantly via event bus.' },
         heartbeat_minutes: {
           type: 'number',
-          description: 'Minutes between scheduled progress heartbeats. Default 5. Set to 0 to disable.',
-          default: 5
+          description: 'Minutes between scheduled progress heartbeats. Default 5. Set to 0 to disable. Max: 30.',
+          default: 5,
+          minimum: 0,
+          maximum: 30
         },
         auto_resubmit_on_restart: {
           type: 'boolean',
@@ -819,8 +821,10 @@ const tools = [
         poll_interval_ms: { type: 'number', description: 'Fallback poll interval in ms if push notifications unavailable (default: 5000). Usually not needed — tasks wake the loop instantly via event bus.' },
         heartbeat_minutes: {
           type: 'number',
-          description: 'Minutes between scheduled progress heartbeats. Default 5. Set to 0 to disable.',
-          default: 5
+          description: 'Minutes between scheduled progress heartbeats. Default 5. Set to 0 to disable. Max: 30.',
+          default: 5,
+          minimum: 0,
+          maximum: 30
         },
         auto_resubmit_on_restart: {
           type: 'boolean',

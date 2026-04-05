@@ -495,7 +495,7 @@ function handleSubmitTask(args) {
         timeout_minutes: timeout,
         auto_approve: Boolean(args.auto_approve),
         priority: args.priority || 0,
-        provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
+        provider: args.provider ? providerName : null,  // preserve user override; null = deferred assignment by tryClaimTaskSlot
         model: model,  // null = use provider's default model
         metadata: JSON.stringify(metadata)
       });

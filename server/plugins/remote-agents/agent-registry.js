@@ -196,15 +196,21 @@ class RemoteAgentRegistry {
       const client = this.getClient(agent.id);
       if (!client) continue;
 
-      const result = await client.checkHealth();
+      const healthData = await client.checkHealth();
       const now = new Date().toISOString();
 
-      if (result) {
+      if (healthData) {
         this.db.prepare(`UPDATE remote_agents SET
           status = 'healthy', consecutive_failures = 0,
-          last_health_check = ?, last_healthy = ?, metrics = ?
+          last_health_check = ?, last_healthy = ?, metrics = ?, os_platform = ?
           WHERE id = ?`
-        ).run(now, now, JSON.stringify(result.system || {}), agent.id);
+        ).run(
+          now,
+          now,
+          JSON.stringify(healthData.system || {}),
+          healthData.system?.platform || null,
+          agent.id
+        );
         results.push({ id: agent.id, status: 'healthy' });
       } else {
         const failures = (agent.consecutive_failures || 0) + 1;

@@ -2798,6 +2798,7 @@ function createTables(db, logger) {
         last_health_check TEXT,
         last_healthy TEXT,
         metrics TEXT,
+        os_platform TEXT,
         tls INTEGER DEFAULT 0,
         rejectUnauthorized INTEGER DEFAULT 1,
         created_at TEXT DEFAULT (datetime('now')),

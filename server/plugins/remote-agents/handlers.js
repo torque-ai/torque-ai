@@ -55,7 +55,8 @@ function _formatAgentSummary(agent) {
   const status = agent.status || 'unknown';
   const enabled = agent.enabled ? 'enabled' : 'disabled';
   const lastCheck = agent.last_health_check || 'never';
-  return `${agent.name} (${agent.id}) — ${_formatAgentEndpoint(agent)} — ${_formatAgentTls(agent)} — ${status} — ${enabled} — last check: ${lastCheck}`;
+  const osPlatform = agent.os_platform ? ` — os: ${agent.os_platform}` : '';
+  return `${agent.name} (${agent.id}) — ${_formatAgentEndpoint(agent)} — ${_formatAgentTls(agent)} — ${status} — ${enabled}${osPlatform} — last check: ${lastCheck}`;
 }
 
 function _createCoreError(errorCode, error, details = null) {
@@ -388,10 +389,11 @@ function createHandlers({ agentRegistry, db } = {}) {
           const mem = result.system && result.system.memory_available_mb
             ? `${result.system.memory_available_mb}MB free`
             : 'N/A';
+          const platform = result.system && result.system.platform ? `, os: ${result.system.platform}` : '';
           return {
             content: [{
               type: 'text',
-              text: `${agent.name}: healthy (running: ${result.running_tasks}/${result.max_concurrent}, mem: ${mem})`,
+              text: `${agent.name}: healthy (running: ${result.running_tasks}/${result.max_concurrent}, mem: ${mem}${platform})`,
             }],
           };
         }
