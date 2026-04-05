@@ -57,13 +57,19 @@ After a workflow completes, check if multiple tasks modified the same files:
 2. Any file touched by 2+ tasks is a conflict.
 3. Include conflict warnings in your review messages.
 
-## Phase 4: Integration Pass — AUTO-TRIGGER
+## Phase 4: Signal Ready for Integration
 
-**You MUST run this automatically** once every task in the batch has been individually approved. Do NOT wait for the team lead to ask. Track your approval count — when it equals the total task count, immediately start the integration pass.
+Track your approval count. When it equals the total task count (all tasks approved), message team lead:
 
-1. Run full test suite via `torque-remote npx vitest run` from the project root.
-2. **Pass** → message team lead with full approval summary.
-3. **Fail** → message `remediation` with cross-task failure context (error, task list, likely conflict).
+```
+ALL APPROVED
+task_count: <N>
+tasks: <comma-separated IDs>
+conflicts: <any detected, or "none">
+status: ready for commit + integration pass
+```
+
+Do NOT run the integration pass yourself — the Orchestrator handles commit, push, and test execution. Do NOT go idle without sending this message when all tasks are approved.
 
 ## Routing Rules — MANDATORY
 
