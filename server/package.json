@@ -31,7 +31,7 @@
     "lint:di": "node scripts/check-no-direct-db-import.js"
   },
   "dependencies": {
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^12.8.0",
     "bonjour-service": "^1.3.0",
     "tree-sitter-wasms": "^0.1.13",
     "undici": "^7.24.4",
