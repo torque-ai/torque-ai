@@ -18,6 +18,16 @@ You receive a message with:
 - `plan_path` — path to the sweep plan JSON
 - `section_results` — array of `{ section_id, findings_path, finding_count, severity_counts }`
 
+## Finding Sources
+
+In hybrid mode, you receive findings from three sources:
+
+1. **Global findings** (from pre-analysis dedup) — mechanical issues appearing across 3+ sections. Report once with the list of affected sections.
+2. **Section-specific automated findings** — mechanical issues for sections that skipped LLM analysis. Include as-is with `source: automated`.
+3. **LLM analysis findings** — visual and contextual issues from Claude agents. Include with `source: visual-analysis`.
+
+Merge all three sources into a single summary. In the per-section table, show finding counts from both automated and LLM sources. In the detailed findings section, group by severity regardless of source.
+
 ## Workflow
 
 ### 1. Read the sweep plan

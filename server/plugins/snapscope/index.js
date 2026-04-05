@@ -151,7 +151,7 @@ function createSnapScopePlugin() {
     return {
       tier1: [
         'peek_ui', 'peek_interact', 'peek_elements', 'peek_diagnose',
-        'peek_wait', 'peek_launch', 'peek_action_sequence',
+        'peek_wait', 'peek_launch', 'peek_action_sequence', 'peek_pre_analyze',
       ],
       tier2: [
         'peek_hit_test', 'peek_discover', 'peek_health_all',

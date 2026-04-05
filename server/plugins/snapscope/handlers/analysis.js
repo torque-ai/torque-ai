@@ -1321,6 +1321,45 @@ async function handlePeekActionSequence(args) {
   }
 }
 
+async function handlePeekPreAnalyze(args) {
+  try {
+    const { analyzeElementTree } = require('./pre-analyze');
+    const fs = require('fs');
+
+    if (!args.capture_path) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'capture_path is required');
+    }
+
+    let bundle;
+    try {
+      const raw = fs.readFileSync(args.capture_path, 'utf-8');
+      bundle = JSON.parse(raw);
+    } catch (err) {
+      return makeError(ErrorCodes.INVALID_PARAM, `Cannot read capture bundle: ${err.message}`);
+    }
+
+    const elements = bundle.elements || bundle.bundle?.elements || [];
+    if (!Array.isArray(elements) || elements.length === 0) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify({
+          findings: [],
+          flagged_elements: [],
+          stats: { total_elements: 0, interactive: 0, checks_run: 5, findings: 0 }
+        }) }]
+      };
+    }
+
+    const sectionId = args.section_id || 'unknown';
+    const result = analyzeElementTree(elements, sectionId);
+
+    return {
+      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
+  }
+}
+
 module.exports = {
   handlePeekElements,
   handlePeekWait,
@@ -1335,4 +1374,5 @@ module.exports = {
   handlePeekDiagnose,
   handlePeekSemanticDiff,
   handlePeekActionSequence,
+  handlePeekPreAnalyze,
 };

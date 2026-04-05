@@ -27,6 +27,7 @@ Parse `$ARGUMENTS` into:
 - `--depth` — "page" (default) or "component".
 - `--section` — optional section ID to sweep only one section.
 - `--schedule` — optional time string. If present, submit as one-time schedule instead of running immediately.
+- `--mode` — "hybrid" (default) or "full". Hybrid uses automated capture + pre-analysis + dedup. Full uses original all-agent approach.
 
 If no `app` argument, ask via AskUserQuestion: "Which app should I sweep? (e.g., example-project, torque-dashboard)"
 
@@ -58,7 +59,7 @@ If `--schedule` is present:
 
 ## Immediate Mode
 
-### Phase 1: Discovery
+### Phase 1: Discovery (unchanged)
 
 Read `.claude/agents/visual-sweep-discovery.md` and extract the markdown body (after frontmatter).
 
@@ -71,92 +72,146 @@ Spawn the discovery agent:
       mode: "auto"
     })
 
-Wait for completion. The discovery agent sends a message with `type: "discovery_complete"` containing `plan_path` and target count. If it sends `type: "discovery_failed"`, report the error and stop.
+Wait for completion. If discovery fails, report the error and stop.
 
 Report to user:
 
-Phase 1 — Discovery complete:
-  - <N> sections found (<M> from manifest, <K> discovered)
-  - <U> unreachable sections
-  - Sweep plan: <plan_path>
+    Phase 1 — Discovery complete:
+      - <N> sections found (<M> from manifest, <K> discovered)
+      - <U> unreachable sections
+      - Sweep plan: <plan_path>
 
-### Phase 2: Capture
+### Phase 2: Capture (automated — no agent)
 
-Read `.claude/agents/visual-sweep-capture.md` and extract the body.
+Read the sweep plan JSON. For each target with status "pending":
 
-Spawn the capture coordinator:
+1. **Build steps** using the navigation spec:
+   - `nav_element`: `[{action:"click", element:"<target>"}, {action:"sleep", ms:<settle_ms>}, {action:"capture"}]`
+   - `url`: `[{action:"hotkey", keys:"ctrl+l"}, {action:"type", text:"<target>"}, {action:"hotkey", keys:"Enter"}, {action:"sleep", ms:<settle_ms>}, {action:"capture"}]`
+   - `keyboard`: `[{action:"hotkey", keys:"<target>"}, {action:"sleep", ms:<settle_ms>}, {action:"capture"}]`
+   - `menu`: `[{action:"click", element:"<item1>"}, {action:"click", element:"<item2>"}, ..., {action:"sleep", ms:<settle_ms>}, {action:"capture"}]`
+   - `discovered`: `[{action:"click", element:"<element>"}, {action:"sleep", ms:<settle_ms>}, {action:"capture"}]`
+   - Default `settle_ms`: 1000. Override per-section in manifest with `"settle_ms": N`.
 
-    Agent({
-      name: "sweep-capture",
-      prompt: "You are running a visual sweep capture phase.\n\nPlan path: <plan_path>\nProcess: <process from manifest>\n\n<capture agent body>",
-      model: "opus",
-      mode: "auto"
-    })
+2. **Validate steps** — check each step has a valid action and required fields. If invalid, mark target as `"status": "invalid"` and skip.
 
-Wait for completion. The coordinator sends `type: "capture_complete"` with captured/failed counts.
+3. **Execute** via `peek_action_sequence({ process: "<process>", steps: <built steps> })`.
+
+4. **Save** the capture result to `<working_directory>/docs/visual-sweep-captures/<target.id>.json`.
+
+5. **Update** target status to `"captured"`. On failure, retry once. If app crashed (window not found), attempt `peek_launch`, wait 10s, retry. On second failure, mark `"status": "failed"` and continue.
 
 Report to user:
 
-Phase 2 — Capture complete:
-  - <N> sections captured
-  - <F> sections failed
-  - Captures in: <capture_dir>
+    Phase 2 — Capture complete:
+      - <N> sections captured, <F> failed, <I> invalid
+      - Captures in: <capture_dir>
 
-### Phase 3: Analysis Fleet
+**Fallback:** If the manifest has `"capture_mode": "agent"`, spawn the capture coordinator agent instead (original Phase 2 behavior). Read `.claude/agents/visual-sweep-capture.md` and spawn as before.
 
-Read the sweep plan JSON to get all captured targets. Read `.claude/agents/visual-sweep-analyzer.md` and extract the body.
+### Phase 3a: Pre-Analysis (mechanical checks)
 
-For each target with status "captured", spawn an analysis scout:
+For each captured target, call:
+
+    peek_pre_analyze({ capture_path: "<capture_dir>/<target.id>.json", section_id: "<target.id>", section_label: "<target.label>" })
+
+Collect results into a `pre_analysis` map keyed by section ID.
+
+Report to user:
+
+    Phase 3a — Pre-analysis complete:
+      - <N> sections analyzed
+      - <F> total mechanical findings
+      - Top issues: <list top 3 by frequency>
+
+### Phase 3b: Dedup (cross-section filtering)
+
+Build finding signatures from all pre-analysis results. A finding appearing in 3+ sections is "global" — report once, don't send to individual scouts.
+
+For each section, compute:
+- `unique_findings`: findings not in the global set
+- `flagged_elements`: elements with issues not covered by global dedup
+- `needs_llm`: true if unique_findings > 0 OR flagged_elements > 0
+
+Report to user:
+
+    Phase 3b — Dedup complete:
+      - <G> global findings (will report once)
+      - <L> sections need LLM analysis, <S> sections skip LLM
+
+### Phase 3c: Analysis Fleet (optimized)
+
+Read `.claude/agents/visual-sweep-analyzer.md` and extract the body.
+
+**For sections where `needs_llm` is true**, spawn a full analysis scout:
 
     Agent({
       name: "sweep-analyzer-<section_id>",
-      prompt: "You are an analysis scout in a visual sweep fleet.\n\nApp: <app>\nSection ID: <target.id>\nSection Label: <target.label>\nCapture path: <capture_dir>/<target.id>.json\nWorking directory: <project dir>\nFramework: <framework>\nManifest section: <JSON or null>\n\n<analyzer agent body>",
+      prompt: "You are an analysis scout in a visual sweep fleet.\n\nApp: <app>\nSection ID: <target.id>\nSection Label: <target.label>\nCapture path: <capture_dir>/<target.id>.json\nWorking directory: <project dir>\nFramework: <framework>\nManifest section: <JSON or null>\n\n## Pre-Analysis Context\nThe following mechanical issues were already found by automated pre-analysis. Do NOT re-report these — focus on visual issues, stale content, novel problems, and source tracing.\n\nGlobal findings (reported separately): <JSON list of global finding signatures>\nThis section's automated findings: <JSON list of unique findings for this section>\n\n<analyzer agent body>",
       model: "opus",
       mode: "auto",
       run_in_background: true
     })
 
-**All analysis scouts run in parallel** (run_in_background: true). Collect results as they complete. Each sends `type: "analysis_complete"` with finding counts.
+**For sections where `needs_llm` is false**, spawn a lightweight screenshot-only scout:
 
-### Phase 4: Rollup
+    Agent({
+      name: "sweep-lite-<section_id>",
+      prompt: "You are a lightweight visual scout. Check this screenshot for visual-only issues (wrong colors, misaligned images, stale content, broken layouts) that automated element tree analysis cannot detect. The element tree was already checked mechanically — only report issues visible in the screenshot.\n\nApp: <app>\nSection: <target.label>\nCapture path: <capture_dir>/<target.id>.json\nWorking directory: <project dir>\n\nRead the capture bundle. Look ONLY at the screenshot and annotated screenshot. If you find visual issues, write findings to docs/findings/<date>-visual-sweep-<app>-<section_id>.md. If the section looks clean, report 0 findings.\n\nAfter writing (or deciding 0 findings), send:\nSendMessage({ to: 'orchestrator', message: { type: 'analysis_complete', section_id: '<id>', findings_path: '<path or null>', finding_count: N, severity_counts: {critical:0,high:0,medium:0,low:0} } })",
+      model: "sonnet",
+      mode: "auto",
+      run_in_background: true
+    })
 
-Once all scouts complete, read `.claude/agents/visual-sweep-rollup.md` and extract the body.
+Note: lightweight scouts use **sonnet** (cheaper, sufficient for visual-only checks).
 
-Spawn the rollup agent:
+Collect all results as agents complete.
+
+### Phase 4: Rollup (updated — merges both sources)
+
+Read `.claude/agents/visual-sweep-rollup.md` and extract the body.
+
+Spawn the rollup agent with combined context:
 
     Agent({
       name: "sweep-rollup",
-      prompt: "You are the rollup agent for a visual sweep.\n\nApp: <app>\nFindings directory: docs/findings/\nDate: <today>\nPlan path: <plan_path>\nSection results: <JSON array of analysis results>\n\n<rollup agent body>",
+      prompt: "You are the rollup agent for a visual sweep.\n\nApp: <app>\nFindings directory: docs/findings/\nDate: <today>\nPlan path: <plan_path>\n\n## Pre-Analysis Findings\nGlobal findings (cross-section, reported once):\n<JSON of global_findings>\n\nPer-section automated findings (sections that skipped LLM):\n<JSON of pre-analysis findings for non-LLM sections>\n\n## LLM Analysis Results\n<JSON array of analysis scout results>\n\nMerge ALL finding sources into a single summary. Include pre-analysis findings alongside LLM findings. Mark pre-analysis findings with source: 'automated' and LLM findings with source: 'visual-analysis'.\n\n<rollup agent body>",
       model: "sonnet",
       mode: "auto"
     })
 
 Wait for completion.
 
-### Phase 5: Report
+### Phase 5: Report + Cleanup (unchanged)
 
 Present to user:
 
-## Visual Sweep Complete: <app>
+    ## Visual Sweep Complete: <app>
 
-**Sections:** <captured>/<total> captured
-**Findings:** <total> (<critical> critical, <high> high, <medium> medium, <low> low)
+    **Mode:** hybrid (automated capture + pre-analysis + LLM fleet)
+    **Sections:** <captured>/<total> captured
+    **Findings:** <total> (<automated> automated, <llm> visual analysis)
+      - <critical> critical, <high> high, <medium> medium, <low> low
 
-### Summary
-See: <summary file path>
+    ### Pre-Analysis (mechanical)
+    - <G> global findings, <S> section-specific
+    - Top: <list top 3>
 
-### Per-Section
-<table: section | findings | top severity>
+    ### LLM Analysis
+    - <L> sections analyzed by LLM, <K> sections skipped (clean)
+    - <F> additional findings from visual reasoning
 
-### Action Items
-- <list CRITICAL and HIGH findings>
-- To fix: /torque-team <summary file path>
+    ### Summary
+    See: <summary file path>
 
-### Cleanup
+    ### Action Items
+    - <list CRITICAL and HIGH findings>
+    - To fix: /torque-team <summary file path>
 
-Remove temporary capture files:
+Remove temporary capture files. Keep findings files.
 
-    rm -rf <working_directory>/docs/visual-sweep-captures/
-    rm -f <working_directory>/docs/visual-sweep-plan.json
+### Mode Flag
 
-Keep findings files — they are the permanent output.
+If the user passes `--mode full`, skip Phases 3a and 3b entirely. Run the original Phase 3 (all-LLM fleet, no pre-analysis, no dedup). This is the Take 5 behavior.
+
+Default is `--mode hybrid`.

@@ -1407,6 +1407,28 @@ const tools = [
         }
       }
     }
+  },
+  {
+    name: 'peek_pre_analyze',
+    description: 'Run mechanical accessibility and layout checks on a capture bundle element tree. Returns findings for missing accessible names, bounds overflow, empty containers, small interactive elements, and duplicate automation IDs. No network calls — pure JSON analysis. Use before spawning LLM analysis agents to pre-filter mechanical issues.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        capture_path: {
+          type: 'string',
+          description: 'Absolute path to the capture bundle JSON file (from peek_diagnose output)'
+        },
+        section_id: {
+          type: 'string',
+          description: 'Section identifier for findings attribution'
+        },
+        section_label: {
+          type: 'string',
+          description: 'Human-readable section name'
+        }
+      },
+      required: ['capture_path']
+    }
   }
 ];
 

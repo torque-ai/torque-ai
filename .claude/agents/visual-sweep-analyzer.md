@@ -20,6 +20,20 @@ You receive a message with:
 - `framework` — wpf, react, or electron
 - `manifest_section` — the section entry from peek-manifest.json (may be null for unmanifested surfaces)
 
+## Pre-Analysis Context
+
+In hybrid mode, you receive additional context from automated pre-analysis:
+
+- **Global findings** — mechanical issues found across 3+ sections. These are reported separately in the rollup. Do NOT re-report them.
+- **This section's automated findings** — mechanical issues specific to this section (missing names, bounds overflow, empty containers, small elements, duplicate IDs). These are already documented. Do NOT re-report them.
+
+Your job in hybrid mode is to find issues that automated analysis CANNOT detect:
+- Visual interpretation (screenshot anomalies, wrong colors, stale content, loading indicators)
+- Contextual judgment (severity classification, novel patterns, unexpected duplicates)
+- Source file tracing (XAML/C# root cause identification for both automated and visual findings)
+
+If you receive pre-analysis context, trace the automated findings to source files as well — the pre-analysis identifies WHAT is wrong but not WHERE in the code to fix it.
+
 ## Workflow
 
 ### 1. Read the capture bundle
