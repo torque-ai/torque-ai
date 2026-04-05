@@ -1,38 +1,42 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
+
+const { mockDetect, mockLoad, mockFind, mockSuggest } = vi.hoisted(() => ({
+  mockDetect: vi.fn(),
+  mockLoad: vi.fn(),
+  mockFind: vi.fn(),
+  mockSuggest: vi.fn()
+}));
+
+vi.mock('../hooks/manifest-patterns', () => ({
+  detectVisualSurfaces: mockDetect,
+  loadManifest: mockLoad,
+  findUnregistered: mockFind,
+  suggestManifestEntry: mockSuggest
+}));
+
+const { createHook } = await import('../hooks/manifest-enforcement');
 
 describe('manifest-enforcement hook', () => {
-  let manifestEnforcement;
-  let mockPatterns;
-
   beforeEach(() => {
-    vi.resetModules();
-
-    mockPatterns = {
-      detectVisualSurfaces: vi.fn().mockReturnValue([]),
-      loadManifest: vi.fn().mockReturnValue(null),
-      findUnregistered: vi.fn().mockReturnValue([]),
-      suggestManifestEntry: vi.fn().mockReturnValue({ id: 'test', label: 'Test' })
-    };
-
-    vi.doMock('../hooks/manifest-patterns', () => mockPatterns);
-    manifestEnforcement = require('../hooks/manifest-enforcement');
+    mockDetect.mockReset().mockReturnValue([]);
+    mockLoad.mockReset().mockReturnValue(null);
+    mockFind.mockReset().mockReturnValue([]);
+    mockSuggest.mockReset().mockReturnValue({ id: 'test', label: 'Test' });
   });
 
   it('exports a createHook factory', () => {
-    expect(typeof manifestEnforcement.createHook).toBe('function');
+    expect(typeof createHook).toBe('function');
   });
 
   it('hook returns null when task has no changed_files', async () => {
-    const hook = manifestEnforcement.createHook();
+    const hook = createHook();
     const result = await hook({ taskId: '1', task: { working_directory: '/proj' } });
     expect(result).toBeNull();
   });
 
   it('hook returns null when no manifest exists', async () => {
-    mockPatterns.loadManifest.mockReturnValue(null);
-    const hook = manifestEnforcement.createHook();
+    mockLoad.mockReturnValue(null);
+    const hook = createHook();
     const result = await hook({
       taskId: '1',
       task: { working_directory: '/proj' },
@@ -43,15 +47,15 @@ describe('manifest-enforcement hook', () => {
 
   it('hook detects unregistered surfaces and returns approval gate info', async () => {
     const manifest = { framework: 'wpf', sections: [] };
-    mockPatterns.loadManifest.mockReturnValue(manifest);
-    mockPatterns.detectVisualSurfaces.mockReturnValue([
+    mockLoad.mockReturnValue(manifest);
+    mockDetect.mockReturnValue([
       { file: 'src/Views/New.xaml', type: 'Window', id: 'New' }
     ]);
-    mockPatterns.findUnregistered.mockReturnValue([
+    mockFind.mockReturnValue([
       { file: 'src/Views/New.xaml', type: 'Window', id: 'New' }
     ]);
 
-    const hook = manifestEnforcement.createHook();
+    const hook = createHook();
     const result = await hook({
       taskId: 'task-1',
       task: { working_directory: '/proj' },
@@ -69,13 +73,13 @@ describe('manifest-enforcement hook', () => {
 
   it('hook returns null when all surfaces are registered', async () => {
     const manifest = { framework: 'wpf', sections: [{ id: 'new' }] };
-    mockPatterns.loadManifest.mockReturnValue(manifest);
-    mockPatterns.detectVisualSurfaces.mockReturnValue([
+    mockLoad.mockReturnValue(manifest);
+    mockDetect.mockReturnValue([
       { file: 'src/Views/New.xaml', type: 'Window', id: 'New' }
     ]);
-    mockPatterns.findUnregistered.mockReturnValue([]);
+    mockFind.mockReturnValue([]);
 
-    const hook = manifestEnforcement.createHook();
+    const hook = createHook();
     const result = await hook({
       taskId: 'task-1',
       task: { working_directory: '/proj' },
