@@ -88,15 +88,24 @@ function clearAllTrackedIntervals() {
 // CORS / origin helpers
 // ──────────────────────────────────────────────────────────────
 
+let _allowedOriginsCache = null;
+
 function getAllowedOrigins() {
+  if (_allowedOriginsCache) return _allowedOriginsCache;
   if (process.env.MCP_ALLOWED_ORIGINS) {
-    return parseAllowedOrigins(process.env.MCP_ALLOWED_ORIGINS);
+    _allowedOriginsCache = parseAllowedOrigins(process.env.MCP_ALLOWED_ORIGINS);
+    return _allowedOriginsCache;
   }
   const dashboardPort = serverConfig ? serverConfig.getInt('dashboard_port', 3456) : 3456;
-  return new Set([
+  _allowedOriginsCache = new Set([
     `http://127.0.0.1:${dashboardPort}`,
     `http://localhost:${dashboardPort}`,
   ]);
+  return _allowedOriginsCache;
+}
+
+function invalidateAllowedOriginsCache() {
+  _allowedOriginsCache = null;
 }
 
 function parseAllowedOrigins(rawOrigins) {
@@ -790,5 +799,6 @@ module.exports = {
   taskSubscriptions,
   addSessionToTaskSubscriptions: sessionMod.addSessionToTaskSubscriptions,
   sendClientRequest,
+  invalidateAllowedOriginsCache,
   getSession: (sessionId) => sessionMod.getSession(sessionId) || streamableHttpMod.getSession(sessionId),
 };

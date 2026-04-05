@@ -22,6 +22,7 @@ let getRetryHistoryFn;
 let recordAuditLogFn;
 let getApprovalHistoryFn;
 let createTaskFn;
+let _taskFileChangeColumnsCache = null;
 
 function setDb(dbInstance) { db = dbInstance; taskIntelligence.setDb(dbInstance); taskDebugger.setDb(dbInstance); }
 function setGetTask(fn) { getTaskFn = fn; taskIntelligence.setGetTask(fn); }
@@ -38,11 +39,13 @@ function escapeLikePattern(str) {
 }
 
 function getTaskFileChangeColumns() {
-  return new Set(
+  if (_taskFileChangeColumnsCache) return _taskFileChangeColumnsCache;
+  _taskFileChangeColumnsCache = new Set(
     db.prepare('PRAGMA table_info(task_file_changes)')
       .all()
       .map((column) => column.name)
   );
+  return _taskFileChangeColumnsCache;
 }
 
 function pickFirstDefined(...values) {

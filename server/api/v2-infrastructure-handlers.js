@@ -470,23 +470,10 @@ async function handleDeleteCredential(req, res) {
 
 // ─── Remote Agents ──────────────────────────────────────────────────────────
 
-let _cachedRegistry = null;
-function _resetRegistryCache() { _cachedRegistry = null; }
+function _resetRegistryCache() { /* no-op — registry is managed by plugin singleton */ }
 function _getRegistry() {
-  if (_cachedRegistry) return _cachedRegistry;
-  let rawDb;
-  try {
-    const { defaultContainer } = require('../container');
-    rawDb = defaultContainer.get('db');
-  } catch (_e) {
-    const dbModule = require('../database');
-    rawDb = typeof dbModule.getDbInstance === 'function' ? dbModule.getDbInstance() : null;
-  }
-  if (!rawDb || typeof rawDb.prepare !== 'function') return null;
-
-  const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');
-  _cachedRegistry = new RemoteAgentRegistry(rawDb);
-  return _cachedRegistry;
+  const { getInstalledRegistry } = require('../plugins/remote-agents');
+  return getInstalledRegistry();
 }
 
 function _sanitizeAgent(agent) {

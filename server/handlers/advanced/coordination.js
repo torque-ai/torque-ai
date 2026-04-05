@@ -841,7 +841,7 @@ function handleExportMetricsPrometheus(_args) {
   return {
     content: [{
       type: 'text',
-      text: `# HELP codexbridge_tasks_total Total tasks by status\n# TYPE codexbridge_tasks_total gauge\n${metrics}`
+      text: `# HELP torque_tasks_total Total tasks by status\n# TYPE torque_tasks_total gauge\n${metrics}`
     }]
   };
 }

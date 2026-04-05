@@ -1,17 +1,7 @@
 'use strict';
 
+const { defaultContainer } = require('../container');
 const hostManagement = require('../db/host-management');
-
-function getDb() {
-  const database = require('../database'); // facade: getDbInstance
-  if (typeof database.getDb === 'function') {
-    return database.getDb();
-  }
-  if (typeof database.getDbInstance === 'function') {
-    return database.getDbInstance();
-  }
-  return null;
-}
 
 function response(message) {
   return {
@@ -53,7 +43,7 @@ function parseVramFactor(value) {
 
 function getConcurrencyLimits() {
   try {
-    const db = getDb();
+    const db = defaultContainer.get('db');
 
     const vramOverheadFactor = hostManagement.getVramOverheadFactor();
 
@@ -146,7 +136,7 @@ function setConcurrencyLimit(args = {}) {
     }
 
     try {
-      const db = getDb();
+      const db = defaultContainer.get('db');
       db.prepare("INSERT OR REPLACE INTO config (key, value) VALUES ('vram_overhead_factor', ?)").run(String(parsed.value));
       return response(`Set vram_overhead_factor to ${parsed.value}.`);
     } catch (error) {
@@ -184,7 +174,7 @@ function setConcurrencyLimit(args = {}) {
   if (scope === 'provider') {
     if (!hasMaxConcurrent) return response('max_concurrent is required for provider scope.');
     try {
-      const db = getDb();
+      const db = defaultContainer.get('db');
       const existingProvider = db.prepare('SELECT provider FROM provider_config WHERE provider = ?').get(target);
       if (!existingProvider) {
         return response(`Provider '${target}' not found.`);

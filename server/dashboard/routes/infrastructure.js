@@ -618,14 +618,10 @@ async function handleProviderToggle(req, res, query, providerId) {
 
 // ── Agents ─────────────────────────────────────────────────────────────────────
 
-// (from agents.js) Get agent registry from the remote-agents plugin modules
+// Get the shared agent registry from the remote-agents plugin singleton
 function _getRegistry() {
-  if (!database || typeof database.getDbInstance !== 'function') return null;
-  const dbInstance = database.getDbInstance();
-  if (!dbInstance || typeof dbInstance.prepare !== 'function') return null;
-
-  const { RemoteAgentRegistry } = require('../../plugins/remote-agents/agent-registry');
-  return new RemoteAgentRegistry(dbInstance);
+  const { getInstalledRegistry } = require('../../plugins/remote-agents');
+  return getInstalledRegistry();
 }
 
 // (from agents.js) Strip secret from agent record and normalize booleans

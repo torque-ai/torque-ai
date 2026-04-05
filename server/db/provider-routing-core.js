@@ -348,14 +348,14 @@ function getPrometheusMetrics() {
   `).all();
 
   for (const { status, count } of taskCounts) {
-    metrics.push(`codexbridge_tasks_total{status="${escapePrometheusLabel(status)}"} ${count}`);
+    metrics.push(`torque_tasks_total{status="${escapePrometheusLabel(status)}"} ${count}`);
   }
 
   // Active agents
   const agentCount = db.prepare(`
     SELECT COUNT(*) as count FROM agents WHERE status = 'online'
   `).get();
-  metrics.push(`codexbridge_active_agents ${agentCount.count}`);
+  metrics.push(`torque_active_agents ${agentCount.count}`);
 
   // Task duration histogram (approximate buckets)
   const durations = db.prepare(`
@@ -373,7 +373,7 @@ function getPrometheusMetrics() {
   `).all();
 
   for (const { bucket, count } of durations) {
-    metrics.push(`codexbridge_task_duration_seconds_bucket{le="${bucket}"} ${count}`);
+    metrics.push(`torque_task_duration_seconds_bucket{le="${bucket}"} ${count}`);
   }
 
   // Workflow counts
@@ -384,7 +384,7 @@ function getPrometheusMetrics() {
   `).all();
 
   for (const { status, count } of workflowCounts) {
-    metrics.push(`codexbridge_workflows_total{status="${escapePrometheusLabel(status)}"} ${count}`);
+    metrics.push(`torque_workflows_total{status="${escapePrometheusLabel(status)}"} ${count}`);
   }
 
   // Token usage
@@ -394,8 +394,8 @@ function getPrometheusMetrics() {
     WHERE recorded_at >= date('now', '-1 day')
   `).get();
 
-  metrics.push(`codexbridge_tokens_daily_total ${tokenUsage.total || 0}`);
-  metrics.push(`codexbridge_cost_daily_usd ${tokenUsage.cost || 0}`);
+  metrics.push(`torque_tokens_daily_total ${tokenUsage.total || 0}`);
+  metrics.push(`torque_cost_daily_usd ${tokenUsage.cost || 0}`);
 
   // --- Extended metrics ---
 
@@ -415,7 +415,7 @@ function getPrometheusMetrics() {
     GROUP BY bucket
   `).all();
   for (const { bucket, count } of queueWaits) {
-    metrics.push(`codexbridge_queue_wait_seconds_bucket{le="${bucket}"} ${count}`);
+    metrics.push(`torque_queue_wait_seconds_bucket{le="${bucket}"} ${count}`);
   }
 
   // Tasks by provider
@@ -426,7 +426,7 @@ function getPrometheusMetrics() {
     GROUP BY provider
   `).all();
   for (const { provider, count } of providerTasks) {
-    metrics.push(`codexbridge_provider_tasks_total{provider="${escapePrometheusLabel(provider)}"} ${count}`);
+    metrics.push(`torque_provider_tasks_total{provider="${escapePrometheusLabel(provider)}"} ${count}`);
   }
 
   // Average duration by provider
@@ -438,7 +438,7 @@ function getPrometheusMetrics() {
     GROUP BY provider
   `).all();
   for (const { provider, avg_duration } of providerDurations) {
-    metrics.push(`codexbridge_provider_duration_seconds{provider="${escapePrometheusLabel(provider)}"} ${(avg_duration || 0).toFixed(2)}`);
+    metrics.push(`torque_provider_duration_seconds{provider="${escapePrometheusLabel(provider)}"} ${(avg_duration || 0).toFixed(2)}`);
   }
 
   // Host slot usage
@@ -449,8 +449,8 @@ function getPrometheusMetrics() {
       WHERE enabled = 1
     `).all();
     for (const { name, running_tasks, max_concurrent } of hostSlots) {
-      metrics.push(`codexbridge_host_slots_used{host="${escapePrometheusLabel(name)}"} ${running_tasks || 0}`);
-      metrics.push(`codexbridge_host_slots_total{host="${escapePrometheusLabel(name)}"} ${max_concurrent || 1}`);
+      metrics.push(`torque_host_slots_used{host="${escapePrometheusLabel(name)}"} ${running_tasks || 0}`);
+      metrics.push(`torque_host_slots_total{host="${escapePrometheusLabel(name)}"} ${max_concurrent || 1}`);
     }
   } catch { /* ollama_hosts table may not exist in test environments */ }
 
@@ -458,13 +458,13 @@ function getPrometheusMetrics() {
   const stallCount = db.prepare(`
     SELECT COUNT(*) as count FROM tasks WHERE status = 'failed' AND exit_code = -2
   `).get();
-  metrics.push(`codexbridge_stall_total ${stallCount.count}`);
+  metrics.push(`torque_stall_total ${stallCount.count}`);
 
   // Retry count
   const retryCount = db.prepare(`
     SELECT COUNT(*) as count FROM tasks WHERE retry_count > 0
   `).get();
-  metrics.push(`codexbridge_retry_total ${retryCount.count}`);
+  metrics.push(`torque_retry_total ${retryCount.count}`);
 
   // Provider/transport usage telemetry
   try {
@@ -485,7 +485,7 @@ function getPrometheusMetrics() {
     `).all();
 
     for (const { provider, transport, outcome, count } of transportCallCounts) {
-      metrics.push(`codexbridge_provider_transport_calls_total{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}",outcome="${escapePrometheusLabel(outcome)}"} ${count}`);
+      metrics.push(`torque_provider_transport_calls_total{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}",outcome="${escapePrometheusLabel(outcome)}"} ${count}`);
     }
 
     const transportDuration = db.prepare(`
@@ -507,8 +507,8 @@ function getPrometheusMetrics() {
       elapsed_avg_ms,
     } of transportDuration) {
       const avgMs = Number(elapsed_avg_ms);
-      metrics.push(`codexbridge_provider_transport_elapsed_ms_sum{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}"} ${(elapsed_sum_ms || 0)}`);
-      metrics.push(`codexbridge_provider_transport_elapsed_ms_avg{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}"} ${Number.isFinite(avgMs) ? avgMs.toFixed(2) : 0}`);
+      metrics.push(`torque_provider_transport_elapsed_ms_sum{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}"} ${(elapsed_sum_ms || 0)}`);
+      metrics.push(`torque_provider_transport_elapsed_ms_avg{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}"} ${Number.isFinite(avgMs) ? avgMs.toFixed(2) : 0}`);
     }
 
     const transportRetries = db.prepare(`
@@ -525,8 +525,8 @@ function getPrometheusMetrics() {
     `).all();
     for (const { provider, transport, retry_count_sum, retry_count_avg } of transportRetries) {
       const avgRetries = Number(retry_count_avg);
-      metrics.push(`codexbridge_provider_transport_retry_count_sum{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}"} ${retry_count_sum || 0}`);
-      metrics.push(`codexbridge_provider_transport_retry_count_avg{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}"} ${Number.isFinite(avgRetries) ? avgRetries.toFixed(2) : 0}`);
+      metrics.push(`torque_provider_transport_retry_count_sum{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}"} ${retry_count_sum || 0}`);
+      metrics.push(`torque_provider_transport_retry_count_avg{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}"} ${Number.isFinite(avgRetries) ? avgRetries.toFixed(2) : 0}`);
     }
 
     const failureReasons = db.prepare(`
@@ -543,10 +543,10 @@ function getPrometheusMetrics() {
       GROUP BY provider, transport, failure_reason
     `).all();
     for (const { provider, transport, failure_reason, count } of failureReasons) {
-      metrics.push(`codexbridge_provider_transport_failure_reason_total{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}",failure_reason="${escapePrometheusLabel(failure_reason)}"} ${count}`);
+      metrics.push(`torque_provider_transport_failure_reason_total{provider="${escapePrometheusLabel(provider)}",transport="${escapePrometheusLabel(transport)}",failure_reason="${escapePrometheusLabel(failure_reason)}"} ${count}`);
     }
   } catch {
-    metrics.push(`codexbridge_provider_transport_metrics_unavailable 1`);
+    metrics.push(`torque_provider_transport_metrics_unavailable 1`);
   }
 
   // Validation failures
@@ -554,9 +554,9 @@ function getPrometheusMetrics() {
     const validationFails = db.prepare(`
       SELECT COUNT(*) as count FROM task_validations WHERE passed = 0
     `).get();
-    metrics.push(`codexbridge_validation_failures_total ${validationFails.count}`);
+    metrics.push(`torque_validation_failures_total ${validationFails.count}`);
   } catch {
-    metrics.push(`codexbridge_validation_failures_total 0`);
+    metrics.push(`torque_validation_failures_total 0`);
   }
 
   // Cost by provider
@@ -568,7 +568,7 @@ function getPrometheusMetrics() {
       GROUP BY provider
     `).all();
     for (const { provider, cost } of costByProvider) {
-      metrics.push(`codexbridge_cost_by_provider{provider="${escapePrometheusLabel(provider)}"} ${(cost || 0).toFixed(6)}`);
+      metrics.push(`torque_cost_by_provider{provider="${escapePrometheusLabel(provider)}"} ${(cost || 0).toFixed(6)}`);
     }
   } catch { /* token_usage may not have provider column */ }
 

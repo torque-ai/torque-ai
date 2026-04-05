@@ -45,11 +45,14 @@ function getRemoteAgentPluginHandlers() {
     return _remoteAgentPluginHandlers;
   }
 
+  const { getInstalledRegistry } = require('../plugins/remote-agents');
+  const agentRegistry = getInstalledRegistry();
+  if (!agentRegistry) return null;
+
   const database = require('../database');
-  const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');
   const { createHandlers } = require('../plugins/remote-agents/handlers');
   _remoteAgentPluginHandlers = createHandlers({
-    agentRegistry: new RemoteAgentRegistry(database.getDbInstance()),
+    agentRegistry,
     db: database,
   });
   return _remoteAgentPluginHandlers;

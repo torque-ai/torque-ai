@@ -2,6 +2,7 @@
   "name": "torque-server",
   "version": "2.1.0",
   "description": "TORQUE MCP server - Threaded Orchestration Router for Queued Unit Execution",
+  "license": "MIT",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
@@ -30,7 +31,6 @@
     "lint:di": "node scripts/check-no-direct-db-import.js"
   },
   "dependencies": {
-    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.0.0",
     "bonjour-service": "^1.3.0",
     "tree-sitter-wasms": "^0.1.13",
@@ -40,6 +40,7 @@
     "ws": "^8.19.0"
   },
   "optionalDependencies": {
+    "bcryptjs": "^3.0.3",
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0"
   },

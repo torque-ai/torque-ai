@@ -959,13 +959,13 @@ describe('provider-routing module', () => {
       ).run(t2, 321, 1.23, new Date().toISOString());
 
       const metrics = mod.getPrometheusMetrics();
-      expect(metrics).toContain('codexbridge_tasks_total{status="completed"}');
-      expect(metrics).toContain('codexbridge_tasks_total{status="running"}');
-      expect(metrics).toContain('codexbridge_active_agents 1');
-      expect(metrics).toContain('codexbridge_workflows_total{status="pending"}');
-      expect(metrics).toContain('codexbridge_tokens_daily_total');
-      expect(metrics).toContain('codexbridge_cost_daily_usd');
-      expect(metrics).toContain('codexbridge_task_duration_seconds_bucket');
+      expect(metrics).toContain('torque_tasks_total{status="completed"}');
+      expect(metrics).toContain('torque_tasks_total{status="running"}');
+      expect(metrics).toContain('torque_active_agents 1');
+      expect(metrics).toContain('torque_workflows_total{status="pending"}');
+      expect(metrics).toContain('torque_tokens_daily_total');
+      expect(metrics).toContain('torque_cost_daily_usd');
+      expect(metrics).toContain('torque_task_duration_seconds_bucket');
 
       const provider = id('provider-metrics');
       const taskId = id('metrics-task');
@@ -1002,17 +1002,17 @@ describe('provider-routing module', () => {
       );
 
       const refreshedMetrics = mod.getPrometheusMetrics();
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_calls_total{provider="${provider}",transport="api",outcome="failure"} 1`);
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_calls_total{provider="${provider}",transport="cli",outcome="success"} 1`);
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_elapsed_ms_sum{provider="${provider}",transport="api"} 2500`);
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_elapsed_ms_avg{provider="${provider}",transport="api"} 2500.00`);
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_elapsed_ms_sum{provider="${provider}",transport="cli"} 1200`);
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_elapsed_ms_avg{provider="${provider}",transport="cli"} 1200.00`);
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_retry_count_sum{provider="${provider}",transport="api"} 1`);
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_retry_count_avg{provider="${provider}",transport="api"} 1.00`);
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_retry_count_sum{provider="${provider}",transport="cli"} 0`);
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_retry_count_avg{provider="${provider}",transport="cli"} 0.00`);
-      expect(refreshedMetrics).toContain(`codexbridge_provider_transport_failure_reason_total{provider="${provider}",transport="api",failure_reason="provider_unavailable"} 1`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_calls_total{provider="${provider}",transport="api",outcome="failure"} 1`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_calls_total{provider="${provider}",transport="cli",outcome="success"} 1`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_elapsed_ms_sum{provider="${provider}",transport="api"} 2500`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_elapsed_ms_avg{provider="${provider}",transport="api"} 2500.00`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_elapsed_ms_sum{provider="${provider}",transport="cli"} 1200`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_elapsed_ms_avg{provider="${provider}",transport="cli"} 1200.00`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_retry_count_sum{provider="${provider}",transport="api"} 1`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_retry_count_avg{provider="${provider}",transport="api"} 1.00`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_retry_count_sum{provider="${provider}",transport="cli"} 0`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_retry_count_avg{provider="${provider}",transport="cli"} 0.00`);
+      expect(refreshedMetrics).toContain(`torque_provider_transport_failure_reason_total{provider="${provider}",transport="api",failure_reason="provider_unavailable"} 1`);
     });
 
     it('checkOllamaHealth returns true against healthy mock endpoint', async () => {

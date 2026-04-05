@@ -27,6 +27,15 @@ function resolveRawDb(dbService) {
   return rawDb;
 }
 
+// Module-level singleton set during install() so consumers can access the
+// plugin's shared registry without constructing their own instance.
+let _installedRegistry = null;
+
+/** Return the RemoteAgentRegistry singleton created by the plugin, or null if not installed. */
+function getInstalledRegistry() {
+  return _installedRegistry;
+}
+
 function createPlugin() {
   let db = null;
   let dbService = null;
@@ -45,6 +54,7 @@ function createPlugin() {
     }
     db = resolveRawDb(dbService);
     agentRegistry = new RemoteAgentRegistry(db);
+    _installedRegistry = agentRegistry;
 
     testRunnerRegistry = getContainerService(container, 'testRunnerRegistry');
     if (testRunnerRegistry) {
@@ -76,6 +86,7 @@ function createPlugin() {
     db = null;
     dbService = null;
     agentRegistry = null;
+    _installedRegistry = null;
     testRunnerRegistry = null;
     handlers = null;
     installed = false;
@@ -110,5 +121,6 @@ function createPlugin() {
   };
 }
 
-module.exports = { createPlugin };
+module.exports = { createPlugin, getInstalledRegistry };
 module.exports.createPlugin = createPlugin;
+module.exports.getInstalledRegistry = getInstalledRegistry;

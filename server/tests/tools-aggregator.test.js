@@ -634,14 +634,8 @@ describe('tools.js aggregator source-loader', () => {
     it('dispatches plugin-provided tools via the lazy-loaded plugin handler registry', async () => {
       const pluginHandler = vi.fn(async (args) => ({ plugin: true, args }));
       const createHandlers = vi.fn(() => ({ register_remote_agent: pluginHandler }));
-      const RemoteAgentRegistry = vi.fn(function RemoteAgentRegistry(db) {
-        this.db = db;
-      });
-      const dbHandle = { prepare: vi.fn() };
+      const mockRegistry = { listAgents: vi.fn() };
       const subject = createToolsSubject({
-        database: {
-          getDbInstance: vi.fn(() => dbHandle),
-        },
         modules: {
           './plugins/remote-agents/tool-defs': [{
             name: 'register_remote_agent',
@@ -653,7 +647,7 @@ describe('tools.js aggregator source-loader', () => {
               },
             },
           }],
-          './plugins/remote-agents/agent-registry': { RemoteAgentRegistry },
+          './plugins/remote-agents': { getInstalledRegistry: () => mockRegistry },
           './plugins/remote-agents/handlers': { createHandlers },
         },
       });
@@ -662,7 +656,6 @@ describe('tools.js aggregator source-loader', () => {
 
       expect(subject.mod.routeMap.has('register_remote_agent')).toBe(false);
       expect(createHandlers).toHaveBeenCalledTimes(1);
-      expect(RemoteAgentRegistry).toHaveBeenCalledTimes(1);
       expect(pluginHandler).toHaveBeenCalledWith({ name: 'agent-1' });
       expect(result).toEqual({ plugin: true, args: { name: 'agent-1' } });
     });
