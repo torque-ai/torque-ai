@@ -149,12 +149,13 @@ function createSnapScopePlugin() {
 
   function tierTools() {
     return {
-      tier1: ['peek_ui'],
+      tier1: [
+        'peek_ui', 'peek_interact', 'peek_elements', 'peek_diagnose',
+        'peek_wait', 'peek_launch', 'peek_action_sequence',
+      ],
       tier2: [
-        'peek_interact', 'peek_elements', 'peek_hit_test',
-        'peek_launch', 'peek_discover', 'peek_health_all',
-        'peek_build_and_open', 'peek_diagnose', 'peek_wait',
-        'peek_action_sequence', 'peek_assert', 'peek_ocr',
+        'peek_hit_test', 'peek_discover', 'peek_health_all',
+        'peek_build_and_open', 'peek_assert', 'peek_ocr',
       ],
     };
   }
