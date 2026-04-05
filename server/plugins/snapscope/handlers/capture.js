@@ -267,11 +267,24 @@ async function handlePeekUi(args) {
       return makeError(ErrorCodes.OPERATION_FAILED, `peek_ui capture failed: ${result.error}`);
     }
 
-    if (result.data.error) {
-      return makeError(ErrorCodes.OPERATION_FAILED, result.data.error);
+    // peek_server returns raw image bytes (Content-Type: image/jpeg).
+    // peekHttpGetUrl detects binary and returns { data: base64string, binary: true }.
+    // Normalize into the peekData envelope the rest of the handler expects.
+    let peekData;
+    if (result.binary) {
+      peekData = {
+        image: result.data,
+        format: (result.contentType || '').includes('png') ? 'png' : 'jpeg',
+        size_bytes: Buffer.from(result.data, 'base64').length,
+      };
+    } else if (typeof result.data === 'object' && result.data) {
+      if (result.data.error) {
+        return makeError(ErrorCodes.OPERATION_FAILED, result.data.error);
+      }
+      peekData = result.data;
+    } else {
+      return makeError(ErrorCodes.OPERATION_FAILED, 'Unexpected response from peek_server');
     }
-
-    const peekData = result.data;
 
     const imageBuffer = Buffer.from(peekData.image, 'base64');
     let finalImageBuffer = imageBuffer;
