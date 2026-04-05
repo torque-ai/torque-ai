@@ -60,6 +60,277 @@ function init(deps) {
 // Smart Routing Analysis
 // ============================================================
 
+function resolveRoutingTemplate(taskDescription, files, options, deps) {
+  const {
+    categoryClassifier,
+    templateStore,
+    getProvider,
+    getQuotaStoreIfAvailable,
+    hostManagementFns,
+    maybeApplyFallback,
+  } = deps;
+
+  if (!categoryClassifier || !templateStore) {
+    return null;
+  }
+
+  const getCategory = () => categoryClassifier.classify(taskDescription, files);
+  const getComplexity = () => (hostManagementFns?.determineTaskComplexity
+    ? hostManagementFns.determineTaskComplexity(taskDescription, files)
+    : 'normal');
+
+  const tryResolvedTemplate = (template, reasonPrefix, includeDefaultFallback, chainFallbackLabel) => {
+    if (!template) {
+      return null;
+    }
+
+    const category = getCategory();
+    const complexity = getComplexity();
+    const resolved = templateStore.resolveProvider(template, category, complexity);
+    if (!resolved) {
+      return null;
+    }
+
+    const providerConfig = getProvider(resolved.provider);
+    if (providerConfig && providerConfig.enabled) {
+      const qs = getQuotaStoreIfAvailable();
+      if (!(qs && qs.isExhausted(resolved.provider))) {
+        return maybeApplyFallback({
+          provider: resolved.provider,
+          model: resolved.model || null,
+          chain: resolved.chain,
+          rule: null,
+          complexity,
+          reason: `${reasonPrefix}: ${category} -> ${resolved.provider}`,
+        });
+      }
+      logger.info('[SmartRouting] Skipping primary ' + resolved.provider + ' — quota exhausted');
+    }
+
+    if (resolved.chain && resolved.chain.length > 1) {
+      for (let i = 1; i < resolved.chain.length; i++) {
+        const entry = resolved.chain[i];
+        const entryConfig = getProvider(entry.provider);
+        if (entryConfig && entryConfig.enabled) {
+          const qs = getQuotaStoreIfAvailable();
+          if (qs && qs.isExhausted(entry.provider)) {
+            logger.info('[SmartRouting] Skipping ' + entry.provider + ' — quota exhausted');
+            continue;
+          }
+          return maybeApplyFallback({
+            provider: entry.provider,
+            model: entry.model || null,
+            chain: resolved.chain,
+            rule: null,
+            complexity,
+            reason: `${reasonPrefix}: ${category} -> ${resolved.provider} (unavailable), ${chainFallbackLabel} ${entry.provider}`,
+          });
+        }
+      }
+    }
+
+    if (!includeDefaultFallback) {
+      return null;
+    }
+
+    const defaultResolved = templateStore.resolveProvider(template, 'default', complexity);
+    if (defaultResolved && defaultResolved.provider !== resolved.provider) {
+      const defaultConfig = getProvider(defaultResolved.provider);
+      if (defaultConfig && defaultConfig.enabled) {
+        return maybeApplyFallback({
+          provider: defaultResolved.provider,
+          model: defaultResolved.model || null,
+          chain: defaultResolved.chain,
+          rule: null,
+          complexity,
+          reason: `${reasonPrefix}: ${category} -> ${resolved.provider} (unavailable), fallback to default -> ${defaultResolved.provider}`,
+        });
+      }
+    }
+
+    return null;
+  };
+
+  const taskMeta = options?.taskMetadata || {};
+  const taskTemplateName = taskMeta._routing_template;
+  if (taskTemplateName) {
+    const taskTemplate = templateStore.resolveTemplateByNameOrId(taskTemplateName);
+    const taskTemplateResult = tryResolvedTemplate(
+      taskTemplate,
+      `Task template '${taskTemplate?.name}'`,
+      false,
+      'chain to'
+    );
+    if (taskTemplateResult) {
+      return taskTemplateResult;
+    }
+  }
+
+  const explicitTemplateId = templateStore.getExplicitActiveTemplateId();
+  const activeTemplate = explicitTemplateId ? templateStore.getTemplate(explicitTemplateId) : null;
+  return tryResolvedTemplate(activeTemplate, `Template '${activeTemplate?.name}'`, true, 'chain fallback ->');
+}
+
+function matchProviderByPattern(taskDescription, files, deps) {
+  const {
+    serverConfig,
+    getProvider,
+    getQuotaStoreIfAvailable,
+    applyProviderSafetyNet,
+    isUserOverride,
+  } = deps;
+
+  const groqApiKey = serverConfig.getApiKey('groq');
+
+  const isSecurityTask = /\b(security|vulnerab|audit|penetrat|auth|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i.test(taskDescription);
+  const isXamlTask = /\b(xaml|wpf|uwp|maui|avalonia)\b/i.test(taskDescription) ||
+    (files && files.some(f => /\.xaml$/i.test(f)));
+  const isArchitecturalTask = /\b(architect|refactor.*multi|redesign|migration strategy|system design)\b/i.test(taskDescription);
+
+  // DeepInfra/Hyperbolic routing: complex reasoning and large-scope tasks to big models
+  const deepinfraApiKey = serverConfig.getApiKey('deepinfra');
+  const hyperbolicApiKey = serverConfig.getApiKey('hyperbolic');
+
+  const isReasoningTask = /\b(reason|analyze|debug complex|root cause|review.*entire|explain.*architecture|deep.*analysis)\b/i.test(taskDescription);
+  const isLargeCodeTask = /\b(implement.*system|build.*feature|create.*module|complex.*generation|multi.*file.*refactor)\b/i.test(taskDescription);
+
+  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && deepinfraApiKey) {
+    const diProvider = getProvider('deepinfra');
+    const qs = getQuotaStoreIfAvailable();
+    if (diProvider && diProvider.enabled && !(qs && qs.isExhausted('deepinfra'))) {
+      const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
+      return applyProviderSafetyNet({
+        provider: 'deepinfra',
+        rule: null,
+        reason: `API routing: ${matchType} task → deepinfra (large model)`
+      });
+    }
+  }
+
+  // Hyperbolic as fallback for large-model tasks when DeepInfra unavailable
+  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && hyperbolicApiKey) {
+    // Only try Hyperbolic if DeepInfra didn't already handle this task
+    const diProvider = getProvider('deepinfra');
+    const diAvailable = diProvider && diProvider.enabled && deepinfraApiKey;
+    if (!diAvailable) {
+      const hProvider = getProvider('hyperbolic');
+      const qs = getQuotaStoreIfAvailable();
+      if (hProvider && hProvider.enabled && !(qs && qs.isExhausted('hyperbolic'))) {
+        const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
+        return applyProviderSafetyNet({
+          provider: 'hyperbolic',
+          rule: null,
+          reason: `API routing: ${matchType} task → hyperbolic (DeepInfra unavailable)`
+        });
+      }
+    }
+  }
+
+  // Ollama Cloud routing: reasoning/analysis/large-code tasks to 480B+ models (free tier)
+  // Falls after deepinfra/hyperbolic (paid large models) but before groq/local ollama
+  const ollamaCloudApiKey = serverConfig.getApiKey('ollama-cloud');
+  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && ollamaCloudApiKey) {
+    const ocProvider = getProvider('ollama-cloud');
+    const qs = getQuotaStoreIfAvailable();
+    if (ocProvider && ocProvider.enabled && !(qs && qs.isExhausted('ollama-cloud'))) {
+      const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
+      return applyProviderSafetyNet({
+        provider: 'ollama-cloud',
+        rule: null,
+        reason: `API routing: ${matchType} task → ollama-cloud (480B+ model, free)`
+      });
+    }
+  }
+
+  // Security tasks → anthropic or claude-cli
+  if (isSecurityTask && !isUserOverride) {
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    if (anthropicKey) {
+      const anthropicProvider = getProvider('anthropic');
+      if (anthropicProvider && anthropicProvider.enabled) {
+        return applyProviderSafetyNet({ provider: 'anthropic', rule: null, reason: 'Security task routed to Anthropic' });
+      }
+    }
+    // Fallback to claude-cli for security tasks
+    const claudeProvider = getProvider('claude-cli');
+    if (claudeProvider && claudeProvider.enabled) {
+      return applyProviderSafetyNet({ provider: 'claude-cli', rule: null, reason: 'Security task routed to Claude CLI' });
+    }
+  }
+
+  // XAML/WPF tasks → cloud (local LLMs struggle with WPF semantics)
+  if (isXamlTask && !isUserOverride) {
+    const codexProvider = getProvider('codex');
+    if (codexProvider && codexProvider.enabled) {
+      return applyProviderSafetyNet({ provider: 'codex', rule: null, reason: 'XAML/WPF task routed to Codex' });
+    }
+  }
+
+  const isDocsTask = /\b(document|summarize|comment|readme|changelog|jsdoc|docstring)\b/i.test(taskDescription);
+  // "template" removed — matched routing template names in task descriptions, causing false routing to groq
+  const isSimpleGenTask = /\b(commit message|boilerplate|scaffold|stub)\b/i.test(taskDescription);
+  // "explain" and "describe" removed from groq routing — these often need multi-file reads
+  // which require 2+ tool calls, and groq's tool calling fails on multi-step tasks.
+  // They'll route to cerebras or other providers via template-based routing instead.
+
+  // Only route to groq if the task won't need multiple tool calls
+  const hasMultipleFileRefs = (taskDescription.match(/\b[\w./\\-]+\.\w{1,5}\b/g) || []).length > 1;
+  if ((isDocsTask || isSimpleGenTask) && !hasMultipleFileRefs && groqApiKey) {
+    const groqProvider = getProvider('groq');
+    const qs = getQuotaStoreIfAvailable();
+    if (groqProvider && groqProvider.enabled && !(qs && qs.isExhausted('groq'))) {
+      const matchType = isDocsTask ? 'documentation' : 'simple generation';
+      return applyProviderSafetyNet({
+        provider: 'groq',
+        rule: null,
+        reason: `API routing: ${matchType} task → groq`
+      });
+    }
+  }
+
+  return null;
+}
+
+function routeByComplexity(taskDescription, files, deps) {
+  const { hostManagementFns, maybeApplyFallback, isOllamaProvider } = deps;
+
+  if (!hostManagementFns?.determineTaskComplexity || !hostManagementFns?.routeTask) {
+    return null;
+  }
+
+  const complexity = hostManagementFns.determineTaskComplexity(taskDescription, files);
+  const complexityRouting = hostManagementFns.routeTask(complexity);
+
+  if (!complexityRouting || !complexityRouting.provider) {
+    return null;
+  }
+
+  let reason = `Complexity-based routing: ${complexity} → ${complexityRouting.provider}`;
+  if (complexityRouting.hostId) {
+    reason += ` (${complexityRouting.hostId})`;
+  }
+  if (complexityRouting.fallbackApplied) {
+    reason += ` [fallback from ${complexityRouting.originalHost}]`;
+  }
+
+  const result = {
+    provider: complexityRouting.provider,
+    rule: complexityRouting.rule,
+    complexity: complexity,
+    hostId: complexityRouting.hostId,
+    model: complexityRouting.model,
+    reason: reason,
+    fallbackApplied: complexityRouting.fallbackApplied,
+    originalHost: complexityRouting.originalHost
+  };
+
+  if (isOllamaProvider(result.provider) && result.hostId) {
+    result.selectedHost = result.hostId;
+  }
+
+  return maybeApplyFallback(result);
+}
+
 /**
  * Analyze a task and determine the best provider based on routing rules
  * @param {string} taskDescription - Task description text.
@@ -243,275 +514,38 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   // ─── 1. Per-task routing template ──────────────────────────────────────
   // Callers can pass options.taskMetadata._routing_template = "Template Name" or ID
   // to override the globally active template for this specific task.
-  const taskMeta = options.taskMetadata || {};
-  const taskTemplateName = taskMeta._routing_template;
-  if (taskTemplateName && categoryClassifier && templateStore) {
-    const taskTemplate = templateStore.resolveTemplateByNameOrId(taskTemplateName);
-    if (taskTemplate) {
-      const category = categoryClassifier.classify(taskDescription, files);
-      const complexity = hostManagementFns?.determineTaskComplexity
-        ? hostManagementFns.determineTaskComplexity(taskDescription, files)
-        : 'normal';
-      const resolved = templateStore.resolveProvider(taskTemplate, category, complexity);
-      if (resolved) {
-        const provConfig = getProvider(resolved.provider);
-        if (provConfig && provConfig.enabled) {
-          const qs = getQuotaStoreIfAvailable();
-          if (!(qs && qs.isExhausted(resolved.provider))) {
-            return maybeApplyFallback({
-              provider: resolved.provider,
-              model: resolved.model,
-              chain: resolved.chain,
-              rule: null,
-              complexity,
-              reason: `Task template '${taskTemplate.name}': ${category} -> ${resolved.provider}`,
-            });
-          }
-          logger.info('[SmartRouting] Skipping primary ' + resolved.provider + ' — quota exhausted');
-        }
-        // Primary unavailable or exhausted — try chain
-        if (resolved.chain && resolved.chain.length > 1) {
-          for (let i = 1; i < resolved.chain.length; i++) {
-            const fb = resolved.chain[i];
-            const fbConfig = getProvider(fb.provider);
-            if (fbConfig && fbConfig.enabled) {
-              const qs = getQuotaStoreIfAvailable();
-              if (qs && qs.isExhausted(fb.provider)) {
-                logger.info('[SmartRouting] Skipping ' + fb.provider + ' — quota exhausted');
-                continue;
-              }
-              return maybeApplyFallback({
-                provider: fb.provider, model: fb.model, chain: resolved.chain,
-                rule: null, complexity,
-                reason: `Task template '${taskTemplate.name}': ${category} -> ${resolved.provider} (unavailable), chain to ${fb.provider}`,
-              });
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // ─── 2. Global active routing template ─────────────────────────────────
-  // Only active when a user has explicitly set a template via activate_routing_template.
-  // getActiveTemplate() falls back to System Default — we skip that fallback here
-  // so existing users see zero behavior change until they opt in.
-  if (categoryClassifier && templateStore) {
-    const explicitTemplateId = templateStore.getExplicitActiveTemplateId();
-    const activeTemplate = explicitTemplateId ? templateStore.getTemplate(explicitTemplateId) : null;
-    if (activeTemplate) {
-      const category = categoryClassifier.classify(taskDescription, files);
-      const complexity = hostManagementFns?.determineTaskComplexity
-        ? hostManagementFns.determineTaskComplexity(taskDescription, files)
-        : 'normal';
-      const resolved = templateStore.resolveProvider(activeTemplate, category, complexity);
-      if (resolved) {
-        // resolveProvider returns {provider, model, chain, toString(), valueOf()}
-        // Check primary provider availability
-        const providerConfig = getProvider(resolved.provider);
-        if (providerConfig && providerConfig.enabled) {
-          const qs = getQuotaStoreIfAvailable();
-          if (!(qs && qs.isExhausted(resolved.provider))) {
-            return maybeApplyFallback({
-              provider: resolved.provider,
-              model: resolved.model || null,
-              chain: resolved.chain,
-              rule: null,
-              complexity,
-              reason: `Template '${activeTemplate.name}': ${category} -> ${resolved.provider}`,
-            });
-          }
-          logger.info('[SmartRouting] Skipping primary ' + resolved.provider + ' — quota exhausted');
-        }
-        // Primary unavailable or exhausted — iterate chain to find next enabled provider
-        if (resolved.chain && resolved.chain.length > 1) {
-          for (let i = 1; i < resolved.chain.length; i++) {
-            const entry = resolved.chain[i];
-            const entryConfig = getProvider(entry.provider);
-            if (entryConfig && entryConfig.enabled) {
-              const qs = getQuotaStoreIfAvailable();
-              if (qs && qs.isExhausted(entry.provider)) {
-                logger.info('[SmartRouting] Skipping ' + entry.provider + ' — quota exhausted');
-                continue;
-              }
-              return maybeApplyFallback({
-                provider: entry.provider,
-                model: entry.model || null,
-                chain: resolved.chain,
-                rule: null,
-                complexity,
-                reason: `Template '${activeTemplate.name}': ${category} -> ${resolved.provider} (unavailable), chain fallback -> ${entry.provider}`,
-              });
-            }
-          }
-        }
-        // Chain exhausted — try default category
-        const defaultResolved = templateStore.resolveProvider(activeTemplate, 'default', complexity);
-        if (defaultResolved && defaultResolved.provider !== resolved.provider) {
-          const defaultConfig = getProvider(defaultResolved.provider);
-          if (defaultConfig && defaultConfig.enabled) {
-            return maybeApplyFallback({
-              provider: defaultResolved.provider,
-              model: defaultResolved.model || null,
-              chain: defaultResolved.chain,
-              rule: null,
-              complexity,
-              reason: `Template '${activeTemplate.name}': ${category} -> ${resolved.provider} (unavailable), fallback to default -> ${defaultResolved.provider}`,
-            });
-          }
-        }
-      }
-    }
-  }
+  const templateResult = resolveRoutingTemplate(taskDescription, files, options, {
+    categoryClassifier,
+    templateStore,
+    getProvider,
+    getQuotaStoreIfAvailable: getQuotaStoreIfAvailable,
+    hostManagementFns,
+    maybeApplyFallback
+  });
+  if (templateResult) return templateResult;
 
   // ─── 3. Hard-coded API provider routing ────────────────────────────────
   // Pattern-based routing to cloud providers when no template is active.
   // Each block checks quota exhaustion before routing.
-  const groqApiKey = serverConfig.getApiKey('groq');
-
-  const isSecurityTask = /\b(security|vulnerab|audit|penetrat|auth|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i.test(taskDescription);
-  const isXamlTask = /\b(xaml|wpf|uwp|maui|avalonia)\b/i.test(taskDescription) ||
-    (files && files.some(f => /\.xaml$/i.test(f)));
-  const isArchitecturalTask = /\b(architect|refactor.*multi|redesign|migration strategy|system design)\b/i.test(taskDescription);
-
-  // DeepInfra/Hyperbolic routing: complex reasoning and large-scope tasks to big models
-  const deepinfraApiKey = serverConfig.getApiKey('deepinfra');
-  const hyperbolicApiKey = serverConfig.getApiKey('hyperbolic');
-
-  const isReasoningTask = /\b(reason|analyze|debug complex|root cause|review.*entire|explain.*architecture|deep.*analysis)\b/i.test(taskDescription);
-  const isLargeCodeTask = /\b(implement.*system|build.*feature|create.*module|complex.*generation|multi.*file.*refactor)\b/i.test(taskDescription);
-
-  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && deepinfraApiKey) {
-    const diProvider = getProvider('deepinfra');
-    const qs = getQuotaStoreIfAvailable();
-    if (diProvider && diProvider.enabled && !(qs && qs.isExhausted('deepinfra'))) {
-      const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
-      return applyProviderSafetyNet({
-        provider: 'deepinfra',
-        rule: null,
-        reason: `API routing: ${matchType} task → deepinfra (large model)`
-      });
-    }
-  }
-
-  // Hyperbolic as fallback for large-model tasks when DeepInfra unavailable
-  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && hyperbolicApiKey) {
-    // Only try Hyperbolic if DeepInfra didn't already handle this task
-    const diProvider = getProvider('deepinfra');
-    const diAvailable = diProvider && diProvider.enabled && deepinfraApiKey;
-    if (!diAvailable) {
-      const hProvider = getProvider('hyperbolic');
-      const qs = getQuotaStoreIfAvailable();
-      if (hProvider && hProvider.enabled && !(qs && qs.isExhausted('hyperbolic'))) {
-        const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
-        return applyProviderSafetyNet({
-          provider: 'hyperbolic',
-          rule: null,
-          reason: `API routing: ${matchType} task → hyperbolic (DeepInfra unavailable)`
-        });
-      }
-    }
-  }
-
-  // Ollama Cloud routing: reasoning/analysis/large-code tasks to 480B+ models (free tier)
-  // Falls after deepinfra/hyperbolic (paid large models) but before groq/local ollama
-  const ollamaCloudApiKey = serverConfig.getApiKey('ollama-cloud');
-  if ((isReasoningTask || isLargeCodeTask || isArchitecturalTask) && ollamaCloudApiKey) {
-    const ocProvider = getProvider('ollama-cloud');
-    const qs = getQuotaStoreIfAvailable();
-    if (ocProvider && ocProvider.enabled && !(qs && qs.isExhausted('ollama-cloud'))) {
-      const matchType = isReasoningTask ? 'complex reasoning' : isLargeCodeTask ? 'large code generation' : 'architectural';
-      return applyProviderSafetyNet({
-        provider: 'ollama-cloud',
-        rule: null,
-        reason: `API routing: ${matchType} task → ollama-cloud (480B+ model, free)`
-      });
-    }
-  }
-
-  // Security tasks → anthropic or claude-cli
-  if (isSecurityTask && !isUserOverride) {
-    const anthropicKey = process.env.ANTHROPIC_API_KEY;
-    if (anthropicKey) {
-      const anthropicProvider = getProvider('anthropic');
-      if (anthropicProvider && anthropicProvider.enabled) {
-        return applyProviderSafetyNet({ provider: 'anthropic', rule: null, reason: 'Security task routed to Anthropic' });
-      }
-    }
-    // Fallback to claude-cli for security tasks
-    const claudeProvider = getProvider('claude-cli');
-    if (claudeProvider && claudeProvider.enabled) {
-      return applyProviderSafetyNet({ provider: 'claude-cli', rule: null, reason: 'Security task routed to Claude CLI' });
-    }
-  }
-
-  // XAML/WPF tasks → cloud (local LLMs struggle with WPF semantics)
-  if (isXamlTask && !isUserOverride) {
-    const codexProvider = getProvider('codex');
-    if (codexProvider && codexProvider.enabled) {
-      return applyProviderSafetyNet({ provider: 'codex', rule: null, reason: 'XAML/WPF task routed to Codex' });
-    }
-  }
-
-  const isDocsTask = /\b(document|summarize|comment|readme|changelog|jsdoc|docstring)\b/i.test(taskDescription);
-  // "template" removed — matched routing template names in task descriptions, causing false routing to groq
-  const isSimpleGenTask = /\b(commit message|boilerplate|scaffold|stub)\b/i.test(taskDescription);
-  // "explain" and "describe" removed from groq routing — these often need multi-file reads
-  // which require 2+ tool calls, and groq's tool calling fails on multi-step tasks.
-  // They'll route to cerebras or other providers via template-based routing instead.
-
-  // Only route to groq if the task won't need multiple tool calls
-  const hasMultipleFileRefs = (taskDescription.match(/\b[\w./\\-]+\.\w{1,5}\b/g) || []).length > 1;
-  if ((isDocsTask || isSimpleGenTask) && !hasMultipleFileRefs && groqApiKey) {
-    const groqProvider = getProvider('groq');
-    const qs = getQuotaStoreIfAvailable();
-    if (groqProvider && groqProvider.enabled && !(qs && qs.isExhausted('groq'))) {
-      const matchType = isDocsTask ? 'documentation' : 'simple generation';
-      return applyProviderSafetyNet({
-        provider: 'groq',
-        rule: null,
-        reason: `API routing: ${matchType} task → groq`
-      });
-    }
-  }
+  const patternResult = matchProviderByPattern(taskDescription, files, {
+    serverConfig,
+    getProvider,
+    getQuotaStoreIfAvailable: getQuotaStoreIfAvailable,
+    applyProviderSafetyNet,
+    isUserOverride
+  });
+  if (patternResult) return patternResult;
 
   // PRIMARY: Complexity-based routing (Claude workflow)
   // - Simple tasks → Laptop WSL (default host)
   // - Normal tasks → Desktop (desktop-17)
   // - Complex tasks → Codex
-  if (hostManagementFns?.determineTaskComplexity && hostManagementFns?.routeTask) {
-    const complexity = hostManagementFns.determineTaskComplexity(taskDescription, files);
-    const complexityRouting = hostManagementFns.routeTask(complexity);
-
-    if (complexityRouting && complexityRouting.provider) {
-      // Build reason string with fallback info if applicable
-      let reason = `Complexity-based routing: ${complexity} → ${complexityRouting.provider}`;
-      if (complexityRouting.hostId) {
-        reason += ` (${complexityRouting.hostId})`;
-      }
-      if (complexityRouting.fallbackApplied) {
-        reason += ` [fallback from ${complexityRouting.originalHost}]`;
-      }
-
-      const result = {
-        provider: complexityRouting.provider,
-        rule: complexityRouting.rule,
-        complexity: complexity,
-        hostId: complexityRouting.hostId,
-        model: complexityRouting.model,
-        reason: reason,
-        fallbackApplied: complexityRouting.fallbackApplied,
-        originalHost: complexityRouting.originalHost
-      };
-
-      // For ollama providers, include host selection
-      if (isOllamaProvider(result.provider) && result.hostId) {
-        result.selectedHost = result.hostId;
-      }
-
-      return maybeApplyFallback(result);
-    }
-  }
+  const complexityResult = routeByComplexity(taskDescription, files, {
+    hostManagementFns,
+    maybeApplyFallback,
+    isOllamaProvider
+  });
+  if (complexityResult) return complexityResult;
 
   // FALLBACK: Legacy keyword/extension rules
   const db = _deps.getDb();

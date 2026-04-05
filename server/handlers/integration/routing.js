@@ -259,6 +259,266 @@ function resolveSmartSubmitTuning(rawTuning) {
   return tuning;
 }
 
+function extractSmartSubmitInputs(args) {
+  if (!args || typeof args !== 'object') {
+    return { error: makeError(ErrorCodes.INVALID_PARAM, 'Arguments object is required') };
+  }
+
+  const {
+    task,
+    working_directory,
+    files: rawFiles,
+    model,
+    timeout_minutes,
+    priority,
+    provider,
+    override_provider: legacyOverrideProvider,
+    tuning,
+    context_stuff,
+    context_depth,
+    prefer_free,
+    routing_template,
+    version_intent,
+    __sessionId,
+  } = args;
+
+  // Support both 'provider' (standard) and legacy 'override_provider' alias
+  const override_provider = provider || legacyOverrideProvider;
+  const files = Array.isArray(rawFiles) ? rawFiles : (rawFiles ? [String(rawFiles)] : undefined);
+  if (files) {
+    for (const file of files) {
+      if (!isPathTraversalSafe(file)) {
+        return { error: makeError(ErrorCodes.INVALID_PARAM, 'file path contains path traversal') };
+      }
+    }
+  }
+
+  let tuningOverrides;
+  try {
+    tuningOverrides = resolveSmartSubmitTuning(tuning);
+  } catch (err) {
+    return { error: makeError(ErrorCodes.INVALID_PARAM, err.message) };
+  }
+
+  if (!task || typeof task !== 'string' || task.trim().length === 0) {
+    return { error: makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task must be a non-empty string') };
+  }
+  if (task.length > MAX_TASK_LENGTH) {
+    return {
+      error: makeError(
+        ErrorCodes.INVALID_PARAM,
+        `Task description exceeds maximum length (${task.length} > ${MAX_TASK_LENGTH} characters)`
+      ),
+    };
+  }
+  if (working_directory) {
+    try {
+      const rawDb = require('../../database').getDbInstance();
+      const versionIntentError = enforceVersionIntentForProject(
+        rawDb,
+        working_directory,
+        version_intent,
+        makeError,
+        ErrorCodes
+      );
+      if (versionIntentError) {
+        return { error: versionIntentError };
+      }
+    } catch (_e) { /* version-intent module unavailable — allow */ }
+  }
+
+  const estimatedTokens = Math.max(1, Math.ceil(task.length / 4));
+
+  return {
+    task,
+    working_directory,
+    files,
+    model,
+    timeout_minutes,
+    priority,
+    override_provider,
+    tuning: tuningOverrides,
+    estimatedTokens,
+    context_stuff,
+    context_depth,
+    prefer_free,
+    routing_template,
+    version_intent,
+    __sessionId,
+  };
+}
+
+async function resolveModificationRouting(task, files, routingResult, opts) {
+  const {
+    selectedProvider: initialSelectedProvider,
+    override_provider,
+    model,
+    complexity,
+    working_directory,
+    codexExhausted,
+  } = opts;
+
+  let selectedProvider = initialSelectedProvider;
+  let taskModel = model || null;
+  let modRoutingReason = null;
+  const estimatedTokens = routingResult?.estimatedTokens || Math.max(1, Math.ceil(task.length / 4));
+
+  // Modification + greenfield routing for the local Ollama provider.
+  // Ollama cannot create new files safely, so the greenfield guard applies.
+  const _isLocalOllamaProvider = selectedProvider === 'ollama';
+  if (!taskModel && _isLocalOllamaProvider) {
+    // Detect modification tasks for capability-driven routing decisions.
+    // Models with low max_safe_edit_lines cannot safely modify existing files — route to Codex.
+    const taskLower = task.toLowerCase();
+    // Expanded modification detection to catch implicit patterns (implement, complete, extend, enhance, fill).
+    const modificationVerbs = /\b(fill .+ in |add .+ to (?:the |existing )?|modify |update |fix |refactor |change |rename |move |extract |remove .+ from |extend |enhance |complete .+ in |implement .+ in |replace .+ in |insert .+ in |append .+ to |delete .+ from |patch |rewrite )\b/;
+
+    // P102: Extract filenames from task description BEFORE modification detection,
+    // so that "Modify string_utils.py ..." counts as having file context.
+    const fileNamePattern = /\b([\w.-]+\.(?:py|ts|js|cs|java|go|rs|rb|cpp|c|h|xaml|jsx|tsx|vue|svelte))\b/gi;
+    const taskFileNames = task.match(fileNamePattern) || [];
+    const hasExistingFileContext = files?.length > 0 || taskFileNames.length > 0 || /\b(?:existing|current|in .+\.\w{1,5}\b)/i.test(taskLower);
+    const isModificationTask = modificationVerbs.test(taskLower) && hasExistingFileContext;
+
+    // Model capability check: route large files to codex if model's max_safe_edit_lines is exceeded.
+    // Look up the current default model's capabilities to determine safe edit thresholds.
+    const codexEnabled = serverConfig.isOptIn('codex_enabled');
+    const currentModel = modelRoles.getModelForRole('ollama', 'default') || DEFAULT_FALLBACK_MODEL;
+    const caps = modelCaps.getModelCapabilities(currentModel);
+    const modSafeLineLimit = caps?.max_safe_edit_lines || PROVIDER_DEFAULTS.MOD_SAFE_LINE_LIMIT;
+
+    // Check file sizes — from explicit files array OR extracted from task description
+    let maxFileLines = 0;
+    let fileSizeKnown = false;
+    const path = require('path');
+    const workDir = working_directory || process.cwd();
+
+    // Build list of files to check: explicit files + filenames from task description
+    let filesToCheck = files ? [...files] : [];
+    if (filesToCheck.length === 0 && taskFileNames.length > 0) {
+      filesToCheck = [...new Set(taskFileNames)];
+    }
+
+    // Use file resolution to find actual paths for bare filenames
+    if (!fileSizeKnown && filesToCheck.length > 0) {
+      try {
+        const resolution = taskManager.resolveFileReferences(task, workDir);
+        if (resolution.resolved.length > 0) {
+          filesToCheck = resolution.resolved.map(r => r.actual);
+          logger.info(`[SmartRouting] Resolved ${resolution.resolved.length} file path(s) for size check`);
+        }
+      } catch (err) {
+        // Non-fatal — fall through to original behavior
+        logger.debug('[integration-routing] non-critical error resolving route size candidates:', err.message || err);
+      }
+    }
+
+    for (const f of filesToCheck) {
+      const absPath = path.isAbsolute(f) ? f : path.join(workDir, f);
+      if (!isPathTraversalSafe(absPath, workDir)) {
+        return { error: makeError(ErrorCodes.INVALID_PARAM, 'file path contains path traversal') };
+      }
+
+      try {
+        const content = await fsPromises.readFile(absPath, 'utf-8');
+        const lineCount = content.split('\n').length;
+        if (lineCount > maxFileLines) maxFileLines = lineCount;
+        fileSizeKnown = true;
+      } catch (err) {
+        logger.debug('[integration-routing] non-critical error counting route file lines:', err.message || err);
+      }
+    }
+
+    const canUseLocalForMod = fileSizeKnown && maxFileLines < modSafeLineLimit;
+    if (isModificationTask && canUseLocalForMod && !override_provider) {
+      // Model capability check: local model handles modifications safely within max_safe_edit_lines
+      taskModel = modelRoles.getModelForRole('ollama', 'default') || DEFAULT_FALLBACK_MODEL;
+      modRoutingReason = `Modification task (${maxFileLines} lines < ${modSafeLineLimit} limit) → local model (safe)`;
+      logger.info(`[SmartRouting] R104: ${modRoutingReason}`);
+    } else if (isModificationTask && codexEnabled && !override_provider && !codexExhausted) {
+      // Large files or unknown size → Codex (surgical patches, any file size)
+      const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
+      selectedProvider = 'codex';
+      if (sparkEnabled && (complexity === 'simple' || complexity === 'normal')) {
+        taskModel = 'gpt-5.3-codex-spark';
+        modRoutingReason = `Modification task (${fileSizeKnown ? maxFileLines + ' lines' : 'unknown size'}) → Codex Spark (fast, ${complexity})`;
+        logger.info(`[SmartRouting] Spark: ${modRoutingReason}`);
+      } else {
+        taskModel = null;
+        modRoutingReason = `Modification task (${fileSizeKnown ? maxFileLines + ' lines' : 'unknown size'}) → Codex (safe for any size)`;
+        logger.info(`[SmartRouting] P83: ${modRoutingReason}`);
+      }
+    } else if (isModificationTask && !codexEnabled && !override_provider) {
+      // Route modifications to claude-cli when Codex unavailable.
+      // Local LLMs with low max_safe_edit_lines destroy existing files during modification.
+      // claude-cli can handle modifications safely via diff-based patches.
+      const claudeCliEnabled = serverConfig.getBool('claude_cli_enabled');
+      if (claudeCliEnabled) {
+        selectedProvider = 'claude-cli';
+        taskModel = null; // claude-cli uses its own model
+        logger.info('[SmartRouting] P86: Modification task (Codex disabled) → claude-cli (safe fallback)');
+      } else {
+        // Both Codex and claude-cli disabled. Use fallback model as least-bad option.
+        // Model capability check: fallback model may have low max_safe_edit_lines,
+        // so P95 safeguard detects stub destruction patterns and triggers auto-retry/rejection.
+        const fallbackModel = modelRoles.getModelForRole('ollama', 'fallback') || DEFAULT_FALLBACK_MODEL;
+        taskModel = fallbackModel;
+        const fallbackCaps = modelCaps.getModelCapabilities(fallbackModel);
+        const fallbackMaxLines = fallbackCaps?.max_safe_edit_lines || 50;
+        logger.warn(`[SmartRouting] Modification task (Codex+claude-cli disabled) → ${fallbackModel} (max_safe_edit_lines=${fallbackMaxLines}, RISK on large files)`);
+      }
+    } else if (!isModificationTask && codexEnabled && !override_provider && !codexExhausted) {
+      // --- Greenfield routing ---
+      // EXP1: Ollama CANNOT create new files — all greenfield tasks must go to Codex.
+      // Experiment 1 showed 3/3 Ollama greenfield tasks silently fell back to Codex
+      // or stalled. Route directly to avoid the fallback latency penalty (~2x slower).
+      const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
+      if (sparkEnabled && complexity !== 'complex') {
+        selectedProvider = 'codex';
+        taskModel = 'gpt-5.3-codex-spark';
+        modRoutingReason = `${complexity} greenfield → Codex Spark (Ollama cannot create files)`;
+      } else {
+        selectedProvider = 'codex';
+        taskModel = null;
+        modRoutingReason = `${complexity} greenfield → Codex (Ollama cannot create files)`;
+      }
+      logger.info(`[SmartRouting] EXP1: ${modRoutingReason}`);
+    } else {
+      // Smart model selection: score models by task type, language, and complexity
+      const taskType = hostManagement.classifyTaskType(task);
+      const taskLanguage = hostManagement.detectTaskLanguage(task, files || []);
+
+      // Gather available models from healthy hosts
+      const hosts = hostManagement.listOllamaHosts().filter(h => h.enabled && h.status !== 'down');
+      const availableModels = [...new Set(
+        hosts.flatMap(h => {
+          try { return JSON.parse(h.models || '[]'); } catch { return []; }
+        })
+      )];
+
+      if (availableModels.length > 0) {
+        const ranked = hostManagement.selectBestModel(taskType, taskLanguage, complexity, availableModels, { estimatedTokens });
+        if (ranked.length > 0) {
+          taskModel = ranked[0].model;
+          logger.info(`[SmartRouting] Smart selection: ${taskType}/${taskLanguage}/${complexity} → ${taskModel} (score=${ranked[0].score}, ${ranked[0].reason})`);
+        } else {
+          // All models filtered (e.g., context window too small) — fall back to tier
+          const modelTier = hostManagement.getModelTierForComplexity(complexity);
+          taskModel = modelTier.modelConfig;
+          logger.info(`[SmartRouting] Smart selection filtered all models, falling back to tier: ${modelTier.tier} → ${taskModel}`);
+        }
+      } else {
+        // No hosts available — fall back to tier-based selection
+        const modelTier = hostManagement.getModelTierForComplexity(complexity);
+        taskModel = modelTier.modelConfig;
+        logger.info(`[SmartRouting] No healthy hosts with models, falling back to tier: ${modelTier.tier} → ${taskModel}`);
+      }
+    }
+  }
+
+  return { selectedProvider, taskModel, modRoutingReason };
+}
+
 
 
 
@@ -272,50 +532,26 @@ function resolveSmartSubmitTuning(rawTuning) {
  */
 async function handleSmartSubmitTask(args) {
   try {
-  
-  if (!args || typeof args !== 'object') {
-    return makeError(ErrorCodes.INVALID_PARAM, 'Arguments object is required');
-  }
-  
-  const { task, working_directory, files: rawFiles, model, timeout_minutes, priority, provider, override_provider: legacyOverrideProvider, tuning, context_stuff, context_depth, prefer_free, routing_template, version_intent, __sessionId } = args;
-  // Support both 'provider' (standard) and legacy 'override_provider' alias
-  const override_provider = provider || legacyOverrideProvider;
-  const files = Array.isArray(rawFiles) ? rawFiles : (rawFiles ? [String(rawFiles)] : undefined);
-  if (files) {
-    for (const file of files) {
-      if (!isPathTraversalSafe(file)) {
-        return makeError(ErrorCodes.INVALID_PARAM, 'file path contains path traversal');
-      }
-    }
-  }
-  let tuningOverrides;
-  try {
-    tuningOverrides = resolveSmartSubmitTuning(tuning);
-  } catch (err) {
-    return makeError(ErrorCodes.INVALID_PARAM, err.message);
-  }
+  const inputs = extractSmartSubmitInputs(args);
+  if (inputs.error) return inputs.error;
 
-  if (!task || typeof task !== 'string' || task.trim().length === 0) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task must be a non-empty string');
-  }
-  if (task.length > MAX_TASK_LENGTH) {
-    return makeError(ErrorCodes.INVALID_PARAM, `Task description exceeds maximum length (${task.length} > ${MAX_TASK_LENGTH} characters)`);
-  }
-  if (working_directory) {
-    try {
-      const rawDb = require('../../database').getDbInstance();
-      const versionIntentError = enforceVersionIntentForProject(
-        rawDb,
-        working_directory,
-        version_intent,
-        makeError,
-        ErrorCodes
-      );
-      if (versionIntentError) return versionIntentError;
-    } catch (_e) { /* version-intent module unavailable — allow */ }
-  }
-
-  const estimatedTokens = Math.max(1, Math.ceil(task.length / 4));
+  const {
+    task,
+    working_directory,
+    files,
+    model,
+    timeout_minutes,
+    priority,
+    override_provider,
+    tuning: tuningOverrides,
+    estimatedTokens,
+    context_stuff,
+    context_depth,
+    prefer_free,
+    routing_template,
+    version_intent,
+    __sessionId,
+  } = inputs;
 
   let selectedProvider;
   let routingResult;
@@ -794,207 +1030,67 @@ async function handleSmartSubmitTask(args) {
     }
     logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (local LLMs unreliable for tests)`);
   }
-  // Modification + greenfield routing for the local Ollama provider.
-  // Ollama cannot create new files safely, so the greenfield guard applies.
-  const _isLocalOllamaProvider = selectedProvider === 'ollama';
-  if (!taskModel && _isLocalOllamaProvider) {
-    // Detect modification tasks for capability-driven routing decisions.
-    // Models with low max_safe_edit_lines cannot safely modify existing files — route to Codex.
-    const taskLower = task.toLowerCase();
-    // Expanded modification detection to catch implicit patterns (implement, complete, extend, enhance, fill).
-    const modificationVerbs = /\b(fill .+ in |add .+ to (?:the |existing )?|modify |update |fix |refactor |change |rename |move |extract |remove .+ from |extend |enhance |complete .+ in |implement .+ in |replace .+ in |insert .+ in |append .+ to |delete .+ from |patch |rewrite )\b/;
+  const modResult = await resolveModificationRouting(task, files, routingResult, {
+    selectedProvider,
+    override_provider,
+    model,
+    complexity,
+    working_directory: workingDirectory,
+    codexExhausted,
+  });
+  if (modResult.error) return modResult.error;
+  selectedProvider = modResult.selectedProvider;
+  taskModel = modResult.taskModel;
+  modRoutingReason = modResult.modRoutingReason;
 
-    // P102: Extract filenames from task description BEFORE modification detection,
-    // so that "Modify string_utils.py ..." counts as having file context.
-    const fileNamePattern = /\b([\w.-]+\.(?:py|ts|js|cs|java|go|rs|rb|cpp|c|h|xaml|jsx|tsx|vue|svelte))\b/gi;
-    const taskFileNames = task.match(fileNamePattern) || [];
-    const hasExistingFileContext = files?.length > 0 || taskFileNames.length > 0 || /\b(?:existing|current|in .+\.\w{1,5}\b)/i.test(taskLower);
-    const isModificationTask = modificationVerbs.test(taskLower) && hasExistingFileContext;
-
-    // Model capability check: route large files to codex if model's max_safe_edit_lines is exceeded.
-    // Look up the current default model's capabilities to determine safe edit thresholds.
-    const codexEnabled = serverConfig.isOptIn('codex_enabled');
-    const currentModel = modelRoles.getModelForRole('ollama', 'default') || DEFAULT_FALLBACK_MODEL;
-    const caps = modelCaps.getModelCapabilities(currentModel);
-    const modSafeLineLimit = caps?.max_safe_edit_lines || PROVIDER_DEFAULTS.MOD_SAFE_LINE_LIMIT;
-
-    // Check file sizes — from explicit files array OR extracted from task description
-    let maxFileLines = 0;
-    let fileSizeKnown = false;
-    const path = require('path');
-    const workDir = working_directory || process.cwd();
-
-    // Build list of files to check: explicit files + filenames from task description
-    let filesToCheck = files ? [...files] : [];
-    if (filesToCheck.length === 0 && taskFileNames.length > 0) {
-      filesToCheck = [...new Set(taskFileNames)];
-    }
-
-    // Use file resolution to find actual paths for bare filenames
-    if (!fileSizeKnown && filesToCheck.length > 0) {
-      try {
-        const resolution = taskManager.resolveFileReferences(task, workDir);
-        if (resolution.resolved.length > 0) {
-          filesToCheck = resolution.resolved.map(r => r.actual);
-          logger.info(`[SmartRouting] Resolved ${resolution.resolved.length} file path(s) for size check`);
-        }
-      } catch (err) {
-        // Non-fatal — fall through to original behavior
-        logger.debug('[integration-routing] non-critical error resolving route size candidates:', err.message || err);
-      }
-    }
-
-    for (const f of filesToCheck) {
-      const absPath = path.isAbsolute(f) ? f : path.join(workDir, f);
-      if (!isPathTraversalSafe(absPath, workDir)) {
-        return makeError(ErrorCodes.INVALID_PARAM, 'file path contains path traversal');
-      }
-
-      try {
-        const content = await fsPromises.readFile(absPath, 'utf-8');
-        const lineCount = content.split('\n').length;
-        if (lineCount > maxFileLines) maxFileLines = lineCount;
-        fileSizeKnown = true;
-      } catch (err) {
-        logger.debug('[integration-routing] non-critical error counting route file lines:', err.message || err);
-      }
-    }
-
-    const canUseLocalForMod = fileSizeKnown && maxFileLines < modSafeLineLimit;
-    if (isModificationTask && canUseLocalForMod && !override_provider) {
-      // Model capability check: local model handles modifications safely within max_safe_edit_lines
-      taskModel = modelRoles.getModelForRole('ollama', 'default') || DEFAULT_FALLBACK_MODEL;
-      modRoutingReason = `Modification task (${maxFileLines} lines < ${modSafeLineLimit} limit) → local model (safe)`;
-      logger.info(`[SmartRouting] R104: ${modRoutingReason}`);
-    } else if (isModificationTask && codexEnabled && !override_provider && !codexExhausted) {
-      // Large files or unknown size → Codex (surgical patches, any file size)
-      const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
-      selectedProvider = 'codex';
-      if (sparkEnabled && (complexity === 'simple' || complexity === 'normal')) {
-        taskModel = 'gpt-5.3-codex-spark';
-        modRoutingReason = `Modification task (${fileSizeKnown ? maxFileLines + ' lines' : 'unknown size'}) → Codex Spark (fast, ${complexity})`;
-        logger.info(`[SmartRouting] Spark: ${modRoutingReason}`);
+  // P71: Multi-host load distribution with smart model fallback
+  // When the primary model's host is busy, try next-ranked models from
+  // selectBestModel on less-loaded hosts. Falls back to legacy tier-based
+  // fallback for non-smart-routed code paths (Codex overrides etc.).
+  if (taskModel && !model) { // Only when auto-selected, not user-specified
+    const hostCheck = hostManagement.selectOllamaHostForModel(taskModel);
+    if (hostCheck.host && hostCheck.host.running_tasks > 0) {
+      // P77: Skip fallback for async-heavy tasks
+      const asyncPattern = /\b(async|await|Promise\b|\.then\(|\.catch\()\b/i;
+      if (asyncPattern.test(task)) {
+        logger.info(`[SmartRouting] P77: Async-heavy task detected, skipping fallback — queuing on primary host`);
       } else {
-        taskModel = null;
-        modRoutingReason = `Modification task (${fileSizeKnown ? maxFileLines + ' lines' : 'unknown size'}) → Codex (safe for any size)`;
-        logger.info(`[SmartRouting] P83: ${modRoutingReason}`);
-      }
-    } else if (isModificationTask && !codexEnabled && !override_provider) {
-      // Route modifications to claude-cli when Codex unavailable.
-      // Local LLMs with low max_safe_edit_lines destroy existing files during modification.
-      // claude-cli can handle modifications safely via diff-based patches.
-      const claudeCliEnabled = serverConfig.getBool('claude_cli_enabled');
-      if (claudeCliEnabled) {
-        selectedProvider = 'claude-cli';
-        taskModel = null; // claude-cli uses its own model
-        logger.info(`[SmartRouting] P86: Modification task (Codex disabled) → claude-cli (safe fallback)`);
-      } else {
-        // Both Codex and claude-cli disabled. Use fallback model as least-bad option.
-        // Model capability check: fallback model may have low max_safe_edit_lines,
-        // so P95 safeguard detects stub destruction patterns and triggers auto-retry/rejection.
-        const fallbackModel = modelRoles.getModelForRole('ollama', 'fallback') || DEFAULT_FALLBACK_MODEL;
-        taskModel = fallbackModel;
-        const fallbackCaps = modelCaps.getModelCapabilities(fallbackModel);
-        const fallbackMaxLines = fallbackCaps?.max_safe_edit_lines || 50;
-        logger.warn(`[SmartRouting] Modification task (Codex+claude-cli disabled) → ${fallbackModel} (max_safe_edit_lines=${fallbackMaxLines}, RISK on large files)`);
-      }
-    } else if (!isModificationTask && codexEnabled && !override_provider && !codexExhausted) {
-      // EXP1: Ollama CANNOT create new files — all greenfield tasks must go to Codex.
-      // Experiment 1 showed 3/3 Ollama greenfield tasks silently fell back to Codex
-      // or stalled. Route directly to avoid the fallback latency penalty (~2x slower).
-      //
-      const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
-      if (sparkEnabled && complexity !== 'complex') {
-        selectedProvider = 'codex';
-        taskModel = 'gpt-5.3-codex-spark';
-        modRoutingReason = `${complexity} greenfield → Codex Spark (Ollama cannot create files)`;
-      } else {
-        selectedProvider = 'codex';
-        taskModel = null;
-        modRoutingReason = `${complexity} greenfield → Codex (Ollama cannot create files)`;
-      }
-      logger.info(`[SmartRouting] EXP1: ${modRoutingReason}`);
-    } else {
-      // Smart model selection: score models by task type, language, and complexity
-      const taskType = hostManagement.classifyTaskType(task);
-      const taskLanguage = hostManagement.detectTaskLanguage(task, files || []);
+        // Try to find a less-loaded host with a capable model
+        let foundFallback = false;
 
-      // Gather available models from healthy hosts
-      const hosts = hostManagement.listOllamaHosts().filter(h => h.enabled && h.status !== 'down');
-      const availableModels = [...new Set(
-        hosts.flatMap(h => {
-          try { return JSON.parse(h.models || '[]'); } catch { return []; }
-        })
-      )];
+        // If we have a ranked list from smart selection, iterate it
+        const taskType = hostManagement.classifyTaskType(task);
+        const taskLanguage = hostManagement.detectTaskLanguage(task, files || []);
+        const hosts = hostManagement.listOllamaHosts().filter(h => h.enabled && h.status !== 'down');
+        const availableModels = [...new Set(
+          hosts.flatMap(h => {
+            try { return JSON.parse(h.models || '[]'); } catch { return []; }
+          })
+        )];
 
-      if (availableModels.length > 0) {
-        const ranked = hostManagement.selectBestModel(taskType, taskLanguage, complexity, availableModels, { estimatedTokens });
-        if (ranked.length > 0) {
-          taskModel = ranked[0].model;
-          logger.info(`[SmartRouting] Smart selection: ${taskType}/${taskLanguage}/${complexity} → ${taskModel} (score=${ranked[0].score}, ${ranked[0].reason})`);
-        } else {
-          // All models filtered (e.g., context window too small) — fall back to tier
-          const modelTier = hostManagement.getModelTierForComplexity(complexity);
-          taskModel = modelTier.modelConfig;
-          logger.info(`[SmartRouting] Smart selection filtered all models, falling back to tier: ${modelTier.tier} → ${taskModel}`);
-        }
-      } else {
-        // No hosts available — fall back to tier-based selection
-        const modelTier = hostManagement.getModelTierForComplexity(complexity);
-        taskModel = modelTier.modelConfig;
-        logger.info(`[SmartRouting] No healthy hosts with models, falling back to tier: ${modelTier.tier} → ${taskModel}`);
-      }
-    }
-
-    // P71: Multi-host load distribution with smart model fallback
-    // When the primary model's host is busy, try next-ranked models from
-    // selectBestModel on less-loaded hosts. Falls back to legacy tier-based
-    // fallback for non-smart-routed code paths (Codex overrides etc.).
-    if (taskModel && !model) { // Only when auto-selected, not user-specified
-      const hostCheck = hostManagement.selectOllamaHostForModel(taskModel);
-      if (hostCheck.host && hostCheck.host.running_tasks > 0) {
-        // P77: Skip fallback for async-heavy tasks
-        const asyncPattern = /\b(async|await|Promise\b|\.then\(|\.catch\()\b/i;
-        if (asyncPattern.test(task)) {
-          logger.info(`[SmartRouting] P77: Async-heavy task detected, skipping fallback — queuing on primary host`);
-        } else {
-          // Try to find a less-loaded host with a capable model
-          let foundFallback = false;
-
-          // If we have a ranked list from smart selection, iterate it
-          const taskType = hostManagement.classifyTaskType(task);
-          const taskLanguage = hostManagement.detectTaskLanguage(task, files || []);
-          const hosts = hostManagement.listOllamaHosts().filter(h => h.enabled && h.status !== 'down');
-          const availableModels = [...new Set(
-            hosts.flatMap(h => {
-              try { return JSON.parse(h.models || '[]'); } catch { return []; }
-            })
-          )];
-
-          if (availableModels.length > 1) {
-            const ranked = hostManagement.selectBestModel(taskType, taskLanguage, complexity, availableModels, { estimatedTokens });
-            for (const candidate of ranked) {
-              if (candidate.model === taskModel) continue; // Skip current model
-              const candidateHost = hostManagement.selectOllamaHostForModel(candidate.model);
-              if (candidateHost.host && candidateHost.host.running_tasks === 0) {
-                logger.info(`[SmartRouting] Smart fallback: Primary '${hostCheck.host.name}' busy → ${candidate.model} on '${candidateHost.host.name}' (score=${candidate.score})`);
-                taskModel = candidate.model;
-                foundFallback = true;
-                break;
-              }
+        if (availableModels.length > 1) {
+          const ranked = hostManagement.selectBestModel(taskType, taskLanguage, complexity, availableModels, { estimatedTokens });
+          for (const candidate of ranked) {
+            if (candidate.model === taskModel) continue; // Skip current model
+            const candidateHost = hostManagement.selectOllamaHostForModel(candidate.model);
+            if (candidateHost.host && candidateHost.host.running_tasks === 0) {
+              logger.info(`[SmartRouting] Smart fallback: Primary '${hostCheck.host.name}' busy → ${candidate.model} on '${candidateHost.host.name}' (score=${candidate.score})`);
+              taskModel = candidate.model;
+              foundFallback = true;
+              break;
             }
           }
+        }
 
-          // Legacy P71 fallback if smart fallback didn't find anything
-          if (!foundFallback) {
-            const tierName = complexity === 'simple' ? 'fast' : complexity === 'normal' ? 'balanced' : 'quality';
-            const fallbackModel = serverConfig.get(`ollama_${tierName}_model_fallback`);
-            if (fallbackModel && fallbackModel !== taskModel) {
-              const fallbackHost = hostManagement.selectOllamaHostForModel(fallbackModel);
-              if (fallbackHost.host && fallbackHost.host.running_tasks === 0) {
-                logger.info(`[SmartRouting] P71 legacy fallback: ${taskModel} → ${fallbackModel} on '${fallbackHost.host.name}'`);
-                taskModel = fallbackModel;
-              }
+        // Legacy P71 fallback if smart fallback didn't find anything
+        if (!foundFallback) {
+          const tierName = complexity === 'simple' ? 'fast' : complexity === 'normal' ? 'balanced' : 'quality';
+          const fallbackModel = serverConfig.get(`ollama_${tierName}_model_fallback`);
+          if (fallbackModel && fallbackModel !== taskModel) {
+            const fallbackHost = hostManagement.selectOllamaHostForModel(fallbackModel);
+            if (fallbackHost.host && fallbackHost.host.running_tasks === 0) {
+              logger.info(`[SmartRouting] P71 legacy fallback: ${taskModel} → ${fallbackModel} on '${fallbackHost.host.name}'`);
+              taskModel = fallbackModel;
             }
           }
         }

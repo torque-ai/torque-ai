@@ -78,6 +78,141 @@ function sanitizeOutputForCondition(text) {
   return sanitized;
 }
 
+function validateFileSizes(taskId, status, task, db, retryEnabled) {
+  let validationScore = 100;
+
+  if (status !== 'completed') return { validationScore };
+  if (!_getFileChangesForValidation) return { validationScore };
+
+  const fileChanges = _getFileChangesForValidation(task?.working_directory, 1);
+  logger.info(`Safeguard: validating ${fileChanges.length} changed files for task ${taskId}`);
+
+  const validationResults = db.validateTaskOutput(taskId, fileChanges);
+
+  if (validationResults.length > 0) {
+    const criticalOrErrors = validationResults.filter(r =>
+      r.severity === 'critical' || r.severity === 'error'
+    );
+
+    validationScore = Math.max(0, 100 - (criticalOrErrors.length * 20) - (validationResults.length - criticalOrErrors.length) * 5);
+
+    if (criticalOrErrors.length > 0) {
+      logger.info(`[Safeguard] Task ${taskId} has ${criticalOrErrors.length} validation errors`);
+      db.setConfig(`task_${taskId}_validation_status`, 'failed');
+
+      const hasCriticalAutoFail = criticalOrErrors.some(r =>
+        r.severity === 'critical' || r.auto_fail === true
+      );
+
+      if (hasCriticalAutoFail && task?.working_directory) {
+        const autoRollbackOnValidation = serverConfig.getBool('auto_rollback_on_validation_failure');
+        if (autoRollbackOnValidation) {
+          logger.info(`[Safeguard] Auto-rollback triggered for ${taskId} due to critical validation failure`);
+
+          for (const fc of fileChanges) {
+            try {
+              db.recordFileChange(taskId, fc.path, 'modified', {
+                fileSizeBytes: fc.size,
+                workingDirectory: task.working_directory
+              });
+            } catch (e) {
+              logger.info(`[Safeguard] Failed to record file change: ${e.message}`);
+            }
+          }
+
+          const rollback = db.performAutoRollback(taskId, task.working_directory, 'validation_failure', 1);
+          if (rollback.success) {
+            logger.info(`[Safeguard] Auto-rollback successful: ${rollback.files_processed} file(s) restored`);
+            try {
+              const currentTask = db.getTask(taskId);
+              if (currentTask && currentTask.status !== 'failed' && currentTask.status !== 'cancelled') {
+                db.updateTaskStatus(taskId, 'failed', { error_output: 'Critical validation failure - files auto-rolled back: ' + criticalOrErrors.map(e => e.rule_name || e.message).join(', '), completed_at: new Date().toISOString() });
+              }
+            } catch (e) {
+              logger.info(`[Safeguard] Failed to update task status: ${e.message}`);
+            }
+          } else {
+            logger.info(`[Safeguard] Auto-rollback had errors: ${JSON.stringify(rollback.errors)}`);
+          }
+        }
+      }
+
+      if (retryEnabled) {
+        const retryDecision = db.shouldRetryWithCloud(taskId, task?.output || '', {
+          validation_failed: true,
+          provider: task?.provider
+        });
+
+        if (retryDecision.shouldRetry) {
+          logger.info(`[Safeguard] Triggering adaptive retry for ${taskId} → ${retryDecision.fallbackProvider}`);
+        }
+      }
+    }
+  }
+
+  return { validationScore };
+}
+
+async function detectTruncatedFiles(taskId, status, task, db) {
+  let syntaxScore = 100;
+
+  if (status !== 'completed' || !task?.working_directory) return { syntaxScore };
+
+  const fileChangesForQuality = _getFileChangesForValidation
+    ? _getFileChangesForValidation(task.working_directory, 1)
+    : [];
+
+  for (const fc of fileChangesForQuality) {
+    const fullPath = path.join(task.working_directory, fc.path);
+    try {
+      if (_checkFileQuality) {
+        const qr = _checkFileQuality(fullPath);
+        if (!qr.valid) {
+          syntaxScore = Math.max(0, syntaxScore - 15 * qr.issues.length);
+          logger.info(`[Safeguard] File quality issues in ${fc.path}: ${qr.issues.join('; ')}`);
+        }
+      }
+    } catch { /* ignore */ }
+
+    try {
+      const sr = await db.runSyntaxValidation(fullPath, task.working_directory);
+      if (sr && sr.results) {
+        const failures = sr.results.filter(r => !r.success);
+        if (failures.length > 0) {
+          syntaxScore = Math.max(0, syntaxScore - 25 * failures.length);
+          logger.info(`[Safeguard] Syntax validation failures in ${fc.path}: ${failures.map(f => f.validator).join(', ')}`);
+        }
+      }
+    } catch { /* validator not available */ }
+  }
+
+  return { syntaxScore };
+}
+
+function detectStubImplementations(taskId, status, task, db) {
+  if (status !== 'completed' || !task?.working_directory || task?.provider !== 'ollama') return;
+
+  try {
+    _cleanupJunkFiles(task.working_directory, taskId);
+  } catch (err) {
+    logger.info(`[Safeguard] Junk file cleanup error for ${taskId}: ${err.message}`);
+  }
+
+  try {
+    const placeholderResult = _findPlaceholderArtifacts
+      ? _findPlaceholderArtifacts(task.working_directory)
+      : { valid: true, issues: [] };
+    if (!placeholderResult.valid) {
+      const diagnostics = placeholderResult.issues.join('\n');
+      db.setConfig(`task_${taskId}_validation_status`, 'failed');
+      db.setConfig(`task_${taskId}_validation_issues`, diagnostics);
+      logger.error(`[Safeguard] Placeholder artifacts remain after task ${taskId}:\n${diagnostics}`);
+    }
+  } catch (err) {
+    logger.info(`[Safeguard] Placeholder artifact reporting error for ${taskId}: ${err.message}`);
+  }
+}
+
 // ─── Main Output Safeguards Pipeline ────────────────────────────────────────
 
 async function runOutputSafeguards(taskId, status, task) {
@@ -93,86 +228,8 @@ async function runOutputSafeguards(taskId, status, task) {
     let completenessScore = 100;
 
     // 1. Run output validation (for completed tasks)
-    if (status === 'completed') {
-      // Get file changes from git to validate
-      if (!_getFileChangesForValidation) return;
-      const fileChanges = _getFileChangesForValidation(task?.working_directory, 1);
-      logger.info(`Safeguard: validating ${fileChanges.length} changed files for task ${taskId}`);
-
-      const validationResults = db.validateTaskOutput(taskId, fileChanges);
-
-      // Check if any validation failures exist
-      if (validationResults.length > 0) {
-        const criticalOrErrors = validationResults.filter(r =>
-          r.severity === 'critical' || r.severity === 'error'
-        );
-
-        // Calculate validation score (deduct points for issues)
-        validationScore = Math.max(0, 100 - (criticalOrErrors.length * 20) - (validationResults.length - criticalOrErrors.length) * 5);
-
-        if (criticalOrErrors.length > 0) {
-          logger.info(`[Safeguard] Task ${taskId} has ${criticalOrErrors.length} validation errors`);
-
-          // Mark task as having validation issues
-          db.setConfig(`task_${taskId}_validation_status`, 'failed');
-
-          // Check if any critical validation errors have auto_fail or indicate destructive changes
-          const hasCriticalAutoFail = criticalOrErrors.some(r =>
-            r.severity === 'critical' || r.auto_fail === true
-          );
-
-          // Auto-rollback on critical validation failure (file truncation, etc.)
-          if (hasCriticalAutoFail && task?.working_directory) {
-            const autoRollbackOnValidation = serverConfig.getBool('auto_rollback_on_validation_failure');
-            if (autoRollbackOnValidation) {
-              logger.info(`[Safeguard] Auto-rollback triggered for ${taskId} due to critical validation failure`);
-
-              // Record file changes in database before rollback (so performAutoRollback can find them)
-              for (const fc of fileChanges) {
-                try {
-                  db.recordFileChange(taskId, fc.path, 'modified', {
-                    fileSizeBytes: fc.size,
-                    workingDirectory: task.working_directory
-                  });
-                } catch (e) {
-                  logger.info(`[Safeguard] Failed to record file change: ${e.message}`);
-                }
-              }
-
-              const rollback = db.performAutoRollback(taskId, task.working_directory, 'validation_failure', 1);
-              if (rollback.success) {
-                logger.info(`[Safeguard] Auto-rollback successful: ${rollback.files_processed} file(s) restored`);
-                // Update task status to indicate validation failure with rollback
-                // Guard: only overwrite if task is still in a non-terminal state
-                // (async safeguards run after close handler — task may already be terminalized)
-                try {
-                  const currentTask = db.getTask(taskId);
-                  if (currentTask && currentTask.status !== 'failed' && currentTask.status !== 'cancelled') {
-                    db.updateTaskStatus(taskId, 'failed', { error_output: 'Critical validation failure - files auto-rolled back: ' + criticalOrErrors.map(e => e.rule_name || e.message).join(', '), completed_at: new Date().toISOString() });
-                  }
-                } catch (e) {
-                  logger.info(`[Safeguard] Failed to update task status: ${e.message}`);
-                }
-              } else {
-                logger.info(`[Safeguard] Auto-rollback had errors: ${JSON.stringify(rollback.errors)}`);
-              }
-            }
-          }
-
-          // Check if adaptive retry should be triggered
-          if (retryEnabled) {
-            const retryDecision = db.shouldRetryWithCloud(taskId, task?.output || '', {
-              validation_failed: true,
-              provider: task?.provider
-            });
-
-            if (retryDecision.shouldRetry) {
-              logger.info(`[Safeguard] Triggering adaptive retry for ${taskId} → ${retryDecision.fallbackProvider}`);
-            }
-          }
-        }
-      }
-    }
+    const { validationScore: vs } = validateFileSizes(taskId, status, task, db, retryEnabled);
+    validationScore = vs;
 
     // 1-PII. Sanitize PII in task output and file changes
     if (status === 'completed' && task?.working_directory) {
@@ -231,56 +288,11 @@ async function runOutputSafeguards(taskId, status, task) {
     }
 
     // 1a. Wire checkFileQuality + runSyntaxValidation into syntaxScore
-    if (status === 'completed' && task?.working_directory) {
-      const fileChangesForQuality = _getFileChangesForValidation(task.working_directory, 1);
-      for (const fc of fileChangesForQuality) {
-        const fullPath = path.join(task.working_directory, fc.path);
-        // checkFileQuality (sync)
-        try {
-          const qr = _checkFileQuality(fullPath);
-          if (!qr.valid) {
-            syntaxScore = Math.max(0, syntaxScore - 15 * qr.issues.length);
-            logger.info(`[Safeguard] File quality issues in ${fc.path}: ${qr.issues.join('; ')}`);
-          }
-        } catch { /* ignore */ }
-
-        // runSyntaxValidation (async)
-        try {
-          const sr = await db.runSyntaxValidation(fullPath, task.working_directory);
-          if (sr && sr.results) {
-            const failures = sr.results.filter(r => !r.success);
-            if (failures.length > 0) {
-              syntaxScore = Math.max(0, syntaxScore - 25 * failures.length);
-              logger.info(`[Safeguard] Syntax validation failures in ${fc.path}: ${failures.map(f => f.validator).join(', ')}`);
-            }
-          }
-        } catch { /* validator not available */ }
-      }
-    }
+    const { syntaxScore: ss } = await detectTruncatedFiles(taskId, status, task, db);
+    syntaxScore = ss;
 
     // 1b. Clean up junk files created by LLM hallucinating filenames
-    if (status === 'completed' && task?.working_directory && task?.provider === 'ollama') {
-      try {
-        _cleanupJunkFiles(task.working_directory, taskId);
-      } catch (err) {
-        logger.info(`[Safeguard] Junk file cleanup error for ${taskId}: ${err.message}`);
-      }
-
-      // Treat leftover placeholder files as validation failures rather than silently deleting them.
-      try {
-        const placeholderResult = _findPlaceholderArtifacts
-          ? _findPlaceholderArtifacts(task.working_directory)
-          : { valid: true, issues: [] };
-        if (!placeholderResult.valid) {
-          const diagnostics = placeholderResult.issues.join('\n');
-          db.setConfig(`task_${taskId}_validation_status`, 'failed');
-          db.setConfig(`task_${taskId}_validation_issues`, diagnostics);
-          logger.error(`[Safeguard] Placeholder artifacts remain after task ${taskId}:\n${diagnostics}`);
-        }
-      } catch (err) {
-        logger.info(`[Safeguard] Placeholder artifact reporting error for ${taskId}: ${err.message}`);
-      }
-    }
+    detectStubImplementations(taskId, status, task, db);
 
     // 2. Check for failure patterns (for both completed and failed tasks)
     const output = task?.output || task?.error_output || '';
