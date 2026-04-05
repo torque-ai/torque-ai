@@ -459,7 +459,12 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
                   <Fragment key={wf.id}>
                     <tr
                       onClick={() => setExpandedId(isExpanded ? null : wf.id)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') setExpandedId(isExpanded ? null : wf.id); }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setExpandedId(isExpanded ? null : wf.id);
+                        }
+                      }}
                       tabIndex={0}
                       role="button"
                       aria-expanded={isExpanded}
