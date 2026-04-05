@@ -1,6 +1,6 @@
 'use strict';
 
-const fs = require('node:fs');
+const fsPromises = require('node:fs/promises');
 
 const DEFAULT_MAX_CHUNK_LINES = 800;
 const OVERLAP_LINES = 50;
@@ -197,7 +197,7 @@ const resolveTier = (file) => {
   return 'large';
 };
 
-const createReviewUnits = (files, options = {}) => {
+const createReviewUnits = async (files, options = {}) => {
   if (!Array.isArray(files)) {
     return [];
   }
@@ -205,7 +205,7 @@ const createReviewUnits = (files, options = {}) => {
   const maxChunkLines = toInt(options.maxChunkLines, DEFAULT_MAX_CHUNK_LINES);
   const readFile = typeof options.readFile === 'function'
     ? options.readFile
-    : (filePath) => fs.readFileSync(filePath, 'utf8');
+    : (filePath) => fsPromises.readFile(filePath, 'utf8');
 
   const units = [];
   const small = [];
@@ -254,7 +254,7 @@ const createReviewUnits = (files, options = {}) => {
 
   for (const file of large) {
     const filePath = file && file.path ? file.path : '';
-    const fileContent = readFile(filePath, file);
+    const fileContent = await readFile(filePath, file);
     const fileLines = splitContentLines(fileContent);
     const totalLines = fileLines.length;
     const chunkSummaries = [];

@@ -54,8 +54,8 @@ describe('audit inventory', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('returns FileEntry array with expected fields', () => {
-    const entries = inventoryFiles(tempDir);
+  it('returns FileEntry array with expected fields', async () => {
+    const entries = await inventoryFiles(tempDir);
     const target = entries.find((entry) => entry.name === 'small.js');
     expect(target).toBeDefined();
     expect(target.relativePath).toBe('src/small.js');
@@ -64,13 +64,13 @@ describe('audit inventory', () => {
     expect(Array.isArray(target.importPaths)).toBe(true);
   });
 
-  it('excludes node_modules content', () => {
-    const entries = inventoryFiles(tempDir);
+  it('excludes node_modules content', async () => {
+    const entries = await inventoryFiles(tempDir);
     expect(entries.some((entry) => entry.name === 'dep.js')).toBe(false);
   });
 
-  it('excludes non-source extensions', () => {
-    const entries = inventoryFiles(tempDir);
+  it('excludes non-source extensions', async () => {
+    const entries = await inventoryFiles(tempDir);
     expect(entries.some((entry) => entry.name === 'readme.md')).toBe(false);
   });
 
@@ -82,8 +82,8 @@ describe('audit inventory', () => {
     expect(classifyTier(1200)).toBe('large');
   });
 
-  it('assigns the expected tier to each file', () => {
-    const entries = inventoryFiles(tempDir);
+  it('assigns the expected tier to each file', async () => {
+    const entries = await inventoryFiles(tempDir);
     const byName = new Map(entries.map((entry) => [entry.name, entry.tier]));
     expect(byName.get('small.js')).toBe('small');
     expect(byName.get('medium.js')).toBe('medium');
@@ -106,15 +106,15 @@ describe('audit inventory', () => {
     expect(paths).toHaveLength(4);
   });
 
-  it('extracts importPaths for JS files', () => {
-    const entries = inventoryFiles(tempDir);
+  it('extracts importPaths for JS files', async () => {
+    const entries = await inventoryFiles(tempDir);
     const importsFile = entries.find((entry) => entry.name === 'imports.js');
     expect(importsFile).toBeDefined();
     expect(importsFile.importPaths.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('supports ignorePatterns', () => {
-    const entriesWithIgnore = inventoryFiles(tempDir, {
+  it('supports ignorePatterns', async () => {
+    const entriesWithIgnore = await inventoryFiles(tempDir, {
       ignorePatterns: ['*.test.js'],
     });
     expect(entriesWithIgnore.some((entry) => entry.name === 'duplicates.test.js')).toBe(false);

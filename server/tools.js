@@ -432,7 +432,7 @@ async function maybeFireFileWriteHooks(toolName, args, result) {
 
 const RESTART_RESPONSE_GRACE_MS = 1500;
 
-function handleRestartServer(args) {
+async function handleRestartServer(args) {
   const reason = args.reason || 'Manual restart requested';
   const drain = args.drain === true;
   const drainTimeoutMinutes = args.drain_timeout_minutes || 10;
@@ -453,7 +453,7 @@ function handleRestartServer(args) {
       const { createGovernanceHooks } = require('./governance/hooks');
       const governanceRules = require('./db/governance-rules');
       const governance = createGovernanceHooks({ governanceRules, logger });
-      const result = governance.evaluate('server_restart', {}, {
+      const result = await governance.evaluate('server_restart', {}, {
         force: true,
         running: allRunningTasks.length,
         queued: allQueuedTasks.length,

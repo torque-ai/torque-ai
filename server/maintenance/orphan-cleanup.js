@@ -12,7 +12,9 @@
  * Uses init() pattern for dependency injection.
  */
 
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 const { killProcessGraceful, killOrphanByPid } = require('../execution/process-lifecycle');
 const serverConfig = require('../config');
 
@@ -102,19 +104,21 @@ let zombieCheckCycle = 0;
 /**
  * Kill orphaned dotnet processes from previous crashed sessions
  * This prevents .NET processes from accumulating when tests/builds are interrupted
- * Uses execFileSync (not execSync) to avoid shell injection vulnerabilities
+ * Uses async execFile (not execSync/execFileSync) to avoid blocking the event loop
  * Only kills processes NOT tracked in our runningProcesses map
  */
-function cleanupOrphanedDotnetProcesses() {
+async function cleanupOrphanedDotnetProcesses() {
   try {
     let dotnetPids = [];
 
     if (process.platform === 'win32') {
       // Windows: use WMIC to find dotnet processes
       try {
-        const result = execFileSync('wmic', [
-          'process', 'where', 'name like \'%dotnet%\'', 'get', 'processid,commandline', '/format:list'
-        ], { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY, windowsHide: true });
+        const { stdout: result } = await execFileAsync(
+          'wmic',
+          ['process', 'where', "name like '%dotnet%'", 'get', 'processid,commandline', '/format:list'],
+          { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY, windowsHide: true }
+        );
         // Parse PIDs from WMIC output, filtering for test/build processes
         const lines = result.split('\n');
         let currentPid = null;
@@ -138,15 +142,16 @@ function cleanupOrphanedDotnetProcesses() {
         // WMIC might not be available or no matches
       }
     } else {
-      // Linux/Mac (including WSL): use pgrep with execFileSync
+      // Linux/Mac (including WSL): use pgrep with execFile
       // Target dotnet test, build, and run processes
       const patterns = ['dotnet.*test', 'dotnet.*build', 'dotnet.*run'];
       for (const pattern of patterns) {
         try {
-          const result = execFileSync('pgrep', ['-f', pattern], {
-            encoding: 'utf8',
-            timeout: TASK_TIMEOUTS.PROCESS_QUERY
-          });
+          const { stdout: result } = await execFileAsync(
+            'pgrep',
+            ['-f', pattern],
+            { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY }
+          );
           const pids = result.trim().split('\n').filter(p => p).map(p => parseInt(p, 10));
           dotnetPids.push(...pids);
         } catch {
@@ -238,12 +243,16 @@ function checkStaleRunningTasks() {
   }
 }
 
+// ============================================================
+// Zombie Process Detection
+// ============================================================
+
 /**
  * Check for zombie processes: tasks in 'running' state whose child process has
  * already exited but the 'close' event never fired (Windows .cmd wrapper issue).
  * Also detects tasks whose output signals completion but the process lingers.
  */
-function checkZombieProcesses() {
+async function checkZombieProcesses() {
   zombieCheckCycle++;
   try {
     const count = runningProcesses.size;
@@ -288,12 +297,11 @@ function checkZombieProcesses() {
       // Node.js holds an open handle. tasklist queries the OS kernel directly.
       if (process.platform === 'win32' && proc.process.pid) {
         try {
-          const result = execFileSync('tasklist', ['/FI', `PID eq ${proc.process.pid}`, '/NH', '/FO', 'CSV'], {
-            encoding: 'utf8',
-            stdio: 'pipe',
-            timeout: TASK_TIMEOUTS.PROCESS_QUERY,
-            windowsHide: true,
-          });
+          const { stdout: result } = await execFileAsync(
+            'tasklist',
+            ['/FI', `PID eq ${proc.process.pid}`, '/NH', '/FO', 'CSV'],
+            { encoding: 'utf8', timeout: TASK_TIMEOUTS.PROCESS_QUERY, windowsHide: true }
+          );
           // tasklist returns a CSV line with the PID if found, or "INFO: No tasks..." if not
           if (!result.includes(String(proc.process.pid))) {
             logger.info(`[Zombie Check] Task ${taskId} PID ${proc.process.pid} not found in tasklist. Process is dead. Forcing cleanup.`);

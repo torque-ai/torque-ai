@@ -1,8 +1,16 @@
 'use strict';
 
 const childProcess = require('child_process');
+const { promisify } = require('util');
 const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
-const { CHECKERS, createGovernanceHooks } = require('../governance/hooks');
+let CHECKERS;
+let createGovernanceHooks;
+
+function loadHooksModule() {
+  const resolved = require.resolve('../governance/hooks');
+  delete require.cache[resolved];
+  return require('../governance/hooks');
+}
 
 function createLoggerMock() {
   const child = {
@@ -16,6 +24,14 @@ function createLoggerMock() {
     child: vi.fn(() => child),
     __child: child,
   };
+}
+
+function mockExecFileSuccess(stdout = '', stderr = '') {
+  const mock = vi.spyOn(childProcess, 'execFile').mockImplementation((_file, _args, _options, callback) => {
+    callback(null, stdout, stderr);
+  });
+  mock[promisify.custom] = vi.fn(async () => ({ stdout, stderr }));
+  return mock;
 }
 
 function createGovernanceRulesStore(dbHandle) {
@@ -103,6 +119,7 @@ describe('governance/hooks', () => {
 
     logger = createLoggerMock();
     governanceRules = createGovernanceRulesStore(rawDb());
+    ({ CHECKERS, createGovernanceHooks } = loadHooksModule());
     hooks = createGovernanceHooks({ governanceRules, logger });
   });
 
@@ -112,13 +129,13 @@ describe('governance/hooks', () => {
   });
 
   describe('evaluate', () => {
-    it('checkVisibleProvider blocks codex', () => {
+    it('checkVisibleProvider blocks codex', async () => {
       seedRule({
         id: 'visible-codex',
         config: JSON.stringify({ providers: ['codex'] }),
       });
 
-      const result = hooks.evaluate('task_submit', {
+      const result = await hooks.evaluate('task_submit', {
         id: 'task-1',
         provider: 'codex',
         metadata: JSON.stringify({ intended_provider: 'ollama' }),
@@ -137,13 +154,13 @@ describe('governance/hooks', () => {
       expect(result.allPassed).toBe(false);
     });
 
-    it('checkVisibleProvider blocks claude-cli', () => {
+    it('checkVisibleProvider blocks claude-cli', async () => {
       seedRule({
         id: 'visible-claude',
         config: JSON.stringify({ providers: ['claude-cli'] }),
       });
 
-      const result = hooks.evaluate('task_submit', {
+      const result = await hooks.evaluate('task_submit', {
         id: 'task-2',
         provider: 'claude-cli',
       });
@@ -153,13 +170,13 @@ describe('governance/hooks', () => {
       expect(result.allPassed).toBe(false);
     });
 
-    it('checkVisibleProvider passes for ollama', () => {
+    it('checkVisibleProvider passes for ollama', async () => {
       seedRule({
         id: 'visible-pass',
         config: JSON.stringify({ providers: ['codex', 'claude-cli'] }),
       });
 
-      const result = hooks.evaluate('task_submit', {
+      const result = await hooks.evaluate('task_submit', {
         id: 'task-3',
         provider: 'ollama',
       });
@@ -172,13 +189,13 @@ describe('governance/hooks', () => {
       });
     });
 
-    it('blocks when intended_provider in metadata is codex', () => {
+    it('blocks when intended_provider in metadata is codex', async () => {
       seedRule({
         id: 'visible-intended',
         config: JSON.stringify({ providers: ['codex'] }),
       });
 
-      const result = hooks.evaluate('task_submit', {
+      const result = await hooks.evaluate('task_submit', {
         id: 'task-4',
         provider: 'ollama',
         metadata: JSON.stringify({ intended_provider: 'codex' }),
@@ -189,14 +206,14 @@ describe('governance/hooks', () => {
       expect(result.allPassed).toBe(false);
     });
 
-    it('warn mode allows but adds warning', () => {
+    it('warn mode allows but adds warning', async () => {
       seedRule({
         id: 'visible-warn',
         mode: 'warn',
         config: JSON.stringify({ providers: ['codex'] }),
       });
 
-      const result = hooks.evaluate('task_submit', {
+      const result = await hooks.evaluate('task_submit', {
         id: 'task-5',
         provider: 'codex',
       });
@@ -208,14 +225,14 @@ describe('governance/hooks', () => {
       expect(logger.__child.warn).toHaveBeenCalledWith(expect.stringContaining('Governance warning'));
     });
 
-    it('shadow mode allows and logs silently', () => {
+    it('shadow mode allows and logs silently', async () => {
       seedRule({
         id: 'visible-shadow',
         mode: 'shadow',
         config: JSON.stringify({ providers: ['codex'] }),
       });
 
-      const result = hooks.evaluate('task_submit', {
+      const result = await hooks.evaluate('task_submit', {
         id: 'task-6',
         provider: 'codex',
       });
@@ -228,14 +245,14 @@ describe('governance/hooks', () => {
       expect(logger.__child.warn).not.toHaveBeenCalled();
     });
 
-    it('off mode skips evaluation', () => {
+    it('off mode skips evaluation', async () => {
       seedRule({
         id: 'visible-off',
         mode: 'off',
         config: JSON.stringify({ providers: ['codex'] }),
       });
 
-      const result = hooks.evaluate('task_submit', {
+      const result = await hooks.evaluate('task_submit', {
         id: 'task-7',
         provider: 'codex',
       });
@@ -249,13 +266,13 @@ describe('governance/hooks', () => {
       expect(governanceRules.getRule('visible-off').violation_count).toBe(0);
     });
 
-    it('violation count increments on failure', () => {
+    it('violation count increments on failure', async () => {
       seedRule({
         id: 'visible-increment',
         config: JSON.stringify({ providers: ['codex'] }),
       });
 
-      hooks.evaluate('task_submit', {
+      await hooks.evaluate('task_submit', {
         id: 'task-8',
         provider: 'codex',
       });
@@ -263,13 +280,13 @@ describe('governance/hooks', () => {
       expect(governanceRules.getRule('visible-increment').violation_count).toBe(1);
     });
 
-    it('does not increment on pass', () => {
+    it('does not increment on pass', async () => {
       seedRule({
         id: 'visible-no-increment',
         config: JSON.stringify({ providers: ['codex'] }),
       });
 
-      hooks.evaluate('task_submit', {
+      await hooks.evaluate('task_submit', {
         id: 'task-9',
         provider: 'ollama',
       });
@@ -277,7 +294,7 @@ describe('governance/hooks', () => {
       expect(governanceRules.getRule('visible-no-increment').violation_count).toBe(0);
     });
 
-    it('no rules for stage returns allPassed', () => {
+    it('no rules for stage returns allPassed', async () => {
       seedRule({
         id: 'other-stage',
         stage: 'task_cancel',
@@ -285,7 +302,7 @@ describe('governance/hooks', () => {
         config: null,
       });
 
-      const result = hooks.evaluate('task_submit', {
+      const result = await hooks.evaluate('task_submit', {
         id: 'task-10',
         provider: 'codex',
       });
@@ -298,14 +315,14 @@ describe('governance/hooks', () => {
       });
     });
 
-    it('disabled rules are skipped', () => {
+    it('disabled rules are skipped', async () => {
       seedRule({
         id: 'visible-disabled',
         enabled: 0,
         config: JSON.stringify({ providers: ['codex'] }),
       });
 
-      const result = hooks.evaluate('task_submit', {
+      const result = await hooks.evaluate('task_submit', {
         id: 'task-11',
         provider: 'codex',
       });
@@ -363,10 +380,10 @@ describe('governance/hooks', () => {
       expect(result).toEqual({ pass: true });
     });
 
-    it('checkPushedBeforeRemote skips local execution tasks', () => {
-      const execSpy = vi.spyOn(childProcess, 'execFileSync');
+    it('checkPushedBeforeRemote skips local execution tasks', async () => {
+      const execSpy = vi.spyOn(childProcess, 'execFile');
 
-      const result = CHECKERS.checkPushedBeforeRemote({
+      const result = await CHECKERS.checkPushedBeforeRemote({
         id: 'remote-1',
         working_directory: testDir,
         metadata: JSON.stringify({ remote_execution: false }),
@@ -376,10 +393,11 @@ describe('governance/hooks', () => {
       expect(execSpy).not.toHaveBeenCalled();
     });
 
-    it('checkPushedBeforeRemote fails when unpushed commits exist', () => {
-      const execSpy = vi.spyOn(childProcess, 'execFileSync').mockReturnValue('abc123 Commit\n');
+    it('checkPushedBeforeRemote fails when unpushed commits exist', async () => {
+      const execSpy = mockExecFileSuccess('abc123 Commit\n');
+      ({ CHECKERS } = loadHooksModule());
 
-      const result = CHECKERS.checkPushedBeforeRemote({
+      const result = await CHECKERS.checkPushedBeforeRemote({
         id: 'remote-2',
         working_directory: testDir,
         metadata: JSON.stringify({ remote_execution: true }),
@@ -393,13 +411,14 @@ describe('governance/hooks', () => {
         encoding: 'utf8',
         timeout: 5000,
         windowsHide: true,
-      });
+      }, expect.any(Function));
     });
 
-    it('checkPushedBeforeRemote passes when no unpushed commits exist', () => {
-      vi.spyOn(childProcess, 'execFileSync').mockReturnValue('   ');
+    it('checkPushedBeforeRemote passes when no unpushed commits exist', async () => {
+      mockExecFileSuccess('   ');
+      ({ CHECKERS } = loadHooksModule());
 
-      const result = CHECKERS.checkPushedBeforeRemote({
+      const result = await CHECKERS.checkPushedBeforeRemote({
         id: 'remote-3',
         working_directory: testDir,
         metadata: JSON.stringify({ remote_execution: 'true' }),
@@ -442,10 +461,11 @@ describe('governance/hooks', () => {
       expect(result).toEqual({ pass: true });
     });
 
-    it('checkDiffAfterCodex captures git diff stat for codex providers', () => {
-      const execSpy = vi.spyOn(childProcess, 'execFileSync').mockReturnValue('server/governance/hooks.js | 12 ++++++++----\n');
+    it('checkDiffAfterCodex captures git diff stat for codex providers', async () => {
+      const execSpy = mockExecFileSuccess('server/governance/hooks.js | 12 ++++++++----\n');
+      ({ CHECKERS } = loadHooksModule());
 
-      const result = CHECKERS.checkDiffAfterCodex({
+      const result = await CHECKERS.checkDiffAfterCodex({
         id: 'diff-1',
         provider: 'codex',
         working_directory: testDir,
@@ -460,13 +480,13 @@ describe('governance/hooks', () => {
         encoding: 'utf8',
         timeout: 5000,
         windowsHide: true,
-      });
+      }, expect.any(Function));
     });
 
-    it('checkDiffAfterCodex skips non-codex providers', () => {
-      const execSpy = vi.spyOn(childProcess, 'execFileSync');
+    it('checkDiffAfterCodex skips non-codex providers', async () => {
+      const execSpy = vi.spyOn(childProcess, 'execFile');
 
-      const result = CHECKERS.checkDiffAfterCodex({
+      const result = await CHECKERS.checkDiffAfterCodex({
         id: 'diff-2',
         provider: 'ollama',
         working_directory: testDir,

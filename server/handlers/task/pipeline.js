@@ -24,6 +24,31 @@ const { escapeRegExp, safeLimit,
         MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_TASK_LENGTH, MAX_BATCH_SIZE, ErrorCodes, makeError, requireTask } = require('../shared');
 const { formatTime } = require('./utils');
 
+function isPromiseLike(value) {
+  return Boolean(value) && typeof value.then === 'function';
+}
+
+function normalizeGovernanceEvaluationResult(result) {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+
+  if (!result.allPassed) {
+    const blockedMessages = Array.isArray(result.blocked)
+      ? result.blocked.map(entry => entry?.message).filter(Boolean)
+      : [];
+    return {
+      error: makeError(
+        ErrorCodes.OPERATION_FAILED,
+        blockedMessages.length > 0 ? blockedMessages.join('\n') : 'Task blocked by governance'
+      ),
+      result,
+    };
+  }
+
+  return { result };
+}
+
 function evaluateTaskSubmissionGovernance(task) {
   try {
     const { defaultContainer } = require('../../container');
@@ -37,24 +62,12 @@ function evaluateTaskSubmissionGovernance(task) {
     }
 
     const result = governance.evaluate('task_submit', task);
-    if (!result || typeof result !== 'object') {
-      return null;
+    if (isPromiseLike(result)) {
+      return result
+        .then(normalizeGovernanceEvaluationResult)
+        .catch(() => null);
     }
-
-    if (!result.allPassed) {
-      const blockedMessages = Array.isArray(result.blocked)
-        ? result.blocked.map(entry => entry?.message).filter(Boolean)
-        : [];
-      return {
-        error: makeError(
-          ErrorCodes.OPERATION_FAILED,
-          blockedMessages.length > 0 ? blockedMessages.join('\n') : 'Task blocked by governance'
-        ),
-        result,
-      };
-    }
-
-    return { result };
+    return normalizeGovernanceEvaluationResult(result);
   } catch (_e) {
     return null;
   }
@@ -405,26 +418,33 @@ function handleUseTemplate(args) {
     priority: args.priority !== undefined ? args.priority : template.default_priority,
     template_name: template.name,
   };
-  const governanceEvaluation = evaluateTaskSubmissionGovernance(createdTask);
-  if (governanceEvaluation?.error) {
-    return governanceEvaluation.error;
-  }
+  const continueSaveTemplate = (governanceEvaluation) => {
+    if (governanceEvaluation?.error) {
+      return governanceEvaluation.error;
+    }
 
-  taskCore.createTask(createdTask);
+    taskCore.createTask(createdTask);
 
-  schedulingAutomation.incrementTemplateUsage(template.name);
+    schedulingAutomation.incrementTemplateUsage(template.name);
 
-  const result = taskManager.startTask(taskId);
+    const result = taskManager.startTask(taskId);
 
-  return {
-    content: [{
-      type: 'text',
-      text: (result.queued
-        ? `Task created from template "${template.name}" and queued (ID: ${taskId})`
-        : `Task created from template "${template.name}" and started (ID: ${taskId})`)
-        + formatGovernanceWarnings(governanceEvaluation?.result)
-    }]
+    return {
+      content: [{
+        type: 'text',
+        text: (result.queued
+          ? `Task created from template "${template.name}" and queued (ID: ${taskId})`
+          : `Task created from template "${template.name}" and started (ID: ${taskId})`)
+          + formatGovernanceWarnings(governanceEvaluation?.result)
+      }]
+    };
   };
+
+  const governanceEvaluation = evaluateTaskSubmissionGovernance(createdTask);
+  if (isPromiseLike(governanceEvaluation)) {
+    return governanceEvaluation.then(continueSaveTemplate);
+  }
+  return continueSaveTemplate(governanceEvaluation);
 }
 
 
@@ -522,31 +542,39 @@ function handleRetryTask(args) {
     template_name: originalTask.template_name,
     context: { retry_of: args.task_id },
   };
-  const governanceEvaluation = evaluateTaskSubmissionGovernance({
+  const governanceTask = {
     ...retryTask,
     provider: originalTask.provider || null,
     model: originalTask.model || null,
     metadata: originalTask.metadata || null,
-  });
-  if (governanceEvaluation?.error) {
-    return governanceEvaluation.error;
-  }
-
-  taskCore.createTask(retryTask);
-
-  eventTracking.recordEvent('task_retried', taskId, { original_task: args.task_id });
-
-  const result = taskManager.startTask(taskId);
-
-  return {
-    content: [{
-      type: 'text',
-      text: (result.queued
-        ? `Retry task queued (ID: ${taskId}). Original: ${args.task_id.slice(0, 8)}...`
-        : `Retry task started (ID: ${taskId}). Original: ${args.task_id.slice(0, 8)}...`)
-        + formatGovernanceWarnings(governanceEvaluation?.result)
-    }]
   };
+  const continueRetryTask = (governanceEvaluation) => {
+    if (governanceEvaluation?.error) {
+      return governanceEvaluation.error;
+    }
+
+    taskCore.createTask(retryTask);
+
+    eventTracking.recordEvent('task_retried', taskId, { original_task: args.task_id });
+
+    const result = taskManager.startTask(taskId);
+
+    return {
+      content: [{
+        type: 'text',
+        text: (result.queued
+          ? `Retry task queued (ID: ${taskId}). Original: ${args.task_id.slice(0, 8)}...`
+          : `Retry task started (ID: ${taskId}). Original: ${args.task_id.slice(0, 8)}...`)
+          + formatGovernanceWarnings(governanceEvaluation?.result)
+      }]
+    };
+  };
+
+  const governanceEvaluation = evaluateTaskSubmissionGovernance(governanceTask);
+  if (isPromiseLike(governanceEvaluation)) {
+    return governanceEvaluation.then(continueRetryTask);
+  }
+  return continueRetryTask(governanceEvaluation);
 }
 
 
@@ -666,50 +694,59 @@ function handleRunPipeline(args) {
       timeout_minutes: firstStep.timeout_minutes,
       context: taskContext,
     };
-    governanceEvaluation = evaluateTaskSubmissionGovernance(pendingTask);
+  }
+
+  const continueRunPipeline = (resolvedGovernanceEvaluation) => {
+    governanceEvaluation = resolvedGovernanceEvaluation;
     if (governanceEvaluation?.error) {
       return governanceEvaluation.error;
     }
-  }
 
-  // Start the pipeline
-  projectConfigCore.updatePipelineStatus(args.pipeline_id, 'running');
-  eventTracking.recordEvent('pipeline_started', args.pipeline_id, { name: pipeline.name });
+    // Start the pipeline
+    projectConfigCore.updatePipelineStatus(args.pipeline_id, 'running');
+    eventTracking.recordEvent('pipeline_started', args.pipeline_id, { name: pipeline.name });
 
-  if (firstStep && pendingTask) {
-    logger.info(`[Pipeline] Creating first task ${pendingTask.id} with context: ${JSON.stringify(pendingTask.context)}`);
+    if (firstStep && pendingTask) {
+      logger.info(`[Pipeline] Creating first task ${pendingTask.id} with context: ${JSON.stringify(pendingTask.context)}`);
 
-    taskCore.createTask(pendingTask);
+      taskCore.createTask(pendingTask);
 
-    // Verify context was stored
-    const verifyTask = taskCore.getTask(pendingTask.id);
-    logger.info(`[Pipeline] Verified task context after create: ${JSON.stringify(verifyTask?.context)}`);
+      // Verify context was stored
+      const verifyTask = taskCore.getTask(pendingTask.id);
+      logger.info(`[Pipeline] Verified task context after create: ${JSON.stringify(verifyTask?.context)}`);
 
-    projectConfigCore.updatePipelineStatus(args.pipeline_id, 'running', { current_step: 1 });
+      projectConfigCore.updatePipelineStatus(args.pipeline_id, 'running', { current_step: 1 });
 
-    let startResult;
-    try {
-      startResult = taskManager.startTask(pendingTask.id);
-    } catch (startErr) {
-      // Revert pipeline status on start failure
-      projectConfigCore.updatePipelineStatus(args.pipeline_id, 'failed', { error: `Failed to start first step: ${startErr.message}` });
-      projectConfigCore.updatePipelineStep(firstStep.id, { status: 'failed' });
-      return makeError(ErrorCodes.OPERATION_FAILED, `Pipeline start failed: ${startErr.message}`);
+      let startResult;
+      try {
+        startResult = taskManager.startTask(pendingTask.id);
+      } catch (startErr) {
+        // Revert pipeline status on start failure
+        projectConfigCore.updatePipelineStatus(args.pipeline_id, 'failed', { error: `Failed to start first step: ${startErr.message}` });
+        projectConfigCore.updatePipelineStep(firstStep.id, { status: 'failed' });
+        return makeError(ErrorCodes.OPERATION_FAILED, `Pipeline start failed: ${startErr.message}`);
+      }
+
+      projectConfigCore.updatePipelineStep(firstStep.id, {
+        task_id: pendingTask.id,
+        status: startResult?.queued === true ? 'queued' : 'running',
+      });
     }
 
-    projectConfigCore.updatePipelineStep(firstStep.id, {
-      task_id: pendingTask.id,
-      status: startResult?.queued === true ? 'queued' : 'running',
-    });
-  }
-
-  return {
-    content: [{
-      type: 'text',
-      text: `Pipeline "${pipeline.name}" started.\n\nUse \`get_pipeline_status({pipeline_id: "${args.pipeline_id}"})\` to monitor progress.`
-        + formatGovernanceWarnings(governanceEvaluation?.result)
-    }]
+    return {
+      content: [{
+        type: 'text',
+        text: `Pipeline "${pipeline.name}" started.\n\nUse \`get_pipeline_status({pipeline_id: "${args.pipeline_id}"})\` to monitor progress.`
+          + formatGovernanceWarnings(governanceEvaluation?.result)
+      }]
+    };
   };
+
+  governanceEvaluation = firstStep ? evaluateTaskSubmissionGovernance(pendingTask) : null;
+  if (isPromiseLike(governanceEvaluation)) {
+    return governanceEvaluation.then(continueRunPipeline);
+  }
+  return continueRunPipeline(governanceEvaluation);
 }
 
 

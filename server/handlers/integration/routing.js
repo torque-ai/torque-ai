@@ -4,6 +4,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const fsPromises = require('node:fs/promises');
 const configCore = require('../../db/config-core');
 const hostManagement = require('../../db/host-management');
 const providerRoutingCore = require('../../db/provider-routing-core');
@@ -652,7 +653,7 @@ async function handleSmartSubmitTask(args) {
           const absPath = path.isAbsolute(f) ? f : path.join(jsWorkDir, f);
           if (!/\.(?:js|ts|mjs|cjs|jsx|tsx)$/i.test(absPath)) continue;
           if (!isPathTraversalSafe(absPath, jsWorkDir)) continue;
-          const content = fs.readFileSync(absPath, 'utf-8');
+          const content = await fsPromises.readFile(absPath, 'utf-8');
           const lineCount = content.split('\n').length;
           if (lineCount > largestLineCount) { largestLineCount = lineCount; largestFile = f; }
         } catch (err) {
@@ -816,7 +817,6 @@ async function handleSmartSubmitTask(args) {
     // Check file sizes — from explicit files array OR extracted from task description
     let maxFileLines = 0;
     let fileSizeKnown = false;
-    const fs = require('fs');
     const path = require('path');
     const workDir = working_directory || process.cwd();
 
@@ -847,7 +847,7 @@ async function handleSmartSubmitTask(args) {
       }
 
       try {
-        const content = fs.readFileSync(absPath, 'utf-8');
+        const content = await fsPromises.readFile(absPath, 'utf-8');
         const lineCount = content.split('\n').length;
         if (lineCount > maxFileLines) maxFileLines = lineCount;
         fileSizeKnown = true;

@@ -213,7 +213,7 @@ async function handlePostCompletion(ctx) {
         ? defaultContainer.get('governanceHooks')
         : null;
       if (governance && typeof governance.evaluate === 'function') {
-        governance.evaluate('task_complete', updatedTask || task);
+        await governance.evaluate('task_complete', updatedTask || task);
       }
     } catch (_e) {
       // Non-critical

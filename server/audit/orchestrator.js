@@ -6,7 +6,7 @@ const { createReviewUnits } = require('./chunking')
 const { buildReviewPrompt } = require('./prompt-builder')
 const { filterCategories, getRelevantCategories, AUDIT_CATEGORIES } = require('./categories')
 const logger = require('../logger').child({ component: 'audit-orchestrator' })
-const fs = require('node:fs')
+const fsPromises = require('node:fs/promises')
 const path = require('node:path')
 
 let _auditStore = null
@@ -90,7 +90,7 @@ const parseWorkflowId = (workflowResult) => {
   return null
 }
 
-const readFileContents = (files) => {
+const readFileContents = async (files) => {
   const contentByRelativePath = {}
 
   for (const file of files) {
@@ -98,7 +98,7 @@ const readFileContents = (files) => {
       continue
     }
     try {
-      contentByRelativePath[file.relativePath] = fs.readFileSync(file.path, 'utf8')
+      contentByRelativePath[file.relativePath] = await fsPromises.readFile(file.path, 'utf8')
     } catch (error) {
       logger.info(`Failed to read file for review unit: ${file.path}`, error.message)
       throw new Error(`Failed to read file: ${file.path}`)
@@ -177,7 +177,7 @@ const runAudit = async ({
   }
 
   const safeProjectPath = path.resolve(projectPath)
-  const files = inventoryFiles(safeProjectPath, {
+  const files = await inventoryFiles(safeProjectPath, {
     sourceDirs: toOptionalStringList(sourceDirs),
     ignoreDirs: toStringList(ignoreDirs),
     ignorePatterns: toStringList(ignorePatterns),
@@ -212,7 +212,7 @@ const runAudit = async ({
       })
   })()
 
-  const reviewUnits = createReviewUnits(files)
+  const reviewUnits = await createReviewUnits(files)
   const filesByTier = getFilesByTier(files)
   const { estimated_duration } = estimateDuration(filesByTier)
   const categoryKeys = Object.keys(selectedCategories)
@@ -243,7 +243,7 @@ const runAudit = async ({
     return createWorkflowError('Failed to create audit run')
   }
 
-  const fileContents = readFileContents(files)
+  const fileContents = await readFileContents(files)
 
   const workflowTasks = reviewUnits.map((unit) => {
     const tags = [

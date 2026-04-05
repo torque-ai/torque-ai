@@ -644,7 +644,7 @@ async function handleShutdown(req, res, _context = {}) {
         const { createGovernanceHooks } = require('./governance/hooks');
         const governanceRules = require('./db/governance-rules');
         const governance = createGovernanceHooks({ governanceRules, logger });
-        const govResult = governance.evaluate('server_restart', {}, {
+        const govResult = await governance.evaluate('server_restart', {}, {
           force: true, running, queued,
         });
         if (govResult.blocked && govResult.blocked.length > 0) {

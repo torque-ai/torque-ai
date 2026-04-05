@@ -2,6 +2,7 @@
 /* global describe, it, expect, beforeEach, afterEach, vi */
 
 const childProcess = require('child_process');
+const { promisify } = require('util');
 
 function installMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -26,6 +27,14 @@ function loadFresh(modulePath) {
 
 function getText(result) {
   return result?.content?.[0]?.text || '';
+}
+
+function mockExecFileSuccess(stdout = '', stderr = '') {
+  const mock = vi.spyOn(childProcess, 'execFile').mockImplementation((_file, _args, _options, callback) => {
+    callback(null, stdout, stderr);
+  });
+  mock[promisify.custom] = vi.fn(async () => ({ stdout, stderr }));
+  return mock;
 }
 
 function createLoggerMock() {
@@ -107,7 +116,7 @@ installMock('../logger', loggerModuleMock);
 
 const { setupTestDbModule, teardownTestDb, rawDb, mkTask } = require('./vitest-setup');
 const { createGovernanceRules } = require('../db/governance-rules');
-const { createGovernanceHooks } = require('../governance/hooks');
+let createGovernanceHooks;
 
 function ensureGovernanceSchema() {
   rawDb().exec(`
@@ -172,6 +181,7 @@ describe('governance integration', () => {
     ({ db, mod: taskCoreDb, testDir } = setupTestDbModule('../db/task-core', 'governance-integration'));
     ensureGovernanceSchema();
 
+    ({ createGovernanceHooks } = loadFresh('../governance/hooks'));
     governanceRules = createGovernanceRules({ db: rawDb() });
     governanceRules.seedBuiltinRules();
     governanceLogger = createLoggerMock();
@@ -232,10 +242,10 @@ describe('governance integration', () => {
     vi.restoreAllMocks();
   });
 
-  it('block mode rejects task submission', () => {
+  it('block mode rejects task submission', async () => {
     governanceRules.updateRuleMode('block-visible-providers', 'block');
 
-    const result = coreHandlers.handleSubmitTask({
+    const result = await coreHandlers.handleSubmitTask({
       auto_route: false,
       provider: 'codex',
       task: 'Review the recent routing changes',
@@ -249,10 +259,10 @@ describe('governance integration', () => {
     expect(governanceRules.getRule('block-visible-providers').violation_count).toBe(1);
   });
 
-  it('warn mode allows submission and includes the warning', () => {
+  it('warn mode allows submission and includes the warning', async () => {
     governanceRules.updateRuleMode('block-visible-providers', 'warn');
 
-    const result = coreHandlers.handleSubmitTask({
+    const result = await coreHandlers.handleSubmitTask({
       auto_route: false,
       provider: 'codex',
       task: 'Review the recent routing changes',
@@ -266,7 +276,7 @@ describe('governance integration', () => {
     expect(governanceRules.getRule('block-visible-providers').violation_count).toBe(1);
   });
 
-  it('shadow mode logs without blocking', () => {
+  it('shadow mode logs without blocking', async () => {
     governanceRules.updateRuleMode('block-visible-providers', 'shadow');
     const originalTask = mkTask(db, {
       status: 'failed',
@@ -277,7 +287,7 @@ describe('governance integration', () => {
     });
     const originalTaskId = originalTask.id || originalTask;
 
-    const result = pipelineHandlers.handleRetryTask({
+    const result = await pipelineHandlers.handleRetryTask({
       task_id: originalTaskId,
       modified_task: 'Retry the failed work with the latest context',
     });
@@ -289,7 +299,7 @@ describe('governance integration', () => {
     expect(governanceRules.getRule('block-visible-providers').violation_count).toBe(1);
   });
 
-  it('skips disabled rules', () => {
+  it('skips disabled rules', async () => {
     governanceRules.toggleRule('block-visible-providers', false);
     const originalTask = mkTask(db, {
       status: 'failed',
@@ -300,7 +310,7 @@ describe('governance integration', () => {
     });
     const originalTaskId = originalTask.id || originalTask;
 
-    const result = pipelineHandlers.handleRetryTask({
+    const result = await pipelineHandlers.handleRetryTask({
       task_id: originalTaskId,
       modified_task: 'Retry the failed work with the latest context',
     });
@@ -313,8 +323,9 @@ describe('governance integration', () => {
   });
 
   it('runs the task_complete stage checker after finalization', async () => {
-    const execSpy = vi.spyOn(childProcess, 'execFileSync')
-      .mockReturnValue('server/handlers/task/core.js | 3 ++-\n');
+    const execSpy = mockExecFileSuccess('server/handlers/task/core.js | 3 ++-\n');
+    ({ createGovernanceHooks } = loadFresh('../governance/hooks'));
+    currentGovernanceHooks = createGovernanceHooks({ governanceRules, logger: governanceLogger });
     const updatedTask = {
       id: 'task-complete-1',
       provider: 'codex',
@@ -340,6 +351,6 @@ describe('governance integration', () => {
       encoding: 'utf8',
       timeout: 5000,
       windowsHide: true,
-    });
+    }, expect.any(Function));
   });
 });

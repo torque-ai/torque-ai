@@ -1,6 +1,8 @@
 'use strict';
 
 const childProcess = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(childProcess.execFile);
 
 const DEFAULT_VISIBLE_PROVIDERS = Object.freeze(['codex', 'claude-cli']);
 const DEFAULT_TEST_COMMANDS = Object.freeze(['vitest', 'jest', 'pytest', 'dotnet test']);
@@ -202,7 +204,7 @@ function checkInspectedBeforeCancel(task, rule, context) { // eslint-disable-lin
   };
 }
 
-function checkPushedBeforeRemote(task) {
+async function checkPushedBeforeRemote(task) {
   const metadata = getTaskMetadata(task);
   if (!coerceBoolean(metadata.remote_execution)) {
     return { pass: true };
@@ -216,12 +218,13 @@ function checkPushedBeforeRemote(task) {
   }
 
   try {
-    const output = childProcess.execFileSync('git', ['log', 'origin/main..HEAD', '--oneline'], {
+    const { stdout } = await execFileAsync('git', ['log', 'origin/main..HEAD', '--oneline'], {
       cwd: task.working_directory,
       encoding: 'utf8',
       timeout: 5000,
       windowsHide: true,
-    }).trim();
+    });
+    const output = stdout.trim();
 
     if (!output) {
       return { pass: true };
@@ -260,7 +263,7 @@ function checkNoLocalTests(task, rule) {
   };
 }
 
-function checkDiffAfterCodex(task) {
+async function checkDiffAfterCodex(task) {
   const metadata = getTaskMetadata(task);
   const provider = normalizeString(task?.provider || metadata.intended_provider);
   if (!CODEX_PROVIDERS.has(provider)) {
@@ -276,12 +279,13 @@ function checkDiffAfterCodex(task) {
   }
 
   try {
-    const diffStat = childProcess.execFileSync('git', ['diff', '--stat', 'HEAD'], {
+    const { stdout } = await execFileAsync('git', ['diff', '--stat', 'HEAD'], {
       cwd: task.working_directory,
       encoding: 'utf8',
       timeout: 5000,
       windowsHide: true,
-    }).trim();
+    });
+    const diffStat = stdout.trim();
 
     return {
       pass: true,
@@ -327,15 +331,16 @@ function checkNoForegroundBash(_task, _rule, context) {
   return { pass: true };
 }
 
-function checkRequireWorktree(task, _rule, _context) {
+async function checkRequireWorktree(task, _rule, _context) {
   if (!task.working_directory) return { pass: true };
   try {
-    const branch = childProcess.execFileSync('git', ['branch', '--show-current'], {
+    const { stdout: branchStdout } = await execFileAsync('git', ['branch', '--show-current'], {
       cwd: task.working_directory, encoding: 'utf8', timeout: 5000, windowsHide: true,
-    }).trim();
+    });
+    const branch = branchStdout.trim();
     if (branch === 'main' || branch === 'master') {
       // Check if worktrees exist
-      const worktrees = childProcess.execFileSync('git', ['worktree', 'list', '--porcelain'], {
+      const { stdout: worktrees } = await execFileAsync('git', ['worktree', 'list', '--porcelain'], {
         cwd: task.working_directory, encoding: 'utf8', timeout: 5000, windowsHide: true,
       });
       const worktreeCount = (worktrees.match(/^worktree /gm) || []).length;
@@ -381,16 +386,17 @@ function checkRequireRemoteForBuilds(task, rule, _context) {
   return { pass: true };
 }
 
-function checkPushBeforeSubagentTests(task, _rule, _context) {
+async function checkPushBeforeSubagentTests(task, _rule, _context) {
   const meta = safeParseConfig(task.metadata, {});
   if (!meta.subagent && !meta.dispatched_by_agent) return { pass: true };
   const desc = (task.task_description || '').toLowerCase();
   if (desc.includes('test') || desc.includes('vitest') || desc.includes('jest')) {
     if (task.working_directory) {
       try {
-        const unpushed = childProcess.execFileSync('git', ['log', 'origin/main..HEAD', '--oneline'], {
+        const { stdout } = await execFileAsync('git', ['log', 'origin/main..HEAD', '--oneline'], {
           cwd: task.working_directory, encoding: 'utf8', timeout: 5000, windowsHide: true,
-        }).trim();
+        });
+        const unpushed = stdout.trim();
         if (unpushed.length > 0) {
           return { pass: false, message: 'Subagent test task dispatched with unpushed commits. Push to origin/main first.' };
         }
@@ -452,7 +458,7 @@ function createGovernanceHooks({ governanceRules, logger } = {}) {
 
   const log = resolveLogger(logger);
 
-  function evaluate(stage, task, context = {}) {
+  async function evaluate(stage, task, context = {}) {
     const blocked = [];
     const warned = [];
     const shadowed = [];
@@ -476,7 +482,7 @@ function createGovernanceHooks({ governanceRules, logger } = {}) {
 
       let checkerResult;
       try {
-        checkerResult = normalizeCheckerResult(checker(task, rule, context));
+        checkerResult = normalizeCheckerResult(await checker(task, rule, context));
       } catch (error) {
         checkerResult = {
           pass: false,

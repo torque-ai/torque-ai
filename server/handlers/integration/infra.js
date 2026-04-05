@@ -835,7 +835,7 @@ function handleScanProject(args) {
  * enabled free and local providers. Each provider gets file groups sized to fit
  * its context budget. Returns task IDs for monitoring.
  */
-function handleFullProjectAudit(args) {
+async function handleFullProjectAudit(args) {
   const projectPath = args.path || args.working_directory;
   if (!projectPath || !fs.existsSync(projectPath)) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Project path does not exist: ${projectPath}`);
@@ -995,7 +995,7 @@ function handleFullProjectAudit(args) {
             }
           }
         }
-        const result = handleSubmitTask({
+        const result = await handleSubmitTask({
           task: taskDef.task,
           working_directory: projectPath,
           eligible_providers: eligible,

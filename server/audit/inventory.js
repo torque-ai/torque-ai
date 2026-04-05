@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const fsPromises = require('node:fs/promises');
 const path = require('node:path');
 
 const { SOURCE_EXTENSIONS } = require('../constants');
@@ -101,9 +102,9 @@ const extractImportPaths = (content) => {
   return paths;
 };
 
-const countLines = (filePath) => {
-  const content = fs.readFileSync(filePath, 'utf8');
-  return content.split('\n').length;
+const readFileWithStats = async (filePath) => {
+  const content = await fsPromises.readFile(filePath, 'utf8');
+  return { content, lineCount: content.split('\n').length };
 };
 
 const matchesPattern = (relativePath, patterns) => {
@@ -134,7 +135,7 @@ const matchesPattern = (relativePath, patterns) => {
   return false;
 };
 
-const inventoryFiles = (projectPath, options = {}) => {
+const inventoryFiles = async (projectPath, options = {}) => {
   if (typeof projectPath !== 'string' || projectPath.trim().length === 0) {
     throw new TypeError('projectPath must be a non-empty string');
   }
@@ -151,11 +152,11 @@ const inventoryFiles = (projectPath, options = {}) => {
   const absoluteProjectPath = path.resolve(projectPath);
   const results = [];
 
-  const walkDir = (dirPath) => {
+  const walkDir = async (dirPath) => {
     let entries;
 
     try {
-      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      entries = await fsPromises.readdir(dirPath, { withFileTypes: true });
     } catch (error) {
       if (error && error.code === 'ENOENT') {
         return;
@@ -176,7 +177,7 @@ const inventoryFiles = (projectPath, options = {}) => {
           continue;
         }
 
-        walkDir(fullPath);
+        await walkDir(fullPath);
         continue;
       }
 
@@ -193,8 +194,7 @@ const inventoryFiles = (projectPath, options = {}) => {
         continue;
       }
 
-      const lines = countLines(fullPath);
-      const content = fs.readFileSync(fullPath, 'utf8');
+      const { content, lineCount: lines } = await readFileWithStats(fullPath);
       const importPaths = IMPORT_EXTENSIONS.has(ext) ? extractImportPaths(content) : [];
 
       results.push({
@@ -216,7 +216,7 @@ const inventoryFiles = (projectPath, options = {}) => {
     }
 
     const sourcePath = path.join(absoluteProjectPath, sourceDir);
-    walkDir(sourcePath);
+    await walkDir(sourcePath);
   }
 
   return results;

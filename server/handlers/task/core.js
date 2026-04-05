@@ -62,6 +62,31 @@ function rejectBlockedSubmission(policyResult) {
   return makeError(ErrorCodes.OPERATION_FAILED, message);
 }
 
+function isPromiseLike(value) {
+  return Boolean(value) && typeof value.then === 'function';
+}
+
+function normalizeGovernanceEvaluationResult(result) {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+
+  if (!result.allPassed) {
+    const blockedMessages = Array.isArray(result.blocked)
+      ? result.blocked.map(entry => entry?.message).filter(Boolean)
+      : [];
+    return {
+      error: makeError(
+        ErrorCodes.OPERATION_FAILED,
+        blockedMessages.length > 0 ? blockedMessages.join('\n') : 'Task blocked by governance'
+      ),
+      result,
+    };
+  }
+
+  return { result };
+}
+
 function evaluateTaskSubmissionGovernance(task) {
   try {
     const { defaultContainer } = require('../../container');
@@ -75,24 +100,12 @@ function evaluateTaskSubmissionGovernance(task) {
     }
 
     const result = governance.evaluate('task_submit', task);
-    if (!result || typeof result !== 'object') {
-      return null;
+    if (isPromiseLike(result)) {
+      return result
+        .then(normalizeGovernanceEvaluationResult)
+        .catch(() => null);
     }
-
-    if (!result.allPassed) {
-      const blockedMessages = Array.isArray(result.blocked)
-        ? result.blocked.map(entry => entry?.message).filter(Boolean)
-        : [];
-      return {
-        error: makeError(
-          ErrorCodes.OPERATION_FAILED,
-          blockedMessages.length > 0 ? blockedMessages.join('\n') : 'Task blocked by governance'
-        ),
-        result,
-      };
-    }
-
-    return { result };
+    return normalizeGovernanceEvaluationResult(result);
   } catch (_e) {
     return null;
   }
@@ -437,7 +450,7 @@ function handleSubmitTask(args) {
   if (blockedError) {
     return blockedError;
   }
-  const governanceEvaluation = evaluateTaskSubmissionGovernance({
+  const submissionTask = {
     id: taskId,
     task_description: taskDescription,
     working_directory: args.working_directory || null,
@@ -447,142 +460,151 @@ function handleSubmitTask(args) {
     provider: providerName,
     model,
     metadata,
-  });
-  if (governanceEvaluation?.error) {
-    return governanceEvaluation.error;
-  }
-
-  // Store submitting agent session ID in metadata for coordination tracking
-  if (args.__sessionId) {
-    metadata.submitted_by_agent = args.__sessionId;
-    metadata.mcp_session_id = args.__sessionId;
-  }
-
-  checkDepth(metadata);
-
-  if (useTierList) {
-    taskCore.createTask({
-      id: taskId,
-      status: 'pending',
-      task_description: taskDescription,
-      working_directory: args.working_directory || null,
-      timeout_minutes: timeout,
-      auto_approve: Boolean(args.auto_approve),
-      priority: args.priority || 0,
-      provider: args.provider ? providerName : null,
-      model: model,  // null = use provider's default model
-      metadata: JSON.stringify(metadata)
-    });
-  } else {
-    taskCore.createTask({
-      id: taskId,
-      status: 'pending',
-      task_description: taskDescription,
-      working_directory: args.working_directory || null,
-      timeout_minutes: timeout,
-      auto_approve: Boolean(args.auto_approve),
-      priority: args.priority || 0,
-      provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
-      model: model,  // null = use provider's default model
-      metadata: JSON.stringify(metadata)
-    });
-  }
-
-  // Record coordination event
-  try {
-    const coord = require('../../db/coordination');
-    coord.recordCoordinationEvent('task_submitted', args.__sessionId || null, taskId, null);
-  } catch (_e) {
-    // Non-fatal
-  }
-
-  // Check if approval is required for this task
-  try {
-    const task = taskCore.getTask(taskId);
-    if (task && schedulingAutomation.checkApprovalRequired) {
-      const approvalResult = schedulingAutomation.checkApprovalRequired(task);
-      if (approvalResult && approvalResult.required) {
-        // checkApprovalRequired already set approval_status='pending' and created the request
-        try {
-          const coord = require('../../db/coordination');
-          const ruleId = approvalResult.rule ? approvalResult.rule.id : null;
-          coord.recordCoordinationEvent('approval_requested', args.__sessionId || null, taskId,
-            JSON.stringify({ rule_id: ruleId }));
-        } catch (_e) { /* non-fatal */ }
-      }
-    }
-  } catch (_e) {
-    // Non-fatal — if approval check fails, task proceeds without gate
-  }
-
-  if (useTierList && !args.provider && typeof taskCore.patchTaskSlotBinding === 'function') {
-    try {
-      taskCore.patchTaskSlotBinding(taskId, slotPullMetadata);
-    } catch (_err) {
-      logger.debug(`[submit_task] Failed to persist slot-pull late binding for ${taskId}: ${_err.message}`);
-    }
-  }
-
-  // Context-stuff: resolve files for context-stuffing-eligible providers (even on explicit provider path)
-  if (CONTEXT_STUFFING_PROVIDERS.has(providerName) && args.context_stuff !== false) {
-    try {
-      const depth = args.context_depth || 1;
-      // F6: Skip context stuffing when no working_directory is specified
-      if (!args.working_directory) {
-        logger.debug(`[submit_task] No working_directory specified for ${taskId} — skipping context stuffing`);
-      }
-      const contextWorkDir = args.working_directory || null;
-      if (!contextWorkDir) {
-        // No working directory — can't resolve context files; add warning to metadata
-        // Parse metadata once and reuse; avoids a second taskCore.getTask call in the scan branch
-        const taskRowCtx = taskCore.getTask(taskId);
-        const existingMetaCtx = taskRowCtx?.metadata ? (typeof taskRowCtx.metadata === 'string' ? JSON.parse(taskRowCtx.metadata) : { ...taskRowCtx.metadata }) : {};
-        existingMetaCtx.warning = 'No working directory specified — file context unavailable';
-        taskCore.patchTaskMetadata(taskId, existingMetaCtx);
-      }
-      const scanResult = contextWorkDir ? resolveContextFiles({
-        taskDescription,
-        workingDirectory: contextWorkDir,
-        files: Array.isArray(args.files) ? args.files.filter(f => typeof f === 'string') : [],
-        contextDepth: depth,
-      }) : null;
-      if (scanResult && scanResult.contextFiles.length > 0) {
-        // Fetch task once here (the !contextWorkDir branch above won't have run)
-        const taskRowScan = taskCore.getTask(taskId);
-        const existingMetaScan = taskRowScan?.metadata ? (typeof taskRowScan.metadata === 'string' ? JSON.parse(taskRowScan.metadata) : { ...taskRowScan.metadata }) : {};
-        existingMetaScan.context_files = scanResult.contextFiles;
-        existingMetaScan.context_scan_reasons = Object.fromEntries(scanResult.reasons);
-        taskCore.patchTaskMetadata(taskId, existingMetaScan);
-      }
-    } catch (err) {
-      logger.debug(`[submit_task] Context scan failed for ${taskId}: ${err.message}`);
-    }
-  }
-
-  const result = taskManager.startTask(taskId);
-
-  // Auto-activate CI watch for this repo (fire-and-forget)
-  if (args.working_directory) {
-    try {
-      const ciWatcher = require('../../ci/watcher');
-      ciWatcher.autoActivateForRepo(args.working_directory);
-    } catch (_e) { /* non-fatal */ }
-  }
-
-  if (result?.blocked) {
-    return makeError(ErrorCodes.OPERATION_FAILED, result.reason || 'Task blocked by policy');
-  }
-
-  return {
-    __subscribe_task_id: taskId,
-    content: [{
-      type: 'text',
-      text: (result.queued
-        ? `Task queued (ID: ${taskId}, intended provider: ${providerName}). Provider will be assigned when a slot is available.\nCurrent running tasks: ${taskManager.getRunningTaskCount()}`
-        : `Task started (ID: ${taskId}, provider: ${providerName}). Use check_status or get_progress to monitor.`)
-        + formatGovernanceWarnings(governanceEvaluation?.result)
-    }]
   };
+
+  const continueSubmitTask = (governanceEvaluation) => {
+    if (governanceEvaluation?.error) {
+      return governanceEvaluation.error;
+    }
+
+    // Store submitting agent session ID in metadata for coordination tracking
+    if (args.__sessionId) {
+      metadata.submitted_by_agent = args.__sessionId;
+      metadata.mcp_session_id = args.__sessionId;
+    }
+
+    checkDepth(metadata);
+
+    if (useTierList) {
+      taskCore.createTask({
+        id: taskId,
+        status: 'pending',
+        task_description: taskDescription,
+        working_directory: args.working_directory || null,
+        timeout_minutes: timeout,
+        auto_approve: Boolean(args.auto_approve),
+        priority: args.priority || 0,
+        provider: args.provider ? providerName : null,
+        model: model,  // null = use provider's default model
+        metadata: JSON.stringify(metadata)
+      });
+    } else {
+      taskCore.createTask({
+        id: taskId,
+        status: 'pending',
+        task_description: taskDescription,
+        working_directory: args.working_directory || null,
+        timeout_minutes: timeout,
+        auto_approve: Boolean(args.auto_approve),
+        priority: args.priority || 0,
+        provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
+        model: model,  // null = use provider's default model
+        metadata: JSON.stringify(metadata)
+      });
+    }
+
+    // Record coordination event
+    try {
+      const coord = require('../../db/coordination');
+      coord.recordCoordinationEvent('task_submitted', args.__sessionId || null, taskId, null);
+    } catch (_e) {
+      // Non-fatal
+    }
+
+    // Check if approval is required for this task
+    try {
+      const task = taskCore.getTask(taskId);
+      if (task && schedulingAutomation.checkApprovalRequired) {
+        const approvalResult = schedulingAutomation.checkApprovalRequired(task);
+        if (approvalResult && approvalResult.required) {
+          // checkApprovalRequired already set approval_status='pending' and created the request
+          try {
+            const coord = require('../../db/coordination');
+            const ruleId = approvalResult.rule ? approvalResult.rule.id : null;
+            coord.recordCoordinationEvent('approval_requested', args.__sessionId || null, taskId,
+              JSON.stringify({ rule_id: ruleId }));
+          } catch (_e) { /* non-fatal */ }
+        }
+      }
+    } catch (_e) {
+      // Non-fatal — if approval check fails, task proceeds without gate
+    }
+
+    if (useTierList && !args.provider && typeof taskCore.patchTaskSlotBinding === 'function') {
+      try {
+        taskCore.patchTaskSlotBinding(taskId, slotPullMetadata);
+      } catch (_err) {
+        logger.debug(`[submit_task] Failed to persist slot-pull late binding for ${taskId}: ${_err.message}`);
+      }
+    }
+
+    // Context-stuff: resolve files for context-stuffing-eligible providers (even on explicit provider path)
+    if (CONTEXT_STUFFING_PROVIDERS.has(providerName) && args.context_stuff !== false) {
+      try {
+        const depth = args.context_depth || 1;
+        // F6: Skip context stuffing when no working_directory is specified
+        if (!args.working_directory) {
+          logger.debug(`[submit_task] No working_directory specified for ${taskId} — skipping context stuffing`);
+        }
+        const contextWorkDir = args.working_directory || null;
+        if (!contextWorkDir) {
+          // No working directory — can't resolve context files; add warning to metadata
+          // Parse metadata once and reuse; avoids a second taskCore.getTask call in the scan branch
+          const taskRowCtx = taskCore.getTask(taskId);
+          const existingMetaCtx = taskRowCtx?.metadata ? (typeof taskRowCtx.metadata === 'string' ? JSON.parse(taskRowCtx.metadata) : { ...taskRowCtx.metadata }) : {};
+          existingMetaCtx.warning = 'No working directory specified — file context unavailable';
+          taskCore.patchTaskMetadata(taskId, existingMetaCtx);
+        }
+        const scanResult = contextWorkDir ? resolveContextFiles({
+          taskDescription,
+          workingDirectory: contextWorkDir,
+          files: Array.isArray(args.files) ? args.files.filter(f => typeof f === 'string') : [],
+          contextDepth: depth,
+        }) : null;
+        if (scanResult && scanResult.contextFiles.length > 0) {
+          // Fetch task once here (the !contextWorkDir branch above won't have run)
+          const taskRowScan = taskCore.getTask(taskId);
+          const existingMetaScan = taskRowScan?.metadata ? (typeof taskRowScan.metadata === 'string' ? JSON.parse(taskRowScan.metadata) : { ...taskRowScan.metadata }) : {};
+          existingMetaScan.context_files = scanResult.contextFiles;
+          existingMetaScan.context_scan_reasons = Object.fromEntries(scanResult.reasons);
+          taskCore.patchTaskMetadata(taskId, existingMetaScan);
+        }
+      } catch (err) {
+        logger.debug(`[submit_task] Context scan failed for ${taskId}: ${err.message}`);
+      }
+    }
+
+    const result = taskManager.startTask(taskId);
+
+    // Auto-activate CI watch for this repo (fire-and-forget)
+    if (args.working_directory) {
+      try {
+        const ciWatcher = require('../../ci/watcher');
+        ciWatcher.autoActivateForRepo(args.working_directory);
+      } catch (_e) { /* non-fatal */ }
+    }
+
+    if (result?.blocked) {
+      return makeError(ErrorCodes.OPERATION_FAILED, result.reason || 'Task blocked by policy');
+    }
+
+    return {
+      __subscribe_task_id: taskId,
+      content: [{
+        type: 'text',
+        text: (result.queued
+          ? `Task queued (ID: ${taskId}, intended provider: ${providerName}). Provider will be assigned when a slot is available.\nCurrent running tasks: ${taskManager.getRunningTaskCount()}`
+          : `Task started (ID: ${taskId}, provider: ${providerName}). Use check_status or get_progress to monitor.`)
+          + formatGovernanceWarnings(governanceEvaluation?.result)
+      }]
+    };
+  };
+
+  const governanceEvaluation = evaluateTaskSubmissionGovernance(submissionTask);
+  if (isPromiseLike(governanceEvaluation)) {
+    return governanceEvaluation.then(continueSubmitTask);
+  }
+  return continueSubmitTask(governanceEvaluation);
 }
 
 
@@ -665,7 +687,7 @@ function handleQueueTask(args) {
   if (blockedError) {
     return blockedError;
   }
-  const governanceEvaluation = evaluateTaskSubmissionGovernance({
+  const queuedTask = {
     id: taskId,
     task_description: taskDescription,
     working_directory: args.working_directory || null,
@@ -675,33 +697,42 @@ function handleQueueTask(args) {
     provider: providerName,
     model,
     metadata,
-  });
-  if (governanceEvaluation?.error) {
-    return governanceEvaluation.error;
-  }
-
-  checkDepth(metadata);
-
-  taskCore.createTask({
-    id: taskId,
-    status: 'queued',
-    task_description: taskDescription,
-    working_directory: args.working_directory || null,
-    timeout_minutes: timeout,
-    auto_approve: Boolean(args.auto_approve),
-    priority: args.priority || 0,
-    provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
-    model: model,
-    metadata: JSON.stringify(metadata)
-  });
-
-  return {
-    content: [{
-      type: 'text',
-      text: `Task queued (ID: ${taskId}, intended provider: ${providerName}). Provider will be assigned when a slot is available.`
-        + formatGovernanceWarnings(governanceEvaluation?.result)
-    }]
   };
+
+  const continueQueueTask = (governanceEvaluation) => {
+    if (governanceEvaluation?.error) {
+      return governanceEvaluation.error;
+    }
+
+    checkDepth(metadata);
+
+    taskCore.createTask({
+      id: taskId,
+      status: 'queued',
+      task_description: taskDescription,
+      working_directory: args.working_directory || null,
+      timeout_minutes: timeout,
+      auto_approve: Boolean(args.auto_approve),
+      priority: args.priority || 0,
+      provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
+      model: model,
+      metadata: JSON.stringify(metadata)
+    });
+
+    return {
+      content: [{
+        type: 'text',
+        text: `Task queued (ID: ${taskId}, intended provider: ${providerName}). Provider will be assigned when a slot is available.`
+          + formatGovernanceWarnings(governanceEvaluation?.result)
+      }]
+    };
+  };
+
+  const governanceEvaluation = evaluateTaskSubmissionGovernance(queuedTask);
+  if (isPromiseLike(governanceEvaluation)) {
+    return governanceEvaluation.then(continueQueueTask);
+  }
+  return continueQueueTask(governanceEvaluation);
 }
 
 
