@@ -33,7 +33,9 @@ function mockExecFileSuccess(stdout = '', stderr = '') {
   const mock = vi.spyOn(childProcess, 'execFile').mockImplementation((_file, _args, _options, callback) => {
     callback(null, stdout, stderr);
   });
-  mock[promisify.custom] = vi.fn(async () => ({ stdout, stderr }));
+  const customFn = vi.fn(async () => ({ stdout, stderr }));
+  mock[promisify.custom] = customFn;
+  childProcess.execFile[promisify.custom] = customFn;
   return mock;
 }
 

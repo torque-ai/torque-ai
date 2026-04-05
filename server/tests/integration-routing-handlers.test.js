@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const { createConfigMock } = require('./test-helpers');
 
 const HANDLER_MODULE = '../handlers/integration/routing';
@@ -23,7 +24,6 @@ const MODULE_PATHS = [
   '../db/model-capabilities',
   '../providers/ollama-shared',
   'uuid',
-  'node:fs/promises',
 ];
 
 let routing;
@@ -156,10 +156,6 @@ const mockOllamaShared = {
   resolveOllamaModel: vi.fn((taskModel, requestedModel) => requestedModel || taskModel || 'mock-default-model'),
 };
 
-const mockFsPromises = {
-  readFile: vi.fn().mockResolvedValue(''),
-};
-
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = {
@@ -241,7 +237,6 @@ function loadHandler() {
   installCjsModuleMock('../db/model-capabilities', mockModelCaps);
   installCjsModuleMock('../providers/ollama-shared', mockOllamaShared);
   installCjsModuleMock('uuid', mockUuid);
-  installCjsModuleMock('node:fs/promises', mockFsPromises);
   return require(HANDLER_MODULE);
 }
 
@@ -361,9 +356,6 @@ function resetMockState() {
   mockOllamaShared.resolveOllamaModel.mockImplementation(
     (taskModel, requestedModel) => requestedModel || taskModel || 'mock-default-model'
   );
-
-  mockFsPromises.readFile.mockReset();
-  mockFsPromises.readFile.mockResolvedValue('');
 
   mockDb.checkOllamaHealth.mockReset();
   mockDb.checkOllamaHealth.mockResolvedValue(true);
@@ -920,7 +912,7 @@ describe('integration routing handlers', () => {
         provider: 'ollama',
         complexity: 'normal',
       }));
-      mockFsPromises.readFile.mockResolvedValue(makeLineCountText(40));
+      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(40));
 
       const result = await routing.handleSmartSubmitTask({
         task: 'Implement retry logic in scheduler.js',
@@ -939,7 +931,7 @@ describe('integration routing handlers', () => {
         provider: 'ollama',
         complexity: 'normal',
       }));
-      mockFsPromises.readFile.mockResolvedValue(makeLineCountText(400));
+      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(400));
 
       const result = await routing.handleSmartSubmitTask({
         task: 'Implement retry logic in scheduler.js',
@@ -959,7 +951,7 @@ describe('integration routing handlers', () => {
         provider: 'ollama',
         complexity: 'normal',
       }));
-      mockFsPromises.readFile.mockResolvedValue(makeLineCountText(400));
+      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(400));
 
       const result = await routing.handleSmartSubmitTask({
         task: 'Implement retry logic in scheduler.js',
@@ -982,7 +974,7 @@ describe('integration routing handlers', () => {
         provider: 'ollama',
         complexity: 'normal',
       }));
-      mockFsPromises.readFile.mockResolvedValue(makeLineCountText(400));
+      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(400));
 
       const result = await routing.handleSmartSubmitTask({
         task: 'Implement retry logic in scheduler.js',
@@ -1166,7 +1158,7 @@ describe('integration routing handlers', () => {
     });
 
     it('auto-decomposes large JS files into function batches', async () => {
-      mockFsPromises.readFile.mockResolvedValue(makeLineCountText(620));
+      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(620));
       mockTaskManager.extractJsFunctionBoundaries.mockReturnValueOnce([
         { name: 'alpha', startLine: 1, endLine: 80, lineCount: 80 },
         { name: 'beta', startLine: 81, endLine: 160, lineCount: 80 },
