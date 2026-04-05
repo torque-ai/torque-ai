@@ -8,7 +8,6 @@
  * These return { data, meta } envelopes via v2-control-plane helpers.
  */
 
-const dbModule = require('../database');   // getDbInstance (raw SQL)
 const taskCore = require('../db/task-core');
 const costTracking = require('../db/cost-tracking');
 const eventTracking = require('../db/event-tracking');
@@ -235,7 +234,8 @@ async function handleModelStats(req, res) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   try {
-    const sqlDb = dbModule.getDbInstance ? dbModule.getDbInstance() : null;
+    const { defaultContainer } = require('../container');
+    const sqlDb = defaultContainer.get('db');
     if (!sqlDb || !sqlDb.prepare) {
       return sendSuccess(res, requestId, { models: [], days }, 200, req);
     }

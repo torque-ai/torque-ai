@@ -9,7 +9,6 @@
  */
 const logger = require('../logger').child({ component: 'v2-infrastructure-handlers' });
 
-const dbModule = require('../database');   // getDbInstance (raw SQL)
 const emailPeek = require('../db/email-peek');
 const hostManagement = require('../db/host-management');
 const coordination = require('../db/coordination');
@@ -475,8 +474,8 @@ let _cachedRegistry = null;
 function _resetRegistryCache() { _cachedRegistry = null; }
 function _getRegistry() {
   if (_cachedRegistry) return _cachedRegistry;
-  if (!dbModule || typeof dbModule.getDbInstance !== 'function') return null;
-  const rawDb = dbModule.getDbInstance();
+  const { defaultContainer } = require('../container');
+  const rawDb = defaultContainer.get('db');
   if (!rawDb || typeof rawDb.prepare !== 'function') return null;
 
   const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');

@@ -4,7 +4,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const database = require('../../database');
+const { defaultContainer } = require('../../container');
 const coordination = require('../../db/coordination');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const workflowEngine = require('../../db/workflow-engine');
@@ -30,6 +30,14 @@ const {
 const logger = require('../../logger').child({ component: 'workflow' });
 const { safeJsonParse } = require('../../utils/json');
 const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
+
+function getTaskCore() {
+  return defaultContainer.get('taskCore');
+}
+
+function getRawDb() {
+  return defaultContainer.get('db');
+}
 
 const workflowTemplates = require('./templates');
 const workflowDag = require('./dag');
@@ -216,7 +224,7 @@ function classifyWorkflowStartOutcome(taskId, startResult) {
     return 'queued';
   }
 
-  const updatedTask = database.getTask(taskId);
+  const updatedTask = getTaskCore().getTask(taskId);
   if (updatedTask?.status === 'queued') {
     return 'queued';
   }
@@ -466,7 +474,7 @@ function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDef
 
   // Wrap task creation + dependency creation in a single transaction so that
   // a failure during dependency insertion does not leave orphaned tasks.
-  const rawDb = database.getDbInstance ? database.getDbInstance() : (database.getDb ? database.getDb() : null);
+  const rawDb = getRawDb();
   const runInTransaction = (fn) => {
     if (rawDb && typeof rawDb.transaction === 'function') {
       return rawDb.transaction(fn)();
@@ -489,7 +497,7 @@ function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDef
         120
       );
 
-      database.createTask({
+      getTaskCore().createTask({
         id: taskId,
         status: taskDef.depends_on.length > 0 ? 'blocked' : 'pending',
         task_description: taskDef.task_description,
@@ -543,7 +551,7 @@ function startWorkflowExecution(workflow) {
   for (const task of tasks) {
     // Re-read current status before each start attempt — another task's start handler
     // may have unblocked or changed this task's status (e.g., via workflow dependency eval).
-    const currentTask = database.getTask(task.id) || task;
+    const currentTask = getTaskCore().getTask(task.id) || task;
     if (currentTask.status === 'pending') {
       try {
         attemptedToStart += 1;
@@ -823,7 +831,7 @@ function handleAddWorkflowTask(args) {
   const metadata = Object.keys(metaObj).length > 0 ? JSON.stringify(metaObj) : null;
 
   try {
-    database.createTask({
+    getTaskCore().createTask({
       id: taskId,
       status: hasDependencies ? 'blocked' : 'pending',
       task_description: effectiveDescription,
@@ -935,14 +943,14 @@ function handleAddWorkflowTask(args) {
       });
       if (allDepsTerminal) {
         taskManager.unblockTask(taskId);
-        const updated = database.getTask(taskId);
+        const updated = getTaskCore().getTask(taskId);
         actualStatus = updated ? updated.status : 'pending';
       }
     } else {
       // No deps and workflow is running → start immediately
       try {
         const startResult = taskManager.startTask(taskId);
-        const updated = database.getTask(taskId);
+        const updated = getTaskCore().getTask(taskId);
         if (isQueuedStartResult(startResult)) {
           actualStatus = updated && updated.status && updated.status !== 'pending'
             ? updated.status
@@ -1190,13 +1198,13 @@ function handleCancelWorkflow(args) {
   for (const task of tasks) {
     // Re-fetch current status: cancelling a running task triggers handleWorkflowTermination
     // which may change dependent tasks' statuses (e.g. blocked -> skipped) mid-loop
-    const current = database.getTask(task.id);
+    const current = getTaskCore().getTask(task.id);
     const currentStatus = current ? current.status : task.status;
     if (['pending', 'running', 'blocked', 'queued', 'pending_provider_switch'].includes(currentStatus)) {
       if (currentStatus === 'running') {
         taskManager.cancelTask(task.id, args.reason || 'Workflow cancelled');
       } else {
-        database.updateTaskStatus(task.id, 'cancelled');
+        getTaskCore().updateTaskStatus(task.id, 'cancelled');
       }
       cancelled++;
     }

@@ -9,7 +9,7 @@
  *   ./failure.js   — failure patterns, retry rules
  */
 
-const database = require('../../database');
+const { defaultContainer } = require('../../container');
 const costTracking = require('../../db/cost-tracking');
 const fileTracking = require('../../db/file-tracking');
 const validationRules = require('../../db/validation-rules');
@@ -539,7 +539,7 @@ function handleApproveDiff(args) {
 function handleConfigureDiffPreview(args) {
   const { required } = args;
 
-  database.setConfig('diff_preview_required', required ? '1' : '0');
+  defaultContainer.get('databaseFacade').setConfig('diff_preview_required', required ? '1' : '0');
 
   return {
     content: [{
@@ -747,7 +747,7 @@ function handleGetBuildResult(args) {
 function handleConfigureBuildCheck(args) {
   const { enabled } = args;
 
-  database.setConfig('build_check_enabled', enabled ? '1' : '0');
+  defaultContainer.get('databaseFacade').setConfig('build_check_enabled', enabled ? '1' : '0');
 
   return {
     content: [{
