@@ -29,13 +29,14 @@ function getText(result) {
   return result?.content?.[0]?.text || '';
 }
 
+// Global mock result updated per-test
+let _execFileResult = { stdout: '', stderr: '' };
+// Set promisify.custom BEFORE module load
+childProcess.execFile[promisify.custom] = async (..._args) => _execFileResult;
+
 function mockExecFileSuccess(stdout = '', stderr = '') {
-  const mock = vi.spyOn(childProcess, 'execFile').mockImplementation((_file, _args, _options, callback) => {
-    callback(null, stdout, stderr);
-  });
-  const customFn = vi.fn(async () => ({ stdout, stderr }));
-  mock[promisify.custom] = customFn;
-  childProcess.execFile[promisify.custom] = customFn;
+  _execFileResult = { stdout, stderr };
+  const mock = vi.spyOn(childProcess, 'execFile');
   return mock;
 }
 
