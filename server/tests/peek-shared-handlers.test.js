@@ -225,7 +225,10 @@ describe('peek/shared exported helpers', () => {
     );
   });
 
-  it('returns null from buildPeekPersistOutputDir when no task or workflow context exists', () => {
+  it('returns an adhoc output dir from buildPeekPersistOutputDir when no task or workflow context exists', () => {
+    mockDb.getArtifactConfig.mockReturnValue({ storage_path: 'C:\\artifacts' });
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('adhoc1234');
     const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
 
     const result = peekShared.buildPeekPersistOutputDir(
@@ -233,8 +236,11 @@ describe('peek/shared exported helpers', () => {
       { process: 'Taskmgr' },
     );
 
-    expect(result).toBeNull();
-    expect(mkdirSpy).not.toHaveBeenCalled();
+    const runId = `1700000000000-${'adhoc1234'.slice(0, 8)}`;
+    const expected = path.join('C:\\artifacts', '_adhoc', 'peek-diagnose', runId, 'taskmgr');
+
+    expect(result).toBe(expected);
+    expect(mkdirSpy).toHaveBeenCalledWith(expected, { recursive: true });
   });
 
   it('builds task-scoped persisted output directories using sanitized titles', () => {

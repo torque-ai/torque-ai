@@ -1040,6 +1040,7 @@ describe('Snapscope Handlers', () => {
         quality: 80,
         max_width: 1280,
         persist: true,
+        output_dir: expect.stringContaining('_adhoc'),
       });
       expect(result.content[2].text).toContain('**Bundle Contract:** peek_investigation_bundle v1');
       expect(result.content[2].text).toContain('**Artifacts Persisted:** No');
