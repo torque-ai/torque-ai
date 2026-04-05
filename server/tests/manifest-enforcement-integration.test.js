@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, beforeEach } = require('vitest');
 const { registerBuiltInHook, listHooks, removeHook } = require('../hooks/post-tool-hooks');
 
 describe('manifest-enforcement integration', () => {

@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const { detectVisualSurfaces, loadManifest, findUnregistered } = require('../hooks/manifest-patterns');
 
 describe('manifest-patterns', () => {

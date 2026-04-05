@@ -1,7 +1,5 @@
 'use strict';
 
-const { describe, it, expect, vi, beforeEach } = require('vitest');
-
 describe('manifest-enforcement hook', () => {
   let manifestEnforcement;
   let mockPatterns;
