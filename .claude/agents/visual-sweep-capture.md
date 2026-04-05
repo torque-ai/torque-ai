@@ -1,7 +1,7 @@
 ---
 name: visual-sweep-capture
 description: Capture coordinator — navigates to each section sequentially and captures via peek_diagnose
-tools: Read, Write, Bash, SendMessage, mcp__plugin_torque_torque__store_artifact
+tools: Read, Write, Bash, SendMessage, mcp__plugin_torque_torque__store_artifact, mcp__plugin_torque_torque__unlock_all_tools, mcp__plugin_torque_torque__peek_ui, mcp__plugin_torque_torque__peek_interact, mcp__plugin_torque_torque__peek_diagnose, mcp__plugin_torque_torque__peek_wait, mcp__plugin_torque_torque__peek_elements, mcp__plugin_torque_torque__peek_launch, mcp__plugin_torque_torque__peek_action_sequence
 model: opus
 ---
 

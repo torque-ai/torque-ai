@@ -1,7 +1,7 @@
 ---
 name: visual-sweep-discovery
 description: Discovery phase of visual sweep — reads manifest, validates sections, produces sweep plan
-tools: Read, Glob, Grep, Bash, Write, SendMessage, mcp__plugin_torque_torque__store_artifact, mcp__plugin_torque_torque__scan_project
+tools: Read, Glob, Grep, Bash, Write, SendMessage, mcp__plugin_torque_torque__store_artifact, mcp__plugin_torque_torque__scan_project, mcp__plugin_torque_torque__unlock_all_tools, mcp__plugin_torque_torque__peek_ui, mcp__plugin_torque_torque__peek_elements, mcp__plugin_torque_torque__peek_launch, mcp__plugin_torque_torque__peek_interact
 model: opus
 ---
 

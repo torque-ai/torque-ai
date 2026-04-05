@@ -1,7 +1,7 @@
 ---
 name: visual-sweep-analyzer
 description: Analysis scout — inspects one section's capture bundle and writes findings
-tools: Read, Glob, Grep, Write, SendMessage
+tools: Read, Glob, Grep, Write, SendMessage, mcp__plugin_torque_torque__unlock_all_tools, mcp__plugin_torque_torque__peek_ui
 model: opus
 ---
 
