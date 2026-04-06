@@ -22,6 +22,7 @@ const CONTAINER_TYPES = new Set([
 ]);
 
 const MIN_INTERACTIVE_SIZE = 24;
+const INFRASTRUCTURE_AUTOMATION_ID_PATTERN = /Injector|Toast|SlideOver|Adorner/i;
 
 function toNodeArray(tree) {
   if (Array.isArray(tree)) {
@@ -52,6 +53,14 @@ function normalizeBounds(bounds) {
 
 function hasAccessibleName(node) {
   return typeof node?.name === 'string' && node.name.trim().length > 0;
+}
+
+function getBoundsArea(bounds) {
+  if (!bounds) {
+    return 0;
+  }
+
+  return Math.max(0, bounds.w) * Math.max(0, bounds.h);
 }
 
 function buildParentSummary(node) {
@@ -86,13 +95,60 @@ function addFinding(findings, flaggedElements, finding, node, path, bounds) {
   flaggedElements.add(buildFlagKey(node, path, bounds));
 }
 
+function shouldSuppressEmptyContainer(bounds, automationId) {
+  if (getBoundsArea(bounds) < 100) {
+    return true;
+  }
+
+  return INFRASTRUCTURE_AUTOMATION_ID_PATTERN.test(automationId || '');
+}
+
+function isSmallOverflow(overflowX, overflowY) {
+  const smallX = overflowX === 0 || overflowX <= 2;
+  const smallY = overflowY === 0 || overflowY <= 2;
+  return smallX && smallY;
+}
+
+function isOverlaySizedParent(parent, rootNode, parentBounds, rootArea) {
+  if (!parent || parent === rootNode || rootArea <= 0) {
+    return false;
+  }
+
+  return (getBoundsArea(parentBounds) / rootArea) > 0.5;
+}
+
+function hasCollapsedPanelStaleBounds(bounds, parentBounds) {
+  if (!bounds || !parentBounds) {
+    return false;
+  }
+
+  const collapsedWidth = parentBounds.w < 50 && bounds.w > (parentBounds.w * 3);
+  const collapsedHeight = parentBounds.h < 50 && bounds.h > (parentBounds.h * 3);
+  return collapsedWidth || collapsedHeight;
+}
+
+function shouldSuppressBoundsOverflow(parent, bounds, parentBounds, overflowX, overflowY, rootNode, rootArea) {
+  if (isSmallOverflow(overflowX, overflowY)) {
+    return true;
+  }
+
+  if (isOverlaySizedParent(parent, rootNode, parentBounds, rootArea)) {
+    return true;
+  }
+
+  return hasCollapsedPanelStaleBounds(bounds, parentBounds);
+}
+
 function analyzeElementTree(tree, sectionId) {
   const roots = toNodeArray(tree);
   const findings = [];
   const flaggedElements = new Set();
   const automationIdCounts = new Map();
+  const rootNode = roots[0] || null;
+  const rootArea = getBoundsArea(normalizeBounds(rootNode?.bounds));
   let totalElements = 0;
   let interactiveCount = 0;
+  let suppressedCount = 0;
 
   function walk(node, parent, path) {
     if (!node || typeof node !== 'object') {
@@ -144,15 +200,19 @@ function analyzeElementTree(tree, sectionId) {
     }
 
     if (isContainer && children.length === 0) {
-      addFinding(findings, flaggedElements, {
-        check: 'empty_container',
-        severity: 'MEDIUM',
-        section_id: sectionId,
-        automation_id: automationId || null,
-        element_name: typeof node.name === 'string' ? node.name : '',
-        element_type: elementType || null,
-        bounds,
-      }, node, path, bounds);
+      if (shouldSuppressEmptyContainer(bounds, automationId)) {
+        suppressedCount += 1;
+      } else {
+        addFinding(findings, flaggedElements, {
+          check: 'empty_container',
+          severity: 'MEDIUM',
+          section_id: sectionId,
+          automation_id: automationId || null,
+          element_name: typeof node.name === 'string' ? node.name : '',
+          element_type: elementType || null,
+          bounds,
+        }, node, path, bounds);
+      }
     }
 
     const parentBounds = normalizeBounds(parent?.bounds);
@@ -161,16 +221,28 @@ function analyzeElementTree(tree, sectionId) {
       const overflowY = Math.max(0, (bounds.y + bounds.h) - (parentBounds.y + parentBounds.h));
 
       if (overflowX > 0 || overflowY > 0) {
-        addFinding(findings, flaggedElements, {
-          check: 'bounds_overflow',
-          severity: 'MEDIUM',
-          section_id: sectionId,
-          element_name: typeof node.name === 'string' ? node.name : '',
+        if (shouldSuppressBoundsOverflow(
+          parent,
           bounds,
-          parent_bounds: parentBounds,
-          overflow_x: overflowX,
-          overflow_y: overflowY,
-        }, node, path, bounds);
+          parentBounds,
+          overflowX,
+          overflowY,
+          rootNode,
+          rootArea,
+        )) {
+          suppressedCount += 1;
+        } else {
+          addFinding(findings, flaggedElements, {
+            check: 'bounds_overflow',
+            severity: 'MEDIUM',
+            section_id: sectionId,
+            element_name: typeof node.name === 'string' ? node.name : '',
+            bounds,
+            parent_bounds: parentBounds,
+            overflow_x: overflowX,
+            overflow_y: overflowY,
+          }, node, path, bounds);
+        }
       }
     }
 
@@ -204,6 +276,7 @@ function analyzeElementTree(tree, sectionId) {
       interactive: interactiveCount,
       checks_run: 5,
       findings: findings.length,
+      suppressed: suppressedCount,
     },
   };
 }

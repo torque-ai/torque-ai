@@ -1345,7 +1345,7 @@ async function handlePeekPreAnalyze(args) {
         content: [{ type: 'text', text: JSON.stringify({
           findings: [],
           flagged_elements: [],
-          stats: { total_elements: 0, interactive: 0, checks_run: 5, findings: 0 }
+          stats: { total_elements: 0, interactive: 0, checks_run: 5, findings: 0, suppressed: 0 }
         }) }]
       };
     }

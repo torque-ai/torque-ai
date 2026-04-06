@@ -64,14 +64,22 @@ describe('analyzeElementTree', () => {
 
   it('detects bounds overflow', () => {
     const tree = createNode({
-      bounds: { x: 0, y: 0, w: 200, h: 120 },
+      bounds: { x: 0, y: 0, w: 300, h: 200 },
       children: [
         createNode({
-          name: 'Overflow Button',
-          type: 'Button',
-          automation_id: 'OverflowButton',
-          bounds: { x: 180, y: 10, w: 50, h: 30 },
-          children: [],
+          name: 'Panel',
+          type: 'Pane',
+          automation_id: 'MainPanel',
+          bounds: { x: 20, y: 20, w: 120, h: 80 },
+          children: [
+            createNode({
+              name: 'Overflow Button',
+              type: 'Button',
+              automation_id: 'OverflowButton',
+              bounds: { x: 110, y: 30, w: 60, h: 30 },
+              children: [],
+            }),
+          ],
         }),
       ],
     });
@@ -86,6 +94,62 @@ describe('analyzeElementTree', () => {
       overflow_x: 30,
       overflow_y: 0,
     }));
+  });
+
+  it('suppresses bounds overflow for overlay-sized parents', () => {
+    const tree = createNode({
+      bounds: { x: 0, y: 0, w: 200, h: 200 },
+      children: [
+        createNode({
+          name: 'Overlay',
+          type: 'Pane',
+          automation_id: 'OverlayPane',
+          bounds: { x: 10, y: 10, w: 160, h: 160 },
+          children: [
+            createNode({
+              name: 'Menu Item',
+              type: 'Button',
+              automation_id: 'OverlayMenuItem',
+              bounds: { x: 150, y: 20, w: 40, h: 30 },
+              children: [],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const result = analyzeElementTree(tree, 'overlay');
+
+    expect(findByCheck(result, 'bounds_overflow')).toHaveLength(0);
+    expect(result.stats.suppressed).toBe(1);
+  });
+
+  it('suppresses bounds overflow for small rounding deltas', () => {
+    const tree = createNode({
+      bounds: { x: 0, y: 0, w: 300, h: 200 },
+      children: [
+        createNode({
+          name: 'Panel',
+          type: 'Pane',
+          automation_id: 'RoundedPanel',
+          bounds: { x: 10, y: 10, w: 100, h: 80 },
+          children: [
+            createNode({
+              name: 'Rounded Button',
+              type: 'Button',
+              automation_id: 'RoundedButton',
+              bounds: { x: 108, y: 20, w: 4, h: 24 },
+              children: [],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const result = analyzeElementTree(tree, 'rounding');
+
+    expect(findByCheck(result, 'bounds_overflow')).toHaveLength(0);
+    expect(result.stats.suppressed).toBe(1);
   });
 
   it('detects empty containers', () => {
@@ -112,6 +176,44 @@ describe('analyzeElementTree', () => {
     }));
   });
 
+  it('suppresses empty containers for tiny infrastructure widgets', () => {
+    const tree = createNode({
+      children: [
+        createNode({
+          name: 'Injector',
+          type: 'Custom',
+          automation_id: 'FocusProxy',
+          bounds: { x: 10, y: 10, w: 2, h: 1 },
+          children: [],
+        }),
+      ],
+    });
+
+    const result = analyzeElementTree(tree, 'infra-size');
+
+    expect(findByCheck(result, 'empty_container')).toHaveLength(0);
+    expect(result.stats.suppressed).toBe(1);
+  });
+
+  it('suppresses empty containers for infrastructure automation IDs', () => {
+    const tree = createNode({
+      children: [
+        createNode({
+          name: 'Injector',
+          type: 'Custom',
+          automation_id: 'KeyPressInjector',
+          bounds: { x: 10, y: 10, w: 160, h: 60 },
+          children: [],
+        }),
+      ],
+    });
+
+    const result = analyzeElementTree(tree, 'infra-id');
+
+    expect(findByCheck(result, 'empty_container')).toHaveLength(0);
+    expect(result.stats.suppressed).toBe(1);
+  });
+
   it('does not flag non-container empty elements', () => {
     const tree = createNode({
       children: [
@@ -128,6 +230,92 @@ describe('analyzeElementTree', () => {
     const result = analyzeElementTree(tree, 'main');
 
     expect(findByCheck(result, 'empty_container')).toHaveLength(0);
+  });
+
+  it('suppresses stale collapsed-panel overflow bounds', () => {
+    const tree = createNode({
+      bounds: { x: 0, y: 0, w: 300, h: 300 },
+      children: [
+        createNode({
+          name: 'Collapsed Panel',
+          type: 'Pane',
+          automation_id: 'CollapsedPanel',
+          bounds: { x: 10, y: 10, w: 120, h: 20 },
+          children: [
+            createNode({
+              name: 'Stale Child',
+              type: 'Button',
+              automation_id: 'StaleChild',
+              bounds: { x: 15, y: 15, w: 100, h: 100 },
+              children: [],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const result = analyzeElementTree(tree, 'collapsed');
+
+    expect(findByCheck(result, 'bounds_overflow')).toHaveLength(0);
+    expect(result.stats.suppressed).toBe(1);
+  });
+
+  it('preserves real overflow findings', () => {
+    const tree = createNode({
+      bounds: { x: 0, y: 0, w: 400, h: 300 },
+      children: [
+        createNode({
+          name: 'Panel',
+          type: 'Pane',
+          automation_id: 'RealPanel',
+          bounds: { x: 20, y: 20, w: 100, h: 60 },
+          children: [
+            createNode({
+              name: 'Overflow Button',
+              type: 'Button',
+              automation_id: 'RealOverflowButton',
+              bounds: { x: 100, y: 30, w: 50, h: 32 },
+              children: [],
+            }),
+          ],
+        }),
+      ],
+    });
+
+    const result = analyzeElementTree(tree, 'real-overflow');
+    const findings = findByCheck(result, 'bounds_overflow');
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toEqual(expect.objectContaining({
+      element_name: 'Overflow Button',
+      overflow_x: 30,
+      overflow_y: 0,
+    }));
+    expect(result.stats.suppressed).toBe(0);
+  });
+
+  it('preserves real empty container findings', () => {
+    const tree = createNode({
+      children: [
+        createNode({
+          name: 'Results',
+          type: 'List',
+          automation_id: 'ResultsList',
+          bounds: { x: 10, y: 10, w: 160, h: 90 },
+          children: [],
+        }),
+      ],
+    });
+
+    const result = analyzeElementTree(tree, 'real-empty');
+    const findings = findByCheck(result, 'empty_container');
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toEqual(expect.objectContaining({
+      automation_id: 'ResultsList',
+      element_type: 'List',
+    }));
+    expect(result.stats.suppressed).toBe(0);
   });
 
   it('detects small interactive elements', () => {
@@ -242,6 +430,7 @@ describe('analyzeElementTree', () => {
       interactive: 1,
       checks_run: 5,
       findings: 0,
+      suppressed: 0,
     });
   });
 
@@ -274,6 +463,7 @@ describe('analyzeElementTree', () => {
       interactive: 1,
       checks_run: 5,
       findings: 0,
+      suppressed: 0,
     });
   });
 });
