@@ -1,15 +1,12 @@
 'use strict';
 
 const { PEEK_SENSOR_TYPES, validatePeekInvestigationBundleEnvelope } = require('../contracts/peek');
-const { FIXTURE_CATALOG, WPF_FIXTURE } = require('../contracts/peek-fixtures');
-const { EVIDENCE_WEIGHTS, scoreBundle } = require('../plugins/snapscope/handlers/quality-score');
+const { FIXTURE_CATALOG } = require('../contracts/peek-fixtures');
+// Retained inline so this spec no longer depends on the deleted quality-score handler.
+const EVIDENCE_WEIGHTS = { screenshot: 15, annotated_screenshot: 10, elements_tree: 20, measurements: 10, text_content: 10, annotation_index: 5, capture_data: 10, metadata: 10, app_type_extras: 10 };
 
 const SENSOR_FIXTURES = Object.entries(FIXTURE_CATALOG);
 const PERFORMANCE_COUNTER_FIELDS = ['cpu_percent', 'memory_bytes', 'handle_count', 'thread_count', 'uptime_seconds'];
-
-function cloneValue(value) {
-  return JSON.parse(JSON.stringify(value));
-}
 
 describe('peek sensor contracts', () => {
   it('exports a frozen two-entry sensor catalog', () => {
@@ -70,17 +67,5 @@ describe('peek sensor contracts', () => {
 
   it.each(SENSOR_FIXTURES)('keeps the %s fixture valid against the bundle contract', (_name, fixture) => {
     expect(validatePeekInvestigationBundleEnvelope(fixture)).toEqual([]);
-  });
-
-  it('treats performance counters as app_type_extras quality evidence', () => {
-    const bundle = cloneValue(WPF_FIXTURE);
-    delete bundle.visual_tree;
-    delete bundle.property_bag;
-
-    const result = scoreBundle(bundle);
-
-    expect(result.breakdown.app_type_extras).toBe(EVIDENCE_WEIGHTS.app_type_extras);
-    expect(result.missing).not.toContain('app_type_extras');
-    expect(result.score).toBe(100);
   });
 });

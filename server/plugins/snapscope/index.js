@@ -71,8 +71,6 @@ function createSnapScopePlugin() {
       require('./handlers/shared'),
       require('./handlers/compliance'),
       require('./handlers/federation'),
-      require('./handlers/quality-score'),
-      require('./handlers/accessibility-diff'),
       require('./handlers/browser-capture'),
       require('./handlers/live-autonomy'),
       require('./handlers/rollback'),

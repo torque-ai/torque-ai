@@ -86,8 +86,6 @@ const handlers = {
   ...require('../plugins/snapscope/handlers/onboarding'),
   ...require('../plugins/snapscope/handlers/compliance'),
   ...require('../plugins/snapscope/handlers/federation'),
-  ...require('../plugins/snapscope/handlers/quality-score'),
-  ...require('../plugins/snapscope/handlers/accessibility-diff'),
   ...require('../plugins/snapscope/handlers/browser-capture'),
   ...require('../plugins/snapscope/handlers/live-autonomy'),
   ...require('../plugins/snapscope/handlers/rollback'),
