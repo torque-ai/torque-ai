@@ -10,6 +10,11 @@ const START_TIMEOUT_MS = 20000;
 const HEALTH_POLL_MS = 250;
 const SHUTDOWN_TIMEOUT_MS = 5000;
 const PORT_PROBE_TIMEOUT_MS = 1500;
+const runtime = {
+  spawn,
+  spawnSync,
+  fetch: (...args) => fetch(...args),
+};
 
 function normalizeReportPath(rawPath) {
   if (!rawPath) {
@@ -31,7 +36,7 @@ function sleep(ms) {
 }
 
 function getListeningPidsByPort() {
-  const result = spawnSync('netstat', ['-ano'], {
+  const result = runtime.spawnSync('netstat', ['-ano'], {
     encoding: 'utf8',
     windowsHide: true,
   });
@@ -91,7 +96,7 @@ function isManagedTorquePid(pid) {
     return true;
   }
 
-  const wmicResult = spawnSync('wmic', [
+  const wmicResult = runtime.spawnSync('wmic', [
     'process',
     'where',
     `processid=${pid}`,
@@ -149,8 +154,10 @@ function formatPortConflicts(conflicts) {
   return lines;
 }
 
-function cleanupConflictedPorts(conflicts) {
-  if (conflicts.length === 0 || process.env.TORQUE_CLEAN_MCP_PORTS !== '1') {
+function cleanupConflictedPorts(conflicts, options = {}) {
+  const requireExplicit = options.requireExplicit !== false;
+
+  if (conflicts.length === 0 || (requireExplicit && process.env.TORQUE_CLEAN_MCP_PORTS !== '1')) {
     return {
       enabled: false,
       attempted: false,
@@ -178,7 +185,7 @@ function cleanupConflictedPorts(conflicts) {
   const killed = [];
   const failed = [];
   for (const pid of pidSet) {
-    const killResult = spawnSync('taskkill', ['/F', '/PID', String(pid)], { windowsHide: true });
+    const killResult = runtime.spawnSync('taskkill', ['/F', '/PID', String(pid)], { windowsHide: true });
     if (killResult.status === 0) {
       killedAny = true;
       killed.push(pid);
@@ -210,7 +217,7 @@ async function probeTorqueEndpoint(port, pathname) {
   const timeout = setTimeout(() => controller.abort(), PORT_PROBE_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
+    const response = await runtime.fetch(`http://127.0.0.1:${port}${pathname}`, {
       signal: controller.signal,
     });
     return response.status === 200;
@@ -221,31 +228,30 @@ async function probeTorqueEndpoint(port, pathname) {
   }
 }
 
-async function getReusableManagedListener(portConflicts, preflight) {
-  for (const conflict of portConflicts) {
-    const reportEntry = preflight.find((entry) => entry.port === conflict.port);
-    if (!reportEntry || reportEntry.managed_pids.length === 0) {
-      continue;
-    }
+async function getReusableManagedGatewayListener(portConflicts, preflight) {
+  const gatewayConflict = portConflicts.find((conflict) => conflict.port === GATEWAY_PORT);
+  if (!gatewayConflict) {
+    return null;
+  }
 
-    if (await probeTorqueEndpoint(conflict.port, '/health')) {
-      return {
-        port: conflict.port,
-        endpoint: '/health',
-        managed_pids: reportEntry.managed_pids,
-      };
-    }
+  const reportEntry = preflight.find((entry) => entry.port === GATEWAY_PORT);
+  if (!reportEntry || reportEntry.managed_pids.length === 0) {
+    return null;
+  }
 
-    if (await probeTorqueEndpoint(conflict.port, '/api/status')) {
-      return {
-        port: conflict.port,
-        endpoint: '/api/status',
-        managed_pids: reportEntry.managed_pids,
-      };
-    }
+  if (await probeTorqueEndpoint(GATEWAY_PORT, '/health')) {
+    return {
+      port: GATEWAY_PORT,
+      endpoint: '/health',
+      managed_pids: reportEntry.managed_pids,
+    };
   }
 
   return null;
+}
+
+function hasUnmanagedConflicts(preflight) {
+  return preflight.some((entry) => entry.unmanaged_pids.length > 0);
 }
 
 async function guardPorts() {
@@ -267,7 +273,7 @@ async function guardPorts() {
     process.stderr.write(`  - ${line}\n`);
   }
 
-  const reusable = await getReusableManagedListener(conflicts, preflight);
+  const reusable = await getReusableManagedGatewayListener(conflicts, preflight);
   if (reusable) {
     process.stderr.write(
       `[mcp-launch-readiness] reusing healthy TORQUE listener on port ${reusable.port} via ${reusable.endpoint}.\n`,
@@ -284,10 +290,12 @@ async function guardPorts() {
     };
   }
 
-  const cleanup = cleanupConflictedPorts(conflicts);
+  const cleanup = cleanupConflictedPorts(conflicts, {
+    requireExplicit: hasUnmanagedConflicts(preflight),
+  });
   if (!cleanup.attempted) {
     throw new Error(
-      'Port conflict requires cleanup. Set TORQUE_CLEAN_MCP_PORTS=1 to clean managed Torque listeners.',
+      'Port conflict requires cleanup. Set TORQUE_CLEAN_MCP_PORTS=1 to clean managed Torque listeners, or TORQUE_CLEAN_MCP_FORCE=1 to include unmanaged listeners.',
     );
   }
 
@@ -322,7 +330,7 @@ async function waitForHealth() {
 
   while (Date.now() - start < START_TIMEOUT_MS) {
     try {
-      const response = await fetch(`${BASE_URL}/health`);
+      const response = await runtime.fetch(`${BASE_URL}/health`);
       if (response.ok) {
         return true;
       }
@@ -337,7 +345,7 @@ async function waitForHealth() {
 
 function runScript(scriptPath) {
   const command = process.execPath;
-  const result = spawnSync(command, [scriptPath], {
+  const result = runtime.spawnSync(command, [scriptPath], {
     cwd: ROOT_DIR,
     env: process.env,
     stdio: 'inherit',
@@ -447,7 +455,7 @@ async function main() {
     report.reused_existing = Boolean(report.port_audit?.reused_existing);
 
     if (!report.reused_existing) {
-      gatewayProcess = spawn(process.execPath, ['index.js'], {
+      gatewayProcess = runtime.spawn(process.execPath, ['index.js'], {
         cwd: ROOT_DIR,
         env: {
           ...process.env,
@@ -516,7 +524,27 @@ async function main() {
   }
 }
 
-module.exports = { main };
+module.exports = {
+  main,
+  __testables: {
+    cleanupConflictedPorts,
+    getReusableManagedGatewayListener,
+    guardPorts,
+    hasUnmanagedConflicts,
+    normalizeReportPath,
+    probeTorqueEndpoint,
+  },
+};
+
+module.exports.__testables.setRuntimeOverrides = (overrides = {}) => {
+  Object.assign(runtime, overrides);
+};
+
+module.exports.__testables.resetRuntimeOverrides = () => {
+  runtime.spawn = spawn;
+  runtime.spawnSync = spawnSync;
+  runtime.fetch = (...args) => fetch(...args);
+};
 
 if (require.main === module) {
   main().catch((error) => {

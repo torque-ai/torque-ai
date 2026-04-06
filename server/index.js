@@ -50,7 +50,9 @@ let _shutdownHandler = null;
 const stdioSession = { toolMode: 'core', authenticated: true };
 
 const CLAUDE_DIR_NAME = '.claude';
-const MCP_CONFIG_FILENAME = '.mcp.json';
+const CLAUDE_MCP_CONFIG_FILENAME = '.mcp.json';
+const CODEX_DIR_NAME = '.codex';
+const CODEX_CONFIG_FILENAME = 'config.toml';
 const DEFAULT_MCP_HOST = '127.0.0.1';
 const DEFAULT_MCP_SSE_PORT = 3458;
 const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope', 'version-control', 'remote-agents']);
@@ -198,10 +200,28 @@ function stopPidHeartbeat() {
   }
 }
 
-function ensureLocalMcpConfig(options = {}) {
+function writeConfigFileAtomically(configPath, content, fileOptions = {}) {
+  const tmpPath = configPath + '.tmp.' + process.pid;
+  fs.writeFileSync(tmpPath, content, fileOptions);
+  fs.renameSync(tmpPath, configPath);
+}
+
+function restrictConfigPermissions(configPath) {
+  if (process.platform !== 'win32') return;
+  try {
+    childProcess.execFileSync('icacls', [
+      configPath,
+      '/inheritance:r',
+      '/grant:r',
+      `${process.env.USERNAME}:(F)`,
+    ], { stdio: 'pipe', windowsHide: true });
+  } catch {}
+}
+
+function ensureClaudeMcpConfig(options = {}) {
   const { ssePort = DEFAULT_MCP_SSE_PORT, host = DEFAULT_MCP_HOST, homeDir } = options;
   const claudeDir = path.join(homeDir || os.homedir(), CLAUDE_DIR_NAME);
-  const configPath = path.join(claudeDir, MCP_CONFIG_FILENAME);
+  const configPath = path.join(claudeDir, CLAUDE_MCP_CONFIG_FILENAME);
   const expectedPrimaryUrl = `http://${host}:${ssePort}/mcp`;
   const expectedLegacyUrl = `http://${host}:${ssePort}/sse`;
 
@@ -256,25 +276,137 @@ function ensureLocalMcpConfig(options = {}) {
       description: `${LOCAL_MCP_DESCRIPTION} (legacy SSE fallback)`,
     };
 
-    const tmpPath = configPath + '.tmp.' + process.pid;
-    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
-    fs.renameSync(tmpPath, configPath);
-
-    if (process.platform === 'win32') {
-      try {
-        childProcess.execFileSync('icacls', [
-          configPath,
-          '/inheritance:r',
-          '/grant:r',
-          `${process.env.USERNAME}:(F)`,
-        ], { stdio: 'pipe', windowsHide: true });
-      } catch {}
-    }
+    writeConfigFileAtomically(configPath, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
+    restrictConfigPermissions(configPath);
 
     return { injected: true, path: configPath, reason: existing ? 'updated' : 'created' };
   } catch (err) {
     return { injected: false, path: configPath, reason: `error: ${err.message}` };
   }
+}
+
+function ensureCodexMcpConfig(options = {}) {
+  const { ssePort = DEFAULT_MCP_SSE_PORT, host = DEFAULT_MCP_HOST, homeDir } = options;
+  const codexDir = path.join(homeDir || os.homedir(), CODEX_DIR_NAME);
+  const configPath = path.join(codexDir, CODEX_CONFIG_FILENAME);
+  const expectedUrl = `http://${host}:${ssePort}/mcp`;
+  const tableHeader = '[mcp_servers.torque]';
+  const tableRegex = /^\s*\[mcp_servers\.torque\]\s*$/;
+  const subtableRegex = /^\s*\[mcp_servers\.torque\.[^\]]+\]\s*$/;
+  const anyTableRegex = /^\s*\[[^\]]+\]\s*$/;
+  const urlRegex = /^\s*url\s*=/;
+
+  try {
+    fs.mkdirSync(codexDir, { recursive: true });
+
+    let raw = '';
+    try {
+      raw = fs.readFileSync(configPath, 'utf8');
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        return { injected: false, path: configPath, reason: `error: ${err.message}` };
+      }
+    }
+
+    const newline = raw.includes('\r\n') ? '\r\n' : '\n';
+    const lines = raw ? raw.split(/\r?\n/) : [];
+    if (lines.length > 0 && lines[lines.length - 1] === '') {
+      lines.pop();
+    }
+
+    const tableIndexes = [];
+    const subtableIndexes = [];
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index];
+      if (tableRegex.test(line)) tableIndexes.push(index);
+      else if (subtableRegex.test(line)) subtableIndexes.push(index);
+    }
+
+    if (tableIndexes.length > 1) {
+      return { injected: false, path: configPath, reason: 'parse_error' };
+    }
+
+    const urlLine = `url = ${JSON.stringify(expectedUrl)}`;
+    let nextLines;
+    let reason;
+
+    if (tableIndexes.length === 0) {
+      const insertAt = subtableIndexes.length > 0 ? subtableIndexes[0] : lines.length;
+      const block = [tableHeader, urlLine];
+      nextLines = [
+        ...lines.slice(0, insertAt),
+        ...(insertAt > 0 && lines[insertAt - 1] !== '' ? [''] : []),
+        ...block,
+        ...(insertAt < lines.length && lines[insertAt] !== '' ? [''] : []),
+        ...lines.slice(insertAt),
+      ];
+      reason = raw ? 'updated' : 'created';
+    } else {
+      const start = tableIndexes[0];
+      let end = lines.length;
+      for (let index = start + 1; index < lines.length; index++) {
+        if (anyTableRegex.test(lines[index])) {
+          end = index;
+          break;
+        }
+      }
+
+      const tableLines = lines.slice(start + 1, end);
+      const existingUrlIndex = tableLines.findIndex((line) => urlRegex.test(line));
+      const hasCurrentUrl = existingUrlIndex !== -1 && tableLines[existingUrlIndex].trim() === urlLine;
+      if (hasCurrentUrl) {
+        return { injected: false, path: configPath, reason: 'already_current' };
+      }
+
+      const nextTableLines = tableLines.slice();
+      if (existingUrlIndex === -1) {
+        nextTableLines.push(urlLine);
+      } else {
+        nextTableLines[existingUrlIndex] = urlLine;
+      }
+
+      nextLines = [
+        ...lines.slice(0, start + 1),
+        ...nextTableLines,
+        ...lines.slice(end),
+      ];
+      reason = 'updated';
+    }
+
+    const serialized = nextLines.join(newline) + newline;
+    writeConfigFileAtomically(configPath, serialized, { mode: 0o600 });
+    restrictConfigPermissions(configPath);
+    return { injected: true, path: configPath, reason };
+  } catch (err) {
+    return { injected: false, path: configPath, reason: `error: ${err.message}` };
+  }
+}
+
+function summarizeMcpConfigResults(results) {
+  const values = Object.values(results);
+  if (values.some((result) => result.reason === 'parse_error' || result.reason.startsWith('error:'))) {
+    const firstFailure = values.find((result) => result.reason === 'parse_error' || result.reason.startsWith('error:'));
+    return {
+      injected: values.some((result) => result.injected),
+      reason: firstFailure.reason,
+      results,
+    };
+  }
+  if (values.some((result) => result.reason === 'updated')) {
+    return { injected: true, reason: 'updated', results };
+  }
+  if (values.some((result) => result.reason === 'created')) {
+    return { injected: true, reason: 'created', results };
+  }
+  return { injected: false, reason: 'already_current', results };
+}
+
+function ensureLocalMcpConfig(options = {}) {
+  const results = {
+    claude: ensureClaudeMcpConfig(options),
+    codex: ensureCodexMcpConfig(options),
+  };
+  return summarizeMcpConfigResults(results);
 }
 
 /**
@@ -761,8 +893,12 @@ function init() {
     try {
       const ssePort = serverConfig.getInt('mcp_sse_port', 3458);
       const result = ensureLocalMcpConfig({ ssePort });
-      if (result.injected) {
-        debugLog('MCP config ' + result.reason + ': ' + result.path);
+      for (const configResult of Object.values(result.results || {})) {
+        if (configResult.injected) {
+          debugLog('MCP config ' + configResult.reason + ': ' + configResult.path);
+        } else if (configResult.reason !== 'already_current') {
+          debugLog('MCP config injection skipped for ' + configResult.path + ': ' + configResult.reason);
+        }
       }
     } catch (err) {
       debugLog('MCP config injection skipped: ' + err.message);

@@ -268,25 +268,57 @@ describe('PID heartbeat stale detection (RB-050)', () => {
     expect(exitSpy).toHaveBeenCalled();
   });
 
-  it('writes streamable HTTP config plus an SSE fallback entry', () => {
+  it('writes both Claude and Codex local MCP config entries', () => {
     const result = index._testing.ensureLocalMcpConfig({ homeDir: tempDir });
-    const configPath = path.join(tempDir, '.claude', '.mcp.json');
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const claudeConfigPath = path.join(tempDir, '.claude', '.mcp.json');
+    const claudeConfig = JSON.parse(fs.readFileSync(claudeConfigPath, 'utf8'));
+    const codexConfigPath = path.join(tempDir, '.codex', 'config.toml');
+    const codexConfig = fs.readFileSync(codexConfigPath, 'utf8');
 
     expect(result).toMatchObject({ injected: true, reason: 'created' });
-    expect(config.mcpServers.torque).toMatchObject({
+    expect(result.results.claude).toMatchObject({ injected: true, reason: 'created' });
+    expect(result.results.codex).toMatchObject({ injected: true, reason: 'created' });
+    expect(claudeConfig.mcpServers.torque).toMatchObject({
       type: 'streamable-http',
       url: 'http://127.0.0.1:3458/mcp',
       description: 'TORQUE - Task Orchestration System with local LLM routing',
     });
-    expect(config.mcpServers['torque-sse']).toMatchObject({
+    expect(claudeConfig.mcpServers['torque-sse']).toMatchObject({
       type: 'sse',
       url: 'http://127.0.0.1:3458/sse',
       description: 'TORQUE - Task Orchestration System with local LLM routing (legacy SSE fallback)',
     });
+    expect(codexConfig).toContain('[mcp_servers.torque]');
+    expect(codexConfig).toContain('url = "http://127.0.0.1:3458/mcp"');
 
     const secondResult = index._testing.ensureLocalMcpConfig({ homeDir: tempDir });
     expect(secondResult).toMatchObject({ injected: false, reason: 'already_current' });
+  });
+
+  it('updates Codex MCP url without dropping existing torque tool settings', () => {
+    const codexDir = path.join(tempDir, '.codex');
+    const codexConfigPath = path.join(codexDir, 'config.toml');
+    fs.mkdirSync(codexDir, { recursive: true });
+    fs.writeFileSync(codexConfigPath, [
+      'model = "gpt-5.4"',
+      '',
+      '[mcp_servers.torque]',
+      'url = "http://127.0.0.1:9999/mcp"',
+      '',
+      '[mcp_servers.torque.tools.submit_task]',
+      'approval_mode = "approve"',
+      '',
+    ].join('\n'));
+
+    const result = index._testing.ensureLocalMcpConfig({ homeDir: tempDir });
+    const codexConfig = fs.readFileSync(codexConfigPath, 'utf8');
+
+    expect(result).toMatchObject({ injected: true, reason: 'updated' });
+    expect(result.results.codex).toMatchObject({ injected: true, reason: 'updated' });
+    expect(codexConfig).toContain('[mcp_servers.torque]');
+    expect(codexConfig).toContain('url = "http://127.0.0.1:3458/mcp"');
+    expect(codexConfig).toContain('[mcp_servers.torque.tools.submit_task]');
+    expect(codexConfig).toContain('approval_mode = "approve"');
   });
 
 });

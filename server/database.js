@@ -229,6 +229,11 @@ function removeTaskStatusTransitionListener(listener) {
   taskStatusTransitionListeners.delete(listener);
 }
 
+function refreshDataPaths() {
+  DATA_DIR = _resolveDataDir();
+  DB_PATH = path.join(DATA_DIR, 'tasks.db');
+}
+
 function notifyTaskStatusTransition(taskId, status, previousStatus, updatedTask) {
   if (!taskStatusTransitionListeners.size) return;
   for (const listener of [...taskStatusTransitionListeners]) {
@@ -417,6 +422,7 @@ function _wireAllModules() {
  * @returns {any}
  */
 function init() {
+  refreshDataPaths();
   // Pre-startup safety backup — capture existing DB before schema migrations.
   // Uses db.serialize() to include WAL data (copyFileSync misses WAL content,
   // which can hold the majority of data if wal_checkpoint failed at last shutdown).
@@ -642,6 +648,7 @@ function close() {
  * @returns {object} The new better-sqlite3 Database instance
  */
 function resetForTest(buffer) {
+  refreshDataPaths();
   // Run cleanup callbacks before swapping DB (clears queue-scheduler timers etc.)
   for (const fn of _closeCallbacks) {
     try { fn(); } catch { /* non-fatal */ }

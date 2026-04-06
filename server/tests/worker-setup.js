@@ -23,7 +23,24 @@
  *   (See snapscope-handlers.test.js for prior art.)
  */
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const childProcess = require('child_process');
+
+const TEST_DATA_ROOT = path.join(os.tmpdir(), 'torque-vitest-workers');
+const workerId = process.env.VITEST_WORKER_ID || process.env.TEST_WORKER_ID || String(process.pid);
+const workerDataDir = path.join(TEST_DATA_ROOT, `worker-${workerId}`);
+
+fs.mkdirSync(workerDataDir, { recursive: true });
+process.env.TORQUE_TEST_SANDBOX = '1';
+process.env.TORQUE_TEST_SANDBOX_DIR = workerDataDir;
+process.env.TORQUE_DATA_DIR = workerDataDir;
+try {
+  require('../data-dir').setDataDir(null);
+} catch {
+  // data-dir may not have loaded yet in very small test shards
+}
 
 // Save originals — git-test-utils.js uses these for real git operations
 const _realExecFileSync = childProcess.execFileSync;

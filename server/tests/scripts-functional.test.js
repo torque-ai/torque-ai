@@ -66,7 +66,7 @@ describe('mcp-launch-readiness (normalizeReportPath)', () => {
   it('returns absolute paths unchanged', () => {
     const absPath = process.platform === 'win32'
       ? 'C:\\Users\\test\\report.json'
-      : '/home/test/report.json';
+      : '/home/<user>/report.json';
     expect(normalizeReportPath(absPath)).toBe(absPath);
   });
 
@@ -78,6 +78,130 @@ describe('mcp-launch-readiness (normalizeReportPath)', () => {
   it('resolves plain relative paths from ROOT_DIR', () => {
     const result = normalizeReportPath('docs/report.json');
     expect(result).toBe(path.resolve(ROOT_DIR, 'docs/report.json'));
+  });
+});
+
+
+describe('mcp-launch-readiness (guardPorts)', () => {
+  const originalFetch = global.fetch;
+
+  function netstatOutput(entries) {
+    return entries
+      .map(({ port, pid = 19860 }) => `  TCP    127.0.0.1:${port}         0.0.0.0:0              LISTENING       ${pid}`)
+      .join('\n');
+  }
+
+  function managedWmic() {
+    return {
+      status: 0,
+      stdout: 'CommandLine=node server/index.js\r\n',
+    };
+  }
+
+  afterEach(() => {
+    if (originalFetch === undefined) {
+      delete global.fetch;
+    } else {
+      global.fetch = originalFetch;
+    }
+    const scriptPath = path.join(__dirname, '..', 'scripts', 'mcp-launch-readiness.js');
+    if (require.cache[require.resolve(scriptPath)]) {
+      require(scriptPath).__testables.resetRuntimeOverrides();
+    }
+  });
+
+  it('reuses only a healthy managed gateway listener on the gateway port', async () => {
+    const spawnSyncMock = vi.fn((command) => {
+      if (command === 'netstat') {
+        return { status: 0, stdout: netstatOutput([{ port: 3456 }, { port: 3457 }, { port: 3458 }, { port: 3459 }]) };
+      }
+      if (command === 'wmic') {
+        return managedWmic();
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    global.fetch = vi.fn().mockResolvedValue({ status: 200 });
+
+    const { __testables } = require('../scripts/mcp-launch-readiness');
+    __testables.setRuntimeOverrides({
+      spawn: vi.fn(),
+      spawnSync: spawnSyncMock,
+      fetch: global.fetch,
+    });
+    const result = await __testables.guardPorts();
+
+    expect(result.reused_existing).toBe(true);
+    expect(result.reused_port).toBe(3459);
+    expect(result.reused_endpoint).toBe('/health');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch.mock.calls[0][0]).toBe('http://127.0.0.1:3459/health');
+    expect(spawnSyncMock.mock.calls.filter(([command]) => command === 'taskkill')).toHaveLength(0);
+    __testables.resetRuntimeOverrides();
+  });
+
+  it('auto-cleans managed non-gateway conflicts so launch can restart TORQUE with the gateway enabled', async () => {
+    let netstatCalls = 0;
+    const spawnSyncMock = vi.fn((command) => {
+      if (command === 'netstat') {
+        netstatCalls += 1;
+        return {
+          status: 0,
+          stdout: netstatCalls === 1 ? netstatOutput([{ port: 3456 }, { port: 3457 }, { port: 3458 }]) : '',
+        };
+      }
+      if (command === 'wmic') {
+        return managedWmic();
+      }
+      if (command === 'taskkill') {
+        return { status: 0 };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    global.fetch = vi.fn();
+
+    const { __testables } = require('../scripts/mcp-launch-readiness');
+    __testables.setRuntimeOverrides({
+      spawn: vi.fn(),
+      spawnSync: spawnSyncMock,
+      fetch: global.fetch,
+    });
+    const result = await __testables.guardPorts();
+
+    expect(result.reused_existing).toBe(false);
+    expect(result.cleanup.attempted).toBe(true);
+    expect(result.cleanup.killed).toEqual([19860]);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(spawnSyncMock.mock.calls.filter(([command]) => command === 'taskkill')).toHaveLength(1);
+    __testables.resetRuntimeOverrides();
+  });
+
+  it('still requires explicit cleanup when unmanaged listeners occupy target ports', async () => {
+    const spawnSyncMock = vi.fn((command) => {
+      if (command === 'netstat') {
+        return { status: 0, stdout: netstatOutput([{ port: 3456, pid: 42424 }]) };
+      }
+      if (command === 'wmic') {
+        return { status: 1, stdout: '' };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    global.fetch = vi.fn();
+
+    const { __testables } = require('../scripts/mcp-launch-readiness');
+    __testables.setRuntimeOverrides({
+      spawn: vi.fn(),
+      spawnSync: spawnSyncMock,
+      fetch: global.fetch,
+    });
+
+    await expect(__testables.guardPorts()).rejects.toThrow(
+      'Port conflict requires cleanup. Set TORQUE_CLEAN_MCP_PORTS=1 to clean managed Torque listeners, or TORQUE_CLEAN_MCP_FORCE=1 to include unmanaged listeners.',
+    );
+    expect(spawnSyncMock.mock.calls.filter(([command]) => command === 'taskkill')).toHaveLength(0);
+    __testables.resetRuntimeOverrides();
   });
 });
 

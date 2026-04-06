@@ -27,6 +27,19 @@ const fs = require('fs');
 
 const HOME_DATA_DIR = path.join(os.homedir(), '.torque');
 const LEGACY_DATA_DIR = path.join(__dirname);
+const TEST_SANDBOX_ROOT = path.join(os.tmpdir(), 'torque-vitest-workers');
+
+function isTestSandboxActive() {
+  return process.env.TORQUE_TEST_SANDBOX === '1';
+}
+
+function getTestSandboxDir() {
+  if (process.env.TORQUE_TEST_SANDBOX_DIR) {
+    return process.env.TORQUE_TEST_SANDBOX_DIR;
+  }
+  const workerId = process.env.VITEST_WORKER_ID || process.env.TEST_WORKER_ID || String(process.pid);
+  return path.join(TEST_SANDBOX_ROOT, `worker-${workerId}`);
+}
 
 function ensureWritableDir(dirPath) {
   try {
@@ -271,8 +284,10 @@ function migrateLegacyProviderConfigs(legacyDir, activeDir) {
 
 function resolveDataDir() {
   const envDir = process.env.TORQUE_DATA_DIR;
+  const sandboxDir = isTestSandboxActive() ? getTestSandboxDir() : null;
   const candidates = [
     envDir,
+    sandboxDir,
     HOME_DATA_DIR,
     LEGACY_DATA_DIR,
     path.join(os.tmpdir(), 'torque'),
@@ -281,13 +296,14 @@ function resolveDataDir() {
   for (const dir of candidates) {
     if (ensureWritableDir(dir)) {
       const source = dir === envDir ? 'TORQUE_DATA_DIR'
+        : dir === sandboxDir ? 'test sandbox'
         : dir === HOME_DATA_DIR ? 'default (~/.torque)'
         : dir === LEGACY_DATA_DIR ? 'legacy (server dir)'
         : 'tmpdir fallback';
       console.log(`[data-dir] Resolved: ${dir} (via ${source})`);
 
       // Migrate provider configs from legacy location if we moved away from it
-      if (dir !== LEGACY_DATA_DIR) {
+      if (!isTestSandboxActive() && dir !== LEGACY_DATA_DIR) {
         migrateLegacyProviderConfigs(LEGACY_DATA_DIR, dir);
       }
 

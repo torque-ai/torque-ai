@@ -15,11 +15,13 @@ let configCore;
 let hostManagement;
 let workflowEngine;
 let templateBuffer;
+let originalDataDir;
 
 beforeAll(() => {
   // Initialize a real DB so we can serialize it
   const testDir = path.join(os.tmpdir(), `torque-reset-test-${Date.now()}`);
   fs.mkdirSync(testDir, { recursive: true });
+  originalDataDir = process.env.TORQUE_DATA_DIR;
   process.env.TORQUE_DATA_DIR = testDir;
 
   // Clear module cache for fresh init
@@ -50,6 +52,11 @@ beforeAll(() => {
 
 afterAll(() => {
   try { db.close(); } catch { /* ok */ }
+  if (originalDataDir !== undefined) {
+    process.env.TORQUE_DATA_DIR = originalDataDir;
+  } else {
+    delete process.env.TORQUE_DATA_DIR;
+  }
 });
 
 describe('db.resetForTest(buffer)', () => {
