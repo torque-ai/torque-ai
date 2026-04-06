@@ -1,10 +1,20 @@
 // @vitest-environment jsdom
 
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const dashboardPath = fileURLToPath(new URL('../dashboard/dashboard.js', import.meta.url));
+function resolveDashboardPath() {
+  const cwd = process.cwd();
+  const directPath = resolve(cwd, 'dashboard', 'dashboard.js');
+  if (existsSync(directPath)) {
+    return directPath;
+  }
+
+  return resolve(cwd, 'server', 'dashboard', 'dashboard.js');
+}
+
+const dashboardPath = resolveDashboardPath();
 const dashboardSource = readFileSync(dashboardPath, 'utf8');
 const initBlockPattern = /  loadAll\(\);\s*  connectWs\(\);\s*  \/\/ Fallback polling when WebSocket is disconnected\s*  pollTimer = setInterval\(function \(\) \{\s*    if \(!ws \|\| ws\.readyState !== WebSocket\.OPEN\) \{\s*      loadAll\(\);\s*    \}\s*  \}, POLL_INTERVAL\);\s*\}\)\(\);\s*$/;
 

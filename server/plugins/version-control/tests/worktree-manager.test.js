@@ -197,6 +197,9 @@ describe('version-control worktree manager', () => {
   });
 
   it('gets a single worktree by id and returns null for unknown ids', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-01T00:00:00.000Z'));
+
     const repoPath = makeRepoRoot();
     insertWorktree({
       id: 'wt-find-me',

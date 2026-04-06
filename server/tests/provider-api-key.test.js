@@ -1,14 +1,39 @@
 'use strict';
 
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+
+const TEST_SECRET_KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+let db;
+let config;
+let encryptApiKey;
+let decryptApiKey;
+let originalSecretKey;
+
+beforeAll(() => {
+  originalSecretKey = process.env.TORQUE_SECRET_KEY;
+  process.env.TORQUE_SECRET_KEY = TEST_SECRET_KEY;
+
+  ({ db } = setupTestDbOnly('provider-api-key-config'));
+
+  const handlers = require('../handlers/provider-crud-handlers');
+  encryptApiKey = handlers.encryptApiKey;
+  decryptApiKey = handlers.decryptApiKey;
+
+  config = require('../config');
+  config.init({ db });
+});
+
+afterAll(() => {
+  teardownTestDb();
+  if (originalSecretKey !== undefined) {
+    process.env.TORQUE_SECRET_KEY = originalSecretKey;
+  } else {
+    delete process.env.TORQUE_SECRET_KEY;
+  }
+});
+
 describe('provider API key encryption helpers', () => {
-  let encryptApiKey, decryptApiKey;
-
-  beforeAll(() => {
-    const handlers = require('../handlers/provider-crud-handlers');
-    encryptApiKey = handlers.encryptApiKey;
-    decryptApiKey = handlers.decryptApiKey;
-  });
-
   it('round-trips a key through encrypt and decrypt', () => {
     const key = 'sk-test-abc123-very-secret-key';
     const encrypted = encryptApiKey(key);
@@ -53,22 +78,6 @@ describe('provider API key encryption helpers', () => {
 });
 
 describe('config.js getApiKey() with encrypted keys', () => {
-  const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
-  let db;
-  let config;
-  let encryptApiKey;
-
-  beforeAll(() => {
-    ({ db } = setupTestDbOnly('provider-api-key-config'));
-    config = require('../config');
-    config.init({ db });
-    ({ encryptApiKey } = require('../handlers/provider-crud-handlers'));
-  });
-
-  afterAll(() => {
-    teardownTestDb();
-  });
-
   it('resolves encrypted key from provider_config', () => {
     const encrypted = encryptApiKey('sk-from-db-encrypted');
     const rawDb = db.getDbInstance ? db.getDbInstance() : db.getDb ? db.getDb() : db;

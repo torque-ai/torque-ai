@@ -191,9 +191,15 @@ async function handlePeekUi(args) {
     }
 
     const imageBuffer = Buffer.from(peekData.image, 'base64');
-    // Client-side annotations removed. Use peek_server's annotate=true parameter
-    // or POST /diagnose with annotate=true for server-side annotation.
     let finalImageBuffer = imageBuffer;
+    if (Array.isArray(args.annotations) && args.annotations.length > 0) {
+      finalImageBuffer = await applyAnnotations(imageBuffer, args.annotations);
+      peekData.image = finalImageBuffer.toString('base64');
+      peekData.size_bytes = finalImageBuffer.length;
+      if (!peekData.mime_type && peekData.format) {
+        peekData.mime_type = `image/${peekData.format}`;
+      }
+    }
 
     const baselineRoot = path.join(os.homedir(), '.peek-ui', 'baselines', 'default');
     const lastRoot = path.join(os.homedir(), '.peek-ui', 'last', 'default');
@@ -366,6 +372,93 @@ async function handlePeekUi(args) {
   } catch (err) {
     return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
   }
+}
+
+let sharpModule = null;
+function getSharpModule() {
+  if (!sharpModule) {
+    try {
+      sharpModule = require('sharp');
+    } catch {
+      throw new Error('sharp is not installed. Install it with: npm install sharp');
+    }
+  }
+  return sharpModule;
+}
+
+async function applyAnnotations(imageBuffer, annotations) {
+  if (!Array.isArray(annotations) || annotations.length === 0) {
+    return imageBuffer;
+  }
+
+  const sharp = getSharpModule();
+  const metadata = await sharp(imageBuffer).metadata();
+  const colors = {
+    red: 'rgba(255,0,0,0.8)',
+    yellow: 'rgba(255,255,0,0.8)',
+    green: 'rgba(0,255,0,0.8)',
+    blue: 'rgba(0,100,255,0.8)',
+  };
+
+  const svgParts = [];
+  for (const annotation of annotations) {
+    const color = colors[annotation.color] || colors.red;
+
+    if (annotation.type === 'rect') {
+      svgParts.push(
+        `<rect x="${annotation.x}" y="${annotation.y}" width="${annotation.w}" height="${annotation.h}" fill="none" stroke="${color}" stroke-width="3"/>`
+      );
+      if (annotation.label) {
+        svgParts.push(
+          `<text x="${annotation.x}" y="${annotation.y - 5}" fill="${color}" font-size="16" font-family="sans-serif" font-weight="bold">${escapeXml(annotation.label)}</text>`
+        );
+      }
+      continue;
+    }
+
+    if (annotation.type === 'circle') {
+      svgParts.push(
+        `<circle cx="${annotation.x}" cy="${annotation.y}" r="${annotation.r}" fill="none" stroke="${color}" stroke-width="3"/>`
+      );
+      if (annotation.label) {
+        svgParts.push(
+          `<text x="${annotation.x + annotation.r + 5}" y="${annotation.y}" fill="${color}" font-size="16" font-family="sans-serif" font-weight="bold">${escapeXml(annotation.label)}</text>`
+        );
+      }
+      continue;
+    }
+
+    if (annotation.type === 'arrow' && annotation.from && annotation.to) {
+      const [x1, y1] = annotation.from;
+      const [x2, y2] = annotation.to;
+      svgParts.push(
+        `<defs><marker id="ah" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="${color}"/></marker></defs>`
+      );
+      svgParts.push(
+        `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="3" marker-end="url(#ah)"/>`
+      );
+      if (annotation.label) {
+        const midX = (x1 + x2) / 2;
+        const midY = (y1 + y2) / 2 - 10;
+        svgParts.push(
+          `<text x="${midX}" y="${midY}" fill="${color}" font-size="16" font-family="sans-serif" font-weight="bold">${escapeXml(annotation.label)}</text>`
+        );
+      }
+    }
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${metadata.width}" height="${metadata.height}">${svgParts.join('')}</svg>`;
+  return sharp(imageBuffer)
+    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .toBuffer();
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 async function handlePeekInteract(args) {

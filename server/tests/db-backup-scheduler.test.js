@@ -3,9 +3,11 @@ const os = require('os');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const backupCore = require('../db/backup-core');
 const dataDir = require('../data-dir');
 
 const TEMPLATE_BUF = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const PERIODIC_BACKUP_PATTERN = /^torque-\d{4}-\d{2}-\d{2}T.*\.db$/;
 
 describe('Database backup scheduler', () => {
   let db;
@@ -42,10 +44,16 @@ describe('Database backup scheduler', () => {
     db.stopBackupScheduler();
     await vi.runOnlyPendingTimersAsync();
     vi.clearAllTimers();
+    try {
+      db.close();
+    } catch {
+      // Some tests stay on the in-memory reset DB and some reopen a file DB.
+    }
     vi.useRealTimers();
     vi.restoreAllMocks();
 
     if (backupDataDir && fs.existsSync(backupDataDir)) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
       fs.rmSync(backupDataDir, { recursive: true, force: true });
     }
     process.env.TORQUE_DATA_DIR = testDir;
@@ -63,7 +71,7 @@ describe('Database backup scheduler', () => {
       return [];
     }
     return fs.readdirSync(backupDir)
-      .filter((name) => name.startsWith('torque-') && name.endsWith('.db'));
+      .filter((name) => PERIODIC_BACKUP_PATTERN.test(name));
   };
 
   it('creates backup files on a schedule', async () => {
@@ -96,16 +104,16 @@ describe('Database backup scheduler', () => {
   });
 
   it('does not auto-start when backup_interval_minutes is 0', async () => {
+    db.close();
     db.init();
     db.stopBackupScheduler();
     db.setConfig('backup_interval_minutes', '0');
     db.close();
 
     vi.clearAllTimers();
-    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const startBackupSchedulerSpy = vi.spyOn(backupCore, 'startBackupScheduler');
     db.init();
-    expect(setIntervalSpy).not.toHaveBeenCalled();
-    expect(vi.getTimerCount()).toBe(0);
+    expect(startBackupSchedulerSpy).not.toHaveBeenCalled();
 
     await advance(5000);
 

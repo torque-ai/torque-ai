@@ -33,6 +33,7 @@ function getSystemMetrics() {
   const cpuPercent = Math.round(((totalTick - totalIdle) / totalTick) * 100 * 100) / 100;
 
   return {
+    platform: os.platform(),
     memory_total_mb: Math.round(totalMem / (1024 * 1024)),
     memory_available_mb: Math.round(freeMem / (1024 * 1024)),
     cpu_percent: cpuPercent,
