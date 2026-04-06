@@ -17,6 +17,7 @@ const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const { killProcessGraceful, killOrphanByPid } = require('../execution/process-lifecycle');
 const serverConfig = require('../config');
+const { parseModelSizeB } = require('../utils/model');
 
 // ---- Injected dependencies (set via init()) ----
 let db = null;
@@ -598,20 +599,15 @@ function getStallThreshold(model, provider) {
   const isThinkingModel = /^(qwen3|deepseek-r1)/i.test(model);
   const thinkingMultiplier = isThinkingModel ? 1.5 : 1;
 
-  // Extract size from model name (e.g., "32b" from "some-model:32b")
-  const sizeMatch = modelLower.match(/:(\d+)b/);
-  if (sizeMatch) {
-    const sizeB = parseInt(sizeMatch[1], 10);
-    // Scale threshold: 32b+ gets 6 min, 14b+ gets 4 min, 8b+ gets 3.5 min
-    if (sizeB >= 32) return Math.round(Math.max(threshold, 360) * thinkingMultiplier);
-    if (sizeB >= 14) return Math.round(Math.max(threshold, 240) * thinkingMultiplier);
-    if (sizeB >= 8) return Math.round(Math.max(threshold, 210) * thinkingMultiplier);
-  }
+  const modelSizeB = parseModelSizeB(model);
+  if (modelSizeB >= 32) return Math.round(Math.max(threshold, 360) * thinkingMultiplier);
+  if (modelSizeB >= 15 && modelSizeB <= 25) return Math.round(300 * thinkingMultiplier);
+  if (modelSizeB >= 14) return Math.round(Math.max(threshold, 240) * thinkingMultiplier);
+  if (modelSizeB >= 8) return Math.round(Math.max(threshold, 210) * thinkingMultiplier);
 
   // Check for large model indicators in name
   if (modelLower.includes('70b') || modelLower.includes('65b')) return Math.round(420 * thinkingMultiplier);
   if (modelLower.includes('32b') || modelLower.includes('34b')) return Math.round(360 * thinkingMultiplier);
-  if (modelLower.includes('codestral') || modelLower.includes('22b')) return Math.round(300 * thinkingMultiplier);
 
   return threshold;
 }

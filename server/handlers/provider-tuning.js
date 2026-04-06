@@ -721,10 +721,10 @@ function handleGetHardwareTuning(_args) {
   output += `| RTX 3080 | 16GB | Full (7B), 45-50 (13B) |\n`;
   output += `| RTX 3090/4090 | 24GB | 70 (32B), Full (16B and below) |\n\n`;
   output += `**Benchmark Results (RTX 3090/4090):**\n`;
-  output += `- qwen3-coder MoE variants: ~112 tok/s @ auto (recommended)\n`;
-  output += `- (legacy 32b models): ~36 tok/s @ num_gpu=70\n`;
-  output += `- deepseek-coder-v2:16b: 192 tok/s @ auto\n`;
-  output += `- phi3:14b: 77 tok/s @ auto\n\n`;
+  output += `- MoE coding models: ~112 tok/s @ auto (recommended)\n`;
+  output += `- Standard 32B models: ~36 tok/s @ num_gpu=70\n`;
+  output += `- Medium 16B models: ~192 tok/s @ auto\n`;
+  output += `- Small 14B models: ~77 tok/s @ auto\n\n`;
 
   output += `Use \`set_hardware_tuning\` to modify.`;
 

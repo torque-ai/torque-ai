@@ -616,7 +616,7 @@ function routeTask(complexity) {
 
       if (healthyHosts.length > 0) {
         // Find a host that has a compatible model
-        const originalModel = targetModel || 'qwen2.5-coder:7b';
+        const originalModel = targetModel || '';
         let fallbackHost = null;
 
         // Helper to get model name from either string or object
@@ -632,12 +632,12 @@ function routeTask(complexity) {
 
         // If no host has the same model, find one with any coding model
         if (!fallbackHost) {
-          const codingModels = ['qwen2.5-coder', 'codestral', 'qwen3', 'codellama', 'deepseek-coder'];
+          const codingPattern = /coder|code|deepseek|starcoder/i;
           for (const h of healthyHosts) {
             if (h.models) {
               const availableModel = h.models.find(m => {
                 const name = getModelName(m);
-                return name && codingModels.some(cm => name.toLowerCase().includes(cm));
+                return name && codingPattern.test(name);
               });
               if (availableModel) {
                 fallbackHost = h;

@@ -285,50 +285,50 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     logger.debug(`Schema migration (complexity routing): ${e.message}`);
   }
   try {
-      if (!getConfig('ollama_fast_model_fallback')) setConfig('ollama_fast_model_fallback', 'codestral:22b');
-      if (!getConfig('ollama_balanced_model_fallback')) setConfig('ollama_balanced_model_fallback', 'codestral:22b');
+      if (!getConfig('ollama_fast_model_fallback')) setConfig('ollama_fast_model_fallback', '');
+      if (!getConfig('ollama_balanced_model_fallback')) setConfig('ollama_balanced_model_fallback', '');
     } catch (e) { logger.debug(`Schema migration (fallback models): ${e.message}`); }
   try {
       const currentFast = getConfig('ollama_fast_model');
       if (!currentFast || currentFast === 'qwen2.5-coder:7b' || currentFast === 'gemma3:4b') {
-        setConfig('ollama_fast_model', 'codestral:22b');
+        setConfig('ollama_fast_model', '');
       }
     } catch (e) { logger.debug(`Schema migration (fast tier): ${e.message}`); }
   try {
       if (getConfig('ollama_balanced_model') === 'deepseek-r1:14b') {
-        setConfig('ollama_balanced_model', 'codestral:22b');
+        setConfig('ollama_balanced_model', '');
       }
     } catch (e) { logger.debug(`Schema migration (balanced tier P75): ${e.message}`); }
   try {
       if (getConfig('ollama_balanced_model') === 'deepseek-coder-v2:16b') {
-        setConfig('ollama_balanced_model', 'codestral:22b');
+        setConfig('ollama_balanced_model', '');
       }
     } catch (e) { logger.debug(`Schema migration (balanced tier R97): ${e.message}`); }
   try {
       if (getConfig('ollama_balanced_model') === 'codestral:22b') {
-        setConfig('ollama_balanced_model', 'qwen3:8b');
+        setConfig('ollama_balanced_model', '');
       }
     } catch (e) { logger.debug(`Schema migration (balanced tier R113): ${e.message}`); }
   try {
       const existingSettings = JSON.parse(getConfig('ollama_model_settings') || '{}');
       let updated = false;
 
-      // Only update if qwen2.5-coder:32b doesn't have 16K context yet
-      if (!existingSettings['qwen2.5-coder:32b'] || existingSettings['qwen2.5-coder:32b'].num_ctx !== 16384) {
+      // Only update settings for model keys that already exist
+      if (existingSettings['qwen2.5-coder:32b'] && existingSettings['qwen2.5-coder:32b'].num_ctx !== 16384) {
         existingSettings['qwen2.5-coder:32b'] = {
           temperature: 0.2, top_k: 30, num_ctx: 16384, repeat_penalty: 1.15,
           description: 'Quality tier — complex tasks, multi-requirement code gen'
         };
         updated = true;
       }
-      if (!existingSettings['codestral:22b'] || existingSettings['codestral:22b'].temperature !== 0.2) {
+      if (existingSettings['codestral:22b'] && existingSettings['codestral:22b'].temperature !== 0.2) {
         existingSettings['codestral:22b'] = {
           temperature: 0.2, top_k: 30, num_ctx: 8192, repeat_penalty: 1.1,
           description: 'Fast tier — simple/medium tasks, speed over completeness'
         };
         updated = true;
       }
-      if (!existingSettings['gemma3:4b']) {
+      if (existingSettings['gemma3:4b']) {
         existingSettings['gemma3:4b'] = {
           temperature: 0.3, top_k: 40, num_ctx: 4096, repeat_penalty: 1.1,
           description: 'Lightweight — simple utilities, fast generation'
@@ -409,14 +409,14 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
       SET target_provider = ?, model = ?, target_host = NULL, name = ?
       WHERE complexity = ?
     `);
-    updateRouting.run('ollama', 'qwen2.5-coder:32b', 'Normal tasks to Ollama', 'normal');
-    updateRouting.run('ollama', 'qwen2.5-coder:32b', 'Simple tasks to Ollama', 'simple');
+    updateRouting.run('ollama', '', 'Normal tasks to Ollama', 'normal');
+    updateRouting.run('ollama', '', 'Simple tasks to Ollama', 'simple');
     // Set model tiers to best models
-    setConfig('ollama_fast_model', 'qwen2.5-coder:32b');
-    setConfig('ollama_balanced_model', 'qwen2.5-coder:32b');
-    setConfig('ollama_quality_model', 'qwen2.5-coder:32b');
-    setConfig('ollama_fast_model_fallback', 'codestral:22b');
-    setConfig('ollama_balanced_model_fallback', 'codestral:22b');
+    setConfig('ollama_fast_model', '');
+    setConfig('ollama_balanced_model', '');
+    setConfig('ollama_quality_model', '');
+    setConfig('ollama_fast_model_fallback', '');
+    setConfig('ollama_balanced_model_fallback', '');
     // Fix VRAM limit for 24GB GPU hosts (was incorrectly set to 8GB in earlier versions)
     // This migration is a no-op for new installs; retained for existing DBs that had the wrong value.
     db.prepare(`
@@ -426,13 +426,10 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     // Enable error feedback for self-correcting edits
     setConfig('error_feedback_enabled', '1');
     setConfig('verify_max_fix_attempts', '2');
-    // Lower temperature for qwen2.5-coder:32b — reduces hash hallucination
+    // Preserve existing model settings without injecting new model-specific defaults
     // Use merge semantics: only set keys that don't already exist, preserving user customizations
     {
-      const newSettings = {
-        'qwen2.5-coder:32b': { temperature: 0.1 },
-        'codestral:22b': { temperature: 0.15 }
-      };
+      const newSettings = {};
       const existing = getConfig('ollama_model_settings');
       if (existing) {
         try {

@@ -53,22 +53,18 @@ const PROVIDER_CONTEXT_BUDGETS = {
  * Budget ≈ 75% of context window to leave room for response.
  */
 const OPENROUTER_MODEL_BUDGETS = [
-  // 262K context
-  { match: 'qwen3-coder', budget: 200000 },
-  { match: 'qwen3-next', budget: 200000 },
-  // 256K context
-  { match: 'step-3.5-flash', budget: 190000 },
-  { match: 'nemotron-3-nano-30b', budget: 190000 },
+  // Large context (200K+)
+  { match: 'coder', budget: 200000 },
+  { match: 'step-', budget: 190000 },
+  { match: 'nemotron', budget: 190000 },
   // 131K context
-  { match: 'hermes-3-llama', budget: 96000 },
-  { match: 'trinity-large', budget: 96000 },
-  // 128K context
-  { match: 'llama-3.3-70b', budget: 96000 },
-  { match: 'mistral-small-3.1', budget: 96000 },
-  { match: 'nemotron-nano-12b', budget: 96000 },
+  { match: 'hermes', budget: 96000 },
+  { match: 'trinity', budget: 96000 },
+  // 128K context (default for most models)
+  { match: 'llama', budget: 96000 },
+  { match: 'mistral', budget: 96000 },
   // 32K context
-  { match: 'gemma-3-27b', budget: 24000 },
-  { match: 'gemma-3-12b', budget: 24000 },
+  { match: 'gemma', budget: 24000 },
 ];
 
 /**

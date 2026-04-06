@@ -222,89 +222,9 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       fast: { temperature: 0.3, top_p: 0.9, top_k: 40, repeat_penalty: 1.1, num_ctx: 4096, mirostat: 0 }
     }));
   // Legacy fallback — superseded by model_family_templates
-  insertConfig.run('ollama_model_settings', JSON.stringify({
-      'qwen3:8b': { temperature: 0.25, top_k: 35, num_ctx: 8192, repeat_penalty: 1.15, description: 'Balanced tier — reliable workhorse for standard code gen' },
-      'qwen3:32b': { temperature: 0.15, top_k: 25, num_ctx: 16384, repeat_penalty: 1.15, mirostat: 2, description: 'Quality tier — complex code, multi-file, deep reasoning' },
-      'gemma3:4b': { temperature: 0.35, top_k: 40, num_ctx: 4096, repeat_penalty: 1.1, description: 'Fast tier — docs, comments, renames, simple edits' },
-      'codestral:22b': { temperature: 0.2, top_k: 30, num_ctx: 8192, repeat_penalty: 1.1, description: 'Balanced-alt — reliable code gen on remote host' },
-      'qwen2.5-coder:32b': { temperature: 0.15, top_k: 25, num_ctx: 16384, repeat_penalty: 1.15, description: 'Quality tier — complex tasks, multi-requirement code gen' },
-      'codellama:34b': { temperature: 0.2, top_k: 30, num_ctx: 8192, repeat_penalty: 1.1, description: 'Heavy code specialist — hashline precision edits' },
-      codellama: { temperature: 0.2, top_k: 30, num_ctx: 8192, description: 'Code specialist (small)' },
-      'deepseek-coder': { temperature: 0.2, top_k: 30, num_ctx: 8192, description: 'Code specialist' },
-      'deepseek-coder-v2:16b': { temperature: 0.2, top_k: 30, num_ctx: 8192, description: 'Code gen on remote host' },
-      'deepseek-r1:14b': { temperature: 0.2, top_k: 30, num_ctx: 8192, description: 'Thinking/reasoning model' },
-      llama3: { temperature: 0.4, top_k: 40, num_ctx: 8192, description: 'General purpose backup' },
-      mistral: { temperature: 0.5, top_k: 50, num_ctx: 8192, description: 'Good for writing and explanations' },
-      phi3: { temperature: 0.3, top_k: 40, num_ctx: 4096, description: 'Lightweight tasks' }
-    }));
+  insertConfig.run('ollama_model_settings', JSON.stringify({}));
   // Legacy fallback — superseded by model_family_templates
-  insertConfig.run('ollama_model_prompts', JSON.stringify({
-      'qwen3:8b': `You are Qwen3, a highly capable code generation model. When editing code:
-    - Make ONLY the changes requested - no extra refactoring
-    - Preserve existing code style and conventions
-    - Use SEARCH/REPLACE blocks exactly as instructed by Aider
-    - If a SEARCH block doesn't match, check for whitespace/formatting differences
-    - Focus on correctness over cleverness
-    - Keep implementations minimal and direct`,
-      codellama: `You are CodeLlama, an expert code generation model. Focus on:
-    - Writing clean, efficient, idiomatic code
-    - Following language-specific best practices
-    - Minimal comments (only where logic is non-obvious)
-    - Precise implementations without unnecessary abstraction`,
-      'deepseek-coder': `You are DeepSeek Coder, specialized in code generation. Focus on:
-    - Writing production-quality code
-    - Following established patterns and conventions
-    - Clear variable and function naming
-    - Handling edge cases appropriately`,
-      llama3: `You are a helpful AI assistant. Provide clear, accurate responses.
-    - Be concise but thorough
-    - Structure complex answers with headings or lists
-    - Cite specific details when relevant`,
-      mistral: `You are Mistral, skilled at explanations and writing. Focus on:
-    - Clear, well-structured explanations
-    - Appropriate level of detail for the audience
-    - Good flow and readability
-    - Helpful examples when useful`,
-      phi3: `You are Phi-3, a fast and efficient assistant. Focus on:
-    - Quick, direct answers
-    - Essential information only
-    - Concise but complete responses`,
-      'gemma3:4b': `You are Gemma3, a fast and efficient code assistant. Focus on:
-    - Making only the specific changes requested — no extra modifications
-    - Keeping edits small and targeted
-    - Following existing code patterns and style exactly
-    - Concise output — no explanations unless asked`,
-      'qwen3:32b': `You are Qwen3-32B, a large reasoning-capable code model. Focus on:
-    - Step-by-step reasoning before making changes
-    - Complete, production-ready implementations
-    - Proper error handling and edge cases
-    - Following project conventions and architecture patterns
-    - Thorough but minimal — implement what is asked, nothing more`,
-      'qwen2.5-coder:32b': `You are Qwen2.5-Coder-32B, an expert code generation model. Focus on:
-    - Writing idiomatic, language-specific code
-    - Following established project conventions exactly
-    - Proper error handling and input validation
-    - Clean, readable implementations without unnecessary abstraction
-    - Type-safe code with correct signatures`,
-      'codestral:22b': `You are Codestral, a specialized code generation model. Focus on:
-    - Clean, efficient implementations
-    - Following project conventions and existing patterns
-    - Minimal changes — only modify what is requested
-    - Proper imports and dependency management
-    - No unnecessary comments or documentation`,
-      'deepseek-coder-v2:16b': `You are DeepSeek Coder V2, a production-quality code model. Focus on:
-    - Following established patterns in the codebase
-    - Handling edge cases appropriately
-    - Clean variable naming and code organization
-    - Correct imports and module structure
-    - Production-ready code without shortcuts`,
-      'deepseek-r1:14b': `You are DeepSeek-R1, a reasoning-oriented model. Focus on:
-    - Analyzing the problem thoroughly before making changes
-    - Understanding the context and implications of each edit
-    - Making focused, minimal changes that solve the specific issue
-    - Verifying your reasoning — check that edits are consistent
-    - When uncertain, prefer the simpler and safer approach`
-    }));
+  insertConfig.run('ollama_model_prompts', JSON.stringify({}));
   insertConfig.run('ollama_num_gpu', '-1');
   insertConfig.run('ollama_num_thread', '0');
   insertConfig.run('ollama_keep_alive', '5m');
@@ -570,20 +490,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
          context_window, param_size_b, is_thinking_model, source)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'benchmark')`);
   
-      const seeds = [
-        // [model, code_gen, refactor, testing, reasoning, docs, TS, JS, Python, C#, Go, Rust, General, context, params, thinking]
-        // qwen3-coder:30b — scores from benchmark 2026-03-28: 5/5 pass on code_gen, refactoring, testing, reasoning, docs
-        ['qwen3-coder:30b',         0.92, 0.88, 0.85, 0.78, 0.75, 0.92, 0.92, 0.80, 0.72, 0.68, 0.63, 0.80, 16384, 30, 0],
-        ['qwen2.5-coder:32b',      0.90, 0.85, 0.80, 0.70, 0.65, 0.90, 0.90, 0.75, 0.70, 0.65, 0.60, 0.75, 16384, 32, 0],
-        ['codestral:22b',           0.75, 0.70, 0.65, 0.60, 0.70, 0.75, 0.75, 0.70, 0.65, 0.60, 0.55, 0.70,  8192, 22, 0],
-        ['codellama:34b',           0.70, 0.65, 0.60, 0.55, 0.50, 0.60, 0.65, 0.80, 0.55, 0.50, 0.50, 0.60, 16384, 34, 0],
-        ['qwen3:8b',                0.65, 0.60, 0.55, 0.70, 0.60, 0.70, 0.70, 0.60, 0.55, 0.55, 0.50, 0.65,  8192,  8, 0],
-        ['deepseek-r1:14b',         0.55, 0.60, 0.50, 0.90, 0.55, 0.60, 0.60, 0.65, 0.50, 0.50, 0.45, 0.55,  8192, 14, 1],
-        ['gemma3:4b',               0.40, 0.35, 0.30, 0.35, 0.55, 0.40, 0.40, 0.35, 0.30, 0.30, 0.25, 0.40,  4096,  4, 0],
-        ['deepseek-coder-v2:16b',   0.65, 0.60, 0.55, 0.65, 0.55, 0.65, 0.65, 0.70, 0.55, 0.55, 0.50, 0.60,  8192, 16, 0],
-        ['qwen2.5:14b',             0.60, 0.55, 0.50, 0.65, 0.60, 0.60, 0.60, 0.55, 0.50, 0.50, 0.45, 0.55,  8192, 14, 0],
-        ['gemma2:9b',               0.50, 0.45, 0.40, 0.50, 0.55, 0.50, 0.50, 0.45, 0.40, 0.40, 0.35, 0.50,  8192,  9, 0],
-      ];
+      const seeds = [];
   
       for (const row of seeds) {
         seedStmt.run(...row);
@@ -625,18 +532,6 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   } catch (e) {
     logger.debug(`Schema seed (model roles): ${e.message}`);
   }
-
-  // Seed structural capabilities for qwen3-coder (agentic, large context)
-  // Scoring columns are handled by the INSERT OR IGNORE seed above; this upsert
-  // adds the structural flags that the seed statement does not cover.
-  try {
-    const modelCaps = require('./model-capabilities');
-    modelCaps.setDb(db);
-    modelCaps.upsertModelCapabilities('qwen3-coder:30b', {
-      can_create_files: 1, can_edit_safely: 1,
-      max_safe_edit_lines: 500, is_agentic: 1,
-    });
-  } catch (e) { logger.debug('model capabilities seed: ' + e.message); }
 
   // Seed model family templates (system prompts + tuning per model family)
   try {
