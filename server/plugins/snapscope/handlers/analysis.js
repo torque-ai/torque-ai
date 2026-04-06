@@ -1323,7 +1323,6 @@ async function handlePeekActionSequence(args) {
 
 async function handlePeekPreAnalyze(args) {
   try {
-    const { analyzeElementTree } = require('./pre-analyze');
     const fs = require('fs');
 
     if (!args.capture_path) {
@@ -1350,11 +1349,23 @@ async function handlePeekPreAnalyze(args) {
       };
     }
 
-    const sectionId = args.section_id || 'unknown';
-    const result = analyzeElementTree(elements, sectionId);
+    const resolvedHost = resolvePeekHost(args);
+    if (resolvedHost.error) return resolvedHost.error;
+    const { hostUrl } = resolvedHost;
 
+    const sectionId = args.section_id || 'unknown';
+    const result = await peekHttpPostWithRetry(hostUrl + '/pre-analyze', {
+      elements,
+      section_id: sectionId,
+    }, 15000);
+
+    if (result.error) {
+      return makeError(ErrorCodes.OPERATION_FAILED, `peek pre-analyze failed: ${result.error}`);
+    }
+
+    const data = result.data || {};
     return {
-      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
     };
   } catch (err) {
     return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
