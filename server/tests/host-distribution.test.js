@@ -481,10 +481,11 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('preserves original_provider metadata on first fallback', () => {
-      addHost('meta-host-a', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
+      const hostA = addHost('meta-host-a', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
       addHost('meta-host-b', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
 
-      const taskId = createTask('ollama', TEST_MODELS.DEFAULT, null);
+      // Assign to hostA so Step 1 can fall back to hostB
+      const taskId = createTask('ollama', TEST_MODELS.DEFAULT, hostA);
       const task = db.getTask(taskId);
 
       taskManager.tryLocalFirstFallback(taskId, task, 'error');
