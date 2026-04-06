@@ -47,21 +47,29 @@ const PASSTHROUGH_CASES = [
   { method: 'POST', path: '/api/v2/approvals/approve-diff', tool: 'approve_diff', domain: 'approvals' },
   { method: 'POST', path: '/api/v2/automation/run-tests', tool: 'run_tests', domain: 'automation' },
   { method: 'DELETE', path: '/api/v2/automation/delete-task-template', tool: 'delete_task_template', domain: 'automation' },
+  { method: 'POST', path: '/api/v2/audit', tool: 'audit_codebase', domain: 'audit' },
+  { method: 'PATCH', path: '/api/v2/audit/findings/{finding_id}', tool: 'update_audit_finding', domain: 'audit' },
   { method: 'GET', path: '/api/v2/baselines/list-backups/{task_id}', tool: 'list_backups', domain: 'baselines' },
+  { method: 'GET', path: '/api/v2/ci/runs/{run_id}', tool: 'ci_run_status', domain: 'ci' },
   { method: 'GET', path: '/api/v2/integration/list-email-notifications/{task_id}', tool: 'list_email_notifications', domain: 'integration' },
   { method: 'GET', path: '/api/v2/intelligence/intelligence-dashboard', tool: 'intelligence_dashboard', domain: 'intelligence' },
+  { method: 'GET', path: '/api/v2/notifications', tool: 'check_notifications', domain: 'notifications' },
   { method: 'POST', path: '/api/v2/vc/create-worktree', tool: 'vc_create_worktree', domain: 'vc' },
   { method: 'POST', path: '/api/v2/validation/run-build-check', tool: 'run_build_check', domain: 'validation' },
+  { method: 'POST', path: '/api/v2/workflow-utils/export-workflow', tool: 'export_workflow', domain: 'workflow-utils' },
   { method: 'DELETE', path: '/api/v2/advanced/release-lock/{agent_id}', tool: 'release_lock', domain: 'advanced' },
 ];
 
 const GET_CASES = PASSTHROUGH_CASES.filter((testCase) => testCase.method === 'GET');
 const POST_CASES = PASSTHROUGH_CASES.filter((testCase) => testCase.method === 'POST');
 const DELETE_CASES = PASSTHROUGH_CASES.filter((testCase) => testCase.method === 'DELETE');
+const PATCH_CASES = PASSTHROUGH_CASES.filter((testCase) => testCase.method === 'PATCH');
 
 const PARAM_CASES = [
   { method: 'GET', path: '/api/v2/advanced/get-resource-usage/{task_id}', params: ['task_id'] },
+  { method: 'PATCH', path: '/api/v2/audit/findings/{finding_id}', params: ['finding_id'] },
   { method: 'GET', path: '/api/v2/baselines/list-backups/{task_id}', params: ['task_id'] },
+  { method: 'GET', path: '/api/v2/ci/runs/{run_id}', params: ['run_id'] },
   { method: 'GET', path: '/api/v2/integration/list-email-notifications/{task_id}', params: ['task_id'] },
   { method: 'DELETE', path: '/api/v2/advanced/release-lock/{agent_id}', params: ['agent_id'] },
 ];
@@ -165,6 +173,31 @@ describe('REST passthrough OpenAPI coverage', () => {
     });
   });
 
+  it('documents PATCH passthrough routes with tool metadata and the default JSON request body', () => {
+    PATCH_CASES.forEach(({ path, tool, domain }) => {
+      const operation = getOperation('PATCH', path);
+
+      expect(operation).toEqual(expect.objectContaining({
+        operationId: tool,
+        summary: tool,
+        tags: [domain],
+        'x-tool-name': tool,
+      }));
+      expect(operation.requestBody).toEqual({
+        required: false,
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              additionalProperties: true,
+            },
+          },
+        },
+      });
+      expect(operation.responses).toHaveProperty('200');
+    });
+  });
+
   it('preserves named path parameters for regex-based passthrough routes', () => {
     PARAM_CASES.forEach(({ method, path, params }) => {
       const operation = getOperation(method, path);
@@ -178,12 +211,12 @@ describe('REST passthrough OpenAPI coverage', () => {
     });
   });
 
-  it('keeps passthrough routes in the generated spec and publishes at least 300 unique paths', () => {
+  it('keeps passthrough routes in the generated spec and publishes at least 650 unique paths', () => {
     const missing = passthroughRoutes
       .filter((route) => !getOperation(route.method, pathFromRegex(route.path, route.mapParams)))
       .map((route) => `${route.method} ${pathFromRegex(route.path, route.mapParams)}`);
 
-    expect(Object.keys(spec.paths).length).toBeGreaterThanOrEqual(300);
+    expect(Object.keys(spec.paths).length).toBeGreaterThanOrEqual(650);
     expect(missing).toEqual([]);
   });
 });

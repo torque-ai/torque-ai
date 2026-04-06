@@ -283,13 +283,13 @@ describe('REST control-plane parity', () => {
 
   describe('no parity regression', () => {
     it('v2 CP handler count has not decreased from baseline', () => {
-      // Baseline: 110 handlers including remote execution control-plane routes
-      expect(Object.keys(V2_CP_HANDLER_LOOKUP).length).toBeGreaterThanOrEqual(110);
+      // Baseline: 145 handlers currently registered; keep a lower guardrail to catch regressions.
+      expect(Object.keys(V2_CP_HANDLER_LOOKUP).length).toBeGreaterThanOrEqual(140);
     });
 
     it('v2 CP route count has not decreased from baseline', () => {
-      // Baseline: 110 routes including remote execution control-plane routes
-      expect(v2CpRoutes.length).toBeGreaterThanOrEqual(110);
+      // Baseline: 145 routes currently registered; keep a lower guardrail to catch regressions.
+      expect(v2CpRoutes.length).toBeGreaterThanOrEqual(140);
     });
   });
 });

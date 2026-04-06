@@ -91,13 +91,19 @@ const { v2CpRoutes } = require('../api/v2-dispatch');
 
 const EXPECTED_DOMAINS = [
   'advanced',
+  'agents',
+  'analysis',
   'approvals',
   'audit',
   'automation',
   'baselines',
   'ci',
   'conflicts',
+  'diffusion',
+  'discovery',
   'experiments',
+  'governance',
+  'hashline',
   'integration',
   'intelligence',
   'notifications',
@@ -105,12 +111,15 @@ const EXPECTED_DOMAINS = [
   'providers',
   'routing',
   'strategic',
+  'symbols',
   'system',
   'tasks',
   'tsserver',
   'vc',
   'validation',
+  'verification',
   'webhooks',
+  'workflow-utils',
   'workflows',
 ];
 
@@ -199,9 +208,9 @@ const toolDefNames = loadToolDefNames();
 
 describe('REST passthrough route coverage', () => {
   describe('route export contract', () => {
-    it('exports 410+ route objects', () => {
+    it('exports 490+ route objects', () => {
       expect(Array.isArray(passthroughRoutes)).toBe(true);
-      expect(passthroughRoutes.length).toBeGreaterThanOrEqual(410);
+      expect(passthroughRoutes.length).toBeGreaterThanOrEqual(490);
     });
   });
 
@@ -264,7 +273,7 @@ describe('REST passthrough route coverage', () => {
   });
 
   describe('domain coverage', () => {
-    it('covers all 22 expected passthrough domains', () => {
+    it('covers all 31 expected passthrough domains', () => {
       const coveredDomains = [...new Set(
         passthroughRoutes
           .map(extractDomain)
@@ -277,7 +286,7 @@ describe('REST passthrough route coverage', () => {
 
   describe('integration with v2 routing tables', () => {
     it('does not shadow any v2 control-plane routes', () => {
-      expect(v2CpRoutes.length).toBeGreaterThanOrEqual(100);
+      expect(v2CpRoutes.length).toBeGreaterThanOrEqual(140);
 
       const passthroughSignatures = new Set(passthroughRoutes.map(routeSignature));
       const overlaps = v2CpRoutes
