@@ -10,7 +10,7 @@
  */
 
 const routes = [
-  // ═══ Generated REST routes for 397 MCP tools ═══
+  // ═══ Generated REST routes for 497 MCP tools ═══
   // Generated: 2026-03-13
   // Pattern: tool-passthrough via handleToolCall()
 
@@ -174,7 +174,45 @@ const routes = [
   { method: 'GET', path: '/api/v2/intelligence/cache-stats', tool: 'cache_stats', mapQuery: true },
   { method: 'GET', path: '/api/v2/intelligence/database-stats', tool: 'database_stats', mapQuery: true },
 
-  // ─── peek (2 routes) ─────────────────────────────────────────────────────────
+  // ─── peek (40 routes) ────────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/peek/action-sequence', tool: 'peek_action_sequence', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/assert', tool: 'peek_assert', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/baselines', tool: 'peek_baselines', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/build-and-open', tool: 'peek_build_and_open', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/cdp', tool: 'peek_cdp', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/color', tool: 'peek_color', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/diagnose', tool: 'peek_diagnose', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/discover', tool: 'peek_discover', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/elements', tool: 'peek_elements', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/health-all', tool: 'peek_health_all', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/history', tool: 'peek_history', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/hit-test', tool: 'peek_hit_test', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/interact', tool: 'peek_interact', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/launch', tool: 'peek_launch', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/ocr', tool: 'peek_ocr', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/onboard', tool: 'peek_onboard', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/onboard-detect', tool: 'peek_onboard_detect', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/open-url', tool: 'peek_open_url', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/pre-analyze', tool: 'peek_pre_analyze', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/recovery', tool: 'peek_recovery', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/recovery-execute', tool: 'peek_recovery_execute', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/recovery-log', tool: 'peek_recovery_log', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/recovery-status', tool: 'peek_recovery_status', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/refresh', tool: 'peek_refresh', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/regression', tool: 'peek_regression', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/semantic-diff', tool: 'peek_semantic_diff', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/snapshot', tool: 'peek_snapshot', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/summary', tool: 'peek_summary', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/table', tool: 'peek_table', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/ui', tool: 'peek_ui', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/verify', tool: 'peek_verify', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/verify-run', tool: 'peek_verify_run', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/verify-specs', tool: 'peek_verify_specs', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/wait', tool: 'peek_wait', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/watch-add', tool: 'peek_watch_add', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/watch-control', tool: 'peek_watch_control', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/watch-remove', tool: 'peek_watch_remove', mapBody: true },
+  { method: 'POST', path: '/api/v2/peek/watch-status', tool: 'peek_watch_status', mapBody: true },
   { method: 'POST', path: '/api/v2/peek/register-peek-host', tool: 'register_peek_host', mapBody: true },
   { method: 'DELETE', path: '/api/v2/peek/unregister-peek-host', tool: 'unregister_peek_host', mapQuery: true },
 
@@ -222,12 +260,64 @@ const routes = [
   { method: 'POST', path: '/api/v2/providers/manage-host', tool: 'manage_host', mapBody: true },
   // concurrency + economy routes are served by v2 CP handlers (routes.js), not passthrough
 
+  // ─── discovery (4 routes) ────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/discovery/discover-models', tool: 'discover_models', mapBody: true },
+  { method: 'POST', path: '/api/v2/discovery/assign-model-role', tool: 'assign_model_role', mapBody: true },
+  { method: 'POST', path: '/api/v2/discovery/configure-model-roles', tool: 'configure_model_roles', mapBody: true },
+  { method: 'POST', path: '/api/v2/discovery/list-model-roles', tool: 'list_model_roles', mapBody: true },
+
+  // ─── governance (11 routes) ──────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/governance/get-governance-rules', tool: 'get_governance_rules', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/set-governance-rule-mode', tool: 'set_governance_rule_mode', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/toggle-governance-rule', tool: 'toggle_governance_rule', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/get-circuit-breaker-status', tool: 'get_circuit_breaker_status', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/get-file-risk', tool: 'get_file_risk', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/set-file-risk-override', tool: 'set_file_risk_override', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/get-high-risk-files', tool: 'get_high_risk_files', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/get-task-risk-summary', tool: 'get_task_risk_summary', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/get-adversarial-reviews', tool: 'get_adversarial_reviews', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/request-adversarial-review', tool: 'request_adversarial_review', mapBody: true },
+  { method: 'POST', path: '/api/v2/governance/get-provider-scores', tool: 'get_provider_scores', mapBody: true },
+
+  // ─── verification (2 routes) ─────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/verification/get-verification-checks', tool: 'get_verification_checks', mapBody: true },
+  { method: 'POST', path: '/api/v2/verification/get-verification-summary', tool: 'get_verification_summary', mapBody: true },
+
+  // ─── diffusion (4 routes) ────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/diffusion/create-diffusion-plan', tool: 'create_diffusion_plan', mapBody: true },
+  { method: 'POST', path: '/api/v2/diffusion/diffusion-status', tool: 'diffusion_status', mapBody: true },
+  { method: 'POST', path: '/api/v2/diffusion/submit-scout', tool: 'submit_scout', mapBody: true },
+  { method: 'POST', path: '/api/v2/diffusion/get-context', tool: 'get_context', mapBody: true },
+
+  // ─── analysis (4 routes) ─────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/analysis/full-project-audit', tool: 'full_project_audit', mapBody: true },
+  { method: 'POST', path: '/api/v2/analysis/compare-providers', tool: 'compare_providers', mapBody: true },
+  { method: 'POST', path: '/api/v2/analysis/review-task-output', tool: 'review_task_output', mapBody: true },
+  { method: 'POST', path: '/api/v2/analysis/detect-project-type', tool: 'detect_project_type', mapBody: true },
+
+  // ─── symbols (4 routes) ──────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/symbols/index-project', tool: 'index_project', mapBody: true },
+  { method: 'POST', path: '/api/v2/symbols/search-symbols', tool: 'search_symbols', mapBody: true },
+  { method: 'POST', path: '/api/v2/symbols/get-symbol-source', tool: 'get_symbol_source', mapBody: true },
+  { method: 'POST', path: '/api/v2/symbols/get-file-outline', tool: 'get_file_outline', mapBody: true },
+
+  // ─── hashline (2 routes) ─────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/hashline/hashline-read', tool: 'hashline_read', mapBody: true },
+  { method: 'POST', path: '/api/v2/hashline/hashline-edit', tool: 'hashline_edit', mapBody: true },
+
+  // ─── agents (3 routes) ───────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/agents/discover-agents', tool: 'discover_agents', mapBody: true },
+  { method: 'POST', path: '/api/v2/agents/get-agent', tool: 'get_agent', mapBody: true },
+  { method: 'POST', path: '/api/v2/agents/list-agents', tool: 'list_agents', mapBody: true },
+
   // ─── strategic (1 routes) ────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/strategic/strategic-usage', tool: 'strategic_usage', mapBody: true },
 
-  // ─── system (4 routes) ───────────────────────────────────────────────────────
+  // ─── system (6 routes) ───────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/system/ping', tool: 'ping', mapBody: true },
   { method: 'POST', path: '/api/v2/system/restart-server', tool: 'restart_server', mapBody: true },
+  { method: 'POST', path: '/api/v2/system/await-restart', tool: 'await_restart', mapBody: true },
+  { method: 'POST', path: '/api/v2/system/get-tool-schema', tool: 'get_tool_schema', mapBody: true },
   { method: 'POST', path: '/api/v2/system/unlock-all-tools', tool: 'unlock_all_tools', mapBody: true },
   { method: 'POST', path: '/api/v2/system/unlock-tier', tool: 'unlock_tier', mapBody: true },
 
@@ -403,6 +493,21 @@ const routes = [
   { method: 'POST', path: '/api/v2/validation/run-app-smoke-test', tool: 'run_app_smoke_test', mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/validation\/get-smoke-test-results\/([^/]+)$/, tool: 'get_smoke_test_results', mapQuery: true, mapParams: ['task_id'] },
 
+  // ─── vc (13 routes) ───────────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/vc/cleanup-stale', tool: 'vc_cleanup_stale', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/commit-status', tool: 'vc_commit_status', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/create-pr', tool: 'vc_create_pr', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/create-release', tool: 'vc_create_release', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/create-worktree', tool: 'vc_create_worktree', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/generate-changelog', tool: 'vc_generate_changelog', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/generate-commit', tool: 'vc_generate_commit', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/get-policy', tool: 'vc_get_policy', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/list-worktrees', tool: 'vc_list_worktrees', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/merge-worktree', tool: 'vc_merge_worktree', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/prepare-pr', tool: 'vc_prepare_pr', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/switch-worktree', tool: 'vc_switch_worktree', mapBody: true },
+  { method: 'POST', path: '/api/v2/vc/update-changelog-file', tool: 'vc_update_changelog_file', mapBody: true },
+
   // ─── webhooks (15 routes) ─────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/webhooks/webhook-logs', tool: 'webhook_logs', mapBody: true },
   { method: 'POST', path: '/api/v2/webhooks/configure-retries', tool: 'configure_retries', mapBody: true },
@@ -419,6 +524,12 @@ const routes = [
   { method: 'GET', path: '/api/v2/webhooks/list-inbound-webhooks', tool: 'list_inbound_webhooks', mapQuery: true },
   { method: 'DELETE', path: '/api/v2/webhooks/delete-inbound-webhook', tool: 'delete_inbound_webhook', mapQuery: true },
   { method: 'POST', path: '/api/v2/webhooks/manage-webhook', tool: 'manage_webhook', mapBody: true },
+
+  // ─── workflow-utils (4 routes) ───────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/workflow-utils/export-workflow', tool: 'export_workflow', mapBody: true },
+  { method: 'POST', path: '/api/v2/workflow-utils/import-workflow', tool: 'import_workflow', mapBody: true },
+  { method: 'POST', path: '/api/v2/workflow-utils/polish-task-description', tool: 'polish_task_description', mapBody: true },
+  { method: 'POST', path: '/api/v2/workflow-utils/test-inbound-webhook', tool: 'test_inbound_webhook', mapBody: true },
 
   // ─── workflows (18 routes) ────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/workflows/duplicate-pipeline', tool: 'duplicate_pipeline', mapBody: true },

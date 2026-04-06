@@ -108,6 +108,7 @@ const EXPECTED_DOMAINS = [
   'system',
   'tasks',
   'tsserver',
+  'vc',
   'validation',
   'webhooks',
   'workflows',
@@ -163,10 +164,26 @@ function loadToolDefNames() {
   const files = fs.readdirSync(toolDefsDir)
     .filter((file) => file.endsWith('-defs.js'))
     .sort();
+  const pluginDefsDir = path.join(__dirname, '..', 'plugins');
+  const pluginFiles = fs.readdirSync(pluginDefsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .flatMap((entry) => fs.readdirSync(path.join(pluginDefsDir, entry.name))
+      .filter((file) => file.endsWith('tool-defs.js'))
+      .map((file) => path.join(pluginDefsDir, entry.name, file)))
+    .sort();
 
   const toolNames = new Set();
   files.forEach((file) => {
     const defs = require(path.join(toolDefsDir, file));
+    expect(Array.isArray(defs)).toBe(true);
+    defs.forEach((def) => {
+      if (def && typeof def.name === 'string') {
+        toolNames.add(def.name);
+      }
+    });
+  });
+  pluginFiles.forEach((file) => {
+    const defs = require(file);
     expect(Array.isArray(defs)).toBe(true);
     defs.forEach((def) => {
       if (def && typeof def.name === 'string') {
@@ -182,9 +199,9 @@ const toolDefNames = loadToolDefNames();
 
 describe('REST passthrough route coverage', () => {
   describe('route export contract', () => {
-    it('exports 397+ route objects', () => {
+    it('exports 410+ route objects', () => {
       expect(Array.isArray(passthroughRoutes)).toBe(true);
-      expect(passthroughRoutes.length).toBeGreaterThanOrEqual(397);
+      expect(passthroughRoutes.length).toBeGreaterThanOrEqual(410);
     });
   });
 
@@ -247,7 +264,7 @@ describe('REST passthrough route coverage', () => {
   });
 
   describe('domain coverage', () => {
-    it('covers all 21 expected passthrough domains', () => {
+    it('covers all 22 expected passthrough domains', () => {
       const coveredDomains = [...new Set(
         passthroughRoutes
           .map(extractDomain)

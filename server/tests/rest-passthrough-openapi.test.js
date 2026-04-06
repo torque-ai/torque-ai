@@ -50,6 +50,7 @@ const PASSTHROUGH_CASES = [
   { method: 'GET', path: '/api/v2/baselines/list-backups/{task_id}', tool: 'list_backups', domain: 'baselines' },
   { method: 'GET', path: '/api/v2/integration/list-email-notifications/{task_id}', tool: 'list_email_notifications', domain: 'integration' },
   { method: 'GET', path: '/api/v2/intelligence/intelligence-dashboard', tool: 'intelligence_dashboard', domain: 'intelligence' },
+  { method: 'POST', path: '/api/v2/vc/create-worktree', tool: 'vc_create_worktree', domain: 'vc' },
   { method: 'POST', path: '/api/v2/validation/run-build-check', tool: 'run_build_check', domain: 'validation' },
   { method: 'DELETE', path: '/api/v2/advanced/release-lock/{agent_id}', tool: 'release_lock', domain: 'advanced' },
 ];
