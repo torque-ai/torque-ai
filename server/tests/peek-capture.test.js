@@ -30,44 +30,9 @@ const mockChildProcess = {
   execFileSync: vi.fn(),
 };
 
-const mockTesseractWorker = {
-  recognize: vi.fn(),
-};
-
-const mockTesseract = {
-  createWorker: vi.fn(async () => mockTesseractWorker),
-};
-
-const sharpState = {
-  metadata: { width: 640, height: 480 },
-  outputBuffer: Buffer.from('annotated-image'),
-};
-
-const sharpCalls = [];
-const mockSharp = vi.fn((input) => {
-  const record = { input };
-  const compositeResult = {
-    toBuffer: vi.fn().mockResolvedValue(sharpState.outputBuffer),
-  };
-  const instance = {
-    metadata: vi.fn().mockResolvedValue(sharpState.metadata),
-    composite: vi.fn((layers) => {
-      record.layers = layers;
-      return compositeResult;
-    }),
-  };
-
-  record.instance = instance;
-  record.compositeResult = compositeResult;
-  sharpCalls.push(record);
-  return instance;
-});
-
 const sharedModule = require('../plugins/snapscope/handlers/shared');
 const loggerModule = require('../logger');
 const childProcessModule = require('child_process');
-const tesseractModule = require('tesseract.js');
-const sharpModulePath = require.resolve('sharp');
 
 const originalShared = {
   escapeXml: sharedModule.escapeXml,
@@ -81,8 +46,6 @@ const originalShared = {
 };
 const originalLoggerChild = loggerModule.child;
 const originalExecFileSync = childProcessModule.execFileSync;
-const originalCreateWorker = tesseractModule.createWorker;
-const originalSharpCacheEntry = require.cache[sharpModulePath];
 
 let capture;
 let tempHome;
@@ -132,9 +95,6 @@ describe('peek capture handlers', () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
-    sharpCalls.length = 0;
-    sharpState.metadata = { width: 640, height: 480 };
-    sharpState.outputBuffer = Buffer.from('annotated-image');
 
     tempHome = fs.mkdtempSync(path.join(process.cwd(), 'tmp-peek-capture-'));
     homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(tempHome);
@@ -175,10 +135,6 @@ describe('peek capture handlers', () => {
     });
 
     mockChildProcess.execFileSync.mockReturnValue('ok');
-    mockTesseract.createWorker.mockResolvedValue(mockTesseractWorker);
-    mockTesseractWorker.recognize.mockResolvedValue({
-      data: { text: 'Detected text' },
-    });
 
     sharedModule.escapeXml = mockShared.escapeXml;
     sharedModule.formatBytes = mockShared.formatBytes;
@@ -190,13 +146,6 @@ describe('peek capture handlers', () => {
     sharedModule.resolvePeekHost = mockShared.resolvePeekHost;
     loggerModule.child = mockLogger.child;
     childProcessModule.execFileSync = mockChildProcess.execFileSync;
-    tesseractModule.createWorker = mockTesseract.createWorker;
-    require.cache[sharpModulePath] = {
-      id: sharpModulePath,
-      filename: sharpModulePath,
-      loaded: true,
-      exports: mockSharp,
-    };
 
     capture = loadCapture();
   });
@@ -219,12 +168,6 @@ describe('peek capture handlers', () => {
     sharedModule.resolvePeekHost = originalShared.resolvePeekHost;
     loggerModule.child = originalLoggerChild;
     childProcessModule.execFileSync = originalExecFileSync;
-    tesseractModule.createWorker = originalCreateWorker;
-    if (originalSharpCacheEntry) {
-      require.cache[sharpModulePath] = originalSharpCacheEntry;
-    } else {
-      delete require.cache[sharpModulePath];
-    }
   });
 
   describe('helpers', () => {
@@ -354,6 +297,9 @@ describe('peek capture handlers', () => {
           annotated_mime_type: 'image/png',
         }),
       });
+      mockShared.peekHttpPostWithRetry.mockResolvedValueOnce({
+        data: { text: '  dashboard loaded  ' },
+      });
       mockShared.postCompareWithRetry.mockResolvedValueOnce({
         data: {
           summary: 'Significant change',
@@ -364,9 +310,6 @@ describe('peek capture handlers', () => {
           diff_image: diffBytes.toString('base64'),
           diff_mime_type: 'image/png',
         },
-      });
-      mockTesseractWorker.recognize.mockResolvedValueOnce({
-        data: { text: 'Docs loaded successfully' },
       });
 
       const result = await capture.handlePeekUi({
@@ -915,15 +858,15 @@ describe('peek capture handlers', () => {
     });
 
     it('performs OCR and OCR assertion during capture', async () => {
-      mockTesseractWorker.recognize.mockResolvedValueOnce({
-        data: { text: '  dashboard loaded  ' },
-      });
       mockShared.peekHttpGetUrl.mockResolvedValueOnce({ data: { ok: true } });
       mockShared.peekHttpGetWithRetry.mockResolvedValueOnce({
         data: createPeekCaptureData({
           process: 'chrome.exe',
           image: Buffer.from('peek-image').toString('base64'),
         }),
+      });
+      mockShared.peekHttpPostWithRetry.mockResolvedValueOnce({
+        data: { text: '  dashboard loaded  ' },
       });
 
       const result = await capture.handlePeekUi({
@@ -936,7 +879,6 @@ describe('peek capture handlers', () => {
       expect(text).toContain('**OCR Text:** dashboard loaded');
       expect(text).toContain('**OCR Assert:** "loaded"');
       expect(text).toContain('PASS');
-      expect(mockTesseractWorker.recognize).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1412,32 +1354,6 @@ describe('peek capture handlers', () => {
       expect(text).toContain('**Region:** toolbar');
     });
 
-    it('applies client-side annotations before saving the local image', async () => {
-      const savePath = path.join(tempHome, 'captures', 'annotated.png');
-      sharpState.outputBuffer = Buffer.from('client-annotated-image');
-      mockShared.peekHttpGetUrl.mockResolvedValueOnce({ data: { ok: true } });
-      mockShared.peekHttpGetWithRetry.mockResolvedValueOnce({
-        data: createPeekCaptureData({
-          image: Buffer.from('server-image').toString('base64'),
-          format: 'png',
-          mime_type: 'image/png',
-          size_bytes: 12,
-        }),
-      });
-
-      const result = await capture.handlePeekUi({
-        process: 'chrome.exe',
-        save_path: savePath,
-        annotations: [{ type: 'circle', x: 15, y: 20, r: 5, label: 'CTA' }],
-      });
-      const text = getTextBlocks(result).join('\n');
-      const image = getImages(result)[0];
-
-      expect(image.data).toBe(sharpState.outputBuffer.toString('base64'));
-      expect(fs.readFileSync(savePath)).toEqual(sharpState.outputBuffer);
-      expect(text).toContain(`**Size:** ${sharpState.outputBuffer.length} bytes`);
-    });
-
     it('rejects missing diff baselines before compare requests run', async () => {
       mockShared.peekHttpGetUrl.mockResolvedValueOnce({ data: { ok: true } });
       mockShared.peekHttpGetWithRetry.mockResolvedValueOnce({
@@ -1559,13 +1475,13 @@ describe('peek capture handlers', () => {
     });
 
     it('reports OCR worker failures in the capture summary', async () => {
-      mockTesseractWorker.recognize.mockRejectedValueOnce(new Error('OCR offline'));
       mockShared.peekHttpGetUrl.mockResolvedValueOnce({ data: { ok: true } });
       mockShared.peekHttpGetWithRetry.mockResolvedValueOnce({
         data: createPeekCaptureData({
           image: Buffer.from('peek-image').toString('base64'),
         }),
       });
+      mockShared.peekHttpPostWithRetry.mockRejectedValueOnce(new Error('OCR offline'));
 
       const result = await capture.handlePeekUi({
         process: 'chrome.exe',
@@ -1579,12 +1495,12 @@ describe('peek capture handlers', () => {
     });
 
     it('renders a no-text OCR summary when the worker returns only whitespace', async () => {
-      mockTesseractWorker.recognize.mockResolvedValueOnce({
-        data: { text: '   \n' },
-      });
       mockShared.peekHttpGetUrl.mockResolvedValueOnce({ data: { ok: true } });
       mockShared.peekHttpGetWithRetry.mockResolvedValueOnce({
         data: createPeekCaptureData(),
+      });
+      mockShared.peekHttpPostWithRetry.mockResolvedValueOnce({
+        data: { text: '   ' },
       });
 
       const result = await capture.handlePeekUi({

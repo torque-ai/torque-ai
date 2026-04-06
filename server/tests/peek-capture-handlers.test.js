@@ -341,7 +341,7 @@ describe('peek/capture exported handlers', () => {
           diff_mime_type: 'image/png',
         },
       });
-      mockTesseractWorker.recognize.mockResolvedValueOnce({
+      mocks.peekShared.peekHttpPostWithRetry.mockResolvedValueOnce({
         data: { text: 'Docs loaded successfully' },
       });
 
