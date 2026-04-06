@@ -22,6 +22,15 @@ describe('Host Distribution & Load Balancing', () => {
     db = setup.db;
   });
   afterAll(() => { teardownTestDb(); });
+  beforeEach(() => {
+    // Clear hosts and tasks between tests to prevent cross-test leakage
+    const raw = db.rawDb ? db.rawDb() : db._db || db;
+    if (typeof raw.prepare === 'function') {
+      raw.prepare("DELETE FROM ollama_hosts").run();
+      raw.prepare("DELETE FROM tasks").run();
+    }
+    hostCounter = 0;
+  });
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -155,7 +164,8 @@ describe('Host Distribution & Load Balancing', () => {
     it('base name without tag matches any variant', () => {
       addHost('variant-host', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
 
-      const result = db.selectOllamaHostForModel('qwen2.5-coder');
+      // Query by base name (strip :14b tag) — should match test-model:14b
+      const result = db.selectOllamaHostForModel('test-model');
 
       expect(result.host).toBeTruthy();
     });
@@ -264,20 +274,20 @@ describe('Host Distribution & Load Balancing', () => {
   describe('selectHostWithModelVariant', () => {
 
     it('selects from hosts with matching base model', () => {
-      addHost('variant-a', [TEST_MODELS.SMALL], { runningTasks: 0, maxConcurrent: 4 });
-      addHost('variant-b', [TEST_MODELS.DEFAULT], { runningTasks: 0, maxConcurrent: 4 });
+      addHost('variant-a', ['test-coder:7b'], { runningTasks: 0, maxConcurrent: 4 });
+      addHost('variant-b', ['test-coder:14b'], { runningTasks: 0, maxConcurrent: 4 });
 
-      const result = db.selectHostWithModelVariant('qwen2.5-coder');
+      const result = db.selectHostWithModelVariant('test-coder');
 
       expect(result.host).toBeTruthy();
-      expect(result.model).toMatch(/qwen2\.5-coder/);
+      expect(result.model).toMatch(/test-coder/);
     });
 
     it('prefers host with more available capacity', () => {
       // Host A: 1 slot free, Host B: 3 slots free
       // With weighted random, B should win most of the time
-      addHost('cap-low', [TEST_MODELS.SMALL], { runningTasks: 3, maxConcurrent: 4 });
-      addHost('cap-high', ['deepseek-coder:33b'], { runningTasks: 0, maxConcurrent: 4 });
+      addHost('cap-low', ['test-coder:7b'], { runningTasks: 3, maxConcurrent: 4 });
+      addHost('cap-high', ['test-coder:33b'], { runningTasks: 0, maxConcurrent: 4 });
 
       // Run selection 20 times, verify distribution skews toward more-available host
       const selections = {};
@@ -562,10 +572,10 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('isHostModelWarm returns false for different model', () => {
-      const hostId = addHost('warm-diff', [TEST_MODELS.SMALL, TEST_MODELS.SMALL]);
+      const hostId = addHost('warm-diff', [TEST_MODELS.SMALL, TEST_MODELS.FAST]);
       db.recordHostModelUsage(hostId, TEST_MODELS.SMALL);
 
-      const result = db.isHostModelWarm(hostId, TEST_MODELS.SMALL);
+      const result = db.isHostModelWarm(hostId, TEST_MODELS.FAST);
 
       expect(result.isWarm).toBe(false);
     });
@@ -671,7 +681,7 @@ describe('Host Distribution & Load Balancing', () => {
 
     it('parses size from standard model names', () => {
       expect(taskManager.parseModelSizeB('qwen3-coder:30b')).toBe(30);
-      expect(taskManager.parseModelSizeB(TEST_MODELS.QUALITY)).toBe(34);
+      expect(taskManager.parseModelSizeB(TEST_MODELS.QUALITY)).toBe(32);
       expect(taskManager.parseModelSizeB(TEST_MODELS.SMALL)).toBe(7);
       expect(taskManager.parseModelSizeB('deepseek-coder-v2:16b')).toBe(16);
     });
@@ -684,7 +694,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('handles edge cases', () => {
-      expect(taskManager.parseModelSizeB(TEST_MODELS.FAST)).toBe(3);
+      expect(taskManager.parseModelSizeB(TEST_MODELS.FAST)).toBe(4);
       expect(taskManager.parseModelSizeB('qwen3:0.5b')).toBe(0.5); // decimal support
       expect(taskManager.parseModelSizeB('QWEN:32B')).toBe(32); // case-insensitive
     });
