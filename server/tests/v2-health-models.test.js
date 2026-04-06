@@ -246,7 +246,7 @@ describe('v2 provider health and model inventory endpoints', () => {
     });
   }
 
-  it('returns cloud model inventory in the v2 envelope with static descriptors', async () => {
+  it('returns cloud model inventory in the v2 envelope with empty models when none are configured', async () => {
     setProvider('groq');
 
     const response = await dispatchRequest(requestHandler, {
@@ -260,27 +260,11 @@ describe('v2 provider health and model inventory endpoints', () => {
     expect(payload.meta.request_id).toEqual(expect.any(String));
     expect(payload.data.provider_id).toBe('groq');
     expect(payload.data.refreshed_at).toEqual(expect.any(String));
-    expect(payload.data.models.map((model) => model.id)).toEqual([
-      'llama-3.1-70b-versatile',
-      'llama-3.1-8b-instant',
-      'mixtral-8x7b-32768',
-    ]);
-    expect(payload.data.models[0]).toEqual(expect.objectContaining({
-      id: 'llama-3.1-70b-versatile',
-      provider_id: 'groq',
-      source: 'provider_api',
-      parameters: expect.objectContaining({
-        parameter_count_b: 70,
-      }),
-    }));
+    expect(payload.data.models).toEqual([]);
 
     // Legacy top-level fields stay available for older callers.
     expect(payload.provider_id).toBe('groq');
-    expect(payload.models).toEqual([
-      'llama-3.1-70b-versatile',
-      'llama-3.1-8b-instant',
-      'mixtral-8x7b-32768',
-    ]);
+    expect(payload.models).toEqual([]);
   });
 
   it('queries live Ollama hosts for model inventory and aggregates unique descriptors', async () => {

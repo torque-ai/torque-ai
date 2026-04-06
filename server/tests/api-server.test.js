@@ -140,21 +140,9 @@ describe('API Server endpoints', () => {
   let mockTaskEventsStore;
   const cloudProviderModelCatalog = {
     anthropic: ['claude-sonnet-4-20250514', 'claude-haiku-4-20250514', 'claude-opus-4-20250514'],
-    groq: ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
-    deepinfra: [
-      'Qwen/Qwen2.5-72B-Instruct',
-      'meta-llama/Llama-3.1-70B-Instruct',
-      'meta-llama/Llama-3.1-405B-Instruct',
-      'deepseek-ai/DeepSeek-R1',
-      'Qwen/Qwen2.5-Coder-32B-Instruct',
-    ],
-    hyperbolic: [
-      'Qwen/Qwen2.5-72B-Instruct',
-      'meta-llama/Llama-3.1-70B-Instruct',
-      'meta-llama/Llama-3.1-405B-Instruct',
-      'deepseek-ai/DeepSeek-R1',
-      'Qwen/Qwen3-Coder-480B-A35B',
-    ],
+    groq: [],
+    deepinfra: [],
+    hyperbolic: [],
   };
   const cloudProviderIds = Object.keys(cloudProviderModelCatalog);
   const mockServer = {

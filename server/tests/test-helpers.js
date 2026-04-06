@@ -24,6 +24,12 @@ const TEST_MODELS = {
   CLOUD: 'test-cloud-model',
   LEGACY: 'test-legacy:32b',
   SMALL: 'test-small:7b',
+  // Coder-family variants — match /coder|code/i patterns used in fallback/escalation logic
+  CODER_SMALL: 'test-coder:7b',
+  CODER_DEFAULT: 'test-coder:14b',
+  CODER_BALANCED: 'test-coder:22b',
+  CODER_QUALITY: 'test-coder:32b',
+  CODER_LARGE: 'test-coder:70b',
 };
 
 const TEST_CONFIG_DEFAULTS = {
