@@ -293,7 +293,7 @@ describe('Host Distribution & Load Balancing', () => {
       // Run selection 20 times, verify distribution skews toward more-available host
       const selections = {};
       for (let i = 0; i < 20; i++) {
-        const result = db.selectHostWithModelVariant('deepseek-coder');
+        const result = db.selectHostWithModelVariant('test-coder');
         const hostName = result.host?.name;
         selections[hostName] = (selections[hostName] || 0) + 1;
       }
@@ -481,7 +481,8 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('preserves original_provider metadata on first fallback', () => {
-      addHost('meta-host', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
+      addHost('meta-host-a', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
+      addHost('meta-host-b', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
 
       const taskId = createTask('ollama', TEST_MODELS.DEFAULT, null);
       const task = db.getTask(taskId);
@@ -599,7 +600,8 @@ describe('Host Distribution & Load Balancing', () => {
 
       const models = db.getAggregatedModels();
 
-      expect(models.length).toBeGreaterThanOrEqual(4);
+      // 2 unique model names: test-small:7b and test-model:14b (deduped by name)
+      expect(models.length).toBe(2);
       const names = models.map(m => m.name);
       expect(names).toContain(TEST_MODELS.SMALL);
       expect(names).toContain(TEST_MODELS.DEFAULT);
