@@ -425,10 +425,10 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('step 2: tries different coder model when same model unavailable elsewhere', () => {
-      // Only one host with the failing model, but another model exists
-      addHost('single-model-host', [TEST_MODELS.SMALL, TEST_MODELS.SMALL], { runningTasks: 0 });
+      // Only one host with the failing model, but another model exists (coder-family for detection)
+      addHost('single-model-host', [TEST_MODELS.CODER_SMALL, TEST_MODELS.CODER_BALANCED], { runningTasks: 0 });
 
-      const taskId = createTask('ollama', TEST_MODELS.SMALL, null);
+      const taskId = createTask('ollama', TEST_MODELS.CODER_SMALL, null);
       const task = db.getTask(taskId);
 
       // skipSameModel to simulate step 1 already tried (no other host for this model)
@@ -438,7 +438,7 @@ describe('Host Distribution & Load Balancing', () => {
 
       const updated = db.getTask(taskId);
       expect(updated.provider).toBe('ollama');
-      expect(updated.model).not.toBe(TEST_MODELS.SMALL); // Moved to different model
+      expect(updated.model).not.toBe(TEST_MODELS.CODER_SMALL); // Moved to different model
       expect(updated.model).toMatch(/coder|code|deepseek|qwen/i);
       expect(updated.error_output).toContain('[Local-First]');
     });
@@ -497,10 +497,10 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('tries larger local model before any cloud provider', () => {
-      addHost('hl-dist-a', [TEST_MODELS.SMALL, TEST_MODELS.DEFAULT], { runningTasks: 0 });
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
+      addHost('hl-dist-a', [TEST_MODELS.CODER_SMALL, TEST_MODELS.CODER_DEFAULT], { runningTasks: 0 });
+      db.setConfig('hashline_capable_models', 'test-coder');
 
-      const taskId = createTask('ollama', TEST_MODELS.SMALL, null);
+      const taskId = createTask('ollama', TEST_MODELS.CODER_SMALL, null);
       const task = db.getTask(taskId);
 
       fallbackRetry.tryHashlineTieredFallback(taskId, task, 'no edits parsed');
@@ -508,23 +508,23 @@ describe('Host Distribution & Load Balancing', () => {
       const updated = db.getTask(taskId);
       // Should stay local, just bigger model
       expect(updated.provider).toBe('ollama');
-      expect(updated.model).not.toBe(TEST_MODELS.SMALL);
+      expect(updated.model).not.toBe(TEST_MODELS.CODER_SMALL);
       expect(updated.status).toBe('queued');
       // Should not escalate away from the local hashline provider yet.
       expect(updated.provider).not.toBe('codex');
     });
 
     it('cloud fallback only after max_hashline_local_retries reached', () => {
-      db.setConfig('hashline_capable_models', 'qwen2.5-coder');
+      db.setConfig('hashline_capable_models', 'test-coder');
       db.setConfig('max_hashline_local_retries', '2');
 
       // Task with 2 prior local attempts (at max)
       const priorErrors = [
-        `[Hashline-Local] Trying ${TEST_MODELS.DEFAULT}`,
-        `[Hashline-Local] Trying ${TEST_MODELS.DEFAULT}`
+        `[Hashline-Local] Trying ${TEST_MODELS.CODER_DEFAULT}`,
+        `[Hashline-Local] Trying ${TEST_MODELS.CODER_DEFAULT}`
       ].join('\n');
 
-      const taskId = createTask('ollama', TEST_MODELS.DEFAULT, null);
+      const taskId = createTask('ollama', TEST_MODELS.CODER_DEFAULT, null);
       db.updateTaskStatus(taskId, 'running', { error_output: priorErrors });
       const task = db.getTask(taskId);
 
