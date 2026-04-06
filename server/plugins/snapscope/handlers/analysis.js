@@ -1338,7 +1338,8 @@ async function handlePeekPreAnalyze(args) {
       return makeError(ErrorCodes.INVALID_PARAM, `Cannot read capture bundle: ${err.message}`);
     }
 
-    const elements = bundle.elements || bundle.bundle?.elements || [];
+    const elementsRaw = bundle.evidence?.elements || bundle.elements || bundle.bundle?.elements || {};
+    const elements = Array.isArray(elementsRaw) ? elementsRaw : (elementsRaw.tree || []);
     if (!Array.isArray(elements) || elements.length === 0) {
       return {
         content: [{ type: 'text', text: JSON.stringify({
