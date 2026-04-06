@@ -58,7 +58,7 @@ describe('Host Distribution & Load Balancing', () => {
       status: 'running',
       task_description: `Test task for ${model}`,
       provider: provider || 'ollama',
-      model: model || 'qwen2.5-coder:7b',
+      model: model || TEST_MODELS.SMALL,
       working_directory: process.cwd()
     });
     if (hostId) {
@@ -72,57 +72,57 @@ describe('Host Distribution & Load Balancing', () => {
   describe('selectOllamaHostForModel', () => {
 
     it('returns least-loaded host when multiple have the same model', () => {
-      const _hostA = addHost('dist-a', ['qwen2.5-coder:7b'], { runningTasks: 3, maxConcurrent: 4 });
-      const hostB = addHost('dist-b', ['qwen2.5-coder:7b'], { runningTasks: 1, maxConcurrent: 4 });
+      const _hostA = addHost('dist-a', [TEST_MODELS.SMALL], { runningTasks: 3, maxConcurrent: 4 });
+      const hostB = addHost('dist-b', [TEST_MODELS.SMALL], { runningTasks: 1, maxConcurrent: 4 });
 
-      const result = db.selectOllamaHostForModel('qwen2.5-coder:7b');
+      const result = db.selectOllamaHostForModel(TEST_MODELS.SMALL);
 
       expect(result.host).toBeTruthy();
       expect(result.host.id).toBe(hostB); // B has fewer running tasks
     });
 
     it('skips hosts at capacity', () => {
-      const _full = addHost('full-host', ['qwen2.5-coder:14b'], { runningTasks: 4, maxConcurrent: 4 });
-      const avail = addHost('avail-host', ['qwen2.5-coder:14b'], { runningTasks: 0, maxConcurrent: 4 });
+      const _full = addHost('full-host', [TEST_MODELS.DEFAULT], { runningTasks: 4, maxConcurrent: 4 });
+      const avail = addHost('avail-host', [TEST_MODELS.DEFAULT], { runningTasks: 0, maxConcurrent: 4 });
 
-      const result = db.selectOllamaHostForModel('qwen2.5-coder:14b');
+      const result = db.selectOllamaHostForModel(TEST_MODELS.DEFAULT);
 
       expect(result.host).toBeTruthy();
       expect(result.host.id).toBe(avail);
     });
 
     it('returns atCapacity when ALL hosts with model are full', () => {
-      const _h1 = addHost('cap-a', ['mistral:7b'], { runningTasks: 2, maxConcurrent: 2 });
-      const _h2 = addHost('cap-b', ['mistral:7b'], { runningTasks: 3, maxConcurrent: 3 });
+      const _h1 = addHost('cap-a', [TEST_MODELS.SMALL], { runningTasks: 2, maxConcurrent: 2 });
+      const _h2 = addHost('cap-b', [TEST_MODELS.SMALL], { runningTasks: 3, maxConcurrent: 3 });
 
-      const result = db.selectOllamaHostForModel('mistral:7b');
+      const result = db.selectOllamaHostForModel(TEST_MODELS.SMALL);
 
       expect(result.host).toBeNull();
       expect(result.atCapacity).toBe(true);
     });
 
     it('skips down hosts', () => {
-      const _down = addHost('down-host', ['phi3:3b'], { status: 'down' });
-      const up = addHost('up-host', ['phi3:3b'], { status: 'healthy' });
+      const _down = addHost('down-host', [TEST_MODELS.FAST], { status: 'down' });
+      const up = addHost('up-host', [TEST_MODELS.FAST], { status: 'healthy' });
 
-      const result = db.selectOllamaHostForModel('phi3:3b');
+      const result = db.selectOllamaHostForModel(TEST_MODELS.FAST);
 
       expect(result.host).toBeTruthy();
       expect(result.host.id).toBe(up);
     });
 
     it('skips disabled hosts', () => {
-      const _disabled = addHost('disabled-host', ['llama3:8b'], { enabled: false });
-      const enabled = addHost('enabled-host', ['llama3:8b']);
+      const _disabled = addHost('disabled-host', [TEST_MODELS.DEFAULT], { enabled: false });
+      const enabled = addHost('enabled-host', [TEST_MODELS.DEFAULT]);
 
-      const result = db.selectOllamaHostForModel('llama3:8b');
+      const result = db.selectOllamaHostForModel(TEST_MODELS.DEFAULT);
 
       expect(result.host).toBeTruthy();
       expect(result.host.id).toBe(enabled);
     });
 
     it('returns null when no host has the requested model', () => {
-      addHost('no-model-host', ['qwen2.5-coder:7b']);
+      addHost('no-model-host', [TEST_MODELS.SMALL]);
 
       const result = db.selectOllamaHostForModel('nonexistent-model:70b');
 
@@ -131,7 +131,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('returns any host when no model specified', () => {
-      addHost('any-model-host', ['qwen2.5-coder:7b', 'mistral:7b']);
+      addHost('any-model-host', [TEST_MODELS.SMALL, TEST_MODELS.SMALL]);
 
       const result = db.selectOllamaHostForModel(null);
 
@@ -141,15 +141,15 @@ describe('Host Distribution & Load Balancing', () => {
     // ─── Exact tag matching ───────────────────────────────────────────────
 
     it('exact tag: :7b does NOT match :32b on another host', () => {
-      addHost('tag-7b-host', ['qwen2.5-coder:7b'], { runningTasks: 0 });
+      addHost('tag-7b-host', [TEST_MODELS.SMALL], { runningTasks: 0 });
       addHost('tag-32b-host', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
 
-      const result = db.selectOllamaHostForModel('qwen2.5-coder:7b');
+      const result = db.selectOllamaHostForModel(TEST_MODELS.SMALL);
 
       expect(result.host).toBeTruthy();
       // Must be the 7b host, not 32b
       const hostModels = result.host.models.map(m => typeof m === 'string' ? m : m.name);
-      expect(hostModels).toContain('qwen2.5-coder:7b');
+      expect(hostModels).toContain(TEST_MODELS.SMALL);
     });
 
     it('base name without tag matches any variant', () => {
@@ -162,7 +162,7 @@ describe('Host Distribution & Load Balancing', () => {
 
     it(':latest tag requires exact :latest match (P98)', () => {
       addHost('latest-host', ['llama3:latest'], { runningTasks: 0 });
-      addHost('8b-host', ['llama3:8b'], { runningTasks: 0 });
+      addHost('8b-host', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
 
       const result = db.selectOllamaHostForModel('llama3:latest');
 
@@ -177,7 +177,7 @@ describe('Host Distribution & Load Balancing', () => {
   describe('tryReserveHostSlot', () => {
 
     it('acquires slot when under capacity', () => {
-      const hostId = addHost('reserve-under', ['qwen2.5-coder:7b'], {
+      const hostId = addHost('reserve-under', [TEST_MODELS.SMALL], {
         maxConcurrent: 4, runningTasks: 2
       });
 
@@ -189,7 +189,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('rejects slot when at capacity', () => {
-      const hostId = addHost('reserve-full', ['qwen2.5-coder:7b'], {
+      const hostId = addHost('reserve-full', [TEST_MODELS.SMALL], {
         maxConcurrent: 2, runningTasks: 2
       });
 
@@ -200,7 +200,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('always acquires when max_concurrent is 0 (unlimited)', () => {
-      const hostId = addHost('reserve-unlimited', ['qwen2.5-coder:7b'], {
+      const hostId = addHost('reserve-unlimited', [TEST_MODELS.SMALL], {
         maxConcurrent: 0, runningTasks: 10
       });
 
@@ -223,7 +223,7 @@ describe('Host Distribution & Load Balancing', () => {
   describe('releaseHostSlot', () => {
 
     it('decrements running_tasks', () => {
-      const hostId = addHost('release-test', ['qwen2.5-coder:7b'], {
+      const hostId = addHost('release-test', [TEST_MODELS.SMALL], {
         maxConcurrent: 4, runningTasks: 3
       });
 
@@ -234,7 +234,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('never goes below 0', () => {
-      const hostId = addHost('release-zero', ['qwen2.5-coder:7b'], {
+      const hostId = addHost('release-zero', [TEST_MODELS.SMALL], {
         maxConcurrent: 4, runningTasks: 0
       });
 
@@ -245,7 +245,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('reserve then release returns to original count', () => {
-      const hostId = addHost('reserve-release', ['qwen2.5-coder:7b'], {
+      const hostId = addHost('reserve-release', [TEST_MODELS.SMALL], {
         maxConcurrent: 4, runningTasks: 1
       });
 
@@ -264,7 +264,7 @@ describe('Host Distribution & Load Balancing', () => {
   describe('selectHostWithModelVariant', () => {
 
     it('selects from hosts with matching base model', () => {
-      addHost('variant-a', ['qwen2.5-coder:7b'], { runningTasks: 0, maxConcurrent: 4 });
+      addHost('variant-a', [TEST_MODELS.SMALL], { runningTasks: 0, maxConcurrent: 4 });
       addHost('variant-b', [TEST_MODELS.DEFAULT], { runningTasks: 0, maxConcurrent: 4 });
 
       const result = db.selectHostWithModelVariant('qwen2.5-coder');
@@ -276,7 +276,7 @@ describe('Host Distribution & Load Balancing', () => {
     it('prefers host with more available capacity', () => {
       // Host A: 1 slot free, Host B: 3 slots free
       // With weighted random, B should win most of the time
-      addHost('cap-low', ['deepseek-coder:6.7b'], { runningTasks: 3, maxConcurrent: 4 });
+      addHost('cap-low', [TEST_MODELS.SMALL], { runningTasks: 3, maxConcurrent: 4 });
       addHost('cap-high', ['deepseek-coder:33b'], { runningTasks: 0, maxConcurrent: 4 });
 
       // Run selection 20 times, verify distribution skews toward more-available host
@@ -309,7 +309,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('returns null when no host has matching base model', () => {
-      addHost('unrelated', ['phi3:3b']);
+      addHost('unrelated', [TEST_MODELS.FAST]);
 
       const result = db.selectHostWithModelVariant('nonexistent-model');
 
@@ -358,14 +358,14 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('overflows to second host when first hits capacity', () => {
-      const small = addHost('overflow-small', ['starcoder:7b'], { runningTasks: 0, maxConcurrent: 2 });
-      const large = addHost('overflow-large', ['starcoder:7b'], { runningTasks: 0, maxConcurrent: 6 });
+      const small = addHost('overflow-small', [TEST_MODELS.SMALL], { runningTasks: 0, maxConcurrent: 2 });
+      const large = addHost('overflow-large', [TEST_MODELS.SMALL], { runningTasks: 0, maxConcurrent: 6 });
 
       const assigned = { [small]: 0, [large]: 0 };
 
       // Submit 8 tasks — small host should cap at 2, large takes the rest
       for (let i = 0; i < 8; i++) {
-        const result = db.selectOllamaHostForModel('starcoder:7b');
+        const result = db.selectOllamaHostForModel(TEST_MODELS.SMALL);
         expect(result.host).toBeTruthy();
         assigned[result.host.id]++;
         db.tryReserveHostSlot(result.host.id);
@@ -381,10 +381,10 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('returns atCapacity when all hosts are completely full', () => {
-      addHost('total-full-a', ['granite:8b'], { runningTasks: 3, maxConcurrent: 3 });
-      addHost('total-full-b', ['granite:8b'], { runningTasks: 2, maxConcurrent: 2 });
+      addHost('total-full-a', [TEST_MODELS.DEFAULT], { runningTasks: 3, maxConcurrent: 3 });
+      addHost('total-full-b', [TEST_MODELS.DEFAULT], { runningTasks: 2, maxConcurrent: 2 });
 
-      const result = db.selectOllamaHostForModel('granite:8b');
+      const result = db.selectOllamaHostForModel(TEST_MODELS.DEFAULT);
 
       expect(result.host).toBeNull();
       expect(result.atCapacity).toBe(true);
@@ -404,10 +404,10 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('step 1: tries same model on different host before anything else', () => {
-      const hostA = addHost('fb-host-a', ['qwen2.5-coder:14b'], { runningTasks: 0 });
-      const _hostB = addHost('fb-host-b', ['qwen2.5-coder:14b'], { runningTasks: 0 });
+      const hostA = addHost('fb-host-a', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
+      const _hostB = addHost('fb-host-b', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
 
-      const taskId = createTask('ollama', 'qwen2.5-coder:14b', hostA);
+      const taskId = createTask('ollama', TEST_MODELS.DEFAULT, hostA);
       const task = db.getTask(taskId);
 
       const result = taskManager.tryLocalFirstFallback(taskId, task, 'connection timeout');
@@ -417,7 +417,7 @@ describe('Host Distribution & Load Balancing', () => {
       const updated = db.getTask(taskId);
       // Should stay on same provider + model, just different host
       expect(updated.provider).toBe('ollama');
-      expect(updated.model).toBe('qwen2.5-coder:14b');
+      expect(updated.model).toBe(TEST_MODELS.DEFAULT);
       // processQueue() may have started the task already (which fails in test env since the provider
       // binary doesn't exist), so accept queued, running, or failed
       expect(['queued', 'running', 'failed']).toContain(updated.status);
@@ -426,9 +426,9 @@ describe('Host Distribution & Load Balancing', () => {
 
     it('step 2: tries different coder model when same model unavailable elsewhere', () => {
       // Only one host with the failing model, but another model exists
-      addHost('single-model-host', ['qwen2.5-coder:7b', 'deepseek-coder:6.7b'], { runningTasks: 0 });
+      addHost('single-model-host', [TEST_MODELS.SMALL, TEST_MODELS.SMALL], { runningTasks: 0 });
 
-      const taskId = createTask('ollama', 'qwen2.5-coder:7b', null);
+      const taskId = createTask('ollama', TEST_MODELS.SMALL, null);
       const task = db.getTask(taskId);
 
       // skipSameModel to simulate step 1 already tried (no other host for this model)
@@ -438,7 +438,7 @@ describe('Host Distribution & Load Balancing', () => {
 
       const updated = db.getTask(taskId);
       expect(updated.provider).toBe('ollama');
-      expect(updated.model).not.toBe('qwen2.5-coder:7b'); // Moved to different model
+      expect(updated.model).not.toBe(TEST_MODELS.SMALL); // Moved to different model
       expect(updated.model).toMatch(/coder|code|deepseek|qwen/i);
       expect(updated.error_output).toContain('[Local-First]');
     });
@@ -447,11 +447,11 @@ describe('Host Distribution & Load Balancing', () => {
       db.setConfig('max_local_retries', '3');
       db.setConfig('codex_enabled', '1');
 
-      const taskId = createTask('ollama', 'qwen2.5-coder:7b', null);
+      const taskId = createTask('ollama', TEST_MODELS.SMALL, null);
       // Simulate 3 prior local retries via the metadata counter (authoritative source)
       const priorErrors = [
-        '[Local-First] Trying qwen2.5-coder:7b on host X',
-        '[Local-First] Trying deepseek-coder:6.7b',
+        `[Local-First] Trying ${TEST_MODELS.SMALL} on host X`,
+        `[Local-First] Trying ${TEST_MODELS.SMALL}`,
         '[Local-First] Trying provider ollama'
       ].join('\n');
       db.updateTaskStatus(taskId, 'running', {
@@ -470,9 +470,9 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('preserves original_provider metadata on first fallback', () => {
-      addHost('meta-host', ['qwen2.5-coder:14b'], { runningTasks: 0 });
+      addHost('meta-host', [TEST_MODELS.DEFAULT], { runningTasks: 0 });
 
-      const taskId = createTask('ollama', 'qwen2.5-coder:14b', null);
+      const taskId = createTask('ollama', TEST_MODELS.DEFAULT, null);
       const task = db.getTask(taskId);
 
       taskManager.tryLocalFirstFallback(taskId, task, 'error');
@@ -497,10 +497,10 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('tries larger local model before any cloud provider', () => {
-      addHost('hl-dist-a', ['qwen2.5-coder:7b', TEST_MODELS.DEFAULT], { runningTasks: 0 });
+      addHost('hl-dist-a', [TEST_MODELS.SMALL, TEST_MODELS.DEFAULT], { runningTasks: 0 });
       db.setConfig('hashline_capable_models', 'qwen2.5-coder');
 
-      const taskId = createTask('ollama', 'qwen2.5-coder:7b', null);
+      const taskId = createTask('ollama', TEST_MODELS.SMALL, null);
       const task = db.getTask(taskId);
 
       fallbackRetry.tryHashlineTieredFallback(taskId, task, 'no edits parsed');
@@ -508,7 +508,7 @@ describe('Host Distribution & Load Balancing', () => {
       const updated = db.getTask(taskId);
       // Should stay local, just bigger model
       expect(updated.provider).toBe('ollama');
-      expect(updated.model).not.toBe('qwen2.5-coder:7b');
+      expect(updated.model).not.toBe(TEST_MODELS.SMALL);
       expect(updated.status).toBe('queued');
       // Should not escalate away from the local hashline provider yet.
       expect(updated.provider).not.toBe('codex');
@@ -520,7 +520,7 @@ describe('Host Distribution & Load Balancing', () => {
 
       // Task with 2 prior local attempts (at max)
       const priorErrors = [
-        '[Hashline-Local] Trying qwen2.5-coder:14b',
+        `[Hashline-Local] Trying ${TEST_MODELS.DEFAULT}`,
         `[Hashline-Local] Trying ${TEST_MODELS.DEFAULT}`
       ].join('\n');
 
@@ -541,20 +541,20 @@ describe('Host Distribution & Load Balancing', () => {
   describe('warm model affinity', () => {
 
     it('recordHostModelUsage stores last_model_used', () => {
-      const hostId = addHost('warm-test', ['qwen2.5-coder:7b']);
+      const hostId = addHost('warm-test', [TEST_MODELS.SMALL]);
 
-      db.recordHostModelUsage(hostId, 'qwen2.5-coder:7b');
+      db.recordHostModelUsage(hostId, TEST_MODELS.SMALL);
 
       const host = db.getOllamaHost(hostId);
-      expect(host.last_model_used).toBe('qwen2.5-coder:7b');
+      expect(host.last_model_used).toBe(TEST_MODELS.SMALL);
       expect(host.model_loaded_at).toBeTruthy();
     });
 
     it('isHostModelWarm returns true for recently-used model', () => {
-      const hostId = addHost('warm-recent', ['qwen2.5-coder:7b']);
-      db.recordHostModelUsage(hostId, 'qwen2.5-coder:7b');
+      const hostId = addHost('warm-recent', [TEST_MODELS.SMALL]);
+      db.recordHostModelUsage(hostId, TEST_MODELS.SMALL);
 
-      const result = db.isHostModelWarm(hostId, 'qwen2.5-coder:7b');
+      const result = db.isHostModelWarm(hostId, TEST_MODELS.SMALL);
 
       expect(result.isWarm).toBe(true);
       expect(result.lastUsedSeconds).toBeDefined();
@@ -562,16 +562,16 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('isHostModelWarm returns false for different model', () => {
-      const hostId = addHost('warm-diff', ['qwen2.5-coder:7b', 'mistral:7b']);
-      db.recordHostModelUsage(hostId, 'qwen2.5-coder:7b');
+      const hostId = addHost('warm-diff', [TEST_MODELS.SMALL, TEST_MODELS.SMALL]);
+      db.recordHostModelUsage(hostId, TEST_MODELS.SMALL);
 
-      const result = db.isHostModelWarm(hostId, 'mistral:7b');
+      const result = db.isHostModelWarm(hostId, TEST_MODELS.SMALL);
 
       expect(result.isWarm).toBe(false);
     });
 
     it('isHostModelWarm returns false for unknown host', () => {
-      const result = db.isHostModelWarm('nonexistent-host', 'qwen2.5-coder:7b');
+      const result = db.isHostModelWarm('nonexistent-host', TEST_MODELS.SMALL);
 
       expect(result.isWarm).toBe(false);
       expect(result.lastUsedSeconds).toBeNull();
@@ -583,14 +583,14 @@ describe('Host Distribution & Load Balancing', () => {
   describe('getAggregatedModels', () => {
 
     it('aggregates models across all healthy hosts', () => {
-      addHost('agg-a', ['qwen2.5-coder:7b', 'mistral:7b'], { status: 'healthy' });
-      addHost('agg-b', [TEST_MODELS.DEFAULT, 'deepseek-coder:6.7b'], { status: 'healthy' });
+      addHost('agg-a', [TEST_MODELS.SMALL, TEST_MODELS.SMALL], { status: 'healthy' });
+      addHost('agg-b', [TEST_MODELS.DEFAULT, TEST_MODELS.SMALL], { status: 'healthy' });
 
       const models = db.getAggregatedModels();
 
       expect(models.length).toBeGreaterThanOrEqual(4);
       const names = models.map(m => m.name);
-      expect(names).toContain('qwen2.5-coder:7b');
+      expect(names).toContain(TEST_MODELS.SMALL);
       expect(names).toContain(TEST_MODELS.DEFAULT);
     });
 
@@ -671,8 +671,8 @@ describe('Host Distribution & Load Balancing', () => {
 
     it('parses size from standard model names', () => {
       expect(taskManager.parseModelSizeB('qwen3-coder:30b')).toBe(30);
-      expect(taskManager.parseModelSizeB('codellama:34b')).toBe(34);
-      expect(taskManager.parseModelSizeB('mistral:7b')).toBe(7);
+      expect(taskManager.parseModelSizeB(TEST_MODELS.QUALITY)).toBe(34);
+      expect(taskManager.parseModelSizeB(TEST_MODELS.SMALL)).toBe(7);
       expect(taskManager.parseModelSizeB('deepseek-coder-v2:16b')).toBe(16);
     });
 
@@ -684,7 +684,7 @@ describe('Host Distribution & Load Balancing', () => {
     });
 
     it('handles edge cases', () => {
-      expect(taskManager.parseModelSizeB('phi3:3b')).toBe(3);
+      expect(taskManager.parseModelSizeB(TEST_MODELS.FAST)).toBe(3);
       expect(taskManager.parseModelSizeB('qwen3:0.5b')).toBe(0.5); // decimal support
       expect(taskManager.parseModelSizeB('QWEN:32B')).toBe(32); // case-insensitive
     });
@@ -724,14 +724,14 @@ describe('Host Distribution & Load Balancing', () => {
         status: 'running',
         task_description: 'Test VRAM tracking',
         provider: 'ollama',
-        model: 'codellama:34b',
+        model: TEST_MODELS.QUALITY,
         working_directory: process.cwd()
       });
       db.updateTaskStatus(taskId, 'running', { ollama_host_id: hostId });
 
       const hostTasks = db.getRunningTasksForHost(hostId);
       expect(hostTasks.length).toBe(1);
-      expect(hostTasks[0].model).toBe('codellama:34b');
+      expect(hostTasks[0].model).toBe(TEST_MODELS.QUALITY);
 
       // Cleanup
       db.updateTaskStatus(taskId, 'cancelled');
@@ -754,18 +754,18 @@ describe('Host Distribution & Load Balancing', () => {
         status: 'running',
         task_description: 'Already running large model',
         provider: 'ollama',
-        model: 'codellama:34b',
+        model: TEST_MODELS.QUALITY,
         working_directory: process.cwd()
       });
       db.updateTaskStatus(runningTaskId, 'running', { ollama_host_id: hostId });
 
       // Second large model should be blocked
-      const result = taskManager.isLargeModelBlockedOnHost('codellama:34b', hostId);
+      const result = taskManager.isLargeModelBlockedOnHost(TEST_MODELS.QUALITY, hostId);
       expect(result.blocked).toBe(true);
       expect(result.reason).toContain('VRAM guard');
 
       // Small model should NOT be blocked
-      const smallResult = taskManager.isLargeModelBlockedOnHost('qwen2.5-coder:7b', hostId);
+      const smallResult = taskManager.isLargeModelBlockedOnHost(TEST_MODELS.SMALL, hostId);
       expect(smallResult.blocked).toBe(false);
 
       // Cleanup

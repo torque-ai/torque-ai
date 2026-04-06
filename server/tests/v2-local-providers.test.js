@@ -3,6 +3,7 @@
 const { EventEmitter } = require('events');
 const http = require('http');
 const https = require('https');
+const { TEST_MODELS } = require('./test-helpers');
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -107,7 +108,7 @@ function makeHost(overrides = {}) {
     id: 'host-1',
     name: 'Host 1',
     url: 'http://ollama.local:11434',
-    models: ['qwen2.5-coder:7b'],
+    models: [TEST_MODELS.SMALL],
     ...overrides,
   };
 }
@@ -192,7 +193,7 @@ describe('v2-local-providers helpers', () => {
   it('sanitizes model strings by trimming whitespace', () => {
     const { providers } = loadProviders();
 
-    expect(providers.sanitizeModel('  qwen2.5-coder:7b  ')).toBe('qwen2.5-coder:7b');
+    expect(providers.sanitizeModel(`  ${TEST_MODELS.SMALL}  `)).toBe(TEST_MODELS.SMALL);
   });
 
   it('returns an empty string when sanitizeModel receives non-strings', () => {
@@ -206,7 +207,7 @@ describe('v2-local-providers helpers', () => {
   it('parses model sizes from b-suffixed names', () => {
     const { providers } = loadProviders();
 
-    expect(providers.parseModelSize('qwen3-coder:30b')).toBe(30);
+    expect(providers.parseModelSize(TEST_MODELS.DEFAULT)).toBe(14);
     expect(providers.parseModelSize('CODESTRAL:22B')).toBe(22);
   });
 
@@ -220,7 +221,7 @@ describe('v2-local-providers helpers', () => {
   it('detects exact numeric version tags', () => {
     const { providers } = loadProviders();
 
-    expect(providers.hasExactVersionTag('qwen2.5-coder:14b')).toBe(true);
+    expect(providers.hasExactVersionTag(TEST_MODELS.DEFAULT)).toBe(true);
     expect(providers.hasExactVersionTag('qwen2.5-coder:latest')).toBe(false);
   });
 
@@ -250,14 +251,14 @@ describe('v2-local-providers helpers', () => {
     const { providers } = loadProviders({
       db: {
         listOllamaHosts: vi.fn(() => [
-          makeHost({ models: ['llama3:latest', { name: 'qwen2.5-coder:7b' }, null] }),
-          makeHost({ id: 'host-2', models: ['llama3:latest', { name: 'qwen3-coder:30b' }] }),
+          makeHost({ models: ['llama3:latest', { name: TEST_MODELS.SMALL }, null] }),
+          makeHost({ id: 'host-2', models: ['llama3:latest', { name: TEST_MODELS.DEFAULT }] }),
           { id: 'host-3', models: null },
         ]),
       },
     });
 
-    expect(providers.parseProviderModels()).toEqual(['llama3:latest', 'qwen2.5-coder:7b', 'qwen3-coder:30b']);
+    expect(providers.parseProviderModels()).toEqual(['llama3:latest', TEST_MODELS.DEFAULT, TEST_MODELS.SMALL]);
   });
 
   it('returns no models when host lookup throws', () => {
@@ -275,17 +276,17 @@ describe('v2-local-providers helpers', () => {
   it('treats all models as hashline-capable when config is blank', () => {
     const { providers } = loadProviders();
 
-    expect(providers.isHashlineCapableModelName('qwen2.5-coder:7b')).toBe(true);
+    expect(providers.isHashlineCapableModelName(TEST_MODELS.SMALL)).toBe(true);
   });
 
   it('matches hashline-capable models by exact name, variant, or base model', () => {
     const { providers } = loadProviders({
       db: {
-        getConfig: vi.fn((key) => (key === 'hashline_capable_models' ? 'qwen2.5-coder,llama3:8b' : null)),
+        getConfig: vi.fn((key) => (key === 'hashline_capable_models' ? `${TEST_MODELS.SMALL.split(':')[0]},llama3:8b` : null)),
       },
     });
 
-    expect(providers.isHashlineCapableModelName('qwen2.5-coder:7b')).toBe(true);
+    expect(providers.isHashlineCapableModelName(TEST_MODELS.SMALL)).toBe(true);
     expect(providers.isHashlineCapableModelName('llama3:8b')).toBe(true);
     expect(providers.isHashlineCapableModelName('mistral:7b')).toBe(false);
   });
@@ -315,13 +316,13 @@ describe('v2-local-providers selection and payload behavior', () => {
 
   it('builds generate payloads with tuning, max tokens, and keep-alive', () => {
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
-    expect(provider._buildGeneratePayload('qwen2.5-coder:7b', 'Prompt', {
+    expect(provider._buildGeneratePayload(TEST_MODELS.SMALL, 'Prompt', {
       tuning: { temperature: '0.4', top_p: '0.9' },
       maxTokens: '12.9',
     }, true)).toEqual({
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'Prompt',
       system: expect.any(String),
       stream: true,
@@ -337,22 +338,22 @@ describe('v2-local-providers selection and payload behavior', () => {
 
   it('normalizes Ollama usage metrics and falls back to elapsed time', () => {
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     expect(provider._normalizeUsage({
       prompt_eval_count: 11,
       eval_count: 7,
       total_duration: 9_000_000,
-    }, 'qwen2.5-coder:7b', 55)).toEqual({
+    }, TEST_MODELS.SMALL, 55)).toEqual({
       input_tokens: 11,
       output_tokens: 7,
       total_tokens: 18,
       cost: 0,
       duration_ms: 9,
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
     });
 
-    expect(provider._normalizeUsage({}, 'qwen2.5-coder:7b', 55).duration_ms).toBe(55);
+    expect(provider._normalizeUsage({}, TEST_MODELS.SMALL, 55).duration_ms).toBe(55);
   });
 
   it('falls back to configured host when no Ollama hosts are registered', async () => {
@@ -361,11 +362,11 @@ describe('v2-local-providers selection and payload behavior', () => {
         listOllamaHosts: vi.fn(() => []),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
-    await expect(provider._selectExecutionTarget('  qwen2.5-coder:7b  ')).resolves.toEqual({
+    await expect(provider._selectExecutionTarget(`  ${TEST_MODELS.SMALL}  `)).resolves.toEqual({
       hostUrl: 'http://fallback-host:11434',
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       slotRelease: null,
     });
   });
@@ -375,15 +376,15 @@ describe('v2-local-providers selection and payload behavior', () => {
     const { providers, dbMock } = loadProviders({
       db: {
         listOllamaHosts: vi.fn(() => [host]),
-        selectHostWithModelVariant: vi.fn(() => ({ host, model: 'qwen2.5-coder:14b' })),
+        selectHostWithModelVariant: vi.fn(() => ({ host, model: TEST_MODELS.DEFAULT })),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     const target = await provider._selectExecutionTarget('qwen2.5-coder');
 
     expect(target.hostUrl).toBe('http://variant-host:11434');
-    expect(target.model).toBe('qwen2.5-coder:14b');
+    expect(target.model).toBe(TEST_MODELS.DEFAULT);
     expect(dbMock.selectHostWithModelVariant).toHaveBeenCalledWith('qwen2.5-coder');
   });
 
@@ -392,11 +393,11 @@ describe('v2-local-providers selection and payload behavior', () => {
     const { providers } = loadProviders({
       db: {
         listOllamaHosts: vi.fn(() => [host]),
-        getAggregatedModels: vi.fn(() => [{ name: 'tiny:3b' }, { name: 'coder:14b' }, { name: 'coder:7b' }]),
+        getAggregatedModels: vi.fn(() => [{ name: TEST_MODELS.FAST }, { name: 'coder:14b' }, { name: 'coder:7b' }]),
         selectOllamaHostForModel: vi.fn((model) => (model === 'coder:14b' ? { host } : null)),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'tiny:3b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.FAST });
 
     const target = await provider._selectExecutionTarget('missing:7b');
 
@@ -411,9 +412,9 @@ describe('v2-local-providers selection and payload behavior', () => {
         selectOllamaHostForModel: vi.fn(() => ({ memoryError: true, reason: 'needs 24 GB' })),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:14b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.DEFAULT });
 
-    await expect(provider._selectExecutionTarget('qwen2.5-coder:14b')).rejects.toThrow('needs 24 GB');
+    await expect(provider._selectExecutionTarget(TEST_MODELS.DEFAULT)).rejects.toThrow('needs 24 GB');
   });
 
   it('throws capacity errors returned by host selection', async () => {
@@ -423,25 +424,25 @@ describe('v2-local-providers selection and payload behavior', () => {
         selectOllamaHostForModel: vi.fn(() => ({ atCapacity: true, reason: 'queue full' })),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:14b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.DEFAULT });
 
-    await expect(provider._selectExecutionTarget('qwen2.5-coder:14b')).rejects.toThrow('queue full');
+    await expect(provider._selectExecutionTarget(TEST_MODELS.DEFAULT)).rejects.toThrow('queue full');
   });
 
   it('includes available models in no-host-match failures', async () => {
     const { providers } = loadProviders({
       db: {
         listOllamaHosts: vi.fn(() => [
-          makeHost({ models: ['qwen2.5-coder:7b', 'qwen3-coder:30b'] }),
+          makeHost({ models: [TEST_MODELS.SMALL, TEST_MODELS.DEFAULT] }),
         ]),
         selectOllamaHostForModel: vi.fn(() => null),
         selectHostWithModelVariant: vi.fn(() => null),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._selectExecutionTarget('missing:7b')).rejects.toThrow(
-      "No Ollama host has model 'missing:7b'. Available models: qwen2.5-coder:7b, qwen3-coder:30b",
+      `No Ollama host has model 'missing:7b'. Available models: ${TEST_MODELS.DEFAULT}, ${TEST_MODELS.SMALL}`,
     );
   });
 
@@ -451,7 +452,7 @@ describe('v2-local-providers selection and payload behavior', () => {
         releaseHostSlot: undefined,
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     const release = provider._acquireHostSlot({ id: 'host-9', name: 'Host 9' });
     release();
@@ -465,7 +466,7 @@ describe('v2-local-providers selection and payload behavior', () => {
         tryReserveHostSlot: vi.fn(() => ({ acquired: false, error: 'GPU is busy' })),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     expect(() => provider._acquireHostSlot({ id: 'host-2', name: 'Host 2' })).toThrow('GPU is busy');
   });
@@ -476,7 +477,7 @@ describe('v2-local-providers selection and payload behavior', () => {
         tryReserveHostSlot: vi.fn(() => ({ acquired: false, currentLoad: 4, maxCapacity: 4 })),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     expect(() => provider._acquireHostSlot({ id: 'host-2', name: 'Host 2' })).toThrow(
       "Unable to reserve Ollama slot for host 'Host 2' (4/4)",
@@ -509,9 +510,9 @@ describe('v2-local-providers request handling', () => {
         selectOllamaHostForModel: vi.fn(() => ({ host })),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
-    const result = await provider.submit('  Build this  ', 'qwen2.5-coder:7b', {
+    const result = await provider.submit('  Build this  ', TEST_MODELS.SMALL, {
       tuning: { temperature: '0.25', top_p: '0.8' },
       maxTokens: '16',
     });
@@ -525,7 +526,7 @@ describe('v2-local-providers request handling', () => {
         total_tokens: 12,
         cost: 0,
         duration_ms: 2,
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
       },
     });
     expect(requestMock.getOptions()).toMatchObject({
@@ -536,7 +537,7 @@ describe('v2-local-providers request handling', () => {
       timeout: 30 * 60 * 1000,
     });
     expect(JSON.parse(requestMock.getBody())).toMatchObject({
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'Build this',
       stream: false,
       keep_alive: '7m',
@@ -558,10 +559,10 @@ describe('v2-local-providers request handling', () => {
     });
     const httpSpy = vi.spyOn(http, 'request');
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._invokeGenerate('https://secure-host:443', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: false,
     }, false)).resolves.toEqual({
@@ -583,10 +584,10 @@ describe('v2-local-providers request handling', () => {
       },
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._invokeGenerate('http://ollama.local:11434', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: false,
     }, false)).rejects.toThrow(/Ollama API error \(500\): .*\.{3}$/);
@@ -600,10 +601,10 @@ describe('v2-local-providers request handling', () => {
       },
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._invokeGenerate('http://ollama.local:11434', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: false,
     }, false)).rejects.toThrow('model missing');
@@ -616,10 +617,10 @@ describe('v2-local-providers request handling', () => {
       },
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._invokeGenerate('http://ollama.local:11434', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: false,
     }, false)).resolves.toEqual({
@@ -641,10 +642,10 @@ describe('v2-local-providers request handling', () => {
         PROVIDER_DEFAULT_TIMEOUTS: { ollama: 0.025 },
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._invokeGenerate('http://ollama.local:11434', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: false,
     }, false)).rejects.toThrow('Ollama request timed out after 1500ms');
@@ -657,10 +658,10 @@ describe('v2-local-providers request handling', () => {
       },
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await provider._invokeGenerate('http://ollama.local:11434', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: false,
     }, false, { timeout: 0.02 });
@@ -675,10 +676,10 @@ describe('v2-local-providers request handling', () => {
       },
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await provider._invokeGenerate('http://ollama.local', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: false,
     }, false);
@@ -699,9 +700,9 @@ describe('v2-local-providers request handling', () => {
         selectOllamaHostForModel: vi.fn(() => ({ host })),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
-    await expect(provider.submit('failing prompt', 'qwen2.5-coder:7b')).rejects.toThrow('request failed');
+    await expect(provider.submit('failing prompt', TEST_MODELS.SMALL)).rejects.toThrow('request failed');
     expect(dbMock.releaseHostSlot).toHaveBeenCalledWith('host-1');
   });
 
@@ -719,11 +720,11 @@ describe('v2-local-providers request handling', () => {
       return req;
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
     const controller = new AbortController();
 
     const pending = provider._invokeGenerate('http://ollama.local:11434', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: false,
     }, false, { signal: controller.signal });
@@ -760,9 +761,9 @@ describe('v2-local-providers request handling', () => {
         selectOllamaHostForModel: vi.fn(() => ({ host })),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
-    const result = await provider.submitStream('stream test', 'qwen2.5-coder:7b', { onChunk });
+    const result = await provider.submitStream('stream test', TEST_MODELS.SMALL, { onChunk });
 
     expect(result).toEqual({
       output: 'Hello world',
@@ -773,7 +774,7 @@ describe('v2-local-providers request handling', () => {
         total_tokens: 5,
         cost: 0,
         duration_ms: 9,
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
       },
     });
     expect(onChunk).toHaveBeenCalledTimes(2);
@@ -794,10 +795,10 @@ describe('v2-local-providers request handling', () => {
       },
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._invokeGenerate('http://ollama.local:11434', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: true,
     }, true)).resolves.toEqual({
@@ -819,10 +820,10 @@ describe('v2-local-providers request handling', () => {
       },
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._invokeGenerate('http://ollama.local:11434', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: true,
     }, true)).resolves.toEqual({
@@ -850,10 +851,10 @@ describe('v2-local-providers request handling', () => {
         MAX_STREAMING_OUTPUT: 40,
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     const result = await provider._invokeGenerate('http://ollama.local:11434', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: true,
     }, true);
@@ -879,10 +880,10 @@ describe('v2-local-providers request handling', () => {
       },
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._invokeGenerate('http://ollama.local:11434', {
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       prompt: 'test',
       stream: true,
     }, true, { onChunk })).resolves.toEqual({
@@ -909,9 +910,9 @@ describe('v2-local-providers health checks', () => {
 
         respondWithJson(callback, 200, [JSON.stringify({
           models: [
-            { name: 'qwen2.5-coder:7b' },
-            { name: 'qwen2.5-coder:7b' },
-            'qwen3-coder:30b',
+            { name: TEST_MODELS.SMALL },
+            { name: TEST_MODELS.SMALL },
+            TEST_MODELS.DEFAULT,
           ],
         })]);
       },
@@ -924,11 +925,11 @@ describe('v2-local-providers health checks', () => {
         ]),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider.checkHealth()).resolves.toEqual({
       available: true,
-      models: ['qwen2.5-coder:7b', 'qwen3-coder:30b'],
+      models: [TEST_MODELS.DEFAULT, TEST_MODELS.SMALL],
       host: 'Good Host',
     });
   });
@@ -936,7 +937,7 @@ describe('v2-local-providers health checks', () => {
   it('falls back to the configured host when no DB hosts exist', async () => {
     const getMock = installGetMock({
       onRequest: ({ callback }) => {
-        respondWithJson(callback, 200, [JSON.stringify({ models: [{ name: 'qwen2.5-coder:7b' }] })]);
+        respondWithJson(callback, 200, [JSON.stringify({ models: [{ name: TEST_MODELS.SMALL }] })]);
       },
     });
     const { providers } = loadProviders({
@@ -944,11 +945,11 @@ describe('v2-local-providers health checks', () => {
         listOllamaHosts: vi.fn(() => []),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider.checkHealth()).resolves.toEqual({
       available: true,
-      models: ['qwen2.5-coder:7b'],
+      models: [TEST_MODELS.SMALL],
       host: 'http://fallback-host:11434',
     });
     expect(getMock.getOptions()).toMatchObject({
@@ -970,7 +971,7 @@ describe('v2-local-providers health checks', () => {
         listOllamaHosts: vi.fn(() => [makeHost({ url: 'http://broken-host:11434' })]),
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider.checkHealth()).resolves.toEqual({
       available: false,
@@ -986,7 +987,7 @@ describe('v2-local-providers health checks', () => {
       },
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._fetchOllamaTags('http://fallback-host:11434')).resolves.toEqual({
       ok: true,
@@ -1007,7 +1008,7 @@ describe('v2-local-providers health checks', () => {
         TASK_TIMEOUTS: { OLLAMA_API: 2222 },
       },
     });
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await expect(provider._fetchOllamaTags('http://slow-host:11434')).rejects.toThrow(
       'Ollama health check timeout after 2222ms',
@@ -1021,7 +1022,7 @@ describe('v2-local-providers health checks', () => {
       },
     });
     const { providers } = loadProviders();
-    const provider = new providers.OllamaProvider({ defaultModel: 'qwen2.5-coder:7b' });
+    const provider = new providers.OllamaProvider({ defaultModel: TEST_MODELS.SMALL });
 
     await provider._fetchOllamaTags('http://health-host');
 
