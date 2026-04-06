@@ -429,5 +429,176 @@ taskCore.getTask(id);
 
 Unknown untracked files in `server/docs/`, `server/docs/investigations/`, or other `docs/` directories may be generated reports, audit results, or work products from other sessions. Investigate provenance before deleting them; enforceable cleanup rules are managed by the governance engine and summarized in `Operational Governance`.
 
+## TORQUE Workflow Discipline
+
+In addition to the judgment policies above:
+
+- **Claude's role is architect + orchestrator** — plan, submit, verify, integrate, and resolve conflicts instead of manually producing TORQUE-owned batch work.
+- **On TORQUE failure: diagnose, fix the root cause, and resubmit** — do not bypass the workflow by writing the requested feature work by hand.
+- **Direct manual edits are reserved for TORQUE config fixes, integration glue outside the batch scope, or debugging TORQUE itself.**
+
+## Harness Problem — Edit Discipline
+
+The editing harness is often the bottleneck. Apply these rules consistently:
+
+- **Always Read before Edit** — never guess at indentation, whitespace, or surrounding context.
+- **Use unique anchors in `old_string`** — include 3-5 lines of surrounding context to avoid ambiguous matches.
+- **Prefer Write for files under ~400 lines** — full-file rewrites are often more reliable than many small string replacements.
+- **Prefer Edit for large files** — targeted replacements beat rewriting thousands of lines.
+- **On edit failure, widen context** — do not retry the same `old_string`; add more surrounding lines or switch tools.
+- **Separate harness failures from code failures** — "did the edit apply?" is a different question from "is the code correct?"
+- **Prefer structural or semantic tools over raw content matching** when TORQUE offers them. `add_ts_method_to_class`, `inject_class_dependency`, `add_ts_interface_members`, `add_ts_union_members`, `inject_method_calls`, `normalize_interface_formatting`, and `add_ts_enum_members` are safer than raw search/replace when they fit the task.
+- **Avoid retry loops** — if the same approach fails twice, change strategy.
+
+## Process Safety — Never Kill Without Permission
+
+- **Never kill processes (`node`, TORQUE, or otherwise) without explicit user approval.** This includes `kill`, `taskkill`, `Stop-Process`, SIGTERM, and SIGKILL.
+- **TORQUE is shared infrastructure** — do not stop, restart, or shut it down to solve a task-level problem.
+- **To stop a runaway task, use `cancel_task`.** To cancel a whole workflow, use `cancel_workflow`. To bulk-cancel, use `batch_cancel`.
+- **If TORQUE cancellation fails, ask the user.** Do not escalate to process termination on your own.
+- **Never kill `node.exe` blindly** — verify what each process is running before even asking.
+
+## Task Safety — Inspect Before Cancel
+
+- **Never cancel TORQUE tasks without reading their full description and checking their status first.**
+- **Before cancelling any task, inspect it with `task_info`, `check_status`, or `get_result`** so you understand its description, timing, working directory, and progress.
+- **"0% progress" does not mean stale** — Codex and other providers may be actively working while progress remains unchanged.
+- **"No output yet" does not mean stale** — some tasks buffer output until completion.
+- **Tasks from other sessions are not yours to cancel** unless the user explicitly asked for that action.
+- **When in doubt, ask the user.** Cancellation is irreversible.
+
+## Ollama Task Authoring
+
+When submitting work to Ollama, the task description is the instruction set. The wording determines whether the task converges or burns iterations.
+
+**For files under ~300 lines:** simple instructions usually work, for example: "In file X, change Y to Z."
+
+**For files over ~300 lines:**
+
+- Tell the model to use `search_files` first to find the relevant line numbers.
+- Tell it to use `read_file` with `start_line` and `end_line` to read only the relevant section.
+- Tell it to use `replace_lines` instead of `edit_file` for the actual change.
+- Include approximate line numbers when you know them. "Around line 450" is more reliable than a bare symbol search in very large files.
+- For multiple edits in a large file, list each edit with function or class names and line numbers.
+- Split multi-function refactors into separate tasks. Ollama is more reliable when each task owns one function or one file-sized unit of change.
+
+**General rules:**
+
+- Include exact file paths.
+- Be specific: "add X after Y" is better than "improve the code."
+- For files over ~500 lines, prefer one file per task.
+- End with "After making the edits, stop." to prevent unnecessary verification loops.
+
+## TORQUE Best Practices
+
+- **Run `scan_project` before planning a batch** — it exposes file sizes, missing tests, TODOs, and dependency context at zero LLM cost.
+- **Use Codex or Codex-Spark for most code generation and precision edits.** Use DeepInfra or Hyperbolic when you need large-model reasoning or high-concurrency open-weight execution.
+- **Use `create_feature_workflow` for standard feature pipelines** and `create_workflow` plus `add_workflow_task` when the dependency graph is non-standard.
+- **Use `run_batch` when you want one-shot orchestration** from feature-task generation through workflow creation and execution.
+- **Verify on the real filesystem after Codex completes.** Prefer `await_task` or `await_workflow` with `verify_command` over manual spot checks.
+- **Parallelize independent tasks** — tests, fixture generation, and unrelated edits should run as separate nodes whenever their write sets do not conflict.
+- **Use `step_providers` deliberately** — keep simple steps local and route complex reasoning or test-generation steps to cloud providers when they are enabled.
+
+## Additional TORQUE Automation Tools
+
+- **`configure_stall_detection`** — sets provider-specific stall thresholds and optional auto-resubmit behavior.
+- **`auto_verify_and_fix`** — runs the project's verification command, detects failures, and can auto-submit fix tasks instead of requiring a manual verify-fix loop.
+- **`generate_test_tasks`** — scans for untested files and generates targeted test-writing tasks that can be submitted directly or added to workflows.
+- **`get_batch_summary`** — produces a workflow completion summary including changed files, durations, and test counts.
+
+## TORQUE Advanced Orchestration Tools
+
+- **`generate_feature_tasks`** — generates the standard feature task set from a feature name and spec using existing project files as context.
+- **`run_batch`** — generates feature tasks and test tasks, creates the workflow, and starts execution in one call.
+- **`detect_file_conflicts`** — checks whether multiple completed tasks touched the same files before you verify or commit.
+- **`auto_commit_batch`** — performs verification, commit generation, and optional push using the project's configured defaults.
+
+## Additional TORQUE Universal TypeScript Tools
+
+- **`inject_class_dependency`** — injects imports, fields, initialization, and access patterns into an existing class with anchored placement.
+- **`add_ts_union_members`** — adds string members to a TypeScript union without introducing duplicates.
+- **`inject_method_calls`** — inserts code before a marker string in any file.
+- **`normalize_interface_formatting`** — re-indents a TypeScript interface body after repeated edits.
+- **`add_ts_enum_members`** — appends enum members without duplicate drift.
+
+## Cloud Inference Notes
+
+For open-weight cloud inference, the two specialist providers are:
+
+| Provider | Env Var | Default Model | Concurrency | Pricing (per 1M tokens) |
+|----------|---------|---------------|-------------|-------------------------|
+| **deepinfra** | `DEEPINFRA_API_KEY` | `Qwen/Qwen2.5-72B-Instruct` | 200 per model | $0.13-$1.00 input |
+| **hyperbolic** | `HYPERBOLIC_API_KEY` | `Qwen/Qwen2.5-72B-Instruct` | 120 req/min on Pro | $0.40-$4.00 input |
+
+Both providers use OpenAI-compatible APIs and start disabled until their API keys are configured. A common pattern is to keep simple steps on local providers and route system or test-heavy steps with `step_providers`, for example:
+
+    step_providers: { types: "ollama", events: "ollama", data: "ollama", system: "deepinfra", tests: "deepinfra", wire: "ollama" }
+
+## TORQUE Team Pipeline
+
+When work should go through the team pipeline, use `/torque-team <work brief>`. The pipeline handles planning, execution, monitoring, QC, remediation, and conditional UI review.
+
+### Pipeline Topology
+
+    Planner -> QC (await + review + test) -> Orchestrator (you)
+                     |
+                     v
+                Remediation -> QC (re-review)
+                     |
+                     v
+                UI Reviewer -> Orchestrator (conditional)
+
+### Orchestrator Responsibilities
+
+You are the Orchestrator. Your responsibilities:
+
+- **Triage** — read scout findings, separate actionable work from ambiguity, and take unclear items back to the user before spawning execution.
+- **Spawn** — use `/torque-team` for execution; use `/torque-scout` or separate scout work when discovery is still needed.
+- **Monitor** — watch QC heartbeats and completion reports instead of manually polling worker state.
+- **Commit** — after QC approval and passing integration verification, commit with conventional commit messages and `version_intent` where required.
+- **Document** — update `CLAUDE.md` or `README` when project conventions change. Do not hand-edit `CHANGELOG.md`; TORQUE release automation owns it.
+- **Shutdown carefully** — when winding down the team, nudge potentially idle agents with a plain-text message before sending structured shutdown requests so they reliably process the shutdown.
+
+### Streaming Protocol
+
+- Planner sends task IDs to QC as tasks are submitted.
+- QC awaits each task individually, reviews it immediately on completion, and routes verdicts without batching.
+
+### Metadata Contract
+
+- Tasks that modify frontend, dashboard, or XAML surfaces should carry `ui_review: true`.
+- Code-only tasks should carry `ui_review: false`.
+
+### QC Dual-Pass Testing
+
+1. **Per-task pass** — targeted verification as each task completes.
+2. **Integration pass** — full-suite or integration verification after all tasks pass individually.
+
+Integration failures go back to Remediation with the combined context.
+
+### Discovery Phase
+
+When the work is not yet well-defined:
+
+1. Use `/torque-scout <variant>` to run targeted scouts such as `security`, `quality`, `visual`, `performance`, `dependency`, `test-coverage`, `documentation`, or `accessibility`.
+2. Read the findings file in `docs/findings/`.
+3. Triage findings with the user and mark them actionable or deferred.
+4. Feed actionable items into `/torque-team`.
+
+Use `/torque-sweep` when you want the full scout set, automatic triage, and immediate team handoff for actionable findings.
+
+### When Not to Use the Team Pipeline
+
+- Use direct task submission for a single quick fix.
+- Edit TORQUE config directly when the task is about TORQUE itself.
+- Debug TORQUE directly when the system cannot safely fix itself from inside the pipeline.
+
+## Visual Verification — `peek_ui`
+
+- **Use `peek_ui` or `peek_diagnose` to visually verify UI work** after layout changes, styling changes, bug fixes, new flows, or TORQUE task output that touches UI.
+- **Do not trust code changes blindly** — look at the rendered result.
+- **Capture by `process` or `title`** so the verification target is explicit. Use `list_windows` when you need to discover what is running.
+- **Prefer window-targeted capture over blind desktop capture** so the result stays stable and actionable.
+
 ---
 *Full safeguard documentation: see `docs/safeguards.md`*
