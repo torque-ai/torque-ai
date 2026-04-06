@@ -56,9 +56,9 @@ describe('schema-migrations: ollama_model_settings merge semantics', () => {
     runMigrations(db, logger, safeAddColumn, { getConfig, setConfig });
 
     const result = JSON.parse(store['ollama_model_settings'] || 'null');
+    // Model-agnostic: migration writes an empty settings object (no hardcoded model defaults)
     expect(result).not.toBeNull();
-    expect(result['qwen2.5-coder:32b']).toBeDefined();
-    expect(result['codestral:22b']).toBeDefined();
+    expect(typeof result).toBe('object');
   });
 
   it('preserves custom settings when user has customized qwen2.5-coder:32b with num_ctx=16384', () => {
@@ -84,8 +84,8 @@ describe('schema-migrations: ollama_model_settings merge semantics', () => {
     expect(result['codestral:22b'].temperature).toBe(0.2);
   });
 
-  it('adds default model keys when they are absent from existing settings', () => {
-    // Only has a user-defined third model; no entry for qwen2.5-coder or codestral
+  it('preserves existing user models when merging with empty defaults', () => {
+    // Only has a user-defined model; model-agnostic migration merges empty defaults
     const customSettings = {
       'llama3:8b': { temperature: 0.5 },
     };
@@ -96,10 +96,7 @@ describe('schema-migrations: ollama_model_settings merge semantics', () => {
     runMigrations(db, logger, safeAddColumn, { getConfig, setConfig });
 
     const result = JSON.parse(store['ollama_model_settings']);
-    // Default entries should be present now
-    expect(result['qwen2.5-coder:32b']).toBeDefined();
-    expect(result['codestral:22b']).toBeDefined();
-    // Original user model must still be present
+    // Original user model must still be present after merge with empty defaults
     expect(result['llama3:8b']).toEqual({ temperature: 0.5 });
   });
 
@@ -110,10 +107,10 @@ describe('schema-migrations: ollama_model_settings merge semantics', () => {
 
     runMigrations(db, logger, safeAddColumn, { getConfig, setConfig });
 
-    // After corruption, the migration must still write valid defaults
+    // After corruption, the migration must still write valid defaults (empty object)
     const result = JSON.parse(store['ollama_model_settings']);
-    expect(result['qwen2.5-coder:32b']).toBeDefined();
-    expect(result['codestral:22b']).toBeDefined();
+    expect(result).not.toBeNull();
+    expect(typeof result).toBe('object');
   });
 
   it('does not mutate user settings that were set after an earlier migration', () => {

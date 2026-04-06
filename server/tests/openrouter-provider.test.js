@@ -119,6 +119,8 @@ describe('OpenRouterProvider', () => {
     });
 
     it('falls back to next model on 429', async () => {
+      // Inject test fallback models since FALLBACK_MODELS is empty (model-agnostic)
+      FALLBACK_MODELS.push('test-fallback-model:free');
       let callCount = 0;
       vi.stubGlobal('fetch', vi.fn().mockImplementation(() => {
         callCount++;
@@ -144,6 +146,7 @@ describe('OpenRouterProvider', () => {
       const result = await provider.submit('test');
       expect(result.output).toBe('fallback worked');
       expect(callCount).toBe(2);
+      FALLBACK_MODELS.length = 0;
     });
 
     it('throws when all fallback models are 429', async () => {
@@ -447,6 +450,8 @@ describe('OpenRouterProvider', () => {
     });
 
     it('submit reports fallback model in usage', async () => {
+      // Inject test fallback models since FALLBACK_MODELS is empty (model-agnostic)
+      FALLBACK_MODELS.push('test-fallback:free');
       let callCount = 0;
       vi.stubGlobal('fetch', vi.fn().mockImplementation(() => {
         callCount++;
@@ -470,9 +475,12 @@ describe('OpenRouterProvider', () => {
       // Should have fallen back to a different model
       expect(result.usage.model).not.toBe('qwen/qwen3-coder:free');
       expect(result.output).toBe('ok');
+      FALLBACK_MODELS.length = 0;
     });
 
     it('submitStream falls back on 429', async () => {
+      // Inject test fallback models since FALLBACK_MODELS is empty (model-agnostic)
+      FALLBACK_MODELS.push('test-stream-fallback:free');
       function makeSSEStream(chunks) {
         let index = 0;
         const encoder = new TextEncoder();
@@ -506,6 +514,7 @@ describe('OpenRouterProvider', () => {
       const result = await provider.submitStream('test', 'qwen/qwen3-coder:free');
       expect(result.output).toBe('fallback');
       expect(callCount).toBe(2);
+      FALLBACK_MODELS.length = 0;
     });
 
     it('cooldowns persist across requests', async () => {

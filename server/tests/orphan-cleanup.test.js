@@ -131,10 +131,11 @@ describe('Orphan Cleanup', () => {
       expect(threshold).toBeGreaterThanOrEqual(240);
     });
 
-    it('handles codestral without size suffix via name-based detection', () => {
-      // No :Xb suffix, falls through to name-based checks
+    it('handles codestral without size suffix via parseModelSizeB range check', () => {
+      // No :Xb suffix — parseModelSizeB returns 0, so no size-based scaling applies.
+      // Falls through to provider default (ollama = 240).
       const threshold = orphanCleanup.getStallThreshold('codestral', 'ollama');
-      expect(threshold).toBeGreaterThanOrEqual(300);
+      expect(threshold).toBe(240);
     });
 
     it('uses BASE_STALL_THRESHOLD when provider not in lookup', () => {

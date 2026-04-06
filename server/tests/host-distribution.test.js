@@ -24,11 +24,9 @@ describe('Host Distribution & Load Balancing', () => {
   afterAll(() => { teardownTestDb(); });
   beforeEach(() => {
     // Clear hosts and tasks between tests to prevent cross-test leakage
-    const raw = db.rawDb ? db.rawDb() : db._db || db;
-    if (typeof raw.prepare === 'function') {
-      raw.prepare("DELETE FROM ollama_hosts").run();
-      raw.prepare("DELETE FROM tasks").run();
-    }
+    const raw = db.getDbInstance();
+    raw.prepare("DELETE FROM ollama_hosts").run();
+    raw.prepare("DELETE FROM tasks").run();
     hostCounter = 0;
   });
 

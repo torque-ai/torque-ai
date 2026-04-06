@@ -22,7 +22,7 @@ const SEEDED_TABLES = [
   'provider_config',
   'provider_rate_limits',
   'routing_rules',
-  'model_capabilities',
+  // model_capabilities seeds removed (model-agnostic: capabilities discovered at runtime)
   'rate_limits',
   'cost_budgets',
   'approval_rules',
@@ -194,20 +194,14 @@ describe('db/schema-seeds', () => {
     expect(byProvider.groq.quality_band).toBe('D');
   });
 
-  it('seeds model capability scores within the 0-1 range', () => {
+  it('model_capabilities table exists but has no hardcoded seeds (model-agnostic)', () => {
     const rows = db.prepare(`
       SELECT model_name, ${SCORE_COLUMNS.join(', ')}
       FROM model_capabilities
     `).all();
 
-    expect(rows.length).toBeGreaterThan(0);
-
-    for (const row of rows) {
-      for (const column of SCORE_COLUMNS) {
-        expect(row[column]).toBeGreaterThanOrEqual(0);
-        expect(row[column]).toBeLessThanOrEqual(1);
-      }
-    }
+    // Model-agnostic: no benchmark seeds — capabilities are discovered at runtime
+    expect(rows.length).toBe(0);
   });
 
   it('seeds routing rules that target known providers', () => {
