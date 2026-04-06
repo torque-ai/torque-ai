@@ -10,7 +10,7 @@
  */
 
 const routes = [
-  // ═══ Generated REST routes for 497 MCP tools ═══
+  // ═══ Generated REST routes for 501 MCP tools ═══
   // Generated: 2026-03-13
   // Pattern: tool-passthrough via handleToolCall()
 
@@ -289,11 +289,13 @@ const routes = [
   { method: 'POST', path: '/api/v2/diffusion/submit-scout', tool: 'submit_scout', mapBody: true },
   { method: 'POST', path: '/api/v2/diffusion/get-context', tool: 'get_context', mapBody: true },
 
-  // ─── analysis (4 routes) ─────────────────────────────────────────────────────
+  // ─── analysis (6 routes) ─────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/analysis/full-project-audit', tool: 'full_project_audit', mapBody: true },
   { method: 'POST', path: '/api/v2/analysis/compare-providers', tool: 'compare_providers', mapBody: true },
   { method: 'POST', path: '/api/v2/analysis/review-task-output', tool: 'review_task_output', mapBody: true },
   { method: 'POST', path: '/api/v2/analysis/detect-project-type', tool: 'detect_project_type', mapBody: true },
+  { method: 'GET', path: '/api/v2/analysis/get-project-template', tool: 'get_project_template', mapQuery: true },
+  { method: 'GET', path: '/api/v2/analysis/list-project-templates', tool: 'list_project_templates', mapQuery: true },
 
   // ─── symbols (4 routes) ──────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/symbols/index-project', tool: 'index_project', mapBody: true },
@@ -310,16 +312,18 @@ const routes = [
   { method: 'POST', path: '/api/v2/agents/get-agent', tool: 'get_agent', mapBody: true },
   { method: 'POST', path: '/api/v2/agents/list-agents', tool: 'list_agents', mapBody: true },
 
-  // ─── strategic (1 routes) ────────────────────────────────────────────────────
+  // ─── strategic (2 routes) ────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/strategic/strategic-usage', tool: 'strategic_usage', mapBody: true },
+  { method: 'POST', path: '/api/v2/strategic/config/apply-template', tool: 'strategic_config_apply_template', mapBody: true },
 
-  // ─── system (6 routes) ───────────────────────────────────────────────────────
+  // ─── system (7 routes) ───────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/system/ping', tool: 'ping', mapBody: true },
   { method: 'POST', path: '/api/v2/system/restart-server', tool: 'restart_server', mapBody: true },
   { method: 'POST', path: '/api/v2/system/await-restart', tool: 'await_restart', mapBody: true },
   { method: 'POST', path: '/api/v2/system/get-tool-schema', tool: 'get_tool_schema', mapBody: true },
   { method: 'POST', path: '/api/v2/system/unlock-all-tools', tool: 'unlock_all_tools', mapBody: true },
   { method: 'POST', path: '/api/v2/system/unlock-tier', tool: 'unlock_tier', mapBody: true },
+  { method: 'GET', path: '/api/v2/system/check-workstation-health', tool: 'check_workstation_health', mapQuery: true },
 
   // ─── tasks (86 routes) ────────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/tasks/configure', tool: 'configure', mapBody: true },

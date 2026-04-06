@@ -240,6 +240,7 @@ const routes = [
   {
     method: 'POST',
     path: /^\/api\/v2\/tasks\/([^/]+)\/retry$/,
+    tool: 'retry_task',
     handlerName: 'handleV2CpRetryTask',
     mapParams: ['task_id'],
     middleware: buildV2Middleware({
@@ -362,6 +363,7 @@ const routes = [
   {
     method: 'GET',
     path: /^\/api\/v2\/workflows\/([^/]+)\/history$/,
+    tool: 'workflow_history',
     handlerName: 'handleV2CpWorkflowHistory',
     mapParams: ['workflow_id'],
     middleware: buildV2Middleware({
@@ -425,12 +427,14 @@ const routes = [
   {
     method: 'GET',
     path: '/api/v2/schedules',
+    tool: 'list_schedules',
     handlerName: 'handleV2CpListSchedules',
     middleware: buildV2Middleware(),
   },
   {
     method: 'POST',
     path: '/api/v2/schedules',
+    tool: 'create_one_time_schedule',
     handlerName: 'handleV2CpCreateSchedule',
     middleware: buildV2Middleware(),
   },
@@ -446,6 +450,7 @@ const routes = [
   {
     method: 'POST',
     path: /^\/api\/v2\/schedules\/([^/]+)\/toggle$/,
+    tool: 'toggle_schedule',
     handlerName: 'handleV2CpToggleSchedule',
     mapParams: ['schedule_id'],
     middleware: buildV2Middleware({
@@ -475,18 +480,21 @@ const routes = [
   {
     method: 'GET',
     path: '/api/v2/policies',
+    tool: 'list_policies',
     handlerName: 'handleV2CpListPolicies',
     middleware: buildV2Middleware(),
   },
   {
     method: 'POST',
     path: '/api/v2/policies/evaluate',
+    tool: 'evaluate_policies',
     handlerName: 'handleV2CpEvaluatePolicies',
     middleware: buildV2Middleware(),
   },
   {
     method: 'GET',
     path: /^\/api\/v2\/policies\/([^/]+)$/,
+    tool: 'get_policy',
     handlerName: 'handleV2CpGetPolicy',
     mapParams: ['policy_id'],
     middleware: buildV2Middleware({
@@ -496,6 +504,7 @@ const routes = [
   {
     method: 'POST',
     path: /^\/api\/v2\/policies\/([^/]+)\/mode$/,
+    tool: 'set_policy_mode',
     handlerName: 'handleV2CpSetPolicyMode',
     mapParams: ['policy_id'],
     middleware: buildV2Middleware({
@@ -505,6 +514,7 @@ const routes = [
   {
     method: 'GET',
     path: '/api/v2/policy-evaluations',
+    tool: 'list_policy_evaluations',
     handlerName: 'handleV2CpListPolicyEvaluations',
     middleware: buildV2Middleware(),
   },
@@ -520,6 +530,7 @@ const routes = [
   {
     method: 'POST',
     path: /^\/api\/v2\/policy-evaluations\/([^/]+)\/override$/,
+    tool: 'override_policy_decision',
     handlerName: 'handleV2CpOverridePolicyDecision',
     mapParams: ['evaluation_id'],
     middleware: buildV2Middleware({
@@ -540,18 +551,21 @@ const routes = [
   {
     method: 'GET',
     path: '/api/v2/plan-projects',
+    tool: 'list_plan_projects',
     handlerName: 'handleV2CpListPlanProjects',
     middleware: buildV2Middleware(),
   },
   {
     method: 'POST',
     path: '/api/v2/plan-projects/import',
+    tool: 'import_plan',
     handlerName: 'handleV2CpImportPlan',
     middleware: buildV2Middleware(),
   },
   {
     method: 'GET',
     path: /^\/api\/v2\/plan-projects\/([^/]+)$/,
+    tool: 'get_plan_project',
     handlerName: 'handleV2CpGetPlanProject',
     mapParams: ['project_id'],
     middleware: buildV2Middleware({
@@ -616,6 +630,7 @@ const routes = [
   {
     method: 'GET',
     path: '/api/v2/providers',
+    tool: 'list_providers',
     handlerName: 'handleV2CpListProviders',
     middleware: buildV2Middleware(),
   },
@@ -624,6 +639,7 @@ const routes = [
   {
     method: 'GET',
     path: /^\/api\/v2\/providers\/([^/]+)\/stats$/,
+    tool: 'provider_stats',
     handlerName: 'handleV2CpProviderStats',
     mapParams: ['provider_id'],
     middleware: buildV2Middleware({
@@ -663,12 +679,14 @@ const routes = [
   {
     method: 'POST',
     path: '/api/v2/providers/add',
+    tool: 'add_provider',
     handlerName: 'handleV2CpAddProvider',
     middleware: buildV2Middleware(),
   },
   {
     method: 'POST',
     path: '/api/v2/providers/remove',
+    tool: 'remove_provider',
     handlerName: 'handleV2CpRemoveProvider',
     middleware: buildV2Middleware(),
   },
@@ -677,6 +695,7 @@ const routes = [
   {
     method: 'GET',
     path: /^\/api\/v2\/providers\/([^/]+)\/percentiles$/,
+    tool: 'get_provider_percentiles',
     handlerName: 'handleV2CpProviderPercentiles',
     mapParams: ['provider_id'],
     middleware: buildV2Middleware({
@@ -748,18 +767,21 @@ const routes = [
   {
     method: 'GET',
     path: '/api/v2/webhooks',
+    tool: 'list_webhooks',
     handlerName: 'handleV2CpListWebhooks',
     middleware: buildV2Middleware(),
   },
   {
     method: 'POST',
     path: '/api/v2/webhooks',
+    tool: 'add_webhook',
     handlerName: 'handleV2CpAddWebhook',
     middleware: buildV2Middleware(),
   },
   {
     method: 'DELETE',
     path: /^\/api\/v2\/webhooks\/([^/]+)$/,
+    tool: 'remove_webhook',
     handlerName: 'handleV2CpRemoveWebhook',
     mapParams: ['webhook_id'],
     middleware: buildV2Middleware({
@@ -769,6 +791,7 @@ const routes = [
   {
     method: 'POST',
     path: /^\/api\/v2\/webhooks\/([^/]+)\/test$/,
+    tool: 'test_webhook',
     handlerName: 'handleV2CpTestWebhook',
     mapParams: ['webhook_id'],
     middleware: buildV2Middleware({
@@ -837,6 +860,7 @@ const routes = [
   {
     method: 'GET',
     path: '/api/v2/stats/webhooks',
+    tool: 'webhook_stats',
     handlerName: 'handleV2CpWebhookStats',
     middleware: buildV2Middleware(),
   },
@@ -867,6 +891,7 @@ const routes = [
   {
     method: 'POST',
     path: '/api/v2/budget',
+    tool: 'set_budget',
     handlerName: 'handleV2CpSetBudget',
     middleware: buildV2Middleware(),
   },
@@ -926,10 +951,10 @@ const routes = [
   },
 
   // Strategic Brain configuration
-  { method: 'GET', path: '/api/v2/strategic/config', handlerName: 'handleV2CpStrategicConfigGet', middleware: buildV2Middleware() },
-  { method: 'PUT', path: '/api/v2/strategic/config', handlerName: 'handleV2CpStrategicConfigSet', middleware: buildV2Middleware() },
+  { method: 'GET', path: '/api/v2/strategic/config', tool: 'strategic_config_get', handlerName: 'handleV2CpStrategicConfigGet', middleware: buildV2Middleware() },
+  { method: 'PUT', path: '/api/v2/strategic/config', tool: 'strategic_config_set', handlerName: 'handleV2CpStrategicConfigSet', middleware: buildV2Middleware() },
   { method: 'POST', path: '/api/v2/strategic/config/reset', handlerName: 'handleV2CpStrategicConfigReset', middleware: buildV2Middleware() },
-  { method: 'GET', path: '/api/v2/strategic/templates', handlerName: 'handleV2CpStrategicTemplates', middleware: buildV2Middleware() },
+  { method: 'GET', path: '/api/v2/strategic/templates', tool: 'strategic_config_templates', handlerName: 'handleV2CpStrategicTemplates', middleware: buildV2Middleware() },
   { method: 'GET', path: /^\/api\/v2\/strategic\/templates\/([^/]+)$/, handlerName: 'handleV2CpStrategicTemplateGet', mapParams: ['template_name'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_name', 'template name') }) },
   { method: 'POST', path: /^\/api\/v2\/strategic\/test\/([^/]+)$/, handlerName: 'handleV2CpStrategicTest', mapParams: ['capability'], middleware: buildV2Middleware({ params: validateDecodedParamField('capability', 'capability name') }) },
 
@@ -939,12 +964,14 @@ const routes = [
   {
     method: 'GET',
     path: '/api/v2/workstations',
+    tool: 'list_workstations',
     handlerName: 'handleV2CpListWorkstations',
     middleware: buildV2Middleware(),
   },
   {
     method: 'POST',
     path: '/api/v2/workstations',
+    tool: 'add_workstation',
     handlerName: 'handleV2CpCreateWorkstation',
     middleware: buildV2Middleware(),
   },
@@ -960,6 +987,7 @@ const routes = [
   {
     method: 'POST',
     path: /^\/api\/v2\/workstations\/([^/]+)\/probe$/,
+    tool: 'probe_workstation',
     handlerName: 'handleV2CpProbeWorkstation',
     mapParams: ['workstation_name'],
     middleware: buildV2Middleware({
@@ -969,6 +997,7 @@ const routes = [
   {
     method: 'DELETE',
     path: /^\/api\/v2\/workstations\/([^/]+)$/,
+    tool: 'remove_workstation',
     handlerName: 'handleV2CpDeleteWorkstation',
     mapParams: ['workstation_name'],
     middleware: buildV2Middleware({
@@ -1037,6 +1066,7 @@ const routes = [
   {
     method: 'GET',
     path: '/api/v2/peek-hosts',
+    tool: 'list_peek_hosts',
     handlerName: 'handleV2CpListPeekHosts',
     middleware: buildV2Middleware(),
   },
@@ -1098,18 +1128,21 @@ const routes = [
   {
     method: 'GET',
     path: '/api/v2/agents',
+    tool: 'list_remote_agents',
     handlerName: 'handleV2CpListAgents',
     middleware: buildV2Middleware(),
   },
   {
     method: 'POST',
     path: '/api/v2/agents',
+    tool: 'register_remote_agent',
     handlerName: 'handleV2CpCreateAgent',
     middleware: buildV2Middleware(),
   },
   {
     method: 'GET',
     path: /^\/api\/v2\/agents\/([^/]+)$/,
+    tool: 'get_remote_agent',
     handlerName: 'handleV2CpGetAgent',
     mapParams: ['agent_id'],
     middleware: buildV2Middleware({
@@ -1119,6 +1152,7 @@ const routes = [
   {
     method: 'GET',
     path: /^\/api\/v2\/agents\/([^/]+)\/health$/,
+    tool: 'check_remote_agent_health',
     handlerName: 'handleV2CpAgentHealth',
     mapParams: ['agent_id'],
     middleware: buildV2Middleware({
@@ -1128,6 +1162,7 @@ const routes = [
   {
     method: 'DELETE',
     path: /^\/api\/v2\/agents\/([^/]+)$/,
+    tool: 'remove_remote_agent',
     handlerName: 'handleV2CpDeleteAgent',
     mapParams: ['agent_id'],
     middleware: buildV2Middleware({
@@ -1217,30 +1252,30 @@ const routes = [
   { method: 'GET', path: '/api/quota/auto-scale', handlerName: 'handleGetQuotaAutoScale', deprecated: '/api/v2/quota/auto-scale' },
 
   // Concurrency limits
-  { method: 'GET', path: '/api/v2/concurrency', handlerName: 'handleV2CpGetConcurrencyLimits', middleware: buildV2Middleware() },
-  { method: 'POST', path: '/api/v2/concurrency/set', handlerName: 'handleV2CpSetConcurrencyLimit', middleware: buildV2Middleware() },
+  { method: 'GET', path: '/api/v2/concurrency', tool: 'get_concurrency_limits', handlerName: 'handleV2CpGetConcurrencyLimits', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/concurrency/set', tool: 'set_concurrency_limit', handlerName: 'handleV2CpSetConcurrencyLimit', middleware: buildV2Middleware() },
   // Economy mode removed — use routing templates (Cost Saver, Free Agentic) instead
 
   // Routing templates
-  { method: 'GET', path: '/api/v2/routing/templates', handlerName: 'handleV2CpListRoutingTemplates', middleware: buildV2Middleware() },
-  { method: 'GET', path: /^\/api\/v2\/routing\/templates\/([^/]+)$/, handlerName: 'handleV2CpGetRoutingTemplate', mapParams: ['template_id'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_id', 'template id') }) },
-  { method: 'POST', path: '/api/v2/routing/templates', handlerName: 'handleV2CpCreateRoutingTemplate', middleware: buildV2Middleware() },
-  { method: 'PUT', path: /^\/api\/v2\/routing\/templates\/([^/]+)$/, handlerName: 'handleV2CpUpdateRoutingTemplate', mapParams: ['template_id'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_id', 'template id') }) },
-  { method: 'DELETE', path: /^\/api\/v2\/routing\/templates\/([^/]+)$/, handlerName: 'handleV2CpDeleteRoutingTemplate', mapParams: ['template_id'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_id', 'template id') }) },
-  { method: 'GET', path: '/api/v2/routing/active', handlerName: 'handleV2CpGetActiveRouting', middleware: buildV2Middleware() },
+  { method: 'GET', path: '/api/v2/routing/templates', tool: 'list_routing_templates', handlerName: 'handleV2CpListRoutingTemplates', middleware: buildV2Middleware() },
+  { method: 'GET', path: /^\/api\/v2\/routing\/templates\/([^/]+)$/, tool: 'get_routing_template', handlerName: 'handleV2CpGetRoutingTemplate', mapParams: ['template_id'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_id', 'template id') }) },
+  { method: 'POST', path: '/api/v2/routing/templates', tool: 'set_routing_template', handlerName: 'handleV2CpCreateRoutingTemplate', middleware: buildV2Middleware() },
+  { method: 'PUT', path: /^\/api\/v2\/routing\/templates\/([^/]+)$/, tool: 'set_routing_template', handlerName: 'handleV2CpUpdateRoutingTemplate', mapParams: ['template_id'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_id', 'template id') }) },
+  { method: 'DELETE', path: /^\/api\/v2\/routing\/templates\/([^/]+)$/, tool: 'delete_routing_template', handlerName: 'handleV2CpDeleteRoutingTemplate', mapParams: ['template_id'], middleware: buildV2Middleware({ params: validateDecodedParamField('template_id', 'template id') }) },
+  { method: 'GET', path: '/api/v2/routing/active', tool: 'get_active_routing', handlerName: 'handleV2CpGetActiveRouting', middleware: buildV2Middleware() },
   { method: 'PUT', path: '/api/v2/routing/active', handlerName: 'handleV2CpSetActiveRouting', middleware: buildV2Middleware() },
   { method: 'GET', path: '/api/v2/routing/categories', handlerName: 'handleV2CpListCategories', middleware: buildV2Middleware() },
 
   // Provider API key management
-  { method: 'PUT', path: /^\/api\/v2\/providers\/([^/]+)\/api-key$/, handlerName: 'handleV2CpSetProviderApiKey', mapParams: ['provider_name'], middleware: buildV2Middleware({ params: validateDecodedParamField('provider_name', 'provider name') }) },
-  { method: 'DELETE', path: /^\/api\/v2\/providers\/([^/]+)\/api-key$/, handlerName: 'handleV2CpClearProviderApiKey', mapParams: ['provider_name'], middleware: buildV2Middleware({ params: validateDecodedParamField('provider_name', 'provider name') }) },
+  { method: 'PUT', path: /^\/api\/v2\/providers\/([^/]+)\/api-key$/, tool: 'set_provider_api_key', handlerName: 'handleV2CpSetProviderApiKey', mapParams: ['provider_name'], middleware: buildV2Middleware({ params: validateDecodedParamField('provider_name', 'provider name') }) },
+  { method: 'DELETE', path: /^\/api\/v2\/providers\/([^/]+)\/api-key$/, tool: 'clear_provider_api_key', handlerName: 'handleV2CpClearProviderApiKey', mapParams: ['provider_name'], middleware: buildV2Middleware({ params: validateDecodedParamField('provider_name', 'provider name') }) },
 
   // Model registry
-  { method: 'GET', path: '/api/v2/models', handlerName: 'handleV2CpListModels', middleware: buildV2Middleware() },
-  { method: 'GET', path: '/api/v2/models/pending', handlerName: 'handleV2CpListPendingModels', middleware: buildV2Middleware() },
-  { method: 'POST', path: '/api/v2/models/approve', handlerName: 'handleV2CpApproveModel', middleware: buildV2Middleware() },
-  { method: 'POST', path: '/api/v2/models/deny', handlerName: 'handleV2CpDenyModel', middleware: buildV2Middleware() },
-  { method: 'POST', path: '/api/v2/models/bulk-approve', handlerName: 'handleV2CpBulkApproveModels', middleware: buildV2Middleware() },
+  { method: 'GET', path: '/api/v2/models', tool: 'list_models', handlerName: 'handleV2CpListModels', middleware: buildV2Middleware() },
+  { method: 'GET', path: '/api/v2/models/pending', tool: 'list_pending_models', handlerName: 'handleV2CpListPendingModels', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/models/approve', tool: 'approve_model', handlerName: 'handleV2CpApproveModel', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/models/deny', tool: 'deny_model', handlerName: 'handleV2CpDenyModel', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/models/bulk-approve', tool: 'bulk_approve_models', handlerName: 'handleV2CpBulkApproveModels', middleware: buildV2Middleware() },
 
   // Auth: key management
   { method: 'POST', path: '/api/auth/keys', handlerName: 'handleCreateApiKey' },

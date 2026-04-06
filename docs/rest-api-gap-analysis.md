@@ -1,5 +1,75 @@
 # REST API Gap Analysis
 
+## Verification Update (2026-04-06)
+
+A direct parity rerun against the current codebase shows that the 93 tools previously listed as `GAP` in this report are no longer in the uncovered set, but full `600/600` explicit `tool`-mapped parity is still not present.
+
+- Built-in MCP tools loaded from `server/tool-defs/*.js`: **537**
+- Plugin MCP tools loaded from `server/plugins/snapscope/tool-defs.js`, `server/plugins/snapscope/new-tool-defs.js`, `server/plugins/version-control/tool-defs.js`, and `server/plugins/remote-agents/tool-defs.js`: **65**
+- Total unique MCP tools: **600**
+- MCP tools with explicit REST coverage via route objects that declare `tool` in `server/api/routes.js` and `server/api/routes-passthrough.js`: **545**
+- Remaining direct-mapping gaps: **55**
+
+Remaining direct-mapping gaps:
+
+- `add_provider`
+- `add_webhook`
+- `add_workstation`
+- `approve_model`
+- `bulk_approve_models`
+- `check_remote_agent_health`
+- `check_workstation_health`
+- `clear_provider_api_key`
+- `create_one_time_schedule`
+- `delete_routing_template`
+- `deny_model`
+- `evaluate_policies`
+- `get_active_routing`
+- `get_concurrency_limits`
+- `get_plan_project`
+- `get_policy`
+- `get_project_template`
+- `get_provider_percentiles`
+- `get_remote_agent`
+- `get_routing_template`
+- `import_plan`
+- `list_models`
+- `list_peek_hosts`
+- `list_pending_models`
+- `list_plan_projects`
+- `list_policies`
+- `list_policy_evaluations`
+- `list_project_templates`
+- `list_remote_agents`
+- `list_routing_templates`
+- `list_schedules`
+- `list_webhooks`
+- `list_workstations`
+- `override_policy_decision`
+- `probe_workstation`
+- `provider_stats`
+- `register_remote_agent`
+- `remove_provider`
+- `remove_remote_agent`
+- `remove_webhook`
+- `remove_workstation`
+- `retry_task`
+- `set_budget`
+- `set_concurrency_limit`
+- `set_policy_mode`
+- `set_provider_api_key`
+- `set_routing_template`
+- `strategic_config_apply_template`
+- `strategic_config_get`
+- `strategic_config_set`
+- `strategic_config_templates`
+- `test_webhook`
+- `toggle_schedule`
+- `webhook_stats`
+- `workflow_history`
+
+Note: the remainder of this document is the original pre-passthrough analysis. Its summary tables below are historical and do not reflect the current direct `tool`-mapping totals above.
+
 Generated on 2026-04-06 for the TORQUE server in `server/`.
 
 ## Summary
