@@ -11,7 +11,9 @@
  */
 
 const mod = require('../providers/agentic-capability');
+const { TEST_MODELS } = require('./test-helpers');
 const { init, isAgenticCapable } = mod;
+const TEST_MODEL_PREFIX = TEST_MODELS.DEFAULT.split(':')[0];
 
 // ---------------------------------------------------------------------------
 // Mock infrastructure
@@ -38,6 +40,9 @@ function makeMocks() {
 beforeEach(() => {
   mockConfigStore = {};
   probeResult = undefined;
+  if (!mod.WHITELIST_PREFIXES.includes(TEST_MODEL_PREFIX)) {
+    mod.WHITELIST_PREFIXES.push(TEST_MODEL_PREFIX);
+  }
   // Re-inject fresh mocks so each test starts with a clean state
   const { serverConfig, db } = makeMocks();
   init({ db, serverConfig });
@@ -50,7 +55,7 @@ beforeEach(() => {
 describe('isAgenticCapable — global kill switch', () => {
   it('returns false with source=config when agentic_enabled is "0"', () => {
     mockConfigStore['agentic_enabled'] = '0';
-    const result = isAgenticCapable('ollama', 'qwen3-coder:30b');
+    const result = isAgenticCapable('ollama', TEST_MODELS.DEFAULT);
     expect(result.capable).toBe(false);
     expect(result.source).toBe('config');
   });
@@ -74,8 +79,8 @@ describe('isAgenticCapable — excluded providers', () => {
 });
 
 describe('isAgenticCapable — whitelist (built-in)', () => {
-  it('returns true for qwen3-coder:30b on ollama — source=whitelist', () => {
-    const result = isAgenticCapable('ollama', 'qwen3-coder:30b');
+  it(`returns true for ${TEST_MODELS.DEFAULT} on ollama — source=whitelist`, () => {
+    const result = isAgenticCapable('ollama', TEST_MODELS.DEFAULT);
     expect(result.capable).toBe(true);
     expect(result.source).toBe('whitelist');
   });
@@ -90,7 +95,7 @@ describe('isAgenticCapable — whitelist (built-in)', () => {
 describe('isAgenticCapable — per-provider config overrides', () => {
   it('returns false when per-provider override is "0" — source=config', () => {
     mockConfigStore['agentic_provider_ollama'] = '0';
-    const result = isAgenticCapable('ollama', 'qwen3-coder:30b');
+    const result = isAgenticCapable('ollama', TEST_MODELS.DEFAULT);
     expect(result.capable).toBe(false);
     expect(result.source).toBe('config');
   });

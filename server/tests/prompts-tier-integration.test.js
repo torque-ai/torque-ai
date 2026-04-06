@@ -1,6 +1,7 @@
 'use strict';
 
 const { getModelSizeCategory } = require('../utils/model');
+const { TEST_MODELS } = require('./test-helpers');
 
 function longestRunLength(value, pattern) {
   return Math.max(...(value.match(pattern) || ['']).map((chunk) => chunk.length));
@@ -33,9 +34,9 @@ describe('Prompt tier integration', () => {
   });
 
   it('classifies model sizes across the configured thresholds', () => {
-    expect(getModelSizeCategory('qwen2.5-coder:7b')).toBe('small');
-    expect(getModelSizeCategory('qwen2.5-coder:14b')).toBe('medium');
-    expect(getModelSizeCategory('qwen3-coder:30b')).toBe('large');
+    expect(getModelSizeCategory(TEST_MODELS.SMALL)).toBe('small');
+    expect(getModelSizeCategory(TEST_MODELS.DEFAULT)).toBe('medium');
+    expect(getModelSizeCategory(TEST_MODELS.QUALITY)).toBe('large');
     expect(getModelSizeCategory('llama3:72b')).toBe('large');
   });
 
@@ -44,7 +45,7 @@ describe('Prompt tier integration', () => {
     const result = prompts.wrapWithInstructions(
       'Fix helper behavior in server/utils/helper.js',
       'ollama',
-      'qwen2.5-coder:7b',
+      TEST_MODELS.SMALL,
       { fileContext, files: ['server/utils/helper.js'] }
     );
 
@@ -58,7 +59,7 @@ describe('Prompt tier integration', () => {
     const result = prompts.wrapWithInstructions(
       'Refine task orchestration in server/task-manager.js',
       'ollama',
-      'qwen2.5-coder:14b',
+      TEST_MODELS.DEFAULT,
       { fileContext, files: ['server/task-manager.js'] }
     );
 
@@ -72,7 +73,7 @@ describe('Prompt tier integration', () => {
     const result = prompts.wrapWithInstructions(
       'Refactor provider prompt assembly across server/providers/prompts.js',
       'ollama',
-      'qwen3-coder:30b',
+      TEST_MODELS.QUALITY,
       { fileContext, files: ['server/providers/prompts.js'] }
     );
 
@@ -99,7 +100,7 @@ describe('Prompt tier integration', () => {
     const result = prompts.wrapWithInstructions(
       'Implement the provider integration task',
       'codex',
-      'qwen3-coder:30b',
+      TEST_MODELS.QUALITY,
       { files: ['server/providers/prompts.js'] }
     );
 

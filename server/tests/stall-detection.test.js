@@ -63,14 +63,14 @@ describe('execution/stall-detection', () => {
   it('returns not blocked for models below the large-model threshold', () => {
     const { handler, deps } = createHarness({
       sizes: {
-        'qwen2.5-coder:14b': 14,
+        [TEST_MODELS.DEFAULT]: 14,
       },
       hostTasks: [
         { id: 'task-large', state: 'running', model: TEST_MODELS.DEFAULT },
       ],
     });
 
-    expect(handler.isLargeModelBlockedOnHost('qwen2.5-coder:14b', 'host-small')).toEqual({ blocked: false });
+    expect(handler.isLargeModelBlockedOnHost(TEST_MODELS.DEFAULT, 'host-small')).toEqual({ blocked: false });
     expect(deps.db.getRunningTasksForHost).not.toHaveBeenCalled();
     expect(deps.safeConfigInt).toHaveBeenNthCalledWith(1, 'large_model_threshold_b', 30, 1, 200);
     expect(deps.safeConfigInt).toHaveBeenNthCalledWith(2, 'max_large_models_per_host', 1, 1, 10);
@@ -79,27 +79,27 @@ describe('execution/stall-detection', () => {
   it('blocks models at the threshold when the host already has the maximum large-model load', () => {
     const { handler, deps } = createHarness({
       sizes: {
-        'qwen2.5-coder:30b': 30,
+        [TEST_MODELS.DEFAULT]: 30,
         'codellama:34b': 34,
-        'qwen2.5-coder:7b': 7,
+        [TEST_MODELS.SMALL]: 7,
       },
       hostTasks: [
         { id: 'task-running-large', state: 'running', model: 'codellama:34b' },
-        { id: 'task-running-small', state: 'running', model: 'qwen2.5-coder:7b' },
+        { id: 'task-running-small', state: 'running', model: TEST_MODELS.SMALL },
       ],
     });
 
-    const result = handler.isLargeModelBlockedOnHost('qwen2.5-coder:30b', 'host-maxed');
+    const result = handler.isLargeModelBlockedOnHost(TEST_MODELS.DEFAULT, 'host-maxed');
 
     expect(deps.db.getRunningTasksForHost).toHaveBeenCalledWith('host-maxed');
     expect(result.blocked).toBe(true);
     expect(result.reason).toContain('VRAM guard');
-    expect(result.reason).toContain('qwen2.5-coder:30b (30B)');
+    expect(result.reason).toContain(`${TEST_MODELS.DEFAULT} (30B)`);
     expect(result.reason).toContain('1 large model(s)');
     expect(result.reason).toContain('(>=30B)');
-    expect(deps.parseModelSizeB).toHaveBeenCalledWith('qwen2.5-coder:30b');
+    expect(deps.parseModelSizeB).toHaveBeenCalledWith(TEST_MODELS.DEFAULT);
     expect(deps.parseModelSizeB).toHaveBeenCalledWith('codellama:34b');
-    expect(deps.parseModelSizeB).toHaveBeenCalledWith('qwen2.5-coder:7b');
+    expect(deps.parseModelSizeB).toHaveBeenCalledWith(TEST_MODELS.SMALL);
   });
 
   it('allows a large model when the host is under the configured per-host limit', () => {
@@ -110,11 +110,11 @@ describe('execution/stall-detection', () => {
       sizes: {
         [TEST_MODELS.DEFAULT]: 32,
         'codellama:34b': 34,
-        'qwen2.5-coder:7b': 7,
+        [TEST_MODELS.SMALL]: 7,
       },
       hostTasks: [
         { id: 'task-running-large', state: 'running', model: 'codellama:34b' },
-        { id: 'task-completed-small', state: 'completed', model: 'qwen2.5-coder:7b' },
+        { id: 'task-completed-small', state: 'completed', model: TEST_MODELS.SMALL },
       ],
     });
 

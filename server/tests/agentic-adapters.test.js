@@ -9,6 +9,7 @@
  */
 
 const http = require('http');
+const { TEST_MODELS } = require('./test-helpers');
 const { chatCompletion } = require('../providers/adapters/ollama-chat');
 const { chatCompletion: openaiChatCompletion } = require('../providers/adapters/openai-chat');
 const { chatCompletion: googleChatCompletion } = require('../providers/adapters/google-chat');
@@ -101,7 +102,7 @@ describe('ollama-chat adapter — chatCompletion', () => {
       expect(req.method).toBe('POST');
       expect(req.url).toBe('/api/chat');
       const body = req._parsedBody;
-      expect(body.model).toBe('qwen2.5-coder:7b');
+      expect(body.model).toBe(TEST_MODELS.SMALL);
       expect(Array.isArray(body.tools)).toBe(true);
       expect(body.stream).toBe(true);
       expect(body.think).toBe(false);
@@ -121,7 +122,7 @@ describe('ollama-chat adapter — chatCompletion', () => {
 
     const result = await chatCompletion({
       host,
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       messages: [{ role: 'user', content: 'Read src/index.js' }],
       tools,
     });
@@ -197,7 +198,7 @@ describe('ollama-chat adapter — chatCompletion', () => {
     const result = await chatCompletion({
       host,
       apiKey: 'should-be-ignored',
-      model: 'qwen2.5-coder:7b',
+      model: TEST_MODELS.SMALL,
       messages: [{ role: 'user', content: 'ping' }],
     });
 

@@ -1,11 +1,12 @@
 'use strict';
 
 const { parseModelSizeB, getModelSizeCategory, isSmallModel, isThinkingModel } = require('../utils/model');
+const { TEST_MODELS } = require('./test-helpers');
 
 describe('utils/model', () => {
   describe('parseModelSizeB', () => {
     it('parses colon-delimited sizes', () => {
-      expect(parseModelSizeB('qwen3-coder:30b')).toBe(30);
+      expect(parseModelSizeB(TEST_MODELS.DEFAULT)).toBe(14);
       expect(parseModelSizeB('gemma3:4b')).toBe(4);
       expect(parseModelSizeB('model:1.5b')).toBe(1.5);
     });
@@ -89,7 +90,7 @@ describe('utils/model', () => {
     });
 
     it('returns false for non-thinking models', () => {
-      expect(isThinkingModel('qwen3-coder:30b')).toBe(false);
+      expect(isThinkingModel(TEST_MODELS.DEFAULT)).toBe(false);
       expect(isThinkingModel('llama3:70b')).toBe(false);
       expect(isThinkingModel(null)).toBe(false);
     });

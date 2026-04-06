@@ -13,6 +13,7 @@ const {
   isSmallModel,
   isThinkingModel,
 } = require('../utils/model');
+const { TEST_MODELS } = require('./test-helpers');
 
 function installMock(modulePath, exports) {
   const resolved = require.resolve(modulePath);
@@ -402,7 +403,7 @@ describe('utils-all', () => {
 
   describe('utils/model', () => {
     it('parses colon-delimited integer sizes', () => {
-      expect(parseModelSizeB('qwen3-coder:30b')).toBe(30);
+      expect(parseModelSizeB(TEST_MODELS.DEFAULT)).toBe(14);
       expect(parseModelSizeB('gemma3:4b')).toBe(4);
     });
 
@@ -473,13 +474,13 @@ describe('utils-all', () => {
     });
 
     it('returns false for standard non-thinking models', () => {
-      expect(isThinkingModel('qwen3-coder:30b')).toBe(false);
+      expect(isThinkingModel(TEST_MODELS.DEFAULT)).toBe(false);
       expect(isThinkingModel('llama3:70b')).toBe(false);
       expect(isThinkingModel('')).toBe(false);
     });
 
     it('supports numeric ordering by parsed model size', () => {
-      const models = ['qwen3-coder:30b', 'gpt-4', 'gemma3:4b', 'deepseek-r1:14b'];
+      const models = [TEST_MODELS.DEFAULT, 'gpt-4', 'gemma3:4b', 'deepseek-r1:14b'];
       const sorted = [...models].sort((left, right) => {
         const leftSize = parseModelSizeB(left) || Number.POSITIVE_INFINITY;
         const rightSize = parseModelSizeB(right) || Number.POSITIVE_INFINITY;
@@ -488,8 +489,8 @@ describe('utils-all', () => {
 
       expect(sorted).toEqual([
         'gemma3:4b',
+        TEST_MODELS.DEFAULT,
         'deepseek-r1:14b',
-        'qwen3-coder:30b',
         'gpt-4',
       ]);
     });

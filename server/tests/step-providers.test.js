@@ -2,6 +2,7 @@ const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
 const _path = require('path');
 const os = require('os');
+const { TEST_MODELS } = require('./test-helpers');
 
 describe('Per-Step Provider Routing', () => {
   let db;
@@ -52,7 +53,7 @@ describe('Per-Step Provider Routing', () => {
         task_description: 'test task with model',
         node_id: 'node-with-model',
         provider: 'ollama',
-        model: 'qwen2.5-coder:14b',
+        model: TEST_MODELS.DEFAULT,
         working_directory: os.tmpdir(),
       });
       expect(result.isError).toBeFalsy();
@@ -61,7 +62,7 @@ describe('Per-Step Provider Routing', () => {
       const task = tasks.find(t => t.workflow_node_id === 'node-with-model');
       expect(task).toBeDefined();
       expect(task.provider).toBe('ollama');
-      expect(task.model).toBe('qwen2.5-coder:14b');
+      expect(task.model).toBe(TEST_MODELS.DEFAULT);
     });
 
     it('defaults to null (deferred) when provider omitted', async () => {

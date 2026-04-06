@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const OllamaStrategicProvider = require('../providers/ollama-strategic.js');
+const { TEST_MODELS } = require('./test-helpers');
 
 function makeAbortError(message = 'aborted') {
   const err = new Error(message);
@@ -169,8 +170,8 @@ describe('OllamaStrategicProvider', () => {
   describe('helpers', () => {
     it('extracts model names from string and object entries', () => {
       expect(provider._extractModelNames({
-        models: ['qwen3-coder:30b', { name: 'deepseek-r1:32b' }, { name: '' }, {}],
-      })).toEqual(['qwen3-coder:30b', 'deepseek-r1:32b']);
+        models: [TEST_MODELS.DEFAULT, { name: 'deepseek-r1:32b' }, { name: '' }, {}],
+      })).toEqual([TEST_MODELS.DEFAULT, 'deepseek-r1:32b']);
     });
 
     it('returns an empty array when the tags payload does not contain a models array', () => {
@@ -189,14 +190,14 @@ describe('OllamaStrategicProvider', () => {
     it('probes /api/tags and returns extracted model names', async () => {
       const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
       fetchMock.mockResolvedValue(jsonResponse({
-        models: ['qwen3-coder:30b', { name: 'deepseek-r1:32b' }],
+        models: [TEST_MODELS.DEFAULT, { name: 'deepseek-r1:32b' }],
       }));
 
       const result = await provider.checkHealth();
 
       expect(result).toEqual({
         available: true,
-        models: ['qwen3-coder:30b', 'deepseek-r1:32b'],
+        models: [TEST_MODELS.DEFAULT, 'deepseek-r1:32b'],
       });
       expect(fetchMock).toHaveBeenCalledWith(
         'http://localhost:11434/api/tags',
@@ -256,10 +257,10 @@ describe('OllamaStrategicProvider', () => {
   describe('listModels', () => {
     it('returns extracted models from /api/tags', async () => {
       fetchMock.mockResolvedValue(jsonResponse({
-        models: [{ name: 'qwen3-coder:30b' }, { name: 'llama3.1:70b' }],
+        models: [{ name: TEST_MODELS.DEFAULT }, { name: 'llama3.1:70b' }],
       }));
 
-      await expect(provider.listModels()).resolves.toEqual(['qwen3-coder:30b', 'llama3.1:70b']);
+      await expect(provider.listModels()).resolves.toEqual([TEST_MODELS.DEFAULT, 'llama3.1:70b']);
     });
 
     it('falls back to the default model when tags are empty', async () => {

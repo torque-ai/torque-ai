@@ -9,7 +9,10 @@
  */
 
 const { setupTestDbOnly, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { TEST_MODELS: BASE_TEST_MODELS } = require('./test-helpers');
 const registry = require('../models/registry');
+
+const TEST_MODELS = { ...BASE_TEST_MODELS, DEFAULT: 'qwen3-coder:30b' };
 
 describe('registry — family + parameter_size_b on registration', () => {
   beforeAll(() => {
@@ -27,11 +30,11 @@ describe('registry — family + parameter_size_b on registration', () => {
     resetTables(['model_registry']);
   });
 
-  it('registerModel populates family=qwen3 and parameter_size_b≈30 for qwen3-coder:30b', () => {
+  it(`registerModel populates family=qwen3 and parameter_size_b≈30 for ${TEST_MODELS.DEFAULT}`, () => {
     const result = registry.registerModel({
       provider: 'ollama',
       hostId: 'host-1',
-      modelName: 'qwen3-coder:30b',
+      modelName: TEST_MODELS.DEFAULT,
       sizeBytes: 18556700761,
     });
 
@@ -77,7 +80,7 @@ describe('registry — family + parameter_size_b on registration', () => {
         status, first_seen_at, last_seen_at,
         family, parameter_size_b
       ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, NULL, NULL)
-    `).run(id, 'ollama', 'host-1', 'qwen3-coder:30b', 18556700761, now, now);
+    `).run(id, 'ollama', 'host-1', TEST_MODELS.DEFAULT, 18556700761, now, now);
 
     // Confirm columns are NULL before backfill
     const before = rawDb().prepare('SELECT family, parameter_size_b FROM model_registry WHERE id = ?').get(id);

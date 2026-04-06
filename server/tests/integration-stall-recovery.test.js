@@ -3,7 +3,14 @@
  */
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS: BASE_TEST_MODELS } = require('./test-helpers');
 const configCore = require('../db/config-core');
+
+const TEST_MODELS = {
+  ...BASE_TEST_MODELS,
+  SMALL: 'qwen2.5-coder:8b',
+  DEFAULT: 'qwen3-coder:30b',
+};
 
 let db;
 let tm;
@@ -54,13 +61,13 @@ describe('Integration: Stall Detection & Recovery', () => {
 
   describe('Model size affects threshold', () => {
     it('32b model gets higher threshold than 8b model', () => {
-      const small = tm.getStallThreshold('qwen2.5-coder:8b', 'ollama');
-      const large = tm.getStallThreshold('qwen3-coder:30b', 'ollama');
+      const small = tm.getStallThreshold(TEST_MODELS.SMALL, 'ollama');
+      const large = tm.getStallThreshold(TEST_MODELS.DEFAULT, 'ollama');
       expect(large).toBeGreaterThanOrEqual(small);
     });
 
     it('thinking model gets multiplied threshold', () => {
-      const regular = tm.getStallThreshold('qwen2.5-coder:8b', 'ollama');
+      const regular = tm.getStallThreshold(TEST_MODELS.SMALL, 'ollama');
       const thinking = tm.getStallThreshold('qwen3:8b', 'ollama');
       expect(thinking).toBeGreaterThan(regular);
     });

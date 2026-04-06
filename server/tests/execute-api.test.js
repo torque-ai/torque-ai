@@ -4,6 +4,7 @@ const SUBJECT_PATH = require.resolve('../providers/execute-api');
 const LOGGER_PATH = require.resolve('../logger');
 const SANITIZE_PATH = require.resolve('../utils/sanitize');
 const CONTEXT_STUFFING_PATH = require.resolve('../utils/context-stuffing');
+const { TEST_MODELS } = require('./test-helpers');
 
 const ORIGINAL_CACHE_ENTRIES = new Map([
   [LOGGER_PATH, require.cache[LOGGER_PATH]],

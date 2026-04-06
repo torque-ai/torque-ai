@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import http from 'node:http';
+import { TEST_MODELS } from './test-helpers';
 
 // Inline mock servers for Ollama API and agent-server
 function createMockServer(handler) {
@@ -32,7 +33,7 @@ describe('workstation/health-check', () => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           models: [
-            { name: 'qwen3-coder:30b', model: 'qwen3-coder:30b' },
+            { name: TEST_MODELS.DEFAULT, model: TEST_MODELS.DEFAULT },
             { name: 'llama3:8b', model: 'llama3:8b' },
           ],
         }));
@@ -41,7 +42,7 @@ describe('workstation/health-check', () => {
       try {
         const result = await checkOllama('127.0.0.1', port);
         expect(result.healthy).toBe(true);
-        expect(result.models).toEqual(['qwen3-coder:30b', 'llama3:8b']);
+        expect(result.models).toEqual([TEST_MODELS.DEFAULT, 'llama3:8b']);
       } finally {
         await closeServer(server);
       }
@@ -109,7 +110,7 @@ describe('workstation/health-check', () => {
       const { server: ollamaServer, port: ollamaPort } = await createMockServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          models: [{ name: 'qwen3-coder:30b' }],
+          models: [{ name: TEST_MODELS.DEFAULT }],
         }));
       });
 
@@ -124,7 +125,7 @@ describe('workstation/health-check', () => {
 
         const result = await checkWorkstation(ws);
         expect(result.healthy).toBe(true);
-        expect(result.models).toEqual(['qwen3-coder:30b']);
+        expect(result.models).toEqual([TEST_MODELS.DEFAULT]);
         expect(result.source).toBe('ollama');
         expect(result.system).toBeNull();
       } finally {

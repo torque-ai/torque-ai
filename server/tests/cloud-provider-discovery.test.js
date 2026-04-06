@@ -15,6 +15,7 @@ const OpenRouterProvider = require('../providers/openrouter');
 const OllamaCloudProvider = require('../providers/ollama-cloud');
 const GoogleAIProvider = require('../providers/google-ai');
 const AnthropicProvider = require('../providers/anthropic');
+const { TEST_MODELS } = require('./test-helpers');
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const path = require('path');
+const { TEST_MODELS } = require('./test-helpers');
 
 const BASE_RETRY_DELAY_MS = 5000;
 const MAX_RETRY_DELAY_MS = 120000;
@@ -89,7 +90,7 @@ describe('retry scheduling exponential backoff', () => {
       status: overrides.status || 'running',
       task_description: overrides.task_description || 'p3-exponential-backoff task',
       provider: overrides.provider || 'ollama',
-      model: overrides.model || 'qwen2.5-coder:14b',
+      model: overrides.model || TEST_MODELS.DEFAULT,
       working_directory: overrides.working_directory || path.join(process.cwd(), 'tmp'),
       ollama_host_id: overrides.ollama_host_id || null,
       metadata: overrides.metadata || null,
@@ -105,12 +106,12 @@ describe('retry scheduling exponential backoff', () => {
     vi.useFakeTimers();
     setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
 
-    const hostA = registerHost('hashline-host-a', ['qwen2.5-coder:14b']);
-    registerHost('hashline-host-b', ['qwen2.5-coder:14b']);
+    const hostA = registerHost('hashline-host-a', [TEST_MODELS.DEFAULT]);
+    registerHost('hashline-host-b', [TEST_MODELS.DEFAULT]);
 
     const task = createTask({
       provider: 'ollama',
-      model: 'qwen2.5-coder:14b',
+      model: TEST_MODELS.DEFAULT,
       ollama_host_id: hostA,
       retry_count: retryCount,
     });

@@ -10,6 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 let testDir;
 let taskCore;
@@ -285,13 +286,13 @@ module.exports = { greet, farewell };
   describe('Model Size Helpers', () => {
     it('parseModelSizeB extracts size from model name', () => {
       expect(tm.parseModelSizeB('qwen3:8b')).toBe(8);
-      expect(tm.parseModelSizeB('qwen3-coder:30b')).toBe(30);
+      expect(tm.parseModelSizeB(TEST_MODELS.DEFAULT)).toBe(14);
       expect(tm.parseModelSizeB('gemma3:4b')).toBe(4);
     });
 
     it('isSmallModel identifies small models', () => {
       expect(tm.isSmallModel('gemma3:4b')).toBe(true);
-      expect(tm.isSmallModel('qwen3-coder:30b')).toBe(false);
+      expect(tm.isSmallModel(TEST_MODELS.DEFAULT)).toBe(false);
     });
 
     it('isThinkingModel identifies thinking models', () => {

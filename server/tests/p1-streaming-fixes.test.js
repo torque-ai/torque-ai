@@ -14,6 +14,7 @@ let taskCore;
 let executeOllama;
 let executeApi;
 const hostManagement = require('../db/host-management');
+const { TEST_MODELS } = require('./test-helpers');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 function setup() {
@@ -248,7 +249,7 @@ describe('P1 streaming fixes', () => {
       await executeApi.executeApiProvider({
         id: taskId,
         task_description: 'Retry test',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         timeout_minutes: 5,
       }, provider);
 
@@ -266,7 +267,7 @@ describe('P1 streaming fixes', () => {
       const processQueue = vi.fn();
       const dashboard = { broadcast: vi.fn(), broadcastTaskUpdate: vi.fn(), notifyTaskUpdated: vi.fn(), notifyTaskOutput: vi.fn() };
       const hostUrl = 'http://127.0.0.1:11434';
-      addHost({ url: hostUrl, model: 'qwen2.5-coder:7b' });
+      addHost({ url: hostUrl, model: TEST_MODELS.SMALL });
 
       const deps = makeOllamaDeps({
         dashboard,
@@ -281,7 +282,7 @@ describe('P1 streaming fixes', () => {
         task_description: 'Queue wakeup test',
         status: 'running',
         provider: 'ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -290,7 +291,7 @@ describe('P1 streaming fixes', () => {
           id: taskId,
           provider: 'ollama',
           task_description: 'Queue wakeup test',
-          model: 'qwen2.5-coder:7b',
+          model: TEST_MODELS.SMALL,
           working_directory: testDir,
         }
       );
@@ -309,7 +310,7 @@ describe('P1 streaming fixes', () => {
     it('notifies dashboard when requeued because all hosts are at capacity', async () => {
       const processQueue = vi.fn();
       const dashboard = { broadcast: vi.fn(), broadcastTaskUpdate: vi.fn(), notifyTaskUpdated: vi.fn(), notifyTaskOutput: vi.fn() };
-      const atCapacityHost = addHost({ url: 'http://127.0.0.1:11435', model: 'qwen2.5-coder:7b', maxConcurrent: 1, runningTasks: 1 });
+      const atCapacityHost = addHost({ url: 'http://127.0.0.1:11435', model: TEST_MODELS.SMALL, maxConcurrent: 1, runningTasks: 1 });
       hostManagement.updateOllamaHost(atCapacityHost, {
         enabled: 1,
         status: 'healthy',
@@ -325,7 +326,7 @@ describe('P1 streaming fixes', () => {
         task_description: 'Queue wakeup capacity test',
         status: 'running',
         provider: 'ollama',
-        model: 'qwen2.5-coder:7b',
+        model: TEST_MODELS.SMALL,
         working_directory: testDir,
       });
 
@@ -334,7 +335,7 @@ describe('P1 streaming fixes', () => {
           id: taskId,
           provider: 'ollama',
           task_description: 'Queue wakeup capacity test',
-          model: 'qwen2.5-coder:7b',
+          model: TEST_MODELS.SMALL,
           working_directory: testDir,
         }
       );

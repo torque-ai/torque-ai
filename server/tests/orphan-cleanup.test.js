@@ -5,6 +5,10 @@
  * host failover cleanup, and stale task timeout handling.
  */
 
+const { TEST_MODELS: BASE_TEST_MODELS } = require('./test-helpers');
+
+const TEST_MODELS = { ...BASE_TEST_MODELS, DEFAULT: 'qwen3-coder:30b' };
+
 describe('Orphan Cleanup', () => {
   let orphanCleanup;
   let serverConfig;
@@ -94,7 +98,7 @@ describe('Orphan Cleanup', () => {
     });
 
     it('scales threshold for 32b models', () => {
-      const threshold = orphanCleanup.getStallThreshold('qwen3-coder:30b', 'ollama');
+      const threshold = orphanCleanup.getStallThreshold(TEST_MODELS.DEFAULT, 'ollama');
       expect(threshold).toBeGreaterThanOrEqual(360);
     });
 
@@ -122,8 +126,8 @@ describe('Orphan Cleanup', () => {
     });
 
     it('handles large models with size suffix via size-based detection', () => {
-      // qwen3-coder:30b matches /:(\d+)b/ → sizeB=30 >= 14 → max(threshold, 240)
-      const threshold = orphanCleanup.getStallThreshold('qwen3-coder:30b', 'ollama');
+      // Large coder model with a :Xb suffix matches /:(\d+)b/ → sizeB >= 14 → max(threshold, 240)
+      const threshold = orphanCleanup.getStallThreshold(TEST_MODELS.DEFAULT, 'ollama');
       expect(threshold).toBeGreaterThanOrEqual(240);
     });
 

@@ -2,6 +2,7 @@ const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-set
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { TEST_MODELS } = require('./test-helpers');
 
 describe('Local-First Fallback', () => {
   let db, tempDir;
@@ -135,7 +136,7 @@ describe('Local-First Fallback', () => {
       for (const h of hosts) {
         db.removeOllamaHost(h.id);
       }
-      const result = db.selectOllamaHostForModel('qwen2.5-coder:14b');
+      const result = db.selectOllamaHostForModel(TEST_MODELS.DEFAULT);
       expect(result).toBeTruthy();
       expect(result.host).toBeNull();
     });
@@ -170,7 +171,7 @@ describe('Local-First Fallback', () => {
     it('[Local-First] marker counting pattern works correctly', () => {
       // Pattern test: validates regex counting logic, not production output
       const errorOutput = [
-        '[Local-First] Trying model qwen2.5-coder:14b on host L5i',
+        `[Local-First] Trying model ${TEST_MODELS.DEFAULT} on host L5i`,
         '[Local-First] Trying model deepseek-coder:6.7b',
         '[Local-First] Trying provider ollama',
       ].join('\n');

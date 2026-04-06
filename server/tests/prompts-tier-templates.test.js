@@ -1,5 +1,7 @@
 'use strict';
 
+const { TEST_MODELS } = require('./test-helpers');
+
 describe('Prompt tier templates', () => {
   let prompts;
   let mockDb;
@@ -47,7 +49,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'ollama',
-      'qwen2.5-coder:7b'
+      TEST_MODELS.SMALL
     );
 
     expect(result).toContain('SMALL MODEL CONSTRAINTS');
@@ -58,7 +60,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'ollama',
-      'qwen2.5-coder:14b'
+      TEST_MODELS.DEFAULT
     );
 
     expect(result).toContain('MEDIUM MODEL GUIDANCE');
@@ -69,7 +71,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'ollama',
-      'qwen3-coder:30b'
+      TEST_MODELS.QUALITY
     );
 
     expect(result).not.toContain('SMALL MODEL CONSTRAINTS');
@@ -80,7 +82,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'ollama',
-      'qwen3-coder:30b'
+      TEST_MODELS.QUALITY
     );
 
     expect(result).toContain('LARGE MODEL CAPABILITIES');
@@ -102,7 +104,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'deepinfra',
-      'qwen2.5-coder:14b'
+      TEST_MODELS.DEFAULT
     );
 
     expect(result).toContain('CLOUD MODEL CAPABILITIES');
@@ -113,7 +115,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'codex',
-      'qwen3-coder:30b'
+      TEST_MODELS.QUALITY
     );
 
     expect(result).toContain('LARGE MODEL CAPABILITIES');
@@ -124,7 +126,7 @@ describe('Prompt tier templates', () => {
     const result = prompts.wrapWithInstructions(
       'Fix a bug in helper.js',
       'ollama',
-      'qwen3-coder:30b'
+      TEST_MODELS.QUALITY
     );
 
     expect(result).not.toContain('CLOUD MODEL CAPABILITIES');

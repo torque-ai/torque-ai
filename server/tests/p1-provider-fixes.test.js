@@ -4,6 +4,8 @@ const { randomUUID } = require('crypto');
 const { EventEmitter } = require('events');
 const http = require('http');
 const taskCore = require('../db/task-core');
+const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 let testDir;
 let db;
@@ -13,7 +15,6 @@ let mockOllamaA;
 let mockOllamaB;
 let mockUrlA;
 let mockUrlB;
-const { setupTestDbOnly, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
 
 function makeDeps(overrides = {}) {
   return {
@@ -53,7 +54,7 @@ function addHost({
   id = randomUUID(),
   name = 'test-host',
   url = 'http://127.0.0.1:11434',
-  model = 'qwen2.5-coder:7b'
+  model = TEST_MODELS.SMALL
 } = {}) {
   hostMgmt.addOllamaHost({ id, name, url, max_concurrent: 4, memory_limit_mb: 8192 });
   hostMgmt.updateOllamaHost(id, {

@@ -5,12 +5,13 @@
  * small model detection, and thinking model detection.
  */
 
+const { TEST_MODELS } = require('./test-helpers');
 const { parseModelSizeB, getModelSizeCategory, isSmallModel, isThinkingModel } = require('../utils/model');
 
 describe('Model Utils', () => {
   describe('parseModelSizeB', () => {
     it('parses colon-prefixed sizes', () => {
-      expect(parseModelSizeB('qwen2.5-coder:32b')).toBe(32);
+      expect(parseModelSizeB(TEST_MODELS.QUALITY)).toBe(32);
       expect(parseModelSizeB('gemma3:4b')).toBe(4);
       expect(parseModelSizeB('qwen3:8b')).toBe(8);
       expect(parseModelSizeB('llama3:70b')).toBe(70);
@@ -57,7 +58,7 @@ describe('Model Utils', () => {
     });
 
     it('returns large for >20B', () => {
-      expect(getModelSizeCategory('qwen2.5-coder:32b')).toBe('large');
+      expect(getModelSizeCategory(TEST_MODELS.QUALITY)).toBe('large');
       expect(getModelSizeCategory('codellama:34b')).toBe('large');
       expect(getModelSizeCategory('llama3:70b')).toBe('large');
     });
@@ -77,7 +78,7 @@ describe('Model Utils', () => {
 
     it('returns false for models >8B', () => {
       expect(isSmallModel('qwen2.5:14b')).toBe(false);
-      expect(isSmallModel('qwen2.5-coder:32b')).toBe(false);
+      expect(isSmallModel(TEST_MODELS.QUALITY)).toBe(false);
     });
 
     it('returns true for models with mini/tiny in name', () => {

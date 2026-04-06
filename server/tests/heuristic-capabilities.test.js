@@ -4,11 +4,14 @@
  * Unit Tests: heuristic-capabilities — model family → capability flags
  */
 
+const { TEST_MODELS: BASE_TEST_MODELS } = require('./test-helpers');
 const {
   getHeuristicCapabilities,
   applyHeuristicCapabilities,
   FAMILY_CAPABILITIES,
 } = require('../discovery/heuristic-capabilities');
+
+const TEST_MODELS = { ...BASE_TEST_MODELS, DEFAULT: 'qwen3-coder:30b' };
 
 // ---------------------------------------------------------------------------
 // Helpers — lightweight in-memory SQLite DB for applyHeuristicCapabilities
@@ -138,11 +141,11 @@ describe('getHeuristicCapabilities', () => {
 // ---------------------------------------------------------------------------
 
 describe('applyHeuristicCapabilities', () => {
-  it('inserts a new row with correct flags for qwen3-coder:30b / qwen3', () => {
+  it(`inserts a new row with correct flags for ${TEST_MODELS.DEFAULT} / qwen3`, () => {
     const db = createTestDb();
-    applyHeuristicCapabilities(db, 'qwen3-coder:30b', 'qwen3');
+    applyHeuristicCapabilities(db, TEST_MODELS.DEFAULT, 'qwen3');
 
-    const row = db._rows.get('qwen3-coder:30b');
+    const row = db._rows.get(TEST_MODELS.DEFAULT);
     expect(row).toBeDefined();
     expect(row.cap_hashline).toBe(1);
     expect(row.cap_agentic).toBe(1);

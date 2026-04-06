@@ -8,6 +8,7 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { TEST_MODELS: BASE_TEST_MODELS } = require('./test-helpers');
 const {
   stuffContext,
   estimateTokens,
@@ -16,6 +17,8 @@ const {
   OPENROUTER_MODEL_BUDGETS: _OPENROUTER_MODEL_BUDGETS,
   CONTEXT_STUFFING_PROVIDERS,
 } = require('../utils/context-stuffing');
+
+const TEST_MODELS = { ...BASE_TEST_MODELS, DEFAULT: 'qwen/qwen3-coder:free' };
 
 let testDir;
 
@@ -227,8 +230,8 @@ describe('getContextBudget', () => {
     expect(getContextBudget('openrouter', null)).toBe(96000);
   });
 
-  it('returns 200K for qwen3-coder on openrouter', () => {
-    expect(getContextBudget('openrouter', 'qwen/qwen3-coder:free')).toBe(200000);
+  it(`returns 200K for ${TEST_MODELS.DEFAULT} on openrouter`, () => {
+    expect(getContextBudget('openrouter', TEST_MODELS.DEFAULT)).toBe(200000);
   });
 
   it('returns 190K for step-3.5-flash on openrouter', () => {
@@ -271,7 +274,7 @@ describe('stuffContext with model-aware budgets', () => {
     })).rejects.toThrow(/context too large/i);
   });
 
-  it('allows same context for qwen3-coder (200K budget)', async () => {
+  it(`allows same context for ${TEST_MODELS.DEFAULT} (200K budget)`, async () => {
     const filePath = path.join(testDir, 'medium.js');
     fs.writeFileSync(filePath, 'x'.repeat(100000));
 
@@ -280,7 +283,7 @@ describe('stuffContext with model-aware budgets', () => {
       workingDirectory: testDir,
       taskDescription: 'task',
       provider: 'openrouter',
-      model: 'qwen/qwen3-coder:free',
+      model: TEST_MODELS.DEFAULT,
     });
 
     expect(result.enrichedDescription).toContain('### Project Context');

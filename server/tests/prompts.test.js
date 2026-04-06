@@ -7,6 +7,10 @@
  * with mocked database config access.
  */
 
+const { TEST_MODELS: BASE_TEST_MODELS } = require('./test-helpers');
+
+const TEST_MODELS = { ...BASE_TEST_MODELS, DEFAULT: 'qwen3-coder:30b' };
+
 describe('Prompts Module', () => {
   let prompts;
   let mockDb;
@@ -271,7 +275,7 @@ describe('Prompts Module', () => {
       const result = prompts.wrapWithInstructions(
         'Fix a bug in helper.js',
         'ollama',
-        'qwen3-coder:30b'
+        TEST_MODELS.DEFAULT
       );
       expect(result).not.toContain('SMALL MODEL CONSTRAINTS');
     });
@@ -359,7 +363,7 @@ describe('Prompts Module', () => {
       const result = prompts.wrapWithInstructions(
         'Fix bug',
         'ollama',
-        'qwen3-coder:30b',
+        TEST_MODELS.DEFAULT,
         { fileContext }
       );
 
@@ -418,7 +422,7 @@ describe('Prompts Module', () => {
       const result = prompts.wrapWithInstructions(
         'Fix bug',
         'ollama',
-        'qwen3-coder:30b',
+        TEST_MODELS.DEFAULT,
         {}
       );
 

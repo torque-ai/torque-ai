@@ -894,10 +894,10 @@ describe('task-core handlers', () => {
       handlers.handleSubmitTask({
         task: 'Budgeted task',
         provider: 'ollama',
-        model: 'qwen2.5-coder:14b',
+        model: TEST_MODELS.DEFAULT,
       });
 
-      expect(mockDb.estimateCost).toHaveBeenCalledWith('Budgeted task', 'qwen2.5-coder:14b');
+      expect(mockDb.estimateCost).toHaveBeenCalledWith('Budgeted task', TEST_MODELS.DEFAULT);
       expect(mockDb.checkBudgetBeforeSubmission).toHaveBeenCalledWith('ollama', 0.25);
     });
 
@@ -1325,7 +1325,7 @@ describe('task-core handlers', () => {
         provider: 'ollama',
         auto_approve: 1,
         priority: 4,
-        model: 'qwen2.5-coder:14b',
+        model: TEST_MODELS.DEFAULT,
       });
 
       expect(mockPolicyEngine.evaluate).toHaveBeenCalledWith({
@@ -1336,7 +1336,7 @@ describe('task-core handlers', () => {
         auto_approve: true,
         priority: 4,
         provider: 'ollama',
-        model: 'qwen2.5-coder:14b',
+        model: TEST_MODELS.DEFAULT,
         metadata: {
           user_provider_override: true,
           intended_provider: 'ollama',

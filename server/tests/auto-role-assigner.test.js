@@ -82,7 +82,7 @@ describe('assignRolesForProvider', () => {
   it('does NOT overwrite an existing role assignment when the model is still alive (status=approved)', () => {
     const db = makeDb();
     insertModel(db, 'ollama', 'gemma3:4b', 4);
-    insertModel(db, 'ollama', 'phi3:3.8b', 3.8);
+    insertModel(db, 'ollama', TEST_MODELS.FAST, 3.8);
     insertRole(db, 'ollama', 'fast', 'gemma3:4b');
 
     const result = assignRolesForProvider(db, 'ollama');
@@ -95,15 +95,15 @@ describe('assignRolesForProvider', () => {
   it('replaces a role if the existing model is no longer in the registry (status=removed)', () => {
     const db = makeDb();
     insertModel(db, 'ollama', 'old-small-model:4b', 4, 'removed');
-    insertModel(db, 'ollama', 'phi3:3.8b', 3.8, 'approved');
+    insertModel(db, 'ollama', TEST_MODELS.FAST, 3.8, 'approved');
     insertRole(db, 'ollama', 'fast', 'old-small-model:4b');
 
     const result = assignRolesForProvider(db, 'ollama');
 
     const fastAssignment = result.find(r => r.role === 'fast');
     expect(fastAssignment).toBeDefined();
-    expect(fastAssignment.model).toBe('phi3:3.8b');
-    expect(getRole(db, 'ollama', 'fast').model_name).toBe('phi3:3.8b');
+    expect(fastAssignment.model).toBe(TEST_MODELS.FAST);
+    expect(getRole(db, 'ollama', 'fast').model_name).toBe(TEST_MODELS.FAST);
   });
 
   it('assigns default role to the largest available model if no default exists', () => {
@@ -123,7 +123,7 @@ describe('assignRolesForProvider', () => {
 
   it('returns a summary array of assignments made: [{role, model, size}]', () => {
     const db = makeDb();
-    insertModel(db, 'ollama', 'phi3:3.8b', 3.8);
+    insertModel(db, 'ollama', TEST_MODELS.FAST, 3.8);
 
     const result = assignRolesForProvider(db, 'ollama');
 

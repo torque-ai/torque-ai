@@ -1,4 +1,5 @@
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const { TEST_MODELS } = require('./test-helpers');
 
 describe('Provider Handlers', () => {
   beforeAll(() => { setupTestDb('provider-handlers'); });
@@ -779,12 +780,12 @@ describe('Provider Handlers', () => {
     });
 
     it('returns rates for a specific model', async () => {
-      const result = await safeTool('get_format_success_rates', { model: 'qwen3-coder:30b' });
+      const result = await safeTool('get_format_success_rates', { model: TEST_MODELS.DEFAULT });
       expect(result.isError).toBeFalsy();
     });
 
     it('shows table headers for specific model', async () => {
-      const result = await safeTool('get_format_success_rates', { model: 'qwen3-coder:30b' });
+      const result = await safeTool('get_format_success_rates', { model: TEST_MODELS.DEFAULT });
       const text = getText(result);
       expect(text).toContain('Format');
     });

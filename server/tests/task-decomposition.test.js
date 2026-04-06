@@ -9,6 +9,7 @@ const {
   getProviderClass,
   shouldDecompose,
 } = mod;
+const { TEST_MODELS } = require('./test-helpers');
 
 // ---------------------------------------------------------------------------
 // PROVIDER_CLASSES shape
@@ -330,12 +331,12 @@ describe('decomposeTask', () => {
   it('locks sub-tasks to parent provider', () => {
     const result = mod.decomposeTask(
       { task: 'refactor server/big-file.js', working_directory: '/tmp/test', files: [] },
-      { provider: 'ollama', model: 'qwen3-coder:30b' },
+      { provider: 'ollama', model: TEST_MODELS.DEFAULT },
       { subtasks: ['Fix function A', 'Fix function B'], version_intent: 'fix', ui_review: false }
     );
     expect(result.tasks).toHaveLength(2);
     expect(result.tasks[0].provider).toBe('ollama');
-    expect(result.tasks[0].model).toBe('qwen3-coder:30b');
+    expect(result.tasks[0].model).toBe(TEST_MODELS.DEFAULT);
     expect(result.tasks[0].version_intent).toBe('fix');
     expect(result.tasks[0].metadata.decomposed).toBe(true);
     expect(result.tasks[0].metadata.ui_review).toBe(false);
