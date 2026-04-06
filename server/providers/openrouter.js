@@ -29,7 +29,7 @@ class OpenRouterProvider extends BaseProvider {
     super({ name: 'openrouter', ...config });
     this.apiKey = config.apiKey || process.env.OPENROUTER_API_KEY;
     this.baseUrl = config.baseUrl || 'https://openrouter.ai/api';
-    this.defaultModel = config.defaultModel || 'arcee-ai/trinity-large-preview:free';
+    this.defaultModel = config.defaultModel || null;
     /** @type {Map<string, number>} model -> cooldown expiry (epoch ms) */
     this._modelCooldowns = new Map();
   }
