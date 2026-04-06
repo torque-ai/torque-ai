@@ -9,12 +9,22 @@ const PACK_PATH = path.join(ARTIFACT_DIR, 'readiness-pack.json');
 
 function readArtifact(name) {
   const p = path.join(ARTIFACT_DIR, name);
-  const raw = fs.readFileSync(p, 'utf8');
-  return JSON.parse(raw);
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    return JSON.parse(raw);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function artifactStatus(name) {
   const data = readArtifact(name);
+  if (!data) {
+    return 'missing';
+  }
   if (name === 'rate-limit-validation.json') {
     return data?.rateLimit?.status || data?.status || 'missing';
   }
@@ -73,6 +83,7 @@ async function main() {
     status: allPass ? 'pass' : 'fail',
   };
 
+  fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
   fs.writeFileSync(PACK_PATH, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   process.stdout.write(`[mcp-readiness-pack] generated ${path.relative(process.cwd(), PACK_PATH)}\n`);
   process.stdout.write(`[mcp-readiness-pack] status=${report.status}\n`);

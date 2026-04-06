@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server/index.js",
     "test": "cd server && npx vitest run",
-    "test:smoke": "cd server && npx vitest run tests/db-core.test.js tests/api-server.test.js tests/safe-env.test.js",
+    "test:smoke": "cd server && npm run test:smoke",
     "lint": "cd server && npx eslint .",
     "build:dashboard": "cd dashboard && npm run build",
     "prepublishOnly": "npm run build:dashboard"

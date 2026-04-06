@@ -3,12 +3,13 @@ const { spawn, spawnSync } = require('node:child_process');
 const path = require('node:path');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
-const BASE_URL = process.env.TORQUE_MCP_GATEWAY_URL
-  || `http://127.0.0.1:${Number.parseInt(process.env.TORQUE_MCP_GATEWAY_PORT, 10) || 3459}`;
+const GATEWAY_PORT = Number.parseInt(process.env.TORQUE_MCP_GATEWAY_PORT, 10) || 3459;
+const BASE_URL = process.env.TORQUE_MCP_GATEWAY_URL || `http://127.0.0.1:${GATEWAY_PORT}`;
 const TARGET_PORTS = [3456, 3457, 3458, 3459];
 const START_TIMEOUT_MS = 20000;
 const HEALTH_POLL_MS = 250;
 const SHUTDOWN_TIMEOUT_MS = 5000;
+const PORT_PROBE_TIMEOUT_MS = 1500;
 
 function normalizeReportPath(rawPath) {
   if (!rawPath) {
@@ -204,7 +205,50 @@ function cleanupConflictedPorts(conflicts) {
   };
 }
 
-function guardPorts() {
+async function probeTorqueEndpoint(port, pathname) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PORT_PROBE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
+      signal: controller.signal,
+    });
+    return response.status === 200;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function getReusableManagedListener(portConflicts, preflight) {
+  for (const conflict of portConflicts) {
+    const reportEntry = preflight.find((entry) => entry.port === conflict.port);
+    if (!reportEntry || reportEntry.managed_pids.length === 0) {
+      continue;
+    }
+
+    if (await probeTorqueEndpoint(conflict.port, '/health')) {
+      return {
+        port: conflict.port,
+        endpoint: '/health',
+        managed_pids: reportEntry.managed_pids,
+      };
+    }
+
+    if (await probeTorqueEndpoint(conflict.port, '/api/status')) {
+      return {
+        port: conflict.port,
+        endpoint: '/api/status',
+        managed_pids: reportEntry.managed_pids,
+      };
+    }
+  }
+
+  return null;
+}
+
+async function guardPorts() {
   const conflicts = getPortConflicts();
   const preflight = splitPidsForReport(conflicts);
 
@@ -213,6 +257,7 @@ function guardPorts() {
       preflight: [],
       cleanup: null,
       post_cleanup: [],
+      reused_existing: false,
     };
   }
 
@@ -220,6 +265,23 @@ function guardPorts() {
   const details = formatPortConflicts(preflight);
   for (const line of details) {
     process.stderr.write(`  - ${line}\n`);
+  }
+
+  const reusable = await getReusableManagedListener(conflicts, preflight);
+  if (reusable) {
+    process.stderr.write(
+      `[mcp-launch-readiness] reusing healthy TORQUE listener on port ${reusable.port} via ${reusable.endpoint}.\n`,
+    );
+
+    return {
+      preflight,
+      cleanup: null,
+      post_cleanup: preflight,
+      reused_existing: true,
+      reused_port: reusable.port,
+      reused_endpoint: reusable.endpoint,
+      reused_managed_pids: reusable.managed_pids,
+    };
   }
 
   const cleanup = cleanupConflictedPorts(conflicts);
@@ -251,6 +313,7 @@ function guardPorts() {
     preflight,
     cleanup,
     post_cleanup: postflight,
+    reused_existing: false,
   };
 }
 
@@ -333,6 +396,7 @@ function writeGitHubStepSummary(report) {
   const dualAgent = checks.dual_agent_smoke;
   const cleanup = report.port_audit?.cleanup || { enabled: false };
   const preflight = report.port_audit?.preflight || [];
+  const reusedExisting = report.reused_existing || false;
 
   const line = (text) => `- ${text}`;
   const statusLabel = report.status === 'pass' ? '✅ PASS' : '❌ FAIL';
@@ -352,6 +416,7 @@ function writeGitHubStepSummary(report) {
     '',
     '## Port Audit',
     line(`preflight_conflicts: ${preflight.length}`),
+    line(`reused_existing: ${reusedExisting}`),
     line(`cleanup_enabled: ${cleanup.enabled}`),
     line(`cleanup_attempted: ${cleanup.attempted || false}`),
     line(`killed_pids: ${(cleanup.killed || []).join(', ') || '<none>'}`),
@@ -368,33 +433,39 @@ async function main() {
   const report = {
     started_at: new Date().toISOString(),
     base_url: BASE_URL,
-    gateway_port: Number.parseInt(process.env.TORQUE_MCP_GATEWAY_PORT, 10) || 3459,
+    gateway_port: GATEWAY_PORT,
+    reused_existing: false,
     status: 'pass',
     checks: {},
   };
 
   let gatewayProcess;
+  let startedGatewayProcess = false;
 
   try {
-    report.port_audit = guardPorts();
+    report.port_audit = await guardPorts();
+    report.reused_existing = Boolean(report.port_audit?.reused_existing);
 
-    gatewayProcess = spawn(process.execPath, ['index.js'], {
-      cwd: ROOT_DIR,
-      env: {
-        ...process.env,
-        TORQUE_ENABLE_MCP_GATEWAY: '1',
-        TORQUE_MCP_GATEWAY_PORT: process.env.TORQUE_MCP_GATEWAY_PORT || '3459',
-      },
-      stdio: 'pipe',
-      windowsHide: true,
-    });
+    if (!report.reused_existing) {
+      gatewayProcess = spawn(process.execPath, ['index.js'], {
+        cwd: ROOT_DIR,
+        env: {
+          ...process.env,
+          TORQUE_ENABLE_MCP_GATEWAY: '1',
+          TORQUE_MCP_GATEWAY_PORT: process.env.TORQUE_MCP_GATEWAY_PORT || '3459',
+        },
+        stdio: 'pipe',
+        windowsHide: true,
+      });
+      startedGatewayProcess = true;
+    }
 
     const healthy = await waitForHealth();
     if (!healthy) {
       report.status = 'fail';
       throw new Error(`MCP gateway did not become ready at ${BASE_URL}`);
     }
-    report.health = { ready: true };
+    report.health = { ready: true, reused_existing: report.reused_existing };
 
     const readinessPack = runScript('scripts/mcp-readiness-pack.js');
     report.checks.readiness_pack = readinessPack;
@@ -412,7 +483,9 @@ async function main() {
 
     process.stdout.write('[mcp-launch-readiness] PASS full gateway readiness checks completed.\n');
   } finally {
-    await stopServer(gatewayProcess);
+    if (startedGatewayProcess) {
+      await stopServer(gatewayProcess);
+    }
     report.ended_at = new Date().toISOString();
 
     if (!report.checks.readiness_pack) {

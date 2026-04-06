@@ -24,7 +24,7 @@
     "ci:live-rest-local:async-concurrency": "node scripts/run-live-rest-local.js --with-async-defaults --with-concurrency-defaults",
     "ci:live-rest-local:async-concurrency:codex-claude": "node scripts/run-live-rest-local.js --with-async-defaults --with-concurrency-defaults-codex-claude",
     "test:stress": "vitest run --reporter=verbose tests/chaos-*.test.js",
-    "test:smoke": "vitest run --reporter=verbose tests/db-core.test.js tests/task-operations.test.js tests/api-server.test.js",
+    "test:smoke": "vitest run --reporter=verbose tests/task-operations.test.js tests/api-server.test.js tests/safe-env.test.js",
     "test:watch": "vitest",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
