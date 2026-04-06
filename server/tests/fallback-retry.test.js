@@ -1170,9 +1170,10 @@ describe('fallback-retry module', () => {
 
       expect(ok).toBe(true);
       const updated = taskCore.getTask(task.id);
-      expect(updated.model).toBeNull();
-      expect(updated.provider).toBe('codex');
-      expect(updated.error_output).toContain('Escalated from ollama');
+      // CODER_DEFAULT was already tried, so findNextHashlineModel picks CODER_QUALITY
+      expect(updated.model).toBe(TEST_MODELS.CODER_QUALITY);
+      expect(updated.provider).toBe('ollama');
+      expect(updated.error_output).toContain(`[Hashline-Local] Trying model ${TEST_MODELS.CODER_QUALITY}`);
     });
 
     it('falls back to a larger model when only one host is available', () => {
