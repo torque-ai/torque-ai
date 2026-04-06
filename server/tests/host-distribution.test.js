@@ -25,8 +25,11 @@ describe('Host Distribution & Load Balancing', () => {
   beforeEach(() => {
     // Clear hosts and tasks between tests to prevent cross-test leakage
     const raw = db.getDbInstance();
-    raw.prepare("DELETE FROM ollama_hosts").run();
+    // Temporarily disable FK checks — child tables may reference tasks from prior tests
+    raw.pragma('foreign_keys = OFF');
     raw.prepare("DELETE FROM tasks").run();
+    raw.prepare("DELETE FROM ollama_hosts").run();
+    raw.pragma('foreign_keys = ON');
     hostCounter = 0;
   });
 
