@@ -228,52 +228,6 @@ describe('peek capture handlers', () => {
   });
 
   describe('helpers', () => {
-    it('applyAnnotations returns the original image when there are no annotations', async () => {
-      const imageBuffer = Buffer.from('raw-image');
-
-      const result = await capture.applyAnnotations(imageBuffer, []);
-
-      expect(result).toBe(imageBuffer);
-      expect(mockSharp).not.toHaveBeenCalled();
-    });
-
-    it('applyAnnotations renders SVG overlays and escapes labels', async () => {
-      sharpState.outputBuffer = Buffer.from('annotated-output');
-
-      const result = await capture.applyAnnotations(Buffer.from('raw-image'), [
-        { type: 'rect', x: 5, y: 10, w: 15, h: 20, color: 'blue', label: '<bad & "quote">' },
-        { type: 'arrow', from: [1, 2], to: [30, 40], label: 'Go' },
-      ]);
-
-      expect(result).toEqual(Buffer.from('annotated-output'));
-      expect(mockSharp).toHaveBeenCalledTimes(2);
-      const svg = sharpCalls[1].layers[0].input.toString('utf8');
-      expect(svg).toContain('<rect');
-      expect(svg).toContain('<line');
-      expect(svg).toContain('&lt;bad &amp; &quot;quote&quot;&gt;');
-    });
-
-    it('getOcrWorker caches the worker instance', async () => {
-      const firstWorker = await capture.getOcrWorker();
-      const secondWorker = await capture.getOcrWorker();
-
-      expect(firstWorker).toBe(mockTesseractWorker);
-      expect(secondWorker).toBe(firstWorker);
-      expect(mockTesseract.createWorker).toHaveBeenCalledTimes(1);
-      expect(mockTesseract.createWorker).toHaveBeenCalledWith('eng');
-    });
-
-    it('extractText trims OCR output', async () => {
-      mockTesseractWorker.recognize.mockResolvedValueOnce({
-        data: { text: '  Hello world  \n' },
-      });
-
-      const result = await capture.extractText(Buffer.from('image-bytes'));
-
-      expect(result).toBe('Hello world');
-      expect(mockTesseractWorker.recognize).toHaveBeenCalledWith(Buffer.from('image-bytes'));
-    });
-
     it('loadRegions returns an empty object for missing or invalid files', () => {
       expect(capture.loadRegions('screen')).toEqual({});
 
@@ -584,8 +538,8 @@ describe('peek capture handlers', () => {
       mockShared.peekHttpGetWithRetry.mockResolvedValueOnce({
         data: {
           projects: [
-            { name: 'DeskApp', type: 'electron', executable: '/home/dev/DeskApp/dist/DeskApp.exe' },
-            { name: 'WebApp', type: 'vite', path: '/home/dev/WebApp' },
+            { name: 'DeskApp', type: 'electron', executable: '/home/<user>/DeskApp/dist/DeskApp.exe' },
+            { name: 'WebApp', type: 'vite', path: '/home/<user>/WebApp' },
           ],
         },
       });
@@ -594,8 +548,8 @@ describe('peek capture handlers', () => {
       const text = getTextBlocks(result).join('\n');
 
       expect(text).toContain('| DeskApp | electron | DeskApp.exe |');
-      expect(text).toContain('- **DeskApp:** `/home/dev/DeskApp/dist/DeskApp.exe`');
-      expect(text).toContain('- **WebApp:** `/home/dev/WebApp` _(use build: true)_');
+      expect(text).toContain('- **DeskApp:** `/home/<user>/DeskApp/dist/DeskApp.exe`');
+      expect(text).toContain('- **WebApp:** `/home/<user>/WebApp` _(use build: true)_');
     });
 
     it('returns an internal error when discovery fails', async () => {
@@ -983,18 +937,6 @@ describe('peek capture handlers', () => {
       expect(text).toContain('**OCR Assert:** "loaded"');
       expect(text).toContain('PASS');
       expect(mockTesseractWorker.recognize).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('applyAnnotations - edge cases', () => {
-    it('throws when sharp cannot parse the source image buffer', async () => {
-      mockSharp.mockImplementationOnce(() => {
-        throw new Error('invalid buffer');
-      });
-
-      await expect(
-        capture.applyAnnotations(Buffer.from('bad-image'), [{ type: 'rect', x: 1, y: 2, w: 3, h: 4 }])
-      ).rejects.toThrow('invalid buffer');
     });
   });
 

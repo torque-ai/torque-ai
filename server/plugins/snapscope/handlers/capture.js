@@ -3,7 +3,6 @@ const fs = require('fs');
 const os = require('os');
 const { ErrorCodes, makeError } = require('../../../handlers/shared');
 const {
-  escapeXml,
   formatBytes,
   getPeekTargetKey,
   peekHttpGetUrl,
@@ -13,101 +12,6 @@ const {
   resolvePeekHost,
 } = require('./shared');
 const logger = require('../../../logger').child({ component: 'peek-handlers' });
-
-let _sharp = null;
-function getSharp() {
-  if (!_sharp) {
-    try { _sharp = require('sharp'); }
-    catch { throw new Error('sharp is not installed. Install it with: npm install sharp'); }
-  }
-  return _sharp;
-}
-
-let _Tesseract = null;
-function getTesseract() {
-  if (!_Tesseract) {
-    try { _Tesseract = require('tesseract.js'); }
-    catch { throw new Error('tesseract.js is not installed. Install it with: npm install tesseract.js'); }
-  }
-  return _Tesseract;
-}
-
-async function applyAnnotations(imageBuffer, annotations) {
-  if (!annotations || annotations.length === 0) return imageBuffer;
-
-  const sharp = getSharp();
-  const metadata = await sharp(imageBuffer).metadata();
-  const { width, height } = metadata;
-  const COLORS = {
-    red: 'rgba(255,0,0,0.8)',
-    yellow: 'rgba(255,255,0,0.8)',
-    green: 'rgba(0,255,0,0.8)',
-    blue: 'rgba(0,100,255,0.8)'
-  };
-
-  const svgParts = [];
-
-  for (const ann of annotations) {
-    const color = COLORS[ann.color] || COLORS.red;
-
-    if (ann.type === 'rect') {
-      svgParts.push(
-        `<rect x="${ann.x}" y="${ann.y}" width="${ann.w}" height="${ann.h}" fill="none" stroke="${color}" stroke-width="3"/>`
-      );
-      if (ann.label) {
-        svgParts.push(
-          `<text x="${ann.x}" y="${ann.y - 5}" fill="${color}" font-size="16" font-family="sans-serif" font-weight="bold">${escapeXml(ann.label)}</text>`
-        );
-      }
-    } else if (ann.type === 'circle') {
-      svgParts.push(
-        `<circle cx="${ann.x}" cy="${ann.y}" r="${ann.r}" fill="none" stroke="${color}" stroke-width="3"/>`
-      );
-      if (ann.label) {
-        svgParts.push(
-          `<text x="${ann.x + ann.r + 5}" y="${ann.y}" fill="${color}" font-size="16" font-family="sans-serif" font-weight="bold">${escapeXml(ann.label)}</text>`
-        );
-      }
-    } else if (ann.type === 'arrow' && ann.from && ann.to) {
-      const [x1, y1] = ann.from;
-      const [x2, y2] = ann.to;
-      svgParts.push(
-        `<defs><marker id="ah" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="${color}"/></marker></defs>`
-      );
-      svgParts.push(
-        `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="3" marker-end="url(#ah)"/>`
-      );
-      if (ann.label) {
-        const mx = (x1 + x2) / 2;
-        const my = (y1 + y2) / 2 - 10;
-        svgParts.push(
-          `<text x="${mx}" y="${my}" fill="${color}" font-size="16" font-family="sans-serif" font-weight="bold">${escapeXml(ann.label)}</text>`
-        );
-      }
-    }
-  }
-
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${svgParts.join('')}</svg>`;
-  return getSharp()(imageBuffer)
-    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-    .toBuffer();
-}
-
-let _tesseractWorker = null;
-
-async function getOcrWorker() {
-  if (!_tesseractWorker) {
-    const Tesseract = getTesseract();
-    _tesseractWorker = await Tesseract.createWorker('eng');
-  }
-  return _tesseractWorker;
-}
-
-async function extractText(imageBuffer) {
-  const worker = await getOcrWorker();
-  const { data: { text } } = await worker.recognize(imageBuffer);
-  return text.trim();
-}
 
 function getRegionsPath(targetKey) {
   return path.join(os.homedir(), '.peek-ui', 'regions', 'default', `${targetKey}.json`);
@@ -287,12 +191,9 @@ async function handlePeekUi(args) {
     }
 
     const imageBuffer = Buffer.from(peekData.image, 'base64');
+    // Client-side annotations removed. Use peek_server's annotate=true parameter
+    // or POST /diagnose with annotate=true for server-side annotation.
     let finalImageBuffer = imageBuffer;
-    if (args.annotations && args.annotations.length > 0) {
-      finalImageBuffer = await applyAnnotations(imageBuffer, args.annotations);
-      peekData.image = finalImageBuffer.toString('base64');
-      peekData.size_bytes = finalImageBuffer.length;
-    }
 
     const baselineRoot = path.join(os.homedir(), '.peek-ui', 'baselines', 'default');
     const lastRoot = path.join(os.homedir(), '.peek-ui', 'last', 'default');
@@ -371,7 +272,12 @@ async function handlePeekUi(args) {
     let ocrAssertResult = null;
     if (args.ocr || args.ocr_assert) {
       try {
-        ocrText = await extractText(finalImageBuffer);
+        const ocrPayload = {};
+        if (args.process) ocrPayload.process = args.process;
+        else if (args.title) ocrPayload.title = args.title;
+        else if (args.hwnd) ocrPayload.hwnd = args.hwnd;
+        const ocrResult = await peekHttpPostWithRetry(hostUrl + '/ocr', ocrPayload, timeoutMs);
+        ocrText = (ocrResult.data && ocrResult.data.text) ? ocrResult.data.text.trim() : '';
       } catch (ocrErr) {
         ocrText = `[OCR failed: ${ocrErr.message}]`;
       }
@@ -1102,9 +1008,6 @@ async function handlePeekBuildAndOpen(args) {
 
 function createPeekCaptureHandlers() {
   return {
-    applyAnnotations,
-    getOcrWorker,
-    extractText,
     getRegionsPath,
     loadRegions,
     saveRegion,
@@ -1123,9 +1026,6 @@ function createPeekCaptureHandlers() {
 }
 
 module.exports = {
-  applyAnnotations,
-  getOcrWorker,
-  extractText,
   getRegionsPath,
   loadRegions,
   saveRegion,

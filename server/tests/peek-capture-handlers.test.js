@@ -202,54 +202,6 @@ describe('peek/capture exported handlers', () => {
   });
 
   describe('helpers', () => {
-    it('returns the original image when annotations are empty', async () => {
-      const imageBuffer = Buffer.from('raw-image');
-
-      const result = await handlers.applyAnnotations(imageBuffer, []);
-
-      expect(result).toBe(imageBuffer);
-      expect(mockSharp).not.toHaveBeenCalled();
-    });
-
-    it('renders SVG overlays for rect, circle, and arrow annotations', async () => {
-      sharpState.outputBuffer = Buffer.from('annotated-output');
-
-      const result = await handlers.applyAnnotations(Buffer.from('raw-image'), [
-        { type: 'rect', x: 5, y: 10, w: 15, h: 20, color: 'blue', label: '<bad & "quote">' },
-        { type: 'circle', x: 40, y: 50, r: 8, color: 'green', label: 'Dot' },
-        { type: 'arrow', from: [1, 2], to: [30, 40], label: 'Go' },
-      ]);
-
-      expect(result).toEqual(Buffer.from('annotated-output'));
-      expect(mockSharp).toHaveBeenCalledTimes(2);
-      const svg = sharpCalls[1].layers[0].input.toString('utf8');
-      expect(svg).toContain('<rect');
-      expect(svg).toContain('<circle');
-      expect(svg).toContain('<line');
-      expect(svg).toContain('&lt;bad &amp; &quot;quote&quot;&gt;');
-    });
-
-    it('caches the OCR worker across calls', async () => {
-      const firstWorker = await handlers.getOcrWorker();
-      const secondWorker = await handlers.getOcrWorker();
-
-      expect(firstWorker).toBe(mockTesseractWorker);
-      expect(secondWorker).toBe(firstWorker);
-      expect(mockTesseract.createWorker).toHaveBeenCalledTimes(1);
-      expect(mockTesseract.createWorker).toHaveBeenCalledWith('eng');
-    });
-
-    it('extracts and trims OCR text', async () => {
-      mockTesseractWorker.recognize.mockResolvedValueOnce({
-        data: { text: '  Hello world  \n' },
-      });
-
-      const result = await handlers.extractText(Buffer.from('image-bytes'));
-
-      expect(result).toBe('Hello world');
-      expect(mockTesseractWorker.recognize).toHaveBeenCalledWith(Buffer.from('image-bytes'));
-    });
-
     it('builds region file paths under the mocked home directory', () => {
       expect(handlers.getRegionsPath('screen')).toBe(
         path.join(tempHomeDir, '.peek-ui', 'regions', 'default', 'screen.json')
@@ -751,8 +703,8 @@ describe('peek/capture exported handlers', () => {
       mocks.peekShared.peekHttpGetWithRetry.mockResolvedValueOnce({
         data: {
           projects: [
-            { name: 'DeskApp', type: 'electron', executable: '/home/dev/DeskApp/dist/DeskApp.exe' },
-            { name: 'WebApp', type: 'vite', path: '/home/dev/WebApp' },
+            { name: 'DeskApp', type: 'electron', executable: '/home/<user>/DeskApp/dist/DeskApp.exe' },
+            { name: 'WebApp', type: 'vite', path: '/home/<user>/WebApp' },
           ],
         },
       });
@@ -760,8 +712,8 @@ describe('peek/capture exported handlers', () => {
       const result = await handlers.handlePeekDiscover({});
 
       expect(getText(result)).toContain('| DeskApp | electron | DeskApp.exe |');
-      expect(getText(result)).toContain('- **DeskApp:** `/home/dev/DeskApp/dist/DeskApp.exe`');
-      expect(getText(result)).toContain('- **WebApp:** `/home/dev/WebApp` _(use build: true)_');
+      expect(getText(result)).toContain('- **DeskApp:** `/home/<user>/DeskApp/dist/DeskApp.exe`');
+      expect(getText(result)).toContain('- **WebApp:** `/home/<user>/WebApp` _(use build: true)_');
     });
 
     it('returns a friendly empty state when no projects are discovered', async () => {
