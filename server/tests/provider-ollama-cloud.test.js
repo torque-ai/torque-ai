@@ -96,7 +96,7 @@ describe('OllamaCloudProvider', () => {
       expect(provider.name).toBe('ollama-cloud');
       expect(provider.apiKey).toBe('cloud-key');
       expect(provider.baseUrl).toBe('https://api.ollama.com');
-      expect(provider.defaultModel).toBe('qwen3-coder:480b');
+      expect(provider.defaultModel).toBeNull();
       expect(provider.activeTasks).toBe(0);
       expect(provider.maxConcurrent).toBe(3);
     });
@@ -206,7 +206,7 @@ describe('OllamaCloudProvider', () => {
 
       const body = JSON.parse(options.body);
       expect(body).toEqual({
-        model: 'qwen3-coder:480b',
+        model: null,
         messages: [{
           role: 'user',
           content: 'Files: src/a.js, src/b.js\n\nWorking directory: /repo\n\nImplement parser',
@@ -226,7 +226,7 @@ describe('OllamaCloudProvider', () => {
           input_tokens: 12,
           output_tokens: 4,
           cost: 0,
-          model: 'qwen3-coder:480b',
+          model: null,
         }),
       }));
       expect(result.usage.duration_ms).toBeGreaterThanOrEqual(0);
@@ -315,7 +315,7 @@ describe('OllamaCloudProvider', () => {
       expect(result.usage.input_tokens).toBe(0);
       expect(result.usage.output_tokens).toBe(0);
       expect(result.usage.cost).toBe(0);
-      expect(result.usage.model).toBe('qwen3-coder:480b');
+      expect(result.usage.model).toBeNull();
     });
 
     it('surfaces non-OK submit responses with the response text', async () => {
@@ -477,7 +477,7 @@ describe('OllamaCloudProvider', () => {
 
       const bodyPayload = JSON.parse(options.body);
       expect(bodyPayload).toEqual({
-        model: 'qwen3-coder:480b',
+        model: null,
         messages: [{
           role: 'user',
           content: 'Files: src/a.js\n\nWorking directory: /repo\n\nstream task',
@@ -497,7 +497,7 @@ describe('OllamaCloudProvider', () => {
           input_tokens: 9,
           output_tokens: 4,
           cost: 0,
-          model: 'qwen3-coder:480b',
+          model: null,
         }),
       }));
       expect(chunks).toEqual(['Hello']);
@@ -818,6 +818,18 @@ describe('OllamaCloudProvider', () => {
     });
 
     it('falls back to defaultModel when the health payload has no models array', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ unexpected: true }),
+      });
+
+      await expect(provider.checkHealth()).resolves.toEqual({
+        available: true,
+        models: [{ model_name: null }],
+      });
+    });
+
+    it('falls back to configured defaultModel when the health payload has no models array', async () => {
       const customProvider = new OllamaCloudProvider({
         apiKey: 'cloud-key',
         defaultModel: 'glm-5',
@@ -892,33 +904,23 @@ describe('OllamaCloudProvider', () => {
       await expect(provider.listModels()).resolves.toEqual(['glm-5', 'kimi-k2.5']);
     });
 
-    it('falls back to the static catalog when health is unavailable', async () => {
+    it('returns empty array when health is unavailable', async () => {
       vi.spyOn(provider, 'checkHealth').mockResolvedValue({
         available: false,
         models: [],
         error: 'offline',
       });
 
-      await expect(provider.listModels()).resolves.toEqual([
-        'qwen3-coder:480b', 'deepseek-v3.1:671b', 'deepseek-v3.2',
-        'gpt-oss:120b', 'gpt-oss:20b', 'kimi-k2:1t', 'kimi-k2.5',
-        'qwen3-coder-next', 'qwen3-next:80b', 'devstral-2:123b',
-        'mistral-large-3:675b', 'glm-5',
-      ]);
+      await expect(provider.listModels()).resolves.toEqual([]);
     });
 
-    it('falls back to the static catalog when health returns no models', async () => {
+    it('returns empty array when health returns no models', async () => {
       vi.spyOn(provider, 'checkHealth').mockResolvedValue({
         available: true,
         models: [],
       });
 
-      await expect(provider.listModels()).resolves.toEqual([
-        'qwen3-coder:480b', 'deepseek-v3.1:671b', 'deepseek-v3.2',
-        'gpt-oss:120b', 'gpt-oss:20b', 'kimi-k2:1t', 'kimi-k2.5',
-        'qwen3-coder-next', 'qwen3-next:80b', 'devstral-2:123b',
-        'mistral-large-3:675b', 'glm-5',
-      ]);
+      await expect(provider.listModels()).resolves.toEqual([]);
     });
   });
 });

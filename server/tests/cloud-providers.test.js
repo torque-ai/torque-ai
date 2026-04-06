@@ -82,7 +82,7 @@ const providers = [
     Class: DeepInfraProvider,
     envKey: 'DEEPINFRA_API_KEY',
     expectedName: 'deepinfra',
-    expectedDefaultModel: 'Qwen/Qwen2.5-72B-Instruct',
+    expectedDefaultModel: null,
     expectedBaseUrl: 'https://api.deepinfra.com/v1/openai',
     apiFormat: 'openai',
   },
@@ -91,7 +91,7 @@ const providers = [
     Class: HyperbolicProvider,
     envKey: 'HYPERBOLIC_API_KEY',
     expectedName: 'hyperbolic',
-    expectedDefaultModel: 'Qwen/Qwen2.5-72B-Instruct',
+    expectedDefaultModel: null,
     expectedBaseUrl: 'https://api.hyperbolic.xyz/v1',
     apiFormat: 'openai',
   },
@@ -171,18 +171,10 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
   });
 
   describe('listModels', () => {
-    it('returns non-empty array of strings', async () => {
+    it('returns an array', async () => {
       const p = new Class();
       const models = await p.listModels();
       expect(Array.isArray(models)).toBe(true);
-      expect(models.length).toBeGreaterThanOrEqual(1);
-      models.forEach(m => expect(typeof m).toBe('string'));
-    });
-
-    it('includes default model', async () => {
-      const p = new Class();
-      const models = await p.listModels();
-      expect(models).toContain(expectedDefaultModel);
     });
   });
 

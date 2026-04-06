@@ -32,8 +32,8 @@ describe('OpenRouterProvider', () => {
       else delete process.env.OPENROUTER_API_KEY;
     });
 
-    it('uses trinity-large-preview:free as default model', () => {
-      expect(provider.defaultModel).toBe('arcee-ai/trinity-large-preview:free');
+    it('uses null as default model when not configured', () => {
+      expect(provider.defaultModel).toBeNull();
     });
 
     it('accepts custom defaultModel', () => {
@@ -361,23 +361,9 @@ describe('OpenRouterProvider', () => {
   });
 
   describe('listModels', () => {
-    it('returns an array of free models', async () => {
+    it('returns empty array', async () => {
       const models = await provider.listModels();
-      expect(models.length).toBeGreaterThan(5);
-      for (const m of models) {
-        expect(m).toMatch(/:free$/);
-      }
-    });
-
-    it('includes qwen3-coder:free in model list', async () => {
-      const models = await provider.listModels();
-      expect(models).toContain('qwen/qwen3-coder:free');
-    });
-
-    it('does not include removed models', async () => {
-      const models = await provider.listModels();
-      expect(models).not.toContain('openai/gpt-oss-120b:free');
-      expect(models).not.toContain('openai/gpt-oss-20b:free');
+      expect(models).toEqual([]);
     });
   });
 
@@ -419,29 +405,21 @@ describe('OpenRouterProvider', () => {
   });
 
   describe('model fallback', () => {
-    it('exports FALLBACK_MODELS array', () => {
+    it('exports FALLBACK_MODELS as empty array', () => {
       expect(Array.isArray(FALLBACK_MODELS)).toBe(true);
-      expect(FALLBACK_MODELS.length).toBeGreaterThan(5);
-      for (const m of FALLBACK_MODELS) {
-        expect(m).toMatch(/:free$/);
-      }
+      expect(FALLBACK_MODELS.length).toBe(0);
     });
 
     it('_getFallbackCandidates puts requested model first', () => {
       const candidates = provider._getFallbackCandidates('google/gemma-3-12b-it:free');
       expect(candidates[0]).toBe('google/gemma-3-12b-it:free');
-      expect(candidates.length).toBeGreaterThan(1);
-    });
-
-    it('_getFallbackCandidates skips cooled-down models', () => {
-      provider._cooldownModel('arcee-ai/trinity-large-preview:free', 300);
-      const candidates = provider._getFallbackCandidates('google/gemma-3-12b-it:free');
-      expect(candidates).not.toContain('arcee-ai/trinity-large-preview:free');
+      // With empty FALLBACK_MODELS, only the requested model is returned
+      expect(candidates.length).toBe(1);
     });
 
     it('_getFallbackCandidates does not duplicate requested model', () => {
-      const candidates = provider._getFallbackCandidates('arcee-ai/trinity-large-preview:free');
-      const count = candidates.filter(m => m === 'arcee-ai/trinity-large-preview:free').length;
+      const candidates = provider._getFallbackCandidates('some-model:free');
+      const count = candidates.filter(m => m === 'some-model:free').length;
       expect(count).toBe(1);
     });
 
@@ -531,39 +509,13 @@ describe('OpenRouterProvider', () => {
     });
 
     it('cooldowns persist across requests', async () => {
-      // Requested model 429s, all fallbacks cooled down except gemma-3-12b
-      let _callCount = 0;
-      vi.stubGlobal('fetch', vi.fn().mockImplementation((url, opts) => {
-        _callCount++;
-        const body = JSON.parse(opts.body);
-        if (body.model === provider.defaultModel) {
-          // Requested model: 429
-          return Promise.resolve({
-            ok: false, status: 429,
-            text: () => Promise.resolve('rate-limited'),
-            headers: { get: () => null },
-          });
-        }
-        // Any fallback: success
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({
-            choices: [{ message: { content: 'ok' } }],
-            usage: { total_tokens: 5 },
-          }),
-        });
-      }));
+      // With empty FALLBACK_MODELS, cooldown tracking still works
+      provider._cooldownModel('model-a', 300);
+      expect(provider._isModelCooledDown('model-a')).toBe(true);
 
-      // Cool down all fallback models except gemma-3-12b
-      for (const m of FALLBACK_MODELS) {
-        if (m !== 'google/gemma-3-12b-it:free' && m !== provider.defaultModel) {
-          provider._cooldownModel(m, 300);
-        }
-      }
-
-      const result = await provider.submit('test');
-      // Requested model 429'd, only gemma-3-12b was available as fallback
-      expect(result.usage.model).toBe('google/gemma-3-12b-it:free');
+      // Set expiry to the past
+      provider._modelCooldowns.set('model-a', Date.now() - 1000);
+      expect(provider._isModelCooledDown('model-a')).toBe(false);
     });
   });
 });

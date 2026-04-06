@@ -129,7 +129,7 @@ describe('OllamaCloudProvider', () => {
 
       expect(envProvider.apiKey).toBe('env-cloud-key');
       expect(envProvider.baseUrl).toBe('https://api.ollama.com');
-      expect(envProvider.defaultModel).toBe('qwen3-coder:480b');
+      expect(envProvider.defaultModel).toBeNull();
     });
   });
 
@@ -144,6 +144,7 @@ describe('OllamaCloudProvider', () => {
     });
 
     it('posts to cloud chat and normalizes usage from the response', async () => {
+      provider = new OllamaCloudProvider({ apiKey: 'test-cloud-key', defaultModel: 'qwen3-coder:480b' });
       globalThis.fetch.mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -256,7 +257,7 @@ describe('OllamaCloudProvider', () => {
           input_tokens: 0,
           output_tokens: 0,
           cost: 0,
-          model: 'qwen3-coder:480b',
+          model: null,
         },
       });
     });
@@ -561,7 +562,7 @@ describe('OllamaCloudProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: [{ model_name: 'qwen3-coder:480b' }],
+        models: [{ model_name: null }],
       });
     });
 
@@ -591,18 +592,13 @@ describe('OllamaCloudProvider', () => {
       });
     });
 
-    it('returns health models when available and falls back to the static catalog otherwise', async () => {
+    it('returns health models when available and empty array otherwise', async () => {
       vi.spyOn(provider, 'checkHealth')
         .mockResolvedValueOnce({ available: true, models: ['glm-5', 'kimi-k2.5'] })
         .mockResolvedValueOnce({ available: false, models: [], error: 'offline' });
 
       await expect(provider.listModels()).resolves.toEqual(['glm-5', 'kimi-k2.5']);
-      await expect(provider.listModels()).resolves.toEqual([
-        'qwen3-coder:480b', 'deepseek-v3.1:671b', 'deepseek-v3.2',
-        'gpt-oss:120b', 'gpt-oss:20b', 'kimi-k2:1t', 'kimi-k2.5',
-        'qwen3-coder-next', 'qwen3-next:80b', 'devstral-2:123b',
-        'mistral-large-3:675b', 'glm-5',
-      ]);
+      await expect(provider.listModels()).resolves.toEqual([]);
     });
   });
 });

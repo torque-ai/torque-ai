@@ -101,7 +101,7 @@ describe('DeepInfraProvider', () => {
     it('sets name, baseUrl, and default model defaults', () => {
       expect(provider.name).toBe('deepinfra');
       expect(provider.baseUrl).toBe('https://api.deepinfra.com/v1/openai');
-      expect(provider.defaultModel).toBe('Qwen/Qwen2.5-72B-Instruct');
+      expect(provider.defaultModel).toBeNull();
     });
 
     it('loads the API key from the environment when config key is missing', () => {
@@ -184,14 +184,8 @@ describe('DeepInfraProvider', () => {
   });
 
   describe('listModels', () => {
-    it('returns the static DeepInfra model list', async () => {
-      await expect(provider.listModels()).resolves.toEqual([
-        'Qwen/Qwen2.5-72B-Instruct',
-        'meta-llama/Llama-3.1-70B-Instruct',
-        'meta-llama/Llama-3.1-405B-Instruct',
-        'deepseek-ai/DeepSeek-R1',
-        'Qwen/Qwen2.5-Coder-32B-Instruct',
-      ]);
+    it('returns empty array', async () => {
+      await expect(provider.listModels()).resolves.toEqual([]);
     });
   });
 
@@ -239,7 +233,7 @@ describe('DeepInfraProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: [{ model_name: 'Qwen/Qwen2.5-72B-Instruct' }],
+        models: [{ model_name: null }],
       });
     });
 
@@ -310,7 +304,7 @@ describe('DeepInfraProvider', () => {
         signal: expect.any(AbortSignal),
       }));
       expect(body).toEqual({
-        model: 'Qwen/Qwen2.5-72B-Instruct',
+        model: null,
         messages: [{
           role: 'user',
           content: 'Files: src/index.js\n\nWorking directory: /repo\n\nAnalyze module',
@@ -329,7 +323,7 @@ describe('DeepInfraProvider', () => {
       await provider.submit('task', null, {});
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      expect(body.model).toBe('Qwen/Qwen2.5-72B-Instruct');
+      expect(body.model).toBeNull();
       expect(body.max_tokens).toBe(4096);
       expect(body.temperature).toBeUndefined();
     });
@@ -371,7 +365,7 @@ describe('DeepInfraProvider', () => {
       expect(result.usage.input_tokens).toBe(0);
       expect(result.usage.output_tokens).toBe(0);
       expect(result.usage.cost).toBe(0);
-      expect(result.usage.model).toBe('Qwen/Qwen2.5-72B-Instruct');
+      expect(result.usage.model).toBeNull();
     });
 
     it.each([401, 403])('builds an auth-aware error message for %i responses', async (status) => {
@@ -539,7 +533,7 @@ describe('DeepInfraProvider', () => {
         signal: expect.any(AbortSignal),
       }));
       expect(requestBody).toEqual({
-        model: 'Qwen/Qwen2.5-72B-Instruct',
+        model: null,
         messages: [{ role: 'user', content: 'task' }],
         max_tokens: 4096,
         stream: true,

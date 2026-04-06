@@ -116,7 +116,7 @@ describe('OpenRouterProvider', () => {
       expect(provider.name).toBe('openrouter');
       expect(provider.apiKey).toBe('openrouter-key');
       expect(provider.baseUrl).toBe('https://openrouter.ai/api');
-      expect(provider.defaultModel).toBe('arcee-ai/trinity-large-preview:free');
+      expect(provider.defaultModel).toBeNull();
       expect(provider.maxConcurrent).toBe(3);
       expect(provider.activeTasks).toBe(0);
       expect(provider.hasCapacity()).toBe(true);
@@ -154,19 +154,8 @@ describe('OpenRouterProvider', () => {
   });
 
   describe('listModels', () => {
-    it('returns the static OpenRouter quota model list', async () => {
-      await expect(provider.listModels()).resolves.toEqual([
-        'qwen/qwen3-coder:free',
-        'qwen/qwen3-next-80b-a3b-instruct:free',
-        'stepfun/step-3.5-flash:free',
-        'nvidia/nemotron-3-nano-30b-a3b:free',
-        'nousresearch/hermes-3-llama-3.1-405b:free',
-        'arcee-ai/trinity-large-preview:free',
-        'meta-llama/llama-3.3-70b-instruct:free',
-        'mistralai/mistral-small-3.1-24b-instruct:free',
-        'google/gemma-3-27b-it:free',
-        'google/gemma-3-12b-it:free',
-      ]);
+    it('returns empty array', async () => {
+      await expect(provider.listModels()).resolves.toEqual([]);
     });
   });
 
@@ -212,7 +201,7 @@ describe('OpenRouterProvider', () => {
     describe('fallback helpers', () => {
       it('exports the fallback model list and default cooldown constant', () => {
         expect(Array.isArray(FALLBACK_MODELS)).toBe(true);
-        expect(FALLBACK_MODELS.length).toBeGreaterThan(5);
+        expect(FALLBACK_MODELS.length).toBe(0);
         expect(DEFAULT_COOLDOWN_SECONDS).toBe(60);
       });
 
@@ -250,20 +239,21 @@ describe('OpenRouterProvider', () => {
       });
 
       it('_getFallbackCandidates keeps the requested model first without duplication', () => {
-        const candidates = provider._getFallbackCandidates('arcee-ai/trinity-large-preview:free');
+        const candidates = provider._getFallbackCandidates('some-model:free');
 
-        expect(candidates[0]).toBe('arcee-ai/trinity-large-preview:free');
-        expect(candidates.filter((model) => model === 'arcee-ai/trinity-large-preview:free')).toHaveLength(1);
+        expect(candidates[0]).toBe('some-model:free');
+        expect(candidates.filter((model) => model === 'some-model:free')).toHaveLength(1);
+        // With empty FALLBACK_MODELS, only the requested model is returned
+        expect(candidates.length).toBe(1);
       });
 
-      it('_getFallbackCandidates skips cooled-down fallback models but still tries a cooled-down requested model', () => {
-        provider._cooldownModel('nvidia/nemotron-3-nano-30b-a3b:free', 30);
+      it('_getFallbackCandidates still returns the requested model even when cooled down', () => {
         provider._cooldownModel('custom/requested-model', 30);
 
         const candidates = provider._getFallbackCandidates('custom/requested-model');
 
         expect(candidates[0]).toBe('custom/requested-model');
-        expect(candidates).not.toContain('nvidia/nemotron-3-nano-30b-a3b:free');
+        expect(candidates.length).toBe(1);
       });
 
       it.each([
@@ -323,7 +313,7 @@ describe('OpenRouterProvider', () => {
 
       await expect(provider.checkHealth()).resolves.toEqual({
         available: true,
-        models: [{ model_name: 'arcee-ai/trinity-large-preview:free' }],
+        models: [{ model_name: null }],
       });
     });
 
@@ -393,7 +383,7 @@ describe('OpenRouterProvider', () => {
         signal: expect.any(AbortSignal),
       }));
       expect(body).toEqual({
-        model: 'arcee-ai/trinity-large-preview:free',
+        model: null,
         messages: [{
           role: 'user',
           content: 'Files: src/index.js\n\nWorking directory: /repo\n\nAnalyze module',
@@ -412,7 +402,7 @@ describe('OpenRouterProvider', () => {
       await provider.submit('task', null, {});
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      expect(body.model).toBe('arcee-ai/trinity-large-preview:free');
+      expect(body.model).toBeNull();
       expect(body.max_tokens).toBe(4096);
       expect(body.temperature).toBeUndefined();
     });
@@ -465,7 +455,7 @@ describe('OpenRouterProvider', () => {
       expect(result.usage.input_tokens).toBe(0);
       expect(result.usage.output_tokens).toBe(0);
       expect(result.usage.cost).toBe(0);
-      expect(result.usage.model).toBe('arcee-ai/trinity-large-preview:free');
+      expect(result.usage.model).toBeNull();
     });
 
     it('throws immediately on non-429 API errors without trying fallbacks', async () => {
@@ -477,82 +467,40 @@ describe('OpenRouterProvider', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back on 429 responses, honors Retry-After, and logs the fallback success', async () => {
+    it('throws on 429 when no fallback models are available', async () => {
+      fetchMock.mockResolvedValue(textResponse(429, 'rate limited', {
+        get: (name) => (
+          name === 'Retry-After' || name === 'retry-after'
+            ? '12'
+            : null
+        ),
+      }));
+
+      // With empty FALLBACK_MODELS and null default, only one candidate (null) is tried
+      await expect(provider.submit('task', null, {})).rejects.toThrow(/429/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('applies cooldown on 429 even when no fallback is available', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-03-12T00:00:00Z'));
 
-      fetchMock
-        .mockResolvedValueOnce(textResponse(429, 'rate limited', {
-          get: (name) => (
-            name === 'Retry-After' || name === 'retry-after'
-              ? '12'
-              : null
-          ),
-        }))
-        .mockResolvedValueOnce(jsonResponse({
-          choices: [{ message: { content: 'fallback worked' } }],
-          usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
-        }));
-
-      const result = await provider.submit('task', null, {});
-      const requestedModel = 'arcee-ai/trinity-large-preview:free';
-      const fallbackModel = JSON.parse(fetchMock.mock.calls[1][1].body).model;
-
-      expect(result.output).toBe('fallback worked');
-      expect(result.usage.model).toBe(fallbackModel);
-      expect(fallbackModel).not.toBe(requestedModel);
-      expect(provider._modelCooldowns.get(requestedModel)).toBe(Date.now() + 12_000);
-    });
-
-    it('uses the default cooldown when Retry-After is absent', async () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-03-12T00:00:00Z'));
-
-      fetchMock
-        .mockResolvedValueOnce(textResponse(429, 'rate limited'))
-        .mockResolvedValueOnce(jsonResponse({
-          choices: [{ message: { content: 'fallback worked' } }],
-          usage: { total_tokens: 5 },
-        }));
-
-      await provider.submit('task', null, {});
-
-      expect(provider._modelCooldowns.get('arcee-ai/trinity-large-preview:free')).toBe(
-        Date.now() + DEFAULT_COOLDOWN_SECONDS * 1000
-      );
-    });
-
-    it('skips cooled-down fallback models on later requests', async () => {
-      provider._cooldownModel('nvidia/nemotron-3-nano-30b-a3b:free', 300);
-
-      fetchMock.mockImplementation((_url, options) => {
-        const body = JSON.parse(options.body);
-        if (body.model === 'arcee-ai/trinity-large-preview:free') {
-          return Promise.resolve(textResponse(429, 'rate limited'));
-        }
-
-        return Promise.resolve(jsonResponse({
-          choices: [{ message: { content: `used ${body.model}` } }],
-          usage: { total_tokens: 3 },
-        }));
+      // Use a configured model so we can verify cooldown tracking
+      const configuredProvider = new OpenRouterProvider({
+        apiKey: 'openrouter-key',
+        defaultModel: 'test/model:free',
       });
 
-      const result = await provider.submit('task', null, {});
-      const attemptedModels = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body).model);
+      fetchMock.mockResolvedValue(textResponse(429, 'rate limited', {
+        get: (name) => (
+          name === 'Retry-After' || name === 'retry-after'
+            ? '12'
+            : null
+        ),
+      }));
 
-      expect(attemptedModels[0]).toBe('arcee-ai/trinity-large-preview:free');
-      expect(attemptedModels[1]).toBe('stepfun/step-3.5-flash:free');
-      expect(attemptedModels).not.toContain('nvidia/nemotron-3-nano-30b-a3b:free');
-      expect(result.usage.model).toBe('stepfun/step-3.5-flash:free');
-    });
-
-    it('throws the last 429 error when every fallback model is exhausted', async () => {
-      fetchMock.mockResolvedValue(textResponse(429, 'slow down'));
-
-      await expect(provider.submit('task', null, {})).rejects.toThrow(
-        'OpenRouter API error (429): slow down'
-      );
-      expect(fetchMock).toHaveBeenCalledTimes(FALLBACK_MODELS.length);
+      await expect(configuredProvider.submit('task', null, {})).rejects.toThrow(/429/);
+      expect(configuredProvider._modelCooldowns.get('test/model:free')).toBe(Date.now() + 12_000);
     });
 
     it('returns timeout status when fetch rejects with AbortError', async () => {
@@ -685,7 +633,7 @@ describe('OpenRouterProvider', () => {
         signal: expect.any(AbortSignal),
       }));
       expect(requestBody).toEqual({
-        model: 'arcee-ai/trinity-large-preview:free',
+        model: null,
         messages: [{ role: 'user', content: 'task' }],
         max_tokens: 4096,
         stream: true,
@@ -695,7 +643,7 @@ describe('OpenRouterProvider', () => {
       expect(result.usage.tokens).toBe(8);
       expect(result.usage.input_tokens).toBe(5);
       expect(result.usage.output_tokens).toBe(3);
-      expect(result.usage.model).toBe('arcee-ai/trinity-large-preview:free');
+      expect(result.usage.model).toBeNull();
       expect(chunks).toEqual(['Hello', ' world', '!']);
       expect(reader.cancel).toHaveBeenCalledTimes(1);
     });
@@ -817,41 +765,17 @@ describe('OpenRouterProvider', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back on streaming 429 responses, honors Retry-After, and logs the fallback success', async () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-03-12T00:00:00Z'));
+    it('throws on streaming 429 when no fallback models are available', async () => {
+      fetchMock.mockResolvedValue(textResponse(429, 'slow down', {
+        get: (name) => (
+          name === 'Retry-After' || name === 'retry-after'
+            ? '8'
+            : null
+        ),
+      }));
 
-      const { body } = makeSSEBody([
-        'data: {"choices":[{"delta":{"content":"fallback"}}]}\n\n',
-        'data: [DONE]\n\n',
-      ]);
-      fetchMock
-        .mockResolvedValueOnce(textResponse(429, 'slow down', {
-          get: (name) => (
-            name === 'Retry-After' || name === 'retry-after'
-              ? '8'
-              : null
-          ),
-        }))
-        .mockResolvedValueOnce({ ok: true, body });
-
-      const result = await provider.submitStream('task', null, {});
-      const requestedModel = 'arcee-ai/trinity-large-preview:free';
-      const fallbackModel = JSON.parse(fetchMock.mock.calls[1][1].body).model;
-
-      expect(result.output).toBe('fallback');
-      expect(result.usage.model).toBe(fallbackModel);
-      expect(fallbackModel).not.toBe(requestedModel);
-      expect(provider._modelCooldowns.get(requestedModel)).toBe(Date.now() + 8_000);
-    });
-
-    it('throws the last 429 streaming error when every fallback model is exhausted', async () => {
-      fetchMock.mockResolvedValue(textResponse(429, 'slow down'));
-
-      await expect(provider.submitStream('task', null, {})).rejects.toThrow(
-        'OpenRouter streaming error (429): slow down'
-      );
-      expect(fetchMock).toHaveBeenCalledTimes(FALLBACK_MODELS.length);
+      await expect(provider.submitStream('task', null, {})).rejects.toThrow(/429/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('returns timeout when fetch aborts before the stream starts', async () => {

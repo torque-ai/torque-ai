@@ -62,7 +62,7 @@ describe('provider hyperbolic', () => {
     });
 
     const body = JSON.parse(options.body);
-    expect(body.model).toBe('Qwen/Qwen2.5-72B-Instruct');
+    expect(body.model).toBeNull();
     expect(body.max_tokens).toBe(50);
     expect(body.temperature).toBe(0.3);
   });

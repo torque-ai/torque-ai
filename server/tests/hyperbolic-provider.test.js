@@ -99,7 +99,7 @@ describe('HyperbolicProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual([{ model_name: 'Qwen/Qwen2.5-72B-Instruct' }]);
+      expect(result.models).toEqual([{ model_name: null }]);
     });
   });
 
@@ -240,10 +240,9 @@ describe('HyperbolicProvider', () => {
   });
 
   describe('listModels', () => {
-    it('returns static model list', async () => {
+    it('returns empty array', async () => {
       const models = await provider.listModels();
-      expect(models).toContain('Qwen/Qwen2.5-72B-Instruct');
-      expect(models.length).toBeGreaterThanOrEqual(4);
+      expect(models).toEqual([]);
     });
   });
 

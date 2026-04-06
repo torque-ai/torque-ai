@@ -29,8 +29,8 @@ describe('DeepInfraProvider', () => {
       else delete process.env.DEEPINFRA_API_KEY;
     });
 
-    it('uses default model when not provided', () => {
-      expect(provider.defaultModel).toBe('Qwen/Qwen2.5-72B-Instruct');
+    it('uses null default model when not provided', () => {
+      expect(provider.defaultModel).toBeNull();
     });
 
     it('accepts custom baseUrl', () => {
@@ -105,7 +105,7 @@ describe('DeepInfraProvider', () => {
 
       const result = await provider.checkHealth();
       expect(result.available).toBe(true);
-      expect(result.models).toEqual([{ model_name: 'Qwen/Qwen2.5-72B-Instruct' }]);
+      expect(result.models).toEqual([{ model_name: null }]);
     });
   });
 
@@ -241,10 +241,9 @@ describe('DeepInfraProvider', () => {
   });
 
   describe('listModels', () => {
-    it('returns static model list', async () => {
+    it('returns empty array', async () => {
       const models = await provider.listModels();
-      expect(models).toContain('Qwen/Qwen2.5-72B-Instruct');
-      expect(models.length).toBeGreaterThanOrEqual(4);
+      expect(models).toEqual([]);
     });
   });
 
