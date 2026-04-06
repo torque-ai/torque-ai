@@ -1,9 +1,14 @@
 {
   "mcpServers": {
     "torque": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:3458/mcp",
+      "description": "TORQUE - Task Orchestration System with local LLM routing"
+    },
+    "torque-sse": {
       "type": "sse",
       "url": "http://127.0.0.1:3458/sse",
-      "description": "TORQUE - Task Orchestration System with local LLM routing"
+      "description": "TORQUE - Task Orchestration System with local LLM routing (legacy SSE fallback)"
     }
   }
 }

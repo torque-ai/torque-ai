@@ -202,7 +202,8 @@ function ensureLocalMcpConfig(options = {}) {
   const { ssePort = DEFAULT_MCP_SSE_PORT, host = DEFAULT_MCP_HOST, homeDir } = options;
   const claudeDir = path.join(homeDir || os.homedir(), CLAUDE_DIR_NAME);
   const configPath = path.join(claudeDir, MCP_CONFIG_FILENAME);
-  const expectedUrl = `http://${host}:${ssePort}/sse`;
+  const expectedPrimaryUrl = `http://${host}:${ssePort}/mcp`;
+  const expectedLegacyUrl = `http://${host}:${ssePort}/sse`;
 
   try {
     fs.mkdirSync(claudeDir, { recursive: true });
@@ -219,16 +220,40 @@ function ensureLocalMcpConfig(options = {}) {
       }
     }
 
-    const existing = data.mcpServers.torque;
-    if (existing && existing.url === expectedUrl) {
+    const existing = data.mcpServers.torque && typeof data.mcpServers.torque === 'object'
+      ? data.mcpServers.torque
+      : null;
+    const existingLegacy = data.mcpServers['torque-sse'] && typeof data.mcpServers['torque-sse'] === 'object'
+      ? data.mcpServers['torque-sse']
+      : null;
+    const legacySource = existingLegacy || (
+      existing &&
+      existing.type === 'sse' &&
+      existing.url === expectedLegacyUrl
+        ? existing
+        : null
+    );
+    const hasCurrentPrimary = existing &&
+      existing.type === 'streamable-http' &&
+      existing.url === expectedPrimaryUrl;
+    const hasCurrentLegacy = existingLegacy &&
+      existingLegacy.type === 'sse' &&
+      existingLegacy.url === expectedLegacyUrl;
+    if (hasCurrentPrimary && hasCurrentLegacy) {
       return { injected: false, path: configPath, reason: 'already_current' };
     }
 
     data.mcpServers.torque = {
       ...(existing || {}),
-      type: 'sse',
-      url: expectedUrl,
+      type: 'streamable-http',
+      url: expectedPrimaryUrl,
       description: LOCAL_MCP_DESCRIPTION,
+    };
+    data.mcpServers['torque-sse'] = {
+      ...(legacySource || {}),
+      type: 'sse',
+      url: expectedLegacyUrl,
+      description: `${LOCAL_MCP_DESCRIPTION} (legacy SSE fallback)`,
     };
 
     const tmpPath = configPath + '.tmp.' + process.pid;
@@ -1493,6 +1518,7 @@ const _testing = {
   startPidHeartbeat,
   stopPidHeartbeat,
   getPidHeartbeatInterval: () => pidHeartbeatInterval,
+  ensureLocalMcpConfig,
   getProviderQuotaInferenceInterval: () => null, // now managed by maintenance/scheduler.js
   PID_FILE,
   LOCK_FILE,

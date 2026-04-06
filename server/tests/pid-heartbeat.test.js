@@ -268,4 +268,25 @@ describe('PID heartbeat stale detection (RB-050)', () => {
     expect(exitSpy).toHaveBeenCalled();
   });
 
+  it('writes streamable HTTP config plus an SSE fallback entry', () => {
+    const result = index._testing.ensureLocalMcpConfig({ homeDir: tempDir });
+    const configPath = path.join(tempDir, '.claude', '.mcp.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+    expect(result).toMatchObject({ injected: true, reason: 'created' });
+    expect(config.mcpServers.torque).toMatchObject({
+      type: 'streamable-http',
+      url: 'http://127.0.0.1:3458/mcp',
+      description: 'TORQUE - Task Orchestration System with local LLM routing',
+    });
+    expect(config.mcpServers['torque-sse']).toMatchObject({
+      type: 'sse',
+      url: 'http://127.0.0.1:3458/sse',
+      description: 'TORQUE - Task Orchestration System with local LLM routing (legacy SSE fallback)',
+    });
+
+    const secondResult = index._testing.ensureLocalMcpConfig({ homeDir: tempDir });
+    expect(secondResult).toMatchObject({ injected: false, reason: 'already_current' });
+  });
+
 });

@@ -4,7 +4,8 @@
   "description": "Your AI providers are specialists. TORQUE is the control tower. Route coding tasks across Ollama, Codex, Claude, DeepInfra, and 8 more providers — with smart routing, DAG workflows, quality gates, and cost tracking.",
   "main": "server/index.js",
   "bin": {
-    "torque": "bin/torque.js"
+    "torque": "bin/torque.js",
+    "torque-remote": "bin/torque-remote"
   },
   "scripts": {
     "start": "node server/index.js",
@@ -31,7 +32,7 @@
   "bugs": {
     "url": "https://github.com/torque-ai/torque-ai/issues"
   },
-  "author": "WanderlustCoder",
+  "author": "<git-user>",
   "files": [
     "server/**/*.js",
     "server/package.json",

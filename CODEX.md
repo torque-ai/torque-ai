@@ -11,6 +11,10 @@ TORQUE must be running first. The legacy `/sse` endpoint remains available for o
 
 TORQUE orchestrates AI work in Codex through multi-provider routing, queued execution, DAG workflows, and quality gates.
 
+## First Action After Connecting
+
+Run `mcp__torque__unlock_all_tools {}` as the first TORQUE call so Codex can see the full tool catalog. Without this, Codex starts in Tier 1 and tools like `smart_submit_task` and `check_status` remain hidden. If you want the smaller extended set first, run `mcp__torque__unlock_tier { tier: 2 }`.
+
 ## MCP usage
 
 All TORQUE tools are under the `mcp__torque__` prefix.

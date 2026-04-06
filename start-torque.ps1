@@ -13,7 +13,7 @@ try {
     Write-Host "TORQUE server is already running on port 3458." -ForegroundColor Green
     exit 0
 } catch {
-    # Port not listening — need to start
+    # Port not listening - need to start
 }
 
 Write-Host "Starting TORQUE server..." -ForegroundColor Cyan
@@ -40,4 +40,4 @@ while ($elapsed -lt $timeout) {
 }
 
 Write-Host "Warning: Server started but SSE port not responding after ${timeout}s." -ForegroundColor Yellow
-Write-Host "PID: $($process.Id) — check torque-debug.log for errors." -ForegroundColor Yellow
+Write-Host "PID: $($process.Id) - check torque-debug.log for errors." -ForegroundColor Yellow
