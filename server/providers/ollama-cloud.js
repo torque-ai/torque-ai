@@ -13,7 +13,7 @@ class OllamaCloudProvider extends BaseProvider {
     super({ name: 'ollama-cloud', ...config });
     this.apiKey = config.apiKey || process.env.OLLAMA_CLOUD_API_KEY;
     this.baseUrl = config.baseUrl || 'https://api.ollama.com';
-    this.defaultModel = config.defaultModel || 'qwen3-coder:480b';
+    this.defaultModel = config.defaultModel || null;
   }
 
   async submit(task, model, options = {}) {
@@ -262,12 +262,7 @@ class OllamaCloudProvider extends BaseProvider {
     if (health.available && health.models.length > 0) {
       return health.models.map(m => (typeof m === 'string' ? m : m.model_name || m.name)).filter(Boolean);
     }
-    return [
-      'qwen3-coder:480b', 'deepseek-v3.1:671b', 'deepseek-v3.2',
-      'gpt-oss:120b', 'gpt-oss:20b', 'kimi-k2:1t', 'kimi-k2.5',
-      'qwen3-coder-next', 'qwen3-next:80b', 'devstral-2:123b',
-      'mistral-large-3:675b', 'glm-5',
-    ];
+    return [];
   }
 
   _buildPrompt(task, options) {

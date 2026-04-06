@@ -14,7 +14,7 @@ class HyperbolicProvider extends BaseProvider {
     super({ name: 'hyperbolic', ...config });
     this.apiKey = config.apiKey || process.env.HYPERBOLIC_API_KEY;
     this.baseUrl = config.baseUrl || 'https://api.hyperbolic.xyz/v1';
-    this.defaultModel = config.defaultModel || 'Qwen/Qwen2.5-72B-Instruct';
+    this.defaultModel = config.defaultModel || null;
   }
 
   async submit(task, model, options = {}) {
@@ -249,13 +249,7 @@ class HyperbolicProvider extends BaseProvider {
   }
 
   async listModels() {
-    return [
-      'Qwen/Qwen2.5-72B-Instruct',
-      'meta-llama/Llama-3.1-70B-Instruct',
-      'meta-llama/Llama-3.1-405B-Instruct',
-      'deepseek-ai/DeepSeek-R1',
-      'Qwen/Qwen3-Coder-480B-A35B',
-    ];
+    return [];
   }
 
   _buildPrompt(task, options) {

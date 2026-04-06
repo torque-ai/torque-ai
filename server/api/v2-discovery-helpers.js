@@ -72,19 +72,15 @@ const PROVIDER_MODELS = {
   },
   groq: {
     source: 'provider_api',
-    models: ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
+    models: [], // Models discovered dynamically via provider API
   },
   'cerebras': {
     source: 'provider_api',
-    models: ['llama3.1-8b', 'qwen-3-235b-a22b-instruct-2507', 'gpt-oss-120b', 'zai-glm-4.7'],
+    models: [], // Models discovered dynamically via provider API
   },
   'ollama-cloud': {
     source: 'provider_api',
-    models: [
-      'qwen3-coder:480b', 'deepseek-v3.1:671b', 'deepseek-v3.2',
-      'gpt-oss:120b', 'gpt-oss:20b', 'kimi-k2:1t', 'kimi-k2.5',
-      'qwen3-coder-next', 'devstral-2:123b', 'mistral-large-3:675b',
-    ],
+    models: [], // Models discovered dynamically via provider API
   },
   'google-ai': {
     source: 'provider_api',
@@ -95,31 +91,15 @@ const PROVIDER_MODELS = {
   },
   openrouter: {
     source: 'provider_api',
-    models: [
-      'qwen/qwen3-coder:free', 'openai/gpt-oss-120b:free',
-      'openai/gpt-oss-20b:free', 'qwen/qwen3-next-80b-a3b-instruct:free',
-      'mistralai/mistral-small-3.1-24b-instruct:free', 'google/gemma-3-12b-it:free',
-    ],
+    models: [], // Models discovered dynamically via provider API
   },
   deepinfra: {
     source: 'provider_api',
-    models: [
-      'Qwen/Qwen2.5-72B-Instruct',
-      'meta-llama/Llama-3.1-70B-Instruct',
-      'meta-llama/Llama-3.1-405B-Instruct',
-      'deepseek-ai/DeepSeek-R1',
-      'Qwen/Qwen2.5-Coder-32B-Instruct',
-    ],
+    models: [], // Models discovered dynamically via provider API
   },
   hyperbolic: {
     source: 'provider_api',
-    models: [
-      'Qwen/Qwen2.5-72B-Instruct',
-      'meta-llama/Llama-3.1-70B-Instruct',
-      'meta-llama/Llama-3.1-405B-Instruct',
-      'deepseek-ai/DeepSeek-R1',
-      'Qwen/Qwen3-Coder-480B-A35B',
-    ],
+    models: [], // Models discovered dynamically via provider API
   },
 };
 

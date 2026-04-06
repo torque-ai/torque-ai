@@ -14,7 +14,7 @@ class DeepInfraProvider extends BaseProvider {
     super({ name: 'deepinfra', ...config });
     this.apiKey = config.apiKey || process.env.DEEPINFRA_API_KEY;
     this.baseUrl = config.baseUrl || 'https://api.deepinfra.com/v1/openai';
-    this.defaultModel = config.defaultModel || 'Qwen/Qwen2.5-72B-Instruct';
+    this.defaultModel = config.defaultModel || null;
   }
 
   async submit(task, model, options = {}) {
@@ -250,13 +250,7 @@ class DeepInfraProvider extends BaseProvider {
   }
 
   async listModels() {
-    return [
-      'Qwen/Qwen2.5-72B-Instruct',
-      'meta-llama/Llama-3.1-70B-Instruct',
-      'meta-llama/Llama-3.1-405B-Instruct',
-      'deepseek-ai/DeepSeek-R1',
-      'Qwen/Qwen2.5-Coder-32B-Instruct',
-    ];
+    return [];
   }
 
   _buildPrompt(task, options) {

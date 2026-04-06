@@ -54,15 +54,15 @@ const PROVIDER_HOST_MAP = {
   'google-ai': 'https://generativelanguage.googleapis.com',
 };
 
-// Default models per provider — chosen from comprehensive baseline testing (2026-03-18)
+// Default models per provider
 const PROVIDER_DEFAULT_MODEL = {
-  groq: 'llama-3.3-70b-versatile',                     // Production-stable, 280 T/s, reliable tool calling (qwen3-32b is preview)
-  cerebras: 'qwen-3-235b-a22b-instruct-2507',          // 235B MoE, 1400 T/s — best quota option (gpt-oss-120b paywalled)
-  deepinfra: 'Qwen/Qwen2.5-72B-Instruct',
-  openrouter: 'qwen/qwen3-coder:free',               // 480B MoE, 262K ctx, strongest free coding model with tool calling
-  hyperbolic: 'Qwen/Qwen2.5-72B-Instruct',
-  'ollama-cloud': 'kimi-k2:1t',                     // Grade A, 4.5s, most reliable (devstral intermittent)
-  'google-ai': 'gemini-2.5-flash-lite',              // 1M ctx, 65K out, higher RPM than 2.5-flash, tool calls work
+  groq: null,
+  cerebras: null,
+  deepinfra: null,
+  openrouter: null,
+  hyperbolic: null,
+  'ollama-cloud': null,
+  'google-ai': 'gemini-2.5-flash-lite',
 };
 
 // ── Deps captured at init time for the agentic wrapper ────────────────

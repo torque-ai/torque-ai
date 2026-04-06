@@ -17,21 +17,9 @@ const { MAX_STREAMING_OUTPUT } = require('../constants');
 const logger = require('../logger').child({ component: 'openrouter' });
 
 /**
- * Fallback chain ordered by reliability then context size.
- * Non-Venice upstream models first (they don't share rate limits).
+ * Fallback chain — models discovered dynamically via the OpenRouter API.
  */
-const FALLBACK_MODELS = [
-  'arcee-ai/trinity-large-preview:free',            // 131K, reliable
-  'nvidia/nemotron-3-nano-30b-a3b:free',             // 256K, Nvidia upstream
-  'stepfun/step-3.5-flash:free',                     // 256K, StepFun upstream
-  'google/gemma-3-27b-it:free',                      // 32K, Google upstream
-  'google/gemma-3-12b-it:free',                      // 32K, Google upstream
-  'qwen/qwen3-coder:free',                           // 262K, Venice (often limited)
-  'qwen/qwen3-next-80b-a3b-instruct:free',           // 262K, Venice
-  'nousresearch/hermes-3-llama-3.1-405b:free',       // 131K, often limited
-  'meta-llama/llama-3.3-70b-instruct:free',          // 128K, Venice
-  'mistralai/mistral-small-3.1-24b-instruct:free',   // 128K
-];
+const FALLBACK_MODELS = [];
 
 /** Default cooldown when no Retry-After header (seconds) */
 const DEFAULT_COOLDOWN_SECONDS = 60;
@@ -410,23 +398,7 @@ class OpenRouterProvider extends BaseProvider {
   }
 
   async listModels() {
-    return [
-      // 262K context — code-focused (Venice upstream, may be rate-limited)
-      'qwen/qwen3-coder:free',
-      'qwen/qwen3-next-80b-a3b-instruct:free',
-      // 256K context — reasoning models (Nvidia/StepFun upstream)
-      'stepfun/step-3.5-flash:free',
-      'nvidia/nemotron-3-nano-30b-a3b:free',
-      // 131K context
-      'nousresearch/hermes-3-llama-3.1-405b:free',
-      'arcee-ai/trinity-large-preview:free',
-      // 128K context
-      'meta-llama/llama-3.3-70b-instruct:free',
-      'mistralai/mistral-small-3.1-24b-instruct:free',
-      // 32K context
-      'google/gemma-3-27b-it:free',
-      'google/gemma-3-12b-it:free',
-    ];
+    return [];
   }
 
   _buildPrompt(task, options) {
