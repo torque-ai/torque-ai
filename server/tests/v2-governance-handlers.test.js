@@ -53,6 +53,7 @@ function createDefaultModules() {
       listPlanProjects: vi.fn().mockReturnValue([]),
       getPlanProject: vi.fn().mockReturnValue(null),
       getPlanProjectTasks: vi.fn().mockReturnValue([]),
+      listKnownProjects: vi.fn().mockReturnValue([]),
       deletePlanProject: vi.fn(),
       updateTaskStatus: vi.fn(),
     },
@@ -624,6 +625,35 @@ describe('api/v2-governance-handlers', () => {
           status: 403,
         });
       });
+    });
+  });
+
+  describe('project registry handlers', () => {
+    it('handleListProjects returns the known project registry as a structured list', async () => {
+      const projects = [
+        { name: 'alpha', task_count: 2, last_active: '2026-03-02T11:00:00.000Z', has_config: true },
+        { name: 'beta', task_count: 0, last_active: null, has_config: true },
+      ];
+      mocks.db.listKnownProjects.mockReturnValue(projects);
+
+      const { req, res } = createMockContext();
+      await handlers.handleListProjects(req, res);
+
+      expect(mocks.db.listKnownProjects).toHaveBeenCalledTimes(1);
+      expectListEnvelope(res, projects, projects.length);
+    });
+
+    it('handleListProjects returns an empty list when the registry is unavailable', async () => {
+      const saved = mocks.db.listKnownProjects;
+      mocks.db.listKnownProjects = null;
+
+      try {
+        const { req, res } = createMockContext();
+        await handlers.handleListProjects(req, res);
+        expectListEnvelope(res, [], 0);
+      } finally {
+        mocks.db.listKnownProjects = saved;
+      }
     });
   });
 

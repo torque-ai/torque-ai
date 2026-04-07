@@ -241,6 +241,43 @@ describe('execute-ollama.js', () => {
       );
     });
 
+    it('consults project defaults when project tasks omit working_directory', async () => {
+      const _host = addHost({ url: mockUrl, model: 'codellama:latest' });
+      const safeUpdate = vi.fn();
+      const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
+      mod.init(deps);
+
+      const projectDefaults = require('../db/project-config-core');
+      const defaultsSpy = vi.spyOn(projectDefaults, 'getProjectDefaults').mockReturnValue({
+        project: 'alpha',
+        working_directory: testDir,
+      });
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Resolve the project working directory',
+        status: 'running',
+        provider: 'ollama',
+        model: 'codellama:latest',
+        project: 'alpha',
+      });
+
+      await mod.executeOllamaTask({
+        id: taskId,
+        task_description: 'Resolve the project working directory',
+        model: 'codellama:latest',
+        project: 'alpha',
+      });
+
+      expect(defaultsSpy).toHaveBeenCalledWith('alpha');
+      expect(safeUpdate).toHaveBeenCalledWith(
+        taskId,
+        'completed',
+        expect.objectContaining({ exit_code: 0 })
+      );
+    });
+
     it('fails task when HTTP 500 returned', async () => {
       const _host = addHost({ url: mockUrl, model: 'codellama:latest' });
       mockOllama.setFailGenerate(true);

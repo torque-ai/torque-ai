@@ -147,40 +147,39 @@ describe('handler:task-project', () => {
   });
 
   it('handleListProjects returns empty-state when no projects exist', () => {
-    vi.spyOn(projectConfigCore, 'listProjects').mockReturnValue([]);
+    vi.spyOn(taskCore, 'listKnownProjects').mockReturnValue([]);
 
     const result = handlers.handleListProjects({});
 
     expect(getText(result)).toContain('No projects found');
   });
 
-  it('handleListProjects renders totals for non-empty project list', () => {
-    vi.spyOn(projectConfigCore, 'listProjects').mockReturnValue([
+  it('handleListProjects renders known-project registry details', () => {
+    const alphaLastActive = '2026-03-02T11:00:00.000Z';
+    const betaLastActive = '2026-03-01T09:30:00.000Z';
+
+    vi.spyOn(taskCore, 'listKnownProjects').mockReturnValue([
       {
-        project: 'alpha',
+        name: 'alpha',
         task_count: 2,
-        completed_count: 1,
-        failed_count: 0,
-        active_count: 1,
-        total_cost: 1.5,
+        last_active: alphaLastActive,
+        has_config: true,
       },
       {
-        project: 'beta',
+        name: 'beta',
         task_count: 3,
-        completed_count: 2,
-        failed_count: 1,
-        active_count: 0,
-        total_cost: 2.25,
+        last_active: betaLastActive,
+        has_config: false,
       },
     ]);
 
     const result = handlers.handleListProjects({});
     const text = getText(result);
 
-    expect(text).toContain('| alpha | 2 | 1 | 0 | 1 | $1.50 |');
-    expect(text).toContain('| beta | 3 | 2 | 1 | 0 | $2.25 |');
+    expect(text).toContain(`| alpha | 2 | ${new Date(alphaLastActive).toLocaleString('en-US')} | Yes |`);
+    expect(text).toContain(`| beta | 3 | ${new Date(betaLastActive).toLocaleString('en-US')} | No |`);
     expect(text).toContain('Total Projects:** 2');
-    expect(text).toContain('Total Cost:** $3.75');
+    expect(text).toContain('Configured Projects:** 1');
   });
 
   it('handleProjectStats returns error when project cannot be determined', () => {

@@ -13,6 +13,7 @@ const MOCKED_MODULES = [
   '../utils/temp-file-filter',
   '../utils/shell-policy',
   '../db/config-core',
+  '../db/project-config-core',
   '../utils/resource-gate',
   '../utils/host-monitoring',
   '../logger',
@@ -25,6 +26,7 @@ let mockExecuteValidatedCommand;
 let mockFilterTempFiles;
 let mockValidateShellCommand;
 let mockGetConfig;
+let mockGetProjectDefaults;
 let mockCheckResourceGate;
 let mockLoggerChild;
 let mockHostMonitoring;
@@ -72,6 +74,9 @@ function installDependencyMocks() {
   });
   installCjsModuleMock('../db/config-core', {
     getConfig: mockGetConfig,
+  });
+  installCjsModuleMock('../db/project-config-core', {
+    getProjectDefaults: mockGetProjectDefaults,
   });
   installCjsModuleMock('../utils/resource-gate', {
     checkResourceGate: mockCheckResourceGate,
@@ -150,6 +155,7 @@ beforeEach(() => {
   }));
   mockValidateShellCommand = vi.fn(() => ({ ok: true }));
   mockGetConfig = vi.fn(() => null);
+  mockGetProjectDefaults = vi.fn(() => null);
   mockCheckResourceGate = vi.fn(() => ({ allowed: true }));
   mockLoggerChild = {
     debug: vi.fn(),
@@ -185,9 +191,9 @@ describe('auto-commit-batch handler', () => {
   });
 
   it('returns error when verify_command is rejected by shell policy', async () => {
-    mockGetConfig.mockReturnValue(JSON.stringify({
+    mockGetProjectDefaults.mockReturnValue({
       verify_command: 'pnpm forbidden',
-    }));
+    });
     mockValidateShellCommand.mockReturnValue({
       ok: false,
       reason: 'blocked by shell policy',
@@ -198,7 +204,7 @@ describe('auto-commit-batch handler', () => {
 
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('verify_command rejected: blocked by shell policy');
-    expect(mockGetConfig).toHaveBeenCalledWith(`project_defaults_${workingDir}`);
+    expect(mockGetProjectDefaults).toHaveBeenCalledWith(workingDir);
     expect(mockSafeExecChain).not.toHaveBeenCalled();
   });
 
