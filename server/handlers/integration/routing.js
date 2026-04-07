@@ -307,12 +307,7 @@ function extractSmartSubmitInputs(args) {
     return { error: makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task must be a non-empty string') };
   }
   if (!normalizedProject) {
-    return {
-      error: makeError(
-        ErrorCodes.MISSING_REQUIRED_PARAM,
-        'project is required. Provide the project name for this task.'
-      ),
-    };
+    normalizedProject = 'unassigned';
   }
   if (task.length > MAX_TASK_LENGTH) {
     return {

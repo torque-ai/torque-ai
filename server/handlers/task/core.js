@@ -275,13 +275,7 @@ function buildTaskPeekArtifactSection(taskId) {
  * Submit and immediately start a task
  */
 function handleSubmitTask(args) {
-  const project = typeof args?.project === 'string' ? args.project.trim() : '';
-  if (!project) {
-    return makeError(
-      ErrorCodes.MISSING_REQUIRED_PARAM,
-      'project is required. Provide the project name for this task.'
-    );
-  }
+  const project = typeof args?.project === 'string' && args.project.trim() ? args.project.trim() : 'unassigned';
 
   // Phase 3.2: auto_route dispatch — default true routes to smart_submit_task
   if (args.auto_route !== false && !args.provider) {
