@@ -70,6 +70,58 @@ function getVerifyRouter() {
   return _verifyRouter;
 }
 
+async function evaluatePreVerifyGovernance(task, verifyCommand, context = {}) {
+  if (!verifyCommand) {
+    return null;
+  }
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (!defaultContainer || typeof defaultContainer.has !== 'function' || typeof defaultContainer.get !== 'function') {
+      return null;
+    }
+    if (!defaultContainer.has('governanceHooks')) {
+      return null;
+    }
+
+    const governance = defaultContainer.get('governanceHooks');
+    if (!governance) {
+      return null;
+    }
+
+    if (typeof governance.evaluatePreVerify === 'function') {
+      return await governance.evaluatePreVerify(task, {
+        ...context,
+        verify_command: verifyCommand,
+      });
+    }
+
+    if (typeof governance.evaluate !== 'function') {
+      return null;
+    }
+
+    return await governance.evaluate('pre-verify', task, {
+      ...context,
+      verify_command: verifyCommand,
+    });
+  } catch (err) {
+    logger.debug('[automation-handlers] non-critical governance pre-verify error:', err.message || err);
+    return null;
+  }
+}
+
+function formatPreVerifyGovernance(entries, label) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return '';
+  }
+
+  let text = `**Governance ${label}:**\n`;
+  for (const entry of entries) {
+    text += `- ${entry?.message || 'Governance rule triggered'}\n`;
+  }
+  return text;
+}
+
 // ─── Feature 1: Stall Detection Configuration ───────────────────────────────
 
 function handleConfigureStallDetection(args) {
@@ -209,10 +261,45 @@ async function handleAutoVerifyAndFix(args) {
   const fixProvider = args.fix_provider || 'codex';
   const timeout = (args.timeout_seconds || 120) * 1000;
   const sourceTaskId = args.source_task_id; // Optional: feed errors back with original context
+  let sourceTask = null;
 
   let output = '## Auto Verify & Fix\n\n';
   output += `**Working directory:** ${workingDir}\n`;
   output += `**Verify command:** \`${verifyCmd}\`\n\n`;
+
+  if (sourceTaskId) {
+    try {
+      sourceTask = taskCore().getTask(sourceTaskId);
+    } catch (err) {
+      logger.debug('[automation-handlers] non-critical error loading source task:', err.message || err);
+    }
+  }
+
+  const governanceTask = sourceTask || {
+    id: sourceTaskId || 'auto-verify',
+    task_id: sourceTaskId || 'auto-verify',
+    workflow_id: args.workflow_id || null,
+    working_directory: workingDir,
+  };
+  const governanceResult = await evaluatePreVerifyGovernance(governanceTask, verifyCmd, {
+    task_id: sourceTask?.id || sourceTaskId || null,
+    workflow_id: sourceTask?.workflow_id || args.workflow_id || null,
+    working_directory: workingDir,
+    change_set: args.change_set,
+    changeSet: args.changeSet,
+    commit_range: args.commit_range,
+    commitRange: args.commitRange,
+  });
+  if (governanceResult?.blocked?.length) {
+    output += formatPreVerifyGovernance(governanceResult.blocked, 'blocks');
+    output += '### Result: SKIPPED\n\nVerification skipped.\n';
+    return { content: [{ type: 'text', text: output }] };
+  }
+
+  const governanceWarnings = formatPreVerifyGovernance(governanceResult?.warned, 'warnings');
+  if (governanceWarnings) {
+    output += `${governanceWarnings}\n`;
+  }
 
   // Run verify command (routes to remote agent when configured, falls back to local)
   const router = getVerifyRouter();
@@ -262,14 +349,6 @@ async function handleAutoVerifyAndFix(args) {
   const submittedTasks = [];
   if (autoFix && errorsByFile.size > 0) {
     output += '### Auto-Fix Tasks\n\n';
-
-    // If source_task_id provided, retrieve original task context for error-feedback retry
-    let sourceTask = null;
-    if (sourceTaskId) {
-      try { sourceTask = taskCore().getTask(sourceTaskId); } catch (err) {
-        logger.debug('[automation-handlers] non-critical error loading source task:', err.message || err);
-      }
-    }
 
     for (const [file, errors] of errorsByFile) {
       const errorDescriptions = errors.map(e => `Line ${e.line}: ${e.code} — ${e.message}`).join('\n');

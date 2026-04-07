@@ -248,6 +248,12 @@ function loadAutomationModule(overrides = {}) {
   const indexModule = overrides.indexModule || {
     getTestRunnerRegistry: vi.fn(() => overrides.testRunnerRegistry || null),
   };
+  const governanceHooks = overrides.governanceHooks || null;
+  const defaultContainer = overrides.defaultContainer || {
+    has: vi.fn((name) => name === 'governanceHooks' && Boolean(governanceHooks)),
+    get: vi.fn((name) => (name === 'governanceHooks' ? governanceHooks : undefined)),
+  };
+  const containerModule = overrides.containerModule || { defaultContainer };
 
   const throwRequests = new Map(Object.entries(overrides.throwRequests || {}));
   const requireCounts = {};
@@ -269,6 +275,7 @@ function loadAutomationModule(overrides = {}) {
     '../db/workflow-engine': mockWorkflowEngine,
     '../task-manager': mockTaskManager,
     '../index': indexModule,
+    '../container': containerModule,
     uuid: { v4: uuidV4 },
     './automation-ts-tools': {},
     './automation-batch-orchestration': {},
@@ -328,6 +335,8 @@ module.exports.__testHelpers = {
       executeValidatedCommandSync,
       uuidV4,
       indexModule,
+      governanceHooks,
+      defaultContainer,
     },
     requireCounts,
   };
@@ -603,6 +612,81 @@ describe('automation-handlers main unit suite', () => {
       expect(text).toContain('### Result: PASSED');
       expect(text).toContain('**Execution:** remote (agent)');
       expect(text).toContain('**Duration:** 1.5s');
+    });
+
+    it('prints governance warnings and still runs verification in warn mode', async () => {
+      const workingDir = 'C:\\repo';
+      const router = {
+        runVerifyCommand: vi.fn(async () => ({
+          output: 'ok',
+          error: '',
+          exitCode: 0,
+          remote: false,
+          durationMs: 0,
+        })),
+      };
+      const governanceHooks = {
+        evaluatePreVerify: vi.fn(async () => ({
+          blocked: [],
+          warned: [{ message: 'Test suite has been run 3 times for this change set.' }],
+          shadowed: [],
+          allPassed: true,
+        })),
+      };
+      const { handlers } = loadAutomationModule({ router, governanceHooks });
+
+      const result = await handlers.handleAutoVerifyAndFix({
+        working_directory: workingDir,
+        verify_command: 'npx vitest run',
+      });
+      const text = getText(result);
+
+      expect(governanceHooks.evaluatePreVerify).toHaveBeenCalledWith(
+        expect.objectContaining({ working_directory: workingDir }),
+        expect.objectContaining({ verify_command: 'npx vitest run' }),
+      );
+      expect(router.runVerifyCommand).toHaveBeenCalledTimes(1);
+      expect(text).toContain('**Governance warnings:**');
+      expect(text).toContain('Test suite has been run 3 times for this change set.');
+      expect(text).toContain('### Result: PASSED');
+    });
+
+    it('prints governance blocks and skips verification in block mode', async () => {
+      const workingDir = 'C:\\repo';
+      const router = {
+        runVerifyCommand: vi.fn(async () => ({
+          output: 'ok',
+          error: '',
+          exitCode: 0,
+          remote: false,
+          durationMs: 0,
+        })),
+      };
+      const governanceHooks = {
+        evaluatePreVerify: vi.fn(async () => ({
+          blocked: [{ message: 'Test suite has been run 4 times for this change set.' }],
+          warned: [],
+          shadowed: [],
+          allPassed: false,
+        })),
+      };
+      const { handlers } = loadAutomationModule({ router, governanceHooks });
+
+      const result = await handlers.handleAutoVerifyAndFix({
+        working_directory: workingDir,
+        verify_command: 'npx vitest run',
+      });
+      const text = getText(result);
+
+      expect(governanceHooks.evaluatePreVerify).toHaveBeenCalledWith(
+        expect.objectContaining({ working_directory: workingDir }),
+        expect.objectContaining({ verify_command: 'npx vitest run' }),
+      );
+      expect(router.runVerifyCommand).not.toHaveBeenCalled();
+      expect(text).toContain('**Governance blocks:**');
+      expect(text).toContain('Test suite has been run 4 times for this change set.');
+      expect(text).toContain('### Result: SKIPPED');
+      expect(text).toContain('Verification skipped.');
     });
 
     it('parses TypeScript failures without auto-submitting fixes when auto_fix is false', async () => {

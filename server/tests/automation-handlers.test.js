@@ -29,6 +29,7 @@ vi.mock('../execution/command-policy', () => ({
 }));
 vi.mock('../logger', () => currentModules.loggerModule);
 vi.mock('../index', () => currentModules.indexModule);
+vi.mock('../container', () => currentModules.containerModule);
 vi.mock('uuid', () => currentModules.uuidModule);
 vi.mock('../handlers/automation-ts-tools', () => currentModules.tsTools);
 vi.mock('../handlers/automation-batch-orchestration', () => currentModules.batchOrchestration);
@@ -151,6 +152,11 @@ function createDefaultModules(overrides = {}) {
       durationMs: 0,
     })),
   };
+  const governanceHooks = overrides.governanceHooks || null;
+  const defaultContainer = overrides.defaultContainer || {
+    has: vi.fn((name) => name === 'governanceHooks' && Boolean(governanceHooks)),
+    get: vi.fn((name) => (name === 'governanceHooks' ? governanceHooks : undefined)),
+  };
 
   return {
     db,
@@ -169,6 +175,9 @@ function createDefaultModules(overrides = {}) {
     logger,
     loggerModule: { child: vi.fn(() => logger) },
     indexModule: overrides.indexModule || { getTestRunnerRegistry: vi.fn(() => overrides.testRunnerRegistry || null) },
+    governanceHooks,
+    defaultContainer,
+    containerModule: overrides.containerModule || { defaultContainer },
     uuidModule: { v4: overrides.uuidV4 || vi.fn(() => `12345678-aaaa-bbbb-cccc-${String(++uuidCounter).padStart(12, '0')}`) },
     tsTools: overrides.tsTools || {},
     batchOrchestration: overrides.batchOrchestration || {},
@@ -209,6 +218,7 @@ function loadHandlers(overrides = {}) {
   }));
   vi.doMock('../logger', () => currentModules.loggerModule);
   vi.doMock('../index', () => currentModules.indexModule);
+  vi.doMock('../container', () => currentModules.containerModule);
   vi.doMock('uuid', () => currentModules.uuidModule);
   vi.doMock('../handlers/automation-ts-tools', () => currentModules.tsTools);
   vi.doMock('../handlers/automation-batch-orchestration', () => currentModules.batchOrchestration);
@@ -233,6 +243,7 @@ function loadHandlers(overrides = {}) {
   });
   installCjsModuleMock('../logger', currentModules.loggerModule);
   installCjsModuleMock('../index', currentModules.indexModule);
+  installCjsModuleMock('../container', currentModules.containerModule);
   installCjsModuleMock('uuid', currentModules.uuidModule);
   installCjsModuleMock('../handlers/automation-ts-tools', currentModules.tsTools);
   installCjsModuleMock('../handlers/automation-batch-orchestration', currentModules.batchOrchestration);
@@ -347,6 +358,79 @@ describe('automation-handlers', () => {
       expect(text).toContain('### Result: PASSED');
       expect(text).toContain('**Execution:** remote (agent)');
       expect(text).toContain('**Duration:** 1.5s');
+    });
+
+    it('prints governance warnings and still executes verification in warn mode', async () => {
+      const router = {
+        runVerifyCommand: vi.fn(async () => ({
+          output: 'ok',
+          error: '',
+          exitCode: 0,
+          remote: false,
+          durationMs: 0,
+        })),
+      };
+      const governanceHooks = {
+        evaluatePreVerify: vi.fn(async () => ({
+          blocked: [],
+          warned: [{ message: 'Test suite has been run 3 times for this change set.' }],
+          shadowed: [],
+          allPassed: true,
+        })),
+      };
+      const { handlers } = loadHandlers({ router, governanceHooks });
+
+      const result = await handlers.handleAutoVerifyAndFix({
+        working_directory: 'C:\\repo',
+        verify_command: 'npx vitest run',
+      });
+      const text = getText(result);
+
+      expect(governanceHooks.evaluatePreVerify).toHaveBeenCalledWith(
+        expect.objectContaining({ working_directory: 'C:\\repo' }),
+        expect.objectContaining({ verify_command: 'npx vitest run' }),
+      );
+      expect(router.runVerifyCommand).toHaveBeenCalledTimes(1);
+      expect(text).toContain('**Governance warnings:**');
+      expect(text).toContain('Test suite has been run 3 times for this change set.');
+      expect(text).toContain('### Result: PASSED');
+    });
+
+    it('prints governance blocks and skips verification in block mode', async () => {
+      const router = {
+        runVerifyCommand: vi.fn(async () => ({
+          output: 'ok',
+          error: '',
+          exitCode: 0,
+          remote: false,
+          durationMs: 0,
+        })),
+      };
+      const governanceHooks = {
+        evaluatePreVerify: vi.fn(async () => ({
+          blocked: [{ message: 'Test suite has been run 4 times for this change set.' }],
+          warned: [],
+          shadowed: [],
+          allPassed: false,
+        })),
+      };
+      const { handlers } = loadHandlers({ router, governanceHooks });
+
+      const result = await handlers.handleAutoVerifyAndFix({
+        working_directory: 'C:\\repo',
+        verify_command: 'npx vitest run',
+      });
+      const text = getText(result);
+
+      expect(governanceHooks.evaluatePreVerify).toHaveBeenCalledWith(
+        expect.objectContaining({ working_directory: 'C:\\repo' }),
+        expect.objectContaining({ verify_command: 'npx vitest run' }),
+      );
+      expect(router.runVerifyCommand).not.toHaveBeenCalled();
+      expect(text).toContain('**Governance blocks:**');
+      expect(text).toContain('Test suite has been run 4 times for this change set.');
+      expect(text).toContain('### Result: SKIPPED');
+      expect(text).toContain('Verification skipped.');
     });
 
     it('parses TypeScript errors without submitting fixes when auto_fix is false', async () => {

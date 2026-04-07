@@ -19,6 +19,8 @@ let mockExecuteValidatedCommandSync;
 let mockBuildErrorFeedbackPrompt;
 let mockCreateTestRunnerRegistry;
 let mockRouter;
+let mockGovernanceHooks;
+let mockContainer;
 let mockConstants;
 let mockConfig;
 let mockIndex;
@@ -287,6 +289,13 @@ function resetMocks(options = {}) {
     })),
   };
   mockCreateTestRunnerRegistry = vi.fn(() => mockRouter);
+  mockGovernanceHooks = null;
+  mockContainer = {
+    defaultContainer: {
+      has: vi.fn((name) => name === 'governanceHooks' && Boolean(mockGovernanceHooks)),
+      get: vi.fn((name) => (name === 'governanceHooks' ? mockGovernanceHooks : undefined)),
+    },
+  };
   mockConstants = {
     TASK_TIMEOUTS: {
       GIT_DIFF: 5_000,
@@ -366,6 +375,7 @@ const AUTOMATION_MODULES = [
   '../utils/safe-exec',
   '../execution/command-policy',
   '../test-runner-registry',
+  '../container',
   '../handlers/automation-ts-tools',
   '../handlers/automation-batch-orchestration',
   '../index',
@@ -410,6 +420,7 @@ function loadAutomationHandlers() {
   installCjsModuleMock('../test-runner-registry', {
     createTestRunnerRegistry: mockCreateTestRunnerRegistry,
   });
+  installCjsModuleMock('../container', mockContainer);
   installCjsModuleMock('../handlers/automation-ts-tools', {});
   installCjsModuleMock('../handlers/automation-batch-orchestration', {});
   installCjsModuleMock('../index', mockIndex);
@@ -986,6 +997,61 @@ describe('Task Project Handlers', () => {
       expect(text).toContain('### Result: PASSED');
       expect(text).toContain('**Execution:** remote (agent)');
       expect(text).toContain('**Duration:** 1.5s');
+    });
+
+    it('prints governance warnings and still runs verification in warn mode', async () => {
+      mockGovernanceHooks = {
+        evaluatePreVerify: vi.fn(async () => ({
+          blocked: [],
+          warned: [{ message: 'Test suite has been run 3 times for this change set.' }],
+          shadowed: [],
+          allPassed: true,
+        })),
+      };
+      const handlers = loadAutomationHandlers();
+
+      const result = await handlers.handleAutoVerifyAndFix({
+        working_directory: 'C:\\repo',
+        verify_command: 'npx vitest run',
+      });
+      const text = textOf(result);
+
+      expect(mockGovernanceHooks.evaluatePreVerify).toHaveBeenCalledWith(
+        expect.objectContaining({ working_directory: 'C:\\repo' }),
+        expect.objectContaining({ verify_command: 'npx vitest run' }),
+      );
+      expect(mockRouter.runVerifyCommand).toHaveBeenCalledTimes(1);
+      expect(text).toContain('**Governance warnings:**');
+      expect(text).toContain('Test suite has been run 3 times for this change set.');
+      expect(text).toContain('### Result: PASSED');
+    });
+
+    it('prints governance blocks and skips verification in block mode', async () => {
+      mockGovernanceHooks = {
+        evaluatePreVerify: vi.fn(async () => ({
+          blocked: [{ message: 'Test suite has been run 4 times for this change set.' }],
+          warned: [],
+          shadowed: [],
+          allPassed: false,
+        })),
+      };
+      const handlers = loadAutomationHandlers();
+
+      const result = await handlers.handleAutoVerifyAndFix({
+        working_directory: 'C:\\repo',
+        verify_command: 'npx vitest run',
+      });
+      const text = textOf(result);
+
+      expect(mockGovernanceHooks.evaluatePreVerify).toHaveBeenCalledWith(
+        expect.objectContaining({ working_directory: 'C:\\repo' }),
+        expect.objectContaining({ verify_command: 'npx vitest run' }),
+      );
+      expect(mockRouter.runVerifyCommand).not.toHaveBeenCalled();
+      expect(text).toContain('**Governance blocks:**');
+      expect(text).toContain('Test suite has been run 4 times for this change set.');
+      expect(text).toContain('### Result: SKIPPED');
+      expect(text).toContain('Verification skipped.');
     });
 
     it('omits execution metadata for local passing verification', async () => {

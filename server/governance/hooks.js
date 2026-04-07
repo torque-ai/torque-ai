@@ -586,9 +586,14 @@ function createGovernanceHooks({ governanceRules, logger } = {}) {
     };
   }
 
+  async function evaluatePreVerify(task, context = {}) {
+    return evaluate('pre-verify', task, context);
+  }
+
   return {
     CHECKERS,
     evaluate,
+    evaluatePreVerify,
   };
 }
 
