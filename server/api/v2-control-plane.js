@@ -84,6 +84,8 @@ function buildTaskResponse(task) {
     provider_switch_target: metadata.provider_switch_target || metadata.target_provider || null,
     user_provider_override: Boolean(metadata.user_provider_override),
     provider_switch_reason: metadata._provider_switch_reason || null,
+    project: task.project || null,
+    tags: (() => { try { return typeof task.tags === 'string' ? JSON.parse(task.tags) : (task.tags || []); } catch { return []; } })(),
     metadata,
   };
 }
