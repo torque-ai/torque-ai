@@ -1250,7 +1250,7 @@ async function handleAutoVerifyAndFix(req, res) {
 
   try {
     const automationHandlers = require('../handlers/automation-handlers');
-    const result = automationHandlers.handleAutoVerifyAndFix(body);
+    const result = await automationHandlers.handleAutoVerifyAndFix(body);
 
     if (result?.isError) {
       const msg = result.content?.[0]?.text || 'Verification failed';

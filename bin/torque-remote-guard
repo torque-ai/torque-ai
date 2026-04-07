@@ -64,8 +64,13 @@ if [[ "$first_token" == "torque-remote" || "$first_token" == */torque-remote ]];
   exit 0
 fi
 
-# curl sends data to APIs — keywords in JSON payloads aren't local execution
+# Commands that only send data to APIs — keywords in payloads aren't local execution
 if [[ "$first_token" == "curl" ]]; then
+  exit 0
+fi
+
+# If the command pipes through curl, keywords in -d payloads aren't local execution
+if echo "$command" | grep -q 'curl '; then
   exit 0
 fi
 
