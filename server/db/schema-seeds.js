@@ -2,6 +2,7 @@
 
 const path = require('path');
 const { FILE_SIZE_TRUNCATION_THRESHOLD } = require('../constants');
+const { seedBuiltinGovernanceRules } = require('./governance-rules');
 
 function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   const { DATA_DIR, truncationThreshold, setConfigDefault } = extras;
@@ -367,6 +368,11 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertRetryRule.run('retry-empty', 'Retry on Empty Output', 'Retry with cloud when output is empty', 'condition', 'output_empty OR file_size < 10', 'retry_with_cloud', 'claude-cli', 1, 0, 1, now);
   insertRetryRule.run('retry-truncation', 'Retry on Truncation', 'Retry with cloud when file was truncated', 'condition', `size_decrease_percent > ${safeTruncationThreshold}`, 'retry_with_cloud', 'claude-cli', 1, 0, 1, now);
   insertRetryRule.run('retry-validation-fail', 'Retry on Validation Failure', 'Retry with cloud when validation fails with severity=error', 'condition', 'validation_failed AND validation_severity = error', 'retry_with_cloud', 'claude-cli', 1, 0, 1, now);
+  try {
+    seedBuiltinGovernanceRules(db);
+  } catch (e) {
+    logger.debug(`Schema seed (governance rules): ${e.message}`);
+  }
   const insertSyntaxValidator = db.prepare(`
       INSERT OR IGNORE INTO syntax_validators (id, name, file_extensions, command, args, success_exit_codes, enabled, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)

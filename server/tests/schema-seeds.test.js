@@ -27,6 +27,7 @@ const SEEDED_TABLES = [
   'cost_budgets',
   'approval_rules',
   'failure_patterns',
+  'governance_rules',
 ];
 
 const EXPECTED_CONFIG_DEFAULTS = {
@@ -215,5 +216,21 @@ describe('db/schema-seeds', () => {
     for (const rule of rules) {
       expect(knownProviders.has(rule.target_provider)).toBe(true);
     }
+  });
+
+  it('seeds builtin governance rules including batch-test-fixes', () => {
+    const rule = db.prepare(`
+      SELECT id, stage, mode, default_mode, checker_id
+      FROM governance_rules
+      WHERE id = ?
+    `).get('batch-test-fixes');
+
+    expect(rule).toMatchObject({
+      id: 'batch-test-fixes',
+      stage: 'pre-verify',
+      mode: 'warn',
+      default_mode: 'warn',
+      checker_id: 'checkBatchTestFixes',
+    });
   });
 });

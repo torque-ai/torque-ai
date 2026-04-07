@@ -3,6 +3,10 @@
 const childProcess = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(childProcess.execFile);
+const {
+  evaluateBatchTestFixes,
+  resolveChangeSetKey: resolveBatchTestFixesChangeSetKey,
+} = require('./rules/batch-test-fixes');
 
 const DEFAULT_VISIBLE_PROVIDERS = Object.freeze(['codex', 'claude-cli']);
 const DEFAULT_TEST_COMMANDS = Object.freeze(['vitest', 'jest', 'pytest', 'dotnet test']);
@@ -300,6 +304,56 @@ async function checkDiffAfterCodex(task) {
   }
 }
 
+async function resolveBatchTestFixesChangeSet(task, context) {
+  const explicit = resolveBatchTestFixesChangeSetKey(task, context);
+  if (context?.change_set || context?.changeSet || context?.commit_range || context?.commitRange) {
+    return explicit;
+  }
+
+  if (!task?.working_directory) {
+    return explicit;
+  }
+
+  try {
+    const { stdout } = await execFileAsync('git', ['status', '--porcelain=2', '--branch'], {
+      cwd: task.working_directory,
+      encoding: 'utf8',
+      timeout: 5000,
+      windowsHide: true,
+    });
+    const signature = stdout.trim();
+    if (signature) {
+      const workflowKey = task?.workflow_id || context?.workflow_id || context?.workflowId || 'standalone';
+      return `${workflowKey}::${task.working_directory}::${signature}`;
+    }
+  } catch {
+    // Fall back to the explicit/task-derived key when git metadata is unavailable.
+  }
+
+  return explicit;
+}
+
+async function checkBatchTestFixes(task, rule, context) {
+  const runtimeState = context?.runtimeState && typeof context.runtimeState === 'object'
+    ? context.runtimeState
+    : {};
+  const counterState = runtimeState.batchTestFixes instanceof Map
+    ? runtimeState.batchTestFixes
+    : new Map();
+  runtimeState.batchTestFixes = counterState;
+
+  const changeSet = await resolveBatchTestFixesChangeSet(task, context);
+  return evaluateBatchTestFixes({
+    task,
+    rule,
+    context: {
+      ...context,
+      change_set: changeSet,
+    },
+    state: counterState,
+  });
+}
+
 // ── New checkers for expanded governance rules ──
 
 function checkNoProcessKill(task, rule, _context) {
@@ -438,6 +492,7 @@ const CHECKERS = Object.freeze({
   checkRequireRemoteForBuilds,
   checkPushBeforeSubagentTests,
   checkNoForceRestart,
+  checkBatchTestFixes,
 });
 
 function normalizeCheckerResult(result) {
@@ -457,6 +512,9 @@ function createGovernanceHooks({ governanceRules, logger } = {}) {
   }
 
   const log = resolveLogger(logger);
+  const runtimeState = {
+    batchTestFixes: new Map(),
+  };
 
   async function evaluate(stage, task, context = {}) {
     const blocked = [];
@@ -482,7 +540,10 @@ function createGovernanceHooks({ governanceRules, logger } = {}) {
 
       let checkerResult;
       try {
-        checkerResult = normalizeCheckerResult(await checker(task, rule, context));
+        checkerResult = normalizeCheckerResult(await checker(task, rule, {
+          ...context,
+          runtimeState,
+        }));
       } catch (error) {
         checkerResult = {
           pass: false,

@@ -67,6 +67,47 @@ function buildWorkflowPeekArtifactSection(tasks) {
   return formatPeekArtifactReferenceSection(refs);
 }
 
+async function evaluatePreVerifyGovernance(target, verifyCommand, context = {}) {
+  if (!verifyCommand) {
+    return null;
+  }
+
+  try {
+    const { defaultContainer } = require('../../container');
+    if (!defaultContainer || typeof defaultContainer.has !== 'function' || typeof defaultContainer.get !== 'function') {
+      return null;
+    }
+    if (!defaultContainer.has('governanceHooks')) {
+      return null;
+    }
+
+    const governance = defaultContainer.get('governanceHooks');
+    if (!governance || typeof governance.evaluate !== 'function') {
+      return null;
+    }
+
+    return await governance.evaluate('pre-verify', target, {
+      ...context,
+      verify_command: verifyCommand,
+    });
+  } catch (err) {
+    logger.debug('[workflow-await] non-critical governance pre-verify error: ' + (err.message || err));
+    return null;
+  }
+}
+
+function formatPreVerifyGovernance(entries, label) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return '';
+  }
+
+  let text = `**Governance ${label}:**\n`;
+  for (const entry of entries) {
+    text += `- ${entry?.message || 'Governance rule triggered'}\n`;
+  }
+  return text;
+}
+
 function normalizeCommitPath(filePath, workingDir) {
   if (!workingDir || typeof filePath !== 'string') return null;
 
@@ -991,6 +1032,24 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
         }
         try {
           const cwd = args.working_directory || workflow.working_directory || process.cwd();
+          const governanceResult = await evaluatePreVerifyGovernance(
+            {
+              id: workflow.id,
+              workflow_id: workflow.id,
+              working_directory: cwd,
+            },
+            args.verify_command,
+            { workflow_id: workflow.id }
+          );
+          if (governanceResult?.blocked?.length) {
+            output += formatPreVerifyGovernance(governanceResult.blocked, 'blocks');
+            output += 'Verification skipped.\n';
+            return output;
+          }
+          const governanceWarnings = formatPreVerifyGovernance(governanceResult?.warned, 'warnings');
+          if (governanceWarnings) {
+            output += governanceWarnings;
+          }
           let hasTorqueRemote = false;
           try {
             require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore', windowsHide: true });
@@ -1453,7 +1512,18 @@ async function handleAwaitTask(args) {
 
           const cwd = args.working_directory || task.working_directory;
           if (cwd) {
+            let governanceWarnings = '';
             try {
+              const governanceResult = await evaluatePreVerifyGovernance(
+                task,
+                args.verify_command,
+                { task_id: task.id, workflow_id: task.workflow_id || null }
+              );
+              if (governanceResult?.blocked?.length) {
+                output += `\n### Verify Command\n${formatPreVerifyGovernance(governanceResult.blocked, 'blocks')}Verification skipped.\n`;
+                return { content: [{ type: 'text', text: output }] };
+              }
+              governanceWarnings = formatPreVerifyGovernance(governanceResult?.warned, 'warnings');
               let hasTorqueRemote = false;
               try {
                 require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore', windowsHide: true });
@@ -1489,10 +1559,10 @@ async function handleAwaitTask(args) {
                   }
                 );
               }
-              output += `\n### Verify Command\n✅ Passed\n\`\`\`\n${(verifyResult || '').toString().trim().substring(0, 1000)}\n\`\`\`\n`;
+              output += `\n### Verify Command\n${governanceWarnings}✅ Passed\n\`\`\`\n${(verifyResult || '').toString().trim().substring(0, 1000)}\n\`\`\`\n`;
             } catch (err) {
               const errMsg = (err.stderr || err.stdout || err.message || '').toString().substring(0, 1500);
-              output += `\n### Verify Command\n❌ Failed\n\`\`\`\n${errMsg}\n\`\`\`\n`;
+              output += `\n### Verify Command\n${governanceWarnings}❌ Failed\n\`\`\`\n${errMsg}\n\`\`\`\n`;
             }
           }
         }

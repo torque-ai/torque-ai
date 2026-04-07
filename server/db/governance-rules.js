@@ -1,5 +1,7 @@
 'use strict';
 
+const { BATCH_TEST_FIXES_RULE } = require('../governance/rules/batch-test-fixes');
+
 const VALID_MODES = ['block', 'warn', 'shadow', 'off'];
 
 const BUILTIN_RULES = Object.freeze([
@@ -129,6 +131,7 @@ const BUILTIN_RULES = Object.freeze([
     checker_id: 'checkRejectTempFiles',
     config: null,
   }),
+  Object.freeze(BATCH_TEST_FIXES_RULE),
 ]);
 
 function validateDb(db) {
@@ -176,10 +179,8 @@ function hydrateRuleRow(row) {
   };
 }
 
-function createGovernanceRules({ db }) {
-  validateDb(db);
-
-  const insertBuiltinStmt = db.prepare(`
+function buildInsertBuiltinStmt(db) {
+  return db.prepare(`
     INSERT OR IGNORE INTO governance_rules (
       id,
       name,
@@ -196,6 +197,44 @@ function createGovernanceRules({ db }) {
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+}
+
+function createSeedBuiltinRulesTx(db) {
+  const insertBuiltinStmt = buildInsertBuiltinStmt(db);
+  return db.transaction(() => {
+    let inserted = 0;
+
+    for (const rule of BUILTIN_RULES) {
+      const now = new Date().toISOString();
+      const result = insertBuiltinStmt.run(
+        rule.id,
+        rule.name,
+        rule.description,
+        rule.stage,
+        rule.mode || rule.default_mode || 'warn',
+        rule.default_mode || 'warn',
+        rule.enabled === false ? 0 : 1,
+        rule.violation_count || 0,
+        rule.checker_id,
+        serializeConfig(rule.config),
+        now,
+        now,
+      );
+      inserted += result.changes;
+    }
+
+    return inserted;
+  });
+}
+
+function seedBuiltinGovernanceRules(db) {
+  validateDb(db);
+  return createSeedBuiltinRulesTx(db)();
+}
+
+function createGovernanceRules({ db }) {
+  validateDb(db);
+
   const selectAllStmt = db.prepare('SELECT * FROM governance_rules ORDER BY stage ASC, name ASC');
   const selectByIdStmt = db.prepare('SELECT * FROM governance_rules WHERE id = ?');
   const selectActiveByStageStmt = db.prepare(`
@@ -223,30 +262,7 @@ function createGovernanceRules({ db }) {
     SET violation_count = 0, updated_at = ?
   `);
 
-  const seedBuiltinRulesTx = db.transaction(() => {
-    let inserted = 0;
-
-    for (const rule of BUILTIN_RULES) {
-      const now = new Date().toISOString();
-      const result = insertBuiltinStmt.run(
-        rule.id,
-        rule.name,
-        rule.description,
-        rule.stage,
-        rule.mode || rule.default_mode || 'warn',
-        rule.default_mode || 'warn',
-        rule.enabled === false ? 0 : 1,
-        rule.violation_count || 0,
-        rule.checker_id,
-        serializeConfig(rule.config),
-        now,
-        now,
-      );
-      inserted += result.changes;
-    }
-
-    return inserted;
-  });
+  const seedBuiltinRulesTx = createSeedBuiltinRulesTx(db);
 
   function seedBuiltinRules() {
     return seedBuiltinRulesTx();
@@ -313,4 +329,5 @@ module.exports = {
   createGovernanceRules,
   BUILTIN_RULES,
   VALID_MODES,
+  seedBuiltinGovernanceRules,
 };
