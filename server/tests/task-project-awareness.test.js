@@ -137,7 +137,6 @@ describe('task project awareness', () => {
       createDbTask({ project: 'alpha' });
       createDbTask({ project: 'alpha' });
       createDbTask({ project: 'alpha' });
-      insertProjectConfig('alpha');
 
       expect(typeof listKnownProjects).toBe('function');
       const alpha = listKnownProjects().find((project) => project.name === 'alpha');

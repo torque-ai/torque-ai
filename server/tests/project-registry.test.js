@@ -90,7 +90,7 @@ describe('project registry', () => {
         name: 'beta',
         task_count: 1,
         last_active: '2026-03-01T09:00:00.000Z',
-        has_config: false,
+        has_config: true,
       },
       {
         name: 'gamma',
