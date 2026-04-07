@@ -334,14 +334,6 @@ async function resolveBatchTestFixesChangeSet(task, context) {
 }
 
 async function checkBatchTestFixes(task, rule, context) {
-  const runtimeState = context?.runtimeState && typeof context.runtimeState === 'object'
-    ? context.runtimeState
-    : {};
-  const counterState = runtimeState.batchTestFixes instanceof Map
-    ? runtimeState.batchTestFixes
-    : new Map();
-  runtimeState.batchTestFixes = counterState;
-
   const changeSet = await resolveBatchTestFixesChangeSet(task, context);
   return evaluateBatchTestFixes({
     task,
@@ -350,7 +342,6 @@ async function checkBatchTestFixes(task, rule, context) {
       ...context,
       change_set: changeSet,
     },
-    state: counterState,
   });
 }
 
@@ -512,10 +503,6 @@ function createGovernanceHooks({ governanceRules, logger } = {}) {
   }
 
   const log = resolveLogger(logger);
-  const runtimeState = {
-    batchTestFixes: new Map(),
-  };
-
   async function evaluate(stage, task, context = {}) {
     const blocked = [];
     const warned = [];
@@ -540,10 +527,7 @@ function createGovernanceHooks({ governanceRules, logger } = {}) {
 
       let checkerResult;
       try {
-        checkerResult = normalizeCheckerResult(await checker(task, rule, {
-          ...context,
-          runtimeState,
-        }));
+        checkerResult = normalizeCheckerResult(await checker(task, rule, context));
       } catch (error) {
         checkerResult = {
           pass: false,

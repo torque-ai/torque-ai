@@ -15,6 +15,7 @@ const DEFAULT_FULL_SUITE_COMMANDS = Object.freeze([
 ]);
 const TARGETED_TEST_FLAG_PATTERN = /(?:^|\s)(?:--runTestsByPath|--testPathPattern|--grep|--filter|-t)(?:\s|=|$)/i;
 const TARGETED_TEST_PATH_PATTERN = /(?:^|\s)[^\s]+(?:\/tests?\/[^\s]*|\\tests?\\[^\s]*|[._-](?:test|spec)\.[cm]?[jt]sx?|_test\.py|Tests?\.csproj)(?=\s|$)/i;
+const _invocationCounters = new Map();
 
 const BATCH_TEST_FIXES_RULE = Object.freeze({
   id: RULE_ID,
@@ -78,17 +79,20 @@ function resolveChangeSetKey(task, context) {
   return `${workflowId}::${workingDirectory}::${taskId}`;
 }
 
-function evaluateBatchTestFixes({ task, rule, context, state }) {
+function resetInvocationCountersForTesting() {
+  _invocationCounters.clear();
+}
+
+function evaluateBatchTestFixes({ task, rule, context }) {
   const config = rule?.config && typeof rule.config === 'object' ? rule.config : {};
   const verifyCommand = normalizeVerifyCommand(context);
   if (!isFullSuiteCommand(verifyCommand, config)) {
     return { pass: true, tracked: false };
   }
 
-  const counters = state instanceof Map ? state : new Map();
   const changeSetKey = resolveChangeSetKey(task, context);
-  const nextCount = (counters.get(changeSetKey) || 0) + 1;
-  counters.set(changeSetKey, nextCount);
+  const nextCount = (_invocationCounters.get(changeSetKey) || 0) + 1;
+  _invocationCounters.set(changeSetKey, nextCount);
 
   if (nextCount > getMaxRuns(config)) {
     return {
@@ -115,5 +119,6 @@ module.exports = {
   evaluateBatchTestFixes,
   isFullSuiteCommand,
   normalizeVerifyCommand,
+  resetInvocationCountersForTesting,
   resolveChangeSetKey,
 };
