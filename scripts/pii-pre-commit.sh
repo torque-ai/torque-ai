@@ -10,7 +10,7 @@ PII_ENDPOINT="${TORQUE_API}/api/pii-scan"
 WORKING_DIR="$(git rev-parse --show-toplevel)"
 
 # Files to skip — the PII guard's own source contains the patterns it detects
-SKIP_FILES="server/utils/pii-guard.js server/tests/pii-guard.test.js scripts/pii-pre-commit.sh scripts/pii-claude-hook.sh scripts/pii-claude-hook.js"
+SKIP_FILES="server/utils/pii-guard.js server/tests/pii-guard.test.js server/tests/pii-output-safeguards.test.js scripts/pii-pre-commit.sh scripts/pii-claude-hook.sh scripts/pii-claude-hook.js"
 
 BINARY_EXTS="png|jpg|jpeg|gif|bmp|ico|svg|woff|woff2|ttf|eot|mp3|mp4|wav|zip|tar|gz|pdf|db|sqlite|exe|dll|so|dylib"
 

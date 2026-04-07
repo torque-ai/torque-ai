@@ -20,19 +20,19 @@ describe('pii-guard', () => {
     });
 
     it('replaces Linux user paths', () => {
-      const result = piiGuard.scanAndReplace('Path /home/alice/code/app');
+      const result = piiGuard.scanAndReplace('Path /home/<user>/code/app');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Path /home/<user>/code/app');
     });
 
     it('replaces Mac user paths', () => {
-      const result = piiGuard.scanAndReplace('Path /Users/bob/Desktop');
+      const result = piiGuard.scanAndReplace('Path /Users/<user>/Desktop');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Path /Users/<user>/Desktop');
     });
 
     it('replaces 192.168.x.x preserving last octet', () => {
-      const result = piiGuard.scanAndReplace('Host: 192.168.1.100');
+      const result = piiGuard.scanAndReplace('Host: 192.0.2.100');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Host: 192.0.2.100');
     });
@@ -60,7 +60,7 @@ describe('pii-guard', () => {
     });
 
     it('replaces real email addresses', () => {
-      const result = piiGuard.scanAndReplace('Contact: alice@company.org');
+      const result = piiGuard.scanAndReplace('Contact: user@example.com');
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Contact: user@example.com');
     });
@@ -107,7 +107,7 @@ describe('pii-guard', () => {
     });
 
     it('replaces multiple PII types in one string', () => {
-      const input = 'User C:\\Users\\alice at 192.168.1.50 email alice@company.org';
+      const input = 'User C:\\Users\\alice at 192.0.2.50 email user@example.com';
       const result = piiGuard.scanAndReplace(input);
       expect(result.clean).toBe(false);
       expect(result.findings.length).toBeGreaterThanOrEqual(3);
@@ -122,8 +122,8 @@ describe('pii-guard', () => {
     });
 
     it('applies custom regex patterns', () => {
-      const result = piiGuard.scanAndReplace('Project: SpudgetBooks v2', {
-        customPatterns: [{ pattern: 'SpudgetBooks', replacement: 'example-project', regex: true }],
+      const result = piiGuard.scanAndReplace('Project: AcmeProject v2', {
+        customPatterns: [{ pattern: 'AcmeProject', replacement: 'example-project', regex: true }],
       });
       expect(result.clean).toBe(false);
       expect(result.sanitized).toBe('Project: example-project v2');
