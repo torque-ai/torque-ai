@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Pre-push hook — runs test suites before allowing push to remote.
+# Skip with: git push --no-verify
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+echo "[pre-push] Running dashboard tests..."
+cd "$REPO_ROOT/dashboard"
+set +e
+npx vitest run --config vitest.config.js --reporter=dot 2>&1
+dash_exit=$?
+set -e
+if [ "$dash_exit" -ne 0 ]; then
+  echo "[pre-push] BLOCKED: Dashboard tests failed (exit $dash_exit)"
+  exit 1
+fi
+
+echo "[pre-push] Running server tests on remote..."
+# Refresh origin/main locally so the rollback target matches the current remote
+# ref and is guaranteed to exist in the local object database.
+git fetch origin refs/heads/main:refs/remotes/origin/main >/dev/null
+previous_sha="$(git rev-parse refs/remotes/origin/main)"
+
+echo "[pre-push] Pushing HEAD to origin/main for remote server tests..."
+git push --no-verify origin HEAD:refs/heads/main
+
+set +e
+server_output=$(torque-remote npx vitest run --reporter=dot 2>&1)
+server_exit=$?
+echo "$server_output" | tail -5
+set -e
+# vitest exits non-zero if test-container.js (a helper, not a test) is picked up.
+# Check for actual test failures (not just file load errors).
+if echo "$server_output" | grep -qE 'Tests .* failed'; then
+  echo "[pre-push] Server tests failed; rolling origin/main back to $previous_sha..."
+  if ! git push --no-verify --force origin "$previous_sha":refs/heads/main; then
+    echo "[pre-push] BLOCKED: Server tests failed and rollback push failed"
+    exit 1
+  fi
+  echo "[pre-push] BLOCKED: Server tests failed"
+  exit 1
+fi
+
+echo "[pre-push] All tests passed — push allowed"
