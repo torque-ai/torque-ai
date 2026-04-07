@@ -63,6 +63,7 @@ installCjsModuleMock('../api/v2-governance-handlers', handlerModule([
   'handleListProviders', 'handleProviderStats', 'handleProviderToggle', 'handleProviderTrends',
   'handleConfigureProvider', 'handleSetDefaultProvider',
   'handleSystemStatus',
+  'handleListProjects',
   'handleScanProject', 'handleGetProjectDefaults', 'handleSetProjectDefaults',
   'handleGetConfig', 'handleSetConfig',
   'handleConfigureStallDetection', 'handleListWebhooks', 'handleAddWebhook',
