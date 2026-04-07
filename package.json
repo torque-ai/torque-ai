@@ -1,7 +1,7 @@
 {
   "name": "torque-ai",
   "version": "1.0.0-beta.1",
-  "description": "A dark software factory for Claude Code. Discover, plan, execute, verify, remediate, and release — autonomously across local and cloud LLM providers.",
+  "description": "An automated software factory for Claude Code. Discover, plan, execute, verify, remediate, and release — autonomously across local and cloud LLM providers.",
   "main": "server/index.js",
   "bin": {
     "torque": "bin/torque.js",
@@ -20,7 +20,7 @@
   },
   "keywords": [
     "mcp", "ai", "orchestration", "llm", "coding", "ollama",
-    "claude", "codex", "workflow", "dark-factory", "multi-provider",
+    "claude", "codex", "workflow", "automated-factory", "multi-provider",
     "smart-routing", "quality-gates", "auto-remediation", "autonomous"
   ],
   "license": "MIT",

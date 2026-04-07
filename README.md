@@ -1,6 +1,6 @@
 # TORQUE
 
-A dark software factory for Claude Code.
+An automated software factory for Claude Code.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
