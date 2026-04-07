@@ -1,4 +1,4 @@
-# TORQUE Performance Run — SpudgetBooks Test Bed
+# TORQUE Performance Run — example-project Test Bed
 
 ## Context
 
@@ -6,19 +6,19 @@ We just completed a massive session implementing 18 competitive features for TOR
 
 ## Objective
 
-Use the SpudgetBooks project (`/path/to/project` — C#/.NET WPF budgeting app) as a test bed to:
+Use the example-project project (`/path/to/project` — C#/.NET WPF budgeting app) as a test bed to:
 
 1. **Exercise every LLM provider TORQUE supports** — submit real tasks to each and compare output quality, speed, and reliability
 2. **Validate every new competitive feature under load** — provider scoring populates, circuit breakers trip/recover, budget watcher fires, resume context helps retries succeed, commit mutex serializes, symbol indexer provides compact context, templates inject C# agent context, etc.
 3. **Identify bugs and performance bottlenecks** — capture any issues that only surface under concurrent multi-provider execution
 
-## SpudgetBooks Overview
+## example-project Overview
 
 - **Stack:** C#/.NET 9, WPF (XAML), SQLite, MVVM architecture
 - **Location:** `/path/to/project`
-- **Solution:** `SpudgetBooks.sln`
+- **Solution:** `example-project.sln`
 - **Projects:** Domain, Application, Infrastructure, App (WPF), Cli, Telemetry
-- **Build:** `dotnet build SpudgetBooks.sln`
+- **Build:** `dotnet build example-project.sln`
 - **Test:** `dotnet test`
 - **Route XAML/WPF tasks to cloud** — local LLMs struggle with WPF semantics
 
@@ -26,7 +26,7 @@ Use the SpudgetBooks project (`/path/to/project` — C#/.NET WPF budgeting app) 
 
 Submit the SAME task to every available provider and compare results. Use `compare_providers` MCP tool or manual submission.
 
-**Task:** "In SpudgetBooks.Domain/Budgeting/, add a RecurringExpenseCalculator class that computes the next N occurrences of a recurring expense given a start date, frequency (daily/weekly/monthly/yearly), and amount. Include a method GetProjectedTotal(months) that returns the total projected spend. Add unit test file."
+**Task:** "In example-project.Domain/Budgeting/, add a RecurringExpenseCalculator class that computes the next N occurrences of a recurring expense given a start date, frequency (daily/weekly/monthly/yearly), and amount. Include a method GetProjectedTotal(months) that returns the total projected spend. Add unit test file."
 
 **Providers to test (all 13):**
 
@@ -54,7 +54,7 @@ For each provider, capture:
 
 ## Phase 2: Feature Validation Under Load
 
-Run a TORQUE workflow with 6+ parallel tasks against SpudgetBooks and verify each new feature activates:
+Run a TORQUE workflow with 6+ parallel tasks against example-project and verify each new feature activates:
 
 ### Features to observe:
 
@@ -68,9 +68,9 @@ Run a TORQUE workflow with 6+ parallel tasks against SpudgetBooks and verify eac
 
 5. **Commit Mutex** — Submit a workflow with 2+ tasks that have `auto_commit: true`. Verify commits are serialized (no merge conflicts).
 
-6. **Symbol Indexer** — Run `index_project` on SpudgetBooks first. Then submit tasks that reference specific classes. Verify context-stuffed prompts use symbol-level content instead of whole files (check task output for "Referenced Symbols" section).
+6. **Symbol Indexer** — Run `index_project` on example-project first. Then submit tasks that reference specific classes. Verify context-stuffed prompts use symbol-level content instead of whole files (check task output for "Referenced Symbols" section).
 
-7. **Project Templates** — Run `detect_project_type` on SpudgetBooks. Verify it returns `csharp` with ".NET conventions" agent context. Verify this context appears in task prompts for free providers.
+7. **Project Templates** — Run `detect_project_type` on example-project. Verify it returns `csharp` with ".NET conventions" agent context. Verify this context appears in task prompts for free providers.
 
 8. **Test-Verification-Lite** — Submit a Codex task and check the prompt includes "Do NOT run the full project test suite". Verify Codex only runs targeted tests, not `dotnet test` on the full solution.
 
@@ -86,10 +86,10 @@ Run a TORQUE workflow with 6+ parallel tasks against SpudgetBooks and verify eac
 
 ## Phase 3: Multi-Provider Workflow
 
-Create a SpudgetBooks feature workflow that distributes work across providers:
+Create a example-project feature workflow that distributes work across providers:
 
 ```
-Workflow: "SpudgetBooks Recurring Expenses Feature"
+Workflow: "example-project Recurring Expenses Feature"
 
 Step 1 (types — cerebras): Add RecurrenceFrequency enum to Domain/Budgeting/
 Step 2 (data — ollama): Add RecurringExpense entity to Domain/Budgeting/
@@ -134,7 +134,7 @@ node bin/torque-top
 # Circuit breaker status
 # Use get_circuit_breaker_status MCP tool
 
-# Symbol index for SpudgetBooks
+# Symbol index for example-project
 # Use index_project MCP tool with working_directory=/path/to/project
 ```
 
@@ -145,7 +145,7 @@ node bin/torque-top
 - At least 1 circuit breaker trip observed and recovered
 - Resume context verified in at least 1 retry
 - Commit mutex serialization verified with concurrent auto-commits
-- Symbol indexer extracts C# symbols from SpudgetBooks
+- Symbol indexer extracts C# symbols from example-project
 - No process leaks after full run
 - Zero data loss from output buffer
 - All 154 unit tests still green after the run

@@ -9,7 +9,7 @@
  * escape the working directory are blocked.
  *
  * Bug: cerebras/google-ai agentic tasks submit relative paths like
- * "SpudgetBooks.Domain/Budgeting" which must resolve against workingDir.
+ * "example-project.Domain/Budgeting" which must resolve against workingDir.
  */
 
 const fs = require('fs');
@@ -66,13 +66,13 @@ describe('list_directory — relative path resolution', () => {
     expect(res.result).toContain('Entry.cs');
   });
 
-  it('resolves a nested relative path like "SpudgetBooks.Domain/Budgeting"', () => {
+  it('resolves a nested relative path like "example-project.Domain/Budgeting"', () => {
     const dir = makeTempDir();
-    fs.mkdirSync(path.join(dir, 'SpudgetBooks.Domain', 'Budgeting'), { recursive: true });
-    writeFile(dir, 'SpudgetBooks.Domain/Budgeting/Budget.cs', 'class Budget {}');
+    fs.mkdirSync(path.join(dir, 'example-project.Domain', 'Budgeting'), { recursive: true });
+    writeFile(dir, 'example-project.Domain/Budgeting/Budget.cs', 'class Budget {}');
 
     const { execute } = createToolExecutor(dir);
-    const res = execute('list_directory', { path: 'SpudgetBooks.Domain/Budgeting' });
+    const res = execute('list_directory', { path: 'example-project.Domain/Budgeting' });
 
     expect(res.error).toBeUndefined();
     expect(res.result).toContain('Budget.cs');
@@ -153,10 +153,10 @@ describe('read_file — relative path resolution', () => {
 
   it('resolves dotted directory names in relative paths', () => {
     const dir = makeTempDir();
-    writeFile(dir, 'SpudgetBooks.Domain/Models/Account.cs', 'class Account {}');
+    writeFile(dir, 'example-project.Domain/Models/Account.cs', 'class Account {}');
 
     const { execute } = createToolExecutor(dir);
-    const res = execute('read_file', { path: 'SpudgetBooks.Domain/Models/Account.cs' });
+    const res = execute('read_file', { path: 'example-project.Domain/Models/Account.cs' });
 
     expect(res.error).toBeUndefined();
     expect(res.result).toContain('class Account {}');

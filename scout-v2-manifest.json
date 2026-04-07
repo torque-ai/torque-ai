@@ -4,7 +4,7 @@
     "pattern": "single-field-validation"
   },
   {
-    "file": "src/SpudgetBooks.App/Accounting/Accounts/AccountPeekViewModel.cs",
+    "file": "src/example-project.App/Accounting/Accounts/AccountPeekViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -12,7 +12,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Accounting/Accounts/ChartOfAccountsViewModel.cs",
+    "file": "src/example-project.App/Accounting/Accounts/ChartOfAccountsViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -20,7 +20,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Accounting/JournalEntries/JournalEntriesWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Accounting/JournalEntries/JournalEntriesWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -28,7 +28,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Accounting/JournalEntries/JournalEntryEditorViewModel.cs",
+    "file": "src/example-project.App/Accounting/JournalEntries/JournalEntryEditorViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -36,7 +36,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Accounting/MonthEnd/MonthEndDashboardViewModel.cs",
+    "file": "src/example-project.App/Accounting/MonthEnd/MonthEndDashboardViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -44,7 +44,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Accounting/MonthEnd/MonthEndTemplateManagerViewModel.cs",
+    "file": "src/example-project.App/Accounting/MonthEnd/MonthEndTemplateManagerViewModel.cs",
     "pattern": "multi-class-direct-base",
     "helper_count": 2,
     "exact_variants": [
@@ -53,7 +53,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Accounting/Reconciliation/LedgerReconciliationDashboardViewModel.cs",
+    "file": "src/example-project.App/Accounting/Reconciliation/LedgerReconciliationDashboardViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -61,7 +61,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankAdjustmentDefaultsViewModel.cs",
+    "file": "src/example-project.App/Banking/BankAdjustmentDefaultsViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -69,7 +69,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankAdjustmentTemplatesViewModel.cs",
+    "file": "src/example-project.App/Banking/BankAdjustmentTemplatesViewModel.cs",
     "pattern": "multi-class-direct-base",
     "helper_count": 2,
     "exact_variants": [
@@ -78,7 +78,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedImportHistoryViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedImportHistoryViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -86,7 +86,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedImportWizardViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedImportWizardViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -94,7 +94,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedLineAuditTrailViewerViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedLineAuditTrailViewerViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -102,7 +102,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedLineBulkActionDialogViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedLineBulkActionDialogViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -110,7 +110,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedLineLockOverrideDialogViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedLineLockOverrideDialogViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -118,7 +118,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedLineMassOperationConfirmViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedLineMassOperationConfirmViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -126,7 +126,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedLinePdfExportViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedLinePdfExportViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -134,7 +134,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedLinePrintViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedLinePrintViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -142,7 +142,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedMatchReversalDialogViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedMatchReversalDialogViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -150,7 +150,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedMultiLineMatchViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedMultiLineMatchViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -158,7 +158,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedRuleAnalyticsViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedRuleAnalyticsViewModel.cs",
     "pattern": "specialized-wrapper-over-base",
     "helper_count": 1,
     "exact_variants": [
@@ -166,7 +166,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedRuleConflictDialogViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedRuleConflictDialogViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -174,7 +174,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedRuleEditorViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedRuleEditorViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -182,7 +182,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedRuleHistoryViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedRuleHistoryViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -190,7 +190,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedRuleVersionHistoryViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedRuleVersionHistoryViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -198,7 +198,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankFeedVendorNormalizationViewModel.cs",
+    "file": "src/example-project.App/Banking/BankFeedVendorNormalizationViewModel.cs",
     "pattern": "single-class-void-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -206,7 +206,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankingWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Banking/BankingWorkspaceViewModel.cs",
     "pattern": "single-class-void-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -214,7 +214,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankingWorkspaceViewModel.FeedLines.cs",
+    "file": "src/example-project.App/Banking/BankingWorkspaceViewModel.FeedLines.cs",
     "pattern": "single-class-void-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -222,7 +222,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankReconciliationReopenDialogViewModel.cs",
+    "file": "src/example-project.App/Banking/BankReconciliationReopenDialogViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -230,7 +230,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankReconciliationViewModel.ChecklistAndExports.cs",
+    "file": "src/example-project.App/Banking/BankReconciliationViewModel.ChecklistAndExports.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -238,7 +238,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankReconciliationViewModel.cs",
+    "file": "src/example-project.App/Banking/BankReconciliationViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -246,7 +246,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankRegisterMatchViewModel.cs",
+    "file": "src/example-project.App/Banking/BankRegisterMatchViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -254,7 +254,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/BankRegisterViewModel.cs",
+    "file": "src/example-project.App/Banking/BankRegisterViewModel.cs",
     "pattern": "multi-class-direct-base",
     "helper_count": 2,
     "exact_variants": [
@@ -263,7 +263,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/ReconciliationAdjustmentEditorViewModel.cs",
+    "file": "src/example-project.App/Banking/ReconciliationAdjustmentEditorViewModel.cs",
     "pattern": "multi-class-direct-base",
     "helper_count": 2,
     "exact_variants": [
@@ -272,7 +272,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/ReconciliationAdjustmentExportViewModel.cs",
+    "file": "src/example-project.App/Banking/ReconciliationAdjustmentExportViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -280,7 +280,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/ReconciliationDifferenceHelperViewModel.cs",
+    "file": "src/example-project.App/Banking/ReconciliationDifferenceHelperViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -288,7 +288,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Banking/ReconciliationEvidenceExportViewModel.cs",
+    "file": "src/example-project.App/Banking/ReconciliationEvidenceExportViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -296,7 +296,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/CommandPalette/UI/CommandPaletteViewModel.cs",
+    "file": "src/example-project.App/CommandPalette/UI/CommandPaletteViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -304,7 +304,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/GlobalSearch/GlobalSearchViewModel.cs",
+    "file": "src/example-project.App/GlobalSearch/GlobalSearchViewModel.cs",
     "pattern": "specialized-wrapper-over-base",
     "helper_count": 1,
     "exact_variants": [
@@ -312,7 +312,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/GlobalSearch/QuickFilterButtonViewModel.cs",
+    "file": "src/example-project.App/GlobalSearch/QuickFilterButtonViewModel.cs",
     "pattern": "single-class-void-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -320,7 +320,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Help/ContextualHelpPanelViewModel.cs",
+    "file": "src/example-project.App/Help/ContextualHelpPanelViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -328,7 +328,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Import/UI/ImportWizardViewModel.cs",
+    "file": "src/example-project.App/Import/UI/ImportWizardViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -336,7 +336,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Import/UI/Steps/Step5_ProgressViewModel.cs",
+    "file": "src/example-project.App/Import/UI/Steps/Step5_ProgressViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -344,7 +344,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Import/UI/Steps/Step6_ResultsViewModel.cs",
+    "file": "src/example-project.App/Import/UI/Steps/Step6_ResultsViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -352,7 +352,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Inventory/InventoryAdjustmentsViewModel.cs",
+    "file": "src/example-project.App/Inventory/InventoryAdjustmentsViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -360,7 +360,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Inventory/InventoryItemCreateViewModel.cs",
+    "file": "src/example-project.App/Inventory/InventoryItemCreateViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -368,7 +368,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Inventory/InventoryItemPeekViewModel.cs",
+    "file": "src/example-project.App/Inventory/InventoryItemPeekViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -376,7 +376,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Inventory/InventoryReorderSuggestionsViewModel.cs",
+    "file": "src/example-project.App/Inventory/InventoryReorderSuggestionsViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -384,7 +384,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Inventory/InventoryTransactionHistoryViewModel.cs",
+    "file": "src/example-project.App/Inventory/InventoryTransactionHistoryViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -392,7 +392,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Inventory/InventoryTransferWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Inventory/InventoryTransferWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -400,7 +400,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Inventory/InventoryWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Inventory/InventoryWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -408,7 +408,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Inventory/ItemBundleWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Inventory/ItemBundleWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -416,7 +416,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Inventory/SerialLotTrackingWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Inventory/SerialLotTrackingWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -424,7 +424,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Inventory/ShrinkageDashboardWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Inventory/ShrinkageDashboardWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -432,7 +432,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Invoices/CustomerPeekViewModel.cs",
+    "file": "src/example-project.App/Invoices/CustomerPeekViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -440,7 +440,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Invoices/InvoicePaymentsViewModel.cs",
+    "file": "src/example-project.App/Invoices/InvoicePaymentsViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -448,7 +448,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Invoices/InvoiceWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Invoices/InvoiceWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -456,7 +456,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Invoices/RecurringProfileViewModel.cs",
+    "file": "src/example-project.App/Invoices/RecurringProfileViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -464,7 +464,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Invoices/Templates/InvoiceTemplateManagerViewModel.cs",
+    "file": "src/example-project.App/Invoices/Templates/InvoiceTemplateManagerViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -472,7 +472,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Mappings/LedgerMappingConflictViewModel.cs",
+    "file": "src/example-project.App/Mappings/LedgerMappingConflictViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -480,7 +480,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Mappings/LedgerMappingImportViewModel.cs",
+    "file": "src/example-project.App/Mappings/LedgerMappingImportViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -488,7 +488,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Mappings/LedgerMappingPatternViewModel.cs",
+    "file": "src/example-project.App/Mappings/LedgerMappingPatternViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -496,7 +496,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Mappings/LedgerMappingsViewModel.cs",
+    "file": "src/example-project.App/Mappings/LedgerMappingsViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -504,7 +504,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Navigation/CommandPalette/CommandPaletteViewModel.cs",
+    "file": "src/example-project.App/Navigation/CommandPalette/CommandPaletteViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -512,7 +512,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Navigation/CompanySwitcherViewModel.cs",
+    "file": "src/example-project.App/Navigation/CompanySwitcherViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -520,7 +520,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Notifications/UI/NotificationPanelViewModel.cs",
+    "file": "src/example-project.App/Notifications/UI/NotificationPanelViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -528,7 +528,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Payments/PaymentMethodsViewModel.cs",
+    "file": "src/example-project.App/Payments/PaymentMethodsViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -536,7 +536,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Purchasing/Bills/BillEditorViewModel.cs",
+    "file": "src/example-project.App/Purchasing/Bills/BillEditorViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -544,7 +544,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Purchasing/Bills/BillsWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Purchasing/Bills/BillsWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -552,7 +552,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Purchasing/Bills/PaymentRunViewModel.cs",
+    "file": "src/example-project.App/Purchasing/Bills/PaymentRunViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -560,7 +560,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Purchasing/Bills/VendorStatementsDialogViewModel.cs",
+    "file": "src/example-project.App/Purchasing/Bills/VendorStatementsDialogViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -568,7 +568,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Purchasing/PurchaseOrders/PurchaseOrderCreateViewModel.cs",
+    "file": "src/example-project.App/Purchasing/PurchaseOrders/PurchaseOrderCreateViewModel.cs",
     "pattern": "specialized-wrapper-over-base",
     "helper_count": 2,
     "exact_variants": [
@@ -577,7 +577,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Purchasing/PurchaseOrders/PurchaseOrdersWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Purchasing/PurchaseOrders/PurchaseOrdersWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -585,7 +585,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Purchasing/Receiving/PurchaseReceivingViewModel.cs",
+    "file": "src/example-project.App/Purchasing/Receiving/PurchaseReceivingViewModel.cs",
     "pattern": "multi-class-direct-base",
     "helper_count": 2,
     "exact_variants": [
@@ -594,7 +594,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Purchasing/VendorOnboardingWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Purchasing/VendorOnboardingWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -602,7 +602,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Sales/SalesOrderWorkspaceViewModel.cs",
+    "file": "src/example-project.App/Sales/SalesOrderWorkspaceViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -610,7 +610,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Sections/Help/TroubleshootingTabViewModel.cs",
+    "file": "src/example-project.App/Sections/Help/TroubleshootingTabViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -618,7 +618,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Sections/Help/TutorialsTabViewModel.cs",
+    "file": "src/example-project.App/Sections/Help/TutorialsTabViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -626,7 +626,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Setup/GettingStartedDashboardViewModel.cs",
+    "file": "src/example-project.App/Setup/GettingStartedDashboardViewModel.cs",
     "pattern": "multi-class-direct-base",
     "helper_count": 2,
     "exact_variants": [
@@ -635,7 +635,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Setup/OnboardingWizardViewModel.cs",
+    "file": "src/example-project.App/Setup/OnboardingWizardViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -643,7 +643,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/SmartAutomation/UI/AutoCategorizationPanelViewModel.cs",
+    "file": "src/example-project.App/SmartAutomation/UI/AutoCategorizationPanelViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -651,7 +651,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/SmartAutomation/UI/AutomationSettingsViewModel.cs",
+    "file": "src/example-project.App/SmartAutomation/UI/AutomationSettingsViewModel.cs",
     "pattern": "specialized-wrapper-over-base",
     "helper_count": 1,
     "exact_variants": [
@@ -659,7 +659,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Tax/JurisdictionListViewModel.cs",
+    "file": "src/example-project.App/Tax/JurisdictionListViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -667,7 +667,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Tax/SalesTaxSettingsViewModel.cs",
+    "file": "src/example-project.App/Tax/SalesTaxSettingsViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -675,7 +675,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Tax/TaxCategoryListViewModel.cs",
+    "file": "src/example-project.App/Tax/TaxCategoryListViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -683,7 +683,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Tax/TaxDashboardViewModel.cs",
+    "file": "src/example-project.App/Tax/TaxDashboardViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -691,7 +691,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Tax/TaxLiabilityReportViewModel.cs",
+    "file": "src/example-project.App/Tax/TaxLiabilityReportViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -699,7 +699,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Tutorials/UI/TutorialCatalogViewModel.cs",
+    "file": "src/example-project.App/Tutorials/UI/TutorialCatalogViewModel.cs",
     "pattern": "single-class-direct-base",
     "helper_count": 1,
     "exact_variants": [
@@ -707,7 +707,7 @@
     ]
   },
   {
-    "file": "src/SpudgetBooks.App/Tutorials/UI/TutorialProgressPanelViewModel.cs",
+    "file": "src/example-project.App/Tutorials/UI/TutorialProgressPanelViewModel.cs",
     "pattern": "specialized-wrapper-over-base",
     "helper_count": 1,
     "exact_variants": [

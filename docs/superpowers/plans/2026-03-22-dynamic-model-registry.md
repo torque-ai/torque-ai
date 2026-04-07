@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js, better-sqlite3, vitest
 
-**Test command:** `torque-remote "cd C:/Users/Kenten/Projects/torque-public/server && npx vitest run tests/<file>"`
+**Test command:** `torque-remote "cd C:/Users/<user>/Projects/torque-public/server && npx vitest run tests/<file>"`
 
 **Important context (2026-03-22):**
 - The codebase now uses a **DI container** (`server/container.js`) with 130+ registered services. New modules MUST export a `createXxx(deps)` factory and register in the container. Do NOT use `require('./database')` in new code.

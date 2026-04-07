@@ -67,8 +67,8 @@ async function test(name, adapter, opts, extra = {}) {
     const ms = Date.now() - start;
     const tools = result.toolLog.map(t => t.name).join(',') || 'none';
     const has13 = result.output.includes('13');
-    const hasApp = result.output.includes('SpudgetBooks.App.Tests');
-    const hasDomain = result.output.includes('SpudgetBooks.Domain.Tests');
+    const hasApp = result.output.includes('example-project.App.Tests');
+    const hasDomain = result.output.includes('example-project.Domain.Tests');
     const grade = (has13 && hasApp && hasDomain) ? 'A' : (hasApp && hasDomain) ? 'B+' : hasApp ? 'B' : result.toolLog.length > 0 ? 'C' : 'F';
     const row = { name, ms, iters: result.iterations, tools: result.toolLog.length, toolNames: tools, count: has13, names: hasApp && hasDomain, grade };
     results.push(row);

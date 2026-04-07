@@ -2,7 +2,7 @@
 
 ## Problem
 
-When a task targets an Ollama provider without specifying a model, TORQUE falls back to `serverConfig.get('ollama_model')` — a global config key. If that's unset, several modules have hardcoded fallbacks to `'qwen2.5-coder:32b'`, which is now stale (the model was replaced with `qwen3-coder:30b` on BahumutsOmen). There's no UI to set the default model, and no way to configure different defaults per host.
+When a task targets an Ollama provider without specifying a model, TORQUE falls back to `serverConfig.get('ollama_model')` — a global config key. If that's unset, several modules have hardcoded fallbacks to `'qwen2.5-coder:32b'`, which is now stale (the model was replaced with `qwen3-coder:30b` on example-host). There's no UI to set the default model, and no way to configure different defaults per host.
 
 ## Solution
 
@@ -103,8 +103,8 @@ On each host card in Hosts.jsx, add a "Default Model" dropdown below the existin
 
 ```
 ┌─────────────────────────────────────┐
-│ BahumutsOmen          ● Healthy     │
-│ http://192.168.1.183:11434          │
+│ example-host          ● Healthy     │
+│ http://192.0.2.183:11434          │
 │                                     │
 │ Models: qwen3-coder:30b             │
 │                                     │

@@ -25,7 +25,7 @@
 | `server/handlers/workflow/index.js` | Store `routing_template` on workflow, inherit to tasks |
 | `server/db/provider-routing-core.js` | Add per-task template resolution before global template block |
 | `server/tests/agentic-routing.test.js` | Add per-task template resolution tests |
-| `CLAUDE.md` (SpudgetBooks project) | Add routing template guidance section |
+| `CLAUDE.md` (example-project project) | Add routing template guidance section |
 
 ---
 
@@ -304,7 +304,7 @@ git commit -m "feat(routing): per-task template resolution in analyzeTaskForRout
 
 - [ ] **Step 1: Add routing template section to CLAUDE.md**
 
-In the SpudgetBooks project `CLAUDE.md`, add after the "Agent Surface (MCP / SOS)" section:
+In the example-project project `CLAUDE.md`, add after the "Agent Surface (MCP / SOS)" section:
 
 ```markdown
 ## TORQUE Routing Templates

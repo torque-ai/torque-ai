@@ -89,7 +89,7 @@ Falls back to local execution if the remote is unreachable or overloaded.
 
 Examples:
   torque-remote npx vitest run server/tests/foo.test.js
-  torque-remote dotnet build SpudgetBooks.sln
+  torque-remote dotnet build example-project.sln
   torque-remote cargo test --release
 
 Config: ~/.torque-remote.json + ~/.torque-remote.local.json
@@ -612,7 +612,7 @@ assert_contains "vitest exit 2" "EXIT:2" "$output"
 
 # ---- Test: dotnet build intercepted ----
 echo "Test: guard intercepts dotnet build"
-output=$(cd "$GUARD_PROJECT" && echo '{"tool_input":{"command":"dotnet build SpudgetBooks.sln"}}' | \
+output=$(cd "$GUARD_PROJECT" && echo '{"tool_input":{"command":"dotnet build example-project.sln"}}' | \
   HOME="$FAKE_HOME" "$GUARD" 2>&1; echo "EXIT:$?")
 assert_contains "dotnet build blocked" "BLOCKED" "$output"
 
@@ -759,11 +759,11 @@ torque-remote npx vitest run server/tests/schema-tables.test.js
 ```
 Expected: Routes to Omen, 11 tests pass
 
-- [ ] **Step 5: Verify end-to-end on SpudgetBooks**
+- [ ] **Step 5: Verify end-to-end on example-project**
 
 ```bash
-cd /path/to/SpudgetBooks
-torque-remote dotnet build SpudgetBooks.sln --nologo -v:q
+cd /path/to/example-project
+torque-remote dotnet build example-project.sln --nologo -v:q
 ```
 Expected: Routes to Omen, builds successfully
 
@@ -876,7 +876,7 @@ Heavy commands (builds, tests, compilation) route to the configured remote works
 
 **Always use `torque-remote` for heavy commands:**
 ```
-torque-remote dotnet build SpudgetBooks.sln
+torque-remote dotnet build example-project.sln
 torque-remote npx vitest run path/to/test
 torque-remote cargo build --release
 ```

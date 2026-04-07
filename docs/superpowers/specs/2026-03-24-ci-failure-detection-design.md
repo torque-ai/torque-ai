@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-24
 **Status:** Approved
-**Author:** Claude + Werem
+**Author:** Claude
 
 ## Problem
 

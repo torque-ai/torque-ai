@@ -50,8 +50,8 @@ async function test(name, adapter, opts) {
     const ms = Date.now() - start;
     const tools = result.toolLog.map(t => t.name).join(',') || 'none';
     const has13 = result.output.includes('13');
-    const hasApp = result.output.includes('SpudgetBooks.App.Tests');
-    const hasDomain = result.output.includes('SpudgetBooks.Domain.Tests');
+    const hasApp = result.output.includes('example-project.App.Tests');
+    const hasDomain = result.output.includes('example-project.Domain.Tests');
     console.log(
       name.padEnd(22) + ' | ' + String(ms).padStart(6) + 'ms | ' +
       result.iterations + ' iters | ' + result.toolLog.length + ' tools (' + tools + ') | ' +
@@ -120,8 +120,8 @@ async function test(name, adapter, opts) {
     const ms = Date.now() - csStart;
     const tools = csResult.toolLog.map(t => t.name).join(',') || 'none';
     const has13 = csResult.output.includes('13');
-    const hasApp = csResult.output.includes('SpudgetBooks.App.Tests');
-    const hasDomain = csResult.output.includes('SpudgetBooks.Domain.Tests');
+    const hasApp = csResult.output.includes('example-project.App.Tests');
+    const hasDomain = csResult.output.includes('example-project.Domain.Tests');
     console.log(
       'codestral (prompt-inj)'.padEnd(22) + ' | ' + String(ms).padStart(6) + 'ms | ' +
       csResult.iterations + ' iters | ' + csResult.toolLog.length + ' tools (' + tools + ') | ' +

@@ -1,7 +1,7 @@
 # Agentic Tool Calling — Free LLM Roster
 
 **Date:** 2026-03-18
-**Context:** Universal agentic tool calling shipped for TORQUE. All models below have been tested end-to-end with real tool execution (list_directory, read_file, edit_file, search_files, run_command) against the SpudgetBooks codebase.
+**Context:** Universal agentic tool calling shipped for TORQUE. All models below have been tested end-to-end with real tool execution (list_directory, read_file, edit_file, search_files, run_command) against the example-project codebase.
 
 ## Roster: 14 Grade A Models, All Free
 
@@ -112,9 +112,9 @@ Changed tool output from flat list to structured format:
 
 ```
 Before:                          After:
-SpudgetBooks.App.Tests/          Directories (13):
-SpudgetBooks.Domain.Tests/         SpudgetBooks.App.Tests/
-Directory.Build.props              SpudgetBooks.Domain.Tests/
+example-project.App.Tests/          Directories (13):
+example-project.Domain.Tests/         example-project.App.Tests/
+Directory.Build.props              example-project.Domain.Tests/
 folder_count.txt                   ...
                                  Files (4):
                                    Directory.Build.props

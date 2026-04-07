@@ -45,16 +45,16 @@ A three-layer PII guard that auto-fixes personal data before it reaches the repo
 ```js
 scanAndReplace(text, {
   builtinOverrides: { emails: false },  // opt out of specific categories
-  customPatterns: [{ pattern: 'BahumutsOmen', replacement: 'example-host' }]
+  customPatterns: [{ pattern: 'example-host', replacement: 'example-host' }]
 }) → { clean: bool, sanitized: string, findings: [{ category, match, line }] }
 ```
 
 ### Built-in Categories (all on by default)
 
 **user_paths** — Windows, Linux, Mac user directories:
-- `C:\Users\<name>\...` → `C:\Users\<user>\...`
-- `/home/<name>/...` → `/home/<user>/...`
-- `/Users/<name>/...` → `/Users/<user>/...`
+- `C:\Users\<user>\...` → `C:\Users\<user>\...`
+- `/home/<user>/...` → `/home/<user>/...`
+- `/Users/<user>/...` → `/Users/<user>/...`
 - Preserves the path after the username segment.
 
 **private_ips** — RFC 1918 private addresses → RFC 5737 documentation addresses:
@@ -74,7 +74,7 @@ scanAndReplace(text, {
 
 Defined per-project via `set_project_defaults`. Each entry:
 ```json
-{ "pattern": "Werem", "replacement": "<user>" }
+{ "pattern": "<user>", "replacement": "<user>" }
 ```
 - Literal string match by default
 - Add `"regex": true` for regex mode
@@ -153,7 +153,7 @@ Content-Type: application/json
 Request:
 {
   "text": "...",
-  "working_directory": "C:\\Users\\Werem\\Projects\\torque-public"
+  "working_directory": "C:\\Users\\<user>\\Projects\\torque-public"
 }
 
 Response:
@@ -161,8 +161,8 @@ Response:
   "clean": false,
   "sanitized": "...",
   "findings": [
-    { "category": "user_paths", "match": "C:\\Users\\Werem", "line": 17 },
-    { "category": "custom", "match": "BahumutsOmen", "line": 42 }
+    { "category": "user_paths", "match": "C:\\Users\\<user>", "line": 17 },
+    { "category": "custom", "match": "example-host", "line": 42 }
   ]
 }
 ```
@@ -175,7 +175,7 @@ Extends `set_project_defaults` with a `pii_guard` object:
 
 ```js
 set_project_defaults({
-  working_directory: "C:\\Users\\Werem\\Projects\\torque-public",
+  working_directory: "C:\\Users\\<user>\\Projects\\torque-public",
   pii_guard: {
     enabled: true,
     builtin_categories: {
@@ -185,11 +185,11 @@ set_project_defaults({
       hostnames: true
     },
     custom_patterns: [
-      { "pattern": "Werem", "replacement": "<user>" },
-      { "pattern": "Kenten", "replacement": "<user>" },
-      { "pattern": "BahumutsOmen", "replacement": "example-host" },
-      { "pattern": "SpudgetBooks", "replacement": "example-project" },
-      { "pattern": "DLPhone", "replacement": "example-project" }
+      { "pattern": "<user>", "replacement": "<user>" },
+      { "pattern": "<user>", "replacement": "<user>" },
+      { "pattern": "example-host", "replacement": "example-host" },
+      { "pattern": "example-project", "replacement": "example-project" },
+      { "pattern": "example-project", "replacement": "example-project" }
     ]
   }
 })

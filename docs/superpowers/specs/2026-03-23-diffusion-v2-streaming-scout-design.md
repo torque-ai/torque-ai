@@ -2,12 +2,12 @@
 
 **Date:** 2026-03-23
 **Status:** Draft
-**Author:** Claude + Werem
+**Author:** Claude
 **Predecessor:** `2026-03-23-task-diffusion-engine-design.md`
 
 ## Problem
 
-The v1 diffusion engine test run (SpudgetBooks EditorDialog refactor, 26 files) revealed three issues:
+The v1 diffusion engine test run (example-project EditorDialog refactor, 26 files) revealed three issues:
 
 1. **Scout timeout** — the scout hit a 10-minute ceiling while generating its final JSON output. Analysis was complete but the plan was truncated. The batch architecture (analyze everything → output one JSON → exit) is fragile — if the scout dies at any point after analysis but before output, all work is lost.
 

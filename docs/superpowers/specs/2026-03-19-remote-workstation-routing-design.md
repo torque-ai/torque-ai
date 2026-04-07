@@ -6,7 +6,7 @@
 
 ## Problem
 
-Heavy commands (builds, tests, compilation) consume excessive local resources. The previous session's SpudgetBooks investigation found 66 .NET processes consuming 11 GB of RAM — MSBuild worker nodes that accumulate during development. Users have remote workstations (e.g., Omen with 24 GB VRAM, faster CPU) that are better suited for this work, but routing is inconsistent. The prior `torque-test.sh` solution was per-project, test-only, and required duplicating scripts into every repo.
+Heavy commands (builds, tests, compilation) consume excessive local resources. The previous session's example-project investigation found 66 .NET processes consuming 11 GB of RAM — MSBuild worker nodes that accumulate during development. Users have remote workstations (e.g., Omen with 24 GB VRAM, faster CPU) that are better suited for this work, but routing is inconsistent. The prior `torque-test.sh` solution was per-project, test-only, and required duplicating scripts into every repo.
 
 ## Solution
 
@@ -48,7 +48,7 @@ Git Bash on Windows reads `~/.bashrc` on startup. Claude Code subagents inherit 
 ### Usage
 
 ```bash
-torque-remote dotnet build SpudgetBooks.sln    # build remotely
+torque-remote dotnet build example-project.sln    # build remotely
 torque-remote npx vitest run                   # test remotely
 torque-remote make -j8                         # any command
 torque-remote                                  # no args → print usage and exit 1
@@ -83,7 +83,7 @@ Called with no arguments, the script prints usage help and exits non-zero.
 SSH to Windows machines drops into CMD by default. The script handles this by sending the command as a single string to SSH, which CMD interprets directly. The `&&` chaining (`cd path && git fetch && command`) works in CMD.
 
 All interpolated values (project paths, branch names, commands) are escaped for CMD safety. Specifically:
-- Project paths are wrapped in double quotes: `cd "/path/to\SpudgetBooks"`
+- Project paths are wrapped in double quotes: `cd "/path/to\example-project"`
 - Branch names are validated to contain only `[a-zA-Z0-9_./-]` characters before interpolation. Invalid branch names abort the sync step with an error.
 - The user's command is passed as-is to SSH (it's already a shell command string).
 
@@ -101,7 +101,7 @@ If the branch does not exist on the remote (`git checkout` fails), the script wa
 
 ### Remote project path derivation
 
-The global config has `default_project_path` (e.g., `/path/to`). The script derives the remote path: if CWD project root is `~/Projects/SpudgetBooks`, the remote path is `<default_project_path>\SpudgetBooks`.
+The global config has `default_project_path` (e.g., `/path/to`). The script derives the remote path: if CWD project root is `~/Projects/example-project`, the remote path is `<default_project_path>\example-project`.
 
 Per-project `.torque-remote.local.json` can override with `remote_project_path` for non-standard locations.
 
@@ -269,7 +269,7 @@ The guard requires `jq` to parse stdin. If `jq` is not available, the guard exit
 ```
 BLOCKED: "dotnet build" should run on the remote workstation.
 
-Use:  torque-remote dotnet build SpudgetBooks.sln
+Use:  torque-remote dotnet build example-project.sln
 
 The remote workstation handles heavy builds/tests. If it's unreachable,
 torque-remote will automatically fall back to local execution.
@@ -326,7 +326,7 @@ Heavy commands (builds, tests, compilation) route to the configured remote works
 
 **Always use `torque-remote` for heavy commands:**
 ```
-torque-remote dotnet build SpudgetBooks.sln
+torque-remote dotnet build example-project.sln
 torque-remote npx vitest run path/to/test
 torque-remote cargo build --release
 ```
@@ -393,5 +393,5 @@ The guard hook intercepts direct invocations of build/test commands and redirect
 
 ### End-to-end
 - Configure global workstation, run `torque-remote npx vitest run` from torque-public, verify routes to Omen
-- Configure global workstation, run `torque-remote dotnet build` from SpudgetBooks, verify routes to Omen
+- Configure global workstation, run `torque-remote dotnet build` from example-project, verify routes to Omen
 - Disconnect Omen, verify fallback to local with warning

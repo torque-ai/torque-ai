@@ -2,12 +2,12 @@
 
 **Date:** 2026-03-24
 **Status:** Draft
-**Author:** Claude + Werem
+**Author:** Claude
 **Predecessor:** `2026-03-23-diffusion-v2-streaming-scout-design.md`
 
 ## Problem
 
-The v2 test run (SpudgetBooks BindableBase refactor, 83 files) revealed a fundamental provider capability mismatch:
+The v2 test run (example-project BindableBase refactor, 83 files) revealed a fundamental provider capability mismatch:
 
 - **Cerebras** processed 17 fan-out batches in 1 second each (free, parallel) but couldn't write to the filesystem. All 17 tasks reported "success" with zero files actually modified.
 - **Ollama** modified files successfully but was 26x slower (26s vs 1s) and was the workflow bottleneck.
@@ -51,7 +51,7 @@ The compute task produces structured edit instructions:
 {
   "file_edits": [
     {
-      "file": "src/SpudgetBooks.App/Tax/TaxDashboardViewModel.cs",
+      "file": "src/example-project.App/Tax/TaxDashboardViewModel.cs",
       "operations": [
         {
           "type": "replace",

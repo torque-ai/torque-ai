@@ -54,7 +54,7 @@ Heavy work (optional remote execution):
 
     curl -sS -X POST http://127.0.0.1:3457/api/tasks \
       -H "Content-Type: application/json" \
-      -d "{\"task\":\"Add input validation\",\"working_directory\":\"C:\\\\Users\\\\Werem\\\\Projects\\\\torque-public\"}"
+      -d "{\"task\":\"Add input validation\",\"working_directory\":\"C:\\\\Users\\\\<user>\\\\Projects\\\\torque-public\"}"
 
     curl -sS http://127.0.0.1:3457/api/tasks/<task-id>
 

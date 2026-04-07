@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix 8 bugs discovered during the TORQUE performance run against SpudgetBooks.
+**Goal:** Fix 8 bugs discovered during the TORQUE performance run against example-project.
 
 **Architecture:** Each bug is an independent fix. Bugs are ordered by severity (critical first). All fixes are in `server/` — no client changes needed.
 
@@ -51,7 +51,7 @@ describe('Workflow provider override', () => {
 ### Task 2: Bug #2 — Relative path errors in cerebras/google-ai agentic tool-use
 
 **Severity:** High
-**Symptom:** cerebras and google-ai pass relative paths like `SpudgetBooks.Domain/Budgeting` to `list_directory`, which fails because the working directory isn't resolved.
+**Symptom:** cerebras and google-ai pass relative paths like `example-project.Domain/Budgeting` to `list_directory`, which fails because the working directory isn't resolved.
 **Root cause:** In `server/providers/execution.js`, `buildAgenticSystemPrompt` tells the LLM the working directory but the `list_directory` tool implementation doesn't resolve relative paths against it.
 
 **Files:**
@@ -65,7 +65,7 @@ Search in `server/providers/execution.js` for `list_directory` or the tool execu
 - [ ] **Step 2: Write failing test**
 
 ```js
-// Test that list_directory('SpudgetBooks.Domain/Budgeting')
+// Test that list_directory('example-project.Domain/Budgeting')
 // resolves against workingDir to produce an absolute path
 ```
 

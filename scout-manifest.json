@@ -1,106 +1,106 @@
 [
   [
-    "src/SpudgetBooks.App/Sections/Banking/BankProtocolEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Banking/BankProtocolEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Reports/ConsolidationReportEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Reports/ConsolidationReportEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Reports/DepartmentalReportEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Reports/DepartmentalReportEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Reports/EsgReportEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Reports/EsgReportEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Reports/ReportBuilderEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Reports/ReportBuilderEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Reports/SegmentReportEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Reports/SegmentReportEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Reports/StatementLayoutEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Reports/StatementLayoutEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Reports/StatutoryReportEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Reports/StatutoryReportEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/AccessibilityAuditEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/AccessibilityAuditEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/ApprovalWorkflowEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/ApprovalWorkflowEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/ComplianceChecklistEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/ComplianceChecklistEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/ConfigExportEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/ConfigExportEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/CustomFieldEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/CustomFieldEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/DataPurgeEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/DataPurgeEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/PaymentMethodEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/PaymentMethodEditorDialog.xaml.cs",
     "single-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Banking/BankFeedAutoMatchEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Banking/BankFeedAutoMatchEditorDialog.xaml.cs",
     "multi-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Banking/BankingDiagnosticsEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Banking/BankingDiagnosticsEditorDialog.xaml.cs",
     "multi-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Banking/BankingTelemetryEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Banking/BankingTelemetryEditorDialog.xaml.cs",
     "multi-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Reports/VarianceAnalysisEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Reports/VarianceAnalysisEditorDialog.xaml.cs",
     "multi-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/BulkOperationEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/BulkOperationEditorDialog.xaml.cs",
     "multi-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/RecordLockEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/RecordLockEditorDialog.xaml.cs",
     "multi-required-only"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Banking/TreasuryEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Banking/TreasuryEditorDialog.xaml.cs",
     "single-required-plus-parse"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/CalendarReminderEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/CalendarReminderEditorDialog.xaml.cs",
     "single-required-plus-parse"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/EmployeeAdvanceEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/EmployeeAdvanceEditorDialog.xaml.cs",
     "single-required-plus-parse"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Reports/RegulatoryUpdateEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Reports/RegulatoryUpdateEditorDialog.xaml.cs",
     "single-required-plus-other-control"
   ],
   [
-    "src/SpudgetBooks.App/Sections/Settings/NotificationPreferenceEditorDialog.xaml.cs",
+    "src/example-project.App/Sections/Settings/NotificationPreferenceEditorDialog.xaml.cs",
     "single-required-plus-other-control"
   ]
 ]

@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-25
 **Status:** Draft
-**Author:** Claude + Werem
+**Author:** Claude
 
 ## Problem
 

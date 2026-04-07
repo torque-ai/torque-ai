@@ -19,7 +19,7 @@ description: "Reference: how to use TORQUE tools from Codex CLI — MCP access, 
 
     mcp__torque__smart_submit_task({ 
       task: "add a new test for the date parser",
-      working_directory: "C:\\Users\\Werem\\Projects\\torque-public"
+      working_directory: "C:\\Users\\<user>\\Projects\\torque-public"
     })
 
     mcp__torque__await_task({ task_id: "123" })

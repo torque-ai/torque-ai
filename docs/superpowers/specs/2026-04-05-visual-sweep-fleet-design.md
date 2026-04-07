@@ -139,7 +139,7 @@ A lightweight agent that walks the sweep plan sequentially. Its only job is navi
    - Navigate to the section using `peek_interact` based on the target's `navigation` field.
    - Wait for UI to settle: `peek_wait({ process: "...", stable_ms: 1000 })`.
    - Capture via `peek_diagnose({ process: "..." })` — screenshot, annotated screenshot, element tree, layout measurements, text content.
-   - Store capture bundle as TORQUE artifact keyed by target ID (e.g., `sweep-spudgetbooks-dashboard-capture`).
+   - Store capture bundle as TORQUE artifact keyed by target ID (e.g., `sweep-example-project-dashboard-capture`).
    - Update target status: `"pending"` → `"captured"`.
    - On failure: mark as `"failed"` with error, continue to next target.
 3. Store updated sweep plan with all statuses.

@@ -13,7 +13,7 @@ Swap to `qwen3-coder:30b-a3b` — a Mixture-of-Experts model (30B total, 3.3B ac
 ## Changes
 
 ### 1. Model swap
-- Pull `qwen3-coder:30b-a3b` on BahumutsOmen
+- Pull `qwen3-coder:30b-a3b` on example-host
 - Update default model in TORQUE config
 - Update fallback model reference (codestral:22b stays as fallback)
 
