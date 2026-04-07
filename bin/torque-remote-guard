@@ -57,10 +57,15 @@ if [[ -z "$command" ]]; then
   exit 0
 fi
 
-# ---- Check first token for recursion ----
+# ---- Check first token for recursion and safe commands ----
 
 first_token=$(echo "$command" | awk '{print $1}')
 if [[ "$first_token" == "torque-remote" || "$first_token" == */torque-remote ]]; then
+  exit 0
+fi
+
+# curl sends data to APIs — keywords in JSON payloads aren't local execution
+if [[ "$first_token" == "curl" ]]; then
   exit 0
 fi
 
