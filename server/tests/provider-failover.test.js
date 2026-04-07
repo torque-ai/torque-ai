@@ -1,4 +1,13 @@
-const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, safeTool: rawSafeTool, getText } = require('./vitest-setup');
+
+function safeTool(name, args = {}) {
+  const payload = { ...args };
+  if (['smart_submit_task', 'submit_task', 'queue_task'].includes(name)
+    && !Object.prototype.hasOwnProperty.call(payload, 'project')) {
+    payload.project = 'test-project';
+  }
+  return rawSafeTool(name, payload);
+}
 
 describe('Provider Failover', () => {
   beforeAll(() => { setupTestDb('provider-failover'); });

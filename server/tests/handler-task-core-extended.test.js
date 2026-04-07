@@ -54,14 +54,15 @@ describe('handler:task-core (extended)', () => {
     expect(result.error_code).toBe('PROVIDER_ERROR');
   });
 
-  it('handleSubmitTask requires project', () => {
+  it('handleSubmitTask accepts an explicit project', () => {
     mockSubmissionDefaults();
 
-    const result = handlers.handleSubmitTask({ task: 'Run checks', auto_route: false });
+    const result = handlers.handleSubmitTask(withProject({ task: 'Run checks', auto_route: false }));
 
-    expect(result.isError).toBe(true);
-    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
-    expect(getText(result)).toContain('project is required');
+    expect(result.isError).not.toBe(true);
+    expect(taskCore.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      project: 'test-project',
+    }));
   });
 
   it('handleSubmitTask blocks when no providers are available', () => {
@@ -172,7 +173,7 @@ describe('handler:task-core (extended)', () => {
       limit: 100,
     });
 
-    const result = handlers.handleQueueTask({ task: 'Queue expensive task' });
+    const result = handlers.handleQueueTask(withProject({ task: 'Queue expensive task' }));
 
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('BUDGET_EXCEEDED');

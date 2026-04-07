@@ -12,6 +12,10 @@ const suiteRepoDir = _path.resolve(__dirname, '..', '..');
 
 function safeTool(name, args = {}) {
   const payload = { ...args };
+  if (['smart_submit_task', 'submit_task', 'queue_task'].includes(name)
+    && !Object.prototype.hasOwnProperty.call(payload, 'project')) {
+    payload.project = 'test-project';
+  }
   if (!Object.prototype.hasOwnProperty.call(payload, 'working_directory')) {
     payload.working_directory = suiteRepoDir;
   }

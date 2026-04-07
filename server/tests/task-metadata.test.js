@@ -42,6 +42,9 @@ function injectDependencies() {
 }
 
 function mkTask(overrides = {}) {
+  const project = Object.prototype.hasOwnProperty.call(overrides, 'project')
+    ? overrides.project
+    : 'test-project';
   const task = {
     id: overrides.id || randomUUID(),
     status: overrides.status || 'queued',
@@ -52,7 +55,7 @@ function mkTask(overrides = {}) {
     priority: overrides.priority ?? 0,
     context: overrides.context,
     tags: overrides.tags,
-    project: overrides.project || null,
+    project,
     provider: overrides.provider || 'codex',
     model: overrides.model || null
   };

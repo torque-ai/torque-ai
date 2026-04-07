@@ -17,7 +17,7 @@
 
 const { randomUUID } = require('crypto');
 const configCore = require('../db/config-core');
-const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, safeTool: rawSafeTool, getText } = require('./vitest-setup');
 const { createConfigMock, TEST_MODELS } = require('./test-helpers');
 
 let db;
@@ -53,6 +53,15 @@ function createJsonRes() {
 
 function parseJsonBody(res) {
   return res.body ? JSON.parse(res.body) : {};
+}
+
+function safeTool(name, args = {}) {
+  const payload = { ...args };
+  if (['smart_submit_task', 'submit_task', 'queue_task'].includes(name)
+    && !Object.prototype.hasOwnProperty.call(payload, 'project')) {
+    payload.project = 'test-project';
+  }
+  return rawSafeTool(name, payload);
 }
 
 vi.mock('../providers/registry', () => ({

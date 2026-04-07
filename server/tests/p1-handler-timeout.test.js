@@ -3,7 +3,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
-const { setupTestDb, teardownTestDb, safeTool } = require('./vitest-setup');
+const { setupTestDb, teardownTestDb, safeTool: rawSafeTool } = require('./vitest-setup');
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 
 /** Extract a UUID from handler output text */
@@ -11,6 +11,15 @@ function extractTaskId(result) {
   const text = result?.content?.[0]?.text || '';
   const match = text.match(/ID:\s*([a-f0-9-]{36})/i) || text.match(/([a-f0-9-]{36})/);
   return match ? match[1] : null;
+}
+
+function safeTool(name, args = {}) {
+  const payload = { ...args };
+  if (['smart_submit_task', 'submit_task', 'queue_task'].includes(name)
+    && !Object.prototype.hasOwnProperty.call(payload, 'project')) {
+    payload.project = 'test-project';
+  }
+  return rawSafeTool(name, payload);
 }
 
 describe('submit_task timeout and metadata behavior', () => {

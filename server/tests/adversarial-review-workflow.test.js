@@ -147,6 +147,7 @@ function createFeatureWorkflow(overrides = {}) {
 
   return featureWorkflow.handleCreateFeatureWorkflow({
     feature_name: 'PlayerStats',
+    project: 'test-project',
     working_directory: testDir,
     types_task: 'Define types',
     data_task: 'Create data layer',

@@ -484,6 +484,10 @@ describe('task-core handlers', () => {
   beforeEach(() => {
     resetMockDefaults();
     handlers = loadHandlers();
+    const handleSubmitTask = handlers.handleSubmitTask.bind(handlers);
+    const handleQueueTask = handlers.handleQueueTask.bind(handlers);
+    handlers.handleSubmitTask = (args = {}) => handleSubmitTask({ project: 'test-project', ...args });
+    handlers.handleQueueTask = (args = {}) => handleQueueTask({ project: 'test-project', ...args });
   });
 
   afterEach(() => {
@@ -584,6 +588,7 @@ describe('task-core handlers', () => {
 
       expect(result).toBe(routedResult);
       expect(mockRouting.handleSmartSubmitTask).toHaveBeenCalledWith({
+        project: 'test-project',
         task: 'Route this task',
         working_directory: 'C:\\repo',
         timeout_minutes: 12,
@@ -955,6 +960,7 @@ describe('task-core handlers', () => {
         timeout_minutes: 90,
         auto_approve: true,
         priority: 6,
+        project: 'test-project',
         provider: 'ollama',
         model: TEST_MODELS.DEFAULT,
         metadata: {
@@ -1335,6 +1341,7 @@ describe('task-core handlers', () => {
         timeout_minutes: 90,
         auto_approve: true,
         priority: 4,
+        project: 'test-project',
         provider: 'ollama',
         model: TEST_MODELS.DEFAULT,
         metadata: {
