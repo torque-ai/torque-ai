@@ -343,7 +343,6 @@ async function checkBatchTestFixes(task, rule, context) {
       change_set: changeSet,
     },
   });
-  });
 }
 
 // ── New checkers for expanded governance rules ──
