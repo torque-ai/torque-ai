@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { tasks as tasksApi, providers as providersApi, hosts as hostsApi } from '../api';
 import { useToast } from './Toast';
+import ProjectSelector from './ProjectSelector';
 
 /**
  * Known models for cloud/API providers that don't expose a model list via hosts.
@@ -29,6 +30,8 @@ const OLLAMA_PROVIDERS = new Set(['ollama']);
 
 export default function TaskSubmitForm({ onClose, onSubmitted }) {
   const [task, setTask] = useState('');
+  const [selectedProject, setSelectedProject] = useState('');
+  const [newProjectName, setNewProjectName] = useState('');
   const [provider, setProvider] = useState('auto');
   const [model, setModel] = useState('');
   const [workingDirectory, setWorkingDirectory] = useState('');
@@ -40,6 +43,7 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
   const toast = useToast();
   const toastRef = useRef(toast);
   toastRef.current = toast;
+  const resolvedProject = newProjectName.trim() || selectedProject.trim();
 
   // Load providers on mount
   useEffect(() => {
@@ -112,10 +116,17 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
       toast.error('Task description is required');
       return;
     }
+    if (!resolvedProject) {
+      toast.error('Project is required');
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const payload = { task: task.trim() };
+      const payload = {
+        task: task.trim(),
+        project: resolvedProject,
+      };
       if (provider !== 'auto') payload.provider = provider;
       if (model) payload.model = model;
       if (workingDirectory.trim()) payload.working_directory = workingDirectory.trim();
@@ -123,6 +134,8 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
       const result = await tasksApi.submit(payload);
       toast.success(`Task submitted${result.task_id ? ` (${result.task_id.substring(0, 8)})` : ''}`);
       setTask('');
+      setSelectedProject('');
+      setNewProjectName('');
       setProvider('auto');
       setModel('');
       setWorkingDirectory('');
@@ -133,7 +146,7 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
     } finally {
       setSubmitting(false);
     }
-  }, [task, provider, model, workingDirectory, toast, onSubmitted, onClose]);
+  }, [task, resolvedProject, provider, model, workingDirectory, toast, onSubmitted, onClose]);
 
   // Build provider options from the live list, falling back to a static list
   const providerOptions = providerList.length > 0
@@ -180,6 +193,49 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
           required
         />
         <p className="text-xs text-slate-500 mt-1">{task.length} characters</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="task-project-selector" className="block text-sm text-slate-400 mb-1">
+            Project <span className="text-red-400">*</span>
+          </label>
+          <ProjectSelector
+            id="task-project-selector"
+            aria-label="Project"
+            value={selectedProject}
+            onChange={(value) => {
+              setSelectedProject(value || '');
+              if (value) setNewProjectName('');
+            }}
+            placeholder="Select an existing project"
+            className="w-full"
+          />
+          <p className="text-xs text-slate-500 mt-1">
+            Choose a registered project or type a new one.
+          </p>
+        </div>
+
+        <div>
+          <label htmlFor="task-project-new" className="block text-sm text-slate-400 mb-1">
+            New Project
+          </label>
+          <input
+            id="task-project-new"
+            type="text"
+            value={newProjectName}
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              setNewProjectName(nextValue);
+              if (nextValue.trim()) setSelectedProject('');
+            }}
+            placeholder="Type a new project name"
+            className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+          />
+          <p className="text-xs text-slate-500 mt-1">
+            New projects auto-register after the first task submission.
+          </p>
+        </div>
       </div>
 
       {/* Provider + Model + Working Directory row */}
@@ -255,7 +311,7 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
       <div className="flex gap-3 pt-2">
         <button
           type="submit"
-          disabled={submitting || !task.trim()}
+          disabled={submitting || !task.trim() || !resolvedProject}
           className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
           {submitting ? (

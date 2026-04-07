@@ -16,6 +16,13 @@ function getText(result) {
   return result?.content?.[0]?.text || '';
 }
 
+function withProject(overrides = {}) {
+  return {
+    project: 'test-project',
+    ...overrides,
+  };
+}
+
 function mockSubmissionDefaults() {
   vi.spyOn(configCore, 'getConfig').mockImplementation(createConfigMock({
     default_timeout: '45',
@@ -41,10 +48,20 @@ describe('handler:task-core (extended)', () => {
     mockSubmissionDefaults();
     vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue({ enabled: false });
 
-    const result = handlers.handleSubmitTask({ task: 'Run checks', provider: 'ollama' });
+    const result = handlers.handleSubmitTask(withProject({ task: 'Run checks', provider: 'ollama' }));
 
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('PROVIDER_ERROR');
+  });
+
+  it('handleSubmitTask requires project', () => {
+    mockSubmissionDefaults();
+
+    const result = handlers.handleSubmitTask({ task: 'Run checks', auto_route: false });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('MISSING_REQUIRED_PARAM');
+    expect(getText(result)).toContain('project is required');
   });
 
   it('handleSubmitTask blocks when no providers are available', () => {
@@ -52,7 +69,7 @@ describe('handler:task-core (extended)', () => {
     vi.spyOn(providerRoutingCore, 'isCodexExhausted').mockReturnValue(true);
     vi.spyOn(hostManagement, 'hasHealthyOllamaHost').mockReturnValue(false);
 
-    const result = handlers.handleSubmitTask({ task: 'Run checks', auto_route: false });
+    const result = handlers.handleSubmitTask(withProject({ task: 'Run checks', auto_route: false }));
 
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('NO_HOSTS_AVAILABLE');
@@ -67,7 +84,7 @@ describe('handler:task-core (extended)', () => {
       limit: 10,
     });
 
-    const result = handlers.handleSubmitTask({ task: 'Expensive task', auto_route: false });
+    const result = handlers.handleSubmitTask(withProject({ task: 'Expensive task', auto_route: false }));
 
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('BUDGET_EXCEEDED');
@@ -83,7 +100,7 @@ describe('handler:task-core (extended)', () => {
     }));
     const createSpy = vi.spyOn(taskCore, 'createTask');
 
-    handlers.handleSubmitTask({ task: 'Use provider timeout', auto_route: false });
+    handlers.handleSubmitTask(withProject({ task: 'Use provider timeout', auto_route: false }));
 
     expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
       timeout_minutes: taskManager.PROVIDER_DEFAULT_TIMEOUTS.ollama,
@@ -129,6 +146,7 @@ describe('handler:task-core (extended)', () => {
 
     try {
       const result = handlers.handleSubmitTask({
+        project: 'test-project',
         task: 'Use container db',
         auto_route: false,
         working_directory: 'C:/repo',

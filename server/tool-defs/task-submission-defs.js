@@ -19,7 +19,7 @@ module.exports = [
         },
         "project": {
           "type": "string",
-          "description": "Project name. If omitted, auto-detected from working_directory."
+          "description": "Project name (required). Auto-registers for future selection."
         },
         "tags": {
           "type": "array",
@@ -111,7 +111,8 @@ module.exports = [
         }
       },
       "required": [
-        "task"
+        "task",
+        "project"
       ]
     }
   }

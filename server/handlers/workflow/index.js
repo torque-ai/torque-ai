@@ -151,6 +151,7 @@ function evaluateWorkflowTaskSubmissionPolicy(taskLike, workflowId, workflowWork
     priority: taskLike.priority || 0,
     provider: taskLike.provider || null,
     model: taskLike.model || null,
+    project: taskLike.project || null,
     metadata: buildWorkflowTaskMetadata(taskLike),
     workflow_id: workflowId,
     workflow_node_id: taskLike.node_id || taskLike.workflow_node_id || null,
@@ -294,7 +295,13 @@ function hasWorkflowTaskCycle(taskDefs) {
   return false;
 }
 
-function normalizeInitialWorkflowTasks(taskDefs, workflowId, workflowWorkingDirectory = null) {
+function normalizeProjectName(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function normalizeInitialWorkflowTasks(taskDefs, workflowId, workflowWorkingDirectory = null, workflowProject = null) {
   const normalized = [];
   const seenNodeIds = new Set();
 
@@ -359,6 +366,7 @@ function normalizeInitialWorkflowTasks(taskDefs, workflowId, workflowWorkingDire
       task_description: effectiveDescription,
       depends_on: Array.isArray(taskDef.depends_on) ? taskDef.depends_on.slice() : [],
       context_from: Array.isArray(taskDef.context_from) ? taskDef.context_from.slice() : [],
+      project: normalizeProjectName(taskDef.project) || workflowProject || null,
     });
   }
 
@@ -476,7 +484,7 @@ function validateProviderOverride(provider) {
   return null;
 }
 
-function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDefs) {
+function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDefs, workflowProject = null) {
   const defaultTimeout = safeParseInt(serverConfig.getInt('default_timeout', 30), 30, 1, 120);
   const nodeToTaskMap = {};
 
@@ -510,6 +518,7 @@ function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDef
         status: taskDef.depends_on.length > 0 ? 'blocked' : 'pending',
         task_description: taskDef.task_description,
         working_directory: taskDef.working_directory || workflowWorkingDirectory,
+        project: taskDef.project || workflowProject || null,
         timeout_minutes: resolvedTimeout,
         auto_approve: taskDef.auto_approve || false,
         tags: taskDef.tags || [],
@@ -608,6 +617,8 @@ function startWorkflowExecution(workflow) {
  * Create a new workflow
  */
 function handleCreateWorkflow(args) {
+  const workflowProject = normalizeProjectName(args.project);
+
   // Input validation
   if (!args.name || typeof args.name !== 'string' || args.name.trim().length === 0) {
     return makeError(ErrorCodes.INVALID_PARAM, 'name must be a non-empty string');
@@ -660,7 +671,12 @@ function handleCreateWorkflow(args) {
   }
 
   const workflowId = uuidv4();
-  const normalizedTasks = normalizeInitialWorkflowTasks(args.tasks, workflowId, args.working_directory);
+  const normalizedTasks = normalizeInitialWorkflowTasks(
+    args.tasks,
+    workflowId,
+    args.working_directory,
+    workflowProject
+  );
   if (normalizedTasks.error_code) {
     return normalizedTasks;
   }
@@ -694,25 +710,32 @@ function handleCreateWorkflow(args) {
     );
   }
 
-  const workflowContext = args.routing_template ? { _routing_template: args.routing_template } : undefined;
+  const workflowContext = {};
+  if (args.routing_template) {
+    workflowContext._routing_template = args.routing_template;
+  }
+  if (workflowProject) {
+    workflowContext.project = workflowProject;
+  }
   workflowEngine.createWorkflow({
     id: workflowId,
     name: trimmedName,
     description: args.description,
     working_directory: args.working_directory,
     priority: args.priority,
-    context: workflowContext
+    context: Object.keys(workflowContext).length > 0 ? workflowContext : undefined
   });
   // Propagate workflow-level routing_template to seeded tasks that don't have their own
   const seededTasks = args.routing_template
     ? normalizedTasks.tasks.map(t => t.routing_template ? t : { ...t, routing_template: args.routing_template })
     : normalizedTasks.tasks;
-  createSeededWorkflowTasks(workflowId, args.working_directory, seededTasks);
+  createSeededWorkflowTasks(workflowId, args.working_directory, seededTasks, workflowProject);
 
   let output = `## Workflow Created\n\n`;
   output += `**ID:** ${workflowId}\n`;
   output += `**Name:** ${trimmedName}\n`;
   output += `**Tasks:** ${normalizedTasks.tasks.length}\n`;
+  if (workflowProject) output += `**Project:** ${workflowProject}\n`;
   if (args.description) output += `**Description:** ${args.description}\n`;
   output = appendRejectedTasks(output, normalizedTasks.rejected_tasks);
   output += `\nUse \`run_workflow\` to start this workflow, or \`add_workflow_task\` to extend it.`;
@@ -804,6 +827,17 @@ function handleAddWorkflowTask(args) {
   // Inherit routing_template from workflow context when not explicitly set on the task
   const workflowContext = (workflow.context && typeof workflow.context === 'object') ? workflow.context : {};
   const resolvedRoutingTemplate = args.routing_template || workflowContext._routing_template || null;
+  const explicitProject = normalizeProjectName(args.project);
+  const inheritedProject = normalizeProjectName(workflowContext.project);
+  const resolvedProject = explicitProject || inheritedProject || null;
+  if (explicitProject && explicitProject !== inheritedProject) {
+    workflowEngine.updateWorkflow(args.workflow_id, {
+      context: {
+        ...workflowContext,
+        project: explicitProject,
+      },
+    });
+  }
 
   // Build metadata with context_from and provider override flag
   const policyTask = {
@@ -816,6 +850,7 @@ function handleAddWorkflowTask(args) {
     tags: args.tags || [],
     provider: args.provider,
     model: args.model,
+    project: resolvedProject,
     context_from: Array.isArray(args.context_from) ? args.context_from.slice() : [],
     routing_template: resolvedRoutingTemplate || undefined,
   };
@@ -844,6 +879,7 @@ function handleAddWorkflowTask(args) {
       status: hasDependencies ? 'blocked' : 'pending',
       task_description: effectiveDescription,
       working_directory: taskWorkingDirectory,
+      project: resolvedProject,
       timeout_minutes: resolvedTimeout,
       auto_approve: args.auto_approve || false,
       tags: args.tags || [],
@@ -988,6 +1024,7 @@ function handleAddWorkflowTask(args) {
   output += `**Node ID:** ${args.node_id}\n`;
   output += `**Workflow:** ${workflow.name}\n`;
   output += `**Status:** ${actualStatus}\n`;
+  if (resolvedProject) output += `**Project:** ${resolvedProject}\n`;
 
   if (hasDependencies) {
     output += `**Depends On:** ${args.depends_on.join(', ')}\n`;

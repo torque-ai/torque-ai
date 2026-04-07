@@ -442,7 +442,7 @@ const tools = [
         },
         project: {
           type: 'string',
-          description: 'Project name. If omitted, auto-detected from working_directory.'
+          description: 'Project name (required). Auto-registers for future selection.'
         },
         tags: {
           type: 'array',
@@ -517,7 +517,7 @@ const tools = [
           description: 'Version intent for this task. Required for versioned projects. Determines semver bump: feature=minor, fix=patch, breaking=major, internal=no bump.'
         }
       },
-      required: ['task']
+      required: ['task', 'project']
     }
   },
   {

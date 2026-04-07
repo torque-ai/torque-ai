@@ -302,8 +302,17 @@ function extractSmartSubmitInputs(args) {
     return { error: makeError(ErrorCodes.INVALID_PARAM, err.message) };
   }
 
+  const normalizedProject = typeof project === 'string' ? project.trim() : '';
   if (!task || typeof task !== 'string' || task.trim().length === 0) {
     return { error: makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task must be a non-empty string') };
+  }
+  if (!normalizedProject) {
+    return {
+      error: makeError(
+        ErrorCodes.MISSING_REQUIRED_PARAM,
+        'project is required. Provide the project name for this task.'
+      ),
+    };
   }
   if (task.length > MAX_TASK_LENGTH) {
     return {
@@ -340,7 +349,7 @@ function extractSmartSubmitInputs(args) {
   return {
     task,
     working_directory,
-    project,
+    project: normalizedProject,
     tags,
     files,
     model,

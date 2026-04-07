@@ -85,6 +85,22 @@ describe('Workflow Handlers', () => {
       expect(getText(result)).toContain('A workflow with a description');
     });
 
+    it('stores workflow project context and seeds tasks with it', async () => {
+      const result = await safeTool('create_workflow', {
+        name: 'project-wf',
+        project: 'workflow-project',
+        tasks: [{ node_id: 'wf-project', task_description: 'Initial workflow task' }]
+      });
+
+      expect(result.isError).toBeFalsy();
+      const workflowId = extractUUID(getText(result));
+      const workflow = db.getWorkflow(workflowId);
+      const workflowTasks = db.getWorkflowTasks(workflowId);
+
+      expect(workflow.context).toMatchObject({ project: 'workflow-project' });
+      expect(workflowTasks[0].project).toBe('workflow-project');
+    });
+
     it('rejects missing tasks array', async () => {
       const result = await safeTool('create_workflow', { name: 'missing-tasks-wf' });
       expect(result.isError).toBe(true);
@@ -162,6 +178,26 @@ describe('Workflow Handlers', () => {
       const text = getText(result);
       expect(text).toContain('Task Added to Workflow');
       expect(text).toContain('node-a');
+    });
+
+    it('inherits the workflow project when project is omitted', async () => {
+      const inheritedWorkflow = await safeTool('create_workflow', {
+        name: 'project-inherit-wf',
+        project: 'wf-project',
+        tasks: [{ node_id: 'base-node', task_description: 'Base task' }]
+      });
+      const inheritedWorkflowId = extractUUID(getText(inheritedWorkflow));
+
+      const result = await safeTool('add_workflow_task', {
+        workflow_id: inheritedWorkflowId,
+        node_id: 'child-node',
+        task_description: 'Child task'
+      });
+
+      expect(result.isError).toBeFalsy();
+      const childTask = db.getWorkflowTasks(inheritedWorkflowId)
+        .find((task) => task.workflow_node_id === 'child-node');
+      expect(childTask.project).toBe('wf-project');
     });
 
     it('adds a task with dependencies', async () => {

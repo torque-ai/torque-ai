@@ -6,6 +6,7 @@ vi.mock('../api', () => ({
   tasks: {
     submit: vi.fn(),
   },
+  requestV2: vi.fn(),
   providers: {
     list: vi.fn(),
   },
@@ -14,7 +15,7 @@ vi.mock('../api', () => ({
   },
 }));
 
-import { tasks as tasksApi, providers as providersApi, hosts as hostsApi } from '../api';
+import { tasks as tasksApi, providers as providersApi, hosts as hostsApi, requestV2 } from '../api';
 
 const mockProviders = [
   { provider: 'codex', enabled: true, stats: {} },
@@ -43,6 +44,7 @@ describe('TaskSubmitForm', () => {
   beforeEach(() => {
     providersApi.list.mockResolvedValue(mockProviders);
     hostsApi.list.mockResolvedValue(mockHosts);
+    requestV2.mockResolvedValue({ items: [{ name: 'alpha', task_count: 3 }] });
     tasksApi.submit.mockResolvedValue({ success: true, task_id: 'task-abc123' });
   });
 
@@ -59,6 +61,8 @@ describe('TaskSubmitForm', () => {
     // Main elements — heading says "Submit Task", button also says "Submit Task"
     expect(screen.getAllByText('Submit Task').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByLabelText(/Task Description/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Project')).toBeInTheDocument();
+    expect(screen.getByLabelText('New Project')).toBeInTheDocument();
     expect(screen.getByLabelText('Provider')).toBeInTheDocument();
     expect(screen.getByLabelText('Model')).toBeInTheDocument();
     expect(screen.getByLabelText('Working Directory')).toBeInTheDocument();

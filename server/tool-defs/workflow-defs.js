@@ -106,6 +106,10 @@ const tools = [
           enum: ['feature', 'fix', 'breaking', 'internal'],
           description: 'Default version intent for all tasks in this workflow. Individual tasks can override. Required for versioned projects.',
         },
+        project: {
+          type: 'string',
+          description: 'Project name for this workflow. Tasks inherit it unless overridden later.'
+        },
         tasks: {
           type: 'array',
           description: 'Initial workflow DAG nodes to create with the workflow. Empty workflows are rejected.',
@@ -249,6 +253,10 @@ const tools = [
         working_directory: {
           type: 'string',
           description: 'Working directory for task'
+        },
+        project: {
+          type: 'string',
+          description: 'Project name for this task. Defaults to the workflow project when omitted.'
         },
         tags: {
           type: 'array',

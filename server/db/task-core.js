@@ -227,6 +227,21 @@ function normalizeFilesModifiedField(value) {
 // Core task CRUD
 // ============================================================
 
+function ensureProjectRegistered(projectName) {
+  const normalizedProject = typeof projectName === 'string' ? projectName.trim() : '';
+  if (!normalizedProject || dbClosed || !db) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT OR IGNORE INTO project_config (project, created_at, updated_at)
+    VALUES (?, ?, ?)
+  `).run(normalizedProject, now, now);
+
+  return normalizedProject;
+}
+
 function createTask(task) {
   if (dbClosed || !db) throw new Error('Database is closed');
   const serverConfig = require('../config');
@@ -267,7 +282,7 @@ function createTask(task) {
   }
 
   const explicitProject = typeof task.project === 'string' ? task.project.trim() : '';
-  const project = explicitProject || (_getProjectFromPath ? _getProjectFromPath(task.working_directory) : null);
+  const project = explicitProject || null;
   const tags = Array.isArray(task.tags) ? [...task.tags] : [];
   if (project) {
     const projectTag = `project:${project}`;
@@ -296,36 +311,48 @@ function createTask(task) {
   `);
 
   try {
-    stmt.run(
-      task.id,
-      status,
-      task.task_description,
-      task.working_directory || null,
-      task.timeout_minutes ?? 480,
-      task.auto_approve ? 1 : 0,
-      task.priority || 0,
-      task.context ? JSON.stringify(task.context) : null,
-      new Date().toISOString(),
-      task.max_retries !== undefined ? task.max_retries : 2,
-      task.depends_on ? JSON.stringify(task.depends_on) : null,
-      task.template_name || null,
-      task.isolated_workspace || null,
-      normalizedApprovalStatus,
-      JSON.stringify(tags),
-      project,
-      normalizedProvider,
-      task.model || null,
-      task.complexity || 'normal',
-      task.review_status || null,
-      task.ollama_host_id || null,
-      originalProvider,
-      null, // provider_switched_at
-      metadataStr,
-      task.workflow_id || null,
-      task.workflow_node_id || null,
-      task.stall_timeout_seconds ?? null,
-      currentEpoch
-    );
+    const insertTask = () => {
+      stmt.run(
+        task.id,
+        status,
+        task.task_description,
+        task.working_directory || null,
+        task.timeout_minutes ?? 480,
+        task.auto_approve ? 1 : 0,
+        task.priority || 0,
+        task.context ? JSON.stringify(task.context) : null,
+        new Date().toISOString(),
+        task.max_retries !== undefined ? task.max_retries : 2,
+        task.depends_on ? JSON.stringify(task.depends_on) : null,
+        task.template_name || null,
+        task.isolated_workspace || null,
+        normalizedApprovalStatus,
+        JSON.stringify(tags),
+        project,
+        normalizedProvider,
+        task.model || null,
+        task.complexity || 'normal',
+        task.review_status || null,
+        task.ollama_host_id || null,
+        originalProvider,
+        null, // provider_switched_at
+        metadataStr,
+        task.workflow_id || null,
+        task.workflow_node_id || null,
+        task.stall_timeout_seconds ?? null,
+        currentEpoch
+      );
+
+      if (project) {
+        ensureProjectRegistered(project);
+      }
+    };
+
+    if (typeof db.transaction === 'function') {
+      db.transaction(insertTask)();
+    } else {
+      insertTask();
+    }
   } catch (err) {
     // F5: Translate SQLITE_FULL to a user-friendly message
     if (err.code === 'SQLITE_FULL' || /database or disk is full/i.test(err.message)) {
@@ -1421,6 +1448,7 @@ module.exports = {
   setExternalFns,
   // Task CRUD
   createTask,
+  ensureProjectRegistered,
   getTask,
   updateTask,
   resolveTaskId,

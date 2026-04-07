@@ -71,12 +71,22 @@ describe('task project awareness', () => {
       expect(row.project).toBe('my-project');
     });
 
-    it('falls back to auto-detect when project not provided', () => {
+    it('does not auto-detect when project is not provided', () => {
       const workingDirectory = createMarkedWorkingDirectory('detected-project');
       const task = createDbTask({ working_directory: workingDirectory });
 
       const row = getTaskRow(task.id);
-      expect(row.project).toBe('detected-project');
+      expect(row.project).toBeNull();
+    });
+
+    it('auto-registers explicit projects in project_config', () => {
+      createDbTask({ project: 'registered-project' });
+
+      const projectRow = rawDb().prepare(
+        'SELECT project FROM project_config WHERE project = ?'
+      ).get('registered-project');
+
+      expect(projectRow).toEqual({ project: 'registered-project' });
     });
   });
 

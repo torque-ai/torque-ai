@@ -275,6 +275,14 @@ function buildTaskPeekArtifactSection(taskId) {
  * Submit and immediately start a task
  */
 function handleSubmitTask(args) {
+  const project = typeof args?.project === 'string' ? args.project.trim() : '';
+  if (!project) {
+    return makeError(
+      ErrorCodes.MISSING_REQUIRED_PARAM,
+      'project is required. Provide the project name for this task.'
+    );
+  }
+
   // Phase 3.2: auto_route dispatch — default true routes to smart_submit_task
   if (args.auto_route !== false && !args.provider) {
     // Lazy require to avoid circular dependency (integration requires task/core)
@@ -282,7 +290,7 @@ function handleSubmitTask(args) {
     return handleSmartSubmitTask({
       task: args.task,
       working_directory: args.working_directory,
-      project: args.project,
+      project,
       tags: args.tags,
       timeout_minutes: args.timeout_minutes,
       priority: args.priority,
@@ -487,7 +495,7 @@ function handleSubmitTask(args) {
         status: 'pending',
         task_description: taskDescription,
         working_directory: args.working_directory || null,
-        project: args.project || undefined,
+        project,
         tags: args.tags || undefined,
         timeout_minutes: timeout,
         auto_approve: Boolean(args.auto_approve),
@@ -502,7 +510,7 @@ function handleSubmitTask(args) {
         status: 'pending',
         task_description: taskDescription,
         working_directory: args.working_directory || null,
-        project: args.project || undefined,
+        project,
         tags: args.tags || undefined,
         timeout_minutes: timeout,
         auto_approve: Boolean(args.auto_approve),
