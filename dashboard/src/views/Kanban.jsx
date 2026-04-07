@@ -6,6 +6,7 @@ import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import { getRelevantModel } from '../utils/providerModels';
 import { STATUS_ICONS } from '../constants';
 import { format as dateFnsFormat } from 'date-fns';
+import ProjectSelector from '../components/ProjectSelector';
 import StatCard from '../components/StatCard';
 import TaskSubmitForm from '../components/TaskSubmitForm';
 import HealthBar from '../components/HealthBar';
@@ -295,6 +296,11 @@ const TaskCard = memo(function TaskCard({
           <span className={`px-1.5 py-0.5 rounded text-[10px] text-white ${providerColor}`}>
             {task.provider || 'codex'}{(() => { const m = getRelevantModel(task.provider, task.model); return m ? ` · ${m}` : ''; })()}
           </span>
+          {task.project && (
+            <span className="max-w-[140px] truncate rounded border border-cyan-500/25 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-200">
+              {task.project}
+            </span>
+          )}
           {task.quality_score != null && (
             <span className={`px-1.5 py-0.5 rounded text-[10px] ${
               task.quality_score >= 80 ? 'text-green-300 bg-green-600/30' :
@@ -481,6 +487,7 @@ const TaskCard = memo(function TaskCard({
   return p.id === n.id && p.status === n.status && p.quality_score === n.quality_score
     && p.started_at === n.started_at && p.completed_at === n.completed_at
     && p.provider === n.provider && p.model === n.model
+    && p.project === n.project
     && p.ollama_host_id === n.ollama_host_id && p.ollama_host_name === n.ollama_host_name
     && p.gpu_active === n.gpu_active && p.error_output === n.error_output
     && prev.isPinned === next.isPinned && prev.hostActivity === next.hostActivity
@@ -658,6 +665,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   });
   const [showColMenu, setShowColMenu] = useState(false);
   const colMenuRef = useRef(null);
+  const [selectedProject, setSelectedProject] = useState(() => searchParams.get('project') || '');
   const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '');
   const [searchQuery, setSearchQuery] = useState(() => (searchParams.get('q') || '').trim().toLowerCase());
   const searchTimerRef = useRef(null);
@@ -745,12 +753,13 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     return () => clearTimeout(searchTimerRef.current);
   }, []);
 
-  // Sync search query to URL params
+  // Sync active filters to URL params
   useEffect(() => {
     const params = {};
     if (searchQuery) params.q = searchQuery;
+    if (selectedProject) params.project = selectedProject;
     setSearchParams(params, { replace: true });
-  }, [searchQuery, setSearchParams]);
+  }, [searchQuery, selectedProject, setSearchParams]);
 
   const mergeTasks = useCallback((freshTasks) => {
     setAllTasks((prev) => {
@@ -1033,14 +1042,20 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   }
 
   const filteredTasks = useMemo(() => {
-    if (!searchQuery) return allTasks;
-    return allTasks.filter((t) =>
+    const projectFiltered = selectedProject
+      ? allTasks.filter((task) => task.project === selectedProject)
+      : allTasks;
+
+    if (!searchQuery) return projectFiltered;
+
+    return projectFiltered.filter((t) =>
       (t.task_description || '').toLowerCase().includes(searchQuery) ||
       (t.id || '').toLowerCase().includes(searchQuery) ||
       (t.provider || '').toLowerCase().includes(searchQuery) ||
-      (t.model || '').toLowerCase().includes(searchQuery)
+      (t.model || '').toLowerCase().includes(searchQuery) ||
+      (t.project || '').toLowerCase().includes(searchQuery)
     );
-  }, [allTasks, searchQuery]);
+  }, [allTasks, searchQuery, selectedProject]);
 
   const tasksByStatus = useMemo(() => STATUS_COLUMNS.reduce((acc, col) => {
     acc[col.id] = filteredTasks.filter((t) => t.status === col.id);
@@ -1074,8 +1089,17 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     };
   }, [overview, wsStats]);
 
+  const hasTaskFilters = Boolean(searchQuery || selectedProject);
+
   // True DB counts per status — wsStats (live) > overview.totals (REST fallback) > tasks.length
   const countByStatus = useMemo(() => {
+    if (hasTaskFilters) {
+      return STATUS_COLUMNS.reduce((counts, column) => {
+        counts[column.id] = tasksByStatus[column.id]?.length || 0;
+        return counts;
+      }, {});
+    }
+
     const totals = overview?.totals || {};
     return {
       running: wsStats?.running ?? totals.running,
@@ -1085,7 +1109,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       cancelled: totals.cancelled,
       pending_provider_switch: totals.pending_provider_switch,
     };
-  }, [overview, wsStats]);
+  }, [hasTaskFilters, overview, tasksByStatus, wsStats]);
 
   const [cancellingIds, setCancellingIds] = useState(new Set());
   const [showConfirm, setShowConfirm] = useState(null);
@@ -1219,7 +1243,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         <div className="flex items-center gap-2">
           {/* Task count summary */}
           <span className="text-xs text-slate-500">
-            {searchQuery ? `${filteredTasks.length} of ${allTasks.length}` : `${allTasks.length} total`}{' '}&middot;{' '}<LastRefreshed timestamp={lastRefreshed} />
+            {hasTaskFilters ? `${filteredTasks.length} of ${allTasks.length}` : `${allTasks.length} total`}{' '}&middot;{' '}<LastRefreshed timestamp={lastRefreshed} />
             {(tasksByStatus.running?.length || 0) > 0 && <> &middot; <span className="text-blue-400">{tasksByStatus.running.length} running</span></>}
             {(tasksByStatus.failed?.length || 0) > 0 && <> &middot; <span className="text-red-400">{tasksByStatus.failed.length} failed</span></>}
           </span>
@@ -1284,6 +1308,12 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
               </button>
             )}
           </div>
+          <ProjectSelector
+            aria-label="Filter by project"
+            value={selectedProject}
+            onChange={(project) => setSelectedProject(project || '')}
+            className="w-48"
+          />
           <button
             onClick={toggleDensity}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50 text-slate-400 hover:text-white text-xs transition-colors"

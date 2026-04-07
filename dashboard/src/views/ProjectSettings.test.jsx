@@ -37,6 +37,20 @@ describe('ProjectSettings', () => {
     globalThis.fetch = vi.fn((url, options = {}) => {
       const method = String(options.method || 'GET').toUpperCase();
 
+      if (url === '/api/v2/tasks/list-projects') {
+        return createResponse({
+          data: [
+            { name: 'alpha', task_count: 5, last_active: '2026-01-15T10:30:00Z' },
+          ],
+        });
+      }
+
+      if (url === '/api/v2/tasks/list-project-configs') {
+        return createResponse({
+          data: [{ project: 'alpha' }],
+        });
+      }
+
       if (url === '/api/v2/project-config?project=alpha') {
         return createResponse({
           data: {
@@ -128,15 +142,32 @@ describe('ProjectSettings', () => {
     });
   });
 
-  it('skips optional provider score and budget sections when those endpoints are unavailable', async () => {
+  it('shows known projects before selection and loads settings from the table', async () => {
     globalThis.fetch = vi.fn((url) => {
-      if (url === '/api/project-config?project=beta') {
+      if (url === '/api/v2/tasks/list-projects') {
         return createResponse({
-          default_provider: 'ollama',
-          default_model: 'qwen2.5-coder:32b',
-          verify_command: 'npm run build',
-          auto_fix_enabled: 0,
-          default_timeout: 30,
+          data: [
+            { name: 'alpha', task_count: 4, last_active: '2026-01-16T11:00:00Z' },
+            { name: 'beta', task_count: 1, last_active: '2026-01-14T08:00:00Z' },
+          ],
+        });
+      }
+
+      if (url === '/api/v2/tasks/list-project-configs') {
+        return createResponse({
+          data: [{ project: 'alpha' }],
+        });
+      }
+
+      if (url === '/api/v2/project-config?project=alpha') {
+        return createResponse({
+          data: {
+            default_provider: 'codex',
+            default_model: 'gpt-5.3-codex-spark',
+            verify_command: 'npm test',
+            auto_fix_enabled: 1,
+            default_timeout: 45,
+          },
         });
       }
 
@@ -155,7 +186,74 @@ describe('ProjectSettings', () => {
         });
       }
 
-      if (url === '/api/provider-scores' || url === '/api/cost-budgets' || url === '/api/v2/budget/status') {
+      if (url === '/api/v2/provider-scores') {
+        return createResponse([]);
+      }
+
+      if (url === '/api/v2/cost-budgets') {
+        return createResponse([]);
+      }
+
+      throw new Error(`Unhandled fetch: GET ${url}`);
+    });
+
+    renderWithProviders(<ProjectSettings />, { route: '/settings' });
+
+    await screen.findByText('Known Projects');
+
+    expect(screen.getByText('Configured')).toBeInTheDocument();
+    expect(screen.getByText('Not configured')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'alpha' }));
+
+    await screen.findByText('Current Project Defaults');
+    expect(screen.getByDisplayValue('codex')).toBeInTheDocument();
+  });
+
+  it('skips optional provider score and budget sections when those endpoints are unavailable', async () => {
+    globalThis.fetch = vi.fn((url) => {
+      if (url === '/api/v2/tasks/list-projects') {
+        return createResponse({
+          data: [
+            { name: 'beta', task_count: 2, last_active: '2026-01-15T09:00:00Z' },
+          ],
+        });
+      }
+
+      if (url === '/api/v2/tasks/list-project-configs') {
+        return createResponse({
+          data: [],
+        });
+      }
+
+      if (url === '/api/v2/project-config?project=beta') {
+        return createResponse({
+          data: {
+            default_provider: 'ollama',
+            default_model: 'qwen2.5-coder:32b',
+            verify_command: 'npm run build',
+            auto_fix_enabled: 0,
+            default_timeout: 30,
+          },
+        });
+      }
+
+      if (url === '/api/v2/routing/templates') {
+        return createResponse({
+          data: [{ id: 'tmpl-1', name: 'System Default', preset: true }],
+        });
+      }
+
+      if (url === '/api/v2/routing/active') {
+        return createResponse({
+          data: {
+            explicit: false,
+            template: { id: 'tmpl-1', name: 'System Default' },
+          },
+        });
+      }
+
+      if (url === '/api/v2/provider-scores' || url === '/api/v2/cost-budgets' || url === '/api/v2/budget/status') {
         return createResponse({ error: 'Not found' }, { status: 404 });
       }
 

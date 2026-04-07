@@ -30,12 +30,14 @@ vi.mock('../hooks/useAbortableRequest', () => ({
 }));
 
 import { tasks as tasksApi, stats as statsApi, providers as providersApi } from '../api';
+import { requestV2 } from '../api';
 
 const emptyTasks = { tasks: [] };
 const runningTask = {
   id: 'task-run-1',
   status: 'running',
   task_description: 'Running test task',
+  project: 'alpha',
   provider: 'codex',
   started_at: new Date().toISOString(),
   created_at: '2026-01-15T10:00:00Z',
@@ -44,6 +46,7 @@ const queuedTask = {
   id: 'task-queue-1',
   status: 'queued',
   task_description: 'Queued test task',
+  project: 'alpha',
   provider: 'codex',
   created_at: '2026-01-15T10:00:00Z',
 };
@@ -51,6 +54,7 @@ const pendingSwitchTask = {
   id: 'task-switch-1',
   status: 'pending_provider_switch',
   task_description: 'Pending provider switch task',
+  project: 'alpha',
   provider: 'codex',
   created_at: '2026-01-15T10:00:00Z',
 };
@@ -58,6 +62,7 @@ const pendingApprovalTask = {
   id: 'task-approval-1',
   status: 'pending_approval',
   task_description: 'Pending approval test task',
+  project: 'alpha',
   provider: 'codex',
   created_at: '2026-01-15T10:00:00Z',
 };
@@ -108,6 +113,11 @@ function createDeferred() {
 
 describe('Kanban', () => {
   beforeEach(() => {
+    requestV2.mockReset();
+    requestV2.mockResolvedValue([
+      { name: 'alpha', task_count: 3 },
+      { name: 'beta', task_count: 2 },
+    ]);
     // All list calls return empty by default
     tasksApi.list.mockResolvedValue(emptyTasks);
     tasksApi.rejectSwitch.mockResolvedValue({});
@@ -198,6 +208,13 @@ describe('Kanban', () => {
     });
   });
 
+  it('renders project filter dropdown', async () => {
+    renderWithProviders(<Kanban />, { route: '/' });
+    await waitFor(() => {
+      expect(screen.getByLabelText('Filter by project')).toBeInTheDocument();
+    });
+  });
+
   it('renders density toggle button', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
@@ -266,6 +283,35 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText(/Running test task/)).toBeInTheDocument();
+    });
+  });
+
+  it('filters displayed cards by selected project', async () => {
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'running') {
+        return Promise.resolve({
+          tasks: [
+            { ...runningTask, id: 'task-run-1', task_description: 'Alpha running task', project: 'alpha' },
+            { ...runningTask, id: 'task-run-2', task_description: 'Beta running task', project: 'beta' },
+          ],
+        });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<Kanban />, { route: '/' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Alpha running task')).toBeInTheDocument();
+      expect(screen.getByText('Beta running task')).toBeInTheDocument();
+    });
+    await screen.findByRole('option', { name: 'alpha (3 tasks)' });
+
+    fireEvent.change(screen.getByLabelText('Filter by project'), { target: { value: 'alpha' } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Alpha running task')).toBeInTheDocument();
+      expect(screen.queryByText('Beta running task')).toBeNull();
     });
   });
 

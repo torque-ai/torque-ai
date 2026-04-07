@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { budget as budgetApi, requestV2, routingTemplates } from '../api';
+import ProjectSelector, { parseMarkdownTable } from '../components/ProjectSelector';
 import { useToast } from '../components/Toast';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 
@@ -150,13 +151,63 @@ function sortTemplates(templates) {
   });
 }
 
+function formatDateTime(value) {
+  if (!value) return 'Never';
+
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(value));
+  } catch {
+    return 'Never';
+  }
+}
+
+function extractConfiguredProjectNames(payload) {
+  const candidates = [
+    payload,
+    payload?.items,
+    payload?.configs,
+    payload?.data,
+    payload?.data?.items,
+  ];
+
+  for (const candidate of candidates) {
+    if (!Array.isArray(candidate)) continue;
+
+    const projects = new Set();
+    candidate.forEach((entry) => {
+      const name = String(entry?.project || entry?.name || '').trim();
+      if (name) projects.add(name);
+    });
+    return projects;
+  }
+
+  const parsedRows = parseMarkdownTable(
+    typeof payload === 'string'
+      ? payload
+      : payload?.result || payload?.data?.result || ''
+  );
+  const projects = new Set();
+
+  parsedRows.forEach((entry) => {
+    const name = String(entry?.project || entry?.name || '').trim();
+    if (name) projects.add(name);
+  });
+
+  return projects;
+}
+
 export default function ProjectSettings({ project: projectProp = '' }) {
   const initialProject = projectProp || '';
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const mountedRef = useRef(true);
-  const [projectInput, setProjectInput] = useState(() => initialProject || searchParams.get('project') || '');
   const [activeProject, setActiveProject] = useState(() => initialProject || searchParams.get('project') || '');
+  const [knownProjects, setKnownProjects] = useState([]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [configuredProjects, setConfiguredProjects] = useState(() => new Set());
   const [form, setForm] = useState(DEFAULT_FORM_STATE);
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
@@ -176,9 +227,23 @@ export default function ProjectSettings({ project: projectProp = '' }) {
 
   useEffect(() => {
     if (!projectProp) return;
-    setProjectInput(projectProp);
     setActiveProject(projectProp);
   }, [projectProp]);
+
+  const loadConfiguredProjects = useCallback(async () => {
+    try {
+      const payload = await requestV2('/tasks/list-project-configs');
+      if (!mountedRef.current) return;
+      setConfiguredProjects(extractConfiguredProjectNames(payload));
+    } catch {
+      if (!mountedRef.current) return;
+      setConfiguredProjects(new Set());
+    }
+  }, []);
+
+  useEffect(() => {
+    loadConfiguredProjects();
+  }, [loadConfiguredProjects]);
 
   const loadOptionalProviderScores = useCallback(async () => {
     try {
@@ -280,6 +345,17 @@ export default function ProjectSettings({ project: projectProp = '' }) {
     loadData(activeProject);
   }, [activeProject, loadData]);
 
+  const handleProjectsLoaded = useCallback((projects) => {
+    if (!mountedRef.current) return;
+    setKnownProjects(Array.isArray(projects) ? projects : []);
+    setProjectsLoaded(true);
+  }, []);
+
+  const knownProjectRows = useMemo(() => knownProjects.map((project) => ({
+    ...project,
+    has_config: project.has_config ?? configuredProjects.has(project.name),
+  })), [configuredProjects, knownProjects]);
+
   const budgetSummary = useMemo(() => {
     if (!hasBudgetStatus || !budgetStatus) return null;
     const limit = Number(budgetStatus.limit || 0);
@@ -292,20 +368,23 @@ export default function ProjectSettings({ project: projectProp = '' }) {
     };
   }, [budgetStatus, hasBudgetStatus]);
 
-  const handleLoadProject = useCallback(() => {
-    const nextProject = projectInput.trim();
+  const handleSelectProject = useCallback((projectName) => {
+    const nextProject = String(projectName || '').trim();
+    setSearchParams(nextProject ? { project: nextProject } : {}, { replace: true });
+
     if (!nextProject) {
-      toast.warning('Enter a project name to load settings');
+      setActiveProject('');
+      setLoadError('');
       return;
     }
 
-    setSearchParams({ project: nextProject }, { replace: true });
     if (nextProject === activeProject) {
       loadData(nextProject);
       return;
     }
+
     setActiveProject(nextProject);
-  }, [activeProject, loadData, projectInput, setSearchParams, toast]);
+  }, [activeProject, loadData, setSearchParams]);
 
   const handleConfigSave = useCallback(async () => {
     const timeoutValue = Number.parseInt(form.timeout, 10);
@@ -334,12 +413,13 @@ export default function ProjectSettings({ project: projectProp = '' }) {
 
       toast.success(`Saved project settings for ${activeProject}`);
       await loadData(activeProject);
+      await loadConfiguredProjects();
     } catch (error) {
       toast.error(`Failed to save project settings: ${getErrorMessage(error)}`);
     } finally {
       if (mountedRef.current) setSavingConfig(false);
     }
-  }, [activeProject, form, loadData, toast]);
+  }, [activeProject, form, loadConfiguredProjects, loadData, toast]);
 
   const handleRoutingSave = useCallback(async () => {
     setSavingRouting(true);
@@ -367,37 +447,75 @@ export default function ProjectSettings({ project: projectProp = '' }) {
       </div>
 
       <div className="glass-card p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
-          <div className="flex-1">
-            <label htmlFor="project-name" className="block text-xs text-slate-400 mb-1.5">Project Name</label>
-            <input
-              id="project-name"
-              type="text"
-              value={projectInput}
-              onChange={(event) => setProjectInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  handleLoadProject();
-                }
-              }}
-              placeholder="e.g. torque-public"
-              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={handleLoadProject}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white transition-colors hover:bg-blue-500"
-          >
-            Load Settings
-          </button>
+        <div className="max-w-xl">
+          <label htmlFor="project-name" className="block text-xs text-slate-400 mb-1.5">Project</label>
+          <ProjectSelector
+            id="project-name"
+            aria-label="Select project"
+            value={activeProject}
+            onChange={handleSelectProject}
+            onProjectsLoaded={handleProjectsLoaded}
+            placeholder="Select a project"
+            className="w-full"
+          />
+          <p className="mt-2 text-sm text-slate-500">
+            Selecting a project loads its saved defaults automatically.
+          </p>
         </div>
       </div>
 
       {!activeProject && (
-        <div className="glass-card p-8 text-center">
-          <p className="text-sm text-slate-400">Enter a project name above to load project-level settings.</p>
+        <div className="glass-card p-5">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-white">Known Projects</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Pick a project from the list or dropdown to load its settings.
+            </p>
+          </div>
+          {!projectsLoaded ? (
+            <LoadingSkeleton lines={5} />
+          ) : knownProjectRows.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-700 text-left text-xs uppercase tracking-wider text-slate-500">
+                    <th scope="col" className="px-3 py-2 font-medium">Name</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Tasks</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Last Active</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Config</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {knownProjectRows.map((project) => (
+                    <tr key={project.name} className="border-b border-slate-800/80 text-slate-300 last:border-0">
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSelectProject(project.name)}
+                          className="font-medium text-blue-300 transition-colors hover:text-blue-200"
+                        >
+                          {project.name}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">{project.task_count || 0}</td>
+                      <td className="px-3 py-2 text-slate-400">{formatDateTime(project.last_active)}</td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs ${
+                          project.has_config
+                            ? 'bg-green-500/15 text-green-300'
+                            : 'bg-slate-700 text-slate-400'
+                        }`}>
+                          {project.has_config ? 'Configured' : 'Not configured'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">No projects found yet.</p>
+          )}
         </div>
       )}
 

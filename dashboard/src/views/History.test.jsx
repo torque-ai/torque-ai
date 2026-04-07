@@ -39,12 +39,14 @@ vi.mock('../hooks/useAbortableRequest', () => ({
 }));
 
 import { tasks as tasksApi, providers as providersApi } from '../api';
+import { requestV2 } from '../api';
 
 const mockTasks = [
   {
     id: 'task-1',
     status: 'completed',
     task_description: 'Build feature A with tests',
+    project: 'alpha',
     provider: 'codex',
     model: 'gpt-5.3-codex-spark',
     ollama_host_name: null,
@@ -56,6 +58,7 @@ const mockTasks = [
     id: 'task-2',
     status: 'failed',
     task_description: 'Fix broken tests',
+    project: 'beta',
     provider: 'claude-cli',
     model: null,
     ollama_host_name: null,
@@ -74,6 +77,11 @@ const mockPagination = {
 describe('History', () => {
   beforeEach(() => {
     setSearchParamsMock.mockReset();
+    requestV2.mockReset();
+    requestV2.mockResolvedValue([
+      { name: 'alpha', task_count: 1 },
+      { name: 'beta', task_count: 1 },
+    ]);
     tasksApi.list.mockResolvedValue({ tasks: mockTasks, pagination: mockPagination });
     tasksApi.retry.mockResolvedValue({});
     tasksApi.cancel.mockResolvedValue({});
@@ -128,6 +136,11 @@ describe('History', () => {
     expect(screen.getByText('All Providers')).toBeInTheDocument();
   });
 
+  it('renders project filter dropdown', () => {
+    renderWithProviders(<History />, { route: '/history' });
+    expect(screen.getByLabelText('Filter by project')).toBeInTheDocument();
+  });
+
   it('renders date preset buttons', async () => {
     renderWithProviders(<History />, { route: '/history' });
     await waitFor(() => {
@@ -141,6 +154,7 @@ describe('History', () => {
   it('renders sortable column headers', async () => {
     renderWithProviders(<History />, { route: '/history' });
     expect(screen.getByText('Status')).toBeInTheDocument();
+    expect(screen.getByText('Project')).toBeInTheDocument();
     expect(screen.getByText('Description')).toBeInTheDocument();
     expect(screen.getByText('Provider')).toBeInTheDocument();
     expect(screen.getByText('Duration')).toBeInTheDocument();
@@ -319,6 +333,22 @@ describe('History', () => {
         orderBy: 'duration',
         orderDir: 'asc',
       });
+    });
+  });
+
+  it('passes the selected project filter to the task list api', async () => {
+    renderWithProviders(<History />, { route: '/history' });
+
+    await waitFor(() => {
+      expect(tasksApi.list).toHaveBeenCalled();
+    });
+    await screen.findByRole('option', { name: 'alpha (1 tasks)' });
+
+    fireEvent.change(screen.getByLabelText('Filter by project'), { target: { value: 'alpha' } });
+
+    await waitFor(() => {
+      const latestParams = tasksApi.list.mock.calls.at(-1)[0];
+      expect(latestParams).toMatchObject({ project: 'alpha' });
     });
   });
 

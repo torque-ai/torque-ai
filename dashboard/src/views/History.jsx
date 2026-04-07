@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { tasks as tasksApi, providers as providersApi } from '../api';
 import { useToast } from '../components/Toast';
+import ProjectSelector from '../components/ProjectSelector';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
 import { STATUS_BG_COLORS, STATUS_ICONS } from '../constants';
 import { getRelevantModel } from '../utils/providerModels';
@@ -71,6 +72,18 @@ function StatusBadge({ status }) {
     <span className={`px-2 py-1 rounded-full text-[11px] font-medium text-white ${STATUS_BADGES[status] || 'bg-gray-500'}`}>
       {icon && <span className="mr-1" aria-hidden="true">{icon}</span>}
       {status?.replace(/_/g, ' ')}
+    </span>
+  );
+}
+
+function ProjectBadge({ project }) {
+  if (!project) {
+    return <span className="text-sm text-slate-500">-</span>;
+  }
+
+  return (
+    <span className="inline-flex rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-1 text-[11px] text-cyan-200">
+      {project}
     </span>
   );
 }
@@ -193,6 +206,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
   // Initialize filters from URL params
   const [filters, setFilters] = useState({
     status: searchParams.get('status') || '',
+    project: searchParams.get('project') || '',
     provider: searchParams.get('provider') || '',
     tag: searchParams.get('tag') || '',
     search: searchParams.get('q') || '',
@@ -241,6 +255,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
   useEffect(() => {
     const params = {};
     if (filters.status) params.status = filters.status;
+    if (filters.project) params.project = filters.project;
     if (filters.provider) params.provider = filters.provider;
     if (filters.tag) params.tag = filters.tag;
     if (filters.search) params.q = filters.search;
@@ -574,6 +589,12 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
           <option value="claude-cli">Claude CLI</option>
           <option value="ollama">Ollama</option>
         </select>
+        <ProjectSelector
+          aria-label="Filter by project"
+          value={filters.project}
+          onChange={(project) => setFilters((prev) => ({ ...prev, project: project || '' }))}
+          className="min-w-[190px]"
+        />
         <select
           aria-label="Filter by tag"
           value={filters.tag}
@@ -641,9 +662,13 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
                   aria-label="Select all tasks"
                 />
               </th>
-              {Object.entries(SORTABLE_COLUMNS).map(([key, { label }]) => (
-                <SortHeader key={key} column={key} label={label} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
-              ))}
+              <SortHeader column="status" label={SORTABLE_COLUMNS.status.label} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+              <th scope="col" className="text-left p-4 heading-sm">Project</th>
+              {Object.entries(SORTABLE_COLUMNS)
+                .filter(([key]) => key !== 'status')
+                .map(([key, { label }]) => (
+                  <SortHeader key={key} column={key} label={label} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                ))}
               <th scope="col" className="text-left p-4 heading-sm">Actions</th>
             </tr>
           </thead>
@@ -654,6 +679,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
                   <tr key={i} className="border-b border-slate-700/30 animate-pulse">
                     <td className="p-4 w-8"><div className="w-4 h-4 bg-slate-700 rounded" /></td>
                     <td className="p-4"><div className="w-16 h-5 bg-slate-700 rounded-full" /></td>
+                    <td className="p-4"><div className="w-20 h-5 bg-slate-700 rounded-full" /></td>
                     <td className="p-4"><div className="h-4 w-48 bg-slate-700 rounded" /></td>
                     <td className="p-4"><div className="w-16 h-5 bg-slate-700 rounded" /></td>
                     <td className="p-4"><div className="w-14 h-5 bg-slate-700 rounded" /></td>
@@ -666,7 +692,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
               </>
             ) : sortedTasks.length === 0 ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-slate-500">
+                <td colSpan={10} className="p-8 text-center text-slate-500">
                   No tasks found
                 </td>
               </tr>
@@ -690,6 +716,9 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
                   </td>
                   <td className="p-4">
                     <StatusBadge status={task.status} />
+                  </td>
+                  <td className="p-4 max-w-[200px]" title={task.project || ''}>
+                    <ProjectBadge project={task.project} />
                   </td>
                   <td className="p-4 max-w-md" title={task.task_description || ''}>
                     <p className="text-white text-sm truncate">{task.task_description?.substring(0, 60)}{task.task_description?.length > 60 ? '...' : ''}</p>
