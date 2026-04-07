@@ -411,7 +411,7 @@ describe('analytics-metrics module', () => {
 
       expect(out.version).toBe('2.0');
       expect(out.data.tasks).toHaveLength(1);
-      expect(out.data.tasks[0].tags).toEqual(['exp', 'project:torque-public']);
+      expect(out.data.tasks[0].tags).toEqual(done.tags);
       expect(out.data.tasks[0].context).toEqual({ x: 1 });
     });
 

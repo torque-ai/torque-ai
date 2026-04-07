@@ -265,7 +265,7 @@ describe('feature workflow review checkpoints', () => {
     expect(workflowTasks).toHaveLength(11);
 
     const reviewTypesTask = taskCore.getTask(tasksByNode['review-player-stats-types'].id);
-    expect(reviewTypesTask.tags).toEqual(['review-checkpoint', 'project:torque-public']);
+    expect(reviewTypesTask.tags).toEqual(['review-checkpoint', `project:${reviewTypesTask.project}`]);
     expect(reviewTypesTask.provider).toBeNull();
     expect(reviewTypesTask.metadata.context_from).toEqual(['player-stats-types']);
 

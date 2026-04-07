@@ -135,8 +135,8 @@ describe('db/workflow-engine module', () => {
     expect(tasks[1].id).toBe(testTask.id);
     expect(tasks.every((task) => task.workflow_id === workflow.id)).toBe(true);
     expect(tasks.map((task) => task.tags)).toEqual(expect.arrayContaining([
-      ['build', 'project:torque-public'],
-      ['test', 'ci', 'project:torque-public'],
+      buildTask.tags,
+      testTask.tags,
     ]));
     expect(tasks.find((task) => task.workflow_node_id === 'build').context).toEqual({ stage: 'build' });
   });

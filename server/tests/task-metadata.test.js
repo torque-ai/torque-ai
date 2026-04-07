@@ -207,7 +207,7 @@ describe('task-metadata module', () => {
     expect(tasks).toHaveLength(2);
     expect(tasks[0].id).toBe(newTask.id);
     expect(tasks[0].auto_approve).toBe(true);
-    expect(tasks[0].tags).toEqual(['new', 'project:torque-public']);
+    expect(tasks[0].tags).toEqual(newTask.tags);
     expect(tasks[1].auto_approve).toBe(false);
   });
 
@@ -317,7 +317,7 @@ describe('task-metadata module', () => {
   it('addTaskTags merges and deduplicates tags', () => {
     const task = mkTask({ tags: ['existing', 'shared'] });
     const updated = mod.addTaskTags(task.id, ['shared', 'new', 'existing']);
-    expect(updated.tags.sort()).toEqual(['existing', 'new', 'project:torque-public', 'shared']);
+    expect(updated.tags.sort()).toEqual(['existing', 'new', 'shared', `project:${updated.project}`].sort());
   });
 
   it('addTaskTags validates input type and element type', () => {
@@ -342,7 +342,7 @@ describe('task-metadata module', () => {
   it('removeTaskTags removes selected tags and persists update', () => {
     const task = mkTask({ tags: ['keep', 'drop', 'drop2'] });
     const updated = mod.removeTaskTags(task.id, ['drop', 'drop2']);
-    expect(updated.tags).toEqual(['keep', 'project:torque-public']);
+    expect(updated.tags).toEqual(['keep', `project:${updated.project}`]);
   });
 
   it('removeTaskTags validates input and returns null for missing task', () => {
@@ -354,11 +354,11 @@ describe('task-metadata module', () => {
 
   it('getAllTags returns sorted unique tags and ignores malformed tag JSON', () => {
     const t1 = mkTask({ tags: ['alpha', 'beta'] });
-    mkTask({ tags: ['beta', 'gamma'] });
+    const t2 = mkTask({ tags: ['beta', 'gamma'] });
     rawDb().prepare('UPDATE tasks SET tags = ? WHERE id = ?').run('not-json', t1.id);
 
     const tags = mod.getAllTags();
-    expect(tags).toEqual(['beta', 'gamma', 'project:torque-public']);
+    expect(tags).toEqual(['beta', 'gamma', `project:${t2.project}`]);
   });
 
   it('getTagStats returns tag usage counts sorted descending', () => {
@@ -423,7 +423,7 @@ describe('task-metadata module', () => {
     expect(ids).toContain(failed.id);
     expect(ids).toContain(cancelled.id);
     expect(ids).not.toContain(queued.id);
-    expect(retryable.find(t => t.id === failed.id).tags).toEqual(['net', 'project:torque-public']);
+    expect(retryable.find(t => t.id === failed.id).tags).toEqual(['net', `project:${failed.project}`]);
     expect(retryable.find(t => t.id === cancelled.id).tags).toBeNull();
   });
 
