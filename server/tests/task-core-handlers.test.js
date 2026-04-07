@@ -951,6 +951,7 @@ describe('task-core handlers', () => {
         auto_approve: 1,
         priority: 6,
         model: TEST_MODELS.DEFAULT,
+        project: 'test-project',
       });
 
       expect(mockPolicyEngine.evaluate).toHaveBeenCalledWith({
@@ -1332,6 +1333,7 @@ describe('task-core handlers', () => {
         auto_approve: 1,
         priority: 4,
         model: TEST_MODELS.DEFAULT,
+        project: 'test-project',
       });
 
       expect(mockPolicyEngine.evaluate).toHaveBeenCalledWith({
