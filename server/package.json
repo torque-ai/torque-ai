@@ -1,7 +1,7 @@
 {
   "name": "torque-server",
   "version": "2.1.0",
-  "description": "TORQUE MCP server - Threaded Orchestration Router for Queued Unit Execution",
+  "description": "TORQUE MCP server — dark software factory for autonomous code generation, verification, and release",
   "license": "MIT",
   "main": "index.js",
   "type": "commonjs",

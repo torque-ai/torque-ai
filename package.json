@@ -1,7 +1,7 @@
 {
   "name": "torque-ai",
   "version": "1.0.0-beta.1",
-  "description": "Your AI providers are specialists. TORQUE is the control tower. Route coding tasks across Ollama, Codex, Claude, DeepInfra, and 8 more providers — with smart routing, DAG workflows, quality gates, and cost tracking.",
+  "description": "A dark software factory for Claude Code. Discover, plan, execute, verify, remediate, and release — autonomously across local and cloud LLM providers.",
   "main": "server/index.js",
   "bin": {
     "torque": "bin/torque.js",
@@ -20,8 +20,8 @@
   },
   "keywords": [
     "mcp", "ai", "orchestration", "llm", "coding", "ollama",
-    "claude", "codex", "workflow", "task-queue", "multi-provider",
-    "smart-routing", "quality-gates", "cost-tracking"
+    "claude", "codex", "workflow", "dark-factory", "multi-provider",
+    "smart-routing", "quality-gates", "auto-remediation", "autonomous"
   ],
   "license": "MIT",
   "repository": {

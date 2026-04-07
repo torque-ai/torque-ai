@@ -1,15 +1,15 @@
 # TORQUE
 
-A Claude Code plugin for distributed AI task execution.
+A dark software factory for Claude Code.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green.svg)](https://nodejs.org/)
 
-TORQUE adds multi-provider task orchestration to Claude Code. Instead of running one task at a time in your terminal, Claude can dispatch work to local LLMs, cloud APIs, and CLI tools in parallel — then monitor the output, check for quality issues, and retry on a different provider if something fails.
+TORQUE turns Claude Code into an autonomous software factory. It discovers what needs building, plans the work, dispatches tasks across local and cloud LLM providers in parallel, verifies quality, auto-remediates failures, and cuts releases — with you as the architect at the control panel.
 
 ## Requirements
 
-- **Claude Code** — TORQUE is a Claude Code plugin. Claude is the orchestrator; TORQUE is the execution layer.
+- **Claude Code** — Claude is the architect; TORQUE is the factory floor.
 - **Node.js 20+**
 - **At least one execution provider** — Ollama (free, local), Codex CLI, or any supported cloud API key
 
@@ -40,15 +40,17 @@ Claude creates a TORQUE workflow with two tasks, routes each to the appropriate 
 
 ## How It Works
 
-Claude Code talks to TORQUE through MCP (Model Context Protocol). When Claude needs to execute a coding task, it calls TORQUE's tools:
+Claude Code talks to TORQUE through MCP (Model Context Protocol). The factory operates as an autonomous pipeline:
 
-1. **Claude submits a task** — via `smart_submit_task` or `create_workflow`
-2. **TORQUE routes it** — analyzes complexity, checks provider health, picks the best available option
-3. **The provider executes** — Ollama, Codex, a cloud API, whatever is available and appropriate
-4. **TORQUE monitors** — watches for stubs, truncation, quality regressions, and build failures
-5. **Results come back to Claude** — who reviews them and decides what to do next
+1. **Discover** — Scouts scan the codebase for issues, missing tests, security gaps, and visual regressions
+2. **Plan** — Claude architects the work and TORQUE generates task DAGs with dependency ordering
+3. **Route** — Smart routing analyzes each task's complexity and dispatches to the best available provider
+4. **Execute** — Local LLMs, cloud APIs, and CLI tools run tasks in parallel across your infrastructure
+5. **Verify** — Quality gates check for stubs, truncation, build failures, and regressions automatically
+6. **Remediate** — Failures are diagnosed and resubmitted with error context — no manual intervention
+7. **Release** — Version bumps, changelogs, and git tags are cut from task metadata
 
-Claude stays in the driver seat. TORQUE handles the infrastructure.
+You set the direction. The factory runs lights-out.
 
 ## Providers
 
@@ -64,14 +66,17 @@ Additional providers can be configured through Claude — ask it to run `configu
 
 ## Features
 
-- **Smart Routing** — Automatically picks the best provider based on task complexity, provider health, and capacity
-- **Quality Safeguards** — Stub detection, truncation checks, build verification, approval gates, and auto-retry with provider fallback
-- **DAG Workflows** — Chain dependent tasks with parallel execution and automatic output injection
-- **Cost Tracking** — Per-provider usage tracking, budget alerts, and automatic routing downgrades when budgets are hit
+- **Scout Discovery** — Automated codebase scanning for security issues, quality gaps, missing tests, performance problems, and visual regressions
+- **Smart Routing** — Analyzes task complexity and routes to the best provider based on health, capacity, cost, and capability
+- **DAG Workflows** — Dependency-ordered task graphs with parallel execution and automatic output injection
+- **Auto-Remediation** — Failed tasks are diagnosed, retried with error context, and re-routed through provider fallback chains
+- **Quality Gates** — Stub detection, truncation checks, build verification, approval gates, and regression detection
+- **Visual Verification** — Automated UI capture and analysis via `peek_ui` — the factory inspects its own output
+- **Auto-Release** — Semver bumps, changelogs, and git tags generated from task metadata on completion
+- **Team Pipeline** — Planner → QC → Remediation loop with streaming verdicts and dual-pass testing
 - **Multi-Host** — Distribute work across LAN Ollama instances with auto-discovery and load balancing
+- **Cost Tracking** — Per-provider usage tracking, budget alerts, and automatic routing downgrades
 - **Policy Engine** — Rule-based governance with shadow enforcement and architecture boundaries
-- **Provider Scoring** — Tracks reliability, speed, cost, and quality per provider to improve routing over time
-- **Circuit Breaker** — Detects systemic provider failures and auto-disables affected providers with recovery probes
 - **Web Dashboard** — Real-time Kanban board, provider health, workflow visualization at `http://localhost:3456`
 
 ## Dashboard
