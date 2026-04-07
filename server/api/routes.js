@@ -713,6 +713,13 @@ const routes = [
 
   // Project Config
   {
+    method: 'GET',
+    path: '/api/v2/projects',
+    tool: 'list_projects',
+    handlerName: 'handleV2CpListProjects',
+    middleware: buildV2Middleware(),
+  },
+  {
     method: 'POST',
     path: '/api/v2/projects/scan',
     handlerName: 'handleV2CpScanProject',

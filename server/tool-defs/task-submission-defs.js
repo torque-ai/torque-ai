@@ -17,6 +17,15 @@ module.exports = [
           "type": "string",
           "description": "Working directory for the task (defaults to current directory)"
         },
+        "project": {
+          "type": "string",
+          "description": "Project name. If omitted, auto-detected from working_directory."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tags to attach to this task (e.g., [\"urgent\", \"refactor\"])"
+        },
         "timeout_minutes": {
           "type": "number",
           "description": "Safety-ceiling timeout in minutes (default: 480). Stall detection and heartbeat-driven decisions are the primary timeout mechanisms — this is a last-resort kill timer.",

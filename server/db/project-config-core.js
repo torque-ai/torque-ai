@@ -561,6 +561,48 @@ function getCurrentProject(workingDirectory) {
   return getProjectFromPath(workingDirectory);
 }
 
+/**
+ * Resolve project defaults from either a project name or working directory.
+ * Returns table-backed project configuration plus parsed project metadata.
+ * @param {string} projectOrWorkingDirectory
+ * @returns {object|null}
+ */
+function getProjectDefaults(projectOrWorkingDirectory) {
+  if (typeof projectOrWorkingDirectory !== 'string') {
+    return null;
+  }
+
+  const input = projectOrWorkingDirectory.trim();
+  if (!input) {
+    return null;
+  }
+
+  const inputLooksLikePath = input.includes(path.sep) || input.includes('/') || input.includes('\\');
+  const project = inputLooksLikePath ? getProjectFromPath(input) : input;
+  if (!project) {
+    return null;
+  }
+
+  const config = getProjectConfig(project);
+  if (!config) {
+    return null;
+  }
+
+  const stepProviders = safeJsonParse(getProjectMetadata(project, 'step_providers'), null);
+  const piiGuard = safeJsonParse(getProjectMetadata(project, 'pii_guard'), null);
+  const workingDirectory = inputLooksLikePath
+    ? input
+    : path.join(process.env.TORQUE_PROJECTS_BASE || process.cwd(), project);
+
+  return {
+    ...config,
+    project,
+    working_directory: workingDirectory,
+    step_providers: stepProviders,
+    pii_guard: piiGuard,
+  };
+}
+
 // ============================================================
 // Project configuration
 // ============================================================
@@ -1342,6 +1384,7 @@ const ownExports = {
   listProjects,
   getProjectStats,
   getCurrentProject,
+  getProjectDefaults,
   getProjectConfig,
   setProjectConfig,
   setProjectMetadata,

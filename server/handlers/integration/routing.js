@@ -267,6 +267,8 @@ function extractSmartSubmitInputs(args) {
   const {
     task,
     working_directory,
+    project,
+    tags,
     files: rawFiles,
     model,
     timeout_minutes,
@@ -338,6 +340,8 @@ function extractSmartSubmitInputs(args) {
   return {
     task,
     working_directory,
+    project,
+    tags,
     files,
     model,
     timeout_minutes,
@@ -544,6 +548,8 @@ async function handleSmartSubmitTask(args) {
   const {
     task,
     working_directory,
+    project,
+    tags,
     files,
     model,
     timeout_minutes,
@@ -783,6 +789,8 @@ async function handleSmartSubmitTask(args) {
           id: subtaskId,
           task_description: subtasks[i],
           working_directory: workingDirectory,
+          project: project || undefined,
+          tags: tags || undefined,
           status: prevTaskId ? 'waiting' : 'queued',
           provider: def.provider,  // locked to routed provider
           model: subtaskModel,
@@ -946,6 +954,8 @@ async function handleSmartSubmitTask(args) {
             id: subtaskId,
             task_description: def.task,
             working_directory: jsWorkDir,
+            project: project || undefined,
+            tags: tags || undefined,
             status: prevTaskId ? 'waiting' : 'queued',
             provider: def.provider,  // locked to routed provider
             model: subtaskModel,
@@ -1215,6 +1225,8 @@ async function handleSmartSubmitTask(args) {
       id: taskId,
       task_description: task,
       working_directory: workingDirectory,
+      project: project || undefined,
+      tags: tags || undefined,
       status: 'queued',
       provider: override_provider || null,
       model: taskModel,
@@ -1230,6 +1242,8 @@ async function handleSmartSubmitTask(args) {
       id: taskId,
       task_description: task,
       working_directory: workingDirectory,
+      project: project || undefined,
+      tags: tags || undefined,
       status: 'queued',
       provider: selectedProvider,  // Use the routing-resolved provider (was null — broke template routing)
       model: taskModel,

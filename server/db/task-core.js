@@ -266,8 +266,15 @@ function createTask(task) {
     }
   }
 
-  // Auto-detect project from working directory
-  const project = task.project || (_getProjectFromPath ? _getProjectFromPath(task.working_directory) : null);
+  const explicitProject = typeof task.project === 'string' ? task.project.trim() : '';
+  const project = explicitProject || (_getProjectFromPath ? _getProjectFromPath(task.working_directory) : null);
+  const tags = Array.isArray(task.tags) ? [...task.tags] : [];
+  if (project) {
+    const projectTag = `project:${project}`;
+    if (!tags.includes(projectTag)) {
+      tags.push(projectTag);
+    }
+  }
 
   // RB-032: Bound metadata size to prevent overflow
   // Always serialize enriched metadataObject — it may contain auto_routed/requested_provider
@@ -304,7 +311,7 @@ function createTask(task) {
       task.template_name || null,
       task.isolated_workspace || null,
       normalizedApprovalStatus,
-      task.tags ? JSON.stringify(task.tags) : null,
+      JSON.stringify(tags),
       project,
       normalizedProvider,
       task.model || null,
@@ -336,7 +343,7 @@ function createTask(task) {
     _recordEvent('task_created', task.id, {
       template: task.template_name,
       has_dependencies: !!task.depends_on,
-      tags: task.tags,
+      tags,
       project
     });
   }
@@ -914,6 +921,53 @@ function countTasksByStatus() {
 }
 
 /**
+ * List all known projects discovered from tasks and project_config.
+ * @returns {Array<{name: string, task_count: number, last_active: string|null, has_config: boolean}>}
+ */
+function listKnownProjects() {
+  if (!db || dbClosed) return [];
+
+  const rows = db.prepare(`
+    SELECT project AS name, COUNT(*) AS task_count, MAX(created_at) AS last_active, 0 AS has_config
+    FROM tasks
+    WHERE project IS NOT NULL AND project != ''
+    GROUP BY project
+    UNION ALL
+    SELECT project AS name, 0 AS task_count, NULL AS last_active, 1 AS has_config
+    FROM project_config
+  `).all();
+
+  const merged = new Map();
+  for (const row of rows) {
+    const name = typeof row.name === 'string' ? row.name.trim() : '';
+    if (!name) continue;
+
+    const existing = merged.get(name) || {
+      name,
+      task_count: 0,
+      last_active: null,
+      has_config: false,
+    };
+
+    existing.task_count += Number(row.task_count) || 0;
+    if (row.last_active && (!existing.last_active || row.last_active > existing.last_active)) {
+      existing.last_active = row.last_active;
+    }
+    existing.has_config = existing.has_config || Boolean(row.has_config);
+    merged.set(name, existing);
+  }
+
+  return [...merged.values()].sort((a, b) => {
+    if (a.last_active && b.last_active) {
+      return b.last_active.localeCompare(a.last_active) || a.name.localeCompare(b.name);
+    }
+    if (a.last_active) return -1;
+    if (b.last_active) return 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/**
  * Purge output/error_output from terminal tasks older than retentionDays.
  * Retains task metadata but frees potentially large TEXT columns.
  * @param {number} retentionDays - Tasks older than this have output cleared (default: 30)
@@ -1380,6 +1434,7 @@ module.exports = {
   deleteTasks,
   countTasks,
   countTasksByStatus,
+  listKnownProjects,
   // Archive / purge
   archiveOldTasks,
   purgeOldTaskOutput,

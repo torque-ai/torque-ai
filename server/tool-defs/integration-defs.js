@@ -440,6 +440,15 @@ const tools = [
           type: 'string',
           description: 'Working directory for task execution'
         },
+        project: {
+          type: 'string',
+          description: 'Project name. If omitted, auto-detected from working_directory.'
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Tags to attach to this task (e.g., ["urgent", "refactor"])'
+        },
         files: {
           type: 'array',
           items: { type: 'string' },

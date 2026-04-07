@@ -15,6 +15,8 @@ const logger = require('../logger').child({ component: 'auto-commit-batch' });
 // Lazy-load to avoid circular deps
 let _configCore;
 function configCore() { return _configCore || (_configCore = require('../db/config-core')); }
+let _projectConfigCore;
+function projectConfigCore() { return _projectConfigCore || (_projectConfigCore = require('../db/project-config-core')); }
 
 let _resolveTrackedCommitFiles;
 let _getFallbackCommitFiles;
@@ -43,11 +45,8 @@ async function handleAutoCommitBatch(args) {
   let verifyCmd = args.verify_command;
   if (!verifyCmd) {
     try {
-      const defaults = configCore().getConfig(`project_defaults_${workingDir}`);
-      if (defaults) {
-        const parsed = JSON.parse(defaults);
-        verifyCmd = parsed.verify_command;
-      }
+      const defaults = projectConfigCore().getProjectDefaults(workingDir);
+      verifyCmd = defaults?.verify_command || null;
     } catch (err) {
       logger.debug('[auto-commit-batch] non-critical error loading project verify defaults:', err.message || err);
     }

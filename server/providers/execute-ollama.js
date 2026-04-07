@@ -21,6 +21,11 @@ const serverConfig = require('../config');
 const { safeJsonParse } = require('../utils/json');
 // Agentic tool-calling is now handled exclusively by execution.js wrapper
 
+let _projectConfigCore = null;
+function getProjectConfigCore() {
+  return _projectConfigCore || (_projectConfigCore = require('../db/project-config-core'));
+}
+
 // Dependency injection
 let db = null;
 let dashboard = null;
@@ -510,15 +515,10 @@ async function executeOllamaTask(task) {
     // Resolve working directory - try task field, then project defaults, then env base path
     let workingDir = task.working_directory;
     if (!workingDir && task.project) {
-      // Check project defaults in database for a configured working_directory
+      // Resolve project defaults from the project registry/config tables first.
       try {
-        const defaults = serverConfig.get(`project_defaults_${task.project}`);
-        if (defaults) {
-          const parsed = typeof defaults === 'string' ? safeJsonParse(defaults, {}) : defaults;
-          if (parsed.working_directory) {
-            workingDir = parsed.working_directory;
-          }
-        }
+        const defaults = getProjectConfigCore().getProjectDefaults(task.project);
+        workingDir = defaults?.working_directory || null;
       } catch (_e) { void _e; /* ignore parse errors */ }
 
       // Fall back to TORQUE_PROJECTS_BASE env var

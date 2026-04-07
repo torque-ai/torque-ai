@@ -754,7 +754,7 @@ module.exports = [
   },
   {
     "name": "list_projects",
-    "description": "List all projects that have tasks, with task counts and cost summaries",
+    "description": "List all known projects from tasks and project configuration, with task counts and last activity",
     "inputSchema": {
       "type": "object",
       "properties": {},

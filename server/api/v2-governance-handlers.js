@@ -1001,6 +1001,20 @@ async function handleSetDefaultProvider(req, res) {
 
 // ─── Project Config ─────────────────────────────────────────────────────────
 
+async function handleListProjects(req, res) {
+  const requestId = resolveRequestId(req);
+
+  try {
+    const projects = typeof taskCore.listKnownProjects === 'function'
+      ? taskCore.listKnownProjects()
+      : [];
+    const items = Array.isArray(projects) ? projects : [];
+    sendList(res, requestId, items, items.length, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
 async function handleScanProject(req, res) {
   const requestId = resolveRequestId(req);
   const body = req.body || await parseBody(req);
@@ -1310,6 +1324,7 @@ function createV2GovernanceHandlers(_deps) {
     handleConfigureProvider,
     handleSetDefaultProvider,
     handleSystemStatus,
+    handleListProjects,
     handleScanProject,
     handleGetProjectDefaults,
     handleSetProjectDefaults,
@@ -1369,6 +1384,7 @@ module.exports = {
   // System
   handleSystemStatus,
   // Project Config
+  handleListProjects,
   handleScanProject,
   handleGetProjectDefaults,
   handleSetProjectDefaults,

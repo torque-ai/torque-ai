@@ -408,6 +408,7 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpConfigureProvider: v2GovernanceHandlers.handleConfigureProvider,
   handleV2CpSetDefaultProvider: v2GovernanceHandlers.handleSetDefaultProvider,
   // Project Config
+  handleV2CpListProjects: v2GovernanceHandlers.handleListProjects,
   handleV2CpScanProject: v2GovernanceHandlers.handleScanProject,
   handleV2CpGetProjectDefaults: v2GovernanceHandlers.handleGetProjectDefaults,
   handleV2CpSetProjectDefaults: v2GovernanceHandlers.handleSetProjectDefaults,

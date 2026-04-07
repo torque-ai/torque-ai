@@ -238,6 +238,7 @@ const ROUTE_HANDLER_LOOKUP = {
   handleV2CpSetConfig: v2GovernanceHandlers.handleSetConfig,
   handleV2CpConfigureStallDetection: v2GovernanceHandlers.handleConfigureStallDetection,
   // V2 Control-Plane: Project Config
+  handleV2CpListProjects: v2GovernanceHandlers.handleListProjects,
   handleV2CpScanProject: v2GovernanceHandlers.handleScanProject,
   handleV2CpGetProjectDefaults: v2GovernanceHandlers.handleGetProjectDefaults,
   handleV2CpSetProjectDefaults: v2GovernanceHandlers.handleSetProjectDefaults,

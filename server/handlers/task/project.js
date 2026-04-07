@@ -193,7 +193,7 @@ function handleEstimateCost(args) {
  * List all projects
  */
 function handleListProjects(_args) {
-  const projects = projectConfigCore.listProjects();
+  const projects = taskCore.listKnownProjects();
 
   if (projects.length === 0) {
     return {
@@ -205,17 +205,17 @@ function handleListProjects(_args) {
   }
 
   let result = `## Projects\n\n`;
-  result += `| Project | Tasks | Completed | Failed | Active | Cost |\n`;
-  result += `|---------|-------|-----------|--------|--------|------|\n`;
+  result += `| Project | Tasks | Last Active | Config |\n`;
+  result += `|---------|-------|-------------|--------|\n`;
 
   for (const p of projects) {
-    result += `| ${p.project} | ${p.task_count} | ${p.completed_count} | ${p.failed_count} | ${p.active_count} | $${p.total_cost.toFixed(2)} |\n`;
+    result += `| ${p.name} | ${p.task_count} | ${p.last_active ? formatTime(p.last_active) : 'N/A'} | ${p.has_config ? 'Yes' : 'No'} |\n`;
   }
 
   result += `\n### Summary\n`;
   result += `- **Total Projects:** ${projects.length}\n`;
   result += `- **Total Tasks:** ${projects.reduce((sum, p) => sum + p.task_count, 0)}\n`;
-  result += `- **Total Cost:** $${projects.reduce((sum, p) => sum + p.total_cost, 0).toFixed(2)}\n`;
+  result += `- **Configured Projects:** ${projects.filter((p) => p.has_config).length}\n`;
 
   result += `\nUse \`project_stats({project: "name"})\` for detailed stats on a specific project.`;
 
