@@ -284,7 +284,7 @@ function createTask(task) {
   const explicitProject = typeof task.project === 'string' ? task.project.trim() : '';
   const project = explicitProject || null;
   const tags = Array.isArray(task.tags) ? [...task.tags] : [];
-  if (project) {
+  if (project && project !== 'unassigned') {
     const projectTag = `project:${project}`;
     if (!tags.includes(projectTag)) {
       tags.push(projectTag);
