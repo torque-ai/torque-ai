@@ -961,7 +961,6 @@ describe('task-core handlers', () => {
         timeout_minutes: 90,
         auto_approve: true,
         priority: 6,
-        project: 'test-project',
         provider: 'ollama',
         model: TEST_MODELS.DEFAULT,
         metadata: {
@@ -1343,7 +1342,6 @@ describe('task-core handlers', () => {
         timeout_minutes: 90,
         auto_approve: true,
         priority: 4,
-        project: 'test-project',
         provider: 'ollama',
         model: TEST_MODELS.DEFAULT,
         metadata: {
