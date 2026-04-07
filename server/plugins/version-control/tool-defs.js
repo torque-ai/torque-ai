@@ -11,6 +11,10 @@ const tools = [
           type: 'string',
           description: 'Absolute path to the git repository root.',
         },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
+        },
         feature_name: {
           type: 'string',
           description: 'Feature or branch name used to create the worktree.',
@@ -35,6 +39,10 @@ const tools = [
           type: 'string',
           description: 'Optional absolute repository path used to filter worktrees.',
         },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
+        },
         include_stale: {
           type: 'boolean',
           description: 'Include stale worktrees in the response.',
@@ -54,6 +62,10 @@ const tools = [
           type: 'string',
           description: 'Tracked worktree id.',
         },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
+        },
       },
       required: ['id'],
       additionalProperties: false,
@@ -68,6 +80,10 @@ const tools = [
         id: {
           type: 'string',
           description: 'Tracked worktree id.',
+        },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
         },
         strategy: {
           type: 'string',
@@ -94,6 +110,10 @@ const tools = [
           type: 'string',
           description: 'Optional absolute repository path used to scope stale cleanup.',
         },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
+        },
         stale_days: {
           type: 'number',
           description: 'Number of inactive days before a worktree is considered stale.',
@@ -116,6 +136,10 @@ const tools = [
         repo_path: {
           type: 'string',
           description: 'Absolute path to the git repository root.',
+        },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
         },
         body: {
           type: 'string',
@@ -140,6 +164,10 @@ const tools = [
           type: 'string',
           description: 'Absolute path to the git repository root.',
         },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
+        },
       },
       required: ['repo_path'],
       additionalProperties: false,
@@ -155,6 +183,10 @@ const tools = [
           type: 'string',
           description: 'Absolute path to the git repository root.',
         },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
+        },
       },
       required: ['repo_path'],
       additionalProperties: false,
@@ -169,6 +201,10 @@ const tools = [
         repo_path: {
           type: 'string',
           description: 'Absolute path to the git repository root.',
+        },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
         },
         source_branch: {
           type: 'string',
@@ -192,6 +228,10 @@ const tools = [
         repo_path: {
           type: 'string',
           description: 'Absolute path to the git repository root.',
+        },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
         },
         title: {
           type: 'string',
@@ -232,6 +272,10 @@ const tools = [
           type: 'string',
           description: 'Absolute path to the git repository root.',
         },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
+        },
         from_tag: {
           type: 'string',
           description: 'Optional starting git tag used to derive the changelog range.',
@@ -267,6 +311,10 @@ const tools = [
           type: 'string',
           description: 'Absolute path to the git repository root.',
         },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
+        },
         version: {
           type: 'string',
           description: 'Version heading for the changelog entry.',
@@ -289,6 +337,10 @@ const tools = [
         repo_path: {
           type: 'string',
           description: 'Absolute path to the git repository root.',
+        },
+        project: {
+          type: 'string',
+          description: 'Project name for tracking. If omitted, derived from repo_path.',
         },
         version: {
           type: 'string',

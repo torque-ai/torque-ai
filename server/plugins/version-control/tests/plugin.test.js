@@ -77,6 +77,16 @@ describe('version-control plugin contract', () => {
     expect(tools.every((tool) => typeof tool.handler === 'function')).toBe(true);
   });
 
+  it('exposes optional project tracking input on every vc tool', () => {
+    for (const tool of toolDefs) {
+      expect(tool.inputSchema?.properties?.project).toEqual({
+        type: 'string',
+        description: 'Project name for tracking. If omitted, derived from repo_path.',
+      });
+      expect(tool.inputSchema?.required || []).not.toContain('project');
+    }
+  });
+
   it('uninstall() cleans up lifecycle state', () => {
     plugin.install(makeContainer(db));
 

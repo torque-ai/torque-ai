@@ -9,6 +9,7 @@ const { createPrPreparer } = require('./pr-preparer');
 const { createChangelogGenerator } = require('./changelog-generator');
 const { createReleaseManager } = require('./release-manager');
 const { createHandlers } = require('./handlers');
+const projectConfigCore = require('../../db/project-config-core');
 
 const PLUGIN_NAME = 'version-control';
 const PLUGIN_VERSION = '2.0.0';
@@ -144,6 +145,7 @@ function createVersionControlPlugin() {
       prPreparer,
       changelogGenerator,
       releaseManager,
+      projectConfigCore,
     });
 
     installed = true;

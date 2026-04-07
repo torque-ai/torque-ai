@@ -36,6 +36,61 @@ function normalizeOptionalString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function deriveProjectFromRepoPath(repoPath, projectConfigCore) {
+  const normalizedRepoPath = normalizeOptionalString(repoPath);
+  if (!normalizedRepoPath) {
+    return null;
+  }
+
+  try {
+    if (projectConfigCore && typeof projectConfigCore.getProjectFromPath === 'function') {
+      const derived = normalizeOptionalString(projectConfigCore.getProjectFromPath(normalizedRepoPath));
+      if (derived) {
+        return derived;
+      }
+    }
+  } catch {
+    // Fall through to basename-based derivation if project root detection fails.
+  }
+
+  return normalizeOptionalString(path.basename(path.resolve(normalizedRepoPath)));
+}
+
+function resolveProjectName(project, repoPath, projectConfigCore) {
+  return normalizeOptionalString(project) || deriveProjectFromRepoPath(repoPath, projectConfigCore);
+}
+
+function mergeMetadata(payload, extraMetadata) {
+  const metadata = payload && typeof payload.metadata === 'object' && payload.metadata && !Array.isArray(payload.metadata)
+    ? { ...payload.metadata }
+    : {};
+
+  for (const [key, value] of Object.entries(extraMetadata || {})) {
+    if (value !== undefined && value !== null && value !== '') {
+      metadata[key] = value;
+    }
+  }
+
+  return Object.keys(metadata).length > 0 ? metadata : null;
+}
+
+function withProjectContext(payload, project, extraMetadata) {
+  const response = {
+    ...(payload && typeof payload === 'object' ? payload : {}),
+    project: project || null,
+  };
+  const metadata = mergeMetadata(response, {
+    ...(project ? { project } : {}),
+    ...(extraMetadata || {}),
+  });
+  if (metadata) {
+    response.metadata = metadata;
+  } else if (Object.prototype.hasOwnProperty.call(response, 'metadata')) {
+    delete response.metadata;
+  }
+  return response;
+}
+
 function normalizeOptionalNumber(value, fieldName) {
   if (value === undefined || value === null || value === '') {
     return null;
@@ -395,23 +450,25 @@ async function handleVcPreparePr(args, services = {}) {
   const repoPath = requireString(payload.repo_path, 'repo_path');
   const sourceBranch = normalizeOptionalString(payload.source_branch);
   const targetBranch = normalizeOptionalString(payload.target_branch);
+  const project = resolveProjectName(payload.project, repoPath, services.projectConfigCore);
   const preparePr = resolveMethod(services.prPreparer, 'prPreparer', ['preparePr']);
   const result = await Promise.resolve(preparePr(repoPath, sourceBranch, targetBranch));
 
-  return toTextResponse({
+  return toTextResponse(withProjectContext({
     title: normalizeOptionalString(result?.title) || '',
     body: typeof result?.body === 'string' ? result.body : '',
     labels: getArrayValue(result?.labels),
-  });
+  }, project, { repo_path: repoPath }));
 }
 
-async function handleVcCreatePr(args) {
+async function handleVcCreatePr(args, services = {}) {
   const payload = normalizeArgs(args);
   const repoPath = requireString(payload.repo_path, 'repo_path');
   const title = requireString(payload.title, 'title');
   const body = requireString(payload.body, 'body');
   const targetBranch = normalizeOptionalString(payload.target_branch) || DEFAULT_BASE_BRANCH;
   const labels = normalizeOptionalStringArray(payload.labels, 'labels');
+  const project = resolveProjectName(payload.project, repoPath, services.projectConfigCore);
   const output = execFileSync('gh', [
     'pr',
     'create',
@@ -431,7 +488,7 @@ async function handleVcCreatePr(args) {
   const message = String(output || '').trim() || 'Pull request created';
   const url = extractUrl(message);
 
-  return toTextResponse({ url, message });
+  return toTextResponse(withProjectContext({ url, message }, project, { repo_path: repoPath }));
 }
 
 async function handleVcGenerateChangelog(args, services = {}) {
@@ -442,6 +499,7 @@ async function handleVcGenerateChangelog(args, services = {}) {
   const fromDate = normalizeOptionalString(payload.from_date);
   const toDate = normalizeOptionalString(payload.to_date);
   const version = normalizeOptionalString(payload.version);
+  const project = resolveProjectName(payload.project, repoPath, services.projectConfigCore);
   const generateChangelog = resolveMethod(services.changelogGenerator, 'changelogGenerator', ['generateChangelog']);
   const markdown = await Promise.resolve(generateChangelog(repoPath, {
     ...payload,
@@ -452,15 +510,16 @@ async function handleVcGenerateChangelog(args, services = {}) {
     version,
   }));
 
-  return toTextResponse({
+  return toTextResponse(withProjectContext({
     markdown: typeof markdown === 'string' ? markdown : '',
-  });
+  }, project, { repo_path: repoPath, version }));
 }
 
 async function handleVcUpdateChangelogFile(args, services = {}) {
   const payload = normalizeArgs(args);
   const repoPath = requireString(payload.repo_path, 'repo_path');
   const version = requireString(payload.version, 'version');
+  const project = resolveProjectName(payload.project, repoPath, services.projectConfigCore);
   const updateChangelogFile = resolveMethod(services.changelogGenerator, 'changelogGenerator', ['updateChangelogFile']);
   let changelogText = typeof payload.changelog_text === 'string' ? payload.changelog_text : null;
 
@@ -473,10 +532,10 @@ async function handleVcUpdateChangelogFile(args, services = {}) {
   }
 
   const result = await Promise.resolve(updateChangelogFile(repoPath, version, changelogText));
-  return toTextResponse({
+  return toTextResponse(withProjectContext({
     path: result?.path,
     version: result?.version || version,
-  });
+  }, project, { repo_path: repoPath, version: result?.version || version }));
 }
 
 async function handleVcCreateRelease(args, services = {}) {
@@ -484,15 +543,22 @@ async function handleVcCreateRelease(args, services = {}) {
   const repoPath = requireString(payload.repo_path, 'repo_path');
   const version = normalizeOptionalString(payload.version);
   const push = payload.push === true;
+  const project = resolveProjectName(payload.project, repoPath, services.projectConfigCore);
   const createRelease = resolveMethod(services.releaseManager, 'releaseManager', ['createRelease']);
   const result = await Promise.resolve(createRelease(repoPath, { version, push }));
+  const resolvedVersion = result?.version || version || null;
+  const resolvedTag = result?.tag || (result?.version ? `v${result.version}` : null);
 
-  return toTextResponse({
-    version: result?.version || version,
-    tag: result?.tag || (result?.version ? `v${result.version}` : null),
+  return toTextResponse(withProjectContext({
+    version: resolvedVersion,
+    tag: resolvedTag,
     bump: Object.prototype.hasOwnProperty.call(result || {}, 'bump') ? result.bump : null,
     pushed: result?.pushed ?? push,
-  });
+  }, project, {
+    repo_path: repoPath,
+    version: resolvedVersion,
+    tag: resolvedTag,
+  }));
 }
 
 function createHandlers(services = {}) {
@@ -505,6 +571,7 @@ function createHandlers(services = {}) {
     prPreparer,
     changelogGenerator,
     releaseManager,
+    projectConfigCore,
   } = services;
 
   const createWorktree = resolveMethod(worktreeManager, 'worktreeManager', ['createWorktree']);
@@ -530,6 +597,7 @@ function createHandlers(services = {}) {
       const payload = normalizeArgs(args);
       const repoPath = requireString(payload.repo_path, 'repo_path');
       const featureName = requireString(payload.feature_name, 'feature_name');
+      const project = resolveProjectName(payload.project, repoPath, projectConfigCore);
       const config = (await Promise.resolve(getEffectiveConfig(repoPath))) || {};
       const baseBranch = normalizeOptionalString(payload.base_branch) || DEFAULT_BASE_BRANCH;
       const worktreeDir = normalizeOptionalString(config.worktree_dir) || normalizeOptionalString(config?.worktree?.dir);
@@ -543,12 +611,12 @@ function createHandlers(services = {}) {
         }));
 
         if (branchPolicy?.valid === false && getBranchNamingMode(config) === 'block') {
-          return toTextResponse({
+          return toTextResponse(withProjectContext({
             created: false,
             blocked: true,
             branch: branchCandidate,
             policy: branchPolicy,
-          });
+          }, project, { repo_path: repoPath }));
         }
       }
 
@@ -559,15 +627,16 @@ function createHandlers(services = {}) {
         worktree_dir: worktreeDir,
       }));
 
-      return toTextResponse({
+      return toTextResponse(withProjectContext({
         ...result,
         branch_policy: branchPolicy,
-      });
+      }, project, { repo_path: repoPath }));
     },
 
     async vc_list_worktrees(args) {
       const payload = normalizeArgs(args);
       const repoPath = normalizeOptionalString(payload.repo_path);
+      const project = resolveProjectName(payload.project, repoPath, projectConfigCore);
       const includeStale = payload.include_stale === true;
       const staleDays = await resolveDefaultStaleDays(getEffectiveConfig, getGlobalDefaults, repoPath);
       const worktrees = (await Promise.resolve(listWorktrees(repoPath))) || [];
@@ -575,12 +644,12 @@ function createHandlers(services = {}) {
         ? worktrees
         : worktrees.filter((worktree) => !isStaleWorktree(worktree, staleDays));
 
-      return toTextResponse({
+      return toTextResponse(withProjectContext({
         repo_path: repoPath,
         include_stale: includeStale,
         count: filtered.length,
         worktrees: filtered,
-      });
+      }, project, { repo_path: repoPath }));
     },
 
     async vc_switch_worktree(args) {
@@ -594,12 +663,14 @@ function createHandlers(services = {}) {
       updateWorktreeActivity(dbHandle, id);
 
       const refreshed = (await Promise.resolve(getWorktree(id))) || worktree;
-      return toTextResponse({
+      const repoPath = refreshed.repo_path || refreshed.repoPath || null;
+      const project = resolveProjectName(payload.project, repoPath, projectConfigCore);
+      return toTextResponse(withProjectContext({
         id,
-        repo_path: refreshed.repo_path || refreshed.repoPath,
+        repo_path: repoPath,
         branch: refreshed.branch,
         worktree_path: refreshed.worktree_path || refreshed.worktreePath,
-      });
+      }, project, { repo_path: repoPath }));
     },
 
     async vc_merge_worktree(args) {
@@ -611,6 +682,7 @@ function createHandlers(services = {}) {
       }
 
       const repoPath = worktree.repo_path || worktree.repoPath;
+      const project = resolveProjectName(payload.project, repoPath, projectConfigCore);
       const config = repoPath ? ((await Promise.resolve(getEffectiveConfig(repoPath))) || {}) : {};
       const strategy = normalizeOptionalString(payload.strategy) || getDefaultMergeStrategy(config);
       if (!VALID_MERGE_STRATEGIES.has(strategy)) {
@@ -630,12 +702,12 @@ function createHandlers(services = {}) {
         }));
 
         if (policy?.allowed === false) {
-          return toTextResponse({
+          return toTextResponse(withProjectContext({
             merged: false,
             blocked: true,
             target_branch: targetBranch,
             policy,
-          });
+          }, project, { repo_path: repoPath }));
         }
       }
 
@@ -645,16 +717,17 @@ function createHandlers(services = {}) {
         target_branch: targetBranch,
       }));
 
-      return toTextResponse({
+      return toTextResponse(withProjectContext({
         ...result,
         target_branch: targetBranch,
         policy,
-      });
+      }, project, { repo_path: repoPath }));
     },
 
     async vc_cleanup_stale(args) {
       const payload = normalizeArgs(args);
       const repoPath = normalizeOptionalString(payload.repo_path);
+      const project = resolveProjectName(payload.project, repoPath, projectConfigCore);
       const configuredStaleDays = await resolveDefaultStaleDays(getEffectiveConfig, getGlobalDefaults, repoPath);
       const staleDays = normalizeOptionalNumber(payload.stale_days, 'stale_days') ?? configuredStaleDays;
       const dryRun = payload.dry_run === true;
@@ -669,26 +742,26 @@ function createHandlers(services = {}) {
           dry_run: dryRun,
         }))) || {};
 
-        return toTextResponse({
+        return toTextResponse(withProjectContext({
           dry_run: result.dry_run ?? result.dryRun ?? dryRun,
           repo_path: result.repo_path ?? repoPath,
           stale_days: result.stale_days ?? staleDays,
           count: result.count ?? getArrayValue(result.worktrees).length,
           worktrees: getArrayValue(result.worktrees),
-        });
+        }, project, { repo_path: result.repo_path ?? repoPath }));
       }
 
       const worktrees = (await Promise.resolve(listWorktrees(repoPath))) || [];
       const staleWorktrees = worktrees.filter((worktree) => isStaleWorktree(worktree, staleDays));
 
       if (dryRun) {
-        return toTextResponse({
+        return toTextResponse(withProjectContext({
           dry_run: true,
           repo_path: repoPath,
           stale_days: staleDays,
           count: staleWorktrees.length,
           worktrees: staleWorktrees,
-        });
+        }, project, { repo_path: repoPath }));
       }
 
       const cleaned = [];
@@ -696,13 +769,13 @@ function createHandlers(services = {}) {
         cleaned.push(await Promise.resolve(cleanupWorktree(worktree.id)));
       }
 
-      return toTextResponse({
+      return toTextResponse(withProjectContext({
         dry_run: false,
         repo_path: repoPath,
         stale_days: staleDays,
         count: cleaned.length,
         worktrees: cleaned,
-      });
+      }, project, { repo_path: repoPath }));
     },
 
     async vc_generate_commit(args) {
@@ -710,6 +783,7 @@ function createHandlers(services = {}) {
       const repoPath = requireString(payload.repo_path, 'repo_path');
       const body = normalizeOptionalString(payload.body);
       const coAuthor = normalizeOptionalString(payload.co_author);
+      const project = resolveProjectName(payload.project, repoPath, projectConfigCore);
       const branch = getCurrentBranch(repoPath);
 
       let policy = null;
@@ -720,13 +794,16 @@ function createHandlers(services = {}) {
         }));
 
         if (policy?.allowed === false) {
-          return toTextResponse({
+          return toTextResponse(withProjectContext({
             success: false,
             blocked: true,
             repo_path: repoPath,
             branch,
             policy,
-          });
+          }, project, {
+            repo_path: repoPath,
+            branch,
+          }));
         }
       }
 
@@ -738,13 +815,16 @@ function createHandlers(services = {}) {
       const commitHash = extractOptionalCommitHash(result);
 
       if (!commitHash || result?.success !== true) {
-        return toTextResponse({
+        return toTextResponse(withProjectContext({
           ...result,
           repo_path: repoPath,
           branch,
           policy,
           recorded: false,
-        });
+        }, project, {
+          repo_path: repoPath,
+          branch,
+        }));
       }
 
       const trackedWorktree = findTrackedWorktreeByPath(dbHandle, repoPath);
@@ -771,7 +851,7 @@ function createHandlers(services = {}) {
         });
       }
 
-      return toTextResponse({
+      return toTextResponse(withProjectContext({
         ...result,
         repo_path: commitRecord.repo_path,
         branch,
@@ -779,48 +859,55 @@ function createHandlers(services = {}) {
         policy,
         recorded: true,
         record_id: commitRecord.id,
-      });
+      }, project, {
+        repo_path: commitRecord.repo_path,
+        branch,
+        commit_hash: commitHash,
+        record_id: commitRecord.id,
+      }));
     },
 
     async vc_commit_status(args) {
       const payload = normalizeArgs(args);
       const repoPath = requireString(payload.repo_path, 'repo_path');
+      const project = resolveProjectName(payload.project, repoPath, projectConfigCore);
       const statusOutput = runGit(repoPath, ['status', '--porcelain']);
       const summary = parsePorcelainStatus(statusOutput);
 
-      return toTextResponse({
+      return toTextResponse(withProjectContext({
         repo_path: repoPath,
         ...summary,
         clean: summary.staged === 0 && summary.unstaged === 0 && summary.untracked === 0,
         ready: summary.staged > 0,
-      });
+      }, project, { repo_path: repoPath }));
     },
 
     async vc_get_policy(args) {
       const payload = normalizeArgs(args);
       const repoPath = requireString(payload.repo_path, 'repo_path');
+      const project = resolveProjectName(payload.project, repoPath, projectConfigCore);
       const policy = await Promise.resolve(getEffectiveConfig(repoPath));
-      return toTextResponse(policy || {});
+      return toTextResponse(withProjectContext(policy || {}, project, { repo_path: repoPath }));
     },
 
     async vc_prepare_pr(args) {
-      return handleVcPreparePr(args, { prPreparer });
+      return handleVcPreparePr(args, { prPreparer, projectConfigCore });
     },
 
     async vc_create_pr(args) {
-      return handleVcCreatePr(args);
+      return handleVcCreatePr(args, { projectConfigCore });
     },
 
     async vc_generate_changelog(args) {
-      return handleVcGenerateChangelog(args, { changelogGenerator });
+      return handleVcGenerateChangelog(args, { changelogGenerator, projectConfigCore });
     },
 
     async vc_update_changelog_file(args) {
-      return handleVcUpdateChangelogFile(args, { changelogGenerator });
+      return handleVcUpdateChangelogFile(args, { changelogGenerator, projectConfigCore });
     },
 
     async vc_create_release(args) {
-      return handleVcCreateRelease(args, { releaseManager });
+      return handleVcCreateRelease(args, { releaseManager, projectConfigCore });
     },
   };
 }
@@ -831,6 +918,7 @@ module.exports = {
   normalizeArgs,
   requireString,
   normalizeOptionalString,
+  resolveProjectName,
   normalizeOptionalNumber,
   resolveMethod,
   resolveOptionalMethod,
@@ -842,6 +930,7 @@ module.exports = {
   getDefaultMergeStrategy,
   normalizeTimestamp,
   extractCommitMessage,
+  withProjectContext,
   handleVcPreparePr,
   handleVcCreatePr,
   handleVcGenerateChangelog,
