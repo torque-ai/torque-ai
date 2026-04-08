@@ -162,8 +162,11 @@ async function handleConfigureStudySchedule(args) {
     const taskConfig = {
       task: `Run the codebase study loop for ${workingDirectory}`,
       working_directory: workingDirectory,
+      project: args?.project || path.basename(workingDirectory),
+      version_intent: 'internal',
       timeout_minutes: 30,
       auto_approve: true,
+      tags: ['codebase-study', 'auto-generated'],
       tool_name: 'run_codebase_study',
       tool_args: {
         working_directory: workingDirectory,
