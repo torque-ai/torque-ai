@@ -76,18 +76,30 @@ async function evaluatePreVerifyGovernance(task, verifyCommand, context = {}) {
   }
 
   try {
-    const { defaultContainer } = require('../container');
-    if (!defaultContainer || typeof defaultContainer.has !== 'function' || typeof defaultContainer.get !== 'function') {
-      return null;
-    }
-    if (!defaultContainer.has('governanceHooks')) {
-      return null;
+    // Try container first, then fall back to direct construction
+    let governance = null;
+    try {
+      const { defaultContainer } = require('../container');
+      if (defaultContainer && typeof defaultContainer.get === 'function') {
+        governance = defaultContainer.get('governanceHooks');
+      }
+    } catch { /* container not ready */ }
+
+    // Direct construction fallback if container doesn't have it
+    if (!governance) {
+      try {
+        const { createGovernanceRules } = require('../db/governance-rules');
+        const { createGovernanceHooks } = require('../governance/hooks');
+        const database = require('../database');
+        const db = database.getDbInstance ? database.getDbInstance() : database;
+        if (db && typeof db.prepare === 'function') {
+          const gr = createGovernanceRules({ db });
+          governance = createGovernanceHooks({ governanceRules: gr });
+        }
+      } catch { /* governance unavailable */ }
     }
 
-    const governance = defaultContainer.get('governanceHooks');
-    if (!governance) {
-      return null;
-    }
+    if (!governance) return null;
 
     if (typeof governance.evaluatePreVerify === 'function') {
       return await governance.evaluatePreVerify(task, {
@@ -96,14 +108,14 @@ async function evaluatePreVerifyGovernance(task, verifyCommand, context = {}) {
       });
     }
 
-    if (typeof governance.evaluate !== 'function') {
-      return null;
+    if (typeof governance.evaluate === 'function') {
+      return await governance.evaluate('pre-verify', task, {
+        ...context,
+        verify_command: verifyCommand,
+      });
     }
 
-    return await governance.evaluate('pre-verify', task, {
-      ...context,
-      verify_command: verifyCommand,
-    });
+    return null;
   } catch (err) {
     logger.debug('[automation-handlers] non-critical governance pre-verify error:', err.message || err);
     return null;
