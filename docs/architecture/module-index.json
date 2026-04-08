@@ -89,6 +89,95 @@
       "deps": [
         "agent/index.js"
       ]
+    },
+    {
+      "file": "agent/tests/run.test.js",
+      "purpose": "Exercises the standalone agent /run endpoint, covering NDJSON streaming, allowlist and path guards, timeout handling, concurrency limits, stderr forwarding, and TORQUE_-prefixed env passthrough.",
+      "exports": [
+        "postJSON",
+        "getHealth"
+      ],
+      "deps": [
+        "vitest",
+        "node:http",
+        "node:path",
+        "agent/index.js"
+      ]
+    },
+    {
+      "file": "agent/tests/server.test.js",
+      "purpose": "Verifies the standalone agent HTTP server contract for auth, /health metrics, missing-route handling, and /projects discovery.",
+      "exports": [
+        "request"
+      ],
+      "deps": [
+        "vitest",
+        "node:http",
+        "node:os",
+        "agent/index.js"
+      ]
+    },
+    {
+      "file": "agent/tests/sync.test.js",
+      "purpose": "Validates the /sync workflow against disposable git repositories, including default branch selection, error paths, and project registry updates surfaced by /health and /projects.",
+      "exports": [
+        "postJSON",
+        "getJSON"
+      ],
+      "deps": [
+        "vitest",
+        "node:http",
+        "node:path",
+        "node:fs",
+        "node:os",
+        "node:child_process",
+        "node:url",
+        "agent/index.js"
+      ]
+    },
+    {
+      "file": "bin/torque.js",
+      "purpose": "Implements the top-level TORQUE CLI entrypoint, printing help and version output, dispatching core commands to the CLI modules, and translating budget, cache, template, plan, and backup subcommands into API tool calls.",
+      "exports": [
+        "collectDescription",
+        "hasFlag",
+        "extractText",
+        "runHandler",
+        "handleBudgetForecast",
+        "handleCache",
+        "handleTemplate",
+        "handlePlan",
+        "handleBackup"
+      ],
+      "deps": [
+        "node:path",
+        "node:fs",
+        "cli/api-client.js",
+        "cli/torque-cli.js",
+        "cli/init.js",
+        "cli/start.js",
+        "cli/stop.js",
+        "cli/dashboard.js",
+        "cli/doctor.js",
+        "server/package.json"
+      ]
+    },
+    {
+      "file": "cli/api-client.js",
+      "purpose": "Provides the shared CLI HTTP client, including timeout-aware fetch wrappers, response parsing, and normalized API and network errors for TORQUE server requests.",
+      "exports": [
+        "ApiError",
+        "normalizeNetworkError",
+        "parseResponseBody",
+        "fetchWithTimeout",
+        "request",
+        "apiGet",
+        "apiPost",
+        "apiDelete"
+      ],
+      "deps": [
+        "cli/shared.js"
+      ]
     }
   ],
   "last_updated": "2026-04-08"
