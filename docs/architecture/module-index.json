@@ -1,1 +1,95 @@
-{"modules":[],"last_updated":null}
+{
+  "modules": [
+    {
+      "file": ".claude-plugin/marketplace.json",
+      "purpose": "Publishes the Claude marketplace descriptor for the TORQUE plugin bundle and points the marketplace entry at the local plugin source.",
+      "exports": [
+        "name",
+        "owner",
+        "metadata",
+        "plugins[0]: torque"
+      ],
+      "deps": [
+        ".claude-plugin/plugin.json"
+      ]
+    },
+    {
+      "file": ".claude-plugin/plugin.json",
+      "purpose": "Defines the Claude plugin manifest, including the TORQUE MCP server launch command and the packaged hooks, skills, agents, and commands.",
+      "exports": [
+        "name",
+        "version",
+        "description",
+        "mcpServers.torque",
+        "hooks",
+        "skills",
+        "agents",
+        "commands"
+      ],
+      "deps": [
+        "${CLAUDE_PLUGIN_ROOT}/server/index.js",
+        "./hooks/hooks.json",
+        "./skills",
+        "./agents",
+        "./.claude/commands"
+      ]
+    },
+    {
+      "file": "agent/config.json",
+      "purpose": "Provides default runtime settings for the standalone TORQUE agent, including its bind address, command allowlist, project root, and concurrency limit.",
+      "exports": [
+        "port",
+        "host",
+        "secret",
+        "project_root",
+        "allowed_commands",
+        "max_concurrent"
+      ],
+      "deps": []
+    },
+    {
+      "file": "agent/index.js",
+      "purpose": "Implements the standalone TORQUE agent HTTP service with secret-based auth, guarded command execution, git sync, capability probing, and peek proxying.",
+      "exports": [
+        "loadConfig",
+        "getSystemMetrics",
+        "readBody",
+        "isPathAllowed",
+        "createServer",
+        "serverAuthenticate",
+        "handleRun",
+        "handleSync",
+        "projectsToObject",
+        "detectCapabilities",
+        "isCommandAvailable",
+        "serverHandleRequest",
+        "server"
+      ],
+      "deps": [
+        "node:http",
+        "node:crypto",
+        "node:os",
+        "node:fs",
+        "node:path",
+        "node:child_process",
+        "node:url",
+        "agent/config.json"
+      ]
+    },
+    {
+      "file": "agent/package.json",
+      "purpose": "Declares the standalone TORQUE agent package as a small Node ESM entrypoint rooted at agent/index.js.",
+      "exports": [
+        "name",
+        "version",
+        "description",
+        "main",
+        "type"
+      ],
+      "deps": [
+        "agent/index.js"
+      ]
+    }
+  ],
+  "last_updated": "2026-04-08"
+}
