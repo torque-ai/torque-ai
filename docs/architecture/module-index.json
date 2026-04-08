@@ -287,7 +287,7 @@
     },
     {
       "file": "cli/init.js",
-      "purpose": "Bootstraps a local TORQUE workspace by detecting Ollama, CLI tools, and API keys, then generating `.mcp.json` and `.env` with overwrite guards.",
+      "purpose": "Scans for Ollama, local CLI tools, and configured API keys, then writes workspace `.mcp.json` and `.env` templates unless existing files are preserved without `--force`.",
       "exports": [
         "detectOllama",
         "findCliTool",
@@ -305,7 +305,7 @@
     },
     {
       "file": "cli/shared.js",
-      "purpose": "Centralizes the CLI runtime home directory, PID file, API endpoint defaults, and PID helpers shared across the local command modules.",
+      "purpose": "Centralizes the shared `~/.torque` paths, API endpoint defaults, and PID read or cleanup helpers used by local lifecycle commands.",
       "exports": [
         "TORQUE_HOME",
         "PID_FILE",
@@ -321,7 +321,7 @@
     },
     {
       "file": "cli/start.js",
-      "purpose": "Starts the TORQUE server in foreground or detached mode, provisions `~/.torque`, writes the PID file, probes readiness, and clears stale PID state.",
+      "purpose": "Launches `server/index.js` in foreground or detached mode, ensures `~/.torque` exists, rewrites stale PID state, records `torque.pid`, and waits for `/api/status` readiness.",
       "exports": [
         "ensureTorqueHome",
         "isServerRunning",
@@ -338,7 +338,7 @@
     },
     {
       "file": "cli/stop.js",
-      "purpose": "Stops TORQUE by preferring the shutdown API, then falling back to PID-based SIGTERM with exit polling and PID file cleanup.",
+      "purpose": "Stops TORQUE by preferring `POST /api/shutdown`, then falling back to SIGTERM on the recorded PID with exit polling before PID cleanup.",
       "exports": [
         "killPid",
         "waitForExit",
@@ -350,7 +350,7 @@
     },
     {
       "file": "cli/torque-cli.js",
-      "purpose": "Implements the standalone Node CLI wrapper that prints help/version text, parses argv into normalized command payloads, and formats command results.",
+      "purpose": "Implements the standalone Node CLI wrapper that resolves versioned help text, normalizes argv and workflow flags into command payloads, and delegates execution plus formatting.",
       "exports": [
         "getVersion",
         "getHelpText",
