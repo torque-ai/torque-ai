@@ -234,6 +234,25 @@ function createCodebaseStudy({ db: _db, taskCore, logger } = {}) {
       : '';
   }
 
+  function normalizeTaskStatus(value) {
+    if (!value || typeof value !== 'string') {
+      return null;
+    }
+    return value.trim().toLowerCase();
+  }
+
+  function isTerminalTaskStatus(status) {
+    switch (status) {
+      case 'completed':
+      case 'failed':
+      case 'cancelled':
+      case 'skipped':
+        return true;
+      default:
+        return false;
+    }
+  }
+
   function buildStudyPrompt(batchFiles) {
     const formattedFiles = batchFiles.map(file => `- ${file}`).join('\n');
     return [
@@ -259,13 +278,15 @@ function createCodebaseStudy({ db: _db, taskCore, logger } = {}) {
   }
 
   async function submitStudyTask(workingDirectory, batchFiles) {
+    const projectName = require('path').basename(workingDirectory);
     const result = await handleSmartSubmitTask({
       task: buildStudyPrompt(batchFiles),
       working_directory: workingDirectory,
-      project: 'codebase-study',
+      project: projectName,
+      version_intent: 'internal',
       provider: 'codex',
       timeout_minutes: 30,
-      tags: ['study', 'documentation'],
+      tags: ['codebase-study', 'auto-generated'],
       files: [
         ...batchFiles,
         MODULE_INDEX_FILE,
@@ -359,22 +380,29 @@ function createCodebaseStudy({ db: _db, taskCore, logger } = {}) {
     const taskId = await submitStudyTask(resolvedWorkingDirectory, batchFiles);
     const awaitResult = await awaitStudyTask(taskId, resolvedWorkingDirectory, runNumber);
     const task = typeof taskCore.getTask === 'function' ? taskCore.getTask(taskId) : null;
-    const taskStatus = task?.status || (awaitResult?.isError ? 'failed' : 'completed');
+    const taskStatus = normalizeTaskStatus(task?.status) || (awaitResult?.isError ? 'failed' : 'completed');
+    const terminal = isTerminalTaskStatus(taskStatus);
     const completed = taskStatus === 'completed';
-    const remainingPending = completed
+    const running = !terminal;
+    const remainingPending = (terminal && completed)
       ? pendingFiles.filter(file => !batchFiles.includes(file))
       : pendingFiles;
+
     const nowIso = new Date().toISOString();
+    const lastError = running
+      ? (state.last_error || null)
+      : (completed ? null : (extractText(awaitResult) || `study task ended with status ${taskStatus}`));
+
     const nextState = normalizeState({
       ...state,
       run_count: runNumber,
-      last_sha: currentSha,
+      last_sha: running ? state.last_sha : currentSha,
       last_task_id: taskId,
       last_batch: batchFiles,
       last_run_at: nowIso,
       last_completed_at: completed ? nowIso : state.last_completed_at,
       last_result: taskStatus,
-      last_error: completed ? null : (extractText(awaitResult) || `study task ended with status ${taskStatus}`),
+      last_error: lastError,
       tracked_files: trackedFiles,
       pending_files: remainingPending,
       file_counts: buildCounts(trackedFiles, remainingPending),

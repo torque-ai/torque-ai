@@ -9,6 +9,20 @@ const { ErrorCodes, makeError } = require('./shared');
 const { createCodebaseStudy } = require('../integrations/codebase-study');
 
 const DEFAULT_CRON = '*/15 * * * *';
+const DEFAULT_VERSION_INTENT = 'fix';
+const VALID_VERSION_INTENTS = new Set(['feature', 'fix', 'breaking', 'internal']);
+
+function normalizeVersionIntent(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  return VALID_VERSION_INTENTS.has(normalized) ? normalized : null;
+}
+
+function resolveVersionIntent(value) {
+  return normalizeVersionIntent(value) || DEFAULT_VERSION_INTENT;
+}
 
 function buildStudyService() {
   let db;
@@ -153,6 +167,13 @@ async function handleConfigureStudySchedule(args) {
   const timezone = typeof args?.timezone === 'string' && args.timezone.trim()
     ? args.timezone.trim()
     : null;
+  const versionIntent = resolveVersionIntent(args?.version_intent);
+  if (args?.version_intent !== undefined && typeof args.version_intent !== 'string') {
+    return makeError(ErrorCodes.INVALID_PARAM, 'version_intent must be a string');
+  }
+  if (args?.version_intent !== undefined && !normalizeVersionIntent(args.version_intent)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'version_intent must be one of: feature, fix, breaking, internal');
+  }
 
   try {
     const existing = schedulingAutomation
@@ -163,7 +184,7 @@ async function handleConfigureStudySchedule(args) {
       task: `Run the codebase study loop for ${workingDirectory}`,
       working_directory: workingDirectory,
       project: args?.project || path.basename(workingDirectory),
-      version_intent: 'internal',
+      version_intent: versionIntent,
       timeout_minutes: 30,
       auto_approve: true,
       tags: ['codebase-study', 'auto-generated'],
@@ -178,6 +199,7 @@ async function handleConfigureStudySchedule(args) {
           cron_expression: cronExpression,
           timezone,
           enabled,
+          version_intent: versionIntent,
           task_description: taskConfig.task,
           task_config: taskConfig,
         })
@@ -186,6 +208,7 @@ async function handleConfigureStudySchedule(args) {
           cron_expression: cronExpression,
           enabled,
           timezone,
+          version_intent: versionIntent,
           task_config: taskConfig,
         });
 
