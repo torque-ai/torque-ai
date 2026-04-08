@@ -107,7 +107,6 @@ const EXPECTED_DOMAINS = [
   'integration',
   'intelligence',
   'notifications',
-  'openclaw',
   'peek',
   'providers',
   'routing',
@@ -274,7 +273,7 @@ describe('REST passthrough route coverage', () => {
   });
 
   describe('domain coverage', () => {
-    it('covers all 32 expected passthrough domains', () => {
+    it('covers all 31 expected passthrough domains', () => {
       const coveredDomains = [...new Set(
         passthroughRoutes
           .map(extractDomain)

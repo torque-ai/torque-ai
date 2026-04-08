@@ -435,10 +435,6 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   setConfigDefault('output_limits_enabled', '1');
   setConfigDefault('audit_trail_enabled', '1');
   setConfigDefault('task_output_retention_days', '30');
-  setConfigDefault('openclaw_advisor_enabled', '0');
-  setConfigDefault('openclaw_advisor_provider', 'codex');
-  setConfigDefault('openclaw_advisor_max_proposals', '3');
-  setConfigDefault('openclaw_advisor_projects', '');
   safeAddColumn('rate_limits', 'provider TEXT');
   safeAddColumn('rate_limits', 'enabled INTEGER DEFAULT 1');
   const insertWindowRateLimit = db.prepare(`

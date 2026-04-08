@@ -22,7 +22,6 @@ const logger = require('../logger').child({ component: 'completion-pipeline' });
 const { safeJsonParse } = require('../utils/json');
 
 let deps = {};
-let openClawAdvisorInstance = null;
 
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
@@ -119,26 +118,6 @@ function triggerAutoRelease(repoPath, opts) {
   } catch (err) {
     logger.info(`[auto-release] triggerAutoRelease failed: ${err.message}`);
   }
-}
-
-function getOpenClawAdvisor() {
-  if (deps.openclawAdvisor) {
-    return deps.openclawAdvisor;
-  }
-  if (!openClawAdvisorInstance) {
-    const database = require('../database');
-    const taskCore = require('../db/task-core');
-    const webhookHandlers = require('../handlers/webhook-handlers');
-    const { createOpenClawAdvisor } = require('../integrations/openclaw-advisor');
-
-    openClawAdvisorInstance = createOpenClawAdvisor({
-      db: database,
-      taskCore,
-      webhookHandlers,
-      logger: logger.child({ component: 'openclaw-advisor' }),
-    });
-  }
-  return openClawAdvisorInstance;
 }
 
 // ─── Main handler ────────────────────────────────────────────────────────
@@ -244,24 +223,6 @@ async function handlePostCompletion(ctx) {
     triggerWebhooks(ctx.status, updatedTask).catch(err => {
       logger.warn('Webhook trigger error:', err.message);
     });
-
-    if (ctx.status === 'completed') {
-      try {
-        const openclawAdvisor = getOpenClawAdvisor();
-        if (openclawAdvisor && openclawAdvisor.getConfig().enabled) {
-          const requestId = openclawAdvisor.handleTaskCompletion(updatedTask);
-          if (requestId) {
-            setImmediate(() => {
-              Promise.resolve(openclawAdvisor.generateProposals(requestId)).catch((err) => {
-                logger.warn('[OpenClaw] Proposal generation error:', err.message);
-              });
-            });
-          }
-        }
-      } catch (openClawErr) {
-        logger.warn('[OpenClaw] Non-fatal completion hook error:', openClawErr.message);
-      }
-    }
 
     if (updatedTask && updatedTask.workflow_id) {
       try { deps.handleWorkflowTermination(taskId); } catch (e) { logger.error('Workflow termination failed:', e.message); }

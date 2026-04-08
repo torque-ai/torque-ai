@@ -88,3 +88,4 @@ server/tmp-*/
 # Drafts (unpublished)
 drafts/
 .tmp-vitest/
+.vitest-tmp/

@@ -79,7 +79,6 @@ const VALID_TABLE_NAMES = new Set([
   'model_registry',
   'model_task_outcomes',
   'notification_templates',
-  'openclaw_proposals',
   'ollama_hosts',
   'optimization_history',
   'output_limits',
@@ -961,22 +960,6 @@ function createTables(db, logger) {
       )
     `);
   db.exec(`
-      CREATE TABLE IF NOT EXISTS openclaw_proposals (
-        id TEXT PRIMARY KEY,
-        parent_task_id TEXT NOT NULL,
-        project TEXT,
-        status TEXT NOT NULL DEFAULT 'pending_generation',
-        task_description TEXT,
-        rationale TEXT,
-        confidence TEXT,
-        suggested_provider TEXT,
-        submitted_task_id TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        FOREIGN KEY (parent_task_id) REFERENCES tasks(id)
-      )
-    `);
-  db.exec(`
       CREATE TABLE IF NOT EXISTS similar_tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         source_task_id TEXT NOT NULL,
@@ -1004,8 +987,6 @@ function createTables(db, logger) {
   db.exec(`
       CREATE INDEX IF NOT EXISTS idx_task_suggestions_task ON task_suggestions(task_id);
       CREATE INDEX IF NOT EXISTS idx_task_suggestions_type ON task_suggestions(suggestion_type);
-      CREATE INDEX IF NOT EXISTS idx_openclaw_proposals_status ON openclaw_proposals(status);
-      CREATE INDEX IF NOT EXISTS idx_openclaw_proposals_parent ON openclaw_proposals(parent_task_id);
       CREATE INDEX IF NOT EXISTS idx_similar_tasks_source ON similar_tasks(source_task_id);
       CREATE INDEX IF NOT EXISTS idx_similar_tasks_similar ON similar_tasks(similar_task_id);
       CREATE INDEX IF NOT EXISTS idx_task_patterns_type ON task_patterns(pattern_type);
