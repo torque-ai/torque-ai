@@ -321,11 +321,11 @@ async function resolveBatchTestFixesChangeSet(task, context) {
       timeout: 5000,
       windowsHide: true,
     });
-    const signature = stdout.trim();
-    if (signature) {
-      const workflowKey = task?.workflow_id || context?.workflow_id || context?.workflowId || 'standalone';
-      return `${workflowKey}::${task.working_directory}::${signature}`;
-    }
+    // Use only branch info (# branch.head line), not file status which changes between runs
+    const branchLine = stdout.split('\n').find(l => l.startsWith('# branch.head ')) || '';
+    const branch = branchLine.replace('# branch.head ', '').trim() || 'unknown';
+    const workflowKey = task?.workflow_id || context?.workflow_id || context?.workflowId || 'standalone';
+    return `${workflowKey}::${task.working_directory}::${branch}`;
   } catch {
     // Fall back to the explicit/task-derived key when git metadata is unavailable.
   }
