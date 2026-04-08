@@ -174,6 +174,12 @@ const routes = [
   { method: 'GET', path: '/api/v2/intelligence/cache-stats', tool: 'cache_stats', mapQuery: true },
   { method: 'GET', path: '/api/v2/intelligence/database-stats', tool: 'database_stats', mapQuery: true },
 
+  // ─── openclaw (4 routes) ─────────────────────────────────────────────────────
+  { method: 'GET', path: '/api/v2/openclaw/proposals', tool: 'list_proposals', mapQuery: true },
+  { method: 'POST', path: /^\/api\/v2\/openclaw\/proposals\/([^/]+)\/approve$/, tool: 'approve_proposal', mapBody: true, mapParams: ['proposal_id'] },
+  { method: 'POST', path: /^\/api\/v2\/openclaw\/proposals\/([^/]+)\/reject$/, tool: 'reject_proposal', mapBody: true, mapParams: ['proposal_id'] },
+  { method: 'POST', path: '/api/v2/openclaw/configure', tool: 'configure_openclaw_advisor', mapBody: true },
+
   // ─── peek (40 routes) ────────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/peek/action-sequence', tool: 'peek_action_sequence', mapBody: true },
   { method: 'POST', path: '/api/v2/peek/assert', tool: 'peek_assert', mapBody: true },
