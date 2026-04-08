@@ -178,6 +178,112 @@
       "deps": [
         "cli/shared.js"
       ]
+    },
+    {
+      "file": "cli/ci.js",
+      "purpose": "Normalizes CI-related CLI arguments and forwards status, watch, stop, diagnose, run listing, and provider configuration requests to the matching TORQUE tool endpoints.",
+      "exports": [
+        "normalizeField",
+        "compactObject",
+        "parseIntField",
+        "handleCiStatus",
+        "handleCiWatch",
+        "handleCiStop",
+        "handleCiDiagnose",
+        "handleCiRuns",
+        "handleCiConfigure"
+      ],
+      "deps": [
+        "cli/api-client.js"
+      ]
+    },
+    {
+      "file": "cli/commands.js",
+      "purpose": "Implements the main Node CLI command handlers, validates user input, dispatches REST and tool calls, delegates CI subcommands, and polls task completion for the await flow.",
+      "exports": [
+        "encodePath",
+        "buildQuery",
+        "missingArgument",
+        "handleStatus",
+        "handleSubmit",
+        "handleList",
+        "handleResult",
+        "handleCancel",
+        "handleWorkflowCreate",
+        "handleWorkflowAddTask",
+        "handleWorkflowRun",
+        "handleWorkflowStatus",
+        "handleDecompose",
+        "handleDiagnose",
+        "handleReview",
+        "handleBenchmark",
+        "handleAwait",
+        "handleHealth",
+        "executeCommand"
+      ],
+      "deps": [
+        "cli/api-client.js",
+        "cli/ci.js"
+      ]
+    },
+    {
+      "file": "cli/dashboard.js",
+      "purpose": "Builds the local dashboard URL from the configured port and opens it in the platform-default browser with execFile-based process spawning.",
+      "exports": [
+        "run"
+      ],
+      "deps": [
+        "node:child_process"
+      ]
+    },
+    {
+      "file": "cli/doctor.js",
+      "purpose": "Runs CLI environment diagnostics for Node, the TORQUE server, dashboard, MCP SSE endpoint, Ollama, optional external CLIs, API keys, and `.mcp.json`, then prints a summarized report.",
+      "exports": [
+        "httpCheck",
+        "findCliTool",
+        "checkNodeVersion",
+        "checkServer",
+        "checkDashboard",
+        "checkSse",
+        "checkOllama",
+        "checkCliTools",
+        "checkApiKeys",
+        "checkMcpJson",
+        "run"
+      ],
+      "deps": [
+        "node:fs",
+        "node:path",
+        "node:child_process",
+        "cli/shared.js"
+      ]
+    },
+    {
+      "file": "cli/formatter.js",
+      "purpose": "Converts raw server markdown and text responses into readable CLI output, including colored status summaries, parsed tables, task previews, submission views, and fallback rendering.",
+      "exports": [
+        "ANSI",
+        "cleanValue",
+        "extractTextPayload",
+        "colorizeStatus",
+        "padRight",
+        "renderTable",
+        "parseMarkdownTable",
+        "parseFieldMap",
+        "parseCodeSection",
+        "renderFallbackText",
+        "formatHealthSummary",
+        "formatTaskList",
+        "formatTaskResult",
+        "formatSubmission",
+        "formatStatus",
+        "formatDryRun",
+        "formatWorkflow",
+        "formatHealth",
+        "formatCommandResult"
+      ],
+      "deps": []
     }
   ],
   "last_updated": "2026-04-08"
