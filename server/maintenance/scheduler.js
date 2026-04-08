@@ -121,7 +121,27 @@ function startMaintenanceScheduler(opts = {}) {
               scheduled: true,
             };
 
-            if (config.workflow_id) {
+            if (config.tool_name) {
+              db.markScheduledTaskRun(schedule.id);
+              const toolArgs = (config.tool_args && typeof config.tool_args === 'object' && !Array.isArray(config.tool_args))
+                ? { ...config.tool_args }
+                : {};
+              toolArgs.__scheduledScheduleId = schedule.id;
+              toolArgs.__scheduledScheduleName = schedule.name;
+
+              const { handleToolCall } = require('../tools');
+              Promise.resolve(handleToolCall(config.tool_name, toolArgs))
+                .then((toolResult) => {
+                  if (toolResult?.isError) {
+                    logger.warn(`Scheduled tool ${config.tool_name} returned an error for ${schedule.name}`);
+                  }
+                })
+                .catch((toolErr) => {
+                  logger.error(`Scheduled tool execution failed for ${schedule.name}: ${toolErr.message}`);
+                  debugLog(`Failed scheduled tool "${schedule.name}": ${toolErr.message}`);
+                });
+              debugLog(`Executed scheduled tool "${schedule.name}" -> tool ${config.tool_name}`);
+            } else if (config.workflow_id) {
               db.markScheduledTaskRun(schedule.id);
               if (typeof opts?.runWorkflow === 'function') {
                 opts.runWorkflow(config.workflow_id, originMetadata);

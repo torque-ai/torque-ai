@@ -54,6 +54,7 @@ const PASSTHROUGH_CASES = [
   { method: 'GET', path: '/api/v2/integration/list-email-notifications/{task_id}', tool: 'list_email_notifications', domain: 'integration' },
   { method: 'GET', path: '/api/v2/intelligence/intelligence-dashboard', tool: 'intelligence_dashboard', domain: 'intelligence' },
   { method: 'GET', path: '/api/v2/notifications', tool: 'check_notifications', domain: 'notifications' },
+  { method: 'GET', path: '/api/v2/study/status', tool: 'get_study_status', domain: 'study' },
   { method: 'POST', path: '/api/v2/vc/create-worktree', tool: 'vc_create_worktree', domain: 'vc' },
   { method: 'POST', path: '/api/v2/validation/run-build-check', tool: 'run_build_check', domain: 'validation' },
   { method: 'POST', path: '/api/v2/workflow-utils/export-workflow', tool: 'export_workflow', domain: 'workflow-utils' },

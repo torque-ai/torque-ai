@@ -61,6 +61,7 @@ const TOOLS = [
   ...require('./tool-defs/routing-template-defs'),
   ...require('./tool-defs/strategic-config-defs'),
   ...require('./tool-defs/context-defs'),
+  ...require('./tool-defs/codebase-study-defs'),
   ...competitiveFeatureDefs,
   ...require('./tool-defs/review-defs'),
   ...require('./tool-defs/symbol-indexer-defs'),
@@ -144,6 +145,7 @@ const HANDLER_MODULES = [
   require('./handlers/budget-handlers'),
   require('./handlers/provider-scoring-handlers'),
   require('./handlers/diffusion-handlers'),
+  require('./handlers/codebase-study-handlers'),
   evidenceRiskHandlers,
   reviewHandlers,
 ];

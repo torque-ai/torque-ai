@@ -10,7 +10,7 @@
  */
 
 const routes = [
-  // ═══ Generated REST routes for 501 MCP tools ═══
+  // ═══ Generated REST routes for 505 MCP tools ═══
   // Generated: 2026-03-13
   // Pattern: tool-passthrough via handleToolCall()
 
@@ -315,6 +315,12 @@ const routes = [
   // ─── strategic (2 routes) ────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/strategic/strategic-usage', tool: 'strategic_usage', mapBody: true },
   { method: 'POST', path: '/api/v2/strategic/config/apply-template', tool: 'strategic_config_apply_template', mapBody: true },
+
+  // ─── study (4 routes) ────────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/study/run', tool: 'run_codebase_study', mapBody: true },
+  { method: 'GET', path: '/api/v2/study/status', tool: 'get_study_status', mapQuery: true },
+  { method: 'POST', path: '/api/v2/study/reset', tool: 'reset_codebase_study', mapBody: true },
+  { method: 'POST', path: '/api/v2/study/schedule', tool: 'configure_study_schedule', mapBody: true },
 
   // ─── system (7 routes) ───────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/system/ping', tool: 'ping', mapBody: true },

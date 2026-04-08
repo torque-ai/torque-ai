@@ -111,6 +111,7 @@ const EXPECTED_DOMAINS = [
   'providers',
   'routing',
   'strategic',
+  'study',
   'symbols',
   'system',
   'tasks',
