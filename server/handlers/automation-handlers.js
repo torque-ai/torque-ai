@@ -102,10 +102,11 @@ async function evaluatePreVerifyGovernance(task, verifyCommand, context = {}) {
     if (!governance) return null;
 
     if (typeof governance.evaluatePreVerify === 'function') {
-      return await governance.evaluatePreVerify(task, {
+      const govResult = await governance.evaluatePreVerify(task, {
         ...context,
         verify_command: verifyCommand,
       });
+      return govResult;
     }
 
     if (typeof governance.evaluate === 'function') {
