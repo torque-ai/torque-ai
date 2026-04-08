@@ -284,6 +284,86 @@
         "formatCommandResult"
       ],
       "deps": []
+    },
+    {
+      "file": "cli/init.js",
+      "purpose": "Bootstraps a local TORQUE workspace by detecting Ollama, CLI tools, and API keys, then generating `.mcp.json` and `.env` with overwrite guards.",
+      "exports": [
+        "detectOllama",
+        "findCliTool",
+        "detectApiKeys",
+        "generateMcpJson",
+        "generateEnvFile",
+        "run"
+      ],
+      "deps": [
+        "node:fs",
+        "node:path",
+        "node:crypto",
+        "node:child_process"
+      ]
+    },
+    {
+      "file": "cli/shared.js",
+      "purpose": "Centralizes the CLI runtime home directory, PID file, API endpoint defaults, and PID helpers shared across the local command modules.",
+      "exports": [
+        "TORQUE_HOME",
+        "PID_FILE",
+        "API_PORT",
+        "API_URL",
+        "readPid",
+        "cleanPidFile"
+      ],
+      "deps": [
+        "node:path",
+        "node:fs"
+      ]
+    },
+    {
+      "file": "cli/start.js",
+      "purpose": "Starts the TORQUE server in foreground or detached mode, provisions `~/.torque`, writes the PID file, probes readiness, and clears stale PID state.",
+      "exports": [
+        "ensureTorqueHome",
+        "isServerRunning",
+        "waitForReady",
+        "run"
+      ],
+      "deps": [
+        "node:fs",
+        "node:path",
+        "node:child_process",
+        "cli/shared.js",
+        "server/index.js"
+      ]
+    },
+    {
+      "file": "cli/stop.js",
+      "purpose": "Stops TORQUE by preferring the shutdown API, then falling back to PID-based SIGTERM with exit polling and PID file cleanup.",
+      "exports": [
+        "killPid",
+        "waitForExit",
+        "run"
+      ],
+      "deps": [
+        "cli/shared.js"
+      ]
+    },
+    {
+      "file": "cli/torque-cli.js",
+      "purpose": "Implements the standalone Node CLI wrapper that prints help/version text, parses argv into normalized command payloads, and formats command results.",
+      "exports": [
+        "getVersion",
+        "getHelpText",
+        "parseCliArgs",
+        "runCli"
+      ],
+      "deps": [
+        "node:path",
+        "cli/api-client.js",
+        "cli/commands.js",
+        "cli/formatter.js",
+        "server/package.json"
+      ]
     }
   ],
   "last_updated": "2026-04-08"
