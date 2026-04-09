@@ -1030,6 +1030,78 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 
+  it('fails strict execution tasks when required modified paths were not touched', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const workDir = makeTempDir();
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.json', JSON.stringify({
+      goal: 'Repair the baseline build.',
+      allowed_files: ['src/FixMe.cs', 'docs/autodev/SESSION_LOG.md'],
+      required_modified_paths: ['docs/autodev/SESSION_LOG.md'],
+    }, null, 2));
+
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'failed' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses: new Map(),
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'done',
+          toolLog: [],
+          tokenUsage: {},
+          changedFiles: [path.join(workDir, 'src', 'FixMe.cs')],
+          iterations: 1,
+          stopReason: 'model_finished',
+        },
+      ])
+    );
+
+    await mod.executeOllamaTask({
+      id: 'task-execute-missing-session-log',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Low-context execution pass for example-project.',
+      working_directory: workDir,
+      timeout_minutes: 1,
+      metadata: {
+        agentic_constraints_from_next_task: true,
+        agentic_next_task_json_path: 'docs/autodev/NEXT_TASK.json',
+      },
+    });
+
+    expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(
+      'task-execute-missing-session-log',
+      'failed',
+      expect.objectContaining({
+        error_output: expect.stringContaining('Required files were not modified: docs/autodev/SESSION_LOG.md'),
+      })
+    );
+  });
+
   it('passes the resolved write allowlist into git safety checks', async () => {
     const { mod, gitSafetyMock } = loadSubject();
     gitSafetyMock.captureSnapshot.mockReturnValue({ isGitRepo: true });

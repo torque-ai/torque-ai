@@ -340,6 +340,7 @@ function parseNextTaskMarkdownSpec(markdown) {
     read_files: collectMarkdownBullets(markdown, ['Read Files', 'Read Paths']),
     specific_actions: collectMarkdownBullets(markdown, ['Specific Actions']),
     allowed_files: collectMarkdownBullets(markdown, ['Allowed Files', 'Allowed Paths', 'Write Files', 'Write Paths']),
+    required_modified_paths: collectMarkdownBullets(markdown, ['Required Modified Paths', 'Required Modified Files']),
     verification_command: collectMarkdownSectionText(markdown, ['Verification Command']),
     stop_conditions: collectMarkdownBullets(markdown, ['Stop Conditions']),
   };
@@ -370,6 +371,7 @@ function compareNextTaskSpecs(markdownSpec, jsonSpec) {
     ['read_files', normalizeComparableList(markdownSpec.read_files), normalizeComparableList(collectJsonSpecList(jsonSpec, ['read_files', 'readFiles', 'read_paths', 'readPaths']))],
     ['specific_actions', normalizeComparableList(markdownSpec.specific_actions), normalizeComparableList(collectJsonSpecList(jsonSpec, ['specific_actions', 'specificActions']))],
     ['allowed_files', normalizeComparableList(markdownSpec.allowed_files), normalizeComparableList(collectJsonSpecList(jsonSpec, ['allowed_files', 'allowedFiles', 'write_files', 'writeFiles', 'allowed_paths', 'allowedPaths', 'write_paths', 'writePaths']))],
+    ['required_modified_paths', normalizeComparableList(markdownSpec.required_modified_paths), normalizeComparableList(collectJsonSpecList(jsonSpec, ['required_modified_paths', 'requiredModifiedPaths']))],
     ['verification_command', normalizeComparableString(markdownSpec.verification_command), normalizeComparableString(jsonSpec.verification_command ?? jsonSpec.verificationCommand)],
     ['stop_conditions', normalizeComparableList(markdownSpec.stop_conditions), normalizeComparableList(collectJsonSpecList(jsonSpec, ['stop_conditions', 'stopConditions']))],
   ];
@@ -590,6 +592,23 @@ function resolveTaskVerificationCommand(task, workingDir, agenticPolicy) {
   return stripWrappingBackticks(taskSpec.spec.verification_command || '');
 }
 
+function resolveRequiredModifiedPaths(task, workingDir, agenticPolicy) {
+  const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  const explicitPaths = normalizeStringList(
+    metadata.agentic_required_modified_paths ?? metadata.required_modified_paths
+  );
+  if (explicitPaths.length > 0 || Array.isArray(metadata.agentic_required_modified_paths)) {
+    return explicitPaths;
+  }
+
+  const taskSpec = loadTaskSpecFromMetadata(metadata, workingDir);
+  if (!taskSpec?.spec) return [];
+  if (taskSpec.source === 'json') {
+    return collectJsonSpecList(taskSpec.spec, ['required_modified_paths', 'requiredModifiedPaths']);
+  }
+  return normalizeStringList(taskSpec.spec.required_modified_paths);
+}
+
 function normalizeCommandForComparison(value) {
   return stripWrappingBackticks(String(value || ''))
     .replace(/\s+/g, ' ')
@@ -648,6 +667,25 @@ function buildGitSafetyOptions(agenticPolicy) {
   };
 }
 
+function normalizeComparablePath(value, workingDir) {
+  const resolved = path.resolve(workingDir, String(value || '').trim());
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function inspectRequiredModifiedPaths(changedFiles, requiredPaths, workingDir) {
+  if (!Array.isArray(requiredPaths) || requiredPaths.length === 0) return null;
+  const changedSet = new Set(
+    (Array.isArray(changedFiles) ? changedFiles : [])
+      .map((entry) => normalizeComparablePath(entry, workingDir))
+  );
+  const missing = requiredPaths.filter((entry) => !changedSet.has(normalizeComparablePath(entry, workingDir)));
+  if (missing.length === 0) return null;
+  return {
+    missing,
+    message: `Required files were not modified: ${missing.join(', ')}`,
+  };
+}
+
 function evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxIterations, gitReport) {
   const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
   const strictExecution = coerceOptionalBoolean(
@@ -659,9 +697,11 @@ function evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxI
   const failOnMaxIterations = coerceOptionalBoolean(metadata.agentic_fail_on_max_iterations, true);
   const failOnVerification = coerceOptionalBoolean(metadata.agentic_fail_on_verification_error, true);
   const failOnGitRevert = coerceOptionalBoolean(metadata.agentic_fail_on_git_revert, true);
+  const failOnMissingRequiredPaths = coerceOptionalBoolean(metadata.agentic_fail_on_missing_required_paths, true);
 
   const failureMessages = [];
   const verificationCommand = resolveTaskVerificationCommand(task, workingDir, agenticPolicy);
+  const requiredModifiedPaths = resolveRequiredModifiedPaths(task, workingDir, agenticPolicy);
 
   if (failOnVerification && verificationCommand) {
     const verificationResult = inspectVerificationToolLog(result?.toolLog, verificationCommand);
@@ -676,6 +716,11 @@ function evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxI
 
   if (failOnGitRevert && Array.isArray(gitReport?.reverted) && gitReport.reverted.length > 0) {
     failureMessages.push(`Git Safety reverted unauthorized changes: ${gitReport.reverted.join(', ')}`);
+  }
+
+  if (failOnMissingRequiredPaths) {
+    const requiredPathResult = inspectRequiredModifiedPaths(result?.changedFiles, requiredModifiedPaths, workingDir);
+    if (requiredPathResult) failureMessages.push(requiredPathResult.message);
   }
 
   if (failureMessages.length === 0) return null;
