@@ -1,6 +1,9 @@
 'use strict';
 
 const { EventEmitter } = require('events');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const { TEST_MODELS } = require('./test-helpers');
 
@@ -71,6 +74,31 @@ function createWorkerCtor(messages) {
     this.terminate = vi.fn();
     this.on = (eventName, handler) => emitter.on(eventName, handler);
     setImmediate(() => emitter.emit('message', message));
+  };
+}
+
+function createDeferredWorkerControl() {
+  const instances = [];
+  function WorkerCtor() {
+    const emitter = new EventEmitter();
+    this.postMessage = vi.fn();
+    this.terminate = vi.fn(() => {
+      setImmediate(() => emitter.emit('exit', 1));
+    });
+    this.on = (eventName, handler) => emitter.on(eventName, handler);
+    this.once = (eventName, handler) => emitter.once(eventName, handler);
+    this.removeAllListeners = (eventName) => emitter.removeAllListeners(eventName);
+    instances.push({
+      emitMessage: (msg) => emitter.emit('message', msg),
+      emitExit: (code = 0) => emitter.emit('exit', code),
+      worker: this,
+    });
+  }
+  return {
+    WorkerCtor,
+    latest() {
+      return instances[instances.length - 1];
+    },
   };
 }
 
@@ -190,9 +218,28 @@ function buildWorkerConfig(entry) {
   };
 }
 
+let tempDirs = [];
+
+function makeTempDir() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentic-execution-policy-'));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function writeFile(dir, relPath, content) {
+  const fullPath = path.join(dir, relPath);
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  fs.writeFileSync(fullPath, content, 'utf-8');
+  return fullPath;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   restoreModuleCache();
+  for (const dir of tempDirs) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+  tempDirs = [];
 });
 
 describe('providers/execution agentic fixes', () => {
@@ -274,6 +321,780 @@ describe('providers/execution agentic fixes', () => {
         output: 'done',
         exit_code: 0,
       }),
+    );
+  });
+
+  it('tracks agentic Ollama workers in runningProcesses until completion', async () => {
+    const { mod } = loadSubject();
+    const workerControl = createDeferredWorkerControl();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const runningProcesses = new Map();
+    runningProcesses.stallAttempts = new Map();
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses,
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(workerControl.WorkerCtor);
+
+    const taskPromise = mod.executeOllamaTask({
+      id: 'task-ollama',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Fix the bug',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(runningProcesses.has('task-ollama')).toBe(true);
+    expect(runningProcesses.get('task-ollama')).toEqual(expect.objectContaining({
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      workingDirectory: 'C:/repo',
+      isAgenticWorker: true,
+    }));
+    expect(typeof runningProcesses.get('task-ollama').process.kill).toBe('function');
+
+    workerControl.latest().emitMessage({
+      type: 'result',
+      output: 'done',
+      toolLog: [],
+      tokenUsage: {},
+      changedFiles: [],
+      iterations: 1,
+    });
+
+    await taskPromise;
+
+    expect(runningProcesses.has('task-ollama')).toBe(false);
+  });
+
+  it('derives worker policy from task metadata and NEXT_TASK.md', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const workDir = makeTempDir();
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.md', [
+      '# Next Task',
+      '',
+      '## Read Files',
+      '- `client/UnityProject/Assets/Scripts/NetcodeCore/NetDatagramReassembler.cs`',
+      '',
+      '## Allowed Files',
+      '- `client/UnityProject/Assets/Scripts/NetcodeCore/NetDatagramReassembler.cs`',
+      '- `docs/autodev/SESSION_LOG.md`',
+      '',
+      '## Verification Command',
+      '`pwsh -File scripts/autodev-verify.ps1`',
+    ].join('\n'));
+
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses: new Map(),
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    let capturedWorkerData = null;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      capturedWorkerData = options.workerData;
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      setImmediate(() => emitter.emit('message', {
+        type: 'result',
+        output: 'done',
+        toolLog: [],
+        tokenUsage: {},
+        changedFiles: [],
+        iterations: 1,
+      }));
+    });
+
+    await mod.executeOllamaTask({
+      id: 'task-policy',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Read docs/autodev/TASK_BRIEF.md and docs/autodev/NEXT_TASK.md, then implement exactly one bounded repair.',
+      working_directory: workDir,
+      timeout_minutes: 1,
+      metadata: {
+        agentic_allowed_read_paths: ['docs/autodev/TASK_BRIEF.md'],
+        agentic_allowed_write_paths: ['docs/autodev/SESSION_LOG.md'],
+        agentic_allowed_commands: ['pwsh -File scripts/autodev-verify.ps1'],
+        agentic_constraints_from_next_task: true,
+        agentic_next_task_path: 'docs/autodev/NEXT_TASK.md',
+        agentic_max_iterations: 4,
+      },
+    });
+
+    expect(capturedWorkerData.maxIterations).toBe(4);
+    expect(capturedWorkerData.commandMode).toBe('allowlist');
+    expect(capturedWorkerData.commandAllowlist).toEqual(['pwsh -File scripts/autodev-verify.ps1']);
+    expect(capturedWorkerData.readAllowlist).toEqual(expect.arrayContaining([
+      'docs/autodev/TASK_BRIEF.md',
+      'docs/autodev/NEXT_TASK.md',
+      'client/UnityProject/Assets/Scripts/NetcodeCore/NetDatagramReassembler.cs',
+      'docs/autodev/SESSION_LOG.md',
+    ]));
+    expect(capturedWorkerData.writeAllowlist).toEqual(expect.arrayContaining([
+      'docs/autodev/SESSION_LOG.md',
+      'client/UnityProject/Assets/Scripts/NetcodeCore/NetDatagramReassembler.cs',
+    ]));
+  });
+
+  it('prefers NEXT_TASK.json over markdown when deriving worker policy', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const workDir = makeTempDir();
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.md', [
+      '# Next Task',
+      '',
+      '## Read Files',
+      '- `client/UnityProject/Assets/Scripts/NetcodeCore/FromMarkdown.cs`',
+      '',
+      '## Allowed Files',
+      '- `client/UnityProject/Assets/Scripts/NetcodeCore/FromMarkdown.cs`',
+    ].join('\n'));
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.json', JSON.stringify({
+      goal: 'Repair the baseline',
+      read_files: [
+        'client/UnityProject/Assets/Scripts/NetcodeCore/FromJsonRead.cs',
+      ],
+      allowed_files: [
+        'client/UnityProject/Assets/Scripts/NetcodeCore/FromJsonWrite.cs',
+        'docs/autodev/SESSION_LOG.md',
+      ],
+      verification_command: 'pwsh -File scripts/autodev-verify.ps1',
+    }, null, 2));
+
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses: new Map(),
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    let capturedWorkerData = null;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      capturedWorkerData = options.workerData;
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      setImmediate(() => emitter.emit('message', {
+        type: 'result',
+        output: 'done',
+        toolLog: [],
+        tokenUsage: {},
+        changedFiles: [],
+        iterations: 1,
+      }));
+    });
+
+    await mod.executeOllamaTask({
+      id: 'task-policy-json',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Read docs/autodev/TASK_BRIEF.md and docs/autodev/NEXT_TASK.json, then implement exactly one bounded repair.',
+      working_directory: workDir,
+      timeout_minutes: 1,
+      metadata: {
+        agentic_allowed_read_paths: ['docs/autodev/TASK_BRIEF.md'],
+        agentic_allowed_write_paths: ['docs/autodev/SESSION_LOG.md'],
+        agentic_constraints_from_next_task: true,
+        agentic_next_task_path: 'docs/autodev/NEXT_TASK.md',
+        agentic_next_task_json_path: 'docs/autodev/NEXT_TASK.json',
+      },
+    });
+
+    expect(capturedWorkerData.readAllowlist).toEqual(expect.arrayContaining([
+      'docs/autodev/TASK_BRIEF.md',
+      'docs/autodev/NEXT_TASK.md',
+      'docs/autodev/NEXT_TASK.json',
+      'client/UnityProject/Assets/Scripts/NetcodeCore/FromJsonRead.cs',
+      'client/UnityProject/Assets/Scripts/NetcodeCore/FromJsonWrite.cs',
+    ]));
+    expect(capturedWorkerData.readAllowlist).not.toContain(
+      'client/UnityProject/Assets/Scripts/NetcodeCore/FromMarkdown.cs'
+    );
+    expect(capturedWorkerData.writeAllowlist).toEqual(expect.arrayContaining([
+      'docs/autodev/SESSION_LOG.md',
+      'client/UnityProject/Assets/Scripts/NetcodeCore/FromJsonWrite.cs',
+    ]));
+    expect(capturedWorkerData.writeAllowlist).not.toContain(
+      'client/UnityProject/Assets/Scripts/NetcodeCore/FromMarkdown.cs'
+    );
+  });
+
+  it('falls back to NEXT_TASK.md when NEXT_TASK.json is invalid', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const workDir = makeTempDir();
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.md', [
+      '# Next Task',
+      '',
+      '## Read Files',
+      '- `client/UnityProject/Assets/Scripts/NetcodeCore/FromMarkdown.cs`',
+      '',
+      '## Allowed Files',
+      '- `client/UnityProject/Assets/Scripts/NetcodeCore/FromMarkdown.cs`',
+      '- `docs/autodev/SESSION_LOG.md`',
+    ].join('\n'));
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.json', '{ invalid json');
+
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses: new Map(),
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    let capturedWorkerData = null;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      capturedWorkerData = options.workerData;
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      setImmediate(() => emitter.emit('message', {
+        type: 'result',
+        output: 'done',
+        toolLog: [],
+        tokenUsage: {},
+        changedFiles: [],
+        iterations: 1,
+      }));
+    });
+
+    await mod.executeOllamaTask({
+      id: 'task-policy-json-fallback',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Read docs/autodev/TASK_BRIEF.md and docs/autodev/NEXT_TASK.md, then implement exactly one bounded repair.',
+      working_directory: workDir,
+      timeout_minutes: 1,
+      metadata: {
+        agentic_allowed_read_paths: ['docs/autodev/TASK_BRIEF.md'],
+        agentic_constraints_from_next_task: true,
+        agentic_next_task_path: 'docs/autodev/NEXT_TASK.md',
+        agentic_next_task_json_path: 'docs/autodev/NEXT_TASK.json',
+      },
+    });
+
+    expect(capturedWorkerData.readAllowlist).toEqual(expect.arrayContaining([
+      'docs/autodev/TASK_BRIEF.md',
+      'docs/autodev/NEXT_TASK.md',
+      'docs/autodev/NEXT_TASK.json',
+      'client/UnityProject/Assets/Scripts/NetcodeCore/FromMarkdown.cs',
+    ]));
+    expect(capturedWorkerData.writeAllowlist).toEqual(expect.arrayContaining([
+      'client/UnityProject/Assets/Scripts/NetcodeCore/FromMarkdown.cs',
+      'docs/autodev/SESSION_LOG.md',
+    ]));
+  });
+
+  it('short-circuits synced planning tasks before reserving an Ollama host', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const workDir = makeTempDir();
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.md', [
+      '# Next Task',
+      '',
+      '## Goal',
+      '',
+      'Repair the baseline `build`.',
+      '',
+      '## Why Now',
+      '',
+      'Keep the core verification path green.',
+      '',
+      '## Read Files',
+      '- `docs/autodev/TASK_BRIEF.md`',
+      '- `src/FixMe.cs`',
+      '',
+      '## Specific Actions',
+      '- `Repair the malformed duplicate method.`',
+      '',
+      '## Allowed Files',
+      '- `src/FixMe.cs`',
+      '- `docs/autodev/SESSION_LOG.md`',
+      '',
+      '## Verification Command',
+      '`pwsh -File scripts/autodev-verify.ps1`',
+      '',
+      '## Stop Conditions',
+      '- `Stop after the baseline is green.`',
+    ].join('\n'));
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.json', JSON.stringify({
+      goal: 'Repair the baseline build.',
+      why_now: 'Keep the core verification path green.',
+      read_files: ['docs/autodev/TASK_BRIEF.md', 'src/FixMe.cs'],
+      specific_actions: ['Repair the malformed duplicate method.'],
+      allowed_files: ['src/FixMe.cs', 'docs/autodev/SESSION_LOG.md'],
+      verification_command: 'pwsh -File scripts/autodev-verify.ps1',
+      stop_conditions: ['Stop after the baseline is green.'],
+    }, null, 2));
+
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'completed' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses: new Map(),
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    const workerSpy = vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(() => {
+      throw new Error('worker should not be started for a synced planning no-op');
+    });
+
+    await mod.executeOllamaTask({
+      id: 'task-planner-noop',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Low-context planning pass for example-project.',
+      working_directory: workDir,
+      timeout_minutes: 1,
+      metadata: {
+        agentic_noop_when_task_spec_synced: true,
+        agentic_next_task_path: 'docs/autodev/NEXT_TASK.md',
+        agentic_next_task_json_path: 'docs/autodev/NEXT_TASK.json',
+        agentic_allowed_read_paths: [
+          'docs/autodev/TASK_BRIEF.md',
+          'docs/autodev/ROADMAP.md',
+          'docs/autodev/NEXT_TASK.md',
+          'docs/autodev/NEXT_TASK.json',
+        ],
+        agentic_allowed_write_paths: [
+          'docs/autodev/ROADMAP.md',
+          'docs/autodev/NEXT_TASK.md',
+          'docs/autodev/NEXT_TASK.json',
+        ],
+        agentic_allowed_commands: [],
+      },
+    });
+
+    expect(workerSpy).not.toHaveBeenCalled();
+    expect(db.selectOllamaHostForModel).not.toHaveBeenCalled();
+    expect(db.tryReserveHostSlot).not.toHaveBeenCalled();
+    expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(
+      'task-planner-noop',
+      'completed',
+      expect.objectContaining({
+        output: expect.stringContaining('Planning short-circuit'),
+        exit_code: 0,
+      }),
+    );
+  });
+
+  it('keeps planning tasks on the normal agentic path when NEXT_TASK docs diverge', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const workDir = makeTempDir();
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.md', [
+      '# Next Task',
+      '',
+      '## Goal',
+      '',
+      'Repair the baseline build.',
+      '',
+      '## Why Now',
+      '',
+      'Keep the core verification path green.',
+      '',
+      '## Read Files',
+      '- `src/FromMarkdown.cs`',
+      '',
+      '## Specific Actions',
+      '- `Repair the malformed duplicate method.`',
+      '',
+      '## Allowed Files',
+      '- `src/FromMarkdown.cs`',
+      '',
+      '## Verification Command',
+      '`pwsh -File scripts/autodev-verify.ps1`',
+      '',
+      '## Stop Conditions',
+      '- `Stop after the baseline is green.`',
+    ].join('\n'));
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.json', JSON.stringify({
+      goal: 'Repair the baseline build.',
+      why_now: 'Keep the core verification path green.',
+      read_files: ['src/FromJson.cs'],
+      specific_actions: ['Repair the malformed duplicate method.'],
+      allowed_files: ['src/FromJson.cs'],
+      verification_command: 'pwsh -File scripts/autodev-verify.ps1',
+      stop_conditions: ['Stop after the baseline is green.'],
+    }, null, 2));
+
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses: new Map(),
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    const workerSpy = vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        { type: 'result', output: 'done', toolLog: [], tokenUsage: {}, changedFiles: [], iterations: 1 },
+      ])
+    );
+
+    await mod.executeOllamaTask({
+      id: 'task-planner-diverged',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Low-context planning pass for example-project.',
+      working_directory: workDir,
+      timeout_minutes: 1,
+      metadata: {
+        agentic_noop_when_task_spec_synced: true,
+        agentic_next_task_path: 'docs/autodev/NEXT_TASK.md',
+        agentic_next_task_json_path: 'docs/autodev/NEXT_TASK.json',
+        agentic_allowed_commands: [],
+      },
+    });
+
+    expect(workerSpy).toHaveBeenCalled();
+    expect(db.selectOllamaHostForModel).toHaveBeenCalledWith(TEST_MODELS.DEFAULT);
+    expect(db.tryReserveHostSlot).toHaveBeenCalledWith('host-1', TEST_MODELS.DEFAULT);
+  });
+
+  it('fails strict execution tasks when the verification command fails', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const workDir = makeTempDir();
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.json', JSON.stringify({
+      goal: 'Repair the baseline build.',
+      allowed_files: ['src/FixMe.cs'],
+      verification_command: 'pwsh -File scripts/autodev-verify.ps1',
+    }, null, 2));
+
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'failed' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses: new Map(),
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'verification failed',
+          toolLog: [{
+            iteration: 1,
+            name: 'run_command',
+            command: 'pwsh -File scripts/autodev-verify.ps1',
+            arguments_preview: '{"command":"pwsh -File scripts/autodev-verify.ps1"}',
+            result_preview: 'Command failed (exit 1): build red',
+            error: true,
+            duration_ms: 50,
+          }],
+          tokenUsage: {},
+          changedFiles: [],
+          iterations: 1,
+          stopReason: 'model_finished',
+        },
+      ])
+    );
+
+    await mod.executeOllamaTask({
+      id: 'task-execute-fails-verify',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Low-context execution pass for example-project.',
+      working_directory: workDir,
+      timeout_minutes: 1,
+      metadata: {
+        agentic_constraints_from_next_task: true,
+        agentic_next_task_json_path: 'docs/autodev/NEXT_TASK.json',
+      },
+    });
+
+    expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(
+      'task-execute-fails-verify',
+      'failed',
+      expect.objectContaining({
+        error_output: expect.stringContaining('Verification command failed'),
+        output: expect.stringContaining('verification failed'),
+      })
+    );
+  });
+
+  it('fails strict execution tasks when they exhaust the iteration budget', async () => {
+    const { mod } = loadSubject();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const workDir = makeTempDir();
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.json', JSON.stringify({
+      goal: 'Repair the baseline build.',
+      allowed_files: ['src/FixMe.cs'],
+    }, null, 2));
+
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'failed' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses: new Map(),
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'Task reached maximum iterations (4). 0 tool calls executed.',
+          toolLog: [],
+          tokenUsage: {},
+          changedFiles: [],
+          iterations: 4,
+          stopReason: 'max_iterations',
+        },
+      ])
+    );
+
+    await mod.executeOllamaTask({
+      id: 'task-execute-max-iterations',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Low-context execution pass for example-project.',
+      working_directory: workDir,
+      timeout_minutes: 1,
+      metadata: {
+        agentic_constraints_from_next_task: true,
+        agentic_next_task_json_path: 'docs/autodev/NEXT_TASK.json',
+        agentic_max_iterations: 4,
+      },
+    });
+
+    expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(
+      'task-execute-max-iterations',
+      'failed',
+      expect.objectContaining({
+        error_output: expect.stringContaining('iteration budget (4)'),
+      })
+    );
+  });
+
+  it('passes the resolved write allowlist into git safety checks', async () => {
+    const { mod, gitSafetyMock } = loadSubject();
+    gitSafetyMock.captureSnapshot.mockReturnValue({ isGitRepo: true });
+    gitSafetyMock.checkAndRevert.mockReturnValue({ reverted: [], kept: [], report: '' });
+
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const workDir = makeTempDir();
+    writeFile(workDir, 'docs/autodev/NEXT_TASK.json', JSON.stringify({
+      goal: 'Repair the baseline build.',
+      allowed_files: ['src/FixMe.cs', 'docs/autodev/SESSION_LOG.md'],
+    }, null, 2));
+
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'completed' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses: new Map(),
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        { type: 'result', output: 'done', toolLog: [], tokenUsage: {}, changedFiles: [], iterations: 1, stopReason: 'model_finished' },
+      ])
+    );
+
+    await mod.executeOllamaTask({
+      id: 'task-git-allowlist',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Low-context execution pass for example-project.',
+      working_directory: workDir,
+      timeout_minutes: 1,
+      metadata: {
+        agentic_constraints_from_next_task: true,
+        agentic_next_task_json_path: 'docs/autodev/NEXT_TASK.json',
+      },
+    });
+
+    expect(gitSafetyMock.checkAndRevert).toHaveBeenCalledWith(
+      workDir,
+      expect.any(Object),
+      'Low-context execution pass for example-project.',
+      expect.any(String),
+      expect.objectContaining({
+        authorizedPaths: expect.arrayContaining(['src/FixMe.cs', 'docs/autodev/SESSION_LOG.md']),
+      })
     );
   });
 });

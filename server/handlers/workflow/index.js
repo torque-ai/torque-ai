@@ -237,10 +237,10 @@ function classifyWorkflowStartOutcome(taskId, startResult) {
   if (updatedTask?.status === 'queued') {
     return 'queued';
   }
-  if (updatedTask?.status === 'running') {
+  if (updatedTask?.status === 'running' || updatedTask?.status === 'completed') {
     return 'started';
   }
-  if (updatedTask?.status && ['cancelled', 'failed', 'blocked', 'skipped', 'completed'].includes(updatedTask.status)) {
+  if (updatedTask?.status && ['cancelled', 'failed', 'blocked', 'skipped'].includes(updatedTask.status)) {
     return 'not_started';
   }
 
@@ -547,6 +547,152 @@ function createSeededWorkflowTasks(workflowId, workflowWorkingDirectory, taskDef
   });
 
   workflowEngine.updateWorkflowCounts(workflowId);
+}
+
+function handleCloneWorkflow(args) {
+  const sourceWorkflowId = typeof args?.source_workflow_id === 'string' ? args.source_workflow_id.trim() : '';
+  if (!sourceWorkflowId) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'source_workflow_id is required');
+  }
+
+  const { workflow: sourceWorkflow, error: wfErr } = requireWorkflow(sourceWorkflowId);
+  if (wfErr) return wfErr;
+
+  const sourceTasks = workflowEngine.getWorkflowTasks(sourceWorkflowId) || [];
+  if (sourceTasks.length === 0) {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `Workflow '${sourceWorkflow.name}' (${sourceWorkflowId}) has no tasks and cannot be cloned.`
+    );
+  }
+
+  const sourceDependencies = workflowEngine.getWorkflowDependencies(sourceWorkflowId) || [];
+  const sourceWorkflowContext = (sourceWorkflow.context && typeof sourceWorkflow.context === 'object' && !Array.isArray(sourceWorkflow.context))
+    ? sourceWorkflow.context
+    : {};
+  const clonedWorkflowProject = normalizeProjectName(args.project)
+    || normalizeProjectName(sourceWorkflowContext.project)
+    || normalizeProjectName(sourceTasks.find((task) => typeof task?.project === 'string' && task.project.trim())?.project)
+    || null;
+  const workflowId = uuidv4();
+  const explicitName = typeof args.name === 'string' ? args.name.trim() : '';
+  const workflowName = explicitName || `${sourceWorkflow.name} ${new Date().toISOString()}`;
+  const workflowWorkingDirectory = args.working_directory || sourceWorkflow.working_directory || null;
+  const workflowContext = {
+    ...sourceWorkflowContext,
+    ...((args.context && typeof args.context === 'object' && !Array.isArray(args.context))
+      ? args.context
+      : {}),
+    _cloned_from_workflow_id: sourceWorkflowId,
+  };
+  if (clonedWorkflowProject) {
+    workflowContext.project = clonedWorkflowProject;
+  }
+
+  workflowEngine.createWorkflow({
+    id: workflowId,
+    name: workflowName,
+    description: args.description !== undefined ? args.description : (sourceWorkflow.description || null),
+    working_directory: workflowWorkingDirectory,
+    status: 'pending',
+    priority: args.priority !== undefined ? args.priority : (sourceWorkflow.priority || 0),
+    template_id: sourceWorkflow.template_id || null,
+    context: Object.keys(workflowContext).length > 0 ? workflowContext : undefined,
+  });
+
+  const rawDb = getRawDb();
+  const runInTransaction = (fn) => {
+    if (rawDb && typeof rawDb.transaction === 'function') {
+      return rawDb.transaction(fn)();
+    }
+    return fn();
+  };
+  const sourceTaskIdsWithDeps = new Set(sourceDependencies.map((dependency) => dependency.task_id));
+  const sourceToClonedTaskIds = new Map();
+
+  runInTransaction(() => {
+    for (const sourceTask of sourceTasks) {
+      const clonedTaskId = uuidv4();
+      sourceToClonedTaskIds.set(sourceTask.id, clonedTaskId);
+      const metadataObject = typeof sourceTask.metadata === 'string'
+        ? safeJsonParse(sourceTask.metadata, {})
+        : ((sourceTask.metadata && typeof sourceTask.metadata === 'object' && !Array.isArray(sourceTask.metadata))
+          ? sourceTask.metadata
+          : {});
+
+      getTaskCore().createTask({
+        id: clonedTaskId,
+        status: sourceTaskIdsWithDeps.has(sourceTask.id) ? 'blocked' : 'pending',
+        task_description: sourceTask.task_description,
+        working_directory: args.working_directory || sourceTask.working_directory || workflowWorkingDirectory,
+        project: normalizeProjectName(sourceTask.project) || clonedWorkflowProject || null,
+        timeout_minutes: sourceTask.timeout_minutes,
+        auto_approve: Boolean(sourceTask.auto_approve),
+        priority: sourceTask.priority || 0,
+        tags: Array.isArray(sourceTask.tags) ? sourceTask.tags : [],
+        context: sourceTask.context || null,
+        max_retries: sourceTask.max_retries,
+        template_name: sourceTask.template_name || null,
+        isolated_workspace: sourceTask.isolated_workspace || null,
+        workflow_id: workflowId,
+        workflow_node_id: sourceTask.workflow_node_id,
+        provider: sourceTask.provider || null,
+        model: sourceTask.model || null,
+        complexity: sourceTask.complexity || 'normal',
+        review_status: null,
+        original_provider: sourceTask.original_provider || null,
+        metadata: metadataObject,
+        stall_timeout_seconds: sourceTask.stall_timeout_seconds ?? null,
+      });
+    }
+
+    for (const sourceDependency of sourceDependencies) {
+      const clonedTaskId = sourceToClonedTaskIds.get(sourceDependency.task_id);
+      const clonedDependsOnTaskId = sourceToClonedTaskIds.get(sourceDependency.depends_on_task_id);
+      if (!clonedTaskId || !clonedDependsOnTaskId) {
+        continue;
+      }
+
+      workflowEngine.addTaskDependency({
+        workflow_id: workflowId,
+        task_id: clonedTaskId,
+        depends_on_task_id: clonedDependsOnTaskId,
+        condition_expr: sourceDependency.condition_expr,
+        on_fail: sourceDependency.on_fail || 'skip',
+        alternate_task_id: sourceDependency.alternate_task_id
+          ? (sourceToClonedTaskIds.get(sourceDependency.alternate_task_id) || null)
+          : null,
+      });
+    }
+  });
+
+  workflowEngine.updateWorkflowCounts(workflowId);
+
+  if (args.auto_run) {
+    const runResult = handleRunWorkflow({ workflow_id: workflowId });
+    if (runResult?.isError) {
+      return runResult;
+    }
+  }
+
+  let output = `## Workflow Cloned\n\n`;
+  output += `**Source Workflow:** ${sourceWorkflow.name} (${sourceWorkflowId})\n`;
+  output += `**Workflow ID:** ${workflowId}\n`;
+  output += `**Name:** ${workflowName}\n`;
+  output += `**Tasks Cloned:** ${sourceTasks.length}\n`;
+  if (clonedWorkflowProject) output += `**Project:** ${clonedWorkflowProject}\n`;
+  if (args.auto_run) output += `**Status:** Running\n`;
+
+  return {
+    content: [{ type: 'text', text: output }],
+    workflow_id: workflowId,
+    structuredData: {
+      workflow_id: workflowId,
+      source_workflow_id: sourceWorkflowId,
+      task_count: sourceTasks.length,
+      auto_run: Boolean(args.auto_run),
+    },
+  };
 }
 
 function startWorkflowExecution(workflow) {
@@ -1539,6 +1685,7 @@ function createWorkflowHandlers(_deps) {
     ...workflowAwait,
     ...workflowAdvanced,
     handleCreateWorkflow,
+    handleCloneWorkflow,
     handleAddWorkflowTask,
     handleRunWorkflow,
     handleWorkflowStatus,
@@ -1558,6 +1705,7 @@ module.exports = {
   ...workflowAwait,
   ...workflowAdvanced,
   handleCreateWorkflow,
+  handleCloneWorkflow,
   handleAddWorkflowTask,
   handleRunWorkflow,
   handleWorkflowStatus,

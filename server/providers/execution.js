@@ -80,6 +80,7 @@ function init(deps) {
   _agenticDeps = {
     db: deps.db,
     dashboard: deps.dashboard,
+    runningProcesses: deps.runningProcesses,
     safeUpdateTaskStatus: deps.safeUpdateTaskStatus,
     processQueue: deps.processQueue,
     handleWorkflowTermination: deps.handleWorkflowTermination,
@@ -223,6 +224,486 @@ ${platformRule}
 Working directory: ${workingDir}`;
 }
 
+function normalizeTaskMetadata(task) {
+  if (!task?.metadata) return {};
+  if (typeof task.metadata === 'string') {
+    try {
+      return JSON.parse(task.metadata);
+    } catch {
+      return {};
+    }
+  }
+  return (task.metadata && typeof task.metadata === 'object' && !Array.isArray(task.metadata))
+    ? task.metadata
+    : {};
+}
+
+function normalizeStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry) => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function mergeUniqueStrings(...groups) {
+  const merged = [];
+  const seen = new Set();
+  for (const group of groups) {
+    for (const entry of group || []) {
+      const normalized = entry.replace(/\\/g, '/').toLowerCase();
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      merged.push(entry);
+    }
+  }
+  return merged;
+}
+
+function collectMarkdownBullets(markdown, headings) {
+  const targetHeadings = new Set(headings.map((heading) => heading.toLowerCase()));
+  const lines = String(markdown || '').split(/\r?\n/);
+  const bullets = [];
+  let inTargetSection = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const headingMatch = /^##\s+(.+?)\s*$/.exec(trimmed);
+    if (headingMatch) {
+      const heading = headingMatch[1].trim().toLowerCase();
+      if (inTargetSection && !targetHeadings.has(heading)) break;
+      inTargetSection = targetHeadings.has(heading);
+      continue;
+    }
+    if (!inTargetSection) continue;
+    const bulletMatch = /^\s*[-*]\s+`?(.+?)`?\s*$/.exec(rawLine);
+    if (bulletMatch) bullets.push(bulletMatch[1].trim());
+  }
+
+  return bullets;
+}
+
+function collectMarkdownSectionLines(markdown, headings) {
+  const targetHeadings = new Set(headings.map((heading) => heading.toLowerCase()));
+  const lines = String(markdown || '').split(/\r?\n/);
+  const sectionLines = [];
+  let inTargetSection = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const headingMatch = /^##\s+(.+?)\s*$/.exec(trimmed);
+    if (headingMatch) {
+      const heading = headingMatch[1].trim().toLowerCase();
+      if (inTargetSection && !targetHeadings.has(heading)) break;
+      inTargetSection = targetHeadings.has(heading);
+      continue;
+    }
+    if (!inTargetSection) continue;
+    sectionLines.push(rawLine);
+  }
+
+  return sectionLines;
+}
+
+function stripWrappingBackticks(value) {
+  const trimmed = String(value || '').trim();
+  const backtickMatch = /^`([^`]+)`$/.exec(trimmed);
+  return backtickMatch ? backtickMatch[1].trim() : trimmed;
+}
+
+function collectMarkdownSectionText(markdown, headings) {
+  return collectMarkdownSectionLines(markdown, headings)
+    .map((line) => stripWrappingBackticks(line).replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
+function collectJsonSpecList(spec, keys) {
+  for (const key of keys) {
+    const value = spec?.[key];
+    if (Array.isArray(value)) {
+      return value
+        .map((entry) => typeof entry === 'string' ? entry.trim() : '')
+        .filter(Boolean);
+    }
+    if (typeof value === 'string' && value.trim()) {
+      return [value.trim()];
+    }
+  }
+  return [];
+}
+
+function parseNextTaskMarkdownSpec(markdown) {
+  return {
+    goal: collectMarkdownSectionText(markdown, ['Goal']),
+    why_now: collectMarkdownSectionText(markdown, ['Why Now']),
+    read_files: collectMarkdownBullets(markdown, ['Read Files', 'Read Paths']),
+    specific_actions: collectMarkdownBullets(markdown, ['Specific Actions']),
+    allowed_files: collectMarkdownBullets(markdown, ['Allowed Files', 'Allowed Paths', 'Write Files', 'Write Paths']),
+    verification_command: collectMarkdownSectionText(markdown, ['Verification Command']),
+    stop_conditions: collectMarkdownBullets(markdown, ['Stop Conditions']),
+  };
+}
+
+function normalizeComparableString(value) {
+  return stripWrappingBackticks(String(value || ''))
+    .replace(/`/g, '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => stripWrappingBackticks(line).replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+}
+
+function normalizeComparableList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => normalizeComparableString(entry))
+    .filter(Boolean);
+}
+
+function compareNextTaskSpecs(markdownSpec, jsonSpec) {
+  const fieldComparisons = [
+    ['goal', normalizeComparableString(markdownSpec.goal), normalizeComparableString(jsonSpec.goal)],
+    ['why_now', normalizeComparableString(markdownSpec.why_now), normalizeComparableString(jsonSpec.why_now)],
+    ['read_files', normalizeComparableList(markdownSpec.read_files), normalizeComparableList(collectJsonSpecList(jsonSpec, ['read_files', 'readFiles', 'read_paths', 'readPaths']))],
+    ['specific_actions', normalizeComparableList(markdownSpec.specific_actions), normalizeComparableList(collectJsonSpecList(jsonSpec, ['specific_actions', 'specificActions']))],
+    ['allowed_files', normalizeComparableList(markdownSpec.allowed_files), normalizeComparableList(collectJsonSpecList(jsonSpec, ['allowed_files', 'allowedFiles', 'write_files', 'writeFiles', 'allowed_paths', 'allowedPaths', 'write_paths', 'writePaths']))],
+    ['verification_command', normalizeComparableString(markdownSpec.verification_command), normalizeComparableString(jsonSpec.verification_command ?? jsonSpec.verificationCommand)],
+    ['stop_conditions', normalizeComparableList(markdownSpec.stop_conditions), normalizeComparableList(collectJsonSpecList(jsonSpec, ['stop_conditions', 'stopConditions']))],
+  ];
+
+  const mismatchedFields = fieldComparisons
+    .filter(([, markdownValue, jsonValue]) => JSON.stringify(markdownValue) !== JSON.stringify(jsonValue))
+    .map(([fieldName]) => fieldName);
+
+  return {
+    synced: mismatchedFields.length === 0,
+    comparedFields: fieldComparisons.map(([fieldName]) => fieldName),
+    mismatchedFields,
+  };
+}
+
+function extractNextTaskPathPolicy(nextTaskPath, nextTaskJsonPath, workingDir) {
+  const fs = require('fs');
+  const baseReadPaths = mergeUniqueStrings(
+    nextTaskJsonPath ? [nextTaskJsonPath] : [],
+    nextTaskPath ? [nextTaskPath] : [],
+  );
+
+  if (nextTaskJsonPath) {
+    const resolvedNextTaskJsonPath = path.resolve(workingDir, nextTaskJsonPath);
+    if (fs.existsSync(resolvedNextTaskJsonPath)) {
+      try {
+        const spec = JSON.parse(fs.readFileSync(resolvedNextTaskJsonPath, 'utf-8'));
+        const readPaths = collectJsonSpecList(spec, ['read_files', 'readFiles', 'read_paths', 'readPaths']);
+        const writePaths = collectJsonSpecList(spec, [
+          'allowed_files',
+          'allowedFiles',
+          'write_files',
+          'writeFiles',
+          'allowed_paths',
+          'allowedPaths',
+          'write_paths',
+          'writePaths',
+        ]);
+        return {
+          readPaths: mergeUniqueStrings(baseReadPaths, readPaths, writePaths),
+          writePaths,
+        };
+      } catch {
+        // Fall back to the markdown task spec if the JSON file is missing or invalid.
+      }
+    }
+  }
+
+  if (!nextTaskPath) {
+    return { readPaths: baseReadPaths, writePaths: [] };
+  }
+
+  const resolvedNextTaskPath = path.resolve(workingDir, nextTaskPath);
+  if (!fs.existsSync(resolvedNextTaskPath)) {
+    return { readPaths: baseReadPaths, writePaths: [] };
+  }
+  const markdown = fs.readFileSync(resolvedNextTaskPath, 'utf-8');
+  const readPaths = collectMarkdownBullets(markdown, ['Read Files', 'Read Paths']);
+  const writePaths = collectMarkdownBullets(markdown, ['Allowed Files', 'Allowed Paths', 'Write Files', 'Write Paths']);
+
+  return {
+    readPaths: mergeUniqueStrings(baseReadPaths, readPaths, writePaths),
+    writePaths,
+  };
+}
+
+function buildTaskAgenticPolicy(task, workingDir, serverConfig) {
+  const metadata = normalizeTaskMetadata(task);
+  let readAllowlist = normalizeStringList(metadata.agentic_allowed_read_paths);
+  let writeAllowlist = normalizeStringList(metadata.agentic_allowed_write_paths);
+
+  if (metadata.agentic_constraints_from_next_task) {
+    const nextTaskPath = (typeof metadata.agentic_next_task_path === 'string' && metadata.agentic_next_task_path.trim())
+      ? metadata.agentic_next_task_path.trim()
+      : 'docs/autodev/NEXT_TASK.md';
+    const nextTaskJsonPath = (typeof metadata.agentic_next_task_json_path === 'string' && metadata.agentic_next_task_json_path.trim())
+      ? metadata.agentic_next_task_json_path.trim()
+      : (nextTaskPath.endsWith('.md') ? `${nextTaskPath.slice(0, -3)}.json` : '');
+    const nextTaskPolicy = extractNextTaskPathPolicy(nextTaskPath, nextTaskJsonPath, workingDir);
+    readAllowlist = mergeUniqueStrings(readAllowlist, nextTaskPolicy.readPaths);
+    writeAllowlist = mergeUniqueStrings(writeAllowlist, nextTaskPolicy.writePaths);
+  }
+
+  const metadataCommandAllowlist = normalizeStringList(
+    metadata.agentic_allowed_commands ?? metadata.agentic_command_allowlist
+  );
+  let commandMode = typeof metadata.agentic_command_mode === 'string'
+    ? metadata.agentic_command_mode
+    : (serverConfig.get('agentic_command_mode') || 'unrestricted');
+  let commandAllowlist = metadataCommandAllowlist.length > 0 || Array.isArray(metadata.agentic_allowed_commands)
+    ? metadataCommandAllowlist
+    : (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean);
+  if (Array.isArray(metadata.agentic_allowed_commands)) {
+    commandMode = 'allowlist';
+  }
+
+  const parsedMaxIterations = Number.parseInt(metadata.agentic_max_iterations, 10);
+
+  return {
+    metadata,
+    readAllowlist,
+    writeAllowlist,
+    commandMode,
+    commandAllowlist,
+    maxIterations: Number.isFinite(parsedMaxIterations) && parsedMaxIterations > 0
+      ? parsedMaxIterations
+      : null,
+  };
+}
+
+function maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy) {
+  const fs = require('fs');
+  const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  if (!metadata.agentic_noop_when_task_spec_synced) return null;
+
+  const nextTaskPath = (typeof metadata.agentic_next_task_path === 'string' && metadata.agentic_next_task_path.trim())
+    ? metadata.agentic_next_task_path.trim()
+    : 'docs/autodev/NEXT_TASK.md';
+  const nextTaskJsonPath = (typeof metadata.agentic_next_task_json_path === 'string' && metadata.agentic_next_task_json_path.trim())
+    ? metadata.agentic_next_task_json_path.trim()
+    : (nextTaskPath.endsWith('.md') ? `${nextTaskPath.slice(0, -3)}.json` : '');
+  if (!nextTaskJsonPath) return null;
+
+  const resolvedMarkdownPath = path.resolve(workingDir, nextTaskPath);
+  const resolvedJsonPath = path.resolve(workingDir, nextTaskJsonPath);
+  if (!fs.existsSync(resolvedMarkdownPath) || !fs.existsSync(resolvedJsonPath)) return null;
+
+  try {
+    const markdown = fs.readFileSync(resolvedMarkdownPath, 'utf-8');
+    const jsonSpec = JSON.parse(fs.readFileSync(resolvedJsonPath, 'utf-8'));
+    const comparison = compareNextTaskSpecs(parseNextTaskMarkdownSpec(markdown), jsonSpec);
+    if (!comparison.synced) return null;
+
+    return {
+      output: `Planning short-circuit: ${nextTaskPath} already matches ${nextTaskJsonPath}. No planning changes required.`,
+      taskMetadata: {
+        agentic_noop_planning: true,
+        agentic_noop_reason: 'task_spec_synced',
+        compared_fields: comparison.comparedFields,
+        next_task_path: nextTaskPath,
+        next_task_json_path: nextTaskJsonPath,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function coerceOptionalBoolean(value, defaultValue = false) {
+  if (value === undefined || value === null) return defaultValue;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  }
+  return defaultValue;
+}
+
+function resolveNextTaskSpecPaths(metadata) {
+  const nextTaskPath = (typeof metadata?.agentic_next_task_path === 'string' && metadata.agentic_next_task_path.trim())
+    ? metadata.agentic_next_task_path.trim()
+    : 'docs/autodev/NEXT_TASK.md';
+  const nextTaskJsonPath = (typeof metadata?.agentic_next_task_json_path === 'string' && metadata.agentic_next_task_json_path.trim())
+    ? metadata.agentic_next_task_json_path.trim()
+    : (nextTaskPath.endsWith('.md') ? `${nextTaskPath.slice(0, -3)}.json` : '');
+  return { nextTaskPath, nextTaskJsonPath };
+}
+
+function loadTaskSpecFromMetadata(metadata, workingDir) {
+  const fs = require('fs');
+  const { nextTaskPath, nextTaskJsonPath } = resolveNextTaskSpecPaths(metadata);
+
+  if (nextTaskJsonPath) {
+    const resolvedJsonPath = path.resolve(workingDir, nextTaskJsonPath);
+    if (fs.existsSync(resolvedJsonPath)) {
+      try {
+        return {
+          source: 'json',
+          path: nextTaskJsonPath,
+          spec: JSON.parse(fs.readFileSync(resolvedJsonPath, 'utf-8')),
+        };
+      } catch {
+        // Fall through to markdown when the JSON spec is invalid.
+      }
+    }
+  }
+
+  if (nextTaskPath) {
+    const resolvedMarkdownPath = path.resolve(workingDir, nextTaskPath);
+    if (fs.existsSync(resolvedMarkdownPath)) {
+      return {
+        source: 'markdown',
+        path: nextTaskPath,
+        spec: parseNextTaskMarkdownSpec(fs.readFileSync(resolvedMarkdownPath, 'utf-8')),
+      };
+    }
+  }
+
+  return null;
+}
+
+function resolveTaskVerificationCommand(task, workingDir, agenticPolicy) {
+  const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  const explicitCommand = typeof metadata.agentic_verification_command === 'string'
+    ? metadata.agentic_verification_command
+    : metadata.verification_command;
+  if (typeof explicitCommand === 'string' && explicitCommand.trim()) {
+    return stripWrappingBackticks(explicitCommand);
+  }
+
+  const taskSpec = loadTaskSpecFromMetadata(metadata, workingDir);
+  if (!taskSpec?.spec) return null;
+  if (taskSpec.source === 'json') {
+    return stripWrappingBackticks(taskSpec.spec.verification_command ?? taskSpec.spec.verificationCommand ?? '');
+  }
+  return stripWrappingBackticks(taskSpec.spec.verification_command || '');
+}
+
+function normalizeCommandForComparison(value) {
+  return stripWrappingBackticks(String(value || ''))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function extractLoggedCommand(toolEntry) {
+  if (typeof toolEntry?.command === 'string' && toolEntry.command.trim()) {
+    return toolEntry.command.trim();
+  }
+  if (typeof toolEntry?.arguments_preview !== 'string') return '';
+  try {
+    const parsed = JSON.parse(toolEntry.arguments_preview);
+    return typeof parsed?.command === 'string' ? parsed.command.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+function inspectVerificationToolLog(toolLog, verificationCommand) {
+  const normalizedVerificationCommand = normalizeCommandForComparison(verificationCommand);
+  if (!normalizedVerificationCommand) return null;
+
+  const verificationEntries = Array.isArray(toolLog)
+    ? toolLog.filter((entry) => entry?.name === 'run_command'
+        && normalizeCommandForComparison(extractLoggedCommand(entry)) === normalizedVerificationCommand)
+    : [];
+
+  if (verificationEntries.length === 0) {
+    return {
+      status: 'missing',
+      message: `Verification command was required but never executed: ${verificationCommand}`,
+    };
+  }
+
+  const failedVerification = verificationEntries.find((entry) => {
+    if (entry?.error) return true;
+    const preview = String(entry?.result_preview || '');
+    return /Command failed \(exit|Build FAILED|error CS\d+|MSBUILD : error|Test Run Failed|Unhandled exception/i.test(preview);
+  });
+
+  if (failedVerification) {
+    return {
+      status: 'failed',
+      message: `Verification command failed: ${verificationCommand}`,
+    };
+  }
+
+  return null;
+}
+
+function buildGitSafetyOptions(agenticPolicy) {
+  return {
+    authorizedPaths: Array.isArray(agenticPolicy?.writeAllowlist) ? agenticPolicy.writeAllowlist : [],
+  };
+}
+
+function evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxIterations, gitReport) {
+  const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  const strictExecution = coerceOptionalBoolean(
+    metadata.agentic_strict_completion,
+    coerceOptionalBoolean(metadata.agentic_constraints_from_next_task, false),
+  );
+  if (!strictExecution) return null;
+
+  const failOnMaxIterations = coerceOptionalBoolean(metadata.agentic_fail_on_max_iterations, true);
+  const failOnVerification = coerceOptionalBoolean(metadata.agentic_fail_on_verification_error, true);
+  const failOnGitRevert = coerceOptionalBoolean(metadata.agentic_fail_on_git_revert, true);
+
+  const failureMessages = [];
+  const verificationCommand = resolveTaskVerificationCommand(task, workingDir, agenticPolicy);
+
+  if (failOnVerification && verificationCommand) {
+    const verificationResult = inspectVerificationToolLog(result?.toolLog, verificationCommand);
+    if (verificationResult) failureMessages.push(verificationResult.message);
+  }
+
+  const reachedMaxIterations = result?.stopReason === 'max_iterations'
+    || /Task reached maximum iterations/i.test(String(result?.output || ''));
+  if (failOnMaxIterations && reachedMaxIterations) {
+    failureMessages.push(`Agentic task exhausted its iteration budget (${maxIterations}) without converging.`);
+  }
+
+  if (failOnGitRevert && Array.isArray(gitReport?.reverted) && gitReport.reverted.length > 0) {
+    failureMessages.push(`Git Safety reverted unauthorized changes: ${gitReport.reverted.join(', ')}`);
+  }
+
+  if (failureMessages.length === 0) return null;
+
+  return {
+    message: failureMessages.join('\n'),
+    verificationCommand,
+  };
+}
+
+function appendTaskPolicyGuidance(systemPrompt, agenticPolicy) {
+  const guidance = [];
+  if (Array.isArray(agenticPolicy.readAllowlist) && agenticPolicy.readAllowlist.length > 0) {
+    guidance.push(`Read scope is restricted to: ${agenticPolicy.readAllowlist.join(', ')}`);
+  }
+  if (Array.isArray(agenticPolicy.writeAllowlist) && agenticPolicy.writeAllowlist.length > 0) {
+    guidance.push(`Write scope is restricted to: ${agenticPolicy.writeAllowlist.join(', ')}`);
+  }
+  if (agenticPolicy.commandMode === 'allowlist') {
+    const commandSummary = agenticPolicy.commandAllowlist.length > 0
+      ? agenticPolicy.commandAllowlist.join(', ')
+      : 'no commands are allowed';
+    guidance.push(`Commands must match this allowlist: ${commandSummary}`);
+  }
+  if (guidance.length === 0) return systemPrompt;
+  return `${systemPrompt}\n\nTask-specific hard constraints:\n- ${guidance.join('\n- ')}`;
+}
+
 /**
  * Pre-stuff file contents into the task prompt for agentic providers.
  * Extracts file paths from the task description, reads them, and appends
@@ -330,6 +811,106 @@ function spawnAgenticWorker(config, callbacks = {}) {
   return { promise, abort, terminate, worker };
 }
 
+function getAgenticRunningProcesses() {
+  return _agenticDeps?.runningProcesses || null;
+}
+
+function appendTrackedOutput(entry, chunk, maxChars = 8192) {
+  if (!entry || !chunk) return;
+  const next = `${entry.output || ''}${chunk}`;
+  entry.output = next.length > maxChars ? next.slice(-maxChars) : next;
+}
+
+function touchTrackedAgenticWorker(taskId, mutate) {
+  const runningProcesses = getAgenticRunningProcesses();
+  const entry = runningProcesses?.get?.(taskId);
+  if (!entry) return;
+  if (typeof mutate === 'function') mutate(entry);
+  entry.lastOutputAt = Date.now();
+}
+
+function buildTrackedAgenticCallbacks(taskId, callbacks = {}) {
+  return {
+    onProgress: (msg) => {
+      touchTrackedAgenticWorker(taskId, (entry) => {
+        entry.lastProgress = msg.iteration;
+        entry.output = `[Agentic: iteration ${msg.iteration}/${msg.maxIterations}, last tool: ${msg.lastTool || 'none'}]`;
+      });
+      callbacks.onProgress?.(msg);
+    },
+    onToolCall: (msg) => {
+      touchTrackedAgenticWorker(taskId, (entry) => {
+        appendTrackedOutput(entry, `[tool:${msg.name}] `);
+      });
+      callbacks.onToolCall?.(msg);
+    },
+    onChunk: (msg) => {
+      touchTrackedAgenticWorker(taskId, (entry) => {
+        appendTrackedOutput(entry, msg.text || '');
+      });
+      callbacks.onChunk?.(msg);
+    },
+    onLog: (msg) => callbacks.onLog?.(msg),
+  };
+}
+
+function trackAgenticWorkerTask(taskId, {
+  workerHandle,
+  abortController = null,
+  provider = null,
+  model = null,
+  workingDir = null,
+  timeoutHandle = null,
+}) {
+  const runningProcesses = getAgenticRunningProcesses();
+  const worker = workerHandle?.worker;
+  if (!runningProcesses?.set || !worker) return () => {};
+
+  const originalKill = typeof worker.kill === 'function' ? worker.kill.bind(worker) : null;
+  if (typeof worker.kill !== 'function') {
+    worker.kill = (signal = 'SIGTERM') => {
+      if (signal === 'SIGTERM') {
+        try { abortController?.abort?.(); } catch { /* ignore */ }
+        try { workerHandle.abort?.(); } catch { /* ignore */ }
+        return true;
+      }
+      try { workerHandle.terminate?.(); } catch { /* ignore */ }
+      return true;
+    };
+  }
+
+  const now = Date.now();
+  const procRecord = {
+    process: worker,
+    output: '',
+    errorOutput: '',
+    startTime: now,
+    lastOutputAt: now,
+    stallWarned: false,
+    timeoutHandle,
+    provider,
+    model,
+    workingDirectory: workingDir,
+    isAgenticWorker: true,
+  };
+
+  runningProcesses.set(taskId, procRecord);
+
+  return () => {
+    const current = runningProcesses.get(taskId);
+    if (current === procRecord) {
+      if (current.timeoutHandle) clearTimeout(current.timeoutHandle);
+      if (current.startupTimeoutHandle) clearTimeout(current.startupTimeoutHandle);
+      if (current.completionGraceHandle) clearTimeout(current.completionGraceHandle);
+      runningProcesses.delete(taskId);
+      runningProcesses.stallAttempts?.delete?.(taskId);
+    }
+
+    if (originalKill) worker.kill = originalKill;
+    else delete worker.kill;
+  };
+}
+
 /**
  * Run the full agentic pipeline: create executor, capture git snapshot,
  * run the agentic loop, check/revert unauthorized changes, store metadata.
@@ -358,11 +939,14 @@ async function runAgenticPipeline({
   const serverConfig = require('../config');
   const { db, dashboard } = _agenticDeps;
   const taskId = task.id;
+  const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
 
   // Create tool executor
   const executor = createToolExecutor(workingDir, {
-    commandMode: serverConfig.get('agentic_command_mode') || 'unrestricted',
-    commandAllowlist: (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean),
+    commandMode: agenticPolicy.commandMode,
+    commandAllowlist: agenticPolicy.commandAllowlist,
+    readAllowlist: agenticPolicy.readAllowlist,
+    writeAllowlist: agenticPolicy.writeAllowlist,
   });
 
   // Capture git snapshot (non-git repos return null)
@@ -380,7 +964,7 @@ async function runAgenticPipeline({
   // For prompt-injected tools: pass empty tools array (tools are in the system prompt)
   const result = await runAgenticLoop({
     adapter,
-    systemPrompt,
+    systemPrompt: appendTaskPolicyGuidance(systemPrompt, agenticPolicy),
     taskPrompt: enrichedPromptInline,
     tools: promptInjectedTools ? [] : selectToolsForTask(task.task_description),
     promptInjectedTools,
@@ -388,7 +972,7 @@ async function runAgenticPipeline({
     options: adapterOptions,
     workingDir,
     timeoutMs,
-    maxIterations,
+    maxIterations: agenticPolicy.maxIterations || maxIterations,
     contextBudget,
     onProgress: (iteration, max, lastTool) => {
       const pct = Math.min(85, 10 + Math.floor((iteration / max) * 75));
@@ -416,7 +1000,7 @@ async function runAgenticPipeline({
     const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
     // Map 'on' to 'enforce' for the git safety module
     const mode = safetyMode === 'on' ? 'enforce' : safetyMode === 'warn' ? 'warn' : 'off';
-    const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode);
+    const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode, buildGitSafetyOptions(agenticPolicy));
     if (gitReport.report) {
       result.output += `\n\n--- Git Safety ---\n${gitReport.report}`;
     }
@@ -474,6 +1058,39 @@ async function executeOllamaTaskWithAgentic(task) {
   const providerConfig = require('./config');
   const ollamaShared = require('./ollama-shared');
   const taskId = task.id;
+
+  // Resolve working directory
+  let workingDir = task.working_directory;
+  if (!workingDir) workingDir = process.cwd();
+  const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
+
+  const noopPlanningResult = maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy);
+  if (noopPlanningResult) {
+    const completedAt = new Date().toISOString();
+    safeUpdateTaskStatus(taskId, 'completed', {
+      output: noopPlanningResult.output,
+      exit_code: 0,
+      progress_percent: 100,
+      started_at: completedAt,
+      completed_at: completedAt,
+      task_metadata: JSON.stringify(noopPlanningResult.taskMetadata),
+    });
+
+    try {
+      const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+      dispatchTaskEvent('completed', db.getTask(taskId));
+    } catch { /* non-fatal */ }
+
+    logger.info(`[Agentic] Ollama task ${taskId} short-circuited: ${noopPlanningResult.taskMetadata.agentic_noop_reason}`);
+    dashboard.notifyTaskUpdated(taskId);
+    if (typeof handleWorkflowTermination === 'function') {
+      try { handleWorkflowTermination(taskId); } catch (e) {
+        logger.info(`[Agentic] handleWorkflowTermination error for Ollama task ${taskId}: ${e.message}`);
+      }
+    }
+    processQueue();
+    return;
+  }
 
   // Resolve model
   let resolvedModel = task.model;
@@ -554,10 +1171,6 @@ async function executeOllamaTaskWithAgentic(task) {
     };
   }
 
-  // Resolve working directory
-  let workingDir = task.working_directory;
-  if (!workingDir) workingDir = process.cwd();
-
   // Resolve tuning
   const tuning = providerConfig.resolveOllamaTuning({
     hostId: selectedHostId,
@@ -589,7 +1202,10 @@ async function executeOllamaTaskWithAgentic(task) {
 
   // Build system prompt
   const basePrompt = providerConfig.resolveSystemPrompt(resolvedModel);
-  let systemPrompt = buildAgenticSystemPrompt(basePrompt, workingDir);
+  let systemPrompt = appendTaskPolicyGuidance(
+    buildAgenticSystemPrompt(basePrompt, workingDir),
+    agenticPolicy
+  );
 
   // For prompt-injected tools: append tool definitions to system prompt
   if (usePromptInjection) {
@@ -628,6 +1244,7 @@ async function executeOllamaTaskWithAgentic(task) {
   }, 2000);
   // Hoisted so the finally block can call removeEventListener for cleanup
   let origAbortHandler = null;
+  let cleanupTrackedWorker = null;
 
   // Per-host mutex — wait for any prior task on this host to finish.
   // Prevents GPU contention when multi-instance scheduling races occur.
@@ -642,7 +1259,8 @@ async function executeOllamaTaskWithAgentic(task) {
     // Category-aware max iterations: complex tasks get more room
     const baseMaxIter = parseInt(serverConfig.get('agentic_max_iterations') || '15', 10);
     const taskComplexity = task.complexity || 'normal';
-    const maxIterations = taskComplexity === 'complex' ? Math.max(baseMaxIter, 20) : baseMaxIter;
+    const defaultMaxIterations = taskComplexity === 'complex' ? Math.max(baseMaxIter, 20) : baseMaxIter;
+    const maxIterations = agenticPolicy.maxIterations || defaultMaxIterations;
     const contextBudget = Math.floor(effectiveNumCtx * 0.8);
 
     // Capture git snapshot in main thread (git ops need main process context)
@@ -675,9 +1293,11 @@ async function executeOllamaTaskWithAgentic(task) {
       maxIterations,
       contextBudget,
       promptInjectedTools: usePromptInjection,
-      commandMode: serverConfig.get('agentic_command_mode') || 'unrestricted',
-      commandAllowlist: (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean),
-    }, {
+      commandMode: agenticPolicy.commandMode,
+      commandAllowlist: agenticPolicy.commandAllowlist,
+      readAllowlist: agenticPolicy.readAllowlist,
+      writeAllowlist: agenticPolicy.writeAllowlist,
+    }, buildTrackedAgenticCallbacks(taskId, {
       onProgress: (msg) => {
         try {
           db.updateTaskStatus(taskId, 'running', {
@@ -701,6 +1321,14 @@ async function executeOllamaTaskWithAgentic(task) {
       onLog: (msg) => {
         logger[msg.level || 'info'](msg.message);
       },
+    }));
+    cleanupTrackedWorker = trackAgenticWorkerTask(taskId, {
+      workerHandle,
+      abortController,
+      provider,
+      model: resolvedModel,
+      workingDir,
+      timeoutHandle,
     });
 
     // Wire abort: forward AbortController.abort() → worker abort message
@@ -708,15 +1336,41 @@ async function executeOllamaTaskWithAgentic(task) {
     abortController.signal.addEventListener('abort', origAbortHandler);
 
     const result = await workerHandle.promise;
+    let gitReport = null;
 
     // Git safety check in main thread (after worker completes)
     if (snapshot && snapshot.isGitRepo) {
       const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
       const mode = safetyMode === 'on' ? 'enforce' : safetyMode === 'warn' ? 'warn' : 'off';
-      const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode);
+      gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode, buildGitSafetyOptions(agenticPolicy));
       if (gitReport.report) {
         result.output += '\n\n--- Git Safety ---\n' + gitReport.report;
       }
+    }
+
+    const completionFailure = evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxIterations, gitReport);
+    if (completionFailure) {
+      safeUpdateTaskStatus(taskId, 'failed', {
+        output: result.output,
+        error_output: completionFailure.message,
+        exit_code: 1,
+        progress_percent: 100,
+        completed_at: new Date().toISOString(),
+        task_metadata: JSON.stringify({
+          agentic_log: result.toolLog,
+          agentic_token_usage: result.tokenUsage,
+          agentic_failure_reason: completionFailure.message,
+          ...(completionFailure.verificationCommand ? { verification_command: completionFailure.verificationCommand } : {}),
+        }),
+      });
+
+      try {
+        const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+        dispatchTaskEvent('failed', db.getTask(taskId));
+      } catch { /* non-fatal */ }
+
+      logger.info(`[Agentic] Ollama task ${taskId} marked failed after completion review: ${completionFailure.message}`);
+      return;
     }
 
     // Store result + metadata in a single status update (avoid double-complete race)
@@ -757,6 +1411,7 @@ async function executeOllamaTaskWithAgentic(task) {
     clearInterval(cancelCheckInterval);
     clearTimeout(timeoutHandle);
     if (apiAbortControllers) apiAbortControllers.delete(taskId);
+    cleanupTrackedWorker?.();
     if (typeof releaseSelectedHostSlot === 'function') {
       try { releaseSelectedHostSlot(); } catch { /* ignore */ }
     }
@@ -825,13 +1480,45 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   // Resolve working directory
   let workingDir = task.working_directory;
   if (!workingDir) workingDir = process.cwd();
+  const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
+
+  const noopPlanningResult = maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy);
+  if (noopPlanningResult) {
+    const completedAt = new Date().toISOString();
+    safeUpdateTaskStatus(taskId, 'completed', {
+      output: noopPlanningResult.output,
+      exit_code: 0,
+      progress_percent: 100,
+      started_at: completedAt,
+      completed_at: completedAt,
+      task_metadata: JSON.stringify(noopPlanningResult.taskMetadata),
+    });
+
+    try {
+      const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+      dispatchTaskEvent('completed', db.getTask(taskId));
+    } catch { /* non-fatal */ }
+
+    logger.info(`[Agentic] API task ${taskId} short-circuited: ${noopPlanningResult.taskMetadata.agentic_noop_reason}`);
+    dashboard.notifyTaskUpdated(taskId);
+    if (typeof handleWorkflowTermination === 'function') {
+      try { handleWorkflowTermination(taskId); } catch (e) {
+        logger.info(`[Agentic] handleWorkflowTermination error for API task ${taskId}: ${e.message}`);
+      }
+    }
+    processQueue();
+    return;
+  }
 
   // Resolve host URL for the provider
   const host = PROVIDER_HOST_MAP[provider] || '';
 
   // Build system prompt (use default for cloud providers)
   const basePrompt = providerConfig.resolveSystemPrompt(model);
-  const systemPrompt = buildAgenticSystemPrompt(basePrompt, workingDir);
+  const systemPrompt = appendTaskPolicyGuidance(
+    buildAgenticSystemPrompt(basePrompt, workingDir),
+    agenticPolicy
+  );
 
   // Update status
   db.updateTaskStatus(taskId, 'running', {
@@ -858,6 +1545,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   }, 2000);
   // Hoisted so the finally block can call removeEventListener for cleanup
   let origAbortHandler2 = null;
+  let cleanupTrackedWorker = null;
 
   try {
     logger.info(`[Agentic] Starting API task ${taskId} with provider ${provider}, model ${model}`);
@@ -865,7 +1553,8 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     // Category-aware max iterations: complex tasks get more room
     const baseMaxIter2 = parseInt(serverConfig.get('agentic_max_iterations') || '15', 10);
     const taskComplexity2 = task.complexity || 'normal';
-    const maxIterations = taskComplexity2 === 'complex' ? Math.max(baseMaxIter2, 20) : baseMaxIter2;
+    const defaultMaxIterations = taskComplexity2 === 'complex' ? Math.max(baseMaxIter2, 20) : baseMaxIter2;
+    const maxIterations = agenticPolicy.maxIterations || defaultMaxIterations;
 
     // Derive context budget from provider capabilities
     const PROVIDER_CONTEXT_BUDGETS = {
@@ -909,6 +1598,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     };
 
     let result;
+    let completionGitReport = null;
 
     if (chain && Array.isArray(chain) && chain.length > 1) {
       // Multi-provider fallback chain — delegate to executeWithFallback
@@ -934,12 +1624,14 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           maxIterations,
           contextBudget: PROVIDER_CONTEXT_BUDGETS[entry.provider] || contextBudget,
           promptInjectedTools: needsPromptInjection(entry.model || ''),
-          commandMode: serverConfig.get('agentic_command_mode') || 'unrestricted',
-          commandAllowlist: (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean),
+          commandMode: agenticPolicy.commandMode,
+          commandAllowlist: agenticPolicy.commandAllowlist,
+          readAllowlist: agenticPolicy.readAllowlist,
+          writeAllowlist: agenticPolicy.writeAllowlist,
         };
       };
 
-      result = await executeWithFallback(task, chain, buildConfig, workerCallbacks);
+      result = await executeWithFallback(task, chain, buildConfig, workerCallbacks, agenticPolicy);
       logger.info(`[Agentic] API task ${taskId} completed via chain position ${result.chainPosition}: ${result.provider}/${result.model || 'default'}`);
     } else {
       // Single-provider path (no chain or single-entry chain)
@@ -974,9 +1666,19 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         maxIterations,
         contextBudget,
         promptInjectedTools: false,
-        commandMode: serverConfig.get('agentic_command_mode') || 'unrestricted',
-        commandAllowlist: (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean),
-      }, workerCallbacks);
+        commandMode: agenticPolicy.commandMode,
+        commandAllowlist: agenticPolicy.commandAllowlist,
+        readAllowlist: agenticPolicy.readAllowlist,
+        writeAllowlist: agenticPolicy.writeAllowlist,
+      }, buildTrackedAgenticCallbacks(taskId, workerCallbacks));
+      cleanupTrackedWorker = trackAgenticWorkerTask(taskId, {
+        workerHandle,
+        abortController,
+        provider,
+        model,
+        workingDir,
+        timeoutHandle,
+      });
 
       // Wire abort: forward AbortController.abort() → worker abort message
       origAbortHandler2 = () => workerHandle.abort();
@@ -988,11 +1690,38 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       if (snapshot && snapshot.isGitRepo) {
         const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
         const mode = safetyMode === 'on' ? 'enforce' : safetyMode === 'warn' ? 'warn' : 'off';
-        const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode);
+        const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode, buildGitSafetyOptions(agenticPolicy));
+        completionGitReport = gitReport;
         if (gitReport.report) {
           result.output += '\n\n--- Git Safety ---\n' + gitReport.report;
         }
       }
+    }
+
+    const completionFailure = evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxIterations, result?.gitReport || completionGitReport);
+    if (completionFailure) {
+      safeUpdateTaskStatus(taskId, 'failed', {
+        output: result.output || '',
+        error_output: completionFailure.message,
+        exit_code: 1,
+        progress_percent: 100,
+        completed_at: new Date().toISOString(),
+        task_metadata: JSON.stringify({
+          agentic_log: result.toolLog,
+          agentic_token_usage: result.tokenUsage,
+          agentic_failure_reason: completionFailure.message,
+          ...(result.chainPosition ? { chain_provider: result.provider, chain_position: result.chainPosition } : {}),
+          ...(completionFailure.verificationCommand ? { verification_command: completionFailure.verificationCommand } : {}),
+        }),
+      });
+
+      try {
+        const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+        dispatchTaskEvent('failed', db.getTask(taskId));
+      } catch { /* non-fatal */ }
+
+      logger.info(`[Agentic] API task ${taskId} marked failed after completion review: ${completionFailure.message}`);
+      return;
     }
 
     // Store result + metadata in a single status update (avoid double-complete race)
@@ -1120,6 +1849,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     clearInterval(cancelCheckInterval);
     clearTimeout(timeoutHandle);
     if (apiAbortControllers2) apiAbortControllers2.delete(taskId);
+    cleanupTrackedWorker?.();
     dashboard.notifyTaskUpdated(taskId);
     // Workflow termination in both success and failure paths
     if (typeof handleWorkflowTermination === 'function') {
@@ -1180,7 +1910,7 @@ function isRetryableError(error) {
  * @param {Object} callbacks                     — {onProgress, onToolCall, onChunk, onLog}
  * @returns {Promise<Object>} result augmented with .provider, .model, .chainPosition
  */
-async function executeWithFallback(task, chain, buildWorkerConfig, callbacks) {
+async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, agenticPolicy = null) {
   const workingDir = task.working_directory || process.cwd();
 
   // Capture git snapshot ONCE before any attempts
@@ -1196,23 +1926,31 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks) {
     logger.info(`[Routing] Trying ${entry.provider}/${entry.model || 'default'} (${i + 1}/${chain.length})`);
 
     let workerHandle;
+    let cleanupTrackedWorker = null;
     try {
-      workerHandle = spawnAgenticWorker(config, callbacks);
+      workerHandle = spawnAgenticWorker(config, buildTrackedAgenticCallbacks(task.id, callbacks));
+      cleanupTrackedWorker = trackAgenticWorkerTask(task.id, {
+        workerHandle,
+        provider: entry.provider,
+        model: entry.model || null,
+        workingDir,
+      });
       const result = await workerHandle.promise;
+      let gitReport = null;
 
       // Success — run git safety and return
       if (snapshot && snapshot.isGitRepo) {
         const serverConfig = require('../config');
         const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
         const mode = safetyMode === 'warn' ? 'warn' : safetyMode === 'off' ? 'off' : 'enforce';
-        const gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode);
+        gitReport = checkAndRevert(workingDir, snapshot, task.task_description, mode, buildGitSafetyOptions(agenticPolicy));
         if (gitReport.report) result.output += '\n\n--- Git Safety ---\n' + gitReport.report;
       }
 
       // Record success
       try { recordProviderOutcome(entry.provider, true); } catch { /* non-critical */ }
 
-      return { ...result, provider: entry.provider, model: entry.model, chainPosition: i + 1 };
+      return { ...result, provider: entry.provider, model: entry.model, chainPosition: i + 1, gitReport };
 
     } catch (error) {
       lastError = error;
@@ -1222,7 +1960,7 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks) {
 
       // Revert any partial changes before retrying
       if (snapshot && snapshot.isGitRepo) {
-        try { checkAndRevert(workingDir, snapshot, task.task_description, 'enforce'); } catch { /* ignore */ }
+        try { checkAndRevert(workingDir, snapshot, task.task_description, 'enforce', buildGitSafetyOptions(agenticPolicy)); } catch { /* ignore */ }
       }
 
       // Record failure
@@ -1234,6 +1972,8 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks) {
       }
 
       logger.info(`[Routing] Fallback: ${entry.provider}/${entry.model || 'default'} failed (${error.message.slice(0, 80)}), trying next (${i + 2}/${chain.length})`);
+    } finally {
+      cleanupTrackedWorker?.();
     }
   }
 

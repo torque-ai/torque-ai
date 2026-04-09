@@ -25,6 +25,63 @@ function init(taskManager) {
   _taskManager = taskManager;
 }
 
+function syncWorkflowBlockers(workflowId) {
+  if (!workflowId) return;
+  try {
+    const workflowRuntime = require('../execution/workflow-runtime');
+    if (typeof workflowRuntime.refreshWorkflowBlockerSnapshots === 'function') {
+      workflowRuntime.refreshWorkflowBlockerSnapshots(workflowId);
+    }
+  } catch {
+    // Non-critical: detail endpoints should still respond even if blocker refresh is unavailable.
+  }
+}
+
+function getWorkflowTaskListWithBlockers(workflowId, statusOverride = null) {
+  syncWorkflowBlockers(workflowId);
+
+  const status = statusOverride || workflowEngine.getWorkflowStatus(workflowId);
+  const taskList = Array.isArray(status?.tasks) ? status.tasks : Object.values(status?.tasks || {});
+  const persistedTasks = typeof workflowEngine.getWorkflowTasks === 'function'
+    ? (workflowEngine.getWorkflowTasks(workflowId) || [])
+    : [];
+  const blockerByTaskId = new Map(
+    persistedTasks.map((task) => [
+      task.id,
+      task?.context && typeof task.context === 'object' && !Array.isArray(task.context)
+        ? task.context.workflow_blocker || null
+        : null,
+    ])
+  );
+
+  return {
+    status,
+    taskList: taskList.map((task) => ({
+      ...task,
+      blocker_snapshot: blockerByTaskId.has(task.id)
+        ? blockerByTaskId.get(task.id)
+        : (task.blocker_snapshot || null),
+    })),
+  };
+}
+
+function buildWorkflowDetailPayload(workflow, workflowId = workflow?.id) {
+  const { status, taskList } = getWorkflowTaskListWithBlockers(workflowId);
+  const detail = buildWorkflowDetailResponse(workflow, taskList);
+  if (!detail) return null;
+  return {
+    ...detail,
+    tasks: Array.isArray(detail.tasks)
+      ? detail.tasks.map((task) => {
+        const sourceTask = taskList.find((candidate) => candidate.id === task.id);
+        return sourceTask
+          ? { ...task, blocker_snapshot: sourceTask.blocker_snapshot || null }
+          : task;
+      })
+      : [],
+  };
+}
+
 // ─── POST /api/v2/workflows — Create workflow ────────────────────────────
 
 async function handleCreateWorkflow(req, res) {
@@ -66,11 +123,16 @@ async function handleCreateWorkflow(req, res) {
 
     if (workflowId) {
       const workflow = workflowEngine.getWorkflow(workflowId);
-      const status = workflowEngine.getWorkflowStatus(workflowId);
-      sendSuccess(res, requestId, buildWorkflowDetailResponse(
-        workflow || { id: workflowId, name, status: 'pending' },
-        status?.tasks || {}
-      ), 201, req);
+      sendSuccess(
+        res,
+        requestId,
+        buildWorkflowDetailPayload(
+          workflow || { id: workflowId, name, status: 'pending' },
+          workflowId
+        ),
+        201,
+        req
+      );
     } else {
       sendSuccess(res, requestId, { name, message: text }, 201, req);
     }
@@ -119,11 +181,7 @@ async function handleGetWorkflow(req, res) {
     return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
   }
 
-  const status = workflowEngine.getWorkflowStatus(workflowId);
-  sendSuccess(res, requestId, buildWorkflowDetailResponse(
-    workflow,
-    status?.tasks || {}
-  ), 200, req);
+  sendSuccess(res, requestId, buildWorkflowDetailPayload(workflow, workflowId), 200, req);
 }
 
 // ─── POST /api/v2/workflows/:workflow_id/run — Run workflow ──────────────
@@ -151,11 +209,7 @@ async function handleRunWorkflow(req, res) {
     }
 
     const updated = workflowEngine.getWorkflow(workflowId);
-    const status = workflowEngine.getWorkflowStatus(workflowId);
-    sendSuccess(res, requestId, buildWorkflowDetailResponse(
-      updated || workflow,
-      status?.tasks || {}
-    ), 200, req);
+    sendSuccess(res, requestId, buildWorkflowDetailPayload(updated || workflow, workflowId), 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
   }
@@ -309,11 +363,16 @@ async function handleCreateFeatureWorkflow(req, res) {
 
     if (workflowId) {
       const workflow = workflowEngine.getWorkflow(workflowId);
-      const status = workflowEngine.getWorkflowStatus(workflowId);
-      sendSuccess(res, requestId, buildWorkflowDetailResponse(
-        workflow || { id: workflowId, name: body.feature_name || body.name, status: 'pending' },
-        status?.tasks || {}
-      ), 201, req);
+      sendSuccess(
+        res,
+        requestId,
+        buildWorkflowDetailPayload(
+          workflow || { id: workflowId, name: body.feature_name || body.name, status: 'pending' },
+          workflowId
+        ),
+        201,
+        req
+      );
     } else {
       sendSuccess(res, requestId, { message: text }, 201, req);
     }
@@ -380,11 +439,7 @@ async function handleResumeWorkflow(req, res) {
     }
 
     const updated = workflowEngine.getWorkflow(workflowId);
-    const status = workflowEngine.getWorkflowStatus(workflowId);
-    sendSuccess(res, requestId, buildWorkflowDetailResponse(
-      updated || workflow,
-      status?.tasks || {}
-    ), 200, req);
+    sendSuccess(res, requestId, buildWorkflowDetailPayload(updated || workflow, workflowId), 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
   }
@@ -402,14 +457,12 @@ async function handleGetWorkflowTasks(req, res) {
   }
 
   try {
-    const status = workflowEngine.getWorkflowStatus(workflowId);
-    const tasks = status?.tasks || {};
-    const taskList = Array.isArray(tasks) ? tasks : Object.values(tasks);
-
+    const { taskList } = getWorkflowTaskListWithBlockers(workflowId);
     const items = taskList.map(t => ({
       ...buildTaskResponse(t),
       node_id: t.node_id || null,
       depends_on: t.depends_on || null,
+      blocker_snapshot: t.blocker_snapshot || null,
     })).filter(Boolean);
 
     sendList(res, requestId, items, items.length, req);

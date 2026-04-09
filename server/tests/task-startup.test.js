@@ -265,6 +265,51 @@ describe('task-startup', () => {
     );
   });
 
+  it('stamps the resolved Ollama model before handing off to the executor', async () => {
+    const registryPath = require.resolve('../models/registry');
+    const sharedPath = require.resolve('../providers/ollama-shared');
+    const originalRegistry = require.cache[registryPath];
+    const originalShared = require.cache[sharedPath];
+
+    installCjsModuleMock('../models/registry', {
+      selectBestApprovedModel: vi.fn(() => ({ model_name: 'qwen3-coder:30b' })),
+    });
+    installCjsModuleMock('../providers/ollama-shared', {
+      resolveOllamaModel: vi.fn(() => ''),
+      hasModelOnAnyHost: vi.fn(() => true),
+      findBestAvailableModel: vi.fn(() => 'qwen3-coder:30b'),
+    });
+
+    try {
+      const task = createTask({ provider: 'ollama', model: null });
+      const ctx = loadTaskStartup({ task });
+
+      const result = await ctx.module.startTask(task.id);
+
+      expect(result).toEqual({ queued: false, started: true, provider: 'ollama' });
+      expect(ctx.tasks.get(task.id)?.model).toBe('qwen3-coder:30b');
+      expect(ctx.deps.db.updateTaskStatus).toHaveBeenCalledWith(
+        task.id,
+        'running',
+        expect.objectContaining({ model: 'qwen3-coder:30b' }),
+      );
+      expect(ctx.deps.executeOllamaTask).toHaveBeenCalledWith(
+        expect.objectContaining({ id: task.id, model: 'qwen3-coder:30b' }),
+      );
+    } finally {
+      if (originalRegistry) {
+        require.cache[registryPath] = originalRegistry;
+      } else {
+        delete require.cache[registryPath];
+      }
+      if (originalShared) {
+        require.cache[sharedPath] = originalShared;
+      } else {
+        delete require.cache[sharedPath];
+      }
+    }
+  });
+
   it('startTask fails gracefully when runPreflightChecks rejects the task', async () => {
     const task = createTask({ working_directory: 'C:/missing-repo' });
     const ctx = loadTaskStartup({ task });
@@ -384,6 +429,38 @@ describe('task-startup', () => {
       'processQueue: async failure for codex task missing-task',
       { error: 'Task not found: missing-task' },
     );
+  });
+
+  it('reverts async startup failures that already claimed a running slot', async () => {
+    const task = createTask({ provider: 'ollama' });
+    const ctx = loadTaskStartup({ task });
+    const failError = new Error('agentic startup failed');
+    ctx.deps.executeOllamaTask.mockRejectedValue(failError);
+    ctx.deps.safeUpdateTaskStatus.mockImplementation((taskId, status, patch = {}) => {
+      return ctx.deps.db.updateTaskStatus(taskId, status, patch);
+    });
+
+    const result = ctx.module.safeStartTask(task.id, 'ollama');
+
+    expect(result).toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(ctx.mockLogger.error).toHaveBeenCalledWith(
+      `processQueue: async failure for ollama task ${task.id}`,
+      { error: failError.message },
+    );
+    expect(ctx.deps.safeUpdateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'failed',
+      expect.objectContaining({
+        error_output: failError.message,
+        pid: null,
+        mcp_instance_id: null,
+        ollama_host_id: null,
+      }),
+    );
+    expect(ctx.tasks.get(task.id)?.status).toBe('failed');
+    expect(ctx.deps.processQueue).toHaveBeenCalled();
   });
 
   it('setSkipGitInCloseHandler and getSkipGitInCloseHandler toggle correctly', async () => {

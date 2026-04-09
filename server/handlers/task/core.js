@@ -17,6 +17,7 @@ const hostManagement = require('../../db/host-management');
 const projectConfigCore = require('../../db/project-config-core');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const schedulingAutomation = require('../../db/scheduling-automation');
+const { recordStudyTaskSubmitted } = require('../../db/study-telemetry');
 const taskMetadata = require('../../db/task-metadata');
 const webhooksStreaming = require('../../db/webhooks-streaming');
 const serverConfig = require('../../config');
@@ -28,6 +29,7 @@ const { safeLimit, MAX_BATCH_SIZE, MAX_TASK_LENGTH, ErrorCodes, makeError, isPat
 const { formatTime, calculateDuration } = require('./utils');
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
+const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-study-engine');
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../../constants');
 const { enforceVersionIntentForProject } = require('../../versioning/version-intent');
 const logger = require('../../logger');
@@ -220,6 +222,29 @@ function formatTaskStatus(task, progress) {
   return result;
 }
 
+function maybeAttachStudyContextMetadata(metadata, taskDescription, workingDirectory, files, enabled = true) {
+  if (enabled === false || !workingDirectory) {
+    return metadata;
+  }
+
+  try {
+    const envelope = buildTaskStudyContextEnvelope({
+      workingDirectory,
+      taskDescription,
+      files: Array.isArray(files) ? files : [],
+    });
+    if (envelope) {
+      metadata.study_context = envelope.study_context;
+      metadata.study_context_prompt = envelope.study_context_prompt;
+      metadata.study_context_summary = envelope.study_context_summary;
+    }
+  } catch (err) {
+    logger.debug(`[task-core] Study context build failed: ${err.message}`);
+  }
+
+  return metadata;
+}
+
 function buildTaskPeekArtifactSection(taskId) {
   if (!taskId || typeof taskMetadata.listArtifacts !== 'function') {
     return '';
@@ -292,6 +317,7 @@ function handleSubmitTask(args) {
       files: args.files,
       context_stuff: args.context_stuff,
       context_depth: args.context_depth,
+      study_context: args.study_context,
       tuning: args.tuning,
       routing_template: args.routing_template,
       version_intent: args.version_intent,
@@ -429,6 +455,16 @@ function handleSubmitTask(args) {
   if (args.routing_template) {
     metadata._routing_template = args.routing_template;
   }
+  if (args.study_context !== undefined) {
+    metadata.study_context_enabled = args.study_context !== false;
+  }
+  maybeAttachStudyContextMetadata(
+    metadata,
+    taskDescription,
+    args.working_directory || null,
+    Array.isArray(args.files) ? args.files.filter((file) => typeof file === 'string') : [],
+    args.study_context !== false
+  );
 
   // F9: Early model availability check — warn if requested model not found on any host
   if (args.model) {
@@ -513,6 +549,31 @@ function handleSubmitTask(args) {
         model: model,  // null = use provider's default model
         metadata: JSON.stringify(metadata)
       });
+    }
+    try {
+      recordStudyTaskSubmitted(
+        typeof taskCore.getTask === 'function'
+          ? (taskCore.getTask(taskId) || {
+              id: taskId,
+              status: 'pending',
+              working_directory: args.working_directory || null,
+              project,
+              provider: args.provider ? providerName : null,
+              model,
+              metadata,
+            })
+          : {
+              id: taskId,
+              status: 'pending',
+              working_directory: args.working_directory || null,
+              project,
+              provider: args.provider ? providerName : null,
+              model,
+              metadata,
+            }
+      );
+    } catch (_studyTelemetryErr) {
+      // Non-blocking telemetry.
     }
 
     // Record coordination event
@@ -682,6 +743,16 @@ function handleQueueTask(args) {
   const metadata = args.provider
     ? { user_provider_override: true, intended_provider: providerName }
     : { intended_provider: providerName };
+  if (args.study_context !== undefined) {
+    metadata.study_context_enabled = args.study_context !== false;
+  }
+  maybeAttachStudyContextMetadata(
+    metadata,
+    taskDescription,
+    args.working_directory || null,
+    Array.isArray(args.files) ? args.files.filter((file) => typeof file === 'string') : [],
+    args.study_context !== false
+  );
   const policyResult = typeof taskManager.evaluateTaskSubmissionPolicy === 'function'
     ? taskManager.evaluateTaskSubmissionPolicy({
         id: taskId,
@@ -730,6 +801,29 @@ function handleQueueTask(args) {
       model: model,
       metadata: JSON.stringify(metadata)
     });
+    try {
+      recordStudyTaskSubmitted(
+        typeof taskCore.getTask === 'function'
+          ? (taskCore.getTask(taskId) || {
+              id: taskId,
+              status: 'queued',
+              working_directory: args.working_directory || null,
+              provider: null,
+              model,
+              metadata,
+            })
+          : {
+              id: taskId,
+              status: 'queued',
+              working_directory: args.working_directory || null,
+              provider: null,
+              model,
+              metadata,
+            }
+      );
+    } catch (_studyTelemetryErr) {
+      // Non-blocking telemetry.
+    }
 
     return {
       content: [{

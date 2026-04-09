@@ -55,6 +55,36 @@ const RETRY_CLEANUP_INTERVAL_MS = 30000;
 // Maximum output buffer size (10MB) to prevent memory exhaustion
 const MAX_OUTPUT_BUFFER = 10 * 1024 * 1024;
 
+function resolveRunnableOllamaModel(task) {
+  try {
+    let requestedModel = task?.model || null;
+
+    if (!requestedModel) {
+      try {
+        const registry = require('../models/registry');
+        const best = registry.selectBestApprovedModel('ollama');
+        if (best?.model_name) requestedModel = best.model_name;
+      } catch { /* non-fatal */ }
+    }
+
+    const ollamaShared = require('../providers/ollama-shared');
+    if (!requestedModel) {
+      requestedModel = ollamaShared.resolveOllamaModel(task, null) || '';
+    }
+
+    if (!requestedModel || !ollamaShared.hasModelOnAnyHost(requestedModel)) {
+      const bestAvailable = ollamaShared.findBestAvailableModel();
+      if (bestAvailable) requestedModel = bestAvailable;
+    }
+
+    const normalized = typeof requestedModel === 'string' ? requestedModel.trim() : '';
+    return normalized || null;
+  } catch (err) {
+    logger.info(`[startTask] Failed to resolve Ollama model for task ${task?.id || 'unknown'}: ${err.message}`);
+    return null;
+  }
+}
+
 /**
  * Initialize with dependencies. Called from task-manager.js initSubModules().
  */
@@ -496,6 +526,17 @@ async function startTask(taskId) {
   let stdinPrompt;
 
   if (provider === 'ollama') {
+    const resolvedOllamaModel = resolveRunnableOllamaModel(task);
+    if (resolvedOllamaModel && task.model !== resolvedOllamaModel) {
+      const updatedTask = db.updateTaskStatus(taskId, 'running', {
+        model: resolvedOllamaModel,
+      });
+      if (updatedTask) {
+        Object.assign(task, updatedTask);
+      } else {
+        task.model = resolvedOllamaModel;
+      }
+    }
     return executeOllamaTask(task);
   } else if (providerRegistry.isApiProvider(provider)) {
     // All cloud API providers use the same execution path via registry
@@ -688,6 +729,21 @@ function attemptTaskStart(taskId, label) {
     if (maybePromise && typeof maybePromise.catch === 'function') {
       maybePromise.catch((asyncErr) => {
         logger.error(`processQueue: async failure for ${label} task ${taskId}`, { error: asyncErr.message });
+        try {
+          const t = db.getTask(taskId);
+          if (t && t.status === 'running' && !t.pid) {
+            safeUpdateTaskStatus(taskId, 'failed', {
+              error_output: asyncErr.message,
+              pid: null,
+              mcp_instance_id: null,
+              ollama_host_id: null,
+            });
+            try { dashboard.notifyTaskUpdated(taskId); } catch { /* ignore */ }
+            try { processQueue(); } catch { /* ignore */ }
+          }
+        } catch (revertErr) {
+          logger.info(`processQueue: failed to revert async-start task ${taskId.slice(0, 8)}: ${revertErr.message}`);
+        }
       });
       return { started: false, queued: false, pendingAsync: true };
     }

@@ -15,6 +15,7 @@ const { installProxyAgent } = require('../utils/proxy-agent');
 const providerRegistry = require('./registry');
 const { FREE_PROVIDERS } = require('../execution/queue-scheduler');
 const { safeJsonParse } = require('../utils/json');
+const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 
 // Phase 2: Proxy support for enterprise environments.
 // When HTTPS_PROXY / HTTP_PROXY env vars are set, all cloud API fetch() calls
@@ -254,22 +255,26 @@ async function enrichTaskDescription(task) {
     return task.task_description;
   }
 
-  if (meta.context_stuff === false) return task.task_description;
-
+  let effectiveDescription = task.task_description;
   const contextFiles = meta.context_files;
-  if (!contextFiles || contextFiles.length === 0) return task.task_description;
-  if (!CONTEXT_STUFFING_PROVIDERS.has(task.provider)) return task.task_description;
+  const canStuffContext = meta.context_stuff !== false
+    && Array.isArray(contextFiles)
+    && contextFiles.length > 0
+    && CONTEXT_STUFFING_PROVIDERS.has(task.provider);
 
-  const result = await stuffContext({
-    contextFiles,
-    workingDirectory: task.working_directory || process.cwd(),
-    taskDescription: task.task_description,
-    provider: task.provider,
-    model: task.model || undefined,
-    contextBudget: meta.context_budget || undefined,
-  });
+  if (canStuffContext) {
+    const result = await stuffContext({
+      contextFiles,
+      workingDirectory: task.working_directory || process.cwd(),
+      taskDescription: task.task_description,
+      provider: task.provider,
+      model: task.model || undefined,
+      contextBudget: meta.context_budget || undefined,
+    });
+    effectiveDescription = result.enrichedDescription;
+  }
 
-  return result.enrichedDescription;
+  return applyStudyContextPrompt(effectiveDescription, meta);
 }
 
 /**

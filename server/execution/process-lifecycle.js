@@ -258,6 +258,8 @@ function cleanupChildProcessListeners(child) {
       child.stderr.removeAllListeners('data');
       child.stderr.removeAllListeners('error');
     }
+    child.removeAllListeners('message');
+    child.removeAllListeners('messageerror');
     child.removeAllListeners('close');
     child.removeAllListeners('error');
     child.removeAllListeners('exit');

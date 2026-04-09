@@ -275,6 +275,8 @@ describe('v2-control-plane task response builders', () => {
       provider_switch_target: null,
       user_provider_override: false,
       provider_switch_reason: null,
+      project: null,
+      tags: [],
       metadata: {
         attempt: 2,
         source: 'test',
@@ -302,6 +304,56 @@ describe('v2-control-plane task response builders', () => {
     expect(result.provider_switch_target).toBe('deepinfra');
     expect(result.user_provider_override).toBe(true);
     expect(result.provider_switch_reason).toBe('codex -> deepinfra (budget reroute)');
+  });
+
+  it('buildTaskResponse strips provider decision trace from summary metadata', () => {
+    const controlPlane = loadControlPlane();
+    const task = {
+      id: 'task-trace-summary',
+      status: 'queued',
+      metadata: JSON.stringify({
+        attempt: 2,
+        provider_decision_trace: {
+          selected_provider: 'ollama',
+          requested_provider: 'codex',
+        },
+      }),
+    };
+
+    expect(controlPlane.buildTaskResponse(task)).toEqual(expect.objectContaining({
+      id: 'task-trace-summary',
+      metadata: {
+        attempt: 2,
+      },
+    }));
+  });
+
+  it('buildTaskResponse strips study context payloads from summary metadata', () => {
+    const controlPlane = loadControlPlane();
+    const task = {
+      id: 'task-study-summary',
+      status: 'queued',
+      metadata: JSON.stringify({
+        attempt: 1,
+        study_context: {
+          subsystems: [{ id: 'task-execution' }],
+        },
+        study_context_summary: {
+          subsystem_ids: ['task-execution'],
+        },
+        study_context_prompt: 'Study context prompt',
+      }),
+    };
+
+    expect(controlPlane.buildTaskResponse(task)).toEqual(expect.objectContaining({
+      id: 'task-study-summary',
+      metadata: {
+        attempt: 1,
+        study_context_summary: {
+          subsystem_ids: ['task-execution'],
+        },
+      },
+    }));
   });
 
   it('buildTaskResponse falls back to description and default values when fields are missing', () => {
@@ -336,6 +388,8 @@ describe('v2-control-plane task response builders', () => {
       provider_switch_target: null,
       user_provider_override: false,
       provider_switch_reason: null,
+      project: null,
+      tags: [],
       metadata: {},
     });
   });
@@ -371,6 +425,8 @@ describe('v2-control-plane task response builders', () => {
       provider_switch_target: null,
       user_provider_override: false,
       provider_switch_reason: null,
+      project: null,
+      tags: [],
       metadata,
     });
   });
@@ -438,10 +494,101 @@ describe('v2-control-plane task response builders', () => {
       provider_switch_target: null,
       user_provider_override: false,
       provider_switch_reason: null,
+      project: null,
+      tags: [],
       metadata: {},
+      provider_decision_trace: null,
+      study_context: null,
+      study_context_summary: null,
       output: 'done',
       error_output: null,
     });
+  });
+
+  it('buildTaskDetailResponse exposes provider decision trace while preserving full metadata', () => {
+    const controlPlane = loadControlPlane();
+    const task = {
+      id: 'task-trace-detail',
+      status: 'completed',
+      task_description: 'Inspect provider routing',
+      metadata: JSON.stringify({
+        attempt: 3,
+        provider_decision_trace: {
+          selected_provider: 'ollama',
+          requested_provider: 'codex',
+          fallback_candidates: [{ provider: 'ollama', role: 'fallback' }],
+          blocked_candidates: [{ provider: 'codex', blocked: true }],
+        },
+      }),
+      output: 'done',
+      error_output: null,
+    };
+
+    expect(controlPlane.buildTaskDetailResponse(task)).toEqual(expect.objectContaining({
+      id: 'task-trace-detail',
+      metadata: {
+        attempt: 3,
+        provider_decision_trace: {
+          selected_provider: 'ollama',
+          requested_provider: 'codex',
+          fallback_candidates: [{ provider: 'ollama', role: 'fallback' }],
+          blocked_candidates: [{ provider: 'codex', blocked: true }],
+        },
+      },
+      provider_decision_trace: {
+        selected_provider: 'ollama',
+        requested_provider: 'codex',
+        fallback_candidates: [{ provider: 'ollama', role: 'fallback' }],
+        blocked_candidates: [{ provider: 'codex', blocked: true }],
+      },
+    }));
+  });
+
+  it('buildTaskDetailResponse exposes study context and summary while preserving full metadata', () => {
+    const controlPlane = loadControlPlane();
+    const task = {
+      id: 'task-study-detail',
+      status: 'completed',
+      task_description: 'Inspect study-aware routing',
+      metadata: JSON.stringify({
+        attempt: 4,
+        study_context: {
+          subsystems: [{ id: 'task-execution' }],
+          flows: [{ id: 'task-lifecycle' }],
+        },
+        study_context_summary: {
+          subsystem_ids: ['task-execution'],
+          flow_ids: ['task-lifecycle'],
+        },
+        study_context_prompt: 'Study context prompt',
+      }),
+      output: 'done',
+      error_output: null,
+    };
+
+    expect(controlPlane.buildTaskDetailResponse(task)).toEqual(expect.objectContaining({
+      id: 'task-study-detail',
+      metadata: {
+        attempt: 4,
+        study_context: {
+          subsystems: [{ id: 'task-execution' }],
+          flows: [{ id: 'task-lifecycle' }],
+        },
+        study_context_summary: {
+          subsystem_ids: ['task-execution'],
+          flow_ids: ['task-lifecycle'],
+        },
+        study_context_prompt: 'Study context prompt',
+      },
+      study_context: {
+        subsystems: [{ id: 'task-execution' }],
+        flows: [{ id: 'task-lifecycle' }],
+      },
+      study_context_summary: {
+        subsystem_ids: ['task-execution'],
+        flow_ids: ['task-lifecycle'],
+      },
+    }));
   });
 
   it('buildTaskDetailResponse returns null for null input', () => {

@@ -5,6 +5,9 @@ describe('provider-router', () => {
   let mockDb;
   let mockServerConfig;
   let mockProviderRegistry;
+  let mockParseTaskMetadata;
+  let mockCircuitBreaker;
+  let mockDefaultContainer;
   let configValues;
   let boolValues;
 
@@ -16,6 +19,9 @@ describe('provider-router', () => {
 
     mockDb = {
       getDefaultProvider: vi.fn().mockReturnValue('codex'),
+      patchTaskMetadata: vi.fn().mockReturnValue(true),
+      isBudgetExceeded: vi.fn().mockReturnValue({ exceeded: false, warning: false }),
+      listOllamaHosts: vi.fn().mockReturnValue([]),
     };
 
     mockServerConfig = {
@@ -41,6 +47,16 @@ describe('provider-router', () => {
     mockProviderRegistry = {
       getCategory: vi.fn((provider) => providerCategories[provider] ?? null),
       getProvidersInCategory: vi.fn((category) => providerGroups[category] ?? []),
+      isKnownProvider: vi.fn((provider) => Object.prototype.hasOwnProperty.call(providerCategories, provider)),
+    };
+
+    mockParseTaskMetadata = vi.fn().mockReturnValue({});
+    mockCircuitBreaker = {
+      allowRequest: vi.fn().mockReturnValue(true),
+    };
+    mockDefaultContainer = {
+      has: vi.fn().mockReturnValue(false),
+      get: vi.fn().mockReturnValue(mockCircuitBreaker),
     };
 
     providerRouter = await import('../execution/provider-router.js');
@@ -48,8 +64,9 @@ describe('provider-router', () => {
       db: mockDb,
       serverConfig: mockServerConfig,
       providerRegistry: mockProviderRegistry,
-      parseTaskMetadata: vi.fn().mockReturnValue({}),
+      parseTaskMetadata: mockParseTaskMetadata,
       safeUpdateTaskStatus: vi.fn(),
+      defaultContainer: mockDefaultContainer,
     });
   }
 
@@ -131,6 +148,145 @@ describe('provider-router', () => {
     });
   });
 
+  describe('buildProviderDecisionTrace', () => {
+    it('records selected, fallback, and blocked candidates in a persisted-friendly shape', () => {
+      const trace = providerRouter.buildProviderDecisionTrace(
+        { original_provider: 'codex' },
+        { user_provider_override: false, auto_routed: true },
+        'codex',
+        'ollama',
+        {
+          provider: 'ollama',
+          role: 'fallback',
+          reason: 'Fallback candidate because codex exceeded budget',
+          cause: 'budget_exceeded',
+          switchReason: 'codex -> ollama (budget exceeded)',
+        },
+        [
+          { provider: 'codex', role: 'primary', reason: 'Requested/default provider', cause: 'requested_provider' },
+          { provider: 'ollama', role: 'fallback', reason: 'Fallback candidate because codex exceeded budget', cause: 'budget_exceeded', switchReason: 'codex -> ollama (budget exceeded)' },
+        ],
+        new Set(['codex']),
+        'codex -> ollama (budget exceeded)',
+      );
+
+      expect(trace).toEqual(expect.objectContaining({
+        version: 1,
+        selected_provider: 'ollama',
+        chosen_provider: 'ollama',
+        requested_provider: 'codex',
+        original_provider: 'codex',
+        user_provider_override: false,
+        auto_routed: true,
+        switch_reason: 'codex -> ollama (budget exceeded)',
+        selected_candidate: expect.objectContaining({
+          provider: 'ollama',
+          role: 'fallback',
+          selected: true,
+        }),
+      }));
+      expect(trace.fallback_candidates).toEqual([
+        expect.objectContaining({
+          provider: 'ollama',
+          role: 'fallback',
+          cause: 'budget_exceeded',
+        }),
+      ]);
+      expect(trace.blocked_candidates).toEqual([
+        expect.objectContaining({
+          provider: 'codex',
+          blocked: true,
+          blocked_reason: 'circuit_breaker_open',
+        }),
+      ]);
+    });
+  });
+
+  describe('resolveProviderRouting', () => {
+    it('persists provider decision trace metadata when budget routing falls back to ollama', () => {
+      mockParseTaskMetadata.mockReturnValue({ smart_routing: true, auto_routed: true });
+      mockDb.isBudgetExceeded.mockReturnValue({ exceeded: true, warning: false });
+      mockDb.listOllamaHosts.mockReturnValue([{ id: 'host-1', enabled: true, status: 'healthy' }]);
+
+      const task = {
+        provider: 'codex',
+        metadata: {},
+        task_description: 'Write a docs update',
+      };
+
+      const result = providerRouter.resolveProviderRouting(task, 'task-budget');
+
+      expect(result).toEqual(expect.objectContaining({
+        provider: 'ollama',
+        switchReason: 'codex -> ollama (budget exceeded)',
+        decisionTrace: expect.objectContaining({
+          selected_provider: 'ollama',
+          requested_provider: 'codex',
+          user_provider_override: false,
+        }),
+      }));
+      expect(mockDb.patchTaskMetadata).toHaveBeenCalledWith('task-budget', expect.objectContaining({
+        requested_provider: 'codex',
+        intended_provider: 'ollama',
+        _provider_switch_reason: 'codex -> ollama (budget exceeded)',
+        provider_decision_trace: expect.objectContaining({
+          selected_provider: 'ollama',
+          requested_provider: 'codex',
+          switch_reason: 'codex -> ollama (budget exceeded)',
+          fallback_candidates: [
+            expect.objectContaining({
+              provider: 'ollama',
+              role: 'fallback',
+            }),
+          ],
+          blocked_candidates: [],
+        }),
+      }));
+      expect(task.metadata).toEqual(expect.objectContaining({
+        requested_provider: 'codex',
+        intended_provider: 'ollama',
+        provider_decision_trace: expect.objectContaining({
+          selected_provider: 'ollama',
+        }),
+      }));
+    });
+
+    it('records blocked candidates when the circuit breaker skips a fallback provider', () => {
+      mockDb.isBudgetExceeded.mockReturnValue({ exceeded: true, warning: false });
+      mockDb.listOllamaHosts.mockReturnValue([{ id: 'host-1', enabled: true, status: 'healthy' }]);
+      mockDefaultContainer.has.mockReturnValue(true);
+      mockCircuitBreaker.allowRequest.mockImplementation((provider) => provider !== 'ollama');
+
+      const task = {
+        provider: 'codex',
+        metadata: {},
+        task_description: 'Patch a failing test',
+      };
+
+      const result = providerRouter.resolveProviderRouting(task, 'task-circuit');
+      const persistedTrace = mockDb.patchTaskMetadata.mock.calls.at(-1)?.[1]?.provider_decision_trace;
+
+      expect(result.provider).toBe('codex');
+      expect(result.switchReason).toBeNull();
+      expect(persistedTrace).toEqual(expect.objectContaining({
+        selected_provider: 'codex',
+        fallback_candidates: [
+          expect.objectContaining({
+            provider: 'ollama',
+            role: 'fallback',
+          }),
+        ],
+        blocked_candidates: [
+          expect.objectContaining({
+            provider: 'ollama',
+            blocked: true,
+            blocked_reason: 'circuit_breaker_open',
+          }),
+        ],
+      }));
+    });
+  });
+
   describe('getProviderSlotLimits', () => {
     it('returns ollama limits for ollama provider', () => {
       configValues.set('max_ollama_concurrent', '11');
@@ -174,6 +330,7 @@ describe('provider-router', () => {
         'safeConfigInt',
         'tryReserveHostSlotWithFallback',
         'tryCreateAutoPR',
+        'buildProviderDecisionTrace',
         'resolveProviderRouting',
         'normalizeProviderOverride',
         'failTaskForInvalidProvider',

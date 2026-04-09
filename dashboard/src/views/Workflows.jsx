@@ -15,6 +15,8 @@ const STATUS_COLORS = {
   failed: STATUS_BG_COLORS.failed,
   running: STATUS_BG_COLORS.running,
   pending: STATUS_BG_COLORS.pending,
+  blocked: 'bg-amber-500',
+  waiting: 'bg-amber-600',
   cancelled: 'bg-orange-500',
   paused: 'bg-yellow-500',
 };
@@ -24,6 +26,8 @@ const TASK_STATUS_ICONS = {
   failed: { icon: '\u2717', color: 'text-red-400' },
   running: { icon: '\u25CB', color: 'text-blue-400 animate-pulse' },
   pending: { icon: '\u25CB', color: 'text-slate-500' },
+  blocked: { icon: '\u26A0', color: 'text-amber-300' },
+  waiting: { icon: '\u23F3', color: 'text-amber-200' },
   skipped: { icon: '\u25CB', color: 'text-slate-600' },
   cancelled: { icon: '\u25CB', color: 'text-orange-400' },
 };
@@ -62,9 +66,96 @@ function getWorkflowMeta(wf, now = Date.now()) {
   return { totalTasks, completedTasks, failedTasks, durationSecs, ctx };
 }
 
+function getTaskBlockerSnapshot(task) {
+  if (task?.blocker_snapshot && typeof task.blocker_snapshot === 'object') {
+    return task.blocker_snapshot;
+  }
+  const blocker = task?.context
+    && typeof task.context === 'object'
+    && !Array.isArray(task.context)
+    ? task.context.workflow_blocker
+    : null;
+  return blocker && typeof blocker === 'object' ? blocker : null;
+}
+
+function getTaskDisplayLabel(task) {
+  return task.node_id
+    || task.description?.substring(0, 50)
+    || task.task_description?.substring(0, 50)
+    || task.id
+    || task.task_id;
+}
+
+function formatTaskBlockerDependencyDetails(task, limit = 3) {
+  const blocker = getTaskBlockerSnapshot(task);
+  if (!blocker) return '';
+
+  const unmetDependencies = Array.isArray(blocker.unmet_dependencies)
+    ? blocker.unmet_dependencies
+    : [];
+  if (unmetDependencies.length === 0) return '';
+
+  const detail = unmetDependencies.slice(0, limit).map((dependency) => {
+    const nodeLabel = dependency?.node_id || dependency?.task_id || 'unknown';
+    const status = dependency?.status || 'unknown';
+    const unmetReason = dependency?.unmet_reason === 'dependency_not_terminal'
+      ? 'waiting for terminal state'
+      : dependency?.unmet_reason === 'condition_failed'
+        ? 'condition failed'
+        : dependency?.unmet_reason === 'dependency_failed'
+          ? 'dependency failed'
+          : dependency?.unmet_reason === 'missing_dependency'
+            ? 'dependency missing'
+            : 'blocked';
+    const alternate = dependency?.alternate_task_id ? `, alternate=${dependency.alternate_task_id}` : '';
+    return `${nodeLabel} (${status}, ${unmetReason}, on_fail=${dependency?.on_fail || 'skip'}${alternate})`;
+  }).join(', ');
+
+  return unmetDependencies.length > limit
+    ? `${detail}, +${unmetDependencies.length - limit} more`
+    : detail;
+}
+
+function formatTaskBlockerFailureActions(task, limit = 3) {
+  const blocker = getTaskBlockerSnapshot(task);
+  if (!blocker) return '';
+
+  const failureActions = (Array.isArray(blocker.failure_actions) ? blocker.failure_actions : [])
+    .filter((action) => action && action.blocking !== false);
+  if (failureActions.length === 0) return '';
+
+  const detail = failureActions.slice(0, limit).map((action) => {
+    const nodeLabel = action?.node_id || action?.task_id || 'unknown';
+    const alternate = action?.alternate_task_id ? ` (alternate ${action.alternate_task_id})` : '';
+    return `${nodeLabel}=>${action?.on_fail || 'skip'}${alternate}`;
+  }).join(', ');
+
+  return failureActions.length > limit
+    ? `${detail}, +${failureActions.length - limit} more`
+    : detail;
+}
+
+function formatTaskBlockerSummary(task) {
+  const blocker = getTaskBlockerSnapshot(task);
+  if (!blocker) return '';
+
+  const unmetDependencies = Array.isArray(blocker.unmet_dependencies)
+    ? blocker.unmet_dependencies
+    : [];
+  const dependencyLabels = unmetDependencies
+    .map((dependency) => dependency?.node_id || dependency?.task_id)
+    .filter(Boolean);
+  const dependencyHint = dependencyLabels.length > 0
+    ? ` Holding on: ${dependencyLabels.slice(0, 3).join(', ')}${dependencyLabels.length > 3 ? ` +${dependencyLabels.length - 3}` : ''}.`
+    : '';
+
+  return `${blocker.reason || 'Blocked.'}${dependencyHint}`;
+}
+
 /** Indented DAG task row inside expanded workflow */
 function DAGTaskRow({ task, depth = 0, onOpenDrawer, now }) {
   const statusInfo = TASK_STATUS_ICONS[task.status] || TASK_STATUS_ICONS.pending;
+  const blockerSummary = formatTaskBlockerSummary(task);
   const duration = task.completed_at && task.started_at
     ? (new Date(task.completed_at) - new Date(task.started_at)) / 1000
     : task.status === 'running' && task.started_at
@@ -93,12 +184,17 @@ function DAGTaskRow({ task, depth = 0, onOpenDrawer, now }) {
           )}
           <span className={`font-mono text-sm ${statusInfo.color}`}>{statusInfo.icon}</span>
           <span className="text-sm text-slate-300">
-            {task.node_id || task.description?.substring(0, 50) || task.task_description?.substring(0, 50) || task.id || task.task_id}
+            {getTaskDisplayLabel(task)}
           </span>
         </div>
         {deps.length > 0 && (
           <div className="text-[10px] text-slate-600 mt-0.5" style={{ paddingLeft: depth > 0 ? '32px' : '24px' }}>
             depends on: {deps.join(', ')}
+          </div>
+        )}
+        {blockerSummary && (
+          <div className="text-[10px] text-amber-300 mt-0.5" style={{ paddingLeft: depth > 0 ? '32px' : '24px' }}>
+            {blockerSummary}
           </div>
         )}
       </td>
@@ -195,6 +291,8 @@ function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, now }) {
     ...t,
     _depth: computeDepth(t),
   }));
+  const blockedTasks = tasksWithDepth.filter((task) => ['blocked', 'waiting'].includes(task.status));
+  const blockedTaskCount = blockedTasks.length;
 
   // Sort by depth (roots first), then by node_id/name
   tasksWithDepth.sort((a, b) => {
@@ -213,6 +311,11 @@ function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, now }) {
             <span className="text-xs text-slate-500">
               {tasksWithDepth.length} task{tasksWithDepth.length !== 1 ? 's' : ''}
             </span>
+            {blockedTaskCount > 0 && (
+              <span className="text-xs text-amber-300">
+                {blockedTaskCount} blocked/waiting
+              </span>
+            )}
             {detail.cost && detail.cost.total_cost_usd > 0 && (
               <span className="text-xs text-slate-400">
                 Cost: ${detail.cost.total_cost_usd.toFixed(4)}
@@ -237,6 +340,55 @@ function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, now }) {
               </button>
             </div>
           </div>
+          {blockedTaskCount > 0 && (
+            <div className="mb-3 rounded-lg border border-amber-400/20 bg-amber-500/10 p-3">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-200">Blocked Diagnostics</p>
+                  <p className="text-xs text-amber-100/80">Persisted blocker snapshots from the workflow runtime.</p>
+                </div>
+                <span className="text-xs text-amber-300">
+                  {blockedTaskCount} task{blockedTaskCount !== 1 ? 's' : ''} not runnable
+                </span>
+              </div>
+              <div className="space-y-2">
+                {blockedTasks.slice(0, 4).map((task) => {
+                  const blocker = getTaskBlockerSnapshot(task);
+                  const dependencyDetails = formatTaskBlockerDependencyDetails(task);
+                  const failureActions = formatTaskBlockerFailureActions(task);
+                  return (
+                    <div
+                      key={`blocked-${task.id || task.task_id || task.node_id}`}
+                      className="rounded-md border border-amber-400/15 bg-slate-950/40 px-3 py-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-amber-100">{getTaskDisplayLabel(task)}</span>
+                        <StatusBadge status={task.status} />
+                      </div>
+                      <p className="mt-1 text-xs text-amber-50">
+                        {blocker?.reason || 'Blocked with no persisted blocker snapshot.'}
+                      </p>
+                      {dependencyDetails && (
+                        <p className="mt-1 text-[11px] text-amber-100/75">
+                          Waiting on: {dependencyDetails}
+                        </p>
+                      )}
+                      {failureActions && (
+                        <p className="mt-1 text-[11px] text-amber-100/65">
+                          Failure actions: {failureActions}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+                {blockedTaskCount > 4 && (
+                  <p className="text-[11px] text-amber-200/70">
+                    +{blockedTaskCount - 4} more blocked task{blockedTaskCount - 4 !== 1 ? 's' : ''} in the DAG
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
           {tasksWithDepth.length > 0 ? (
             viewMode === 'graph' ? (
               <WorkflowDAG tasks={tasksWithDepth} onOpenDrawer={onOpenDrawer} />

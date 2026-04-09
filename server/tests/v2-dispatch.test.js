@@ -38,6 +38,7 @@ const mockHandlers = {
     handleListSchedules: vi.fn(),
     handleCreateSchedule: vi.fn(),
     handleGetSchedule: vi.fn(),
+    handleRunSchedule: vi.fn(),
     handleToggleSchedule: vi.fn(),
     handleDeleteSchedule: vi.fn(),
     handleListPolicies: vi.fn(),
@@ -469,6 +470,16 @@ describe('v2-dispatch module', () => {
 
       expect(mockHandlers.governance.handleGetSchedule).toHaveBeenCalledOnce();
       expect(req.params).toEqual({ schedule_id: 'sched-1' });
+    });
+
+    it('dispatches POST /api/v2/schedules/:schedule_id/run', async () => {
+      const req = mockReq('POST', '/api/v2/schedules/sched-2/run');
+      const res = mockRes();
+
+      await v2Dispatch.dispatchV2(req, res);
+
+      expect(mockHandlers.governance.handleRunSchedule).toHaveBeenCalledOnce();
+      expect(req.params).toEqual({ schedule_id: 'sched-2' });
     });
 
     it('extracts host_id from path', async () => {

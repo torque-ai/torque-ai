@@ -391,16 +391,20 @@ describe('Orphan Cleanup', () => {
   // ── checkStaleRunningTasks ────────────────────────────────
 
   describe('checkStaleRunningTasks', () => {
-    let mockDb, mockCancelTask, runningProcesses;
+    let mockDb, mockCancelTask, mockProcessQueue, mockIsInstanceAlive, mockGetMcpInstanceId, runningProcesses;
 
     beforeEach(() => {
       runningProcesses = new Map();
       mockCancelTask = vi.fn();
+      mockProcessQueue = vi.fn();
+      mockIsInstanceAlive = vi.fn().mockReturnValue(true);
+      mockGetMcpInstanceId = vi.fn().mockReturnValue('mcp-current');
       mockDb = {
         getConfig: vi.fn().mockReturnValue('0'),
         reconcileHostTaskCounts: vi.fn(),
         getRunningTasksLightweight: vi.fn().mockReturnValue([]),
         updateTaskStatus: vi.fn(),
+        decrementHostTasks: vi.fn(),
       };
 
       orphanCleanup.init({
@@ -411,10 +415,12 @@ describe('Orphan Cleanup', () => {
         stallRecoveryAttempts: new Map(),
         TASK_TIMEOUTS: { PROCESS_QUERY: 5000 },
         cancelTask: mockCancelTask,
-        processQueue: vi.fn(),
+        processQueue: mockProcessQueue,
         tryLocalFirstFallback: vi.fn(),
         getTaskActivity: vi.fn(),
         tryStallRecovery: vi.fn(),
+        isInstanceAlive: mockIsInstanceAlive,
+        getMcpInstanceId: mockGetMcpInstanceId,
         safeConfigInt: vi.fn(),
       });
     });
@@ -493,6 +499,82 @@ describe('Orphan Cleanup', () => {
 
       orphanCleanup.checkStaleRunningTasks();
       expect(mockDb.updateTaskStatus).toHaveBeenCalled();
+    });
+
+    it('requeues tasks owned by dead instances before timeout elapses', () => {
+      const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      mockIsInstanceAlive.mockReturnValue(false);
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        {
+          id: 'task-dead-owner',
+          started_at: recentTime,
+          timeout_minutes: 30,
+          retry_count: 0,
+          max_retries: 2,
+          mcp_instance_id: 'mcp-dead',
+          ollama_host_id: 'scan-192-168-1-183',
+        },
+      ]);
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-dead-owner', 'queued', expect.objectContaining({
+        retry_count: 1,
+        mcp_instance_id: null,
+        provider: null,
+        ollama_host_id: null,
+        error_output: expect.stringContaining('mcp-dead'),
+      }));
+      expect(mockDb.decrementHostTasks).toHaveBeenCalledWith('scan-192-168-1-183');
+      expect(mockProcessQueue).toHaveBeenCalled();
+    });
+
+    it('requeues tasks owned by this instance when no local process is tracked', () => {
+      const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        {
+          id: 'task-missing-local-proc',
+          started_at: recentTime,
+          timeout_minutes: 30,
+          retry_count: 0,
+          max_retries: 2,
+          mcp_instance_id: 'mcp-current',
+          ollama_host_id: null,
+        },
+      ]);
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-missing-local-proc', 'queued', expect.objectContaining({
+        retry_count: 1,
+        mcp_instance_id: null,
+        provider: null,
+      }));
+      expect(mockProcessQueue).toHaveBeenCalled();
+    });
+
+    it('cancels dead-owner tasks when retries are exhausted', () => {
+      const recentTime = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      mockIsInstanceAlive.mockReturnValue(false);
+      mockDb.getRunningTasksLightweight.mockReturnValue([
+        {
+          id: 'task-dead-owner-maxed',
+          started_at: recentTime,
+          timeout_minutes: 30,
+          retry_count: 2,
+          max_retries: 2,
+          mcp_instance_id: 'mcp-dead',
+          ollama_host_id: null,
+        },
+      ]);
+
+      orphanCleanup.checkStaleRunningTasks();
+
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-dead-owner-maxed', 'cancelled', expect.objectContaining({
+        cancel_reason: 'orphan_cleanup',
+        mcp_instance_id: null,
+        error_output: expect.stringContaining('max retries exhausted'),
+      }));
     });
   });
 

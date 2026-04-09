@@ -1,0 +1,994 @@
+{
+  "version": 1,
+  "generated_at": "2026-04-09T18:30:55.201Z",
+  "repo": {
+    "name": "torque-ai",
+    "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
+    "study_profile_id": "torque-control-plane"
+  },
+  "summary": {
+    "score": 97,
+    "grade": "A",
+    "readiness": "expert_ready",
+    "total_cases": 10,
+    "passed_cases": 9,
+    "partial_cases": 1,
+    "failed_cases": 0,
+    "delta_significance_level": "none",
+    "evaluation_grade": "A"
+  },
+  "findings": [
+    {
+      "severity": "suggestion",
+      "probe_id": "impact:server/tests/vitest-setup.js",
+      "message": "Benchmark probe impact:server/tests/vitest-setup.js scored 69 (partial).",
+      "recommendation": "Pack coverage hit 2/3 expected evidence files."
+    }
+  ],
+  "cases": [
+    {
+      "id": "flow:task-lifecycle",
+      "scope_type": "flow",
+      "scope_id": "task-lifecycle",
+      "prompt": "Explain the Task lifecycle in torque-ai. Where does it start, what are the main phases, and which files anchor each phase?",
+      "expected_evidence": [
+        "server/api/v2-dispatch.js",
+        "server/handlers/task/index.js",
+        "server/task-manager.js",
+        "server/execution/task-startup.js",
+        "server/execution/provider-router.js",
+        "server/execution/fallback-retry.js",
+        "server/execution/process-lifecycle.js",
+        "server/execution/task-finalizer.js",
+        "server/execution/completion-pipeline.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/api/v2-dispatch.js",
+          "purpose": "Server module exporting dispatchV2, init, and v2CpRoutes and depending on server/logger.js, server/api/routes.js, and server/api/v2-middleware.js.",
+          "exports": [
+            "dispatchV2",
+            "init",
+            "v2CpRoutes",
+            "V2_CP_HANDLER_LOOKUP"
+          ],
+          "deps": [
+            "server/logger.js",
+            "server/api/routes.js",
+            "server/api/v2-middleware.js",
+            "server/api/middleware.js"
+          ]
+        },
+        {
+          "file": "server/handlers/task/index.js",
+          "purpose": "Server module depending on server/handlers/task/core.js, server/handlers/task/pipeline.js, and server/handlers/task/operations.js.",
+          "exports": [],
+          "deps": [
+            "server/handlers/task/core.js",
+            "server/handlers/task/pipeline.js",
+            "server/handlers/task/operations.js",
+            "server/handlers/task/project.js"
+          ]
+        },
+        {
+          "file": "server/task-manager.js",
+          "purpose": "Server module depending on crypto, server/database.js, and server/db/task-core.js.",
+          "exports": [],
+          "deps": [
+            "crypto",
+            "server/database.js",
+            "server/db/task-core.js",
+            "server/db/coordination.js"
+          ]
+        },
+        {
+          "file": "server/execution/task-startup.js",
+          "purpose": "Server module exporting init, startTask, and runPreflightChecks and depending on path, fs, and child_process.",
+          "exports": [
+            "init",
+            "startTask",
+            "runPreflightChecks",
+            "runSafeguardPreChecks"
+          ],
+          "deps": [
+            "path",
+            "fs",
+            "child_process",
+            "server/logger.js"
+          ]
+        }
+      ],
+      "readiness_signals": [
+        "How does a task move from submission to completion?",
+        "Ingress",
+        "Execution start",
+        "Routing and process control",
+        "Finalize and publish"
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/api/v2-dispatch.js",
+          "server/handlers/task/index.js",
+          "server/task-manager.js",
+          "server/execution/task-startup.js",
+          "server/execution/provider-router.js",
+          "server/execution/fallback-retry.js",
+          "server/execution/process-lifecycle.js",
+          "server/execution/task-finalizer.js",
+          "server/execution/completion-pipeline.js"
+        ],
+        "coverage_ratio": 1
+      },
+      "answerability": "strong",
+      "score": 100,
+      "verdict": "pass",
+      "notes": []
+    },
+    {
+      "id": "flow:workflow-lifecycle",
+      "scope_type": "flow",
+      "scope_id": "workflow-lifecycle",
+      "prompt": "Explain the Workflow lifecycle in torque-ai. Where does it start, what are the main phases, and which files anchor each phase?",
+      "expected_evidence": [
+        "server/handlers/workflow/index.js",
+        "server/handlers/workflow/dag.js",
+        "server/execution/workflow-runtime.js",
+        "server/handlers/workflow/await.js",
+        "server/handlers/workflow/advanced.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/handlers/workflow/index.js",
+          "purpose": "Server module exporting handleCreateWorkflow, handleAddWorkflowTask, and handleRunWorkflow and depending on uuid, server/container.js, and server/db/coordination.js.",
+          "exports": [
+            "handleCreateWorkflow",
+            "handleAddWorkflowTask",
+            "handleRunWorkflow",
+            "handleWorkflowStatus"
+          ],
+          "deps": [
+            "uuid",
+            "server/container.js",
+            "server/db/coordination.js",
+            "server/db/provider-routing-core.js"
+          ]
+        },
+        {
+          "file": "server/handlers/workflow/dag.js",
+          "purpose": "Server module exporting handleDependencyGraph, handleCriticalPath, and handleWhatIf and depending on server/db/task-core.js, server/db/workflow-engine.js, and server/handlers/shared.js.",
+          "exports": [
+            "handleDependencyGraph",
+            "handleCriticalPath",
+            "handleWhatIf",
+            "handleBlockedTasks"
+          ],
+          "deps": [
+            "server/db/task-core.js",
+            "server/db/workflow-engine.js",
+            "server/handlers/shared.js"
+          ]
+        },
+        {
+          "file": "server/execution/workflow-runtime.js",
+          "purpose": "Server module exporting init, handlePlanProjectTaskCompletion, and handlePlanProjectTaskFailure and depending on fs, path, and uuid.",
+          "exports": [
+            "init",
+            "handlePlanProjectTaskCompletion",
+            "handlePlanProjectTaskFailure",
+            "generatePipelineDocumentation"
+          ],
+          "deps": [
+            "fs",
+            "path",
+            "uuid",
+            "server/logger.js"
+          ]
+        },
+        {
+          "file": "server/handlers/workflow/await.js",
+          "purpose": "Server module exporting formatDuration, formatHeartbeat, and formatTaskYield and depending on path, server/db/task-core.js, and server/db/file-tracking.js.",
+          "exports": [
+            "formatDuration",
+            "formatHeartbeat",
+            "formatTaskYield",
+            "handleAwaitWorkflow"
+          ],
+          "deps": [
+            "path",
+            "server/db/task-core.js",
+            "server/db/file-tracking.js",
+            "server/db/task-metadata.js"
+          ]
+        }
+      ],
+      "readiness_signals": [
+        "How are workflows created, advanced, and awaited?",
+        "Workflow definition",
+        "Runtime orchestration",
+        "Progress and await"
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/handlers/workflow/index.js",
+          "server/handlers/workflow/dag.js",
+          "server/execution/workflow-runtime.js",
+          "server/handlers/workflow/await.js",
+          "server/handlers/workflow/advanced.js"
+        ],
+        "coverage_ratio": 1
+      },
+      "answerability": "strong",
+      "score": 100,
+      "verdict": "pass",
+      "notes": []
+    },
+    {
+      "id": "flow:scheduled-automation",
+      "scope_type": "flow",
+      "scope_id": "scheduled-automation",
+      "prompt": "Explain the Scheduled automation in torque-ai. Where does it start, what are the main phases, and which files anchor each phase?",
+      "expected_evidence": [
+        "server/db/cron-scheduling.js",
+        "server/api/v2-governance-handlers.js",
+        "server/maintenance/scheduler.js",
+        "server/tools.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/db/cron-scheduling.js",
+          "purpose": "Server module exporting setDb, CRON_FIELD_RANGES, and validateCronFieldValue and depending on server/utils/json.js, server/versioning/version-intent.js, and server/execution/schedule-runner.js.",
+          "exports": [
+            "setDb",
+            "CRON_FIELD_RANGES",
+            "validateCronFieldValue",
+            "validateCronField"
+          ],
+          "deps": [
+            "server/utils/json.js",
+            "server/versioning/version-intent.js",
+            "server/execution/schedule-runner.js",
+            "uuid"
+          ]
+        },
+        {
+          "file": "server/api/v2-governance-handlers.js",
+          "purpose": "Server module exporting init, handleListApprovals, and handleApprovalDecision and depending on server/logger.js, crypto, and server/database.js.",
+          "exports": [
+            "init",
+            "handleListApprovals",
+            "handleApprovalDecision",
+            "handleListSchedules"
+          ],
+          "deps": [
+            "server/logger.js",
+            "crypto",
+            "server/database.js",
+            "server/db/task-core.js"
+          ]
+        },
+        {
+          "file": "server/maintenance/scheduler.js",
+          "purpose": "Server module exporting init, checkDiskSpace, and startMaintenanceScheduler and depending on path, fs, and server/execution/schedule-runner.js.",
+          "exports": [
+            "init",
+            "checkDiskSpace",
+            "startMaintenanceScheduler",
+            "startCoordinationScheduler"
+          ],
+          "deps": [
+            "path",
+            "fs",
+            "server/execution/schedule-runner.js",
+            "server/db/provider-quotas.js"
+          ]
+        },
+        {
+          "file": "server/tools.js",
+          "purpose": "Server module exporting TOOLS, routeMap, and schemaMap and depending on path, server/logger.js, and server/hooks/post-tool-hooks.js.",
+          "exports": [
+            "TOOLS",
+            "routeMap",
+            "schemaMap",
+            "handleToolCall"
+          ],
+          "deps": [
+            "path",
+            "server/logger.js",
+            "server/hooks/post-tool-hooks.js",
+            "server/event-bus.js"
+          ]
+        }
+      ],
+      "readiness_signals": [
+        "How do schedules and Run Now executions work?",
+        "Schedule definition",
+        "Scheduler tick",
+        "Dispatch"
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/db/cron-scheduling.js",
+          "server/api/v2-governance-handlers.js",
+          "server/maintenance/scheduler.js",
+          "server/tools.js"
+        ],
+        "coverage_ratio": 1
+      },
+      "answerability": "strong",
+      "score": 100,
+      "verdict": "pass",
+      "notes": []
+    },
+    {
+      "id": "invariant:task-lifecycle:1",
+      "scope_type": "invariant",
+      "scope_id": "task-lifecycle:1",
+      "prompt": "What invariant governs Task lifecycle in torque-ai, and where should an engineer look before editing it?",
+      "expected_evidence": [
+        "server/api/v2-dispatch.js",
+        "server/handlers/task/index.js",
+        "server/task-manager.js",
+        "server/execution/task-startup.js",
+        "server/execution/provider-router.js",
+        "server/tests/completion-pipeline.test.js",
+        "server/tests/fallback-retry.test.js",
+        "server/tests/host-distribution.test.js",
+        "server/tests/process-lifecycle.test.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/api/v2-dispatch.js",
+          "purpose": "Server module exporting dispatchV2, init, and v2CpRoutes and depending on server/logger.js, server/api/routes.js, and server/api/v2-middleware.js.",
+          "exports": [
+            "dispatchV2",
+            "init",
+            "v2CpRoutes",
+            "V2_CP_HANDLER_LOOKUP"
+          ],
+          "deps": [
+            "server/logger.js",
+            "server/api/routes.js",
+            "server/api/v2-middleware.js",
+            "server/api/middleware.js"
+          ]
+        },
+        {
+          "file": "server/handlers/task/index.js",
+          "purpose": "Server module depending on server/handlers/task/core.js, server/handlers/task/pipeline.js, and server/handlers/task/operations.js.",
+          "exports": [],
+          "deps": [
+            "server/handlers/task/core.js",
+            "server/handlers/task/pipeline.js",
+            "server/handlers/task/operations.js",
+            "server/handlers/task/project.js"
+          ]
+        },
+        {
+          "file": "server/task-manager.js",
+          "purpose": "Server module depending on crypto, server/database.js, and server/db/task-core.js.",
+          "exports": [],
+          "deps": [
+            "crypto",
+            "server/database.js",
+            "server/db/task-core.js",
+            "server/db/coordination.js"
+          ]
+        },
+        {
+          "file": "server/execution/task-startup.js",
+          "purpose": "Server module exporting init, startTask, and runPreflightChecks and depending on path, fs, and child_process.",
+          "exports": [
+            "init",
+            "startTask",
+            "runPreflightChecks",
+            "runSafeguardPreChecks"
+          ],
+          "deps": [
+            "path",
+            "fs",
+            "child_process",
+            "server/logger.js"
+          ]
+        }
+      ],
+      "readiness_signals": [
+        "Submission surfaces should delegate into handlers and the task manager instead of invoking providers directly.",
+        "Task requests enter through API or handlers, start in the task manager, route through execution modules, and finish in the completion pipeline."
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/api/v2-dispatch.js",
+          "server/handlers/task/index.js",
+          "server/task-manager.js",
+          "server/execution/task-startup.js",
+          "server/execution/provider-router.js",
+          "server/tests/completion-pipeline.test.js",
+          "server/tests/fallback-retry.test.js",
+          "server/tests/host-distribution.test.js",
+          "server/tests/process-lifecycle.test.js"
+        ],
+        "coverage_ratio": 1
+      },
+      "answerability": "strong",
+      "score": 100,
+      "verdict": "pass",
+      "notes": []
+    },
+    {
+      "id": "invariant:task-lifecycle:2",
+      "scope_type": "invariant",
+      "scope_id": "task-lifecycle:2",
+      "prompt": "What invariant governs Task lifecycle in torque-ai, and where should an engineer look before editing it?",
+      "expected_evidence": [
+        "server/api/v2-dispatch.js",
+        "server/handlers/task/index.js",
+        "server/task-manager.js",
+        "server/execution/task-startup.js",
+        "server/execution/provider-router.js",
+        "server/tests/completion-pipeline.test.js",
+        "server/tests/fallback-retry.test.js",
+        "server/tests/host-distribution.test.js",
+        "server/tests/process-lifecycle.test.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/api/v2-dispatch.js",
+          "purpose": "Server module exporting dispatchV2, init, and v2CpRoutes and depending on server/logger.js, server/api/routes.js, and server/api/v2-middleware.js.",
+          "exports": [
+            "dispatchV2",
+            "init",
+            "v2CpRoutes",
+            "V2_CP_HANDLER_LOOKUP"
+          ],
+          "deps": [
+            "server/logger.js",
+            "server/api/routes.js",
+            "server/api/v2-middleware.js",
+            "server/api/middleware.js"
+          ]
+        },
+        {
+          "file": "server/handlers/task/index.js",
+          "purpose": "Server module depending on server/handlers/task/core.js, server/handlers/task/pipeline.js, and server/handlers/task/operations.js.",
+          "exports": [],
+          "deps": [
+            "server/handlers/task/core.js",
+            "server/handlers/task/pipeline.js",
+            "server/handlers/task/operations.js",
+            "server/handlers/task/project.js"
+          ]
+        },
+        {
+          "file": "server/task-manager.js",
+          "purpose": "Server module depending on crypto, server/database.js, and server/db/task-core.js.",
+          "exports": [],
+          "deps": [
+            "crypto",
+            "server/database.js",
+            "server/db/task-core.js",
+            "server/db/coordination.js"
+          ]
+        },
+        {
+          "file": "server/execution/task-startup.js",
+          "purpose": "Server module exporting init, startTask, and runPreflightChecks and depending on path, fs, and child_process.",
+          "exports": [
+            "init",
+            "startTask",
+            "runPreflightChecks",
+            "runSafeguardPreChecks"
+          ],
+          "deps": [
+            "path",
+            "fs",
+            "child_process",
+            "server/logger.js"
+          ]
+        }
+      ],
+      "readiness_signals": [
+        "Task completion should converge through the finalizer and completion pipeline so verification and follow-up hooks stay centralized.",
+        "Task requests enter through API or handlers, start in the task manager, route through execution modules, and finish in the completion pipeline."
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/api/v2-dispatch.js",
+          "server/handlers/task/index.js",
+          "server/task-manager.js",
+          "server/execution/task-startup.js",
+          "server/execution/provider-router.js",
+          "server/tests/completion-pipeline.test.js",
+          "server/tests/fallback-retry.test.js",
+          "server/tests/host-distribution.test.js",
+          "server/tests/process-lifecycle.test.js"
+        ],
+        "coverage_ratio": 1
+      },
+      "answerability": "strong",
+      "score": 100,
+      "verdict": "pass",
+      "notes": []
+    },
+    {
+      "id": "playbook:control-plane-api-playbook",
+      "scope_type": "change_playbook",
+      "scope_id": "control-plane-api-playbook",
+      "prompt": "If you change Editing Control-plane API in torque-ai, which files should you edit, which tests should you run, and which invariants must you recheck?",
+      "expected_evidence": [
+        "server/index.js",
+        "server/api-server.core.js",
+        "server/api/v2-governance-handlers.js",
+        "server/api/middleware.js",
+        "server/api/routes.js",
+        "server/tests/api-server-core.test.js",
+        "server/tests/v2-governance-handlers.test.js",
+        "server/tests/claude-event-hooks.test.js",
+        "server/tests/api-middleware.test.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/index.js",
+          "purpose": "Server module exporting getTools, callTool, and debugLog and depending on readline, child_process, and fs.",
+          "exports": [
+            "getTools",
+            "callTool",
+            "debugLog",
+            "_shouldLogError"
+          ],
+          "deps": [
+            "readline",
+            "child_process",
+            "fs",
+            "os"
+          ]
+        },
+        {
+          "file": "server/api-server.core.js",
+          "purpose": "Server module exporting start, stop, and createRateLimiter and depending on http, crypto, and server/tools.js.",
+          "exports": [
+            "start",
+            "stop",
+            "createRateLimiter",
+            "getRateLimit"
+          ],
+          "deps": [
+            "http",
+            "crypto",
+            "server/tools.js",
+            "server/database.js"
+          ]
+        },
+        {
+          "file": "server/api/v2-governance-handlers.js",
+          "purpose": "Server module exporting init, handleListApprovals, and handleApprovalDecision and depending on server/logger.js, crypto, and server/database.js.",
+          "exports": [
+            "init",
+            "handleListApprovals",
+            "handleApprovalDecision",
+            "handleListSchedules"
+          ],
+          "deps": [
+            "server/logger.js",
+            "crypto",
+            "server/database.js",
+            "server/db/task-core.js"
+          ]
+        },
+        {
+          "file": "server/api/middleware.js",
+          "purpose": "Server module exporting createRateLimiter, extractApiKey, and getRateLimit and depending on server/logger.js, server/db/config-core.js, and server/constants.js.",
+          "exports": [
+            "createRateLimiter",
+            "extractApiKey",
+            "getRateLimit",
+            "startRateLimitCleanup"
+          ],
+          "deps": [
+            "server/logger.js",
+            "server/db/config-core.js",
+            "server/constants.js"
+          ]
+        }
+      ],
+      "readiness_signals": [
+        "npx vitest run server/tests/api-server-core.test.js server/tests/v2-governance-handlers.test.js server/tests/claude-event-hooks.test.js server/tests/api-middleware.test.js",
+        "npm run lint",
+        "Routes and control-plane transports should validate and normalize requests, then delegate into handlers or execution services.",
+        "Business rules should stay in handler or execution layers so API surfaces remain thin and consistent across transports.",
+        "Schedules should create tracked task or tool executions; background automation should not fire invisibly."
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/index.js",
+          "server/api-server.core.js",
+          "server/api/v2-governance-handlers.js",
+          "server/api/middleware.js",
+          "server/api/routes.js",
+          "server/tests/api-server-core.test.js",
+          "server/tests/v2-governance-handlers.test.js",
+          "server/tests/claude-event-hooks.test.js",
+          "server/tests/api-middleware.test.js"
+        ],
+        "coverage_ratio": 1
+      },
+      "answerability": "strong",
+      "score": 100,
+      "verdict": "pass",
+      "notes": []
+    },
+    {
+      "id": "playbook:task-execution-playbook",
+      "scope_type": "change_playbook",
+      "scope_id": "task-execution-playbook",
+      "prompt": "If you change Editing Task execution pipeline in torque-ai, which files should you edit, which tests should you run, and which invariants must you recheck?",
+      "expected_evidence": [
+        "server/task-manager.js",
+        "server/execution/queue-scheduler.js",
+        "server/execution/task-finalizer.js",
+        "server/execution/fallback-retry.js",
+        "server/execution/process-lifecycle.js",
+        "server/tests/bug-001-override-provider.test.js",
+        "server/tests/fallback-retry.test.js",
+        "server/tests/host-distribution.test.js",
+        "server/tests/process-lifecycle.test.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/task-manager.js",
+          "purpose": "Server module depending on crypto, server/database.js, and server/db/task-core.js.",
+          "exports": [],
+          "deps": [
+            "crypto",
+            "server/database.js",
+            "server/db/task-core.js",
+            "server/db/coordination.js"
+          ]
+        },
+        {
+          "file": "server/execution/queue-scheduler.js",
+          "purpose": "Server module exporting FREE_PROVIDERS, COST_FREE_PROVIDERS, and init and depending on server/logger.js, server/execution/effective-concurrency.js, and server/db/model-capabilities.js.",
+          "exports": [
+            "FREE_PROVIDERS",
+            "COST_FREE_PROVIDERS",
+            "init",
+            "stop"
+          ],
+          "deps": [
+            "server/logger.js",
+            "server/execution/effective-concurrency.js",
+            "server/db/model-capabilities.js",
+            "server/providers/registry.js"
+          ]
+        },
+        {
+          "file": "server/execution/task-finalizer.js",
+          "purpose": "Server module exporting init, finalizeTask, and _testing and depending on server/logger.js, server/db/model-capabilities.js, and server/db/provider-performance.js.",
+          "exports": [
+            "init",
+            "finalizeTask",
+            "_testing"
+          ],
+          "deps": [
+            "server/logger.js",
+            "server/db/model-capabilities.js",
+            "server/db/provider-performance.js",
+            "server/execution/smart-diagnosis-stage.js"
+          ]
+        },
+        {
+          "file": "server/execution/fallback-retry.js",
+          "purpose": "Server module exporting init, setFreeQuotaTracker, and tryOllamaCloudFallback and depending on server/logger.js, server/constants.js, and server/db/model-roles.js.",
+          "exports": [
+            "init",
+            "setFreeQuotaTracker",
+            "tryOllamaCloudFallback",
+            "tryLocalFirstFallback"
+          ],
+          "deps": [
+            "server/logger.js",
+            "server/constants.js",
+            "server/db/model-roles.js",
+            "server/db/provider-routing-core.js"
+          ]
+        }
+      ],
+      "readiness_signals": [
+        "npx vitest run server/tests/bug-001-override-provider.test.js server/tests/fallback-retry.test.js server/tests/host-distribution.test.js server/tests/process-lifecycle.test.js",
+        "npm run lint",
+        "Routing decisions should be derived from provider health, capabilities, and policy-aware scoring rather than one-off special cases.",
+        "Retry and fallback should preserve task ownership and emit observable state transitions.",
+        "Submission surfaces should delegate into handlers and the task manager instead of invoking providers directly."
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/task-manager.js",
+          "server/execution/queue-scheduler.js",
+          "server/execution/task-finalizer.js",
+          "server/execution/fallback-retry.js",
+          "server/execution/process-lifecycle.js",
+          "server/tests/bug-001-override-provider.test.js",
+          "server/tests/fallback-retry.test.js",
+          "server/tests/host-distribution.test.js",
+          "server/tests/process-lifecycle.test.js"
+        ],
+        "coverage_ratio": 1
+      },
+      "answerability": "strong",
+      "score": 100,
+      "verdict": "pass",
+      "notes": []
+    },
+    {
+      "id": "playbook:workflow-orchestration-playbook",
+      "scope_type": "change_playbook",
+      "scope_id": "workflow-orchestration-playbook",
+      "prompt": "If you change Editing Workflow orchestration in torque-ai, which files should you edit, which tests should you run, and which invariants must you recheck?",
+      "expected_evidence": [
+        "server/handlers/workflow/index.js",
+        "server/execution/workflow-runtime.js",
+        "server/handlers/workflow/await.js",
+        "server/handlers/workflow/advanced.js",
+        "server/diffusion/planner.js",
+        "server/tests/handler-workflow-advanced.test.js",
+        "server/tests/handler-workflow-handlers.test.js",
+        "server/tests/workflow-runtime.test.js",
+        "server/tests/workflow-advanced-handlers.test.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/handlers/workflow/index.js",
+          "purpose": "Server module exporting handleCreateWorkflow, handleAddWorkflowTask, and handleRunWorkflow and depending on uuid, server/container.js, and server/db/coordination.js.",
+          "exports": [
+            "handleCreateWorkflow",
+            "handleAddWorkflowTask",
+            "handleRunWorkflow",
+            "handleWorkflowStatus"
+          ],
+          "deps": [
+            "uuid",
+            "server/container.js",
+            "server/db/coordination.js",
+            "server/db/provider-routing-core.js"
+          ]
+        },
+        {
+          "file": "server/execution/workflow-runtime.js",
+          "purpose": "Server module exporting init, handlePlanProjectTaskCompletion, and handlePlanProjectTaskFailure and depending on fs, path, and uuid.",
+          "exports": [
+            "init",
+            "handlePlanProjectTaskCompletion",
+            "handlePlanProjectTaskFailure",
+            "generatePipelineDocumentation"
+          ],
+          "deps": [
+            "fs",
+            "path",
+            "uuid",
+            "server/logger.js"
+          ]
+        },
+        {
+          "file": "server/handlers/workflow/await.js",
+          "purpose": "Server module exporting formatDuration, formatHeartbeat, and formatTaskYield and depending on path, server/db/task-core.js, and server/db/file-tracking.js.",
+          "exports": [
+            "formatDuration",
+            "formatHeartbeat",
+            "formatTaskYield",
+            "handleAwaitWorkflow"
+          ],
+          "deps": [
+            "path",
+            "server/db/task-core.js",
+            "server/db/file-tracking.js",
+            "server/db/task-metadata.js"
+          ]
+        },
+        {
+          "file": "server/handlers/workflow/advanced.js",
+          "purpose": "Server module exporting handleForkWorkflow, handleMergeWorkflows, and handleReplayTask and depending on uuid, server/db/task-core.js, and server/db/event-tracking.js.",
+          "exports": [
+            "handleForkWorkflow",
+            "handleMergeWorkflows",
+            "handleReplayTask",
+            "handleDiffTaskRuns"
+          ],
+          "deps": [
+            "uuid",
+            "server/db/task-core.js",
+            "server/db/event-tracking.js",
+            "server/db/provider-routing-core.js"
+          ]
+        }
+      ],
+      "readiness_signals": [
+        "npx vitest run server/tests/handler-workflow-advanced.test.js server/tests/handler-workflow-handlers.test.js server/tests/workflow-runtime.test.js server/tests/workflow-advanced-handlers.test.js",
+        "npm run lint",
+        "Workflow structure, runtime unblocking, and await reporting should stay aligned on the same DAG semantics.",
+        "Dependent nodes should unblock only from persisted workflow state, not from ad hoc in-memory assumptions."
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/handlers/workflow/index.js",
+          "server/execution/workflow-runtime.js",
+          "server/handlers/workflow/await.js",
+          "server/handlers/workflow/advanced.js",
+          "server/diffusion/planner.js",
+          "server/tests/handler-workflow-advanced.test.js",
+          "server/tests/handler-workflow-handlers.test.js",
+          "server/tests/workflow-runtime.test.js",
+          "server/tests/workflow-advanced-handlers.test.js"
+        ],
+        "coverage_ratio": 1
+      },
+      "answerability": "strong",
+      "score": 100,
+      "verdict": "pass",
+      "notes": []
+    },
+    {
+      "id": "relationship:validation-tests:persistence-scheduling",
+      "scope_type": "subsystem_relationship",
+      "scope_id": "validation-tests:persistence-scheduling",
+      "prompt": "Explain how Validation and tests connects to Persistence and scheduling in torque-ai. Where is the boundary, and which files show the integration seam?",
+      "expected_evidence": [
+        "server/tests/adaptive-retry.test.js",
+        "server/db/task-core.js",
+        "server/tests/adaptive-scoring.test.js",
+        "server/db/model-capabilities.js",
+        "server/tests/adv-coordination-handlers.test.js",
+        "server/db/coordination.js",
+        "server/tests/vitest-setup.js",
+        "server/tests/test-helpers.js",
+        "server/db/provider-routing-core.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/tests/adaptive-retry.test.js",
+          "purpose": "Test module covering crypto, server/tests/vitest-setup.js, and server/db/task-core.js.",
+          "exports": [],
+          "deps": [
+            "crypto",
+            "server/tests/vitest-setup.js",
+            "server/db/task-core.js"
+          ]
+        },
+        {
+          "file": "server/db/task-core.js",
+          "purpose": "Server module exporting createTaskCore, setDb, and setDbClosed and depending on path, fs, and server/logger.js.",
+          "exports": [
+            "createTaskCore",
+            "setDb",
+            "setDbClosed",
+            "setExternalFns"
+          ],
+          "deps": [
+            "path",
+            "fs",
+            "server/logger.js",
+            "server/utils/json.js"
+          ]
+        },
+        {
+          "file": "server/tests/adaptive-scoring.test.js",
+          "purpose": "Test module covering server/tests/vitest-setup.js, server/tests/test-helpers.js, and server/db/model-capabilities.js.",
+          "exports": [],
+          "deps": [
+            "server/tests/vitest-setup.js",
+            "server/tests/test-helpers.js",
+            "server/db/model-capabilities.js"
+          ]
+        },
+        {
+          "file": "server/db/model-capabilities.js",
+          "purpose": "Server module exporting setDb, createModelCapabilities, and getModelCapabilities.",
+          "exports": [
+            "setDb",
+            "createModelCapabilities",
+            "getModelCapabilities",
+            "listModelCapabilities"
+          ],
+          "deps": []
+        }
+      ],
+      "readiness_signals": [
+        "Validation and tests depends on Persistence and scheduling.",
+        "server/tests/adaptive-retry.test.js -> server/db/task-core.js",
+        "server/tests/adaptive-scoring.test.js -> server/db/model-capabilities.js"
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/tests/adaptive-retry.test.js",
+          "server/db/task-core.js",
+          "server/tests/adaptive-scoring.test.js",
+          "server/db/model-capabilities.js",
+          "server/tests/adv-coordination-handlers.test.js",
+          "server/db/coordination.js",
+          "server/tests/vitest-setup.js",
+          "server/tests/test-helpers.js",
+          "server/db/provider-routing-core.js"
+        ],
+        "coverage_ratio": 1
+      },
+      "answerability": "strong",
+      "score": 100,
+      "verdict": "pass",
+      "notes": []
+    },
+    {
+      "id": "impact:server/tests/vitest-setup.js",
+      "scope_type": "change_impact",
+      "scope_id": "server/tests/vitest-setup.js",
+      "prompt": "If you edit server/tests/vitest-setup.js in torque-ai, which nearby files and tests should you inspect first, and why is that file a risky seam?",
+      "expected_evidence": [
+        "server/tests/vitest-setup.js",
+        "path",
+        "os",
+        "server/check_retry.js",
+        "server/plugins/auth/tests/auth-plugin.test.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/tests/vitest-setup.js",
+          "purpose": "Server test module covering path, os, and fs.",
+          "exports": [
+            "setupTestDb",
+            "setupTestDbOnly",
+            "setupTestDbModule",
+            "teardownTestDb"
+          ],
+          "deps": [
+            "path",
+            "os",
+            "fs",
+            "crypto"
+          ]
+        },
+        {
+          "file": "server/check_retry.js",
+          "purpose": "Server module depending on server/tests/vitest-setup.js.",
+          "exports": [],
+          "deps": [
+            "server/tests/vitest-setup.js"
+          ]
+        },
+        {
+          "file": "server/plugins/auth/tests/auth-plugin.test.js",
+          "purpose": "Test module covering os, fs, and path.",
+          "exports": [
+            "makeContainer"
+          ],
+          "deps": [
+            "os",
+            "fs",
+            "path",
+            "server/tests/vitest-setup.js"
+          ]
+        }
+      ],
+      "readiness_signals": [
+        "High fan-in (240) and fan-out (8) inside Validation and tests."
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/tests/vitest-setup.js",
+          "server/plugins/auth/tests/auth-plugin.test.js"
+        ],
+        "coverage_ratio": 0.667
+      },
+      "answerability": "partial",
+      "score": 69,
+      "verdict": "partial",
+      "notes": [
+        "Pack coverage hit 2/3 expected evidence files.",
+        "Probe answerability is partial, so a downstream model will still need source reads."
+      ]
+    }
+  ],
+  "artifacts": {
+    "knowledge_pack_path": "docs/architecture/knowledge-pack.json",
+    "study_delta_path": "docs/architecture/study-delta.json",
+    "study_evaluation_path": "docs/architecture/study-evaluation.json",
+    "module_index_path": "docs/architecture/module-index.json",
+    "summary_path": "docs/architecture/SUMMARY.md"
+  }
+}

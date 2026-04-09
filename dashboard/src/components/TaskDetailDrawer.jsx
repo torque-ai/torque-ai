@@ -140,6 +140,35 @@ function getTaskHostLabel(taskData) {
   return taskData?.ollama_host_name || taskData?.ollama_host_id || '';
 }
 
+function normalizeProviderDecisionCandidateList(candidates) {
+  if (!Array.isArray(candidates)) return [];
+  return candidates
+    .map((candidate) => {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return { provider: candidate.trim() };
+      }
+      if (candidate && typeof candidate === 'object' && typeof candidate.provider === 'string' && candidate.provider.trim()) {
+        return candidate;
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function getProviderDecisionTrace(taskData) {
+  const directTrace = taskData?.provider_decision_trace;
+  if (directTrace && typeof directTrace === 'object' && !Array.isArray(directTrace)) {
+    return directTrace;
+  }
+
+  const metadataTrace = taskData?.metadata?.provider_decision_trace;
+  if (metadataTrace && typeof metadataTrace === 'object' && !Array.isArray(metadataTrace)) {
+    return metadataTrace;
+  }
+
+  return null;
+}
+
 export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscribe, streamingOutput = [], refreshTick = 0, relativeTimeTick = 0 }) {
   const [task, setTask] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -327,6 +356,7 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
   const taskDescription = getTaskDescription(task);
   const taskHostLabel = getTaskHostLabel(task);
   const hasGpuStatus = typeof task?.gpu_active === 'boolean';
+  const providerDecisionTrace = getProviderDecisionTrace(task);
 
   return (
     <>
@@ -468,6 +498,10 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
                       <MetaItem label="Priority" value={task.priority} />
                     )}
                   </div>
+
+                  {providerDecisionTrace && (
+                    <ProviderDecisionSection trace={providerDecisionTrace} />
+                  )}
 
                   {/* Working directory */}
                   {task.working_directory && (
@@ -641,6 +675,96 @@ function MetaItem({ label, value }) {
     <div className="bg-slate-800/50 rounded-lg p-3">
       <p className="text-xs text-slate-500 mb-1">{label}</p>
       <p className="text-sm text-white font-medium capitalize">{value}</p>
+    </div>
+  );
+}
+
+function ProviderDecisionSection({ trace }) {
+  const selectedProvider = trace?.selected_provider || trace?.chosen_provider || trace?.intended_provider || '-';
+  const requestedProvider = trace?.requested_provider || '-';
+  const userOverride = trace?.user_provider_override ? 'Yes' : 'No';
+  const selectedAt = trace?.selected_at ? formatTime(trace.selected_at) : '-';
+  const reason = trace?.switch_reason || trace?.selection_reason || '';
+  const fallbackCandidates = normalizeProviderDecisionCandidateList(
+    Array.isArray(trace?.fallback_candidates) && trace.fallback_candidates.length > 0
+      ? trace.fallback_candidates
+      : Array.isArray(trace?.candidates)
+        ? trace.candidates.filter((candidate) => candidate?.role === 'fallback')
+        : []
+  );
+  const blockedCandidates = normalizeProviderDecisionCandidateList(
+    Array.isArray(trace?.blocked_candidates) && trace.blocked_candidates.length > 0
+      ? trace.blocked_candidates
+      : Array.isArray(trace?.candidates)
+        ? trace.candidates.filter((candidate) => candidate?.blocked)
+        : []
+  );
+
+  return (
+    <div>
+      <h4 className="heading-sm mb-2">Provider Decision</h4>
+      <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4 space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <TraceFact label="Selected" value={selectedProvider} />
+          <TraceFact label="Requested" value={requestedProvider} />
+          <TraceFact label="User Override" value={userOverride} />
+          <TraceFact label="Selected At" value={selectedAt} />
+        </div>
+
+        {reason && (
+          <div>
+            <p className="text-xs text-slate-500 mb-1">Reason</p>
+            <p className="text-sm text-slate-200">{reason}</p>
+          </div>
+        )}
+
+        {fallbackCandidates.length > 0 && (
+          <TracePillRow label="Fallbacks" candidates={fallbackCandidates} tone="indigo" />
+        )}
+
+        {blockedCandidates.length > 0 && (
+          <TracePillRow label="Blocked" candidates={blockedCandidates} tone="rose" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TraceFact({ label, value }) {
+  return (
+    <div className="rounded-lg bg-slate-900/60 p-3">
+      <p className="text-xs text-slate-500 mb-1">{label}</p>
+      <p className="text-sm text-slate-100 break-words">{value || '-'}</p>
+    </div>
+  );
+}
+
+function TracePillRow({ label, candidates, tone }) {
+  const toneClasses = tone === 'rose'
+    ? 'bg-rose-950/40 text-rose-200 border-rose-900/60'
+    : 'bg-indigo-950/40 text-indigo-200 border-indigo-900/60';
+
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-2">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {candidates.map((candidate, index) => {
+          const detail = [
+            candidate.reason,
+            candidate.switch_reason,
+            candidate.blocked_reason,
+          ].filter(Boolean).join(' • ');
+          return (
+            <span
+              key={`${label}-${candidate.provider}-${index}`}
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs ${toneClasses}`}
+              title={detail || candidate.provider}
+            >
+              {candidate.provider}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }

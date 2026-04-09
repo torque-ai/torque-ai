@@ -275,6 +275,8 @@ function createMockDb() {
     }),
     getTaskDependencies: vi.fn((taskId) => dependencies
       .filter((dependency) => dependency.task_id === taskId)),
+    getWorkflowDependencies: vi.fn((workflowId) => dependencies
+      .filter((dependency) => dependency.workflow_id === workflowId)),
     updateWorkflowCounts: vi.fn(),
     getWorkflowStatus: vi.fn((workflowId) => {
       if (workflowStatusOverrides.has(workflowId)) {
@@ -843,6 +845,156 @@ describe('server/handlers/workflow-handlers', () => {
     });
   });
 
+  describe('handleCloneWorkflow', () => {
+    it('clones workflow tasks and dependency edges into a fresh workflow instance', () => {
+      const sourceWorkflow = seedWorkflow(ctx.db, {
+        id: 'wf-source',
+        name: 'example-project Ollama Autodev Loop',
+        description: 'Original source workflow',
+        working_directory: 'C:\\Users\\<os-user>\\Projects\\example-project-autodev',
+        priority: 7,
+        context: { project: 'example-project-autodev' },
+      });
+      const planTask = seedTask(ctx.db, {
+        id: 'task-plan',
+        workflow_id: sourceWorkflow.id,
+        workflow_node_id: 'plan',
+        status: 'completed',
+        task_description: 'Plan the next iteration',
+        working_directory: 'C:\\Users\\<os-user>\\Projects\\example-project-autodev',
+        provider: 'ollama',
+        model: 'qwen3-coder:30b',
+        tags: ['autodev', 'planning'],
+        priority: 5,
+        max_retries: 4,
+        metadata: { context_from: ['seed'] },
+      });
+      const executeTask = seedTask(ctx.db, {
+        id: 'task-execute',
+        workflow_id: sourceWorkflow.id,
+        workflow_node_id: 'execute',
+        status: 'failed',
+        task_description: 'Implement the planned change',
+        working_directory: 'C:\\Users\\<os-user>\\Projects\\example-project-autodev',
+        provider: 'ollama',
+        model: 'qwen3-coder:30b',
+        tags: ['autodev', 'execution'],
+        priority: 4,
+        metadata: { user_provider_override: true },
+      });
+      const reportTask = seedTask(ctx.db, {
+        id: 'task-report',
+        workflow_id: sourceWorkflow.id,
+        workflow_node_id: 'report',
+        status: 'blocked',
+        task_description: 'Summarize the results',
+        working_directory: 'C:\\Users\\<os-user>\\Projects\\example-project-autodev',
+        provider: null,
+        model: null,
+        tags: ['autodev', 'reporting'],
+        metadata: {},
+      });
+
+      seedDependency(ctx.db, {
+        workflow_id: sourceWorkflow.id,
+        task_id: executeTask.id,
+        depends_on_task_id: planTask.id,
+        condition_expr: 'exit_code == 0',
+        on_fail: 'skip',
+      });
+      seedDependency(ctx.db, {
+        workflow_id: sourceWorkflow.id,
+        task_id: reportTask.id,
+        depends_on_task_id: executeTask.id,
+        condition_expr: 'status == "completed"',
+        on_fail: 'run_alternate',
+        alternate_task_id: planTask.id,
+      });
+
+      ctx.uuid.__setIds('wf-cloned', 'task-plan-cloned', 'task-execute-cloned', 'task-report-cloned');
+
+      const result = ctx.handlers.handleCloneWorkflow({
+        source_workflow_id: 'wf-source',
+        name: 'example-project Ollama Autodev Loop Clone',
+        context: {
+          _scheduled_origin: {
+            schedule_id: 'schedule-dlphone',
+          },
+        },
+      });
+
+      expect(result.isError).not.toBe(true);
+      expect(result.workflow_id).toBe('wf-cloned');
+      expect(textOf(result)).toContain('Workflow Cloned');
+
+      const clonedWorkflow = ctx.db.getWorkflow('wf-cloned');
+      expect(clonedWorkflow).toEqual(expect.objectContaining({
+        id: 'wf-cloned',
+        name: 'example-project Ollama Autodev Loop Clone',
+        description: 'Original source workflow',
+        working_directory: 'C:\\Users\\<os-user>\\Projects\\example-project-autodev',
+        priority: 7,
+        template_id: null,
+        context: expect.objectContaining({
+          project: 'example-project-autodev',
+          _scheduled_origin: { schedule_id: 'schedule-dlphone' },
+          _cloned_from_workflow_id: 'wf-source',
+        }),
+      }));
+
+      expect(ctx.db.getTask('task-plan-cloned')).toEqual(expect.objectContaining({
+        workflow_id: 'wf-cloned',
+        workflow_node_id: 'plan',
+        status: 'pending',
+        task_description: 'Plan the next iteration',
+        project: 'example-project-autodev',
+        provider: 'ollama',
+        model: 'qwen3-coder:30b',
+        tags: ['autodev', 'planning'],
+        priority: 5,
+        max_retries: 4,
+        metadata: { context_from: ['seed'] },
+      }));
+      expect(ctx.db.getTask('task-execute-cloned')).toEqual(expect.objectContaining({
+        workflow_id: 'wf-cloned',
+        workflow_node_id: 'execute',
+        status: 'blocked',
+        task_description: 'Implement the planned change',
+        project: 'example-project-autodev',
+        provider: 'ollama',
+        model: 'qwen3-coder:30b',
+        tags: ['autodev', 'execution'],
+        priority: 4,
+        metadata: { user_provider_override: true },
+      }));
+      expect(ctx.db.getTask('task-report-cloned')).toEqual(expect.objectContaining({
+        workflow_id: 'wf-cloned',
+        workflow_node_id: 'report',
+        status: 'blocked',
+        task_description: 'Summarize the results',
+        project: 'example-project-autodev',
+        tags: ['autodev', 'reporting'],
+      }));
+
+      expect(ctx.db.__dependencies).toContainEqual(expect.objectContaining({
+        workflow_id: 'wf-cloned',
+        task_id: 'task-execute-cloned',
+        depends_on_task_id: 'task-plan-cloned',
+        condition_expr: 'exit_code == 0',
+        on_fail: 'skip',
+      }));
+      expect(ctx.db.__dependencies).toContainEqual(expect.objectContaining({
+        workflow_id: 'wf-cloned',
+        task_id: 'task-report-cloned',
+        depends_on_task_id: 'task-execute-cloned',
+        condition_expr: 'status == "completed"',
+        on_fail: 'run_alternate',
+        alternate_task_id: 'task-plan-cloned',
+      }));
+      expect(ctx.db.updateWorkflowCounts).toHaveBeenCalledWith('wf-cloned');
+    });
+  });
+
   describe('handleRunWorkflow', () => {
     it('returns WORKFLOW_NOT_FOUND when the workflow does not exist', () => {
       const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-missing' });
@@ -993,6 +1145,36 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain("Failed to start workflow 'Broken Flow'");
       expect(result.details).toHaveLength(2);
       expect(ctx.logger.debug).toHaveBeenCalledTimes(2);
+    });
+
+    it('treats instantly completed tasks as started for workflow launch accounting', () => {
+      seedWorkflow(ctx.db, {
+        id: 'wf-1',
+        name: 'Noop Plan Flow',
+        status: 'pending',
+      });
+      seedTask(ctx.db, {
+        id: 't1',
+        workflow_id: 'wf-1',
+        workflow_node_id: 'plan',
+        status: 'pending',
+      });
+      seedTask(ctx.db, {
+        id: 't2',
+        workflow_id: 'wf-1',
+        workflow_node_id: 'execute',
+        status: 'blocked',
+      });
+      ctx.taskManager.startTask.mockImplementation((taskId) => {
+        ctx.db.updateTaskStatus(taskId, 'completed');
+      });
+
+      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toContain('**Tasks Started:** 1');
+      expect(textOf(result)).toContain('**Blocked Tasks:** 1');
+      expect(ctx.db.__tasks.get('t1').status).toBe('completed');
     });
 
     it('reports partial start failures and continues starting later tasks', () => {

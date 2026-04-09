@@ -348,6 +348,7 @@ const V2_CP_HANDLER_LOOKUP = {
     sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
   // Tasks
+  handleV2CpPreviewTaskStudyContext: v2TaskHandlers.handlePreviewTaskStudyContext,
   handleV2CpSubmitTask: v2TaskHandlers.handleSubmitTask,
   handleV2CpListTasks: v2TaskHandlers.handleListTasks,
   handleV2CpTaskDiff: v2TaskHandlers.handleTaskDiff,
@@ -379,6 +380,8 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpListSchedules: v2GovernanceHandlers.handleListSchedules,
   handleV2CpCreateSchedule: v2GovernanceHandlers.handleCreateSchedule,
   handleV2CpGetSchedule: v2GovernanceHandlers.handleGetSchedule,
+  handleV2CpGetScheduleRun: v2GovernanceHandlers.handleGetScheduleRun,
+  handleV2CpRunSchedule: v2GovernanceHandlers.handleRunSchedule,
   handleV2CpToggleSchedule: v2GovernanceHandlers.handleToggleSchedule,
   handleV2CpDeleteSchedule: v2GovernanceHandlers.handleDeleteSchedule,
   handleV2CpUpdateSchedule: v2GovernanceHandlers.handleUpdateSchedule,

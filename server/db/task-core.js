@@ -1060,7 +1060,19 @@ function getRunningCountByProvider(provider) {
  */
 function getRunningTasksLightweight() {
   const stmt = db.prepare(`
-    SELECT id, status, started_at, timeout_minutes, working_directory, task_description
+    SELECT
+      id,
+      status,
+      provider,
+      started_at,
+      timeout_minutes,
+      retry_count,
+      max_retries,
+      mcp_instance_id,
+      ollama_host_id,
+      workflow_id,
+      working_directory,
+      task_description
     FROM tasks
     WHERE status = 'running'
   `);
@@ -1069,7 +1081,9 @@ function getRunningTasksLightweight() {
 
 /**
  * Get queued/pending tasks that exceeded the scheduler TTL cutoff.
- * Keeps the exact SQL semantics used by the scheduler, including provider filtering.
+ * Workflow-owned tasks are excluded because dependency-blocked nodes can sit
+ * behind upstream work for longer than the generic queue TTL without being stale.
+ * Workflow runtime handles deadlocks and task-level timeouts separately.
  * @param {string} cutoffIso
  * @returns {Array<{id: string}>}
  */
@@ -1081,6 +1095,7 @@ function getExpiredQueuedTasks(cutoffIso) {
     WHERE status IN ('queued', 'pending')
       AND created_at < ?
       AND provider != 'workflow'
+      AND workflow_id IS NULL
   `).all(cutoffIso);
 }
 

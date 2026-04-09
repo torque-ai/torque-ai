@@ -29,7 +29,7 @@ function resetTables() {
   const conn = rawDb();
   for (const table of [
     'ollama_hosts', 'project_tuning', 'benchmark_results',
-    'complexity_routing', 'routing_rules', 'tasks'
+    'complexity_routing', 'routing_rules', 'tasks', 'workstations'
   ]) {
     try { conn.prepare(`DELETE FROM ${table}`).run(); } catch {}
   }
@@ -1077,6 +1077,31 @@ describe('host-management module', () => {
       mod.reconcileHostTaskCounts();
       const host = mod.getOllamaHost('recon-run');
       expect(host.running_tasks).toBe(2);
+    });
+
+    it('also reconciles mapped workstation running_tasks counts', () => {
+      const wsModel = require('../workstation/model');
+      wsModel.createWorkstation({
+        id: 'ws-recon',
+        name: 'ReconWS',
+        host: 'recon-ws.local',
+        secret: 'test-secret',
+        max_concurrent: 1,
+      });
+
+      makeHost({ id: 'recon-ws-host', url: 'http://recon-ws.local:11434' });
+      wsModel.updateWorkstation('ws-recon', { running_tasks: 7 });
+
+      let result = mod.reconcileHostTaskCounts();
+      expect(result.workstations_reconciled).toBeGreaterThan(0);
+      expect(wsModel.getWorkstation('ws-recon').running_tasks).toBe(0);
+
+      const runningTask = makeTask();
+      rawDb().prepare("UPDATE tasks SET status = 'running', ollama_host_id = ? WHERE id = ?")
+        .run('recon-ws-host', runningTask.id);
+
+      mod.reconcileHostTaskCounts();
+      expect(wsModel.getWorkstation('ws-recon').running_tasks).toBe(1);
     });
   });
 

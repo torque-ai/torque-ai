@@ -393,6 +393,36 @@ describe('execute-ollama.js', () => {
       // so we cannot assert the exact host URL used without refactoring the mock setup.
     });
 
+    it('persists the resolved model and selected host on running tasks', async () => {
+      const host = addHost({ url: mockUrl, model: 'qwen3-coder:30b' });
+      const safeUpdate = vi.fn();
+      const updateSpy = vi.spyOn(db, 'updateTaskStatus');
+      const deps = makeDeps({ safeUpdateTaskStatus: safeUpdate });
+      mod.init(deps);
+
+      const taskId = randomUUID();
+      taskCore.createTask({
+        id: taskId,
+        task_description: 'Persist host and model metadata',
+        status: 'running',
+        provider: 'ollama',
+        model: null,
+        working_directory: testDir,
+      });
+
+      await mod.executeOllamaTask({
+        id: taskId,
+        task_description: 'Persist host and model metadata',
+        model: null,
+        working_directory: testDir,
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith(taskId, 'running', expect.objectContaining({
+        ollama_host_id: host.id,
+        model: 'qwen3-coder:30b',
+      }));
+    });
+
     it('calls cloud fallback or fails when no host has the requested model', async () => {
       // When the requested model (with exact version) is not on any host,
       // the code tries _findBestAvailableModel which may substitute another model.

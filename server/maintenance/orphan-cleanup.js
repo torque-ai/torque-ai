@@ -32,6 +32,8 @@ let tryLocalFirstFallback = null;
 let getTaskActivity = null;
 let tryStallRecovery = null;
 let detectOutputCompletion = null;
+let isInstanceAlive = null;
+let getMcpInstanceId = null;
 
 // ---- Timer handles ----
 let dotnetCleanupInterval = null;
@@ -40,6 +42,7 @@ let zombieCheckInterval = null;
 let stallCheckInterval = null;
 let timersStarted = false;
 let staleCheckTimeout = null;
+let staleOwnerRecoveryTimeout = null;
 
 /**
  * Check if a PID is still alive.
@@ -212,9 +215,55 @@ function checkStaleRunningTasks() {
     // Use lightweight query - only fetches essential columns for stale check
     // This is much faster than listTasks() which fetches output, context, etc.
     const runningTasks = db.getRunningTasksLightweight();
+    let recoveredOrphans = 0;
 
     for (const task of runningTasks) {
       if (!task.started_at) continue;
+
+      const currentInstanceId = typeof getMcpInstanceId === 'function'
+        ? getMcpInstanceId()
+        : null;
+      const isTrackedLocally = runningProcesses.has(task.id);
+      const retryCount = task.retry_count || 0;
+      const maxRetries = task.max_retries != null ? task.max_retries : 2;
+      const requeueOrCancelDeadOwner = (reason) => {
+        if (retryCount < maxRetries) {
+          logger.info(`[Stale Check] ${reason} - requeueing ${task.id} (attempt ${retryCount + 1}/${maxRetries})`);
+          db.updateTaskStatus(task.id, 'queued', {
+            error_output: `${reason} — requeued for re-execution (attempt ${retryCount + 1}/${maxRetries})`,
+            retry_count: retryCount + 1,
+            mcp_instance_id: null,
+            provider: null,
+            ollama_host_id: null,
+          });
+        } else {
+          logger.info(`[Stale Check] ${reason} - cancelling ${task.id} (max retries exhausted: ${retryCount}/${maxRetries})`);
+          db.updateTaskStatus(task.id, 'cancelled', {
+            error_output: `${reason} (max retries exhausted: ${retryCount}/${maxRetries})`,
+            cancel_reason: 'orphan_cleanup',
+            completed_at: new Date().toISOString(),
+            mcp_instance_id: null,
+            ollama_host_id: null,
+          });
+        }
+        if (task.ollama_host_id && typeof db.decrementHostTasks === 'function') {
+          try { db.decrementHostTasks(task.ollama_host_id); } catch { /* ignore */ }
+        }
+        try { dashboard?.notifyTaskUpdated?.(task.id); } catch { /* ignore */ }
+        recoveredOrphans++;
+      };
+
+      if (task.mcp_instance_id) {
+        if (currentInstanceId && task.mcp_instance_id === currentInstanceId) {
+          if (!isTrackedLocally) {
+            requeueOrCancelDeadOwner(`Task orphaned — current instance ${task.mcp_instance_id} has no tracked process`);
+            continue;
+          }
+        } else if (typeof isInstanceAlive === 'function' && !isInstanceAlive(task.mcp_instance_id)) {
+          requeueOrCancelDeadOwner(`Task orphaned — owning instance ${task.mcp_instance_id} is no longer alive`);
+          continue;
+        }
+      }
 
       const elapsedMs = Date.now() - new Date(task.started_at).getTime();
       const timeoutMs = (task.timeout_minutes || 480) * 60 * 1000;
@@ -238,6 +287,15 @@ function checkStaleRunningTasks() {
           } catch { /* ignore */ }
         }
       }
+    }
+
+    if (recoveredOrphans > 0) {
+      try {
+        db.reconcileHostTaskCounts();
+      } catch { /* ignore */ }
+      try {
+        processQueue();
+      } catch { /* ignore */ }
     }
   } catch (err) {
     logger.info(`[Stale Check] Error: ${err.message} STACK: ${err.stack?.split('\n').slice(0, 5).join(' >> ')}`);
@@ -643,6 +701,12 @@ function startTimers() {
   staleCheckTimeout = setTimeout(checkStaleRunningTasks, 10000);
   staleCheckTimeout.unref();
 
+  // Dead instance locks can still look fresh for ~30s right after a restart.
+  // Run a second pass after that freshness window so orphaned running tasks
+  // do not occupy slots until the regular 2-minute sweep.
+  staleOwnerRecoveryTimeout = setTimeout(checkStaleRunningTasks, 45000);
+  staleOwnerRecoveryTimeout.unref();
+
   // Auto-cancel stalled tasks every 60 seconds
   stallCheckInterval = setInterval(() => {
     const autoCancel = serverConfig.getBool('auto_cancel_stalled');
@@ -663,11 +727,13 @@ function stopTimers() {
   if (zombieCheckInterval) clearInterval(zombieCheckInterval);
   if (stallCheckInterval) clearInterval(stallCheckInterval);
   if (staleCheckTimeout) clearTimeout(staleCheckTimeout);
+  if (staleOwnerRecoveryTimeout) clearTimeout(staleOwnerRecoveryTimeout);
   dotnetCleanupInterval = null;
   staleCheckInterval = null;
   zombieCheckInterval = null;
   stallCheckInterval = null;
   staleCheckTimeout = null;
+  staleOwnerRecoveryTimeout = null;
   timersStarted = false;
 }
 
@@ -693,6 +759,8 @@ function init(deps) {
   getTaskActivity = deps.getTaskActivity;
   tryStallRecovery = deps.tryStallRecovery;
   detectOutputCompletion = deps.detectOutputCompletion;
+  isInstanceAlive = deps.isInstanceAlive;
+  getMcpInstanceId = deps.getMcpInstanceId;
 }
 
 module.exports = {

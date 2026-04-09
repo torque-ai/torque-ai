@@ -5,6 +5,7 @@ import TaskSubmitForm from './TaskSubmitForm';
 vi.mock('../api', () => ({
   tasks: {
     submit: vi.fn(),
+    previewStudyContext: vi.fn(),
   },
   requestV2: vi.fn(),
   providers: {
@@ -42,10 +43,21 @@ const mockHosts = [
 
 describe('TaskSubmitForm', () => {
   beforeEach(() => {
-    providersApi.list.mockResolvedValue(mockProviders);
-    hostsApi.list.mockResolvedValue(mockHosts);
-    requestV2.mockResolvedValue({ items: [{ name: 'alpha', task_count: 3 }] });
-    tasksApi.submit.mockResolvedValue({ success: true, task_id: 'task-abc123' });
+    providersApi.list.mockReset().mockResolvedValue(mockProviders);
+    hostsApi.list.mockReset().mockResolvedValue(mockHosts);
+    requestV2.mockReset().mockResolvedValue({ items: [{ name: 'alpha', task_count: 3 }] });
+    tasksApi.previewStudyContext.mockReset().mockResolvedValue({
+      available: true,
+      study_context: {
+        repo_name: 'torque-public',
+        readiness: 'expert_ready',
+        grade: 'A',
+        relevant_subsystems: [{ id: 'task-execution', label: 'Task execution pipeline' }],
+        relevant_flows: [{ id: 'task-lifecycle', label: 'Task lifecycle' }],
+        representative_tests: [{ id: 'task-tests', label: 'Task tests' }],
+      },
+    });
+    tasksApi.submit.mockReset().mockResolvedValue({ success: true, task_id: 'task-abc123' });
   });
 
   afterEach(() => {
@@ -66,6 +78,7 @@ describe('TaskSubmitForm', () => {
     expect(screen.getByLabelText('Provider')).toBeInTheDocument();
     expect(screen.getByLabelText('Model')).toBeInTheDocument();
     expect(screen.getByLabelText('Working Directory')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Attach study context/i)).toBeInTheDocument();
   });
 
   it('populates provider dropdown from API', async () => {
@@ -184,6 +197,7 @@ describe('TaskSubmitForm', () => {
     // Fill in the task
     const textarea = screen.getByLabelText(/Task Description/);
     fireEvent.change(textarea, { target: { value: 'Write unit tests for MyService.ts' } });
+    fireEvent.change(screen.getByLabelText('New Project'), { target: { value: 'alpha' } });
 
     // Submit with auto
     const submitBtn = screen.getByRole('button', { name: /Submit Task/i });
@@ -192,6 +206,8 @@ describe('TaskSubmitForm', () => {
     await waitFor(() => {
       expect(tasksApi.submit).toHaveBeenCalledWith({
         task: 'Write unit tests for MyService.ts',
+        project: 'alpha',
+        study_context: true,
       });
     });
   });
@@ -206,6 +222,7 @@ describe('TaskSubmitForm', () => {
     // Fill in task
     const textarea = screen.getByLabelText(/Task Description/);
     fireEvent.change(textarea, { target: { value: 'Fix the login bug' } });
+    fireEvent.change(screen.getByLabelText('New Project'), { target: { value: 'alpha' } });
 
     // Select provider
     const providerSelect = screen.getByLabelText('Provider');
@@ -228,10 +245,71 @@ describe('TaskSubmitForm', () => {
     await waitFor(() => {
       expect(tasksApi.submit).toHaveBeenCalledWith({
         task: 'Fix the login bug',
+        project: 'alpha',
         provider: 'codex',
         model: 'gpt-5.3-codex-spark',
         working_directory: 'C:/Projects/MyApp',
+        study_context: true,
       });
+    });
+  });
+
+  it('can disable study context for the normal submit path', async () => {
+    renderWithProviders(<TaskSubmitForm />);
+
+    fireEvent.change(screen.getByLabelText(/Task Description/), { target: { value: 'Inspect scheduler behavior' } });
+    fireEvent.change(screen.getByLabelText('New Project'), { target: { value: 'alpha' } });
+    fireEvent.change(screen.getByLabelText('Working Directory'), { target: { value: 'C:/Projects/MyApp' } });
+
+    await waitFor(() => {
+      expect(tasksApi.previewStudyContext).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByLabelText(/Attach study context/i));
+    fireEvent.click(screen.getByRole('button', { name: /Submit Task/i }));
+
+    await waitFor(() => {
+      expect(tasksApi.submit).toHaveBeenCalledWith(expect.objectContaining({
+        task: 'Inspect scheduler behavior',
+        project: 'alpha',
+        working_directory: 'C:/Projects/MyApp',
+        study_context: false,
+      }));
+    });
+  });
+
+  it('submits an A/B comparison pair when study preview is available', async () => {
+    tasksApi.submit
+      .mockResolvedValueOnce({ success: true, task_id: 'task-on' })
+      .mockResolvedValueOnce({ success: true, task_id: 'task-off' });
+    renderWithProviders(<TaskSubmitForm />);
+
+    fireEvent.change(screen.getByLabelText(/Task Description/), { target: { value: 'Compare schedule routing behavior' } });
+    fireEvent.change(screen.getByLabelText('New Project'), { target: { value: 'alpha' } });
+    fireEvent.change(screen.getByLabelText('Working Directory'), { target: { value: 'C:/Projects/MyApp' } });
+
+    await waitFor(() => {
+      expect(tasksApi.previewStudyContext).toHaveBeenCalledWith(expect.objectContaining({
+        working_directory: 'C:/Projects/MyApp',
+        task: 'Compare schedule routing behavior',
+      }), expect.any(Object));
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Submit A\/B Pair/i }));
+
+    await waitFor(() => {
+      expect(tasksApi.submit).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        task: 'Compare schedule routing behavior',
+        project: 'alpha',
+        working_directory: 'C:/Projects/MyApp',
+        study_context: true,
+      }));
+      expect(tasksApi.submit).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        task: 'Compare schedule routing behavior',
+        project: 'alpha',
+        working_directory: 'C:/Projects/MyApp',
+        study_context: false,
+      }));
     });
   });
 
@@ -250,6 +328,7 @@ describe('TaskSubmitForm', () => {
 
     const textarea = screen.getByLabelText(/Task Description/);
     fireEvent.change(textarea, { target: { value: 'Run test suite' } });
+    fireEvent.change(screen.getByLabelText('New Project'), { target: { value: 'alpha' } });
 
     const submitBtn = screen.getByRole('button', { name: /Submit Task/i });
     fireEvent.click(submitBtn);
@@ -267,6 +346,7 @@ describe('TaskSubmitForm', () => {
 
     const textarea = screen.getByLabelText(/Task Description/);
     fireEvent.change(textarea, { target: { value: 'Do something' } });
+    fireEvent.change(screen.getByLabelText('New Project'), { target: { value: 'alpha' } });
 
     const submitBtn = screen.getByRole('button', { name: /Submit Task/i });
     fireEvent.click(submitBtn);
@@ -285,6 +365,7 @@ describe('TaskSubmitForm', () => {
 
     const textarea = screen.getByLabelText(/Task Description/);
     fireEvent.change(textarea, { target: { value: 'Long running task' } });
+    fireEvent.change(screen.getByLabelText('New Project'), { target: { value: 'alpha' } });
 
     const submitBtn = screen.getByRole('button', { name: /Submit Task/i });
     fireEvent.click(submitBtn);

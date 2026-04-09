@@ -921,6 +921,8 @@ _orphanCleanup.init({
   tryLocalFirstFallback,
   getTaskActivity,
   tryStallRecovery,
+  isInstanceAlive,
+  getMcpInstanceId,
   safeConfigInt,
   detectOutputCompletion,
   COMPLETION_OUTPUT_THRESHOLDS,

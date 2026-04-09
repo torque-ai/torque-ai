@@ -17,6 +17,7 @@ const { redactCommandArgs, redactSecrets } = require('../utils/sanitize');
 const gitWorktree = require('../utils/git-worktree');
 const { buildSafeEnv } = require('../utils/safe-env');
 const serverConfig = require('../config');
+const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 
 /**
  * Extract unified diffs from codex's stderr output.
@@ -104,8 +105,9 @@ function finalizeTask(...args) { if (!_finalizeTask) throw new Error('execute-cl
  * @returns {{ cliPath, finalArgs, stdinPrompt, envExtras, selectedOllamaHostId, usedEditFormat }}
  */
 function buildClaudeCliCommand(task, resolvedFileContext, providerConfig) {
+    const effectiveTaskDescription = applyStudyContextPrompt(task.task_description, task.metadata);
     const wrappedDescription = _helpers.wrapWithInstructions(
-      task.task_description,
+      effectiveTaskDescription,
       'claude-cli',
       null,
       { files: task.files, project: task.project, fileContext: resolvedFileContext }
@@ -165,8 +167,9 @@ function buildClaudeCliCommand(task, resolvedFileContext, providerConfig) {
  * @returns {{ cliPath, finalArgs, stdinPrompt, envExtras, selectedOllamaHostId, usedEditFormat }}
  */
 function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {}) {
+    const effectiveTaskDescription = applyStudyContextPrompt(task.task_description, task.metadata);
     const wrappedDescription = _helpers.wrapWithInstructions(
-      task.task_description,
+      effectiveTaskDescription,
       'codex',
       null,
       { files: task.files, project: task.project, fileContext: resolvedFileContext }

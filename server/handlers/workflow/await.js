@@ -67,6 +67,104 @@ function buildWorkflowPeekArtifactSection(tasks) {
   return formatPeekArtifactReferenceSection(refs);
 }
 
+function syncWorkflowBlockers(workflowId) {
+  if (!workflowId) return;
+  try {
+    const workflowRuntime = require('../../execution/workflow-runtime');
+    if (typeof workflowRuntime.refreshWorkflowBlockerSnapshots === 'function') {
+      workflowRuntime.refreshWorkflowBlockerSnapshots(workflowId);
+    }
+  } catch (err) {
+    logger.debug('[workflow-await] non-critical blocker refresh error: ' + (err.message || err));
+  }
+}
+
+function getTaskBlockerSnapshot(task) {
+  if (task?.blocker_snapshot && typeof task.blocker_snapshot === 'object' && !Array.isArray(task.blocker_snapshot)) {
+    return task.blocker_snapshot;
+  }
+  const blocker = task?.context
+    && typeof task.context === 'object'
+    && !Array.isArray(task.context)
+    ? task.context.workflow_blocker
+    : null;
+  return blocker && typeof blocker === 'object' && !Array.isArray(blocker) ? blocker : null;
+}
+
+function formatBlockedDependencyDetails(unmetDependencies, limit = 3) {
+  const items = Array.isArray(unmetDependencies) ? unmetDependencies : [];
+  if (items.length === 0) return '';
+
+  const detail = items.slice(0, limit).map((dependency) => {
+    const nodeLabel = dependency?.node_id || dependency?.task_id || 'unknown';
+    const status = dependency?.status || 'unknown';
+    const onFail = dependency?.on_fail || 'skip';
+    const unmetReason = dependency?.unmet_reason === 'dependency_not_terminal'
+      ? 'waiting for terminal state'
+      : dependency?.unmet_reason === 'condition_failed'
+        ? 'condition failed'
+        : dependency?.unmet_reason === 'dependency_failed'
+          ? 'dependency failed'
+          : dependency?.unmet_reason === 'missing_dependency'
+            ? 'dependency missing'
+            : 'blocked';
+    const alternate = dependency?.alternate_task_id ? `, alternate=${dependency.alternate_task_id}` : '';
+    return `${nodeLabel} (${status}, ${unmetReason}, on_fail=${onFail}${alternate})`;
+  }).join(', ');
+
+  return items.length > limit
+    ? `${detail}, +${items.length - limit} more`
+    : detail;
+}
+
+function formatBlockedFailureActions(failureActions, limit = 3) {
+  const items = (Array.isArray(failureActions) ? failureActions : [])
+    .filter((action) => action && action.blocking !== false);
+  if (items.length === 0) return '';
+
+  const detail = items.slice(0, limit).map((action) => {
+    const nodeLabel = action?.node_id || action?.task_id || 'unknown';
+    const alternate = action?.alternate_task_id ? ` (alternate ${action.alternate_task_id})` : '';
+    return `${nodeLabel}=>${action?.on_fail || 'skip'}${alternate}`;
+  }).join(', ');
+
+  return items.length > limit
+    ? `${detail}, +${items.length - limit} more`
+    : detail;
+}
+
+function formatWorkflowBlockerSection(workflowTasks) {
+  const blockedTasks = (workflowTasks || []).filter((task) => ['blocked', 'waiting'].includes(task.status));
+  if (blockedTasks.length === 0) return '';
+
+  let output = `\n### Blocked Tasks\n\n`;
+  for (const task of blockedTasks.slice(0, 5)) {
+    const blocker = getTaskBlockerSnapshot(task);
+    const nodeLabel = task.workflow_node_id || task.node_id || task.id.substring(0, 8);
+    if (!blocker) {
+      output += `- **${nodeLabel}**: Blocked with no persisted blocker snapshot.\n`;
+      continue;
+    }
+
+    const dependencyDetails = formatBlockedDependencyDetails(blocker.unmet_dependencies);
+    const failureActions = formatBlockedFailureActions(blocker.failure_actions);
+    output += `- **${nodeLabel}** (${task.status}): ${blocker.reason || 'Blocked.'}`;
+    if (dependencyDetails) {
+      output += ` Waiting on: ${dependencyDetails}.`;
+    }
+    if (failureActions) {
+      output += ` Failure actions: ${failureActions}.`;
+    }
+    output += `\n`;
+  }
+
+  if (blockedTasks.length > 5) {
+    output += `- ... and ${blockedTasks.length - 5} more blocked tasks\n`;
+  }
+
+  return output;
+}
+
 async function evaluatePreVerifyGovernance(target, verifyCommand, context = {}) {
   if (!verifyCommand) {
     return null;
@@ -280,7 +378,8 @@ function formatHeartbeat(opts) {
     taskId, reason, elapsedMs, runningTasks = [], taskCounts = {},
     partialOutput, alerts = [], nextUpTasks,
     // Decision signal fields (optional — absent in older callers)
-    decisionSignals
+    decisionSignals,
+    workflowTasks
   } = opts;
 
   const elapsed = formatDuration(elapsedMs);
@@ -291,7 +390,7 @@ function formatHeartbeat(opts) {
   lines.push('');
   lines.push(`**Reason:** ${reason}`);
   lines.push(`**Elapsed:** ${elapsed}`);
-  lines.push(`**Tasks:** ${taskCounts.completed || 0} completed, ${taskCounts.failed || 0} failed, ${taskCounts.running || 0} running, ${taskCounts.pending || 0} pending`);
+  lines.push(`**Tasks:** ${taskCounts.completed || 0} completed, ${taskCounts.failed || 0} failed, ${taskCounts.running || 0} running, ${taskCounts.pending || 0} pending, ${taskCounts.blocked || 0} blocked`);
   lines.push('');
 
   if (runningTasks.length > 0) {
@@ -378,6 +477,14 @@ function formatHeartbeat(opts) {
     lines.push('');
   }
 
+  const blockerSection = Array.isArray(workflowTasks)
+    ? formatWorkflowBlockerSection(workflowTasks).trim()
+    : '';
+  if (blockerSection) {
+    lines.push(blockerSection);
+    lines.push('');
+  }
+
   if (!decisionSignals) {
     lines.push('### Action');
     lines.push('Re-invoke to continue waiting, or take action (cancel, resubmit, etc.)');
@@ -459,6 +566,8 @@ function formatTaskYield(task, workflowTasks, workflowName) {
     out += `\n`;
   }
 
+  out += formatWorkflowBlockerSection(workflowTasks);
+
   return out;
 }
 
@@ -512,6 +621,7 @@ async function handleAwaitWorkflow(args) {
 
   // Poll until we find an unacknowledged terminal task, or all are done
   while (true) {
+    syncWorkflowBlockers(args.workflow_id);
     const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
     if (!tasks) break;
 
@@ -728,6 +838,7 @@ async function handleAwaitWorkflow(args) {
       output += `**ID:** ${args.workflow_id}\n`;
       output += `**Waited:** ${Math.round((Date.now() - startTime) / 1000)}s\n`;
       output += `**Acknowledged:** ${acknowledged.size} / ${tasks.length} tasks\n\n`;
+      output += formatWorkflowBlockerSection(tasks);
       output += `The TORQUE server is restarting. Tasks may still be running on their providers.\n`;
       output += `Call \`await_workflow\` again after the server comes back.\n`;
       return { content: [{ type: 'text', text: output }] };
@@ -739,6 +850,7 @@ async function handleAwaitWorkflow(args) {
       output += `**ID:** ${args.workflow_id}\n`;
       output += `**Waited:** ${Math.round((Date.now() - startTime) / 1000)}s\n`;
       output += `**Acknowledged:** ${acknowledged.size} / ${tasks.length} tasks\n\n`;
+      output += formatWorkflowBlockerSection(tasks);
       output += `Workflow is still running. Call \`await_workflow\` again to continue receiving results.\n`;
       return { content: [{ type: 'text', text: output }] };
     }
@@ -858,6 +970,7 @@ async function handleAwaitWorkflow(args) {
     if ((signalType === 'heartbeat' || signalType.startsWith('notable:'))
         && (Date.now() - startTime) < timeoutMs) {
       // Re-check for unacked terminal tasks — task yields always take priority
+      syncWorkflowBlockers(args.workflow_id);
       const freshTasks = workflowEngine.getWorkflowTasks(args.workflow_id) || [];
       const freshUnacked = freshTasks.filter(t => terminalStates.includes(t.status) && !acknowledged.has(t.id));
       if (freshUnacked.length === 0) {
@@ -877,7 +990,8 @@ async function handleAwaitWorkflow(args) {
           completed: workflowTasks.filter(t => t.status === 'completed').length,
           failed: workflowTasks.filter(t => t.status === 'failed').length,
           running: workflowTasks.filter(t => t.status === 'running').length,
-          pending: workflowTasks.filter(t => ['pending', 'queued'].includes(t.status)).length
+          pending: workflowTasks.filter(t => ['pending', 'queued'].includes(t.status)).length,
+          blocked: workflowTasks.filter(t => ['blocked', 'waiting'].includes(t.status)).length
         };
 
         const nextUpTasks = workflowTasks
@@ -939,7 +1053,8 @@ async function handleAwaitWorkflow(args) {
           partialOutput,
           alerts,
           nextUpTasks,
-          decisionSignals
+          decisionSignals,
+          workflowTasks
         }) }] };
       }
       // If there are unacked terminal tasks, fall through to the top of the loop
@@ -984,6 +1099,8 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
       output += `- **${t.workflow_node_id || t.id.substring(0, 8)}**: ${(t.error_output || 'unknown error').substring(0, 200)}\n`;
     }
   }
+
+  output += formatWorkflowBlockerSection(tasks);
 
   output += buildWorkflowPeekArtifactSection(tasks);
 
@@ -2024,6 +2141,13 @@ async function handleAwaitRestart(args) {
 
 function createWorkflowAwaitHandlers(_deps) {
   return {
+    getCommitMutex,
+    buildTaskPeekArtifactSection,
+    buildWorkflowPeekArtifactSection,
+    syncWorkflowBlockers,
+    getTaskBlockerSnapshot,
+    formatBlockedDependencyDetails,
+    formatWorkflowBlockerSection,
     formatDuration,
     formatHeartbeat,
     formatTaskYield,
@@ -2037,6 +2161,13 @@ function createWorkflowAwaitHandlers(_deps) {
 }
 
 module.exports = {
+  getCommitMutex,
+  buildTaskPeekArtifactSection,
+  buildWorkflowPeekArtifactSection,
+  syncWorkflowBlockers,
+  getTaskBlockerSnapshot,
+  formatBlockedDependencyDetails,
+  formatWorkflowBlockerSection,
   formatDuration,
   formatHeartbeat,
   formatTaskYield,

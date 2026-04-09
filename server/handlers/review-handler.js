@@ -3,6 +3,8 @@
 const childProcess = require('child_process');
 const { randomUUID } = require('crypto');
 const { ErrorCodes, makeError } = require('./error-codes');
+const { buildTaskStudyContextEnvelope } = require('../integrations/codebase-study-engine');
+const { recordStudyTaskSubmitted } = require('../db/study-telemetry');
 
 const DEFAULT_PROVIDER = 'codex';
 const DEFAULT_TIMEOUT_MINUTES = 30;
@@ -49,6 +51,25 @@ function parseMetadata(rawMetadata) {
   }
 }
 
+function parseFilesModified(rawFilesModified) {
+  if (Array.isArray(rawFilesModified)) {
+    return rawFilesModified.filter((value) => typeof value === 'string' && value.trim());
+  }
+
+  if (typeof rawFilesModified !== 'string' || !rawFilesModified.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(rawFilesModified);
+    return Array.isArray(parsed)
+      ? parsed.filter((value) => typeof value === 'string' && value.trim())
+      : [];
+  } catch (_err) {
+    return [];
+  }
+}
+
 function truncateDiffOutput(diffOutput) {
   const normalizedDiff = typeof diffOutput === 'string'
     ? diffOutput
@@ -69,9 +90,15 @@ function formatReviewPrompt(taskDescriptionOrDiffOutput, maybeDiffOutput) {
   const taskDescription = maybeDiffOutput === undefined
     ? ''
     : normalizeString(taskDescriptionOrDiffOutput);
-  const diffOutput = maybeDiffOutput === undefined
+  const rawDiffOutput = maybeDiffOutput === undefined
     ? taskDescriptionOrDiffOutput
     : maybeDiffOutput;
+  const diffOutput = typeof rawDiffOutput === 'object' && rawDiffOutput !== null
+    ? rawDiffOutput.diff_output
+    : rawDiffOutput;
+  const studyContextPrompt = typeof rawDiffOutput === 'object' && rawDiffOutput !== null
+    ? normalizeString(rawDiffOutput.study_context_prompt)
+    : '';
 
   const lines = [
     'Review this code change for:',
@@ -84,6 +111,10 @@ function formatReviewPrompt(taskDescriptionOrDiffOutput, maybeDiffOutput) {
 
   if (taskDescription) {
     lines.push('', `Task description: ${taskDescription}`);
+  }
+
+  if (studyContextPrompt) {
+    lines.push('', studyContextPrompt);
   }
 
   lines.push(
@@ -163,6 +194,8 @@ function buildReviewTaskPayload({
   sourceTaskId,
   sourceTaskProvider,
   requestedProvider,
+  studyContextSummary,
+  sourceStudyContextSummary,
 }) {
   return {
     id: randomUUID(),
@@ -180,6 +213,9 @@ function buildReviewTaskPayload({
       intended_provider: provider,
       requested_provider: requestedProvider || null,
       user_provider_override: Boolean(normalizeString(requestedProvider)),
+      study_context_enabled: Boolean(studyContextSummary),
+      study_context_summary: studyContextSummary || null,
+      source_study_context_summary: sourceStudyContextSummary || studyContextSummary || null,
     }),
   };
 }
@@ -231,7 +267,21 @@ function handleReviewTaskOutput(args = {}) {
     const sourceTaskProvider = extractOriginalProvider(task);
     const reviewProvider = selectReviewProvider(requestedProvider, sourceTaskProvider);
     const diffOutput = collectDiffOutput(workingDirectory, task);
-    const prompt = formatReviewPrompt(task.task_description || task.description || '', diffOutput);
+    const metadata = parseMetadata(task.metadata);
+    const fallbackStudyEnvelope = buildTaskStudyContextEnvelope({
+      workingDirectory,
+      taskDescription: task.task_description || task.description || '',
+      files: parseFilesModified(task.files_modified),
+    });
+    const studyContextPrompt = normalizeString(metadata.study_context_prompt)
+      || normalizeString(fallbackStudyEnvelope?.study_context_prompt);
+    const studyContextSummary = metadata.study_context_summary && typeof metadata.study_context_summary === 'object'
+      ? metadata.study_context_summary
+      : (fallbackStudyEnvelope?.study_context_summary || null);
+    const prompt = formatReviewPrompt(task.task_description || task.description || '', {
+      diff_output: diffOutput,
+      study_context_prompt: studyContextPrompt,
+    });
     const reviewTask = buildReviewTaskPayload({
       prompt,
       provider: reviewProvider,
@@ -239,9 +289,20 @@ function handleReviewTaskOutput(args = {}) {
       sourceTaskId: taskId,
       sourceTaskProvider,
       requestedProvider,
+      studyContextSummary,
+      sourceStudyContextSummary: studyContextSummary,
     });
 
     taskCore.createTask(reviewTask);
+    try {
+      recordStudyTaskSubmitted(
+        typeof taskCore.getTask === 'function'
+          ? (taskCore.getTask(reviewTask.id) || reviewTask)
+          : reviewTask
+      );
+    } catch (_studyTelemetryErr) {
+      // Non-blocking telemetry.
+    }
 
     const startResult = taskManager.startTask(reviewTask.id);
     if (startResult?.blocked) {

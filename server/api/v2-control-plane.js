@@ -47,20 +47,54 @@ function resolveRequestId(req) {
 
 // ─── Task Response Builder ────────────────────────────────────────────────
 
+function parseTaskMetadataValue(rawMetadata) {
+  let metadata = {};
+  try {
+    metadata = typeof rawMetadata === 'string' ? safeJsonParse(rawMetadata, {}) : (rawMetadata || {});
+  } catch { /* non-critical */ }
+  return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {};
+}
+
+function parseTaskFilesModifiedValue(rawFilesModified) {
+  let filesModified = [];
+  try {
+    filesModified = typeof rawFilesModified === 'string'
+      ? safeJsonParse(rawFilesModified, [])
+      : (rawFilesModified || []);
+  } catch { /* non-critical */ }
+  return Array.isArray(filesModified) ? filesModified : [];
+}
+
+function extractProviderDecisionTrace(metadata) {
+  const trace = metadata?.provider_decision_trace;
+  return trace && typeof trace === 'object' && !Array.isArray(trace) ? trace : null;
+}
+
+function extractStudyContext(metadata) {
+  const studyContext = metadata?.study_context;
+  return studyContext && typeof studyContext === 'object' && !Array.isArray(studyContext)
+    ? studyContext
+    : null;
+}
+
+function extractStudyContextSummary(metadata) {
+  const summary = metadata?.study_context_summary;
+  return summary && typeof summary === 'object' && !Array.isArray(summary)
+    ? summary
+    : null;
+}
+
 function buildTaskResponse(task) {
   if (!task) return null;
 
-  let metadata = {};
-  try {
-    metadata = typeof task.metadata === 'string' ? safeJsonParse(task.metadata, {}) : (task.metadata || {});
-  } catch { /* non-critical */ }
-
-  let filesModified = [];
-  try {
-    filesModified = typeof task.files_modified === 'string'
-      ? safeJsonParse(task.files_modified, [])
-      : (task.files_modified || []);
-  } catch { /* non-critical */ }
+  const metadata = parseTaskMetadataValue(task.metadata);
+  const filesModified = parseTaskFilesModifiedValue(task.files_modified);
+  const {
+    provider_decision_trace: _providerDecisionTrace,
+    study_context: _studyContext,
+    study_context_prompt: _studyContextPrompt,
+    ...summaryMetadata
+  } = metadata;
 
   return {
     id: task.id,
@@ -86,16 +120,25 @@ function buildTaskResponse(task) {
     provider_switch_reason: metadata._provider_switch_reason || null,
     project: task.project || null,
     tags: (() => { try { return typeof task.tags === 'string' ? JSON.parse(task.tags) : (task.tags || []); } catch { return []; } })(),
-    metadata,
+    metadata: summaryMetadata,
   };
 }
 
 function buildTaskDetailResponse(task) {
+  if (!task) return null;
+
+  const metadata = parseTaskMetadataValue(task.metadata);
+  const providerDecisionTrace = extractProviderDecisionTrace(metadata);
+  const studyContext = extractStudyContext(metadata);
+  const studyContextSummary = extractStudyContextSummary(metadata);
   const base = buildTaskResponse(task);
-  if (!base) return null;
 
   return {
     ...base,
+    metadata,
+    provider_decision_trace: providerDecisionTrace,
+    study_context: studyContext,
+    study_context_summary: studyContextSummary,
     output: task.output || null,
     error_output: task.error_output || null,
   };

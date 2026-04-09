@@ -169,6 +169,11 @@ export const tasks = {
   cancel: (id) => requestV2(`/tasks/${id}/cancel`, { method: 'POST' }),
   approveSwitch: (id) => requestV2(`/tasks/${id}/approve-switch`, { method: 'POST' }),
   rejectSwitch: (id) => requestV2(`/tasks/${id}/reject-switch`, { method: 'POST' }),
+  previewStudyContext: (data, options = {}) => requestV2('/tasks/preview-study-context', {
+    method: 'POST',
+    body: JSON.stringify(data),
+    ...options,
+  }),
   submit: (data) => requestV2('/tasks', {
     method: 'POST',
     body: JSON.stringify(data),
@@ -358,13 +363,58 @@ export const schedules = {
     return [];
   }),
   create: (data) => requestV2('/schedules', { method: 'POST', body: JSON.stringify(data) }),
+  run: (id) => requestV2(`/schedules/${id}/run`, {
+    method: 'POST',
+  }),
   toggle: (id, enabled) => requestV2(`/schedules/${id}/toggle`, {
     method: 'POST',
     body: JSON.stringify({ enabled }),
   }),
   delete: (id) => requestV2(`/schedules/${id}`, { method: 'DELETE' }),
   get: (id) => requestV2(`/schedules/${id}`),
+  getRun: (scheduleId, runId) => requestV2(`/schedules/${scheduleId}/runs/${runId}`),
   update: (id, data) => requestV2(`/schedules/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+};
+
+export const study = {
+  run: (data) => requestV2('/study/run', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  status: (params = {}) => requestV2(`/study/status${buildQuery(params)}`),
+  getProfileOverride: (params = {}) => requestV2(`/study/profile-override${buildQuery(params)}`),
+  saveProfileOverride: (data) => requestV2('/study/profile-override', {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  }),
+  deleteProfileOverride: (data) => requestV2('/study/profile-override', {
+    method: 'PATCH',
+    body: JSON.stringify({ ...data, clear: true }),
+  }),
+  evaluate: (data) => requestV2('/study/evaluate', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  benchmark: (data) => requestV2('/study/benchmark', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  preview: (data) => requestV2('/study/preview', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  bootstrap: (data) => requestV2('/study/bootstrap', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  reset: (data) => requestV2('/study/reset', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  schedule: (data) => requestV2('/study/schedule', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
 };
 
 // ─── Task logs (v2) ─────────────────────────────────────────────────────────
@@ -425,7 +475,7 @@ export const benchmarks = {
 
 export const approvals = {
   listPending: () => requestV2('/approvals').then(d => d.items || d),
-  getHistory: (limit = 50) => requestV2(`/approvals?status=all&limit=${limit}`).then(d => d.items || d),
+  getHistory: (limit = 50) => requestV2(`/approvals?status=history&limit=${limit}`).then(d => d.items || d),
   approve: (id) => requestV2(`/approvals/${id}/decide`, {
     method: 'POST',
     body: JSON.stringify({ decision: 'approved' }),
@@ -519,4 +569,4 @@ export const routingTemplates = {
   categories: (opts = {}) => requestV2('/routing/categories', opts),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, versionControl, strategic, routingTemplates };
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, versionControl, strategic, routingTemplates };

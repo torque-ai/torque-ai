@@ -16,6 +16,8 @@ const logger = require('../logger').child({ component: 'v2-task-handlers' });
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 const { CONTEXT_STUFFING_PROVIDERS } = require('../utils/context-stuffing');
 const { resolveContextFiles } = require('../utils/smart-scan');
+const { buildTaskStudyContextEnvelope } = require('../integrations/codebase-study-engine');
+const { recordStudyTaskSubmitted } = require('../db/study-telemetry');
 const {
   sendSuccess,
   sendError,
@@ -95,6 +97,37 @@ function emitTaskUpdated(taskId, status) {
   eventBus.emitTaskUpdated({ taskId, status });
 }
 
+function maybeAttachStudyContextMetadata(metadata, body, description) {
+  if (body?.study_context === false) {
+    metadata.study_context = null;
+    metadata.study_context_prompt = null;
+    metadata.study_context_summary = null;
+    return metadata;
+  }
+
+  const workingDirectory = typeof body?.working_directory === 'string' ? body.working_directory.trim() : '';
+  if (!workingDirectory) {
+    return metadata;
+  }
+
+  try {
+    const envelope = buildTaskStudyContextEnvelope({
+      workingDirectory,
+      taskDescription: description,
+      files: Array.isArray(body?.files) ? body.files.filter((file) => typeof file === 'string') : [],
+    });
+    if (envelope) {
+      metadata.study_context = envelope.study_context;
+      metadata.study_context_prompt = envelope.study_context_prompt;
+      metadata.study_context_summary = envelope.study_context_summary;
+    }
+  } catch (err) {
+    logger.debug(`[v2] Study context build failed: ${err.message}`);
+  }
+
+  return metadata;
+}
+
 function getProviderValidation(provider) {
   if (typeof provider !== 'string' || !provider.trim()) {
     return { valid: false, code: 'validation_error', message: 'provider is required', status: 400 };
@@ -110,6 +143,43 @@ function getProviderValidation(provider) {
   }
 
   return { valid: true, provider: providerId, config: providerConfig };
+}
+
+async function handlePreviewTaskStudyContext(req, res) {
+  const requestId = resolveRequestId(req);
+  const body = req.body || await parseBody(req);
+  const workingDirectory = typeof body?.working_directory === 'string' ? body.working_directory.trim() : '';
+  const description = (body?.task || body?.description || '').trim();
+  const files = Array.isArray(body?.files)
+    ? body.files.filter((value) => typeof value === 'string' && value.trim())
+    : [];
+
+  if (!workingDirectory) {
+    return sendError(res, requestId, 'validation_error', 'working_directory is required', 400, {}, req);
+  }
+
+  try {
+    const envelope = buildTaskStudyContextEnvelope({
+      workingDirectory,
+      taskDescription: description,
+      files,
+    });
+
+    return sendSuccess(res, requestId, {
+      available: Boolean(envelope),
+      working_directory: workingDirectory,
+      description: description || null,
+      files,
+      study_context: envelope?.study_context || null,
+      study_context_summary: envelope?.study_context_summary || null,
+      study_context_prompt: envelope?.study_context_prompt || null,
+      reason: envelope
+        ? null
+        : 'No study context is available for this repository yet. Run or bootstrap the codebase study first.',
+    }, 200, req);
+  } catch (err) {
+    return sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
 }
 
 // ─── POST /api/v2/tasks — Submit a task ───────────────────────────────────
@@ -145,6 +215,8 @@ async function handleSubmitTask(req, res) {
     ? { user_provider_override: true, requested_provider: body.provider, intended_provider: provider }
     : { intended_provider: provider };
   if (body.context_stuff !== undefined) metadata.context_stuff = body.context_stuff;
+  if (body.study_context !== undefined) metadata.study_context_enabled = body.study_context !== false;
+  maybeAttachStudyContextMetadata(metadata, body, description);
   const policyResult = typeof _taskManager?.evaluateTaskSubmissionPolicy === 'function'
     ? _taskManager.evaluateTaskSubmissionPolicy({
         id: taskId,
@@ -175,6 +247,17 @@ async function handleSubmitTask(req, res) {
       model: body.model || null,
       metadata: JSON.stringify(metadata),
     });
+    try {
+      recordStudyTaskSubmitted({
+        id: taskId,
+        status: 'pending',
+        working_directory: body.working_directory || null,
+        model: body.model || null,
+        metadata,
+      });
+    } catch (_studyTelemetryErr) {
+      // Non-blocking telemetry.
+    }
 
     // Context-stuff: resolve files for eligible providers before starting
     const workingDirectory = body.working_directory;
@@ -411,6 +494,17 @@ async function handleRetryTask(req, res) {
       model: task.model,
       metadata: JSON.stringify(retryMetadata),
     });
+    try {
+      recordStudyTaskSubmitted({
+        id: newTaskId,
+        status: 'pending',
+        working_directory: task.working_directory,
+        model: task.model,
+        metadata: retryMetadata,
+      });
+    } catch (_studyTelemetryErr) {
+      // Non-blocking telemetry.
+    }
 
     if (!_taskManager) {
       return sendError(res, requestId, 'operation_failed', 'Task manager not initialized', 503, {}, req);
@@ -875,6 +969,7 @@ async function handleRejectSwitch(req, res) {
 function createV2TaskHandlers(_deps) {
   return {
     init,
+    handlePreviewTaskStudyContext,
     handleSubmitTask,
     handleListTasks,
     handleGetTask,
@@ -893,6 +988,7 @@ function createV2TaskHandlers(_deps) {
 
 module.exports = {
   init,
+  handlePreviewTaskStudyContext,
   handleSubmitTask,
   handleListTasks,
   handleGetTask,

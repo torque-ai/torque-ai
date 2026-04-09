@@ -52,8 +52,8 @@ installCjsModuleMock('../api/v2-workflow-handlers', handlerModule([
 ]));
 installCjsModuleMock('../api/v2-governance-handlers', handlerModule([
   'handleListApprovals', 'handleApprovalDecision', 'handleListSchedules',
-  'handleCreateSchedule', 'handleGetSchedule', 'handleToggleSchedule',
-  'handleUpdateSchedule', 'handleDeleteSchedule', 'handleListPolicies', 'handleGetPolicy',
+  'handleCreateSchedule', 'handleGetSchedule', 'handleRunSchedule', 'handleToggleSchedule',
+  'handleUpdateSchedule', 'handleGetScheduleRun', 'handleDeleteSchedule', 'handleListPolicies', 'handleGetPolicy',
   'handleSetPolicyMode', 'handleEvaluatePolicies', 'handleListPolicyEvaluations',
   'handleGetPolicyEvaluation', 'handleOverridePolicyDecision', 'handlePeekAttestationExport',
   'handleListPlanProjects', 'handleGetPlanProject',

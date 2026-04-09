@@ -48,6 +48,10 @@ const mockLoggerModule = {
   child: vi.fn(() => mockTaskLogger),
 };
 
+const mockStudyEngine = {
+  buildTaskStudyContextEnvelope: vi.fn(() => null),
+};
+
 const mockConstants = {
   PROVIDER_DEFAULT_TIMEOUTS: {
     codex: 45,
@@ -66,6 +70,7 @@ vi.mock('../api/v2-control-plane', () => mockControlPlane);
 vi.mock('../api/middleware', () => mockMiddleware);
 vi.mock('../handlers/task/pipeline', () => mockPipeline);
 vi.mock('../logger', () => mockLoggerModule);
+vi.mock('../integrations/codebase-study-engine', () => mockStudyEngine);
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -90,6 +95,7 @@ function loadHandlers() {
   installCjsModuleMock('../api/middleware', mockMiddleware);
   installCjsModuleMock('../handlers/task/pipeline', mockPipeline);
   installCjsModuleMock('../logger', mockLoggerModule);
+  installCjsModuleMock('../integrations/codebase-study-engine', mockStudyEngine);
   return require('../api/v2-task-handlers');
 }
 
@@ -199,6 +205,7 @@ function resetMockDefaults() {
     isError: false,
     content: [{ text: 'Committed abcdef1' }],
   });
+  mockStudyEngine.buildTaskStudyContextEnvelope.mockReturnValue(null);
 
   mockTaskManager.startTask.mockReturnValue({ queued: false });
   mockTaskManager.cancelTask.mockReturnValue(undefined);
@@ -324,6 +331,132 @@ describe('api/v2-task-handlers.handleSubmitTask', () => {
         metadata: { user_provider_override: true },
       }),
       status: 201,
+      req,
+    });
+  });
+
+  it('attaches study context metadata when study artifacts are available', async () => {
+    const res = createRes();
+    const req = createReq({
+      body: {
+        task: 'Review the scheduler changes',
+        working_directory: '/repo',
+        files: ['server/maintenance/scheduler.js'],
+      },
+    });
+
+    mockUuidV4.mockReturnValueOnce('submit-task-study');
+    mockStudyEngine.buildTaskStudyContextEnvelope.mockReturnValue({
+      study_context: {
+        subsystems: [{ id: 'persistence-and-scheduling' }],
+      },
+      study_context_summary: {
+        subsystem_ids: ['persistence-and-scheduling'],
+      },
+      study_context_prompt: 'Study context: inspect the persistence and scheduling subsystem first.',
+    });
+    mockDb.getTask.mockReturnValue({
+      id: 'submit-task-study',
+      status: 'running',
+      task_description: 'Review the scheduler changes',
+      working_directory: '/repo',
+      timeout_minutes: 45,
+      provider: 'codex',
+      metadata: '{}',
+    });
+
+    await handlers.handleSubmitTask(req, res);
+
+    expect(mockStudyEngine.buildTaskStudyContextEnvelope).toHaveBeenCalledWith({
+      workingDirectory: '/repo',
+      taskDescription: 'Review the scheduler changes',
+      files: ['server/maintenance/scheduler.js'],
+    });
+    const createdTask = mockDb.createTask.mock.calls.at(-1)[0];
+    expect(JSON.parse(createdTask.metadata)).toEqual(expect.objectContaining({
+      intended_provider: 'codex',
+      study_context: {
+        subsystems: [{ id: 'persistence-and-scheduling' }],
+      },
+      study_context_summary: {
+        subsystem_ids: ['persistence-and-scheduling'],
+      },
+      study_context_prompt: 'Study context: inspect the persistence and scheduling subsystem first.',
+    }));
+  });
+
+  it('honors study_context=false and suppresses study metadata injection', async () => {
+    const res = createRes();
+    const req = createReq({
+      body: {
+        task: 'Review the scheduler changes',
+        working_directory: '/repo',
+        study_context: false,
+      },
+    });
+
+    mockUuidV4.mockReturnValueOnce('submit-task-no-study');
+    mockDb.getTask.mockReturnValue({
+      id: 'submit-task-no-study',
+      status: 'running',
+      task_description: 'Review the scheduler changes',
+      working_directory: '/repo',
+      timeout_minutes: 45,
+      provider: 'codex',
+      metadata: '{}',
+    });
+
+    await handlers.handleSubmitTask(req, res);
+
+    expect(mockStudyEngine.buildTaskStudyContextEnvelope).not.toHaveBeenCalled();
+    const createdTask = mockDb.createTask.mock.calls.at(-1)[0];
+    expect(JSON.parse(createdTask.metadata)).toEqual(expect.objectContaining({
+      intended_provider: 'codex',
+      study_context_enabled: false,
+      study_context: null,
+      study_context_prompt: null,
+      study_context_summary: null,
+    }));
+  });
+
+  it('previews task study context when study artifacts exist', async () => {
+    const res = createRes();
+    const req = createReq({
+      body: {
+        task: 'Inspect scheduler behavior',
+        working_directory: '/repo',
+        files: ['server/maintenance/scheduler.js'],
+      },
+    });
+
+    mockStudyEngine.buildTaskStudyContextEnvelope.mockReturnValue({
+      study_context: {
+        repo_name: 'torque-public',
+      },
+      study_context_summary: {
+        subsystem_ids: ['persistence-and-scheduling'],
+      },
+      study_context_prompt: 'Study context: inspect scheduler invariants first.',
+    });
+
+    await handlers.handlePreviewTaskStudyContext(req, res);
+
+    expect(mockStudyEngine.buildTaskStudyContextEnvelope).toHaveBeenCalledWith({
+      workingDirectory: '/repo',
+      taskDescription: 'Inspect scheduler behavior',
+      files: ['server/maintenance/scheduler.js'],
+    });
+    expect(getLastSuccess()).toEqual({
+      res,
+      requestId: 'req-123',
+      data: expect.objectContaining({
+        available: true,
+        working_directory: '/repo',
+        study_context_summary: {
+          subsystem_ids: ['persistence-and-scheduling'],
+        },
+      }),
+      status: 200,
       req,
     });
   });

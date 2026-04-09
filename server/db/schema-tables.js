@@ -132,6 +132,7 @@ const VALID_TABLE_NAMES = new Set([
   'routing_rules',
   'routing_templates',
   'safeguard_tool_config',
+  'scheduled_task_runs',
   'scheduled_tasks',
   'schema_migrations',
   'security_rules',
@@ -466,6 +467,27 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_scheduled_next_run ON scheduled_tasks(next_run_at);
       CREATE INDEX IF NOT EXISTS idx_scheduled_status ON scheduled_tasks(status);
       CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled);
+    `);
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+        id TEXT PRIMARY KEY,
+        schedule_id TEXT NOT NULL,
+        schedule_name TEXT,
+        trigger_source TEXT NOT NULL,
+        execution_type TEXT NOT NULL,
+        wrapper_task_id TEXT,
+        status TEXT NOT NULL DEFAULT 'started',
+        skip_reason TEXT,
+        summary TEXT,
+        details_json TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+  db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_schedule ON scheduled_task_runs(schedule_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_scheduled_task_runs_wrapper_task ON scheduled_task_runs(wrapper_task_id);
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS config (

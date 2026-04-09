@@ -16,6 +16,7 @@ const { ErrorCodes, makeError } = require('../error-codes');
 const { MAX_TASK_LENGTH, isPathTraversalSafe, checkProviderAvailability } = require('../shared');
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
+const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-study-engine');
 const { resolveOllamaModel } = require('../../providers/ollama-shared');
 const { shouldDecompose, decomposeTask: buildDecomposedTasks, GUIDED_FILE_THRESHOLD, GUIDED_MIN_FUNCTIONS } = require('../../execution/task-decomposition');
 const { enforceVersionIntentForProject } = require('../../versioning/version-intent');
@@ -126,6 +127,34 @@ function rejectBlockedSubmission(policyResult) {
   }
   const message = policyResult.reason || policyResult.error || 'Task blocked by policy';
   return makeError(ErrorCodes.OPERATION_FAILED, message);
+}
+
+function maybeAttachStudyContextMetadata(taskId, taskDescription, workingDirectory, files, enabled = true) {
+  if (enabled === false || !taskId || !workingDirectory) {
+    return;
+  }
+
+  try {
+    const envelope = buildTaskStudyContextEnvelope({
+      workingDirectory,
+      taskDescription,
+      files: Array.isArray(files) ? files : [],
+    });
+    if (!envelope) {
+      return;
+    }
+    const taskRow = taskCore.getTask(taskId);
+    const existingMeta = (taskRow && typeof taskRow.metadata === 'object' && taskRow.metadata)
+      ? { ...taskRow.metadata }
+      : {};
+    existingMeta.study_context = envelope.study_context;
+    existingMeta.study_context_prompt = envelope.study_context_prompt;
+    existingMeta.study_context_summary = envelope.study_context_summary;
+    existingMeta.study_context_enabled = true;
+    taskCore.patchTaskMetadata(taskId, existingMeta);
+  } catch (err) {
+    logger.debug(`[SmartRouting] Study context build failed for ${taskId}: ${err.message}`);
+  }
 }
 
 function resolveSmartSubmitTuning(rawTuning) {
@@ -278,6 +307,7 @@ function extractSmartSubmitInputs(args) {
     tuning,
     context_stuff,
     context_depth,
+    study_context,
     prefer_free,
     routing_template,
     version_intent,
@@ -352,6 +382,7 @@ function extractSmartSubmitInputs(args) {
     estimatedTokens,
     context_stuff,
     context_depth,
+    study_context,
     prefer_free,
     routing_template,
     version_intent,
@@ -1304,6 +1335,14 @@ async function handleSmartSubmitTask(args) {
       logger.debug(`Context scan failed for task ${taskId}: ${e.message}`);
     }
   }
+
+  maybeAttachStudyContextMetadata(
+    taskId,
+    task,
+    workingDirectory,
+    Array.isArray(files) ? files.filter((file) => typeof file === 'string') : [],
+    study_context !== false
+  );
 
   // Start the task
   taskManager.processQueue();

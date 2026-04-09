@@ -4,12 +4,14 @@ const SUBJECT_PATH = require.resolve('../providers/execute-api');
 const LOGGER_PATH = require.resolve('../logger');
 const SANITIZE_PATH = require.resolve('../utils/sanitize');
 const CONTEXT_STUFFING_PATH = require.resolve('../utils/context-stuffing');
+const STUDY_ENGINE_PATH = require.resolve('../integrations/codebase-study-engine');
 const { TEST_MODELS } = require('./test-helpers');
 
 const ORIGINAL_CACHE_ENTRIES = new Map([
   [LOGGER_PATH, require.cache[LOGGER_PATH]],
   [SANITIZE_PATH, require.cache[SANITIZE_PATH]],
   [CONTEXT_STUFFING_PATH, require.cache[CONTEXT_STUFFING_PATH]],
+  [STUDY_ENGINE_PATH, require.cache[STUDY_ENGINE_PATH]],
 ]);
 
 let nextTaskId = 0;
@@ -52,10 +54,15 @@ function loadSubject(options = {}) {
     CONTEXT_STUFFING_PROVIDERS: options.contextProviders
       || new Set(['groq', 'cerebras', 'google-ai', 'openrouter', 'ollama-cloud']),
   };
+  const studyEngineMock = {
+    applyStudyContextPrompt: options.applyStudyContextPrompt
+      || vi.fn((taskDescription) => taskDescription),
+  };
 
   installMock(LOGGER_PATH, loggerMock);
   installMock(SANITIZE_PATH, sanitizeMock);
   installMock(CONTEXT_STUFFING_PATH, contextStuffingMock);
+  installMock(STUDY_ENGINE_PATH, studyEngineMock);
   delete require.cache[SUBJECT_PATH];
 
   return {
@@ -64,6 +71,7 @@ function loadSubject(options = {}) {
     loggerMock,
     sanitizeMock,
     contextStuffingMock,
+    studyEngineMock,
   };
 }
 
@@ -350,7 +358,7 @@ describe('execute-api.js', () => {
     });
 
     it('returns the original description when context stuffing is disabled', async () => {
-      const { mod, contextStuffingMock } = loadSubject();
+      const { mod, contextStuffingMock, studyEngineMock } = loadSubject();
       const task = makeTask({
         metadata: JSON.stringify({
           context_stuff: false,
@@ -362,6 +370,10 @@ describe('execute-api.js', () => {
 
       expect(result).toBe(task.task_description);
       expect(contextStuffingMock.stuffContext).not.toHaveBeenCalled();
+      expect(studyEngineMock.applyStudyContextPrompt).toHaveBeenCalledWith(task.task_description, {
+        context_stuff: false,
+        context_files: ['C:/repo/a.js'],
+      });
     });
 
     it('returns the original description when no context files are present', async () => {
@@ -392,7 +404,7 @@ describe('execute-api.js', () => {
     });
 
     it('uses stuffContext and returns the enriched description when enabled', async () => {
-      const { mod, contextStuffingMock } = loadSubject({
+      const { mod, contextStuffingMock, studyEngineMock } = loadSubject({
         stuffContext: async () => ({ enrichedDescription: 'enriched task description' }),
       });
       const task = makeTask({
@@ -415,6 +427,27 @@ describe('execute-api.js', () => {
         model: 'qwen/qwen3-coder:free',
         contextBudget: 12345,
       });
+      expect(studyEngineMock.applyStudyContextPrompt).toHaveBeenCalledWith('enriched task description', {
+        context_files: ['C:/repo/a.js', 'C:/repo/b.js'],
+        context_budget: 12345,
+      });
+    });
+
+    it('appends study context when no context stuffing occurs', async () => {
+      const { mod, contextStuffingMock } = loadSubject({
+        applyStudyContextPrompt: vi.fn((taskDescription, metadata) => `${taskDescription}\n\n${metadata.study_context_prompt}`),
+      });
+      const task = makeTask({
+        provider: 'anthropic',
+        metadata: JSON.stringify({
+          study_context_prompt: 'Study context: start with the task lifecycle flow.',
+        }),
+      });
+
+      const result = await mod.enrichTaskDescription(task);
+
+      expect(result).toBe('Write comprehensive tests\n\nStudy context: start with the task lifecycle flow.');
+      expect(contextStuffingMock.stuffContext).not.toHaveBeenCalled();
     });
   });
 

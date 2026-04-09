@@ -5,6 +5,7 @@
 
 const path = require('path');
 const logger = require('../logger').child({ component: 'command-builders' });
+const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 
 let _wrapWithInstructions = null;
 let _providerCfg = null;
@@ -33,8 +34,9 @@ function init({ wrapWithInstructions, providerCfg, contextEnrichment, codexIntel
  * @returns {{ cliPath: string, finalArgs: string[], stdinPrompt: string }}
  */
 function buildClaudeCliCommand(task, providerConfig, resolvedFileContext) {
+  const effectiveTaskDescription = applyStudyContextPrompt(task.task_description, task.metadata);
   const wrappedDescription = _wrapWithInstructions(
-    task.task_description,
+    effectiveTaskDescription,
     'claude-cli',
     null,
     { files: task.files, project: task.project, fileContext: resolvedFileContext }
@@ -73,6 +75,7 @@ function buildClaudeCliCommand(task, providerConfig, resolvedFileContext) {
  * @returns {Promise<{ cliPath: string, finalArgs: string[], stdinPrompt: string }>}
  */
 async function buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles) {
+  const effectiveTaskDescription = applyStudyContextPrompt(task.task_description, task.metadata);
   let stdinPrompt;
 
   if (resolvedFiles && resolvedFiles.length > 0 && task.working_directory) {
@@ -90,13 +93,16 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
     }
 
     stdinPrompt = _codexIntelligence.buildCodexEnrichedPrompt(
-      task, resolvedFiles, task.working_directory, enrichment
+      { ...task, task_description: effectiveTaskDescription },
+      resolvedFiles,
+      task.working_directory,
+      enrichment
     );
     logger.info(`[BuildCodex] Using enriched prompt (${stdinPrompt.length} chars) instead of full file context`);
   } else {
     // Fallback: generic wrapping for tasks without file references
     stdinPrompt = _wrapWithInstructions(
-      task.task_description,
+      effectiveTaskDescription,
       'codex',
       null,
       { files: task.files, project: task.project, fileContext: resolvedFileContext }

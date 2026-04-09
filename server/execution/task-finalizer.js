@@ -11,6 +11,7 @@
 const logger = require('../logger').child({ component: 'task-finalizer' });
 const modelCapabilities = require('../db/model-capabilities');
 const perfTracker = require('../db/provider-performance');
+const { recordStudyTaskCompleted } = require('../db/study-telemetry');
 const { smartDiagnosisStage } = require('./smart-diagnosis-stage');
 const { strategicReviewStage } = require('./strategic-review-stage');
 const { createVerificationLedgerStage } = require('./verification-ledger-stage');
@@ -592,6 +593,11 @@ async function finalizeTask(taskId, options = {}) {
     });
 
     ctx.task = deps.db.getTask(taskId) || task;
+    try {
+      recordStudyTaskCompleted(ctx.task);
+    } catch (studyTelemetryErr) {
+      logger.info(`[finalizer] Study telemetry recording failed: ${studyTelemetryErr.message}`);
+    }
 
     // Compute duration for scoring/resume hooks (ctx.durationMs is not populated by the pipeline)
     const _hookDurationMs = task.started_at

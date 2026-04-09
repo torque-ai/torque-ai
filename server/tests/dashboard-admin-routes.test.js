@@ -6,10 +6,15 @@ const mockDb = {
   listRoutingRules: vi.fn(),
   listClaims: vi.fn(),
   listPendingApprovals: vi.fn(),
+  listApprovalHistory: vi.fn(),
   getApprovalHistory: vi.fn(),
+  getApprovalRequestById: vi.fn(),
+  approveTask: vi.fn(),
+  rejectApproval: vi.fn(),
   decideApproval: vi.fn(),
   listScheduledTasks: vi.fn(),
   createCronScheduledTask: vi.fn(),
+  runScheduledTaskNow: vi.fn(),
   toggleScheduledTask: vi.fn(),
   deleteScheduledTask: vi.fn(),
   getBenchmarkResults: vi.fn(),
@@ -101,14 +106,24 @@ function resetDbDefaults() {
   mockDb.listClaims.mockReturnValue([]);
   mockDb.listPendingApprovals.mockReset();
   mockDb.listPendingApprovals.mockReturnValue([]);
+  mockDb.listApprovalHistory.mockReset();
+  mockDb.listApprovalHistory.mockReturnValue([]);
   mockDb.getApprovalHistory.mockReset();
   mockDb.getApprovalHistory.mockReturnValue([]);
+  mockDb.getApprovalRequestById.mockReset();
+  mockDb.getApprovalRequestById.mockReturnValue(null);
+  mockDb.approveTask.mockReset();
+  mockDb.approveTask.mockReturnValue(true);
+  mockDb.rejectApproval.mockReset();
+  mockDb.rejectApproval.mockReturnValue(true);
   mockDb.decideApproval.mockReset();
   mockDb.decideApproval.mockReturnValue({ id: 'approval-1' });
   mockDb.listScheduledTasks.mockReset();
   mockDb.listScheduledTasks.mockReturnValue([]);
   mockDb.createCronScheduledTask.mockReset();
   mockDb.createCronScheduledTask.mockReturnValue({ id: 'schedule-1' });
+  mockDb.runScheduledTaskNow.mockReset();
+  mockDb.runScheduledTaskNow.mockReturnValue({ started: true, execution_type: 'task', schedule_id: 'schedule-1' });
   mockDb.toggleScheduledTask.mockReset();
   mockDb.toggleScheduledTask.mockReturnValue({ id: 'schedule-1', enabled: true });
   mockDb.deleteScheduledTask.mockReset();
@@ -245,11 +260,11 @@ describe('dashboard/routes/admin', () => {
 
   it('gets approval history with a default limit for invalid input', () => {
     const res = createMockRes();
-    mockDb.getApprovalHistory.mockReturnValue([{ id: 'approval-9' }]);
+    mockDb.listApprovalHistory.mockReturnValue([{ id: 'approval-9' }]);
 
     admin.handleGetApprovalHistory({}, res, { limit: 'oops' });
 
-    expect(mockDb.getApprovalHistory).toHaveBeenCalledWith(50);
+    expect(mockDb.listApprovalHistory).toHaveBeenCalledWith({ limit: 50 });
     expect(res.payload).toEqual({ history: [{ id: 'approval-9' }] });
   });
 
@@ -262,12 +277,34 @@ describe('dashboard/routes/admin', () => {
     expect(res.payload).toEqual({ status: 'approved', approval_id: 'approval-1' });
   });
 
+  it('approves workflow-backed approval requests', () => {
+    const res = createMockRes();
+    mockDb.getApprovalRequestById.mockReturnValue({ id: 'approval-1', task_id: 'task-1' });
+
+    admin.handleApproveTask({}, res, {}, 'approval-1');
+
+    expect(mockDb.approveTask).toHaveBeenCalledWith('task-1', 'dashboard', null);
+    expect(mockDb.decideApproval).not.toHaveBeenCalled();
+    expect(res.payload).toEqual({ status: 'approved', approval_id: 'approval-1' });
+  });
+
   it('rejects an approval request', () => {
     const res = createMockRes();
 
     admin.handleRejectApproval({}, res, {}, 'approval-2');
 
     expect(mockDb.decideApproval).toHaveBeenCalledWith('approval-2', 'rejected', 'dashboard');
+    expect(res.payload).toEqual({ status: 'rejected', approval_id: 'approval-2' });
+  });
+
+  it('rejects workflow-backed approval requests', () => {
+    const res = createMockRes();
+    mockDb.getApprovalRequestById.mockReturnValue({ id: 'approval-2', task_id: 'task-2' });
+
+    admin.handleRejectApproval({}, res, {}, 'approval-2');
+
+    expect(mockDb.rejectApproval).toHaveBeenCalledWith('task-2', 'dashboard', null);
+    expect(mockDb.decideApproval).not.toHaveBeenCalled();
     expect(res.payload).toEqual({ status: 'rejected', approval_id: 'approval-2' });
   });
 
@@ -329,6 +366,17 @@ describe('dashboard/routes/admin', () => {
 
     expect(mockDb.toggleScheduledTask).toHaveBeenCalledWith('schedule-7', false);
     expect(res.payload).toEqual({ id: 'schedule-7', enabled: false });
+  });
+
+  it('runs schedules immediately', () => {
+    const res = createMockRes();
+    mockDb.runScheduledTaskNow.mockReturnValue({ started: true, execution_type: 'task', schedule_id: 'schedule-4' });
+
+    admin.handleRunSchedule({}, res, {}, 'schedule-4');
+
+    expect(mockDb.runScheduledTaskNow).toHaveBeenCalledWith('schedule-4', { db: mockDb });
+    expect(res.statusCode).toBe(202);
+    expect(res.payload).toEqual({ started: true, execution_type: 'task', schedule_id: 'schedule-4' });
   });
 
   it('deletes schedules', () => {

@@ -307,6 +307,37 @@ describe('TaskDetailDrawer', () => {
     expect(screen.queryByText('GPU')).toBeNull();
   });
 
+  it('renders provider decision details from task detail responses', async () => {
+    tasksApi.get.mockResolvedValueOnce({
+      ...mockTask,
+      provider: 'anthropic',
+      provider_decision_trace: {
+        selected_provider: 'ollama',
+        requested_provider: 'anthropic',
+        user_provider_override: false,
+        selected_at: '2026-01-01T00:00:30Z',
+        switch_reason: 'anthropic -> ollama (budget exceeded)',
+        fallback_candidates: [
+          { provider: 'ollama', role: 'fallback' },
+        ],
+        blocked_candidates: [
+          { provider: 'codex', blocked: true, blocked_reason: 'circuit_breaker_open' },
+        ],
+      },
+    });
+
+    renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Provider Decision')).toBeInTheDocument();
+      expect(screen.getByText('Fallbacks')).toBeInTheDocument();
+      expect(screen.getByText('Blocked')).toBeInTheDocument();
+      expect(screen.getByText('anthropic -> ollama (budget exceeded)')).toBeInTheDocument();
+      expect(screen.getByText('codex')).toBeInTheDocument();
+      expect(screen.getAllByText('ollama').length).toBeGreaterThan(0);
+    });
+  });
+
   it('renders v2 task diff data in the diff tab', async () => {
     renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
 

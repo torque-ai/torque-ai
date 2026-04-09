@@ -10,6 +10,7 @@
 const logger = require('../logger').child({ component: 'v2-governance-handlers' });
 
 const crypto = require('crypto');
+const dbFacade = require('../database');
 const taskCore = require('../db/task-core');
 const configCore = require('../db/config-core');
 const fileTracking = require('../db/file-tracking');
@@ -20,6 +21,13 @@ const schedulingAutomation = require('../db/scheduling-automation');
 const validationRules = require('../db/validation-rules');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const { VALID_CONFIG_KEYS } = require('../db/config-keys');
+const {
+  DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL,
+  DEFAULT_PROPOSAL_MIN_SCORE,
+  normalizeStudyThresholdLevel,
+  readStudyArtifacts,
+} = require('../integrations/codebase-study-engine');
+const { getStudyImpactSummary } = require('../db/study-telemetry');
 const { isSensitiveKey, redactValue, redactConfigObject } = require('../utils/sensitive-keys');
 const {
   sendSuccess,
@@ -41,6 +49,7 @@ const {
 
 let _taskManager = null;
 const VALID_ACTIONS = new Set(['pause', 'resume', 'retry']);
+const STUDY_TOOL_NAME = 'run_codebase_study';
 
 function init(taskManager) {
   _taskManager = taskManager;
@@ -63,6 +72,205 @@ function parseBooleanValue(value) {
   }
 
   return null;
+}
+
+function normalizeOptionalPositiveInteger(value) {
+  if (value === undefined) {
+    return { value: undefined };
+  }
+  if (value === null || value === '') {
+    return { value: null };
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return { error: 'must be a positive integer' };
+  }
+
+  return { value: parsed };
+}
+
+function normalizeOptionalNonNegativeInteger(value) {
+  if (value === undefined) {
+    return { value: undefined };
+  }
+  if (value === null || value === '') {
+    return { value: null };
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return { error: 'must be a non-negative integer' };
+  }
+
+  return { value: parsed };
+}
+
+function isCodebaseStudySchedule(schedule) {
+  return schedule?.task_config?.tool_name === STUDY_TOOL_NAME;
+}
+
+function readStudySnapshot(workingDirectory, options = {}) {
+  if (typeof workingDirectory !== 'string' || !workingDirectory.trim()) {
+    return null;
+  }
+
+  try {
+    const artifacts = readStudyArtifacts(workingDirectory, {
+      includeState: true,
+      includeDelta: options.includeDelta === true,
+      includeEvaluation: options.includeEvaluation === true,
+      includeBenchmark: options.includeBenchmark === true,
+    });
+    return artifacts;
+  } catch (error) {
+    logger.warn({ err: error.message, workingDirectory }, 'Failed to load study artifacts for schedule enrichment');
+    return null;
+  }
+}
+
+function enrichScheduleWithStudyState(schedule, options = {}) {
+  if (!isCodebaseStudySchedule(schedule)) {
+    return schedule;
+  }
+
+  const workingDirectory = schedule?.task_config?.tool_args?.working_directory
+    || schedule?.task_config?.working_directory
+    || null;
+  const snapshot = readStudySnapshot(workingDirectory, options);
+  const state = snapshot?.state;
+  if (!state) {
+    return schedule;
+  }
+
+  const studyDelta = options.includeDelta === true
+    ? snapshot?.studyDelta || null
+    : null;
+  const studyEvaluation = options.includeEvaluation === true
+    ? snapshot?.studyEvaluation || null
+    : null;
+  const studyBenchmark = options.includeBenchmark === true
+    ? snapshot?.studyBenchmark || null
+    : null;
+  const studyImpact = getStudyImpactSummary({
+    workingDirectory,
+    sinceDays: 30,
+  });
+
+  return {
+    ...schedule,
+    delta_significance_level: state.delta_significance_level || 'none',
+    delta_significance_score: state.delta_significance_score || 0,
+    proposal_count: state.proposal_count || 0,
+    submitted_proposal_count: state.submitted_proposal_count || 0,
+    last_delta_updated_at: state.last_delta_updated_at || null,
+    pending_count: state.file_counts?.pending ?? state.pending_files?.length ?? 0,
+    module_entry_count: state.module_entry_count || 0,
+    last_result: state.last_result || null,
+    evaluation_score: state.evaluation_score || 0,
+    evaluation_grade: state.evaluation_grade || null,
+    evaluation_readiness: state.evaluation_readiness || null,
+    evaluation_findings_count: state.evaluation_findings_count || 0,
+    evaluation_generated_at: state.evaluation_generated_at || null,
+    benchmark_score: state.benchmark_score || 0,
+    benchmark_grade: state.benchmark_grade || null,
+    benchmark_readiness: state.benchmark_readiness || null,
+    benchmark_findings_count: state.benchmark_findings_count || 0,
+    benchmark_case_count: state.benchmark_case_count || 0,
+    benchmark_generated_at: state.benchmark_generated_at || null,
+    study_status: {
+      working_directory: workingDirectory,
+      delta_significance_level: state.delta_significance_level || 'none',
+      delta_significance_score: state.delta_significance_score || 0,
+      proposal_count: state.proposal_count || 0,
+      submitted_proposal_count: state.submitted_proposal_count || 0,
+      last_delta_updated_at: state.last_delta_updated_at || null,
+      pending_count: state.file_counts?.pending ?? state.pending_files?.length ?? 0,
+      module_entry_count: state.module_entry_count || 0,
+      last_result: state.last_result || null,
+      evaluation_score: state.evaluation_score || 0,
+      evaluation_grade: state.evaluation_grade || null,
+      evaluation_readiness: state.evaluation_readiness || null,
+      evaluation_findings_count: state.evaluation_findings_count || 0,
+      evaluation_generated_at: state.evaluation_generated_at || null,
+      benchmark_score: state.benchmark_score || 0,
+      benchmark_grade: state.benchmark_grade || null,
+      benchmark_readiness: state.benchmark_readiness || null,
+      benchmark_findings_count: state.benchmark_findings_count || 0,
+      benchmark_case_count: state.benchmark_case_count || 0,
+      benchmark_generated_at: state.benchmark_generated_at || null,
+      delta: studyDelta,
+      evaluation: studyEvaluation,
+      benchmark: studyBenchmark,
+      impact: studyImpact,
+    },
+    study_delta: studyDelta,
+    study_evaluation: studyEvaluation,
+    study_benchmark: studyBenchmark,
+    study_impact: studyImpact,
+  };
+}
+
+function enrichSchedulesWithStudyState(items) {
+  return items.map(enrichScheduleWithStudyState);
+}
+
+function parseTaskMetadata(value) {
+  if (!value) {
+    return {};
+  }
+  if (typeof value === 'object') {
+    return value;
+  }
+  if (typeof value !== 'string') {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeApprovalRecord(record, source = 'approval-workflow') {
+  if (!record || typeof record !== 'object') {
+    return record;
+  }
+
+  const metadata = parseTaskMetadata(record.task_metadata);
+  const studyProposal = metadata.study_proposal && typeof metadata.study_proposal === 'object'
+    ? metadata.study_proposal
+    : null;
+  const studyTrace = studyProposal?.trace && typeof studyProposal.trace === 'object'
+    ? studyProposal.trace
+    : null;
+
+  return {
+    ...record,
+    source,
+    approval_type: studyProposal ? 'study_proposal' : 'task_execution',
+    kind: studyProposal?.kind || null,
+    description: studyProposal?.title || record.task_description || record.description || '-',
+    rationale: studyProposal?.rationale || null,
+    files: Array.isArray(studyProposal?.files) ? studyProposal.files : [],
+    related_tests: Array.isArray(studyProposal?.related_tests) ? studyProposal.related_tests : [],
+    validation_commands: Array.isArray(studyProposal?.validation_commands) ? studyProposal.validation_commands : [],
+    affected_invariants: Array.isArray(studyProposal?.affected_invariants) ? studyProposal.affected_invariants : [],
+    created_at: record.requested_at || record.created_at || null,
+    rule: record.rule_name || record.rule || null,
+    decision: record.status === 'approved' || record.status === 'rejected'
+      ? record.status
+      : record.decision || null,
+    decided_at: record.approved_at || record.decided_at || record.updated_at || null,
+    decided_by: record.approved_by || record.decided_by || null,
+    study_proposal: studyProposal,
+    study_trace: studyTrace,
+  };
+}
+
+function normalizeApprovalRecords(items, source) {
+  return (Array.isArray(items) ? items : []).map((item) => normalizeApprovalRecord(item, source));
 }
 
 function sendPolicyCoreResult(req, res, result, options = {}) {
@@ -91,16 +299,26 @@ function sendPolicyCoreResult(req, res, result, options = {}) {
 async function handleListApprovals(req, res) {
   const requestId = resolveRequestId(req);
   const query = req.query || {};
+  const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 200);
+  const status = typeof query.status === 'string' ? query.status.trim().toLowerCase() : '';
+
+  if (status === 'history' || status === 'all') {
+    const history = schedulingAutomation.listApprovalHistory
+      ? schedulingAutomation.listApprovalHistory({ limit })
+      : (schedulingAutomation.getApprovalHistory ? schedulingAutomation.getApprovalHistory(limit) : []);
+    const historyItems = normalizeApprovalRecords(history, 'approval-workflow');
+    return sendList(res, requestId, historyItems, historyItems.length, req);
+  }
 
   const pending = schedulingAutomation.listPendingApprovals ? schedulingAutomation.listPendingApprovals() : [];
-  const items = Array.isArray(pending) ? pending : [];
-
+  const items = normalizeApprovalRecords(pending, 'approval-workflow');
   if (query.include_history === 'true') {
-    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), 200);
-    const history = schedulingAutomation.getApprovalHistory ? schedulingAutomation.getApprovalHistory(limit) : [];
+    const history = schedulingAutomation.listApprovalHistory
+      ? schedulingAutomation.listApprovalHistory({ limit })
+      : (schedulingAutomation.getApprovalHistory ? schedulingAutomation.getApprovalHistory(limit) : []);
     return sendSuccess(res, requestId, {
       pending: items,
-      history: Array.isArray(history) ? history : [],
+      history: normalizeApprovalRecords(history, 'approval-workflow'),
     }, 200, req);
   }
 
@@ -122,13 +340,28 @@ async function handleApprovalDecision(req, res) {
     return sendError(res, requestId, 'validation_error', 'decision must be "approved" or "rejected"', 400, undefined, req);
   }
 
-  if (!validationRules.decideApproval) {
+  if (!validationRules.decideApproval && !schedulingAutomation.getApprovalRequestById) {
     return sendError(res, requestId, 'not_implemented', 'Approval system not available', 501, {}, req);
   }
 
   const decidedBy = String(body.decided_by || 'v2-api').slice(0, 100).replace(/[^a-zA-Z0-9_\-@. ]/g, '');
 
-  const result = validationRules.decideApproval(approvalId, decision, decidedBy);
+  let result = null;
+  const workflowRequest = schedulingAutomation.getApprovalRequestById
+    ? schedulingAutomation.getApprovalRequestById(approvalId)
+    : null;
+  const normalizedWorkflowRequest = workflowRequest
+    ? normalizeApprovalRecord(workflowRequest, 'approval-workflow')
+    : null;
+
+  if (workflowRequest?.task_id) {
+    result = decision === 'approved'
+      ? schedulingAutomation.approveTask?.(workflowRequest.task_id, decidedBy, body.comment || null)
+      : schedulingAutomation.rejectApproval?.(workflowRequest.task_id, decidedBy, body.comment || null);
+  } else if (validationRules.decideApproval) {
+    result = validationRules.decideApproval(approvalId, decision, decidedBy, body.comment || null);
+  }
+
   if (!result) {
     return sendError(res, requestId, 'approval_not_found', `Approval not found: ${approvalId}`, 404, {}, req);
   }
@@ -137,6 +370,8 @@ async function handleApprovalDecision(req, res) {
     approval_id: approvalId,
     decision,
     decided_by: decidedBy,
+    approval_type: normalizedWorkflowRequest?.approval_type || (workflowRequest?.task_id ? 'task_execution' : 'legacy'),
+    task_id: workflowRequest?.task_id || null,
   }, 200, req);
 }
 
@@ -145,7 +380,7 @@ async function handleApprovalDecision(req, res) {
 async function handleListSchedules(req, res) {
   const requestId = resolveRequestId(req);
   const schedules = schedulingAutomation.listScheduledTasks ? schedulingAutomation.listScheduledTasks() : [];
-  const items = Array.isArray(schedules) ? schedules : [];
+  const items = Array.isArray(schedules) ? enrichSchedulesWithStudyState(schedules) : [];
   sendList(res, requestId, items, items.length, req);
 }
 
@@ -157,6 +392,12 @@ async function handleCreateSchedule(req, res) {
   if (!name) {
     return sendError(res, requestId, 'validation_error', 'name is required', 400, undefined, req);
   }
+  const workflowId = body.workflow_id || null;
+  const workflowSourceId = body.workflow_source_id || null;
+  const taskLabel = body.task_description || (workflowId || workflowSourceId ? name : null);
+  if (workflowId && workflowSourceId) {
+    return sendError(res, requestId, 'validation_error', 'workflow_id and workflow_source_id are mutually exclusive', 400, undefined, req);
+  }
 
   const scheduleType = body.schedule_type || 'cron';
 
@@ -167,8 +408,8 @@ async function handleCreateSchedule(req, res) {
       if (!body.run_at && !body.delay) {
         return sendError(res, requestId, 'validation_error', 'run_at or delay is required for one-time schedules', 400, undefined, req);
       }
-      if (!body.task_description && !body.workflow_id) {
-        return sendError(res, requestId, 'validation_error', 'task_description or workflow_id is required', 400, undefined, req);
+      if (!body.task_description && !workflowId && !workflowSourceId) {
+        return sendError(res, requestId, 'validation_error', 'task_description, workflow_id, or workflow_source_id is required', 400, undefined, req);
       }
 
       schedule = schedulingAutomation.createOneTimeSchedule({
@@ -176,11 +417,13 @@ async function handleCreateSchedule(req, res) {
         run_at: body.run_at || undefined,
         delay: body.delay || undefined,
         task_config: {
-          task: body.task_description || null,
-          workflow_id: body.workflow_id || null,
+          task: taskLabel,
+          workflow_id: workflowId,
+          workflow_source_id: workflowSourceId,
           provider: body.provider || null,
           model: body.model || null,
           working_directory: body.working_directory || null,
+          project: body.project || null,
         },
         timezone: body.timezone || null,
       });
@@ -188,18 +431,21 @@ async function handleCreateSchedule(req, res) {
       if (!body.cron_expression) {
         return sendError(res, requestId, 'validation_error', 'cron_expression is required', 400, undefined, req);
       }
-      if (!body.task_description) {
-        return sendError(res, requestId, 'validation_error', 'task_description is required', 400, undefined, req);
+      if (!body.task_description && !workflowId && !workflowSourceId) {
+        return sendError(res, requestId, 'validation_error', 'task_description, workflow_id, or workflow_source_id is required', 400, undefined, req);
       }
 
       schedule = schedulingAutomation.createCronScheduledTask({
         name,
         cron_expression: body.cron_expression,
         task_config: {
-          task: body.task_description,
+          task: taskLabel,
+          workflow_id: workflowId,
+          workflow_source_id: workflowSourceId,
           provider: body.provider || null,
           model: body.model || null,
           working_directory: body.working_directory || null,
+          project: body.project || null,
         },
         timezone: body.timezone || null,
       });
@@ -216,13 +462,56 @@ async function handleGetSchedule(req, res) {
   const scheduleId = req.params?.schedule_id;
 
   const schedule = schedulingAutomation.getScheduledTask
-    ? schedulingAutomation.getScheduledTask(scheduleId)
+    ? schedulingAutomation.getScheduledTask(scheduleId, { include_runs: true, run_limit: 15 })
     : (schedulingAutomation.listScheduledTasks ? (schedulingAutomation.listScheduledTasks() || []).find(s => String(s.id) === String(scheduleId)) : null);
   if (!schedule) {
     return sendError(res, requestId, 'schedule_not_found', `Schedule not found: ${scheduleId}`, 404, {}, req);
   }
 
-  sendSuccess(res, requestId, schedule, 200, req);
+  sendSuccess(res, requestId, enrichScheduleWithStudyState(schedule, { includeDelta: true, includeEvaluation: true, includeBenchmark: true }), 200, req);
+}
+
+async function handleGetScheduleRun(req, res) {
+  const requestId = resolveRequestId(req);
+  const scheduleId = req.params?.schedule_id;
+  const runId = req.params?.run_id;
+
+  if (!scheduleId || !runId) {
+    return sendError(res, requestId, 'validation_error', 'schedule_id and run_id are required', 400, {}, req);
+  }
+
+  const schedule = schedulingAutomation.getScheduledTask
+    ? schedulingAutomation.getScheduledTask(scheduleId, { include_runs: false, hydrateRuns: false })
+    : null;
+  if (!schedule) {
+    return sendError(res, requestId, 'schedule_not_found', `Schedule not found: ${scheduleId}`, 404, {}, req);
+  }
+
+  const run = schedulingAutomation.getScheduledTaskRun
+    ? schedulingAutomation.getScheduledTaskRun(runId)
+    : null;
+  if (!run || String(run.schedule_id) !== String(scheduleId)) {
+    return sendError(res, requestId, 'schedule_run_not_found', `Schedule run not found: ${runId}`, 404, {}, req);
+  }
+
+  sendSuccess(res, requestId, run, 200, req);
+}
+
+async function handleRunSchedule(req, res) {
+  const requestId = resolveRequestId(req);
+  const scheduleId = req.params?.schedule_id;
+
+  try {
+    const result = schedulingAutomation.runScheduledTaskNow
+      ? schedulingAutomation.runScheduledTaskNow(scheduleId, { db: dbFacade })
+      : null;
+    if (!result) {
+      return sendError(res, requestId, 'schedule_not_found', `Schedule not found: ${scheduleId}`, 404, {}, req);
+    }
+    sendSuccess(res, requestId, result, 202, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
 }
 
 async function handleToggleSchedule(req, res) {
@@ -286,8 +575,62 @@ async function handleUpdateSchedule(req, res) {
     if (body.provider !== undefined) configUpdates.provider = body.provider || null;
     if (body.model !== undefined) configUpdates.model = body.model || null;
     if (body.working_directory !== undefined) configUpdates.working_directory = body.working_directory || null;
+    if (body.project !== undefined) configUpdates.project = body.project || null;
     if (body.task !== undefined) configUpdates.task = body.task;
     if (body.workflow_id !== undefined) configUpdates.workflow_id = body.workflow_id || null;
+    if (body.workflow_source_id !== undefined) configUpdates.workflow_source_id = body.workflow_source_id || null;
+    if (body.workflow_id !== undefined && body.workflow_source_id !== undefined && body.workflow_id && body.workflow_source_id) {
+      return sendError(res, requestId, 'validation_error', 'workflow_id and workflow_source_id are mutually exclusive', 400, undefined, req);
+    }
+    const toolArgsUpdates = {};
+    if (body.submit_proposals !== undefined) {
+      const parsed = parseBooleanValue(body.submit_proposals);
+      if (parsed === null) {
+        return sendError(res, requestId, 'validation_error', 'submit_proposals must be "true" or "false"', 400, {
+          field: 'submit_proposals',
+        }, req);
+      }
+      toolArgsUpdates.submit_proposals = parsed === undefined ? false : parsed;
+    }
+    if (body.proposal_limit !== undefined) {
+      const normalized = normalizeOptionalPositiveInteger(body.proposal_limit);
+      if (normalized.error) {
+        return sendError(res, requestId, 'validation_error', `proposal_limit ${normalized.error}`, 400, {
+          field: 'proposal_limit',
+        }, req);
+      }
+      toolArgsUpdates.proposal_limit = normalized.value;
+    }
+    if (body.proposal_significance_level !== undefined) {
+      if (body.proposal_significance_level === null || body.proposal_significance_level === '') {
+        toolArgsUpdates.proposal_significance_level = DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL;
+      } else {
+        const normalized = normalizeStudyThresholdLevel(body.proposal_significance_level, null);
+        if (!normalized) {
+          return sendError(res, requestId, 'validation_error', 'proposal_significance_level must be one of: none, baseline, low, moderate, high, critical', 400, {
+            field: 'proposal_significance_level',
+          }, req);
+        }
+        toolArgsUpdates.proposal_significance_level = normalized;
+      }
+    }
+    if (body.proposal_min_score !== undefined) {
+      const normalized = normalizeOptionalNonNegativeInteger(body.proposal_min_score);
+      if (normalized.error) {
+        return sendError(res, requestId, 'validation_error', `proposal_min_score ${normalized.error}`, 400, {
+          field: 'proposal_min_score',
+        }, req);
+      }
+      toolArgsUpdates.proposal_min_score = normalized.value === null
+        ? DEFAULT_PROPOSAL_MIN_SCORE
+        : normalized.value;
+    }
+    if (Object.keys(toolArgsUpdates).length > 0) {
+      configUpdates.tool_args = {
+        ...(existing?.task_config?.tool_args || {}),
+        ...toolArgsUpdates,
+      };
+    }
     if (Object.keys(configUpdates).length > 0) {
       updates.task_config = configUpdates;
     }
@@ -299,7 +642,7 @@ async function handleUpdateSchedule(req, res) {
       return sendError(res, requestId, 'operation_failed', 'No fields to update', 400, {}, req);
     }
 
-    sendSuccess(res, requestId, result, 200, req);
+    sendSuccess(res, requestId, enrichScheduleWithStudyState(result, { includeDelta: true, includeEvaluation: true }), 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
   }
@@ -1296,6 +1639,8 @@ function createV2GovernanceHandlers(_deps) {
     handleListSchedules,
     handleCreateSchedule,
     handleGetSchedule,
+    handleGetScheduleRun,
+    handleRunSchedule,
     handleToggleSchedule,
     handleDeleteSchedule,
     handleUpdateSchedule,
@@ -1349,6 +1694,8 @@ module.exports = {
   handleListSchedules,
   handleCreateSchedule,
   handleGetSchedule,
+  handleGetScheduleRun,
+  handleRunSchedule,
   handleToggleSchedule,
   handleDeleteSchedule,
   handleUpdateSchedule,

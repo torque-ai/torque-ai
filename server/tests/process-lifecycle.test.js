@@ -815,6 +815,8 @@ describe('process-lifecycle', () => {
       const child = createLifecycleChild();
       const onStdout = vi.fn();
       const onStderr = vi.fn();
+      const onMessage = vi.fn();
+      const onMessageError = vi.fn();
       const onClose = vi.fn();
       const onError = vi.fn();
       const onExit = vi.fn();
@@ -823,6 +825,8 @@ describe('process-lifecycle', () => {
       child.stdout.on('error', onError);
       child.stderr.on('data', onStderr);
       child.stderr.on('error', onError);
+      child.on('message', onMessage);
+      child.on('messageerror', onMessageError);
       child.on('close', onClose);
       child.on('error', onError);
       child.on('exit', onExit);
@@ -833,6 +837,8 @@ describe('process-lifecycle', () => {
       expect(child.stdout.listenerCount('error')).toBe(0);
       expect(child.stderr.listenerCount('data')).toBe(0);
       expect(child.stderr.listenerCount('error')).toBe(0);
+      expect(child.listenerCount('message')).toBe(0);
+      expect(child.listenerCount('messageerror')).toBe(0);
       expect(child.listenerCount('close')).toBe(0);
       expect(child.listenerCount('error')).toBe(0);
       expect(child.listenerCount('exit')).toBe(0);

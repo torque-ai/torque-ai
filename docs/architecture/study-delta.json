@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "generated_at": "2026-04-09T18:30:53.758Z",
+  "repo": {
+    "name": "torque-ai",
+    "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
+    "previous_sha": "0fdf05ee05f948263fae3d5edc60b0d7cfb0b194",
+    "current_sha": "0fdf05ee05f948263fae3d5edc60b0d7cfb0b194",
+    "study_profile_id": "torque-control-plane"
+  },
+  "run": {
+    "mode": "up-to-date",
+    "manual_run_now": false,
+    "batch_count": 0,
+    "schedule_id": "a24a26fa-abbb-4d10-bfa9-76512a4bc11c",
+    "schedule_name": "codebase-study:torque-public",
+    "schedule_run_id": "b308b57c-6cec-483e-8a2a-3f9dcd0a69f0",
+    "wrapper_task_id": "a5263bbf-1d2d-4751-b1fd-9cdffcb369c1"
+  },
+  "coverage_delta": {
+    "tracked_files": {
+      "previous": 1526,
+      "current": 1526,
+      "delta": 0
+    },
+    "indexed_modules": {
+      "previous": 1450,
+      "current": 1450,
+      "delta": 0
+    },
+    "pending_files": {
+      "previous": 0,
+      "current": 0,
+      "delta": 0
+    }
+  },
+  "significance": {
+    "level": "none",
+    "score": 0,
+    "reasons": []
+  },
+  "changed_files": {
+    "repo_delta": [],
+    "processed": [],
+    "removed": []
+  },
+  "changed_subsystems": [],
+  "affected_flows": [],
+  "invariant_hits": [],
+  "failure_mode_hits": [],
+  "hotspot_changes": {
+    "entered": [],
+    "exited": [],
+    "touched": []
+  },
+  "proposals": {
+    "policy": {
+      "allowed": false,
+      "reason": "submission_disabled",
+      "threshold_level": "moderate",
+      "threshold_score": 18,
+      "suppressed_count": 0
+    },
+    "suggested": [],
+    "submitted": [],
+    "errors": []
+  }
+}

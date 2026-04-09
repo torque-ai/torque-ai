@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "generated_at": "2026-04-09T18:30:55.192Z",
+  "repo": {
+    "name": "torque-ai",
+    "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
+    "study_profile_id": "torque-control-plane"
+  },
+  "summary": {
+    "score": 100,
+    "grade": "A",
+    "readiness": "expert_ready",
+    "findings_count": 0,
+    "strengths_count": 3,
+    "indexed_percent": 95
+  },
+  "checks": {
+    "tracked_files": 1526,
+    "indexed_modules": 1450,
+    "pending_files": 0,
+    "flow_count": 5,
+    "invariant_count": 12,
+    "failure_mode_count": 10,
+    "trace_count": 5,
+    "playbook_count": 10,
+    "impact_guidance_count": 11,
+    "test_area_count": 6,
+    "onramp_read_count": 8
+  },
+  "strengths": [
+    "Coverage is effectively complete at 95% with no pending files.",
+    "The pack captures 5 canonical flows, which gives downstream models a usable execution map.",
+    "Change playbooks and impact guidance are present, which makes the pack useful for execution as well as understanding."
+  ],
+  "findings": [],
+  "probes": [
+    {
+      "id": "flow:task-lifecycle",
+      "scope_type": "flow",
+      "scope_id": "task-lifecycle",
+      "prompt": "Explain the Task lifecycle in torque-ai. Where does it start, what are the main phases, and which files anchor each phase?",
+      "expected_evidence": [
+        "server/api/v2-dispatch.js",
+        "server/handlers/task/index.js",
+        "server/task-manager.js",
+        "server/execution/task-startup.js",
+        "server/execution/provider-router.js",
+        "server/execution/fallback-retry.js",
+        "server/execution/process-lifecycle.js",
+        "server/execution/task-finalizer.js",
+        "server/execution/completion-pipeline.js"
+      ],
+      "readiness_signals": [
+        "How does a task move from submission to completion?",
+        "Ingress",
+        "Execution start",
+        "Routing and process control",
+        "Finalize and publish"
+      ],
+      "answerability": "strong"
+    },
+    {
+      "id": "flow:workflow-lifecycle",
+      "scope_type": "flow",
+      "scope_id": "workflow-lifecycle",
+      "prompt": "Explain the Workflow lifecycle in torque-ai. Where does it start, what are the main phases, and which files anchor each phase?",
+      "expected_evidence": [
+        "server/handlers/workflow/index.js",
+        "server/handlers/workflow/dag.js",
+        "server/execution/workflow-runtime.js",
+        "server/handlers/workflow/await.js",
+        "server/handlers/workflow/advanced.js"
+      ],
+      "readiness_signals": [
+        "How are workflows created, advanced, and awaited?",
+        "Workflow definition",
+        "Runtime orchestration",
+        "Progress and await"
+      ],
+      "answerability": "strong"
+    },
+    {
+      "id": "flow:scheduled-automation",
+      "scope_type": "flow",
+      "scope_id": "scheduled-automation",
+      "prompt": "Explain the Scheduled automation in torque-ai. Where does it start, what are the main phases, and which files anchor each phase?",
+      "expected_evidence": [
+        "server/db/cron-scheduling.js",
+        "server/api/v2-governance-handlers.js",
+        "server/maintenance/scheduler.js",
+        "server/tools.js"
+      ],
+      "readiness_signals": [
+        "How do schedules and Run Now executions work?",
+        "Schedule definition",
+        "Scheduler tick",
+        "Dispatch"
+      ],
+      "answerability": "strong"
+    },
+    {
+      "id": "invariant:task-lifecycle:1",
+      "scope_type": "invariant",
+      "scope_id": "task-lifecycle:1",
+      "prompt": "What invariant governs Task lifecycle in torque-ai, and where should an engineer look before editing it?",
+      "expected_evidence": [
+        "server/api/v2-dispatch.js",
+        "server/handlers/task/index.js",
+        "server/task-manager.js",
+        "server/execution/task-startup.js",
+        "server/execution/provider-router.js",
+        "server/tests/completion-pipeline.test.js",
+        "server/tests/fallback-retry.test.js",
+        "server/tests/host-distribution.test.js",
+        "server/tests/process-lifecycle.test.js"
+      ],
+      "readiness_signals": [
+        "Submission surfaces should delegate into handlers and the task manager instead of invoking providers directly.",
+        "Task requests enter through API or handlers, start in the task manager, route through execution modules, and finish in the completion pipeline."
+      ],
+      "answerability": "strong"
+    },
+    {
+      "id": "invariant:task-lifecycle:2",
+      "scope_type": "invariant",
+      "scope_id": "task-lifecycle:2",
+      "prompt": "What invariant governs Task lifecycle in torque-ai, and where should an engineer look before editing it?",
+      "expected_evidence": [
+        "server/api/v2-dispatch.js",
+        "server/handlers/task/index.js",
+        "server/task-manager.js",
+        "server/execution/task-startup.js",
+        "server/execution/provider-router.js",
+        "server/tests/completion-pipeline.test.js",
+        "server/tests/fallback-retry.test.js",
+        "server/tests/host-distribution.test.js",
+        "server/tests/process-lifecycle.test.js"
+      ],
+      "readiness_signals": [
+        "Task completion should converge through the finalizer and completion pipeline so verification and follow-up hooks stay centralized.",
+        "Task requests enter through API or handlers, start in the task manager, route through execution modules, and finish in the completion pipeline."
+      ],
+      "answerability": "strong"
+    },
+    {
+      "id": "playbook:control-plane-api-playbook",
+      "scope_type": "change_playbook",
+      "scope_id": "control-plane-api-playbook",
+      "prompt": "If you change Editing Control-plane API in torque-ai, which files should you edit, which tests should you run, and which invariants must you recheck?",
+      "expected_evidence": [
+        "server/index.js",
+        "server/api-server.core.js",
+        "server/api/v2-governance-handlers.js",
+        "server/api/middleware.js",
+        "server/api/routes.js",
+        "server/tests/api-server-core.test.js",
+        "server/tests/v2-governance-handlers.test.js",
+        "server/tests/claude-event-hooks.test.js",
+        "server/tests/api-middleware.test.js"
+      ],
+      "readiness_signals": [
+        "npx vitest run server/tests/api-server-core.test.js server/tests/v2-governance-handlers.test.js server/tests/claude-event-hooks.test.js server/tests/api-middleware.test.js",
+        "npm run lint",
+        "Routes and control-plane transports should validate and normalize requests, then delegate into handlers or execution services.",
+        "Business rules should stay in handler or execution layers so API surfaces remain thin and consistent across transports.",
+        "Schedules should create tracked task or tool executions; background automation should not fire invisibly."
+      ],
+      "answerability": "strong"
+    },
+    {
+      "id": "playbook:task-execution-playbook",
+      "scope_type": "change_playbook",
+      "scope_id": "task-execution-playbook",
+      "prompt": "If you change Editing Task execution pipeline in torque-ai, which files should you edit, which tests should you run, and which invariants must you recheck?",
+      "expected_evidence": [
+        "server/task-manager.js",
+        "server/execution/queue-scheduler.js",
+        "server/execution/task-finalizer.js",
+        "server/execution/fallback-retry.js",
+        "server/execution/process-lifecycle.js",
+        "server/tests/bug-001-override-provider.test.js",
+        "server/tests/fallback-retry.test.js",
+        "server/tests/host-distribution.test.js",
+        "server/tests/process-lifecycle.test.js"
+      ],
+      "readiness_signals": [
+        "npx vitest run server/tests/bug-001-override-provider.test.js server/tests/fallback-retry.test.js server/tests/host-distribution.test.js server/tests/process-lifecycle.test.js",
+        "npm run lint",
+        "Routing decisions should be derived from provider health, capabilities, and policy-aware scoring rather than one-off special cases.",
+        "Retry and fallback should preserve task ownership and emit observable state transitions.",
+        "Submission surfaces should delegate into handlers and the task manager instead of invoking providers directly."
+      ],
+      "answerability": "strong"
+    },
+    {
+      "id": "playbook:workflow-orchestration-playbook",
+      "scope_type": "change_playbook",
+      "scope_id": "workflow-orchestration-playbook",
+      "prompt": "If you change Editing Workflow orchestration in torque-ai, which files should you edit, which tests should you run, and which invariants must you recheck?",
+      "expected_evidence": [
+        "server/handlers/workflow/index.js",
+        "server/execution/workflow-runtime.js",
+        "server/handlers/workflow/await.js",
+        "server/handlers/workflow/advanced.js",
+        "server/diffusion/planner.js",
+        "server/tests/handler-workflow-advanced.test.js",
+        "server/tests/handler-workflow-handlers.test.js",
+        "server/tests/workflow-runtime.test.js",
+        "server/tests/workflow-advanced-handlers.test.js"
+      ],
+      "readiness_signals": [
+        "npx vitest run server/tests/handler-workflow-advanced.test.js server/tests/handler-workflow-handlers.test.js server/tests/workflow-runtime.test.js server/tests/workflow-advanced-handlers.test.js",
+        "npm run lint",
+        "Workflow structure, runtime unblocking, and await reporting should stay aligned on the same DAG semantics.",
+        "Dependent nodes should unblock only from persisted workflow state, not from ad hoc in-memory assumptions."
+      ],
+      "answerability": "strong"
+    },
+    {
+      "id": "relationship:validation-tests:persistence-scheduling",
+      "scope_type": "subsystem_relationship",
+      "scope_id": "validation-tests:persistence-scheduling",
+      "prompt": "Explain how Validation and tests connects to Persistence and scheduling in torque-ai. Where is the boundary, and which files show the integration seam?",
+      "expected_evidence": [
+        "server/tests/adaptive-retry.test.js",
+        "server/db/task-core.js",
+        "server/tests/adaptive-scoring.test.js",
+        "server/db/model-capabilities.js",
+        "server/tests/adv-coordination-handlers.test.js",
+        "server/db/coordination.js",
+        "server/tests/vitest-setup.js",
+        "server/tests/test-helpers.js",
+        "server/db/provider-routing-core.js"
+      ],
+      "readiness_signals": [
+        "Validation and tests depends on Persistence and scheduling.",
+        "server/tests/adaptive-retry.test.js -> server/db/task-core.js",
+        "server/tests/adaptive-scoring.test.js -> server/db/model-capabilities.js"
+      ],
+      "answerability": "strong"
+    },
+    {
+      "id": "impact:server/tests/vitest-setup.js",
+      "scope_type": "change_impact",
+      "scope_id": "server/tests/vitest-setup.js",
+      "prompt": "If you edit server/tests/vitest-setup.js in torque-ai, which nearby files and tests should you inspect first, and why is that file a risky seam?",
+      "expected_evidence": [
+        "server/tests/vitest-setup.js",
+        "path",
+        "os",
+        "server/check_retry.js",
+        "server/plugins/auth/tests/auth-plugin.test.js"
+      ],
+      "readiness_signals": [
+        "High fan-in (240) and fan-out (8) inside Validation and tests."
+      ],
+      "answerability": "partial"
+    }
+  ],
+  "artifacts": {
+    "knowledge_pack_path": "docs/architecture/knowledge-pack.json",
+    "study_delta_path": "docs/architecture/study-delta.json",
+    "study_state_path": "docs/architecture/study-state.json",
+    "module_index_path": "docs/architecture/module-index.json",
+    "summary_path": "docs/architecture/SUMMARY.md"
+  }
+}

@@ -40,6 +40,21 @@ function buildArgumentsPreview(name, args) {
   return JSON.stringify(args).slice(0, ARGUMENTS_PREVIEW_MAX);
 }
 
+function buildToolLogEntry(iteration, toolCall, resultStr, error, durationMs) {
+  const entry = {
+    iteration,
+    name: toolCall.name,
+    arguments_preview: buildArgumentsPreview(toolCall.name, toolCall.arguments),
+    result_preview: resultStr.slice(0, RESULT_PREVIEW_MAX),
+    error: !!error,
+    duration_ms: durationMs,
+  };
+  if (toolCall.name === 'run_command' && toolCall.arguments && typeof toolCall.arguments.command === 'string') {
+    entry.command = toolCall.arguments.command;
+  }
+  return entry;
+}
+
 /**
  * Estimate token count from a messages array (rough: chars / 4).
  * @param {Array} messages
@@ -169,6 +184,7 @@ async function runAgenticLoop({
   let iterations = 0;
   let totalOutputChars = 0;
   let finalOutput = '';
+  let stopReason = null;
   const tokenUsage = { prompt_tokens: 0, completion_tokens: 0 };
 
   // Stuck loop detection
@@ -350,6 +366,7 @@ async function runAgenticLoop({
       }
 
       finalOutput = content;
+      stopReason = 'model_finished';
       logger.info(`[Agentic] Model finished after ${iterations + 1} iterations (${toolLog.length} tool calls)`);
       break;
     }
@@ -362,11 +379,12 @@ async function runAgenticLoop({
     const iterHash = JSON.stringify(toolCalls.map(tc => ({ name: tc.name, args: tc.arguments })));
     if (iterHash === prevToolCallHash) {
       stuckCount++;
-      if (stuckCount >= 2) {
-        finalOutput = `Task stuck: identical tool calls detected after ${iterations + 1} iterations.`;
-        logger.warn('[Agentic] Stuck loop detected — stopping');
-        break;
-      }
+        if (stuckCount >= 2) {
+          finalOutput = `Task stuck: identical tool calls detected after ${iterations + 1} iterations.`;
+          stopReason = 'stuck_loop';
+          logger.warn('[Agentic] Stuck loop detected — stopping');
+          break;
+        }
     } else {
       stuckCount = 0;
     }
@@ -436,14 +454,7 @@ async function runAgenticLoop({
             logger.warn(`[Agentic] Consecutive errors from ${tc.name} — stopping`);
 
             // Log the failing tool call
-            toolLog.push({
-              iteration: iterations + 1,
-              name: tc.name,
-              arguments_preview: buildArgumentsPreview(tc.name, tc.arguments),
-              result_preview: resultStr.slice(0, RESULT_PREVIEW_MAX),
-              error: true,
-              duration_ms: durationMs,
-            });
+            toolLog.push(buildToolLogEntry(iterations + 1, tc, resultStr, true, durationMs));
             if (onToolCall) onToolCall(tc.name, tc.arguments, execResult);
             totalOutputChars += resultStr.length;
 
@@ -456,6 +467,7 @@ async function runAgenticLoop({
               }
             }
             // Signal outer loop to stop
+            stopReason = 'consecutive_tool_errors';
             earlyStop = true;
             break;
           }
@@ -475,14 +487,7 @@ async function runAgenticLoop({
       }
 
       // Log tool call
-      toolLog.push({
-        iteration: iterations + 1,
-        name: tc.name,
-        arguments_preview: buildArgumentsPreview(tc.name, tc.arguments),
-        result_preview: resultStr.slice(0, RESULT_PREVIEW_MAX),
-        error: !!error,
-        duration_ms: durationMs,
-      });
+      toolLog.push(buildToolLogEntry(iterations + 1, tc, resultStr, error, durationMs));
 
       if (onToolCall) {
         onToolCall(tc.name, tc.arguments, execResult);
@@ -511,6 +516,7 @@ async function runAgenticLoop({
       if (totalOutputChars > MAX_TOTAL_OUTPUT_CHARS) {
         logger.warn(`[Agentic] Total output exceeded ${MAX_TOTAL_OUTPUT_CHARS} chars, stopping loop`);
         finalOutput = `Task stopped: output limit exceeded after ${iterations + 1} iterations and ${toolLog.length} tool calls.\n\nLast tool results were being processed.`;
+        stopReason = 'output_limit';
         // Build early return summary
         const summary = buildOutputSummary(finalOutput, toolLog, changedFiles);
         return {
@@ -518,6 +524,7 @@ async function runAgenticLoop({
           toolLog,
           changedFiles: [...changedFiles],
           iterations: iterations + 1,
+          stopReason,
           tokenUsage,
         };
       }
@@ -539,6 +546,7 @@ async function runAgenticLoop({
           readOnlyNudgeInjected = true;
         } else if (readOnlyIterations >= MAX_READ_ONLY_ITERATIONS + 2) {
           finalOutput = `Task stopped: ${readOnlyIterations} consecutive iterations with no successful file modifications.`;
+          stopReason = 'no_progress';
           logger.warn(`[Agentic] No-progress spin limit reached — stopping`);
           earlyStop = true;
         }
@@ -567,6 +575,7 @@ async function runAgenticLoop({
 
   if (!finalOutput && !earlyStop && iterations >= maxIterations) {
     finalOutput = `Task reached maximum iterations (${maxIterations}). ${toolLog.length} tool calls executed.`;
+    stopReason = 'max_iterations';
   }
 
   // Build comprehensive output
@@ -577,6 +586,7 @@ async function runAgenticLoop({
     toolLog,
     changedFiles: [...changedFiles],
     iterations: Math.min(iterations + 1, maxIterations),
+    stopReason,
     tokenUsage,
   };
 }

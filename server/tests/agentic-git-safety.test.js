@@ -280,6 +280,17 @@ describe('checkAndRevert — authorized change', () => {
     expect(result.kept.some((file) => file.includes('Accounting/Account.cs'))).toBe(true);
     expect(fileExists('Accounting/Account.cs')).toBe(true);
   });
+
+  it('keeps an explicitly allowlisted file even when the task description is generic', () => {
+    const snap = captureSnapshot(repoDir);
+    writeFile('src/Allowed.cs', 'new content');
+    const result = checkAndRevert(repoDir, snap, 'implement the next task exactly as written', 'enforce', {
+      authorizedPaths: ['src/Allowed.cs'],
+    });
+    expect(result.kept).toContain('src/Allowed.cs');
+    expect(result.reverted).not.toContain('src/Allowed.cs');
+    expect(readFile('src/Allowed.cs')).toBe('new content');
+  });
 });
 
 describe('checkAndRevert — unauthorized tracked file change', () => {

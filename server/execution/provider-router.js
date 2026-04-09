@@ -168,9 +168,63 @@ async function tryCreateAutoPR(taskId, task, workingDir, projectConfig) {
   }
 }
 
+function buildProviderDecisionTrace(task, taskMeta, requestedProvider, chosenProvider, selectedCandidate, fallbackCandidates, blockedProviders, switchReason) {
+  const now = new Date().toISOString();
+  const normalizedRequestedProvider = typeof requestedProvider === 'string' ? requestedProvider.trim().toLowerCase() : null;
+  const normalizedChosenProvider = typeof chosenProvider === 'string' ? chosenProvider.trim().toLowerCase() : null;
+  const blocked = blockedProviders instanceof Set ? blockedProviders : new Set();
+  const isUserOverride = Boolean(taskMeta.user_provider_override);
+  const selectionReason = switchReason
+    || selectedCandidate?.reason
+    || (isUserOverride ? 'Explicit provider override' : 'Requested/default provider selected');
+  const selectionCause = selectedCandidate?.cause || (isUserOverride ? 'user_override' : 'requested_provider');
+  const candidateEntries = Array.isArray(fallbackCandidates)
+    ? fallbackCandidates
+      .map((candidate) => {
+        const provider = typeof candidate?.provider === 'string'
+          ? candidate.provider.trim().toLowerCase()
+          : null;
+        if (!provider) return null;
+        return {
+          provider,
+          role: candidate.role || (candidate.switchReason ? 'fallback' : 'primary'),
+          reason: candidate.reason || null,
+          cause: candidate.cause || null,
+          switch_reason: candidate.switchReason || null,
+          selected: provider === normalizedChosenProvider,
+          blocked: blocked.has(provider),
+          blocked_reason: blocked.has(provider) ? 'circuit_breaker_open' : null,
+        };
+      })
+      .filter(Boolean)
+    : [];
+  const selectedEntry = candidateEntries.find((candidate) => candidate.selected) || null;
+  const fallbackEntries = candidateEntries.filter((candidate) => candidate.role === 'fallback');
+  const blockedEntries = candidateEntries.filter((candidate) => candidate.blocked);
+
+  return {
+    version: 1,
+    selected_provider: normalizedChosenProvider,
+    chosen_provider: normalizedChosenProvider,
+    requested_provider: normalizedRequestedProvider,
+    original_provider: task?.original_provider || taskMeta.original_provider || null,
+    intended_provider: normalizedChosenProvider,
+    user_provider_override: isUserOverride,
+    auto_routed: Boolean(taskMeta.auto_routed),
+    selected_at: now,
+    selection_reason: selectionReason,
+    cause: selectionCause,
+    switch_reason: switchReason || null,
+    selected_candidate: selectedEntry,
+    fallback_candidates: fallbackEntries,
+    blocked_candidates: blockedEntries,
+    candidates: candidateEntries,
+  };
+}
+
 /**
  * Resolve final provider with cost-aware routing and review-task detection.
- * @returns {{ provider: string, switchReason: string|null }}
+ * @returns {{ provider: string, switchReason: string|null, decisionTrace: object }}
  */
 function resolveProviderRouting(task, taskId) {
   // Deferred assignment: when provider is null, read intended_provider from metadata
@@ -187,7 +241,13 @@ function resolveProviderRouting(task, taskId) {
     logger.info(`[Routing] User-override provider '${normalizedRequestedProvider}' for task ${taskId} — skipping template routing (TDA-01)`);
   }
 
-  const fallbackCandidates = [{ provider: normalizedRequestedProvider, switchReason: null }];
+  const fallbackCandidates = [{
+    provider: normalizedRequestedProvider,
+    switchReason: null,
+    role: 'primary',
+    reason: isUserOverride ? 'Explicit provider override' : 'Requested/default provider',
+    cause: isUserOverride ? 'user_override' : 'requested_provider',
+  }];
   if (!isUserOverride && paidProviders.has(normalizedRequestedProvider)) {
     const budgetStatus = _db.isBudgetExceeded(normalizedRequestedProvider);
     if (budgetStatus.exceeded && !isUserOverride) {
@@ -197,6 +257,9 @@ function resolveProviderRouting(task, taskId) {
         fallbackCandidates.push({
           provider: 'ollama',
           switchReason: `${normalizedRequestedProvider} -> ollama (budget exceeded)`,
+          role: 'fallback',
+          reason: `Fallback candidate because ${normalizedRequestedProvider} exceeded budget`,
+          cause: 'budget_exceeded',
         });
       } else {
         logger.info(`[Routing] Budget exceeded for ${normalizedRequestedProvider} but no healthy Ollama hosts — proceeding with ${normalizedRequestedProvider}`);
@@ -215,6 +278,9 @@ function resolveProviderRouting(task, taskId) {
             fallbackCandidates.push({
               provider: 'ollama',
               switchReason: `${normalizedRequestedProvider} -> ollama (budget warning, non-critical task)`,
+              role: 'fallback',
+              reason: `Fallback candidate because ${normalizedRequestedProvider} is near budget and task is non-critical`,
+              cause: 'budget_warning_non_critical',
             });
           }
         }
@@ -225,13 +291,16 @@ function resolveProviderRouting(task, taskId) {
   const circuitBreaker = getCircuitBreaker();
   let provider = normalizedRequestedProvider;
   let switchReason = null;
+  let selectedCandidate = fallbackCandidates[0];
+  const blockedProviders = new Set();
   if (circuitBreaker) {
-    let selectedCandidate = null;
+    selectedCandidate = null;
     for (let i = fallbackCandidates.length - 1; i >= 0; i--) {
       if (circuitBreaker.allowRequest(fallbackCandidates[i].provider)) {
         selectedCandidate = fallbackCandidates[i];
         break;
       }
+      blockedProviders.add(fallbackCandidates[i].provider);
       logger.info(`Circuit open for ${fallbackCandidates[i].provider}, skipping`);
     }
 
@@ -242,7 +311,7 @@ function resolveProviderRouting(task, taskId) {
     provider = selectedCandidate.provider;
     switchReason = selectedCandidate.switchReason;
   } else if (fallbackCandidates.length > 1) {
-    const selectedCandidate = fallbackCandidates[fallbackCandidates.length - 1];
+    selectedCandidate = fallbackCandidates[fallbackCandidates.length - 1];
     provider = selectedCandidate.provider;
     switchReason = selectedCandidate.switchReason;
   }
@@ -251,7 +320,37 @@ function resolveProviderRouting(task, taskId) {
     logger.info(`[Routing] Routed task ${taskId} provider: ${task.provider} → ${provider}`);
   }
 
-  return { provider, switchReason };
+  const decisionTrace = buildProviderDecisionTrace(
+    task,
+    taskMeta,
+    normalizedRequestedProvider,
+    provider,
+    selectedCandidate,
+    fallbackCandidates,
+    blockedProviders,
+    switchReason,
+  );
+
+  const nextMetadata = {
+    ...taskMeta,
+    requested_provider: taskMeta.requested_provider || normalizedRequestedProvider,
+    intended_provider: provider,
+    provider_decision_trace: decisionTrace,
+  };
+  if (switchReason) {
+    nextMetadata._provider_switch_reason = switchReason;
+  }
+  task.metadata = nextMetadata;
+
+  try {
+    if (typeof _db.patchTaskMetadata === 'function') {
+      _db.patchTaskMetadata(taskId, nextMetadata);
+    }
+  } catch (err) {
+    logger.debug(`[Routing] Failed to persist provider decision trace for ${taskId}: ${err.message}`);
+  }
+
+  return { provider, switchReason, decisionTrace };
 }
 
 function normalizeProviderOverride(task, requestedProvider, taskId) {
@@ -340,6 +439,7 @@ function createProviderRouter(_deps) {
     safeConfigInt,
     tryReserveHostSlotWithFallback,
     tryCreateAutoPR,
+    buildProviderDecisionTrace,
     resolveProviderRouting,
     normalizeProviderOverride,
     failTaskForInvalidProvider,
@@ -353,6 +453,7 @@ module.exports = {
   safeConfigInt,
   tryReserveHostSlotWithFallback,
   tryCreateAutoPR,
+  buildProviderDecisionTrace,
   resolveProviderRouting,
   normalizeProviderOverride,
   failTaskForInvalidProvider,

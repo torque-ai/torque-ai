@@ -938,6 +938,7 @@ const routes = [
   // --- Schedules --- (compat: v2 equivalents at /api/v2/schedules)
   { method: 'GET',    pattern: /^\/api\/schedules$/,                    handler: admin.handleListSchedules, compat: true },
   { method: 'POST',   pattern: /^\/api\/schedules$/,                    handler: admin.handleCreateSchedule, compat: true },
+  { method: 'POST',   pattern: /^\/api\/schedules\/([^/]+)\/run$/,      handler: admin.handleRunSchedule, compat: true },
   { method: 'POST',   pattern: /^\/api\/schedules\/([^/]+)\/toggle$/,   handler: admin.handleToggleSchedule, compat: true },
   { method: 'DELETE', pattern: /^\/api\/schedules\/([^/]+)$/,           handler: admin.handleDeleteSchedule, compat: true },
 

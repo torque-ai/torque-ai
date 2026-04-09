@@ -83,6 +83,11 @@ module.exports = [
           "description": "Import graph traversal depth for context stuffing (default: 1)",
           "enum": [1, 2]
         },
+        "study_context": {
+          "type": "boolean",
+          "description": "Inject a compact study-derived repo brief from docs/architecture into task metadata and supported provider prompts (default: true when study artifacts exist).",
+          "default": true
+        },
         "tuning": {
           "type": "object",
           "description": "Per-task tuning overrides (temperature, num_ctx, top_p, etc.)",

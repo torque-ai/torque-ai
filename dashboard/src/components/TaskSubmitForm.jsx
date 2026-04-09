@@ -35,6 +35,10 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
   const [provider, setProvider] = useState('auto');
   const [model, setModel] = useState('');
   const [workingDirectory, setWorkingDirectory] = useState('');
+  const [studyContextEnabled, setStudyContextEnabled] = useState(true);
+  const [studyPreview, setStudyPreview] = useState(null);
+  const [previewingStudy, setPreviewingStudy] = useState(false);
+  const [studyPreviewError, setStudyPreviewError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const [providerList, setProviderList] = useState([]);
@@ -110,8 +114,49 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
     setModel('');
   }, [provider, ollamaModels]);
 
-  const handleSubmit = useCallback(async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    const trimmedWorkingDirectory = workingDirectory.trim();
+    const trimmedTask = task.trim();
+    if (!trimmedWorkingDirectory || !trimmedTask) {
+      setStudyPreview(null);
+      setStudyPreviewError('');
+      setPreviewingStudy(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      setPreviewingStudy(true);
+      tasksApi.previewStudyContext({
+        working_directory: trimmedWorkingDirectory,
+        task: trimmedTask,
+      }, { signal: controller.signal })
+        .then((result) => {
+          if (cancelled) return;
+          setStudyPreview(result);
+          setStudyPreviewError(result?.available ? '' : (result?.reason || 'No study context is available for this repository yet.'));
+        })
+        .catch((err) => {
+          if (cancelled || err?.name === 'AbortError') return;
+          setStudyPreview(null);
+          setStudyPreviewError(err.message || 'Failed to preview study context');
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setPreviewingStudy(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [task, workingDirectory]);
+
+  const submitTask = useCallback(async (mode = 'single') => {
     if (!task.trim()) {
       toast.error('Task description is required');
       return;
@@ -126,27 +171,64 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
       const payload = {
         task: task.trim(),
         project: resolvedProject,
+        study_context: studyContextEnabled,
       };
       if (provider !== 'auto') payload.provider = provider;
       if (model) payload.model = model;
       if (workingDirectory.trim()) payload.working_directory = workingDirectory.trim();
-
-      const result = await tasksApi.submit(payload);
-      toast.success(`Task submitted${result.task_id ? ` (${result.task_id.substring(0, 8)})` : ''}`);
+      if (mode === 'comparison') {
+        if (!studyPreview?.available) {
+          toast.error('A/B submit requires an available study context preview for this repository');
+          return;
+        }
+        const withContext = await tasksApi.submit({
+          ...payload,
+          study_context: true,
+        });
+        const withoutContext = await tasksApi.submit({
+          ...payload,
+          study_context: false,
+        });
+        toast.success(
+          `A/B pair submitted${withContext?.task_id && withoutContext?.task_id ? ` (${withContext.task_id.substring(0, 8)} / ${withoutContext.task_id.substring(0, 8)})` : ''}`
+        );
+      } else {
+        const result = await tasksApi.submit(payload);
+        toast.success(`Task submitted${result.task_id ? ` (${result.task_id.substring(0, 8)})` : ''}`);
+      }
       setTask('');
       setSelectedProject('');
       setNewProjectName('');
       setProvider('auto');
       setModel('');
       setWorkingDirectory('');
+      setStudyContextEnabled(true);
+      setStudyPreview(null);
+      setStudyPreviewError('');
       onSubmitted?.();
       onClose?.();
     } catch (err) {
-      toast.error(`Submit failed: ${err.message}`);
+      toast.error(`${mode === 'comparison' ? 'A/B submit' : 'Submit'} failed: ${err.message}`);
     } finally {
       setSubmitting(false);
     }
-  }, [task, resolvedProject, provider, model, workingDirectory, toast, onSubmitted, onClose]);
+  }, [task, resolvedProject, provider, model, workingDirectory, studyContextEnabled, studyPreview?.available, toast, onSubmitted, onClose]);
+
+  const handleSubmit = useCallback(async (e) => {
+    e.preventDefault();
+    await submitTask('single');
+  }, [submitTask]);
+
+  const previewSubsystems = Array.isArray(studyPreview?.study_context?.relevant_subsystems)
+    ? studyPreview.study_context.relevant_subsystems
+    : [];
+  const previewFlows = Array.isArray(studyPreview?.study_context?.relevant_flows)
+    ? studyPreview.study_context.relevant_flows
+    : [];
+  const previewTests = Array.isArray(studyPreview?.study_context?.representative_tests)
+    ? studyPreview.study_context.representative_tests
+    : [];
+  const canSubmitComparisonPair = Boolean(studyPreview?.available && task.trim() && resolvedProject && !submitting);
 
   // Build provider options from the live list, falling back to a static list
   const providerOptions = providerList.length > 0
@@ -307,6 +389,91 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
         </div>
       </div>
 
+      <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4 space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm text-slate-300 font-medium">Study Context</div>
+            <p className="text-xs text-slate-500 mt-1">
+              Attach a compact repo brief from the current knowledge pack, delta, and benchmark when study artifacts are available.
+            </p>
+          </div>
+          <label className="inline-flex items-center gap-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={studyContextEnabled}
+              onChange={(e) => setStudyContextEnabled(e.target.checked)}
+            />
+            Attach study context
+          </label>
+        </div>
+
+        {!workingDirectory.trim() || !task.trim() ? (
+          <p className="text-xs text-slate-500">
+            Set a working directory and describe the task to preview the study context that TORQUE will attach.
+          </p>
+        ) : previewingStudy ? (
+          <p className="text-xs text-cyan-300">Refreshing study preview...</p>
+        ) : studyPreview?.available ? (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="rounded bg-slate-900/60 px-3 py-2">
+                <div className="text-slate-500 uppercase tracking-wider text-[10px] mb-1">Repo</div>
+                <div className="text-slate-200">{studyPreview.study_context?.repo_name || 'Unknown'}</div>
+              </div>
+              <div className="rounded bg-slate-900/60 px-3 py-2">
+                <div className="text-slate-500 uppercase tracking-wider text-[10px] mb-1">Pack Readiness</div>
+                <div className="text-slate-200">
+                  {studyPreview.study_context?.readiness || 'map_only'} / {studyPreview.study_context?.grade || 'n/a'}
+                </div>
+              </div>
+            </div>
+
+            {previewSubsystems.length > 0 && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Likely Subsystems</div>
+                <div className="flex flex-wrap gap-1">
+                  {previewSubsystems.slice(0, 3).map((item) => (
+                    <span key={item.id} className="rounded bg-blue-600/20 px-2 py-0.5 text-xs text-blue-200">
+                      {item.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {previewFlows.length > 0 && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Likely Flows</div>
+                <div className="flex flex-wrap gap-1">
+                  {previewFlows.slice(0, 2).map((item) => (
+                    <span key={item.id} className="rounded bg-cyan-600/20 px-2 py-0.5 text-xs text-cyan-200">
+                      {item.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {previewTests.length > 0 && (
+              <div className="text-xs text-slate-400">
+                Representative tests: {previewTests.slice(0, 2).map((item) => item.label).join(', ')}
+              </div>
+            )}
+
+            <p className="text-xs text-slate-500">
+              Use <span className="text-slate-300">Submit A/B Pair</span> to send the same task once with study context and once without, so the Study Impact panel can compare real outcomes.
+            </p>
+            {!studyContextEnabled && (
+              <p className="text-xs text-amber-300">
+                Study context is currently disabled for the normal submit path. The comparison submit will still send one task with context and one without.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-amber-300">{studyPreviewError || 'No study context is available for this repository yet.'}</p>
+        )}
+      </div>
+
       {/* Submit buttons */}
       <div className="flex gap-3 pt-2">
         <button
@@ -330,6 +497,14 @@ export default function TaskSubmitForm({ onClose, onSubmitted }) {
               Submit Task
             </>
           )}
+        </button>
+        <button
+          type="button"
+          disabled={!canSubmitComparisonPair}
+          onClick={() => submitTask('comparison')}
+          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          Submit A/B Pair
         </button>
         {onClose && (
           <button

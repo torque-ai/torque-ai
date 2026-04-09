@@ -19,6 +19,7 @@ const { resolveOllamaModel } = require('./ollama-shared');
 const providerConfig = require('./config');
 const serverConfig = require('../config');
 const { safeJsonParse } = require('../utils/json');
+const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 // Agentic tool-calling is now handled exclusively by execution.js wrapper
 
 let _projectConfigCore = null;
@@ -424,8 +425,11 @@ async function executeOllamaTask(task) {
   db.updateTaskStatus(taskId, 'running', {
     started_at: new Date().toISOString(),
     progress_percent: 10,
-    ollama_host_id: selectedHostId
+    ollama_host_id: selectedHostId,
+    model: ollamaModel,
   });
+  task.model = ollamaModel;
+  task.ollama_host_id = selectedHostId;
   if (_recordTaskStartedAuditEvent) {
     _recordTaskStartedAuditEvent(task, taskId, task.provider || 'ollama');
   }
@@ -510,7 +514,7 @@ async function executeOllamaTask(task) {
     }
 
     // Extract and read files referenced in the task description
-    let prompt = task.task_description;
+    let prompt = applyStudyContextPrompt(task.task_description, taskMetadataParsed);
 
     // Resolve working directory - try task field, then project defaults, then env base path
     let workingDir = task.working_directory;
@@ -537,7 +541,7 @@ async function executeOllamaTask(task) {
       if (resolution.resolved.length > 0) {
         const fileContext = await buildFileContext(resolution.resolved, workingDir, 15000, task.task_description);
         if (fileContext) {
-          prompt = task.task_description + fileContext;
+          prompt = applyStudyContextPrompt(task.task_description + fileContext, taskMetadataParsed);
           logger.info(`[Ollama] Included ${resolution.resolved.length} resolved file(s) in prompt for task ${taskId}`);
         }
       }

@@ -18,10 +18,27 @@ import { approvals as approvalsApi } from '../api';
 const mockPendingV2Response = [
   {
     id: 'appr-001-abcdef12',
-    description: 'Deploy production build',
+    approval_type: 'study_proposal',
+    kind: 'invariant-review',
+    description: 'Review task lifecycle changes for invariant drift',
     task_id: 'task-999-aabbccdd',
-    rule: 'production-deploy',
+    rule: 'Study proposal review',
     created_at: '2026-02-28T10:00:00Z',
+    rationale: 'Changed files intersect the task lifecycle invariant.',
+    files: ['server/task-manager.js', 'server/execution/task-finalizer.js'],
+    related_tests: ['server/tests/task-core-handlers.test.js'],
+    validation_commands: ['npx vitest run server/tests/task-core-handlers.test.js'],
+    study_trace: {
+      schedule_id: 'schedule-study-1',
+      schedule_name: 'codebase-study:torque-public',
+      schedule_run_id: 'run-study-77',
+      delta_significance_level: 'high',
+      delta_significance_score: 84,
+      significance_reasons: ['2 critical invariants were touched.'],
+      changed_subsystems: ['Task execution pipeline', 'Control-plane API'],
+      affected_flows: ['Task submission -> execution'],
+      run_mode: 'repo-delta',
+    },
   },
   {
     id: 'appr-002-12345678',
@@ -37,10 +54,24 @@ const todayStr = new Date().toISOString();
 const mockHistoryV2Response = [
   {
     id: 'appr-100-aaaaaaaa',
-    description: 'Run migration script',
+    approval_type: 'study_proposal',
+    kind: 'failure-mode-review',
+    description: 'Validate provider fallback risk after recent changes',
     decision: 'approved',
     decided_by: 'admin',
     decided_at: todayStr,
+    rationale: 'The change set intersects a known failure mode.',
+    study_trace: {
+      schedule_id: 'schedule-study-1',
+      schedule_name: 'codebase-study:torque-public',
+      schedule_run_id: 'run-study-66',
+      delta_significance_level: 'medium',
+      delta_significance_score: 37,
+      significance_reasons: ['1 known failure mode intersected the changed seam.'],
+      changed_subsystems: ['Provider adapters'],
+      affected_flows: ['Task submission -> execution'],
+      run_mode: 'repo-delta',
+    },
   },
   {
     id: 'appr-101-bbbbbbbb',
@@ -125,15 +156,33 @@ describe('Approvals', () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
       // Pending tab button exists; the pending table is shown
-      expect(screen.getByText('Deploy production build')).toBeInTheDocument();
+      expect(screen.getByText('Review task lifecycle changes for invariant drift')).toBeInTheDocument();
     });
   });
 
   it('renders pending approvals from the v2 array response shape', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('Deploy production build')).toBeInTheDocument();
+      expect(screen.getByText('Review task lifecycle changes for invariant drift')).toBeInTheDocument();
       expect(screen.getByText('Delete staging database')).toBeInTheDocument();
+    });
+  });
+
+  it('renders study proposal details in the pending table', async () => {
+    renderWithProviders(<Approvals />, { route: '/approvals' });
+    await waitFor(() => {
+      expect(screen.getByText('Study Proposal')).toBeInTheDocument();
+      expect(screen.getByText('invariant-review')).toBeInTheDocument();
+      expect(screen.getByText('Changed files intersect the task lifecycle invariant.')).toBeInTheDocument();
+      expect(screen.getByText('Why this proposal happened')).toBeInTheDocument();
+      expect(screen.getByText('Delta: High')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open generating run' })).toHaveAttribute(
+        'href',
+        '/operations?scheduleId=schedule-study-1&runId=run-study-77#schedules'
+      );
+      expect(screen.getByText(/Files: server\/task-manager\.js, server\/execution\/task-finalizer\.js/)).toBeInTheDocument();
+      expect(screen.getByText(/Tests: server\/tests\/task-core-handlers\.test\.js/)).toBeInTheDocument();
+      expect(screen.getByText(/Validate: npx vitest run server\/tests\/task-core-handlers\.test\.js/)).toBeInTheDocument();
     });
   });
 
@@ -161,7 +210,7 @@ describe('Approvals', () => {
   it('renders rule names for pending items', async () => {
     renderWithProviders(<Approvals />, { route: '/approvals' });
     await waitFor(() => {
-      expect(screen.getByText('production-deploy')).toBeInTheDocument();
+      expect(screen.getByText('Study proposal review')).toBeInTheDocument();
       expect(screen.getByText('destructive-action')).toBeInTheDocument();
     });
   });
@@ -181,8 +230,21 @@ describe('Approvals', () => {
     });
     fireEvent.click(screen.getByText('History'));
     await waitFor(() => {
-      expect(screen.getByText('Run migration script')).toBeInTheDocument();
+      expect(screen.getByText('Validate provider fallback risk after recent changes')).toBeInTheDocument();
       expect(screen.getByText('Scale down workers')).toBeInTheDocument();
+    });
+  });
+
+  it('renders study proposal rationale in history', async () => {
+    renderWithProviders(<Approvals />, { route: '/approvals' });
+    await waitFor(() => {
+      expect(screen.getByText('Approvals')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('History'));
+    await waitFor(() => {
+      expect(screen.getByText('failure-mode-review')).toBeInTheDocument();
+      expect(screen.getByText('The change set intersects a known failure mode.')).toBeInTheDocument();
+      expect(screen.getAllByText('Open generating run').length).toBeGreaterThanOrEqual(1);
     });
   });
 

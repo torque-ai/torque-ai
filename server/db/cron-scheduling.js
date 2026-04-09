@@ -13,6 +13,11 @@ let db;
 
 const { safeJsonParse } = require('../utils/json');
 const { enforceVersionIntentForProject } = require('../versioning/version-intent');
+const { executeScheduledTask } = require('../execution/schedule-runner');
+const { v4: uuidv4 } = require('uuid');
+const DEFAULT_RUN_HISTORY_LIMIT = 10;
+const RUN_HISTORY_LOOKBACK_MINUTES = 10;
+const SUMMARY_PREVIEW_LIMIT = 280;
 
 function setDb(dbInstance) {
   db = dbInstance;
@@ -26,6 +31,426 @@ const CRON_FIELD_RANGES = {
   month: { min: 1, max: 12, name: 'month' },
   dayOfWeek: { min: 0, max: 7, name: 'day of week' }  // 0 and 7 both mean Sunday
 };
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeObjects(base, updates) {
+  const merged = { ...(isPlainObject(base) ? base : {}) };
+  if (!isPlainObject(updates)) {
+    return merged;
+  }
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (isPlainObject(value) && isPlainObject(merged[key])) {
+      merged[key] = mergeObjects(merged[key], value);
+      continue;
+    }
+    merged[key] = value;
+  }
+
+  return merged;
+}
+
+function normalizeScheduledTaskInput(dataOrName, cronExpression, taskDescription, legacyOptions = {}) {
+  if (isPlainObject(dataOrName)) {
+    return {
+      ...dataOrName,
+      task_config: isPlainObject(dataOrName.task_config) ? dataOrName.task_config : {},
+    };
+  }
+
+  const options = isPlainObject(legacyOptions) ? legacyOptions : {};
+  const toolArgs = {};
+  if (options.proposal_limit !== undefined) {
+    toolArgs.proposal_limit = options.proposal_limit;
+  }
+  if (options.submit_proposals !== undefined) {
+    toolArgs.submit_proposals = options.submit_proposals;
+  }
+  if (options.proposal_significance_level !== undefined) {
+    toolArgs.proposal_significance_level = options.proposal_significance_level;
+  }
+  if (options.proposal_min_score !== undefined) {
+    toolArgs.proposal_min_score = options.proposal_min_score;
+  }
+
+  const taskConfig = {
+    task: taskDescription,
+    provider: options.provider ?? null,
+    model: options.model ?? null,
+    working_directory: options.working_directory ?? null,
+    timeout_minutes: options.timeout_minutes,
+    auto_approve: options.auto_approve,
+    priority: options.priority,
+    project: options.project ?? null,
+    version_intent: options.version_intent,
+    tags: Array.isArray(options.tags) ? options.tags : options.tags ?? null,
+  };
+
+  if (Object.keys(toolArgs).length > 0) {
+    taskConfig.tool_args = toolArgs;
+  }
+
+  return {
+    name: dataOrName,
+    cron_expression: cronExpression,
+    enabled: options.enabled,
+    timezone: options.timezone || null,
+    version_intent: options.version_intent,
+    task_config: taskConfig,
+  };
+}
+
+function inferScheduleExecutionType(schedule) {
+  const taskConfig = isPlainObject(schedule?.task_config)
+    ? schedule.task_config
+    : safeJsonParse(schedule?.task_config, {});
+
+  if (taskConfig.tool_name) {
+    return 'tool';
+  }
+  if (taskConfig.workflow_id || taskConfig.workflow_source_id) {
+    return 'workflow';
+  }
+  return 'task';
+}
+
+function buildScheduleRunDetails(schedule, options = {}) {
+  const taskConfig = isPlainObject(schedule?.task_config)
+    ? schedule.task_config
+    : safeJsonParse(schedule?.task_config, {});
+
+  return {
+    manual_run_now: options.manual_run_now === true,
+    schedule_type: schedule?.schedule_type || 'cron',
+    tool_name: taskConfig.tool_name || null,
+    workflow_id: taskConfig.workflow_id || null,
+    workflow_source_id: taskConfig.workflow_source_id || null,
+    provider: taskConfig.provider || null,
+    model: taskConfig.model || null,
+    working_directory: taskConfig.working_directory || schedule?.working_directory || null,
+  };
+}
+
+function extractSummaryText(value, fallback = null) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) {
+    return fallback;
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\*\*/g, '').replace(/^#+\s*/, '').trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return fallback;
+  }
+
+  return lines[0].slice(0, SUMMARY_PREVIEW_LIMIT);
+}
+
+function extractSkipReason(output, errorOutput = null) {
+  const candidate = typeof output === 'string' && output.trim()
+    ? output
+    : (typeof errorOutput === 'string' ? errorOutput : '');
+  if (!candidate) {
+    return null;
+  }
+
+  const reasonMatch = candidate.match(/\*\*Reason:\*\*\s*([^\r\n]+)/i)
+    || candidate.match(/\bReason:\s*([^\r\n]+)/i)
+    || candidate.match(/\bskip(?:ped)?(?:\s+because)?[:\s-]+([^\r\n]+)/i);
+  if (reasonMatch?.[1]) {
+    return reasonMatch[1].trim();
+  }
+
+  if (/codebase study skipped/i.test(candidate) || /\bskipped\b/i.test(candidate)) {
+    return 'skipped';
+  }
+  return null;
+}
+
+function normalizeScheduledRunRow(row, options = {}) {
+  if (!row) {
+    return null;
+  }
+
+  const normalized = {
+    ...row,
+    details_json: safeJsonParse(row.details_json, {}),
+  };
+
+  if (options.hydrate === false || !normalized.wrapper_task_id || !db?.prepare) {
+    return normalized;
+  }
+
+  let task = null;
+  try {
+    task = db.prepare(`
+      SELECT id, status, task_description, output, error_output, files_modified, metadata, created_at, started_at, completed_at
+      FROM tasks
+      WHERE id = ?
+    `).get(normalized.wrapper_task_id);
+  } catch {
+    return normalized;
+  }
+
+  if (!task) {
+    return normalized;
+  }
+
+  const taskStatus = task.status || normalized.status || 'started';
+  const skipReason = extractSkipReason(task.output, task.error_output);
+  const resolvedStatus = skipReason
+    ? 'skipped'
+    : taskStatus;
+  const resolvedSummary = extractSummaryText(
+    resolvedStatus === 'failed' ? (task.error_output || task.output) : (task.output || task.error_output),
+    extractSummaryText(task.task_description, normalized.summary),
+  ) || normalized.summary || null;
+  const nextDetails = {
+    ...normalized.details_json,
+    task_status: task.status || null,
+    files_modified: safeJsonParse(task.files_modified, []),
+    task_metadata: safeJsonParse(task.metadata, {}),
+  };
+  const completedAt = task.completed_at || normalized.completed_at || null;
+
+  const changed = normalized.status !== resolvedStatus
+    || normalized.summary !== resolvedSummary
+    || normalized.skip_reason !== skipReason
+    || normalized.completed_at !== completedAt
+    || JSON.stringify(normalized.details_json) !== JSON.stringify(nextDetails);
+
+  if (changed) {
+    try {
+      db.prepare(`
+        UPDATE scheduled_task_runs
+        SET status = ?, skip_reason = ?, summary = ?, details_json = ?, completed_at = ?
+        WHERE id = ?
+      `).run(
+        resolvedStatus,
+        skipReason,
+        resolvedSummary,
+        JSON.stringify(nextDetails),
+        completedAt,
+        normalized.id,
+      );
+    } catch {
+      return {
+        ...normalized,
+        status: resolvedStatus,
+        skip_reason: skipReason,
+        summary: resolvedSummary,
+        details_json: nextDetails,
+        completed_at: completedAt,
+      };
+    }
+
+    normalized.status = resolvedStatus;
+    normalized.skip_reason = skipReason;
+    normalized.summary = resolvedSummary;
+    normalized.details_json = nextDetails;
+    normalized.completed_at = completedAt;
+  }
+
+  return normalized;
+}
+
+function getLatestScheduledTaskRun(scheduleId, options = {}) {
+  if (!db?.prepare) {
+    return null;
+  }
+
+  let row = null;
+  try {
+    row = db.prepare(`
+      SELECT *
+      FROM scheduled_task_runs
+      WHERE schedule_id = ?
+      ORDER BY started_at DESC, created_at DESC
+      LIMIT 1
+    `).get(scheduleId);
+  } catch {
+    return null;
+  }
+
+  return normalizeScheduledRunRow(row, options);
+}
+
+function listScheduledTaskRuns(scheduleId, options = {}) {
+  if (!db?.prepare) {
+    return [];
+  }
+
+  const limit = Number.isInteger(options.limit) && options.limit > 0
+    ? options.limit
+    : DEFAULT_RUN_HISTORY_LIMIT;
+  let rows = [];
+  try {
+    rows = db.prepare(`
+      SELECT *
+      FROM scheduled_task_runs
+      WHERE schedule_id = ?
+      ORDER BY started_at DESC, created_at DESC
+      LIMIT ?
+    `).all(scheduleId, limit);
+  } catch {
+    return [];
+  }
+
+  return rows.map((row) => normalizeScheduledRunRow(row, options));
+}
+
+function getScheduledTaskRun(runId, options = {}) {
+  if (!db?.prepare) {
+    return null;
+  }
+
+  let row = null;
+  try {
+    row = db.prepare(`
+      SELECT *
+      FROM scheduled_task_runs
+      WHERE id = ?
+      LIMIT 1
+    `).get(runId);
+  } catch {
+    return null;
+  }
+
+  return normalizeScheduledRunRow(row, options);
+}
+
+function findRecentWrapperTaskId(schedule, executionType) {
+  if (!db?.prepare) {
+    return null;
+  }
+
+  const since = new Date(Date.now() - RUN_HISTORY_LOOKBACK_MINUTES * 60 * 1000).toISOString();
+  const rows = db.prepare(`
+    SELECT id, metadata, created_at
+    FROM tasks
+    WHERE created_at >= ?
+    ORDER BY created_at DESC
+    LIMIT 50
+  `).all(since);
+
+  for (const row of rows) {
+    const metadata = safeJsonParse(row.metadata, {});
+    if (metadata?.scheduled_by !== schedule.id) {
+      continue;
+    }
+    if (executionType === 'tool' && metadata.execution_type !== 'tool') {
+      continue;
+    }
+    return row.id;
+  }
+
+  return null;
+}
+
+function createScheduledTaskRunRecord(schedule, options = {}) {
+  if (!db?.prepare || !schedule?.id) {
+    return null;
+  }
+
+  const runId = options.id || uuidv4();
+  const startedAt = options.started_at || new Date().toISOString();
+  const details = mergeObjects(
+    buildScheduleRunDetails(schedule, {
+      manual_run_now: options.trigger_source === 'manual_run_now',
+    }),
+    isPlainObject(options.details) ? options.details : {},
+  );
+
+  try {
+    db.prepare(`
+      INSERT INTO scheduled_task_runs (
+        id, schedule_id, schedule_name, trigger_source, execution_type, wrapper_task_id,
+        status, skip_reason, summary, details_json, started_at, completed_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      runId,
+      schedule.id,
+      options.schedule_name || schedule.name || null,
+      options.trigger_source || 'scheduler',
+      options.execution_type || inferScheduleExecutionType(schedule),
+      options.wrapper_task_id || null,
+      options.status || 'started',
+      options.skip_reason || null,
+      options.summary || null,
+      JSON.stringify(details),
+      startedAt,
+      options.completed_at || null,
+      options.created_at || startedAt,
+    );
+  } catch {
+    return null;
+  }
+
+  return getScheduledTaskRun(runId, { hydrate: false });
+}
+
+function appendLatestRunFields(target, scheduleId, options = {}) {
+  const latestRun = getLatestScheduledTaskRun(scheduleId, options);
+  if (!latestRun) {
+    return target;
+  }
+
+  target.latest_run = latestRun;
+  target.last_run_status = latestRun.status || null;
+  target.last_run_summary = latestRun.summary || null;
+  target.last_run_skip_reason = latestRun.skip_reason || null;
+  target.last_run_execution_type = latestRun.execution_type || null;
+  target.last_run_trigger_source = latestRun.trigger_source || null;
+  return target;
+}
+
+function normalizeScheduleRecord(row, options = {}) {
+  if (!row) {
+    return null;
+  }
+
+  const taskConfig = isPlainObject(row.task_config) ? row.task_config : safeJsonParse(row.task_config, {});
+  const normalized = {
+    ...row,
+    enabled: Boolean(row.enabled),
+    task_config: taskConfig,
+    task_description: row.task_description || taskConfig.task || (taskConfig.tool_name ? `Scheduled tool: ${taskConfig.tool_name}` : 'Scheduled task'),
+    execution_type: inferScheduleExecutionType({ ...row, task_config: taskConfig }),
+  };
+
+  const toolArgs = isPlainObject(taskConfig.tool_args) ? taskConfig.tool_args : {};
+  if (toolArgs.submit_proposals !== undefined) {
+    normalized.submit_proposals = toolArgs.submit_proposals === true;
+  }
+  if (toolArgs.proposal_limit !== undefined) {
+    normalized.proposal_limit = toolArgs.proposal_limit;
+  }
+  if (toolArgs.proposal_significance_level !== undefined) {
+    normalized.proposal_significance_level = toolArgs.proposal_significance_level || null;
+  }
+  if (toolArgs.proposal_min_score !== undefined) {
+    normalized.proposal_min_score = toolArgs.proposal_min_score;
+  }
+
+  appendLatestRunFields(normalized, normalized.id, {
+    hydrate: options.hydrateRuns !== false,
+  });
+
+  if (options.include_runs) {
+    normalized.recent_runs = listScheduledTaskRuns(normalized.id, {
+      limit: options.run_limit,
+      hydrate: options.hydrateRuns !== false,
+    });
+  }
+
+  return normalized;
+}
 
 /**
  * Validate a single cron field value is within valid range
@@ -371,12 +796,13 @@ function detectScheduleOverlaps(cronExpression, options = {}) {
 }
 
 /**
- * Create a scheduled task (cron-based)
- * Compatible with existing scheduled_tasks schema
+ * Create a scheduled task (cron-based).
+ * Accepts either the modern object payload or the legacy positional signature
+ * used by the dashboard admin route.
  */
-function createCronScheduledTask(data) {
+function createCronScheduledTask(dataOrName, cronExpression, taskDescription, legacyOptions = {}) {
+  const data = normalizeScheduledTaskInput(dataOrName, cronExpression, taskDescription, legacyOptions);
   const now = new Date().toISOString();
-  const { v4: uuidv4 } = require('uuid');
 
   // Version intent enforcement for versioned projects
   const workDir = (data.task_config && data.task_config.working_directory) || null;
@@ -419,15 +845,7 @@ function createCronScheduledTask(data) {
     timezone
   );
 
-  return {
-    id: scheduleId,
-    name: data.name,
-    cron_expression: data.cron_expression,
-    timezone: timezone,
-    task_config: taskConfig,
-    enabled: data.enabled !== false,
-    next_run_at: nextRun ? nextRun.toISOString() : null
-  };
+  return getScheduledTask(scheduleId);
 }
 
 /**
@@ -442,7 +860,6 @@ function createOneTimeSchedule(data) {
     const intent = data.version_intent || (data.task_config && data.task_config.version_intent);
     enforceVersionIntentForProject(db, workDir, intent);
   }
-  const { v4: uuidv4 } = require('uuid');
   const now = new Date();
 
   let runAt;
@@ -490,16 +907,7 @@ function createOneTimeSchedule(data) {
     data.timezone || null
   );
 
-  return {
-    id: scheduleId,
-    name: data.name,
-    schedule_type: 'once',
-    run_at: runAtIso,
-    timezone: data.timezone || null,
-    task_config: taskConfig,
-    enabled: data.enabled !== false,
-    next_run_at: runAtIso,
-  };
+  return getScheduledTask(scheduleId);
 }
 
 /**
@@ -536,27 +944,28 @@ function toggleScheduledTask(id, enabled) {
 // Enhanced versions (Wave 2 Phase 5 — replaces basic L6448-6626 versions)
 
 /**
- * Get a scheduled task by ID or name
+ * Get a scheduled task by ID or name.
+ * Includes recent run history for drill-down consumers by default.
  * @param {any} identifier
+ * @param {object} [options]
  * @returns {any}
  */
-function getScheduledTask(identifier) {
+function getScheduledTask(identifier, options = {}) {
   const stmt = db.prepare(`
     SELECT * FROM scheduled_tasks
     WHERE id = ? OR name = ?
   `);
   const row = stmt.get(identifier, identifier);
 
-  if (row) {
-    row.task_config = safeJsonParse(row.task_config, {});
-    row.enabled = Boolean(row.enabled);
-  }
-
-  return row;
+  return normalizeScheduleRecord(row, {
+    include_runs: options.include_runs !== false,
+    run_limit: options.run_limit,
+    hydrateRuns: options.hydrateRuns !== false,
+  });
 }
 
 /**
- * List scheduled tasks
+ * List scheduled tasks.
  * @param {any} options
  * @returns {any}
  */
@@ -576,10 +985,10 @@ function listScheduledTasks(options = {}) {
   const stmt = db.prepare(query);
   const rows = stmt.all(...params);
 
-  return rows.map(row => ({
-    ...row,
-    task_config: safeJsonParse(row.task_config, {}),
-    enabled: Boolean(row.enabled)
+  return rows.map((row) => normalizeScheduleRecord(row, {
+    include_runs: options.include_runs === true,
+    run_limit: options.run_limit,
+    hydrateRuns: options.hydrateRuns !== false,
   }));
 }
 
@@ -593,6 +1002,10 @@ function updateScheduledTask(id, updates) {
   const now = new Date().toISOString();
   const fields = [];
   const params = [];
+  const existing = getScheduledTask(id, { include_runs: false, hydrateRuns: false });
+  if (!existing) {
+    return null;
+  }
 
   if (updates.name !== undefined) {
     fields.push('name = ?');
@@ -602,6 +1015,11 @@ function updateScheduledTask(id, updates) {
   if (updates.timezone !== undefined) {
     fields.push('timezone = ?');
     params.push(updates.timezone || null);
+    if (existing.schedule_type !== 'once' && updates.cron_expression === undefined) {
+      const nextRun = calculateNextRun(existing.cron_expression, new Date(), updates.timezone || null);
+      fields.push('next_run_at = ?');
+      params.push(nextRun ? nextRun.toISOString() : null);
+    }
   }
 
   if (updates.cron_expression !== undefined) {
@@ -610,11 +1028,7 @@ function updateScheduledTask(id, updates) {
     params.push(updates.cron_expression);
 
     // Recalculate next run (use updated timezone if provided, else fetch existing schedule's timezone)
-    let tz = updates.timezone !== undefined ? (updates.timezone || null) : null;
-    if (tz === null && updates.cron_expression !== undefined && updates.timezone === undefined) {
-      const existing = getScheduledTask(id);
-      tz = existing?.timezone || null;
-    }
+    const tz = updates.timezone !== undefined ? (updates.timezone || null) : (existing?.timezone || null);
     const nextRun = calculateNextRun(updates.cron_expression, new Date(), tz);
     fields.push('next_run_at = ?');
     params.push(nextRun ? nextRun.toISOString() : null);
@@ -638,9 +1052,14 @@ function updateScheduledTask(id, updates) {
   }
 
   if (updates.task_config !== undefined) {
-    // Partial merge: merge caller's keys into existing task_config
-    const existing = getScheduledTask(id);
-    const merged = { ...(existing?.task_config || {}), ...updates.task_config };
+    const merged = mergeObjects(existing?.task_config || {}, updates.task_config);
+    if (updates.task_description !== undefined) {
+      merged.task = updates.task_description;
+    }
+    fields.push('task_config = ?');
+    params.push(JSON.stringify(merged));
+  } else if (updates.task_description !== undefined) {
+    const merged = mergeObjects(existing?.task_config || {}, { task: updates.task_description });
     fields.push('task_config = ?');
     params.push(JSON.stringify(merged));
   }
@@ -648,6 +1067,11 @@ function updateScheduledTask(id, updates) {
   if (updates.enabled !== undefined) {
     fields.push('enabled = ?');
     params.push(updates.enabled ? 1 : 0);
+    if (updates.enabled && !existing.enabled && existing.schedule_type !== 'once' && updates.cron_expression === undefined) {
+      const nextRun = calculateNextRun(existing.cron_expression, new Date(), updates.timezone !== undefined ? (updates.timezone || null) : (existing.timezone || null));
+      fields.push('next_run_at = ?');
+      params.push(nextRun ? nextRun.toISOString() : null);
+    }
   }
 
   if (fields.length === 0) return null;
@@ -694,14 +1118,30 @@ function getDueScheduledTasks() {
 }
 
 /**
- * Mark a scheduled task as run and update next run time
+ * Mark a scheduled task as run, persist an execution-history row, and update
+ * the schedule's next run time.
  * @param {any} id
+ * @param {object} [options]
  * @returns {any}
  */
-function markScheduledTaskRun(id) {
+function markScheduledTaskRun(id, options = {}) {
   const now = new Date();
-  const schedule = getScheduledTask(id);
+  const schedule = getScheduledTask(id, { include_runs: false, hydrateRuns: false });
   if (!schedule) return null;
+
+  const executionType = options.execution_type || inferScheduleExecutionType(schedule);
+  const runRecord = createScheduledTaskRunRecord(schedule, {
+    trigger_source: options.trigger_source || 'scheduler',
+    execution_type: executionType,
+    wrapper_task_id: options.wrapper_task_id || findRecentWrapperTaskId(schedule, executionType),
+    schedule_name: options.schedule_name || schedule.name,
+    status: options.status || 'started',
+    skip_reason: options.skip_reason || null,
+    summary: options.summary || null,
+    details: options.details || null,
+    started_at: options.started_at || now.toISOString(),
+    completed_at: options.completed_at || null,
+  });
 
   if (schedule.schedule_type === 'once') {
     deleteScheduledTask(id);
@@ -717,7 +1157,148 @@ function markScheduledTaskRun(id) {
   `);
   stmt.run(now.toISOString(), nextRun ? nextRun.toISOString() : null, now.toISOString(), id);
 
-  return getScheduledTask(id);
+  const updatedSchedule = getScheduledTask(id);
+  if (updatedSchedule && runRecord?.id) {
+    updatedSchedule.last_run_record_id = runRecord.id;
+  }
+  return updatedSchedule;
+}
+
+/**
+ * Execute a scheduled task immediately using the same path as the scheduler.
+ * Returns null when the schedule is missing.
+ * @param {string} id
+ * @param {object} options
+ * @returns {object|null}
+ */
+function runScheduledTaskNow(id, options = {}) {
+  const schedule = getScheduledTask(id, { include_runs: false, hydrateRuns: false });
+  if (!schedule) {
+    return null;
+  }
+
+  let runtimeDb = options.db;
+  if (!runtimeDb) {
+    try {
+      const databaseFacade = require('../database');
+      if (databaseFacade?.createTask && databaseFacade?.markScheduledTaskRun) {
+        runtimeDb = databaseFacade;
+      }
+    } catch {
+      runtimeDb = null;
+    }
+  }
+
+  const executionType = inferScheduleExecutionType(schedule);
+  const baseDb = runtimeDb || db;
+  const runContext = {
+    runId: null,
+    wrapperTaskId: null,
+  };
+  const executionDb = baseDb ? Object.create(baseDb) : baseDb;
+
+  if (executionDb && typeof baseDb?.createTask === 'function') {
+    executionDb.createTask = (task) => {
+      runContext.wrapperTaskId = task?.id || runContext.wrapperTaskId;
+      return baseDb.createTask(task);
+    };
+  }
+
+  if (executionDb && typeof baseDb?.updateTaskStatus === 'function') {
+    executionDb.updateTaskStatus = (...args) => {
+      const result = baseDb.updateTaskStatus(...args);
+      if (runContext.runId && runContext.wrapperTaskId && String(args[0]) === String(runContext.wrapperTaskId)) {
+        getScheduledTaskRun(runContext.runId);
+      }
+      return result;
+    };
+  }
+
+  if (executionDb && typeof baseDb?.markScheduledTaskRun === 'function') {
+    executionDb.markScheduledTaskRun = (scheduleId, runOptions = {}) => {
+      const mergedDetails = mergeObjects(
+        { manual_run_now: true },
+        isPlainObject(runOptions.details) ? runOptions.details : {}
+      );
+      const marked = baseDb.markScheduledTaskRun(scheduleId, {
+        trigger_source: 'manual_run_now',
+        execution_type: runOptions.execution_type || executionType,
+        wrapper_task_id: runOptions.wrapper_task_id || runContext.wrapperTaskId,
+        status: runOptions.status,
+        skip_reason: runOptions.skip_reason,
+        summary: runOptions.summary,
+        started_at: runOptions.started_at,
+        completed_at: runOptions.completed_at,
+        details: mergedDetails,
+      });
+      runContext.runId = marked?.last_run_record_id || runContext.runId;
+      return marked;
+    };
+  }
+
+  try {
+    const result = executeScheduledTask(schedule, {
+      ...options,
+      db: executionDb || baseDb,
+      manualRunNow: true,
+    });
+
+    const runId = runContext.runId;
+    if (runId && db?.prepare) {
+      const persisted = getScheduledTaskRun(runId, { hydrate: false });
+      if (persisted) {
+        const resolvedStatus = persisted.status || (
+          result?.skipped
+            ? 'skipped'
+            : (result?.execution_type === 'workflow' && result?.started ? 'completed' : executionType)
+        );
+        const resolvedSummary = persisted.summary || extractSummaryText(
+          result?.execution_type === 'workflow' && result?.started
+            ? `Workflow ${result?.workflow_id || ''} started`.trim()
+            : null,
+          null,
+        );
+        const details = mergeObjects(persisted.details_json, {
+          manual_run_now: true,
+          schedule_consumed: result?.schedule_consumed === true,
+          tool_name: result?.tool_name || persisted.details_json?.tool_name || null,
+          workflow_id: result?.workflow_id || persisted.details_json?.workflow_id || null,
+          workflow_source_id: result?.workflow_source_id || persisted.details_json?.workflow_source_id || null,
+        });
+        db.prepare(`
+          UPDATE scheduled_task_runs
+          SET wrapper_task_id = COALESCE(?, wrapper_task_id),
+              execution_type = ?,
+              status = ?,
+              summary = COALESCE(?, summary),
+              details_json = ?
+          WHERE id = ?
+        `).run(
+          result?.task_id || runContext.wrapperTaskId || null,
+          result?.execution_type || executionType,
+          resolvedStatus,
+          resolvedSummary,
+          JSON.stringify(details),
+          runId,
+        );
+      }
+    }
+
+    return result;
+  } catch (error) {
+    if (runContext.runId && db?.prepare) {
+      db.prepare(`
+        UPDATE scheduled_task_runs
+        SET status = 'failed', summary = ?, completed_at = ?
+        WHERE id = ?
+      `).run(
+        extractSummaryText(error?.message, 'Manual schedule run failed'),
+        new Date().toISOString(),
+        runContext.runId,
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -781,9 +1362,12 @@ module.exports = {
   createOneTimeSchedule,
   toggleScheduledTask,
   getScheduledTask,
+  getScheduledTaskRun,
   listScheduledTasks,
+  listScheduledTaskRuns,
   updateScheduledTask,
   deleteScheduledTask,
   getDueScheduledTasks,
   markScheduledTaskRun,
+  runScheduledTaskNow,
 };

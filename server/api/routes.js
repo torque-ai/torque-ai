@@ -200,6 +200,12 @@ const routes = [
   // ─── V2 Control-Plane: Tasks ─────────────────────────────────────────────
   {
     method: 'POST',
+    path: '/api/v2/tasks/preview-study-context',
+    handlerName: 'handleV2CpPreviewTaskStudyContext',
+    middleware: buildV2Middleware(),
+  },
+  {
+    method: 'POST',
     path: '/api/v2/tasks',
     handlerName: 'handleV2CpSubmitTask',
     middleware: buildV2Middleware(),
@@ -442,6 +448,27 @@ const routes = [
     method: 'GET',
     path: /^\/api\/v2\/schedules\/([^/]+)$/,
     handlerName: 'handleV2CpGetSchedule',
+    mapParams: ['schedule_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('schedule_id', 'schedule id'),
+    }),
+  },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/schedules\/([^/]+)\/runs\/([^/]+)$/,
+    handlerName: 'handleV2CpGetScheduleRun',
+    mapParams: ['schedule_id', 'run_id'],
+    middleware: buildV2Middleware({
+      params: [
+        validateDecodedParamField('schedule_id', 'schedule id'),
+        validateDecodedParamField('run_id', 'run id'),
+      ],
+    }),
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/schedules\/([^/]+)\/run$/,
+    handlerName: 'handleV2CpRunSchedule',
     mapParams: ['schedule_id'],
     middleware: buildV2Middleware({
       params: validateDecodedParamField('schedule_id', 'schedule id'),

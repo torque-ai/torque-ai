@@ -342,6 +342,15 @@ function handleBlockedTasks(args) {
     workflow = workflowResult.workflow;
   }
 
+  try {
+    const workflowRuntime = require('../../execution/workflow-runtime');
+    if (args.workflow_id && typeof workflowRuntime.refreshWorkflowBlockerSnapshots === 'function') {
+      workflowRuntime.refreshWorkflowBlockerSnapshots(args.workflow_id, { workflow });
+    }
+  } catch {
+    // Non-critical — fall back to current persisted state.
+  }
+
   const tasks = workflowEngine.getBlockedTasks(args.workflow_id);
 
   if (tasks.length === 0) {
@@ -351,21 +360,24 @@ function handleBlockedTasks(args) {
   }
 
   let output = workflow ? `## Blocked Tasks: ${workflow.name}\n\n` : '## Blocked Tasks\n\n';
-  output += `| Task | Workflow | Waiting On |\n`;
-  output += `|------|----------|------------|\n`;
+  output += `| Task | Workflow | Reason | Waiting On |\n`;
+  output += `|------|----------|--------|------------|\n`;
 
   for (const task of tasks) {
     const nodeName = task.workflow_node_id || task.id.substring(0, 8);
-    const deps = workflowEngine.getTaskDependencies(task.id);
-    const waitingOn = deps
-      .filter(d => !['completed', 'failed', 'cancelled', 'skipped'].includes(d.depends_on_status))
-      .map(d => {
-        const depTask = taskCore.getTask(d.depends_on_task_id);
-        return depTask?.workflow_node_id || d.depends_on_task_id.substring(0, 8);
-      })
-      .join(', ');
+    const blocker = task?.context
+      && typeof task.context === 'object'
+      && !Array.isArray(task.context)
+      ? task.context.workflow_blocker
+      : null;
+    const waitingOn = Array.isArray(blocker?.unmet_dependencies)
+      ? blocker.unmet_dependencies
+        .map((dependency) => dependency?.node_id || dependency?.task_id || 'unknown')
+        .join(', ')
+      : '';
+    const reason = blocker?.reason || 'Blocked with no persisted blocker snapshot';
 
-    output += `| ${nodeName} | ${task.workflow_id?.substring(0, 8) || '-'} | ${waitingOn || 'all deps complete'} |\n`;
+    output += `| ${nodeName} | ${task.workflow_id?.substring(0, 8) || '-'} | ${reason} | ${waitingOn || 'all deps complete'} |\n`;
   }
 
   return {

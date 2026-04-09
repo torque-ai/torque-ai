@@ -247,6 +247,52 @@ describe('Database Module', () => {
     });
   });
 
+  describe('Queue TTL helpers', () => {
+    it('excludes workflow-owned pending and queued tasks from queue TTL expiry', () => {
+      const staleQueuedId = uuidv4();
+      const staleWorkflowQueuedId = uuidv4();
+      const staleWorkflowPendingId = uuidv4();
+      const cutoff = '2026-04-09T16:00:00.000Z';
+      const staleCreatedAt = '2026-04-09T15:00:00.000Z';
+
+      taskCore.createTask({
+        id: staleQueuedId,
+        task_description: 'standalone queued task',
+        working_directory: testDir,
+        status: 'queued',
+        provider: 'codex',
+      });
+      taskCore.createTask({
+        id: staleWorkflowQueuedId,
+        task_description: 'workflow queued task',
+        working_directory: testDir,
+        status: 'queued',
+        provider: 'ollama',
+        workflow_id: 'wf-1',
+        workflow_node_id: 'queued-node',
+      });
+      taskCore.createTask({
+        id: staleWorkflowPendingId,
+        task_description: 'workflow pending task',
+        working_directory: testDir,
+        status: 'pending',
+        provider: 'ollama',
+        workflow_id: 'wf-1',
+        workflow_node_id: 'pending-node',
+      });
+
+      db.getDbInstance().prepare(`
+        UPDATE tasks
+        SET created_at = ?
+        WHERE id IN (?, ?, ?)
+      `).run(staleCreatedAt, staleQueuedId, staleWorkflowQueuedId, staleWorkflowPendingId);
+
+      const expired = taskCore.getExpiredQueuedTasks(cutoff);
+
+      expect(expired).toEqual([{ id: staleQueuedId }]);
+    });
+  });
+
   // ── Task Queries ─────────────────────────────────────────
   describe('Task Queries', () => {
     beforeAll(() => {

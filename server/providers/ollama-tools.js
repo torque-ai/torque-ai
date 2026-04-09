@@ -280,13 +280,21 @@ const MODIFICATION_KEYWORDS = /\b(create|add|write|implement|generate|edit|modif
  * Select tools appropriate for a task. Read-only tasks get 3 tools (under the
  * ~5 tool threshold for reliable JSON tool calls). Modification tasks get all 7.
  * @param {string} taskDescription - The task prompt
+ * @param {{ commandMode?: string, commandAllowlist?: string[] }} [options]
  * @returns {Array} Filtered TOOL_DEFINITIONS
  */
-function selectToolsForTask(taskDescription) {
-  if (MODIFICATION_KEYWORDS.test(taskDescription || '')) {
-    return TOOL_DEFINITIONS;
+function selectToolsForTask(taskDescription, options = {}) {
+  const baseTools = MODIFICATION_KEYWORDS.test(taskDescription || '')
+    ? TOOL_DEFINITIONS
+    : TOOL_DEFINITIONS.filter(t => READ_ONLY_TOOL_NAMES.has(t.function.name));
+
+  const commandMode = options.commandMode || 'allowlist';
+  const commandAllowlist = Array.isArray(options.commandAllowlist) ? options.commandAllowlist.filter(Boolean) : [];
+  if (commandMode === 'allowlist' && commandAllowlist.length === 0) {
+    return baseTools.filter((tool) => tool.function.name !== 'run_command');
   }
-  return TOOL_DEFINITIONS.filter(t => READ_ONLY_TOOL_NAMES.has(t.function.name));
+
+  return baseTools;
 }
 
 /**
@@ -307,6 +315,35 @@ function resolveSafePath(filePath, workingDir) {
     resolved === normalizedWorking ||
     resolved.startsWith(normalizedWorking + path.sep);
   return { resolvedPath: resolved, allowed };
+}
+
+function normalizeScopedPaths(paths, workingDir) {
+  if (!Array.isArray(paths) || paths.length === 0) return null;
+  const resolvedPaths = [];
+  const seen = new Set();
+  for (const scope of paths) {
+    if (typeof scope !== 'string') continue;
+    const trimmed = scope.trim();
+    if (!trimmed) continue;
+    const resolved = path.resolve(workingDir, trimmed);
+    const normalized = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    resolvedPaths.push(resolved);
+  }
+  return resolvedPaths.length > 0 ? resolvedPaths : null;
+}
+
+function isPathWithinScope(targetPath, scopePath) {
+  const normalize = (value) => (process.platform === 'win32' ? value.toLowerCase() : value);
+  const normalizedTarget = normalize(path.resolve(targetPath));
+  const normalizedScope = normalize(path.resolve(scopePath));
+  return normalizedTarget === normalizedScope || normalizedTarget.startsWith(normalizedScope + path.sep);
+}
+
+function isPathAllowedByScopes(targetPath, scopedPaths) {
+  if (!Array.isArray(scopedPaths) || scopedPaths.length === 0) return true;
+  return scopedPaths.some((scopePath) => isPathWithinScope(targetPath, scopePath));
 }
 
 /**
@@ -443,6 +480,8 @@ function createToolExecutor(workingDir, options = {}) {
   const changedFiles = new Set();
   const commandMode = options.commandMode || 'allowlist';
   const commandAllowlist = options.commandAllowlist || [];
+  const readAllowlist = normalizeScopedPaths(options.readAllowlist, workingDir);
+  const writeAllowlist = normalizeScopedPaths(options.writeAllowlist, workingDir);
 
   function execute(toolName, args) {
     try {
@@ -453,6 +492,12 @@ function createToolExecutor(workingDir, options = {}) {
           if (!path.isAbsolute(args.path) && !allowed) {
             return {
               result: `Error: path traversal detected — relative path resolves outside working directory: ${args.path}`,
+              error: true,
+            };
+          }
+          if (!isPathAllowedByScopes(resolvedPath, readAllowlist)) {
+            return {
+              result: `Error: read path is outside the allowed scope: ${args.path}`,
               error: true,
             };
           }
@@ -488,6 +533,12 @@ function createToolExecutor(workingDir, options = {}) {
               error: true,
             };
           }
+          if (!isPathAllowedByScopes(resolvedPath, writeAllowlist)) {
+            return {
+              result: `Error: write path is outside the allowed scope: ${args.path}`,
+              error: true,
+            };
+          }
           const dir = path.dirname(resolvedPath);
           if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
@@ -502,6 +553,12 @@ function createToolExecutor(workingDir, options = {}) {
           if (!allowed) {
             return {
               result: `Error: path resolves outside working directory: ${resolvedPath}`,
+              error: true,
+            };
+          }
+          if (!isPathAllowedByScopes(resolvedPath, writeAllowlist)) {
+            return {
+              result: `Error: write path is outside the allowed scope: ${args.path}`,
               error: true,
             };
           }
@@ -687,6 +744,12 @@ function createToolExecutor(workingDir, options = {}) {
           if (!allowed) {
             return { result: `Error: path resolves outside working directory: ${resolvedPath}`, error: true };
           }
+          if (!isPathAllowedByScopes(resolvedPath, writeAllowlist)) {
+            return {
+              result: `Error: write path is outside the allowed scope: ${args.path}`,
+              error: true,
+            };
+          }
           if (!fs.existsSync(resolvedPath)) {
             return { result: `Error: File not found: ${args.path}`, error: true };
           }
@@ -714,6 +777,12 @@ function createToolExecutor(workingDir, options = {}) {
           if (!path.isAbsolute(dirPath) && !allowed) {
             return {
               result: `Error: path traversal detected — relative path resolves outside working directory: ${dirPath}`,
+              error: true,
+            };
+          }
+          if (!isPathAllowedByScopes(resolvedPath, readAllowlist)) {
+            return {
+              result: `Error: list path is outside the allowed scope: ${dirPath}`,
               error: true,
             };
           }
@@ -748,6 +817,12 @@ function createToolExecutor(workingDir, options = {}) {
           if (!path.isAbsolute(searchPath) && !allowed) {
             return {
               result: `Error: path traversal detected — relative path resolves outside working directory: ${searchPath}`,
+              error: true,
+            };
+          }
+          if (!isPathAllowedByScopes(resolvedPath, readAllowlist)) {
+            return {
+              result: `Error: search path is outside the allowed scope: ${searchPath}`,
               error: true,
             };
           }

@@ -83,6 +83,8 @@ async function main() {
     promptInjectedTools,
     commandMode,
     commandAllowlist,
+    readAllowlist,
+    writeAllowlist,
     _testMode,
     mockBehavior,
   } = workerData;
@@ -112,7 +114,12 @@ async function main() {
     process.exit(1);
   }
 
-  const toolExecutor = createToolExecutor(workingDir, { commandMode, commandAllowlist });
+  const toolExecutor = createToolExecutor(workingDir, {
+    commandMode,
+    commandAllowlist,
+    readAllowlist,
+    writeAllowlist,
+  });
 
   const onProgress = (iteration, maxIter, lastTool) => {
     parentPort.postMessage({ type: 'progress', iteration, maxIterations: maxIter, lastTool });
@@ -128,7 +135,7 @@ async function main() {
       adapter,
       systemPrompt,
       taskPrompt,
-      tools: promptInjectedTools ? [] : selectToolsForTask(taskPrompt),
+      tools: promptInjectedTools ? [] : selectToolsForTask(taskPrompt, { commandMode, commandAllowlist }),
       promptInjectedTools,
       toolExecutor,
       options: adapterOptions || {},

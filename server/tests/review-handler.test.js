@@ -9,9 +9,14 @@ const mockTaskManager = {
   startTask: vi.fn(() => ({ queued: false })),
 };
 
+const mockStudyEngine = {
+  buildTaskStudyContextEnvelope: vi.fn(() => null),
+};
+
 // Install mock container into require cache before loading the handler
 const containerPath = require.resolve('../container');
 const handlerPath = require.resolve('../handlers/review-handler');
+const studyEnginePath = require.resolve('../integrations/codebase-study-engine');
 
 require.cache[containerPath] = {
   id: containerPath,
@@ -27,6 +32,12 @@ require.cache[containerPath] = {
       has() { return true; },
     },
   },
+};
+require.cache[studyEnginePath] = {
+  id: studyEnginePath,
+  filename: studyEnginePath,
+  loaded: true,
+  exports: mockStudyEngine,
 };
 
 // Force re-load of handler with our mock container
@@ -50,6 +61,12 @@ describe('review-handler', () => {
           has() { return true; },
         },
       },
+    };
+    require.cache[studyEnginePath] = {
+      id: studyEnginePath,
+      filename: studyEnginePath,
+      loaded: true,
+      exports: mockStudyEngine,
     };
     delete require.cache[handlerPath];
     ({ handleReviewTaskOutput } = require('../handlers/review-handler'));
@@ -97,6 +114,50 @@ describe('review-handler', () => {
     expect(mockTaskCore.createTask).toHaveBeenCalledTimes(1);
     const createdTask = mockTaskCore.createTask.mock.calls[0][0];
     expect(createdTask.task_description).toContain('Review this code change');
+  });
+
+  it('injects stored study context into the review prompt', () => {
+    mockTaskCore.getTask.mockReturnValue({
+      id: 'source-task',
+      status: 'completed',
+      provider: 'ollama',
+      task_description: 'Fix the queue scheduler',
+      working_directory: '/repo',
+      metadata: JSON.stringify({
+        study_context_prompt: 'Study context: review task lifecycle and scheduler invariants first.',
+      }),
+      git_before_sha: 'abc123',
+    });
+
+    handleReviewTaskOutput({ task_id: 'source-task' });
+
+    const createdTask = mockTaskCore.createTask.mock.calls[0][0];
+    expect(createdTask.task_description).toContain('Study context: review task lifecycle and scheduler invariants first.');
+  });
+
+  it('derives study context from JSON-string files_modified when stored prompt is absent', () => {
+    mockStudyEngine.buildTaskStudyContextEnvelope.mockReturnValue({
+      study_context_prompt: 'Study context: inspect scheduler-related files first.',
+    });
+    mockTaskCore.getTask.mockReturnValue({
+      id: 'source-task',
+      status: 'completed',
+      provider: 'ollama',
+      task_description: 'Fix the queue scheduler',
+      working_directory: '/repo',
+      files_modified: '["server/maintenance/scheduler.js"]',
+      git_before_sha: 'abc123',
+    });
+
+    handleReviewTaskOutput({ task_id: 'source-task' });
+
+    expect(mockStudyEngine.buildTaskStudyContextEnvelope).toHaveBeenCalledWith({
+      workingDirectory: '/repo',
+      taskDescription: 'Fix the queue scheduler',
+      files: ['server/maintenance/scheduler.js'],
+    });
+    const createdTask = mockTaskCore.createTask.mock.calls[0][0];
+    expect(createdTask.task_description).toContain('Study context: inspect scheduler-related files first.');
   });
 
   it('selects a different provider from the original when none is specified', () => {

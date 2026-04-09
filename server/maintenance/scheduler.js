@@ -9,6 +9,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { executeScheduledTask } = require('../execution/schedule-runner');
 
 // Late-bound dependencies (set via init())
 let db = null;
@@ -112,67 +113,12 @@ function startMaintenanceScheduler(opts = {}) {
         const dueSchedules = db.getDueScheduledTasks();
         for (const schedule of dueSchedules) {
           try {
-            const config = schedule.task_config || {};
-
-            const originMetadata = {
-              scheduled_by: schedule.id,
-              schedule_name: schedule.name,
-              schedule_type: schedule.schedule_type || 'cron',
-              scheduled: true,
-            };
-
-            if (config.tool_name) {
-              db.markScheduledTaskRun(schedule.id);
-              const toolArgs = (config.tool_args && typeof config.tool_args === 'object' && !Array.isArray(config.tool_args))
-                ? { ...config.tool_args }
-                : {};
-              toolArgs.__scheduledScheduleId = schedule.id;
-              toolArgs.__scheduledScheduleName = schedule.name;
-
-              const { handleToolCall } = require('../tools');
-              Promise.resolve(handleToolCall(config.tool_name, toolArgs))
-                .then((toolResult) => {
-                  if (toolResult?.isError) {
-                    logger.warn(`Scheduled tool ${config.tool_name} returned an error for ${schedule.name}`);
-                  }
-                })
-                .catch((toolErr) => {
-                  logger.error(`Scheduled tool execution failed for ${schedule.name}: ${toolErr.message}`);
-                  debugLog(`Failed scheduled tool "${schedule.name}": ${toolErr.message}`);
-                });
-              debugLog(`Executed scheduled tool "${schedule.name}" -> tool ${config.tool_name}`);
-            } else if (config.workflow_id) {
-              db.markScheduledTaskRun(schedule.id);
-              if (typeof opts?.runWorkflow === 'function') {
-                opts.runWorkflow(config.workflow_id, originMetadata);
-              } else {
-                logger.warn(`Scheduled workflow ${config.workflow_id} skipped -- no runWorkflow handler`);
-              }
-              debugLog(`Executed scheduled workflow "${schedule.name}" -> workflow ${config.workflow_id}`);
-            } else {
-              const taskId = require('uuid').v4();
-              const taskMeta = { ...originMetadata };
-              if (config.version_intent) taskMeta.version_intent = config.version_intent;
-              db.createTask({
-                id: taskId,
-                task_description: config.task || schedule.task_description || 'Scheduled task',
-                working_directory: config.working_directory || schedule.working_directory || null,
-                provider: config.provider || null,
-                model: config.model || null,
-                tags: config.tags || null,
-                timeout_minutes: config.timeout_minutes || schedule.timeout_minutes || 30,
-                auto_approve: config.auto_approve || false,
-                priority: config.priority || 0,
-                metadata: taskMeta,
-              });
-              db.markScheduledTaskRun(schedule.id);
-              const taskManager = require('../task-manager');
-              const startPromise = taskManager.startTask(taskId);
-              if (startPromise && typeof startPromise.catch === 'function') {
-                startPromise.catch(err => logger.info(`Scheduled task async start failure for ${taskId}: ${err.message}`));
-              }
-              debugLog(`Executed scheduled task "${schedule.name}" -> task ${taskId}`);
-            }
+            executeScheduledTask(schedule, {
+              db,
+              debugLog,
+              logger,
+              runWorkflow: opts?.runWorkflow,
+            });
           } catch (schedErr) {
             logger.error(`Scheduled task execution failed: ${schedErr.message}`);
             debugLog(`Failed to execute scheduled task "${schedule.name}": ${schedErr.message}`);

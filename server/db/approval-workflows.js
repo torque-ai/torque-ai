@@ -303,6 +303,19 @@ function getApprovalRequest(taskId) {
   return stmt.get(taskId);
 }
 
+function getApprovalRequestById(approvalId) {
+  const stmt = db.prepare(`
+    SELECT ar.*, t.task_description, t.project, t.priority, t.auto_approve, t.created_at as task_created_at, t.metadata as task_metadata,
+           r.name as rule_name, r.rule_type, r.auto_approve_after_minutes
+    FROM approval_requests ar
+    JOIN tasks t ON ar.task_id = t.id
+    JOIN approval_rules r ON ar.rule_id = r.id
+    WHERE ar.id = ?
+    LIMIT 1
+  `);
+  return stmt.get(approvalId) || null;
+}
+
 /**
  * Approve a task
  * @param {string} taskId - Task identifier.
@@ -433,7 +446,7 @@ function listPendingApprovals(options = {}) {
   const { project, limit = 50 } = options;
 
   let query = `
-    SELECT ar.*, t.task_description, t.project, t.priority, t.auto_approve, t.created_at as task_created_at,
+    SELECT ar.*, t.task_description, t.project, t.priority, t.auto_approve, t.created_at as task_created_at, t.metadata as task_metadata,
            r.name as rule_name, r.rule_type, r.auto_approve_after_minutes,
            ROUND((JULIANDAY('now') - JULIANDAY(ar.requested_at)) * 24 * 60, 1) as waiting_minutes
     FROM approval_requests ar
@@ -449,6 +462,31 @@ function listPendingApprovals(options = {}) {
   }
 
   query += ` ORDER BY ar.requested_at ASC LIMIT ?`;
+  params.push(limit);
+
+  const stmt = db.prepare(query);
+  return stmt.all(...params);
+}
+
+function listApprovalHistory(options = {}) {
+  const { project, limit = 50 } = options;
+
+  let query = `
+    SELECT ar.*, t.task_description, t.project, t.priority, t.auto_approve, t.created_at as task_created_at, t.metadata as task_metadata,
+           r.name as rule_name, r.rule_type, r.auto_approve_after_minutes
+    FROM approval_requests ar
+    JOIN tasks t ON ar.task_id = t.id
+    JOIN approval_rules r ON ar.rule_id = r.id
+    WHERE ar.status != 'pending'
+  `;
+  const params = [];
+
+  if (project) {
+    query += ` AND t.project = ?`;
+    params.push(project);
+  }
+
+  query += ` ORDER BY COALESCE(ar.approved_at, ar.updated_at, ar.requested_at) DESC LIMIT ?`;
   params.push(limit);
 
   const stmt = db.prepare(query);
@@ -528,9 +566,11 @@ module.exports = {
   matchesApprovalRule,
   createApprovalRequest,
   getApprovalRequest,
+  getApprovalRequestById,
   approveTask,
   rejectApproval,
   listPendingApprovals,
+  listApprovalHistory,
   processAutoApprovals,
   getApprovalHistory,
 };

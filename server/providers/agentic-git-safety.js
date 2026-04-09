@@ -118,6 +118,23 @@ function isAuthorized(filePath, taskDescription) {
   return false;
 }
 
+function normalizeRelativePath(value) {
+  return String(value || '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/\/$/, '');
+}
+
+function isAuthorizedByPathScope(filePath, authorizedPaths) {
+  if (!Array.isArray(authorizedPaths) || authorizedPaths.length === 0) return false;
+  const normalizedFilePath = normalizeRelativePath(filePath);
+  return authorizedPaths.some((entry) => {
+    const normalizedEntry = normalizeRelativePath(entry);
+    if (!normalizedEntry) return false;
+    return normalizedFilePath === normalizedEntry || normalizedFilePath.startsWith(`${normalizedEntry}/`);
+  });
+}
+
 /**
  * Check whether a file path is git-ignored in workingDir.
  * @param {string} filePath
@@ -168,9 +185,10 @@ function captureSnapshot(workingDir) {
  * @param {{ dirtyFiles: Set<string>, untrackedFiles: Set<string>, isGitRepo: boolean }} snapshot
  * @param {string} taskDescription
  * @param {'enforce'|'warn'|'off'} [mode='enforce']
+ * @param {{ authorizedPaths?: string[] }} [options]
  * @returns {{ reverted: string[], kept: string[], report: string }}
  */
-function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce') {
+function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce', options = {}) {
   if (mode === 'off') {
     return { reverted: [], kept: [], report: '' };
   }
@@ -205,10 +223,11 @@ function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce')
 
   const reverted = [];
   const kept = [];
+  const authorizedPaths = Array.isArray(options.authorizedPaths) ? options.authorizedPaths : [];
 
   // Handle newly dirty tracked files
   for (const filePath of newlyDirty) {
-    if (isAuthorized(filePath, taskDescription)) {
+    if (isAuthorizedByPathScope(filePath, authorizedPaths) || isAuthorized(filePath, taskDescription)) {
       kept.push(filePath);
       continue;
     }
@@ -228,7 +247,7 @@ function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce')
 
   // Handle newly untracked files
   for (const filePath of newlyUntracked) {
-    if (isAuthorized(filePath, taskDescription)) {
+    if (isAuthorizedByPathScope(filePath, authorizedPaths) || isAuthorized(filePath, taskDescription)) {
       kept.push(filePath);
       continue;
     }

@@ -75,6 +75,127 @@ function sortItems(items, col, dir) {
   });
 }
 
+function formatCommandPreview(commands, limit = 2) {
+  if (!Array.isArray(commands) || commands.length === 0) {
+    return '-';
+  }
+
+  const preview = commands.slice(0, limit).join('  |  ');
+  if (commands.length <= limit) {
+    return preview;
+  }
+  return `${preview}  |  +${commands.length - limit} more`;
+}
+
+const DELTA_LEVEL_STYLES = {
+  none: 'bg-slate-600/20 text-slate-300',
+  baseline: 'bg-slate-600/20 text-slate-300',
+  low: 'bg-emerald-600/20 text-emerald-300',
+  moderate: 'bg-amber-600/20 text-amber-300',
+  high: 'bg-orange-600/20 text-orange-300',
+  critical: 'bg-red-600/20 text-red-300',
+};
+
+function formatDeltaLevel(level) {
+  if (!level) return 'Unknown';
+  return String(level)
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function DeltaBadge({ level, score }) {
+  const normalizedLevel = String(level || 'none').toLowerCase();
+  const className = DELTA_LEVEL_STYLES[normalizedLevel] || DELTA_LEVEL_STYLES.none;
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium ${className}`}>
+      <span>Delta: {formatDeltaLevel(normalizedLevel)}</span>
+      {typeof score === 'number' && <span className="opacity-80">({score})</span>}
+    </span>
+  );
+}
+
+function buildStudyTraceHref(trace) {
+  if (!trace?.schedule_id) {
+    return null;
+  }
+  const params = new URLSearchParams();
+  params.set('scheduleId', trace.schedule_id);
+  if (trace.schedule_run_id) {
+    params.set('runId', trace.schedule_run_id);
+  }
+  const query = params.toString();
+  return `/operations${query ? `?${query}` : ''}#schedules`;
+}
+
+function StudyTraceDetails({ item }) {
+  const trace = item.study_trace || item.study_proposal?.trace;
+  if (!trace || typeof trace !== 'object') {
+    return null;
+  }
+
+  const href = buildStudyTraceHref(trace);
+  const reasons = Array.isArray(trace.significance_reasons) ? trace.significance_reasons : [];
+  const subsystems = Array.isArray(trace.changed_subsystems) ? trace.changed_subsystems : [];
+  const flows = Array.isArray(trace.affected_flows) ? trace.affected_flows : [];
+
+  return (
+    <div className="mt-2 rounded-lg border border-slate-700/60 bg-slate-900/40 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          Why this proposal happened
+        </span>
+        <DeltaBadge level={trace.delta_significance_level} score={trace.delta_significance_score} />
+      </div>
+      {reasons.length > 0 && (
+        <p className="mt-2 text-xs text-slate-400">
+          {reasons.join(' ')}
+        </p>
+      )}
+      {(subsystems.length > 0 || flows.length > 0) && (
+        <div className="mt-2 space-y-1 text-xs">
+          {subsystems.length > 0 && (
+            <p className="text-slate-500">
+              Subsystems: <span className="text-slate-300">{subsystems.slice(0, 3).join(', ')}</span>
+              {subsystems.length > 3 ? ` +${subsystems.length - 3} more` : ''}
+            </p>
+          )}
+          {flows.length > 0 && (
+            <p className="text-slate-500">
+              Flows: <span className="text-slate-300">{flows.slice(0, 3).join(', ')}</span>
+              {flows.length > 3 ? ` +${flows.length - 3} more` : ''}
+            </p>
+          )}
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+        {trace.schedule_name && (
+          <span className="text-slate-500">
+            Schedule: <span className="text-slate-300">{trace.schedule_name}</span>
+          </span>
+        )}
+        {trace.run_mode && (
+          <span className="text-slate-500">
+            Run Mode: <span className="text-slate-300">{trace.run_mode}</span>
+          </span>
+        )}
+        {trace.schedule_run_id && (
+          <span className="text-slate-500">
+            Run: <span className="font-mono text-slate-300">{truncateId(trace.schedule_run_id)}</span>
+          </span>
+        )}
+        {href && (
+          <a href={href} className="text-blue-400 hover:text-blue-300 transition-colors">
+            Open generating run
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Approvals() {
   const [pending, setPending] = useState([]);
   const [history, setHistory] = useState([]);
@@ -266,12 +387,47 @@ export default function Approvals() {
                         </code>
                       </td>
                       <td className="p-4">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          {item.approval_type === 'study_proposal' && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 text-[11px] font-medium">
+                              Study Proposal
+                            </span>
+                          )}
+                          {item.kind && (
+                            <span className="px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 text-[11px] font-medium">
+                              {item.kind}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-white text-sm">
                           {item.description || item.task_description || '-'}
                         </p>
+                        {item.rationale && (
+                          <p className="text-slate-400 text-xs mt-1">
+                            {item.rationale}
+                          </p>
+                        )}
+                        <StudyTraceDetails item={item} />
                         {item.task_id && (
                           <p className="text-slate-500 text-xs mt-0.5">
                             Task: {truncateId(item.task_id)}
+                          </p>
+                        )}
+                        {Array.isArray(item.files) && item.files.length > 0 && (
+                          <p className="text-slate-500 text-xs mt-1">
+                            Files: {item.files.slice(0, 3).join(', ')}
+                            {item.files.length > 3 ? ` +${item.files.length - 3} more` : ''}
+                          </p>
+                        )}
+                        {Array.isArray(item.related_tests) && item.related_tests.length > 0 && (
+                          <p className="text-slate-500 text-xs mt-1">
+                            Tests: {item.related_tests.slice(0, 2).join(', ')}
+                            {item.related_tests.length > 2 ? ` +${item.related_tests.length - 2} more` : ''}
+                          </p>
+                        )}
+                        {Array.isArray(item.validation_commands) && item.validation_commands.length > 0 && (
+                          <p className="text-slate-500 text-xs mt-1 break-all">
+                            Validate: {formatCommandPreview(item.validation_commands)}
                           </p>
                         )}
                       </td>
@@ -346,9 +502,27 @@ export default function Approvals() {
                         </code>
                       </td>
                       <td className="p-4">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          {item.approval_type === 'study_proposal' && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 text-[11px] font-medium">
+                              Study Proposal
+                            </span>
+                          )}
+                          {item.kind && (
+                            <span className="px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 text-[11px] font-medium">
+                              {item.kind}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-white text-sm">
                           {item.description || item.task_description || '-'}
                         </p>
+                        {item.rationale && (
+                          <p className="text-slate-400 text-xs mt-1">
+                            {item.rationale}
+                          </p>
+                        )}
+                        <StudyTraceDetails item={item} />
                       </td>
                       <td className="p-4">
                         <span

@@ -30,6 +30,7 @@ let _processQueue = null;
 let _dashboard = null;
 const terminalGuards = new Map(); // workflowId -> boolean
 const terminalPending = new Map(); // workflowId -> Set of taskIds waiting for re-evaluation
+const WORKFLOW_BLOCKER_CONTEXT_KEY = 'workflow_blocker';
 
 /**
  * Initialize the module with required dependencies.
@@ -664,6 +665,234 @@ function applyOutputInjection(taskId, workflowId) {
   }
 }
 
+function getTaskContextObject(task) {
+  return task?.context && typeof task.context === 'object' && !Array.isArray(task.context)
+    ? { ...task.context }
+    : {};
+}
+
+function buildWorkflowBlockerContext(task, snapshot) {
+  const nextContext = getTaskContextObject(task);
+  if (snapshot) {
+    nextContext[WORKFLOW_BLOCKER_CONTEXT_KEY] = snapshot;
+  } else {
+    delete nextContext[WORKFLOW_BLOCKER_CONTEXT_KEY];
+  }
+  return Object.keys(nextContext).length > 0 ? nextContext : null;
+}
+
+function getPersistedTaskBlockerSnapshot(task) {
+  const blocker = task?.context
+    && typeof task.context === 'object'
+    && !Array.isArray(task.context)
+    ? task.context[WORKFLOW_BLOCKER_CONTEXT_KEY]
+    : null;
+  return blocker && typeof blocker === 'object' && !Array.isArray(blocker) ? blocker : null;
+}
+
+function buildDependencyConditionContext(dep, depTask, depStatus) {
+  const startedAt = dep.depends_on_started_at || depTask?.started_at || null;
+  const completedAt = dep.depends_on_completed_at || depTask?.completed_at || null;
+  return {
+    exit_code: dep.depends_on_exit_code !== undefined ? dep.depends_on_exit_code : (depTask?.exit_code ?? 0),
+    output: sanitizeOutputForCondition(((dep.depends_on_output !== undefined ? dep.depends_on_output : depTask?.output) || '').slice(-10240)),
+    error_output: sanitizeOutputForCondition(((dep.depends_on_error_output !== undefined ? dep.depends_on_error_output : depTask?.error_output) || '').slice(-5120)),
+    duration_seconds: startedAt && completedAt
+      ? Math.round((new Date(completedAt) - new Date(startedAt)) / 1000)
+      : 0,
+    status: depStatus
+  };
+}
+
+function evaluateTaskDependencyState(dep, options = {}) {
+  const depTask = Object.prototype.hasOwnProperty.call(options, 'depTask')
+    ? options.depTask
+    : (dep.depends_on_task_id ? db.getTask(dep.depends_on_task_id) : null);
+  const depStatus = (depTask?.status || dep.depends_on_status || 'unknown').toLowerCase();
+  const terminal = ['completed', 'failed', 'cancelled', 'skipped'].includes(depStatus);
+  const onFail = dep.on_fail || 'skip';
+  const nodeId = depTask?.workflow_node_id || dep.depends_on_task_id || null;
+  let conditionPassed = null;
+
+  if (dep.condition_expr && terminal && typeof db.evaluateCondition === 'function') {
+    conditionPassed = Boolean(
+      db.evaluateCondition(
+        dep.condition_expr,
+        buildDependencyConditionContext(dep, depTask, depStatus)
+      )
+    );
+  }
+
+  const continueSatisfied = ['failed', 'cancelled'].includes(depStatus) && onFail === 'continue';
+  let satisfied = false;
+  let unmetReason = null;
+
+  if (!dep.depends_on_task_id) {
+    unmetReason = 'missing_dependency';
+  } else if (!terminal) {
+    unmetReason = 'dependency_not_terminal';
+  } else if (!['completed', 'skipped'].includes(depStatus) && !continueSatisfied) {
+    unmetReason = 'dependency_failed';
+  } else if (dep.condition_expr && conditionPassed === false) {
+    unmetReason = 'condition_failed';
+  } else {
+    satisfied = true;
+  }
+
+  return {
+    task_id: dep.depends_on_task_id || null,
+    node_id: nodeId,
+    status: depStatus,
+    satisfied,
+    terminal,
+    on_fail: onFail,
+    condition_expr: dep.condition_expr || null,
+    condition_passed: conditionPassed,
+    unmet_reason: unmetReason,
+    alternate_task_id: dep.alternate_task_id || null
+  };
+}
+
+function getTaskDependencyStates(taskId) {
+  const deps = typeof db.getTaskDependencies === 'function'
+    ? (db.getTaskDependencies(taskId) || [])
+    : [];
+  return deps.map((dep) => evaluateTaskDependencyState(dep));
+}
+
+function formatBlockedDependencyList(dependencies) {
+  const labels = dependencies
+    .map((dependency) => dependency.node_id || dependency.task_id || 'unknown')
+    .filter(Boolean);
+  if (labels.length === 0) return 'unknown dependencies';
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, 2).join(', ')} and ${labels.length - 2} more`;
+}
+
+function buildTaskBlockerSnapshot(taskOrId, workflowId = null, options = {}) {
+  const task = typeof taskOrId === 'string' ? db.getTask(taskOrId) : taskOrId;
+  if (!task || !['blocked', 'waiting'].includes(task.status)) return null;
+
+  const effectiveWorkflowId = workflowId || task.workflow_id || null;
+  const workflow = options.workflow || (effectiveWorkflowId ? db.getWorkflow(effectiveWorkflowId) : null);
+  const dependency_states = getTaskDependencyStates(task.id);
+
+  const unmetDependencies = dependency_states.filter((dependency) => dependency.satisfied === false);
+  let reasonCode = task.status === 'waiting' ? 'waiting_for_scheduler' : 'evaluation_pending';
+  let reason = task.status === 'waiting'
+    ? 'Task is still waiting to be promoted to queued.'
+    : 'All dependencies appear satisfied, but the task has not been promoted to queued yet.';
+
+  if (workflow?.status === 'paused') {
+    reasonCode = 'workflow_paused';
+    reason = unmetDependencies.length > 0
+      ? `Workflow is paused while ${formatBlockedDependencyList(unmetDependencies)} remain unresolved.`
+      : 'Workflow is paused, so this task cannot be scheduled yet.';
+  } else if (workflow?.status === 'failed') {
+    reasonCode = 'workflow_failed';
+    reason = unmetDependencies.length > 0
+      ? `Workflow failed while ${formatBlockedDependencyList(unmetDependencies)} remained unresolved.`
+      : 'Workflow failed before this task could become runnable.';
+  } else if (workflow?.status === 'cancelled') {
+    reasonCode = 'workflow_cancelled';
+    reason = 'Workflow was cancelled before this task could become runnable.';
+  } else if (dependency_states.length === 0) {
+    reasonCode = 'missing_dependencies';
+    reason = task.status === 'waiting'
+      ? 'Task is waiting with no persisted dependency records.'
+      : 'Task is blocked with no persisted dependency records.';
+  } else if (unmetDependencies.some((dependency) => dependency.unmet_reason === 'dependency_not_terminal')) {
+    const waitingOn = unmetDependencies.filter((dependency) => dependency.unmet_reason === 'dependency_not_terminal');
+    reasonCode = 'waiting_on_dependencies';
+    reason = `Waiting on ${formatBlockedDependencyList(waitingOn)} to reach a terminal state.`;
+  } else if (unmetDependencies.some((dependency) => dependency.unmet_reason === 'condition_failed')) {
+    const failedConditions = unmetDependencies.filter((dependency) => dependency.unmet_reason === 'condition_failed');
+    reasonCode = 'dependency_condition_failed';
+    reason = `Dependency conditions are not satisfied for ${formatBlockedDependencyList(failedConditions)}.`;
+  } else if (unmetDependencies.some((dependency) => dependency.unmet_reason === 'dependency_failed')) {
+    const failedDeps = unmetDependencies.filter((dependency) => dependency.unmet_reason === 'dependency_failed');
+    reasonCode = 'dependency_failed';
+    reason = `Dependencies finished in a non-runnable state for ${formatBlockedDependencyList(failedDeps)}.`;
+  } else if (unmetDependencies.some((dependency) => dependency.unmet_reason === 'missing_dependency')) {
+    reasonCode = 'missing_dependencies';
+    reason = 'A dependency record could not be resolved to a task.';
+  }
+
+  return {
+    task_id: task.id,
+    node_id: resolveWorkflowNodeId(task, effectiveWorkflowId),
+    state: task.status,
+    runnable: false,
+    workflow_status: workflow?.status || null,
+    reason_code: reasonCode,
+    reason,
+    dependency_count: dependency_states.length,
+    satisfied_dependency_count: dependency_states.length - unmetDependencies.length,
+    unmet_dependency_count: unmetDependencies.length,
+    unmet_dependencies: unmetDependencies,
+    dependency_states,
+    failure_actions: dependency_states.map((dependency) => ({
+      task_id: dependency.task_id,
+      node_id: dependency.node_id,
+      on_fail: dependency.on_fail,
+      alternate_task_id: dependency.alternate_task_id || null,
+      blocking: dependency.satisfied === false
+    })),
+  };
+}
+
+function persistTaskBlockerSnapshot(taskId, snapshot, options = {}) {
+  const task = db.getTask(taskId);
+  if (!task) return null;
+
+  const nextContext = buildWorkflowBlockerContext(task, snapshot);
+  const currentSnapshot = getPersistedTaskBlockerSnapshot(task);
+  const contextChanged = JSON.stringify(currentSnapshot || null) !== JSON.stringify(snapshot || null);
+  const additionalFields = { ...(options.additionalFields || {}) };
+
+  if (contextChanged) {
+    additionalFields.context = nextContext;
+  }
+
+  const nextStatus = options.status || null;
+  if (!nextStatus) {
+    if (Object.keys(additionalFields).length === 0) return task;
+    if (typeof db.updateTask === 'function') {
+      return db.updateTask(taskId, additionalFields);
+    }
+    return db.updateTaskStatus(taskId, task.status, additionalFields);
+  }
+
+  return db.updateTaskStatus(taskId, nextStatus, additionalFields);
+}
+
+function clearTaskBlockerSnapshot(taskId, options = {}) {
+  return persistTaskBlockerSnapshot(taskId, null, options);
+}
+
+function refreshWorkflowBlockerSnapshots(workflowId, options = {}) {
+  if (!workflowId) return { updated: 0 };
+
+  const workflow = options.workflow || db.getWorkflow(workflowId);
+  const workflowTasks = db.getWorkflowTasks(workflowId) || [];
+  let updated = 0;
+
+  for (const workflowTask of workflowTasks) {
+    const snapshot = ['blocked', 'waiting'].includes(workflowTask.status)
+      ? buildTaskBlockerSnapshot(workflowTask, workflowId, { workflow })
+      : null;
+    const before = getPersistedTaskBlockerSnapshot(workflowTask);
+    if (JSON.stringify(before || null) === JSON.stringify(snapshot || null)) {
+      continue;
+    }
+    persistTaskBlockerSnapshot(workflowTask.id, snapshot);
+    updated += 1;
+  }
+
+  return { updated };
+}
+
 /**
  * Return a stuck-parent diagnostic for continue-on-fail deadlock handling.
  * If all non-terminal dependencies are effectively blocked and there is no
@@ -734,7 +963,11 @@ function handleWorkflowTermination(taskId) {
     if (!workflowId) return;
 
     const workflow = db.getWorkflow(workflowId);
-    if (!workflow || ['completed', 'failed', 'cancelled', 'paused'].includes(workflow.status)) {
+    if (!workflow || ['completed', 'failed', 'cancelled'].includes(workflow.status)) {
+      return;
+    }
+    if (workflow.status === 'paused') {
+      refreshWorkflowBlockerSnapshots(workflowId, { workflow });
       return;
     }
 
@@ -781,7 +1014,11 @@ function handleWorkflowTermination(taskId) {
  */
 function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
   const workflow = db.getWorkflow(workflowId);
-  if (!workflow || ['completed', 'failed', 'cancelled', 'paused'].includes(workflow.status)) {
+  if (!workflow || ['completed', 'failed', 'cancelled'].includes(workflow.status)) {
+    return;
+  }
+  if (workflow.status === 'paused') {
+    refreshWorkflowBlockerSnapshots(workflowId, { workflow });
     return;
   }
 
@@ -833,39 +1070,7 @@ function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
     if (conditionPassed) {
       // Check if all dependencies for this task are now satisfied
       const allDeps = db.getTaskDependencies(dep.task_id);
-      let allSatisfied = true;
-
-      for (const otherDep of allDeps) {
-        if (otherDep.depends_on_task_id === taskId) continue; // Already checked this one
-
-        const prereqTask = db.getTask(otherDep.depends_on_task_id);
-        const prereqStatus = prereqTask?.status || otherDep.depends_on_status;
-        // A dep is satisfied if it completed/was skipped, OR if it failed/was
-        // cancelled but the dependency edge's on_fail policy is 'continue'.
-        const depSatisfied = ['completed', 'skipped'].includes(prereqStatus)
-          || (['failed', 'cancelled'].includes(prereqStatus) && otherDep.on_fail === 'continue');
-        if (!depSatisfied) {
-          allSatisfied = false;
-          break;
-        }
-        // Also check condition for other dependencies
-        if (otherDep.condition_expr) {
-          // Security: Sanitize output to redact potential secrets
-          const otherContext = {
-            exit_code: otherDep.depends_on_exit_code || 0,
-            output: sanitizeOutputForCondition((otherDep.depends_on_output || '').slice(-10240)),
-            error_output: sanitizeOutputForCondition((otherDep.depends_on_error_output || '').slice(-5120)),
-            duration_seconds: otherDep.depends_on_completed_at && otherDep.depends_on_started_at
-              ? Math.round((new Date(otherDep.depends_on_completed_at) - new Date(otherDep.depends_on_started_at)) / 1000)
-              : 0,
-            status: prereqStatus
-          };
-          if (!db.evaluateCondition(otherDep.condition_expr, otherContext)) {
-            allSatisfied = false;
-            break;
-          }
-        }
-      }
+      const allSatisfied = allDeps.every((otherDep) => evaluateTaskDependencyState(otherDep).satisfied);
 
       if (allSatisfied) {
         // Inject dependency outputs into the task description before unblocking
@@ -898,6 +1103,8 @@ function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
     maybeProcessAuditTaskResult(completedTask);
   }
 
+  refreshWorkflowBlockerSnapshots(workflowId, { workflow });
+
   // Notify dashboard that workflow progressed (a task finished, dependents may have unblocked)
   if (_dashboard && _dashboard.notifyWorkflowUpdated) {
     _dashboard.notifyWorkflowUpdated(workflowId);
@@ -920,7 +1127,7 @@ function unblockTask(taskId) {
   if (!task || !['blocked', 'waiting'].includes(task.status)) return false;
 
   try {
-    db.updateTaskStatus(taskId, 'queued');
+    clearTaskBlockerSnapshot(taskId, { status: 'queued' });
     eventBus.emitQueueChanged();
     return true;
   } catch (err) {
@@ -946,18 +1153,18 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDe
   switch (action) {
     case 'cancel':
       // Cancel this task and propagate cancellation to all dependents
-      db.updateTaskStatus(taskId, 'cancelled', {
+      clearTaskBlockerSnapshot(taskId, { status: 'cancelled', additionalFields: {
         error_output: 'Cancelled due to dependency failure',
         cancel_reason: 'workflow_cascade',
-      });
+      } });
       cancelDependentTasks(taskId, workflowId, 'Dependency cancelled');
       break;
 
     case 'skip':
       // Skip this task (mark as skipped, continue workflow)
-      db.updateTaskStatus(taskId, 'skipped', {
+      clearTaskBlockerSnapshot(taskId, { status: 'skipped', additionalFields: {
         error_output: 'Skipped due to dependency condition not met'
-      });
+      } });
       // Trigger evaluation for tasks depending on this one
       if (_skipDepth > 50) {
         logger.warn(`[workflow] Skip propagation depth limit reached at task ${taskId}`);
@@ -970,18 +1177,12 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDe
       // Continue despite failed dependency — but only if ALL other deps are also satisfied
       {
         const allDeps = db.getTaskDependencies(taskId);
-        let allSatisfied = true;
-        for (const otherDep of allDeps) {
-          const prereqTask = db.getTask(otherDep.depends_on_task_id);
-          const prereqStatus = prereqTask?.status || otherDep.depends_on_status;
-          if (!['completed', 'skipped', 'failed'].includes(prereqStatus)) {
-            allSatisfied = false;
-            break;
-          }
-        }
+        const allSatisfied = allDeps.every((otherDep) => evaluateTaskDependencyState(otherDep).satisfied);
         if (allSatisfied) {
           applyOutputInjection(taskId, workflowId);
           unblockTask(taskId);
+        } else {
+          persistTaskBlockerSnapshot(taskId, buildTaskBlockerSnapshot(taskId, workflowId));
         }
         // If not all satisfied, task stays blocked — it will be re-evaluated
         // when the remaining dependencies complete
@@ -990,9 +1191,9 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDe
 
     case 'run_alternate':
       // Skip original task and run alternate if specified
-      db.updateTaskStatus(taskId, 'skipped', {
+      clearTaskBlockerSnapshot(taskId, { status: 'skipped', additionalFields: {
         error_output: 'Skipped - running alternate task'
-      });
+      } });
       if (alternateTaskId) {
         unblockTask(alternateTaskId);
       }
@@ -1004,9 +1205,9 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDe
 
     default:
       // Default to skip
-      db.updateTaskStatus(taskId, 'skipped', {
+      clearTaskBlockerSnapshot(taskId, { status: 'skipped', additionalFields: {
         error_output: 'Skipped due to dependency condition not met'
-      });
+      } });
       evaluateWorkflowDependencies(taskId, workflowId);
   }
 }
@@ -1040,10 +1241,10 @@ function cancelDependentTasks(taskId, workflowId, reason, visited = new Set()) {
         logger.info(`cancelDependentTasks: failed to cancel running task ${depTaskId}: ${err.message}`);
       }
     } else if (['pending', 'blocked', 'queued', 'pending_provider_switch'].includes(task.status)) {
-      db.updateTaskStatus(depTaskId, 'cancelled', {
+      clearTaskBlockerSnapshot(depTaskId, { status: 'cancelled', additionalFields: {
         error_output: reason,
         cancel_reason: 'workflow_cascade',
-      });
+      } });
     } else {
       // Already in terminal state — skip
       continue;
@@ -1068,6 +1269,8 @@ function checkWorkflowCompletion(workflowId) {
   if (!workflow || workflow.status === 'completed' || workflow.status === 'completed_with_errors' || workflow.status === 'failed' || workflow.status === 'cancelled') {
     return;
   }
+
+  refreshWorkflowBlockerSnapshots(workflowId, { workflow });
 
   const tasks = db.getWorkflowTasks(workflowId);
   const isSuperseded = (task) => {
@@ -1162,6 +1365,7 @@ function checkWorkflowCompletion(workflowId) {
         status: 'failed',
         completed_at: new Date().toISOString()
       });
+      refreshWorkflowBlockerSnapshots(workflowId, { workflow: db.getWorkflow(workflowId) });
       // Clean up terminal guards now that the workflow has reached a final state (deadlock)
       terminalGuards.delete(workflowId);
       terminalPending.delete(workflowId);
@@ -1257,6 +1461,8 @@ function createWorkflowRuntime(_deps) {
     applyContextFrom,
     applyOutputInjection,
     buildDepTasksMap,
+    buildTaskBlockerSnapshot,
+    refreshWorkflowBlockerSnapshots,
     OUTPUT_CAP_BYTES,
   };
 }
@@ -1278,6 +1484,8 @@ module.exports = {
   applyContextFrom,
   applyOutputInjection,
   buildDepTasksMap,
+  buildTaskBlockerSnapshot,
+  refreshWorkflowBlockerSnapshots,
   OUTPUT_CAP_BYTES,
   createWorkflowRuntime,
 };

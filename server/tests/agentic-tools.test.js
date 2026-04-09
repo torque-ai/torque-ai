@@ -15,6 +15,7 @@ const {
   createToolExecutor,
   resolveSafePath,
   TOOL_DEFINITIONS,
+  selectToolsForTask,
   parseToolCalls,
   MAX_FILE_READ_BYTES,
   MAX_COMMAND_TIMEOUT_MS,
@@ -171,6 +172,17 @@ describe('write_file path jail', () => {
     execute('write_file', { path: '../../evil.txt', content: 'bad' });
     expect(changedFiles.size).toBe(0);
   });
+
+  it('blocks writes outside the task write allowlist even when inside working directory', () => {
+    const dir = makeTempDir();
+    const { execute } = createToolExecutor(dir, {
+      writeAllowlist: ['docs/autodev/SESSION_LOG.md'],
+    });
+    const res = execute('write_file', { path: 'src/output.txt', content: 'blocked' });
+    expect(res.error).toBe(true);
+    expect(res.result).toMatch(/outside the allowed scope/i);
+    expect(fs.existsSync(path.join(dir, 'src/output.txt'))).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -194,6 +206,22 @@ describe('edit_file path jail', () => {
     expect(res.error).toBe(true);
     expect(res.result).toMatch(/outside working directory/i);
   });
+
+  it('blocks replace_lines outside the task write allowlist', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'src/app.cs', 'line 1\nline 2\nline 3\n');
+    const { execute } = createToolExecutor(dir, {
+      writeAllowlist: ['docs/autodev/SESSION_LOG.md'],
+    });
+    const res = execute('replace_lines', {
+      path: 'src/app.cs',
+      start_line: 2,
+      end_line: 2,
+      new_text: 'updated line 2',
+    });
+    expect(res.error).toBe(true);
+    expect(res.result).toMatch(/outside the allowed scope/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -209,6 +237,18 @@ describe('read_file outside working directory (read-only is safe)', () => {
     const res = execute('read_file', { path: path.join(externalDir, 'external.txt') });
     expect(res.error).toBeUndefined();
     expect(res.result).toContain('external content');
+  });
+
+  it('blocks reads outside the task read allowlist', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'docs/autodev/NEXT_TASK.md', '# Next Task');
+    writeFile(dir, 'src/secret.txt', 'secret content');
+    const { execute } = createToolExecutor(dir, {
+      readAllowlist: ['docs/autodev/NEXT_TASK.md'],
+    });
+    const res = execute('read_file', { path: 'src/secret.txt' });
+    expect(res.error).toBe(true);
+    expect(res.result).toMatch(/outside the allowed scope/i);
   });
 });
 
@@ -384,6 +424,18 @@ describe('search_files (pure Node.js)', () => {
     const res = execute('search_files', { pattern: 'a'.repeat(201), path: dir });
     expect(res).toEqual({ error: 'Unsafe regex pattern' });
   });
+
+  it('blocks searches outside the task read allowlist', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'docs/autodev/NEXT_TASK.md', '# Next Task');
+    writeFile(dir, 'src/app.js', 'const hidden = true;');
+    const { execute } = createToolExecutor(dir, {
+      readAllowlist: ['docs/autodev'],
+    });
+    const res = execute('search_files', { pattern: 'hidden', path: 'src' });
+    expect(res.error).toBe(true);
+    expect(res.result).toMatch(/outside the allowed scope/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -409,6 +461,18 @@ describe('list_directory', () => {
     const { execute } = createToolExecutor(dir);
     const res = execute('list_directory', { path: 'does-not-exist' });
     expect(res.error).toBe(true);
+  });
+
+  it('blocks directory listing outside the task read allowlist', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'docs/autodev/TASK_BRIEF.md', 'brief');
+    writeFile(dir, 'src/file.txt', 'content');
+    const { execute } = createToolExecutor(dir, {
+      readAllowlist: ['docs/autodev'],
+    });
+    const res = execute('list_directory', { path: 'src' });
+    expect(res.error).toBe(true);
+    expect(res.result).toMatch(/outside the allowed scope/i);
   });
 });
 
@@ -647,6 +711,25 @@ describe('TOOL_DEFINITIONS', () => {
     // replace_all must NOT be in required
     const required = editDef.function.parameters.required || [];
     expect(required).not.toContain('replace_all');
+  });
+});
+
+describe('selectToolsForTask', () => {
+  it('omits run_command when command allowlist is empty', () => {
+    const names = selectToolsForTask('Edit docs/autodev/NEXT_TASK.json', {
+      commandMode: 'allowlist',
+      commandAllowlist: [],
+    }).map((tool) => tool.function.name);
+    expect(names).not.toContain('run_command');
+    expect(names).toContain('edit_file');
+  });
+
+  it('retains run_command when commands are allowlisted', () => {
+    const names = selectToolsForTask('Edit docs/autodev/NEXT_TASK.json', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['pwsh -File scripts/autodev-verify.ps1*'],
+    }).map((tool) => tool.function.name);
+    expect(names).toContain('run_command');
   });
 });
 

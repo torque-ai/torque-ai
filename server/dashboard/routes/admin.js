@@ -4,6 +4,7 @@
  * Merged from: coordination.js, approvals.js, schedules.js, benchmarks.js, project-tuning.js, plan-projects.js
  */
 const taskCore = require('../../db/task-core');
+const dbFacade = require('../../database');
 const coordination = require('../../db/coordination');
 const hostManagement = require('../../db/host-management');
 const projectConfigCore = require('../../db/project-config-core');
@@ -44,20 +45,32 @@ function handleListPendingApprovals(req, res, query) {
 
 function handleGetApprovalHistory(req, res, query) {
   const limit = parseInt(query.limit, 10) || 50;
-  const history = schedulingAutomation.getApprovalHistory ? schedulingAutomation.getApprovalHistory(limit) : [];
+  const history = schedulingAutomation.listApprovalHistory
+    ? schedulingAutomation.listApprovalHistory({ limit })
+    : (schedulingAutomation.getApprovalHistory ? schedulingAutomation.getApprovalHistory(limit) : []);
   sendJson(res, { history });
 }
 
 function handleApproveTask(req, res, query, approvalId) {
   if (!approvalId) { sendError(res, 'approval_id required', 400); return; }
-  const result = validationRules.decideApproval ? validationRules.decideApproval(approvalId, 'approved', 'dashboard') : null;
+  const workflowRequest = schedulingAutomation.getApprovalRequestById
+    ? schedulingAutomation.getApprovalRequestById(approvalId)
+    : null;
+  const result = workflowRequest?.task_id
+    ? schedulingAutomation.approveTask?.(workflowRequest.task_id, 'dashboard', null)
+    : (validationRules.decideApproval ? validationRules.decideApproval(approvalId, 'approved', 'dashboard') : null);
   if (!result) { sendError(res, 'Approval not found', 404); return; }
   sendJson(res, { status: 'approved', approval_id: approvalId });
 }
 
 function handleRejectApproval(req, res, query, approvalId) {
   if (!approvalId) { sendError(res, 'approval_id required', 400); return; }
-  const result = validationRules.decideApproval ? validationRules.decideApproval(approvalId, 'rejected', 'dashboard') : null;
+  const workflowRequest = schedulingAutomation.getApprovalRequestById
+    ? schedulingAutomation.getApprovalRequestById(approvalId)
+    : null;
+  const result = workflowRequest?.task_id
+    ? schedulingAutomation.rejectApproval?.(workflowRequest.task_id, 'dashboard', null)
+    : (validationRules.decideApproval ? validationRules.decideApproval(approvalId, 'rejected', 'dashboard') : null);
   if (!result) { sendError(res, 'Approval not found', 404); return; }
   sendJson(res, { status: 'rejected', approval_id: approvalId });
 }
@@ -99,6 +112,17 @@ function handleDeleteSchedule(req, res, query, id) {
   const result = schedulingAutomation.deleteScheduledTask(id);
   if (!result) return sendError(res, 'Schedule not found', 404);
   return sendJson(res, { deleted: true });
+}
+
+function handleRunSchedule(req, res, query, id) {
+  try {
+    const result = schedulingAutomation.runScheduledTaskNow(id, { db: dbFacade });
+    if (!result) return sendError(res, 'Schedule not found', 404);
+    return sendJson(res, result, 202);
+  } catch (err) {
+    logger.error({ err, schedule_id: id }, 'Failed to run schedule manually');
+    return sendError(res, err.message || 'Failed to run schedule', 500);
+  }
 }
 
 // ── Benchmarks & Tuning ─────────────────────────────────────────────────
@@ -331,7 +355,7 @@ function createDashboardAdminRoutes() {
   return {
     handleGetDashboard, handleListAgents, handleListRoutingRules, handleListClaims,
     handleListPendingApprovals, handleGetApprovalHistory, handleApproveTask, handleRejectApproval,
-    handleListSchedules, handleCreateSchedule, handleToggleSchedule, handleDeleteSchedule,
+    handleListSchedules, handleCreateSchedule, handleRunSchedule, handleToggleSchedule, handleDeleteSchedule,
     handleListBenchmarks, handleApplyBenchmark,
     handleListProjectTuning, handleCreateProjectTuning, handleGetProjectTuning, handleDeleteProjectTuning,
     handleListPlanProjects, handleGetPlanProject, handleImportPlanApi, handlePlanProjectAction, handleDeletePlanProject,
@@ -344,7 +368,7 @@ module.exports = {
   // Approvals
   handleListPendingApprovals, handleGetApprovalHistory, handleApproveTask, handleRejectApproval,
   // Schedules
-  handleListSchedules, handleCreateSchedule, handleToggleSchedule, handleDeleteSchedule,
+  handleListSchedules, handleCreateSchedule, handleRunSchedule, handleToggleSchedule, handleDeleteSchedule,
   // Benchmarks & Tuning
   handleListBenchmarks, handleApplyBenchmark,
   handleListProjectTuning, handleCreateProjectTuning, handleGetProjectTuning, handleDeleteProjectTuning,

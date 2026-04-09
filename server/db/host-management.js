@@ -747,7 +747,7 @@ function getRunningTasksForHost(hostId) {
  * @returns {any}
  */
 function reconcileHostTaskCounts() {
-  if (!db || typeof db.prepare !== 'function') return { reconciled: 0 };
+  if (!db || typeof db.prepare !== 'function') return { reconciled: 0, workstations_reconciled: 0 };
   // Get actual running task counts from tasks table
   const actualCounts = db.prepare(`
     SELECT ollama_host_id, COUNT(*) as count
@@ -767,7 +767,44 @@ function reconcileHostTaskCounts() {
     }
   }
 
-  return { reconciled: hosts.length };
+  let workstationsReconciled = 0;
+  try {
+    const wsModel = require('../workstation/model');
+    const workstations = wsModel.listWorkstations({});
+    const workstationByHost = new Map(
+      workstations
+        .filter((ws) => ws && ws.host)
+        .map((ws) => [String(ws.host).toLowerCase(), ws])
+    );
+    const workstationCounts = new Map();
+
+    for (const host of hosts) {
+      let hostname = null;
+      try {
+        hostname = new URL(host.url).hostname.toLowerCase();
+      } catch {
+        hostname = null;
+      }
+      if (!hostname) continue;
+      const workstation = workstationByHost.get(hostname);
+      if (!workstation) continue;
+      const actual = countMap.get(host.id) || 0;
+      workstationCounts.set(workstation.id, (workstationCounts.get(workstation.id) || 0) + actual);
+    }
+
+    for (const workstation of workstations) {
+      const actual = workstationCounts.get(workstation.id) || 0;
+      if ((workstation.running_tasks || 0) !== actual) {
+        wsModel.updateWorkstation(workstation.id, { running_tasks: actual });
+      }
+    }
+
+    workstationsReconciled = workstations.length;
+  } catch (err) {
+    logger.debug(`Workstation running_tasks reconcile skipped: ${err.message}`);
+  }
+
+  return { reconciled: hosts.length, workstations_reconciled: workstationsReconciled };
 }
 
 /**
