@@ -1,6 +1,0 @@
-server\policy-engine\task-hooks.js:7:function evaluateAtStage(stage, taskData, options = {}) {
-server\policy-engine\task-hooks.js:98:  return evaluateAtStage('task_submit', taskData);
-server\policy-engine\task-hooks.js:106:  return evaluateAtStage('task_pre_execute', taskData);
-server\policy-engine\task-hooks.js:110:  return evaluateAtStage('task_complete', taskData);
-server\policy-engine\task-hooks.js:114:  return evaluateAtStage('manual_review', taskData, {
-server\plugins\snapscope\handlers\recovery.js:788:    const policyEvaluation = taskHooks.evaluateAtStage(
