@@ -311,6 +311,7 @@ function extractSmartSubmitInputs(args) {
     prefer_free,
     routing_template,
     version_intent,
+    task_metadata: rawTaskMetadata,
     __sessionId,
   } = args;
 
@@ -386,6 +387,7 @@ function extractSmartSubmitInputs(args) {
     prefer_free,
     routing_template,
     version_intent,
+    task_metadata: rawTaskMetadata && typeof rawTaskMetadata === 'object' ? rawTaskMetadata : undefined,
     __sessionId,
   };
 }
@@ -591,9 +593,11 @@ async function handleSmartSubmitTask(args) {
     estimatedTokens,
     context_stuff,
     context_depth,
+    study_context,
     prefer_free,
     routing_template,
     version_intent,
+    task_metadata: userTaskMetadata,
     __sessionId,
   } = inputs;
 
@@ -1301,6 +1305,7 @@ async function handleSmartSubmitTask(args) {
         _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
         _routing_template: routing_template || undefined,
         mcp_session_id: __sessionId || undefined,
+        ...(userTaskMetadata || {}),
       })
     });
   }
