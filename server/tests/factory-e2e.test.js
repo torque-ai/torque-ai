@@ -219,7 +219,7 @@ describe('factory end-to-end flow', () => {
     expect(data.projects[0].balance).toBeDefined();
   });
 
-  test('handler: scan records placeholder scores', async () => {
+  test('handler: scan produces real scores (not zeros)', async () => {
     const reg = await handlers.handleRegisterFactoryProject({ name: 'App', path: '/scan-test' });
     const id = JSON.parse(reg.content[0].text).project.id;
 
@@ -229,7 +229,11 @@ describe('factory end-to-end flow', () => {
       scan_type: 'full',
     });
     const scanData = JSON.parse(scanResult.content[0].text);
-    expect(scanData.results.test_coverage.score).toBe(0);
-    expect(scanData.results.security.score).toBe(0);
+    // Scorers return real scores — 50 means "no data" (not a placeholder zero)
+    expect(scanData.results.test_coverage.score).toBeGreaterThanOrEqual(0);
+    expect(scanData.results.test_coverage.score).toBeLessThanOrEqual(100);
+    expect(scanData.results.security.score).toBeGreaterThanOrEqual(0);
+    expect(scanData.results.security.score).toBeLessThanOrEqual(100);
+    expect(scanData.results.test_coverage.details).toBeDefined();
   });
 });
