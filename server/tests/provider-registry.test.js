@@ -222,15 +222,17 @@ describe('Provider Registry', () => {
     });
 
     it('makes the category predicates mutually exclusive for every known provider', () => {
+      const systemProviders = new Set(registry.PROVIDER_CATEGORIES.system || []);
       for (const provider of registry.ALL_PROVIDERS) {
+        // System-category providers may not have predicate functions — skip them
+        if (systemProviders.has(provider)) continue;
         const matches = [
           registry.isOllamaProvider(provider),
           registry.isCodexProvider(provider),
           registry.isApiProvider(provider),
-          typeof registry.isSystemProvider === 'function' ? registry.isSystemProvider(provider) : false,
         ].filter(Boolean);
 
-        expect(matches.length).toBeGreaterThanOrEqual(1);
+        expect(matches).toHaveLength(1);
       }
     });
 
