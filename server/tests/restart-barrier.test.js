@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const providerRegistry = require('../providers/registry');
 
 describe('system provider category', () => {
