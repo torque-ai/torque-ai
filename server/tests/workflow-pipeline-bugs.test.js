@@ -85,29 +85,10 @@ describe('Workflow pipeline bugs', () => {
       }
     });
 
-    it('should fail codex-pending tasks without user_provider_override when codex is disabled', () => {
-      const taskId = randomUUID();
-      db.createTask({
-        id: taskId,
-        task_description: 'Auto-routed task stuck in codex-pending',
-        working_directory: testDir,
-        status: 'queued',
-        provider: 'codex-pending',
-        metadata: JSON.stringify({ auto_routed: true }),
-      });
-
-      // With codex disabled (default in test), auto-routed tasks should be failed
-      // cleanly rather than silently re-routed to ollama-cloud
-      const queueScheduler = require('../execution/queue-scheduler');
-      queueScheduler.resolveCodexPendingTasks();
-
-      const task = db.getTask(taskId);
-      // Must NOT be re-routed to ollama-cloud (the old buggy behavior)
-      expect(task.provider).not.toBe('ollama-cloud');
-      // Should be failed since codex is disabled and no intended_provider was set
-      expect(task.status).toBe('failed');
-      expect(task.error_output).toContain('codex-pending');
-    });
+    // The complementary case (codex disabled, no user override → fails cleanly
+    // instead of re-routing to ollama-cloud) is covered by the mock-based test
+    // in queue-scheduler.test.js: "fails codex-pending tasks when codex is
+    // disabled and no intended_provider"
   });
 
   // ══════════════════════════════════════════════════════════════════════
