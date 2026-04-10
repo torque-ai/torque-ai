@@ -92,6 +92,75 @@ describe('Workflow pipeline bugs', () => {
   });
 
   // ══════════════════════════════════════════════════════════════════════
+  // Bug 1 actual root cause: approveProviderSwitch stamps
+  // user_provider_override on failover-initiated switches
+  // ══════════════════════════════════════════════════════════════════════
+
+  describe('Bug 1 root cause: approveProviderSwitch metadata poisoning', () => {
+    it('should NOT stamp user_provider_override on system-initiated failover', () => {
+      // Create a task that was originally smart-routed to codex (no user override)
+      const taskId = randomUUID();
+      db.createTask({
+        id: taskId,
+        task_description: 'Smart-routed codex task that will fail over',
+        working_directory: testDir,
+        status: 'pending_provider_switch',
+        provider: 'codex',
+        metadata: JSON.stringify({
+          smart_routing: true,
+          requested_provider: 'codex',
+        }),
+      });
+
+      // Enable a fallback provider for the switch
+      db.updateProvider('groq', { enabled: 1 });
+
+      // approveProviderSwitch should NOT stamp user_provider_override
+      const smartRouting = require('../db/smart-routing');
+      smartRouting.approveProviderSwitch(taskId, 'groq');
+
+      const task = db.getTask(taskId);
+      expect(task.provider).toBe('groq');
+      const meta = parseMeta(task);
+      // System-initiated failover should NOT set user_provider_override
+      expect(meta.user_provider_override).toBeFalsy();
+      // But should track the failover
+      expect(meta.failover_provider).toBe('groq');
+      // Original requested_provider should be preserved
+      expect(meta.original_requested_provider).toBe('codex');
+    });
+
+    it('should preserve user_provider_override when it was already true', () => {
+      const taskId = randomUUID();
+      db.createTask({
+        id: taskId,
+        task_description: 'User-override codex task that will fail over',
+        working_directory: testDir,
+        status: 'pending_provider_switch',
+        provider: 'codex',
+        metadata: JSON.stringify({
+          user_provider_override: true,
+          intended_provider: 'codex',
+          requested_provider: 'codex',
+        }),
+      });
+
+      db.updateProvider('groq', { enabled: 1 });
+
+      const smartRouting = require('../db/smart-routing');
+      smartRouting.approveProviderSwitch(taskId, 'groq');
+
+      const task = db.getTask(taskId);
+      expect(task.provider).toBe('groq');
+      const meta = parseMeta(task);
+      // user_provider_override was already true — should still be true
+      expect(meta.user_provider_override).toBe(true);
+      // Original intent should be tracked
+      expect(meta.original_requested_provider).toBe('codex');
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
   // Bug 2: Tags and project should propagate through create_workflow
   // ══════════════════════════════════════════════════════════════════════
 

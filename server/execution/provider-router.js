@@ -334,6 +334,10 @@ function resolveProviderRouting(task, taskId) {
   const nextMetadata = {
     ...taskMeta,
     requested_provider: taskMeta.requested_provider || normalizedRequestedProvider,
+    // Preserve the original_requested_provider through failover cycles so the
+    // audit trail always shows what the user actually asked for, even after
+    // provider switches overwrite requested_provider.
+    original_requested_provider: taskMeta.original_requested_provider || taskMeta.requested_provider || normalizedRequestedProvider,
     intended_provider: provider,
     provider_decision_trace: decisionTrace,
   };
