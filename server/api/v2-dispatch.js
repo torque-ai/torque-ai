@@ -348,7 +348,7 @@ const V2_CP_HANDLER_LOOKUP = {
     sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
   },
   // Tasks
-  handleV2CpPreviewTaskStudyContext: v2TaskHandlers.handlePreviewTaskStudyContext,
+  handleV2CpPreviewTaskStudyContext: (...args) => v2TaskHandlers.handlePreviewTaskStudyContext(...args),
   handleV2CpSubmitTask: v2TaskHandlers.handleSubmitTask,
   handleV2CpListTasks: v2TaskHandlers.handleListTasks,
   handleV2CpTaskDiff: v2TaskHandlers.handleTaskDiff,
