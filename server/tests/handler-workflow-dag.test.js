@@ -272,7 +272,15 @@ describe('workflow-dag handlers', () => {
     it('shows only unmet dependencies in waiting-on column', () => {
       vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({ id: 'wf-1', name: 'WF' });
       vi.spyOn(workflowEngine, 'getBlockedTasks').mockReturnValue([
-        { id: 'task-b', workflow_id: 'wf-1', workflow_node_id: 'B', status: 'blocked' }
+        {
+          id: 'task-b', workflow_id: 'wf-1', workflow_node_id: 'B', status: 'blocked',
+          context: {
+            workflow_blocker: {
+              reason: 'Waiting on dependencies',
+              unmet_dependencies: [{ node_id: 'A', task_id: 'task-a' }],
+            },
+          },
+        }
       ]);
       vi.spyOn(workflowEngine, 'getTaskDependencies').mockReturnValue([
         { depends_on_task_id: 'task-a', depends_on_status: 'running' },
