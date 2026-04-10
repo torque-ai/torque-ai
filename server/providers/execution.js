@@ -28,7 +28,7 @@ const _executeCliModule = require('./execute-cli');
 const { runAgenticLoop } = require('./ollama-agentic');
 const { isAgenticCapable, needsPromptInjection, init: initCapability } = require('./agentic-capability');
 const { createToolExecutor, TOOL_DEFINITIONS, selectToolsForTask } = require('./ollama-tools');
-const { captureSnapshot, checkAndRevert } = require('./agentic-git-safety');
+const { captureSnapshot, checkAndRevert, revertScopedChanges } = require('./agentic-git-safety');
 const { resolveOllamaModel } = require('./ollama-shared');
 
 const { acquireHostLock } = require('./host-mutex');
@@ -333,6 +333,11 @@ function collectJsonSpecList(spec, keys) {
   return [];
 }
 
+function parsePositiveInteger(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function parseNextTaskMarkdownSpec(markdown) {
   return {
     goal: collectMarkdownSectionText(markdown, ['Goal']),
@@ -340,8 +345,10 @@ function parseNextTaskMarkdownSpec(markdown) {
     read_files: collectMarkdownBullets(markdown, ['Read Files', 'Read Paths']),
     specific_actions: collectMarkdownBullets(markdown, ['Specific Actions']),
     allowed_files: collectMarkdownBullets(markdown, ['Allowed Files', 'Allowed Paths', 'Write Files', 'Write Paths']),
+    allowed_tools: collectMarkdownBullets(markdown, ['Allowed Tools', 'Tool Allowlist']),
     required_modified_paths: collectMarkdownBullets(markdown, ['Required Modified Paths', 'Required Modified Files']),
     verification_command: collectMarkdownSectionText(markdown, ['Verification Command']),
+    actionless_iteration_limit: collectMarkdownSectionText(markdown, ['Actionless Iteration Limit']),
     stop_conditions: collectMarkdownBullets(markdown, ['Stop Conditions']),
   };
 }
@@ -371,8 +378,10 @@ function compareNextTaskSpecs(markdownSpec, jsonSpec) {
     ['read_files', normalizeComparableList(markdownSpec.read_files), normalizeComparableList(collectJsonSpecList(jsonSpec, ['read_files', 'readFiles', 'read_paths', 'readPaths']))],
     ['specific_actions', normalizeComparableList(markdownSpec.specific_actions), normalizeComparableList(collectJsonSpecList(jsonSpec, ['specific_actions', 'specificActions']))],
     ['allowed_files', normalizeComparableList(markdownSpec.allowed_files), normalizeComparableList(collectJsonSpecList(jsonSpec, ['allowed_files', 'allowedFiles', 'write_files', 'writeFiles', 'allowed_paths', 'allowedPaths', 'write_paths', 'writePaths']))],
+    ['allowed_tools', normalizeComparableList(markdownSpec.allowed_tools), normalizeComparableList(collectJsonSpecList(jsonSpec, ['allowed_tools', 'allowedTools', 'tool_allowlist', 'toolAllowlist']))],
     ['required_modified_paths', normalizeComparableList(markdownSpec.required_modified_paths), normalizeComparableList(collectJsonSpecList(jsonSpec, ['required_modified_paths', 'requiredModifiedPaths']))],
     ['verification_command', normalizeComparableString(markdownSpec.verification_command), normalizeComparableString(jsonSpec.verification_command ?? jsonSpec.verificationCommand)],
+    ['actionless_iteration_limit', normalizeComparableString(markdownSpec.actionless_iteration_limit), normalizeComparableString(jsonSpec.actionless_iteration_limit ?? jsonSpec.actionlessIterationLimit)],
     ['stop_conditions', normalizeComparableList(markdownSpec.stop_conditions), normalizeComparableList(collectJsonSpecList(jsonSpec, ['stop_conditions', 'stopConditions']))],
   ];
 
@@ -439,11 +448,19 @@ function extractNextTaskPathPolicy(nextTaskPath, nextTaskJsonPath, workingDir) {
 }
 
 function buildTaskAgenticPolicy(task, workingDir, serverConfig) {
-  const metadata = normalizeTaskMetadata(task);
+  const metadata = buildEffectiveAgenticMetadata(task, workingDir);
+  const constraintsFromNextTask = coerceOptionalBoolean(metadata.agentic_constraints_from_next_task, false);
   let readAllowlist = normalizeStringList(metadata.agentic_allowed_read_paths);
   let writeAllowlist = normalizeStringList(metadata.agentic_allowed_write_paths);
+  const writeAfterReadPaths = normalizeStringList(
+    metadata.agentic_write_after_read_paths ?? metadata.agentic_initial_read_paths
+  );
+  let toolAllowlist = normalizeStringList(
+    metadata.agentic_allowed_tools ?? metadata.allowed_tools ?? metadata.agentic_tool_allowlist ?? metadata.tool_allowlist
+  );
+  const taskSpec = constraintsFromNextTask ? loadTaskSpecFromMetadata(metadata, workingDir) : null;
 
-  if (metadata.agentic_constraints_from_next_task) {
+  if (constraintsFromNextTask) {
     const nextTaskPath = (typeof metadata.agentic_next_task_path === 'string' && metadata.agentic_next_task_path.trim())
       ? metadata.agentic_next_task_path.trim()
       : 'docs/autodev/NEXT_TASK.md';
@@ -453,6 +470,14 @@ function buildTaskAgenticPolicy(task, workingDir, serverConfig) {
     const nextTaskPolicy = extractNextTaskPathPolicy(nextTaskPath, nextTaskJsonPath, workingDir);
     readAllowlist = mergeUniqueStrings(readAllowlist, nextTaskPolicy.readPaths);
     writeAllowlist = mergeUniqueStrings(writeAllowlist, nextTaskPolicy.writePaths);
+  }
+
+  if (toolAllowlist.length === 0) {
+    if (taskSpec?.spec) {
+      toolAllowlist = taskSpec.source === 'json'
+        ? collectJsonSpecList(taskSpec.spec, ['allowed_tools', 'allowedTools', 'tool_allowlist', 'toolAllowlist'])
+        : normalizeStringList(taskSpec.spec.allowed_tools);
+    }
   }
 
   const metadataCommandAllowlist = normalizeStringList(
@@ -468,24 +493,69 @@ function buildTaskAgenticPolicy(task, workingDir, serverConfig) {
     commandMode = 'allowlist';
   }
 
-  const parsedMaxIterations = Number.parseInt(metadata.agentic_max_iterations, 10);
+  const specMaxIterations = (() => {
+    if (!taskSpec?.spec) return null;
+    return taskSpec.source === 'json'
+      ? parsePositiveInteger(taskSpec.spec.max_iterations ?? taskSpec.spec.maxIterations)
+      : parsePositiveInteger(taskSpec.spec.max_iterations);
+  })();
+  const parsedMaxIterations = parsePositiveInteger(
+    metadata.agentic_max_iterations
+      ?? metadata.max_iterations
+      ?? specMaxIterations
+  );
+  const specActionlessLimit = (() => {
+    if (!taskSpec?.spec) return null;
+    return taskSpec.source === 'json'
+      ? parsePositiveInteger(taskSpec.spec.actionless_iteration_limit ?? taskSpec.spec.actionlessIterationLimit)
+      : parsePositiveInteger(taskSpec.spec.actionless_iteration_limit);
+  })();
+  const actionlessIterationLimit = parsePositiveInteger(
+    metadata.agentic_actionless_iteration_limit
+      ?? metadata.actionless_iteration_limit
+      ?? specActionlessLimit
+  );
+  const diagnosticReadLimitAfterFailedCommand = parsePositiveInteger(
+    metadata.agentic_diagnostic_read_limit_after_failed_command
+      ?? metadata.agentic_read_budget_after_failed_command
+  );
 
   return {
     metadata,
     readAllowlist,
     writeAllowlist,
+    writeAfterReadPaths,
+    toolAllowlist,
     commandMode,
     commandAllowlist,
-    maxIterations: Number.isFinite(parsedMaxIterations) && parsedMaxIterations > 0
-      ? parsedMaxIterations
-      : null,
+    actionlessIterationLimit,
+    diagnosticReadLimitAfterFailedCommand,
+    maxIterations: parsedMaxIterations,
   };
+}
+
+function resolveAutodevSessionLogPath(metadata, nextTaskPath) {
+  const explicitPath = typeof metadata?.agentic_session_log_path === 'string' && metadata.agentic_session_log_path.trim()
+    ? metadata.agentic_session_log_path.trim()
+    : null;
+  if (explicitPath) return explicitPath;
+
+  const normalizedNextTaskPath = typeof nextTaskPath === 'string' && nextTaskPath.trim()
+    ? nextTaskPath.trim().replace(/\\/g, '/')
+    : null;
+  if (!normalizedNextTaskPath) return null;
+
+  const nextTaskDir = path.posix.dirname(normalizedNextTaskPath);
+  return nextTaskDir && nextTaskDir !== '.'
+    ? `${nextTaskDir}/SESSION_LOG.md`
+    : 'SESSION_LOG.md';
 }
 
 function maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy) {
   const fs = require('fs');
   const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
   if (!metadata.agentic_noop_when_task_spec_synced) return null;
+  if (resolveRequiredModifiedPaths(task, workingDir, agenticPolicy).length > 0) return null;
 
   const nextTaskPath = (typeof metadata.agentic_next_task_path === 'string' && metadata.agentic_next_task_path.trim())
     ? metadata.agentic_next_task_path.trim()
@@ -504,6 +574,21 @@ function maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy) {
     const jsonSpec = JSON.parse(fs.readFileSync(resolvedJsonPath, 'utf-8'));
     const comparison = compareNextTaskSpecs(parseNextTaskMarkdownSpec(markdown), jsonSpec);
     if (!comparison.synced) return null;
+
+    const sessionLogPath = resolveAutodevSessionLogPath(metadata, nextTaskPath);
+    if (sessionLogPath) {
+      const resolvedSessionLogPath = path.resolve(workingDir, sessionLogPath);
+      if (fs.existsSync(resolvedSessionLogPath)) {
+        const sessionLogMtime = fs.statSync(resolvedSessionLogPath).mtimeMs;
+        const latestSpecMtime = Math.max(
+          fs.statSync(resolvedMarkdownPath).mtimeMs,
+          fs.statSync(resolvedJsonPath).mtimeMs,
+        );
+        if (Number.isFinite(sessionLogMtime) && sessionLogMtime > latestSpecMtime) {
+          return null;
+        }
+      }
+    }
 
     return {
       output: `Planning short-circuit: ${nextTaskPath} already matches ${nextTaskJsonPath}. No planning changes required.`,
@@ -575,6 +660,244 @@ function loadTaskSpecFromMetadata(metadata, workingDir) {
   return null;
 }
 
+function buildEffectiveAgenticMetadata(task, workingDir) {
+  const metadata = normalizeTaskMetadata(task);
+  const effectiveMetadata = { ...metadata };
+  if (!coerceOptionalBoolean(metadata.agentic_constraints_from_next_task, false)) {
+    return effectiveMetadata;
+  }
+
+  const { nextTaskPath, nextTaskJsonPath } = resolveNextTaskSpecPaths(metadata);
+  const nextTaskPolicy = extractNextTaskPathPolicy(nextTaskPath, nextTaskJsonPath, workingDir);
+  const taskSpec = loadTaskSpecFromMetadata(metadata, workingDir);
+
+  const readAllowlist = mergeUniqueStrings(
+    normalizeStringList(metadata.agentic_allowed_read_paths),
+    nextTaskPolicy.readPaths,
+  );
+  const writeAllowlist = mergeUniqueStrings(
+    normalizeStringList(metadata.agentic_allowed_write_paths),
+    nextTaskPolicy.writePaths,
+  );
+  if (readAllowlist.length > 0 || Array.isArray(metadata.agentic_allowed_read_paths)) {
+    effectiveMetadata.agentic_allowed_read_paths = readAllowlist;
+  }
+  if (writeAllowlist.length > 0 || Array.isArray(metadata.agentic_allowed_write_paths)) {
+    effectiveMetadata.agentic_allowed_write_paths = writeAllowlist;
+  }
+
+  const explicitToolAllowlist = normalizeStringList(
+    metadata.agentic_allowed_tools ?? metadata.allowed_tools ?? metadata.agentic_tool_allowlist ?? metadata.tool_allowlist
+  );
+  const specToolAllowlist = !taskSpec?.spec
+    ? []
+    : (taskSpec.source === 'json'
+      ? collectJsonSpecList(taskSpec.spec, ['allowed_tools', 'allowedTools', 'tool_allowlist', 'toolAllowlist'])
+      : normalizeStringList(taskSpec.spec.allowed_tools));
+  if (explicitToolAllowlist.length > 0) {
+    effectiveMetadata.agentic_allowed_tools = explicitToolAllowlist;
+  } else if (specToolAllowlist.length > 0) {
+    effectiveMetadata.agentic_allowed_tools = specToolAllowlist;
+  }
+
+  const explicitRequiredPaths = normalizeStringList(
+    metadata.agentic_required_modified_paths ?? metadata.required_modified_paths
+  );
+  const specRequiredPaths = !taskSpec?.spec
+    ? []
+    : (taskSpec.source === 'json'
+      ? collectJsonSpecList(taskSpec.spec, ['required_modified_paths', 'requiredModifiedPaths'])
+      : normalizeStringList(taskSpec.spec.required_modified_paths));
+  if (
+    explicitRequiredPaths.length > 0
+    || specRequiredPaths.length > 0
+    || Array.isArray(metadata.agentic_required_modified_paths)
+  ) {
+    effectiveMetadata.agentic_required_modified_paths = mergeUniqueStrings(explicitRequiredPaths, specRequiredPaths);
+  }
+
+  const explicitVerificationCommand = typeof metadata.agentic_verification_command === 'string'
+    ? metadata.agentic_verification_command
+    : metadata.verification_command;
+  const specVerificationCommand = !taskSpec?.spec
+    ? ''
+    : (taskSpec.source === 'json'
+      ? (taskSpec.spec.verification_command ?? taskSpec.spec.verificationCommand ?? '')
+      : (taskSpec.spec.verification_command || ''));
+  const verificationCommand = stripWrappingBackticks(explicitVerificationCommand || specVerificationCommand || '');
+  if (verificationCommand) {
+    effectiveMetadata.agentic_verification_command = verificationCommand;
+  }
+
+  const explicitCommandAllowlist = normalizeStringList(
+    metadata.agentic_allowed_commands ?? metadata.agentic_command_allowlist
+  );
+  if (explicitCommandAllowlist.length > 0 || Array.isArray(metadata.agentic_allowed_commands)) {
+    effectiveMetadata.agentic_allowed_commands = explicitCommandAllowlist;
+    effectiveMetadata.agentic_command_mode = 'allowlist';
+  } else if (verificationCommand) {
+    // Constrained NEXT_TASK executors should not get arbitrary shell access.
+    effectiveMetadata.agentic_allowed_commands = [verificationCommand];
+    effectiveMetadata.agentic_command_mode = 'allowlist';
+  }
+
+  const explicitActionlessLimit = parsePositiveInteger(
+    metadata.agentic_actionless_iteration_limit ?? metadata.actionless_iteration_limit
+  );
+  const specActionlessLimit = !taskSpec?.spec
+    ? null
+    : (taskSpec.source === 'json'
+      ? parsePositiveInteger(taskSpec.spec.actionless_iteration_limit ?? taskSpec.spec.actionlessIterationLimit)
+      : parsePositiveInteger(taskSpec.spec.actionless_iteration_limit));
+  if (explicitActionlessLimit) {
+    effectiveMetadata.agentic_actionless_iteration_limit = explicitActionlessLimit;
+  } else if (specActionlessLimit) {
+    effectiveMetadata.agentic_actionless_iteration_limit = specActionlessLimit;
+  }
+
+  return effectiveMetadata;
+}
+
+function maybePersistEffectiveAgenticMetadata(task, db, workingDir) {
+  const originalMetadata = normalizeTaskMetadata(task);
+  const effectiveMetadata = buildEffectiveAgenticMetadata(task, workingDir);
+  task.metadata = effectiveMetadata;
+
+  if (!db || typeof db.updateTask !== 'function' || !task?.id) {
+    return effectiveMetadata;
+  }
+  if (JSON.stringify(originalMetadata) === JSON.stringify(effectiveMetadata)) {
+    return effectiveMetadata;
+  }
+
+  try {
+    db.updateTask(task.id, { metadata: effectiveMetadata });
+  } catch (err) {
+    logger.info(`[Agentic] Failed to persist synced metadata for task ${task.id}: ${err.message}`);
+  }
+
+  return effectiveMetadata;
+}
+
+function normalizeChangedFileList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry) => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function mergeChangedFiles(...groups) {
+  return mergeUniqueStrings(...groups.map((group) => normalizeChangedFileList(group)));
+}
+
+function toRelativeDisplayPath(filePath, workingDir) {
+  if (typeof filePath !== 'string' || !filePath.trim()) return '';
+  const absolutePath = path.resolve(workingDir, filePath);
+  const relativePath = path.relative(workingDir, absolutePath);
+  return (relativePath && !relativePath.startsWith('..'))
+    ? relativePath.replace(/\\/g, '/')
+    : absolutePath.replace(/\\/g, '/');
+}
+
+function resolveAgenticSessionLogTarget(task, workingDir, agenticPolicy) {
+  const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  const writeAllowlist = normalizeStringList(agenticPolicy?.writeAllowlist);
+  const explicitPath = typeof metadata.agentic_session_log_path === 'string' && metadata.agentic_session_log_path.trim()
+    ? metadata.agentic_session_log_path.trim()
+    : null;
+  const normalizedExplicitPath = explicitPath ? explicitPath.replace(/\\/g, '/').toLowerCase() : null;
+
+  let relativePath = null;
+  if (normalizedExplicitPath && writeAllowlist.some((entry) => entry.replace(/\\/g, '/').toLowerCase() === normalizedExplicitPath)) {
+    relativePath = explicitPath;
+  }
+  if (!relativePath) {
+    relativePath = writeAllowlist.find((entry) => /(^|\/)session_log\.md$/i.test(entry.replace(/\\/g, '/'))) || null;
+  }
+  if (!relativePath) return null;
+
+  return {
+    relativePath,
+    absolutePath: path.resolve(workingDir, relativePath),
+  };
+}
+
+function summarizeVerificationStatus(verificationCommand, toolLog) {
+  if (!verificationCommand) {
+    return 'not required';
+  }
+  const verificationResult = inspectVerificationToolLog(toolLog, verificationCommand);
+  if (!verificationResult) {
+    return 'passed';
+  }
+  if (verificationResult.status === 'missing') {
+    return 'not run';
+  }
+  return 'failed';
+}
+
+function appendAgenticOutputSection(result, title, message) {
+  if (!result || typeof result !== 'object' || !title || !message) return;
+  const prefix = typeof result.output === 'string' && result.output.length > 0 ? `${result.output}\n\n` : '';
+  result.output = `${prefix}--- ${title} ---\n${message}`;
+}
+
+function maybeAppendAgenticSessionLog(task, workingDir, agenticPolicy, result, summary, sessionLogTarget = null) {
+  const target = sessionLogTarget || resolveAgenticSessionLogTarget(task, workingDir, agenticPolicy);
+  if (!target) return null;
+
+  const fs = require('fs');
+  const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  const taskSpec = loadTaskSpecFromMetadata(metadata, workingDir);
+  const goal = stripWrappingBackticks(taskSpec?.spec?.goal || '') || stripWrappingBackticks(task.task_description || '');
+  const verificationCommand = summary?.verificationCommand || resolveTaskVerificationCommand(task, workingDir, agenticPolicy);
+  const verificationStatus = summarizeVerificationStatus(verificationCommand, result?.toolLog);
+  const changedFiles = mergeChangedFiles(result?.changedFiles).filter((entry) => normalizeComparablePath(entry, workingDir) !== normalizeComparablePath(target.absolutePath, workingDir));
+  const changedFilesSummary = changedFiles.length > 0
+    ? changedFiles.map((entry) => toRelativeDisplayPath(entry, workingDir)).join(', ')
+    : 'none';
+  const status = summary?.status === 'failed' ? 'failed' : 'completed';
+  const outcomeMessage = stripWrappingBackticks(String(summary?.outcomeMessage || (status === 'failed' ? 'Task failed.' : 'Task completed.')))
+    .replace(/\s+/g, ' ')
+    .trim();
+  const marker = `<!-- torque-autodev-log:${task.id} -->`;
+  const entryLines = [
+    marker,
+    `## ${summary?.timestamp || new Date().toISOString()} | ${status} | ${task.id}`,
+    `- Goal: ${goal}`,
+    `- Files Changed: ${changedFilesSummary}`,
+    `- Verification Command: ${verificationCommand || 'not required'}`,
+    `- Verification Result: ${verificationStatus}`,
+    `- Outcome: ${outcomeMessage}`,
+  ];
+  if (summary?.revertReport) {
+    entryLines.push(`- Notes: ${String(summary.revertReport).replace(/\s+/g, ' ').trim()}`);
+  }
+  const entry = `${entryLines.join('\n')}\n`;
+
+  try {
+    fs.mkdirSync(path.dirname(target.absolutePath), { recursive: true });
+    const existingContent = fs.existsSync(target.absolutePath)
+      ? fs.readFileSync(target.absolutePath, 'utf-8')
+      : '';
+    if (existingContent.includes(marker)) {
+      return { appended: false, alreadyPresent: true, ...target };
+    }
+    const baseContent = existingContent.trim().length > 0
+      ? `${existingContent.replace(/\s*$/, '')}\n\n`
+      : '# Session Log\n\n';
+    fs.writeFileSync(target.absolutePath, `${baseContent}${entry}`, 'utf-8');
+    return { appended: true, ...target };
+  } catch (error) {
+    return {
+      appended: false,
+      error: error.message,
+      ...target,
+    };
+  }
+}
+
 function resolveTaskVerificationCommand(task, workingDir, agenticPolicy) {
   const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
   const explicitCommand = typeof metadata.agentic_verification_command === 'string'
@@ -597,16 +920,20 @@ function resolveRequiredModifiedPaths(task, workingDir, agenticPolicy) {
   const explicitPaths = normalizeStringList(
     metadata.agentic_required_modified_paths ?? metadata.required_modified_paths
   );
+  const taskSpec = loadTaskSpecFromMetadata(metadata, workingDir);
+  const specPaths = !taskSpec?.spec
+    ? []
+    : (taskSpec.source === 'json'
+      ? collectJsonSpecList(taskSpec.spec, ['required_modified_paths', 'requiredModifiedPaths'])
+      : normalizeStringList(taskSpec.spec.required_modified_paths));
+
+  if (coerceOptionalBoolean(metadata.agentic_constraints_from_next_task, false)) {
+    return mergeUniqueStrings(explicitPaths, specPaths);
+  }
   if (explicitPaths.length > 0 || Array.isArray(metadata.agentic_required_modified_paths)) {
     return explicitPaths;
   }
-
-  const taskSpec = loadTaskSpecFromMetadata(metadata, workingDir);
-  if (!taskSpec?.spec) return [];
-  if (taskSpec.source === 'json') {
-    return collectJsonSpecList(taskSpec.spec, ['required_modified_paths', 'requiredModifiedPaths']);
-  }
-  return normalizeStringList(taskSpec.spec.required_modified_paths);
+  return specPaths;
 }
 
 function normalizeCommandForComparison(value) {
@@ -667,6 +994,34 @@ function buildGitSafetyOptions(agenticPolicy) {
   };
 }
 
+function shouldRevertFailedAgenticChanges(task, agenticPolicy) {
+  const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  const strictExecution = coerceOptionalBoolean(
+    metadata.agentic_strict_completion,
+    coerceOptionalBoolean(metadata.agentic_constraints_from_next_task, false),
+  );
+  return coerceOptionalBoolean(metadata.agentic_revert_changes_on_failure, strictExecution);
+}
+
+function maybeRevertFailedAgenticChanges(task, workingDir, agenticPolicy, snapshot, result) {
+  if (!shouldRevertFailedAgenticChanges(task, agenticPolicy)) {
+    return null;
+  }
+  if (!snapshot?.isGitRepo) {
+    return null;
+  }
+  const changedFiles = mergeChangedFiles(result?.changedFiles);
+  const preservedFiles = new Set(
+    mergeChangedFiles(result?.frameworkPreservedFiles)
+      .map((entry) => normalizeComparablePath(entry, workingDir))
+  );
+  const revertCandidates = changedFiles.filter((entry) => !preservedFiles.has(normalizeComparablePath(entry, workingDir)));
+  if (revertCandidates.length === 0) {
+    return null;
+  }
+  return revertScopedChanges(workingDir, snapshot, revertCandidates);
+}
+
 function normalizeComparablePath(value, workingDir) {
   const resolved = path.resolve(workingDir, String(value || '').trim());
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
@@ -686,7 +1041,7 @@ function inspectRequiredModifiedPaths(changedFiles, requiredPaths, workingDir) {
   };
 }
 
-function evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxIterations, gitReport) {
+function evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxIterations, gitReport, options = {}) {
   const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
   const strictExecution = coerceOptionalBoolean(
     metadata.agentic_strict_completion,
@@ -702,10 +1057,20 @@ function evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxI
   const failureMessages = [];
   const verificationCommand = resolveTaskVerificationCommand(task, workingDir, agenticPolicy);
   const requiredModifiedPaths = resolveRequiredModifiedPaths(task, workingDir, agenticPolicy);
+  const changedFiles = Array.isArray(options.changedFilesOverride)
+    ? options.changedFilesOverride
+    : result?.changedFiles;
 
   if (failOnVerification && verificationCommand) {
     const verificationResult = inspectVerificationToolLog(result?.toolLog, verificationCommand);
     if (verificationResult) failureMessages.push(verificationResult.message);
+  }
+
+  const stoppedForActionlessIterations = result?.stopReason === 'actionless_iterations';
+  if (stoppedForActionlessIterations) {
+    const limit = agenticPolicy?.actionlessIterationLimit;
+    const limitSuffix = Number.isFinite(limit) && limit > 0 ? ` (${limit})` : '';
+    failureMessages.push(`Agentic task stopped after hitting the actionless iteration limit${limitSuffix} without any write or verification attempt.`);
   }
 
   const reachedMaxIterations = result?.stopReason === 'max_iterations'
@@ -718,8 +1083,8 @@ function evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxI
     failureMessages.push(`Git Safety reverted unauthorized changes: ${gitReport.reverted.join(', ')}`);
   }
 
-  if (failOnMissingRequiredPaths) {
-    const requiredPathResult = inspectRequiredModifiedPaths(result?.changedFiles, requiredModifiedPaths, workingDir);
+  if (failOnMissingRequiredPaths && !options.skipRequiredModifiedPaths) {
+    const requiredPathResult = inspectRequiredModifiedPaths(changedFiles, requiredModifiedPaths, workingDir);
     if (requiredPathResult) failureMessages.push(requiredPathResult.message);
   }
 
@@ -739,11 +1104,23 @@ function appendTaskPolicyGuidance(systemPrompt, agenticPolicy) {
   if (Array.isArray(agenticPolicy.writeAllowlist) && agenticPolicy.writeAllowlist.length > 0) {
     guidance.push(`Write scope is restricted to: ${agenticPolicy.writeAllowlist.join(', ')}`);
   }
+  if (Array.isArray(agenticPolicy.writeAfterReadPaths) && agenticPolicy.writeAfterReadPaths.length > 0) {
+    guidance.push(`After you read all of these paths, your next tool call must be write_file, edit_file, or replace_lines before any more reads or commands: ${agenticPolicy.writeAfterReadPaths.join(', ')}`);
+  }
+  if (Number.isFinite(agenticPolicy.diagnosticReadLimitAfterFailedCommand) && agenticPolicy.diagnosticReadLimitAfterFailedCommand > 0) {
+    guidance.push(`After a failed run_command, you may use at most ${agenticPolicy.diagnosticReadLimitAfterFailedCommand} diagnostic read_file call(s) before your next tool call must be write_file, edit_file, or replace_lines.`);
+  }
   if (agenticPolicy.commandMode === 'allowlist') {
     const commandSummary = agenticPolicy.commandAllowlist.length > 0
       ? agenticPolicy.commandAllowlist.join(', ')
       : 'no commands are allowed';
     guidance.push(`Commands must match this allowlist: ${commandSummary}`);
+  }
+  if (Array.isArray(agenticPolicy.toolAllowlist) && agenticPolicy.toolAllowlist.length > 0) {
+    guidance.push(`Only these tools may be used: ${agenticPolicy.toolAllowlist.join(', ')}`);
+  }
+  if (Number.isFinite(agenticPolicy.actionlessIterationLimit) && agenticPolicy.actionlessIterationLimit > 0) {
+    guidance.push(`Stop after ${agenticPolicy.actionlessIterationLimit} consecutive iterations without any write or verification attempt`);
   }
   if (guidance.length === 0) return systemPrompt;
   return `${systemPrompt}\n\nTask-specific hard constraints:\n- ${guidance.join('\n- ')}`;
@@ -992,6 +1369,8 @@ async function runAgenticPipeline({
     commandAllowlist: agenticPolicy.commandAllowlist,
     readAllowlist: agenticPolicy.readAllowlist,
     writeAllowlist: agenticPolicy.writeAllowlist,
+    writeAfterReadPaths: agenticPolicy.writeAfterReadPaths,
+    diagnosticReadLimitAfterFailedCommand: agenticPolicy.diagnosticReadLimitAfterFailedCommand,
   });
 
   // Capture git snapshot (non-git repos return null)
@@ -1011,7 +1390,11 @@ async function runAgenticPipeline({
     adapter,
     systemPrompt: appendTaskPolicyGuidance(systemPrompt, agenticPolicy),
     taskPrompt: enrichedPromptInline,
-    tools: promptInjectedTools ? [] : selectToolsForTask(task.task_description),
+    tools: promptInjectedTools ? [] : selectToolsForTask(task.task_description, {
+      commandMode: agenticPolicy.commandMode,
+      commandAllowlist: agenticPolicy.commandAllowlist,
+      toolAllowlist: agenticPolicy.toolAllowlist,
+    }),
     promptInjectedTools,
     toolExecutor: executor,
     options: adapterOptions,
@@ -1019,6 +1402,7 @@ async function runAgenticPipeline({
     timeoutMs,
     maxIterations: agenticPolicy.maxIterations || maxIterations,
     contextBudget,
+    actionlessIterationLimit: agenticPolicy.actionlessIterationLimit,
     onProgress: (iteration, max, lastTool) => {
       const pct = Math.min(85, 10 + Math.floor((iteration / max) * 75));
       try {
@@ -1107,6 +1491,7 @@ async function executeOllamaTaskWithAgentic(task) {
   // Resolve working directory
   let workingDir = task.working_directory;
   if (!workingDir) workingDir = process.cwd();
+  maybePersistEffectiveAgenticMetadata(task, db, workingDir);
   const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
 
   const noopPlanningResult = maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy);
@@ -1254,7 +1639,11 @@ async function executeOllamaTaskWithAgentic(task) {
 
   // For prompt-injected tools: append tool definitions to system prompt
   if (usePromptInjection) {
-    const selectedTools = selectToolsForTask(task.task_description);
+    const selectedTools = selectToolsForTask(task.task_description, {
+      commandMode: agenticPolicy.commandMode,
+      commandAllowlist: agenticPolicy.commandAllowlist,
+      toolAllowlist: agenticPolicy.toolAllowlist,
+    });
     const toolDefs = selectedTools.map(t => JSON.stringify({
       type: t.type, function: { name: t.function.name, description: t.function.description, parameters: t.function.parameters }
     })).join(',');
@@ -1340,8 +1729,12 @@ async function executeOllamaTaskWithAgentic(task) {
       promptInjectedTools: usePromptInjection,
       commandMode: agenticPolicy.commandMode,
       commandAllowlist: agenticPolicy.commandAllowlist,
+      toolAllowlist: agenticPolicy.toolAllowlist,
+      actionlessIterationLimit: agenticPolicy.actionlessIterationLimit,
       readAllowlist: agenticPolicy.readAllowlist,
       writeAllowlist: agenticPolicy.writeAllowlist,
+      writeAfterReadPaths: agenticPolicy.writeAfterReadPaths,
+      diagnosticReadLimitAfterFailedCommand: agenticPolicy.diagnosticReadLimitAfterFailedCommand,
     }, buildTrackedAgenticCallbacks(taskId, {
       onProgress: (msg) => {
         try {
@@ -1393,19 +1786,56 @@ async function executeOllamaTaskWithAgentic(task) {
       }
     }
 
-    const completionFailure = evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxIterations, gitReport);
-    if (completionFailure) {
+    const sessionLogTarget = resolveAgenticSessionLogTarget(task, workingDir, agenticPolicy);
+    const reviewedChangedFiles = sessionLogTarget
+      ? mergeChangedFiles(result?.changedFiles, [sessionLogTarget.absolutePath])
+      : mergeChangedFiles(result?.changedFiles);
+    const completionFailure = evaluateAgenticCompletion(
+      task,
+      workingDir,
+      agenticPolicy,
+      result,
+      maxIterations,
+      gitReport,
+      { changedFilesOverride: reviewedChangedFiles }
+    );
+    const revertResult = completionFailure
+      ? maybeRevertFailedAgenticChanges(task, workingDir, agenticPolicy, snapshot, result)
+      : null;
+    let failureMessage = completionFailure?.message || '';
+    if (revertResult?.report) {
+      failureMessage = failureMessage ? `${failureMessage}\n${revertResult.report}` : revertResult.report;
+    }
+    const completedAt = new Date().toISOString();
+    const sessionLogResult = maybeAppendAgenticSessionLog(task, workingDir, agenticPolicy, result, {
+      status: completionFailure ? 'failed' : 'completed',
+      outcomeMessage: failureMessage || 'Task completed successfully.',
+      verificationCommand: completionFailure?.verificationCommand || resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
+      revertReport: revertResult?.report || '',
+      timestamp: completedAt,
+    }, sessionLogTarget);
+    if (sessionLogResult?.appended) {
+      result.changedFiles = reviewedChangedFiles;
+      result.frameworkPreservedFiles = mergeChangedFiles(result?.frameworkPreservedFiles, [sessionLogResult.absolutePath]);
+      appendAgenticOutputSection(result, 'Framework Session Log', `Appended ${sessionLogResult.relativePath}`);
+    } else if (sessionLogTarget && sessionLogResult?.error) {
+      const sessionLogError = `Framework session log append failed: ${sessionLogResult.relativePath} (${sessionLogResult.error})`;
+      failureMessage = failureMessage ? `${failureMessage}\n${sessionLogError}` : sessionLogError;
+      appendAgenticOutputSection(result, 'Framework Session Log', `Failed to append ${sessionLogResult.relativePath}: ${sessionLogResult.error}`);
+    }
+    if (completionFailure || (sessionLogTarget && sessionLogResult?.error)) {
       safeUpdateTaskStatus(taskId, 'failed', {
         output: result.output,
-        error_output: completionFailure.message,
+        error_output: failureMessage,
         exit_code: 1,
         progress_percent: 100,
-        completed_at: new Date().toISOString(),
+        completed_at: completedAt,
         task_metadata: JSON.stringify({
           agentic_log: result.toolLog,
           agentic_token_usage: result.tokenUsage,
-          agentic_failure_reason: completionFailure.message,
-          ...(completionFailure.verificationCommand ? { verification_command: completionFailure.verificationCommand } : {}),
+          agentic_failure_reason: failureMessage,
+          ...(revertResult ? { agentic_reverted_changes: revertResult.reverted, agentic_revert_report: revertResult.report } : {}),
+          ...(completionFailure?.verificationCommand ? { verification_command: completionFailure.verificationCommand } : {}),
         }),
       });
 
@@ -1414,7 +1844,7 @@ async function executeOllamaTaskWithAgentic(task) {
         dispatchTaskEvent('failed', db.getTask(taskId));
       } catch { /* non-fatal */ }
 
-      logger.info(`[Agentic] Ollama task ${taskId} marked failed after completion review: ${completionFailure.message}`);
+      logger.info(`[Agentic] Ollama task ${taskId} marked failed after completion review: ${failureMessage}`);
       return;
     }
 
@@ -1423,7 +1853,7 @@ async function executeOllamaTaskWithAgentic(task) {
       output: result.output,
       exit_code: 0,
       progress_percent: 100,
-      completed_at: new Date().toISOString(),
+      completed_at: completedAt,
       task_metadata: JSON.stringify({
         agentic_log: result.toolLog,
         agentic_token_usage: result.tokenUsage,
@@ -1525,6 +1955,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   // Resolve working directory
   let workingDir = task.working_directory;
   if (!workingDir) workingDir = process.cwd();
+  maybePersistEffectiveAgenticMetadata(task, db, workingDir);
   const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
 
   const noopPlanningResult = maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy);
@@ -1643,7 +2074,17 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     };
 
     let result;
+    let snapshot = null;
     let completionGitReport = null;
+
+    // Capture git snapshot ONCE before chain/single-provider branch so the
+    // completion-failure revert path always has access to it (fixes null-snapshot
+    // bug where chain-routed tasks never reverted on failure).
+    try {
+      snapshot = captureSnapshot(workingDir);
+    } catch (e) {
+      logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
+    }
 
     if (chain && Array.isArray(chain) && chain.length > 1) {
       // Multi-provider fallback chain — delegate to executeWithFallback
@@ -1671,8 +2112,12 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           promptInjectedTools: needsPromptInjection(entry.model || ''),
           commandMode: agenticPolicy.commandMode,
           commandAllowlist: agenticPolicy.commandAllowlist,
+          toolAllowlist: agenticPolicy.toolAllowlist,
+          actionlessIterationLimit: agenticPolicy.actionlessIterationLimit,
           readAllowlist: agenticPolicy.readAllowlist,
           writeAllowlist: agenticPolicy.writeAllowlist,
+          writeAfterReadPaths: agenticPolicy.writeAfterReadPaths,
+          diagnosticReadLimitAfterFailedCommand: agenticPolicy.diagnosticReadLimitAfterFailedCommand,
         };
       };
 
@@ -1680,14 +2125,6 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       logger.info(`[Agentic] API task ${taskId} completed via chain position ${result.chainPosition}: ${result.provider}/${result.model || 'default'}`);
     } else {
       // Single-provider path (no chain or single-entry chain)
-      // Capture git snapshot in main thread (git ops need main process context)
-      let snapshot = null;
-      try {
-        snapshot = captureSnapshot(workingDir);
-      } catch (e) {
-        logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
-      }
-
       // Resolve adapter type for the worker
       const adapterType = provider === 'ollama-cloud' ? 'ollama'
         : provider === 'google-ai' ? 'google'
@@ -1713,8 +2150,12 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         promptInjectedTools: false,
         commandMode: agenticPolicy.commandMode,
         commandAllowlist: agenticPolicy.commandAllowlist,
+        toolAllowlist: agenticPolicy.toolAllowlist,
+        actionlessIterationLimit: agenticPolicy.actionlessIterationLimit,
         readAllowlist: agenticPolicy.readAllowlist,
         writeAllowlist: agenticPolicy.writeAllowlist,
+        writeAfterReadPaths: agenticPolicy.writeAfterReadPaths,
+        diagnosticReadLimitAfterFailedCommand: agenticPolicy.diagnosticReadLimitAfterFailedCommand,
       }, buildTrackedAgenticCallbacks(taskId, workerCallbacks));
       cleanupTrackedWorker = trackAgenticWorkerTask(taskId, {
         workerHandle,
@@ -1743,20 +2184,57 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       }
     }
 
-    const completionFailure = evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxIterations, result?.gitReport || completionGitReport);
-    if (completionFailure) {
+    const sessionLogTarget = resolveAgenticSessionLogTarget(task, workingDir, agenticPolicy);
+    const reviewedChangedFiles = sessionLogTarget
+      ? mergeChangedFiles(result?.changedFiles, [sessionLogTarget.absolutePath])
+      : mergeChangedFiles(result?.changedFiles);
+    const completionFailure = evaluateAgenticCompletion(
+      task,
+      workingDir,
+      agenticPolicy,
+      result,
+      maxIterations,
+      result?.gitReport || completionGitReport,
+      { changedFilesOverride: reviewedChangedFiles }
+    );
+    const revertResult = completionFailure
+      ? maybeRevertFailedAgenticChanges(task, workingDir, agenticPolicy, snapshot, result)
+      : null;
+    let failureMessage = completionFailure?.message || '';
+    if (revertResult?.report) {
+      failureMessage = failureMessage ? `${failureMessage}\n${revertResult.report}` : revertResult.report;
+    }
+    const completedAt = new Date().toISOString();
+    const sessionLogResult = maybeAppendAgenticSessionLog(task, workingDir, agenticPolicy, result, {
+      status: completionFailure ? 'failed' : 'completed',
+      outcomeMessage: failureMessage || 'Task completed successfully.',
+      verificationCommand: completionFailure?.verificationCommand || resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
+      revertReport: revertResult?.report || '',
+      timestamp: completedAt,
+    }, sessionLogTarget);
+    if (sessionLogResult?.appended) {
+      result.changedFiles = reviewedChangedFiles;
+      result.frameworkPreservedFiles = mergeChangedFiles(result?.frameworkPreservedFiles, [sessionLogResult.absolutePath]);
+      appendAgenticOutputSection(result, 'Framework Session Log', `Appended ${sessionLogResult.relativePath}`);
+    } else if (sessionLogTarget && sessionLogResult?.error) {
+      const sessionLogError = `Framework session log append failed: ${sessionLogResult.relativePath} (${sessionLogResult.error})`;
+      failureMessage = failureMessage ? `${failureMessage}\n${sessionLogError}` : sessionLogError;
+      appendAgenticOutputSection(result, 'Framework Session Log', `Failed to append ${sessionLogResult.relativePath}: ${sessionLogResult.error}`);
+    }
+    if (completionFailure || (sessionLogTarget && sessionLogResult?.error)) {
       safeUpdateTaskStatus(taskId, 'failed', {
         output: result.output || '',
-        error_output: completionFailure.message,
+        error_output: failureMessage,
         exit_code: 1,
         progress_percent: 100,
-        completed_at: new Date().toISOString(),
+        completed_at: completedAt,
         task_metadata: JSON.stringify({
           agentic_log: result.toolLog,
           agentic_token_usage: result.tokenUsage,
-          agentic_failure_reason: completionFailure.message,
+          agentic_failure_reason: failureMessage,
+          ...(revertResult ? { agentic_reverted_changes: revertResult.reverted, agentic_revert_report: revertResult.report } : {}),
           ...(result.chainPosition ? { chain_provider: result.provider, chain_position: result.chainPosition } : {}),
-          ...(completionFailure.verificationCommand ? { verification_command: completionFailure.verificationCommand } : {}),
+          ...(completionFailure?.verificationCommand ? { verification_command: completionFailure.verificationCommand } : {}),
         }),
       });
 
@@ -1765,7 +2243,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         dispatchTaskEvent('failed', db.getTask(taskId));
       } catch { /* non-fatal */ }
 
-      logger.info(`[Agentic] API task ${taskId} marked failed after completion review: ${completionFailure.message}`);
+      logger.info(`[Agentic] API task ${taskId} marked failed after completion review: ${failureMessage}`);
       return;
     }
 
@@ -1774,7 +2252,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       output: result.output || '',
       exit_code: 0,
       progress_percent: 100,
-      completed_at: new Date().toISOString(),
+      completed_at: completedAt,
       task_metadata: JSON.stringify({
         agentic_log: result.toolLog,
         agentic_token_usage: result.tokenUsage,

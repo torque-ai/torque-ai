@@ -648,6 +648,34 @@ describe('runAgenticLoop — tool_call followed by text response (common pattern
   });
 });
 
+describe('runAgenticLoop — actionless iteration guard', () => {
+  it('stops modification tasks after the configured number of actionless iterations', async () => {
+    const adapter = mockAdapter([
+      toolCallResponse('read_file', { path: 'src/FixMe.cs' }),
+      toolCallResponse('read_file', { path: 'src/FixMe.cs' }),
+      textResponse('This response should never be reached.'),
+    ]);
+    const executor = mockToolExecutor({
+      read_file: { result: 'class FixMe {}', metadata: {} },
+    });
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'You are a coding assistant.',
+      taskPrompt: 'Fix the compile error in src/FixMe.cs and verify the repair.',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+      actionlessIterationLimit: 2,
+      maxIterations: 5,
+    });
+
+    expect(result.stopReason).toBe('actionless_iterations');
+    expect(result.output).toContain('without any write or verification attempt');
+    expect(result.iterations).toBe(2);
+    expect(result.toolLog).toHaveLength(2);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Test 14: MAX_ITERATIONS exported constant
 // ---------------------------------------------------------------------------

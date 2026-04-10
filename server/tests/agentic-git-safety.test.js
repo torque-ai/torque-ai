@@ -16,6 +16,7 @@ let gitRepos;
 let loggerMock;
 let captureSnapshot;
 let checkAndRevert;
+let revertScopedChanges;
 
 function installMock(modulePath, exportsValue) {
   require.cache[modulePath] = {
@@ -204,7 +205,7 @@ beforeEach(() => {
   installMock(LOGGER_PATH, loggerMock);
   delete require.cache[SUBJECT_PATH];
 
-  ({ captureSnapshot, checkAndRevert } = require('../providers/agentic-git-safety'));
+  ({ captureSnapshot, checkAndRevert, revertScopedChanges } = require('../providers/agentic-git-safety'));
   setupRepo();
 });
 
@@ -397,5 +398,32 @@ describe('checkAndRevert — non-git directory', () => {
     expect(result.reverted).toHaveLength(0);
     expect(result.kept).toHaveLength(0);
     expect(result.report).toBe('');
+  });
+});
+
+describe('revertScopedChanges', () => {
+  it('reverts only the requested tracked file changed after snapshot', () => {
+    const snap = captureSnapshot(repoDir);
+    writeFile('main.cs', 'failed task change');
+    writeFile('README.md', 'leave this alone');
+
+    const result = revertScopedChanges(repoDir, snap, [path.join(repoDir, 'main.cs')]);
+
+    expect(result.reverted).toContain('main.cs');
+    expect(result.reverted).not.toContain('README.md');
+    expect(readFile('main.cs')).toBe('original');
+    expect(readFile('README.md')).toBe('leave this alone');
+  });
+
+  it('deletes only the requested untracked file changed after snapshot', () => {
+    const snap = captureSnapshot(repoDir);
+    writeFile('failed.tmp', 'remove me');
+    writeFile('keep.tmp', 'keep me');
+
+    const result = revertScopedChanges(repoDir, snap, ['failed.tmp']);
+
+    expect(result.reverted).toContain('failed.tmp');
+    expect(fileExists('failed.tmp')).toBe(false);
+    expect(fileExists('keep.tmp')).toBe(true);
   });
 });

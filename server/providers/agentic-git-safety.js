@@ -155,6 +155,30 @@ function isGitIgnored(filePath, workingDir) {
   }
 }
 
+function captureCurrentGitState(workingDir) {
+  const diffOutput = gitExec(['diff', '--name-only'], workingDir);
+  const statusOutput = gitExec(['status', '--porcelain'], workingDir);
+  return {
+    currentDirty: parseDirtyFiles(diffOutput),
+    currentUntracked: parseUntrackedFiles(statusOutput),
+  };
+}
+
+function toScopedRelativePath(workingDir, filePath) {
+  if (typeof filePath !== 'string' || !filePath.trim()) {
+    return null;
+  }
+  const trimmed = filePath.trim();
+  const relativePath = path.isAbsolute(trimmed)
+    ? path.relative(workingDir, trimmed)
+    : trimmed;
+  const normalized = normalizeRelativePath(relativePath);
+  if (!normalized || normalized.startsWith('..')) {
+    return null;
+  }
+  return normalized;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -206,10 +230,7 @@ function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce',
   let currentDirty = new Set();
   let currentUntracked = new Set();
   try {
-    const diffOutput = gitExec(['diff', '--name-only'], workingDir);
-    const statusOutput = gitExec(['status', '--porcelain'], workingDir);
-    currentDirty = parseDirtyFiles(diffOutput);
-    currentUntracked = parseUntrackedFiles(statusOutput);
+    ({ currentDirty, currentUntracked } = captureCurrentGitState(workingDir));
   } catch {
     return { reverted: [], kept: [], report: '' };
   }
@@ -279,4 +300,87 @@ function checkAndRevert(workingDir, snapshot, taskDescription, mode = 'enforce',
   return { reverted, kept, report };
 }
 
-module.exports = { captureSnapshot, checkAndRevert };
+/**
+ * Revert only the specified files if they were changed after the snapshot.
+ * Preserves pre-existing dirty/untracked state by only touching snapshot deltas.
+ *
+ * @param {string} workingDir
+ * @param {{ dirtyFiles: Set<string>, untrackedFiles: Set<string>, isGitRepo: boolean }} snapshot
+ * @param {string[]} targetFiles
+ * @returns {{ reverted: string[], kept: string[], report: string }}
+ */
+function revertScopedChanges(workingDir, snapshot, targetFiles) {
+  if (!snapshot?.isGitRepo || snapshot?._snapshotFailed) {
+    return { reverted: [], kept: [], report: '' };
+  }
+
+  const requestedPaths = new Set(
+    (Array.isArray(targetFiles) ? targetFiles : [])
+      .map((filePath) => toScopedRelativePath(workingDir, filePath))
+      .filter(Boolean)
+  );
+  if (requestedPaths.size === 0) {
+    return { reverted: [], kept: [], report: '' };
+  }
+
+  let currentDirty = new Set();
+  let currentUntracked = new Set();
+  try {
+    ({ currentDirty, currentUntracked } = captureCurrentGitState(workingDir));
+  } catch {
+    return { reverted: [], kept: [...requestedPaths], report: '' };
+  }
+
+  const newlyDirty = [...currentDirty]
+    .filter((filePath) => !snapshot.dirtyFiles.has(filePath))
+    .filter((filePath) => requestedPaths.has(normalizeRelativePath(filePath)));
+
+  const newlyUntrackedEntries = [...currentUntracked].filter((filePath) => !snapshot.untrackedFiles.has(filePath));
+  const newlyUntracked = newlyUntrackedEntries
+    .flatMap((entry) => expandUntrackedEntry(entry, workingDir))
+    .filter((filePath) => requestedPaths.has(normalizeRelativePath(filePath)));
+
+  const reverted = [];
+  const kept = [];
+
+  for (const filePath of newlyDirty) {
+    try {
+      gitExec(['checkout', '--', filePath], workingDir);
+      reverted.push(filePath);
+    } catch (err) {
+      logger.warn(`[agentic-git-safety] Failed to revert scoped tracked file ${filePath}: ${err.message}`);
+      kept.push(filePath);
+    }
+  }
+
+  for (const filePath of newlyUntracked) {
+    if (isGitIgnored(filePath, workingDir)) {
+      kept.push(filePath);
+      continue;
+    }
+    const fullPath = path.resolve(workingDir, filePath);
+    try {
+      fs.unlinkSync(fullPath);
+      reverted.push(filePath);
+    } catch (err) {
+      logger.warn(`[agentic-git-safety] Failed to delete scoped untracked file ${filePath}: ${err.message}`);
+      kept.push(filePath);
+    }
+  }
+
+  const reportParts = [];
+  if (reverted.length > 0) {
+    reportParts.push(`Reverted ${reverted.length} failed task change${reverted.length === 1 ? '' : 's'}: ${reverted.join(', ')}`);
+  }
+  if (kept.length > 0) {
+    reportParts.push(`Could not automatically revert ${kept.length} task change${kept.length === 1 ? '' : 's'}: ${kept.join(', ')}`);
+  }
+
+  return {
+    reverted,
+    kept,
+    report: reportParts.join('\n'),
+  };
+}
+
+module.exports = { captureSnapshot, checkAndRevert, revertScopedChanges };

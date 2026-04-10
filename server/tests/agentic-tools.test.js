@@ -85,6 +85,85 @@ describe('createToolExecutor factory', () => {
     expect(res.error).toBe(true);
     expect(res.result).toMatch(/unknown tool/i);
   });
+
+  it('requires a write after configured initial reads are complete', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'docs/autodev/SESSION_LOG.md', '# Session');
+    writeFile(dir, 'docs/autodev/NEXT_TASK.json', '{"goal":"repair"}');
+    const { execute } = createToolExecutor(dir, {
+      writeAfterReadPaths: [
+        'docs/autodev/SESSION_LOG.md',
+        'docs/autodev/NEXT_TASK.json',
+      ],
+    });
+
+    expect(execute('read_file', { path: 'docs/autodev/SESSION_LOG.md' }).error).toBeUndefined();
+    expect(execute('read_file', { path: 'docs/autodev/NEXT_TASK.json' }).error).toBeUndefined();
+
+    const res = execute('read_file', { path: 'docs/autodev/SESSION_LOG.md' });
+    expect(res.error).toBe(true);
+    expect(res.result).toMatch(/next tool call must modify a file/i);
+  });
+
+  it('allows reads again after a successful write in write-after-read mode', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'docs/autodev/SESSION_LOG.md', '# Session');
+    writeFile(dir, 'docs/autodev/NEXT_TASK.json', '{"goal":"repair"}');
+    writeFile(dir, 'docs/autodev/NEXT_TASK.md', '# Next Task\n');
+    const { execute } = createToolExecutor(dir, {
+      writeAllowlist: ['docs/autodev/NEXT_TASK.md'],
+      writeAfterReadPaths: [
+        'docs/autodev/SESSION_LOG.md',
+        'docs/autodev/NEXT_TASK.json',
+      ],
+    });
+
+    execute('read_file', { path: 'docs/autodev/SESSION_LOG.md' });
+    execute('read_file', { path: 'docs/autodev/NEXT_TASK.json' });
+
+    const writeRes = execute('replace_lines', {
+      path: 'docs/autodev/NEXT_TASK.md',
+      start_line: 1,
+      end_line: 1,
+      new_text: '# Updated Next Task',
+    });
+    expect(writeRes.error).toBeUndefined();
+
+    const readRes = execute('read_file', { path: 'docs/autodev/SESSION_LOG.md' });
+    expect(readRes.error).toBeUndefined();
+  });
+
+  it('allows one diagnostic read after a failed command, then requires a write', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'src/app.cs', 'line 1\nline 2\nline 3\n');
+    writeFile(dir, 'docs/note.md', '# note\n');
+    const { execute } = createToolExecutor(dir, {
+      commandMode: 'allowlist',
+      commandAllowlist: ['node -e *'],
+      diagnosticReadLimitAfterFailedCommand: 1,
+    });
+
+    const failRes = execute('run_command', { command: 'node -e "process.exit(1)"' });
+    expect(failRes.error).toBe(true);
+
+    const firstRead = execute('read_file', { path: 'src/app.cs', start_line: 1, end_line: 3 });
+    expect(firstRead.error).toBeUndefined();
+
+    const blockedRead = execute('read_file', { path: 'docs/note.md' });
+    expect(blockedRead.error).toBe(true);
+    expect(blockedRead.result).toMatch(/verification recovery mode is active/i);
+
+    const writeRes = execute('replace_lines', {
+      path: 'src/app.cs',
+      start_line: 2,
+      end_line: 2,
+      new_text: 'updated line 2',
+    });
+    expect(writeRes.error).toBeUndefined();
+
+    const readAfterWrite = execute('read_file', { path: 'docs/note.md' });
+    expect(readAfterWrite.error).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -523,7 +602,11 @@ describe('run_command command sandbox', () => {
     if (res1.error) {
       expect(res1.result).not.toMatch(/not in allowlist/i);
     }
-    const res2 = execute('run_command', { command: 'npm install' });
+    const { execute: executeSecond } = createToolExecutor(dir, {
+      commandMode: 'allowlist',
+      commandAllowlist: ['dotnet *'],
+    });
+    const res2 = executeSecond('run_command', { command: 'npm install' });
     expect(res2.error).toBe(true);
     expect(res2.result).toMatch(/not in allowlist/i);
   });
@@ -730,6 +813,17 @@ describe('selectToolsForTask', () => {
       commandAllowlist: ['pwsh -File scripts/autodev-verify.ps1*'],
     }).map((tool) => tool.function.name);
     expect(names).toContain('run_command');
+  });
+
+  it('respects a task-level tool allowlist for modification tasks', () => {
+    const names = selectToolsForTask('Repair the baseline compile failure.', {
+      commandMode: 'allowlist',
+      commandAllowlist: ['pwsh -File scripts/autodev-verify.ps1*'],
+      toolAllowlist: ['read_file', 'replace_lines', 'run_command'],
+    }).map((tool) => tool.function.name);
+    expect(names).toEqual(['read_file', 'replace_lines', 'run_command']);
+    expect(names).not.toContain('search_files');
+    expect(names).not.toContain('edit_file');
   });
 });
 

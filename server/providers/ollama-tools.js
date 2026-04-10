@@ -274,27 +274,36 @@ const TOOL_DEFINITIONS = [
 // Read-only tool names — tasks that don't mention modification get only these.
 // Keeping tool count ≤5 prevents qwen3-coder from switching to XML format.
 const READ_ONLY_TOOL_NAMES = new Set(['read_file', 'list_directory', 'search_files']);
+const WRITE_TOOL_NAMES = new Set(['write_file', 'edit_file', 'replace_lines']);
 const MODIFICATION_KEYWORDS = /\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace|move|insert|append)\b/i;
 
 /**
  * Select tools appropriate for a task. Read-only tasks get 3 tools (under the
  * ~5 tool threshold for reliable JSON tool calls). Modification tasks get all 7.
  * @param {string} taskDescription - The task prompt
- * @param {{ commandMode?: string, commandAllowlist?: string[] }} [options]
+ * @param {{ commandMode?: string, commandAllowlist?: string[], toolAllowlist?: string[] }} [options]
  * @returns {Array} Filtered TOOL_DEFINITIONS
  */
 function selectToolsForTask(taskDescription, options = {}) {
   const baseTools = MODIFICATION_KEYWORDS.test(taskDescription || '')
     ? TOOL_DEFINITIONS
     : TOOL_DEFINITIONS.filter(t => READ_ONLY_TOOL_NAMES.has(t.function.name));
+  const toolAllowlist = Array.isArray(options.toolAllowlist)
+    ? options.toolAllowlist
+      .map((toolName) => typeof toolName === 'string' ? toolName.trim() : '')
+      .filter(Boolean)
+    : null;
+  const scopedTools = toolAllowlist
+    ? TOOL_DEFINITIONS.filter((tool) => toolAllowlist.includes(tool.function.name))
+    : baseTools;
 
   const commandMode = options.commandMode || 'allowlist';
   const commandAllowlist = Array.isArray(options.commandAllowlist) ? options.commandAllowlist.filter(Boolean) : [];
   if (commandMode === 'allowlist' && commandAllowlist.length === 0) {
-    return baseTools.filter((tool) => tool.function.name !== 'run_command');
+    return scopedTools.filter((tool) => tool.function.name !== 'run_command');
   }
 
-  return baseTools;
+  return scopedTools;
 }
 
 /**
@@ -474,6 +483,7 @@ function isCommandAllowed(command, allowlist) {
  * @param {Object} [options]
  * @param {string} [options.commandMode='allowlist'] - 'unrestricted' | 'allowlist'
  * @param {string[]} [options.commandAllowlist=[]] - Allowed command patterns when commandMode='allowlist'
+ * @param {string[]} [options.writeAfterReadPaths=[]] - Once all of these paths have been read successfully, the next tool call must be a write tool until a file is modified.
  * @returns {{ execute(name: string, args: Object): { result: string, error?: boolean, metadata?: Object }, changedFiles: Set }}
  */
 function createToolExecutor(workingDir, options = {}) {
@@ -482,9 +492,76 @@ function createToolExecutor(workingDir, options = {}) {
   const commandAllowlist = options.commandAllowlist || [];
   const readAllowlist = normalizeScopedPaths(options.readAllowlist, workingDir);
   const writeAllowlist = normalizeScopedPaths(options.writeAllowlist, workingDir);
+  const writeAfterReadPaths = normalizeScopedPaths(options.writeAfterReadPaths, workingDir);
+  const parsedDiagnosticReadLimitAfterFailedCommand = Number.parseInt(options.diagnosticReadLimitAfterFailedCommand, 10);
+  const diagnosticReadLimitAfterFailedCommand = Number.isFinite(parsedDiagnosticReadLimitAfterFailedCommand)
+    && parsedDiagnosticReadLimitAfterFailedCommand > 0
+    ? parsedDiagnosticReadLimitAfterFailedCommand
+    : 0;
+  const writeAfterReadScopeKeys = new Set(
+    Array.isArray(writeAfterReadPaths)
+      ? writeAfterReadPaths.map((scopePath) => (process.platform === 'win32' ? scopePath.toLowerCase() : scopePath))
+      : []
+  );
+  const satisfiedWriteAfterReadScopes = new Set();
+  let pendingWriteAfterFailedCommand = false;
+  let remainingDiagnosticReadsAfterFailedCommand = 0;
+
+  function markReadScopeSatisfied(resolvedPath) {
+    if (!Array.isArray(writeAfterReadPaths) || writeAfterReadPaths.length === 0) return;
+    for (const scopePath of writeAfterReadPaths) {
+      if (!isPathWithinScope(resolvedPath, scopePath)) continue;
+      const scopeKey = process.platform === 'win32' ? scopePath.toLowerCase() : scopePath;
+      satisfiedWriteAfterReadScopes.add(scopeKey);
+    }
+  }
+
+  function mustWriteBeforeContinuing(toolName) {
+    if (!Array.isArray(writeAfterReadPaths) || writeAfterReadScopeKeys.size === 0) return false;
+    if (changedFiles.size > 0) return false;
+    if (satisfiedWriteAfterReadScopes.size < writeAfterReadScopeKeys.size) return false;
+    return !WRITE_TOOL_NAMES.has(toolName);
+  }
+
+  function enterFailedCommandRecoveryMode() {
+    pendingWriteAfterFailedCommand = true;
+    remainingDiagnosticReadsAfterFailedCommand = diagnosticReadLimitAfterFailedCommand;
+  }
+
+  function clearFailedCommandRecoveryMode() {
+    pendingWriteAfterFailedCommand = false;
+    remainingDiagnosticReadsAfterFailedCommand = 0;
+  }
+
+  function enforceFailedCommandRecoveryMode(toolName) {
+    if (!pendingWriteAfterFailedCommand) return null;
+    if (WRITE_TOOL_NAMES.has(toolName)) return null;
+    if (toolName === 'read_file' && remainingDiagnosticReadsAfterFailedCommand > 0) {
+      remainingDiagnosticReadsAfterFailedCommand -= 1;
+      return null;
+    }
+
+    const readBudgetMessage = diagnosticReadLimitAfterFailedCommand > 0
+      ? `You may use at most ${diagnosticReadLimitAfterFailedCommand} diagnostic read_file call(s) after a failed command, and that allowance is exhausted.`
+      : 'No diagnostic read_file calls are allowed after a failed command for this task.';
+    return {
+      result: `Error: verification recovery mode is active. ${readBudgetMessage} Your next tool call must modify a file with write_file, edit_file, or replace_lines.`,
+      error: true,
+    };
+  }
 
   function execute(toolName, args) {
     try {
+      const failedCommandRecoveryResult = enforceFailedCommandRecoveryMode(toolName);
+      if (failedCommandRecoveryResult) {
+        return failedCommandRecoveryResult;
+      }
+      if (mustWriteBeforeContinuing(toolName)) {
+        return {
+          result: 'Error: initial read phase is complete. Your next tool call must modify a file with write_file, edit_file, or replace_lines before any more reads or commands.',
+          error: true,
+        };
+      }
       switch (toolName) {
         case 'read_file': {
           const { resolvedPath, allowed } = resolveSafePath(args.path, workingDir);
@@ -519,6 +596,7 @@ function createToolExecutor(workingDir, options = {}) {
           const rangeNote = (clampedStart > 1 || clampedEnd < allLines.length)
             ? `[Showing lines ${clampedStart}-${clampedEnd} of ${allLines.length}]\n`
             : '';
+          markReadScopeSatisfied(resolvedPath);
           return { result: truncateOutput(rangeNote + numbered) };
         }
 
@@ -545,6 +623,7 @@ function createToolExecutor(workingDir, options = {}) {
           }
           fs.writeFileSync(resolvedPath, args.content, 'utf-8');
           changedFiles.add(resolvedPath);
+          clearFailedCommandRecoveryMode();
           return { result: `File written: ${args.path} (${args.content.length} bytes)` };
         }
 
@@ -607,6 +686,7 @@ function createToolExecutor(workingDir, options = {}) {
                   if (replacements > 0) {
                     fs.writeFileSync(resolvedPath, resultLines.join('\n'), 'utf-8');
                     changedFiles.add(resolvedPath);
+                    clearFailedCommandRecoveryMode();
                     return {
                       result: `Edit applied to ${args.path} (${replacements} replacement${replacements !== 1 ? 's' : ''}, matched with normalized whitespace)`,
                       metadata: { replacements },
@@ -625,6 +705,7 @@ function createToolExecutor(workingDir, options = {}) {
             const newContent = content.split(args.old_text).join(args.new_text);
             fs.writeFileSync(resolvedPath, newContent, 'utf-8');
             changedFiles.add(resolvedPath);
+            clearFailedCommandRecoveryMode();
             return {
               result: `Edit applied to ${args.path} (${occurrences} replacement${occurrences !== 1 ? 's' : ''})`,
               metadata: { replacements: occurrences },
@@ -670,6 +751,7 @@ function createToolExecutor(workingDir, options = {}) {
                   const newContent = [...before, ...reindentedLines, ...after].join('\n');
                   fs.writeFileSync(resolvedPath, newContent, 'utf-8');
                   changedFiles.add(resolvedPath);
+                  clearFailedCommandRecoveryMode();
                   return {
                     result: `Edit applied to ${args.path} (matched with normalized whitespace)`,
                   };
@@ -693,6 +775,7 @@ function createToolExecutor(workingDir, options = {}) {
                 const newContent = [...before, ...reindented.split('\n'), ...after].join('\n');
                 fs.writeFileSync(resolvedPath, newContent, 'utf-8');
                 changedFiles.add(resolvedPath);
+                clearFailedCommandRecoveryMode();
                 return {
                   result: `Edit applied to ${args.path} (fuzzy match at ${(fuzzyMatch.score * 100).toFixed(1)}% similarity)`,
                 };
@@ -735,6 +818,7 @@ function createToolExecutor(workingDir, options = {}) {
             const newContent = content.slice(0, idx) + finalNewText + content.slice(idx + args.old_text.length);
             fs.writeFileSync(resolvedPath, newContent, 'utf-8');
             changedFiles.add(resolvedPath);
+            clearFailedCommandRecoveryMode();
             return { result: `Edit applied to ${args.path}` };
           }
         }
@@ -767,6 +851,7 @@ function createToolExecutor(workingDir, options = {}) {
           const after = fileLines.slice(endLine);
           fs.writeFileSync(resolvedPath, [...before, ...newLines, ...after].join('\n'), 'utf-8');
           changedFiles.add(resolvedPath);
+          clearFailedCommandRecoveryMode();
           return { result: `Replaced lines ${startLine}-${endLine} (${endLine - startLine + 1} lines) with ${newLines.length} lines in ${args.path}` };
         }
 
@@ -871,10 +956,12 @@ function createToolExecutor(workingDir, options = {}) {
               shell: true,
               windowsHide: true,
             });
+            clearFailedCommandRecoveryMode();
             return { result: truncateOutput(output) || '(no output)' };
           } catch (e) {
             const stderr = e.stderr ? e.stderr.toString() : '';
             const stdout = e.stdout ? e.stdout.toString() : '';
+            enterFailedCommandRecoveryMode();
             return {
               result: truncateOutput(`Command failed (exit ${e.status}):\n${stdout}\n${stderr}`),
               error: true,

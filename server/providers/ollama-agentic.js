@@ -20,6 +20,9 @@ const MAX_TOTAL_OUTPUT_CHARS = 512 * 1024; // 512KB total conversation log
 const DEFAULT_CONTEXT_BUDGET = 16000;      // ~16k tokens (rough: chars / 4)
 const ARGUMENTS_PREVIEW_MAX = 500;
 const RESULT_PREVIEW_MAX = 500;
+const READ_ONLY_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
+const ACTION_TOOLS = new Set(['write_file', 'edit_file', 'replace_lines', 'run_command']);
+const DEFAULT_MAX_READ_ONLY_ITERATIONS = 5;
 
 /**
  * Build an arguments preview for the tool log.
@@ -149,6 +152,7 @@ function buildOutputSummary(finalOutput, toolLog, changedFiles) {
  * @param {number} [params.timeoutMs] - Total timeout (not enforced internally; caller sets AbortSignal)
  * @param {number} [params.maxIterations] - Max loop iterations (default MAX_ITERATIONS)
  * @param {number} [params.contextBudget] - Max estimated tokens before truncation (default 16000)
+ * @param {number|null} [params.actionlessIterationLimit] - Stop after this many consecutive no-action iterations on modification tasks
  * @param {Function} [params.onProgress] - (iteration, maxIter, lastTool) => void
  * @param {Function} [params.onToolCall] - (name, args, result) => void — for dashboard
  * @param {AbortSignal} [params.signal] - Abort signal
@@ -165,6 +169,7 @@ async function runAgenticLoop({
   timeoutMs,
   maxIterations = MAX_ITERATIONS,
   contextBudget = DEFAULT_CONTEXT_BUDGET,
+  actionlessIterationLimit = null,
   promptInjectedTools = false, // When true, tool results sent as user messages with [TOOL_RESULTS] format
   onProgress,
   onToolCall,
@@ -202,11 +207,13 @@ async function runAgenticLoop({
   // Read-only spin detection: if model does N iterations with only read-only tools
   // (read_file, list_directory, search_files) and no writes, it's going in circles.
   // Only applies to tasks that expect modification — pure analysis/search tasks are allowed to be read-only.
-  const READ_ONLY_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
-  const MAX_READ_ONLY_ITERATIONS = 5;
   const taskExpectsModification = /\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace)\b/i.test(taskPrompt);
+  const parsedActionlessLimit = Number.isFinite(Number(actionlessIterationLimit))
+    ? Math.max(0, Math.trunc(Number(actionlessIterationLimit)))
+    : null;
   let readOnlyIterations = 0;
   let readOnlyNudgeInjected = false;
+  let actionlessIterations = 0;
 
   // Edit failure recovery: guide model to re-read file after failed edits
   let editFailureRecoveryCount = 0;
@@ -421,6 +428,7 @@ async function runAgenticLoop({
 
     // Execute each tool call and add results
     let hasSuccessfulWrite = false; // Track if any non-read-only tool succeeded this iteration
+    let hadActionAttempt = false;
     for (let tcIdx = 0; tcIdx < toolCalls.length; tcIdx++) {
       const tc = toolCalls[tcIdx];
       if (signal?.aborted) {
@@ -432,6 +440,9 @@ async function runAgenticLoop({
       const startMs = Date.now();
       const execResult = toolExecutor.execute(tc.name, tc.arguments);
       const durationMs = Date.now() - startMs;
+      if (ACTION_TOOLS.has(tc.name)) {
+        hadActionAttempt = true;
+      }
 
       const { result, error } = execResult;
       const resultStr = typeof result === 'string' ? result : String(result || '');
@@ -534,17 +545,31 @@ async function runAgenticLoop({
     // Pure analysis/search tasks are allowed unlimited read-only iterations.
     // Only reset on SUCCESSFUL write/edit — failed edits don't count as progress.
     if (!earlyStop && taskExpectsModification && toolCalls.length > 0) {
+      if (parsedActionlessLimit !== null && parsedActionlessLimit > 0) {
+        if (hadActionAttempt) {
+          actionlessIterations = 0;
+        } else {
+          actionlessIterations++;
+          if (actionlessIterations >= parsedActionlessLimit) {
+            finalOutput = `Task stopped: ${actionlessIterations} consecutive iterations without any write or verification attempt.`;
+            stopReason = 'actionless_iterations';
+            logger.warn(`[Agentic] Actionless iteration limit reached (${actionlessIterations}) — stopping`);
+            break;
+          }
+        }
+      }
+
       const allReadOnly = toolCalls.every(tc => READ_ONLY_TOOLS.has(tc.name));
       if (allReadOnly || !hasSuccessfulWrite) {
         readOnlyIterations++;
-        if (readOnlyIterations >= MAX_READ_ONLY_ITERATIONS && !readOnlyNudgeInjected) {
+        if (readOnlyIterations >= DEFAULT_MAX_READ_ONLY_ITERATIONS && !readOnlyNudgeInjected) {
           logger.warn(`[Agentic] ${readOnlyIterations} consecutive no-progress iterations on modification task — nudging model to act`);
           messages.push({
             role: 'user',
             content: 'You have spent multiple iterations without making successful changes. You MUST now use write_file or edit_file to make the changes described in the task. If edit_file fails, re-read the file first to see its current content. If you cannot determine what to change, summarize what you found and stop.',
           });
           readOnlyNudgeInjected = true;
-        } else if (readOnlyIterations >= MAX_READ_ONLY_ITERATIONS + 2) {
+        } else if (readOnlyIterations >= DEFAULT_MAX_READ_ONLY_ITERATIONS + 2) {
           finalOutput = `Task stopped: ${readOnlyIterations} consecutive iterations with no successful file modifications.`;
           stopReason = 'no_progress';
           logger.warn(`[Agentic] No-progress spin limit reached — stopping`);

@@ -1147,6 +1147,34 @@ describe('server/handlers/workflow-handlers', () => {
       expect(ctx.logger.debug).toHaveBeenCalledTimes(2);
     });
 
+    it('returns OPERATION_FAILED when a start attempt leaves the task pending', () => {
+      seedWorkflow(ctx.db, {
+        id: 'wf-1',
+        name: 'Stuck Flow',
+        status: 'pending',
+      });
+      seedTask(ctx.db, {
+        id: 't1',
+        workflow_id: 'wf-1',
+        workflow_node_id: 'plan',
+        status: 'pending',
+      });
+      ctx.taskManager.startTask.mockImplementation(() => Promise.resolve());
+
+      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('OPERATION_FAILED');
+      expect(textOf(result)).toContain("Failed to start workflow 'Stuck Flow'");
+      expect(result.details).toEqual([
+        expect.objectContaining({
+          task_id: 't1',
+          node_id: 'plan',
+          error: 'Task remained pending after start attempt',
+        }),
+      ]);
+    });
+
     it('treats instantly completed tasks as started for workflow launch accounting', () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',

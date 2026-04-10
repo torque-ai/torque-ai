@@ -83,8 +83,12 @@ async function main() {
     promptInjectedTools,
     commandMode,
     commandAllowlist,
+    toolAllowlist,
+    actionlessIterationLimit,
     readAllowlist,
     writeAllowlist,
+    writeAfterReadPaths,
+    diagnosticReadLimitAfterFailedCommand,
     _testMode,
     mockBehavior,
   } = workerData;
@@ -119,6 +123,8 @@ async function main() {
     commandAllowlist,
     readAllowlist,
     writeAllowlist,
+    writeAfterReadPaths,
+    diagnosticReadLimitAfterFailedCommand,
   });
 
   const onProgress = (iteration, maxIter, lastTool) => {
@@ -135,7 +141,7 @@ async function main() {
       adapter,
       systemPrompt,
       taskPrompt,
-      tools: promptInjectedTools ? [] : selectToolsForTask(taskPrompt, { commandMode, commandAllowlist }),
+      tools: promptInjectedTools ? [] : selectToolsForTask(taskPrompt, { commandMode, commandAllowlist, toolAllowlist }),
       promptInjectedTools,
       toolExecutor,
       options: adapterOptions || {},
@@ -143,6 +149,7 @@ async function main() {
       timeoutMs,
       maxIterations,
       contextBudget,
+      actionlessIterationLimit,
       signal: controller.signal,
       onProgress,
       onToolCall,
