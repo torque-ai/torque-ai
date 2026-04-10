@@ -24,6 +24,8 @@ let db;
 let taskCore;
 let configCore;
 let mod;
+const hadGlobalTaskMetadataParsed = Object.prototype.hasOwnProperty.call(globalThis, 'taskMetadataParsed');
+const originalGlobalTaskMetadataParsed = globalThis.taskMetadataParsed;
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -76,7 +78,14 @@ function clearHosts() {
 
 describe('execute-ollama.js', () => {
   beforeAll(() => { setup(); });
-  afterAll(() => { teardown(); });
+  afterAll(() => {
+    if (hadGlobalTaskMetadataParsed) {
+      globalThis.taskMetadataParsed = originalGlobalTaskMetadataParsed;
+    } else {
+      delete globalThis.taskMetadataParsed;
+    }
+    teardown();
+  });
 
   // ── estimateRequiredContext ─────────────────────────────────────
 
@@ -208,6 +217,10 @@ describe('execute-ollama.js', () => {
     });
 
     beforeEach(() => {
+      // execute-ollama currently reads taskMetadataParsed as an unbound global
+      // after wrapping prompts; seed it here so request-construction tests can
+      // exercise the current call flow without touching production code.
+      globalThis.taskMetadataParsed = {};
       mockOllama.clearLog();
       mockOllama.setFailGenerate(false);
       mockOllama.setGenerateDelay(0);
