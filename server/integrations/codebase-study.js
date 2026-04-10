@@ -47,8 +47,9 @@ const GENERATED_STUDY_FILES = new Set([
   'docs/architecture/study-benchmark.json',
   'docs/architecture/SUMMARY.md',
 ]);
-const ALLOWED_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.json']);
+const ALLOWED_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.json', '.py', '.cs']);
 const JS_LIKE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
+const SYMBOL_INDEX_EXTENSIONS = new Set([...JS_LIKE_EXTENSIONS, '.py', '.cs']);
 const LOCAL_ONLY_STRATEGY = 'local-deterministic';
 const DEFAULT_LOCAL_BATCH_SIZE = 100;
 const DEFAULT_MANUAL_RUN_BATCH_COUNT = 5;
@@ -66,7 +67,7 @@ const TEST_MATRIX_LIMIT = 6;
 const SIGNIFICANCE_REASON_LIMIT = 4;
 const KNOWLEDGE_PACK_VERSION = 3;
 const STUDY_DELTA_VERSION = 1;
-const DEPENDENCY_EXTENSIONS = ['.js', '.ts', '.json', '.mjs', '.cjs', '.jsx', '.tsx'];
+const DEPENDENCY_EXTENSIONS = ['.js', '.ts', '.json', '.mjs', '.cjs', '.jsx', '.tsx', '.py', '.cs'];
 const ROOT_DOC_FILES = new Set(['README.md', 'CLAUDE.md', 'CONTRIBUTING.md']);
 const LOW_SIGNAL_EXPORT_NAMES = new Set(['default', 'test', 'tests', 'value', 'values', 'data', 'result', 'results', 'foo', 'bar', 'baz']);
 const LOW_SIGNAL_HOTSPOT_BASENAMES = new Set(['logger.js', 'constants.js']);
@@ -418,6 +419,10 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   async function loadRepoMetadata(workingDirectory) {
     const packageJson = await readJsonIfPresent(path.join(workingDirectory, 'package.json'));
     const readmeIntro = extractReadmeIntro(await readTextIfPresent(path.join(workingDirectory, 'README.md')));
+    const rootEntries = await fsPromises.readdir(workingDirectory, { withFileTypes: true }).catch(() => []);
+    const solutionFiles = rootEntries
+      .filter((entry) => entry && typeof entry.name === 'string' && entry.isFile && entry.isFile() && entry.name.toLowerCase().endsWith('.sln'))
+      .map((entry) => toRepoPath(entry.name));
     const repoName = typeof packageJson?.name === 'string' && packageJson.name.trim()
       ? packageJson.name.trim()
       : path.basename(workingDirectory);
@@ -437,6 +442,12 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       package_main: packageMain,
       bin_files: binFiles,
       package_json: packageJson || null,
+      solution_files: solutionFiles,
+      dotnet_project: solutionFiles.length > 0 || fs.existsSync(path.join(workingDirectory, 'global.json')),
+      python_project: fs.existsSync(path.join(workingDirectory, 'pyproject.toml'))
+        || fs.existsSync(path.join(workingDirectory, 'requirements.txt'))
+        || fs.existsSync(path.join(workingDirectory, 'setup.py')),
+      has_powershell_build: fs.existsSync(path.join(workingDirectory, 'scripts', 'build.ps1')),
     };
   }
 
@@ -560,11 +571,70 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   function isExecutableSurfaceFile(repoPath) {
     const normalized = toRepoPath(repoPath);
     const ext = path.extname(normalized).toLowerCase();
-    if (JS_LIKE_EXTENSIONS.has(ext)) {
+    if (SYMBOL_INDEX_EXTENSIONS.has(ext)) {
       return true;
     }
     const base = path.basename(normalized).toLowerCase();
-    return base === 'index.html' || base === 'gulpfile.js' || base === 'dev-server.js';
+    return base === 'index.html'
+      || base === 'gulpfile.js'
+      || base === 'dev-server.js'
+      || base === 'app.xaml'
+      || base === 'app.xaml.cs';
+  }
+
+  function isPrimaryRuntimeSurface(repoPath) {
+    const normalized = toRepoPath(repoPath).toLowerCase();
+    if (!normalized || normalized.startsWith('tools/')) {
+      return false;
+    }
+    return normalized.startsWith('src/')
+      || normalized.startsWith('server/')
+      || normalized.startsWith('app/')
+      || normalized.startsWith('client/')
+      || normalized.startsWith('dashboard/')
+      || normalized.startsWith('bin/')
+      || normalized.startsWith('cli/');
+  }
+
+  function getHotspotStructuralBoost(repoPath) {
+    const normalized = toRepoPath(repoPath).toLowerCase();
+    if (!normalized) {
+      return 0;
+    }
+
+    let boost = 0;
+    if (isPrimaryRuntimeSurface(normalized)) {
+      boost += 4;
+    }
+    if (/(?:^|\/)(?:application|domain|core|runtime|services?|infrastructure|ledger|accounting|banking|workflow|pipeline|state|parser|execution|setup)\//.test(normalized)) {
+      boost += 6;
+    }
+    if (/(?:engine|service|manager|coordinator|provider|handler|dispatcher|repository|store|validator|processor|orchestrator)\.[^.]+$/.test(normalized)) {
+      boost += 8;
+    }
+    if (/(?:initializer|seeder|bootstrapper|builder)\.[^.]+$/.test(normalized)) {
+      boost += 6;
+    }
+    if (/(?:controller)\.[^.]+$/.test(normalized)) {
+      boost += 5;
+    }
+    if (/(?:viewmodel|window|dialog|page|screen|panel|form|view)\.[^.]+$/.test(normalized)) {
+      boost += 2;
+    }
+    if (/(?:tabviewmodel|window|dialog|page|screen)\.[^.]+$/.test(normalized)) {
+      boost -= 3;
+    }
+    return boost;
+  }
+
+  function isShallowToolEntrypoint(filePath, inboundDependents, outboundDependencies, exportCount) {
+    const normalized = toRepoPath(filePath).toLowerCase();
+    if (!normalized || !normalized.startsWith('tools/') || !isLikelyEntrypoint(normalized)) {
+      return false;
+    }
+    return (Number(inboundDependents) || 0) <= 1
+      && (Number(outboundDependencies) || 0) <= 3
+      && (Number(exportCount) || 0) <= 2;
   }
 
   function scoreToConfidence(score) {
@@ -759,6 +829,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   function isLikelyEntrypoint(repoPath) {
     const normalized = toRepoPath(repoPath);
     const base = path.basename(normalized);
+    const lowerBase = base.toLowerCase();
     return normalized === 'server/index.js'
       || normalized === 'server/task-manager.js'
       || normalized === 'server/tools.js'
@@ -766,9 +837,145 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       || normalized === 'dashboard/src/App.jsx'
       || normalized === 'bin/torque.js'
       || normalized === 'cli/torque-cli.js'
-      || base === 'index.js'
-      || base === 'main.jsx'
-      || base === 'main.js';
+      || lowerBase === 'program.cs'
+      || lowerBase === 'app.xaml.cs'
+      || lowerBase === '__main__.py'
+      || lowerBase === 'cli.py'
+      || lowerBase === 'server.py'
+      || lowerBase === 'main.py'
+      || lowerBase === 'main.cs'
+      || lowerBase === 'index.js'
+      || lowerBase === 'main.jsx'
+      || lowerBase === 'main.js'
+      || lowerBase === 'app.js'
+      || lowerBase === 'bootstrap.js'
+      || lowerBase === 'bootstrap.ts';
+  }
+
+  function inferGenericEntrypointCandidate(filePath, repoMetadata, repoSignals = null) {
+    const normalized = toRepoPath(filePath);
+    if (!normalized || isStructuredContentFile(normalized) || isTestFile(normalized)) {
+      return null;
+    }
+
+    const base = path.basename(normalized).toLowerCase();
+    const segments = normalized.split('/').filter(Boolean);
+    let score = 0;
+    let role = '';
+    const evidence = [];
+
+    if (normalized === toRepoPath(repoMetadata?.package_main)) {
+      score = 180;
+      role = 'Primary package runtime entrypoint';
+      evidence.push('Detected from package.json main.');
+    } else if ((repoMetadata?.bin_files || []).includes(normalized)) {
+      score = 175;
+      role = 'Primary CLI entrypoint';
+      evidence.push('Detected from package.json bin.');
+    } else if (normalized === 'server/index.js') {
+      score = 170;
+      role = 'Server bootstrap and background scheduler startup';
+      evidence.push('Recognized server bootstrap path.');
+    } else if (normalized === 'server/task-manager.js') {
+      score = 166;
+      role = 'Top-level task execution coordinator';
+      evidence.push('Recognized task orchestration seam.');
+    } else if (normalized === 'server/tools.js') {
+      score = 164;
+      role = 'Tool catalog and dispatch surface';
+      evidence.push('Recognized tool dispatch seam.');
+    } else if (normalized === 'server/api/v2-dispatch.js') {
+      score = 162;
+      role = 'Primary control-plane dispatch surface';
+      evidence.push('Recognized control-plane dispatch seam.');
+    } else if (normalized === 'dashboard/src/main.jsx') {
+      score = 160;
+      role = 'Dashboard client bootstrap';
+      evidence.push('Recognized UI bootstrap path.');
+    } else if (normalized === 'dashboard/src/App.jsx') {
+      score = 158;
+      role = 'Dashboard shell composition';
+      evidence.push('Recognized UI shell path.');
+    } else if (normalized === 'bin/torque.js') {
+      score = 156;
+      role = 'CLI bootstrap for local command use';
+      evidence.push('Recognized CLI bootstrap path.');
+    } else if (base === 'program.cs') {
+      score = 152;
+      role = 'Primary .NET application or CLI entrypoint';
+      evidence.push('Matched conventional .NET Program.cs startup file.');
+    } else if (base === 'app.xaml.cs') {
+      score = 149;
+      role = 'Desktop application startup entrypoint';
+      evidence.push('Matched WPF App.xaml.cs startup file.');
+    } else if (base === '__main__.py') {
+      score = 146;
+      role = 'Primary Python module entrypoint';
+      evidence.push('Matched Python __main__ entrypoint.');
+    } else if (base === 'cli.py') {
+      score = 142;
+      role = 'Python CLI bootstrap';
+      evidence.push('Matched Python CLI entrypoint.');
+    } else if (base === 'server.py') {
+      score = 140;
+      role = 'Python service or server bootstrap';
+      evidence.push('Matched Python server entrypoint.');
+    } else if (base === 'main.py') {
+      score = 136;
+      role = 'Primary Python runtime entrypoint';
+      evidence.push('Matched Python main entrypoint.');
+    } else if (base === 'index.js' || base === 'index.ts' || base === 'main.js' || base === 'main.ts') {
+      score = 132;
+      role = 'Primary JavaScript/TypeScript runtime entrypoint';
+      evidence.push('Matched common runtime entrypoint name.');
+    } else if (base === 'app.js' || base === 'app.ts' || base === 'app.jsx' || base === 'app.tsx') {
+      score = 128;
+      role = 'Application bootstrap entrypoint';
+      evidence.push('Matched common application bootstrap file.');
+    } else if (base === 'bootstrap.js' || base === 'bootstrap.ts' || base === 'bootstrap.py') {
+      score = 126;
+      role = 'Runtime bootstrap entrypoint';
+      evidence.push('Matched bootstrap entrypoint name.');
+    }
+
+    if (!score && isLikelyEntrypoint(normalized)) {
+      score = 120;
+      role = 'Likely runtime or UI entrypoint';
+      evidence.push('Matched generic entrypoint heuristic.');
+    }
+    if (!score) {
+      return null;
+    }
+
+    if (normalized.startsWith('src/')) {
+      score += 8;
+      evidence.push('Located under src/, suggesting a primary implementation surface.');
+    }
+    if (normalized.startsWith('tools/')) {
+      score += /(?:^|\/)(?:server|cli|launcher|runner|peek[_-]server)\b/i.test(normalized) ? 12 : -4;
+    }
+    if (normalized.startsWith('bin/') || normalized.startsWith('cli/')) {
+      score += 10;
+    }
+    if ((repoSignals?.frameworks || []).includes('.NET') && (base === 'program.cs' || base === 'app.xaml.cs')) {
+      score += 10;
+    }
+    if ((repoSignals?.frameworks || []).includes('Python') && (base === '__main__.py' || base === 'cli.py' || base === 'server.py' || base === 'main.py')) {
+      score += 10;
+    }
+    if ((repoSignals?.archetype || '').includes('polyglot')) {
+      score += 6;
+    }
+
+    score -= Math.max(0, segments.length - 3) * 4;
+
+    return {
+      file: normalized,
+      role,
+      confidence: score >= 155 ? 'high' : (score >= 128 ? 'medium' : 'low'),
+      evidence: uniqueStrings(evidence),
+      score,
+    };
   }
 
   function buildSubsystemRelationships(entries, subsystemLookup, activeProfile) {
@@ -842,6 +1049,16 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   }
 
   function buildHotspots(entries, reverseDeps, subsystemLookup, activeProfile, repoSignals = null) {
+    const hasPrimaryAppSurface = (entries || []).some((entry) => {
+      const normalized = toRepoPath(entry?.file).toLowerCase();
+      if (!isPrimaryRuntimeSurface(normalized)) {
+        return false;
+      }
+      return isLikelyEntrypoint(normalized)
+        || (entry?.deps || []).length > 0
+        || (entry?.exports || []).length > 0
+        || getHotspotStructuralBoost(normalized) >= 10;
+    });
     return (entries || [])
       .map((entry) => {
         const inboundDependents = reverseDeps.get(entry.file)?.size || 0;
@@ -855,7 +1072,19 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
           ? ((repoSignals?.archetype === 'content-heavy-javascript-repo' || (repoSignals?.traits || []).includes('content')) ? 8 : 18)
           : 0;
         const executableBoost = executableSurface ? 6 : 0;
-        const score = ((inboundDependents * 4) + (outboundDependencies * 2) + exportCount + (isLikelyEntrypoint(entry.file) ? 3 : 0)) - lowSignalPenalty - contentPenalty + executableBoost;
+        const structuralBoost = getHotspotStructuralBoost(entry.file);
+        const shallowToolPenalty = hasPrimaryAppSurface && isShallowToolEntrypoint(
+          entry.file,
+          inboundDependents,
+          outboundDependencies,
+          exportCount
+        ) ? 18 : 0;
+        const score = ((inboundDependents * 4) + (outboundDependencies * 2) + exportCount + (isLikelyEntrypoint(entry.file) ? 3 : 0))
+          - lowSignalPenalty
+          - contentPenalty
+          - shallowToolPenalty
+          + executableBoost
+          + structuralBoost;
         return {
           file: entry.file,
           subsystem: subsystem.id,
@@ -1076,41 +1305,22 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   }
 
   function buildEntrypoints(repoMetadata, availableFiles, hotspots, subsystemLookup, activeProfile, repoSignals = null) {
-    const candidates = [
-      { file: repoMetadata.package_main, role: 'Package main entrypoint', confidence: 'high', evidence: ['Detected from package.json main.'] },
-      ...repoMetadata.bin_files.map(file => ({ file, role: 'CLI entrypoint', confidence: 'high', evidence: ['Detected from package.json bin.'] })),
-      { file: 'server/index.js', role: 'Server bootstrap and background scheduler startup', confidence: 'high', evidence: ['Recognized server bootstrap path.'] },
-      { file: 'server/task-manager.js', role: 'Top-level task execution coordinator', confidence: 'high', evidence: ['Recognized task orchestration seam.'] },
-      { file: 'server/tools.js', role: 'Tool catalog and dispatch surface', confidence: 'high', evidence: ['Recognized tool dispatch seam.'] },
-      { file: 'server/api/v2-dispatch.js', role: 'Primary v2 control-plane dispatch surface', confidence: 'high', evidence: ['Recognized control-plane dispatch seam.'] },
-      { file: 'server/execution/workflow-runtime.js', role: 'Workflow runtime and unblocking', confidence: 'high', evidence: ['Recognized workflow runtime seam.'] },
-      { file: 'dashboard/src/main.jsx', role: 'Dashboard client bootstrap', confidence: 'high', evidence: ['Recognized UI bootstrap path.'] },
-      { file: 'dashboard/src/App.jsx', role: 'Dashboard shell composition', confidence: 'high', evidence: ['Recognized UI shell path.'] },
-      { file: 'bin/torque.js', role: 'CLI bootstrap for local command use', confidence: 'high', evidence: ['Recognized CLI bootstrap path.'] },
-      { file: 'src/index.ts', role: 'Likely generic runtime entrypoint', confidence: 'medium', evidence: ['Matched common src entrypoint name.'] },
-      { file: 'src/index.js', role: 'Likely generic runtime entrypoint', confidence: 'medium', evidence: ['Matched common src entrypoint name.'] },
-      { file: 'src/main.ts', role: 'Likely generic runtime entrypoint', confidence: 'medium', evidence: ['Matched common src entrypoint name.'] },
-      { file: 'src/main.js', role: 'Likely generic runtime entrypoint', confidence: 'medium', evidence: ['Matched common src entrypoint name.'] },
-      { file: 'src/app.ts', role: 'Likely generic runtime entrypoint', confidence: 'medium', evidence: ['Matched common src application entrypoint name.'] },
-      { file: 'src/app.js', role: 'Likely generic runtime entrypoint', confidence: 'medium', evidence: ['Matched common src application entrypoint name.'] },
-      { file: 'src/bootstrap.ts', role: 'Likely generic runtime entrypoint', confidence: 'medium', evidence: ['Matched bootstrap entrypoint name.'] },
-      { file: 'src/bootstrap.js', role: 'Likely generic runtime entrypoint', confidence: 'medium', evidence: ['Matched bootstrap entrypoint name.'] },
-      { file: 'src/runtime.ts', role: 'Likely generic runtime entrypoint', confidence: 'medium', evidence: ['Matched runtime entrypoint name.'] },
-      { file: 'src/runtime.js', role: 'Likely generic runtime entrypoint', confidence: 'medium', evidence: ['Matched runtime entrypoint name.'] },
-      { file: 'js/index.js', role: 'Likely generic browser/runtime entrypoint', confidence: 'medium', evidence: ['Matched common browser/runtime entrypoint name.'] },
-      { file: 'js/main.js', role: 'Likely generic browser/runtime entrypoint', confidence: 'medium', evidence: ['Matched common browser/runtime entrypoint name.'] },
-      { file: 'js/app.js', role: 'Likely generic browser/runtime entrypoint', confidence: 'medium', evidence: ['Matched common browser/runtime entrypoint name.'] },
-      { file: 'js/core.js', role: 'Likely generic browser/runtime entrypoint', confidence: 'medium', evidence: ['Matched common runtime core path.'] },
-      { file: 'index.js', role: 'Likely root entrypoint', confidence: 'medium', evidence: ['Matched common root entrypoint name.'] },
-      { file: 'main.js', role: 'Likely root entrypoint', confidence: 'medium', evidence: ['Matched common root entrypoint name.'] },
-      { file: 'app.js', role: 'Likely root entrypoint', confidence: 'medium', evidence: ['Matched common root entrypoint name.'] },
-      { file: 'gulpfile.js', role: 'Build/runtime orchestration entrypoint', confidence: 'medium', evidence: ['Matched build orchestration entrypoint.'] },
-      { file: 'dev-server.js', role: 'Development server entrypoint', confidence: 'medium', evidence: ['Matched development server entrypoint.'] },
-    ];
+    const rankedCandidates = uniquePaths(Array.from(availableFiles))
+      .map((filePath) => inferGenericEntrypointCandidate(filePath, repoMetadata, repoSignals))
+      .filter(Boolean)
+      .sort((left, right) => right.score - left.score || left.file.localeCompare(right.file));
 
     const entrypoints = [];
     const seen = new Set();
-    for (const candidate of candidates) {
+    const entrypointLimit = (repoSignals?.frameworks || []).some((framework) => framework === '.NET' || framework === 'Python')
+      || String(repoSignals?.archetype || '').includes('polyglot')
+      ? 8
+      : 6;
+
+    for (const candidate of rankedCandidates) {
+      if (entrypoints.length >= entrypointLimit) {
+        break;
+      }
       const filePath = toRepoPath(candidate.file);
       if (!filePath || seen.has(filePath) || !availableFiles.has(filePath)) {
         continue;
@@ -1128,13 +1338,13 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     }
 
     const hotspotFallbacks = [
-      ...(hotspots || []).filter(item => !isConfigOrContractFile(item.file) && JS_LIKE_EXTENSIONS.has(path.extname(item.file).toLowerCase())),
+      ...(hotspots || []).filter(item => !isConfigOrContractFile(item.file) && SYMBOL_INDEX_EXTENSIONS.has(path.extname(item.file).toLowerCase())),
       ...(hotspots || []).filter(item => !isConfigOrContractFile(item.file)),
       ...(hotspots || []),
     ];
 
     for (const hotspot of hotspotFallbacks) {
-      if (entrypoints.length >= 6) {
+      if (entrypoints.length >= entrypointLimit) {
         break;
       }
       if (seen.has(hotspot.file)) {
@@ -1395,6 +1605,15 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   function getValidationScriptCatalog(workingDirectory) {
     const rootPackage = readJsonFile(path.join(workingDirectory, 'package.json'));
     const dashboardPackage = readJsonFile(path.join(workingDirectory, 'dashboard', 'package.json'));
+    const rootEntries = fs.existsSync(workingDirectory)
+      ? fs.readdirSync(workingDirectory, { withFileTypes: true })
+      : [];
+    const solutionFiles = rootEntries
+      .filter((entry) => entry && typeof entry.name === 'string' && entry.isFile && entry.isFile() && entry.name.toLowerCase().endsWith('.sln'))
+      .map((entry) => toRepoPath(entry.name));
+    const pyprojectRaw = fs.existsSync(path.join(workingDirectory, 'pyproject.toml'))
+      ? fs.readFileSync(path.join(workingDirectory, 'pyproject.toml'), 'utf8')
+      : '';
     const rootScripts = rootPackage?.scripts && typeof rootPackage.scripts === 'object' ? rootPackage.scripts : {};
     const dashboardScripts = dashboardPackage?.scripts && typeof dashboardPackage.scripts === 'object' ? dashboardPackage.scripts : {};
     const dependencyBag = {
@@ -1407,6 +1626,11 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     return {
       rootScripts,
       dashboardScripts,
+      solutionFiles,
+      hasDotnet: solutionFiles.length > 0 || fs.existsSync(path.join(workingDirectory, 'global.json')),
+      hasPytest: /\bpytest\b/i.test(pyprojectRaw) || fs.existsSync(path.join(workingDirectory, 'pytest.ini')),
+      hasPythonProject: Boolean(pyprojectRaw) || fs.existsSync(path.join(workingDirectory, 'requirements.txt')) || fs.existsSync(path.join(workingDirectory, 'setup.py')),
+      hasPowerShellBuild: fs.existsSync(path.join(workingDirectory, 'scripts', 'build.ps1')),
       hasVitest: Boolean(dependencyBag.vitest) || /\bvitest\b/i.test(testScript),
       hasJest: Boolean(dependencyBag.jest) || /\bjest\b/i.test(testScript),
       hasNodeTest: /\bnode\b[^\n]*\s--test\b/i.test(testScript),
@@ -1448,6 +1672,23 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
 
     if (dashboardTests.length > 0 && validationCatalog.dashboardScripts.test) {
       commands.push(`cd dashboard && npm run test -- --run ${dashboardTests.join(' ')}`);
+    }
+
+    const relatedExtensions = new Set(relatedRepoFiles.map((filePath) => path.extname(filePath).toLowerCase()));
+    if (validationCatalog.hasDotnet && (relatedExtensions.has('.cs') || uniqueRelatedTests.some((file) => file.toLowerCase().endsWith('.cs')))) {
+      const solutionFile = validationCatalog.solutionFiles[0];
+      commands.push(solutionFile ? `dotnet build ${solutionFile}` : 'dotnet build');
+      commands.push(solutionFile ? `dotnet test ${solutionFile} --no-build` : 'dotnet test --no-build');
+    }
+    if (validationCatalog.hasPythonProject && (relatedExtensions.has('.py') || uniqueRelatedTests.some((file) => file.toLowerCase().endsWith('.py')))) {
+      if (validationCatalog.hasPytest) {
+        commands.push('pytest');
+      } else {
+        commands.push('python -m pytest');
+      }
+    }
+    if (commands.length === 0 && validationCatalog.hasPowerShellBuild) {
+      commands.push('pwsh scripts/build.ps1');
     }
 
     if (relatedRepoFiles.some(file => file.startsWith('dashboard/')) && validationCatalog.rootScripts['build:dashboard']) {
@@ -2268,7 +2509,9 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
         ? 'repo-delta'
         : processedFiles.length > 0 || removedFiles.length > 0
           ? 'study-progress'
-          : 'up-to-date';
+          : context.forceRefresh === true
+            ? 'refresh'
+            : 'up-to-date';
 
     const delta = {
       version: STUDY_DELTA_VERSION,
@@ -2283,6 +2526,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       run: {
         mode: runMode,
         manual_run_now: context.manualRunNow === true,
+        force_refresh: context.forceRefresh === true,
         batch_count: context.batchCount || 0,
         schedule_id: context.scheduleId || null,
         schedule_name: context.scheduleName || null,
@@ -2617,6 +2861,8 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       /\bexport\s+[^'"]*?\s+from\s+['"]([^'"]+)['"]/g,
       /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g,
       /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g,
+      /^\s*from\s+([.\w]+)\s+import\b/gm,
+      /^\s*import\s+([A-Za-z_][\w.]*)\b/gm,
     ];
 
     for (const pattern of patterns) {
@@ -2721,7 +2967,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   }
 
   async function extractSymbolsForFile(fullPath, content, workingDirectory, extension) {
-    if (!JS_LIKE_EXTENSIONS.has(extension)) {
+    if (!SYMBOL_INDEX_EXTENSIONS.has(extension)) {
       return [];
     }
 
@@ -2758,6 +3004,23 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     }
     if (normalized.startsWith('scripts/')) {
       return 'Automation script';
+    }
+    if (extension === '.cs') {
+      if (/program\.cs$/i.test(normalized)) {
+        return 'C# startup module';
+      }
+      if (/app\.xaml\.cs$/i.test(normalized)) {
+        return 'Desktop startup module';
+      }
+      return 'C# module';
+    }
+    if (extension === '.py') {
+      if (/(^|\/)__main__\.py$/i.test(normalized) || /(?:^|\/)(cli|server|main)\.py$/i.test(normalized)) {
+        return 'Python entrypoint module';
+      }
+      return normalized.startsWith('tools/')
+        ? 'Python automation module'
+        : 'Python module';
     }
     if (extension === '.json') {
       return 'JSON data/config file';
@@ -3252,6 +3515,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     const previousKnowledgePack = await readJsonIfPresent(paths.knowledgePackPath);
     const { moduleIndex } = await readModuleIndex(workingDirectory);
     const entryMap = new Map(moduleIndex.modules.map(entry => [entry.file, entry]));
+    const trackedFiles = uniquePaths(context.trackedFiles || []);
 
     for (const removedFile of uniquePaths(removedFiles)) {
       entryMap.delete(removedFile);
@@ -3266,6 +3530,18 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       }
     }
 
+    // Self-heal stale module indexes when tracked study candidates expand without a git diff.
+    for (const trackedFile of trackedFiles) {
+      if (entryMap.has(trackedFile)) {
+        continue;
+      }
+      const entry = await buildModuleEntry(workingDirectory, trackedFile);
+      if (entry) {
+        entryMap.set(entry.file, entry);
+        updatedEntries.push(entry.file);
+      }
+    }
+
     const nextModules = Array.from(entryMap.values()).sort((left, right) => left.file.localeCompare(right.file));
     const dateStamp = new Date().toISOString().slice(0, 10);
     await writeModuleIndex(workingDirectory, {
@@ -3274,7 +3550,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     });
 
     const knowledgePack = await buildKnowledgePack(workingDirectory, nextModules, {
-      trackedFiles: context.trackedFiles || [],
+      trackedFiles,
       pendingFiles: context.pendingFiles || [],
       currentSha: context.currentSha || null,
       generatedAt: context.generatedAt || new Date().toISOString(),
@@ -3284,7 +3560,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
         name: knowledgePack?.repo?.name,
         description: knowledgePack?.repo?.description,
       },
-      trackedFiles: context.trackedFiles || nextModules.map(entry => entry.file),
+      trackedFiles: trackedFiles.length > 0 ? trackedFiles : nextModules.map(entry => entry.file),
       workingDirectory,
     });
     await writeKnowledgePack(workingDirectory, knowledgePack);
@@ -3298,13 +3574,14 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       generatedAt: context.generatedAt || new Date().toISOString(),
       batchCount: context.batchCount || 0,
       manualRunNow: context.manualRunNow === true,
+      forceRefresh: context.forceRefresh === true,
       scheduleId: context.scheduleId || null,
       scheduleName: context.scheduleName || null,
       scheduleRunId: context.scheduleRunId || null,
       currentTaskId: context.currentTaskId || null,
       activeProfile,
       subsystemLookup: buildSubsystemLookup([
-        ...(context.trackedFiles || []),
+        ...trackedFiles,
         ...nextModules.map(entry => entry.file),
         ...(context.signalFiles || []),
       ], activeProfile),
@@ -3353,7 +3630,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       studyDelta,
       state: {
         file_counts: {
-          tracked: (context.trackedFiles || []).length,
+          tracked: trackedFiles.length,
           pending: (context.pendingFiles || []).length,
         },
       },
@@ -3471,6 +3748,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       ? options.currentTaskId.trim()
       : null;
     const manualRunNow = options?.manualRunNow === true;
+    const forceRefresh = options?.forceRefresh === true || manualRunNow;
     const scheduleId = typeof options?.scheduleId === 'string' && options.scheduleId.trim()
       ? options.scheduleId.trim()
       : null;
@@ -3493,7 +3771,12 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     );
     const runningTasks = taskCore
       .listTasks({ status: 'running', limit: 1000 })
-      .filter(task => !currentTaskId || String(task?.id || '') !== currentTaskId);
+      .filter(task => {
+        if (currentTaskId && String(task?.id || '') === currentTaskId) return false;
+        const tags = Array.isArray(task?.tags) ? task.tags : [];
+        if (tags.includes('codebase-study') || tags.includes('auto-generated')) return false;
+        return true;
+      });
     if (runningTasks.length > 0) {
       return {
         skipped: true,
@@ -3507,10 +3790,12 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     const trackedFiles = loadTrackedFiles(resolvedWorkingDirectory);
     const delta = loadDeltaChanges(resolvedWorkingDirectory, state.last_sha);
     const trackedFileSet = new Set(trackedFiles);
+    const newlyTrackedFiles = trackedFiles.filter(file => !state.tracked_files.includes(file));
     const pendingFiles = state.last_sha
       ? mergeUnique(
         state.pending_files.filter(file => trackedFileSet.has(file)),
-        delta.changed.filter(file => trackedFileSet.has(file))
+        delta.changed.filter(file => trackedFileSet.has(file)),
+        newlyTrackedFiles
       )
       : trackedFiles;
     const removedFiles = uniquePaths([
@@ -3518,7 +3803,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       ...state.tracked_files.filter(file => !trackedFileSet.has(file)),
     ]);
 
-    if (pendingFiles.length === 0 && removedFiles.length === 0) {
+    if (pendingFiles.length === 0 && removedFiles.length === 0 && !forceRefresh) {
       const nowIso = new Date().toISOString();
       const docsResult = await updateStudyDocs(resolvedWorkingDirectory, [], [], {
         trackedFiles,
@@ -3590,8 +3875,16 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       };
     }
 
-    const batchFiles = pendingFiles.slice(0, effectiveBatchSize * runBatchCount);
-    const remainingPending = pendingFiles.slice(batchFiles.length);
+    const isRefreshOnly = forceRefresh && pendingFiles.length === 0 && removedFiles.length === 0;
+    const batchFiles = isRefreshOnly
+      ? []
+      : pendingFiles.slice(0, effectiveBatchSize * runBatchCount);
+    const remainingPending = isRefreshOnly
+      ? []
+      : pendingFiles.slice(batchFiles.length);
+    const batchCount = isRefreshOnly
+      ? 0
+      : Math.max(1, Math.ceil(batchFiles.length / effectiveBatchSize));
     const docsResult = await updateStudyDocs(resolvedWorkingDirectory, batchFiles, removedFiles, {
       trackedFiles,
       pendingFiles: remainingPending,
@@ -3599,8 +3892,9 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       previousSha: state.last_sha,
       signalFiles: mergeUnique(delta.changed.filter(file => trackedFileSet.has(file)), removedFiles),
       generatedAt: new Date().toISOString(),
-      batchCount: Math.max(1, Math.ceil(batchFiles.length / effectiveBatchSize)),
+      batchCount,
       manualRunNow,
+      forceRefresh,
       scheduleId,
       scheduleName,
       scheduleRunId,
@@ -3620,7 +3914,9 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       last_batch: batchFiles,
       last_run_at: nowIso,
       last_completed_at: nowIso,
-      last_result: remainingPending.length > 0 ? 'partial_local' : 'completed_local',
+      last_result: isRefreshOnly
+        ? 'refreshed_local'
+        : (remainingPending.length > 0 ? 'partial_local' : 'completed_local'),
       last_error: null,
       tracked_files: trackedFiles,
       pending_files: remainingPending,
@@ -3664,7 +3960,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     return {
       skipped: false,
       task_status: 'completed',
-      batch_count: Math.max(1, Math.ceil(batchFiles.length / effectiveBatchSize)),
+      batch_count: batchCount,
       batch_files: batchFiles,
       removed_files: removedFiles,
       docs_updated: docsResult,
