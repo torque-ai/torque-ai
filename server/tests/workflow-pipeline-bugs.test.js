@@ -32,8 +32,9 @@ describe('Workflow pipeline bugs', () => {
     const env = setupTestDb('wf-pipeline-bugs');
     db = env.db;
     testDir = env.testDir;
-    // initSubModules not called — we only need tools.js handlers which setupTestDb provides.
-    // The queue-scheduler is tested directly below.
+    // Initialize the queue-scheduler with the test DB so resolveCodexPendingTasks works
+    const queueScheduler = require('../execution/queue-scheduler');
+    queueScheduler.init({ db });
   });
   afterAll(() => { teardownTestDb(); });
 
