@@ -181,9 +181,14 @@ function classifyNode(node, langName) {
   // C#
   if (langName === 'c_sharp') {
     if (type === 'method_declaration') return 'method';
+    if (type === 'constructor_declaration') return 'method';
     if (type === 'class_declaration') return 'class';
+    if (type === 'struct_declaration') return 'class';
+    if (type === 'record_declaration') return 'class';
+    if (type === 'record_struct_declaration') return 'class';
     if (type === 'interface_declaration') return 'interface';
     if (type === 'enum_declaration') return 'enum';
+    if (type === 'property_declaration') return 'property';
   }
 
   return null;
@@ -225,6 +230,11 @@ function isExportedNode(node, langName) {
   if (langName === 'javascript' || langName === 'typescript') {
     if (type === 'export_statement' || type === 'export_default_declaration') return true;
     if (/^export\s/.test(nodeText)) return true;
+  }
+
+  if (langName === 'c_sharp') {
+    const signature = extractSignature(node).toLowerCase();
+    return /\b(public|internal)\b/.test(signature) && !/\bprivate\b/.test(signature);
   }
 
   if (node.parent && (node.parent.type === 'export_statement' || node.parent.type === 'export_default_declaration')) return true;
@@ -374,7 +384,7 @@ function cleanupOrphans(workingDir) {
 /**
  * Regex-based symbol extraction fallback when tree-sitter is unavailable.
  */
-function extractSymbolsRegex(content, filePath) {
+function extractSymbolsRegex(content, filePath, ext) {
   const lines = content.split('\n');
   const symbols = [];
   const JS_PATTERNS = [
@@ -385,14 +395,24 @@ function extractSymbolsRegex(content, filePath) {
     { regex: /^(?:export\s+)?enum\s+(\w+)/, kind: 'enum' },
     { regex: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=/, kind: 'const' },
   ];
+  const CSHARP_PATTERNS = [
+    { regex: /^(?:public|internal)\s+(?:partial\s+|sealed\s+|abstract\s+|static\s+)*(?:class|struct|record)\s+(\w+)/, kind: 'class' },
+    { regex: /^(?:public|internal)\s+interface\s+(\w+)/, kind: 'interface' },
+    { regex: /^(?:public|internal)\s+enum\s+(\w+)/, kind: 'enum' },
+    { regex: /^(?:public|internal)\s+(?:static\s+|virtual\s+|override\s+|async\s+|sealed\s+|partial\s+)*(?:[\w<>\[\]?,.]+\s+)+(\w+)\s*\(/, kind: 'method' },
+    { regex: /^(?:public|internal)\s+(?:static\s+|virtual\s+|override\s+|sealed\s+|partial\s+)*(?:[\w<>\[\]?,.]+\s+)+(\w+)\s*\{\s*(?:get|set)/, kind: 'property' },
+  ];
+  const patterns = ext === '.cs' ? CSHARP_PATTERNS : JS_PATTERNS;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line || line.startsWith('//') || line.startsWith('*')) continue;
-    for (const pat of JS_PATTERNS) {
+    for (const pat of patterns) {
       const m = line.match(pat.regex);
       if (m) {
-        const exported = line.startsWith('export');
+        const exported = ext === '.cs'
+          ? /^(?:public|internal)\b/.test(line)
+          : line.startsWith('export');
         symbols.push({
           name: m[1],
           kind: pat.kind,
@@ -427,9 +447,9 @@ async function indexFile(filePath, content, workingDir) {
 
   // Regex fallback for JS/TS when tree-sitter fails
   if (!symbols || symbols.length === 0) {
-    const jsExts = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
-    if (jsExts.has(ext)) {
-      symbols = extractSymbolsRegex(content, filePath);
+    const regexExts = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs', '.cs']);
+    if (regexExts.has(ext)) {
+      symbols = extractSymbolsRegex(content, filePath, ext);
     }
   }
 

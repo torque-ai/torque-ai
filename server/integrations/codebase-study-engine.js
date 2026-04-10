@@ -17,7 +17,7 @@ const DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL = 'moderate';
 const DEFAULT_PROPOSAL_MIN_SCORE = 0;
 const MAX_EXISTING_PROPOSAL_SCAN = 500;
 const EVALUATION_VERSION = 1;
-const EVALUATION_PROBE_LIMIT = 10;
+const EVALUATION_PROBE_LIMIT = 12;
 const BENCHMARK_VERSION = 1;
 const DEFAULT_BOOTSTRAP_CRON = '*/15 * * * *';
 const DEFAULT_BOOTSTRAP_BATCHES = 5;
@@ -329,6 +329,461 @@ function flattenFlowFiles(flow) {
   return uniquePaths([...(flow?.files || []), ...stepFiles]);
 }
 
+function isRepoBriefingPrompt(taskDescription) {
+  const normalized = String(taskDescription || '').trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (
+    normalized.includes('repo briefing')
+    || normalized.includes('repository briefing')
+    || normalized.includes('fast repo map')
+  ) {
+    return true;
+  }
+
+  let signalCount = 0;
+  if (normalized.includes('primary runtime entrypoint')) signalCount += 1;
+  if (normalized.includes('secondary important entrypoint') || normalized.includes('secondary entrypoint')) signalCount += 1;
+  if (normalized.includes('high-risk subsystem') || normalized.includes('hotspot')) signalCount += 1;
+  if (normalized.includes('validation command')) signalCount += 1;
+  if (normalized.includes('read-only')) signalCount += 1;
+  return signalCount >= 2;
+}
+
+function isLowSignalRepoBriefingLabel(label) {
+  const normalized = String(label || '').trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes('validation and tests')
+    || normalized.includes('documentation')
+    || normalized.includes('docs')
+    || normalized.includes('config')
+    || normalized.includes('manifest')
+    || normalized.includes('fixtures')
+    || normalized.includes('examples')
+    || normalized === 'project root and shared config'
+    || /^(?:src|source|tools?|ops|samples?|docs?|tests?|fixtures?|schemas?|config|\.config|screenshots?) area$/.test(normalized)
+  );
+}
+
+function isLowSignalRepoBriefingFile(filePath) {
+  const normalized = toRepoPath(filePath).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    /(^|\/)(__tests__|tests?|specs?)(\/|$)/.test(normalized)
+    || /(^|\/)(docs?|examples?|fixtures?|schemas?|config|configs?|manifests?)(\/|$)/.test(normalized)
+    || /\.(json|ya?ml|toml|ini|md)$/.test(normalized)
+  );
+}
+
+function countHighSignalRepoBriefingFiles(filePaths) {
+  return uniquePaths(filePaths || []).filter((filePath) => !isLowSignalRepoBriefingFile(filePath)).length;
+}
+
+function isLowSignalRepoBriefingChangeGuidanceEntry(entry) {
+  const item = entry?.item || entry || {};
+  const relatedFiles = uniquePaths(item?.related_files || []);
+  const highSignalFileCount = countHighSignalRepoBriefingFiles(relatedFiles);
+  if (isLowSignalRepoBriefingLabel(item?.label || item?.id)) {
+    return true;
+  }
+  if (highSignalFileCount === 0) {
+    return true;
+  }
+  return highSignalFileCount <= 1 && relatedFiles.length > highSignalFileCount;
+}
+
+function isWeakRepoBriefingHotspotEntry(entry, entrypointFiles = new Set()) {
+  const item = entry?.item || entry || {};
+  const filePath = toRepoPath(item?.file);
+  const reason = String(item?.reason || '').trim().toLowerCase();
+  if (!filePath || isLowSignalRepoBriefingFile(filePath)) {
+    return true;
+  }
+  return entrypointFiles.has(filePath)
+    && reason.startsWith('representative file in ')
+    && item?.confidence !== 'high';
+}
+
+function collectStudyValidationCommands(knowledgePack) {
+  return uniqueStrings([
+    ...(Array.isArray(knowledgePack?.expertise?.change_playbooks)
+      ? knowledgePack.expertise.change_playbooks.flatMap((item) => item?.validation_commands || [])
+      : []),
+    ...(Array.isArray(knowledgePack?.expertise?.impact_guidance)
+      ? knowledgePack.expertise.impact_guidance.flatMap((item) => item?.validation_commands || [])
+      : []),
+    ...(Array.isArray(knowledgePack?.expertise?.test_matrix)
+      ? knowledgePack.expertise.test_matrix.flatMap((item) => item?.validation_commands || [])
+      : []),
+  ]);
+}
+
+function scoreRepoBriefingValidationCommand(command) {
+  const normalized = String(command || '').trim().toLowerCase();
+  if (!normalized) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  let score = 0;
+  if (/^(?:pwsh|powershell|bash|sh|npm run|pnpm |yarn |make |just )/.test(normalized)) {
+    score += 5;
+  }
+  if (/(?:^|[\s"'`])scripts\//.test(normalized) || /\.(?:ps1|sh)\b/.test(normalized)) {
+    score += 6;
+  }
+  if (/\bbuild\b/.test(normalized) || /\bverify\b/.test(normalized) || /\bcheck\b/.test(normalized)) {
+    score += 4;
+  }
+  if (/\btest\b/.test(normalized) || /\bpytest\b/.test(normalized) || /\bvitest\b/.test(normalized)) {
+    score += 1;
+  }
+  if (/--no-build\b/.test(normalized)) {
+    score -= 2;
+  }
+  if (normalized === 'pytest') {
+    score -= 2;
+  }
+
+  return score;
+}
+
+function selectRepoBriefingValidationCommands(commands, limit = 2) {
+  return uniqueStrings(commands)
+    .map((command) => ({
+      command,
+      score: scoreRepoBriefingValidationCommand(command),
+    }))
+    .filter((entry) => Number.isFinite(entry.score))
+    .sort((left, right) => right.score - left.score || left.command.localeCompare(right.command))
+    .slice(0, Math.max(1, limit))
+    .map((entry) => entry.command);
+}
+
+function intersectPaths(leftValues, rightValues) {
+  const right = new Set(uniquePaths(rightValues));
+  return uniquePaths(leftValues).filter((value) => right.has(value));
+}
+
+function intersectStrings(leftValues, rightValues) {
+  const right = new Set(uniqueStrings(rightValues).map((value) => value.toLowerCase()));
+  return uniqueStrings(leftValues).filter((value) => right.has(String(value || '').toLowerCase()));
+}
+
+function buildRepoBriefingProbe(knowledgePack, repoName) {
+  const expectedEntrypoints = uniquePaths((knowledgePack?.entrypoints || []).slice(0, 2).map((item) => item?.file));
+  const expectedHotspots = uniquePaths((knowledgePack?.hotspots || []).slice(0, 2).map((item) => item?.file));
+  const expectedValidationCommands = selectRepoBriefingValidationCommands(
+    collectStudyValidationCommands(knowledgePack),
+    2
+  );
+  if (expectedEntrypoints.length === 0 && expectedHotspots.length === 0) {
+    return null;
+  }
+
+  return {
+    id: 'repo-briefing:onramp',
+    scope_type: 'repo_briefing',
+    scope_id: 'repo-briefing',
+    expected_entrypoints: expectedEntrypoints,
+    expected_hotspots: expectedHotspots,
+    expected_validation_commands: expectedValidationCommands,
+    ...buildProbe(
+      [
+        `Read-only repo briefing for ${repoName}. Return exactly 4 bullets and keep it under 140 words.`,
+        '1. Primary runtime entrypoint.',
+        '2. Secondary important entrypoint or startup surface.',
+        '3. One high-risk subsystem or hotspot worth understanding first.',
+        '4. One validation command worth running first.',
+      ].join(' '),
+      [...expectedEntrypoints, ...expectedHotspots],
+      [
+        ...(knowledgePack?.subsystems || []).slice(0, 2).map((item) => item?.label),
+        ...expectedValidationCommands,
+      ]
+    ),
+  };
+}
+
+function buildRepoBriefingPromptAlignment(probe, workingDirectory) {
+  const normalizedWorkingDirectory = String(workingDirectory || '').trim();
+  if (!normalizedWorkingDirectory) {
+    return null;
+  }
+  const knowledgePackPath = path.join(path.resolve(normalizedWorkingDirectory), KNOWLEDGE_PACK_FILE);
+  if (!fs.existsSync(knowledgePackPath)) {
+    return null;
+  }
+
+  const envelope = buildTaskStudyContextEnvelope({
+    workingDirectory: normalizedWorkingDirectory,
+    taskDescription: probe.prompt,
+  });
+  if (!envelope?.study_context_summary) {
+    return {
+      score: 0,
+      selected_entrypoints: [],
+      selected_hotspots: [],
+      selected_validation_commands: [],
+      matched_entrypoints: [],
+      matched_hotspots: [],
+      matched_validation_commands: [],
+    };
+  }
+
+  const selectedEntrypoints = uniquePaths(envelope.study_context_summary.entrypoint_files || []);
+  const selectedHotspots = uniquePaths(envelope.study_context_summary.hotspot_files || []);
+  const selectedValidationCommands = uniqueStrings(envelope.study_context_summary.validation_commands || []);
+  const matchedEntrypoints = intersectPaths(probe.expected_entrypoints || [], selectedEntrypoints);
+  const matchedHotspots = intersectPaths(probe.expected_hotspots || [], selectedHotspots);
+  const matchedValidationCommands = intersectStrings(probe.expected_validation_commands || [], selectedValidationCommands);
+
+  const entrypointRatio = (probe.expected_entrypoints || []).length > 0
+    ? matchedEntrypoints.length / probe.expected_entrypoints.length
+    : 1;
+  const hotspotRatio = (probe.expected_hotspots || []).length > 0
+    ? matchedHotspots.length / probe.expected_hotspots.length
+    : 1;
+  const validationRatio = (probe.expected_validation_commands || []).length > 0
+    ? matchedValidationCommands.length / probe.expected_validation_commands.length
+    : 1;
+  const score = Math.round(((entrypointRatio * 0.5) + (hotspotRatio * 0.3) + (validationRatio * 0.2)) * 100);
+
+  return {
+    score,
+    selected_entrypoints: selectedEntrypoints,
+    selected_hotspots: selectedHotspots,
+    selected_validation_commands: selectedValidationCommands,
+    matched_entrypoints: matchedEntrypoints,
+    matched_hotspots: matchedHotspots,
+    matched_validation_commands: matchedValidationCommands,
+  };
+}
+
+function buildRepoBriefingFallbackChangeGuidance({
+  relevantEntrypoints,
+  relevantHotspots,
+  validationCommands,
+  maxItems,
+}) {
+  const relatedFiles = uniquePaths([
+    ...(Array.isArray(relevantHotspots) ? relevantHotspots.map((item) => item?.file) : []),
+    ...(Array.isArray(relevantEntrypoints) ? relevantEntrypoints.map((item) => item?.file) : []),
+  ])
+    .filter((filePath) => !isLowSignalRepoBriefingFile(filePath))
+    .slice(0, Math.max(1, maxItems));
+  const commands = uniqueStrings(validationCommands || []).slice(0, 2);
+  if (relatedFiles.length === 0 && commands.length === 0) {
+    return [];
+  }
+  return [{
+    id: 'repo-briefing-runtime-seams',
+    label: 'Runtime seams',
+    related_files: relatedFiles,
+    validation_commands: commands,
+  }];
+}
+
+function getEntrypointRuntimeFamily(filePath) {
+  const normalized = toRepoPath(filePath).toLowerCase();
+  const extension = path.extname(normalized);
+
+  if (['.cs', '.vb', '.fs', '.xaml'].includes(extension)) return 'dotnet';
+  if (extension === '.py') return 'python';
+  if (['.js', '.cjs', '.mjs', '.ts', '.tsx', '.jsx'].includes(extension)) return 'node';
+  if (extension === '.go') return 'go';
+  if (extension === '.rs') return 'rust';
+  if (extension === '.java' || extension === '.kt') return 'jvm';
+  if (extension === '.rb') return 'ruby';
+  if (extension === '.php') return 'php';
+  return extension ? extension.slice(1) : 'other';
+}
+
+function getRepoBriefingEntrypointBias(item) {
+  const filePath = toRepoPath(item?.file).toLowerCase();
+  const role = String(item?.role || '').toLowerCase();
+  const basename = path.basename(filePath);
+  const segments = filePath.split('/').filter(Boolean);
+  let bias = 0;
+
+  if (/^(program|main)\./.test(basename) || basename === 'app.xaml.cs' || /^cli\./.test(basename)) {
+    bias += 4;
+  }
+  if (/(^|\/)(cli|app|apps|dashboard|desktop|server|service|web)(\/|$)/.test(filePath)) {
+    bias += 2;
+  }
+  if (/\b(cli|command|dashboard|desktop|ui|web|server|service|startup|entrypoint)\b/.test(role)) {
+    bias += 2;
+  }
+  if (/^index\.(js|cjs|mjs|ts|tsx|jsx|py)$/.test(basename) && segments.length > 2) {
+    bias -= 4;
+  }
+  if (isLowSignalRepoBriefingFile(filePath)) {
+    bias -= 6;
+  }
+
+  return bias;
+}
+
+function selectRepoBriefingRankedEntries(entries, limit, isLowSignalEntry) {
+  const rankedEntries = Array.isArray(entries) ? entries : [];
+  if (rankedEntries.length <= limit) {
+    return rankedEntries.slice(0, limit);
+  }
+
+  const preferred = rankedEntries.filter((entry) => !isLowSignalEntry(entry));
+  const source = preferred.length > 0 ? preferred : rankedEntries;
+  return source.slice(0, limit);
+}
+
+function selectRepoBriefingEntrypoints(entries, limit) {
+  const rankedEntries = Array.isArray(entries) ? entries : [];
+  if (rankedEntries.length <= limit) {
+    return rankedEntries.slice(0, limit);
+  }
+
+  const families = uniqueStrings(rankedEntries.map((entry) => getEntrypointRuntimeFamily(entry?.item?.file)).filter(Boolean));
+  if (families.length <= 1) {
+    return rankedEntries.slice(0, limit);
+  }
+
+  const selected = [];
+  const seenFiles = new Set();
+  const seenFamilies = new Set();
+
+  for (const entry of rankedEntries) {
+    if (selected.length >= limit) {
+      break;
+    }
+    const filePath = toRepoPath(entry?.item?.file);
+    const family = getEntrypointRuntimeFamily(filePath);
+    if (!filePath || seenFiles.has(filePath) || !family || seenFamilies.has(family)) {
+      continue;
+    }
+    selected.push(entry);
+    seenFiles.add(filePath);
+    seenFamilies.add(family);
+  }
+
+  for (const entry of rankedEntries) {
+    if (selected.length >= limit) {
+      break;
+    }
+    const filePath = toRepoPath(entry?.item?.file);
+    if (!filePath || seenFiles.has(filePath)) {
+      continue;
+    }
+    selected.push(entry);
+    seenFiles.add(filePath);
+  }
+
+  return selected;
+}
+
+const REPO_BRIEFING_GENERIC_DIRS = new Set([
+  'src',
+  'source',
+  'lib',
+  'libs',
+  'app',
+  'apps',
+  'package',
+  'packages',
+  'module',
+  'modules',
+  'tool',
+  'tools',
+  'client',
+  'clients',
+  'server',
+  'servers',
+]);
+
+function buildRepoBriefingFocusKey(filePath) {
+  const normalized = toRepoPath(filePath);
+  if (!normalized) {
+    return '';
+  }
+
+  const segments = normalized.split('/').filter(Boolean);
+  let dirSegments = segments.slice(0, -1);
+  while (dirSegments.length > 1 && REPO_BRIEFING_GENERIC_DIRS.has(String(dirSegments[0] || '').toLowerCase())) {
+    dirSegments = dirSegments.slice(1);
+  }
+
+  if (dirSegments.length === 0) {
+    return path.basename(normalized, path.extname(normalized));
+  }
+  if (dirSegments.length === 1) {
+    return dirSegments[0];
+  }
+  return dirSegments.slice(0, 2).join('/');
+}
+
+function formatRepoBriefingFocusOverview(sourceTypes, files) {
+  const normalizedSourceTypes = Array.from(sourceTypes || []).filter(Boolean);
+  const sourceSummary = normalizedSourceTypes.length > 1
+    ? `${normalizedSourceTypes.slice(0, 2).join(' and ')} seams`
+    : `${normalizedSourceTypes[0] || 'runtime'} seam`;
+  return `Focused briefing area synthesized from ${sourceSummary}. Start with ${uniquePaths(files || []).slice(0, 3).map((filePath) => `\`${filePath}\``).join(', ')}.`;
+}
+
+function buildRepoBriefingFocusAreas({ relevantEntrypoints, relevantHotspots, relevantFlows, maxItems }) {
+  const areaMap = new Map();
+  const addAreaFile = (filePath, sourceType, weight) => {
+    const normalized = toRepoPath(filePath);
+    if (!normalized || isLowSignalRepoBriefingFile(normalized)) {
+      return;
+    }
+
+    const focusKey = buildRepoBriefingFocusKey(normalized);
+    if (!focusKey) {
+      return;
+    }
+
+    const existing = areaMap.get(focusKey) || {
+      id: `focus:${focusKey}`,
+      label: focusKey,
+      files: new Set(),
+      sourceTypes: new Set(),
+      score: 0,
+    };
+
+    existing.files.add(normalized);
+    existing.sourceTypes.add(sourceType);
+    existing.score += weight;
+    areaMap.set(focusKey, existing);
+  };
+
+  (Array.isArray(relevantEntrypoints) ? relevantEntrypoints : []).forEach((item) => addAreaFile(item?.file, 'entrypoint', 4));
+  (Array.isArray(relevantHotspots) ? relevantHotspots : []).forEach((item) => addAreaFile(item?.file, 'hotspot', 5));
+  (Array.isArray(relevantFlows) ? relevantFlows : []).forEach((flow) => {
+    uniquePaths(flow?.files || []).slice(0, 3).forEach((filePath) => addAreaFile(filePath, 'flow', 1));
+  });
+
+  return Array.from(areaMap.values())
+    .sort((left, right) => right.score - left.score || left.label.localeCompare(right.label))
+    .slice(0, maxItems)
+    .map((item) => {
+      const files = Array.from(item.files);
+      return {
+        id: item.id,
+        label: item.label,
+        overview: truncateText(formatRepoBriefingFocusOverview(item.sourceTypes, files), 180),
+        key_files: files.slice(0, Math.max(1, maxItems)),
+        reason: `Selected as a repo-briefing focus area from ${Array.from(item.sourceTypes).join(' and ')} signals.`,
+      };
+    });
+}
+
 function buildTaskStudyContextPrompt(studyContext) {
   if (!studyContext || typeof studyContext !== 'object') {
     return '';
@@ -352,6 +807,12 @@ function buildTaskStudyContextPrompt(studyContext) {
     });
   };
 
+  pushSection('Relevant Entrypoints', studyContext.relevant_entrypoints, (item) => (
+    `- \`${item.file}\`: ${truncateText(item.role, 150)} ${item.reason}`.trim()
+  ));
+  pushSection('Relevant Hotspots', studyContext.relevant_hotspots, (item) => (
+    `- \`${item.file}\`: ${truncateText(item.summary, 180)} ${item.reason}`.trim()
+  ));
   pushSection('Relevant Subsystems', studyContext.relevant_subsystems, (item) => (
     `- ${item.label}: ${truncateText(item.overview || item.description, 180)} Read ${item.key_files.map((filePath) => `\`${filePath}\``).join(', ')}. ${item.reason}`.trim()
   ));
@@ -400,22 +861,114 @@ function buildTaskStudyContextEnvelope({ workingDirectory, taskDescription, file
     ...extractMentionedRepoPaths(taskDescription),
   ], normalizedWorkingDirectory);
   const promptTokens = buildPromptTokenSet(taskDescription, targetFiles);
-
-  const relevantSubsystems = rankStudyItems(knowledgePack.subsystems, {
+  const repoBriefing = isRepoBriefingPrompt(taskDescription);
+  const entrypointCandidates = rankStudyItems(knowledgePack.entrypoints, {
     targetFiles,
     promptTokens,
-    limit: maxItems,
+    limit: repoBriefing
+      ? Math.max(Math.min(Array.isArray(knowledgePack.entrypoints) ? knowledgePack.entrypoints.length : 0, 6), Math.min(2, maxItems))
+      : Math.min(2, maxItems),
+    fallbackLimit: repoBriefing ? Math.min(4, maxItems + 1) : Math.min(2, maxItems),
+    getFiles: (item) => [item?.file],
+    getTextParts: (item) => [item?.file, item?.role, item?.subsystem, ...(item?.evidence || [])],
+    getBias: (item) => (
+      (item?.confidence === 'high' ? 3 : (item?.confidence === 'medium' ? 1 : 0))
+      + (repoBriefing ? getRepoBriefingEntrypointBias(item) : 0)
+    ),
+  });
+  const relevantEntrypoints = (repoBriefing
+    ? selectRepoBriefingEntrypoints(entrypointCandidates, Math.min(2, maxItems))
+    : entrypointCandidates.slice(0, Math.min(2, maxItems)))
+    .map((entry) => ({
+    file: entry.item.file,
+    role: truncateText(entry.item.role, 150),
+    reason: buildStudyMatchReason(entry, 'Selected as a high-signal runtime or UI entrypoint.'),
+  }));
+
+  const hotspotCandidates = rankStudyItems(knowledgePack.hotspots, {
+    targetFiles,
+    promptTokens,
+    limit: repoBriefing
+      ? Math.max(Math.min(Array.isArray(knowledgePack.hotspots) ? knowledgePack.hotspots.length : 0, 6), Math.min(2, maxItems))
+      : Math.min(2, maxItems),
+    fallbackLimit: Math.min(2, maxItems),
+    getFiles: (item) => [item?.file],
+    getTextParts: (item) => [item?.file, item?.subsystem_label, item?.reason, item?.signal_type],
+    getBias: (item) => {
+      let bias = item?.confidence === 'high' ? 3 : (item?.confidence === 'medium' ? 1 : 0);
+      if (item?.signal_type === 'runtime') bias += 4;
+      if (item?.signal_type === 'module') bias += 1;
+      if (item?.signal_type === 'content') bias -= 2;
+      if (item?.evidence?.executable_surface) bias += 3;
+      if (repoBriefing && isLowSignalRepoBriefingFile(item?.file)) bias -= 8;
+      return bias;
+    },
+  });
+  const repoBriefingEntrypointFiles = new Set(relevantEntrypoints.map((item) => toRepoPath(item.file)).filter(Boolean));
+  const selectedHotspotEntries = repoBriefing
+    ? hotspotCandidates
+      .filter((entry) => !isWeakRepoBriefingHotspotEntry(entry, repoBriefingEntrypointFiles))
+      .slice(0, Math.min(2, maxItems))
+    : hotspotCandidates.slice(0, Math.min(2, maxItems));
+  const relevantHotspots = selectedHotspotEntries
+    .map((entry) => ({
+      file: entry.item.file,
+      subsystem_label: entry.item.subsystem_label || null,
+      signal_type: entry.item.signal_type || 'module',
+      summary: truncateText(entry.item.reason, 180),
+      reason: buildStudyMatchReason(entry, 'Selected as a high-signal hotspot to orient on coupling and blast radius.'),
+    }));
+
+  const subsystemCandidates = rankStudyItems(knowledgePack.subsystems, {
+    targetFiles,
+    promptTokens,
+    limit: repoBriefing
+      ? Math.max(Math.min(Array.isArray(knowledgePack.subsystems) ? knowledgePack.subsystems.length : 0, maxItems * 2), maxItems)
+      : maxItems,
     fallbackLimit: Math.min(2, maxItems),
     getFiles: (item) => item?.files || item?.key_files || item?.evidence_files || [],
     getTextParts: (item) => [item?.id, item?.label, item?.overview, item?.description],
-    getBias: (item) => Number.isFinite(item?.priority) ? Math.round(item.priority / 25) : 0,
-  }).map((entry) => ({
-    id: entry.item.id,
-    label: entry.item.label,
-    overview: truncateText(entry.item.overview || entry.item.description, 180),
-    key_files: uniquePaths(entry.item.files || entry.item.key_files || []).slice(0, Math.max(1, maxItems)),
-    reason: buildStudyMatchReason(entry, 'Selected from the study onramp as a likely starting subsystem.'),
-  }));
+    getBias: (item) => {
+      let bias = Number.isFinite(item?.priority) ? Math.round(item.priority / 25) : 0;
+      if (repoBriefing && isLowSignalRepoBriefingLabel(item?.label)) {
+        bias -= 8;
+      }
+      if (repoBriefing && uniquePaths(item?.files || item?.key_files || []).every((filePath) => isLowSignalRepoBriefingFile(filePath))) {
+        bias -= 4;
+      }
+      return bias;
+    },
+  });
+  const rankedSubsystems = (repoBriefing
+    ? selectRepoBriefingRankedEntries(
+        subsystemCandidates,
+        maxItems,
+        (entry) => (
+          isLowSignalRepoBriefingLabel(entry?.item?.label)
+          || uniquePaths(entry?.item?.files || entry?.item?.key_files || []).every((filePath) => isLowSignalRepoBriefingFile(filePath))
+        )
+      )
+    : subsystemCandidates.slice(0, maxItems))
+    .map((entry) => ({
+      id: entry.item.id,
+      label: entry.item.label,
+      overview: truncateText(entry.item.overview || entry.item.description, 180),
+      key_files: uniquePaths(entry.item.files || entry.item.key_files || []).slice(0, Math.max(1, maxItems)),
+      reason: buildStudyMatchReason(entry, 'Selected from the study onramp as a likely starting subsystem.'),
+    }));
+
+  const briefingFocusAreas = repoBriefing
+    ? buildRepoBriefingFocusAreas({
+        relevantEntrypoints,
+        relevantHotspots,
+        relevantFlows: [],
+        maxItems,
+      })
+    : [];
+
+  const relevantSubsystems = repoBriefing && briefingFocusAreas.length > 0
+    ? briefingFocusAreas
+    : rankedSubsystems;
 
   const relevantFlows = rankStudyItems(knowledgePack.flows, {
     targetFiles,
@@ -446,33 +999,69 @@ function buildTaskStudyContextEnvelope({ workingDirectory, taskDescription, file
     evidence_files: uniquePaths(entry.item.evidence_files || entry.item.related_files || []).slice(0, Math.max(1, maxItems)),
   }));
 
-  const changeGuidance = rankStudyItems(knowledgePack?.expertise?.impact_guidance, {
+  const changeGuidanceCandidates = rankStudyItems(knowledgePack?.expertise?.impact_guidance, {
     targetFiles,
     promptTokens,
     limit: Math.min(2, maxItems),
     fallbackLimit: 1,
     getFiles: (item) => item?.related_files || item?.tests || [],
     getTextParts: (item) => [item?.id, item?.label, item?.summary, item?.rationale, ...(item?.invariants || [])],
-  }).map((entry) => ({
+    getBias: (item) => {
+      let bias = 0;
+      if ((item?.validation_commands || []).length > 0) bias += 2;
+      if (uniquePaths(item?.related_files || []).some((filePath) => !isLowSignalRepoBriefingFile(filePath))) bias += 2;
+      if (repoBriefing && isLowSignalRepoBriefingLabel(item?.label || item?.id)) bias -= 6;
+      if (repoBriefing && uniquePaths(item?.related_files || []).every((filePath) => isLowSignalRepoBriefingFile(filePath))) {
+        bias -= 6;
+      }
+      return bias;
+    },
+  });
+  const selectedChangeGuidanceEntries = repoBriefing
+    ? changeGuidanceCandidates
+      .filter((entry) => !isLowSignalRepoBriefingChangeGuidanceEntry(entry))
+      .slice(0, Math.min(2, maxItems))
+    : changeGuidanceCandidates.slice(0, Math.min(2, maxItems));
+  const fallbackValidationCommandsInput = uniqueStrings([
+    ...selectedChangeGuidanceEntries.flatMap((entry) => entry?.item?.validation_commands || []),
+    ...changeGuidanceCandidates.flatMap((entry) => entry?.item?.validation_commands || []),
+    ...collectStudyValidationCommands(knowledgePack),
+  ]);
+  const fallbackValidationCommands = repoBriefing
+    ? selectRepoBriefingValidationCommands(fallbackValidationCommandsInput, 4)
+    : fallbackValidationCommandsInput.slice(0, 4);
+  let changeGuidance = selectedChangeGuidanceEntries.map((entry) => ({
     id: entry.item.id || entry.item.label,
     label: entry.item.label || entry.item.id,
     related_files: uniquePaths(entry.item.related_files || []).slice(0, Math.max(1, maxItems)),
-    validation_commands: uniqueStrings(entry.item.validation_commands || []).slice(0, 2),
+    validation_commands: repoBriefing
+      ? selectRepoBriefingValidationCommands(entry.item.validation_commands || [], 2)
+      : uniqueStrings(entry.item.validation_commands || []).slice(0, 2),
   }));
+  if (repoBriefing && changeGuidance.length === 0) {
+    changeGuidance = buildRepoBriefingFallbackChangeGuidance({
+      relevantEntrypoints,
+      relevantHotspots,
+      validationCommands: fallbackValidationCommands,
+      maxItems,
+    });
+  }
 
-  const representativeTests = rankStudyItems(knowledgePack?.expertise?.test_matrix, {
-    targetFiles,
-    promptTokens,
-    limit: Math.min(2, maxItems),
-    fallbackLimit: 1,
-    getFiles: (item) => item?.tests || [],
-    getTextParts: (item) => [item?.id, item?.label, item?.rationale],
-  }).map((entry) => ({
-    id: entry.item.id || entry.item.label,
-    label: entry.item.label || entry.item.id,
-    tests: uniquePaths(entry.item.tests || []).slice(0, Math.max(1, maxItems)),
-    rationale: truncateText(entry.item.rationale, 160),
-  }));
+  const representativeTests = repoBriefing
+    ? []
+    : rankStudyItems(knowledgePack?.expertise?.test_matrix, {
+        targetFiles,
+        promptTokens,
+        limit: Math.min(2, maxItems),
+        fallbackLimit: 1,
+        getFiles: (item) => item?.tests || [],
+        getTextParts: (item) => [item?.id, item?.label, item?.rationale],
+      }).map((entry) => ({
+        id: entry.item.id || entry.item.label,
+        label: entry.item.label || entry.item.id,
+        tests: uniquePaths(entry.item.tests || []).slice(0, Math.max(1, maxItems)),
+        rationale: truncateText(entry.item.rationale, 160),
+      }));
 
   const latestDelta = artifacts.studyDelta?.significance
     ? {
@@ -483,7 +1072,9 @@ function buildTaskStudyContextEnvelope({ workingDirectory, taskDescription, file
     : null;
 
   if (
-    relevantSubsystems.length === 0
+    relevantEntrypoints.length === 0
+    && relevantHotspots.length === 0
+    && relevantSubsystems.length === 0
     && relevantFlows.length === 0
     && invariants.length === 0
     && changeGuidance.length === 0
@@ -502,6 +1093,8 @@ function buildTaskStudyContextEnvelope({ workingDirectory, taskDescription, file
     benchmark_grade: artifacts.studyBenchmark?.summary?.grade || null,
     benchmark_score: normalizeNonNegativeInteger(artifacts.studyBenchmark?.summary?.score),
     target_files: targetFiles,
+    relevant_entrypoints: relevantEntrypoints,
+    relevant_hotspots: relevantHotspots,
     relevant_subsystems: relevantSubsystems,
     relevant_flows: relevantFlows,
     invariants,
@@ -529,9 +1122,20 @@ function buildTaskStudyContextEnvelope({ workingDirectory, taskDescription, file
       benchmark_grade: studyContext.benchmark_grade,
       benchmark_score: studyContext.benchmark_score,
       study_profile_id: studyContext.study_profile_id,
+      entrypoint_files: relevantEntrypoints.map((item) => item.file),
       subsystem_ids: relevantSubsystems.map((item) => item.id),
       flow_ids: relevantFlows.map((item) => item.id),
       target_files: targetFiles,
+      validation_commands: (repoBriefing
+        ? selectRepoBriefingValidationCommands([
+            ...changeGuidance.flatMap((item) => item.validation_commands || []),
+            ...fallbackValidationCommands,
+          ], 4)
+        : uniqueStrings([
+            ...changeGuidance.flatMap((item) => item.validation_commands || []),
+            ...fallbackValidationCommands,
+          ])).slice(0, 4),
+      hotspot_files: relevantHotspots.map((item) => item.file),
     },
     study_context_prompt: studyContextPrompt,
   };
@@ -807,6 +1411,11 @@ function buildEvaluationProbes(knowledgePack, moduleIndex = null) {
   const modules = Array.isArray(moduleIndex?.modules) ? moduleIndex.modules : [];
   const subsystemMap = new Map((Array.isArray(knowledgePack?.subsystems) ? knowledgePack.subsystems : []).map((item) => [item.id, item]));
   const reverseDeps = buildReverseDependencyMap(modules);
+  const repoBriefingProbe = buildRepoBriefingProbe(knowledgePack, repoName);
+
+  if (repoBriefingProbe) {
+    probes.push(repoBriefingProbe);
+  }
 
   for (const flow of Array.isArray(knowledgePack?.flows) ? knowledgePack.flows.slice(0, 3) : []) {
     probes.push({
@@ -1161,10 +1770,16 @@ function benchmarkStudyArtifacts({
       : probe.answerability === 'partial'
         ? 0.75
         : 0.4;
-    const score = Math.max(
+    const baseScore = Math.max(
       0,
       Math.min(100, Math.round(((coverageRatio * 0.7) + (answerabilityWeight * 0.3)) * 100))
     );
+    const promptAlignment = probe.scope_type === 'repo_briefing'
+      ? buildRepoBriefingPromptAlignment(probe, workingDirectory)
+      : null;
+    const score = promptAlignment
+      ? Math.max(0, Math.min(100, Math.round((baseScore * 0.65) + (promptAlignment.score * 0.35))))
+      : baseScore;
     const verdict = score >= 85
       ? 'pass'
       : score >= 60
@@ -1191,6 +1806,9 @@ function benchmarkStudyArtifacts({
     if (probe.answerability !== 'strong') {
       notes.push(`Probe answerability is ${probe.answerability}, so a downstream model will still need source reads.`);
     }
+    if (promptAlignment && promptAlignment.score < 100) {
+      notes.push(`Repo-briefing prompt alignment scored ${promptAlignment.score}.`);
+    }
 
     return {
       id: probe.id,
@@ -1205,6 +1823,7 @@ function benchmarkStudyArtifacts({
         coverage_ratio: sourceEvidence.length > 0 ? Math.round(coverageRatio * 1000) / 1000 : 0,
       },
       answerability: probe.answerability,
+      prompt_alignment: promptAlignment,
       score,
       verdict,
       notes,

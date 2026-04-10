@@ -436,15 +436,16 @@ describe('codebase study integration', () => {
       archetype: 'polyglot-application',
       frameworks: expect.arrayContaining(['.NET', 'Python']),
     }));
-    expect(knowledgePack.entrypoints[0].file).toBe('src/SnapScope.Cli/Program.cs');
-    expect(knowledgePack.entrypoints.slice(0, 3).map((entrypoint) => entrypoint.file)).toEqual(expect.arrayContaining([
+    const entrypointFiles = knowledgePack.entrypoints.map((entrypoint) => entrypoint.file);
+    expect(entrypointFiles.slice(0, 3)).toEqual([
       'src/SnapScope.Cli/Program.cs',
       'tools/peek-server/peek_server/cli.py',
-    ]));
+      'src/recovery/index.js',
+    ]);
     expect(
-      knowledgePack.entrypoints.findIndex((entrypoint) => entrypoint.file === 'src/recovery/index.js')
+      entrypointFiles.findIndex((entrypoint) => entrypoint === 'tools/peek-server/peek_server/routes/sequence.py')
     ).toBeGreaterThan(
-      knowledgePack.entrypoints.findIndex((entrypoint) => entrypoint.file === 'src/SnapScope.Cli/Program.cs')
+      entrypointFiles.findIndex((entrypoint) => entrypoint === 'src/recovery/index.js')
     );
     expect(
       knowledgePack.expertise.change_playbooks.some((playbook) => (playbook.validation_commands || []).some((command) => command.startsWith('dotnet build')))
@@ -778,17 +779,30 @@ describe('codebase study integration', () => {
       'src/SnapScope.Cli/Program.cs',
       'tools/peek-server/peek_server/cli.py',
     ]);
-    expect(envelope.study_context.relevant_hotspots.length).toBeGreaterThan(0);
+    expect(envelope.study_context.relevant_hotspots.map((item) => item.file)).toEqual([
+      'src/recovery/index.js',
+      'tools/peek-server/peek_server/routes/sequence.py',
+    ]);
+    expect(envelope.study_context_summary.entrypoint_files).toEqual(
+      envelope.study_context.relevant_entrypoints.map((item) => item.file)
+    );
     expect(envelope.study_context_summary.hotspot_files).toEqual(
       envelope.study_context.relevant_hotspots.map((item) => item.file)
     );
-    expect(envelope.study_context.relevant_subsystems.map((item) => item.label)).toEqual(expect.arrayContaining([
-      'SnapScope.Cli',
+    expect(envelope.study_context.relevant_subsystems.map((item) => item.id)).toEqual([
+      'focus:peek-server/peek_server',
+      'focus:recovery',
+      'focus:SnapScope.Cli',
+    ]);
+    expect(envelope.study_context.relevant_subsystems.map((item) => item.label)).toEqual([
       'peek-server/peek_server',
-    ]));
-    expect(envelope.study_context.relevant_subsystems.map((item) => item.label)).not.toEqual(expect.arrayContaining([
-      'src area',
-      'tools area',
+      'recovery',
+      'SnapScope.Cli',
+    ]);
+    expect(envelope.study_context_summary.validation_commands).toEqual(expect.arrayContaining([
+      'pwsh scripts/build.ps1',
+      'dotnet build SnapScope.sln',
+      'pytest',
     ]));
     expect(envelope.study_context_prompt).toContain('Relevant Hotspots');
     expect(envelope.study_context_prompt).not.toContain('Representative Tests');
@@ -838,16 +852,27 @@ describe('codebase study integration', () => {
       verdict: 'pass',
       answerability: 'strong',
     }));
+    expect(repoBriefingCase.expected_evidence).toEqual([
+      'src/SnapScope.Cli/Program.cs',
+      'tools/peek-server/peek_server/cli.py',
+      'src/recovery/index.js',
+    ]);
+    expect(repoBriefingCase.pack_coverage).toEqual(expect.objectContaining({
+      coverage_ratio: 1,
+    }));
     expect(repoBriefingCase.prompt_alignment).toEqual(expect.objectContaining({
       score: expect.any(Number),
-      matched_entrypoints: expect.arrayContaining([
+      matched_entrypoints: [
         'src/SnapScope.Cli/Program.cs',
-      ]),
-      matched_hotspots: expect.any(Array),
+        'tools/peek-server/peek_server/cli.py',
+      ],
+      matched_hotspots: ['src/recovery/index.js'],
       matched_validation_commands: expect.arrayContaining([
         'pwsh scripts/build.ps1',
+        'dotnet build SnapScope.sln',
       ]),
     }));
+    expect(repoBriefingCase.score).toBeGreaterThanOrEqual(90);
     expect(repoBriefingCase.prompt_alignment.score).toBeGreaterThanOrEqual(80);
   });
 
@@ -941,7 +966,15 @@ describe('codebase study integration', () => {
     });
 
     expect(envelope).not.toBeNull();
+    expect(envelope.study_context.relevant_entrypoints.map((item) => item.file)).toEqual([
+      'src/example-project.App/App.xaml.cs',
+      'tools/example-project.Tools.ApiKeys/Program.cs',
+    ]);
     expect(envelope.study_context.relevant_hotspots).toEqual([]);
+    expect(envelope.study_context.relevant_subsystems.map((item) => item.id)).toEqual([
+      'focus:example-project.App',
+      'focus:example-project.Tools.ApiKeys',
+    ]);
     expect(envelope.study_context.change_guidance).toEqual([
       expect.objectContaining({
         label: 'Runtime seams',
@@ -949,12 +982,18 @@ describe('codebase study integration', () => {
           'src/example-project.App/App.xaml.cs',
           'tools/example-project.Tools.ApiKeys/Program.cs',
         ],
+        validation_commands: [
+          'pwsh scripts/build.ps1',
+          'dotnet build example-project.sln',
+        ],
       }),
     ]);
-    expect(envelope.study_context_summary.validation_commands).toEqual(expect.arrayContaining([
-      'dotnet build example-project.sln',
+    expect(envelope.study_context_summary.validation_commands).toEqual([
       'pwsh scripts/build.ps1',
-    ]));
+      'dotnet build example-project.sln',
+    ]);
+    expect(envelope.study_context_prompt).toContain('Relevant Entrypoints');
+    expect(envelope.study_context_prompt).toContain('Relevant Subsystems');
     expect(envelope.study_context_prompt).not.toContain('src area');
     expect(envelope.study_context_prompt).not.toContain('tools area');
     expect(envelope.study_context_prompt).not.toContain('demo-gemstate-checking.json');
