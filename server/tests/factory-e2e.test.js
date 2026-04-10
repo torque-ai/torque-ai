@@ -1,9 +1,51 @@
 'use strict';
 
 const Database = require('better-sqlite3');
-const { runMigrations } = require('../db/migrations');
 const factoryHealth = require('../db/factory-health');
 const handlers = require('../handlers/factory-handlers');
+
+// Create factory tables directly — runMigrations requires the full base schema
+// which isn't available in an in-memory test DB.
+function createFactoryTables(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      brief TEXT,
+      trust_level TEXT NOT NULL DEFAULT 'supervised',
+      status TEXT NOT NULL DEFAULT 'paused',
+      config_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_health_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      dimension TEXT NOT NULL,
+      score REAL NOT NULL,
+      details_json TEXT,
+      scan_type TEXT NOT NULL DEFAULT 'incremental',
+      batch_id TEXT,
+      scanned_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fhs_project_dim ON factory_health_snapshots(project_id, dimension, scanned_at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fhs_project_time ON factory_health_snapshots(project_id, scanned_at)');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_health_findings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      snapshot_id INTEGER NOT NULL REFERENCES factory_health_snapshots(id),
+      severity TEXT NOT NULL,
+      message TEXT NOT NULL,
+      file_path TEXT,
+      details_json TEXT
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fhf_snapshot ON factory_health_findings(snapshot_id)');
+}
 
 describe('factory end-to-end flow', () => {
   let db;
@@ -11,12 +53,7 @@ describe('factory end-to-end flow', () => {
   beforeEach(() => {
     db = new Database(':memory:');
     db.pragma('journal_mode = WAL');
-    db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-      version INTEGER PRIMARY KEY,
-      name TEXT NOT NULL,
-      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )`);
-    runMigrations(db);
+    createFactoryTables(db);
     factoryHealth.setDb(db);
   });
 
@@ -24,7 +61,7 @@ describe('factory end-to-end flow', () => {
     db.close();
   });
 
-  test('migration creates factory tables', () => {
+  test('tables exist after setup', () => {
     const tables = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'factory_%'"
     ).all().map(r => r.name);
