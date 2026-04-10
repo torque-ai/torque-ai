@@ -1015,6 +1015,10 @@ function processQueueInternal(options = {}) {
  * These tasks are excluded from queue processing and have no producer path,
  * so they can be stuck indefinitely. On startup, re-route them to a viable
  * cloud provider or fail them if none is available.
+ *
+ * Respects user_provider_override: if a task was explicitly submitted with a
+ * provider (e.g., codex via a workflow node), re-route to the intended_provider
+ * from metadata instead of blindly assigning ollama-cloud.
  */
 function resolveCodexPendingTasks() {
   if (!db || (typeof db.isReady === 'function' && !db.isReady())) return;
@@ -1027,33 +1031,49 @@ function resolveCodexPendingTasks() {
     logger.info(`[Scheduler] Found ${stuck.length} task(s) stuck in codex-pending state`);
 
     const codexEnabled = serverConfig.isOptIn('codex_enabled');
-    const targetProvider = codexEnabled ? 'codex' : 'ollama-cloud';
-    const targetConfig = db.getProvider ? db.getProvider(targetProvider) : null;
 
-    if (targetConfig && targetConfig.enabled) {
-      for (const task of stuck) {
-        try {
-          db.updateTaskStatus(task.id, 'queued', { provider: targetProvider });
-          notifyDashboard(task.id, { status: 'queued', provider: targetProvider });
-          logger.info(`[Scheduler] Re-routed codex-pending task ${task.id} to ${targetProvider}`);
-        } catch (e) {
-          logger.info(`[Scheduler] Failed to re-route task ${task.id}: ${e.message}`);
-        }
-      }
-    } else {
-      // No viable cloud provider — fail the tasks
-      for (const task of stuck) {
-        try {
+    for (const task of stuck) {
+      try {
+        // Check metadata for user_provider_override — respect the original intent
+        const meta = normalizeMetadata(task.metadata);
+        const intendedProvider = meta.intended_provider || null;
+        const isUserOverride = !!meta.user_provider_override;
+
+        let targetProvider;
+        if (isUserOverride && intendedProvider) {
+          // User explicitly requested a provider — honour their intent
+          targetProvider = intendedProvider;
+        } else if (codexEnabled) {
+          targetProvider = 'codex';
+        } else {
+          // No explicit intent and codex is disabled — fail rather than
+          // silently re-routing to an unrelated provider category
           const statusUpdates = {
-            error_output: '[codex-pending] No viable cloud provider available. Task was stuck in codex-pending state with no producer path.',
+            error_output: '[codex-pending] Codex is disabled and no intended_provider was set. Task was stuck in codex-pending state with no producer path.',
             completed_at: new Date().toISOString()
           };
           db.updateTaskStatus(task.id, 'failed', statusUpdates);
           notifyDashboard(task.id, { status: 'failed', ...statusUpdates });
-          logger.info(`[Scheduler] Failed codex-pending task ${task.id} — no viable provider`);
-        } catch (e) {
-          logger.info(`[Scheduler] Failed to update task ${task.id}: ${e.message}`);
+          logger.info(`[Scheduler] Failed codex-pending task ${task.id} — codex disabled, no intended_provider`);
+          continue;
         }
+
+        const targetConfig = db.getProvider ? db.getProvider(targetProvider) : null;
+        if (targetConfig && targetConfig.enabled) {
+          db.updateTaskStatus(task.id, 'queued', { provider: targetProvider });
+          notifyDashboard(task.id, { status: 'queued', provider: targetProvider });
+          logger.info(`[Scheduler] Re-routed codex-pending task ${task.id} to ${targetProvider}${isUserOverride ? ' (user override)' : ''}`);
+        } else {
+          const statusUpdates = {
+            error_output: `[codex-pending] Target provider '${targetProvider}' is not available. Task was stuck in codex-pending state with no producer path.`,
+            completed_at: new Date().toISOString()
+          };
+          db.updateTaskStatus(task.id, 'failed', statusUpdates);
+          notifyDashboard(task.id, { status: 'failed', ...statusUpdates });
+          logger.info(`[Scheduler] Failed codex-pending task ${task.id} — target provider '${targetProvider}' unavailable`);
+        }
+      } catch (e) {
+        logger.info(`[Scheduler] Failed to re-route task ${task.id}: ${e.message}`);
       }
     }
   } catch (e) {
