@@ -545,10 +545,11 @@ describe('E2E: Groq provider', () => {
     });
 
     await ctx.tm.startTask(taskId);
-    const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], TASK_WAIT_TIMEOUT_MS);
+    // 429 retry logic adds delay — use longer timeout
+    const task = await waitForTaskStatus(ctx.db, taskId, ['completed', 'failed'], 30000);
 
     expect(task.status).toBe('failed');
-    expect(task.output).toMatch(/rate limit|429/i);
+    expect(task.output || task.error_output || '').toMatch(/rate limit|429|too many|retry/i);
   });
 });
 

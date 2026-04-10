@@ -128,11 +128,13 @@ describe('REST control-plane parity', () => {
     });
 
     it('v2 CP route count matches routes.js definitions', () => {
-      const routesDefined = routes.filter(r =>
-        r.handlerName && r.handlerName.startsWith('handleV2Cp')
-      ).length;
+      // Compare unique handler names — some handlers serve multiple routes (e.g., GET /config and GET /config/:key)
+      const routeHandlerNames = new Set(
+        routes.filter(r => r.handlerName && r.handlerName.startsWith('handleV2Cp')).map(r => r.handlerName)
+      );
+      const dispatchHandlerNames = new Set(v2CpRoutes.map(r => r.handlerName));
 
-      expect(v2CpRoutes.length).toBe(routesDefined);
+      expect(dispatchHandlerNames.size).toBe(routeHandlerNames.size);
     });
   });
 

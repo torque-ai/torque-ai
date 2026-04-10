@@ -130,7 +130,7 @@ function createTask(overrides = {}) {
 describe('runtime fallback guards respect user_provider_override', () => {
   afterEach(cleanup);
 
-  it('requeues unreachable user-overridden ollama review tasks onto the configured failover chain', async () => {
+  it('respects user provider override even when ollama is unreachable (TDA-01 sovereignty)', async () => {
     await setup();
 
     providerRoutingCore.updateProvider('ollama', { enabled: 1 });
@@ -144,10 +144,8 @@ describe('runtime fallback guards respect user_provider_override', () => {
 
     await tm.startTask(taskId);
     const task = taskCore.getTask(taskId);
-    expect(task.provider).not.toBe('ollama');
-    expect(task.status).toBe('queued');
-    expect(task.error_output).toContain('[Auto-Failover] Ollama unavailable, switching to');
-    expect(mockState.spawnAndTrackProcess).not.toHaveBeenCalled();
+    // TDA-01: user-overridden tasks keep their chosen provider — no auto-reroute
+    expect(task.provider).toBe('ollama');
   });
 
   it('leaves no-file-change handling as a no-op when user_provider_override is set', async () => {
