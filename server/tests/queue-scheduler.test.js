@@ -1992,7 +1992,7 @@ describe('Queue Scheduler', () => {
       });
     });
 
-    it('reroutes codex-pending tasks to ollama-cloud when codex is disabled', () => {
+    it('fails codex-pending tasks when codex is disabled and no intended_provider', () => {
       mockDb.getConfig.mockImplementation((key) => {
         if (key === 'codex_enabled') return '0';
         return null;
@@ -2005,12 +2005,37 @@ describe('Queue Scheduler', () => {
 
       scheduler.resolveCodexPendingTasks();
 
-      expect(mockDb.getProvider).toHaveBeenCalledWith('ollama-cloud');
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('pending-2', 'queued', { provider: 'ollama-cloud' });
-      expect(mocks.notifyDashboard).toHaveBeenCalledWith('pending-2', {
-        status: 'queued',
-        provider: 'ollama-cloud',
+      // Should fail (not silently re-route to ollama-cloud)
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
+        'pending-2',
+        'failed',
+        expect.objectContaining({
+          error_output: expect.stringContaining('[codex-pending]'),
+          completed_at: expect.any(String),
+        }),
+      );
+    });
+
+    it('respects user_provider_override intended_provider when codex is disabled', () => {
+      mockDb.getConfig.mockImplementation((key) => {
+        if (key === 'codex_enabled') return '0';
+        return null;
       });
+      mockDb.getProvider = vi.fn().mockReturnValue({ enabled: true });
+      mockDb.listTasks.mockImplementation(({ status }) => {
+        if (status === 'queued') return [makeTask({
+          id: 'pending-2b',
+          provider: 'codex-pending',
+          metadata: JSON.stringify({ user_provider_override: true, intended_provider: 'codex' }),
+        })];
+        return [];
+      });
+
+      scheduler.resolveCodexPendingTasks();
+
+      // Should route to intended_provider 'codex', NOT ollama-cloud
+      expect(mockDb.getProvider).toHaveBeenCalledWith('codex');
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('pending-2b', 'queued', { provider: 'codex' });
     });
 
     it('fails stuck codex-pending task when no provider exists', () => {
