@@ -70,13 +70,15 @@ describe('await_restart (barrier task wrapper)', () => {
   });
 
   it('creates barrier task and triggers restart when pipeline is empty', async () => {
+    vi.useFakeTimers();
     const result = await handlers.handleAwaitRestart({ reason: 'test' });
     const text = textOf(result);
 
     expect(text).toContain('Restart');
-    // The drain watcher fires immediately when pipeline is empty,
-    // completing the barrier task and calling emitShutdown
+    // The shutdown is delayed via setTimeout — advance timers to fire it
+    vi.advanceTimersByTime(2000);
     expect(mocks.emitShutdown).toHaveBeenCalledWith(expect.stringContaining('test'));
+    vi.useRealTimers();
   });
 
   it('returns already_pending when a barrier task already exists', async () => {
