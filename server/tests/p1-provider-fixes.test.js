@@ -1,3 +1,7 @@
+vi.mock('../integrations/codebase-study-engine', () => ({
+  applyStudyContextPrompt: (prompt) => prompt,
+}));
+
 const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');

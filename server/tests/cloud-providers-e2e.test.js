@@ -8,6 +8,10 @@
  * mocks global.fetch to simulate cloud API responses, and calls tm.startTask().
  */
 
+vi.mock('../integrations/codebase-study-engine', () => ({
+  applyStudyContextPrompt: (prompt) => prompt,
+}));
+
 const os = require('os');
 const { setupE2eDb, teardownE2eDb, createTestTask, waitForTaskStatus } = require('./e2e-helpers');
 

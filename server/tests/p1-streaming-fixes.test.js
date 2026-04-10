@@ -4,6 +4,10 @@
 
 'use strict';
 
+vi.mock('../integrations/codebase-study-engine', () => ({
+  applyStudyContextPrompt: (prompt) => prompt,
+}));
+
 const http = require('http');
 const { randomUUID } = require('crypto');
 const { MAX_STREAMING_OUTPUT } = require('../constants');

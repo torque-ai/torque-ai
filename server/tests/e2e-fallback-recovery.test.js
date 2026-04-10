@@ -9,6 +9,10 @@
  * - Max failover cap
  */
 
+vi.mock('../integrations/codebase-study-engine', () => ({
+  applyStudyContextPrompt: (prompt) => prompt,
+}));
+
 const { createMockOllama } = require('./mocks/ollama');
 const { setupE2eDb, teardownE2eDb, registerMockHost, createTestTask, waitForTaskStatus } = require('./e2e-helpers');
 

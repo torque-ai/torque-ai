@@ -10,6 +10,11 @@
 
 'use strict';
 
+// Mock study context injection so it passes through without modifying prompts
+vi.mock('../integrations/codebase-study-engine', () => ({
+  applyStudyContextPrompt: (prompt) => prompt,
+}));
+
 const { randomUUID } = require('crypto');
 const hostManagement = require('../db/host-management');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');

@@ -4,6 +4,10 @@
  * Focuses on execution-time branches that must not silently reroute when the
  * user explicitly selected a provider.
  */
+vi.mock('../integrations/codebase-study-engine', () => ({
+  applyStudyContextPrompt: (prompt) => prompt,
+}));
+
 const { randomUUID } = require('crypto');
 
 const mockState = vi.hoisted(() => ({

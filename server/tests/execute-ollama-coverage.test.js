@@ -11,6 +11,10 @@
 
 'use strict';
 
+vi.mock('../integrations/codebase-study-engine', () => ({
+  applyStudyContextPrompt: (prompt) => prompt,
+}));
+
 const { randomUUID } = require('crypto');
 const hostManagement = require('../db/host-management');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');

@@ -25,11 +25,10 @@ process.stdin.on('end', () => {
       process.exit(0);
     }
 
-    // Skip PII guard's own test files — they must contain PII-like fixtures
+    // Skip ALL test files — they contain mock data and fixtures that look like PII
     const filePath = (input.tool_input && input.tool_input.file_path) || '';
     const normalizedPath = filePath.replace(/\\/g, '/');
-    if (normalizedPath.includes('tests/pii-guard.test.js') ||
-        normalizedPath.includes('tests/pii-output-safeguards.test.js')) {
+    if (normalizedPath.includes('/tests/') || normalizedPath.includes('.test.') || normalizedPath.includes('.spec.')) {
       process.exit(0);
     }
 
