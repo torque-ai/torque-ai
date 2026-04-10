@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "generated_at": "2026-04-10T13:47:48.520Z",
+  "generated_at": "2026-04-10T18:00:56.282Z",
   "repo": {
     "name": "torque-ai",
     "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
-    "previous_sha": "e471b2b19cd13a543feb4ec571ccb499a9b91b9c",
-    "current_sha": "25a2562a51313e19fa1c493e612aeb8c06f4674a",
+    "previous_sha": "ea1cdc0dfd88b7aafe53e0f85f1f96285840ab7e",
+    "current_sha": "474a5fb5ad2c0040f5e5be224ce1863f80e6093a",
     "study_profile_id": "torque-control-plane"
   },
   "run": {
@@ -15,18 +15,18 @@
     "batch_count": 1,
     "schedule_id": "a24a26fa-abbb-4d10-bfa9-76512a4bc11c",
     "schedule_name": "codebase-study:torque-public",
-    "schedule_run_id": "cbb752cc-42c3-42a7-8279-8ae35d07b83c",
-    "wrapper_task_id": "20d66fa5-bd72-4872-a10c-a3b045ea4916"
+    "schedule_run_id": "52537829-a64a-470f-b661-fb65198830d2",
+    "wrapper_task_id": "6577b7a9-9b8a-443c-b906-e6bfafe8756a"
   },
   "coverage_delta": {
     "tracked_files": {
-      "previous": 1533,
-      "current": 1533,
+      "previous": 1534,
+      "current": 1534,
       "delta": 0
     },
     "indexed_modules": {
-      "previous": 1533,
-      "current": 1533,
+      "previous": 1534,
+      "current": 1534,
       "delta": 0
     },
     "pending_files": {
@@ -36,169 +36,36 @@
     }
   },
   "significance": {
-    "level": "critical",
-    "score": 74,
+    "level": "low",
+    "score": 12,
     "reasons": [
-      "18 repo files changed since the previous study SHA.",
-      "2 canonical flows were touched by the change set.",
-      "4 critical invariants were touched.",
-      "2 known failure modes intersect the changed seams."
+      "4 repo files changed since the previous study SHA."
     ]
   },
   "changed_files": {
     "repo_delta": [
-      "dashboard/src/components/ScheduleDetailDrawer.jsx",
-      "server/api-server.core.js",
-      "server/api/routes-passthrough.js",
-      "server/core-tools.js",
-      "server/db/study-telemetry.js",
-      "server/handlers/codebase-study-handlers.js",
-      "server/handlers/integration/routing.js",
-      "server/handlers/workflow/await.js",
-      "server/handlers/workflow/index.js",
-      "server/integrations/codebase-study-engine.js",
-      "server/integrations/codebase-study-profiles.js",
-      "server/integrations/codebase-study.js",
-      "server/tests/api-routes.test.js",
       "server/tests/await-heartbeat.test.js",
-      "server/tests/codebase-study.test.js",
-      "server/tests/study-telemetry.test.js",
-      "server/tool-defs/codebase-study-defs.js",
-      "server/utils/symbol-indexer.js"
+      "server/tests/await-restart.test.js",
+      "server/tests/restart-drain.test.js",
+      "server/tests/restart-server-tool.test.js"
     ],
     "processed": [
-      "dashboard/src/components/ScheduleDetailDrawer.jsx",
-      "server/api-server.core.js",
-      "server/api/routes-passthrough.js",
-      "server/core-tools.js",
-      "server/db/study-telemetry.js",
-      "server/handlers/codebase-study-handlers.js",
-      "server/handlers/integration/routing.js",
-      "server/handlers/workflow/await.js",
-      "server/handlers/workflow/index.js",
-      "server/integrations/codebase-study-engine.js",
-      "server/integrations/codebase-study-profiles.js",
-      "server/integrations/codebase-study.js",
-      "server/tests/api-routes.test.js",
       "server/tests/await-heartbeat.test.js",
-      "server/tests/codebase-study.test.js",
-      "server/tests/study-telemetry.test.js",
-      "server/tool-defs/codebase-study-defs.js",
-      "server/utils/symbol-indexer.js"
+      "server/tests/await-restart.test.js",
+      "server/tests/restart-drain.test.js",
+      "server/tests/restart-server-tool.test.js"
     ],
     "removed": []
   },
   "changed_subsystems": [
     {
-      "id": "control-plane-api",
-      "label": "Control-plane API",
-      "changed_files": [
-        "server/api-server.core.js",
-        "server/api/routes-passthrough.js"
-      ],
-      "coverage_delta": {
-        "tracked_files": 0,
-        "indexed_modules": 0,
-        "pending_files": 0
-      }
-    },
-    {
-      "id": "workflow-orchestration",
-      "label": "Workflow orchestration",
-      "changed_files": [
-        "server/handlers/workflow/await.js",
-        "server/handlers/workflow/index.js"
-      ],
-      "coverage_delta": {
-        "tracked_files": 0,
-        "indexed_modules": 0,
-        "pending_files": 0
-      }
-    },
-    {
-      "id": "persistence-scheduling",
-      "label": "Persistence and scheduling",
-      "changed_files": [
-        "server/db/study-telemetry.js"
-      ],
-      "coverage_delta": {
-        "tracked_files": 0,
-        "indexed_modules": 0,
-        "pending_files": 0
-      }
-    },
-    {
-      "id": "tooling-mcp-surface",
-      "label": "Tool and MCP surface",
-      "changed_files": [
-        "server/core-tools.js",
-        "server/tool-defs/codebase-study-defs.js"
-      ],
-      "coverage_delta": {
-        "tracked_files": 0,
-        "indexed_modules": 0,
-        "pending_files": 0
-      }
-    },
-    {
-      "id": "dashboard-ui",
-      "label": "Dashboard UI",
-      "changed_files": [
-        "dashboard/src/components/ScheduleDetailDrawer.jsx"
-      ],
-      "coverage_delta": {
-        "tracked_files": 0,
-        "indexed_modules": 0,
-        "pending_files": 0
-      }
-    },
-    {
-      "id": "handler-layer",
-      "label": "Handler layer",
-      "changed_files": [
-        "server/handlers/codebase-study-handlers.js",
-        "server/handlers/integration/routing.js"
-      ],
-      "coverage_delta": {
-        "tracked_files": 0,
-        "indexed_modules": 0,
-        "pending_files": 0
-      }
-    },
-    {
-      "id": "server-integrations-area",
-      "label": "server integrations",
-      "changed_files": [
-        "server/integrations/codebase-study-engine.js",
-        "server/integrations/codebase-study-profiles.js",
-        "server/integrations/codebase-study.js"
-      ],
-      "coverage_delta": {
-        "tracked_files": 0,
-        "indexed_modules": 0,
-        "pending_files": 0
-      }
-    },
-    {
-      "id": "server-utils-area",
-      "label": "server utils",
-      "changed_files": [
-        "server/utils/symbol-indexer.js"
-      ],
-      "coverage_delta": {
-        "tracked_files": 0,
-        "indexed_modules": 0,
-        "pending_files": 0
-      }
-    },
-    {
       "id": "validation-tests",
       "label": "Validation and tests",
       "changed_files": [
-        "server/tests/api-routes.test.js",
         "server/tests/await-heartbeat.test.js",
-        "server/tests/codebase-study.test.js",
-        "server/tests/study-telemetry.test.js"
+        "server/tests/await-restart.test.js",
+        "server/tests/restart-drain.test.js",
+        "server/tests/restart-server-tool.test.js"
       ],
       "coverage_delta": {
         "tracked_files": 0,
@@ -207,179 +74,9 @@
       }
     }
   ],
-  "affected_flows": [
-    {
-      "id": "workflow-lifecycle",
-      "label": "Workflow lifecycle",
-      "question": "How are workflows created, advanced, and awaited?",
-      "matched_files": [
-        "server/handlers/workflow/index.js",
-        "server/handlers/workflow/await.js"
-      ],
-      "read_first": [
-        "server/handlers/workflow/index.js",
-        "server/handlers/workflow/dag.js",
-        "server/execution/workflow-runtime.js",
-        "server/handlers/workflow/await.js",
-        "server/handlers/workflow/advanced.js"
-      ]
-    },
-    {
-      "id": "tool-dispatch",
-      "label": "Tool dispatch",
-      "question": "Where do tool definitions, dispatch, and MCP transport live?",
-      "matched_files": [
-        "server/core-tools.js"
-      ],
-      "read_first": [
-        "server/tools.js",
-        "server/core-tools.js",
-        "server/hooks/post-tool-hooks.js",
-        "server/mcp/index.js",
-        "server/mcp-protocol.js"
-      ]
-    }
-  ],
-  "invariant_hits": [
-    {
-      "id": "workflow-lifecycle:3",
-      "label": "Workflow lifecycle",
-      "scope_type": "flow",
-      "scope_id": "workflow-lifecycle",
-      "statement": "Workflow structure, runtime unblocking, and await reporting should stay aligned on the same DAG semantics.",
-      "matched_files": [
-        "server/handlers/workflow/index.js",
-        "server/handlers/workflow/await.js"
-      ],
-      "related_tests": [
-        "server/tests/handler-workflow-advanced.test.js",
-        "server/tests/handler-workflow-handlers.test.js",
-        "server/tests/workflow-runtime.test.js",
-        "server/tests/workflow-advanced-handlers.test.js"
-      ],
-      "evidence_files": [
-        "server/handlers/workflow/index.js",
-        "server/handlers/workflow/dag.js",
-        "server/execution/workflow-runtime.js",
-        "server/handlers/workflow/await.js",
-        "server/handlers/workflow/advanced.js"
-      ]
-    },
-    {
-      "id": "workflow-lifecycle:4",
-      "label": "Workflow lifecycle",
-      "scope_type": "flow",
-      "scope_id": "workflow-lifecycle",
-      "statement": "Dependent nodes should unblock only from persisted workflow state, not from ad hoc in-memory assumptions.",
-      "matched_files": [
-        "server/handlers/workflow/index.js",
-        "server/handlers/workflow/await.js"
-      ],
-      "related_tests": [
-        "server/tests/handler-workflow-advanced.test.js",
-        "server/tests/handler-workflow-handlers.test.js",
-        "server/tests/workflow-runtime.test.js",
-        "server/tests/workflow-advanced-handlers.test.js"
-      ],
-      "evidence_files": [
-        "server/handlers/workflow/index.js",
-        "server/handlers/workflow/dag.js",
-        "server/execution/workflow-runtime.js",
-        "server/handlers/workflow/await.js",
-        "server/handlers/workflow/advanced.js"
-      ]
-    },
-    {
-      "id": "tool-dispatch:7",
-      "label": "Tool dispatch",
-      "scope_type": "flow",
-      "scope_id": "tool-dispatch",
-      "statement": "Tool schemas, dispatch registration, and transport exposure should stay in sync.",
-      "matched_files": [
-        "server/core-tools.js"
-      ],
-      "related_tests": [
-        "server/tests/mcp-sse.test.js",
-        "server/tests/mcp-platform.test.js",
-        "server/tests/mcp-streamable-http.test.js",
-        "server/tests/post-tool-hooks.test.js"
-      ],
-      "evidence_files": [
-        "server/tools.js",
-        "server/core-tools.js",
-        "server/hooks/post-tool-hooks.js",
-        "server/mcp/index.js",
-        "server/mcp-protocol.js"
-      ]
-    },
-    {
-      "id": "tool-dispatch:8",
-      "label": "Tool dispatch",
-      "scope_type": "flow",
-      "scope_id": "tool-dispatch",
-      "statement": "Tool handlers should normalize output through the same MCP-facing contract regardless of caller.",
-      "matched_files": [
-        "server/core-tools.js"
-      ],
-      "related_tests": [
-        "server/tests/mcp-sse.test.js",
-        "server/tests/mcp-platform.test.js",
-        "server/tests/mcp-streamable-http.test.js",
-        "server/tests/post-tool-hooks.test.js"
-      ],
-      "evidence_files": [
-        "server/tools.js",
-        "server/core-tools.js",
-        "server/hooks/post-tool-hooks.js",
-        "server/mcp/index.js",
-        "server/mcp-protocol.js"
-      ]
-    }
-  ],
-  "failure_mode_hits": [
-    {
-      "id": "workflow-lifecycle:3",
-      "label": "DAG/runtime drift",
-      "scope_type": "flow",
-      "scope_id": "workflow-lifecycle",
-      "symptoms": "Nodes exist in definitions but never unblock, or await surfaces show states that do not match runtime behavior.",
-      "matched_files": [
-        "server/handlers/workflow/await.js"
-      ],
-      "related_tests": [
-        "server/tests/workflow-runtime.test.js",
-        "server/tests/handler-workflow-await.test.js",
-        "server/tests/handler-workflow-dag.test.js",
-        "server/tests/handler-workflow-handlers.test.js"
-      ],
-      "investigate_first": [
-        "server/handlers/workflow/dag.js",
-        "server/execution/workflow-runtime.js",
-        "server/handlers/workflow/await.js"
-      ]
-    },
-    {
-      "id": "tool-dispatch:6",
-      "label": "Schema/handler drift",
-      "scope_type": "flow",
-      "scope_id": "tool-dispatch",
-      "symptoms": "A tool appears in one surface but fails validation, lacks a handler, or returns an unexpected shape.",
-      "matched_files": [
-        "server/core-tools.js"
-      ],
-      "related_tests": [
-        "server/tests/tools-aggregator.test.js",
-        "server/tests/context-handler.test.js",
-        "server/tests/core-tools.test.js",
-        "server/tests/api-server-core.test.js"
-      ],
-      "investigate_first": [
-        "server/tools.js",
-        "server/core-tools.js",
-        "server/mcp/index.js"
-      ]
-    }
-  ],
+  "affected_flows": [],
+  "invariant_hits": [],
+  "failure_mode_hits": [],
   "hotspot_changes": {
     "entered": [],
     "exited": [],
@@ -393,221 +90,7 @@
       "threshold_score": 18,
       "suppressed_count": 0
     },
-    "suggested": [
-      {
-        "key": "invariant:workflow-lifecycle",
-        "title": "Review Workflow lifecycle changes for invariant drift",
-        "rationale": "Changed files intersect a critical invariant for Workflow lifecycle.",
-        "task": "Review recent changes in C:\\Users\\<os-user>\\Projects\\torque-public that touched the Workflow lifecycle seam.\nFocus on this invariant: Workflow structure, runtime unblocking, and await reporting should stay aligned on the same DAG semantics.\nChanged files: server/handlers/workflow/index.js, server/handlers/workflow/await.js.\nInspect first: server/handlers/workflow/index.js, server/handlers/workflow/dag.js, server/execution/workflow-runtime.js, server/handlers/workflow/await.js, server/handlers/workflow/advanced.js.\nRelevant tests: server/tests/handler-workflow-advanced.test.js, server/tests/handler-workflow-handlers.test.js, server/tests/workflow-runtime.test.js, server/tests/workflow-advanced-handlers.test.js.\nValidation commands: npx vitest run server/tests/handler-workflow-advanced.test.js server/tests/handler-workflow-handlers.test.js server/tests/workflow-runtime.test.js server/tests/workflow-advanced-handlers.test.js ; npm run lint.\nReturn findings in APPROVE/FLAG style and call out any missing validation or architectural drift.",
-        "tags": [
-          "study-delta",
-          "study-followup",
-          "invariant-review"
-        ],
-        "files": [
-          "server/handlers/workflow/index.js",
-          "server/handlers/workflow/await.js",
-          "server/handlers/workflow/dag.js",
-          "server/execution/workflow-runtime.js",
-          "server/handlers/workflow/advanced.js"
-        ],
-        "related_tests": [
-          "server/tests/handler-workflow-advanced.test.js",
-          "server/tests/handler-workflow-handlers.test.js",
-          "server/tests/workflow-runtime.test.js",
-          "server/tests/workflow-advanced-handlers.test.js"
-        ],
-        "validation_commands": [
-          "npx vitest run server/tests/handler-workflow-advanced.test.js server/tests/handler-workflow-handlers.test.js server/tests/workflow-runtime.test.js server/tests/workflow-advanced-handlers.test.js",
-          "npm run lint"
-        ],
-        "affected_invariants": [
-          "Workflow structure, runtime unblocking, and await reporting should stay aligned on the same DAG semantics."
-        ],
-        "priority": 80,
-        "kind": "invariant-review",
-        "trace": {
-          "study_delta_path": "docs/architecture/study-delta.json",
-          "study_delta_generated_at": "2026-04-10T13:47:48.520Z",
-          "delta_significance_level": "critical",
-          "delta_significance_score": 74,
-          "significance_reasons": [
-            "18 repo files changed since the previous study SHA.",
-            "2 canonical flows were touched by the change set.",
-            "4 critical invariants were touched.",
-            "2 known failure modes intersect the changed seams."
-          ],
-          "run_mode": "repo-delta",
-          "manual_run_now": false,
-          "schedule_id": "a24a26fa-abbb-4d10-bfa9-76512a4bc11c",
-          "schedule_name": "codebase-study:torque-public",
-          "schedule_run_id": "cbb752cc-42c3-42a7-8279-8ae35d07b83c",
-          "wrapper_task_id": "20d66fa5-bd72-4872-a10c-a3b045ea4916",
-          "changed_subsystems": [
-            "Control-plane API",
-            "Workflow orchestration",
-            "Persistence and scheduling",
-            "Tool and MCP surface",
-            "Dashboard UI",
-            "Handler layer",
-            "server integrations",
-            "server utils",
-            "Validation and tests"
-          ],
-          "affected_flows": [
-            "Workflow lifecycle",
-            "Tool dispatch"
-          ],
-          "focus_scope_id": "workflow-lifecycle",
-          "focus_label": "Workflow lifecycle"
-        }
-      },
-      {
-        "key": "failure:workflow-lifecycle",
-        "title": "Validate DAG/runtime drift risk after recent changes",
-        "rationale": "The change set intersects a known failure mode: DAG/runtime drift.",
-        "task": "Investigate the DAG/runtime drift risk in C:\\Users\\<os-user>\\Projects\\torque-public.\nSymptoms to guard against: Nodes exist in definitions but never unblock, or await surfaces show states that do not match runtime behavior.\nChanged files: server/handlers/workflow/await.js.\nInvestigate first: server/handlers/workflow/dag.js, server/execution/workflow-runtime.js, server/handlers/workflow/await.js.\nRelevant tests: server/tests/workflow-runtime.test.js, server/tests/handler-workflow-await.test.js, server/tests/handler-workflow-dag.test.js, server/tests/handler-workflow-handlers.test.js.\nValidation commands: npx vitest run server/tests/handler-workflow-advanced.test.js server/tests/handler-workflow-handlers.test.js server/tests/workflow-runtime.test.js server/tests/workflow-advanced-handlers.test.js ; npm run lint.\nDecide whether the current changes need follow-up fixes, stronger tests, or no action.",
-        "tags": [
-          "study-delta",
-          "study-followup",
-          "failure-mode-review"
-        ],
-        "files": [
-          "server/handlers/workflow/await.js",
-          "server/handlers/workflow/dag.js",
-          "server/execution/workflow-runtime.js"
-        ],
-        "related_tests": [
-          "server/tests/workflow-runtime.test.js",
-          "server/tests/handler-workflow-await.test.js",
-          "server/tests/handler-workflow-dag.test.js",
-          "server/tests/handler-workflow-handlers.test.js",
-          "server/tests/handler-workflow-advanced.test.js",
-          "server/tests/workflow-advanced-handlers.test.js"
-        ],
-        "validation_commands": [
-          "npx vitest run server/tests/handler-workflow-advanced.test.js server/tests/handler-workflow-handlers.test.js server/tests/workflow-runtime.test.js server/tests/workflow-advanced-handlers.test.js",
-          "npm run lint"
-        ],
-        "affected_invariants": [
-          "Workflow structure, runtime unblocking, and await reporting should stay aligned on the same DAG semantics.",
-          "Dependent nodes should unblock only from persisted workflow state, not from ad hoc in-memory assumptions."
-        ],
-        "priority": 75,
-        "kind": "failure-mode-review",
-        "trace": {
-          "study_delta_path": "docs/architecture/study-delta.json",
-          "study_delta_generated_at": "2026-04-10T13:47:48.520Z",
-          "delta_significance_level": "critical",
-          "delta_significance_score": 74,
-          "significance_reasons": [
-            "18 repo files changed since the previous study SHA.",
-            "2 canonical flows were touched by the change set.",
-            "4 critical invariants were touched.",
-            "2 known failure modes intersect the changed seams."
-          ],
-          "run_mode": "repo-delta",
-          "manual_run_now": false,
-          "schedule_id": "a24a26fa-abbb-4d10-bfa9-76512a4bc11c",
-          "schedule_name": "codebase-study:torque-public",
-          "schedule_run_id": "cbb752cc-42c3-42a7-8279-8ae35d07b83c",
-          "wrapper_task_id": "20d66fa5-bd72-4872-a10c-a3b045ea4916",
-          "changed_subsystems": [
-            "Control-plane API",
-            "Workflow orchestration",
-            "Persistence and scheduling",
-            "Tool and MCP surface",
-            "Dashboard UI",
-            "Handler layer",
-            "server integrations",
-            "server utils",
-            "Validation and tests"
-          ],
-          "affected_flows": [
-            "Workflow lifecycle",
-            "Tool dispatch"
-          ],
-          "focus_scope_id": "workflow-lifecycle",
-          "focus_label": "DAG/runtime drift"
-        }
-      },
-      {
-        "key": "cross-subsystem-impact",
-        "title": "Validate cross-subsystem impact from recent architectural delta",
-        "rationale": "The change set touched multiple core subsystems or flows.",
-        "task": "Review the latest architectural delta in C:\\Users\\<os-user>\\Projects\\torque-public.\nChanged subsystems: Control-plane API, Workflow orchestration, Persistence and scheduling.\nAffected flows: Workflow lifecycle, Tool dispatch.\nUse docs/architecture/study-delta.json and docs/architecture/knowledge-pack.json to assess whether any follow-up work is needed.\nFocus on cross-subsystem regressions, missing tests, and scheduler/provider workflow interactions.",
-        "tags": [
-          "study-delta",
-          "study-followup",
-          "cross-subsystem-review"
-        ],
-        "files": [
-          "dashboard/src/components/ScheduleDetailDrawer.jsx",
-          "server/api-server.core.js",
-          "server/api/routes-passthrough.js",
-          "server/core-tools.js",
-          "server/db/study-telemetry.js",
-          "server/handlers/codebase-study-handlers.js",
-          "server/handlers/integration/routing.js",
-          "server/handlers/workflow/await.js",
-          "server/handlers/workflow/index.js",
-          "server/integrations/codebase-study-engine.js"
-        ],
-        "related_tests": [
-          "server/tests/handler-workflow-advanced.test.js",
-          "server/tests/handler-workflow-handlers.test.js",
-          "server/tests/workflow-runtime.test.js",
-          "server/tests/workflow-advanced-handlers.test.js"
-        ],
-        "validation_commands": [
-          "npx vitest run server/tests/handler-workflow-advanced.test.js server/tests/handler-workflow-handlers.test.js server/tests/workflow-runtime.test.js server/tests/workflow-advanced-handlers.test.js",
-          "npm run lint"
-        ],
-        "affected_invariants": [
-          "Workflow structure, runtime unblocking, and await reporting should stay aligned on the same DAG semantics.",
-          "Dependent nodes should unblock only from persisted workflow state, not from ad hoc in-memory assumptions.",
-          "Tool schemas, dispatch registration, and transport exposure should stay in sync.",
-          "Tool handlers should normalize output through the same MCP-facing contract regardless of caller."
-        ],
-        "priority": 72,
-        "kind": "cross-subsystem-review",
-        "trace": {
-          "study_delta_path": "docs/architecture/study-delta.json",
-          "study_delta_generated_at": "2026-04-10T13:47:48.520Z",
-          "delta_significance_level": "critical",
-          "delta_significance_score": 74,
-          "significance_reasons": [
-            "18 repo files changed since the previous study SHA.",
-            "2 canonical flows were touched by the change set.",
-            "4 critical invariants were touched.",
-            "2 known failure modes intersect the changed seams."
-          ],
-          "run_mode": "repo-delta",
-          "manual_run_now": false,
-          "schedule_id": "a24a26fa-abbb-4d10-bfa9-76512a4bc11c",
-          "schedule_name": "codebase-study:torque-public",
-          "schedule_run_id": "cbb752cc-42c3-42a7-8279-8ae35d07b83c",
-          "wrapper_task_id": "20d66fa5-bd72-4872-a10c-a3b045ea4916",
-          "changed_subsystems": [
-            "Control-plane API",
-            "Workflow orchestration",
-            "Persistence and scheduling",
-            "Tool and MCP surface",
-            "Dashboard UI",
-            "Handler layer",
-            "server integrations",
-            "server utils",
-            "Validation and tests"
-          ],
-          "affected_flows": [
-            "Workflow lifecycle",
-            "Tool dispatch"
-          ],
-          "focus_scope_id": "cross-subsystem-impact",
-          "focus_label": "Cross-subsystem impact"
-        }
-      }
-    ],
+    "suggested": [],
     "submitted": [],
     "errors": []
   }

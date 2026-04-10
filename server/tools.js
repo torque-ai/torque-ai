@@ -609,9 +609,14 @@ async function handleRestartServerBarrier(args) {
     };
   }
 
-  // Count non-barrier running tasks
-  const runningTasks = taskCore.listTasks({ status: 'running', limit: 1000 }).filter(t => t.provider !== 'system');
-  const totalRunning = runningTasks.length;
+  // Count ALL non-terminal, non-barrier tasks (running, queued, pending).
+  // Must include queued/pending because startTask is async — tasks may not
+  // have transitioned to 'running' yet when this check runs.
+  const nonTerminalStatuses = ['running', 'queued', 'pending'];
+  let activeTasks = 0;
+  for (const status of nonTerminalStatuses) {
+    activeTasks += taskCore.listTasks({ status, limit: 1000 }).filter(t => t.provider !== 'system').length;
+  }
 
   // Create barrier task — provider='system' is the sentinel the queue scheduler checks
   const barrierId = require('crypto').randomUUID();
@@ -627,7 +632,7 @@ async function handleRestartServerBarrier(args) {
   logger.info(`[Restart] Created barrier task ${barrierId} — queue scheduler will block new starts`);
 
   // If pipeline is already empty, complete immediately and trigger restart
-  if (totalRunning === 0) {
+  if (activeTasks === 0) {
     taskCore.updateTaskStatus(barrierId, 'running', { started_at: new Date().toISOString() });
     taskCore.updateTaskStatus(barrierId, 'completed', {
       output: 'Pipeline was already empty',
@@ -647,7 +652,7 @@ async function handleRestartServerBarrier(args) {
   }
 
   // Pipeline has active work — start drain watcher
-  logger.info(`[Restart] Drain mode: ${totalRunning} running (timeout: ${drainTimeoutMinutes}min)`);
+  logger.info(`[Restart] Drain mode: ${activeTasks} active tasks (timeout: ${drainTimeoutMinutes}min)`);
   taskCore.updateTaskStatus(barrierId, 'running', { started_at: new Date().toISOString() });
 
   const drainTimeoutMs = drainTimeoutMinutes * 60 * 1000;
@@ -694,7 +699,7 @@ async function handleRestartServerBarrier(args) {
     success: true,
     task_id: barrierId,
     status: 'drain_started',
-    content: [{ type: 'text', text: `Pipeline drain started — barrier ${barrierId.slice(0, 8)} blocks new work. Waiting for ${totalRunning} running task(s). Timeout: ${drainTimeoutMinutes}min.` }],
+    content: [{ type: 'text', text: `Pipeline drain started — barrier ${barrierId.slice(0, 8)} blocks new work. Waiting for ${activeTasks} active task(s). Timeout: ${drainTimeoutMinutes}min.` }],
   };
 }
 

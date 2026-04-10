@@ -647,7 +647,28 @@ function handleSubmitTask(args) {
       }
     }
 
-    const result = taskManager.startTask(taskId);
+    // Restart barrier check — if a system barrier task exists, queue instead of starting.
+    // Must run synchronously BEFORE the async startTask call to prevent race conditions.
+    let barrierActive = false;
+    try {
+      const barrierTasks = taskCore.listTasks({ status: 'running', limit: 50 })
+        .concat(taskCore.listTasks({ status: 'queued', limit: 50 }))
+        .filter(t => t.provider === 'system');
+      if (barrierTasks.length > 0) {
+        barrierActive = true;
+        // Transition to 'queued' so the scheduler picks it up after restart.
+        // Mark with restart_hold in error_output so TTL expiry skips it.
+        taskCore.updateTaskStatus(taskId, 'queued', {
+          error_output: `Restart barrier active (${barrierTasks[0].id.slice(0, 8)}). Will start after restart completes.`,
+        });
+        logger.info(`[submit_task] Restart barrier active (${barrierTasks[0].id.slice(0, 8)}) — task ${taskId.slice(0, 8)} queued, will start after restart`);
+      }
+    } catch { /* non-fatal — proceed to start */ }
+
+    let result;
+    if (!barrierActive) {
+      result = taskManager.startTask(taskId);
+    }
 
     // Auto-activate CI watch for this repo (fire-and-forget)
     if (args.working_directory) {
@@ -665,9 +686,11 @@ function handleSubmitTask(args) {
       __subscribe_task_id: taskId,
       content: [{
         type: 'text',
-        text: (result.queued
-          ? `Task queued (ID: ${taskId}, intended provider: ${providerName}). Provider will be assigned when a slot is available.\nCurrent running tasks: ${taskManager.getRunningTaskCount()}`
-          : `Task started (ID: ${taskId}, provider: ${providerName}). Use check_status or get_progress to monitor.`)
+        text: (barrierActive
+          ? `Task queued (ID: ${taskId}, provider: ${providerName}). Restart barrier active — will start after restart completes.`
+          : result?.queued
+            ? `Task queued (ID: ${taskId}, intended provider: ${providerName}). Provider will be assigned when a slot is available.\nCurrent running tasks: ${taskManager.getRunningTaskCount()}`
+            : `Task started (ID: ${taskId}, provider: ${providerName}). Use check_status or get_progress to monitor.`)
           + formatGovernanceWarnings(governanceEvaluation?.result)
       }]
     };

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-04-10T13:47:54.088Z",
+  "generated_at": "2026-04-10T18:00:58.599Z",
   "repo": {
     "name": "torque-ai",
     "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
@@ -14,7 +14,7 @@
     "passed_cases": 10,
     "partial_cases": 1,
     "failed_cases": 0,
-    "delta_significance_level": "critical",
+    "delta_significance_level": "low",
     "evaluation_grade": "A"
   },
   "findings": [
@@ -1093,7 +1093,7 @@
         }
       ],
       "readiness_signals": [
-        "High fan-in (240) and fan-out (8) inside Validation and tests."
+        "High fan-in (242) and fan-out (8) inside Validation and tests."
       ],
       "pack_coverage": {
         "matched_files": [

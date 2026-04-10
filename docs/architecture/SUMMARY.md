@@ -2,7 +2,7 @@
 
 An automated software factory for Claude Code. Discover, plan, execute, verify, remediate, and release — autonomously across local and cloud LLM providers.
 
-Coverage: 1533/1533 tracked files indexed (100%), 0 pending.
+Coverage: 1534/1534 tracked files indexed (100%), 0 pending.
 
 ## Key Artifacts
 - `docs/architecture/knowledge-pack.json` — machine-readable subsystem map, flows, hotspots, invariants, failure modes, traces, and change playbooks.
@@ -10,12 +10,8 @@ Coverage: 1533/1533 tracked files indexed (100%), 0 pending.
 - `docs/architecture/module-index.json` — per-file facts: purpose, exports, and dependencies.
 
 ## Latest Delta
-- **Significance:** critical (74).
-- 18 repo files changed since the previous study SHA.
-- 2 canonical flows were touched by the change set.
-- 4 critical invariants were touched.
-- 2 known failure modes intersect the changed seams.
-- **Suggested Follow-ups:** Review Workflow lifecycle changes for invariant drift; Validate DAG/runtime drift risk after recent changes; Validate cross-subsystem impact from recent architectural delta.
+- **Significance:** low (12).
+- 4 repo files changed since the previous study SHA.
 
 ## Pack Evaluation
 - **Readiness:** expert_ready (A, score 100).
@@ -52,7 +48,7 @@ Coverage: 1533/1533 tracked files indexed (100%), 0 pending.
 - **Workflow orchestration:** DAG workflow creation, await logic, diffusion planning, and workflow runtime coordination. Coverage: 12/12 indexed. Representative files: `server/execution/workflow-runtime.js`, `server/handlers/workflow/index.js`, and `server/handlers/workflow/await.js`. Key exports: `handleCreateFeatureWorkflow` (2), `init` (2), and `applyContextFrom` (1). Key dependencies: `server/logger.js` (8) and `server/db/workflow-engine.js` (6).
 - **Persistence and scheduling:** SQLite-backed state, queues, schedules, provider stats, and workflow/task metadata. Coverage: 68/68 indexed. Representative files: `server/db/task-core.js`, `server/db/provider-routing-core.js`, and `server/db/config-core.js`. Key exports: `setDb` (48), `setGetTask` (17), and `init` (5). Key dependencies: `server/utils/json.js` (27) and `server/logger.js` (20).
 - **Provider adapters:** Provider registry, CLI/API adapters, prompts, and provider-specific execution logic. Coverage: 32/32 indexed. Representative files: `server/providers/execution.js`, `server/providers/adapter-registry.js`, and `server/providers/execute-api.js`. Key exports: `init` (10), `chatCompletion` (3), and `buildClaudeCliCommand` (2). Key dependencies: `server/logger.js` (19) and `server/constants.js` (16).
-- **Tool and MCP surface:** Tool catalog, schemas, dispatch, protocol transport, and MCP-facing integration points. Coverage: 128/128 indexed. Representative files: `server/tools.js`, `server/mcp-sse.js`, and `server/mcp/index.js`. Key exports: `additionalProperties` (69), `properties` (69), and `type` (69). Key dependencies: `server/logger.js` (6) and `crypto` (5).
+- **Tool and MCP surface:** Tool catalog, schemas, dispatch, protocol transport, and MCP-facing integration points. Coverage: 128/128 indexed. Representative files: `server/tools.js`, `server/mcp-sse.js`, and `server/mcp/index.js`. Key exports: `additionalProperties` (69), `properties` (69), and `type` (69). Key dependencies: `crypto` (6) and `server/logger.js` (6).
 
 ## Critical Invariants
 - **Task lifecycle:** Submission surfaces should delegate into handlers and the task manager instead of invoking providers directly. Read `server/api/v2-dispatch.js`, `server/handlers/task/index.js`, `server/task-manager.js`, and `server/execution/task-startup.js`.
@@ -82,11 +78,11 @@ Coverage: 1533/1533 tracked files indexed (100%), 0 pending.
 - **Persistence and scheduling:** Recheck `server/db/task-core.js`, `server/db/provider-routing-core.js`, `server/db/config-core.js`, and `server/db/host-management.js`. Validate with `npx vitest run server/tests/api-server.test.js server/tests/test-container-helper.js server/tests/v2-health-models.test.js server/tests/handler-task-core-extended.test.js` and `npm run lint`.
 
 ## Hotspots
-- `server/tests/vitest-setup.js` — High fan-in (240) and fan-out (8) inside Validation and tests.
+- `server/tests/vitest-setup.js` — High fan-in (242) and fan-out (8) inside Validation and tests.
 - `server/logger.js` — High fan-in (180) and fan-out (3) inside Runtime core.
 - `server/db/task-core.js` — High fan-in (153) and fan-out (11) inside Persistence and scheduling.
 - `server/task-manager.js` — High fan-in (74) and fan-out (65) inside Task execution pipeline.
-- `server/tools.js` — High fan-in (35) and fan-out (100) inside Tool and MCP surface.
+- `server/tools.js` — High fan-in (36) and fan-out (102) inside Tool and MCP surface.
 - `server/db/workflow-engine.js` — Shared internal dependency reused by 55 indexed modules in Persistence and scheduling.
 
 ## Representative Tests

@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-10T13:47:48.520Z",
+  "generated_at": "2026-04-10T18:00:56.282Z",
   "study_profile": {
     "id": "torque-control-plane",
     "label": "TORQUE control-plane monorepo",
@@ -40,7 +40,7 @@
     "name": "torque-ai",
     "description": "An automated software factory for Claude Code. Discover, plan, execute, verify, remediate, and release — autonomously across local and cloud LLM providers.",
     "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
-    "current_sha": "25a2562a51313e19fa1c493e612aeb8c06f4674a",
+    "current_sha": "474a5fb5ad2c0040f5e5be224ce1863f80e6093a",
     "study_strategy": "local-deterministic",
     "detection": {
       "archetype": "fullstack-control-plane",
@@ -77,8 +77,8 @@
     ]
   },
   "coverage": {
-    "tracked_files": 1533,
-    "indexed_modules": 1533,
+    "tracked_files": 1534,
+    "indexed_modules": 1534,
     "pending_files": 0,
     "indexed_percent": 100
   },
@@ -752,7 +752,7 @@
       "label": "Tool and MCP surface",
       "description": "Tool catalog, schemas, dispatch, protocol transport, and MCP-facing integration points.",
       "summary_priority": 89,
-      "overview": "Tool catalog, schemas, dispatch, protocol transport, and MCP-facing integration points. Coverage: 128/128 indexed. Representative files: `server/tools.js`, `server/mcp-sse.js`, and `server/mcp/index.js`. Key exports: `additionalProperties` (69), `properties` (69), and `type` (69). Key dependencies: `server/logger.js` (6) and `crypto` (5).",
+      "overview": "Tool catalog, schemas, dispatch, protocol transport, and MCP-facing integration points. Coverage: 128/128 indexed. Representative files: `server/tools.js`, `server/mcp-sse.js`, and `server/mcp/index.js`. Key exports: `additionalProperties` (69), `properties` (69), and `type` (69). Key dependencies: `crypto` (6) and `server/logger.js` (6).",
       "coverage": {
         "tracked_files": 128,
         "indexed_modules": 128,
@@ -805,12 +805,12 @@
       ],
       "key_dependencies": [
         {
-          "name": "server/logger.js",
+          "name": "crypto",
           "count": 6
         },
         {
-          "name": "crypto",
-          "count": 5
+          "name": "server/logger.js",
+          "count": 6
         },
         {
           "name": "http",
@@ -833,16 +833,16 @@
           "count": 2
         },
         {
-          "name": "server/mcp-sse.js",
+          "name": "server/hooks/event-dispatch.js",
           "count": 2
         }
       ],
       "central_files": [
         {
           "file": "server/tools.js",
-          "inbound_dependents": 35,
-          "outbound_dependencies": 100,
-          "export_count": 7
+          "inbound_dependents": 36,
+          "outbound_dependencies": 102,
+          "export_count": 8
         },
         {
           "file": "server/mcp-sse.js",
@@ -1286,7 +1286,7 @@
       "central_files": [
         {
           "file": "server/hooks/event-dispatch.js",
-          "inbound_dependents": 20,
+          "inbound_dependents": 21,
           "outbound_dependencies": 7,
           "export_count": 10
         },
@@ -3717,10 +3717,10 @@
       "label": "Validation and tests",
       "description": "Focused test suites and harnesses that validate runtime behavior and guard important flows.",
       "summary_priority": 15,
-      "overview": "Focused test suites and harnesses that validate runtime behavior and guard important flows. Coverage: 827/827 indexed. Representative files: `server/tests/vitest-setup.js`, `server/tests/test-helpers.js`, and `server/tests/e2e-helpers.js`. Test-heavy area; representative suites and helper dependencies matter more than exported symbols. Key dependencies: `server/tests/vitest-setup.js` (239) and `path` (196).",
+      "overview": "Focused test suites and harnesses that validate runtime behavior and guard important flows. Coverage: 828/828 indexed. Representative files: `server/tests/vitest-setup.js`, `server/tests/test-helpers.js`, and `server/tests/e2e-helpers.js`. Test-heavy area; representative suites and helper dependencies matter more than exported symbols. Key dependencies: `server/tests/vitest-setup.js` (241) and `path` (196).",
       "coverage": {
-        "tracked_files": 827,
-        "indexed_modules": 827,
+        "tracked_files": 828,
+        "indexed_modules": 828,
         "pending_files": 0
       },
       "representative_files": [
@@ -3739,7 +3739,7 @@
       "key_dependencies": [
         {
           "name": "server/tests/vitest-setup.js",
-          "count": 239
+          "count": 241
         },
         {
           "name": "path",
@@ -3759,7 +3759,7 @@
         },
         {
           "name": "crypto",
-          "count": 131
+          "count": 130
         },
         {
           "name": "server/db/task-core.js",
@@ -3773,7 +3773,7 @@
       "central_files": [
         {
           "file": "server/tests/vitest-setup.js",
-          "inbound_dependents": 240,
+          "inbound_dependents": 242,
           "outbound_dependencies": 8,
           "export_count": 10
         },
@@ -3898,7 +3898,7 @@
       "from_label": "Validation and tests",
       "to": "task-execution",
       "to_label": "Task execution pipeline",
-      "count": 101,
+      "count": 100,
       "example_edges": [
         "server/tests/adv-intelligence-handlers.test.js -> server/task-manager.js",
         "server/tests/adversarial-review-dag.test.js -> server/execution/adversarial-review-stage.js",
@@ -3918,7 +3918,7 @@
       "from_label": "Validation and tests",
       "to": "provider-adapters",
       "to_label": "Provider adapters",
-      "count": 98,
+      "count": 99,
       "example_edges": [
         "server/tests/adapter-registry-discover.test.js -> server/providers/adapter-registry.js",
         "server/tests/adapter-registry.test.js -> server/providers/adapter-registry.js",
@@ -4218,14 +4218,14 @@
       "file": "server/tests/vitest-setup.js",
       "subsystem": "validation-tests",
       "subsystem_label": "Validation and tests",
-      "inbound_dependents": 240,
+      "inbound_dependents": 242,
       "outbound_dependencies": 8,
       "export_count": 10,
       "signal_type": "runtime",
-      "reason": "High fan-in (240) and fan-out (8) inside Validation and tests.",
+      "reason": "High fan-in (242) and fan-out (8) inside Validation and tests.",
       "confidence": "high",
       "evidence": {
-        "inbound_dependents": 240,
+        "inbound_dependents": 242,
         "outbound_dependencies": 8,
         "export_count": 10,
         "structured_content": false,
@@ -4290,16 +4290,16 @@
       "file": "server/tools.js",
       "subsystem": "tooling-mcp-surface",
       "subsystem_label": "Tool and MCP surface",
-      "inbound_dependents": 35,
-      "outbound_dependencies": 100,
-      "export_count": 7,
+      "inbound_dependents": 36,
+      "outbound_dependencies": 102,
+      "export_count": 8,
       "signal_type": "runtime",
-      "reason": "High fan-in (35) and fan-out (100) inside Tool and MCP surface.",
+      "reason": "High fan-in (36) and fan-out (102) inside Tool and MCP surface.",
       "confidence": "high",
       "evidence": {
-        "inbound_dependents": 35,
-        "outbound_dependencies": 100,
-        "export_count": 7,
+        "inbound_dependents": 36,
+        "outbound_dependencies": 102,
+        "export_count": 8,
         "structured_content": false,
         "executable_surface": true
       }
@@ -4894,7 +4894,7 @@
         "label": "Hotspot drift around server/tests/vitest-setup.js",
         "scope_type": "hotspot",
         "scope_id": "server/tests/vitest-setup.js",
-        "symptoms": "High fan-in (240) and fan-out (8) inside Validation and tests.",
+        "symptoms": "High fan-in (242) and fan-out (8) inside Validation and tests.",
         "why_it_happens": "High fan-in or fan-out files are common places for implicit coupling to accumulate over time.",
         "investigate_first": [
           "server/tests/vitest-setup.js"

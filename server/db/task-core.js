@@ -1095,7 +1095,9 @@ function getExpiredQueuedTasks(cutoffIso) {
     WHERE status IN ('queued', 'pending')
       AND created_at < ?
       AND provider != 'workflow'
+      AND provider != 'system'
       AND workflow_id IS NULL
+      AND (error_output IS NULL OR error_output NOT LIKE '%Restart barrier active%')
   `).all(cutoffIso);
 }
 

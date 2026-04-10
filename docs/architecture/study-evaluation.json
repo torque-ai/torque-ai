@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-04-10T13:47:54.050Z",
+  "generated_at": "2026-04-10T18:00:58.573Z",
   "repo": {
     "name": "torque-ai",
     "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
@@ -15,8 +15,8 @@
     "indexed_percent": 100
   },
   "checks": {
-    "tracked_files": 1533,
-    "indexed_modules": 1533,
+    "tracked_files": 1534,
+    "indexed_modules": 1534,
     "pending_files": 0,
     "flow_count": 5,
     "invariant_count": 12,
@@ -285,7 +285,7 @@
         "server/plugins/auth/tests/auth-plugin.test.js"
       ],
       "readiness_signals": [
-        "High fan-in (240) and fan-out (8) inside Validation and tests."
+        "High fan-in (242) and fan-out (8) inside Validation and tests."
       ],
       "answerability": "partial"
     }

@@ -5636,6 +5636,7 @@
         "server/versioning/auto-release.js",
         "server/container.js",
         "server/handlers/webhook-handlers.js",
+        "server/db/file-baselines.js",
         "server/hooks/event-dispatch.js",
         "server/db/webhooks-streaming.js",
         "server/db/coordination.js",
@@ -7920,7 +7921,7 @@
         "server/hooks/event-dispatch.js",
         "server/utils/shell-policy.js",
         "child_process",
-        "server/event-bus.js"
+        "server/tools.js"
       ]
     },
     {
@@ -13166,8 +13167,7 @@
         "events",
         "server/tests/vitest-setup.js",
         "server/db/task-core.js",
-        "server/utils/host-monitoring.js",
-        "crypto"
+        "server/utils/host-monitoring.js"
       ]
     },
     {
@@ -18892,20 +18892,30 @@
       "deps": []
     },
     {
-      "file": "server/tests/restart-drain.test.js",
-      "purpose": "Test module covering server/execution/task-startup.js, server/db/task-core.js, and server/tools.js.",
+      "file": "server/tests/restart-barrier.test.js",
+      "purpose": "Test module covering server/providers/registry.js.",
       "exports": [],
       "deps": [
-        "server/execution/task-startup.js",
+        "server/providers/registry.js"
+      ]
+    },
+    {
+      "file": "server/tests/restart-drain.test.js",
+      "purpose": "Test module covering server/tests/vitest-setup.js, events, and server/db/task-core.js.",
+      "exports": [],
+      "deps": [
+        "server/tests/vitest-setup.js",
+        "events",
         "server/db/task-core.js",
         "server/tools.js"
       ]
     },
     {
       "file": "server/tests/restart-server-tool.test.js",
-      "purpose": "Test module covering server/tools.js, server/db/task-core.js, and server/task-manager.js.",
+      "purpose": "Test module covering server/tests/vitest-setup.js, server/tools.js, and server/db/task-core.js.",
       "exports": [],
       "deps": [
+        "server/tests/vitest-setup.js",
         "server/tools.js",
         "server/db/task-core.js",
         "server/task-manager.js",
@@ -21194,7 +21204,8 @@
         "handleToolCall",
         "validateArgsAgainstSchema",
         "INTERNAL_HANDLER_EXPORTS",
-        "createTools"
+        "createTools",
+        "cleanupStaleRestartBarriers"
       ],
       "deps": [
         "path",
@@ -21296,6 +21307,8 @@
         "server/governance/hooks.js",
         "server/db/governance-rules.js",
         "server/db/workflow-engine.js",
+        "crypto",
+        "server/hooks/event-dispatch.js",
         "server/handlers/shared.js"
       ]
     },

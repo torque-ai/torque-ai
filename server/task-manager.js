@@ -695,6 +695,7 @@ function shutdown(options = {}) {
 
   // Explicitly clear all background intervals/timeouts for clean shutdown
   _orphanCleanup.stopTimers();
+  try { _sleepWatchdog.stop(); } catch { /* non-fatal */ }
   clearInterval(_queuePollInterval);
   _queuePollInterval = null;
   // Stop health check and activity poll intervals (managed by host-monitoring)
@@ -930,6 +931,10 @@ _orphanCleanup.init({
   PROVIDER_COMPLETION_PATTERNS,
 });
 _orphanCleanup.startTimers();
+
+// Sleep watchdog — detects system sleep/wake and shields tasks from false timeouts
+const _sleepWatchdog = require('./maintenance/sleep-watchdog');
+_sleepWatchdog.start({ db, runningProcesses, logger });
 
 _instanceManager.init({
   db,

@@ -203,6 +203,14 @@ async function cleanupOrphanedDotnetProcesses() {
  */
 function checkStaleRunningTasks() {
   if (!db || (typeof db.isReady === 'function' && !db.isReady())) return;
+  // Skip during post-wake grace period — sleep inflates elapsed times
+  try {
+    const { isInSleepGracePeriod } = require('./sleep-watchdog');
+    if (isInSleepGracePeriod()) {
+      logger.info('[Stale Check] Skipped — sleep grace period active');
+      return;
+    }
+  } catch { /* watchdog not loaded — proceed normally */ }
   try {
     // First, reconcile host task counts to fix any stale counts
     // This ensures hosts show accurate running task numbers
@@ -459,6 +467,15 @@ async function checkZombieProcesses() {
  * @returns {Array} Array of stalled task IDs
  */
 function checkStalledTasks(autoCancel = false) {
+  // Skip during post-wake grace period — sleep inflates lastActivitySeconds
+  try {
+    const { isInSleepGracePeriod } = require('./sleep-watchdog');
+    if (isInSleepGracePeriod()) {
+      logger.info('[Stall Check] Skipped — sleep grace period active');
+      return [];
+    }
+  } catch { /* watchdog not loaded — proceed normally */ }
+
   const stalledTasks = [];
   // Stall detection is controlled via PROVIDER_STALL_THRESHOLDS
   // Providers with null threshold are excluded; queued tasks are never checked
