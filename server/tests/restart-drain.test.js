@@ -1,8 +1,17 @@
 'use strict';
 
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+
 describe('restart_server barrier mode', () => {
   let tools;
   let taskCore;
+
+  beforeAll(() => {
+    setupTestDbOnly('restart-drain');
+  });
+  afterAll(() => {
+    teardownTestDb();
+  });
 
   beforeEach(() => {
     vi.resetModules();

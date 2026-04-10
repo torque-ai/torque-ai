@@ -1,3 +1,4 @@
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const tools = require('../tools');
 const taskCore = require('../db/task-core');
 const taskManager = require('../task-manager');
@@ -6,6 +7,13 @@ const eventBus = require('../event-bus');
 
 describe('restart_server tool', () => {
   let shutdownListeners = [];
+
+  beforeAll(() => {
+    setupTestDbOnly('restart-server-tool');
+  });
+  afterAll(() => {
+    teardownTestDb();
+  });
 
   beforeEach(() => {
     vi.useFakeTimers();
