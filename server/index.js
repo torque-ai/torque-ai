@@ -888,6 +888,17 @@ function init() {
     debugLog(`Server epoch: ${newEpoch}`);
   }
 
+  // Clean up stale restart barrier tasks from previous server instance
+  try {
+    const { cleanupStaleRestartBarriers } = require('./tools');
+    const cleaned = cleanupStaleRestartBarriers();
+    if (cleaned > 0) {
+      debugLog(`Cleaned up ${cleaned} stale restart barrier task(s)`);
+    }
+  } catch (err) {
+    debugLog(`Restart barrier cleanup failed (non-fatal): ${err.message}`);
+  }
+
   // Auto-inject TORQUE MCP config for local mode
   if (isLocalMode) {
     try {

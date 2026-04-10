@@ -1,25 +1,11 @@
 'use strict';
 
-describe('restart_server drain mode', () => {
+describe('restart_server barrier mode', () => {
   let tools;
-  let originalGetRunningTaskCount;
   let taskCore;
 
   beforeEach(() => {
     vi.resetModules();
-    vi.useFakeTimers();
-
-    // Monkey-patch task-startup before tools.js loads
-    const taskStartup = require('../execution/task-startup');
-    originalGetRunningTaskCount = taskStartup.getRunningTaskCount;
-    taskStartup.getRunningTaskCount = vi.fn(() => 0);
-
-    // Monkey-patch task-core listTasks
-    taskCore = require('../db/task-core');
-    taskCore._originalListTasks = taskCore.listTasks;
-    taskCore.listTasks = vi.fn(() => []);
-
-    // Mock event-bus to prevent real shutdown behavior
     vi.doMock('../event-bus', () => ({
       emitShutdown: vi.fn(),
       onShutdown: vi.fn(),
@@ -27,47 +13,49 @@ describe('restart_server drain mode', () => {
       on: vi.fn(),
       once: vi.fn(),
       emit: vi.fn(),
+      emitTaskEvent: vi.fn(),
+    }));
+    vi.doMock('../hooks/event-dispatch', () => ({
+      taskEvents: new (require('events').EventEmitter)(),
+      NOTABLE_EVENTS: [],
     }));
 
+    taskCore = require('../db/task-core');
     tools = require('../tools');
   });
 
   afterEach(() => {
-    const taskStartup = require('../execution/task-startup');
-    taskStartup.getRunningTaskCount = originalGetRunningTaskCount;
-    if (taskCore._originalListTasks) {
-      taskCore.listTasks = taskCore._originalListTasks;
-      delete taskCore._originalListTasks;
-    }
-    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it('accepts drain option and schedules restart when no tasks running', async () => {
-    const taskStartup = require('../execution/task-startup');
-    taskStartup.getRunningTaskCount.mockReturnValue(0);
-    taskCore.listTasks.mockReturnValue([]);
-    const result = await tools.handleToolCall('restart_server', { reason: 'cutover', drain: true });
-    expect(result.success).toBe(true);
-    expect(result.status).toBe('restart_scheduled');
+  it('creates a barrier task when no tasks running', async () => {
+    const result = await tools.handleToolCall('restart_server', { reason: 'cutover' });
+    expect(result.task_id).toBeTruthy();
+    expect(result.status).toBe('queued');
   });
 
-  it('starts drain when tasks are running and drain=true', async () => {
-    const taskStartup = require('../execution/task-startup');
-    taskStartup.getRunningTaskCount.mockReturnValue(1);
-    taskCore.listTasks.mockReturnValue([{ id: 'task-1', status: 'running' }]);
-    const result = await tools.handleToolCall('restart_server', { reason: 'cutover', drain: true });
-    expect(result.success).toBe(true);
-    expect(result.status).toBe('drain_started');
-    expect(result.running_tasks).toBe(1);
+  it('creates a barrier task when tasks are running (no rejection)', async () => {
+    taskCore.createTask({
+      id: 'running-1',
+      task_description: 'busy',
+      provider: 'codex',
+      working_directory: process.cwd(),
+    });
+    taskCore.updateTaskStatus('running-1', 'queued', {});
+    taskCore.updateTaskStatus('running-1', 'running', { started_at: new Date().toISOString() });
+
+    const result = await tools.handleToolCall('restart_server', { reason: 'cutover' });
+    expect(result.task_id).toBeTruthy();
+    expect(result.status).toBe('queued');
+    expect(result.pipeline.running).toBe(1);
   });
 
-  it('rejects restart without drain when tasks are running', async () => {
-    const taskStartup = require('../execution/task-startup');
-    taskStartup.getRunningTaskCount.mockReturnValue(1);
-    taskCore.listTasks.mockReturnValue([{ id: 'task-1', status: 'running' }]);
-    const result = await tools.handleToolCall('restart_server', { reason: 'test' });
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Cannot restart');
+  it('rejects second restart when barrier already exists', async () => {
+    const first = await tools.handleToolCall('restart_server', { reason: 'first' });
+    expect(first.task_id).toBeTruthy();
+
+    const second = await tools.handleToolCall('restart_server', { reason: 'second' });
+    expect(second.status).toBe('already_pending');
+    expect(second.task_id).toBe(first.task_id);
   });
 });

@@ -585,6 +585,141 @@ async function handleRestartServer(args) {
   };
 }
 
+// Barrier-based restart: creates a provider='system' task that the queue scheduler
+// recognizes as a barrier, blocking new task starts until the drain completes.
+// handleAwaitRestart awaits this barrier task via the standard await_task path.
+async function handleRestartServerBarrier(args) {
+  const reason = args.reason || 'Manual restart requested';
+  const drainTimeoutMinutes = args.drain_timeout_minutes || args.timeout_minutes || 10;
+  const taskCore = require('./db/task-core');
+
+  logger.info(`[Restart] Server restart requested (barrier): ${reason}`);
+
+  // Reuse existing barrier if one exists
+  const existingBarrier = taskCore.listTasks({ status: 'running', limit: 1000 })
+    .concat(taskCore.listTasks({ status: 'queued', limit: 1000 }))
+    .find(t => t.provider === 'system');
+  if (existingBarrier) {
+    logger.info(`[Restart] Reusing existing barrier task ${existingBarrier.id}`);
+    return {
+      success: true,
+      task_id: existingBarrier.id,
+      status: 'already_pending',
+      content: [{ type: 'text', text: `Restart already pending (barrier: ${existingBarrier.id.slice(0, 8)}). Use await_restart to monitor.` }],
+    };
+  }
+
+  // Count non-barrier running tasks
+  const runningTasks = taskCore.listTasks({ status: 'running', limit: 1000 }).filter(t => t.provider !== 'system');
+  const totalRunning = runningTasks.length;
+
+  // Create barrier task — provider='system' is the sentinel the queue scheduler checks
+  const barrierId = require('crypto').randomUUID();
+  taskCore.createTask({
+    id: barrierId,
+    task_description: `Restart barrier: ${reason}`,
+    provider: 'system',
+    model: null,
+    status: 'queued',
+    working_directory: process.cwd(),
+    timeout_minutes: drainTimeoutMinutes,
+  });
+  logger.info(`[Restart] Created barrier task ${barrierId} — queue scheduler will block new starts`);
+
+  // If pipeline is already empty, complete immediately and trigger restart
+  if (totalRunning === 0) {
+    taskCore.updateTaskStatus(barrierId, 'running', { started_at: new Date().toISOString() });
+    taskCore.updateTaskStatus(barrierId, 'completed', {
+      output: 'Pipeline was already empty',
+      completed_at: new Date().toISOString(),
+    });
+    process._torqueRestartPending = true;
+    logger.info('[Restart] Pipeline empty — triggering immediate restart');
+    setTimeout(() => {
+      eventBus.emitShutdown(`restart: ${reason}`);
+    }, RESTART_RESPONSE_GRACE_MS);
+    return {
+      success: true,
+      task_id: barrierId,
+      status: 'restart_scheduled',
+      content: [{ type: 'text', text: 'Pipeline empty. Server restart scheduled. MCP client should reconnect with fresh code.' }],
+    };
+  }
+
+  // Pipeline has active work — start drain watcher
+  logger.info(`[Restart] Drain mode: ${totalRunning} running (timeout: ${drainTimeoutMinutes}min)`);
+  taskCore.updateTaskStatus(barrierId, 'running', { started_at: new Date().toISOString() });
+
+  const drainTimeoutMs = drainTimeoutMinutes * 60 * 1000;
+  const drainStarted = Date.now();
+
+  const drainPoll = setInterval(() => {
+    const running = taskCore.listTasks({ status: 'running', limit: 1000 }).filter(t => t.provider !== 'system').length;
+
+    if (running === 0) {
+      clearInterval(drainPoll);
+      logger.info('[Restart] Drain complete — completing barrier and restarting...');
+      taskCore.updateTaskStatus(barrierId, 'completed', {
+        output: `Drain complete after ${Math.round((Date.now() - drainStarted) / 1000)}s`,
+        completed_at: new Date().toISOString(),
+      });
+      try {
+        const { dispatchTaskEvent } = require('./hooks/event-dispatch');
+        dispatchTaskEvent('completed', taskCore.getTask(barrierId));
+      } catch { /* non-fatal */ }
+      process._torqueRestartPending = true;
+      eventBus.emitShutdown(`restart (drain complete): ${reason}`);
+      return;
+    }
+
+    const elapsed = Date.now() - drainStarted;
+    if (elapsed >= drainTimeoutMs) {
+      clearInterval(drainPoll);
+      logger.info(`[Restart] Drain timeout — ${running} task(s) still running. Cancelling barrier.`);
+      taskCore.updateTaskStatus(barrierId, 'failed', {
+        error_output: `Drain timed out: ${running} task(s) still running after ${drainTimeoutMinutes}min`,
+        completed_at: new Date().toISOString(),
+      });
+      try {
+        const { dispatchTaskEvent } = require('./hooks/event-dispatch');
+        dispatchTaskEvent('failed', taskCore.getTask(barrierId));
+      } catch { /* non-fatal */ }
+      return;
+    }
+
+    logger.info(`[Restart] Drain: ${running} running (${Math.round(elapsed / 1000)}s elapsed)`);
+  }, 10000);
+
+  return {
+    success: true,
+    task_id: barrierId,
+    status: 'drain_started',
+    content: [{ type: 'text', text: `Pipeline drain started — barrier ${barrierId.slice(0, 8)} blocks new work. Waiting for ${totalRunning} running task(s). Timeout: ${drainTimeoutMinutes}min.` }],
+  };
+}
+
+/**
+ * Clean up stale restart barrier tasks from a previous server instance.
+ */
+function cleanupStaleRestartBarriers() {
+  try {
+    const taskCore = require('./db/task-core');
+    const barriers = taskCore.listTasks({ status: 'running', limit: 100 })
+      .concat(taskCore.listTasks({ status: 'queued', limit: 100 }))
+      .filter(t => t.provider === 'system');
+    for (const b of barriers) {
+      taskCore.updateTaskStatus(b.id, 'cancelled', {
+        error_output: 'Stale restart barrier — server restarted before drain completed',
+        completed_at: new Date().toISOString(),
+        cancel_reason: 'stale_barrier',
+      });
+    }
+    return barriers.length;
+  } catch {
+    return 0;
+  }
+}
+
 // ── Main dispatch ──
 
 async function handleToolCall(name, args) {
@@ -595,7 +730,7 @@ async function handleToolCall(name, args) {
       return { content: [{ type: 'text', text: JSON.stringify(pingData) }] };
     }
     case 'restart_server':
-      return handleRestartServer(args);
+      return handleRestartServerBarrier(args);
     case 'unlock_all_tools':
       return { __unlock_all_tools: true, content: [{ type: 'text', text: 'All TORQUE tools are now unlocked (Tier 3). The tools list has been refreshed.' }] };
     case 'get_tool_schema': {
@@ -675,4 +810,5 @@ module.exports = {
   validateArgsAgainstSchema,
   INTERNAL_HANDLER_EXPORTS,
   createTools,
+  cleanupStaleRestartBarriers,
 };
