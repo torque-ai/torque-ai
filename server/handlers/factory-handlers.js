@@ -1,6 +1,9 @@
 'use strict';
 
+const path = require('path');
+const fs = require('fs');
 const factoryHealth = require('../db/factory-health');
+const { scoreAll } = require('../factory/scorer-registry');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
 function resolveProject(projectRef) {
@@ -80,17 +83,48 @@ async function handleScanProjectHealth(args) {
   const dimensions = args.dimensions || [...factoryHealth.VALID_DIMENSIONS];
   const scanType = args.scan_type || 'incremental';
 
+  // Run scan_project to get filesystem data
+  let scanReport = {};
+  try {
+    const { handleScanProject } = require('../handlers/integration/infra');
+    const scanResult = handleScanProject({ path: project.path });
+    if (scanResult?.content?.[0]) {
+      scanReport = JSON.parse(scanResult.content[0].text);
+    }
+  } catch (err) {
+    logger.warn(`scan_project failed for ${project.path}: ${err.message}`);
+  }
+
+  // Resolve findings directory
+  let findingsDir = null;
+  const candidates = [
+    path.join(project.path, 'docs', 'findings'),
+    path.join(project.path, '..', 'docs', 'findings'),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) { findingsDir = dir; break; }
+  }
+
+  // Score all requested dimensions
+  const scored = scoreAll(project.path, scanReport, findingsDir, dimensions);
+
+  // Record snapshots and findings
   const results = {};
-  for (const dim of dimensions) {
+  for (const [dim, result] of Object.entries(scored)) {
     const snap = factoryHealth.recordSnapshot({
       project_id: project.id,
       dimension: dim,
-      score: 0,
+      score: result.score,
       scan_type: scanType,
       batch_id: args.batch_id,
-      details: { status: 'scorer_not_yet_implemented' },
+      details: result.details,
     });
-    results[dim] = { snapshot_id: snap.id, score: snap.score };
+
+    if (result.findings && result.findings.length > 0) {
+      factoryHealth.recordFindings(snap.id, result.findings);
+    }
+
+    results[dim] = { snapshot_id: snap.id, score: result.score, details: result.details };
   }
 
   return jsonResponse({
