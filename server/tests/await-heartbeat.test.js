@@ -94,10 +94,9 @@ describe('formatHeartbeat', () => {
 
     expect(result).toContain('stall_warning');
     expect(result).toContain('Approaching stall threshold');
-    expect(result).toContain('No output captured yet');
   });
 
-  test('heartbeat with no partial output says so', async () => {
+  test('heartbeat with no partial output omits output section', async () => {
     const { formatHeartbeat } = await import('../handlers/workflow/await.js');
 
     const result = formatHeartbeat({
@@ -116,7 +115,10 @@ describe('formatHeartbeat', () => {
       alerts: []
     });
 
-    expect(result).toContain('No output captured yet');
+    // No output section emitted when there's nothing to show — saves context tokens
+    expect(result).not.toContain('Partial Output');
+    expect(result).toContain('Heartbeat');
+    expect(result).toContain('task_started');
   });
 
   test('partial output is capped at 1500 chars', async () => {

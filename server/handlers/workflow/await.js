@@ -384,6 +384,25 @@ function formatHeartbeat(opts) {
 
   const elapsed = formatDuration(elapsedMs);
   const context = opts.isWorkflow ? 'Await Workflow' : 'Await Task';
+  const ds = decisionSignals || {};
+
+  // Determine if anything actionable happened since last heartbeat.
+  // When nothing changed, return a compact one-liner to conserve context tokens.
+  const hasAlerts = alerts.length > 0;
+  const hasNewOutput = partialOutput && partialOutput.length > 0 && (ds.outputDelta == null || ds.outputDelta > 0);
+  const hasErrors = ds.repeatedErrors && ds.repeatedErrors.length > 0;
+  const isStalled = ds.isStalled;
+  const hasFilesModified = (ds.filesModified && ds.filesModified.length > 0) || (ds.filesModifiedCount > 0);
+  const isActionable = hasAlerts || hasErrors || isStalled;
+
+  // --- Compact heartbeat: nothing actionable ---
+  if (!isActionable && !hasNewOutput && decisionSignals) {
+    const counts = `${taskCounts.completed || 0} done, ${taskCounts.failed || 0} failed, ${taskCounts.running || 0} running, ${taskCounts.pending || 0} pending, ${taskCounts.blocked || 0} blocked`;
+    const filesNote = hasFilesModified ? ` | ${ds.filesModifiedCount || ds.filesModified.length} files modified` : '';
+    return `## Heartbeat — ${context} ${taskId}\n\n**${elapsed}** | ${counts}${filesNote} | ${reason}\n\nRe-invoke to continue waiting.`;
+  }
+
+  // --- Full heartbeat: something needs attention ---
   const lines = [];
 
   lines.push(`## Heartbeat — ${context} ${taskId}`);
@@ -404,64 +423,60 @@ function formatHeartbeat(opts) {
     lines.push('');
   }
 
-  // Decision signals section — gives Claude actionable data to judge progress
+  // Decision signals — only include sections with meaningful data
   if (decisionSignals) {
-    const ds = decisionSignals;
-    lines.push('### Decision Signals');
-
     const formatBytes = (b) => b > 1024 * 1024 ? `${(b / (1024 * 1024)).toFixed(1)} MB` : b > 1024 ? `${(b / 1024).toFixed(1)} KB` : `${b} bytes`;
+    const signalLines = [];
 
-    if (ds.outputBytes !== undefined) {
+    if (ds.outputBytes > 0) {
       const rate = ds.elapsedSeconds > 0 ? Math.round(ds.outputBytes / ds.elapsedSeconds) : 0;
-      lines.push(`- **Output volume:** ${formatBytes(ds.outputBytes)} (${rate} bytes/sec)`);
+      signalLines.push(`- **Output:** ${formatBytes(ds.outputBytes)} (${rate} B/s)`);
     }
-    if (ds.outputDelta !== null && ds.outputDelta !== undefined) {
-      const deltaSign = ds.outputDelta > 0 ? '+' : '';
-      lines.push(`- **Output delta:** ${deltaSign}${formatBytes(ds.outputDelta)} since last heartbeat`);
+    if (ds.outputDelta > 0) {
+      signalLines.push(`- **Output delta:** +${formatBytes(ds.outputDelta)} since last heartbeat`);
     }
-    if (ds.filesModified && ds.filesModified.length > 0) {
-      const fileList = ds.filesModified.slice(0, 8).join(', ');
-      const more = ds.filesModified.length > 8 ? ` (+${ds.filesModified.length - 8} more)` : '';
-      lines.push(`- **Files modified:** ${ds.filesModified.length} (${fileList}${more})`);
-    } else if (ds.filesModifiedCount !== undefined) {
-      lines.push(`- **Files modified:** ${ds.filesModifiedCount}`);
+    if (hasFilesModified) {
+      const fileList = ds.filesModified ? ds.filesModified.slice(0, 8).join(', ') : '';
+      const more = ds.filesModified && ds.filesModified.length > 8 ? ` (+${ds.filesModified.length - 8} more)` : '';
+      signalLines.push(`- **Files modified:** ${ds.filesModifiedCount || ds.filesModified.length}${fileList ? ` (${fileList}${more})` : ''}`);
     }
-    if (ds.lastActivitySeconds !== undefined) {
-      lines.push(`- **Last activity:** ${ds.lastActivitySeconds}s ago`);
+    if (isStalled) {
+      signalLines.push(`- **STALLED** — no output or filesystem activity`);
     }
-    if (ds.isStalled !== undefined) {
-      lines.push(`- **Stall status:** ${ds.isStalled ? 'STALLED' : 'Not stalled'}`);
-    }
-    if (ds.repeatedErrors && ds.repeatedErrors.length > 0) {
+    if (hasErrors) {
       for (const err of ds.repeatedErrors.slice(0, 3)) {
-        lines.push(`- **Repeated error (${err.count}x):** ${err.line.slice(0, 120)}`);
+        signalLines.push(`- **Repeated error (${err.count}x):** ${err.line.slice(0, 120)}`);
       }
-    } else {
-      lines.push('- **Repeated errors:** None detected');
     }
-    lines.push('');
 
-    // Recommended action
+    if (signalLines.length > 0) {
+      lines.push('### Signals');
+      lines.push(...signalLines);
+      lines.push('');
+    }
+
+    // Recommended action — only when there's a non-default recommendation
     const action = recommendAction(ds);
-    lines.push(`### Recommended Action`);
-    lines.push(action);
-    lines.push('');
+    if (isStalled || hasErrors || (ds.outputDelta === 0 && ds.lastActivitySeconds > (ds.stallThreshold || 180) * 0.5)) {
+      lines.push(`### Recommended Action`);
+      lines.push(action);
+      lines.push('');
+    }
   }
 
-  lines.push('### Partial Output');
+  // Partial output — only when there's actual content
   if (partialOutput && partialOutput.length > 0) {
+    lines.push('### Partial Output');
     const truncated = partialOutput.length > 1500
       ? '...(truncated)\n' + partialOutput.slice(-1500)
       : partialOutput;
     lines.push('```');
     lines.push(truncated);
     lines.push('```');
-  } else {
-    lines.push('No output captured yet (provider buffers until completion)');
+    lines.push('');
   }
-  lines.push('');
 
-  if (alerts.length > 0) {
+  if (hasAlerts) {
     lines.push('### Alerts');
     for (const alert of alerts) {
       lines.push(`- ${alert}`);
@@ -469,7 +484,8 @@ function formatHeartbeat(opts) {
     lines.push('');
   }
 
-  if (nextUpTasks && nextUpTasks.length > 0) {
+  // Next up / blocker sections — only on first heartbeat or when actionable
+  if (isActionable && nextUpTasks && nextUpTasks.length > 0) {
     lines.push('### Next Up');
     for (const t of nextUpTasks.slice(0, 5)) {
       lines.push(`- ${t.id}: ${(t.description || '').slice(0, 60)}`);
@@ -477,18 +493,15 @@ function formatHeartbeat(opts) {
     lines.push('');
   }
 
-  const blockerSection = Array.isArray(workflowTasks)
-    ? formatWorkflowBlockerSection(workflowTasks).trim()
-    : '';
-  if (blockerSection) {
-    lines.push(blockerSection);
-    lines.push('');
+  if (isActionable && Array.isArray(workflowTasks)) {
+    const blockerSection = formatWorkflowBlockerSection(workflowTasks).trim();
+    if (blockerSection) {
+      lines.push(blockerSection);
+      lines.push('');
+    }
   }
 
-  if (!decisionSignals) {
-    lines.push('### Action');
-    lines.push('Re-invoke to continue waiting, or take action (cancel, resubmit, etc.)');
-  }
+  lines.push('Re-invoke to continue waiting, or take action (cancel, resubmit, etc.)');
 
   return lines.join('\n');
 }

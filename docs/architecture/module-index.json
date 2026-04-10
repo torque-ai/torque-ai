@@ -2,7 +2,7 @@
   "modules": [
     {
       "file": ".claude-plugin/marketplace.json",
-      "purpose": "Publishes the Claude marketplace descriptor for the TORQUE plugin bundle and points the marketplace entry at the local plugin source.",
+      "purpose": "Claude plugin module exposing name, owner, and metadata.",
       "exports": [
         "name",
         "owner",
@@ -15,7 +15,7 @@
     },
     {
       "file": ".claude-plugin/plugin.json",
-      "purpose": "Defines the Claude plugin manifest, including the TORQUE MCP server launch command and the packaged hooks, skills, agents, and commands.",
+      "purpose": "Claude plugin module exposing name, version, and description.",
       "exports": [
         "name",
         "version",
@@ -36,7 +36,7 @@
     },
     {
       "file": "agent/config.json",
-      "purpose": "Provides default runtime settings for the standalone TORQUE agent, including its bind address, command allowlist, project root, and concurrency limit.",
+      "purpose": "Agent module exposing port, host, and secret.",
       "exports": [
         "port",
         "host",
@@ -49,7 +49,7 @@
     },
     {
       "file": "agent/index.js",
-      "purpose": "Implements the standalone TORQUE agent HTTP service with secret-based auth, guarded command execution, git sync, capability probing, and peek proxying.",
+      "purpose": "Agent module exporting loadConfig, getSystemMetrics, and readBody and depending on node:http, node:crypto, and node:os.",
       "exports": [
         "loadConfig",
         "getSystemMetrics",
@@ -78,7 +78,7 @@
     },
     {
       "file": "agent/package.json",
-      "purpose": "Declares the standalone TORQUE agent package as a small Node ESM entrypoint rooted at agent/index.js.",
+      "purpose": "Agent module exposing name, version, and description.",
       "exports": [
         "name",
         "version",
@@ -92,7 +92,7 @@
     },
     {
       "file": "agent/tests/run.test.js",
-      "purpose": "Exercises the standalone agent /run endpoint, covering NDJSON streaming, allowlist and path guards, timeout handling, concurrency limits, stderr forwarding, and TORQUE_-prefixed env passthrough.",
+      "purpose": "Test module covering vitest, node:http, and node:path.",
       "exports": [
         "postJSON",
         "getHealth"
@@ -106,7 +106,7 @@
     },
     {
       "file": "agent/tests/server.test.js",
-      "purpose": "Verifies the standalone agent HTTP server contract for auth, /health metrics, missing-route handling, and /projects discovery.",
+      "purpose": "Test module covering vitest, node:http, and node:os.",
       "exports": [
         "request"
       ],
@@ -119,7 +119,7 @@
     },
     {
       "file": "agent/tests/sync.test.js",
-      "purpose": "Validates the /sync workflow against disposable git repositories, including default branch selection, error paths, and project registry updates surfaced by /health and /projects.",
+      "purpose": "Test module covering vitest, node:http, and node:path.",
       "exports": [
         "postJSON",
         "getJSON"
@@ -137,7 +137,7 @@
     },
     {
       "file": "bin/torque.js",
-      "purpose": "Implements the top-level TORQUE CLI entrypoint, printing help and version output, dispatching core commands to the CLI modules, and translating budget, cache, template, plan, and backup subcommands into API tool calls.",
+      "purpose": "CLI module exporting collectDescription, hasFlag, and extractText and depending on node:path, node:fs, and cli/api-client.js.",
       "exports": [
         "collectDescription",
         "hasFlag",
@@ -164,7 +164,7 @@
     },
     {
       "file": "cli/api-client.js",
-      "purpose": "Provides the shared CLI HTTP client, including timeout-aware fetch wrappers, response parsing, and normalized API and network errors for TORQUE server requests.",
+      "purpose": "CLI module exporting ApiError, normalizeNetworkError, and parseResponseBody and depending on cli/shared.js.",
       "exports": [
         "ApiError",
         "normalizeNetworkError",
@@ -181,7 +181,7 @@
     },
     {
       "file": "cli/ci.js",
-      "purpose": "Normalizes CI-related CLI arguments and forwards status, watch, stop, diagnose, run listing, and provider configuration requests to the matching TORQUE tool endpoints.",
+      "purpose": "CLI module exporting normalizeField, compactObject, and parseIntField and depending on cli/api-client.js.",
       "exports": [
         "normalizeField",
         "compactObject",
@@ -199,7 +199,7 @@
     },
     {
       "file": "cli/commands.js",
-      "purpose": "Implements the main Node CLI command handlers, validates user input, dispatches REST and tool calls, delegates CI subcommands, and polls task completion for the await flow.",
+      "purpose": "CLI module exporting encodePath, buildQuery, and missingArgument and depending on cli/api-client.js and cli/ci.js.",
       "exports": [
         "encodePath",
         "buildQuery",
@@ -228,7 +228,7 @@
     },
     {
       "file": "cli/dashboard.js",
-      "purpose": "Builds the local dashboard URL from the configured port and opens it in the platform-default browser with execFile-based process spawning.",
+      "purpose": "CLI module exporting run and depending on node:child_process.",
       "exports": [
         "run"
       ],
@@ -238,7 +238,7 @@
     },
     {
       "file": "cli/doctor.js",
-      "purpose": "Runs CLI environment diagnostics for Node, the TORQUE server, dashboard, MCP SSE endpoint, Ollama, optional external CLIs, API keys, and `.mcp.json`, then prints a summarized report.",
+      "purpose": "CLI module exporting httpCheck, findCliTool, and checkNodeVersion and depending on node:fs, node:path, and node:child_process.",
       "exports": [
         "httpCheck",
         "findCliTool",
@@ -261,7 +261,7 @@
     },
     {
       "file": "cli/formatter.js",
-      "purpose": "Converts raw server markdown and text responses into readable CLI output, including colored status summaries, parsed tables, task previews, submission views, and fallback rendering.",
+      "purpose": "CLI module exporting ANSI, cleanValue, and extractTextPayload.",
       "exports": [
         "ANSI",
         "cleanValue",
@@ -287,7 +287,7 @@
     },
     {
       "file": "cli/init.js",
-      "purpose": "Scans for Ollama, local CLI tools, and configured API keys, then writes workspace `.mcp.json` and `.env` templates unless existing files are preserved without `--force`.",
+      "purpose": "CLI module exporting detectOllama, findCliTool, and detectApiKeys and depending on node:fs, node:path, and node:crypto.",
       "exports": [
         "detectOllama",
         "findCliTool",
@@ -305,7 +305,7 @@
     },
     {
       "file": "cli/shared.js",
-      "purpose": "Centralizes the shared `~/.torque` paths, API endpoint defaults, and PID read or cleanup helpers used by local lifecycle commands.",
+      "purpose": "CLI module exporting TORQUE_HOME, PID_FILE, and API_PORT and depending on node:path and node:fs.",
       "exports": [
         "TORQUE_HOME",
         "PID_FILE",
@@ -321,7 +321,7 @@
     },
     {
       "file": "cli/start.js",
-      "purpose": "Launches `server/index.js` in foreground or detached mode, ensures `~/.torque` exists, rewrites stale PID state, records `torque.pid`, and waits for `/api/status` readiness.",
+      "purpose": "CLI module exporting ensureTorqueHome, isServerRunning, and waitForReady and depending on node:fs, node:path, and node:child_process.",
       "exports": [
         "ensureTorqueHome",
         "isServerRunning",
@@ -338,7 +338,7 @@
     },
     {
       "file": "cli/stop.js",
-      "purpose": "Stops TORQUE by preferring `POST /api/shutdown`, then falling back to SIGTERM on the recorded PID with exit polling before PID cleanup.",
+      "purpose": "CLI module exporting killPid, waitForExit, and run and depending on cli/shared.js.",
       "exports": [
         "killPid",
         "waitForExit",
@@ -350,7 +350,7 @@
     },
     {
       "file": "cli/torque-cli.js",
-      "purpose": "Implements the standalone Node CLI wrapper that resolves versioned help text, normalizes argv and workflow flags into command payloads, and delegates execution plus formatting.",
+      "purpose": "CLI module exporting getVersion, getHelpText, and parseCliArgs and depending on node:path, cli/api-client.js, and cli/commands.js.",
       "exports": [
         "getVersion",
         "getHelpText",
@@ -472,6 +472,7 @@
         "peekHosts",
         "budget",
         "schedules",
+        "study",
         "taskLogs",
         "system",
         "instances",
@@ -499,6 +500,81 @@
       ]
     },
     {
+      "file": "dashboard/src/App.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, react-router-dom, and dashboard/src/components/Layout.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "react-router-dom",
+        "dashboard/src/components/Layout.jsx",
+        "dashboard/src/components/TaskDetailDrawer.jsx",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/KeyboardShortcuts.jsx",
+        "dashboard/src/components/Onboarding.jsx",
+        "dashboard/src/views/Kanban.jsx",
+        "dashboard/src/websocket.js",
+        "dashboard/src/api.js",
+        "dashboard/src/components/ErrorBoundary.jsx",
+        "dashboard/src/hooks/useTick.js",
+        "dashboard/src/components/Login.jsx",
+        "dashboard/src/views/History.jsx",
+        "dashboard/src/views/Providers.jsx",
+        "dashboard/src/views/WorkflowsHub.jsx",
+        "dashboard/src/views/InfrastructureHub.jsx",
+        "dashboard/src/views/OperationsHub.jsx",
+        "dashboard/src/views/ProjectSettings.jsx",
+        "Layout",
+        "TaskDetailDrawer",
+        "Onboarding",
+        "Kanban",
+        "ErrorBoundary",
+        "Login"
+      ]
+    },
+    {
+      "file": "dashboard/src/App.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/api.js, and dashboard/src/App.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/api.js",
+        "dashboard/src/App.jsx"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/__tests__/Onboarding.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/components/Onboarding.jsx, and Onboarding.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/components/Onboarding.jsx",
+        "Onboarding"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/ActivityPanel.jsx",
+      "purpose": "Dashboard module exporting default and depending on react.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/ChangePasswordModal.jsx",
+      "purpose": "Dashboard module exporting default and depending on react and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js"
+      ]
+    },
+    {
       "file": "dashboard/src/components/charts/index.js",
       "purpose": "Dashboard module exporting SVGLineChart, SVGBarChart, and SVGPieChart and depending on dashboard/src/components/charts/SVGLineChart.jsx, dashboard/src/components/charts/SVGBarChart.jsx, and dashboard/src/components/charts/SVGPieChart.jsx.",
       "exports": [
@@ -512,6 +588,374 @@
         "dashboard/src/components/charts/SVGBarChart.jsx",
         "dashboard/src/components/charts/SVGPieChart.jsx",
         "dashboard/src/components/charts/SVGTooltip.jsx"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/charts/SVGBarChart.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/components/charts/SVGTooltip.jsx, and SVGTooltip.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/components/charts/SVGTooltip.jsx",
+        "SVGTooltip"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/charts/SVGLineChart.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/components/charts/SVGTooltip.jsx, and SVGTooltip.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/components/charts/SVGTooltip.jsx",
+        "SVGTooltip"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/charts/SVGPieChart.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/components/charts/SVGTooltip.jsx, and SVGTooltip.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/components/charts/SVGTooltip.jsx",
+        "SVGTooltip"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/charts/SVGTooltip.jsx",
+      "purpose": "Dashboard module exporting default and depending on react.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/ErrorBoundary.jsx",
+      "purpose": "Dashboard module exporting default and depending on react and React.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "React"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/ErrorBoundary.test.jsx",
+      "purpose": "Test module covering @testing-library/react, react, and dashboard/src/components/ErrorBoundary.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "react",
+        "dashboard/src/components/ErrorBoundary.jsx",
+        "ErrorBoundary"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/HealthBar.jsx",
+      "purpose": "Dashboard module exporting default and depending on react and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/HealthBar.test.jsx",
+      "purpose": "Test module covering @testing-library/react, vitest, and dashboard/src/components/HealthBar.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "vitest",
+        "dashboard/src/components/HealthBar.jsx",
+        "dashboard/src/api.js",
+        "HealthBar"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/KeyboardShortcuts.jsx",
+      "purpose": "Dashboard module exporting useKeyboardShortcuts and ShortcutHelpOverlay and depending on react and react-router-dom.",
+      "exports": [
+        "useKeyboardShortcuts",
+        "ShortcutHelpOverlay"
+      ],
+      "deps": [
+        "react",
+        "react-router-dom"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/KeyboardShortcuts.test.jsx",
+      "purpose": "Test module covering @testing-library/react, react-router-dom, and dashboard/src/components/KeyboardShortcuts.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "react-router-dom",
+        "dashboard/src/components/KeyboardShortcuts.jsx"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/Layout.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, react-router-dom, and dashboard/src/components/ErrorBoundary.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "react-router-dom",
+        "dashboard/src/components/ErrorBoundary.jsx",
+        "dashboard/src/components/ChangePasswordModal.jsx",
+        "ErrorBoundary",
+        "ChangePasswordModal"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/Layout.test.jsx",
+      "purpose": "Test module covering @testing-library/react, react-router-dom, and dashboard/src/components/Toast.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "react-router-dom",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/Layout.jsx",
+        "Layout"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/LoadingSkeleton.jsx",
+      "purpose": "Dashboard module exporting default.",
+      "exports": [
+        "default"
+      ],
+      "deps": []
+    },
+    {
+      "file": "dashboard/src/components/LoadingSkeleton.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/components/LoadingSkeleton.jsx, and LoadingSkeleton.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/Login.jsx",
+      "purpose": "Dashboard module exporting default and depending on react.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/Onboarding.jsx",
+      "purpose": "Dashboard module exporting default.",
+      "exports": [
+        "default"
+      ],
+      "deps": []
+    },
+    {
+      "file": "dashboard/src/components/ProjectSelector.jsx",
+      "purpose": "Dashboard module exporting parseMarkdownTable, normalizeProjectListPayload, and fetchProjects and depending on react and dashboard/src/api.js.",
+      "exports": [
+        "parseMarkdownTable",
+        "normalizeProjectListPayload",
+        "fetchProjects",
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/ProjectSelector.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/components/ProjectSelector.jsx, and dashboard/src/api.js.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/components/ProjectSelector.jsx",
+        "dashboard/src/api.js",
+        "ProjectSelector"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/ReleaseDetailDrawer.jsx",
+      "purpose": "Dashboard module exporting default and depending on react and date-fns.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "date-fns"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/ScheduleDetailDrawer.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "date-fns"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/SessionSwitcher.jsx",
+      "purpose": "Dashboard module exporting default and depending on react and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/SessionSwitcher.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/components/SessionSwitcher.jsx, and dashboard/src/api.js.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/components/SessionSwitcher.jsx",
+        "dashboard/src/api.js",
+        "SessionSwitcher"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/StatCard.jsx",
+      "purpose": "Dashboard module exporting default.",
+      "exports": [
+        "default"
+      ],
+      "deps": []
+    },
+    {
+      "file": "dashboard/src/components/StatCard.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/components/StatCard.jsx, and StatCard.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/components/StatCard.jsx",
+        "StatCard"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/TabBar.jsx",
+      "purpose": "Dashboard module exporting default and depending on react.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/TaskDetailDrawer.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/constants.js",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "dashboard/src/utils/ansiToHtml.js",
+        "dashboard/src/utils/providerModels.js",
+        "dashboard/src/utils/formatters.js",
+        "date-fns"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/TaskDetailDrawer.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/components/TaskDetailDrawer.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/components/TaskDetailDrawer.jsx",
+        "dashboard/src/api.js"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/TaskSubmitForm.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/ProjectSelector.jsx"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/TaskSubmitForm.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/components/TaskSubmitForm.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/components/TaskSubmitForm.jsx",
+        "dashboard/src/api.js"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/Toast.jsx",
+      "purpose": "Dashboard module exporting ToastProvider and useToast and depending on react.",
+      "exports": [
+        "ToastProvider",
+        "useToast"
+      ],
+      "deps": [
+        "react"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/Toast.test.jsx",
+      "purpose": "Test module covering @testing-library/react and dashboard/src/components/Toast.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/components/Toast.jsx"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/WorkflowDAG.jsx",
+      "purpose": "Dashboard module exporting default and depending on react.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react"
+      ]
+    },
+    {
+      "file": "dashboard/src/components/WorkflowDAG.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/components/WorkflowDAG.jsx, and WorkflowDAG.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/components/WorkflowDAG.jsx",
+        "WorkflowDAG"
       ]
     },
     {
@@ -559,12 +1003,37 @@
       ]
     },
     {
+      "file": "dashboard/src/main.jsx",
+      "purpose": "Dashboard module depending on react, react-dom/client, and dashboard/src/index.css.",
+      "exports": [],
+      "deps": [
+        "react",
+        "react-dom/client",
+        "dashboard/src/index.css",
+        "dashboard/src/App.jsx",
+        "App"
+      ]
+    },
+    {
       "file": "dashboard/src/test-setup.js",
       "purpose": "Dashboard module depending on @testing-library/jest-dom and vitest.",
       "exports": [],
       "deps": [
         "@testing-library/jest-dom",
         "vitest"
+      ]
+    },
+    {
+      "file": "dashboard/src/test-utils.jsx",
+      "purpose": "Dashboard module exporting renderWithProviders and mockFetch and depending on @testing-library/react, react-router-dom, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "renderWithProviders",
+        "mockFetch"
+      ],
+      "deps": [
+        "@testing-library/react",
+        "react-router-dom",
+        "dashboard/src/components/Toast.jsx"
       ]
     },
     {
@@ -611,6 +1080,559 @@
       "deps": [
         "vitest",
         "dashboard/src/utils/providerModels.js"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Approvals.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/utils/formatters.js",
+        "dashboard/src/components/LoadingSkeleton.jsx"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Approvals.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/Approvals.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/Approvals.jsx",
+        "dashboard/src/api.js"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/BatchHistory.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, react-router-dom, and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "react-router-dom",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/hooks/useAbortableRequest.js",
+        "dashboard/src/utils/providerModels.js",
+        "dashboard/src/constants.js",
+        "dashboard/src/utils/formatters.js",
+        "date-fns",
+        "dashboard/src/components/charts/index.js",
+        "React"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/BatchHistory.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/BatchHistory.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/BatchHistory.jsx",
+        "dashboard/src/api.js",
+        "BatchHistory"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Budget.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "dashboard/src/constants.js",
+        "dashboard/src/components/charts/index.js",
+        "StatCard",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Budget.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/Budget.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/Budget.jsx",
+        "dashboard/src/api.js",
+        "Budget"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Coordination.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/utils/formatters.js",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "StatCard",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Coordination.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/Coordination.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/Coordination.jsx",
+        "dashboard/src/api.js",
+        "Coordination"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Governance.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "StatCard",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/History.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, react-router-dom, and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "react-router-dom",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/ProjectSelector.jsx",
+        "dashboard/src/hooks/useAbortableRequest.js",
+        "dashboard/src/constants.js",
+        "dashboard/src/utils/providerModels.js",
+        "dashboard/src/utils/formatters.js",
+        "date-fns",
+        "ProjectSelector"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/History.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/History.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/History.jsx",
+        "dashboard/src/api.js",
+        "History"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Hosts.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/hooks/useAbortableRequest.js",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "date-fns",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Hosts.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/Hosts.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/Hosts.jsx",
+        "dashboard/src/api.js",
+        "Hosts"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/InfrastructureHub.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/components/TabBar.jsx, and dashboard/src/views/Hosts.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/components/TabBar.jsx",
+        "dashboard/src/views/Hosts.jsx",
+        "dashboard/src/views/Models.jsx",
+        "TabBar"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Kanban.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, react-router-dom, and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "react-router-dom",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/hooks/useAbortableRequest.js",
+        "dashboard/src/utils/providerModels.js",
+        "dashboard/src/constants.js",
+        "date-fns",
+        "dashboard/src/components/ProjectSelector.jsx",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/components/TaskSubmitForm.jsx",
+        "dashboard/src/components/HealthBar.jsx",
+        "dashboard/src/components/ActivityPanel.jsx",
+        "dashboard/src/components/charts/index.js",
+        "ProjectSelector",
+        "StatCard",
+        "TaskSubmitForm",
+        "HealthBar",
+        "ActivityPanel"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Kanban.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/Kanban.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/Kanban.jsx",
+        "dashboard/src/api.js",
+        "Kanban"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Models.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/StatCard.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/utils/formatters.js",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "dashboard/src/components/charts/index.js",
+        "StatCard",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Models.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/Models.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/Models.jsx",
+        "dashboard/src/api.js",
+        "Models"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/OperationsHub.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/components/TabBar.jsx, and dashboard/src/views/Strategy.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/components/TabBar.jsx",
+        "dashboard/src/views/Strategy.jsx",
+        "dashboard/src/views/Schedules.jsx",
+        "dashboard/src/views/Approvals.jsx",
+        "dashboard/src/views/Coordination.jsx",
+        "dashboard/src/views/Budget.jsx",
+        "dashboard/src/views/Governance.jsx",
+        "dashboard/src/views/VersionControl.jsx",
+        "TabBar"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/PlanProjects.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, react-router-dom, and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "react-router-dom",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/hooks/useAbortableRequest.js",
+        "dashboard/src/components/WorkflowDAG.jsx",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "WorkflowDAG",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/PlanProjects.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/PlanProjects.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/PlanProjects.jsx",
+        "dashboard/src/api.js",
+        "PlanProjects"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/ProjectSettings.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, react-router-dom, and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "react-router-dom",
+        "dashboard/src/api.js",
+        "dashboard/src/components/ProjectSelector.jsx",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "ProjectSelector",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/ProjectSettings.test.jsx",
+      "purpose": "Test module covering vitest, @testing-library/react, and dashboard/src/views/ProjectSettings.jsx.",
+      "exports": [],
+      "deps": [
+        "vitest",
+        "@testing-library/react",
+        "dashboard/src/views/ProjectSettings.jsx",
+        "dashboard/src/test-utils.jsx",
+        "ProjectSettings"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Providers.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "dashboard/src/constants.js",
+        "dashboard/src/utils/formatters.js",
+        "dashboard/src/components/charts/index.js",
+        "StatCard",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Providers.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/Providers.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/Providers.jsx",
+        "dashboard/src/api.js",
+        "Providers"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/RoutingTemplates.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/constants.js",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/RoutingTemplates.test.jsx",
+      "purpose": "Test module covering vitest, @testing-library/react, and dashboard/src/views/RoutingTemplates.jsx.",
+      "exports": [],
+      "deps": [
+        "vitest",
+        "@testing-library/react",
+        "dashboard/src/views/RoutingTemplates.jsx",
+        "RoutingTemplates"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Schedules.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, react-router-dom, and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "react-router-dom",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/utils/formatters.js",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "dashboard/src/components/ScheduleDetailDrawer.jsx"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Schedules.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/Schedules.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/Schedules.jsx",
+        "dashboard/src/api.js"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/StrategicConfig.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/api.js, and dashboard/src/components/Toast.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Strategy.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, date-fns, and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "date-fns",
+        "dashboard/src/api.js",
+        "dashboard/src/components/charts/index.js",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/constants.js",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "dashboard/src/views/RoutingTemplates.jsx",
+        "dashboard/src/views/StrategicConfig.jsx",
+        "React",
+        "StatCard",
+        "LoadingSkeleton"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Strategy.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/Strategy.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/Strategy.jsx",
+        "dashboard/src/api.js",
+        "Strategic"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/VersionControl.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, date-fns, and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "date-fns",
+        "dashboard/src/api.js",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/components/LoadingSkeleton.jsx",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/utils/formatters.js",
+        "dashboard/src/components/ReleaseDetailDrawer.jsx",
+        "StatCard",
+        "LoadingSkeleton",
+        "ReleaseDetailDrawer"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Workflows.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, react-router-dom, and dashboard/src/api.js.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "react-router-dom",
+        "dashboard/src/api.js",
+        "dashboard/src/components/Toast.jsx",
+        "dashboard/src/hooks/useAbortableRequest.js",
+        "dashboard/src/utils/providerModels.js",
+        "dashboard/src/components/StatCard.jsx",
+        "dashboard/src/components/WorkflowDAG.jsx",
+        "dashboard/src/constants.js",
+        "dashboard/src/utils/formatters.js",
+        "date-fns"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/Workflows.test.jsx",
+      "purpose": "Test module covering @testing-library/react, dashboard/src/test-utils.jsx, and dashboard/src/views/Workflows.jsx.",
+      "exports": [],
+      "deps": [
+        "@testing-library/react",
+        "dashboard/src/test-utils.jsx",
+        "dashboard/src/views/Workflows.jsx",
+        "dashboard/src/api.js",
+        "Workflows"
+      ]
+    },
+    {
+      "file": "dashboard/src/views/WorkflowsHub.jsx",
+      "purpose": "Dashboard module exporting default and depending on react, dashboard/src/components/TabBar.jsx, and dashboard/src/views/Workflows.jsx.",
+      "exports": [
+        "default"
+      ],
+      "deps": [
+        "react",
+        "dashboard/src/components/TabBar.jsx",
+        "dashboard/src/views/Workflows.jsx",
+        "dashboard/src/views/BatchHistory.jsx",
+        "dashboard/src/views/PlanProjects.jsx",
+        "TabBar"
       ]
     },
     {
@@ -1214,6 +2236,7 @@
         "handleListSchedules",
         "handleCreateSchedule",
         "handleGetSchedule",
+        "handleGetScheduleRun",
         "handleRunSchedule",
         "handleToggleSchedule",
         "handleDeleteSchedule",
@@ -1272,6 +2295,8 @@
         "server/db/validation-rules.js",
         "server/db/webhooks-streaming.js",
         "server/db/config-keys.js",
+        "server/integrations/codebase-study-engine.js",
+        "server/db/study-telemetry.js",
         "server/utils/sensitive-keys.js",
         "server/api/v2-control-plane.js",
         "server/api/middleware.js",
@@ -1439,9 +2464,10 @@
     },
     {
       "file": "server/api/v2-task-handlers.js",
-      "purpose": "Server module exporting init, handleSubmitTask, and handleListTasks and depending on uuid, server/db/task-core.js, and server/db/provider-routing-core.js.",
+      "purpose": "Server module exporting init, handlePreviewTaskStudyContext, and handleSubmitTask and depending on uuid, server/db/task-core.js, and server/db/provider-routing-core.js.",
       "exports": [
         "init",
+        "handlePreviewTaskStudyContext",
         "handleSubmitTask",
         "handleListTasks",
         "handleGetTask",
@@ -1467,6 +2493,8 @@
         "server/constants.js",
         "server/utils/context-stuffing.js",
         "server/utils/smart-scan.js",
+        "server/integrations/codebase-study-engine.js",
+        "server/db/study-telemetry.js",
         "server/api/v2-control-plane.js",
         "server/api/middleware.js",
         "server/event-bus.js",
@@ -1496,6 +2524,7 @@
         "server/db/workflow-engine.js",
         "server/api/v2-control-plane.js",
         "server/api/middleware.js",
+        "server/execution/workflow-runtime.js",
         "server/handlers/workflow/index.js"
       ]
     },
@@ -2507,9 +3536,11 @@
         "matchesApprovalRule",
         "createApprovalRequest",
         "getApprovalRequest",
+        "getApprovalRequestById",
         "approveTask",
         "rejectApproval",
         "listPendingApprovals",
+        "listApprovalHistory",
         "processAutoApprovals",
         "getApprovalHistory"
       ],
@@ -2764,7 +3795,9 @@
         "createOneTimeSchedule",
         "toggleScheduledTask",
         "getScheduledTask",
+        "getScheduledTaskRun",
         "listScheduledTasks",
+        "listScheduledTaskRuns",
         "updateScheduledTask",
         "deleteScheduledTask",
         "getDueScheduledTasks",
@@ -3995,6 +5028,21 @@
       ]
     },
     {
+      "file": "server/db/study-telemetry.js",
+      "purpose": "Server module exporting recordStudyTaskSubmitted, recordStudyTaskCompleted, and getStudyImpactSummary and depending on path, server/database.js, and server/db/cost-tracking.js.",
+      "exports": [
+        "recordStudyTaskSubmitted",
+        "recordStudyTaskCompleted",
+        "getStudyImpactSummary"
+      ],
+      "deps": [
+        "path",
+        "server/database.js",
+        "server/db/cost-tracking.js",
+        "server/db/event-tracking.js"
+      ]
+    },
+    {
       "file": "server/db/task-core.js",
       "purpose": "Server module exporting createTaskCore, setDb, and setDbClosed and depending on path, fs, and server/logger.js.",
       "exports": [
@@ -4540,7 +5588,7 @@
     },
     {
       "file": "server/execution/command-builders.js",
-      "purpose": "Server module exporting init, buildClaudeCliCommand, and buildCodexCommand and depending on path and server/logger.js.",
+      "purpose": "Server module exporting init, buildClaudeCliCommand, and buildCodexCommand and depending on path, server/logger.js, and server/integrations/codebase-study-engine.js.",
       "exports": [
         "init",
         "buildClaudeCliCommand",
@@ -4548,7 +5596,8 @@
       ],
       "deps": [
         "path",
-        "server/logger.js"
+        "server/logger.js",
+        "server/integrations/codebase-study-engine.js"
       ]
     },
     {
@@ -4775,6 +5824,7 @@
         "safeConfigInt",
         "tryReserveHostSlotWithFallback",
         "tryCreateAutoPR",
+        "buildProviderDecisionTrace",
         "resolveProviderRouting",
         "normalizeProviderOverride",
         "failTaskForInvalidProvider",
@@ -4850,6 +5900,24 @@
         "child_process",
         "server/logger.js",
         "server/constants.js"
+      ]
+    },
+    {
+      "file": "server/execution/schedule-runner.js",
+      "purpose": "Server module exporting executeScheduledTask and depending on uuid, server/logger.js, and server/db/workflow-engine.js.",
+      "exports": [
+        "executeScheduledTask"
+      ],
+      "deps": [
+        "uuid",
+        "server/logger.js",
+        "server/db/workflow-engine.js",
+        "server/db/cron-scheduling.js",
+        "server/db/coordination.js",
+        "server/db/task-core.js",
+        "server/tools.js",
+        "server/handlers/workflow/index.js",
+        "server/task-manager.js"
       ]
     },
     {
@@ -4959,6 +6027,7 @@
         "server/logger.js",
         "server/db/model-capabilities.js",
         "server/db/provider-performance.js",
+        "server/db/study-telemetry.js",
         "server/execution/smart-diagnosis-stage.js",
         "server/execution/strategic-review-stage.js",
         "server/execution/verification-ledger-stage.js",
@@ -5008,7 +6077,9 @@
         "child_process",
         "server/logger.js",
         "server/constants.js",
-        "server/utils/git.js"
+        "server/utils/git.js",
+        "server/models/registry.js",
+        "server/providers/ollama-shared.js"
       ]
     },
     {
@@ -5051,6 +6122,8 @@
         "applyContextFrom",
         "applyOutputInjection",
         "buildDepTasksMap",
+        "buildTaskBlockerSnapshot",
+        "refreshWorkflowBlockerSnapshots",
         "OUTPUT_CAP_BYTES",
         "createWorkflowRuntime"
       ],
@@ -5499,10 +6572,16 @@
     },
     {
       "file": "server/handlers/codebase-study-handlers.js",
-      "purpose": "Server module exporting handleRunCodebaseStudy, handleGetStudyStatus, and handleResetCodebaseStudy and depending on path, server/db/task-core.js, and server/db/scheduling-automation.js.",
+      "purpose": "Server module exporting handleRunCodebaseStudy, handleGetStudyStatus, and handleEvaluateCodebaseStudy and depending on path, server/db/task-core.js, and server/db/scheduling-automation.js.",
       "exports": [
         "handleRunCodebaseStudy",
         "handleGetStudyStatus",
+        "handleEvaluateCodebaseStudy",
+        "handleBenchmarkCodebaseStudy",
+        "handleGetCodebaseStudyProfileOverride",
+        "handleSaveCodebaseStudyProfileOverride",
+        "handlePreviewCodebaseStudyBootstrap",
+        "handleBootstrapCodebaseStudy",
         "handleResetCodebaseStudy",
         "handleConfigureStudySchedule"
       ],
@@ -5510,9 +6589,11 @@
         "path",
         "server/db/task-core.js",
         "server/db/scheduling-automation.js",
+        "server/db/study-telemetry.js",
         "server/logger.js",
         "server/handlers/shared.js",
         "server/integrations/codebase-study.js",
+        "server/integrations/codebase-study-engine.js",
         "server/container.js",
         "server/database.js"
       ]
@@ -5874,6 +6955,7 @@
         "server/handlers/shared.js",
         "server/utils/context-stuffing.js",
         "server/utils/smart-scan.js",
+        "server/integrations/codebase-study-engine.js",
         "server/providers/ollama-shared.js",
         "server/execution/task-decomposition.js",
         "server/versioning/version-intent.js",
@@ -6132,6 +7214,8 @@
         "child_process",
         "crypto",
         "server/handlers/error-codes.js",
+        "server/integrations/codebase-study-engine.js",
+        "server/db/study-telemetry.js",
         "server/container.js"
       ]
     },
@@ -6287,6 +7371,7 @@
         "server/db/project-config-core.js",
         "server/db/provider-routing-core.js",
         "server/db/scheduling-automation.js",
+        "server/db/study-telemetry.js",
         "server/db/task-metadata.js",
         "server/db/webhooks-streaming.js",
         "server/config.js",
@@ -6296,6 +7381,7 @@
         "server/handlers/task/utils.js",
         "server/utils/context-stuffing.js",
         "server/utils/smart-scan.js",
+        "server/integrations/codebase-study-engine.js",
         "server/constants.js",
         "server/versioning/version-intent.js",
         "server/logger.js",
@@ -6786,8 +7872,15 @@
     },
     {
       "file": "server/handlers/workflow/await.js",
-      "purpose": "Server module exporting formatDuration, formatHeartbeat, and formatTaskYield and depending on path, server/db/task-core.js, and server/db/file-tracking.js.",
+      "purpose": "Server module exporting getCommitMutex, buildTaskPeekArtifactSection, and buildWorkflowPeekArtifactSection and depending on path, server/db/task-core.js, and server/db/file-tracking.js.",
       "exports": [
+        "getCommitMutex",
+        "buildTaskPeekArtifactSection",
+        "buildWorkflowPeekArtifactSection",
+        "syncWorkflowBlockers",
+        "getTaskBlockerSnapshot",
+        "formatBlockedDependencyDetails",
+        "formatWorkflowBlockerSection",
         "formatDuration",
         "formatHeartbeat",
         "formatTaskYield",
@@ -6818,6 +7911,7 @@
         "server/plugins/snapscope/handlers/capture.js",
         "server/logger.js",
         "server/utils/json.js",
+        "server/execution/workflow-runtime.js",
         "server/container.js",
         "server/utils/path-resolution.js",
         "server/config.js",
@@ -6841,7 +7935,8 @@
       "deps": [
         "server/db/task-core.js",
         "server/db/workflow-engine.js",
-        "server/handlers/shared.js"
+        "server/handlers/shared.js",
+        "server/execution/workflow-runtime.js"
       ]
     },
     {
@@ -6862,9 +7957,10 @@
     },
     {
       "file": "server/handlers/workflow/index.js",
-      "purpose": "Server module exporting handleCreateWorkflow, handleAddWorkflowTask, and handleRunWorkflow and depending on uuid, server/container.js, and server/db/coordination.js.",
+      "purpose": "Server module exporting handleCreateWorkflow, handleCloneWorkflow, and handleAddWorkflowTask and depending on uuid, server/container.js, and server/db/coordination.js.",
       "exports": [
         "handleCreateWorkflow",
+        "handleCloneWorkflow",
         "handleAddWorkflowTask",
         "handleRunWorkflow",
         "handleWorkflowStatus",
@@ -7096,6 +8192,55 @@
       ]
     },
     {
+      "file": "server/integrations/codebase-study-engine.js",
+      "purpose": "Server module exporting STUDY_STATE_FILE, MODULE_INDEX_FILE, and KNOWLEDGE_PACK_FILE and depending on fs and path.",
+      "exports": [
+        "STUDY_STATE_FILE",
+        "MODULE_INDEX_FILE",
+        "KNOWLEDGE_PACK_FILE",
+        "STUDY_DELTA_FILE",
+        "STUDY_EVALUATION_FILE",
+        "STUDY_BENCHMARK_FILE",
+        "SUMMARY_FILE",
+        "DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL",
+        "DEFAULT_PROPOSAL_MIN_SCORE",
+        "DEFAULT_BOOTSTRAP_CRON",
+        "DEFAULT_BOOTSTRAP_BATCHES",
+        "normalizeStudyThresholdLevel",
+        "compareStudySignificanceLevels",
+        "readStudyArtifacts",
+        "shouldSubmitStudyProposals",
+        "filterDuplicateStudyProposals",
+        "evaluateStudyArtifacts",
+        "benchmarkStudyArtifacts",
+        "buildStudyBootstrapPlan",
+        "buildTaskStudyContextEnvelope",
+        "applyStudyContextPrompt"
+      ],
+      "deps": [
+        "fs",
+        "path"
+      ]
+    },
+    {
+      "file": "server/integrations/codebase-study-profiles.js",
+      "purpose": "Server module exporting STUDY_PROFILE_OVERRIDE_FILE, STUDY_PROFILES, and resolveStudyProfile and depending on fs and path.",
+      "exports": [
+        "STUDY_PROFILE_OVERRIDE_FILE",
+        "STUDY_PROFILES",
+        "resolveStudyProfile",
+        "getStudyProfileOverridePath",
+        "readStudyProfileOverride",
+        "createStudyProfileOverrideTemplate",
+        "sanitizeStudyProfileOverride",
+        "detectStudyProfileSignals"
+      ],
+      "deps": [
+        "fs",
+        "path"
+      ]
+    },
+    {
       "file": "server/integrations/codebase-study.js",
       "purpose": "Server module exporting createCodebaseStudy and depending on fs, node:fs/promises, and path.",
       "exports": [
@@ -7105,8 +8250,12 @@
         "fs",
         "node:fs/promises",
         "path",
+        "crypto",
         "child_process",
-        "server/utils/symbol-indexer.js"
+        "server/integrations/codebase-study-profiles.js",
+        "server/integrations/codebase-study-engine.js",
+        "server/utils/symbol-indexer.js",
+        "server/db/scheduling-automation.js"
       ]
     },
     {
@@ -9909,10 +11058,11 @@
     },
     {
       "file": "server/providers/agentic-git-safety.js",
-      "purpose": "Server module exporting captureSnapshot and checkAndRevert and depending on server/providers/agentic-git-safety.js, fs, and path.",
+      "purpose": "Server module exporting captureSnapshot, checkAndRevert, and revertScopedChanges and depending on server/providers/agentic-git-safety.js, fs, and path.",
       "exports": [
         "captureSnapshot",
-        "checkAndRevert"
+        "checkAndRevert",
+        "revertScopedChanges"
       ],
       "deps": [
         "server/providers/agentic-git-safety.js",
@@ -10042,6 +11192,7 @@
         "server/providers/registry.js",
         "server/execution/queue-scheduler.js",
         "server/utils/json.js",
+        "server/integrations/codebase-study-engine.js",
         "server/diffusion/compute-output-parser.js",
         "server/diffusion/planner.js",
         "uuid",
@@ -10068,7 +11219,8 @@
         "server/utils/sanitize.js",
         "server/utils/git-worktree.js",
         "server/utils/safe-env.js",
-        "server/config.js"
+        "server/config.js",
+        "server/integrations/codebase-study-engine.js"
       ]
     },
     {
@@ -10090,6 +11242,7 @@
         "server/providers/config.js",
         "server/config.js",
         "server/utils/json.js",
+        "server/integrations/codebase-study-engine.js",
         "server/db/project-config-core.js",
         "server/models/registry.js",
         "server/providers/host-mutex.js",
@@ -10140,9 +11293,9 @@
         "worker_threads",
         "server/db/provider-quotas.js",
         "server/providers/config.js",
+        "server/hooks/event-dispatch.js",
         "server/models/registry.js",
         "server/db/model-roles.js",
-        "server/hooks/event-dispatch.js",
         "server/diffusion/compute-output-parser.js",
         "server/diffusion/planner.js",
         "uuid",
@@ -11370,10 +12523,13 @@
     },
     {
       "file": "server/tests/agentic-execution-fixes.test.js",
-      "purpose": "Test module covering events, server/tests/test-helpers.js, and server/providers/execution.js.",
+      "purpose": "Test module covering events, fs, and os.",
       "exports": [],
       "deps": [
         "events",
+        "fs",
+        "os",
+        "path",
         "server/tests/test-helpers.js",
         "server/providers/execution.js",
         "worker_threads"
@@ -12460,6 +13616,7 @@
       "purpose": "Test module covering child_process, fs, and os.",
       "exports": [
         "mountDashboard",
+        "boot",
         "beta",
         "startTask",
         "submit",
@@ -12475,6 +13632,12 @@
         "createCronScheduledTask",
         "startMaintenanceScheduler",
         "handleToolCall",
+        "activate",
+        "contract",
+        "routeTask",
+        "finalize",
+        "handleV2CpSubmitTask",
+        "taskLifecycle",
         "gamma",
         "alpha",
         "default"
@@ -12484,6 +13647,7 @@
         "fs",
         "os",
         "path",
+        "server/integrations/codebase-study-engine.js",
         "server/integrations/codebase-study.js",
         "server/tests/api/v2-dispatch",
         "server/tests/task-manager",
@@ -12492,7 +13656,12 @@
         "server/tests/execution/task-finalizer",
         "server/handlers/task/index.js",
         "server/tests/fallback-retry",
-        "server/tests/completion-pipeline"
+        "server/tests/completion-pipeline",
+        "server/task-manager.js",
+        "server/api/v2-dispatch.js",
+        "server/tests/runtime",
+        "server/config/app.json",
+        "server/src/runtime"
       ]
     },
     {
@@ -14001,6 +15170,14 @@
       ]
     },
     {
+      "file": "server/tests/fixtures/agentic-edit-test.py",
+      "purpose": "Server test module covering typing.",
+      "exports": [],
+      "deps": [
+        "typing"
+      ]
+    },
+    {
       "file": "server/tests/fixtures/contracts/peek-capabilities-v1.json",
       "purpose": "Server test module exposing contract, slice, and routes.",
       "exports": [
@@ -14117,6 +15294,17 @@
         "child_process",
         "server/database.js",
         "server/db/host-management.js"
+      ]
+    },
+    {
+      "file": "server/tests/governance-batch-test-fixes.test.js",
+      "purpose": "Test module covering better-sqlite3, server/db/governance-rules.js, and server/governance/hooks.js.",
+      "exports": [],
+      "deps": [
+        "better-sqlite3",
+        "server/db/governance-rules.js",
+        "server/governance/hooks.js",
+        "server/governance/rules/batch-test-fixes.js"
       ]
     },
     {
@@ -14538,6 +15726,7 @@
         "server/tests/vitest-setup.js",
         "server/tests/test-helpers.js",
         "server/db/host-management.js",
+        "server/workstation/model.js",
         "server/database.js"
       ]
     },
@@ -18278,6 +19467,14 @@
       ]
     },
     {
+      "file": "server/tests/study-telemetry.test.js",
+      "purpose": "Test module covering server/db/study-telemetry.js.",
+      "exports": [],
+      "deps": [
+        "server/db/study-telemetry.js"
+      ]
+    },
+    {
       "file": "server/tests/symbol-indexer.test.js",
       "purpose": "Test module covering path, fs, and os.",
       "exports": [
@@ -19102,9 +20299,13 @@
     },
     {
       "file": "server/tests/v2-governance-approvals-schedules.test.js",
-      "purpose": "Test module.",
+      "purpose": "Test module covering fs, os, and path.",
       "exports": [],
-      "deps": []
+      "deps": [
+        "fs",
+        "os",
+        "path"
+      ]
     },
     {
       "file": "server/tests/v2-governance-handlers.test.js",
@@ -21196,5 +22397,5 @@
       "deps": []
     }
   ],
-  "last_updated": "2026-04-09"
+  "last_updated": "2026-04-10"
 }

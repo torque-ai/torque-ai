@@ -220,6 +220,7 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, highlightedRunId
   const [loading, setLoading] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [runningNow, setRunningNow] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [benchmarking, setBenchmarking] = useState(false);
   const [applyingRecommendation, setApplyingRecommendation] = useState(false);
   const [studyOverride, setStudyOverride] = useState(null);
@@ -468,6 +469,16 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, highlightedRunId
       }
     } finally {
       setRunningNow(false);
+    }
+  }
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await load();
+      onUpdated?.();
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -1260,6 +1271,13 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, highlightedRunId
 
             {/* Actions */}
             <div className="flex gap-2 pt-2">
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-slate-700/50 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {refreshing ? 'Refreshing...' : 'Refresh'}
+              </button>
               <button
                 onClick={handleRunNow}
                 disabled={runningNow}

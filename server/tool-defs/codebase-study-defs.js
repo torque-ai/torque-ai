@@ -16,6 +16,11 @@ const tools = [
           description: 'Optional number of local study batches to process in one invocation. Defaults to 1; manual Run Now uses a higher internal default.',
           minimum: 1,
         },
+        force_refresh: {
+          type: 'boolean',
+          description: 'When true, recompute the derived study artifacts even when the repository has no new tracked-file delta. Manual Run Now enables this automatically for study schedules.',
+          default: false,
+        },
         project: {
           type: 'string',
           description: 'Optional project name used when auto-submitting follow-up proposals.',

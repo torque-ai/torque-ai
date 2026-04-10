@@ -1,17 +1,17 @@
 {
   "version": 1,
-  "generated_at": "2026-04-09T18:30:55.201Z",
+  "generated_at": "2026-04-10T11:30:16.738Z",
   "repo": {
     "name": "torque-ai",
     "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
     "study_profile_id": "torque-control-plane"
   },
   "summary": {
-    "score": 97,
+    "score": 95,
     "grade": "A",
     "readiness": "expert_ready",
-    "total_cases": 10,
-    "passed_cases": 9,
+    "total_cases": 11,
+    "passed_cases": 10,
     "partial_cases": 1,
     "failed_cases": 0,
     "delta_significance_level": "none",
@@ -26,6 +26,123 @@
     }
   ],
   "cases": [
+    {
+      "id": "repo-briefing:onramp",
+      "scope_type": "repo_briefing",
+      "scope_id": "repo-briefing",
+      "prompt": "Read-only repo briefing for torque-ai. Return exactly 4 bullets and keep it under 140 words. 1. Primary runtime entrypoint. 2. Secondary important entrypoint or startup surface. 3. One high-risk subsystem or hotspot worth understanding first. 4. One validation command worth running first.",
+      "expected_evidence": [
+        "server/index.js",
+        "server/task-manager.js",
+        "server/tests/vitest-setup.js",
+        "server/logger.js"
+      ],
+      "source_grounded_answer": [
+        {
+          "file": "server/index.js",
+          "purpose": "Server module exporting getTools, callTool, and debugLog and depending on readline, child_process, and fs.",
+          "exports": [
+            "getTools",
+            "callTool",
+            "debugLog",
+            "_shouldLogError"
+          ],
+          "deps": [
+            "readline",
+            "child_process",
+            "fs",
+            "os"
+          ]
+        },
+        {
+          "file": "server/task-manager.js",
+          "purpose": "Server module depending on crypto, server/database.js, and server/db/task-core.js.",
+          "exports": [],
+          "deps": [
+            "crypto",
+            "server/database.js",
+            "server/db/task-core.js",
+            "server/db/coordination.js"
+          ]
+        },
+        {
+          "file": "server/tests/vitest-setup.js",
+          "purpose": "Server test module covering path, os, and fs.",
+          "exports": [
+            "setupTestDb",
+            "setupTestDbOnly",
+            "setupTestDbModule",
+            "teardownTestDb"
+          ],
+          "deps": [
+            "path",
+            "os",
+            "fs",
+            "crypto"
+          ]
+        },
+        {
+          "file": "server/logger.js",
+          "purpose": "Server module exporting Logger and depending on fs, path, and server/data-dir.js.",
+          "exports": [
+            "Logger"
+          ],
+          "deps": [
+            "fs",
+            "path",
+            "server/data-dir.js"
+          ]
+        }
+      ],
+      "readiness_signals": [
+        "Control-plane API",
+        "Task execution pipeline",
+        "npm run build:dashboard",
+        "npm run lint"
+      ],
+      "pack_coverage": {
+        "matched_files": [
+          "server/index.js",
+          "server/task-manager.js",
+          "server/tests/vitest-setup.js",
+          "server/logger.js"
+        ],
+        "coverage_ratio": 1
+      },
+      "answerability": "strong",
+      "prompt_alignment": {
+        "score": 60,
+        "selected_entrypoints": [
+          "server/index.js",
+          "server/api/v2-dispatch.js"
+        ],
+        "selected_hotspots": [
+          "server/tools.js",
+          "server/logger.js"
+        ],
+        "selected_validation_commands": [
+          "npm run build:dashboard",
+          "npm run lint",
+          "cd dashboard && npm run test -- --run src/App.test.jsx src/components/TaskDetailDrawer.test.jsx src/components/TaskSubmitForm.test.jsx src/components/LoadingSkeleton.test.jsx",
+          "npx vitest run server/tests/api-server-core.test.js server/tests/v2-governance-handlers.test.js server/tests/claude-event-hooks.test.js server/tests/api-middleware.test.js"
+        ],
+        "matched_entrypoints": [
+          "server/index.js"
+        ],
+        "matched_hotspots": [
+          "server/logger.js"
+        ],
+        "matched_validation_commands": [
+          "npm run build:dashboard",
+          "npm run lint"
+        ]
+      },
+      "score": 86,
+      "verdict": "pass",
+      "notes": [
+        "Repo-briefing prompt alignment scored 60."
+      ]
+    },
     {
       "id": "flow:task-lifecycle",
       "scope_type": "flow",
@@ -120,6 +237,7 @@
         "coverage_ratio": 1
       },
       "answerability": "strong",
+      "prompt_alignment": null,
       "score": 100,
       "verdict": "pass",
       "notes": []
@@ -139,12 +257,12 @@
       "source_grounded_answer": [
         {
           "file": "server/handlers/workflow/index.js",
-          "purpose": "Server module exporting handleCreateWorkflow, handleAddWorkflowTask, and handleRunWorkflow and depending on uuid, server/container.js, and server/db/coordination.js.",
+          "purpose": "Server module exporting handleCreateWorkflow, handleCloneWorkflow, and handleAddWorkflowTask and depending on uuid, server/container.js, and server/db/coordination.js.",
           "exports": [
             "handleCreateWorkflow",
+            "handleCloneWorkflow",
             "handleAddWorkflowTask",
-            "handleRunWorkflow",
-            "handleWorkflowStatus"
+            "handleRunWorkflow"
           ],
           "deps": [
             "uuid",
@@ -165,7 +283,8 @@
           "deps": [
             "server/db/task-core.js",
             "server/db/workflow-engine.js",
-            "server/handlers/shared.js"
+            "server/handlers/shared.js",
+            "server/execution/workflow-runtime.js"
           ]
         },
         {
@@ -186,12 +305,12 @@
         },
         {
           "file": "server/handlers/workflow/await.js",
-          "purpose": "Server module exporting formatDuration, formatHeartbeat, and formatTaskYield and depending on path, server/db/task-core.js, and server/db/file-tracking.js.",
+          "purpose": "Server module exporting getCommitMutex, buildTaskPeekArtifactSection, and buildWorkflowPeekArtifactSection and depending on path, server/db/task-core.js, and server/db/file-tracking.js.",
           "exports": [
-            "formatDuration",
-            "formatHeartbeat",
-            "formatTaskYield",
-            "handleAwaitWorkflow"
+            "getCommitMutex",
+            "buildTaskPeekArtifactSection",
+            "buildWorkflowPeekArtifactSection",
+            "syncWorkflowBlockers"
           ],
           "deps": [
             "path",
@@ -218,6 +337,7 @@
         "coverage_ratio": 1
       },
       "answerability": "strong",
+      "prompt_alignment": null,
       "score": 100,
       "verdict": "pass",
       "notes": []
@@ -231,6 +351,7 @@
         "server/db/cron-scheduling.js",
         "server/api/v2-governance-handlers.js",
         "server/maintenance/scheduler.js",
+        "server/execution/schedule-runner.js",
         "server/tools.js"
       ],
       "source_grounded_answer": [
@@ -283,19 +404,16 @@
           ]
         },
         {
-          "file": "server/tools.js",
-          "purpose": "Server module exporting TOOLS, routeMap, and schemaMap and depending on path, server/logger.js, and server/hooks/post-tool-hooks.js.",
+          "file": "server/execution/schedule-runner.js",
+          "purpose": "Server module exporting executeScheduledTask and depending on uuid, server/logger.js, and server/db/workflow-engine.js.",
           "exports": [
-            "TOOLS",
-            "routeMap",
-            "schemaMap",
-            "handleToolCall"
+            "executeScheduledTask"
           ],
           "deps": [
-            "path",
+            "uuid",
             "server/logger.js",
-            "server/hooks/post-tool-hooks.js",
-            "server/event-bus.js"
+            "server/db/workflow-engine.js",
+            "server/db/cron-scheduling.js"
           ]
         }
       ],
@@ -310,11 +428,13 @@
           "server/db/cron-scheduling.js",
           "server/api/v2-governance-handlers.js",
           "server/maintenance/scheduler.js",
+          "server/execution/schedule-runner.js",
           "server/tools.js"
         ],
         "coverage_ratio": 1
       },
       "answerability": "strong",
+      "prompt_alignment": null,
       "score": 100,
       "verdict": "pass",
       "notes": []
@@ -330,10 +450,10 @@
         "server/task-manager.js",
         "server/execution/task-startup.js",
         "server/execution/provider-router.js",
+        "server/tests/codebase-study.test.js",
         "server/tests/completion-pipeline.test.js",
         "server/tests/fallback-retry.test.js",
-        "server/tests/host-distribution.test.js",
-        "server/tests/process-lifecycle.test.js"
+        "server/tests/host-distribution.test.js"
       ],
       "source_grounded_answer": [
         {
@@ -402,14 +522,15 @@
           "server/task-manager.js",
           "server/execution/task-startup.js",
           "server/execution/provider-router.js",
+          "server/tests/codebase-study.test.js",
           "server/tests/completion-pipeline.test.js",
           "server/tests/fallback-retry.test.js",
-          "server/tests/host-distribution.test.js",
-          "server/tests/process-lifecycle.test.js"
+          "server/tests/host-distribution.test.js"
         ],
         "coverage_ratio": 1
       },
       "answerability": "strong",
+      "prompt_alignment": null,
       "score": 100,
       "verdict": "pass",
       "notes": []
@@ -425,10 +546,10 @@
         "server/task-manager.js",
         "server/execution/task-startup.js",
         "server/execution/provider-router.js",
+        "server/tests/codebase-study.test.js",
         "server/tests/completion-pipeline.test.js",
         "server/tests/fallback-retry.test.js",
-        "server/tests/host-distribution.test.js",
-        "server/tests/process-lifecycle.test.js"
+        "server/tests/host-distribution.test.js"
       ],
       "source_grounded_answer": [
         {
@@ -497,14 +618,15 @@
           "server/task-manager.js",
           "server/execution/task-startup.js",
           "server/execution/provider-router.js",
+          "server/tests/codebase-study.test.js",
           "server/tests/completion-pipeline.test.js",
           "server/tests/fallback-retry.test.js",
-          "server/tests/host-distribution.test.js",
-          "server/tests/process-lifecycle.test.js"
+          "server/tests/host-distribution.test.js"
         ],
         "coverage_ratio": 1
       },
       "answerability": "strong",
+      "prompt_alignment": null,
       "score": 100,
       "verdict": "pass",
       "notes": []
@@ -516,8 +638,8 @@
       "prompt": "If you change Editing Control-plane API in torque-ai, which files should you edit, which tests should you run, and which invariants must you recheck?",
       "expected_evidence": [
         "server/index.js",
-        "server/api-server.core.js",
         "server/api/v2-governance-handlers.js",
+        "server/api-server.core.js",
         "server/api/middleware.js",
         "server/api/routes.js",
         "server/tests/api-server-core.test.js",
@@ -543,22 +665,6 @@
           ]
         },
         {
-          "file": "server/api-server.core.js",
-          "purpose": "Server module exporting start, stop, and createRateLimiter and depending on http, crypto, and server/tools.js.",
-          "exports": [
-            "start",
-            "stop",
-            "createRateLimiter",
-            "getRateLimit"
-          ],
-          "deps": [
-            "http",
-            "crypto",
-            "server/tools.js",
-            "server/database.js"
-          ]
-        },
-        {
           "file": "server/api/v2-governance-handlers.js",
           "purpose": "Server module exporting init, handleListApprovals, and handleApprovalDecision and depending on server/logger.js, crypto, and server/database.js.",
           "exports": [
@@ -572,6 +678,22 @@
             "crypto",
             "server/database.js",
             "server/db/task-core.js"
+          ]
+        },
+        {
+          "file": "server/api-server.core.js",
+          "purpose": "Server module exporting start, stop, and createRateLimiter and depending on http, crypto, and server/tools.js.",
+          "exports": [
+            "start",
+            "stop",
+            "createRateLimiter",
+            "getRateLimit"
+          ],
+          "deps": [
+            "http",
+            "crypto",
+            "server/tools.js",
+            "server/database.js"
           ]
         },
         {
@@ -600,8 +722,8 @@
       "pack_coverage": {
         "matched_files": [
           "server/index.js",
-          "server/api-server.core.js",
           "server/api/v2-governance-handlers.js",
+          "server/api-server.core.js",
           "server/api/middleware.js",
           "server/api/routes.js",
           "server/tests/api-server-core.test.js",
@@ -612,6 +734,7 @@
         "coverage_ratio": 1
       },
       "answerability": "strong",
+      "prompt_alignment": null,
       "score": 100,
       "verdict": "pass",
       "notes": []
@@ -672,7 +795,7 @@
             "server/logger.js",
             "server/db/model-capabilities.js",
             "server/db/provider-performance.js",
-            "server/execution/smart-diagnosis-stage.js"
+            "server/db/study-telemetry.js"
           ]
         },
         {
@@ -714,6 +837,7 @@
         "coverage_ratio": 1
       },
       "answerability": "strong",
+      "prompt_alignment": null,
       "score": 100,
       "verdict": "pass",
       "notes": []
@@ -737,12 +861,12 @@
       "source_grounded_answer": [
         {
           "file": "server/handlers/workflow/index.js",
-          "purpose": "Server module exporting handleCreateWorkflow, handleAddWorkflowTask, and handleRunWorkflow and depending on uuid, server/container.js, and server/db/coordination.js.",
+          "purpose": "Server module exporting handleCreateWorkflow, handleCloneWorkflow, and handleAddWorkflowTask and depending on uuid, server/container.js, and server/db/coordination.js.",
           "exports": [
             "handleCreateWorkflow",
+            "handleCloneWorkflow",
             "handleAddWorkflowTask",
-            "handleRunWorkflow",
-            "handleWorkflowStatus"
+            "handleRunWorkflow"
           ],
           "deps": [
             "uuid",
@@ -769,12 +893,12 @@
         },
         {
           "file": "server/handlers/workflow/await.js",
-          "purpose": "Server module exporting formatDuration, formatHeartbeat, and formatTaskYield and depending on path, server/db/task-core.js, and server/db/file-tracking.js.",
+          "purpose": "Server module exporting getCommitMutex, buildTaskPeekArtifactSection, and buildWorkflowPeekArtifactSection and depending on path, server/db/task-core.js, and server/db/file-tracking.js.",
           "exports": [
-            "formatDuration",
-            "formatHeartbeat",
-            "formatTaskYield",
-            "handleAwaitWorkflow"
+            "getCommitMutex",
+            "buildTaskPeekArtifactSection",
+            "buildWorkflowPeekArtifactSection",
+            "syncWorkflowBlockers"
           ],
           "deps": [
             "path",
@@ -821,6 +945,7 @@
         "coverage_ratio": 1
       },
       "answerability": "strong",
+      "prompt_alignment": null,
       "score": 100,
       "verdict": "pass",
       "notes": []
@@ -904,15 +1029,17 @@
           "server/tests/adv-coordination-handlers.test.js",
           "server/db/coordination.js",
           "server/tests/vitest-setup.js",
-          "server/tests/test-helpers.js",
           "server/db/provider-routing-core.js"
         ],
-        "coverage_ratio": 1
+        "coverage_ratio": 0.889
       },
       "answerability": "strong",
-      "score": 100,
+      "prompt_alignment": null,
+      "score": 92,
       "verdict": "pass",
-      "notes": []
+      "notes": [
+        "Pack coverage hit 8/9 expected evidence files."
+      ]
     },
     {
       "id": "impact:server/tests/vitest-setup.js",
@@ -976,6 +1103,7 @@
         "coverage_ratio": 0.667
       },
       "answerability": "partial",
+      "prompt_alignment": null,
       "score": 69,
       "verdict": "partial",
       "notes": [

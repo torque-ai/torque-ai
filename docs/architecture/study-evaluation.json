@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-04-09T18:30:55.192Z",
+  "generated_at": "2026-04-10T11:30:16.724Z",
   "repo": {
     "name": "torque-ai",
     "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
@@ -12,11 +12,11 @@
     "readiness": "expert_ready",
     "findings_count": 0,
     "strengths_count": 3,
-    "indexed_percent": 95
+    "indexed_percent": 100
   },
   "checks": {
-    "tracked_files": 1526,
-    "indexed_modules": 1450,
+    "tracked_files": 1533,
+    "indexed_modules": 1533,
     "pending_files": 0,
     "flow_count": 5,
     "invariant_count": 12,
@@ -28,12 +28,43 @@
     "onramp_read_count": 8
   },
   "strengths": [
-    "Coverage is effectively complete at 95% with no pending files.",
+    "Coverage is effectively complete at 100% with no pending files.",
     "The pack captures 5 canonical flows, which gives downstream models a usable execution map.",
     "Change playbooks and impact guidance are present, which makes the pack useful for execution as well as understanding."
   ],
   "findings": [],
   "probes": [
+    {
+      "id": "repo-briefing:onramp",
+      "scope_type": "repo_briefing",
+      "scope_id": "repo-briefing",
+      "expected_entrypoints": [
+        "server/index.js",
+        "server/task-manager.js"
+      ],
+      "expected_hotspots": [
+        "server/tests/vitest-setup.js",
+        "server/logger.js"
+      ],
+      "expected_validation_commands": [
+        "npm run build:dashboard",
+        "npm run lint"
+      ],
+      "prompt": "Read-only repo briefing for torque-ai. Return exactly 4 bullets and keep it under 140 words. 1. Primary runtime entrypoint. 2. Secondary important entrypoint or startup surface. 3. One high-risk subsystem or hotspot worth understanding first. 4. One validation command worth running first.",
+      "expected_evidence": [
+        "server/index.js",
+        "server/task-manager.js",
+        "server/tests/vitest-setup.js",
+        "server/logger.js"
+      ],
+      "readiness_signals": [
+        "Control-plane API",
+        "Task execution pipeline",
+        "npm run build:dashboard",
+        "npm run lint"
+      ],
+      "answerability": "strong"
+    },
     {
       "id": "flow:task-lifecycle",
       "scope_type": "flow",
@@ -88,6 +119,7 @@
         "server/db/cron-scheduling.js",
         "server/api/v2-governance-handlers.js",
         "server/maintenance/scheduler.js",
+        "server/execution/schedule-runner.js",
         "server/tools.js"
       ],
       "readiness_signals": [
@@ -109,10 +141,10 @@
         "server/task-manager.js",
         "server/execution/task-startup.js",
         "server/execution/provider-router.js",
+        "server/tests/codebase-study.test.js",
         "server/tests/completion-pipeline.test.js",
         "server/tests/fallback-retry.test.js",
-        "server/tests/host-distribution.test.js",
-        "server/tests/process-lifecycle.test.js"
+        "server/tests/host-distribution.test.js"
       ],
       "readiness_signals": [
         "Submission surfaces should delegate into handlers and the task manager instead of invoking providers directly.",
@@ -131,10 +163,10 @@
         "server/task-manager.js",
         "server/execution/task-startup.js",
         "server/execution/provider-router.js",
+        "server/tests/codebase-study.test.js",
         "server/tests/completion-pipeline.test.js",
         "server/tests/fallback-retry.test.js",
-        "server/tests/host-distribution.test.js",
-        "server/tests/process-lifecycle.test.js"
+        "server/tests/host-distribution.test.js"
       ],
       "readiness_signals": [
         "Task completion should converge through the finalizer and completion pipeline so verification and follow-up hooks stay centralized.",
@@ -149,8 +181,8 @@
       "prompt": "If you change Editing Control-plane API in torque-ai, which files should you edit, which tests should you run, and which invariants must you recheck?",
       "expected_evidence": [
         "server/index.js",
-        "server/api-server.core.js",
         "server/api/v2-governance-handlers.js",
+        "server/api-server.core.js",
         "server/api/middleware.js",
         "server/api/routes.js",
         "server/tests/api-server-core.test.js",

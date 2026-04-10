@@ -31,6 +31,7 @@ describe('study-telemetry', () => {
     resetCjsModule('../database');
     resetCjsModule('../db/cost-tracking');
     resetCjsModule('../db/event-tracking');
+    resetCjsModule('../integrations/codebase-study-engine');
 
     installCjsModuleMock('../database', {
       getDbInstance() {
@@ -58,6 +59,33 @@ describe('study-telemetry', () => {
         recordedEvents.push({ eventType, taskId, data });
       },
     });
+    installCjsModuleMock('../integrations/codebase-study-engine', {
+      readStudyArtifacts() {
+        return {
+          knowledgePack: {
+            entrypoints: [
+              { file: 'src/MyApp/Program.cs' },
+              { file: 'tools/peek-server/peek_server/cli.py' },
+            ],
+            hotspots: [
+              { file: 'src/MyApp/LedgerEngine.cs' },
+              { file: 'tools/peek-server/peek_server/routes/sequence.py' },
+            ],
+            expertise: {
+              change_playbooks: [
+                { validation_commands: ['dotnet build MyRepo.sln'] },
+              ],
+              impact_guidance: [
+                { related_files: ['src/MyApp/LedgerEngine.cs'], validation_commands: ['pwsh scripts/build.ps1'] },
+              ],
+              test_matrix: [
+                { validation_commands: ['pytest'] },
+              ],
+            },
+          },
+        };
+      },
+    });
 
     telemetry = require('../db/study-telemetry');
   });
@@ -67,6 +95,7 @@ describe('study-telemetry', () => {
     resetCjsModule('../database');
     resetCjsModule('../db/cost-tracking');
     resetCjsModule('../db/event-tracking');
+    resetCjsModule('../integrations/codebase-study-engine');
   });
 
   it('records completion telemetry for study-aware tasks', () => {
@@ -106,6 +135,91 @@ describe('study-telemetry', () => {
     ]);
   });
 
+  it('scores repo briefing outputs against studied entrypoints, hotspots, and validation commands', () => {
+    const recorded = telemetry.recordStudyTaskCompleted({
+      id: 'briefing-task',
+      working_directory: 'C:/Projects/MyRepo',
+      status: 'completed',
+      provider: 'codex',
+      model: 'gpt-5.3-codex-spark',
+      task_description: 'Read-only repo briefing. Return 3 bullets: primary runtime entrypoint, one high-risk subsystem, one validation command.',
+      output: [
+        '- `src/MyApp/Program.cs`',
+        '- `src/MyApp/LedgerEngine.cs`',
+        '- `dotnet build MyRepo.sln`',
+      ].join('\n'),
+      metadata: JSON.stringify({}),
+    });
+
+    expect(recorded).toBe(true);
+    expect(recordedEvents).toEqual([
+      expect.objectContaining({
+        eventType: 'study_task_completed',
+        taskId: 'briefing-task',
+        data: expect.objectContaining({
+          output_quality_label: 'strong',
+        }),
+      }),
+    ]);
+    expect(recordedEvents[0].data.output_quality_score).toBeGreaterThanOrEqual(85);
+  });
+
+  it('does not over-credit repo briefing risk bullets that only mention unrelated files', () => {
+    const recorded = telemetry.recordStudyTaskCompleted({
+      id: 'briefing-task-misaligned-risk',
+      working_directory: 'C:/Projects/MyRepo',
+      status: 'completed',
+      provider: 'codex',
+      model: 'gpt-5.3-codex-spark',
+      task_description: [
+        'Read-only repo briefing. Return exactly 4 bullets and keep it under 140 words.',
+        '1. Primary runtime entrypoint.',
+        '2. Secondary important entrypoint or startup surface.',
+        '3. One high-risk subsystem or hotspot worth understanding first.',
+        '4. One validation command worth running first.',
+      ].join('\n'),
+      output: [
+        '- `src/MyApp/Program.cs` is the main entrypoint.',
+        '- `tools/peek-server/peek_server/cli.py` is the secondary startup surface.',
+        '- `src/MyApp/Config.json` looks risky because it shapes runtime behavior.',
+        '- `pwsh scripts/build.ps1` is the fastest validation command.',
+      ].join('\n'),
+      metadata: JSON.stringify({}),
+    });
+
+    expect(recorded).toBe(true);
+    expect(recordedEvents[0].data.output_quality_label).toBe('adequate');
+    expect(recordedEvents[0].data.output_quality_score).toBeLessThan(85);
+  });
+
+  it('does not treat a different dotnet test target as the studied validation command', () => {
+    const recorded = telemetry.recordStudyTaskCompleted({
+      id: 'briefing-task-misaligned-validation',
+      working_directory: 'C:/Projects/MyRepo',
+      status: 'completed',
+      provider: 'codex',
+      model: 'gpt-5.3-codex-spark',
+      task_description: [
+        'Read-only repo briefing. Return exactly 4 bullets and keep it under 140 words.',
+        '1. Primary runtime entrypoint.',
+        '2. Secondary important entrypoint or startup surface.',
+        '3. One high-risk subsystem or hotspot worth understanding first.',
+        '4. One validation command worth running first.',
+      ].join('\n'),
+      output: [
+        '- `src/MyApp/Program.cs` is the main entrypoint.',
+        '- `tools/peek-server/peek_server/cli.py` is the secondary startup surface.',
+        '- `src/MyApp/LedgerEngine.cs` is the first risky subsystem to inspect.',
+        '- `dotnet test tests/MyApp.UnitTests/MyApp.UnitTests.csproj --no-build` is the first validation command.',
+      ].join('\n'),
+      metadata: JSON.stringify({}),
+    });
+
+    expect(recorded).toBe(true);
+    expect(recordedEvents[0].data.output_quality_label).toBe('adequate');
+    expect(recordedEvents[0].data.output_quality_score).toBeLessThan(85);
+  });
+
   it('aggregates impact summary across with-context, without-context, and review events', () => {
     analyticsRows = [
       {
@@ -123,6 +237,7 @@ describe('study-telemetry', () => {
           total_tokens: 1500,
           cost_usd: 0.01,
           files_modified_count: 3,
+          output_quality_score: 92,
         }),
       },
       {
@@ -140,6 +255,7 @@ describe('study-telemetry', () => {
           total_tokens: 2500,
           cost_usd: 0.02,
           files_modified_count: 1,
+          output_quality_score: 61,
         }),
       },
       {
@@ -167,16 +283,19 @@ describe('study-telemetry', () => {
           count: 1,
           success_rate: 100,
           avg_total_tokens: 1500,
+          avg_output_quality_score: 92,
         }),
         without_context: expect.objectContaining({
           count: 1,
           success_rate: 0,
           avg_retry_count: 2,
+          avg_output_quality_score: 61,
         }),
         delta: expect.objectContaining({
           comparison_available: true,
           success_rate_points: 100,
           total_tokens_delta: -1000,
+          output_quality_delta: 31,
         }),
       }),
       review_outcomes: expect.objectContaining({

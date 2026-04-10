@@ -317,16 +317,16 @@ const routes = [
   { method: 'POST', path: '/api/v2/strategic/config/apply-template', tool: 'strategic_config_apply_template', mapBody: true },
 
   // ─── study (7 routes) ────────────────────────────────────────────────────────
-  { method: 'POST', path: '/api/v2/study/run', tool: 'run_codebase_study', mapBody: true },
-  { method: 'GET', path: '/api/v2/study/status', tool: 'get_study_status', mapQuery: true },
-  { method: 'POST', path: '/api/v2/study/evaluate', tool: 'evaluate_codebase_study', mapBody: true },
-  { method: 'POST', path: '/api/v2/study/benchmark', tool: 'benchmark_codebase_study', mapBody: true },
-  { method: 'GET', path: '/api/v2/study/profile-override', tool: 'get_codebase_study_profile_override', mapQuery: true },
-  { method: 'PATCH', path: '/api/v2/study/profile-override', tool: 'save_codebase_study_profile_override', mapBody: true },
-  { method: 'POST', path: '/api/v2/study/preview', tool: 'preview_codebase_study_bootstrap', mapBody: true },
-  { method: 'POST', path: '/api/v2/study/bootstrap', tool: 'bootstrap_codebase_study', mapBody: true },
-  { method: 'POST', path: '/api/v2/study/reset', tool: 'reset_codebase_study', mapBody: true },
-  { method: 'POST', path: '/api/v2/study/schedule', tool: 'configure_study_schedule', mapBody: true },
+  { method: 'POST', path: '/api/v2/study/run', tool: 'run_codebase_study', mapBody: true, v2StructuredResponse: true },
+  { method: 'GET', path: '/api/v2/study/status', tool: 'get_study_status', mapQuery: true, v2StructuredResponse: true },
+  { method: 'POST', path: '/api/v2/study/evaluate', tool: 'evaluate_codebase_study', mapBody: true, v2StructuredResponse: true },
+  { method: 'POST', path: '/api/v2/study/benchmark', tool: 'benchmark_codebase_study', mapBody: true, v2StructuredResponse: true },
+  { method: 'GET', path: '/api/v2/study/profile-override', tool: 'get_codebase_study_profile_override', mapQuery: true, v2StructuredResponse: true },
+  { method: 'PATCH', path: '/api/v2/study/profile-override', tool: 'save_codebase_study_profile_override', mapBody: true, v2StructuredResponse: true },
+  { method: 'POST', path: '/api/v2/study/preview', tool: 'preview_codebase_study_bootstrap', mapBody: true, v2StructuredResponse: true },
+  { method: 'POST', path: '/api/v2/study/bootstrap', tool: 'bootstrap_codebase_study', mapBody: true, v2StructuredResponse: true },
+  { method: 'POST', path: '/api/v2/study/reset', tool: 'reset_codebase_study', mapBody: true, v2StructuredResponse: true },
+  { method: 'POST', path: '/api/v2/study/schedule', tool: 'configure_study_schedule', mapBody: true, v2StructuredResponse: true },
 
   // ─── system (7 routes) ───────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/system/ping', tool: 'ping', mapBody: true },

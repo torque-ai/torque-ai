@@ -912,10 +912,22 @@ async function handleRequest(req, res, context = {}) {
       if (result.isError) {
         sendJson(res, { error: result.content?.[0]?.text || 'Unknown error' }, 400, req);
       } else {
-        sendJson(res, {
-          tool: route.tool,
-          result: result.content?.[0]?.text || '',
-        }, 200, req);
+        const textResult = result.content?.[0]?.text || '';
+        if (route.v2StructuredResponse === true && result.structuredData && typeof result.structuredData === 'object') {
+          sendJson(res, {
+            data: result.structuredData,
+            meta: {
+              request_id: req.requestId || null,
+              tool: route.tool,
+              result: textResult,
+            },
+          }, 200, req);
+        } else {
+          sendJson(res, {
+            tool: route.tool,
+            result: textResult,
+          }, 200, req);
+        }
       }
     } catch (err) {
       const isV2Route = typeof route.path === 'string' ? route.path.startsWith('/api/v2/') : false;

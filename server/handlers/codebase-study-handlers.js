@@ -334,6 +334,7 @@ async function handleRunCodebaseStudy(args) {
     const result = await buildStudyService().runStudyCycle(workingDirectory, {
       currentTaskId: typeof args?.__scheduledTaskId === 'string' ? args.__scheduledTaskId : null,
       manualRunNow: args?.__manualRunNow === true,
+      forceRefresh: args?.force_refresh === true || args?.__manualRunNow === true,
       scheduleId: typeof args?.__scheduledScheduleId === 'string' ? args.__scheduledScheduleId : null,
       scheduleName: typeof args?.__scheduledScheduleName === 'string' ? args.__scheduledScheduleName : null,
       scheduleRunId: typeof args?.__scheduledRunId === 'string' ? args.__scheduledRunId : null,

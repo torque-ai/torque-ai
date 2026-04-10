@@ -1,31 +1,32 @@
 {
   "version": 1,
-  "generated_at": "2026-04-09T18:30:53.758Z",
+  "generated_at": "2026-04-10T11:30:15.210Z",
   "repo": {
     "name": "torque-ai",
     "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
-    "previous_sha": "0fdf05ee05f948263fae3d5edc60b0d7cfb0b194",
-    "current_sha": "0fdf05ee05f948263fae3d5edc60b0d7cfb0b194",
+    "previous_sha": "e471b2b19cd13a543feb4ec571ccb499a9b91b9c",
+    "current_sha": "e471b2b19cd13a543feb4ec571ccb499a9b91b9c",
     "study_profile_id": "torque-control-plane"
   },
   "run": {
     "mode": "up-to-date",
     "manual_run_now": false,
+    "force_refresh": false,
     "batch_count": 0,
     "schedule_id": "a24a26fa-abbb-4d10-bfa9-76512a4bc11c",
     "schedule_name": "codebase-study:torque-public",
-    "schedule_run_id": "b308b57c-6cec-483e-8a2a-3f9dcd0a69f0",
-    "wrapper_task_id": "a5263bbf-1d2d-4751-b1fd-9cdffcb369c1"
+    "schedule_run_id": "4d1a8c9d-1984-41f1-ac9f-69211d7c28c3",
+    "wrapper_task_id": "47d52957-e085-4592-a9b4-07e5489fe1e9"
   },
   "coverage_delta": {
     "tracked_files": {
-      "previous": 1526,
-      "current": 1526,
+      "previous": 1533,
+      "current": 1533,
       "delta": 0
     },
     "indexed_modules": {
-      "previous": 1450,
-      "current": 1450,
+      "previous": 1533,
+      "current": 1533,
       "delta": 0
     },
     "pending_files": {

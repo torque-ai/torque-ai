@@ -660,10 +660,22 @@ async function dispatchRequest({
           error: result.content?.[0]?.text || 'Unknown error',
         }, 400, req);
       } else {
-        currentModules.middleware.sendJson(res, {
-          tool: route.tool,
-          result: result.content?.[0]?.text || '',
-        }, 200, req);
+        const textResult = result.content?.[0]?.text || '';
+        if (route.v2StructuredResponse === true && result.structuredData && typeof result.structuredData === 'object') {
+          currentModules.middleware.sendJson(res, {
+            data: result.structuredData,
+            meta: {
+              request_id: req.requestId || null,
+              tool: route.tool,
+              result: textResult,
+            },
+          }, 200, req);
+        } else {
+          currentModules.middleware.sendJson(res, {
+            tool: route.tool,
+            result: textResult,
+          }, 200, req);
+        }
       }
     } catch (error) {
       if (isV2Route(route)) {
@@ -770,6 +782,17 @@ describe('api/routes route table', () => {
     expect(findRegexRoute('POST', '^\\/api\\/v2\\/webhooks\\/([^/]+)\\/test$').handlerName).toBe('handleV2CpTestWebhook');
     expect(findStringRoute('POST', '/api/v2/validation/verify-and-fix').handlerName).toBe('handleV2CpAutoVerifyAndFix');
     expect(findStringRoute('GET', '/api/v2/metrics/prometheus').handlerName).toBe('handleV2CpPrometheusMetrics');
+  });
+
+  it('marks study passthrough routes for v2 structured responses', () => {
+    expect(findStringRoute('GET', '/api/v2/study/status')).toEqual(expect.objectContaining({
+      tool: 'get_study_status',
+      v2StructuredResponse: true,
+    }));
+    expect(findStringRoute('POST', '/api/v2/study/bootstrap')).toEqual(expect.objectContaining({
+      tool: 'bootstrap_codebase_study',
+      v2StructuredResponse: true,
+    }));
   });
 
   it('registers administrative quota and shutdown routes', () => {
@@ -1437,6 +1460,40 @@ describe('auth, error, and not-found integration', () => {
     expect(result.res.statusCode).toBe(500);
     expect(parseJsonBody(result.res)).toEqual({
       error: 'free tier failure',
+    });
+  });
+
+  it('returns a v2 envelope for study passthrough routes when structured data is available', async () => {
+    handleToolCall.mockResolvedValueOnce({
+      isError: false,
+      content: [{ type: 'text', text: '## Codebase Study Status' }],
+      structuredData: {
+        working_directory: 'C:/repo',
+        study_impact: {
+          window_days: 30,
+        },
+      },
+    });
+
+    const result = await dispatchRequest({
+      method: 'GET',
+      url: '/api/v2/study/status?working_directory=C%3A%2Frepo',
+    });
+
+    expect(result.route.tool).toBe('get_study_status');
+    expect(result.res.statusCode).toBe(200);
+    expect(parseJsonBody(result.res)).toEqual({
+      data: {
+        working_directory: 'C:/repo',
+        study_impact: {
+          window_days: 30,
+        },
+      },
+      meta: {
+        request_id: expect.any(String),
+        tool: 'get_study_status',
+        result: '## Codebase Study Status',
+      },
     });
   });
 

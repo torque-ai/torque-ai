@@ -244,8 +244,7 @@ function classifyWorkflowStartOutcome(taskId, startResult) {
     return 'not_started';
   }
 
-  // Test doubles do not always mutate task status like the real runtime path.
-  return 'started';
+  return 'not_started';
 }
 
 function validateDependencyList(value, fieldName, nodeId, workflowId) {
@@ -730,7 +729,9 @@ function startWorkflowExecution(workflow) {
         }
         if (startOutcome === 'started') {
           started += 1;
+          continue;
         }
+        failedStarts.push(buildWorkflowStartFailure(task, new Error('Task remained pending after start attempt')));
       } catch (err) {
         failedStarts.push(buildWorkflowStartFailure(task, err));
         logger.debug('[workflow-handlers] non-critical error starting workflow task in batch:', err.message || err);

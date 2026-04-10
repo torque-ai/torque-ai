@@ -586,6 +586,11 @@ function detectStudyProfileSignals({ repoMetadata, trackedFiles, profile } = {})
   const hasServer = hasPrefix(files, 'server/');
   const hasDashboard = hasPrefix(files, 'dashboard/src/') || hasPrefix(files, 'src/components/') || hasPrefix(files, 'app/') || hasPrefix(files, 'client/');
   const hasCli = hasPrefix(files, 'bin/') || hasPrefix(files, 'cli/') || Array.isArray(repoMetadata?.bin_files) && repoMetadata.bin_files.length > 0;
+  const pythonFileCount = files.filter((filePath) => filePath.toLowerCase().endsWith('.py')).length;
+  const dotnetFileCount = files.filter((filePath) => filePath.toLowerCase().endsWith('.cs')).length;
+  const hasPython = pythonFileCount > 0 || repoMetadata?.python_project === true;
+  const hasDotnet = dotnetFileCount > 0 || repoMetadata?.dotnet_project === true;
+  const hasDesktop = files.some((filePath) => /app\.xaml\.cs$/i.test(filePath));
   const hasTests = files.some((filePath) => /(?:^|\/)(?:tests?|__tests__)\/|(?:\.test|\.spec|\.e2e|\.integration)\.[^.]+$/i.test(filePath));
   const contentFileCount = files.filter((filePath) => /(^|\/)(lang|locales?|i18n|manifests?|schemas?|fixtures)\//.test(filePath) || /\.(json|ya?ml|toml|ini)$/.test(filePath)).length;
   const jsLikeCount = files.filter((filePath) => /\.(?:[cm]?js|ts|tsx|jsx)$/.test(filePath)).length;
@@ -604,6 +609,18 @@ function detectStudyProfileSignals({ repoMetadata, trackedFiles, profile } = {})
   if (hasCli) {
     traits.push('cli');
     evidence.push('Detected CLI/bin entrypoints.');
+  }
+  if (hasPython) {
+    traits.push('python');
+    evidence.push(`Detected ${pythonFileCount || 1} Python source files or project markers.`);
+  }
+  if (hasDotnet) {
+    traits.push('dotnet');
+    evidence.push(`Detected ${dotnetFileCount || 1} .NET source files or solution markers.`);
+  }
+  if (hasDesktop) {
+    traits.push('desktop');
+    evidence.push('Detected desktop startup surfaces.');
   }
   if (hasTests) {
     traits.push('tests');
@@ -634,11 +651,29 @@ function detectStudyProfileSignals({ repoMetadata, trackedFiles, profile } = {})
       frameworks.push(label);
     }
   }
+  if (hasPython) {
+    frameworks.push('Python');
+  }
+  if (hasDotnet) {
+    frameworks.push('.NET');
+  }
+  if (hasDesktop) {
+    frameworks.push('WPF');
+  }
 
   let archetype = 'generic-javascript-repo';
   if (hasServer && hasDashboard) {
     archetype = 'fullstack-control-plane';
     evidence.push('Server and UI surfaces are both present.');
+  } else if ((hasPython || hasDotnet) && (jsLikeCount > 0 || hasDashboard || hasCli)) {
+    archetype = 'polyglot-application';
+    evidence.push('Multiple runtime ecosystems contribute to the repo surface.');
+  } else if (hasDotnet && hasDesktop) {
+    archetype = 'desktop-application';
+    evidence.push('Desktop-specific .NET startup surfaces are present.');
+  } else if (hasPython && hasCli) {
+    archetype = 'automation-tooling-repo';
+    evidence.push('Python automation/runtime entrypoints dominate the repo surface.');
   } else if (hasDashboard || packageSignals.has('react') || packageSignals.has('vue') || packageSignals.has('svelte') || packageSignals.has('next')) {
     archetype = 'frontend-application';
     evidence.push('UI/framework signals dominate the repo surface.');

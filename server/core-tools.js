@@ -30,6 +30,8 @@ const TIER_1 = [
   'configure_ci_provider',
   // Diffusion engine
   'submit_scout', 'create_diffusion_plan', 'diffusion_status',
+  // Schedule management
+  'list_scheduled', 'pause_scheduled', 'cancel_scheduled', 'schedule_task',
   // Context (compact session resume)
   'get_context',
 ];
