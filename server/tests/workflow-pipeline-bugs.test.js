@@ -32,7 +32,8 @@ describe('Workflow pipeline bugs', () => {
     const env = setupTestDb('wf-pipeline-bugs');
     db = env.db;
     testDir = env.testDir;
-    require('../task-manager').initSubModules();
+    // initSubModules not called — we only need tools.js handlers which setupTestDb provides.
+    // The queue-scheduler is tested directly below.
   });
   afterAll(() => { teardownTestDb(); });
 
