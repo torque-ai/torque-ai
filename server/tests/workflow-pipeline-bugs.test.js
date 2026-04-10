@@ -34,9 +34,19 @@ describe('Workflow pipeline bugs', () => {
     testDir = env.testDir;
     // Initialize the queue-scheduler with the test DB so resolveCodexPendingTasks works
     const queueScheduler = require('../execution/queue-scheduler');
-    queueScheduler.init({ db });
+    const safeConfigInt = (key, fallback) => {
+      const val = parseInt(db.getConfig ? db.getConfig(key) : null, 10);
+      return Number.isFinite(val) ? val : fallback;
+    };
+    queueScheduler.init({ db, safeConfigInt });
   });
-  afterAll(() => { teardownTestDb(); });
+  afterAll(() => {
+    // Stop the queue-scheduler event listener to prevent timer leaks
+    const queueScheduler = require('../execution/queue-scheduler');
+    queueScheduler.stop();
+    teardownTestDb();
+  });
+  // teardownTestDb is called above in afterAll with stop()
 
   // ══════════════════════════════════════════════════════════════════════
   // Bug 1: resolveCodexPendingTasks should respect user_provider_override
