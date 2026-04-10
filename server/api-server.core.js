@@ -656,7 +656,7 @@ async function handleShutdown(req, res, _context = {}) {
           sendJson(res, {
             error: `Governance blocked: ${msg}`,
             running, queued,
-            hint: 'Use await_restart to drain the pipeline safely.',
+            hint: 'Restart always drains the pipeline — use restart_server or await_restart.',
           }, 409, req);
           return;
         }

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-04-10T11:30:16.724Z",
+  "generated_at": "2026-04-10T13:47:54.050Z",
   "repo": {
     "name": "torque-ai",
     "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
@@ -11,7 +11,7 @@
     "grade": "A",
     "readiness": "expert_ready",
     "findings_count": 0,
-    "strengths_count": 3,
+    "strengths_count": 4,
     "indexed_percent": 100
   },
   "checks": {
@@ -30,7 +30,8 @@
   "strengths": [
     "Coverage is effectively complete at 100% with no pending files.",
     "The pack captures 5 canonical flows, which gives downstream models a usable execution map.",
-    "Change playbooks and impact guidance are present, which makes the pack useful for execution as well as understanding."
+    "Change playbooks and impact guidance are present, which makes the pack useful for execution as well as understanding.",
+    "The latest delta includes explicit significance reasons, which supports explainable follow-up proposals."
   ],
   "findings": [],
   "probes": [

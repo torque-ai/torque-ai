@@ -234,6 +234,21 @@ async function handlePostCompletion(ctx) {
       try { deps.handlePipelineStepCompletion(taskId, ctx.status); } catch (e) { logger.error('Pipeline step completion failed:', e.message); }
     }
 
+    // Release file locks synchronously BEFORE event dispatch so blocked tasks
+    // can acquire them immediately when they receive the completion notification.
+    // (The async safeguard chain also releases locks, but that races with event dispatch.)
+    if (ctx.status === 'completed' || ctx.status === 'failed' || ctx.status === 'cancelled') {
+      try {
+        const fileBaselines = require('../db/file-baselines');
+        const released = fileBaselines.releaseAllFileLocks(taskId);
+        if (released > 0) {
+          logger.info(`[FileLock] Released ${released} lock(s) for ${taskId} (pre-dispatch)`);
+        }
+      } catch (_lockErr) {
+        logger.warn(`[FileLock] Non-fatal error releasing locks for ${taskId}: ${_lockErr.message}`);
+      }
+    }
+
     deps.runOutputSafeguards(taskId, ctx.status, updatedTask).catch(err => {
       logger.warn(`[Safeguard] Error in output safeguards for ${taskId}: ${err.message}`);
     });

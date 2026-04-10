@@ -451,20 +451,9 @@ async function checkPushBeforeSubagentTests(task, _rule, _context) {
   return { pass: true };
 }
 
-function checkNoForceRestart(_task, _rule, context) {
-  // Block force-restart/shutdown when tasks are running in the pipeline.
-  // context.force: true means the caller requested a forced shutdown.
-  // context.running: number of running tasks at the time of the request.
-  if (context && context.force === true) {
-    const running = context.running || 0;
-    const queued = context.queued || 0;
-    if (running > 0 || queued > 0) {
-      return {
-        pass: false,
-        message: `Force-restart blocked: ${running} running, ${queued} queued tasks would be killed. Use await_restart to drain the pipeline first.`,
-      };
-    }
-  }
+function checkNoForceRestart(_task, _rule, _context) {
+  // Restart is always a barrier task now — force-restart no longer exists.
+  // This checker is kept for backward compatibility but always passes.
   return { pass: true };
 }
 

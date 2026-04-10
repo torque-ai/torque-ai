@@ -18,22 +18,21 @@ const tools = [
   },
   {
     name: 'restart_server',
-    description: 'Restart the TORQUE MCP server to apply code changes. The server will gracefully shut down and the MCP client will automatically reconnect, spawning a new server instance with the updated code.',
+    description: 'Restart the TORQUE MCP server. Creates a barrier task that blocks the queue scheduler from starting new work, waits for all running tasks to drain, then triggers a graceful shutdown. The MCP client will automatically reconnect with fresh code. The barrier task is cancellable — use cancel_task to abort.',
     inputSchema: {
       type: 'object',
       properties: {
         reason: {
           type: 'string',
-          description: 'Optional reason for restart (logged)'
+          description: 'Optional reason for restart (logged and stored in task metadata)'
         },
-        drain: { type: 'boolean', description: 'Wait for all running tasks to complete before restarting (queue drain mode). New tasks are queued but not started during drain.' },
-        drain_timeout_minutes: { type: 'number', description: 'Maximum minutes to wait for tasks to drain (default: 10). If exceeded, drain aborts and server stays on current version.' },
+        timeout_minutes: { type: 'number', description: 'Maximum minutes to wait for pipeline to drain (default: 30). If exceeded, the restart task fails and the queue resumes.' },
       }
     }
   },
   {
     name: 'await_restart',
-    description: 'Block until the task pipeline drains (all running/queued/pending/blocked tasks finish), then trigger a server restart. Returns heartbeat progress snapshots at configurable intervals. Use instead of restart_server with drain:true to avoid manual polling.',
+    description: 'Submit a restart barrier task (or attach to an existing one) and block until the pipeline drains and restart triggers. Returns heartbeat progress snapshots at configurable intervals. Equivalent to calling restart_server + await_task on the barrier task.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-04-10T11:30:16.738Z",
+  "generated_at": "2026-04-10T13:47:54.088Z",
   "repo": {
     "name": "torque-ai",
     "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
@@ -14,7 +14,7 @@
     "passed_cases": 10,
     "partial_cases": 1,
     "failed_cases": 0,
-    "delta_significance_level": "none",
+    "delta_significance_level": "critical",
     "evaluation_grade": "A"
   },
   "findings": [

@@ -10,7 +10,12 @@ Coverage: 1533/1533 tracked files indexed (100%), 0 pending.
 - `docs/architecture/module-index.json` — per-file facts: purpose, exports, and dependencies.
 
 ## Latest Delta
-- **Significance:** none (0).
+- **Significance:** critical (74).
+- 18 repo files changed since the previous study SHA.
+- 2 canonical flows were touched by the change set.
+- 4 critical invariants were touched.
+- 2 known failure modes intersect the changed seams.
+- **Suggested Follow-ups:** Review Workflow lifecycle changes for invariant drift; Validate DAG/runtime drift risk after recent changes; Validate cross-subsystem impact from recent architectural delta.
 
 ## Pack Evaluation
 - **Readiness:** expert_ready (A, score 100).

@@ -5039,7 +5039,8 @@
         "path",
         "server/database.js",
         "server/db/cost-tracking.js",
-        "server/db/event-tracking.js"
+        "server/db/event-tracking.js",
+        "server/integrations/codebase-study-engine.js"
       ]
     },
     {

@@ -732,6 +732,20 @@ function processQueueInternal(options = {}) {
     return;
   }
 
+  // Restart barrier — if a system restart task is queued or running, stop all new starts.
+  // This makes restart a first-class queue barrier rather than a side-channel process flag.
+  try {
+    const barrierRow = db.prepare(
+      "SELECT id FROM tasks WHERE provider = 'system' AND status IN ('queued', 'running') LIMIT 1"
+    ).get();
+    if (barrierRow) {
+      logger.info(`[Scheduler] Restart barrier active (task ${(barrierRow.id || '').slice(0, 8)}), skipping queue processing`);
+      return;
+    }
+  } catch (barrierErr) {
+    logger.warn(`[Scheduler] Barrier check failed (non-fatal): ${barrierErr.message}`);
+  }
+
   // Get multiple queued tasks to find one that can run on an available host
   const queuedTasks = db.listQueuedTasksLightweight
     ? db.listQueuedTasksLightweight(1000)

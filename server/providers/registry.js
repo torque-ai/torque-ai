@@ -24,6 +24,7 @@ const PROVIDER_CATEGORIES = {
   codex:  ['codex', 'codex-spark', 'claude-cli'],
   api:    ['anthropic', 'groq', 'hyperbolic', 'deepinfra',
            'ollama-cloud', 'cerebras', 'google-ai', 'openrouter'],
+  system: ['system'],
 };
 
 /** Flat set of all known provider names */
@@ -31,6 +32,7 @@ const ALL_PROVIDERS = new Set([
   ...PROVIDER_CATEGORIES.ollama,
   ...PROVIDER_CATEGORIES.codex,
   ...PROVIDER_CATEGORIES.api,
+  ...PROVIDER_CATEGORIES.system,
 ]);
 
 /** Pre-built lookup: provider name → category */

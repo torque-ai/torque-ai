@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "generated_at": "2026-04-10T11:30:15.210Z",
+  "generated_at": "2026-04-10T13:47:48.520Z",
   "study_profile": {
     "id": "torque-control-plane",
     "label": "TORQUE control-plane monorepo",
@@ -40,7 +40,7 @@
     "name": "torque-ai",
     "description": "An automated software factory for Claude Code. Discover, plan, execute, verify, remediate, and release — autonomously across local and cloud LLM providers.",
     "working_directory": "C:\\Users\\<os-user>\\Projects\\torque-public",
-    "current_sha": "e471b2b19cd13a543feb4ec571ccb499a9b91b9c",
+    "current_sha": "25a2562a51313e19fa1c493e612aeb8c06f4674a",
     "study_strategy": "local-deterministic",
     "detection": {
       "archetype": "fullstack-control-plane",
@@ -3104,7 +3104,7 @@
       "central_files": [
         {
           "file": "server/integrations/codebase-study-engine.js",
-          "inbound_dependents": 12,
+          "inbound_dependents": 13,
           "outbound_dependencies": 2,
           "export_count": 21
         },
