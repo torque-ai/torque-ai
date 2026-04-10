@@ -1017,6 +1017,24 @@ function handleAddWorkflowTask(args) {
     };
   }
 
+  // Smart-route provider at creation time when not explicitly specified.
+  // Without this, tasks are created with provider=null and the queue scheduler
+  // may fail to categorize them, leaving them stuck in the queue.
+  let resolvedProvider = args.provider || null;
+  if (!resolvedProvider && typeof providerRoutingCore.analyzeTaskForRouting === 'function') {
+    try {
+      const routeResult = providerRoutingCore.analyzeTaskForRouting(
+        effectiveDescription, taskWorkingDirectory, []
+      );
+      if (routeResult && routeResult.provider) {
+        resolvedProvider = routeResult.provider;
+        logger.info(`[workflow] Smart-routed task ${(args.node_id || taskId).slice(0, 20)} to ${resolvedProvider} (${routeResult.reason || 'auto'})`);
+      }
+    } catch (routeErr) {
+      logger.warn(`[workflow] Smart routing failed for ${args.node_id || taskId}: ${routeErr.message}`);
+    }
+  }
+
   const metaObj = buildWorkflowTaskMetadata(policyTask);
   const metadata = Object.keys(metaObj).length > 0 ? JSON.stringify(metaObj) : null;
 
@@ -1032,7 +1050,7 @@ function handleAddWorkflowTask(args) {
       tags: args.tags || [],
       workflow_id: args.workflow_id,
       workflow_node_id: args.node_id,
-      provider: args.provider,
+      provider: resolvedProvider,
       model: args.model,
       metadata
     });

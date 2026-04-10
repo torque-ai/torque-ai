@@ -98,7 +98,7 @@ ui_review: <true|false>
 
 ### When reporting to team lead (after all tasks submitted)
 
-Send a single summary message:
+Send a single summary message that includes ALL task/workflow IDs:
 
 ```
 Planning complete.
@@ -106,7 +106,10 @@ Total tasks submitted: <count>
   Workflows: <count>
   Standalone: <count>
 Task IDs: <comma-separated list of all task IDs>
+Workflow IDs: <comma-separated if applicable>
 ```
+
+**IMPORTANT: Peer-to-peer messaging can fail.** QC may not receive your SendMessage calls if it's mid-turn. Your summary to team lead is the CRITICAL fallback — the team lead will relay IDs to QC if peer delivery fails. Always include every ID in your team lead summary.
 
 ## Critical Constraints
 
