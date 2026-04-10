@@ -136,6 +136,7 @@ function enableProvider(db, provider) {
 // ── Setup / Teardown ────────────────────────────────────────
 
 beforeEach(async () => {
+  globalThis.taskMetadataParsed = {};
   if (ctx) {
     await teardownE2eDb(ctx);
     ctx = null;

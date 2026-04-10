@@ -20,6 +20,7 @@ let ctx;
 
 describe('E2E: Fallback and recovery', () => {
   beforeEach(async () => {
+    globalThis.taskMetadataParsed = {};
     if (ctx) {
       await teardownE2eDb(ctx);
     }

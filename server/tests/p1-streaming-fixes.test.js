@@ -145,6 +145,7 @@ describe('P1 streaming fixes', () => {
     teardown();
   });
   beforeEach(() => {
+    globalThis.taskMetadataParsed = {};
     resetDb();
   });
   afterEach(() => {

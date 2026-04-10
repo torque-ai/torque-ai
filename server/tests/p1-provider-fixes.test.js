@@ -118,6 +118,7 @@ describe('provider fixes', () => {
   });
 
   beforeEach(() => {
+    globalThis.taskMetadataParsed = {};
     clearHosts();
     mockOllamaA.clearLog();
     mockOllamaB.clearLog();

@@ -32,6 +32,7 @@ afterAll(async () => {
 
 describe('E2E: Ollama direct execution', () => {
   beforeEach(() => {
+    globalThis.taskMetadataParsed = {};
     // Reset mock state between tests (but keep the same DB)
     mock.clearLog();
     mock.setFailGenerate(false);

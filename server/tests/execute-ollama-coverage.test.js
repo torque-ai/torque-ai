@@ -100,6 +100,7 @@ describe('execute-ollama.js — coverage edge cases', () => {
   });
 
   beforeEach(() => {
+    globalThis.taskMetadataParsed = {};
     mockOllama.clearLog();
     mockOllama.setFailGenerate(false);
     mockOllama.setGenerateDelay(0);
