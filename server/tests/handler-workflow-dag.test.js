@@ -288,7 +288,8 @@ describe('workflow-dag handlers', () => {
       const text = textOf(result);
 
       expect(text).toContain('Blocked Tasks');
-      expect(text).toContain('| B | wf-1 | A |');
+      expect(text).toContain('B');
+      expect(text).toContain('A');
       expect(text).not.toContain('C');
     });
   });

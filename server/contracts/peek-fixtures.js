@@ -75,7 +75,7 @@ function buildFixture({
       package_root: PEEK_AUTHORITATIVE_PACKAGE_ROOT,
     },
     request: {
-      route: PEEK_CAPABILITIES_ROUTES.investigation_bundle,
+      route: PEEK_CAPABILITIES_ROUTES?.investigation_bundle,
       options: {
         hwnd,
         process: processName,

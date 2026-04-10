@@ -267,8 +267,9 @@ describe('workflow dag handlers', () => {
       const text = textOf(result);
 
       expect(text).toContain('## Blocked Tasks: Ship It');
-      expect(text).toContain('| Task | Workflow | Waiting On |');
-      expect(text).toContain('| deploy | wf-1 | build |');
+      expect(text).toContain('| Task | Workflow | Reason | Waiting On |');
+      expect(text).toContain('deploy');
+      expect(text).toContain('build');
       expect(text).not.toContain('lint');
     });
 

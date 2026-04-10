@@ -360,6 +360,49 @@ const tools = [
     }
   },
   {
+    name: 'clone_workflow',
+    description: 'Clone an existing workflow and all its tasks and dependencies into a new workflow',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source_workflow_id: {
+          type: 'string',
+          description: 'ID of the workflow to clone'
+        },
+        name: {
+          type: 'string',
+          description: 'Name for the cloned workflow (defaults to source name + timestamp)'
+        },
+        description: {
+          type: 'string',
+          description: 'Description override for the cloned workflow'
+        },
+        working_directory: {
+          type: 'string',
+          description: 'Override working directory for all cloned tasks'
+        },
+        project: {
+          type: 'string',
+          description: 'Project name override for the cloned workflow'
+        },
+        priority: {
+          type: 'number',
+          description: 'Priority override for the cloned workflow'
+        },
+        context: {
+          type: 'object',
+          description: 'Additional context to merge into the cloned workflow'
+        },
+        auto_run: {
+          type: 'boolean',
+          description: 'Automatically start the cloned workflow after creation',
+          default: false
+        }
+      },
+      required: ['source_workflow_id']
+    }
+  },
+  {
     name: 'pause_workflow',
     description: 'Pause a workflow (block new task starts)',
     inputSchema: {

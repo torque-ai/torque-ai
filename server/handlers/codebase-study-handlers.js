@@ -316,21 +316,21 @@ function createOrUpdateStudySchedule({
 }
 
 async function handleRunCodebaseStudy(args) {
-  const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
-  if (error) {
-    return error;
-  }
-
-  if (args?.proposal_significance_level !== undefined
-    && !normalizeStudyThresholdLevel(args?.proposal_significance_level, null)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_significance_level must be one of: none, baseline, low, moderate, high, critical');
-  }
-  if (args?.proposal_min_score !== undefined
-    && (!Number.isInteger(args.proposal_min_score) || args.proposal_min_score < 0)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_min_score must be a non-negative integer');
-  }
-
   try {
+    const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
+    if (error) {
+      return error;
+    }
+
+    if (args?.proposal_significance_level !== undefined
+      && !normalizeStudyThresholdLevel(args?.proposal_significance_level, null)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_significance_level must be one of: none, baseline, low, moderate, high, critical');
+    }
+    if (args?.proposal_min_score !== undefined
+      && (!Number.isInteger(args.proposal_min_score) || args.proposal_min_score < 0)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_min_score must be a non-negative integer');
+    }
+
     const result = await buildStudyService().runStudyCycle(workingDirectory, {
       currentTaskId: typeof args?.__scheduledTaskId === 'string' ? args.__scheduledTaskId : null,
       manualRunNow: args?.__manualRunNow === true,
@@ -359,12 +359,12 @@ async function handleRunCodebaseStudy(args) {
 }
 
 async function handleGetStudyStatus(args) {
-  const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
-  if (error) {
-    return error;
-  }
-
   try {
+    const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
+    if (error) {
+      return error;
+    }
+
     const result = withStudyImpact(workingDirectory, await buildStudyService().getStudyStatus(workingDirectory));
     return {
       content: [{ type: 'text', text: formatStudyStatus('Codebase Study Status', result) }],
@@ -376,12 +376,12 @@ async function handleGetStudyStatus(args) {
 }
 
 async function handleEvaluateCodebaseStudy(args) {
-  const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
-  if (error) {
-    return error;
-  }
-
   try {
+    const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
+    if (error) {
+      return error;
+    }
+
     const result = withStudyImpact(workingDirectory, await buildStudyService().evaluateStudy(workingDirectory));
     return {
       content: [{ type: 'text', text: formatStudyStatus('Codebase Study Evaluation', result) }],
@@ -393,12 +393,12 @@ async function handleEvaluateCodebaseStudy(args) {
 }
 
 async function handleBenchmarkCodebaseStudy(args) {
-  const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
-  if (error) {
-    return error;
-  }
-
   try {
+    const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
+    if (error) {
+      return error;
+    }
+
     const result = withStudyImpact(workingDirectory, await buildStudyService().benchmarkStudy(workingDirectory));
     return {
       content: [{ type: 'text', text: formatStudyStatus('Codebase Study Benchmark', result) }],
@@ -410,12 +410,12 @@ async function handleBenchmarkCodebaseStudy(args) {
 }
 
 async function handleGetCodebaseStudyProfileOverride(args) {
-  const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
-  if (error) {
-    return error;
-  }
-
   try {
+    const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
+    if (error) {
+      return error;
+    }
+
     const result = await buildStudyService().getStudyProfileOverrideStatus(workingDirectory);
     return {
       content: [{ type: 'text', text: formatStudyStatus('Codebase Study Profile Override', result) }],
@@ -427,17 +427,17 @@ async function handleGetCodebaseStudyProfileOverride(args) {
 }
 
 async function handleSaveCodebaseStudyProfileOverride(args) {
-  const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
-  if (error) {
-    return error;
-  }
-
-  const override = args?.override;
-  if ((override === undefined || override === null || override === '') && args?.clear !== true) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'override is required unless clear is true');
-  }
-
   try {
+    const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
+    if (error) {
+      return error;
+    }
+
+    const override = args?.override;
+    if ((override === undefined || override === null || override === '') && args?.clear !== true) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'override is required unless clear is true');
+    }
+
     const result = await buildStudyService().saveStudyProfileOverride(workingDirectory, override, {
       clear: args?.clear === true,
     });
@@ -451,31 +451,31 @@ async function handleSaveCodebaseStudyProfileOverride(args) {
 }
 
 async function handlePreviewCodebaseStudyBootstrap(args) {
-  const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
-  if (error) {
-    return error;
-  }
-
-  const proposalSignificanceLevel = args?.proposal_significance_level === undefined || args?.proposal_significance_level === null || args?.proposal_significance_level === ''
-    ? DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL
-    : normalizeStudyThresholdLevel(args?.proposal_significance_level, null);
-  const proposalMinScore = Number.isInteger(args?.proposal_min_score) ? args?.proposal_min_score : null;
-  const initialMaxBatches = Number.isInteger(args?.initial_max_batches) ? args.initial_max_batches : DEFAULT_BOOTSTRAP_BATCHES;
-
-  if (args?.proposal_significance_level !== undefined && !proposalSignificanceLevel) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_significance_level must be one of: none, baseline, low, moderate, high, critical');
-  }
-  if (args?.proposal_min_score !== undefined && (!Number.isInteger(args.proposal_min_score) || args.proposal_min_score < 0)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_min_score must be a non-negative integer');
-  }
-  if (args?.proposal_limit !== undefined && (!Number.isInteger(args.proposal_limit) || args.proposal_limit <= 0)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_limit must be a positive integer');
-  }
-  if (args?.initial_max_batches !== undefined && (!Number.isInteger(args.initial_max_batches) || args.initial_max_batches <= 0)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'initial_max_batches must be a positive integer');
-  }
-
   try {
+    const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
+    if (error) {
+      return error;
+    }
+
+    const proposalSignificanceLevel = args?.proposal_significance_level === undefined || args?.proposal_significance_level === null || args?.proposal_significance_level === ''
+      ? DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL
+      : normalizeStudyThresholdLevel(args?.proposal_significance_level, null);
+    const proposalMinScore = Number.isInteger(args?.proposal_min_score) ? args?.proposal_min_score : null;
+    const initialMaxBatches = Number.isInteger(args?.initial_max_batches) ? args.initial_max_batches : DEFAULT_BOOTSTRAP_BATCHES;
+
+    if (args?.proposal_significance_level !== undefined && !proposalSignificanceLevel) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_significance_level must be one of: none, baseline, low, moderate, high, critical');
+    }
+    if (args?.proposal_min_score !== undefined && (!Number.isInteger(args.proposal_min_score) || args.proposal_min_score < 0)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_min_score must be a non-negative integer');
+    }
+    if (args?.proposal_limit !== undefined && (!Number.isInteger(args.proposal_limit) || args.proposal_limit <= 0)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_limit must be a positive integer');
+    }
+    if (args?.initial_max_batches !== undefined && (!Number.isInteger(args.initial_max_batches) || args.initial_max_batches <= 0)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'initial_max_batches must be a positive integer');
+    }
+
     const result = withStudyImpact(workingDirectory, await buildStudyService().previewBootstrapStudy(workingDirectory, {
       project: typeof args?.project === 'string' ? args.project : undefined,
       scheduleName: typeof args?.name === 'string' ? args.name : undefined,
@@ -498,48 +498,48 @@ async function handlePreviewCodebaseStudyBootstrap(args) {
 }
 
 async function handleBootstrapCodebaseStudy(args) {
-  const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
-  if (error) {
-    return error;
-  }
-
-  const cronExpression = typeof args?.cron_expression === 'string' && args.cron_expression.trim()
-    ? args.cron_expression.trim()
-    : DEFAULT_BOOTSTRAP_CRON;
-  const scheduleName = typeof args?.name === 'string' && args.name.trim()
-    ? args.name.trim()
-    : `codebase-study:${path.basename(workingDirectory)}`;
-  const enabled = args?.enabled !== false;
-  const timezone = typeof args?.timezone === 'string' && args.timezone.trim()
-    ? args.timezone.trim()
-    : null;
-  const versionIntent = resolveVersionIntent(args?.version_intent);
-  const submitProposals = args?.submit_proposals === true;
-  const proposalLimit = Number.isInteger(args?.proposal_limit) ? args.proposal_limit : null;
-  const proposalSignificanceLevel = args?.proposal_significance_level === undefined || args?.proposal_significance_level === null || args?.proposal_significance_level === ''
-    ? DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL
-    : normalizeStudyThresholdLevel(args?.proposal_significance_level, null);
-  const proposalMinScore = Number.isInteger(args?.proposal_min_score) ? args?.proposal_min_score : null;
-  const initialMaxBatches = Number.isInteger(args?.initial_max_batches) ? args.initial_max_batches : DEFAULT_BOOTSTRAP_BATCHES;
-  const createSchedule = args?.create_schedule !== false;
-  const runInitialStudy = args?.run_initial_study !== false;
-  const runBenchmark = args?.run_benchmark !== false;
-  const writeProfileScaffold = args?.write_profile_scaffold === true;
-
-  if (args?.proposal_significance_level !== undefined && !proposalSignificanceLevel) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_significance_level must be one of: none, baseline, low, moderate, high, critical');
-  }
-  if (args?.proposal_min_score !== undefined && (!Number.isInteger(args.proposal_min_score) || args.proposal_min_score < 0)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_min_score must be a non-negative integer');
-  }
-  if (args?.proposal_limit !== undefined && (!Number.isInteger(args.proposal_limit) || args.proposal_limit <= 0)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_limit must be a positive integer');
-  }
-  if (args?.initial_max_batches !== undefined && (!Number.isInteger(args.initial_max_batches) || args.initial_max_batches <= 0)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'initial_max_batches must be a positive integer');
-  }
-
   try {
+    const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
+    if (error) {
+      return error;
+    }
+
+    const cronExpression = typeof args?.cron_expression === 'string' && args.cron_expression.trim()
+      ? args.cron_expression.trim()
+      : DEFAULT_BOOTSTRAP_CRON;
+    const scheduleName = typeof args?.name === 'string' && args.name.trim()
+      ? args.name.trim()
+      : `codebase-study:${path.basename(workingDirectory)}`;
+    const enabled = args?.enabled !== false;
+    const timezone = typeof args?.timezone === 'string' && args.timezone.trim()
+      ? args.timezone.trim()
+      : null;
+    const versionIntent = resolveVersionIntent(args?.version_intent);
+    const submitProposals = args?.submit_proposals === true;
+    const proposalLimit = Number.isInteger(args?.proposal_limit) ? args.proposal_limit : null;
+    const proposalSignificanceLevel = args?.proposal_significance_level === undefined || args?.proposal_significance_level === null || args?.proposal_significance_level === ''
+      ? DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL
+      : normalizeStudyThresholdLevel(args?.proposal_significance_level, null);
+    const proposalMinScore = Number.isInteger(args?.proposal_min_score) ? args?.proposal_min_score : null;
+    const initialMaxBatches = Number.isInteger(args?.initial_max_batches) ? args.initial_max_batches : DEFAULT_BOOTSTRAP_BATCHES;
+    const createSchedule = args?.create_schedule !== false;
+    const runInitialStudy = args?.run_initial_study !== false;
+    const runBenchmark = args?.run_benchmark !== false;
+    const writeProfileScaffold = args?.write_profile_scaffold === true;
+
+    if (args?.proposal_significance_level !== undefined && !proposalSignificanceLevel) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_significance_level must be one of: none, baseline, low, moderate, high, critical');
+    }
+    if (args?.proposal_min_score !== undefined && (!Number.isInteger(args.proposal_min_score) || args.proposal_min_score < 0)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_min_score must be a non-negative integer');
+    }
+    if (args?.proposal_limit !== undefined && (!Number.isInteger(args.proposal_limit) || args.proposal_limit <= 0)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_limit must be a positive integer');
+    }
+    if (args?.initial_max_batches !== undefined && (!Number.isInteger(args.initial_max_batches) || args.initial_max_batches <= 0)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'initial_max_batches must be a positive integer');
+    }
+
     const result = withStudyImpact(workingDirectory, await buildStudyService().bootstrapStudy(workingDirectory, {
       project: typeof args?.project === 'string' ? args.project : undefined,
       runInitialStudy,
@@ -597,12 +597,12 @@ async function handleBootstrapCodebaseStudy(args) {
 }
 
 async function handleResetCodebaseStudy(args) {
-  const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
-  if (error) {
-    return error;
-  }
-
   try {
+    const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
+    if (error) {
+      return error;
+    }
+
     const result = await buildStudyService().resetStudy(workingDirectory);
     return {
       content: [{ type: 'text', text: formatStudyStatus('Codebase Study Reset', result) }],
@@ -614,48 +614,48 @@ async function handleResetCodebaseStudy(args) {
 }
 
 async function handleConfigureStudySchedule(args) {
-  const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
-  if (error) {
-    return error;
-  }
-
-  const cronExpression = typeof args?.cron_expression === 'string' && args.cron_expression.trim()
-    ? args.cron_expression.trim()
-    : DEFAULT_CRON;
-  const scheduleName = typeof args?.name === 'string' && args.name.trim()
-    ? args.name.trim()
-    : `codebase-study:${path.basename(workingDirectory)}`;
-  const enabled = args?.enabled !== false;
-  const timezone = typeof args?.timezone === 'string' && args.timezone.trim()
-    ? args.timezone.trim()
-    : null;
-  const versionIntent = resolveVersionIntent(args?.version_intent);
-  const submitProposals = args?.submit_proposals === true;
-  const proposalLimit = Number.isInteger(args?.proposal_limit) ? args.proposal_limit : null;
-  const proposalSignificanceLevel = args?.proposal_significance_level === undefined || args?.proposal_significance_level === null || args?.proposal_significance_level === ''
-    ? DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL
-    : normalizeStudyThresholdLevel(args?.proposal_significance_level, null);
-  const proposalMinScore = Number.isInteger(args?.proposal_min_score) ? args.proposal_min_score : null;
-  if (args?.version_intent !== undefined && typeof args.version_intent !== 'string') {
-    return makeError(ErrorCodes.INVALID_PARAM, 'version_intent must be a string');
-  }
-  if (args?.version_intent !== undefined && !normalizeVersionIntent(args.version_intent)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'version_intent must be one of: feature, fix, breaking, internal');
-  }
-  if (args?.submit_proposals !== undefined && typeof args.submit_proposals !== 'boolean') {
-    return makeError(ErrorCodes.INVALID_PARAM, 'submit_proposals must be a boolean');
-  }
-  if (args?.proposal_limit !== undefined && (!Number.isInteger(args.proposal_limit) || args.proposal_limit <= 0)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_limit must be a positive integer');
-  }
-  if (args?.proposal_significance_level !== undefined && !proposalSignificanceLevel) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_significance_level must be one of: none, baseline, low, moderate, high, critical');
-  }
-  if (args?.proposal_min_score !== undefined && (!Number.isInteger(args.proposal_min_score) || args.proposal_min_score < 0)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'proposal_min_score must be a non-negative integer');
-  }
-
   try {
+    const { workingDirectory, error } = resolveWorkingDirectoryArg(args);
+    if (error) {
+      return error;
+    }
+
+    const cronExpression = typeof args?.cron_expression === 'string' && args.cron_expression.trim()
+      ? args.cron_expression.trim()
+      : DEFAULT_CRON;
+    const scheduleName = typeof args?.name === 'string' && args.name.trim()
+      ? args.name.trim()
+      : `codebase-study:${path.basename(workingDirectory)}`;
+    const enabled = args?.enabled !== false;
+    const timezone = typeof args?.timezone === 'string' && args.timezone.trim()
+      ? args.timezone.trim()
+      : null;
+    const versionIntent = resolveVersionIntent(args?.version_intent);
+    const submitProposals = args?.submit_proposals === true;
+    const proposalLimit = Number.isInteger(args?.proposal_limit) ? args.proposal_limit : null;
+    const proposalSignificanceLevel = args?.proposal_significance_level === undefined || args?.proposal_significance_level === null || args?.proposal_significance_level === ''
+      ? DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL
+      : normalizeStudyThresholdLevel(args?.proposal_significance_level, null);
+    const proposalMinScore = Number.isInteger(args?.proposal_min_score) ? args.proposal_min_score : null;
+    if (args?.version_intent !== undefined && typeof args.version_intent !== 'string') {
+      return makeError(ErrorCodes.INVALID_PARAM, 'version_intent must be a string');
+    }
+    if (args?.version_intent !== undefined && !normalizeVersionIntent(args.version_intent)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'version_intent must be one of: feature, fix, breaking, internal');
+    }
+    if (args?.submit_proposals !== undefined && typeof args.submit_proposals !== 'boolean') {
+      return makeError(ErrorCodes.INVALID_PARAM, 'submit_proposals must be a boolean');
+    }
+    if (args?.proposal_limit !== undefined && (!Number.isInteger(args.proposal_limit) || args.proposal_limit <= 0)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_limit must be a positive integer');
+    }
+    if (args?.proposal_significance_level !== undefined && !proposalSignificanceLevel) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_significance_level must be one of: none, baseline, low, moderate, high, critical');
+    }
+    if (args?.proposal_min_score !== undefined && (!Number.isInteger(args.proposal_min_score) || args.proposal_min_score < 0)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'proposal_min_score must be a non-negative integer');
+    }
+
     const { schedule } = createOrUpdateStudySchedule({
       workingDirectory,
       scheduleName,

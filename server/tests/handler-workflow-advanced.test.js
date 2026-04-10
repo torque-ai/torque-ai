@@ -591,8 +591,8 @@ describe('workflow-advanced handlers', () => {
         error_output: 'manual override'
       });
       expect(workflowCountSpy).toHaveBeenCalledWith('wf-1');
-      // unblockTask sets status to 'queued' (not 'pending') and relies on queue processing
-      expect(updateStatusSpy).toHaveBeenCalledWith('dep', 'queued');
+      // unblockTask sets status to 'queued' via clearTaskBlockerSnapshot which passes context
+      expect(updateStatusSpy).toHaveBeenCalledWith('dep', 'queued', expect.objectContaining({}));
       expect(textOf(result)).toContain('Task Skipped');
       expect(textOf(result)).toContain('manual override');
     });
