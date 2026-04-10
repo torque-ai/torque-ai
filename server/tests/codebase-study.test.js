@@ -4,7 +4,7 @@ const childProcess = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { benchmarkStudyArtifacts } = require('../integrations/codebase-study-engine');
+const { benchmarkStudyArtifacts, buildTaskStudyContextEnvelope } = require('../integrations/codebase-study-engine');
 
 const patchedExecFileSync = childProcess.execFileSync;
 const patchedSpawnSync = childProcess.spawnSync;
@@ -399,6 +399,610 @@ describe('codebase study integration', () => {
     expect(summary).not.toContain('**Validation and tests:**');
   });
 
+  it('prioritizes polyglot runtime entrypoints over internal hotspots in generic repos', async () => {
+    repoDir = createRepo({
+      'README.md': '# Snap fixture\n\nMixed-runtime repo for study coverage.\n',
+      'SnapScope.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00\n',
+      'global.json': JSON.stringify({ sdk: { version: '8.0.100' } }, null, 2) + '\n',
+      'pyproject.toml': '[project]\nname = "snap-fixture"\nversion = "0.1.0"\n[project.optional-dependencies]\ndev = ["pytest"]\n',
+      'scripts/build.ps1': 'Write-Host "build"\n',
+      'src/SnapScope.Cli/Program.cs': [
+        'using System;',
+        'namespace SnapScope.Cli;',
+        'public static class Program {',
+        '  public static void Main(string[] args) { Console.WriteLine("snap"); }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/recovery/index.js': 'module.exports = { runRecovery() { return true; } };\n',
+      'tools/peek-server/peek_server/cli.py': [
+        'def main():',
+        '    return 0',
+        '',
+      ].join('\n'),
+      'tools/peek-server/peek_server/routes/sequence.py': [
+        'def run_sequence(steps):',
+        '    return len(steps)',
+        '',
+      ].join('\n'),
+      'tests/recovery-executor.test.js': 'test("recovery", () => expect(true).toBe(true));\n',
+    });
+
+    const { service } = createService();
+    await service.runStudyCycle(repoDir);
+
+    const knowledgePack = readKnowledgePack(repoDir);
+    expect(knowledgePack.study_profile.framework_detection).toEqual(expect.objectContaining({
+      archetype: 'polyglot-application',
+      frameworks: expect.arrayContaining(['.NET', 'Python']),
+    }));
+    expect(knowledgePack.entrypoints[0].file).toBe('src/SnapScope.Cli/Program.cs');
+    expect(knowledgePack.entrypoints.slice(0, 3).map((entrypoint) => entrypoint.file)).toEqual(expect.arrayContaining([
+      'src/SnapScope.Cli/Program.cs',
+      'tools/peek-server/peek_server/cli.py',
+    ]));
+    expect(
+      knowledgePack.entrypoints.findIndex((entrypoint) => entrypoint.file === 'src/recovery/index.js')
+    ).toBeGreaterThan(
+      knowledgePack.entrypoints.findIndex((entrypoint) => entrypoint.file === 'src/SnapScope.Cli/Program.cs')
+    );
+    expect(
+      knowledgePack.expertise.change_playbooks.some((playbook) => (playbook.validation_commands || []).some((command) => command.startsWith('dotnet build')))
+    ).toBe(true);
+  });
+
+  it('ranks core implementation seams ahead of shallow tool entrypoints in generic dotnet repos', async () => {
+    repoDir = createRepo({
+      'example-project.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00\n',
+      'global.json': JSON.stringify({ sdk: { version: '8.0.100' } }, null, 2) + '\n',
+      'src/example-project.App/App.xaml.cs': [
+        'using System.Windows;',
+        'namespace example-project.App;',
+        'public partial class App : Application {',
+        '  protected override void OnStartup(StartupEventArgs e) {',
+        '    base.OnStartup(e);',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/example-project.App/Accounting/AccountDetailsTabViewModel.cs': [
+        'namespace example-project.App.Accounting;',
+        'public sealed class AccountDetailsTabViewModel {',
+        '  public void Load() { }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/example-project.App/Accounting/AccountImportTabViewModel.cs': [
+        'namespace example-project.App.Accounting;',
+        'public sealed class AccountImportTabViewModel {',
+        '  public void Import() { }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/example-project.Cli/Program.cs': [
+        'using example-project.Infrastructure.Ledger;',
+        'namespace example-project.Cli;',
+        'public static class Program {',
+        '  public static void Main(string[] args) {',
+        '    var engine = new LedgerPostingEngine(new EfLedgerPostingService(new DatabaseInitializer()), new DatabaseInitializer());',
+        '    engine.Post();',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/example-project.Infrastructure/Ledger/LedgerPostingEngine.cs': [
+        'using example-project.Infrastructure.Setup;',
+        'namespace example-project.Infrastructure.Ledger;',
+        'public interface ILedgerPostingEngine { void Post(); }',
+        'public sealed class LedgerPostingEngine {',
+        '  private readonly EfLedgerPostingService _postingService;',
+        '  private readonly DatabaseInitializer _initializer;',
+        '  public LedgerPostingEngine(EfLedgerPostingService postingService, DatabaseInitializer initializer) {',
+        '    _postingService = postingService;',
+        '    _initializer = initializer;',
+        '  }',
+        '  public void Post() {',
+        '    _initializer.EnsureReady();',
+        '    _postingService.Persist();',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/example-project.Infrastructure/Ledger/EfLedgerPostingService.cs': [
+        'using example-project.Infrastructure.Setup;',
+        'namespace example-project.Infrastructure.Ledger;',
+        'public sealed class EfLedgerPostingService {',
+        '  private readonly DatabaseInitializer _initializer;',
+        '  public EfLedgerPostingService(DatabaseInitializer initializer) {',
+        '    _initializer = initializer;',
+        '  }',
+        '  public void Persist() {',
+        '    _initializer.EnsureReady();',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/example-project.Infrastructure/Setup/DatabaseInitializer.cs': [
+        'namespace example-project.Infrastructure.Setup;',
+        'public sealed class DatabaseInitializer {',
+        '  public void EnsureReady() { }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/example-project.Infrastructure/Setup/DemoDataSeeder.cs': [
+        'namespace example-project.Infrastructure.Setup;',
+        'public sealed class DemoDataSeeder {',
+        '  public void Seed() { }',
+        '}',
+        '',
+      ].join('\n'),
+      'tools/ExcelTemplateGenerator/Program.cs': [
+        'namespace ExcelTemplateGenerator;',
+        'public static class Program {',
+        '  public static void Main(string[] args) { }',
+        '}',
+        '',
+      ].join('\n'),
+      'tests/example-project.App.Tests/Accounting/AccountDetailsTabViewModelTests.cs': 'public sealed class AccountDetailsTabViewModelTests {}\n',
+    });
+
+    const { service } = createService();
+    await service.runStudyCycle(repoDir);
+
+    const moduleIndex = readModuleIndex(repoDir);
+    const knowledgePack = readKnowledgePack(repoDir);
+    const hotspotFiles = knowledgePack.hotspots.map((hotspot) => hotspot.file);
+    const toolIndex = hotspotFiles.indexOf('tools/ExcelTemplateGenerator/Program.cs');
+    const presentationIndex = hotspotFiles.indexOf('src/example-project.App/Accounting/AccountDetailsTabViewModel.cs');
+    const coreIndices = [
+      'src/example-project.Infrastructure/Ledger/LedgerPostingEngine.cs',
+      'src/example-project.Infrastructure/Ledger/EfLedgerPostingService.cs',
+      'src/example-project.Infrastructure/Setup/DatabaseInitializer.cs',
+      'src/example-project.Infrastructure/Setup/DemoDataSeeder.cs',
+    ].map((filePath) => hotspotFiles.indexOf(filePath)).filter((index) => index >= 0);
+
+    expect(hotspotFiles.slice(0, 3)).toEqual(expect.arrayContaining([
+      'src/example-project.Infrastructure/Ledger/LedgerPostingEngine.cs',
+      'src/example-project.Infrastructure/Ledger/EfLedgerPostingService.cs',
+    ]));
+    expect(coreIndices.length).toBeGreaterThan(0);
+    if (toolIndex >= 0) {
+      expect(Math.min(...coreIndices)).toBeLessThan(toolIndex);
+    }
+    if (presentationIndex >= 0) {
+      expect(Math.min(...coreIndices)).toBeLessThan(presentationIndex);
+    }
+
+    const ledgerPostingEngine = moduleIndex.modules.find((entry) => entry.file === 'src/example-project.Infrastructure/Ledger/LedgerPostingEngine.cs');
+    const postingService = moduleIndex.modules.find((entry) => entry.file === 'src/example-project.Infrastructure/Ledger/EfLedgerPostingService.cs');
+    const cliProgram = moduleIndex.modules.find((entry) => entry.file === 'src/example-project.Cli/Program.cs');
+
+    expect(ledgerPostingEngine).toEqual(expect.objectContaining({
+      exports: expect.arrayContaining(['ILedgerPostingEngine', 'LedgerPostingEngine']),
+      deps: expect.arrayContaining([
+        'src/example-project.Infrastructure/Ledger/EfLedgerPostingService.cs',
+        'src/example-project.Infrastructure/Setup/DatabaseInitializer.cs',
+      ]),
+    }));
+    expect(postingService?.deps).toEqual(expect.arrayContaining([
+      'src/example-project.Infrastructure/Setup/DatabaseInitializer.cs',
+    ]));
+    expect(cliProgram?.deps).toEqual(expect.arrayContaining([
+      'src/example-project.Infrastructure/Ledger/LedgerPostingEngine.cs',
+      'src/example-project.Infrastructure/Ledger/EfLedgerPostingService.cs',
+    ]));
+  });
+
+  it('extracts constructor-injected C# service types as dependency tokens', () => {
+    const { service } = createService();
+    const hints = service._testing.extractCSharpReferenceHints([
+      'using Microsoft.Extensions.Logging;',
+      'namespace Demo.App.Services;',
+      'public sealed class OrderProcessor {',
+      '  public OrderProcessor(IFooRepository repo, IBarService bar, ILogger<OrderProcessor> logger) { }',
+      '}',
+      '',
+    ].join('\n'), 'src/App/Services/OrderProcessor.cs');
+
+    expect(hints.dependencyTokens).toEqual(expect.arrayContaining([
+      'IFooRepository',
+      'IBarService',
+      'ILogger',
+    ]));
+    expect(hints.constructorInjectedTokens).toEqual(expect.arrayContaining([
+      'IFooRepository',
+      'IBarService',
+      'ILogger',
+    ]));
+    expect(hints.constructorInjectedTokens).not.toContain('OrderProcessor');
+  });
+
+  it('maps C# interfaces to implementing class files', () => {
+    const { service } = createService();
+    const interfaceMap = service._testing.buildInterfaceImplementationMap([
+      {
+        file: 'src/App/Services/FooService.cs',
+        _extension: '.cs',
+        _content: 'namespace Demo.App.Services; public sealed class FooService : IFooService, IDisposable { }\n',
+      },
+      {
+        file: 'src/App/Services/BarService.cs',
+        _extension: '.cs',
+        _content: 'namespace Demo.App.Services; public sealed class BarService : IBarService { }\n',
+      },
+    ]);
+
+    expect(interfaceMap.get('IFooService')).toEqual(['src/App/Services/FooService.cs']);
+    expect(interfaceMap.get('IBarService')).toEqual(['src/App/Services/BarService.cs']);
+  });
+
+  it('extracts AddScoped/AddTransient/AddSingleton service registrations', () => {
+    const { service } = createService();
+    const registrations = service._testing.extractServiceRegistrations([
+      'namespace Demo.App.Startup;',
+      'public static class ServiceCollectionExtensions {',
+      '  public static void AddRuntimeServices(this IServiceCollection services, WebApplicationBuilder builder) {',
+      '    services.AddScoped<IFoo, FooImpl>();',
+      '    services.AddTransient<IBar, BarImpl>();',
+      '    builder.Services.AddSingleton<IBaz, BazImpl>();',
+      '  }',
+      '}',
+      '',
+    ].join('\n'));
+
+    expect(registrations).toEqual(expect.arrayContaining([
+      { interface: 'IFoo', implementation: 'FooImpl' },
+      { interface: 'IBar', implementation: 'BarImpl' },
+      { interface: 'IBaz', implementation: 'BazImpl' },
+    ]));
+  });
+
+  it('prefers constructor-injected, service-registered implementations for C# dependencies', async () => {
+    repoDir = createRepo({
+      'App.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00\n',
+      'global.json': JSON.stringify({ sdk: { version: '8.0.100' } }, null, 2) + '\n',
+      'src/App/Contracts/IFooService.cs': [
+        'namespace Demo.App.Contracts;',
+        'public interface IFooService {',
+        '  void Run();',
+        '}',
+        '',
+      ].join('\n'),
+      'src/App/Features/Orders/OrderProcessor.cs': [
+        'using Demo.App.Contracts;',
+        'namespace Demo.App.Features.Orders;',
+        'public sealed class OrderProcessor {',
+        '  private readonly IFooService _fooService;',
+        '  public OrderProcessor(IFooService fooService) {',
+        '    _fooService = fooService;',
+        '  }',
+        '  public void Process() {',
+        '    _fooService.Run();',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/App/Features/Orders/LocalFooService.cs': [
+        'using Demo.App.Contracts;',
+        'namespace Demo.App.Features.Orders;',
+        'public sealed class LocalFooService : IFooService {',
+        '  public void Run() { }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/App/Services/FooService.cs': [
+        'using Demo.App.Contracts;',
+        'namespace Demo.App.Services;',
+        'public sealed class FooService : IFooService {',
+        '  public void Run() { }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/App/Startup/ServiceCollectionExtensions.cs': [
+        'using Demo.App.Contracts;',
+        'using Demo.App.Services;',
+        'namespace Demo.App.Startup;',
+        'public static class ServiceCollectionExtensions {',
+        '  public static IServiceCollection AddAppServices(this IServiceCollection services) {',
+        '    services.AddScoped<IFooService, FooService>();',
+        '    return services;',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    });
+
+    const { service } = createService();
+    await service.runStudyCycle(repoDir);
+
+    const moduleIndex = readModuleIndex(repoDir);
+    const orderProcessor = moduleIndex.modules.find((entry) => entry.file === 'src/App/Features/Orders/OrderProcessor.cs');
+
+    expect(orderProcessor?.deps).toEqual(expect.arrayContaining([
+      'src/App/Services/FooService.cs',
+    ]));
+    expect(orderProcessor?.deps).not.toContain('src/App/Contracts/IFooService.cs');
+    expect(orderProcessor?.deps).not.toContain('src/App/Features/Orders/LocalFooService.cs');
+  });
+
+  it('builds briefing-oriented study context with diverse entrypoints and hotspot-first guidance', async () => {
+    repoDir = createRepo({
+      'README.md': '# Snap fixture\n\nMixed-runtime repo for study coverage.\n',
+      'SnapScope.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00\n',
+      'global.json': JSON.stringify({ sdk: { version: '8.0.100' } }, null, 2) + '\n',
+      'pyproject.toml': '[project]\nname = "snap-fixture"\nversion = "0.1.0"\n[project.optional-dependencies]\ndev = ["pytest"]\n',
+      'scripts/build.ps1': 'Write-Host "build"\n',
+      'src/SnapScope.Cli/Program.cs': [
+        'using System;',
+        'namespace SnapScope.Cli;',
+        'public static class Program {',
+        '  public static void Main(string[] args) { Console.WriteLine("snap"); }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/recovery/index.js': 'module.exports = { runRecovery() { return true; } };\n',
+      'tools/peek-server/peek_server/cli.py': [
+        'def main():',
+        '    return 0',
+        '',
+      ].join('\n'),
+      'tools/peek-server/peek_server/server.py': [
+        'def serve():',
+        '    return 0',
+        '',
+      ].join('\n'),
+      'tools/peek-server/peek_server/routes/sequence.py': [
+        'def run_sequence(steps):',
+        '    return len(steps)',
+        '',
+      ].join('\n'),
+      'tests/recovery-executor.test.js': 'test("recovery", () => expect(true).toBe(true));\n',
+    });
+
+    const { service } = createService();
+    await service.runStudyCycle(repoDir);
+
+    const envelope = buildTaskStudyContextEnvelope({
+      workingDirectory: repoDir,
+      taskDescription: [
+        'Read-only repo briefing. Return exactly 4 bullets and keep it under 140 words.',
+        '1. Primary runtime entrypoint.',
+        '2. Secondary important entrypoint or startup surface.',
+        '3. One high-risk subsystem or hotspot worth understanding first.',
+        '4. One validation command worth running first.',
+      ].join('\n'),
+    });
+
+    expect(envelope).not.toBeNull();
+    expect(envelope.study_context.relevant_entrypoints.map((item) => item.file)).toEqual([
+      'src/SnapScope.Cli/Program.cs',
+      'tools/peek-server/peek_server/cli.py',
+    ]);
+    expect(envelope.study_context.relevant_hotspots.length).toBeGreaterThan(0);
+    expect(envelope.study_context_summary.hotspot_files).toEqual(
+      envelope.study_context.relevant_hotspots.map((item) => item.file)
+    );
+    expect(envelope.study_context.relevant_subsystems.map((item) => item.label)).toEqual(expect.arrayContaining([
+      'SnapScope.Cli',
+      'peek-server/peek_server',
+    ]));
+    expect(envelope.study_context.relevant_subsystems.map((item) => item.label)).not.toEqual(expect.arrayContaining([
+      'src area',
+      'tools area',
+    ]));
+    expect(envelope.study_context_prompt).toContain('Relevant Hotspots');
+    expect(envelope.study_context_prompt).not.toContain('Representative Tests');
+  });
+
+  it('benchmarks repo-briefing quality using the persisted study context envelope', async () => {
+    repoDir = createRepo({
+      'README.md': '# Snap fixture\n\nMixed-runtime repo for study coverage.\n',
+      'SnapScope.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00\n',
+      'global.json': JSON.stringify({ sdk: { version: '8.0.100' } }, null, 2) + '\n',
+      'pyproject.toml': '[project]\nname = "snap-fixture"\nversion = "0.1.0"\n[project.optional-dependencies]\ndev = ["pytest"]\n',
+      'scripts/build.ps1': 'Write-Host "build"\n',
+      'src/SnapScope.Cli/Program.cs': [
+        'using System;',
+        'namespace SnapScope.Cli;',
+        'public static class Program {',
+        '  public static void Main(string[] args) { Console.WriteLine("snap"); }',
+        '}',
+        '',
+      ].join('\n'),
+      'src/recovery/index.js': 'module.exports = { runRecovery() { return true; } };\n',
+      'tools/peek-server/peek_server/cli.py': [
+        'def main():',
+        '    return 0',
+        '',
+      ].join('\n'),
+      'tools/peek-server/peek_server/server.py': [
+        'def serve():',
+        '    return 0',
+        '',
+      ].join('\n'),
+      'tools/peek-server/peek_server/routes/sequence.py': [
+        'def run_sequence(steps):',
+        '    return len(steps)',
+        '',
+      ].join('\n'),
+      'tests/recovery-executor.test.js': 'test("recovery", () => expect(true).toBe(true));\n',
+    });
+
+    const { service } = createService();
+    await service.runStudyCycle(repoDir);
+
+    const result = await service.benchmarkStudy(repoDir);
+    const repoBriefingCase = result.study_benchmark.cases.find((item) => item.scope_type === 'repo_briefing');
+
+    expect(repoBriefingCase).toEqual(expect.objectContaining({
+      verdict: 'pass',
+      answerability: 'strong',
+    }));
+    expect(repoBriefingCase.prompt_alignment).toEqual(expect.objectContaining({
+      score: expect.any(Number),
+      matched_entrypoints: expect.arrayContaining([
+        'src/SnapScope.Cli/Program.cs',
+      ]),
+      matched_hotspots: expect.any(Array),
+      matched_validation_commands: expect.arrayContaining([
+        'pwsh scripts/build.ps1',
+      ]),
+    }));
+    expect(repoBriefingCase.prompt_alignment.score).toBeGreaterThanOrEqual(80);
+  });
+
+  it('falls back to runtime-seam guidance when repo-briefing study impacts are generic', () => {
+    repoDir = createRepo({
+      'package.json': JSON.stringify({
+        name: 'generic-briefing-repo',
+      }, null, 2) + '\n',
+      'src/example-project.App/App.xaml.cs': 'public partial class App {}\n',
+      'src/example-project.Infrastructure/Banking/Presets/demo-gemstate-checking.json': '{}\n',
+      'tools/example-project.Tools.ApiKeys/Program.cs': 'public static class Program { public static void Main() {} }\n',
+    });
+    writeRepoFile(repoDir, 'docs/architecture/knowledge-pack.json', JSON.stringify({
+      version: 3,
+      generated_at: '2026-04-09T00:00:00.000Z',
+      repo: { name: 'generic-briefing-repo' },
+      study_profile: { id: 'generic-javascript-repo' },
+      entrypoints: [
+        { file: 'src/example-project.App/App.xaml.cs', role: 'Desktop application startup entrypoint' },
+        { file: 'tools/example-project.Tools.ApiKeys/Program.cs', role: 'CLI entrypoint' },
+      ],
+      subsystems: [],
+      flows: [],
+      hotspots: [
+        {
+          file: 'src/example-project.App/App.xaml.cs',
+          signal_type: 'runtime',
+          confidence: 'low',
+          reason: 'Representative file in src area.',
+        },
+        {
+          file: 'tools/example-project.Tools.ApiKeys/Program.cs',
+          signal_type: 'runtime',
+          confidence: 'low',
+          reason: 'Representative file in tools area.',
+        },
+      ],
+      expertise: {
+        invariants: [],
+        test_matrix: [],
+        change_playbooks: [],
+        impact_guidance: [
+          {
+            id: 'src-area-impact',
+            label: 'src area',
+            related_files: [
+              'src/example-project.App/App.xaml.cs',
+              'src/example-project.Infrastructure/Banking/Presets/demo-gemstate-checking.json',
+            ],
+            validation_commands: [
+              'dotnet build example-project.sln',
+              'pwsh scripts/build.ps1',
+            ],
+          },
+          {
+            id: 'tools-area-impact',
+            label: 'tools area',
+            related_files: [
+              'tools/example-project.Tools.ApiKeys/Program.cs',
+            ],
+            validation_commands: [
+              'dotnet build example-project.sln',
+            ],
+          },
+        ],
+      },
+    }, null, 2) + '\n');
+    writeRepoFile(repoDir, 'docs/architecture/study-evaluation.json', JSON.stringify({
+      summary: {
+        readiness: 'expert_ready',
+        grade: 'A',
+        score: 100,
+      },
+    }, null, 2) + '\n');
+    writeRepoFile(repoDir, 'docs/architecture/study-benchmark.json', JSON.stringify({
+      summary: {
+        grade: 'A',
+        score: 100,
+      },
+    }, null, 2) + '\n');
+
+    const envelope = buildTaskStudyContextEnvelope({
+      workingDirectory: repoDir,
+      taskDescription: [
+        'Read-only repo briefing. Return exactly 4 bullets and keep it under 140 words.',
+        '1. Primary runtime entrypoint.',
+        '2. Secondary important entrypoint or startup surface.',
+        '3. One high-risk subsystem or hotspot worth understanding first.',
+        '4. One validation command worth running first.',
+      ].join('\n'),
+    });
+
+    expect(envelope).not.toBeNull();
+    expect(envelope.study_context.relevant_hotspots).toEqual([]);
+    expect(envelope.study_context.change_guidance).toEqual([
+      expect.objectContaining({
+        label: 'Runtime seams',
+        related_files: [
+          'src/example-project.App/App.xaml.cs',
+          'tools/example-project.Tools.ApiKeys/Program.cs',
+        ],
+      }),
+    ]);
+    expect(envelope.study_context_summary.validation_commands).toEqual(expect.arrayContaining([
+      'dotnet build example-project.sln',
+      'pwsh scripts/build.ps1',
+    ]));
+    expect(envelope.study_context_prompt).not.toContain('src area');
+    expect(envelope.study_context_prompt).not.toContain('tools area');
+    expect(envelope.study_context_prompt).not.toContain('demo-gemstate-checking.json');
+  });
+
+  it('heals missing module entries for newly eligible tracked files even when the repository sha is unchanged', async () => {
+    repoDir = createRepo({
+      'package.json': JSON.stringify({
+        name: 'refresh-study-repo',
+        description: 'Study refresh fixture.',
+      }, null, 2) + '\n',
+      'src/index.js': 'module.exports = { boot() { return true; } };\n',
+      'src/Program.cs': [
+        'using System;',
+        'public static class Program {',
+        '  public static void Main(string[] args) { Console.WriteLine("ok"); }',
+        '}',
+        '',
+      ].join('\n'),
+    });
+
+    const { service } = createService();
+    await service.runStudyCycle(repoDir);
+
+    const statePath = path.join(repoDir, 'docs', 'architecture', 'study-state.json');
+    const moduleIndexPath = path.join(repoDir, 'docs', 'architecture', 'module-index.json');
+    const staleState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    const staleModuleIndex = JSON.parse(fs.readFileSync(moduleIndexPath, 'utf8'));
+    staleState.tracked_files = staleState.tracked_files.filter((filePath) => filePath !== 'src/Program.cs');
+    staleState.pending_files = [];
+    staleState.file_counts.tracked = staleState.tracked_files.length;
+    staleState.file_counts.pending = 0;
+    staleState.file_counts.up_to_date = staleState.tracked_files.length;
+    staleModuleIndex.modules = staleModuleIndex.modules.filter((entry) => entry.file !== 'src/Program.cs');
+    fs.writeFileSync(statePath, JSON.stringify(staleState, null, 2) + '\n', 'utf8');
+    fs.writeFileSync(moduleIndexPath, JSON.stringify(staleModuleIndex, null, 2) + '\n', 'utf8');
+
+    const refreshed = await service.runStudyCycle(repoDir);
+    const knowledgePack = readKnowledgePack(repoDir);
+    const moduleIndex = readModuleIndex(repoDir);
+
+    expect(refreshed.skipped).toBe(true);
+    expect(refreshed.reason).toBe('up_to_date');
+    expect(refreshed.module_entry_count).toBe(3);
+    expect(knowledgePack.entrypoints.map((entrypoint) => entrypoint.file)).toContain('src/Program.cs');
+    expect(moduleIndex.modules.map((entry) => entry.file)).toContain('src/Program.cs');
+  });
+
   it('writes a significant study delta and suggested proposals for core repo changes', async () => {
     repoDir = createRepo({
       'package.json': JSON.stringify({
@@ -748,6 +1352,37 @@ describe('codebase study integration', () => {
     expect(result.pending_count).toBe(0);
     expect(result.last_processed_count).toBe(7);
     expect(result.batch_count).toBe(2);
+  });
+
+  it('treats manual runs on unchanged repos as refresh passes instead of skips', async () => {
+    repoDir = createRepo({
+      'src/alpha.js': 'module.exports = 1;\n',
+      'src/beta.js': 'module.exports = 2;\n',
+    });
+
+    const { service } = createService();
+    await service.runStudyCycle(repoDir);
+
+    const refreshed = await service.runStudyCycle(repoDir, {
+      manualRunNow: true,
+    });
+
+    expect(refreshed.skipped).toBe(false);
+    expect(refreshed.batch_count).toBe(0);
+    expect(refreshed.batch_files).toEqual([]);
+    expect(refreshed.removed_files).toEqual([]);
+    expect(refreshed.pending_count).toBe(0);
+    expect(refreshed.last_processed_count).toBe(0);
+    expect(refreshed.last_result).toBe('refreshed_local');
+    expect(refreshed.run_count).toBe(2);
+
+    const studyDelta = readStudyDelta(repoDir);
+    expect(studyDelta.run).toEqual(expect.objectContaining({
+      mode: 'refresh',
+      manual_run_now: true,
+      force_refresh: true,
+      batch_count: 0,
+    }));
   });
 
   it('removes deleted files from the module index on later runs', async () => {
