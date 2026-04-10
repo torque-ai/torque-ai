@@ -30,6 +30,8 @@ const TIER_1 = [
   'configure_ci_provider',
   // Diffusion engine
   'submit_scout', 'create_diffusion_plan', 'diffusion_status',
+  // Factory
+  'factory_status', 'pause_project', 'resume_project', 'pause_all_projects', 'project_health',
   // Schedule management
   'list_scheduled', 'pause_scheduled', 'cancel_scheduled', 'schedule_task',
   // Context (compact session resume)
@@ -59,6 +61,8 @@ const TIER_2 = [
   'add_ts_method_to_class', 'replace_ts_method_body', 'add_import_statement',
   // Validation & maintenance
   'normalize_interface_formatting',
+  // Factory (extended)
+  'register_factory_project', 'list_factory_projects', 'scan_project_health', 'set_factory_trust_level',
 ];
 
 /**

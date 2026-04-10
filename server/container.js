@@ -315,6 +315,9 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('fileQuality', fileQuality);
     _defaultContainer.registerValue('policyProfileStore', policyProfileStore);
     _defaultContainer.registerValue('policyEvaluationStore', policyEvaluationStore);
+
+    const factoryHealth = require('./db/factory-health');
+    _defaultContainer.registerValue('factoryHealth', factoryHealth);
   }
   if (!_defaultContainer.has('providerScoring')) {
     const { createProviderScoring } = require('./db/provider-scoring');

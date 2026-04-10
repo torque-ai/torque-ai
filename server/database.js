@@ -58,6 +58,7 @@ const ciCache = require('./db/ci-cache');
 const modelRoles = require('./db/model-roles');
 const taskCore = require('./db/task-core');
 const configCore = require('./db/config-core');
+const factoryHealth = require('./db/factory-health');
 
 
 
@@ -148,7 +149,9 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   'task_checkpoints', 'task_event_subscriptions', 'task_events',
   // Misc
   'success_metrics', 'bulk_operations', 'duration_predictions', 'prediction_models',
-  'query_stats', 'optimization_history'
+  'query_stats', 'optimization_history',
+  // Factory
+  'factory_projects', 'factory_health_snapshots', 'factory_health_findings',
 ]);
 
 // === SECURITY: Pattern for valid column definitions (name TYPE [constraints]) ===
@@ -280,6 +283,7 @@ function _wireAllModules() {
   inboundWebhooks.createInboundWebhooks({ db });
   ciCache.createCiCache({ db });
   modelRoles.createModelRoles({ db });
+  factoryHealth.setDb(db);
   workflowEngine.createWorkflowEngine({ db });
   validationRules.createValidationRules({ db, taskCore: { getTask } });
 
@@ -723,6 +727,7 @@ const _SUB_MODULES = [
   modelRoles,
   taskCore,
   configCore,
+  factoryHealth,
 ];
 
 // DI wiring internals and factory functions — excluded from the facade

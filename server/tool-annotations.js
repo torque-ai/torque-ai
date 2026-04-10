@@ -101,6 +101,12 @@ const OVERRIDES = Object.freeze({
   set_file_risk_override:          Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   batch_retry:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   batch_tag:                       Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  // Factory
+  pause_project:                   Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: true,  openWorldHint: false }),
+  resume_project:                  Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  pause_all_projects:              Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: true,  openWorldHint: false }),
+  factory_status:                  Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  project_health:                  Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
 
   // ── Coverage gap closure — tools with no matching convention rule ──
   // readOnly: queries, reads, analysis

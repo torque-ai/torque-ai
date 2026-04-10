@@ -67,6 +67,7 @@ const TOOLS = [
   ...require('./tool-defs/symbol-indexer-defs'),
   ...require('./tool-defs/template-defs'),
   ...require('./tool-defs/diffusion-defs'),
+  ...require('./tool-defs/factory-defs'),
 ];
 
 // ── Merge MCP tool annotations (Phase: MCP ecosystem improvements) ──
@@ -146,6 +147,7 @@ const HANDLER_MODULES = [
   require('./handlers/provider-scoring-handlers'),
   require('./handlers/diffusion-handlers'),
   require('./handlers/codebase-study-handlers'),
+  require('./handlers/factory-handlers'),
   evidenceRiskHandlers,
   reviewHandlers,
 ];
