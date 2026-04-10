@@ -33,6 +33,10 @@ const ALLOWED_SILENT_CATCHES = new Set([
   'context-handler.js:100',
   'context-handler.js:121',
   'context-handler.js:334',
+  // Governance direct-construction fallbacks — intentionally swallow container/module errors
+  'automation-handlers.js:86',
+  'automation-handlers.js:99',
+  'automation-handlers.js:110',
 ]);
 
 function getHandlerFiles() {

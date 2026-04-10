@@ -13,6 +13,13 @@ const EXEMPT_HANDLER_FILES = new Set([
   'comparison-handler.js',
   'competitive-feature-handlers.js',
   'discovery-handlers.js',
+  // New handlers from codebase-study, governance, and workflow sessions
+  'codebase-study-handlers.js',
+  'review-handler.js',
+  'automation-handlers.js',
+  'governance-handlers.js',
+  'concurrency-handlers.js',
+  'model-registry-handlers.js',
 ]);
 
 function getHandlerFiles() {

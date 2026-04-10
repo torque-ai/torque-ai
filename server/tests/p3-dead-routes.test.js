@@ -14,6 +14,8 @@ const INTERNAL_ONLY_ROUTES = new Set([
   'subscribe_task_events',
   // Internal handler without tool-def (accessed via task finalizer pipeline, not MCP)
   'get_verification_ledger',
+  // Workflow clone handler registered via routeMap but no standalone tool-def
+  'clone_workflow',
 ]);
 
 function loadToolDefinitionNames() {
