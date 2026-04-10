@@ -247,21 +247,16 @@ describe('workflow dag handlers', () => {
     it('returns currently blocked tasks with their active blockers', () => {
       mockDb.getWorkflow.mockReturnValue({ id: 'wf-1', name: 'Ship It' });
       mockDb.getBlockedTasks.mockReturnValue([
-        { id: 'task-deploy', workflow_id: 'wf-1', workflow_node_id: 'deploy' },
+        {
+          id: 'task-deploy', workflow_id: 'wf-1', workflow_node_id: 'deploy',
+          context: {
+            workflow_blocker: {
+              reason: 'Waiting on build',
+              unmet_dependencies: [{ node_id: 'build', task_id: 'task-build' }],
+            },
+          },
+        },
       ]);
-      mockDb.getTaskDependencies.mockReturnValue([
-        { depends_on_task_id: 'task-build', depends_on_status: 'running' },
-        { depends_on_task_id: 'task-lint', depends_on_status: 'completed' },
-      ]);
-      mockDb.getTask.mockImplementation((taskId) => {
-        if (taskId === 'task-build') {
-          return { id: 'task-build', workflow_node_id: 'build' };
-        }
-        if (taskId === 'task-lint') {
-          return { id: 'task-lint', workflow_node_id: 'lint' };
-        }
-        return null;
-      });
 
       const result = handlers.handleBlockedTasks({ workflow_id: 'wf-1' });
       const text = textOf(result);

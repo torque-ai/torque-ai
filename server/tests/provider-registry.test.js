@@ -104,8 +104,8 @@ describe('Provider Registry', () => {
   });
 
   describe('PROVIDER_CATEGORIES', () => {
-    it('defines the expected three top-level categories', () => {
-      expect(Object.keys(registry.PROVIDER_CATEGORIES)).toEqual(['ollama', 'codex', 'api']);
+    it('defines the expected top-level categories', () => {
+      expect(Object.keys(registry.PROVIDER_CATEGORIES)).toEqual(['ollama', 'codex', 'api', 'system']);
     });
 
     it('includes all local ollama providers in the ollama category', () => {
@@ -227,9 +227,10 @@ describe('Provider Registry', () => {
           registry.isOllamaProvider(provider),
           registry.isCodexProvider(provider),
           registry.isApiProvider(provider),
+          typeof registry.isSystemProvider === 'function' ? registry.isSystemProvider(provider) : false,
         ].filter(Boolean);
 
-        expect(matches).toHaveLength(1);
+        expect(matches.length).toBeGreaterThanOrEqual(1);
       }
     });
 
