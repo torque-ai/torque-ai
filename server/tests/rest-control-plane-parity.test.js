@@ -134,6 +134,12 @@ describe('REST control-plane parity', () => {
       );
       const dispatchHandlerNames = new Set(v2CpRoutes.map(r => r.handlerName));
 
+      // Find any gaps for diagnostic purposes
+      const missingFromDispatch = [...routeHandlerNames].filter(n => !dispatchHandlerNames.has(n));
+      if (missingFromDispatch.length > 0) {
+        console.warn('Handlers in routes but not dispatch:', missingFromDispatch);
+      }
+
       expect(dispatchHandlerNames.size).toBe(routeHandlerNames.size);
     });
   });
