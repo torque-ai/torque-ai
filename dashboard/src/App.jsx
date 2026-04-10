@@ -19,6 +19,7 @@ const WorkflowsHub = lazy(() => import('./views/WorkflowsHub'));
 const InfrastructureHub = lazy(() => import('./views/InfrastructureHub'));
 const OperationsHub = lazy(() => import('./views/OperationsHub'));
 const ProjectSettings = lazy(() => import('./views/ProjectSettings'));
+const Factory = lazy(() => import('./views/Factory'));
 
 function mergeTaskUpdates(prevTasks, incomingTasks) {
   const updates = new Map(
@@ -260,6 +261,7 @@ function AppInner() {
               <Route path="providers" element={<Providers statsVersion={statsVersion} tasksTick={tasksTick} />} />
               <Route path="infrastructure" element={<InfrastructureHub hostActivity={hostActivity} />} />
               <Route path="operations" element={<OperationsHub />} />
+              <Route path="factory" element={<Factory />} />
               <Route path="settings" element={<ProjectSettings />} />
               {/* Redirects for old bookmarks */}
               <Route path="project-settings" element={<Navigate to="/settings" replace />} />

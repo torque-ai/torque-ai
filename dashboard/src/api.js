@@ -569,4 +569,14 @@ export const routingTemplates = {
   categories: (opts = {}) => requestV2('/routing/categories', opts),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, versionControl, strategic, routingTemplates };
+export const factory = {
+  status: (opts = {}) => requestV2('/factory/status', opts),
+  projects: (opts = {}) => requestV2('/factory/projects', opts),
+  health: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}`, opts),
+  register: (data, opts = {}) => requestV2('/factory/projects', { method: 'POST', body: JSON.stringify(data), ...opts }),
+  pause: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/pause`, { method: 'POST', ...opts }),
+  resume: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/resume`, { method: 'POST', ...opts }),
+  pauseAll: (opts = {}) => requestV2('/factory/pause-all', { method: 'POST', ...opts }),
+};
+
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory };

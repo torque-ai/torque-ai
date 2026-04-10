@@ -299,6 +299,46 @@ const PII_SCAN_ROUTE = {
   handlerName: 'handlePiiScan',
 };
 
+const FACTORY_V2_ROUTES = [
+  { method: 'GET', path: '/api/v2/factory/status', tool: 'factory_status' },
+  { method: 'GET', path: '/api/v2/factory/projects', tool: 'list_factory_projects', mapQuery: true },
+  { method: 'POST', path: '/api/v2/factory/projects', tool: 'register_factory_project', mapBody: true },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)$/,
+    tool: 'project_health',
+    mapParams: ['project'],
+    mapQuery: true,
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/scan$/,
+    tool: 'scan_project_health',
+    mapParams: ['project'],
+    mapBody: true,
+  },
+  {
+    method: 'PUT',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/trust$/,
+    tool: 'set_factory_trust_level',
+    mapParams: ['project'],
+    mapBody: true,
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/pause$/,
+    tool: 'pause_project',
+    mapParams: ['project'],
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/resume$/,
+    tool: 'resume_project',
+    mapParams: ['project'],
+  },
+  { method: 'POST', path: '/api/v2/factory/pause-all', tool: 'pause_all_projects' },
+];
+
 const hasPiiScanRoute = routes.some((route) => route.method === PII_SCAN_ROUTE.method && route.path === PII_SCAN_ROUTE.path);
 if (!hasPiiScanRoute) {
   const shutdownRouteIndex = routes.findIndex((route) => route.method === 'POST' && route.path === '/api/shutdown');
@@ -333,7 +373,7 @@ function resolveApiRoutes(deps = {}) {
 
   // v2 discovery routes (from v2-router) must precede CP routes to avoid shadowing
   // e.g. GET /api/v2/providers has both a discovery handler and a CP handler
-  return v2Routes.concat(resolvedRoutes, createHealthRoutes(deps));
+  return v2Routes.concat(FACTORY_V2_ROUTES, resolvedRoutes, createHealthRoutes(deps));
 }
 
 function createApiServer(deps = {}) {
