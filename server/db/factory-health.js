@@ -147,11 +147,12 @@ function recordFindings(snapshotId, findings) {
   `);
   const insert = db.transaction((items) => {
     for (const f of items) {
+      if (!f.message && !f.title) continue; // skip findings with no message
       stmt.run(
         snapshotId,
-        f.severity,
-        f.message,
-        f.file_path || null,
+        f.severity || 'medium',
+        f.message || f.title || 'No description',
+        f.file_path || f.file || null,
         f.details ? JSON.stringify(f.details) : null,
       );
     }
