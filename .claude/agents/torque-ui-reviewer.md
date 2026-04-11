@@ -11,6 +11,12 @@ tools:
   - TaskGet
   - mcp__plugin_torque_torque__task_info
   - mcp__plugin_torque_torque__get_result
+  - mcp__plugin_torque_torque__peek_ui
+  - mcp__plugin_torque_torque__peek_interact
+  - mcp__plugin_torque_torque__peek_elements
+  - mcp__plugin_torque_torque__peek_launch
+  - mcp__plugin_torque_torque__peek_wait
+  - mcp__plugin_torque_torque__peek_diagnose
 model: opus
 ---
 
