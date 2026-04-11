@@ -3,7 +3,13 @@
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../logger').child({ component: 'factory-intake' });
 
-const VALID_SOURCES = new Set(['conversational', 'github_issue', 'scheduled_scan', 'self_generated', 'api']);
+const VALID_SOURCES = new Set([
+  'conversational', 'conversation',
+  'github_issue', 'github',
+  'scheduled_scan', 'scout',
+  'self_generated', 'ci',
+  'api', 'webhook', 'manual',
+]);
 const VALID_STATUSES = new Set(['intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped', 'rejected']);
 const VALID_PRIORITIES = new Set(['user_override', 'architect_assigned', 'high', 'medium', 'low', 'default']);
 
