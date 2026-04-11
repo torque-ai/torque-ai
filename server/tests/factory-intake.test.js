@@ -49,18 +49,18 @@ function createFactoryTables(db) {
       ON factory_health_findings(snapshot_id);
 
     CREATE TABLE IF NOT EXISTS factory_work_items (
-      id TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
       source TEXT NOT NULL,
       origin_json TEXT,
       title TEXT NOT NULL,
       description TEXT,
-      priority TEXT NOT NULL DEFAULT 'default',
+      priority INTEGER NOT NULL DEFAULT 50,
       requestor TEXT,
       constraints_json TEXT,
-      status TEXT NOT NULL DEFAULT 'intake',
+      status TEXT NOT NULL DEFAULT 'pending',
       reject_reason TEXT,
-      linked_item_id TEXT,
+      linked_item_id INTEGER,
       batch_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -121,20 +121,21 @@ describe('factory intake', () => {
       title: 'Add project intake coverage',
     });
 
-    expect(item.id).toBeTruthy();
+    expect(typeof item.id).toBe('number');
+    expect(item.id).toBeGreaterThan(0);
     expect(item.project_id).toBe(project.id);
     expect(item.title).toBe('Add project intake coverage');
-    expect(item.status).toBe('intake');
-    expect(item.source).toBe('conversational');
-    expect(item.priority).toBe('default');
+    expect(item.status).toBe('pending');
+    expect(item.source).toBe('conversation');
+    expect(item.priority).toBe(50);
   });
 
   test('listWorkItems returns items sorted by priority', () => {
-    factoryIntake.createWorkItem({ project_id: project.id, title: 'Low', priority: 'low' });
-    factoryIntake.createWorkItem({ project_id: project.id, title: 'Default', priority: 'default' });
-    factoryIntake.createWorkItem({ project_id: project.id, title: 'User Override', priority: 'user_override' });
-    factoryIntake.createWorkItem({ project_id: project.id, title: 'Medium', priority: 'medium' });
-    factoryIntake.createWorkItem({ project_id: project.id, title: 'High', priority: 'high' });
+    factoryIntake.createWorkItem({ project_id: project.id, title: 'Low', priority: 30 });
+    factoryIntake.createWorkItem({ project_id: project.id, title: 'Default', priority: 50 });
+    factoryIntake.createWorkItem({ project_id: project.id, title: 'User Override', priority: 100 });
+    factoryIntake.createWorkItem({ project_id: project.id, title: 'Medium', priority: 70 });
+    factoryIntake.createWorkItem({ project_id: project.id, title: 'High', priority: 90 });
 
     const items = factoryIntake.listWorkItems({ project_id: project.id });
 
@@ -155,11 +156,11 @@ describe('factory intake', () => {
 
     const updated = factoryIntake.updateWorkItem(item.id, {
       status: 'planned',
-      priority: 'high',
+      priority: 90,
     });
 
     expect(updated.status).toBe('planned');
-    expect(updated.priority).toBe('high');
+    expect(updated.priority).toBe(90);
   });
 
   test('rejectWorkItem sets status to rejected and stores reason', () => {
@@ -226,16 +227,16 @@ describe('factory intake', () => {
     expect(created).toHaveLength(3);
     expect(created[0]).toMatchObject({
       source: 'scheduled_scan',
-      priority: 'high',
+      priority: 90,
       requestor: 'scout',
       origin: { type: 'finding', severity: 'critical', file: 'src/planner.js' },
     });
     expect(created[1]).toMatchObject({
-      priority: 'medium',
+      priority: 70,
       origin: { type: 'finding', severity: 'high', file: 'src/queue.js' },
     });
     expect(created[2]).toMatchObject({
-      priority: 'default',
+      priority: 50,
       origin: { type: 'finding', severity: 'low', file: 'docs/factory.md' },
     });
   });
@@ -253,13 +254,13 @@ describe('factory intake', () => {
     const stats = factoryIntake.getIntakeStats(project.id);
 
     expect(stats).toMatchObject({
-      intake: 1,
+      pending: 1,
       planned: 1,
       rejected: 1,
       shipped: 1,
     });
-    expect(stats.intake).toBe(1);
-    expect(intake.status).toBe('intake');
+    expect(stats.pending).toBe(1);
+    expect(intake.status).toBe('pending');
   });
 
   test('handler: handleCreateWorkItem via MCP creates item', async () => {
@@ -267,7 +268,7 @@ describe('factory intake', () => {
       project: project.id,
       title: 'Investigate flaky intake test',
       description: 'Need a reliable regression test',
-      priority: 'high',
+      priority: 90,
       requestor: 'qa',
     });
     const data = parseJsonResponse(result);
@@ -277,10 +278,10 @@ describe('factory intake', () => {
       project_id: project.id,
       title: 'Investigate flaky intake test',
       description: 'Need a reliable regression test',
-      priority: 'high',
+      priority: 90,
       requestor: 'qa',
-      status: 'intake',
-      source: 'conversational',
+      status: 'pending',
+      source: 'conversation',
     });
   });
 
@@ -292,7 +293,7 @@ describe('factory intake', () => {
     const highItem = factoryIntake.createWorkItem({
       project_id: project.id,
       title: 'Urgent request',
-      priority: 'high',
+      priority: 90,
     });
     factoryIntake.updateWorkItem(defaultItem.id, { status: 'shipped' });
 
@@ -302,7 +303,7 @@ describe('factory intake', () => {
     expect(data.items).toHaveLength(2);
     expect(data.items.map(item => item.id)).toEqual([highItem.id, defaultItem.id]);
     expect(data.stats).toMatchObject({
-      intake: 1,
+      pending: 1,
       shipped: 1,
     });
   });

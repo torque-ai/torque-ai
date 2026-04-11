@@ -16,6 +16,8 @@ const EXPECTED_UNMAPPED_TOOLS = new Set([
   'set_provider_api_key', 'clear_provider_api_key',
   // Tool-def names differ from handler route names (strategic_config_* vs config_*)
   'strategic_config_get', 'strategic_config_set', 'strategic_config_templates', 'strategic_config_apply_template',
+  // Handler auto-dispatch derives poll_git_hub_issues from handlePollGitHubIssues
+  'poll_github_issues',
 ]);
 const PLUGIN_PROVIDED_TOOLS = new Set(
   remoteAgentToolDefs

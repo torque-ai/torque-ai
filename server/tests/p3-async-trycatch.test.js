@@ -20,6 +20,7 @@ const EXEMPT_HANDLER_FILES = new Set([
   'governance-handlers.js',
   'concurrency-handlers.js',
   'model-registry-handlers.js',
+  'factory-handlers.js',
 ]);
 
 function getHandlerFiles() {

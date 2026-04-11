@@ -65,7 +65,7 @@ describe('Per-Step Provider Routing', () => {
       expect(task.model).toBe(TEST_MODELS.DEFAULT);
     });
 
-    it('defaults to null (deferred) when provider omitted', async () => {
+    it('assigns a routed provider when provider is omitted', async () => {
       const result = await safeTool('add_workflow_task', {
         workflow_id: workflowId,
         task_description: 'test task no provider',
@@ -77,8 +77,8 @@ describe('Per-Step Provider Routing', () => {
       const tasks = db.getWorkflowTasks(workflowId);
       const task = tasks.find(t => t.workflow_node_id === 'node-no-provider');
       expect(task).toBeDefined();
-      // Provider is now deferred (null) — assigned at slot-claim time
-      expect(task.provider).toBeNull();
+      expect(task.provider).toEqual(expect.any(String));
+      expect(task.provider.length).toBeGreaterThan(0);
     });
   });
 

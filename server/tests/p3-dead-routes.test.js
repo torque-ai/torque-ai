@@ -16,6 +16,8 @@ const INTERNAL_ONLY_ROUTES = new Set([
   'get_verification_ledger',
   // Workflow clone handler registered via routeMap but no standalone tool-def
   'clone_workflow',
+  // Handler auto-dispatch derives poll_git_hub_issues from handlePollGitHubIssues
+  'poll_git_hub_issues',
 ]);
 
 function loadToolDefinitionNames() {

@@ -270,13 +270,16 @@ function createDbHarness(overrides = {}) {
 
       if (normalizedSql.startsWith("UPDATE tasks SET status = 'queued'")) {
         return {
-          run(newProvider, switchedAt, metadataJson, taskId) {
+          run(...args) {
+            const [switchedAt, metadataJson, taskId] = args.length === 4
+              ? [args[1], args[2], args[3]]
+              : args;
             const task = state.tasks.get(taskId);
             if (!task) return { changes: 0 };
 
             task.status = 'queued';
             task.original_provider = task.original_provider || task.provider;
-            task.provider = newProvider;
+            task.provider = null;
             task.provider_switched_at = switchedAt;
             task.retry_count = (task.retry_count || 0) + 1;
             task.started_at = null;
@@ -1132,7 +1135,7 @@ describe('provider-routing-core', () => {
       expect(core.getNextFallbackProvider('task-1')).toBeNull();
     });
 
-    it('approves provider switches, resets task execution fields, and emits queue-changed', () => {
+    it('approves provider switches, defers the new provider to metadata, resets task execution fields, and emits queue-changed', () => {
       const eventBus = require('../event-bus');
       const emitSpy = vi.spyOn(eventBus, 'emitQueueChanged');
       const { core } = loadCore({
@@ -1161,7 +1164,7 @@ describe('provider-routing-core', () => {
       const updated = core.approveProviderSwitch('task-1', 'claude-cli');
 
       expect(updated).toMatchObject({
-        provider: 'claude-cli',
+        provider: null,
         original_provider: 'codex',
         status: 'queued',
         retry_count: 1,
@@ -1174,7 +1177,9 @@ describe('provider-routing-core', () => {
         ollama_host_id: null,
         metadata: {
           provider_switch_target: 'claude-cli',
-          user_provider_override: true,
+          failover_provider: 'claude-cli',
+          failover_from: 'codex',
+          intended_provider: 'claude-cli',
         },
       });
       expect(updated.provider_switched_at).toEqual(expect.any(String));

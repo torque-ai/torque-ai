@@ -454,11 +454,14 @@ describe('handler/tool wiring parity', () => {
     'set_provider_api_key', 'clear_provider_api_key',
     // Tool-def names differ from handler route names (strategic_config_* vs config_*)
     'strategic_config_get', 'strategic_config_set', 'strategic_config_templates', 'strategic_config_apply_template',
+    // Handler auto-dispatch derives poll_git_hub_issues from handlePollGitHubIssues
+    'poll_github_issues',
   ]);
   // Handler route names that map to tool defs under different names
   const ALIASED_ROUTE_NAMES = new Set([
     'set_api_key', 'clear_api_key',
     'config_get', 'config_set', 'config_reset', 'config_templates', 'config_apply_template',
+    'poll_git_hub_issues',
     'subscribe_task_events', // SSE-only tool defined in mcp-sse.js
     'get_verification_ledger', // Internal handler without tool-def (accessed via task finalizer pipeline)
   ]);

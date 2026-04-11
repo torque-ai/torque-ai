@@ -10,13 +10,37 @@ const VALID_SOURCES = new Set([
   'self_generated', 'ci',
   'api', 'webhook', 'manual',
 ]);
-const VALID_STATUSES = new Set(['intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped', 'rejected']);
-const VALID_PRIORITIES = new Set(['user_override', 'architect_assigned', 'high', 'medium', 'low', 'default']);
+const VALID_STATUSES = new Set([
+  'pending', 'triaged', 'in_progress', 'completed', 'rejected',
+  'intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped',
+]);
+const PRIORITY_LEVELS = Object.freeze({
+  low: 30,
+  default: 50,
+  medium: 70,
+  architect_assigned: 80,
+  high: 90,
+  user_override: 100,
+});
+const VALID_PRIORITIES = new Set(Object.keys(PRIORITY_LEVELS));
 
 let db = null;
 
 function setDb(dbInstance) {
   db = dbInstance;
+}
+
+function normalizePriority(priority, fallback = PRIORITY_LEVELS.default) {
+  if (priority === undefined || priority === null || priority === '') {
+    return fallback;
+  }
+  if (typeof priority === 'number' && Number.isFinite(priority)) {
+    return Math.round(priority);
+  }
+  if (typeof priority === 'string' && Object.prototype.hasOwnProperty.call(PRIORITY_LEVELS, priority)) {
+    return PRIORITY_LEVELS[priority];
+  }
+  throw new Error(`Invalid priority: ${priority}`);
 }
 
 function createWorkItem({ project_id, source, origin, title, description, priority, requestor, constraints }) {
@@ -25,7 +49,7 @@ function createWorkItem({ project_id, source, origin, title, description, priori
   if (source && !VALID_SOURCES.has(source)) throw new Error(`Invalid source: ${source}`);
 
   // Table uses INTEGER AUTOINCREMENT id and INTEGER priority (from migration v14)
-  const numericPriority = typeof priority === 'number' ? priority : 50;
+  const numericPriority = normalizePriority(priority);
   const now = new Date().toISOString();
   const info = db.prepare(`
     INSERT INTO factory_work_items (project_id, source, origin_json, title, description, priority, requestor, constraints_json, status, created_at, updated_at)
@@ -85,8 +109,11 @@ function updateWorkItem(id, updates) {
   for (const [key, value] of Object.entries(updates)) {
     if (!allowed.includes(key)) continue;
     if (key === 'status' && !VALID_STATUSES.has(value)) throw new Error(`Invalid status: ${value}`);
-    if (key === 'priority' && !VALID_PRIORITIES.has(value)) throw new Error(`Invalid priority: ${value}`);
     sets.push(`${key} = ?`);
+    if (key === 'priority') {
+      params.push(normalizePriority(value));
+      continue;
+    }
     params.push(key === 'constraints_json' && typeof value === 'object' ? JSON.stringify(value) : value);
   }
 
@@ -149,7 +176,11 @@ function createFromFindings(project_id, findings, source) {
         source: source || 'scheduled_scan',
         title: f.title || f.message,
         description: f.description || `${f.severity || 'medium'} finding: ${f.title || f.message}`,
-        priority: f.severity === 'critical' ? 'high' : f.severity === 'high' ? 'medium' : 'default',
+        priority: f.severity === 'critical'
+          ? PRIORITY_LEVELS.high
+          : f.severity === 'high'
+            ? PRIORITY_LEVELS.medium
+            : PRIORITY_LEVELS.default,
         requestor: 'scout',
         origin: { type: 'finding', severity: f.severity, file: f.file },
       });
