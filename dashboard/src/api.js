@@ -592,6 +592,9 @@ export const factory = {
   startLoop: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/start`, { method: 'POST', ...opts }),
   advanceLoop: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/advance`, { method: 'POST', ...opts }),
   approveGate: (projectId, stage, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/approve`, { method: 'POST', body: JSON.stringify({ stage }), ...opts }),
+  analyzeBatch: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/analyze`, { method: 'POST', body: JSON.stringify(data), ...opts }),
+  driftStatus: (projectId, params = {}, opts = {}) => requestV2(`/factory/projects/${projectId}/drift${buildQuery(params)}`, opts),
+  recordCorrection: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/corrections`, { method: 'POST', body: JSON.stringify(data), ...opts }),
 };
 
 export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory };

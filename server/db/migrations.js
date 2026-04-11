@@ -350,6 +350,27 @@ const MIGRATIONS = [
     ].join('; '),
     down: 'SELECT 1',
   },
+  {
+    version: 18,
+    name: 'add_factory_feedback_table',
+    up: [
+      [
+        'CREATE TABLE IF NOT EXISTS factory_feedback (',
+        '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+        '  project_id TEXT NOT NULL REFERENCES factory_projects(id),',
+        '  batch_id TEXT,',
+        '  health_delta_json TEXT,',
+        '  execution_metrics_json TEXT,',
+        '  guardrail_activity_json TEXT,',
+        '  human_corrections_json TEXT,',
+        "  created_at TEXT NOT NULL DEFAULT (datetime('now'))",
+        ')',
+      ].join('\n'),
+      'CREATE INDEX IF NOT EXISTS idx_ff_project_time ON factory_feedback(project_id, created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_ff_batch ON factory_feedback(batch_id)',
+    ].join('; '),
+    down: 'DROP TABLE IF EXISTS factory_feedback',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

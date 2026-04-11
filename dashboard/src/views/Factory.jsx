@@ -406,6 +406,76 @@ function ProjectCard({ project, selected, busy, onSelect, onToggle }) {
 const GUARDRAIL_COLORS = { green: 'text-green-400', yellow: 'text-yellow-400', red: 'text-red-400' };
 const GUARDRAIL_LABELS = { green: 'Pass', yellow: 'Warning', red: 'Fail' };
 
+function FeedbackPanel({ project }) {
+  const [drift, setDrift] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const toast = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      try {
+        const [driftRes] = await Promise.all([
+          factoryApi.driftStatus(project.id).catch(() => null),
+        ]);
+        if (!cancelled) {
+          setDrift(driftRes);
+        }
+      } catch (e) {
+        if (!cancelled) toast.error('Failed to load feedback data');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id]);
+
+  if (loading) return <LoadingSkeleton rows={3} />;
+
+  return (
+    <section className="mt-6 bg-slate-800/50 rounded-lg border border-slate-700 p-4">
+      <h3 className="text-sm font-semibold text-slate-200 mb-3">Feedback & Drift</h3>
+
+      {drift && drift.drift_detected && (
+        <div className="mb-3 p-3 rounded bg-amber-900/30 border border-amber-600/30">
+          <p className="text-xs font-medium text-amber-300 mb-1">Drift Detected</p>
+          {drift.patterns.map((p, i) => (
+            <div key={i} className="text-xs text-slate-300 mb-1">
+              <span
+                className={`inline-block w-2 h-2 rounded-full mr-1 ${
+                  p.severity === 'critical'
+                    ? 'bg-red-400'
+                    : p.severity === 'warning'
+                      ? 'bg-amber-400'
+                      : 'bg-blue-400'
+                }`}
+              />
+              <span className="font-medium">{p.type.replace(/_/g, ' ')}:</span> {p.details}
+              {p.dimensions && p.dimensions.length > 0 && (
+                <span className="text-slate-500 ml-1">({p.dimensions.join(', ')})</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {drift && !drift.drift_detected && (
+        <p className="text-xs text-slate-400 mb-3">{drift.message || 'No drift patterns detected.'}</p>
+      )}
+
+      {!drift && (
+        <p className="text-xs text-slate-500">No feedback data available yet.</p>
+      )}
+    </section>
+  );
+}
+
 function GuardrailPanel({ project }) {
   const [status, setStatus] = useState(null);
   const [events, setEvents] = useState([]);
@@ -1435,6 +1505,10 @@ export default function Factory() {
                 <p className="text-xs text-slate-500 mt-1">Last action: {new Date(selectedProject.loop_last_action_at).toLocaleString()}</p>
               )}
             </section>
+          )}
+
+          {selectedProject && (
+            <FeedbackPanel project={selectedProject} />
           )}
 
           {selectedProject && (

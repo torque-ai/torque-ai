@@ -366,6 +366,48 @@ const tools = [
       required: ['project'],
     },
   },
+  {
+    name: 'analyze_batch',
+    description: 'Run post-batch feedback analysis for a factory project. Compares pre/post health scores, measures execution efficiency, and records the results.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        batch_id: { type: 'string', description: 'Batch/workflow ID to analyze' },
+        task_count: { type: 'integer', description: 'Number of tasks in the batch' },
+        retry_count: { type: 'integer', description: 'Number of retries/remediations' },
+        duration_seconds: { type: 'number', description: 'Total batch duration in seconds' },
+        estimated_cost: { type: 'number', description: 'Estimated cost of the batch' },
+        human_corrections: { type: 'array', items: { type: 'object' }, description: 'Any human corrections applied during the batch' },
+      },
+      required: ['project', 'batch_id'],
+    },
+  },
+  {
+    name: 'factory_drift_status',
+    description: 'Check for systemic drift patterns in a factory project. Detects priority oscillation, diminishing returns, scope creep, and cost creep.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        window: { type: 'integer', description: 'Number of recent batches to analyze (default: 10)' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'record_correction',
+    description: 'Record a human correction/override for architect calibration. Logged against the most recent feedback entry.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        type: { type: 'string', enum: ['priority_override', 'scope_change', 'plan_rejection', 'trust_adjustment'], description: 'Type of correction' },
+        description: { type: 'string', description: 'What was changed and why' },
+      },
+      required: ['project', 'type', 'description'],
+    },
+  },
 ];
 
 module.exports = tools;

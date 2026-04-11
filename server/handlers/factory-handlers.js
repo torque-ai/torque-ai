@@ -10,6 +10,7 @@ const { scoreAll } = require('../factory/scorer-registry');
 const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSummary } = require('../factory/guardrail-runner');
 const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
+const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
 function resolveProject(projectRef) {
@@ -379,6 +380,35 @@ async function handleFactoryLoopStatus(args) {
   return jsonResponse(result);
 }
 
+async function handleAnalyzeBatch(args) {
+  const project = resolveProject(args.project);
+  const result = await analyzeBatch(project.id, args.batch_id, {
+    task_count: args.task_count,
+    retry_count: args.retry_count,
+    duration_seconds: args.duration_seconds,
+    estimated_cost: args.estimated_cost,
+    human_corrections: args.human_corrections,
+  });
+  logger.info(`Batch analysis complete for "${project.name}" batch ${args.batch_id}`);
+  return jsonResponse(result);
+}
+
+async function handleFactoryDriftStatus(args) {
+  const project = resolveProject(args.project);
+  const result = detectDrift(project.id, { window: args.window });
+  return jsonResponse({ project: project.name, ...result });
+}
+
+async function handleRecordCorrection(args) {
+  const project = resolveProject(args.project);
+  const result = recordHumanCorrection(project.id, {
+    type: args.type,
+    description: args.description,
+  });
+  logger.info(`Correction recorded for "${project.name}": ${args.type}`);
+  return jsonResponse(result);
+}
+
 module.exports = {
   handleRegisterFactoryProject,
   handleListFactoryProjects,
@@ -406,4 +436,7 @@ module.exports = {
   handleAdvanceFactoryLoop,
   handleApproveFactoryGate,
   handleFactoryLoopStatus,
+  handleAnalyzeBatch,
+  handleFactoryDriftStatus,
+  handleRecordCorrection,
 };

@@ -61,6 +61,7 @@ const configCore = require('./db/config-core');
 const factoryHealth = require('./db/factory-health');
 const factoryIntake = require('./db/factory-intake');
 const factoryArchitect = require('./db/factory-architect');
+const factoryFeedback = require('./db/factory-feedback');
 
 
 
@@ -289,6 +290,7 @@ function _wireAllModules() {
   factoryHealth.setDb(db);
   factoryIntake.setDb(db);
   factoryArchitect.setDb(db);
+  factoryFeedback.setDb(db);
   workflowEngine.createWorkflowEngine({ db });
   validationRules.createValidationRules({ db, taskCore: { getTask } });
 
