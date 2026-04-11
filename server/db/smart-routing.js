@@ -887,19 +887,19 @@ function approveProviderSwitch(taskId, newProvider = 'claude-cli') {
   const currentMetadata = task.metadata && typeof task.metadata === 'object'
     ? { ...task.metadata }
     : (safeJsonParse(task.metadata, {}) || {});
-  // Preserve the original user_provider_override flag — do NOT stamp true on
-  // system-initiated failovers. Setting this to true makes downstream routing
-  // treat the fallback provider as if the user explicitly chose it, which
-  // prevents the provider from being corrected later and causes mislabeling
-  // (e.g., task shows "ollama-cloud" when codex actually executed it).
-  // Also preserve the original requested_provider so the audit trail shows
-  // what the user actually asked for.
-  if (!currentMetadata.user_provider_override) {
-    currentMetadata.failover_provider = newProvider;
-  }
+  // ALWAYS clear user_provider_override on failover. The flag means "the user
+  // chose THIS provider" — once we switch away from the user's chosen provider,
+  // the flag no longer applies to the new provider. Without clearing it,
+  // resolveProviderRouting treats the fallback target as an immutable user
+  // choice, causing mislabeling (task shows "ollama-cloud" when codex ran it).
+  //
+  // The original intent is preserved in original_requested_provider for audit.
   if (!currentMetadata.original_requested_provider && currentMetadata.requested_provider) {
     currentMetadata.original_requested_provider = currentMetadata.requested_provider;
   }
+  currentMetadata.failover_provider = newProvider;
+  currentMetadata.failover_from = task.provider || null;
+  delete currentMetadata.user_provider_override;
   delete currentMetadata.quota_overflow;
   delete currentMetadata.original_provider;
 

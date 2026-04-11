@@ -122,15 +122,20 @@ describe('Workflow pipeline bugs', () => {
       const task = db.getTask(taskId);
       expect(task.provider).toBe('groq');
       const meta = parseMeta(task);
-      // System-initiated failover should NOT set user_provider_override
+      // Failover should clear user_provider_override
       expect(meta.user_provider_override).toBeFalsy();
       // But should track the failover
       expect(meta.failover_provider).toBe('groq');
+      expect(meta.failover_from).toBe('codex');
       // Original requested_provider should be preserved
       expect(meta.original_requested_provider).toBe('codex');
     });
 
-    it('should preserve user_provider_override when it was already true', () => {
+    it('should CLEAR user_provider_override even when it was already true', () => {
+      // user_provider_override means "the user chose THIS provider." Once we
+      // switch away from the user's chosen provider, the flag no longer applies
+      // to the fallback target. Without clearing it, routing treats the fallback
+      // as an immutable user choice.
       const taskId = randomUUID();
       db.createTask({
         id: taskId,
@@ -153,9 +158,12 @@ describe('Workflow pipeline bugs', () => {
       const task = db.getTask(taskId);
       expect(task.provider).toBe('groq');
       const meta = parseMeta(task);
-      // user_provider_override was already true — should still be true
-      expect(meta.user_provider_override).toBe(true);
-      // Original intent should be tracked
+      // user_provider_override must be cleared — the user chose codex, not groq
+      expect(meta.user_provider_override).toBeFalsy();
+      // Failover tracking
+      expect(meta.failover_provider).toBe('groq');
+      expect(meta.failover_from).toBe('codex');
+      // Original intent preserved for audit
       expect(meta.original_requested_provider).toBe('codex');
     });
   });
