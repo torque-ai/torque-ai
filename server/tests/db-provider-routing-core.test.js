@@ -408,8 +408,9 @@ describe('db/provider-routing-core', () => {
 
       const updated = core.approveProviderSwitch(taskId, 'claude-cli');
       expect(updated.status).toBe('queued');
-      // Provider may be set directly or deferred via metadata (intended_provider)
-      const effectiveProvider = updated.provider || JSON.parse(updated.metadata || '{}').intended_provider;
+      // Provider is deferred via metadata.intended_provider (provider column set to NULL)
+      const meta = typeof updated.metadata === 'object' ? updated.metadata : JSON.parse(updated.metadata || '{}');
+      const effectiveProvider = updated.provider || meta.intended_provider;
       expect(effectiveProvider).toBe('claude-cli');
       expect(updated.original_provider).toBe('codex');
       expect(updated.retry_count).toBe(1);
