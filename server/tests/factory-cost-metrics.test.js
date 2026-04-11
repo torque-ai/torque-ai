@@ -1,6 +1,5 @@
-'use strict';
+import { describe, it, expect } from 'vitest';
 
-const { describe, it, expect } = require('vitest');
 const { getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
 
 describe('factory cost metrics', () => {
