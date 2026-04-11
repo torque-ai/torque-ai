@@ -725,6 +725,25 @@ function requeueTaskAfterAttemptedStart(id, additionalFields = {}) {
     };
   }
 
+  // For user-override tasks, preserve the provider column so the queue scheduler
+  // can start them correctly. Clearing to null causes the task to go through
+  // late-bind smart routing which ignores the user's explicit choice.
+  // The updateTaskStatus auto-clear at status='queued' also checks this, but
+  // only when provider is NOT explicitly passed — so we must omit it here
+  // rather than pass null.
+  let requeueProvider = null;
+  let shouldOmitProvider = false;
+  try {
+    const task = getTask(id);
+    const meta = normalizeMetadataObject(task?.metadata);
+    if (meta.user_provider_override && task?.provider) {
+      requeueProvider = task.provider;
+      shouldOmitProvider = false;
+    }
+  } catch { /* non-fatal — fall through to null */ }
+
+  const providerField = shouldOmitProvider ? {} : { provider: requeueProvider };
+
   return updateTaskStatus(id, 'queued', {
     started_at: null,
     completed_at: null,
@@ -733,7 +752,7 @@ function requeueTaskAfterAttemptedStart(id, additionalFields = {}) {
     exit_code: null,
     mcp_instance_id: null,
     ollama_host_id: null,
-    provider: null,
+    ...providerField,
     ...restFields,
     ...(metadataUpdate != null ? { metadata: metadataUpdate } : {}),
   });
