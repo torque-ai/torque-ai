@@ -38,6 +38,7 @@ You just spawned. You have no task IDs yet.
 - Do NOT call `task_info`, `get_result`, or any TORQUE monitoring tool. You have no IDs to monitor.
 - Do NOT call `await_task` or `await_workflow`. You have nothing to await.
 - Do NOT repeatedly message team lead. One status message, then wait.
+- Do NOT call ANY tools in a loop while waiting. You are WAITING — that means doing nothing until a message arrives. Your turn should end after claiming your task and optionally sending one status message.
 
 ### State 2: AWAITING COMPLETIONS
 
@@ -94,6 +95,8 @@ status: ready for commit + integration pass
 ```
 
 If any tasks were rejected and are in remediation, note that in your message and return to State 2 to await the remediation resubmissions.
+
+**After sending ALL APPROVED (or the remediation-pending variant), your work is done.** End your turn and wait for a shutdown request or new instructions from team lead. Do NOT call any tools. Do NOT send additional messages. Do NOT idle-cycle by repeatedly doing nothing — just stop.
 
 ## Routing Rules — MANDATORY
 
