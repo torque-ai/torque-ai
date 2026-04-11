@@ -7,6 +7,7 @@
  * Bug 2: Missing project and tags on workflow tasks — tags specified per-node
  *         and project specified at the workflow level should propagate to DB records.
  */
+// Smoke test 4: orphan fix + verify tags verified.
 
 'use strict';
 
