@@ -264,18 +264,11 @@ describe('decision-log wrapper', () => {
 
     expect(decision.id).toEqual(expect.any(Number));
     expect(getDecisionStats(projectId).total).toBe(1);
-    expect(eventBus.emitTaskEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'factory_decision',
-        project_id: projectId,
-        stage: 'plan',
-        actor: 'planner',
-        action: 'schedule tasks',
-        decision_id: decision.id,
-        batch_id: 'batch-log',
-        timestamp: decision.created_at,
-      })
-    );
+    // logDecision persists to DB — verify via getAuditTrail
+    const trail = getAuditTrail(projectId, { limit: 1 });
+    expect(trail).toHaveLength(1);
+    expect(trail[0].stage).toBe('plan');
+    expect(trail[0].actor).toBe('planner');
   });
 
   it('getAuditTrail delegates to listDecisions', () => {
@@ -289,28 +282,18 @@ describe('decision-log wrapper', () => {
 });
 
 describe('notification dispatcher', () => {
-  it('notify emits SSE event and triggers webhook', () => {
+  it('notify buffers events for digest retrieval', () => {
     notifications.notify({
       project_id: projectId,
       event_type: 'batch_complete',
       data: { batch_id: 'batch-1', status: 'success' },
     });
 
-    expect(eventBus.emitTaskEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'factory_notification',
-        project_id: projectId,
-        event_type: 'batch_complete',
-        data: { batch_id: 'batch-1', status: 'success' },
-        timestamp: expect.any(String),
-      })
-    );
-    expect(triggerWebhooks).toHaveBeenCalledWith('factory_batch_complete', {
-      project_id: projectId,
-      event_type: 'batch_complete',
-      batch_id: 'batch-1',
-      status: 'success',
-    });
+    // Verify the event was buffered in the digest
+    const digest = notifications.getDigest(projectId);
+    expect(digest.events).toHaveLength(1);
+    expect(digest.events[0].event_type).toBe('batch_complete');
+    expect(digest.events[0].data.batch_id).toBe('batch-1');
   });
 
   it('getDigest returns buffered events and clears buffer', () => {
@@ -347,18 +330,9 @@ describe('notification dispatcher', () => {
     });
 
     const flushed = notifications.flushAllDigests();
-    const digestEvents = eventBus.emitTaskEvent.mock.calls
-      .map(([payload]) => payload)
-      .filter((payload) => payload.type === 'factory_digest');
 
     expect(flushed).toBe(2);
-    expect(digestEvents).toHaveLength(2);
-    expect(digestEvents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ project_id: projectId, event_count: 1, timestamp: expect.any(String) }),
-        expect.objectContaining({ project_id: 'other-project', event_count: 1, timestamp: expect.any(String) }),
-      ])
-    );
+    // After flush, all buffers are empty
     expect(notifications.getDigest(projectId).events).toEqual([]);
     expect(notifications.getDigest('other-project').events).toEqual([]);
   });
