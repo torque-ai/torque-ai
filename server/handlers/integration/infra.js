@@ -497,8 +497,9 @@ function handleScanProject(args) {
           continue;
         }
         try {
-          const realFullPath = fs.realpathSync(fullPath);
-          if (!realFullPath.startsWith(projectPath)) continue;
+          const realFullPath = fs.realpathSync(fullPath).replace(/\\/g, '/');
+          const normalizedProjectPath = projectPath.replace(/\\/g, '/');
+          if (!realFullPath.startsWith(normalizedProjectPath)) continue;
         } catch {
           continue;
         }

@@ -98,12 +98,18 @@ async function handleScanProjectHealth(args) {
   const scanType = args.scan_type || 'incremental';
 
   // Run scan_project to get filesystem data
+  // scan_project returns { content: [{text: markdown}], scanResult: {structured data} }
+  // We need the scanResult object, not the markdown text
   let scanReport = {};
   try {
     const { handleScanProject } = require('../handlers/integration/infra');
-    const scanResult = handleScanProject({ path: project.path });
-    if (scanResult?.content?.[0]) {
-      scanReport = JSON.parse(scanResult.content[0].text);
+    const result = handleScanProject({
+      path: project.path,
+      source_dirs: ['server', 'dashboard/src', 'src'],
+    });
+    // Use the structured scanResult, not the markdown text
+    if (result?.scanResult && typeof result.scanResult === 'object') {
+      scanReport = result.scanResult;
     }
   } catch (err) {
     logger.warn(`scan_project failed for ${project.path}: ${err.message}`);

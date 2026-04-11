@@ -25,9 +25,10 @@ function getProjectOrThrow(project_id) {
 }
 
 function getCurrentLoopState(project) {
-  const loopState = project.loop_state || LOOP_STATES.IDLE;
+  const raw = project.loop_state || 'IDLE';
+  const loopState = raw.toUpperCase();
   if (!isValidState(loopState)) {
-    throw new Error(`Invalid loop state for project ${project.id}: ${String(loopState)}`);
+    throw new Error(`Invalid loop state for project ${project.id}: ${String(raw)}`);
   }
   return loopState;
 }
