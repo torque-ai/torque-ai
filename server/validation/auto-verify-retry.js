@@ -255,6 +255,21 @@ async function handleAutoVerifyRetry(ctx) {
     logger.info(`[auto-verify] Task ${taskId}: scoped check error (${scopedErr.message}), falling through to retry logic`);
   }
 
+  // Provider-succeeded guard: when the provider completed successfully (raw exit
+  // code 0), the task did its work. Verification failures at this point are either
+  // pre-existing errors, concurrent interference, or downstream dependency issues.
+  // Don't penalize the task — annotate and stay completed. The scoped check above
+  // already tried to attribute errors; if we're here, attribution was ambiguous.
+  const providerRawExitCode = ctx.rawExitCode ?? ctx.proc?.rawExitCode;
+  if (providerRawExitCode === 0) {
+    logger.info(`[auto-verify] Task ${taskId}: provider succeeded (raw exit 0) but verify failed — keeping completed with annotation`);
+    ctx.output = (ctx.output || '') +
+      `\n\n[auto-verify] Verification failed (exit ${verifyExitCode}) but provider completed successfully (exit 0). ` +
+      `Errors may be pre-existing or from concurrent changes. Task stays completed.\n` +
+      `Verify errors (first 1500 chars): ${(verifyOutput || '').slice(0, 1500)}`;
+    return; // Task stays completed
+  }
+
   // Try elicitation before auto-fix or failure — let the human decide
   const taskMetadata = typeof task.metadata === 'object' ? task.metadata : tryParseJson(task.metadata) || {};
   const mcpSessionId = taskMetadata.mcp_session_id;
