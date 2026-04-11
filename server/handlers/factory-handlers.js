@@ -3,6 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory-intake');
 const { scoreAll } = require('../factory/scorer-registry');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
@@ -208,6 +209,63 @@ async function handleFactoryStatus() {
   });
 }
 
+async function handleCreateWorkItem(args) {
+  const project = resolveProject(args.project);
+  const item = factoryIntake.createWorkItem({
+    project_id: project.id,
+    source: args.source,
+    title: args.title,
+    description: args.description,
+    priority: args.priority,
+    requestor: args.requestor,
+    origin: args.origin,
+    constraints: args.constraints,
+  });
+  return jsonResponse({ message: `Work item #${item.id} created`, item });
+}
+
+async function handleListWorkItems(args) {
+  const project = resolveProject(args.project);
+  const items = factoryIntake.listWorkItems({
+    project_id: project.id,
+    status: args.status,
+    limit: args.limit || 50,
+    offset: args.offset,
+  });
+  const stats = factoryIntake.getIntakeStats(project.id);
+  return jsonResponse({ items, stats });
+}
+
+async function handleUpdateWorkItem(args) {
+  const updates = {};
+  if (args.title !== undefined) updates.title = args.title;
+  if (args.description !== undefined) updates.description = args.description;
+  if (args.priority !== undefined) updates.priority = args.priority;
+  if (args.status !== undefined) updates.status = args.status;
+  if (args.batch_id !== undefined) updates.batch_id = args.batch_id;
+  if (args.linked_item_id !== undefined) updates.linked_item_id = args.linked_item_id;
+  if (args.constraints !== undefined) updates.constraints_json = args.constraints;
+  const item = factoryIntake.updateWorkItem(args.id, updates);
+  if (!item) throw new Error(`Work item not found: ${args.id}`);
+  return jsonResponse({ message: `Work item #${args.id} updated`, item });
+}
+
+async function handleRejectWorkItem(args) {
+  const item = factoryIntake.rejectWorkItem(args.id, args.reason);
+  if (!item) throw new Error(`Work item not found: ${args.id}`);
+  return jsonResponse({ message: `Work item #${args.id} rejected`, item });
+}
+
+async function handleIntakeFromFindings(args) {
+  const project = resolveProject(args.project);
+  const result = factoryIntake.createFromFindings(project.id, args.findings, args.source);
+  return jsonResponse({
+    message: `Imported ${result.created.length} items, ${result.skipped.length} skipped`,
+    created: result.created,
+    skipped: result.skipped,
+  });
+}
+
 module.exports = {
   handleRegisterFactoryProject,
   handleListFactoryProjects,
@@ -218,4 +276,9 @@ module.exports = {
   handleResumeProject,
   handlePauseAllProjects,
   handleFactoryStatus,
+  handleCreateWorkItem,
+  handleListWorkItems,
+  handleUpdateWorkItem,
+  handleRejectWorkItem,
+  handleIntakeFromFindings,
 };

@@ -318,6 +318,9 @@ function initModules(db, serverConfig) {
 
     const factoryHealth = require('./db/factory-health');
     _defaultContainer.registerValue('factoryHealth', factoryHealth);
+
+    const factoryIntake = require('./db/factory-intake');
+    _defaultContainer.registerValue('factoryIntake', factoryIntake);
   }
   if (!_defaultContainer.has('providerScoring')) {
     const { createProviderScoring } = require('./db/provider-scoring');

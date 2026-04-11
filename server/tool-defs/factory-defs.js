@@ -122,6 +122,94 @@ const tools = [
       properties: {},
     },
   },
+  {
+    name: 'create_work_item',
+    description: 'Create a new work item in the factory intake queue. Accepts work from any source (conversation, GitHub, scouts, CI, webhooks). Deduplicates by title within the same project.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        source: { type: 'string', enum: ['conversation', 'github', 'scout', 'ci', 'webhook', 'manual'], description: 'Where this work item originated' },
+        title: { type: 'string', description: 'Short title for the work item' },
+        description: { type: 'string', description: 'Detailed description of the work' },
+        priority: { type: 'integer', description: 'Priority 1-100 (higher = more urgent). Default: 50' },
+        requestor: { type: 'string', description: 'Who requested this work' },
+        origin: { type: 'object', description: 'Raw origin data (GitHub issue, scout finding, etc.)' },
+        constraints: { type: 'object', description: 'Constraints (deadline, budget, etc.)' },
+      },
+      required: ['project', 'source', 'title'],
+    },
+  },
+  {
+    name: 'list_work_items',
+    description: 'List work items in the factory intake queue, sorted by priority (highest first). Filter by project and/or status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        status: { type: 'string', enum: ['pending', 'triaged', 'in_progress', 'completed', 'rejected'], description: 'Filter by status' },
+        limit: { type: 'integer', description: 'Max items to return. Default: 50' },
+        offset: { type: 'integer', description: 'Offset for pagination' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'update_work_item',
+    description: 'Update a work item in the intake queue. Can change title, description, priority, status, or link to another item.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'Work item ID' },
+        title: { type: 'string', description: 'New title' },
+        description: { type: 'string', description: 'New description' },
+        priority: { type: 'integer', description: 'New priority (1-100)' },
+        status: { type: 'string', enum: ['pending', 'triaged', 'in_progress', 'completed', 'rejected'], description: 'New status' },
+        batch_id: { type: 'string', description: 'Link to a TORQUE batch/workflow' },
+        linked_item_id: { type: 'integer', description: 'Link to another work item' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'reject_work_item',
+    description: 'Reject a work item with a reason. Moves it to rejected status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: 'Work item ID' },
+        reason: { type: 'string', description: 'Why this work item was rejected' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'intake_from_findings',
+    description: 'Bulk import findings (from scouts, security scans, etc.) into the intake queue. Deduplicates by title. Maps severity to priority automatically.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        findings: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              message: { type: 'string' },
+              description: { type: 'string' },
+              details: { type: 'string' },
+              severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low', 'info'] },
+              priority: { type: 'integer' },
+            },
+          },
+          description: 'Array of finding objects to import',
+        },
+        source: { type: 'string', description: 'Override source (default: scout)' },
+      },
+      required: ['project', 'findings'],
+    },
+  },
 ];
 
 module.exports = tools;

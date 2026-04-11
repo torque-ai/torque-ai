@@ -63,6 +63,8 @@ const TIER_2 = [
   'normalize_interface_formatting',
   // Factory (extended)
   'register_factory_project', 'list_factory_projects', 'scan_project_health', 'set_factory_trust_level',
+  // Factory intake
+  'create_work_item', 'list_work_items', 'update_work_item', 'reject_work_item', 'intake_from_findings',
 ];
 
 /**

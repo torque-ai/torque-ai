@@ -1,6 +1,6 @@
 'use strict';
 
-const { parseFindingsMarkdown, findLatestFindingsFile } = require('../factory/findings-parser');
+const { parseFindingsMarkdown, loadLatestFindings } = require('../factory/findings-parser');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -31,22 +31,22 @@ describe('findings-parser', () => {
       ].join('\n');
 
       const result = parseFindingsMarkdown(md);
-      expect(result.findings).toHaveLength(3);
-      expect(result.findings[0].severity).toBe('critical');
-      expect(result.findings[0].title).toBe('SQL injection in user endpoint');
-      expect(result.findings[0].file).toBe('src/api/users.js:42');
-      expect(result.findings[0].status).toBe('NEW');
-      expect(result.findings[1].severity).toBe('high');
-      expect(result.findings[2].status).toBe('DEFERRED');
+      expect(result).toHaveLength(3);
+      expect(result[0].severity).toBe('critical');
+      expect(result[0].title).toBe('SQL injection in user endpoint');
+      expect(result[0].file).toBe('src/api/users.js:42');
+      expect(result[0].status).toBe('NEW');
+      expect(result[1].severity).toBe('high');
+      expect(result[2].status).toBe('DEFERRED');
     });
 
     test('returns empty findings for no findings section', () => {
       const result = parseFindingsMarkdown('# Empty scan\nNo issues found.');
-      expect(result.findings).toEqual([]);
+      expect(result).toEqual([]);
     });
   });
 
-  describe('findLatestFindingsFile', () => {
+  describe('loadLatestFindings', () => {
     let tmpDir;
 
     beforeEach(() => {
@@ -61,18 +61,20 @@ describe('findings-parser', () => {
       fs.writeFileSync(path.join(tmpDir, '2026-04-01-security-scan.md'), 'old');
       fs.writeFileSync(path.join(tmpDir, '2026-04-04-security-scan.md'), 'new');
 
-      const result = findLatestFindingsFile(tmpDir, 'security');
-      expect(result).toContain('2026-04-04-security-scan.md');
+      const result = loadLatestFindings(tmpDir, 'security');
+      expect(result.source).toContain('2026-04-04-security-scan.md');
     });
 
-    test('returns null when no matching files', () => {
-      expect(findLatestFindingsFile(tmpDir, 'security')).toBeNull();
+    test('returns empty findings when no matching files', () => {
+      const result = loadLatestFindings(tmpDir, 'security');
+      expect(result.source).toBeNull();
+      expect(result.findings).toEqual([]);
     });
 
     test('matches sweep suffix', () => {
       fs.writeFileSync(path.join(tmpDir, '2026-04-05-security-sweep.md'), 'sweep');
-      const result = findLatestFindingsFile(tmpDir, 'security');
-      expect(result).toContain('security-sweep.md');
+      const result = loadLatestFindings(tmpDir, 'security');
+      expect(result.source).toContain('security-sweep.md');
     });
   });
 });
