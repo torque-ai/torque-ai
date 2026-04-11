@@ -7,6 +7,8 @@ const factoryIntake = require('../db/factory-intake');
 const factoryArchitect = require('../db/factory-architect');
 const { runArchitectCycle } = require('../factory/architect-runner');
 const { scoreAll } = require('../factory/scorer-registry');
+const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSummary } = require('../factory/guardrail-runner');
+const guardrailDb = require('../db/factory-guardrails');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
 function resolveProject(projectRef) {
@@ -311,6 +313,47 @@ async function handleSetProjectPolicy(args) {
   return jsonResponse({ message: `Policy updated for "${project.name}"`, policy });
 }
 
+async function handleGuardrailStatus(args) {
+  const project = resolveProject(args.project);
+  const summary = getGuardrailSummary(project.id);
+  return jsonResponse({ project: project.name, ...summary });
+}
+
+async function handleRunGuardrailCheck(args) {
+  const project = resolveProject(args.project);
+  let result;
+  switch (args.phase) {
+    case 'pre_batch':
+      result = runPreBatchChecks(project.id, args.batch_plan || { tasks: [], scope_budget: 5 }, {
+        recent_batches: [],
+        write_sets: [],
+      });
+      break;
+    case 'post_batch':
+      result = runPostBatchChecks(project.id, args.batch_id || 'manual', args.files_changed || []);
+      break;
+    case 'pre_ship':
+      result = runPreShipChecks(project.id, args.batch_id || 'manual', {
+        test_results: args.test_results || { passed: 0, failed: 0, skipped: 0 },
+      });
+      break;
+    default:
+      throw new Error(`Invalid phase: ${args.phase}`);
+  }
+  logger.info(`Guardrail ${args.phase} check for "${project.name}": ${result.passed ? 'PASSED' : 'BLOCKED'}`);
+  return jsonResponse({ project: project.name, phase: args.phase, ...result });
+}
+
+async function handleGuardrailEvents(args) {
+  const project = resolveProject(args.project);
+  const events = guardrailDb.getEvents(project.id, {
+    category: args.category,
+    status: args.status,
+    limit: args.limit,
+  });
+  return jsonResponse({ project: project.name, events });
+}
+
 module.exports = {
   handleRegisterFactoryProject,
   handleListFactoryProjects,
@@ -319,6 +362,9 @@ module.exports = {
   handleSetFactoryTrustLevel,
   handleGetProjectPolicy,
   handleSetProjectPolicy,
+  handleGuardrailStatus,
+  handleRunGuardrailCheck,
+  handleGuardrailEvents,
   handlePauseProject,
   handleResumeProject,
   handlePauseAllProjects,

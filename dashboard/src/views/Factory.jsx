@@ -374,6 +374,103 @@ function ProjectCard({ project, selected, busy, onSelect, onToggle }) {
   );
 }
 
+const GUARDRAIL_COLORS = { green: 'text-green-400', yellow: 'text-yellow-400', red: 'text-red-400' };
+const GUARDRAIL_LABELS = { green: 'Pass', yellow: 'Warning', red: 'Fail' };
+
+function GuardrailPanel({ project }) {
+  const [status, setStatus] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!project) return;
+    setLoading(true);
+    Promise.all([
+      factoryApi.guardrailStatus(project.id),
+      factoryApi.guardrailEvents(project.id, { limit: 20 }),
+    ]).then(([statusRes, eventsRes]) => {
+      setStatus(statusRes.status_map || {});
+      setEvents(eventsRes.events || []);
+    }).catch(() => {
+      setStatus(null);
+      setEvents([]);
+    }).finally(() => setLoading(false));
+  }, [project?.id]);
+
+  if (!project) return null;
+
+  const categories = ['scope', 'quality', 'resource', 'silent_failure', 'security', 'conflict', 'control'];
+
+  return (
+    <section className="mt-6 rounded-lg bg-slate-800 p-4">
+      <button
+        className="flex w-full items-center justify-between text-left"
+        onClick={() => setExpanded(e => !e)}
+      >
+        <h3 className="text-lg font-semibold text-slate-200">Guardrails</h3>
+        <span className="text-sm text-slate-400">{expanded ? '▼' : '▶'}</span>
+      </button>
+
+      {expanded && (
+        <div className="mt-4">
+          {loading ? (
+            <p className="text-slate-400">Loading guardrails...</p>
+          ) : !status ? (
+            <p className="text-slate-500">No guardrail data yet.</p>
+          ) : (
+            <>
+              <div className="mb-4 grid grid-cols-7 gap-2">
+                {categories.map(cat => (
+                  <div key={cat} className="text-center">
+                    <div className={`text-2xl font-bold ${GUARDRAIL_COLORS[status[cat] || 'green']}`}>
+                      ●
+                    </div>
+                    <div className="mt-1 text-xs text-slate-400">{cat.replace('_', ' ')}</div>
+                    <div className={`text-xs ${GUARDRAIL_COLORS[status[cat] || 'green']}`}>
+                      {GUARDRAIL_LABELS[status[cat] || 'green']}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {events.length > 0 && (
+                <div className="mt-3">
+                  <h4 className="mb-2 text-sm font-medium text-slate-300">Recent Events</h4>
+                  <div className="max-h-48 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-slate-500">
+                          <th className="pb-1">Category</th>
+                          <th className="pb-1">Check</th>
+                          <th className="pb-1">Status</th>
+                          <th className="pb-1">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {events.map((evt, i) => (
+                          <tr key={evt.id || i} className="border-t border-slate-700">
+                            <td className="py-1 text-slate-400">{evt.category}</td>
+                            <td className="py-1 text-slate-300">{evt.check_name}</td>
+                            <td className={`py-1 ${GUARDRAIL_COLORS[evt.status === 'pass' ? 'green' : evt.status === 'warn' ? 'yellow' : 'red']}`}>
+                              {evt.status}
+                            </td>
+                            <td className="py-1 text-slate-500">{evt.created_at ? new Date(evt.created_at).toLocaleString() : ''}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function PolicyPanel({ project, onSave }) {
   const [policy, setPolicy] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1194,6 +1291,10 @@ export default function Factory() {
                 </div>
               )}
             </section>
+          )}
+
+          {selectedProject && (
+            <GuardrailPanel project={selectedProject} />
           )}
 
           {selectedProject && (

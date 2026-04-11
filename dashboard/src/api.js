@@ -585,6 +585,9 @@ export const factory = {
   architectLog: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/architect/log`, opts),
   getPolicy: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/policy`, opts),
   setPolicy: (projectId, policy, opts = {}) => requestV2(`/factory/projects/${projectId}/policy`, { method: 'PUT', body: JSON.stringify({ policy }), ...opts }),
+  guardrailStatus: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/guardrails`, opts),
+  runGuardrailCheck: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/guardrails/check`, { method: 'POST', body: JSON.stringify(data), ...opts }),
+  guardrailEvents: (projectId, params = {}, opts = {}) => requestV2(`/factory/projects/${projectId}/guardrails/events${buildQuery(params)}`, opts),
 };
 
 export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory };

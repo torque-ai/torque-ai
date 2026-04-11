@@ -318,6 +318,27 @@ const MIGRATIONS = [
     ].join('; '),
     down: 'DROP TABLE IF EXISTS factory_architect_cycles',
   },
+  {
+    version: 16,
+    name: 'add_factory_guardrail_events',
+    up: [
+      [
+        'CREATE TABLE IF NOT EXISTS factory_guardrail_events (',
+        '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+        '  project_id TEXT NOT NULL REFERENCES factory_projects(id),',
+        '  category TEXT NOT NULL,',
+        '  check_name TEXT NOT NULL,',
+        '  status TEXT NOT NULL,',
+        '  details_json TEXT,',
+        '  batch_id TEXT,',
+        "  created_at TEXT NOT NULL DEFAULT (datetime('now'))",
+        ')',
+      ].join('\n'),
+      'CREATE INDEX IF NOT EXISTS idx_fge_project_time ON factory_guardrail_events(project_id, created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_fge_category ON factory_guardrail_events(project_id, category)',
+    ].join('; '),
+    down: 'DROP TABLE IF EXISTS factory_guardrail_events',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

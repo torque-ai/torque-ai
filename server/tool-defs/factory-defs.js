@@ -280,6 +280,47 @@ const tools = [
       required: ['project', 'policy'],
     },
   },
+  {
+    name: 'guardrail_status',
+    description: 'Get guardrail status for a factory project. Returns traffic-light (green/yellow/red) status per guardrail category and latest events.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'run_guardrail_check',
+    description: 'Manually trigger guardrail checks for a factory project. Specify the phase (pre_batch, post_batch, pre_ship) and provide required context.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        phase: { type: 'string', enum: ['pre_batch', 'post_batch', 'pre_ship'], description: 'Which phase of checks to run' },
+        batch_plan: { type: 'object', description: 'Batch plan (required for pre_batch). Object with tasks array and scope_budget.' },
+        batch_id: { type: 'string', description: 'Batch/workflow ID (required for post_batch and pre_ship)' },
+        files_changed: { type: 'array', items: { type: 'string' }, description: 'Changed file paths (for post_batch)' },
+        test_results: { type: 'object', description: 'Test results { passed, failed, skipped } (for pre_ship)' },
+      },
+      required: ['project', 'phase'],
+    },
+  },
+  {
+    name: 'guardrail_events',
+    description: 'Get guardrail event history for a factory project. Returns recent guardrail check results with optional filtering.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        category: { type: 'string', description: 'Filter by category (scope, quality, resource, silent_failure, security, conflict, control)' },
+        status: { type: 'string', enum: ['pass', 'warn', 'fail'], description: 'Filter by result status' },
+        limit: { type: 'number', description: 'Max events to return (default: 50)' },
+      },
+      required: ['project'],
+    },
+  },
 ];
 
 module.exports = tools;

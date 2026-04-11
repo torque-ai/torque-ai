@@ -350,6 +350,9 @@ const FACTORY_V2_ROUTES = [
   // Policy
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/policy$/, tool: 'get_project_policy', mapParams: ['project'] },
   { method: 'PUT', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/policy$/, tool: 'set_project_policy', mapParams: ['project'], mapBody: true },
+  { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/guardrails$/, tool: 'guardrail_status', mapParams: ['project'] },
+  { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/guardrails\/check$/, tool: 'run_guardrail_check', mapParams: ['project'], mapBody: true },
+  { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/guardrails\/events$/, tool: 'guardrail_events', mapParams: ['project'], mapQuery: true },
 ];
 
 const hasPiiScanRoute = routes.some((route) => route.method === PII_SCAN_ROUTE.method && route.path === PII_SCAN_ROUTE.path);
