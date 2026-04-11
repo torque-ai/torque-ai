@@ -51,18 +51,18 @@ function createFactoryTables(db) {
       ON factory_health_findings(snapshot_id);
 
     CREATE TABLE IF NOT EXISTS factory_work_items (
-      id TEXT PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
       source TEXT NOT NULL,
       origin_json TEXT,
       title TEXT NOT NULL,
       description TEXT,
-      priority TEXT NOT NULL DEFAULT 'default',
+      priority INTEGER NOT NULL DEFAULT 50,
       requestor TEXT,
       constraints_json TEXT,
-      status TEXT NOT NULL DEFAULT 'intake',
+      status TEXT NOT NULL DEFAULT 'pending',
       reject_reason TEXT,
-      linked_item_id TEXT,
+      linked_item_id INTEGER,
       batch_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
