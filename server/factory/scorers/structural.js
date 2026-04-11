@@ -16,10 +16,13 @@ function score(projectPath, scanReport, findingsDir) {
   const over500 = largest.filter(f => f.lines > 500).length;
   const over1000 = largest.filter(f => f.lines > 1000).length;
 
+  // Scale penalties by codebase size — large codebases naturally have some big files
+  const scaleFactor = total > 500 ? 0.3 : total > 200 ? 0.5 : 1.0;
   let s = 100;
-  s -= over1000 * 10;
-  s -= over500 * 3;
-  if (avgLines > 300) s -= 15;
+  s -= Math.round(over1000 * 5 * scaleFactor);
+  s -= Math.round(over500 * 2 * scaleFactor);
+  if (avgLines > 500) s -= 15;
+  else if (avgLines > 300) s -= 10;
   else if (avgLines > 200) s -= 5;
 
   const findings = largest.filter(f => f.lines > 500).map(f => ({
