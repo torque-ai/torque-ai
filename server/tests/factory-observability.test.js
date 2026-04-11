@@ -37,7 +37,7 @@ beforeAll(() => {
 beforeEach(() => {
   notifications.stopDigestTimer();
   notifications.flushAllDigests();
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
   vi.clearAllMocks();
 
   db.exec('DELETE FROM factory_decisions');
