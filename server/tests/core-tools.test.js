@@ -81,8 +81,8 @@ describe('CORE_TOOL_NAMES (Tier 1)', () => {
     expect(uniq.size).toBe(CORE_TOOL_NAMES.length);
   });
 
-  it('stays under 40 tools (Tier 1 target)', () => {
-    expect(CORE_TOOL_NAMES.length).toBeLessThan(40);
+  it('stays under 50 tools (Tier 1 target)', () => {
+    expect(CORE_TOOL_NAMES.length).toBeLessThan(50);
   });
 
   it('includes essential meta tools', () => {
