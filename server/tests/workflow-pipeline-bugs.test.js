@@ -120,11 +120,13 @@ describe('Workflow pipeline bugs', () => {
       smartRouting.approveProviderSwitch(taskId, 'groq');
 
       const task = db.getTask(taskId);
-      expect(task.provider).toBe('groq');
+      // Provider column is NULL — deferred to routing via intended_provider in metadata
+      expect(task.provider).toBeNull();
       const meta = parseMeta(task);
       // Failover should clear user_provider_override
       expect(meta.user_provider_override).toBeFalsy();
-      // But should track the failover
+      // Failover target stored in metadata for routing to pick up
+      expect(meta.intended_provider).toBe('groq');
       expect(meta.failover_provider).toBe('groq');
       expect(meta.failover_from).toBe('codex');
       // Original requested_provider should be preserved
@@ -156,11 +158,13 @@ describe('Workflow pipeline bugs', () => {
       smartRouting.approveProviderSwitch(taskId, 'groq');
 
       const task = db.getTask(taskId);
-      expect(task.provider).toBe('groq');
+      // Provider column is NULL — deferred to routing via intended_provider
+      expect(task.provider).toBeNull();
       const meta = parseMeta(task);
       // user_provider_override must be cleared — the user chose codex, not groq
       expect(meta.user_provider_override).toBeFalsy();
       // Failover tracking
+      expect(meta.intended_provider).toBe('groq');
       expect(meta.failover_provider).toBe('groq');
       expect(meta.failover_from).toBe('codex');
       // Original intent preserved for audit

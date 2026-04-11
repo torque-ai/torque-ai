@@ -899,6 +899,9 @@ function approveProviderSwitch(taskId, newProvider = 'claude-cli') {
   }
   currentMetadata.failover_provider = newProvider;
   currentMetadata.failover_from = task.provider || null;
+  // Point intended_provider at the fallback target so resolveProviderRouting
+  // picks it up when the provider column is NULL (deferred assignment).
+  currentMetadata.intended_provider = newProvider;
   delete currentMetadata.user_provider_override;
   delete currentMetadata.quota_overflow;
   delete currentMetadata.original_provider;
@@ -907,7 +910,7 @@ function approveProviderSwitch(taskId, newProvider = 'claude-cli') {
     UPDATE tasks
     SET status = 'queued',
         original_provider = COALESCE(original_provider, provider),
-        provider = ?,
+        provider = NULL,
         provider_switched_at = ?,
         retry_count = retry_count + 1,
         started_at = NULL,
@@ -920,7 +923,7 @@ function approveProviderSwitch(taskId, newProvider = 'claude-cli') {
         metadata = ?
     WHERE id = ?
   `);
-  const result = stmt.run(newProvider, new Date().toISOString(), JSON.stringify(currentMetadata), taskId);
+  const result = stmt.run(new Date().toISOString(), JSON.stringify(currentMetadata), taskId);
   if (result && result.changes > 0) {
     eventBus.emitQueueChanged();
   }
