@@ -9,6 +9,7 @@ const { runArchitectCycle } = require('../factory/architect-runner');
 const { scoreAll } = require('../factory/scorer-registry');
 const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSummary } = require('../factory/guardrail-runner');
 const guardrailDb = require('../db/factory-guardrails');
+const loopController = require('../factory/loop-controller');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
 function resolveProject(projectRef) {
@@ -354,6 +355,30 @@ async function handleGuardrailEvents(args) {
   return jsonResponse({ project: project.name, events });
 }
 
+async function handleStartFactoryLoop(args) {
+  const project = resolveProject(args.project);
+  const result = await loopController.startLoop(project.id);
+  return jsonResponse(result);
+}
+
+async function handleAdvanceFactoryLoop(args) {
+  const project = resolveProject(args.project);
+  const result = await loopController.advanceLoop(project.id);
+  return jsonResponse(result);
+}
+
+async function handleApproveFactoryGate(args) {
+  const project = resolveProject(args.project);
+  const result = await loopController.approveGate(project.id, args.stage);
+  return jsonResponse(result);
+}
+
+async function handleFactoryLoopStatus(args) {
+  const project = resolveProject(args.project);
+  const result = loopController.getLoopState(project.id);
+  return jsonResponse(result);
+}
+
 module.exports = {
   handleRegisterFactoryProject,
   handleListFactoryProjects,
@@ -377,4 +402,8 @@ module.exports = {
   handleTriggerArchitect,
   handleArchitectBacklog,
   handleArchitectLog,
+  handleStartFactoryLoop,
+  handleAdvanceFactoryLoop,
+  handleApproveFactoryGate,
+  handleFactoryLoopStatus,
 };

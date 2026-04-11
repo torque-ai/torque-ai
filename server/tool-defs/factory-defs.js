@@ -321,6 +321,51 @@ const tools = [
       required: ['project'],
     },
   },
+  {
+    name: 'start_factory_loop',
+    description: 'Start the factory SENSE→PRIORITIZE→PLAN→EXECUTE→VERIFY→LEARN cycle for a project. Begins at SENSE stage.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'advance_factory_loop',
+    description: 'Advance the factory loop to its next stage. Checks trust-level approval gates before transitioning.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'approve_factory_gate',
+    description: 'Approve a paused factory loop gate. Required when the trust level mandates human approval before a stage.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'], description: 'The stage to approve' },
+      },
+      required: ['project', 'stage'],
+    },
+  },
+  {
+    name: 'factory_loop_status',
+    description: 'Get current factory loop state for a project — which stage it is in, whether paused, pending approvals, and trust-level gates.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
 ];
 
 module.exports = tools;

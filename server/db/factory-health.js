@@ -63,7 +63,7 @@ function listProjects(filter) {
 }
 
 function updateProject(id, updates) {
-  const allowed = ['name', 'brief', 'trust_level', 'status', 'config_json'];
+  const allowed = ['name', 'brief', 'trust_level', 'status', 'config_json', 'loop_state', 'loop_batch_id', 'loop_last_action_at', 'loop_paused_at_stage'];
   const sets = [];
   const params = [];
 

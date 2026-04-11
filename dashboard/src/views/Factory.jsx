@@ -46,6 +46,19 @@ const STATUS_DOT_STYLES = {
 
 const BADGE_FALLBACK_STYLE = 'border-slate-500/30 bg-slate-500/10 text-slate-300';
 
+const LOOP_STAGES = ['SENSE', 'PRIORITIZE', 'PLAN', 'EXECUTE', 'VERIFY', 'LEARN'];
+
+const LOOP_STAGE_COLORS = {
+  SENSE: 'bg-cyan-500',
+  PRIORITIZE: 'bg-amber-500',
+  PLAN: 'bg-blue-500',
+  EXECUTE: 'bg-purple-500',
+  VERIFY: 'bg-emerald-500',
+  LEARN: 'bg-pink-500',
+  IDLE: 'bg-slate-600',
+  PAUSED: 'bg-amber-400',
+};
+
 const INTAKE_SOURCE_BADGE_STYLES = {
   conversation: 'border-blue-500/30 bg-blue-500/10 text-blue-300',
   github: 'border-purple-500/30 bg-purple-500/10 text-purple-300',
@@ -128,6 +141,34 @@ function normalizeProject(project = {}) {
   };
 }
 
+function mergeLoopState(project = {}, loopState = {}) {
+  if (!loopState || typeof loopState !== 'object') {
+    return project;
+  }
+
+  return {
+    ...project,
+    loop_state: loopState.loop_state ?? project.loop_state,
+    loop_batch_id: loopState.loop_batch_id ?? project.loop_batch_id,
+    loop_last_action_at: loopState.loop_last_action_at ?? project.loop_last_action_at,
+    loop_paused_at_stage: loopState.loop_paused_at_stage ?? project.loop_paused_at_stage,
+  };
+}
+
+function buildProjectDetail(project = {}) {
+  return {
+    id: project.id,
+    name: project.name,
+    path: project.path,
+    trust_level: project.trust_level,
+    status: project.status,
+    loop_state: project.loop_state,
+    loop_batch_id: project.loop_batch_id,
+    loop_last_action_at: project.loop_last_action_at,
+    loop_paused_at_stage: project.loop_paused_at_stage,
+  };
+}
+
 function normalizeHealth(health) {
   if (!health || typeof health !== 'object') {
     return null;
@@ -141,13 +182,7 @@ function normalizeHealth(health) {
   });
 
   return {
-    project: {
-      id: normalizedProject.id,
-      name: normalizedProject.name,
-      path: normalizedProject.path,
-      trust_level: normalizedProject.trust_level,
-      status: normalizedProject.status,
-    },
+    project: buildProjectDetail(normalizedProject),
     scores: normalizedProject.scores,
     balance: normalizedProject.balance,
     weakest_dimension: normalizedProject.weakest_dimension,
@@ -177,13 +212,7 @@ function buildDetailFallback(project) {
 
   const normalized = normalizeProject(project);
   return {
-    project: {
-      id: normalized.id,
-      name: normalized.name,
-      path: normalized.path,
-      trust_level: normalized.trust_level,
-      status: normalized.status,
-    },
+    project: buildProjectDetail(normalized),
     scores: normalized.scores,
     balance: normalized.balance,
     weakest_dimension: normalized.weakest_dimension,
@@ -809,6 +838,54 @@ function PolicyPanel({ project, onSave }) {
   );
 }
 
+function LoopStatusBadge({ loopState, pausedAtStage }) {
+  if (!loopState || loopState === 'IDLE') {
+    return <span className="text-xs px-2 py-0.5 rounded border border-slate-600 bg-slate-800 text-slate-400">Idle</span>;
+  }
+  if (loopState === 'PAUSED') {
+    return (
+      <span className="text-xs px-2 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300">
+        Paused at {pausedAtStage || '?'}
+      </span>
+    );
+  }
+  const color = LOOP_STAGE_COLORS[loopState] || 'bg-slate-600';
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded text-white ${color}`}>
+      {loopState}
+    </span>
+  );
+}
+
+function BatchTimeline({ currentStage, pausedAtStage }) {
+  return (
+    <div className="flex items-center gap-1 my-3">
+      {LOOP_STAGES.map((stage, i) => {
+        const isCurrent = currentStage === stage;
+        const isPaused = pausedAtStage === stage;
+        const isPast = currentStage && LOOP_STAGES.indexOf(currentStage) > i;
+        let bg = 'bg-slate-700';
+        if (isCurrent) bg = LOOP_STAGE_COLORS[stage];
+        else if (isPaused) bg = 'bg-amber-400';
+        else if (isPast) bg = 'bg-slate-500';
+        return (
+          <div key={stage} className="flex items-center gap-1">
+            <div className="flex flex-col items-center">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${bg}`}>
+                {i + 1}
+              </div>
+              <span className="text-[9px] text-slate-400 mt-0.5">{stage}</span>
+            </div>
+            {i < LOOP_STAGES.length - 1 && (
+              <div className={`w-6 h-0.5 ${isPast ? 'bg-slate-500' : 'bg-slate-700'}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Factory() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -862,9 +939,15 @@ export default function Factory() {
     }
 
     try {
-      const response = await factoryApi.health(projectId);
+      const [response, loopStatus] = await Promise.all([
+        factoryApi.health(projectId),
+        factoryApi.loopStatus(projectId).catch(() => null),
+      ]);
       if (!isCancelled()) {
-        setSelectedHealth(normalizeHealth(response));
+        setSelectedHealth(normalizeHealth({
+          ...response,
+          project: mergeLoopState(response?.project || {}, loopStatus),
+        }));
       }
     } catch (error) {
       if (!isCancelled()) {
@@ -1289,6 +1372,67 @@ export default function Factory() {
                     </tbody>
                   </table>
                 </div>
+              )}
+            </section>
+          )}
+
+          {selectedProject && (
+            <section className="bg-slate-800/60 rounded-lg border border-slate-700 p-4 mt-4">
+              <h3 className="text-sm font-semibold text-slate-200 mb-2">Factory Loop</h3>
+              <div className="flex items-center gap-3 mb-2">
+                <LoopStatusBadge
+                  loopState={selectedProject.loop_state}
+                  pausedAtStage={selectedProject.loop_paused_at_stage}
+                />
+                {(!selectedProject.loop_state || selectedProject.loop_state === 'IDLE') && (
+                  <button
+                    type="button"
+                    className="text-xs px-3 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-white"
+                    onClick={async () => {
+                      try {
+                        await factoryApi.startLoop(selectedProject.id);
+                        await loadProject(selectedProject.id, { fallbackProject: selectedProject });
+                      } catch (e) { toast.error(e.message || 'Failed to start loop'); }
+                    }}
+                  >
+                    Start Loop
+                  </button>
+                )}
+                {selectedProject.loop_state === 'PAUSED' && (
+                  <button
+                    type="button"
+                    className="text-xs px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white"
+                    onClick={async () => {
+                      try {
+                        await factoryApi.approveGate(selectedProject.id, selectedProject.loop_paused_at_stage);
+                        await loadProject(selectedProject.id, { fallbackProject: selectedProject });
+                      } catch (e) { toast.error(e.message || 'Failed to approve gate'); }
+                    }}
+                  >
+                    Approve Gate
+                  </button>
+                )}
+                {selectedProject.loop_state && selectedProject.loop_state !== 'IDLE' && selectedProject.loop_state !== 'PAUSED' && (
+                  <button
+                    type="button"
+                    className="text-xs px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white"
+                    onClick={async () => {
+                      try {
+                        await factoryApi.advanceLoop(selectedProject.id);
+                        await loadProject(selectedProject.id, { fallbackProject: selectedProject });
+                      } catch (e) { toast.error(e.message || 'Failed to advance loop'); }
+                    }}
+                  >
+                    Advance
+                  </button>
+                )}
+              </div>
+              <BatchTimeline
+                currentStage={selectedProject.loop_state}
+                pausedAtStage={selectedProject.loop_paused_at_stage}
+              />
+              {selectedProject.loop_last_action_at && (
+                <p className="text-xs text-slate-500 mt-1">Last action: {new Date(selectedProject.loop_last_action_at).toLocaleString()}</p>
               )}
             </section>
           )}

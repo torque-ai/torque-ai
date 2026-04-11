@@ -588,6 +588,10 @@ export const factory = {
   guardrailStatus: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/guardrails`, opts),
   runGuardrailCheck: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/guardrails/check`, { method: 'POST', body: JSON.stringify(data), ...opts }),
   guardrailEvents: (projectId, params = {}, opts = {}) => requestV2(`/factory/projects/${projectId}/guardrails/events${buildQuery(params)}`, opts),
+  loopStatus: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loop`, opts),
+  startLoop: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/start`, { method: 'POST', ...opts }),
+  advanceLoop: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/advance`, { method: 'POST', ...opts }),
+  approveGate: (projectId, stage, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/approve`, { method: 'POST', body: JSON.stringify({ stage }), ...opts }),
 };
 
 export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory };

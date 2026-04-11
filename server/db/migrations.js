@@ -339,6 +339,17 @@ const MIGRATIONS = [
     ].join('; '),
     down: 'DROP TABLE IF EXISTS factory_guardrail_events',
   },
+  {
+    version: 17,
+    name: 'add_factory_loop_state',
+    up: [
+      "ALTER TABLE factory_projects ADD COLUMN loop_state TEXT DEFAULT 'idle'",
+      'ALTER TABLE factory_projects ADD COLUMN loop_batch_id TEXT',
+      'ALTER TABLE factory_projects ADD COLUMN loop_last_action_at TEXT',
+      'ALTER TABLE factory_projects ADD COLUMN loop_paused_at_stage TEXT',
+    ].join('; '),
+    down: 'SELECT 1',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
