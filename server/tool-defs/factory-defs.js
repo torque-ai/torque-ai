@@ -211,6 +211,22 @@ const tools = [
     },
   },
   {
+    name: 'poll_github_issues',
+    description: 'Import matching open GitHub issues into the factory intake queue for a project. Reads github_repo and github_labels from the project config, with optional label overrides for this poll.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        labels: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional label override for this poll. When omitted, uses project config github_labels.',
+        },
+      },
+      required: ['project'],
+    },
+  },
+  {
     name: 'trigger_architect',
     description: 'Run an architect prioritization cycle for a factory project. Reads health scores and intake queue, produces a ranked backlog with reasoning.',
     inputSchema: {
@@ -406,6 +422,17 @@ const tools = [
         description: { type: 'string', description: 'What was changed and why' },
       },
       required: ['project', 'type', 'description'],
+    },
+  },
+  {
+    name: 'factory_cost_metrics',
+    description: 'Get cost efficiency metrics for a factory project. Returns average cost per analyzed cycle, cost per health point gained, and provider efficiency grouped by cost per task.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
     },
   },
   {

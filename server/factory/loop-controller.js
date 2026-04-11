@@ -121,7 +121,7 @@ function startLoop(project_id) {
   };
 }
 
-function advanceLoop(project_id) {
+async function advanceLoop(project_id) {
   const project = getProjectOrThrow(project_id);
   const currentState = getCurrentLoopState(project);
 

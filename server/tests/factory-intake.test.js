@@ -3,6 +3,7 @@
 const Database = require('better-sqlite3');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const githubIntake = require('../factory/github-intake');
 const handlers = require('../handlers/factory-handlers');
 
 function createFactoryTables(db) {
@@ -83,6 +84,9 @@ function parseJsonResponse(result) {
 describe('factory intake', () => {
   let db;
   let project;
+  const originalFetch = global.fetch;
+  const originalGitHubToken = process.env.GITHUB_TOKEN;
+  const originalGhToken = process.env.GH_TOKEN;
 
   beforeEach(() => {
     db = new Database(':memory:');
@@ -97,6 +101,17 @@ describe('factory intake', () => {
   });
 
   afterEach(() => {
+    global.fetch = originalFetch;
+    if (originalGitHubToken === undefined) {
+      delete process.env.GITHUB_TOKEN;
+    } else {
+      process.env.GITHUB_TOKEN = originalGitHubToken;
+    }
+    if (originalGhToken === undefined) {
+      delete process.env.GH_TOKEN;
+    } else {
+      process.env.GH_TOKEN = originalGhToken;
+    }
     db.close();
   });
 
@@ -310,5 +325,108 @@ describe('factory intake', () => {
       status: 'rejected',
       reject_reason: 'Superseded by another work item',
     });
+  });
+
+  test('handler: handlePollGitHubIssues imports matching issues and skips existing refs', async () => {
+    project = factoryHealth.updateProject(project.id, {
+      config_json: {
+        github_repo: 'octo/widgets',
+        github_labels: ['bug'],
+      },
+    });
+
+    factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'github_issue',
+      origin: { type: 'github_issue', ref: 'octo/widgets#2' },
+      title: 'Existing imported issue',
+    });
+
+    process.env.GITHUB_TOKEN = 'github-token';
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: vi.fn().mockResolvedValue(JSON.stringify([
+        {
+          number: 1,
+          title: 'Import me',
+          body: 'Body from GitHub',
+          html_url: 'https://github.com/octo/widgets/issues/1',
+          user: { login: 'alice' },
+          labels: [{ name: 'bug' }],
+        },
+        {
+          number: 2,
+          title: 'Already queued',
+          body: 'Should be skipped',
+          html_url: 'https://github.com/octo/widgets/issues/2',
+          user: { login: 'bob' },
+          labels: [{ name: 'bug' }],
+        },
+        {
+          number: 3,
+          title: 'Wrong label',
+          body: 'Should be ignored',
+          html_url: 'https://github.com/octo/widgets/issues/3',
+          user: { login: 'carol' },
+          labels: [{ name: 'docs' }],
+        },
+        {
+          number: 4,
+          title: 'Pull request entry',
+          body: 'Should be ignored',
+          html_url: 'https://github.com/octo/widgets/pull/4',
+          user: { login: 'dave' },
+          labels: [{ name: 'bug' }],
+          pull_request: { url: 'https://api.github.com/repos/octo/widgets/pulls/4' },
+        },
+      ])),
+    });
+
+    const result = await handlers.handlePollGitHubIssues({ project: project.id });
+    const data = parseJsonResponse(result);
+    const items = factoryIntake.listWorkItems({ project_id: project.id });
+    const imported = items.find((item) => item.origin?.ref === 'octo/widgets#1');
+
+    expect(data).toMatchObject({
+      project: project.name,
+      imported: 1,
+      skipped: 1,
+      errors: [],
+    });
+    expect(imported).toMatchObject({
+      source: 'github_issue',
+      title: 'Import me',
+      requestor: 'alice',
+      origin: { type: 'github_issue', ref: 'octo/widgets#1' },
+    });
+    expect(imported.description).toContain('Body from GitHub');
+    expect(imported.description).toContain('Source: https://github.com/octo/widgets/issues/1');
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.github.com/repos/octo/widgets/issues?state=open&per_page=100&page=1',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer github-token',
+        }),
+      }),
+    );
+  });
+
+  test('pollGitHubIssues returns a graceful error when no token is configured', async () => {
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.GH_TOKEN;
+    global.fetch = vi.fn();
+
+    const result = await githubIntake.pollGitHubIssues(project.id, {
+      github_repo: 'octo/widgets',
+      github_labels: ['bug'],
+    });
+
+    expect(result).toEqual({
+      imported: 0,
+      skipped: 0,
+      errors: ['GitHub issue intake requires a configured GitHub token (GITHUB_TOKEN, GH_TOKEN, or config.github_token)'],
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });

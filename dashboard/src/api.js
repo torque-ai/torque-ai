@@ -581,6 +581,18 @@ export async function testFactoryNotification(projectId, opts = {}) {
   return requestV2(`/factory/projects/${projectId}/notifications/test`, { method: 'POST', ...opts });
 }
 
+function parseToolJsonResult(payload) {
+  if (payload && typeof payload === 'object' && typeof payload.result === 'string') {
+    try {
+      return JSON.parse(payload.result);
+    } catch {
+      return payload;
+    }
+  }
+
+  return payload;
+}
+
 export const factory = {
   status: (opts = {}) => requestV2('/factory/status', opts),
   projects: (opts = {}) => requestV2('/factory/projects', opts),
@@ -606,6 +618,7 @@ export const factory = {
   approveGate: (projectId, stage, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/approve`, { method: 'POST', body: JSON.stringify({ stage }), ...opts }),
   analyzeBatch: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/analyze`, { method: 'POST', body: JSON.stringify(data), ...opts }),
   driftStatus: (projectId, params = {}, opts = {}) => requestV2(`/factory/projects/${projectId}/drift${buildQuery(params)}`, opts),
+  factoryCosts: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/costs`, opts).then(parseToolJsonResult),
   recordCorrection: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/corrections`, { method: 'POST', body: JSON.stringify(data), ...opts }),
 };
 

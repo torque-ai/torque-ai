@@ -10,7 +10,9 @@ const { scoreAll } = require('../factory/scorer-registry');
 const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSummary } = require('../factory/guardrail-runner');
 const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
+const { pollGitHubIssues } = require('../factory/github-intake');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
+const { getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
 const { logDecision, getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
 const notifications = require('../factory/notifications');
 const logger = require('../logger').child({ component: 'factory-handlers' });
@@ -27,7 +29,10 @@ function resolveProject(projectRef) {
 }
 
 function jsonResponse(data) {
-  return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  return {
+    content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
+    structuredData: data,
+  };
 }
 
 async function handleRegisterFactoryProject(args) {
@@ -274,6 +279,23 @@ async function handleIntakeFromFindings(args) {
   });
 }
 
+async function handlePollGitHubIssues(args) {
+  const project = resolveProject(args.project);
+  const effectiveConfig = {
+    ...(project.config || {}),
+  };
+
+  if (args.labels !== undefined) {
+    effectiveConfig.github_labels = args.labels;
+  }
+
+  const result = await pollGitHubIssues(project.id, effectiveConfig);
+  return jsonResponse({
+    project: project.name,
+    ...result,
+  });
+}
+
 async function handleTriggerArchitect(args) {
   const project = resolveProject(args.project);
   const cycle = await runArchitectCycle(project.id, 'manual');
@@ -411,6 +433,17 @@ async function handleRecordCorrection(args) {
   return jsonResponse(result);
 }
 
+async function handleFactoryCostMetrics(args) {
+  const project = resolveProject(args.project);
+
+  return jsonResponse({
+    project: { id: project.id, name: project.name, path: project.path },
+    cost_per_cycle: getCostPerCycle(project.id),
+    cost_per_health_point: getCostPerHealthPoint(project.id),
+    provider_efficiency: getProviderEfficiency(project.id),
+  });
+}
+
 async function handleDecisionLog(args) {
   const project = resolveProject(args.project);
   if (args.batch_id) {
@@ -466,6 +499,7 @@ module.exports = {
   handleUpdateWorkItem,
   handleRejectWorkItem,
   handleIntakeFromFindings,
+  handlePollGitHubIssues,
   handleTriggerArchitect,
   handleArchitectBacklog,
   handleArchitectLog,
@@ -476,6 +510,7 @@ module.exports = {
   handleAnalyzeBatch,
   handleFactoryDriftStatus,
   handleRecordCorrection,
+  handleFactoryCostMetrics,
   handleDecisionLog,
   handleFactoryNotifications,
   handleFactoryDigest,

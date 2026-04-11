@@ -343,6 +343,7 @@ const FACTORY_V2_ROUTES = [
   { method: 'PUT', path: /^\/api\/v2\/factory\/intake\/([^/]+)$/, tool: 'update_work_item', mapParams: ['id'], mapBody: true },
   { method: 'POST', path: /^\/api\/v2\/factory\/intake\/([^/]+)\/reject$/, tool: 'reject_work_item', mapParams: ['id'], mapBody: true },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/intake\/from-findings$/, tool: 'intake_from_findings', mapParams: ['project'], mapBody: true },
+  { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/github-poll$/, tool: 'poll_github_issues', mapParams: ['project'], mapBody: true },
   // Architect
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/architect$/, tool: 'trigger_architect', mapParams: ['project'], mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/backlog$/, tool: 'architect_backlog', mapParams: ['project'], mapQuery: true },
@@ -359,6 +360,13 @@ const FACTORY_V2_ROUTES = [
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop$/, tool: 'factory_loop_status', mapParams: ['project'] },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/analyze$/, tool: 'analyze_batch', mapParams: ['project'], mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/drift$/, tool: 'factory_drift_status', mapParams: ['project'], mapQuery: true },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/costs$/,
+    tool: 'factory_cost_metrics',
+    mapParams: ['project'],
+    v2StructuredResponse: true,
+  },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/corrections$/, tool: 'record_correction', mapParams: ['project'], mapBody: true },
   // Observability
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/decisions$/, tool: 'decision_log', mapParams: ['project'], mapQuery: true },

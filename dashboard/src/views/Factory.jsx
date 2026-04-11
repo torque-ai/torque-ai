@@ -97,6 +97,13 @@ const DECISION_ACTOR_BADGE_STYLES = {
   human: 'border-rose-500/20 bg-rose-500/5 text-rose-200',
 };
 
+const USD_FORMATTER = new Intl.NumberFormat(undefined, {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 function formatLabel(value) {
   if (!value) return 'Unknown';
   const key = String(value);
@@ -290,6 +297,11 @@ function formatBalance(value) {
   return Number.isFinite(numeric) ? numeric.toFixed(2) : '0.00';
 }
 
+function formatCurrency(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? USD_FORMATTER.format(numeric) : USD_FORMATTER.format(0);
+}
+
 function formatTimestamp(value) {
   if (!value) {
     return 'Unknown';
@@ -371,6 +383,25 @@ function getDigestEventCounts(events = []) {
 
 function getScoreEntries(scores = {}) {
   return Object.entries(scores).sort((a, b) => a[1] - b[1]);
+}
+
+function normalizeCostMetrics(metrics = {}) {
+  return {
+    cost_per_cycle: Number.isFinite(Number(metrics?.cost_per_cycle))
+      ? Number(metrics.cost_per_cycle)
+      : 0,
+    cost_per_health_point: Number.isFinite(Number(metrics?.cost_per_health_point))
+      ? Number(metrics.cost_per_health_point)
+      : 0,
+    provider_efficiency: Array.isArray(metrics?.provider_efficiency)
+      ? metrics.provider_efficiency.map((entry) => ({
+        provider: entry?.provider || 'unknown',
+        total_cost: Number.isFinite(Number(entry?.total_cost)) ? Number(entry.total_cost) : 0,
+        task_count: Number.isFinite(Number(entry?.task_count)) ? Number(entry.task_count) : 0,
+        cost_per_task: Number.isFinite(Number(entry?.cost_per_task)) ? Number(entry.cost_per_task) : 0,
+      }))
+      : [],
+  };
 }
 
 function getScoreBarClass(score) {
@@ -1081,6 +1112,8 @@ export default function Factory() {
   const [decisionLoading, setDecisionLoading] = useState(false);
   const [expandedDecisionIds, setExpandedDecisionIds] = useState({});
   const [digest, setDigest] = useState(null);
+  const [costMetrics, setCostMetrics] = useState(null);
+  const [costMetricsLoading, setCostMetricsLoading] = useState(false);
   const [activeProjectAction, setActiveProjectAction] = useState(null);
   const [rejectingItemId, setRejectingItemId] = useState(null);
   const [pauseAllBusy, setPauseAllBusy] = useState(false);
@@ -1322,6 +1355,40 @@ export default function Factory() {
     };
   }, [selectedProjectId]);
 
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setCostMetrics(null);
+      setCostMetricsLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setCostMetrics(null);
+    setCostMetricsLoading(true);
+
+    factoryApi.factoryCosts(selectedProjectId)
+      .then((response) => {
+        if (!cancelled) {
+          setCostMetrics(normalizeCostMetrics(response));
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setCostMetrics(null);
+          toast.error(`Failed to load cost metrics: ${error.message}`);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCostMetricsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId, toast]);
+
   const handleSelectProject = useCallback((projectId) => {
     setSelectedProjectId(projectId);
   }, []);
@@ -1394,6 +1461,7 @@ export default function Factory() {
   const detail = selectedHealth || buildDetailFallback(projects.find((project) => project.id === selectedProjectId));
   const selectedProject = detail?.project || null;
   const detailEntries = getScoreEntries(detail?.scores || {});
+  const costMetricsData = costMetrics || normalizeCostMetrics();
   const decisionSinceParam = getDecisionSinceParam(decisionSince);
   const hasDecisionFilters = Boolean(decisionStage || decisionActor || decisionSinceParam);
   const auditSummary = hasDecisionFilters ? buildDecisionSummary(decisionLog) : decisionStats;
@@ -1514,6 +1582,71 @@ export default function Factory() {
                     )}
                   </div>
                 </div>
+              )}
+            </section>
+          )}
+
+          {selectedProjectId && (
+            <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Cost Metrics</h2>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Spend tracked across analyzed factory batches for the selected project.
+                  </p>
+                </div>
+                {costMetricsLoading && (
+                  <span className="text-xs uppercase tracking-wide text-slate-500">Refreshing</span>
+                )}
+              </div>
+
+              {costMetricsLoading && !costMetrics ? (
+                <div className="mt-6">
+                  <LoadingSkeleton lines={4} height={18} />
+                </div>
+              ) : (
+                <>
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    <StatCard
+                      label="Cost / Cycle"
+                      value={formatCurrency(costMetricsData.cost_per_cycle)}
+                      subtext="Average spend across tracked factory cycles"
+                      gradient="cyan"
+                    />
+                    <StatCard
+                      label="Cost / Health Point"
+                      value={formatCurrency(costMetricsData.cost_per_health_point)}
+                      subtext="Total spend divided by total positive health gains"
+                      gradient="purple"
+                    />
+                  </div>
+
+                  <div className="mt-6">
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="text-lg font-semibold text-white">Provider Efficiency</h3>
+                      <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-sm text-slate-300">
+                        {costMetricsData.provider_efficiency.length} tracked
+                      </span>
+                    </div>
+
+                    {costMetricsData.provider_efficiency.length === 0 ? (
+                      <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
+                        No provider cost data is available for this project yet.
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        {costMetricsData.provider_efficiency.map((entry) => (
+                          <StatCard
+                            key={entry.provider}
+                            label={formatLabel(entry.provider)}
+                            value={formatCurrency(entry.cost_per_task)}
+                            subtext={`${entry.task_count} task${entry.task_count === 1 ? '' : 's'} · ${formatCurrency(entry.total_cost)} total`}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
             </section>
           )}
