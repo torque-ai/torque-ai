@@ -999,10 +999,20 @@ async function handleRequest(req, res, context = {}) {
             },
           }, 200, req);
         } else {
-          sendJson(res, {
-            tool: route.tool,
-            result: textResult,
-          }, 200, req);
+          // Try to parse text result as JSON and wrap in v2 envelope for dashboard compatibility
+          let parsed = null;
+          try { parsed = JSON.parse(textResult); } catch { /* not JSON */ }
+          if (parsed && typeof parsed === 'object') {
+            sendJson(res, {
+              data: parsed,
+              meta: { request_id: req.requestId || null, tool: route.tool },
+            }, 200, req);
+          } else {
+            sendJson(res, {
+              tool: route.tool,
+              result: textResult,
+            }, 200, req);
+          }
         }
       }
     } catch (err) {
