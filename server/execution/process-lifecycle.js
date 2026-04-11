@@ -505,6 +505,11 @@ function spawnAndTrackProcess(taskId, task, {
     code = cleanup.code;
     let handlerManagedQueue = false;
 
+    // Mark task as finalizing so the orphan checker skips it.
+    // The process has exited (runningProcesses cleared) but the close handler
+    // pipeline (including auto-verify ~90s) is still running async.
+    if (deps.finalizingTasks) deps.finalizingTasks.add(taskId);
+
     try {
       const currentTask = taskCoreDb.getTask(taskId);
       if (currentTask && currentTask.status === 'cancelled') {
@@ -558,6 +563,7 @@ function spawnAndTrackProcess(taskId, task, {
       });
       handlerManagedQueue = handlerManagedQueue || Boolean(result?.queueManaged);
     } finally {
+      if (deps.finalizingTasks) deps.finalizingTasks.delete(taskId);
       try { deps.dashboard.notifyTaskUpdated(taskId); } catch { /* non-critical */ }
       // Skip processQueue if a handler already managed queue processing (retry/failover with backoff)
       if (!handlerManagedQueue) {

@@ -228,6 +228,12 @@ function checkStaleRunningTasks() {
     for (const task of runningTasks) {
       if (!task.started_at) continue;
 
+      // Skip tasks whose close handler is still running (auto-verify can take 90s+).
+      // The process exited (no longer in runningProcesses) but finalization is in progress.
+      if (finalizingTasks && finalizingTasks.has(task.id)) {
+        continue;
+      }
+
       const currentInstanceId = typeof getMcpInstanceId === 'function'
         ? getMcpInstanceId()
         : null;
@@ -762,12 +768,15 @@ function stopTimers() {
  * Initialize the orphan cleanup module with dependencies.
  * @param {Object} deps - Dependencies from task-manager.js
  */
+let finalizingTasks = null;
+
 function init(deps) {
   db = deps.db;
   serverConfig.init({ db: deps.db });
   dashboard = deps.dashboard;
   logger = deps.logger;
   runningProcesses = deps.runningProcesses;
+  finalizingTasks = deps.finalizingTasks || null;
   stallRecoveryAttempts = deps.stallRecoveryAttempts;
   TASK_TIMEOUTS = deps.TASK_TIMEOUTS;
   cancelTask = deps.cancelTask;
