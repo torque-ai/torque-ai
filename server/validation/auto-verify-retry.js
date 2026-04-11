@@ -171,6 +171,31 @@ async function handleAutoVerifyRetry(ctx) {
 
   logger.info(`[auto-verify] Task ${taskId}: verify failed (exit ${verifyExitCode}), verifyOutput length=${verifyOutput.length}`);
 
+  // Concurrent workflow sibling check: if this task is part of a workflow and other
+  // tasks are still running/queued, verify failures are likely from concurrent
+  // interference — other tasks modifying files in parallel. Don't fail the task;
+  // annotate it and let the QC integration pass (which runs after ALL tasks complete)
+  // catch real cross-task regressions.
+  if (task.workflow_id) {
+    try {
+      const workflowEngine = require('../db/workflow-engine');
+      const siblings = workflowEngine.getWorkflowTasks(task.workflow_id);
+      const activeSiblings = siblings.filter(t =>
+        t.id !== taskId && ['running', 'queued', 'blocked', 'pending', 'retry_scheduled'].includes(t.status)
+      );
+      if (activeSiblings.length > 0) {
+        logger.info(`[auto-verify] Task ${taskId}: verify failed but ${activeSiblings.length} workflow sibling(s) still active — deferring to integration pass`);
+        ctx.output = (ctx.output || '') +
+          `\n\n[auto-verify] Verification failed (exit ${verifyExitCode}) but ${activeSiblings.length} sibling task(s) in workflow are still running. ` +
+          `Errors are likely from concurrent changes — deferring to QC integration pass.\n` +
+          `Verify output (first 1000 chars): ${(verifyOutput || '').slice(0, 1000)}`;
+        return; // Task stays completed
+      }
+    } catch (wfErr) {
+      logger.info(`[auto-verify] Task ${taskId}: workflow sibling check failed (${wfErr.message}), proceeding with normal verify logic`);
+    }
+  }
+
   // Scoped error check: if all verify errors are in files this task didn't touch, pass it
   // Wrapped in try/catch for safety — if scoped check fails, fall through to retry logic
   try {
