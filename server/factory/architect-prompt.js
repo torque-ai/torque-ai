@@ -185,6 +185,7 @@ function buildArchitectPrompt(options = {}) {
     intakeItems,
     previousBacklog,
     previousReasoning,
+    corrections,
   } = options;
 
   if (!isRecord(project)) {
@@ -224,6 +225,23 @@ function buildArchitectPrompt(options = {}) {
       '',
       'Previous backlog:',
       previousBacklogText
+    );
+  }
+
+  // Human corrections — calibration data from the product owner
+  if (Array.isArray(corrections) && corrections.length > 0) {
+    sections.push(
+      '',
+      '## Human corrections (calibration)',
+      'The product owner has overridden or corrected previous architect decisions. Learn from these:',
+    );
+    for (const c of corrections.slice(0, 10)) {
+      const correction = typeof c === 'string' ? c : (c.description || c.reason || JSON.stringify(c));
+      sections.push(`- ${correction}`);
+    }
+    sections.push(
+      '',
+      'Adjust your prioritization to reflect these corrections. If a pattern is repeated, it is a strong signal.'
     );
   }
 

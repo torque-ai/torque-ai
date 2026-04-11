@@ -55,15 +55,46 @@ function assertPausedAtStage(project, stage) {
 
 function executeSenseStage(project_id) {
   const summary = factoryHealth.getProjectHealthSummary(project_id);
-
-  logger.info('SENSE stage executed', {
-    project_id,
-    health_summary: summary,
-    architect_runner_ready: typeof architectRunner.runArchitectCycle === 'function',
-    guardrail_runner_ready: typeof guardrailRunner.runPostBatchChecks === 'function',
-  });
-
+  logger.info('SENSE stage executed', { project_id });
   return summary;
+}
+
+async function executeVerifyStage(project_id, batch_id) {
+  if (!batch_id) {
+    logger.info('VERIFY stage: no batch_id, skipping guardrail checks', { project_id });
+    return { status: 'skipped', reason: 'no_batch_id' };
+  }
+  try {
+    const result = guardrailRunner.runPostBatchChecks(project_id, batch_id, []);
+    logger.info('VERIFY stage: guardrail checks complete', { project_id, batch_id, result });
+    return result;
+  } catch (err) {
+    logger.warn(`VERIFY stage guardrail check failed: ${err.message}`, { project_id });
+    return { status: 'error', error: err.message };
+  }
+}
+
+async function executeLearnStage(project_id, batch_id) {
+  try {
+    const feedback = require('./feedback');
+    const analysis = feedback.analyzeBatch(project_id, batch_id);
+    logger.info('LEARN stage: batch analysis complete', { project_id, batch_id });
+    return analysis;
+  } catch (err) {
+    logger.warn(`LEARN stage analysis failed: ${err.message}`, { project_id });
+    return { status: 'error', error: err.message };
+  }
+}
+
+function scheduleLoop(project_id, interval_minutes) {
+  const project = getProjectOrThrow(project_id);
+  const config = project.config_json ? JSON.parse(project.config_json) : {};
+  config.loop_schedule = { interval_minutes, enabled: true };
+  factoryHealth.updateProject(project.id, {
+    config_json: JSON.stringify(config),
+  });
+  logger.info('Factory loop scheduled', { project_id, interval_minutes });
+  return { project_id, interval_minutes, message: `Loop scheduled every ${interval_minutes} minutes` };
 }
 
 function startLoop(project_id) {
@@ -110,6 +141,14 @@ function advanceLoop(project_id) {
     ? TRANSITIONS[currentState] || null
     : null;
 
+  // Execute stage-specific logic before transitioning
+  let stageResult = null;
+  if (nextState === LOOP_STATES.VERIFY || currentState === LOOP_STATES.EXECUTE) {
+    stageResult = await executeVerifyStage(project.id, project.loop_batch_id);
+  } else if (nextState === LOOP_STATES.LEARN || currentState === LOOP_STATES.VERIFY) {
+    stageResult = await executeLearnStage(project.id, project.loop_batch_id);
+  }
+
   factoryHealth.updateProject(project.id, {
     loop_state: nextState,
     loop_last_action_at: nowIso(),
@@ -128,6 +167,7 @@ function advanceLoop(project_id) {
     previous_state: currentState,
     new_state: nextState,
     paused_at_stage: pausedAtStage,
+    stage_result: stageResult,
   };
 }
 
@@ -199,4 +239,5 @@ module.exports = {
   approveGate,
   rejectGate,
   getLoopState,
+  scheduleLoop,
 };

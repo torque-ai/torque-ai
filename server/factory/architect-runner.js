@@ -296,6 +296,69 @@ function buildReasoning({ project, trigger, healthScores, intakeItems, backlog, 
   return parts.join(' ');
 }
 
+/**
+ * Submit the architect prompt to Codex and parse the JSON response.
+ * Falls back to null if Codex is unavailable or response is unparseable.
+ */
+async function runCodexArchitect(prompt, project_id) {
+  const taskManager = require('../task-manager');
+  const taskCore = require('../db/task-core');
+  const { v4: uuidv4 } = require('uuid');
+
+  const taskId = uuidv4();
+  const taskDescription = `You are the Architect for a software factory. Read the context below and return ONLY valid JSON output matching the specified format. No explanation outside the JSON.\n\n${prompt}`;
+
+  taskCore.createTask({
+    id: taskId,
+    status: 'pending',
+    task_description: taskDescription,
+    working_directory: null,
+    project: 'factory-architect',
+    provider: 'codex',
+    timeout_minutes: 10,
+    metadata: JSON.stringify({ factory_internal: true, architect_cycle: true, project_id }),
+  });
+
+  // Start and await the task
+  try {
+    taskManager.startTask(taskId);
+  } catch (err) {
+    logger.warn(`Failed to start Codex architect task: ${err.message}`);
+    return null;
+  }
+
+  // Wait for completion (up to 5 minutes)
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    const task = taskCore.getTask(taskId);
+    if (!task) break;
+    if (task.status === 'completed') {
+      const output = task.output || '';
+      try {
+        // Extract JSON from output (may be wrapped in markdown code blocks)
+        const jsonMatch = output.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.backlog && Array.isArray(parsed.backlog)) {
+            return parsed;
+          }
+        }
+      } catch (parseErr) {
+        logger.warn(`Failed to parse Codex architect output: ${parseErr.message}`);
+      }
+      return null;
+    }
+    if (task.status === 'failed' || task.status === 'cancelled') {
+      return null;
+    }
+    // Brief wait before checking again
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+
+  logger.warn('Codex architect task timed out');
+  return null;
+}
+
 async function runArchitectCycle(project_id, trigger = 'manual') {
   if (!project_id) {
     throw new Error('project_id is required');
@@ -310,12 +373,30 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   const intakeItems = normalizeIntakeItems(factoryIntake.listWorkItems({ project_id, status: 'intake' }));
   const prevCycle = factoryArchitect.getLatestCycle(project_id);
 
+  // Load human corrections for architect calibration
+  let corrections = [];
+  try {
+    const factoryFeedback = require('../db/factory-feedback');
+    const feedbackRecords = factoryFeedback.listFeedback ? factoryFeedback.listFeedback(project_id, 10) : [];
+    corrections = feedbackRecords
+      .filter(r => r.human_corrections_json)
+      .map(r => {
+        try { return JSON.parse(r.human_corrections_json); } catch { return null; }
+      })
+      .filter(Boolean)
+      .flat()
+      .slice(0, 10);
+  } catch (err) {
+    logger.debug(`Could not load corrections: ${err.message}`);
+  }
+
   const prompt = buildArchitectPrompt({
     project,
     healthScores,
     intakeItems,
     previousBacklog: prevCycle ? prevCycle.backlog : [],
     previousReasoning: prevCycle ? prevCycle.reasoning : '',
+    corrections,
   });
 
   logger.debug('Built architect prompt for cycle', {
@@ -324,11 +405,31 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
     prompt_length: prompt.length,
     intake_count: intakeItems.length,
     health_dimension_count: healthScores.length,
+    corrections_count: corrections.length,
     previous_cycle_id: prevCycle ? prevCycle.id : null,
   });
 
-  const backlog = prioritizeByHealth(intakeItems, healthScores);
-  const reasoning = buildReasoning({ project, trigger, healthScores, intakeItems, backlog, prevCycle });
+  // Try LLM-based prioritization via Codex, fall back to deterministic
+  let backlog;
+  let reasoning;
+  let llmUsed = false;
+
+  try {
+    const codexResult = await runCodexArchitect(prompt, project_id);
+    if (codexResult && Array.isArray(codexResult.backlog) && codexResult.backlog.length > 0) {
+      backlog = codexResult.backlog;
+      reasoning = codexResult.reasoning || 'LLM-prioritized backlog';
+      llmUsed = true;
+      logger.info('Architect cycle used Codex LLM', { project_id, backlog_count: backlog.length });
+    }
+  } catch (err) {
+    logger.info(`Codex architect failed, falling back to deterministic: ${err.message}`);
+  }
+
+  if (!llmUsed) {
+    backlog = prioritizeByHealth(intakeItems, healthScores);
+    reasoning = buildReasoning({ project, trigger, healthScores, intakeItems, backlog, prevCycle });
+  }
   const cycle = factoryArchitect.createCycle({
     project_id,
     input_snapshot: {
