@@ -155,6 +155,37 @@ async function handleAutoVerifyRetry(ctx) {
   const verifyOutput = (verifyResult.output || '') + (verifyResult.error || '');
   const verifyExitCode = verifyResult.exitCode;
 
+  // ── Verify signal tag ─────────────────────────────────────────────────
+  // Tag every verified task with test health so the dashboard and QC can
+  // surface it without relying on task status. Format:
+  //   tests:pass          — verify command exited 0
+  //   tests:fail:N        — verify command failed, N error lines detected
+  //   tests:timeout       — verify command timed out (inconclusive)
+  try {
+    let verifyTag;
+    if (verifyResult.timedOut) {
+      verifyTag = 'tests:timeout';
+    } else if (verifyExitCode === 0) {
+      verifyTag = 'tests:pass';
+    } else {
+      const errorLines = (verifyOutput || '').split('\n')
+        .filter(l => /\berror\b/i.test(l) && !/^\s*\d+ error/.test(l))
+        .length;
+      verifyTag = `tests:fail:${errorLines}`;
+    }
+    const currentTask = _db.getTask(taskId);
+    const existingTags = Array.isArray(currentTask?.tags) ? currentTask.tags : [];
+    // Remove any previous tests: tag before adding the new one
+    const cleanedTags = existingTags.filter(t => !t.startsWith('tests:'));
+    cleanedTags.push(verifyTag);
+    if (typeof _db.updateTask === 'function') {
+      _db.updateTask(taskId, { tags: cleanedTags });
+    }
+    logger.info(`[auto-verify] Task ${taskId}: tagged ${verifyTag}`);
+  } catch (tagErr) {
+    logger.info(`[auto-verify] Task ${taskId}: failed to apply verify tag: ${tagErr.message}`);
+  }
+
   // Success — task stays completed
   if (verifyExitCode === 0) {
     logger.info(`[auto-verify] Task ${taskId}: verify passed`);
