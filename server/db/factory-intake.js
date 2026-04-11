@@ -24,26 +24,26 @@ function createWorkItem({ project_id, source, origin, title, description, priori
   if (!title || typeof title !== 'string') throw new Error('title is required');
   if (source && !VALID_SOURCES.has(source)) throw new Error(`Invalid source: ${source}`);
 
-  const id = uuidv4();
+  // Table uses INTEGER AUTOINCREMENT id and INTEGER priority (from migration v14)
+  const numericPriority = typeof priority === 'number' ? priority : 50;
   const now = new Date().toISOString();
-  db.prepare(`
-    INSERT INTO factory_work_items (id, project_id, source, origin_json, title, description, priority, requestor, constraints_json, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'intake', ?, ?)
+  const info = db.prepare(`
+    INSERT INTO factory_work_items (project_id, source, origin_json, title, description, priority, requestor, constraints_json, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
   `).run(
-    id,
     project_id,
-    source || 'conversational',
+    source || 'conversation',
     origin ? JSON.stringify(origin) : null,
     title,
     description || null,
-    priority || 'default',
+    numericPriority,
     requestor || null,
     constraints ? JSON.stringify(constraints) : null,
     now,
     now,
   );
 
-  return getWorkItem(id);
+  return getWorkItem(info.lastInsertRowid);
 }
 
 function getWorkItem(id) {
@@ -70,7 +70,7 @@ function listWorkItems({ project_id, status, source, limit } = {}) {
   if (status) { sql += ' AND status = ?'; params.push(status); }
   if (source) { sql += ' AND source = ?'; params.push(source); }
 
-  sql += " ORDER BY CASE priority WHEN 'user_override' THEN 0 WHEN 'high' THEN 1 WHEN 'architect_assigned' THEN 2 WHEN 'medium' THEN 3 WHEN 'default' THEN 4 WHEN 'low' THEN 5 ELSE 6 END, created_at DESC";
+  sql += ' ORDER BY priority DESC, created_at DESC';
   sql += ' LIMIT ?';
   params.push(limit || 100);
 
@@ -106,7 +106,7 @@ function rejectWorkItem(id, reason) {
 function findDuplicates(project_id, title) {
   const rows = db.prepare(`
     SELECT * FROM factory_work_items
-    WHERE project_id = ? AND status NOT IN ('rejected', 'shipped')
+    WHERE project_id = ? AND status NOT IN ('rejected', 'shipped', 'completed')
     ORDER BY created_at DESC LIMIT 50
   `).all(project_id);
 
