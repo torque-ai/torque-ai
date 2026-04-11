@@ -310,6 +310,21 @@ const TaskCard = memo(function TaskCard({
               Q:{task.quality_score}
             </span>
           )}
+          {/* Verify signal badge — tests:pass / tests:fail:N / tests:timeout */}
+          {(() => {
+            const testTag = Array.isArray(task.tags) && task.tags.find(t => t.startsWith('tests:'));
+            if (!testTag) return null;
+            if (testTag === 'tests:pass') {
+              return <span className="px-1.5 py-0.5 rounded text-[10px] text-green-300 bg-green-600/30">tests:pass</span>;
+            }
+            if (testTag === 'tests:timeout') {
+              return <span className="px-1.5 py-0.5 rounded text-[10px] text-amber-300 bg-amber-600/30">tests:timeout</span>;
+            }
+            if (testTag.startsWith('tests:fail')) {
+              return <span className="px-1.5 py-0.5 rounded text-[10px] text-red-300 bg-red-600/30">{testTag}</span>;
+            }
+            return null;
+          })()}
           {/* Host + GPU status combined */}
           {hostLabel && (
             <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] ${
