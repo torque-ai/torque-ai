@@ -417,16 +417,26 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   let reasoning;
   let llmUsed = false;
 
-  try {
-    const codexResult = await runCodexArchitect(prompt, project_id);
-    if (codexResult && Array.isArray(codexResult.backlog) && codexResult.backlog.length > 0) {
-      backlog = codexResult.backlog;
-      reasoning = codexResult.reasoning || 'LLM-prioritized backlog';
-      llmUsed = true;
-      logger.info('Architect cycle used Codex LLM', { project_id, backlog_count: backlog.length });
+  // Only attempt Codex LLM when a real task manager is available (not in tests)
+  const hasTaskManager = (() => {
+    try {
+      const tm = require('../task-manager');
+      return typeof tm.startTask === 'function';
+    } catch { return false; }
+  })();
+
+  if (hasTaskManager) {
+    try {
+      const codexResult = await runCodexArchitect(prompt, project_id);
+      if (codexResult && Array.isArray(codexResult.backlog) && codexResult.backlog.length > 0) {
+        backlog = codexResult.backlog;
+        reasoning = codexResult.reasoning || 'LLM-prioritized backlog';
+        llmUsed = true;
+        logger.info('Architect cycle used Codex LLM', { project_id, backlog_count: backlog.length });
+      }
+    } catch (err) {
+      logger.info(`Codex architect failed, falling back to deterministic: ${err.message}`);
     }
-  } catch (err) {
-    logger.info(`Codex architect failed, falling back to deterministic: ${err.message}`);
   }
 
   if (!llmUsed) {
