@@ -1,0 +1,367 @@
+'use strict';
+
+const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory-intake');
+const factoryArchitect = require('../db/factory-architect');
+const { buildArchitectPrompt } = require('./architect-prompt');
+const logger = require('../logger').child({ component: 'architect-runner' });
+
+const DIMENSION_KEYWORDS = {
+  structural: ['structural', 'architecture', 'architectural', 'module', 'modules', 'layer', 'layers', 'boundary', 'boundaries', 'coupling'],
+  test_coverage: ['test', 'tests', 'coverage', 'unit test', 'integration test', 'regression', 'qa'],
+  security: ['security', 'auth', 'authentication', 'authorization', 'permission', 'permissions', 'secret', 'secrets', 'vulnerability', 'csrf', 'xss'],
+  user_facing: ['user', 'users', 'user facing', 'ux', 'ui', 'onboarding', 'experience', 'workflow', 'screen', 'screens'],
+  api_completeness: ['api', 'apis', 'endpoint', 'endpoints', 'contract', 'contracts', 'schema', 'schemas', 'payload', 'interface'],
+  documentation: ['docs', 'doc', 'documentation', 'readme', 'guide', 'guides', 'runbook'],
+  dependency_health: ['dependency', 'dependencies', 'package', 'packages', 'upgrade', 'upgrades', 'version', 'versions', 'library', 'libraries'],
+  build_ci: ['build', 'ci', 'pipeline', 'pipelines', 'lint', 'workflow', 'workflows', 'github actions', 'compile'],
+  performance: ['performance', 'slow', 'latency', 'throughput', 'optimize', 'optimization', 'cache', 'caching', 'speed'],
+  debt_ratio: ['debt', 'cleanup', 'clean up', 'simplify', 'simplification', 'maintainability', 'legacy'],
+};
+
+const SCOPE_BUDGET_RULES = [
+  { budget: 8, keywords: ['refactor', 'rewrite', 'overhaul'] },
+  { budget: 3, keywords: ['fix', 'bug'] },
+  { budget: 5, keywords: ['add', 'feature', 'new'] },
+];
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function toFiniteNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeText(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const result = [];
+
+  for (const value of values) {
+    const normalized = normalizeText(value);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function formatDimensionLabel(dimension) {
+  return String(dimension || '')
+    .replace(/[_-]+/g, ' ')
+    .trim() || 'unknown dimension';
+}
+
+function normalizeHealthScores(healthScores) {
+  if (Array.isArray(healthScores)) {
+    return healthScores
+      .filter((entry) => isRecord(entry) && entry.dimension)
+      .map((entry) => ({ dimension: String(entry.dimension), score: entry.score }));
+  }
+
+  if (healthScores == null) {
+    return [];
+  }
+
+  if (isRecord(healthScores)) {
+    return Object.entries(healthScores).map(([dimension, score]) => ({ dimension, score }));
+  }
+
+  throw new TypeError('healthScores must be an array, object map, or null');
+}
+
+function normalizeIntakeItems(intakeItems) {
+  if (Array.isArray(intakeItems)) {
+    return intakeItems.slice();
+  }
+
+  if (intakeItems == null) {
+    return [];
+  }
+
+  if (isRecord(intakeItems) && Array.isArray(intakeItems.items)) {
+    return intakeItems.items.slice();
+  }
+
+  throw new TypeError('intakeItems must be an array, { items: [] }, or null');
+}
+
+function getSortedWeakDimensions(healthScores) {
+  return normalizeHealthScores(healthScores)
+    .map((entry) => ({
+      dimension: entry.dimension,
+      score: toFiniteNumber(entry.score),
+    }))
+    .sort((left, right) => {
+      const leftScore = left.score === null ? Number.POSITIVE_INFINITY : left.score;
+      const rightScore = right.score === null ? Number.POSITIVE_INFINITY : right.score;
+      if (leftScore !== rightScore) {
+        return leftScore - rightScore;
+      }
+      return left.dimension.localeCompare(right.dimension);
+    });
+}
+
+function getDimensionKeywords(dimension) {
+  const dimensionKey = String(dimension || '').trim();
+  const label = formatDimensionLabel(dimensionKey);
+  return uniqueStrings([
+    ...(DIMENSION_KEYWORDS[dimensionKey] || []),
+    dimensionKey,
+    label,
+    ...label.split(' '),
+  ]);
+}
+
+function getItemSearchText(item) {
+  return normalizeText([
+    item && typeof item.title === 'string' ? item.title : '',
+    item && typeof item.description === 'string' ? item.description : '',
+  ].join(' '));
+}
+
+function includesKeyword(searchText, keyword) {
+  const normalizedKeyword = normalizeText(keyword);
+  if (!normalizedKeyword) {
+    return false;
+  }
+
+  return ` ${searchText} `.includes(` ${normalizedKeyword} `);
+}
+
+function getWeakDimensionMatch(item, weakDimensions) {
+  const searchText = getItemSearchText(item);
+  if (!searchText) {
+    return null;
+  }
+
+  for (let index = 0; index < weakDimensions.length; index += 1) {
+    const weakDimension = weakDimensions[index];
+    const keywords = getDimensionKeywords(weakDimension.dimension);
+    if (keywords.some((keyword) => includesKeyword(searchText, keyword))) {
+      return {
+        dimension: weakDimension.dimension,
+        score: weakDimension.score,
+        rank: index,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getCreatedAtValue(item) {
+  const createdAt = item && item.created_at ? Date.parse(item.created_at) : Number.NaN;
+  return Number.isFinite(createdAt) ? createdAt : Number.POSITIVE_INFINITY;
+}
+
+function inferScopeBudget(item) {
+  const searchText = getItemSearchText(item);
+  for (const rule of SCOPE_BUDGET_RULES) {
+    if (rule.keywords.some((keyword) => includesKeyword(searchText, keyword))) {
+      return rule.budget;
+    }
+  }
+  return 5;
+}
+
+function buildWhy(item, match, weakDimensions) {
+  const reasons = [];
+
+  if (item && item.priority === 'user_override') {
+    reasons.push('User override priority takes precedence.');
+  }
+
+  if (match) {
+    const weakestDimension = weakDimensions[0] ? weakDimensions[0].dimension : null;
+    if (weakestDimension && weakestDimension === match.dimension) {
+      reasons.push(`Aligned to weakest health dimension ${formatDimensionLabel(match.dimension)}.`);
+    } else {
+      reasons.push(`Aligned to weak health dimension ${formatDimensionLabel(match.dimension)}.`);
+    }
+  } else if (weakDimensions.length > 0) {
+    reasons.push('No direct weak-dimension keyword match; ordered by age after stronger signals.');
+  } else {
+    reasons.push('No health scores available; ordered by override status and age.');
+  }
+
+  return reasons.join(' ');
+}
+
+function createBacklogEntry(item, match, weakDimensions, priorityRank) {
+  return {
+    work_item_id: item && item.id ? item.id : null,
+    title: item && typeof item.title === 'string' && item.title.trim()
+      ? item.title.trim()
+      : `Work item ${priorityRank}`,
+    why: buildWhy(item, match, weakDimensions),
+    expected_impact: match ? { [match.dimension]: 'targeted' } : {},
+    scope_budget: inferScopeBudget(item),
+    priority_rank: priorityRank,
+  };
+}
+
+function prioritizeByHealth(intakeItems, healthScores) {
+  if (!Array.isArray(intakeItems)) {
+    throw new TypeError('intakeItems must be an array');
+  }
+
+  const weakDimensions = getSortedWeakDimensions(healthScores);
+  const rankedItems = intakeItems.map((item, index) => {
+    const match = getWeakDimensionMatch(item, weakDimensions);
+    return {
+      item,
+      index,
+      isUserOverride: item && item.priority === 'user_override',
+      matchRank: match ? match.rank : Number.POSITIVE_INFINITY,
+      match,
+      createdAt: getCreatedAtValue(item),
+      id: item && item.id ? String(item.id) : '',
+      title: item && typeof item.title === 'string' ? item.title : '',
+    };
+  });
+
+  rankedItems.sort((left, right) => {
+    if (left.isUserOverride !== right.isUserOverride) {
+      return left.isUserOverride ? -1 : 1;
+    }
+
+    if (left.matchRank !== right.matchRank) {
+      return left.matchRank - right.matchRank;
+    }
+
+    if (left.createdAt !== right.createdAt) {
+      return left.createdAt - right.createdAt;
+    }
+
+    const idComparison = left.id.localeCompare(right.id);
+    if (idComparison !== 0) {
+      return idComparison;
+    }
+
+    const titleComparison = left.title.localeCompare(right.title);
+    if (titleComparison !== 0) {
+      return titleComparison;
+    }
+
+    return left.index - right.index;
+  });
+
+  return rankedItems.map((entry, index) => (
+    createBacklogEntry(entry.item, entry.match, weakDimensions, index + 1)
+  ));
+}
+
+function buildReasoning({ project, trigger, healthScores, intakeItems, backlog, prevCycle }) {
+  const weakDimensions = getSortedWeakDimensions(healthScores);
+  const weakestSummary = weakDimensions.length > 0
+    ? weakDimensions
+      .slice(0, 3)
+      .map((entry) => `${formatDimensionLabel(entry.dimension)} (${entry.score === null ? 'unknown' : entry.score})`)
+      .join(', ')
+    : 'none available';
+
+  const prioritizedTitles = backlog
+    .slice(0, 3)
+    .map((entry) => entry.title)
+    .join(', ') || 'none';
+
+  const parts = [
+    `Architect cycle for ${project.name || project.id || project.project_id || 'project'} triggered by ${trigger}.`,
+    `Evaluated ${intakeItems.length} intake item(s) against ${healthScores.length} health dimension(s); weakest dimensions: ${weakestSummary}.`,
+    'Ordering rules were deterministic: user_override items first, then work aligned to weak-dimension keywords in title/description, then oldest created_at first.',
+    `Generated ${backlog.length} prioritized backlog item(s); top entries: ${prioritizedTitles}.`,
+  ];
+
+  if (prevCycle) {
+    parts.push(`Previous cycle ${prevCycle.id} was included as prompt context for continuity.`);
+  }
+
+  return parts.join(' ');
+}
+
+async function runArchitectCycle(project_id, trigger = 'manual') {
+  if (!project_id) {
+    throw new Error('project_id is required');
+  }
+
+  const project = factoryHealth.getProject(project_id);
+  if (!project) {
+    throw new Error(`Project not found: ${project_id}`);
+  }
+
+  const healthScores = normalizeHealthScores(factoryHealth.getLatestScores(project_id));
+  const intakeItems = normalizeIntakeItems(factoryIntake.listWorkItems({ project_id, status: 'intake' }));
+  const prevCycle = factoryArchitect.getLatestCycle(project_id);
+
+  const prompt = buildArchitectPrompt({
+    project,
+    healthScores,
+    intakeItems,
+    previousBacklog: prevCycle ? prevCycle.backlog : [],
+    previousReasoning: prevCycle ? prevCycle.reasoning : '',
+  });
+
+  logger.debug('Built architect prompt for cycle', {
+    project_id,
+    trigger,
+    prompt_length: prompt.length,
+    intake_count: intakeItems.length,
+    health_dimension_count: healthScores.length,
+    previous_cycle_id: prevCycle ? prevCycle.id : null,
+  });
+
+  const backlog = prioritizeByHealth(intakeItems, healthScores);
+  const reasoning = buildReasoning({ project, trigger, healthScores, intakeItems, backlog, prevCycle });
+  const cycle = factoryArchitect.createCycle({
+    project_id,
+    input_snapshot: {
+      healthScores,
+      intakeItems: intakeItems.map((item) => ({
+        id: item && item.id ? item.id : null,
+        title: item && typeof item.title === 'string' ? item.title : null,
+      })),
+    },
+    reasoning,
+    backlog,
+    flags: [],
+    trigger,
+  });
+
+  for (const item of backlog) {
+    if (!item.work_item_id) {
+      continue;
+    }
+    factoryIntake.updateWorkItem(item.work_item_id, { status: 'prioritized' });
+  }
+
+  logger.info('Architect cycle completed', {
+    project_id,
+    cycle_id: cycle && cycle.id ? cycle.id : null,
+    trigger,
+    backlog_count: backlog.length,
+  });
+
+  return cycle;
+}
+
+module.exports = {
+  runArchitectCycle,
+  prioritizeByHealth,
+};

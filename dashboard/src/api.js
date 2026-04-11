@@ -580,6 +580,9 @@ export const factory = {
   createWorkItem: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/intake`, { method: 'POST', body: JSON.stringify(data), ...opts }),
   rejectWorkItem: (itemId, reason, opts = {}) => requestV2(`/factory/intake/${itemId}/reject`, { method: 'POST', body: JSON.stringify({ reason }), ...opts }),
   pauseAll: (opts = {}) => requestV2('/factory/pause-all', { method: 'POST', ...opts }),
+  triggerArchitect: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/architect`, { method: 'POST', ...opts }),
+  backlog: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/backlog`, opts),
+  architectLog: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/architect/log`, opts),
 };
 
 export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory };

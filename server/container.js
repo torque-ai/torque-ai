@@ -321,6 +321,9 @@ function initModules(db, serverConfig) {
 
     const factoryIntake = require('./db/factory-intake');
     _defaultContainer.registerValue('factoryIntake', factoryIntake);
+
+    const factoryArchitect = require('./db/factory-architect');
+    _defaultContainer.registerValue('factoryArchitect', factoryArchitect);
   }
   if (!_defaultContainer.has('providerScoring')) {
     const { createProviderScoring } = require('./db/provider-scoring');

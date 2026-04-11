@@ -343,6 +343,10 @@ const FACTORY_V2_ROUTES = [
   { method: 'PUT', path: /^\/api\/v2\/factory\/intake\/([^/]+)$/, tool: 'update_work_item', mapParams: ['id'], mapBody: true },
   { method: 'POST', path: /^\/api\/v2\/factory\/intake\/([^/]+)\/reject$/, tool: 'reject_work_item', mapParams: ['id'], mapBody: true },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/intake\/from-findings$/, tool: 'intake_from_findings', mapParams: ['project'], mapBody: true },
+  // Architect
+  { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/architect$/, tool: 'trigger_architect', mapParams: ['project'], mapBody: true },
+  { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/backlog$/, tool: 'architect_backlog', mapParams: ['project'], mapQuery: true },
+  { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/architect\/log$/, tool: 'architect_log', mapParams: ['project'], mapQuery: true },
 ];
 
 const hasPiiScanRoute = routes.some((route) => route.method === PII_SCAN_ROUTE.method && route.path === PII_SCAN_ROUTE.path);

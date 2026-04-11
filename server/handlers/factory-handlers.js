@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryArchitect = require('../db/factory-architect');
+const { runArchitectCycle } = require('../factory/architect-runner');
 const { scoreAll } = require('../factory/scorer-registry');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
@@ -266,6 +268,36 @@ async function handleIntakeFromFindings(args) {
   });
 }
 
+async function handleTriggerArchitect(args) {
+  const project = resolveProject(args.project);
+  const cycle = await runArchitectCycle(project.id, 'manual');
+  return jsonResponse({
+    message: `Architect cycle completed for "${project.name}"`,
+    reasoning: cycle.reasoning,
+    backlog: cycle.backlog,
+    flags: cycle.flags,
+    cycle_id: cycle.id,
+  });
+}
+
+async function handleArchitectBacklog(args) {
+  const project = resolveProject(args.project);
+  const backlog = factoryArchitect.getBacklog(project.id);
+  const latest = factoryArchitect.getLatestCycle(project.id);
+  return jsonResponse({
+    project: project.name,
+    backlog,
+    reasoning_summary: latest ? latest.reasoning.slice(0, 500) : null,
+    cycle_id: latest ? latest.id : null,
+  });
+}
+
+async function handleArchitectLog(args) {
+  const project = resolveProject(args.project);
+  const log = factoryArchitect.getReasoningLog(project.id, args.limit || 10);
+  return jsonResponse({ project: project.name, entries: log });
+}
+
 module.exports = {
   handleRegisterFactoryProject,
   handleListFactoryProjects,
@@ -281,4 +313,7 @@ module.exports = {
   handleUpdateWorkItem,
   handleRejectWorkItem,
   handleIntakeFromFindings,
+  handleTriggerArchitect,
+  handleArchitectBacklog,
+  handleArchitectLog,
 };

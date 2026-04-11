@@ -382,6 +382,11 @@ export default function Factory() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [intakeItems, setIntakeItems] = useState([]);
   const [intakeLoading, setIntakeLoading] = useState(false);
+  const [backlog, setBacklog] = useState([]);
+  const [backlogReasoning, setBacklogReasoning] = useState(null);
+  const [backlogFlags, setBacklogFlags] = useState([]);
+  const [architectLoading, setArchitectLoading] = useState(false);
+  const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const [activeProjectAction, setActiveProjectAction] = useState(null);
   const [rejectingItemId, setRejectingItemId] = useState(null);
   const [pauseAllBusy, setPauseAllBusy] = useState(false);
@@ -478,6 +483,21 @@ export default function Factory() {
       cancelled = true;
     };
   }, [selectedProjectId, toast]);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setBacklog([]);
+      setBacklogReasoning(null);
+      setBacklogFlags([]);
+      return;
+    }
+    factoryApi.backlog(selectedProjectId)
+      .then((response) => {
+        setBacklog(response?.backlog || []);
+        setBacklogReasoning(response?.reasoning_summary || null);
+      })
+      .catch(() => setBacklog([]));
+  }, [selectedProjectId]);
 
   const handleSelectProject = useCallback((projectId) => {
     setSelectedProjectId(projectId);
@@ -734,6 +754,92 @@ export default function Factory() {
                           </tr>
                         );
                       })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
+
+          {selectedProjectId && (
+            <section className="mt-8">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-white">Architect Backlog</h2>
+                <button
+                  onClick={() => {
+                    setArchitectLoading(true);
+                    factoryApi.triggerArchitect(selectedProjectId)
+                      .then((response) => {
+                        setBacklog(response?.backlog || []);
+                        setBacklogReasoning(response?.reasoning || null);
+                        setBacklogFlags(response?.flags || []);
+                        toast.success('Architect cycle completed');
+                      })
+                      .catch((err) => toast.error(`Architect failed: ${err.message}`))
+                      .finally(() => setArchitectLoading(false));
+                  }}
+                  disabled={architectLoading}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-sm font-medium rounded"
+                >
+                  {architectLoading ? 'Running...' : 'Run Architect'}
+                </button>
+              </div>
+
+              {backlogReasoning && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => setReasoningExpanded(!reasoningExpanded)}
+                    className="text-sm text-slate-400 hover:text-white flex items-center gap-1"
+                  >
+                    <span>{reasoningExpanded ? '▼' : '▶'}</span>
+                    <span>Reasoning</span>
+                  </button>
+                  {reasoningExpanded && (
+                    <pre className="mt-2 p-3 bg-slate-800 rounded text-sm text-slate-300 whitespace-pre-wrap">{backlogReasoning}</pre>
+                  )}
+                </div>
+              )}
+
+              {backlogFlags.length > 0 && (
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {backlogFlags.map((flag, i) => (
+                    <span key={i} className="px-2 py-1 bg-yellow-900/50 text-yellow-300 text-xs rounded">
+                      ⚠ {flag.item}: {flag.reason}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {backlog.length === 0 ? (
+                <p className="text-slate-500 text-sm">No backlog items. Run the architect to prioritize intake.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-slate-400 border-b border-slate-700">
+                        <th className="py-2 pr-4">Rank</th>
+                        <th className="py-2 pr-4">Title</th>
+                        <th className="py-2 pr-4">Why</th>
+                        <th className="py-2 pr-4">Scope</th>
+                        <th className="py-2">Impact</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {backlog.map((item, i) => (
+                        <tr key={item.work_item_id || i} className="border-b border-slate-800 text-slate-300">
+                          <td className="py-2 pr-4 font-mono text-purple-400">{item.priority_rank || i + 1}</td>
+                          <td className="py-2 pr-4">{item.title}</td>
+                          <td className="py-2 pr-4 text-slate-400">{item.why}</td>
+                          <td className="py-2 pr-4 font-mono">{item.scope_budget}</td>
+                          <td className="py-2">
+                            {item.expected_impact
+                              ? Object.entries(item.expected_impact).map(([dim, delta]) => (
+                                <span key={dim} className="text-xs mr-2">{dim}: {delta > 0 ? '+' : ''}{delta}</span>
+                              ))
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>

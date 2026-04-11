@@ -210,6 +210,40 @@ const tools = [
       required: ['project', 'findings'],
     },
   },
+  {
+    name: 'trigger_architect',
+    description: 'Run an architect prioritization cycle for a factory project. Reads health scores and intake queue, produces a ranked backlog with reasoning.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'architect_backlog',
+    description: 'Get the current prioritized backlog for a factory project from the latest architect cycle.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'architect_log',
+    description: 'Get the architect reasoning history for a factory project.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        limit: { type: 'integer', description: 'Number of entries to return (default 10)' },
+      },
+      required: ['project'],
+    },
+  },
 ];
 
 module.exports = tools;

@@ -297,6 +297,27 @@ const MIGRATIONS = [
     ].join('; '),
     down: 'DROP TABLE IF EXISTS factory_work_items',
   },
+  {
+    version: 15,
+    name: 'add_factory_architect_cycles',
+    up: [
+      [
+        'CREATE TABLE IF NOT EXISTS factory_architect_cycles (',
+        '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+        '  project_id TEXT NOT NULL REFERENCES factory_projects(id),',
+        '  input_snapshot_json TEXT NOT NULL,',
+        '  reasoning TEXT NOT NULL,',
+        '  backlog_json TEXT NOT NULL,',
+        '  flags_json TEXT,',
+        "  status TEXT NOT NULL DEFAULT 'completed',",
+        "  trigger TEXT NOT NULL DEFAULT 'manual',",
+        "  created_at TEXT NOT NULL DEFAULT (datetime('now'))",
+        ')',
+      ].join('\n'),
+      'CREATE INDEX IF NOT EXISTS idx_fac_project_time ON factory_architect_cycles(project_id, created_at)',
+    ].join('; '),
+    down: 'DROP TABLE IF EXISTS factory_architect_cycles',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
