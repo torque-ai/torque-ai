@@ -447,6 +447,7 @@ async function finalizeTask(taskId, options = {}) {
     ctx = {
       taskId,
       code: rawExitCode,
+      rawExitCode,  // immutable — original process exit code before pipeline stages modify ctx.code
       status: rawExitCode === 0 ? 'completed' : 'failed',
       task,
       proc: {
@@ -455,6 +456,7 @@ async function finalizeTask(taskId, options = {}) {
         errorOutput,
         provider: procState.provider || task.provider || null,
         baselineCommit: procState.baselineCommit || null,
+        rawExitCode,  // also on proc for close-phases access
       },
       filesModified,
       output,

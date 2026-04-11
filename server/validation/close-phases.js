@@ -283,10 +283,16 @@ function handleProviderFailover(ctx) {
   }
 
   // Quota error auto-failover (capped at 3 attempts)
+  // Guard: only failover when the PROVIDER itself failed (non-zero raw exit code).
+  // If the raw exit code was 0 but ctx.status is 'failed', the failure came from a
+  // post-completion validation stage (auto-verify, build check, etc.) — not from the
+  // provider. Failing over to a different provider won't help; the work is already done.
+  const rawExitCode = ctx.rawExitCode ?? ctx.proc?.rawExitCode ?? ctx.code;
+  const providerActuallyFailed = rawExitCode !== 0;
   const MAX_FAILOVERS = 3;
   const failoverCount = task?.retry_count || 0;
   const errorOutput = proc?.errorOutput || '';
-  if (ctx.status === 'failed' && task && failoverCount < MAX_FAILOVERS && db.isProviderQuotaError(task.provider || 'codex', errorOutput)) {
+  if (ctx.status === 'failed' && providerActuallyFailed && task && failoverCount < MAX_FAILOVERS && db.isProviderQuotaError(task.provider || 'codex', errorOutput)) {
     const currentProvider = task.provider || 'codex';
     const fallbackProvider = db.getNextFallbackProvider(taskId);
 
