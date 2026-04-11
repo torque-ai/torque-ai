@@ -77,6 +77,22 @@ Set in every task's metadata:
 - **Dependent tasks** → workflow: `create_workflow` → `add_workflow_task` → `run_workflow`.
 - **Independent tasks** → standalone `smart_submit_task`.
 
+## Workflow Submission Rules — CRITICAL
+
+These rules prevent the cascade failures and stuck-task bugs that have killed previous runs:
+
+1. **Always set `provider: "codex"` explicitly on every workflow task node.** Do NOT rely on smart routing to assign a provider later. Tasks without an explicit provider can get stuck in the queue.
+
+2. **Always set `on_fail: "continue"` on workflow task nodes** unless there is a genuine data dependency (task B literally cannot run without task A's output). The default `on_fail: "skip"` cascades — if task A "fails" due to a post-task verify issue (not a real code failure), every downstream task gets skipped. Use "continue" so the chain keeps moving.
+
+3. **Always set `project: "torque"` and `version_intent`** on every workflow and task. Versioned projects require this.
+
+4. **Check before submitting migration tasks.** If a migration version already exists in `server/db/migrations.js`, do NOT submit a task to create it — it will conflict. Read the file first and skip if already present.
+
+5. **Set `working_directory`** on the workflow itself so all tasks inherit it. Do not set it per-task unless a task needs a different directory.
+
+6. **Use `create_workflow` with inline `tasks` array** when possible (fewer round-trips than separate `add_workflow_task` calls). The `tasks` array supports `provider`, `on_fail`, `depends_on`, `tags`, and `version_intent` per node.
+
 ## Prohibited Actions
 
 - **NEVER implement code directly.** If TORQUE is unreachable, message team lead and WAIT.
