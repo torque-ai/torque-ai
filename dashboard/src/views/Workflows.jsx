@@ -603,8 +603,42 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
               </>
             ) : sortedWorkflows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-slate-500">
-                  {statusFilter !== 'all' ? `No ${statusFilter} workflows found` : 'No workflows found'}
+                <td colSpan={7} className="p-12 text-center">
+                  {statusFilter !== 'all' ? (
+                    <span className="text-slate-500">{`No ${statusFilter} workflows found`}</span>
+                  ) : (
+                    <div>
+                      <svg
+                        className="mx-auto mb-3 h-12 w-12 text-slate-600"
+                        viewBox="0 0 48 48"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        aria-hidden="true"
+                      >
+                        <circle cx="12" cy="12" r="5" stroke="currentColor" strokeWidth="2" />
+                        <circle cx="36" cy="12" r="5" stroke="currentColor" strokeWidth="2" />
+                        <circle cx="24" cy="34" r="5" stroke="currentColor" strokeWidth="2" />
+                        <path d="M17 12H31" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M16 15L21 29" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M32 15L27 29" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                      <div className="text-lg font-medium text-white">No Workflows Yet</div>
+                      <div className="mt-1 text-sm text-slate-500">
+                        Workflows chain dependent tasks into DAG pipelines with automatic output
+                        injection.
+                      </div>
+                      <div className="mt-4 text-sm text-slate-400">
+                        Create one with{' '}
+                        <code className="rounded bg-slate-900 px-2 py-1 font-mono text-xs text-blue-300">
+                          create_workflow
+                        </code>{' '}
+                        or use{' '}
+                        <code className="rounded bg-slate-900 px-2 py-1 font-mono text-xs text-blue-300">
+                          /torque-workflow
+                        </code>
+                      </div>
+                    </div>
+                  )}
                 </td>
               </tr>
             ) : (

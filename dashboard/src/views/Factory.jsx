@@ -1498,11 +1498,64 @@ export default function Factory() {
           <LoadingSkeleton lines={6} height={18} />
         </div>
       ) : totalProjects === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-800/70 px-6 py-16 text-center">
-          <h2 className="text-xl font-semibold text-white">No projects registered</h2>
-          <p className="mt-2 text-sm text-slate-400">
-            Use <code className="rounded bg-slate-900 px-1.5 py-0.5 text-slate-200">register_factory_project</code> to add one.
+        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-800/70 px-8 py-16 text-center">
+          <svg
+            className="mx-auto mb-4 h-16 w-16 text-slate-600"
+            viewBox="0 0 64 64"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M10 44h44" />
+            <path d="M14 44V26h12v18" />
+            <path d="M26 44V18h12v26" />
+            <path d="M38 44V30h12v14" />
+            <circle cx="47" cy="17" r="7" />
+            <path d="M47 6v4" />
+            <path d="M47 24v4" />
+            <path d="M36 17h4" />
+            <path d="M54 17h4" />
+            <path d="M39.2 9.2l2.8 2.8" />
+            <path d="M52 22l2.8 2.8" />
+            <path d="M39.2 24.8l2.8-2.8" />
+            <path d="M52 12l2.8-2.8" />
+            <circle cx="47" cy="17" r="2.5" />
+          </svg>
+          <h2 className="text-xl font-semibold text-white">No Factory Projects Yet</h2>
+          <p className="mx-auto mt-2 max-w-2xl text-sm text-slate-400">
+            The Software Factory automates health scanning, prioritization, and continuous improvement for your
+            projects.
           </p>
+          <div className="mx-auto mt-8 max-w-3xl text-left">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">Getting Started</h3>
+            <div className="mt-4 space-y-4">
+              <div className="rounded-xl border border-slate-700/80 bg-slate-900/40 p-4">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
+                    1
+                  </span>
+                  <p className="text-sm font-medium text-white">Register a project</p>
+                </div>
+                <div className="mt-3 rounded bg-slate-900 px-3 py-2 font-mono text-xs text-slate-300">
+                  register_factory_project({`{`} name: "my-app", path: "/path/to/project" {`}`})
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-700/80 bg-slate-900/40 p-4">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
+                    2
+                  </span>
+                  <p className="text-sm font-medium text-white">Run a health scan</p>
+                </div>
+                <div className="mt-3 rounded bg-slate-900 px-3 py-2 font-mono text-xs text-slate-300">
+                  scan_project({`{`} path: "/path/to/project" {`}`})
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       ) : (
         <>

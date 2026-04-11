@@ -1509,13 +1509,42 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
 
       {/* Empty state */}
       {allTasks.length === 0 && !staleData && (
-        <div className="glass-card p-12 text-center mb-6">
-          <svg className="w-16 h-16 text-slate-700 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-          </svg>
-          <p className="text-slate-400 text-lg mb-1">No tasks yet</p>
-          <p className="text-slate-500 text-sm">
-            Click <button onClick={() => setShowSubmitForm(true)} className="text-blue-400 hover:text-blue-300 underline">Submit Task</button> above or use <code className="bg-slate-800 px-1.5 py-0.5 rounded text-xs">/torque-submit</code> to get started
+        <div className="glass-card p-8 md:p-10 mb-6">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-semibold text-white mb-3">Welcome to TORQUE</h2>
+            <p className="text-slate-400 text-base md:text-lg">
+              Your AI task orchestration platform is ready. Here's how to get started:
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="bg-slate-800/60 border-l-4 border-blue-400 rounded-xl p-5 text-left">
+              <p className="text-white font-semibold mb-2">1. Register a Project</p>
+              <p className="text-slate-400 text-sm">
+                Configure your first project with <code className="bg-slate-900/80 px-1.5 py-0.5 rounded text-xs">set_project_defaults</code>
+              </p>
+            </div>
+
+            <div className="bg-slate-800/60 border-l-4 border-green-400 rounded-xl p-5 text-left">
+              <p className="text-white font-semibold mb-2">2. Scan Your Codebase</p>
+              <p className="text-slate-400 text-sm">
+                Run <code className="bg-slate-900/80 px-1.5 py-0.5 rounded text-xs">scan_project</code> to discover test gaps and TODOs
+              </p>
+            </div>
+
+            <div className="bg-slate-800/60 border-l-4 border-purple-400 rounded-xl p-5 text-left">
+              <p className="text-white font-semibold mb-2">3. Submit a Task</p>
+              <button
+                onClick={() => setShowSubmitForm(true)}
+                className="text-purple-300 hover:text-purple-200 underline text-sm"
+              >
+                Submit your first task
+              </button>
+            </div>
+          </div>
+
+          <p className="text-slate-500 text-sm text-center">
+            Or use <code className="bg-slate-800 px-1.5 py-0.5 rounded text-xs">/torque-submit</code> in Claude Code to submit from the CLI
           </p>
         </div>
       )}
