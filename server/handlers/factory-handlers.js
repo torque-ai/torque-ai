@@ -11,6 +11,8 @@ const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSum
 const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
+const { logDecision, getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
+const notifications = require('../factory/notifications');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
 function resolveProject(projectRef) {
@@ -409,6 +411,41 @@ async function handleRecordCorrection(args) {
   return jsonResponse(result);
 }
 
+async function handleDecisionLog(args) {
+  const project = resolveProject(args.project);
+  if (args.batch_id) {
+    const decisions = getDecisionContext(project.id, args.batch_id);
+    return jsonResponse({ decisions, batch_id: args.batch_id });
+  }
+  const decisions = getAuditTrail(project.id, {
+    stage: args.stage,
+    actor: args.actor,
+    since: args.since,
+    limit: args.limit,
+  });
+  const stats = getDecisionStats(project.id);
+  return jsonResponse({ decisions, stats });
+}
+
+async function handleFactoryNotifications(args) {
+  const project = resolveProject(args.project);
+  if (args.action === 'test') {
+    notifications.notify({
+      project_id: project.id,
+      event_type: 'test',
+      data: { message: 'Test notification from factory', project_name: project.name },
+    });
+    return jsonResponse({ message: 'Test notification sent', channels: notifications.listChannels() });
+  }
+  return jsonResponse({ channels: notifications.listChannels() });
+}
+
+async function handleFactoryDigest(args) {
+  const project = resolveProject(args.project);
+  const digest = notifications.getDigest(project.id);
+  return jsonResponse(digest);
+}
+
 module.exports = {
   handleRegisterFactoryProject,
   handleListFactoryProjects,
@@ -439,4 +476,7 @@ module.exports = {
   handleAnalyzeBatch,
   handleFactoryDriftStatus,
   handleRecordCorrection,
+  handleDecisionLog,
+  handleFactoryNotifications,
+  handleFactoryDigest,
 };

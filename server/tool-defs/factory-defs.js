@@ -408,6 +408,45 @@ const tools = [
       required: ['project', 'type', 'description'],
     },
   },
+  {
+    name: 'decision_log',
+    description: 'Query the factory decision audit trail. Returns structured records of all decisions made by factory agents (health model, architect, planner, executor, verifier, human) with stage, reasoning, and confidence.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        stage: { type: 'string', enum: ['sense', 'prioritize', 'plan', 'execute', 'verify', 'ship'], description: 'Filter by factory stage' },
+        actor: { type: 'string', enum: ['health_model', 'architect', 'planner', 'executor', 'verifier', 'human'], description: 'Filter by actor' },
+        since: { type: 'string', description: 'ISO date — only decisions after this time' },
+        limit: { type: 'integer', description: 'Max results (default: 100)' },
+        batch_id: { type: 'string', description: 'Get all decisions for a specific batch' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'factory_notifications',
+    description: 'List available notification channels and send a test notification for a factory project.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        action: { type: 'string', enum: ['list_channels', 'test'], description: 'Action to perform. list_channels returns available channels. test sends a test notification.' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'factory_digest',
+    description: 'Generate an activity digest for a factory project. Returns accumulated notification events since the last digest flush.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
 ];
 
 module.exports = tools;

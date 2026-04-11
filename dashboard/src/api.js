@@ -569,6 +569,18 @@ export const routingTemplates = {
   categories: (opts = {}) => requestV2('/routing/categories', opts),
 };
 
+export async function getDecisionLog(projectId, params = {}, opts = {}) {
+  return requestV2(`/factory/projects/${projectId}/decisions${buildQuery(params)}`, opts);
+}
+
+export async function getFactoryDigest(projectId, opts = {}) {
+  return requestV2(`/factory/projects/${projectId}/digest`, opts);
+}
+
+export async function testFactoryNotification(projectId, opts = {}) {
+  return requestV2(`/factory/projects/${projectId}/notifications/test`, { method: 'POST', ...opts });
+}
+
 export const factory = {
   status: (opts = {}) => requestV2('/factory/status', opts),
   projects: (opts = {}) => requestV2('/factory/projects', opts),

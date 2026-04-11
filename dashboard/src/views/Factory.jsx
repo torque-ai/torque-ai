@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { factory as factoryApi } from '../api';
+import { Fragment, useState, useEffect, useCallback } from 'react';
+import { factory as factoryApi, getDecisionLog, getFactoryDigest } from '../api';
 import { useToast } from '../components/Toast';
 import RadarChart from '../components/RadarChart';
 import StatCard from '../components/StatCard';
@@ -74,6 +74,27 @@ const INTAKE_STATUS_BADGE_STYLES = {
   in_progress: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
   completed: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   rejected: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
+};
+
+const DECISION_STAGE_OPTIONS = ['sense', 'prioritize', 'plan', 'execute', 'verify', 'ship'];
+const DECISION_ACTOR_OPTIONS = ['health_model', 'architect', 'planner', 'executor', 'verifier', 'human'];
+
+const DECISION_STAGE_BADGE_STYLES = {
+  sense: 'border-blue-500/30 bg-blue-500/10 text-blue-300',
+  prioritize: 'border-purple-500/30 bg-purple-500/10 text-purple-300',
+  plan: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
+  execute: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  verify: 'border-teal-500/30 bg-teal-500/10 text-teal-300',
+  ship: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
+};
+
+const DECISION_ACTOR_BADGE_STYLES = {
+  health_model: 'border-blue-500/20 bg-blue-500/5 text-blue-200',
+  architect: 'border-purple-500/20 bg-purple-500/5 text-purple-200',
+  planner: 'border-orange-500/20 bg-orange-500/5 text-orange-200',
+  executor: 'border-emerald-500/20 bg-emerald-500/5 text-emerald-200',
+  verifier: 'border-teal-500/20 bg-teal-500/5 text-teal-200',
+  human: 'border-rose-500/20 bg-rose-500/5 text-rose-200',
 };
 
 function formatLabel(value) {
@@ -278,6 +299,76 @@ function formatTimestamp(value) {
   return Number.isNaN(timestamp.getTime()) ? value : timestamp.toLocaleString();
 }
 
+function toConfidencePercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+
+  const percent = numeric > 1 ? numeric : numeric * 100;
+  return Math.max(0, Math.min(100, Math.round(percent)));
+}
+
+function getDecisionSinceParam(value) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function normalizeDecisionStats(stats = {}) {
+  const byStage = Object.fromEntries(DECISION_STAGE_OPTIONS.map((stage) => [stage, 0]));
+
+  for (const [stage, count] of Object.entries(stats?.by_stage || {})) {
+    if (byStage[stage] !== undefined) {
+      byStage[stage] = Number(count) || 0;
+    }
+  }
+
+  return {
+    total: Number(stats?.total) || 0,
+    by_stage: byStage,
+    avg_confidence: stats?.avg_confidence === null || stats?.avg_confidence === undefined
+      ? null
+      : Number(stats.avg_confidence),
+  };
+}
+
+function buildDecisionSummary(decisions = []) {
+  const summary = normalizeDecisionStats();
+  let confidenceCount = 0;
+  let confidenceTotal = 0;
+
+  for (const decision of decisions) {
+    summary.total += 1;
+    if (summary.by_stage[decision?.stage] !== undefined) {
+      summary.by_stage[decision.stage] += 1;
+    }
+
+    const numericConfidence = Number(decision?.confidence);
+    if (Number.isFinite(numericConfidence)) {
+      confidenceTotal += numericConfidence;
+      confidenceCount += 1;
+    }
+  }
+
+  summary.avg_confidence = confidenceCount > 0 ? confidenceTotal / confidenceCount : null;
+  return summary;
+}
+
+function getDigestEventCounts(events = []) {
+  const counts = new Map();
+
+  for (const event of events) {
+    const eventType = event?.event_type || 'unknown';
+    counts.set(eventType, (counts.get(eventType) || 0) + 1);
+  }
+
+  return Array.from(counts.entries()).map(([eventType, count]) => ({ eventType, count }));
+}
+
 function getScoreEntries(scores = {}) {
   return Object.entries(scores).sort((a, b) => a[1] - b[1]);
 }
@@ -327,7 +418,7 @@ function DimensionBar({ dimension, score }) {
   );
 }
 
-function ProjectCard({ project, selected, busy, onSelect, onToggle }) {
+function ProjectCard({ project, selected, busy, onSelect, onToggle, activity }) {
   const actionLabel = project.status === 'running' ? 'Pause' : 'Resume';
   const weakest = project.weakest_dimension;
 
@@ -355,8 +446,13 @@ function ProjectCard({ project, selected, busy, onSelect, onToggle }) {
             <StatusDot status={project.status} />
             <h2 className="truncate text-lg font-semibold text-white">{project.name || 'Unnamed project'}</h2>
           </div>
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <TrustBadge level={project.trust_level} />
+            {activity?.recentCount > 0 && (
+              <span className="inline-flex items-center rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 text-xs font-medium text-indigo-200">
+                {activity.recentCount} recent
+              </span>
+            )}
           </div>
         </div>
         <button
@@ -399,6 +495,13 @@ function ProjectCard({ project, selected, busy, onSelect, onToggle }) {
           )}
         </div>
       </div>
+
+      {activity?.lastAction && (
+        <div className="mt-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
+          <p className="text-xs uppercase tracking-wide text-indigo-200/80">Last Action</p>
+          <p className="mt-1 truncate text-sm text-slate-200" title={activity.lastAction}>{activity.lastAction}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -958,6 +1061,7 @@ function BatchTimeline({ currentStage, pausedAtStage }) {
 
 export default function Factory() {
   const [projects, setProjects] = useState([]);
+  const [projectActivity, setProjectActivity] = useState({});
   const [loading, setLoading] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [selectedHealth, setSelectedHealth] = useState(null);
@@ -969,6 +1073,14 @@ export default function Factory() {
   const [backlogFlags, setBacklogFlags] = useState([]);
   const [architectLoading, setArchitectLoading] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
+  const [decisionStage, setDecisionStage] = useState('');
+  const [decisionActor, setDecisionActor] = useState('');
+  const [decisionSince, setDecisionSince] = useState('');
+  const [decisionLog, setDecisionLog] = useState([]);
+  const [decisionStats, setDecisionStats] = useState(() => normalizeDecisionStats());
+  const [decisionLoading, setDecisionLoading] = useState(false);
+  const [expandedDecisionIds, setExpandedDecisionIds] = useState({});
+  const [digest, setDigest] = useState(null);
   const [activeProjectAction, setActiveProjectAction] = useState(null);
   const [rejectingItemId, setRejectingItemId] = useState(null);
   const [pauseAllBusy, setPauseAllBusy] = useState(false);
@@ -1035,6 +1147,45 @@ export default function Factory() {
   }, [loadProjects]);
 
   useEffect(() => {
+    if (projects.length === 0) {
+      setProjectActivity({});
+      return undefined;
+    }
+
+    let cancelled = false;
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+    Promise.all(projects.map(async (project) => {
+      const [recentResponse, latestResponse] = await Promise.all([
+        getDecisionLog(project.id, { since: oneHourAgo, limit: 100 }).catch(() => ({ decisions: [] })),
+        getDecisionLog(project.id, { limit: 1 }).catch(() => ({ decisions: [] })),
+      ]);
+
+      return [
+        project.id,
+        {
+          recentCount: Array.isArray(recentResponse?.decisions) ? recentResponse.decisions.length : 0,
+          lastAction: latestResponse?.decisions?.[0]?.action || null,
+        },
+      ];
+    }))
+      .then((entries) => {
+        if (!cancelled) {
+          setProjectActivity(Object.fromEntries(entries));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProjectActivity({});
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projects]);
+
+  useEffect(() => {
     if (!selectedProjectId) {
       setSelectedHealth(null);
       return undefined;
@@ -1097,8 +1248,89 @@ export default function Factory() {
       .catch(() => setBacklog([]));
   }, [selectedProjectId]);
 
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setDecisionLog([]);
+      setDecisionStats(normalizeDecisionStats());
+      setDecisionLoading(false);
+      setExpandedDecisionIds({});
+      return undefined;
+    }
+
+    let cancelled = false;
+    const params = { limit: 100 };
+    const sinceParam = getDecisionSinceParam(decisionSince);
+
+    if (decisionStage) params.stage = decisionStage;
+    if (decisionActor) params.actor = decisionActor;
+    if (sinceParam) params.since = sinceParam;
+
+    setDecisionLog([]);
+    setDecisionStats(normalizeDecisionStats());
+    setExpandedDecisionIds({});
+    setDecisionLoading(true);
+
+    getDecisionLog(selectedProjectId, params)
+      .then((response) => {
+        if (!cancelled) {
+          setDecisionLog(Array.isArray(response?.decisions) ? response.decisions : []);
+          setDecisionStats(normalizeDecisionStats(response?.stats));
+          setExpandedDecisionIds({});
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setDecisionLog([]);
+          setDecisionStats(normalizeDecisionStats());
+          toast.error(`Failed to load audit trail: ${error.message}`);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDecisionLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [decisionActor, decisionSince, decisionStage, selectedProjectId, toast]);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setDigest(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setDigest(null);
+
+    getFactoryDigest(selectedProjectId)
+      .then((response) => {
+        if (!cancelled) {
+          setDigest(response || { events: [] });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDigest(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId]);
+
   const handleSelectProject = useCallback((projectId) => {
     setSelectedProjectId(projectId);
+  }, []);
+
+  const handleToggleDecision = useCallback((decisionId) => {
+    setExpandedDecisionIds((current) => ({
+      ...current,
+      [decisionId]: !current[decisionId],
+    }));
   }, []);
 
   const handleToggleProject = useCallback(async (project) => {
@@ -1162,6 +1394,11 @@ export default function Factory() {
   const detail = selectedHealth || buildDetailFallback(projects.find((project) => project.id === selectedProjectId));
   const selectedProject = detail?.project || null;
   const detailEntries = getScoreEntries(detail?.scores || {});
+  const decisionSinceParam = getDecisionSinceParam(decisionSince);
+  const hasDecisionFilters = Boolean(decisionStage || decisionActor || decisionSinceParam);
+  const auditSummary = hasDecisionFilters ? buildDecisionSummary(decisionLog) : decisionStats;
+  const digestEventCounts = getDigestEventCounts(digest?.events || []);
+  const digestEventTotal = Array.isArray(digest?.events) ? digest.events.length : 0;
 
   return (
     <div className="space-y-6 p-6">
@@ -1206,6 +1443,7 @@ export default function Factory() {
               <ProjectCard
                 key={project.id}
                 project={project}
+                activity={projectActivity[project.id]}
                 selected={selectedProjectId === project.id}
                 busy={activeProjectAction === project.id}
                 onSelect={handleSelectProject}
@@ -1275,6 +1513,226 @@ export default function Factory() {
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {selectedProjectId && (
+            <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="text-xl font-semibold text-white">Audit Trail</h2>
+                    <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-sm text-slate-300">
+                      {auditSummary.total} total
+                    </span>
+                    <span className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                      digestEventTotal > 0
+                        ? 'border-indigo-500/30 bg-indigo-500/10 text-indigo-200'
+                        : 'border-slate-700 bg-slate-900/60 text-slate-400'
+                    }`}
+                    >
+                      {digestEventTotal > 0 ? `${digestEventTotal} new notifications` : 'No new notifications'}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Review factory decisions by stage, actor, and confidence. Expand a row to inspect recorded reasoning.
+                  </p>
+                </div>
+
+                {digestEventCounts.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {digestEventCounts.map(({ eventType, count }) => (
+                      <span
+                        key={eventType}
+                        className="inline-flex items-center rounded-full border border-indigo-500/20 bg-indigo-500/5 px-2.5 py-1 text-xs font-medium text-indigo-200"
+                      >
+                        {formatLabel(eventType)} {count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label className="block text-sm text-slate-300">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Stage</span>
+                    <select
+                      value={decisionStage}
+                      onChange={(event) => setDecisionStage(event.target.value)}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                    >
+                      <option value="">All stages</option>
+                      {DECISION_STAGE_OPTIONS.map((stage) => (
+                        <option key={stage} value={stage}>{formatLabel(stage)}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block text-sm text-slate-300">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Actor</span>
+                    <select
+                      value={decisionActor}
+                      onChange={(event) => setDecisionActor(event.target.value)}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                    >
+                      <option value="">All actors</option>
+                      {DECISION_ACTOR_OPTIONS.map((actor) => (
+                        <option key={actor} value={actor}>{formatLabel(actor)}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block text-sm text-slate-300">
+                    <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Since</span>
+                    <input
+                      type="date"
+                      value={decisionSince}
+                      onChange={(event) => setDecisionSince(event.target.value)}
+                      className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 xl:grid-cols-[180px,220px,minmax(0,1fr)]">
+                <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Total Decisions</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">{auditSummary.total}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {hasDecisionFilters ? 'Matching current filters' : 'Across this project'}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Average Confidence</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">
+                    {toConfidencePercent(auditSummary.avg_confidence) === null
+                      ? '—'
+                      : `${toConfidencePercent(auditSummary.avg_confidence)}%`}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">Based on recorded confidence scores</p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Stage Breakdown</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {DECISION_STAGE_OPTIONS.map((stage) => (
+                      <div key={stage} className="rounded-xl border border-slate-700/60 bg-slate-950/40 px-3 py-2">
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+                          DECISION_STAGE_BADGE_STYLES[stage] || BADGE_FALLBACK_STYLE
+                        }`}
+                        >
+                          {formatLabel(stage)}
+                        </span>
+                        <p className="mt-2 text-lg font-semibold text-white">{auditSummary.by_stage[stage] || 0}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {decisionLoading && decisionLog.length === 0 ? (
+                <div className="mt-6">
+                  <LoadingSkeleton lines={5} height={18} />
+                </div>
+              ) : decisionLog.length === 0 ? (
+                <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
+                  No audit decisions match the current filters.
+                </div>
+              ) : (
+                <div className="mt-6 overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-700 text-left text-sm">
+                    <thead className="text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Time</th>
+                        <th className="px-4 py-3 font-medium">Stage</th>
+                        <th className="px-4 py-3 font-medium">Actor</th>
+                        <th className="px-4 py-3 font-medium">Action</th>
+                        <th className="px-4 py-3 font-medium">Confidence</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/70">
+                      {decisionLog.map((decision, index) => {
+                        const decisionKey = decision.id || `${decision.created_at || 'unknown'}-${decision.action || index}`;
+                        const confidencePercent = toConfidencePercent(decision.confidence);
+                        const isExpanded = Boolean(expandedDecisionIds[decisionKey]);
+
+                        return (
+                          <Fragment key={decisionKey}>
+                            <tr className="align-top hover:bg-slate-900/30">
+                              <td className="px-4 py-4 text-slate-300">{formatTimestamp(decision.created_at)}</td>
+                              <td className="px-4 py-4">
+                                <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
+                                  DECISION_STAGE_BADGE_STYLES[decision.stage] || BADGE_FALLBACK_STYLE
+                                }`}
+                                >
+                                  {formatLabel(decision.stage)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4">
+                                <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
+                                  DECISION_ACTOR_BADGE_STYLES[decision.actor] || BADGE_FALLBACK_STYLE
+                                }`}
+                                >
+                                  {formatLabel(decision.actor)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-white">{decision.action || 'Unknown action'}</p>
+                                    {decision.batch_id && (
+                                      <p className="mt-1 text-xs text-slate-500">Batch {decision.batch_id}</p>
+                                    )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleDecision(decisionKey)}
+                                    className="shrink-0 rounded-lg border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-xs font-medium text-slate-300 transition-colors hover:border-slate-600 hover:text-white"
+                                  >
+                                    {isExpanded ? 'Hide' : 'Reasoning'}
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="px-4 py-4">
+                                {confidencePercent === null ? (
+                                  <span className="text-slate-500">—</span>
+                                ) : (
+                                  <div className="min-w-[150px]">
+                                    <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
+                                      <span>Confidence</span>
+                                      <span className="font-mono text-slate-300">{confidencePercent}%</span>
+                                    </div>
+                                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-900">
+                                      <div
+                                        className={`h-full rounded-full ${getScoreBarClass(confidencePercent)}`}
+                                        style={{ width: `${confidencePercent}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr>
+                                <td colSpan={5} className="px-4 pb-4 pt-0">
+                                  <div className="rounded-xl border border-slate-700/70 bg-slate-900/60 p-4">
+                                    <p className="text-xs uppercase tracking-wide text-slate-500">Reasoning</p>
+                                    <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">
+                                      {decision.reasoning || 'No reasoning recorded for this decision.'}
+                                    </p>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </section>

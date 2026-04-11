@@ -360,6 +360,11 @@ const FACTORY_V2_ROUTES = [
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/analyze$/, tool: 'analyze_batch', mapParams: ['project'], mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/drift$/, tool: 'factory_drift_status', mapParams: ['project'], mapQuery: true },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/corrections$/, tool: 'record_correction', mapParams: ['project'], mapBody: true },
+  // Observability
+  { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/decisions$/, tool: 'decision_log', mapParams: ['project'], mapQuery: true },
+  { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/notifications$/, tool: 'factory_notifications', mapParams: ['project'], mapQuery: true },
+  { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/notifications\/test$/, tool: 'factory_notifications', mapParams: ['project'], mapBody: true },
+  { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/digest$/, tool: 'factory_digest', mapParams: ['project'] },
 ];
 
 const hasPiiScanRoute = routes.some((route) => route.method === PII_SCAN_ROUTE.method && route.path === PII_SCAN_ROUTE.path);
