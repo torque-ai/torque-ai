@@ -179,8 +179,8 @@ describe('loop-controller', () => {
     expect(loopController.getLoopState(testProject.id).loop_state).toBe(LOOP_STATES.PRIORITIZE);
   });
 
-  it('advanceLoop throws for IDLE project', () => {
-    expect(() => loopController.advanceLoop(testProject.id)).toThrow('Loop not started for this project');
+  it('advanceLoop throws for IDLE project', async () => {
+    await expect(loopController.advanceLoop(testProject.id)).rejects.toThrow('Loop not started for this project');
   });
 
   it('startLoop with supervised trust pauses at first gate', () => {
