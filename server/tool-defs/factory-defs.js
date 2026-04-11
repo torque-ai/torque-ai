@@ -244,6 +244,42 @@ const tools = [
       required: ['project'],
     },
   },
+  {
+    name: 'get_project_policy',
+    description: 'Get the current policy configuration for a factory project. Returns budget ceilings, scope limits, blast radius, restricted paths, escalation rules, work hours, and provider restrictions - merged with defaults.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'set_project_policy',
+    description: 'Configure policy overrides for a factory project. Accepts any subset of policy fields - unspecified fields keep their defaults. Validates all fields before saving.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        policy: {
+          type: 'object',
+          description: 'Policy overrides. Fields: budget_ceiling (number|null), scope_ceiling ({max_tasks, max_files_per_task}), blast_radius_percent (1-100), restricted_paths (string[]), required_checks (string[]), escalation_rules ({security_findings, health_drop_threshold, breaking_changes, budget_warning_percent}), work_hours ({start: 0-23, end: 0-23, timezone?}|null), provider_restrictions (string[])',
+          properties: {
+            budget_ceiling: { type: ['number', 'null'] },
+            scope_ceiling: { type: 'object', properties: { max_tasks: { type: 'integer' }, max_files_per_task: { type: 'integer' } } },
+            blast_radius_percent: { type: 'number', minimum: 1, maximum: 100 },
+            restricted_paths: { type: 'array', items: { type: 'string' } },
+            required_checks: { type: 'array', items: { type: 'string' } },
+            escalation_rules: { type: 'object' },
+            work_hours: {},
+            provider_restrictions: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+      required: ['project', 'policy'],
+    },
+  },
 ];
 
 module.exports = tools;

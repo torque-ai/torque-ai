@@ -2,6 +2,7 @@
 
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../logger').child({ component: 'factory-health' });
+const { validatePolicy, mergeWithDefaults, DEFAULT_POLICY } = require('../factory/policy-engine');
 
 const VALID_TRUST_LEVELS = new Set(['supervised', 'guided', 'autonomous', 'dark']);
 const VALID_STATUSES = new Set(['paused', 'running', 'idle']);
@@ -181,6 +182,32 @@ function getProjectHealthSummary(projectId) {
   };
 }
 
+function getProjectPolicy(projectId) {
+  const project = getProject(projectId);
+  if (!project) throw new Error(`Project not found: ${projectId}`);
+  const config = project.config_json ? JSON.parse(project.config_json) : {};
+  return mergeWithDefaults(config.policy || {});
+}
+
+function setProjectPolicy(projectId, policy) {
+  const project = getProject(projectId);
+  if (!project) throw new Error(`Project not found: ${projectId}`);
+
+  const validation = validatePolicy(policy);
+  if (!validation.valid) {
+    throw new Error(`Invalid policy: ${validation.errors.join(', ')}`);
+  }
+
+  const merged = mergeWithDefaults(policy);
+  const config = project.config_json ? JSON.parse(project.config_json) : {};
+  config.policy = merged;
+
+  db.prepare(`UPDATE factory_projects SET config_json = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(JSON.stringify(config), projectId);
+
+  return merged;
+}
+
 module.exports = {
   setDb,
   registerProject,
@@ -195,6 +222,8 @@ module.exports = {
   recordFindings,
   getFindings,
   getProjectHealthSummary,
+  getProjectPolicy,
+  setProjectPolicy,
   VALID_TRUST_LEVELS,
   VALID_STATUSES,
   VALID_DIMENSIONS,

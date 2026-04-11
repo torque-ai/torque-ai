@@ -298,12 +298,27 @@ async function handleArchitectLog(args) {
   return jsonResponse({ project: project.name, entries: log });
 }
 
+async function handleGetProjectPolicy(args) {
+  const project = resolveProject(args.project);
+  const policy = factoryHealth.getProjectPolicy(project.id);
+  return jsonResponse({ project: project.name, policy });
+}
+
+async function handleSetProjectPolicy(args) {
+  const project = resolveProject(args.project);
+  const policy = factoryHealth.setProjectPolicy(project.id, args.policy);
+  logger.info(`Policy updated for "${project.name}"`);
+  return jsonResponse({ message: `Policy updated for "${project.name}"`, policy });
+}
+
 module.exports = {
   handleRegisterFactoryProject,
   handleListFactoryProjects,
   handleProjectHealth,
   handleScanProjectHealth,
   handleSetFactoryTrustLevel,
+  handleGetProjectPolicy,
+  handleSetProjectPolicy,
   handlePauseProject,
   handleResumeProject,
   handlePauseAllProjects,

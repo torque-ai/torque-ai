@@ -347,6 +347,9 @@ const FACTORY_V2_ROUTES = [
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/architect$/, tool: 'trigger_architect', mapParams: ['project'], mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/backlog$/, tool: 'architect_backlog', mapParams: ['project'], mapQuery: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/architect\/log$/, tool: 'architect_log', mapParams: ['project'], mapQuery: true },
+  // Policy
+  { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/policy$/, tool: 'get_project_policy', mapParams: ['project'] },
+  { method: 'PUT', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/policy$/, tool: 'set_project_policy', mapParams: ['project'], mapBody: true },
 ];
 
 const hasPiiScanRoute = routes.some((route) => route.method === PII_SCAN_ROUTE.method && route.path === PII_SCAN_ROUTE.path);

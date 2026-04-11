@@ -374,6 +374,344 @@ function ProjectCard({ project, selected, busy, onSelect, onToggle }) {
   );
 }
 
+function PolicyPanel({ project, onSave }) {
+  const [policy, setPolicy] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [newPath, setNewPath] = useState('');
+  const [newCheck, setNewCheck] = useState('');
+  const toast = useToast();
+
+  useEffect(() => {
+    if (!project) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setPolicy(null);
+    setLoading(true);
+
+    factoryApi.getPolicy(project.id)
+      .then((res) => {
+        if (!cancelled) {
+          setPolicy(res.policy);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          toast.error(error?.message ? `Failed to load policy: ${error.message}` : 'Failed to load policy');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.id, toast]);
+
+  const update = (path, value) => {
+    setPolicy((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      const next = JSON.parse(JSON.stringify(prev));
+      const parts = path.split('.');
+      let obj = next;
+
+      for (let i = 0; i < parts.length - 1; i += 1) {
+        if (!obj[parts[i]] || typeof obj[parts[i]] !== 'object') {
+          obj[parts[i]] = {};
+        }
+        obj = obj[parts[i]];
+      }
+
+      obj[parts[parts.length - 1]] = value;
+      return next;
+    });
+  };
+
+  const save = async () => {
+    if (!project || !policy) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await factoryApi.setPolicy(project.id, policy);
+      setPolicy(res.policy);
+      toast.success('Policy saved');
+      onSave?.();
+    } catch (error) {
+      toast.error(error?.message ? `Failed to save policy: ${error.message}` : 'Failed to save policy');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <LoadingSkeleton lines={6} />;
+  if (!policy) return null;
+
+  return (
+    <section className="mt-6 rounded-lg border border-slate-700 bg-slate-800/50 p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-slate-100">Policy Configuration</h3>
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="rounded bg-purple-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-purple-500 disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : 'Save Policy'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-sm text-slate-400">Budget Ceiling (null = unlimited)</label>
+          <input
+            type="number"
+            value={policy.budget_ceiling ?? ''}
+            onChange={(e) => update('budget_ceiling', e.target.value === '' ? null : Number(e.target.value))}
+            placeholder="No limit"
+            className="w-full rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm text-slate-400">Blast Radius % (max codebase change per batch)</label>
+          <input
+            type="range"
+            min="1"
+            max="100"
+            value={policy.blast_radius_percent}
+            onChange={(e) => update('blast_radius_percent', Number(e.target.value))}
+            className="w-full"
+          />
+          <span className="text-xs text-slate-500">{policy.blast_radius_percent}%</span>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm text-slate-400">Max Tasks per Batch</label>
+          <input
+            type="number"
+            min="1"
+            value={policy.scope_ceiling?.max_tasks ?? 20}
+            onChange={(e) => update('scope_ceiling.max_tasks', Number(e.target.value))}
+            className="w-full rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm text-slate-400">Max Files per Task</label>
+          <input
+            type="number"
+            min="1"
+            value={policy.scope_ceiling?.max_files_per_task ?? 10}
+            onChange={(e) => update('scope_ceiling.max_files_per_task', Number(e.target.value))}
+            className="w-full rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200"
+          />
+        </div>
+
+        <div className="col-span-full">
+          <label className="mb-1 flex items-center gap-2 text-sm text-slate-400">
+            <input
+              type="checkbox"
+              checked={policy.work_hours !== null}
+              onChange={(e) => update('work_hours', e.target.checked ? { start: 9, end: 17 } : null)}
+              className="rounded border-slate-600"
+            />
+            Restrict Work Hours
+          </label>
+          {policy.work_hours && (
+            <div className="mt-1 flex gap-3">
+              <input
+                type="number"
+                min="0"
+                max="23"
+                value={policy.work_hours.start}
+                onChange={(e) => update('work_hours.start', Number(e.target.value))}
+                className="w-20 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-sm text-slate-200"
+              />
+              <span className="self-center text-slate-500">to</span>
+              <input
+                type="number"
+                min="0"
+                max="23"
+                value={policy.work_hours.end}
+                onChange={(e) => update('work_hours.end', Number(e.target.value))}
+                className="w-20 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-sm text-slate-200"
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="col-span-full">
+          <label className="mb-1 block text-sm text-slate-400">Restricted Paths</label>
+          <div className="mb-2 flex flex-wrap gap-2">
+            {(policy.restricted_paths || []).map((p, i) => (
+              <span key={i} className="inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-900/30 px-2 py-0.5 text-xs text-red-300">
+                {p}
+                <button
+                  type="button"
+                  onClick={() => update('restricted_paths', policy.restricted_paths.filter((_, j) => j !== i))}
+                  className="text-red-400 hover:text-red-200"
+                >
+                  x
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={newPath}
+              onChange={(e) => setNewPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newPath.trim()) {
+                  update('restricted_paths', [...(policy.restricted_paths || []), newPath.trim()]);
+                  setNewPath('');
+                }
+              }}
+              placeholder="e.g. server/db/migrations.js"
+              className="flex-1 rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (newPath.trim()) {
+                  update('restricted_paths', [...(policy.restricted_paths || []), newPath.trim()]);
+                  setNewPath('');
+                }
+              }}
+              className="rounded bg-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-600"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+
+        <div className="col-span-full">
+          <label className="mb-1 block text-sm text-slate-400">Required Checks</label>
+          <div className="mb-2 flex flex-wrap gap-2">
+            {(policy.required_checks || []).map((c, i) => (
+              <span key={i} className="inline-flex items-center gap-1 rounded border border-blue-500/30 bg-blue-900/30 px-2 py-0.5 text-xs text-blue-300">
+                {c}
+                <button
+                  type="button"
+                  onClick={() => update('required_checks', policy.required_checks.filter((_, j) => j !== i))}
+                  className="text-blue-400 hover:text-blue-200"
+                >
+                  x
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={newCheck}
+              onChange={(e) => setNewCheck(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newCheck.trim()) {
+                  update('required_checks', [...(policy.required_checks || []), newCheck.trim()]);
+                  setNewCheck('');
+                }
+              }}
+              placeholder="e.g. npx vitest run"
+              className="flex-1 rounded border border-slate-600 bg-slate-900 px-3 py-1.5 text-sm text-slate-200"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (newCheck.trim()) {
+                  update('required_checks', [...(policy.required_checks || []), newCheck.trim()]);
+                  setNewCheck('');
+                }
+              }}
+              className="rounded bg-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-600"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+
+        <div className="col-span-full">
+          <label className="mb-2 block text-sm text-slate-400">Escalation Rules</label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={policy.escalation_rules?.security_findings ?? true}
+                onChange={(e) => update('escalation_rules.security_findings', e.target.checked)}
+                className="rounded border-slate-600"
+              />
+              Escalate security findings
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={policy.escalation_rules?.breaking_changes ?? true}
+                onChange={(e) => update('escalation_rules.breaking_changes', e.target.checked)}
+                className="rounded border-slate-600"
+              />
+              Escalate breaking changes
+            </label>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-300">Health drop threshold:</label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={policy.escalation_rules?.health_drop_threshold ?? 10}
+                onChange={(e) => update('escalation_rules.health_drop_threshold', Number(e.target.value))}
+                className="w-16 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-sm text-slate-200"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-300">Budget warning at:</label>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={policy.escalation_rules?.budget_warning_percent ?? 80}
+                onChange={(e) => update('escalation_rules.budget_warning_percent', Number(e.target.value))}
+                className="w-16 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-sm text-slate-200"
+              />
+              <span className="text-xs text-slate-500">%</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-span-full">
+          <label className="mb-1 block text-sm text-slate-400">Provider Restrictions (empty = all allowed)</label>
+          <div className="flex flex-wrap gap-3">
+            {['codex', 'ollama', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'claude-cli', 'anthropic'].map((prov) => (
+              <label key={prov} className="flex items-center gap-1.5 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={(policy.provider_restrictions || []).includes(prov)}
+                  onChange={(e) => {
+                    const current = policy.provider_restrictions || [];
+                    update(
+                      'provider_restrictions',
+                      e.target.checked ? [...current, prov] : current.filter((p) => p !== prov),
+                    );
+                  }}
+                  className="rounded border-slate-600"
+                />
+                {prov}
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function Factory() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -413,6 +751,35 @@ export default function Factory() {
     }
   }, [toast]);
 
+  const loadProject = useCallback(async (projectId, { fallbackProject = null, isCancelled = () => false } = {}) => {
+    if (!projectId) {
+      if (!isCancelled()) {
+        setSelectedHealth(null);
+      }
+      return;
+    }
+
+    if (!isCancelled()) {
+      setSelectedHealth(buildDetailFallback(fallbackProject));
+      setDetailLoading(true);
+    }
+
+    try {
+      const response = await factoryApi.health(projectId);
+      if (!isCancelled()) {
+        setSelectedHealth(normalizeHealth(response));
+      }
+    } catch (error) {
+      if (!isCancelled()) {
+        toast.error(`Failed to load project health: ${error.message}`);
+      }
+    } finally {
+      if (!isCancelled()) {
+        setDetailLoading(false);
+      }
+    }
+  }, [toast]);
+
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
@@ -424,32 +791,13 @@ export default function Factory() {
     }
 
     const fallback = projects.find((project) => project.id === selectedProjectId);
-    setSelectedHealth(buildDetailFallback(fallback));
-    setDetailLoading(true);
-
     let cancelled = false;
-
-    factoryApi.health(selectedProjectId)
-      .then((response) => {
-        if (!cancelled) {
-          setSelectedHealth(normalizeHealth(response));
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          toast.error(`Failed to load project health: ${error.message}`);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setDetailLoading(false);
-        }
-      });
+    loadProject(selectedProjectId, { fallbackProject: fallback, isCancelled: () => cancelled });
 
     return () => {
       cancelled = true;
     };
-  }, [projects, selectedProjectId, toast]);
+  }, [loadProject, projects, selectedProjectId]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -562,6 +910,7 @@ export default function Factory() {
   const runningProjects = projects.filter((project) => project.status === 'running').length;
   const pausedProjects = projects.filter((project) => project.status === 'paused').length;
   const detail = selectedHealth || buildDetailFallback(projects.find((project) => project.id === selectedProjectId));
+  const selectedProject = detail?.project || null;
   const detailEntries = getScoreEntries(detail?.scores || {});
 
   return (
@@ -845,6 +1194,13 @@ export default function Factory() {
                 </div>
               )}
             </section>
+          )}
+
+          {selectedProject && (
+            <PolicyPanel
+              project={selectedProject}
+              onSave={() => loadProject(selectedProject.id, { fallbackProject: selectedProject })}
+            />
           )}
         </>
       )}
