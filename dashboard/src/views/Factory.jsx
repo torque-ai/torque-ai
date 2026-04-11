@@ -44,6 +44,25 @@ const STATUS_DOT_STYLES = {
   idle: 'bg-slate-500',
 };
 
+const BADGE_FALLBACK_STYLE = 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+
+const INTAKE_SOURCE_BADGE_STYLES = {
+  conversation: 'border-blue-500/30 bg-blue-500/10 text-blue-300',
+  github: 'border-purple-500/30 bg-purple-500/10 text-purple-300',
+  scout: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  ci: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  webhook: 'border-slate-500/30 bg-slate-500/10 text-slate-300',
+  manual: 'border-slate-400/30 bg-slate-400/10 text-slate-300',
+};
+
+const INTAKE_STATUS_BADGE_STYLES = {
+  pending: 'border-blue-500/30 bg-blue-500/10 text-blue-300',
+  triaged: 'border-purple-500/30 bg-purple-500/10 text-purple-300',
+  in_progress: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  completed: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  rejected: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
+};
+
 function formatLabel(value) {
   if (!value) return 'Unknown';
   const key = String(value);
@@ -171,9 +190,63 @@ function buildDetailFallback(project) {
   };
 }
 
+function normalizeIntakeSource(source) {
+  const normalized = String(source || '').toLowerCase();
+
+  if (normalized === 'conversation' || normalized === 'conversational') return 'conversation';
+  if (normalized === 'github' || normalized === 'github_issue') return 'github';
+  if (normalized === 'scout' || normalized === 'scheduled_scan') return 'scout';
+  if (normalized === 'ci' || normalized === 'ci_failure') return 'ci';
+  if (normalized === 'webhook') return 'webhook';
+  if (normalized === 'manual' || normalized === 'api' || normalized === 'self_generated') return 'manual';
+
+  return normalized || 'manual';
+}
+
+function normalizeIntakeStatus(status) {
+  const normalized = String(status || '').toLowerCase();
+
+  if (normalized === 'pending' || normalized === 'intake') return 'pending';
+  if (normalized === 'triaged' || normalized === 'prioritized' || normalized === 'planned') return 'triaged';
+  if (normalized === 'in_progress' || normalized === 'executing' || normalized === 'verifying') return 'in_progress';
+  if (normalized === 'completed' || normalized === 'shipped') return 'completed';
+  if (normalized === 'rejected') return 'rejected';
+
+  return normalized || 'pending';
+}
+
+function normalizeIntakeItem(item = {}) {
+  return {
+    ...item,
+    displaySource: normalizeIntakeSource(item.source),
+    displayStatus: normalizeIntakeStatus(item.status),
+  };
+}
+
+function getIntakeItemsFromResponse(data) {
+  if (Array.isArray(data)) {
+    return data.map(normalizeIntakeItem);
+  }
+
+  if (Array.isArray(data?.items)) {
+    return data.items.map(normalizeIntakeItem);
+  }
+
+  return [];
+}
+
 function formatBalance(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric.toFixed(2) : '0.00';
+}
+
+function formatTimestamp(value) {
+  if (!value) {
+    return 'Unknown';
+  }
+
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? value : timestamp.toLocaleString();
 }
 
 function getScoreEntries(scores = {}) {
@@ -307,7 +380,10 @@ export default function Factory() {
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [selectedHealth, setSelectedHealth] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [intakeItems, setIntakeItems] = useState([]);
+  const [intakeLoading, setIntakeLoading] = useState(false);
   const [activeProjectAction, setActiveProjectAction] = useState(null);
+  const [rejectingItemId, setRejectingItemId] = useState(null);
   const [pauseAllBusy, setPauseAllBusy] = useState(false);
   const toast = useToast();
 
@@ -370,6 +446,39 @@ export default function Factory() {
     };
   }, [projects, selectedProjectId, toast]);
 
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setIntakeItems([]);
+      setIntakeLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setIntakeLoading(true);
+
+    factoryApi.intake(selectedProjectId)
+      .then((response) => {
+        if (!cancelled) {
+          setIntakeItems(getIntakeItemsFromResponse(response));
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setIntakeItems([]);
+          toast.error(`Failed to load intake queue: ${error.message}`);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIntakeLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId, toast]);
+
   const handleSelectProject = useCallback((projectId) => {
     setSelectedProjectId(projectId);
   }, []);
@@ -408,6 +517,26 @@ export default function Factory() {
       setPauseAllBusy(false);
     }
   }, [loadProjects, toast]);
+
+  const handleRejectWorkItem = useCallback(async (itemId) => {
+    setRejectingItemId(itemId);
+
+    try {
+      const response = await factoryApi.rejectWorkItem(itemId, 'Rejected from dashboard');
+      const rejectedItem = normalizeIntakeItem(response?.item || { id: itemId, status: 'rejected' });
+
+      setIntakeItems((current) => current.map((item) => (
+        item.id === itemId
+          ? { ...item, ...rejectedItem }
+          : item
+      )));
+      toast.success('Work item rejected');
+    } catch (error) {
+      toast.error(`Failed to reject work item: ${error.message}`);
+    } finally {
+      setRejectingItemId(null);
+    }
+  }, [toast]);
 
   const totalProjects = projects.length;
   const runningProjects = projects.filter((project) => project.status === 'running').length;
@@ -527,6 +656,86 @@ export default function Factory() {
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {selectedProjectId && (
+            <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-semibold text-white">Intake Queue</h2>
+                  <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-sm text-slate-300">
+                    {intakeItems.length}
+                  </span>
+                </div>
+                {intakeLoading && <span className="text-xs uppercase tracking-wide text-slate-500">Refreshing</span>}
+              </div>
+
+              {intakeLoading && intakeItems.length === 0 ? (
+                <div className="mt-6">
+                  <LoadingSkeleton lines={4} height={18} />
+                </div>
+              ) : intakeItems.length === 0 ? (
+                <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
+                  No work items in the intake queue
+                </div>
+              ) : (
+                <div className="mt-6 overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-700 text-left text-sm">
+                    <thead className="text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Title</th>
+                        <th className="px-4 py-3 font-medium">Source</th>
+                        <th className="px-4 py-3 font-medium">Priority</th>
+                        <th className="px-4 py-3 font-medium">Status</th>
+                        <th className="px-4 py-3 font-medium">Created At</th>
+                        <th className="px-4 py-3 text-right font-medium">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/70">
+                      {intakeItems.map((item) => {
+                        const sourceStyle = INTAKE_SOURCE_BADGE_STYLES[item.displaySource] || BADGE_FALLBACK_STYLE;
+                        const statusStyle = INTAKE_STATUS_BADGE_STYLES[item.displayStatus] || BADGE_FALLBACK_STYLE;
+                        const isRejected = item.displayStatus === 'rejected';
+                        const isRejecting = rejectingItemId === item.id;
+
+                        return (
+                          <tr key={item.id} className="align-top">
+                            <td className="px-4 py-4">
+                              <p className="font-medium text-white">{item.title || 'Untitled work item'}</p>
+                              {item.description && (
+                                <p className="mt-1 max-w-xl text-xs text-slate-400">{item.description}</p>
+                              )}
+                            </td>
+                            <td className="px-4 py-4">
+                              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${sourceStyle}`}>
+                                {formatLabel(item.displaySource)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 text-slate-300">{formatLabel(item.priority || 'default')}</td>
+                            <td className="px-4 py-4">
+                              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${statusStyle}`}>
+                                {formatLabel(item.displayStatus)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 text-slate-300">{formatTimestamp(item.created_at)}</td>
+                            <td className="px-4 py-4 text-right">
+                              <button
+                                type="button"
+                                disabled={isRejected || isRejecting}
+                                onClick={() => handleRejectWorkItem(item.id)}
+                                className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-sm font-medium text-rose-200 transition-colors hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {isRejecting ? 'Rejecting...' : isRejected ? 'Rejected' : 'Reject'}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </section>

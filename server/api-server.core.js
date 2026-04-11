@@ -337,6 +337,12 @@ const FACTORY_V2_ROUTES = [
     mapParams: ['project'],
   },
   { method: 'POST', path: '/api/v2/factory/pause-all', tool: 'pause_all_projects' },
+  // Intake
+  { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/intake$/, tool: 'list_work_items', mapParams: ['project'], mapQuery: true },
+  { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/intake$/, tool: 'create_work_item', mapParams: ['project'], mapBody: true },
+  { method: 'PUT', path: /^\/api\/v2\/factory\/intake\/([^/]+)$/, tool: 'update_work_item', mapParams: ['id'], mapBody: true },
+  { method: 'POST', path: /^\/api\/v2\/factory\/intake\/([^/]+)\/reject$/, tool: 'reject_work_item', mapParams: ['id'], mapBody: true },
+  { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/intake\/from-findings$/, tool: 'intake_from_findings', mapParams: ['project'], mapBody: true },
 ];
 
 const hasPiiScanRoute = routes.some((route) => route.method === PII_SCAN_ROUTE.method && route.path === PII_SCAN_ROUTE.path);
