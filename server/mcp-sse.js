@@ -689,8 +689,9 @@ function start(options = {}) {
       }
     });
 
-    sseServer.listen(ssePort, '127.0.0.1', () => {
-      debugLog(`Listening on http://127.0.0.1:${ssePort}/sse (legacy) and /mcp (streamable HTTP)`);
+    const sseHost = process.env.TORQUE_API_HOST || '127.0.0.1';
+    sseServer.listen(ssePort, sseHost, () => {
+      debugLog(`Listening on http://${sseHost}:${ssePort}/sse (legacy) and /mcp (streamable HTTP)`);
       sessionMod.cleanExpiredSubscriptions();
       trackInterval(setInterval(sessionMod.cleanExpiredSubscriptions, 60 * 60 * 1000));
       // Reap stale sessions every 60s to prevent per-IP counter drift

@@ -637,7 +637,7 @@ function checkPortAvailable(port) {
       .once('listening', () => {
         tester.close(() => resolve(true));
       })
-      .listen(port, '127.0.0.1');
+      .listen(port, process.env.TORQUE_API_HOST || '127.0.0.1');
   });
 }
 
@@ -790,9 +790,10 @@ async function start(options = {}) {
   wss.on('connection', handleWebSocket);
 
   // Start listening
-  httpServer.listen(serverPort, '127.0.0.1', () => {
+  const dashboardHost = process.env.TORQUE_API_HOST || '127.0.0.1';
+  httpServer.listen(serverPort, dashboardHost, () => {
     isRunning = true;
-    process.stderr.write(`Dashboard running at http://127.0.0.1:${serverPort}\n`);
+    process.stderr.write(`Dashboard running at http://${dashboardHost}:${serverPort}\n`);
 
     if (openInBrowser) {
       openBrowser(`http://127.0.0.1:${serverPort}`);

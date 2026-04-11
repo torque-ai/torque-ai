@@ -1129,9 +1129,10 @@ function start(options = {}) {
       }
     });
 
-    apiServer.listen(apiPort, '127.0.0.1', () => {
-      process.stderr.write(`TORQUE API server listening on http://127.0.0.1:${apiPort}\n`);
-      resolve({ success: true, port: apiPort });
+    const apiHost = process.env.TORQUE_API_HOST || '127.0.0.1';
+    apiServer.listen(apiPort, apiHost, () => {
+      process.stderr.write(`TORQUE API server listening on http://${apiHost}:${apiPort}\n`);
+      resolve({ success: true, port: apiPort, host: apiHost });
     });
   });
 }
