@@ -195,7 +195,7 @@ describe('Workflows', () => {
     workflowsApi.list.mockResolvedValue([]);
     renderWithProviders(<Workflows />, { route: '/workflows' });
     await waitFor(() => {
-      expect(screen.getByText('No workflows found')).toBeInTheDocument();
+      expect(screen.getByText('No Workflows Yet')).toBeInTheDocument();
     });
   });
 

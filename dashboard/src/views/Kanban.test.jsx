@@ -197,7 +197,7 @@ describe('Kanban', () => {
   it('renders empty state when no tasks', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText('No tasks yet')).toBeInTheDocument();
+      expect(screen.getByText('Welcome to TORQUE')).toBeInTheDocument();
     });
   });
 
@@ -526,7 +526,7 @@ describe('Kanban', () => {
     setStorageValue('torque-col-sorts', '{bad json');
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText('No tasks yet')).toBeInTheDocument();
+      expect(screen.getByText('Welcome to TORQUE')).toBeInTheDocument();
     });
   });
 
