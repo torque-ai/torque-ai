@@ -740,7 +740,6 @@ const _SUB_MODULES = [
   factoryHealth,
   factoryIntake,
   factoryArchitect,
-  factoryAudit,
 ];
 
 // DI wiring internals and factory functions — excluded from the facade
