@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const {
   LOOP_STATES,
   TRANSITIONS,
@@ -14,6 +15,17 @@ const architectRunner = require('../factory/architect-runner');
 const guardrailRunner = require('../factory/guardrail-runner');
 const { createPlanFileIntake } = require('./plan-file-intake');
 const logger = require('../logger').child({ component: 'loop-controller' });
+
+const WORK_ITEM_STATUS_ORDER = Object.freeze([
+  'executing',
+  'verifying',
+  'planned',
+  'prioritized',
+  'in_progress',
+  'pending',
+  'triaged',
+  'intake',
+]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -76,6 +88,162 @@ function executeSenseStage(project_id) {
 
   logger.info('SENSE stage executed', { project_id });
   return summary;
+}
+
+function getLoopWorkItem(project_id) {
+  const items = factoryIntake.listOpenWorkItems({ project_id, limit: 100 });
+  if (!Array.isArray(items) || items.length === 0) {
+    return null;
+  }
+
+  for (const status of WORK_ITEM_STATUS_ORDER) {
+    const match = items.find((item) => item && item.status === status);
+    if (match) {
+      return match;
+    }
+  }
+
+  return items[0] || null;
+}
+
+function getPostStageTransition(currentState, trustLevel) {
+  const pendingState = getNextState(currentState, trustLevel, 'pending');
+  if (pendingState === LOOP_STATES.PAUSED) {
+    return {
+      next_state: LOOP_STATES.PAUSED,
+      paused_at_stage: TRANSITIONS[currentState] || null,
+    };
+  }
+
+  return {
+    next_state: getNextState(currentState, trustLevel, 'approved'),
+    paused_at_stage: null,
+  };
+}
+
+async function awaitTaskToStructuredResult(handleAwaitTask, taskCore, args) {
+  const awaitResult = await handleAwaitTask(args);
+  const task = taskCore.getTask(args.task_id);
+
+  if (!task) {
+    return {
+      status: 'failed',
+      verify_status: 'failed',
+      error: awaitResult?.content?.[0]?.text || `Task not found after await: ${args.task_id}`,
+      task_id: args.task_id,
+    };
+  }
+
+  return {
+    status: task.status,
+    verify_status: task.status === 'completed' ? 'passed' : 'failed',
+    error: task.error_output || null,
+    task_id: task.id,
+  };
+}
+
+async function executePlanStage(project) {
+  let workItem = getLoopWorkItem(project.id);
+
+  if (workItem?.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)) {
+    workItem = factoryIntake.updateWorkItem(workItem.id, { status: 'executing' });
+    logger.info('PLAN stage: pre-written plan detected, skipping architect', {
+      project_id: project.id,
+      work_item_id: workItem.id,
+      plan_path: workItem.origin.plan_path,
+    });
+    return {
+      skip_to_execute: true,
+      reason: 'pre-written plan detected',
+      work_item: workItem,
+      stage_result: {
+        reason: 'pre-written plan detected',
+        work_item_id: workItem.id,
+        plan_path: workItem.origin.plan_path,
+      },
+    };
+  }
+
+  const cycle = await architectRunner.runArchitectCycle(project.id, 'loop_plan');
+  workItem = getLoopWorkItem(project.id);
+  if (workItem && workItem.status !== 'planned') {
+    workItem = factoryIntake.updateWorkItem(workItem.id, { status: 'planned' });
+  }
+
+  logger.info('PLAN stage: architect cycle completed', {
+    project_id: project.id,
+    cycle_id: cycle?.id ?? null,
+    work_item_id: workItem?.id ?? null,
+  });
+
+  return {
+    skip_to_execute: false,
+    reason: 'architect cycle completed',
+    work_item: workItem,
+    stage_result: cycle,
+  };
+}
+
+async function executePlanFileStage(project, workItem) {
+  const targetItem = workItem || getLoopWorkItem(project.id);
+  if (!targetItem?.origin?.plan_path || !fs.existsSync(targetItem.origin.plan_path)) {
+    return null;
+  }
+
+  const { createPlanExecutor } = require('./plan-executor');
+  const { handleSmartSubmitTask } = require('../handlers/integration/routing');
+  const { handleAwaitTask } = require('../handlers/workflow/await');
+  const taskCore = require('../db/task-core');
+
+  const executor = createPlanExecutor({
+    submit: async (args) => {
+      const result = await handleSmartSubmitTask(args);
+      if (!result?.task_id) {
+        throw new Error(result?.content?.[0]?.text || 'smart_submit_task did not return task_id');
+      }
+      return { task_id: result.task_id };
+    },
+    awaitTask: (args) => awaitTaskToStructuredResult(handleAwaitTask, taskCore, args),
+    projectDefaults: project.config || {},
+  });
+
+  const result = await executor.execute({
+    plan_path: targetItem.origin.plan_path,
+    project: project.name,
+    working_directory: project.path,
+  });
+
+  if (result.failed_task) {
+    factoryIntake.updateWorkItem(targetItem.id, {
+      status: 'in_progress',
+      reject_reason: `task_${result.failed_task}_failed`,
+    });
+    logger.warn('EXECUTE stage: plan executor stopped on failed task', {
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      failed_task: result.failed_task,
+      plan_path: targetItem.origin.plan_path,
+    });
+    return {
+      next_state: LOOP_STATES.IDLE,
+      paused_at_stage: null,
+      reason: `task ${result.failed_task} failed`,
+      stage_result: result,
+    };
+  }
+
+  factoryIntake.updateWorkItem(targetItem.id, { status: 'verifying' });
+  logger.info('EXECUTE stage: plan executor completed successfully', {
+    project_id: project.id,
+    work_item_id: targetItem.id,
+    completed_tasks: result.completed_tasks,
+  });
+
+  return {
+    ...getPostStageTransition(LOOP_STATES.EXECUTE, project.trust_level),
+    reason: 'plan execution completed',
+    stage_result: result,
+  };
 }
 
 async function executeVerifyStage(project_id, batch_id) {
@@ -186,19 +354,47 @@ async function advanceLoop(project_id) {
   let nextState = pendingState === LOOP_STATES.PAUSED
     ? LOOP_STATES.PAUSED
     : getNextState(currentState, project.trust_level, 'approved');
-  if (currentState === LOOP_STATES.LEARN && nextState === LOOP_STATES.IDLE) {
-    const cfg = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })() : {};
-    if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
-      nextState = LOOP_STATES.SENSE;
-    }
-  }
-  const pausedAtStage = nextState === LOOP_STATES.PAUSED
+  let pausedAtStage = nextState === LOOP_STATES.PAUSED
     ? TRANSITIONS[currentState] || null
     : null;
 
   // Execute stage-specific logic before transitioning
   let stageResult = null;
-  if (nextState === LOOP_STATES.VERIFY || currentState === LOOP_STATES.EXECUTE) {
+  let transitionReason = null;
+  let executeStageRan = false;
+
+  if (currentState === LOOP_STATES.PRIORITIZE || nextState === LOOP_STATES.PLAN) {
+    const planStage = await executePlanStage(project);
+    if (planStage?.stage_result) {
+      stageResult = planStage.stage_result;
+    }
+    if (planStage?.reason) {
+      transitionReason = planStage.reason;
+    }
+    if (planStage?.skip_to_execute) {
+      nextState = LOOP_STATES.EXECUTE;
+      pausedAtStage = null;
+    }
+  } else if (currentState === LOOP_STATES.PLAN || currentState === LOOP_STATES.EXECUTE) {
+    const executeStage = await executePlanFileStage(project);
+    if (executeStage) {
+      executeStageRan = true;
+      stageResult = executeStage.stage_result;
+      nextState = executeStage.next_state;
+      pausedAtStage = executeStage.paused_at_stage || null;
+      transitionReason = executeStage.reason;
+    }
+  }
+
+  if (currentState === LOOP_STATES.LEARN && nextState === LOOP_STATES.IDLE) {
+    const cfg = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })() : {};
+    if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
+      nextState = LOOP_STATES.SENSE;
+      pausedAtStage = null;
+    }
+  }
+
+  if (!executeStageRan && (nextState === LOOP_STATES.VERIFY || currentState === LOOP_STATES.EXECUTE)) {
     stageResult = await executeVerifyStage(project.id, project.loop_batch_id);
   } else if (nextState === LOOP_STATES.LEARN || currentState === LOOP_STATES.VERIFY) {
     stageResult = await executeLearnStage(project.id, project.loop_batch_id);
@@ -215,6 +411,7 @@ async function advanceLoop(project_id) {
     previous_state: currentState,
     new_state: nextState,
     paused_at_stage: pausedAtStage,
+    reason: transitionReason,
   });
 
   return {
@@ -223,6 +420,7 @@ async function advanceLoop(project_id) {
     new_state: nextState,
     paused_at_stage: pausedAtStage,
     stage_result: stageResult,
+    reason: transitionReason,
   };
 }
 
