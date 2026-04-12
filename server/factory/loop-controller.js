@@ -165,9 +165,15 @@ async function advanceLoop(project_id) {
   }
 
   const pendingState = getNextState(currentState, project.trust_level, 'pending');
-  const nextState = pendingState === LOOP_STATES.PAUSED
+  let nextState = pendingState === LOOP_STATES.PAUSED
     ? LOOP_STATES.PAUSED
     : getNextState(currentState, project.trust_level, 'approved');
+  if (currentState === LOOP_STATES.LEARN && nextState === LOOP_STATES.IDLE) {
+    const cfg = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })() : {};
+    if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
+      nextState = LOOP_STATES.SENSE;
+    }
+  }
   const pausedAtStage = nextState === LOOP_STATES.PAUSED
     ? TRANSITIONS[currentState] || null
     : null;
