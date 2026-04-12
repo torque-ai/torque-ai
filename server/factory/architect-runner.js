@@ -6,6 +6,16 @@ const factoryArchitect = require('../db/factory-architect');
 const { buildArchitectPrompt } = require('./architect-prompt');
 const logger = require('../logger').child({ component: 'architect-runner' });
 
+// Items created through the DB store priority as INTEGER (see migration v14);
+// unit-test fixtures and legacy callers may still pass the string form.
+// Accept both to keep architect prioritization consistent across call paths.
+const USER_OVERRIDE_NUMERIC = 100;
+function isUserOverridePriority(item) {
+  if (!item) return false;
+  const { priority } = item;
+  return priority === 'user_override' || priority === USER_OVERRIDE_NUMERIC;
+}
+
 const DIMENSION_KEYWORDS = {
   structural: ['structural', 'architecture', 'architectural', 'module', 'modules', 'layer', 'layers', 'boundary', 'boundaries', 'coupling'],
   test_coverage: ['test', 'tests', 'coverage', 'unit test', 'integration test', 'regression', 'qa'],
@@ -184,7 +194,7 @@ function inferScopeBudget(item) {
 function buildWhy(item, match, weakDimensions) {
   const reasons = [];
 
-  if (item && item.priority === 'user_override') {
+  if (isUserOverridePriority(item)) {
     reasons.push('User override priority takes precedence.');
   }
 
@@ -228,7 +238,7 @@ function prioritizeByHealth(intakeItems, healthScores) {
     return {
       item,
       index,
-      isUserOverride: item && item.priority === 'user_override',
+      isUserOverride: isUserOverridePriority(item),
       matchRank: match ? match.rank : Number.POSITIVE_INFINITY,
       match,
       createdAt: getCreatedAtValue(item),
