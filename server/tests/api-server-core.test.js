@@ -579,7 +579,7 @@ describe('captured request handler dispatch', () => {
 
     expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', {
       status: 'queued',
-      limit: '5',
+      limit: 5,
     });
     expect(response.statusCode).toBe(200);
   });
