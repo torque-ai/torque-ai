@@ -46,8 +46,7 @@ function safeGitExec(args, opts = {}) {
     ...opts,
     env: { ...process.env, ...GIT_SAFE_ENV, ...(opts.env || {}) },
   };
-  const runner = childProcess._realExecFileSync || childProcess.execFileSync;
-  return runner('git', args, merged);
+  return childProcess.execFileSync('git', args, merged);
 }
 
 // ─── Worktree fingerprint cache ─────────────────────────────────────
