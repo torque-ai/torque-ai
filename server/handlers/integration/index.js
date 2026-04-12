@@ -502,10 +502,11 @@ function handleRollbackFile(args) {
     const { safeGitExec: safeGit } = require('../../utils/git');
     safeGit(['checkout', task.git_before_sha, '--', args.file_path], { cwd: workDir, maxBuffer: 10 * 1024 * 1024, timeout: 10000 });
 
-    // Record the file change
-    fileTracking.recordFileChange(task_id, {
+    // Record the file change in the rollback metadata table used by rollback views.
+    taskMetadata.recordFileChange(task_id, {
       file_path: args.file_path,
-      change_type: 'rollback'
+      change_type: 'rollback',
+      working_directory: workDir,
     });
 
     return {
@@ -548,11 +549,13 @@ function handleStashChanges(args) {
     const stashRef = sgit(['stash', 'list', '-n', '1'], { cwd: workDir }).trim();
 
     if (args.task_id) {
-      fileTracking.recordFileChange(args.task_id, {
+      taskMetadata.recordFileChange(args.task_id, {
         file_path: '*',
         change_type: 'stash',
-        stash_ref: stashRef
+        stash_ref: stashRef,
+        working_directory: workDir,
       });
+      taskMetadata.updateTaskGitState(args.task_id, { stash_ref: stashRef });
     }
 
     return {
