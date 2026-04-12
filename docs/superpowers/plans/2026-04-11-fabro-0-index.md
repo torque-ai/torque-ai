@@ -1,6 +1,6 @@
 # Fabro-Inspired Plans — Index
 
-81 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 66 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream, Langfuse, Portkey, Promptfoo, Outlines, TensorZero, AutoGen Studio, Firecrawl, DeepEval, E2B, smolagents, Zep, Arize Phoenix, Braintrust, Modal, Cody, Dust.
+88 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 74 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream, Langfuse, Portkey, Promptfoo, Outlines, TensorZero, AutoGen Studio, Firecrawl, DeepEval, E2B, smolagents, Zep, Arize Phoenix, Braintrust, Modal, Cody, Dust, Mastra, Vercel AI SDK, Claude Agent SDK, SuperAGI, LangSmith, GPT Researcher, Cloudflare Agents, Inngest AgentKit.
 
 ## Plan list
 
@@ -111,6 +111,15 @@
 80. **[Code Graph + @-Mention Context](2026-04-11-fabro-80-code-graph-context.md)** — multi-repo indexes + unified mention resolver (Cody)
 81. **[Workspaces + Synced Data Sources](2026-04-11-fabro-81-workspaces-data-sources.md)** — team spaces + periodic source sync (Dust)
 
+### Authoring + runtime refinement (round 8)
+82. **[Fluent Workflow DSL](2026-04-11-fabro-82-fluent-workflow-dsl.md)** — `.step().then().parallel().branch()` TS-first builder (Mastra)
+83. **[Unified Streaming Kernel](2026-04-11-fabro-83-streaming-kernel.md)** — single stream-run primitive for text/tools/steps (Vercel AI SDK)
+84. **[Claude Code SDK Provider + Layered Permissions](2026-04-11-fabro-84-claude-code-sdk-provider.md)** — subagent + session + hook chain (Claude Agent SDK)
+85. **[Run-Scoped Artifact Isolation](2026-04-11-fabro-85-run-scoped-artifacts.md)** — per-run dirs + index + promote (SuperAGI)
+86. **[Annotation Queues](2026-04-11-fabro-86-annotation-queues.md)** — rubric-driven human review w/ reservations (LangSmith)
+87. **[Report Types + Citation Ledger](2026-04-11-fabro-87-report-types-citation-ledger.md)** — typed research outputs + dedup'd source ledger (GPT Researcher)
+88. **[First-Class Router for Crew Networks](2026-04-11-fabro-88-crew-router.md)** — code/llm/hybrid router for Plan 26 crews (AgentKit)
+
 ## Source attributions
 
 | Plan | Inspired by |
@@ -174,6 +183,13 @@
 | 79 | Braintrust |
 | 80 | Cody |
 | 81 | Dust |
+| 82 | Mastra |
+| 83 | Vercel AI SDK |
+| 84 | Claude Agent SDK |
+| 85 | SuperAGI |
+| 86 | LangSmith |
+| 87 | GPT Researcher |
+| 88 | Inngest AgentKit |
 
 ## Suggested sequencing
 
@@ -190,6 +206,7 @@
 **Batch K — Reasoning + workflow quality** (62, 63, 64, 65, 66, 67)
 **Batch L — Observability + evaluation + optimization** (68, 69, 70, 71, 72, 73, 74)
 **Batch M — Sandbox + memory + context** (75, 76, 77, 78, 79, 80, 81)
+**Batch N — Authoring + runtime refinement** (82, 83, 84, 85, 86, 87, 88)
 
 ## How to execute
 
