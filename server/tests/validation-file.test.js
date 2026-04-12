@@ -46,10 +46,10 @@ function resetMockDefaults() {
     }
   }
 
-  mockDb.getTask.mockReturnValue({ id: 'task-default', working_directory: '/repo/default' });
+  mockDb.getTask.mockReturnValue({ id: 'task-default', working_directory: '/repo/project' });
   mockDb.setExpectedOutputPath.mockReturnValue({
     task_id: 'task-default',
-    expected_directory: '/repo/default/out',
+    expected_directory: '/repo/project/out',
     allow_subdirs: true,
   });
   checkFileLocationAnomalies.mockReturnValue([]);

@@ -1,7 +1,29 @@
 'use strict';
 
+const path = require('path');
 const fileTracking = require('../../db/file-tracking');
 const { ErrorCodes, makeError, requireTask } = require('../shared');
+
+function resolveTaskWorkingDirectory(task, workingDirectory) {
+  const requestedWorkingDirectory = typeof workingDirectory === 'string' ? workingDirectory.trim() : '';
+  const taskWorkingDirectory = typeof task?.working_directory === 'string' ? task.working_directory.trim() : '';
+
+  if (!requestedWorkingDirectory || !taskWorkingDirectory) {
+    return requestedWorkingDirectory;
+  }
+
+  const taskRoot = path.resolve(taskWorkingDirectory);
+  const resolvedWorkingDirectory = path.isAbsolute(requestedWorkingDirectory)
+    ? path.resolve(requestedWorkingDirectory)
+    : path.resolve(taskRoot, requestedWorkingDirectory);
+  const relativePath = path.relative(taskRoot, resolvedWorkingDirectory);
+
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return makeError(ErrorCodes.PATH_TRAVERSAL, 'working_directory is outside task workspace root');
+  }
+
+  return resolvedWorkingDirectory;
+}
 
 /**
  * Set expected output path for a task
@@ -73,7 +95,10 @@ async function handleCheckDuplicateFiles(args) {
   const taskResult = requireTask(args.task_id);
   if (taskResult.error) return taskResult.error;
 
-  const duplicates = await fileTracking.checkDuplicateFiles(args.task_id, args.working_directory, {
+  const scopedWorkingDirectory = resolveTaskWorkingDirectory(taskResult.task, args.working_directory);
+  if (scopedWorkingDirectory?.isError) return scopedWorkingDirectory;
+
+  const duplicates = await fileTracking.checkDuplicateFiles(args.task_id, scopedWorkingDirectory, {
     fileExtensions: args.file_extensions
   });
 
@@ -82,7 +107,7 @@ async function handleCheckDuplicateFiles(args) {
       type: 'text',
       text: JSON.stringify({
         task_id: args.task_id,
-        working_directory: args.working_directory,
+        working_directory: scopedWorkingDirectory,
         duplicates_found: duplicates.length,
         duplicates,
         status: duplicates.length > 0 ? 'duplicates_found' : 'clean'
@@ -196,7 +221,15 @@ async function handleSearchSimilarFiles(args) {
   const taskResult = requireTask(args.task_id);
   if (taskResult.error) return taskResult.error;
 
-  const result = await fileTracking.searchSimilarFiles(args.task_id, args.search_term, args.working_directory, args.search_type || 'filename');
+  const scopedWorkingDirectory = resolveTaskWorkingDirectory(taskResult.task, args.working_directory);
+  if (scopedWorkingDirectory?.isError) return scopedWorkingDirectory;
+
+  const result = await fileTracking.searchSimilarFiles(
+    args.task_id,
+    args.search_term,
+    scopedWorkingDirectory,
+    args.search_type || 'filename'
+  );
 
   return {
     content: [{

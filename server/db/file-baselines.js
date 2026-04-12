@@ -25,6 +25,51 @@ function setGetTask(fn) {
   _getTaskFn = fn;
 }
 
+function getTaskForScope(taskId) {
+  if (!taskId) return null;
+
+  if (typeof _getTaskFn === 'function') {
+    try {
+      return _getTaskFn(taskId);
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const taskCore = require('./task-core');
+    return typeof taskCore?.getTask === 'function' ? taskCore.getTask(taskId) : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveScopedWorkingDirectory(taskId, workingDirectory) {
+  const requestedWorkingDirectory = typeof workingDirectory === 'string' ? workingDirectory.trim() : '';
+  if (!requestedWorkingDirectory) {
+    return requestedWorkingDirectory;
+  }
+
+  const task = getTaskForScope(taskId);
+  const taskWorkingDirectory = typeof task?.working_directory === 'string' ? task.working_directory.trim() : '';
+  if (!taskWorkingDirectory) {
+    return requestedWorkingDirectory;
+  }
+
+  const path = require('path');
+  const taskRoot = path.resolve(taskWorkingDirectory);
+  const resolvedWorkingDirectory = path.isAbsolute(requestedWorkingDirectory)
+    ? path.resolve(requestedWorkingDirectory)
+    : path.resolve(taskRoot, requestedWorkingDirectory);
+  const relativePath = path.relative(taskRoot, resolvedWorkingDirectory);
+
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error('working_directory is outside task workspace root');
+  }
+
+  return resolvedWorkingDirectory;
+}
+
 
 function captureFileBaseline(filePath, workingDirectory, taskId = null) {
   const fs = require('fs');
@@ -735,7 +780,8 @@ function checkFileLocationAnomalies(taskId, workingDirectory) {
       for (const expected of expectedPaths) {
         const normalizedExpected = path.normalize(expected.expected_directory);
         if (expected.allow_subdirs) {
-          if (normalizedFile.startsWith(normalizedExpected)) {
+          const relativeToExpected = path.relative(normalizedExpected, normalizedFile);
+          if (!relativeToExpected.startsWith('..') && !path.isAbsolute(relativeToExpected)) {
             matchesExpected = true;
             break;
           }
@@ -772,6 +818,7 @@ async function checkDuplicateFiles(taskId, workingDirectory, options = {}) {
   const fsPromises = require('fs').promises;
   const path = require('path');
   const duplicates = [];
+  const scopedWorkingDirectory = resolveScopedWorkingDirectory(taskId, workingDirectory);
 
   // Build a map of filename -> locations
   const fileMap = new Map();
@@ -805,7 +852,7 @@ async function checkDuplicateFiles(taskId, workingDirectory, options = {}) {
     }
   }
 
-  await scanDirectory(workingDirectory);
+  await scanDirectory(scopedWorkingDirectory);
 
   // Find duplicates
   for (const [fileName, locations] of fileMap) {
@@ -857,6 +904,7 @@ async function searchSimilarFiles(taskId, searchTerm, workingDirectory, searchTy
   const path = require('path');
   const now = new Date().toISOString();
   const matches = [];
+  const scopedWorkingDirectory = resolveScopedWorkingDirectory(taskId, workingDirectory);
 
   // Normalize search term
   const normalizedTerm = searchTerm.toLowerCase().replace(/\.(cs|ts|tsx|js|jsx|xaml)$/i, '');
@@ -905,8 +953,8 @@ async function searchSimilarFiles(taskId, searchTerm, workingDirectory, searchTy
     }
   }
 
-  if (workingDirectory) {
-    await searchDir(workingDirectory);
+  if (scopedWorkingDirectory) {
+    await searchDir(scopedWorkingDirectory);
   }
 
   // Generate recommendation
