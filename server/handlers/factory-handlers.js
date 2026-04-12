@@ -2,9 +2,10 @@
 
 const path = require('path');
 const fs = require('fs');
+const factoryAudit = require('../db/factory-audit');
+const factoryArchitect = require('../db/factory-architect');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
-const factoryArchitect = require('../db/factory-architect');
 const { runArchitectCycle } = require('../factory/architect-runner');
 const { scoreAll } = require('../factory/scorer-registry');
 const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSummary } = require('../factory/guardrail-runner');
@@ -169,7 +170,20 @@ async function handleSetFactoryTrustLevel(args) {
 
 async function handlePauseProject(args) {
   const project = resolveProject(args.project);
+  const previous_status = project.status;
   const updated = factoryHealth.updateProject(project.id, { status: 'paused' });
+  try {
+    factoryAudit.recordAuditEvent({
+      project_id: updated.id,
+      event_type: 'pause',
+      previous_status,
+      reason: args.reason || null,
+      actor: args.__user || (args.actor || 'unknown'),
+      source: args.source || 'mcp',
+    });
+  } catch (err) {
+    logger.warn({ err }, 'Failed to record pause audit event');
+  }
   logger.info(`Factory project paused: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" paused`,
@@ -179,7 +193,20 @@ async function handlePauseProject(args) {
 
 async function handleResumeProject(args) {
   const project = resolveProject(args.project);
+  const previous_status = project.status;
   const updated = factoryHealth.updateProject(project.id, { status: 'running' });
+  try {
+    factoryAudit.recordAuditEvent({
+      project_id: updated.id,
+      event_type: 'resume',
+      previous_status,
+      reason: args.reason || null,
+      actor: args.__user || (args.actor || 'unknown'),
+      source: args.source || 'mcp',
+    });
+  } catch (err) {
+    logger.warn({ err }, 'Failed to record resume audit event');
+  }
   logger.info(`Factory project resumed: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" running`,
@@ -187,12 +214,25 @@ async function handleResumeProject(args) {
   });
 }
 
-async function handlePauseAllProjects() {
+async function handlePauseAllProjects(args = {}) {
   const projects = factoryHealth.listProjects();
   let paused = 0;
   for (const p of projects) {
     if (p.status !== 'paused') {
-      factoryHealth.updateProject(p.id, { status: 'paused' });
+      const previous_status = p.status;
+      const updated = factoryHealth.updateProject(p.id, { status: 'paused' });
+      try {
+        factoryAudit.recordAuditEvent({
+          project_id: updated.id,
+          event_type: 'pause',
+          previous_status,
+          reason: args.reason || null,
+          actor: args.__user || args.actor || 'unknown',
+          source: args.source || 'mcp',
+        });
+      } catch (err) {
+        logger.warn({ err }, 'Failed to record pause audit event');
+      }
       paused++;
     }
   }
