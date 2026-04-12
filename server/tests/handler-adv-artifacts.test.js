@@ -4,6 +4,7 @@ const path = require('path');
 const taskCore = require('../db/task-core');
 const taskMetadata = require('../db/task-metadata');
 const logger = require('../logger');
+const dataDir = require('../data-dir');
 
 function loadHandlers() {
   delete require.cache[require.resolve('../handlers/advanced/artifacts')];
@@ -51,6 +52,7 @@ describe('handler:adv-artifacts', () => {
   });
 
   afterEach(() => {
+    dataDir.setDataDir(null);
     cleanupTempDirs();
     vi.clearAllMocks();
   });
@@ -483,27 +485,32 @@ describe('handler:adv-artifacts', () => {
     });
 
     it('updates configuration values and validates numeric inputs', () => {
+      const tempDataDir = makeTempDir();
+      const storagePath = path.join(tempDataDir, 'artifacts');
+      dataDir.setDataDir(tempDataDir);
+
       const setSpy = vi.spyOn(taskMetadata, 'setArtifactConfig').mockReturnValue(undefined);
       vi.spyOn(taskMetadata, 'getArtifactConfig').mockReturnValue({
-        storage_path: '/data/artifacts',
+        storage_path: storagePath,
         max_size_mb: '25',
         retention_days: '30',
         max_per_task: '5'
       });
 
       const result = handlers.handleConfigureArtifactStorage({
-        storage_path: '/data/artifacts',
+        storage_path: storagePath,
         max_size_mb: 25,
         retention_days: 30,
         max_per_task: 5
       });
 
-      expect(setSpy).toHaveBeenCalledWith('storage_path', '/data/artifacts');
+      expect(setSpy).toHaveBeenCalledWith('storage_path', storagePath);
       expect(setSpy).toHaveBeenCalledWith('max_size_mb', '25');
       expect(setSpy).toHaveBeenCalledWith('retention_days', '30');
       expect(setSpy).toHaveBeenCalledWith('max_per_task', '5');
       expect(result.isError).toBeFalsy();
       expect(textOf(result)).toContain('Artifact Storage Configuration');
+      expect(textOf(result)).toContain(`storage_path = ${storagePath}`);
       expect(textOf(result)).toContain('max_size_mb = 25');
       expect(textOf(result)).toContain('| Max per Task | 5 |');
     });

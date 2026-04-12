@@ -392,13 +392,17 @@ function handleConfigureArtifactStorage(args) {
       return makeError(ErrorCodes.INVALID_PARAM, 'storage_path must be a non-empty string');
     }
 
-    const resolved = require('path').resolve(args.storage_path);
-    if (args.storage_path.includes('..') || /^[\\/](?:etc|windows|system)/i.test(resolved)) {
-      return makeError(ErrorCodes.INVALID_PARAM, 'storage_path contains invalid path components');
+    const path = require('path');
+    const { getDataDir } = require('../../data-dir');
+    const allowedBase = path.resolve(getDataDir());
+    const resolved = path.resolve(allowedBase, args.storage_path);
+    const relative = path.relative(allowedBase, resolved);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'storage_path must resolve within the TORQUE data directory');
     }
 
-    setArtifactConfig('storage_path', args.storage_path);
-    updates.push(`storage_path = ${args.storage_path}`);
+    setArtifactConfig('storage_path', resolved);
+    updates.push(`storage_path = ${resolved}`);
   }
 
   if (args.max_size_mb !== undefined) {

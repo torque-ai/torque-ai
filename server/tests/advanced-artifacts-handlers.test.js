@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const Module = require('module');
+const dataDir = require('../data-dir');
 
 const { dbMock, taskManagerMock, loggerMock, loggerModuleMock } = vi.hoisted(() => ({
   dbMock: {
@@ -182,6 +183,7 @@ describe('advanced artifact handlers', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    dataDir.setDataDir(null);
     cleanupTempDirs();
   });
 
@@ -706,26 +708,31 @@ describe('advanced artifact handlers', () => {
     });
 
     it('updates multiple settings and renders the refreshed configuration', () => {
+      const tempDataDir = makeTempDir();
+      const storagePath = path.join(tempDataDir, 'artifacts');
+      dataDir.setDataDir(tempDataDir);
+
       dbMock.getArtifactConfig.mockReturnValue({
-        storage_path: '/var/artifacts',
+        storage_path: storagePath,
         max_size_mb: '25',
         retention_days: '45',
         max_per_task: '8',
       });
 
       const result = handlers.handleConfigureArtifactStorage({
-        storage_path: '/var/artifacts',
+        storage_path: storagePath,
         max_size_mb: 25,
         retention_days: 45,
         max_per_task: 8,
       });
       const text = getText(result);
 
-      expect(dbMock.setArtifactConfig).toHaveBeenCalledWith('storage_path', '/var/artifacts');
+      expect(dbMock.setArtifactConfig).toHaveBeenCalledWith('storage_path', storagePath);
       expect(dbMock.setArtifactConfig).toHaveBeenCalledWith('max_size_mb', '25');
       expect(dbMock.setArtifactConfig).toHaveBeenCalledWith('retention_days', '45');
       expect(dbMock.setArtifactConfig).toHaveBeenCalledWith('max_per_task', '8');
       expect(result.isError).toBeFalsy();
+      expect(text).toContain(`storage_path = ${storagePath}`);
       expect(text).toContain('max_size_mb = 25');
       expect(text).toContain('retention_days = 45');
       expect(text).toContain('| Max per Task | 8 |');

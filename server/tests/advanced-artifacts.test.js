@@ -11,6 +11,7 @@ const os = require('os');
 const path = require('path');
 const Module = require('module');
 const EventEmitter = require('events');
+const dataDir = require('../data-dir');
 
 const realShared = require('../handlers/shared');
 
@@ -175,12 +176,14 @@ describe('advanced/artifacts handlers', () => {
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-adv-artifacts-'));
+    dataDir.setDataDir(tempDir);
     resetMockDefaults();
     handlers = loadHandlers();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    dataDir.setDataDir(null);
     fs.rmSync(tempDir, { recursive: true, force: true });
     delete require.cache[require.resolve('../handlers/advanced/artifacts')];
   });
