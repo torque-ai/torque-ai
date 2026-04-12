@@ -1,6 +1,6 @@
 # Fabro-Inspired Plans — Index
 
-74 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 58 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream, Langfuse, Portkey, Promptfoo, Outlines, TensorZero, AutoGen Studio, Firecrawl, DeepEval.
+81 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 66 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream, Langfuse, Portkey, Promptfoo, Outlines, TensorZero, AutoGen Studio, Firecrawl, DeepEval, E2B, smolagents, Zep, Arize Phoenix, Braintrust, Modal, Cody, Dust.
 
 ## Plan list
 
@@ -102,6 +102,15 @@
 73. **[Schema-Backed Visual Builder](2026-04-11-fabro-73-schema-backed-builder.md)** — dual-mode canvas + JSON + gallery (AutoGen Studio)
 74. **[Firecrawl Research Integration](2026-04-11-fabro-74-firecrawl-research.md)** — LLM-ready markdown + schema extraction + crawl (Firecrawl)
 
+### Sandbox + memory + context (round 7)
+75. **[Sandbox Substrate](2026-04-11-fabro-75-sandbox-substrate.md)** — pluggable isolated environments w/ filesystem/terminal (E2B + Modal)
+76. **[CodeAgent — Code-as-Action](2026-04-11-fabro-76-code-agent.md)** — agent action language is executable code in sandbox (smolagents)
+77. **[Temporal Knowledge Graph Memory](2026-04-11-fabro-77-temporal-graph-memory.md)** — time-aware facts + contradiction-aware invalidation (Zep)
+78. **[OpenTelemetry-Native Observability](2026-04-11-fabro-78-otel-observability.md)** — OpenInference semantic conventions + auto-instrumentation (Arize Phoenix)
+79. **[Experiment SDK + Portable Scorers](2026-04-11-fabro-79-eval-sdk.md)** — runExperiment() + offline/online scorers + diff view (Braintrust)
+80. **[Code Graph + @-Mention Context](2026-04-11-fabro-80-code-graph-context.md)** — multi-repo indexes + unified mention resolver (Cody)
+81. **[Workspaces + Synced Data Sources](2026-04-11-fabro-81-workspaces-data-sources.md)** — team spaces + periodic source sync (Dust)
+
 ## Source attributions
 
 | Plan | Inspired by |
@@ -158,6 +167,13 @@
 | 72 | TensorZero |
 | 73 | AutoGen Studio |
 | 74 | Firecrawl |
+| 75 | E2B + Modal |
+| 76 | smolagents |
+| 77 | Zep |
+| 78 | Arize Phoenix |
+| 79 | Braintrust |
+| 80 | Cody |
+| 81 | Dust |
 
 ## Suggested sequencing
 
@@ -173,6 +189,7 @@
 **Batch J — External integration + authoring** (57, 58, 59, 60, 61)
 **Batch K — Reasoning + workflow quality** (62, 63, 64, 65, 66, 67)
 **Batch L — Observability + evaluation + optimization** (68, 69, 70, 71, 72, 73, 74)
+**Batch M — Sandbox + memory + context** (75, 76, 77, 78, 79, 80, 81)
 
 ## How to execute
 
