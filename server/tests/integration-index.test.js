@@ -92,6 +92,7 @@ describe('integration/index handlers', () => {
     gitSync(['config', 'user.email', 'test@test.com'], { cwd: repoDir });
     gitSync(['config', 'user.name', 'Test'], { cwd: repoDir });
     gitSync(['config', 'commit.gpgsign', 'false'], { cwd: repoDir });
+    gitSync(['config', 'core.autocrlf', 'false'], { cwd: repoDir });
     return repoDir;
   }
 
