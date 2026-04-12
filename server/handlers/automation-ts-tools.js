@@ -12,8 +12,67 @@ const path = require('path');
 const fs = require('fs');
 const { ErrorCodes, makeError, isPathTraversalSafe } = require('./shared');
 
+let _taskCore;
+function taskCore() {
+  return _taskCore || (_taskCore = require('../db/task-core'));
+}
+
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function resolveWorkspaceRoot(args) {
+  const workingDirectory = typeof args?.working_directory === 'string' ? args.working_directory.trim() : '';
+  if (workingDirectory) {
+    if (!isPathTraversalSafe(workingDirectory)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'working_directory contains path traversal');
+    }
+    return path.resolve(workingDirectory);
+  }
+
+  const taskId = typeof args?.__taskId === 'string' ? args.__taskId.trim() : '';
+  if (!taskId) {
+    return null;
+  }
+
+  try {
+    const task = taskCore().getTask(taskId);
+    const taskWorkingDirectory = typeof task?.working_directory === 'string' ? task.working_directory.trim() : '';
+    return taskWorkingDirectory ? path.resolve(taskWorkingDirectory) : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveScopedFilePath(args, filePath) {
+  if (!filePath || typeof filePath !== 'string') {
+    return null;
+  }
+
+  if (!isPathTraversalSafe(filePath)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
+  }
+
+  const workspaceRoot = resolveWorkspaceRoot(args);
+  if (workspaceRoot && workspaceRoot.isError) {
+    return workspaceRoot;
+  }
+
+  if (!workspaceRoot) {
+    return path.resolve(filePath);
+  }
+
+  if (!isPathTraversalSafe(filePath, workspaceRoot)) {
+    return makeError(ErrorCodes.PATH_TRAVERSAL, 'file_path is outside workspace root');
+  }
+
+  const resolvedPath = path.resolve(workspaceRoot, filePath);
+  const relativePath = path.relative(workspaceRoot, resolvedPath);
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return makeError(ErrorCodes.PATH_TRAVERSAL, 'file_path is outside workspace root');
+  }
+
+  return resolvedPath;
 }
 
 // ─── Universal Tools ────────────────────────────────────────────────────────
@@ -23,15 +82,16 @@ function escapeRegex(str) {
  * Works for any project. Validates no duplicates. Consistent indentation.
  */
 function handleAddTsInterfaceMembers(args) {
-  const filePath = args.file_path;
+  const rawFilePath = args.file_path;
   const interfaceName = args.interface_name;
   const members = args.members; // Array of { name: string, type_definition: string } OR { name, payload: {field: type} }
   const indent = args.indent || '  ';
+  const filePath = resolveScopedFilePath(args, rawFilePath);
 
-  if (filePath && !isPathTraversalSafe(filePath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
+  if (filePath && filePath.isError) {
+    return filePath;
   }
-  if (!filePath || !interfaceName || !members || !Array.isArray(members) || members.length === 0) {
+  if (!rawFilePath || !interfaceName || !members || !Array.isArray(members) || members.length === 0) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path, interface_name, and members array are required');
   }
   if (!members.every((m) => m && typeof m === 'object' && typeof m.name === 'string')) {
@@ -115,11 +175,12 @@ function handleAddTsInterfaceMembers(args) {
  * Uses configurable anchor patterns with sensible defaults.
  */
 function handleInjectClassDependency(args) {
-  const filePath = args.file_path;
-  if (filePath && !isPathTraversalSafe(filePath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
+  const rawFilePath = args.file_path;
+  const filePath = resolveScopedFilePath(args, rawFilePath);
+  if (filePath && filePath.isError) {
+    return filePath;
   }
-  if (!filePath) {
+  if (!rawFilePath) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
   }
   if (!fs.existsSync(filePath)) {
@@ -264,14 +325,15 @@ function handleInjectClassDependency(args) {
  * Validates no duplicates.
  */
 function handleAddTsUnionMembers(args) {
-  const filePath = args.file_path;
+  const rawFilePath = args.file_path;
   const typeName = args.type_name;
   const members = args.members; // Array of strings or objects with `name` field
+  const filePath = resolveScopedFilePath(args, rawFilePath);
 
-  if (filePath && !isPathTraversalSafe(filePath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
+  if (filePath && filePath.isError) {
+    return filePath;
   }
-  if (!filePath || !typeName || !members || !Array.isArray(members) || members.length === 0) {
+  if (!rawFilePath || !typeName || !members || !Array.isArray(members) || members.length === 0) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path, type_name, and members array are required');
   }
   if (!fs.existsSync(filePath)) {
@@ -337,14 +399,15 @@ function handleAddTsUnionMembers(args) {
  * Works for any file, any method. Pure string insertion.
  */
 function handleInjectMethodCalls(args) {
-  const filePath = args.file_path;
+  const rawFilePath = args.file_path;
   const marker = args.before_marker;  // String to find, e.g., "this.connected = true;"
   const code = args.code;             // Code block to insert (string, can be multi-line)
+  const filePath = resolveScopedFilePath(args, rawFilePath);
 
-  if (filePath && !isPathTraversalSafe(filePath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
+  if (filePath && filePath.isError) {
+    return filePath;
   }
-  if (!filePath || !marker || !code) {
+  if (!rawFilePath || !marker || !code) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path, before_marker, and code are required');
   }
   if (!fs.existsSync(filePath)) {
@@ -379,14 +442,15 @@ function handleInjectMethodCalls(args) {
  * Validates no duplicates.
  */
 function handleAddTsEnumMembers(args) {
-  const filePath = args.file_path;
+  const rawFilePath = args.file_path;
   const enumName = args.enum_name;
   const members = args.members; // Array of { name: string, value: string|number }
+  const filePath = resolveScopedFilePath(args, rawFilePath);
 
-  if (filePath && !isPathTraversalSafe(filePath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
+  if (filePath && filePath.isError) {
+    return filePath;
   }
-  if (!filePath || !enumName || !members || !Array.isArray(members) || members.length === 0) {
+  if (!rawFilePath || !enumName || !members || !Array.isArray(members) || members.length === 0) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path, enum_name, and members array are required');
   }
   if (!fs.existsSync(filePath)) {
@@ -452,14 +516,15 @@ function handleAddTsEnumMembers(args) {
  * from multiple batch edits. Idempotent.
  */
 function handleNormalizeInterfaceFormatting(args) {
-  const filePath = args.file_path;
+  const rawFilePath = args.file_path;
   const interfaceName = args.interface_name;
   const targetIndent = args.indent || '  ';
+  const filePath = resolveScopedFilePath(args, rawFilePath);
 
-  if (filePath && !isPathTraversalSafe(filePath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
+  if (filePath && filePath.isError) {
+    return filePath;
   }
-  if (!filePath || !interfaceName) {
+  if (!rawFilePath || !interfaceName) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path and interface_name are required');
   }
   if (!fs.existsSync(filePath)) {
@@ -539,12 +604,11 @@ function handleNormalizeInterfaceFormatting(args) {
  * Add a method body to a TypeScript class, identified by class name.
  */
 function handleAddTsMethodToClass(args) {
-  const { file_path: filePath, class_name: className, method_code, position = 'end' } = args;
+  const { file_path: rawFilePath, class_name: className, method_code, position = 'end' } = args;
+  const filePath = resolveScopedFilePath(args, rawFilePath);
 
-  if (filePath && !isPathTraversalSafe(filePath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
-  }
-  if (!filePath) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
+  if (filePath && filePath.isError) return filePath;
+  if (!rawFilePath) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
   if (!className) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'class_name is required');
   if (!method_code) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'method_code is required');
 
@@ -641,12 +705,11 @@ function handleAddTsMethodToClass(args) {
  * Replace a method's implementation by class + method name.
  */
 function handleReplaceTsMethodBody(args) {
-  const { file_path: filePath, class_name: className, method_name: methodName, new_body: newBody } = args;
+  const { file_path: rawFilePath, class_name: className, method_name: methodName, new_body: newBody } = args;
+  const filePath = resolveScopedFilePath(args, rawFilePath);
 
-  if (filePath && !isPathTraversalSafe(filePath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
-  }
-  if (!filePath) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
+  if (filePath && filePath.isError) return filePath;
+  if (!rawFilePath) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
   if (!className) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'class_name is required');
   if (!methodName) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'method_name is required');
   if (!newBody) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'new_body is required');
@@ -734,12 +797,11 @@ function handleReplaceTsMethodBody(args) {
  * Idempotent import injection — add an import statement if the module isn't already imported.
  */
 function handleAddImportStatement(args) {
-  const { file_path: filePath, import_statement: importStatement } = args;
+  const { file_path: rawFilePath, import_statement: importStatement } = args;
+  const filePath = resolveScopedFilePath(args, rawFilePath);
 
-  if (filePath && !isPathTraversalSafe(filePath)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'file_path contains path traversal');
-  }
-  if (!filePath) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
+  if (filePath && filePath.isError) return filePath;
+  if (!rawFilePath) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
   if (!importStatement) return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'import_statement is required');
 
   if (!fs.existsSync(filePath)) {
