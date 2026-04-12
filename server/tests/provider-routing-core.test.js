@@ -1095,10 +1095,11 @@ describe('provider-routing-core', () => {
       const { core } = loadCore({
         db: {
           config: {
-            fallback_chain_codex: '["claude-cli","anthropic"]',
+            fallback_chain_codex: '["deepinfra","anthropic"]',
           },
           providers: {
-            'claude-cli': { enabled: 0 },
+            deepinfra: { enabled: 0 },
+            anthropic: { enabled: 1 },
           },
           tasks: {
             'task-1': {
