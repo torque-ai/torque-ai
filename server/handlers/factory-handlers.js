@@ -2,6 +2,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const database = require('../database');
 const factoryAudit = require('../db/factory-audit');
 const factoryArchitect = require('../db/factory-architect');
 const factoryHealth = require('../db/factory-health');
@@ -12,6 +13,7 @@ const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSum
 const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
 const { pollGitHubIssues } = require('../factory/github-intake');
+const { createPlanFileIntake } = require('../factory/plan-file-intake');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
 const { buildProjectCostSummary, getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
 const { logDecision, getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
@@ -357,6 +359,46 @@ async function handleIntakeFromFindings(args) {
   });
 }
 
+async function handleScanPlansDirectory(args) {
+  const project = resolveProject(args.project_id);
+  const db = database.getDbInstance();
+  const planIntake = createPlanFileIntake({ db, factoryIntake });
+  const scanArgs = {
+    project_id: project.id,
+    plans_dir: args.plans_dir,
+  };
+
+  if (args.filter_regex) {
+    scanArgs.filter = new RegExp(args.filter_regex);
+  }
+
+  const result = planIntake.scan(scanArgs);
+
+  return jsonResponse({
+    project_id: project.id,
+    scanned: result.scanned,
+    created_count: result.created.length,
+    skipped_count: result.skipped.length,
+    created: result.created.map((item) => ({ id: item.id, title: item.title })),
+    skipped: result.skipped,
+  });
+}
+
+async function handleListPlanIntakeItems(args) {
+  const project = resolveProject(args.project_id);
+  const items = factoryIntake.listWorkItems({
+    project_id: project.id,
+    source: 'plan_file',
+    status: args.status,
+  });
+
+  return jsonResponse({
+    project_id: project.id,
+    count: items.length,
+    items,
+  });
+}
+
 // --- findings-file helpers ---
 
 function resolveFindingsFile(filePath) {
@@ -657,6 +699,8 @@ module.exports = {
   handleUpdateWorkItem,
   handleRejectWorkItem,
   handleIntakeFromFindings,
+  handleScanPlansDirectory,
+  handleListPlanIntakeItems,
   handlePollGitHubIssues,
   handleTriggerArchitect,
   handleArchitectBacklog,

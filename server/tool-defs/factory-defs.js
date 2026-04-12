@@ -219,6 +219,31 @@ const tools = [
     },
   },
   {
+    name: 'scan_plans_directory',
+    description: 'Scan a plans directory for .md plan files and ingest them as factory work items (idempotent by content hash).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'string', description: 'Project ID or path' },
+        plans_dir: { type: 'string', description: 'Absolute path to directory containing plan markdown files.' },
+        filter_regex: { type: 'string', description: 'Regex to filter filenames (default: \\.md$).' },
+      },
+      required: ['project_id', 'plans_dir'],
+    },
+  },
+  {
+    name: 'list_plan_intake_items',
+    description: 'List factory work items sourced from plan files for a project.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'string', description: 'Project ID or path' },
+        status: { type: 'string', description: 'Optional status filter' },
+      },
+      required: ['project_id'],
+    },
+  },
+  {
     name: 'poll_github_issues',
     description: 'Import matching open GitHub issues into the factory intake queue for a project. Reads github_repo and github_labels from the project config, with optional label overrides for this poll.',
     inputSchema: {
