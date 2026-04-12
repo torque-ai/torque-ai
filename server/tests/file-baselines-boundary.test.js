@@ -23,11 +23,12 @@ let testDir;
 function createTask(overrides = {}) {
   const workingDirectory = overrides.working_directory || path.join(testDir, `task-${randomUUID()}`);
   fs.mkdirSync(workingDirectory, { recursive: true });
-  const taskId = mkTask(db, {
+  const result = mkTask(db, {
     ...overrides,
     working_directory: workingDirectory,
   });
-  return db.getTask(taskId);
+  if (result && typeof result === 'object' && result.id) return result;
+  return db.getTask(result);
 }
 
 beforeAll(() => {

@@ -40,9 +40,10 @@ afterAll(() => {
 
 describe('hashline handler workspace path scoping', () => {
   function createTaskArgs() {
-    const taskId = mkTask(db, {
+    const result = mkTask(db, {
       working_directory: path.resolve(__dirname, '..', '..'),
     });
+    const taskId = typeof result === 'object' && result?.id ? result.id : result;
     return { __taskId: taskId };
   }
 
