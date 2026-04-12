@@ -478,9 +478,15 @@ async function runBuildCheck(taskId, workingDirectory) {
   }
 
   const startTime = Date.now();
+  const isWindowsShellWrapper = process.platform === 'win32'
+    && (buildCommand === 'npm' || buildCommand === 'yarn');
+  const spawnCommand = isWindowsShellWrapper ? 'cmd.exe' : buildCommand;
+  const spawnArgs = isWindowsShellWrapper
+    ? ['/d', '/s', '/c', buildCommand, ...buildArgs]
+    : buildArgs;
 
   return new Promise((resolve) => {
-    const proc = spawn(buildCommand, buildArgs, {
+    const proc = spawn(spawnCommand, spawnArgs, {
       cwd: workingDirectory,
       timeout: TASK_TIMEOUTS.BUILD_TIMEOUT, // 5 minute timeout
       windowsHide: true
