@@ -1,9 +1,53 @@
 #!/usr/bin/env bash
-# Pre-push hook — runs test suites before allowing push to remote.
-# Skip with: git push --no-verify
+# Two-tier pre-push flow:
+# - Pushes targeting refs/heads/main run the full dashboard + remote server gate.
+# - The existing gate still pushes HEAD to origin/main, runs remote tests, and rolls back on failure.
+# - Pushes that only update non-main refs skip tests so feature-branch iteration stays fast.
+# - Delete-only pushes are always allowed and skipped from gating analysis.
+# - When a branch is later merged or pushed to main, the full gate runs again there.
+# - Use git push --no-verify as the escape hatch when bypassing the hook is intentional.
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+ZERO_SHA="0000000000000000000000000000000000000000"
+remote_refs=()
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$local_sha" = "$ZERO_SHA" ]; then
+    continue
+  fi
+
+  already_seen=0
+  for existing_ref in "${remote_refs[@]}"; do
+    if [ "$existing_ref" = "$remote_ref" ]; then
+      already_seen=1
+      break
+    fi
+  done
+
+  if [ "$already_seen" -eq 0 ]; then
+    remote_refs+=("$remote_ref")
+  fi
+done
+
+if [ "${#remote_refs[@]}" -eq 0 ]; then
+  echo "[pre-push] Delete-only push, allowing."
+  exit 0
+fi
+
+main_push=0
+for remote_ref in "${remote_refs[@]}"; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    main_push=1
+    break
+  fi
+done
+
+if [ "$main_push" -eq 0 ]; then
+  echo "[pre-push] Skipping tests for feature-branch push (${remote_refs[*]}). Main merges will be gated."
+  exit 0
+fi
 
 echo "[pre-push] Running dashboard tests..."
 cd "$REPO_ROOT/dashboard"
