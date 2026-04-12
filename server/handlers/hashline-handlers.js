@@ -4,6 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const { ErrorCodes, makeError } = require('./shared');
 
+let _taskCore;
+function taskCore() {
+  return _taskCore || (_taskCore = require('../db/task-core'));
+}
+
 // ─── FNV-1a Line Hashing (matches task-manager.js computeLineHash) ──────────
 
 function computeLineHash(line) {
@@ -87,6 +92,41 @@ function cacheFile(filePath) {
   return entry;
 }
 
+function resolveWorkspaceRoot(args) {
+  const workingDirectory = typeof args?.working_directory === 'string' ? args.working_directory.trim() : '';
+  if (workingDirectory) {
+    return path.resolve(workingDirectory);
+  }
+
+  const taskId = typeof args?.__taskId === 'string' ? args.__taskId.trim() : '';
+  if (!taskId) {
+    return null;
+  }
+
+  try {
+    const task = taskCore().getTask(taskId);
+    const taskWorkingDirectory = typeof task?.working_directory === 'string' ? task.working_directory.trim() : '';
+    return taskWorkingDirectory ? path.resolve(taskWorkingDirectory) : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveScopedFilePath(args, filePath) {
+  const resolvedPath = path.resolve(filePath);
+  const workspaceRoot = resolveWorkspaceRoot(args);
+  if (!workspaceRoot) {
+    return resolvedPath;
+  }
+
+  const relativePath = path.relative(workspaceRoot, resolvedPath);
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return makeError(ErrorCodes.PATH_TRAVERSAL, 'file_path is outside workspace root');
+  }
+
+  return resolvedPath;
+}
+
 // ─── hashline_read ──────────────────────────────────────────────────────────
 
 function handleHashlineRead(args) {
@@ -94,17 +134,22 @@ function handleHashlineRead(args) {
   if (!filePath) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
   }
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
+  const resolvedFilePath = resolveScopedFilePath(args, filePath);
+  if (resolvedFilePath?.isError) {
+    return resolvedFilePath;
+  }
+  const absoluteFilePath = resolvedFilePath;
+  if (!fs.existsSync(absoluteFilePath)) {
+    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${absoluteFilePath}`);
   }
 
   const offset = Math.max(1, Math.floor(args.offset || 1));
   const limit = args.limit ? Math.max(1, Math.floor(args.limit)) : null;
 
   // Read and cache
-  let cached = getCachedFile(filePath);
+  let cached = getCachedFile(absoluteFilePath);
   if (!cached) {
-    cached = cacheFile(filePath);
+    cached = cacheFile(absoluteFilePath);
   }
 
   const totalLines = cached.lines.length;
@@ -119,7 +164,7 @@ function handleHashlineRead(args) {
     return `${num}:${l.hash}\t${l.content}`;
   }).join('\n');
 
-  const header = `## ${path.basename(filePath)} (${totalLines} lines)`;
+  const header = `## ${path.basename(absoluteFilePath)} (${totalLines} lines)`;
   const range = limit ? ` [lines ${offset}-${endIdx}]` : '';
 
   return {
@@ -137,8 +182,13 @@ function handleHashlineEdit(args) {
   if (!filePath) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'file_path is required');
   }
-  if (!fs.existsSync(filePath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${filePath}`);
+  const resolvedFilePath = resolveScopedFilePath(args, filePath);
+  if (resolvedFilePath?.isError) {
+    return resolvedFilePath;
+  }
+  const absoluteFilePath = resolvedFilePath;
+  if (!fs.existsSync(absoluteFilePath)) {
+    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `File not found: ${absoluteFilePath}`);
   }
 
   const edits = args.edits;
@@ -147,9 +197,9 @@ function handleHashlineEdit(args) {
   }
 
   // Ensure we have a cached version (or refresh it)
-  let cached = getCachedFile(filePath);
+  let cached = getCachedFile(absoluteFilePath);
   if (!cached) {
-    cached = cacheFile(filePath);
+    cached = cacheFile(absoluteFilePath);
   }
 
   // Validate all edits before applying any
@@ -214,13 +264,13 @@ function handleHashlineEdit(args) {
 
   // Write back to disk
   const newFileContent = lines.join('\n');
-  fs.writeFileSync(filePath, newFileContent, 'utf8');
+  fs.writeFileSync(absoluteFilePath, newFileContent, 'utf8');
 
   // Refresh cache
-  const freshCached = cacheFile(filePath);
+  const freshCached = cacheFile(absoluteFilePath);
 
   // Show context around each edit (3 lines before/after)
-  let output = `## Edited ${path.basename(filePath)}\n\n`;
+  let output = `## Edited ${path.basename(absoluteFilePath)}\n\n`;
   output += `**Edits applied:** ${validatedEdits.length} | `;
   output += `**Lines:** -${totalRemoved} +${totalAdded} (${freshCached.lines.length} total)\n\n`;
 
