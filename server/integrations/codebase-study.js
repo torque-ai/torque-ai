@@ -3,7 +3,6 @@
 const fs = require('fs');
 const fsPromises = require('node:fs/promises');
 const path = require('path');
-const { randomUUID } = require('crypto');
 const { spawnSync } = require('child_process');
 
 const {
@@ -20,8 +19,6 @@ const {
   DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL,
   DEFAULT_PROPOSAL_MIN_SCORE,
   normalizeStudyThresholdLevel,
-  shouldSubmitStudyProposals,
-  filterDuplicateStudyProposals,
   evaluateStudyArtifacts,
   benchmarkStudyArtifacts,
   buildStudyBootstrapPlan,
@@ -71,63 +68,14 @@ const TEST_MATRIX_LIMIT = 6;
 const SIGNIFICANCE_REASON_LIMIT = 4;
 const KNOWLEDGE_PACK_VERSION = 3;
 const STUDY_DELTA_VERSION = 1;
-const DEPENDENCY_EXTENSIONS = ['.js', '.ts', '.json', '.mjs', '.cjs', '.jsx', '.tsx', '.py', '.cs'];
 const ROOT_DOC_FILES = new Set(['README.md', 'CLAUDE.md', 'CONTRIBUTING.md']);
 const LOW_SIGNAL_EXPORT_NAMES = new Set(['default', 'test', 'tests', 'value', 'values', 'data', 'result', 'results', 'foo', 'bar', 'baz']);
 const LOW_SIGNAL_HOTSPOT_BASENAMES = new Set(['logger.js', 'constants.js']);
-const C_SHARP_BUILTIN_TYPE_NAMES = new Set([
-  'action',
-  'array',
-  'bool',
-  'boolean',
-  'byte',
-  'cancellationtoken',
-  'char',
-  'collection',
-  'datetime',
-  'datetimeoffset',
-  'decimal',
-  'dictionary',
-  'double',
-  'dynamic',
-  'eventargs',
-  'exception',
-  'float',
-  'func',
-  'guid',
-  'ienumerable',
-  'ienumerator',
-  'iequalitycomparer',
-  'iformattable',
-  'ilist',
-  'iqueryable',
-  'list',
-  'long',
-  'memory',
-  'object',
-  'readonlymemory',
-  'readonlyspan',
-  'result',
-  'serviceprovider',
-  'short',
-  'span',
-  'stream',
-  'string',
-  'task',
-  'timespan',
-  'token',
-  'uri',
-  'value',
-  'void',
-]);
-const C_SHARP_PARAMETER_MODIFIERS = new Set(['ref', 'out', 'in', 'params', 'this', 'scoped']);
 const TEST_FILE_PATTERN = /(?:^|\/)(?:tests?|__tests__)\/|(?:\.test|\.spec|\.e2e|\.integration)\.[^.]+$/i;
 const TEST_SUFFIX_PATTERN = /(?:\.test|\.spec|\.e2e|\.integration)$/i;
 const TOKEN_STOP_WORDS = new Set(['js', 'ts', 'jsx', 'tsx', 'index', 'main', 'test', 'tests', 'spec', 'e2e', 'integration', 'server', 'src', 'lib', 'app']);
 const DEFAULT_PROPOSAL_LIMIT = 2;
 const MAX_PROPOSAL_LIMIT = 5;
-const STUDY_PROPOSAL_RULE_NAME = 'Study proposal review';
-const STUDY_PROPOSAL_RULE_TYPE = 'all';
 const GENERIC_FLOW_IDS = Object.freeze({
   ENTRY_RUNTIME: 'generic-entry-runtime',
   CONFIG_CONTRACTS: 'generic-config-contracts',
@@ -2623,94 +2571,6 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     return proposals.slice(0, MAX_PROPOSAL_LIMIT);
   }
 
-  async function submitStudyProposals(proposals, workingDirectory, options = {}) {
-    if (options.submitProposals !== true || !Array.isArray(proposals) || proposals.length === 0) {
-      return { submitted: [], errors: [] };
-    }
-
-    const proposalLimit = normalizePositiveInteger(options.proposalLimit, DEFAULT_PROPOSAL_LIMIT, MAX_PROPOSAL_LIMIT);
-    const projectName = typeof options.project === 'string' && options.project.trim()
-      ? options.project.trim()
-      : path.basename(workingDirectory);
-    const schedulingAutomation = require('../db/scheduling-automation');
-    const submitted = [];
-    const errors = [];
-    const approvalRuleId = ensureStudyProposalApprovalRule(schedulingAutomation, projectName);
-
-    for (const proposal of proposals.slice(0, proposalLimit)) {
-      try {
-        const taskId = randomUUID();
-        const studyProposalMetadata = {
-          source: 'codebase-study',
-          key: proposal.key,
-          title: proposal.title,
-          rationale: proposal.rationale,
-          kind: proposal.kind,
-          files: uniquePaths(proposal.files),
-          related_tests: uniquePaths(proposal.related_tests),
-          validation_commands: uniqueStrings(proposal.validation_commands),
-          affected_invariants: uniqueStrings(proposal.affected_invariants),
-          trace: proposal.trace && typeof proposal.trace === 'object'
-            ? { ...proposal.trace }
-            : null,
-          created_at: new Date().toISOString(),
-        };
-
-        taskCore.createTask({
-          id: taskId,
-          status: 'pending',
-          task_description: `[Study Proposal] ${proposal.title}\n\n${proposal.task}`,
-          working_directory: workingDirectory,
-          project: projectName,
-          tags: uniqueStrings([...(proposal.tags || []), 'study-delta-proposal', 'pending-approval']),
-          timeout_minutes: 30,
-          auto_approve: false,
-          priority: proposal.priority,
-          approval_status: 'pending',
-          metadata: {
-            version_intent: 'internal',
-            study_proposal: studyProposalMetadata,
-          },
-        });
-        const approvalId = schedulingAutomation.createApprovalRequest(taskId, approvalRuleId);
-        submitted.push({
-          title: proposal.title,
-          task_id: taskId,
-          approval_id: approvalId,
-        });
-      } catch (error) {
-        errors.push({
-          title: proposal.title,
-          error: error.message || String(error),
-        });
-      }
-    }
-
-    return { submitted, errors };
-  }
-
-  function ensureStudyProposalApprovalRule(schedulingAutomation, projectName) {
-    const existingRule = (schedulingAutomation.listApprovalRules?.({
-      project: projectName,
-      enabledOnly: false,
-      limit: 200,
-    }) || []).find((rule) => rule.name === STUDY_PROPOSAL_RULE_NAME);
-
-    if (existingRule?.id) {
-      return existingRule.id;
-    }
-
-    return schedulingAutomation.createApprovalRule(
-      STUDY_PROPOSAL_RULE_NAME,
-      STUDY_PROPOSAL_RULE_TYPE,
-      {},
-      {
-        project: projectName,
-        requiredApprovers: 1,
-      }
-    );
-  }
-
   function buildStudyDelta(previousKnowledgePack, nextKnowledgePack, context = {}) {
     const signalFiles = uniquePaths(context.signalFiles || []);
     const processedFiles = uniquePaths(context.processedFiles || []);
@@ -3059,314 +2919,6 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     };
   }
 
-  function toRepoRelativePath(absolutePath, workingDirectory) {
-    return toRepoPath(path.relative(workingDirectory, absolutePath));
-  }
-
-  function resolveDependencyPath(specifier, repoPath, workingDirectory) {
-    const normalized = String(specifier || '').trim();
-    if (!normalized) {
-      return null;
-    }
-
-    if (!normalized.startsWith('.') && !normalized.startsWith('/')) {
-      return normalized;
-    }
-
-    const baseAbsolute = path.resolve(path.join(workingDirectory, path.dirname(repoPath)), normalized);
-    const candidates = [baseAbsolute];
-    for (const extension of DEPENDENCY_EXTENSIONS) {
-      candidates.push(baseAbsolute + extension);
-    }
-    for (const extension of DEPENDENCY_EXTENSIONS) {
-      candidates.push(path.join(baseAbsolute, 'index' + extension));
-    }
-
-    const resolved = candidates.find(candidate => {
-      try {
-        return fs.existsSync(candidate) && fs.statSync(candidate).isFile();
-      } catch {
-        return false;
-      }
-    });
-
-    if (resolved) {
-      return toRepoRelativePath(resolved, workingDirectory);
-    }
-
-    if (baseAbsolute.startsWith(workingDirectory)) {
-      return toRepoRelativePath(baseAbsolute, workingDirectory);
-    }
-
-    return normalized;
-  }
-
-  function extractDependencies(content, repoPath, workingDirectory, extension = path.extname(repoPath).toLowerCase()) {
-    if (extension === '.cs') {
-      return [];
-    }
-
-    const dependencies = [];
-    const patterns = [
-      /\bimport\s+(?:[^'"]+?\s+from\s+)?['"]([^'"]+)['"]/g,
-      /\bexport\s+[^'"]*?\s+from\s+['"]([^'"]+)['"]/g,
-      /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g,
-      /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g,
-      /^\s*from\s+([.\w]+)\s+import\b/gm,
-      /^\s*import\s+([A-Za-z_][\w.]*)\b/gm,
-    ];
-
-    for (const pattern of patterns) {
-      let match;
-      while ((match = pattern.exec(content)) !== null) {
-        const resolved = resolveDependencyPath(match[1], repoPath, workingDirectory);
-        if (resolved) {
-          dependencies.push(resolved);
-        }
-      }
-    }
-
-    return uniqueStrings(dependencies);
-  }
-
-  function extractCSharpNamespaceName(content) {
-    const blockMatch = String(content || '').match(/^\s*namespace\s+([A-Za-z_][\w.]*)\s*\{/m);
-    if (blockMatch) {
-      return blockMatch[1];
-    }
-    const fileScopedMatch = String(content || '').match(/^\s*namespace\s+([A-Za-z_][\w.]*)\s*;/m);
-    return fileScopedMatch ? fileScopedMatch[1] : null;
-  }
-
-  function extractCSharpUsingNamespaces(content) {
-    const namespaces = [];
-    const pattern = /^\s*using\s+([A-Za-z_][\w.]*)\s*;/gm;
-    let match;
-    while ((match = pattern.exec(String(content || ''))) !== null) {
-      namespaces.push(match[1]);
-    }
-    return uniqueStrings(namespaces);
-  }
-
-  function extractNamedTypeIdentifiers(fragment) {
-    const values = [];
-    const matches = String(fragment || '').match(/[A-Z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*/g) || [];
-    for (const match of matches) {
-      const normalized = String(match || '').trim();
-      if (!normalized) {
-        continue;
-      }
-      const segments = normalized.split('.');
-      const symbolName = segments[segments.length - 1];
-      if (symbolName) {
-        values.push(symbolName);
-      }
-      if (segments.length > 1) {
-        values.push(normalized);
-      }
-    }
-    return uniqueStrings(values).filter((token) => !C_SHARP_BUILTIN_TYPE_NAMES.has(String(token || '').toLowerCase()));
-  }
-
-  function escapeRegExp(value) {
-    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  function findMatchingDelimiter(source, startIndex, openChar, closeChar) {
-    const normalized = String(source || '');
-    let depth = 0;
-    for (let index = startIndex; index < normalized.length; index += 1) {
-      const char = normalized[index];
-      if (char === openChar) {
-        depth += 1;
-      } else if (char === closeChar) {
-        depth -= 1;
-        if (depth === 0) {
-          return index;
-        }
-      }
-    }
-    return -1;
-  }
-
-  function splitTopLevelList(value, separator = ',') {
-    const normalized = String(value || '');
-    if (!normalized.trim()) {
-      return [];
-    }
-    const parts = [];
-    let current = '';
-    let angleDepth = 0;
-    let parenDepth = 0;
-    let bracketDepth = 0;
-    let braceDepth = 0;
-
-    for (const char of normalized) {
-      if (char === '<') {
-        angleDepth += 1;
-      } else if (char === '>') {
-        angleDepth = Math.max(0, angleDepth - 1);
-      } else if (char === '(') {
-        parenDepth += 1;
-      } else if (char === ')') {
-        parenDepth = Math.max(0, parenDepth - 1);
-      } else if (char === '[') {
-        bracketDepth += 1;
-      } else if (char === ']') {
-        bracketDepth = Math.max(0, bracketDepth - 1);
-      } else if (char === '{') {
-        braceDepth += 1;
-      } else if (char === '}') {
-        braceDepth = Math.max(0, braceDepth - 1);
-      }
-
-      if (
-        char === separator
-        && angleDepth === 0
-        && parenDepth === 0
-        && bracketDepth === 0
-        && braceDepth === 0
-      ) {
-        if (current.trim()) {
-          parts.push(current.trim());
-        }
-        current = '';
-        continue;
-      }
-
-      current += char;
-    }
-
-    if (current.trim()) {
-      parts.push(current.trim());
-    }
-    return parts;
-  }
-
-  function collectCSharpSignatureBlock(lines, startIndex, maxLines = 6) {
-    const fragments = [];
-    let parenDepth = 0;
-    for (let index = startIndex; index < lines.length && fragments.length < maxLines; index += 1) {
-      const trimmed = String(lines[index] || '').trim();
-      if (!trimmed || trimmed.startsWith('//')) {
-        if (fragments.length > 0 && parenDepth === 0) {
-          break;
-        }
-        continue;
-      }
-      fragments.push(trimmed);
-      for (const char of trimmed) {
-        if (char === '(') {
-          parenDepth += 1;
-        } else if (char === ')') {
-          parenDepth = Math.max(0, parenDepth - 1);
-        }
-      }
-      if ((trimmed.includes('{') || trimmed.endsWith(';')) && parenDepth === 0) {
-        break;
-      }
-      if (parenDepth === 0 && trimmed.includes(')')) {
-        break;
-      }
-    }
-    return fragments.join(' ');
-  }
-
-  function extractCSharpPrimaryTypeName(repoPath, content) {
-    const normalizedRepoPath = String(repoPath || '').trim();
-    const fileStem = normalizedRepoPath
-      ? path.basename(normalizedRepoPath, path.extname(normalizedRepoPath)).trim()
-      : '';
-    if (fileStem) {
-      return fileStem;
-    }
-    return extractCSharpExplicitExports(content)[0] || null;
-  }
-
-  function extractCSharpPrimaryTypeToken(fragment) {
-    const normalized = String(fragment || '').trim();
-    if (!normalized) {
-      return null;
-    }
-    const match = normalized.match(/[A-Z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*/);
-    if (!match) {
-      return null;
-    }
-    const qualifiedName = String(match[0] || '').trim().replace(/\?+$/, '');
-    if (!qualifiedName) {
-      return null;
-    }
-    const symbolName = qualifiedName.split('.').pop();
-    if (!symbolName || C_SHARP_BUILTIN_TYPE_NAMES.has(symbolName.toLowerCase())) {
-      return null;
-    }
-    return { symbolName, qualifiedName };
-  }
-
-  function extractCSharpConstructorDependencyTokens(parameterList) {
-    const tokens = [];
-    for (const parameter of splitTopLevelList(parameterList)) {
-      let normalized = String(parameter || '').trim();
-      if (!normalized) {
-        continue;
-      }
-      const assignmentIndex = normalized.indexOf('=');
-      if (assignmentIndex >= 0) {
-        normalized = normalized.slice(0, assignmentIndex).trim();
-      }
-      while (normalized.startsWith('[')) {
-        const attributeEnd = normalized.indexOf(']');
-        if (attributeEnd < 0) {
-          break;
-        }
-        normalized = normalized.slice(attributeEnd + 1).trim();
-      }
-      const parts = normalized.split(/\s+/).filter(Boolean);
-      while (parts.length > 1 && C_SHARP_PARAMETER_MODIFIERS.has(parts[0].toLowerCase())) {
-        parts.shift();
-      }
-      if (parts.length < 2) {
-        continue;
-      }
-      const typeInfo = extractCSharpPrimaryTypeToken(parts.slice(0, -1).join(' '));
-      if (typeInfo) {
-        tokens.push(typeInfo.symbolName);
-      }
-    }
-    return uniqueStrings(tokens);
-  }
-
-  function countSharedPrefixSegments(leftValue, rightValue, separator = '.') {
-    const left = String(leftValue || '').split(separator).filter(Boolean);
-    const right = String(rightValue || '').split(separator).filter(Boolean);
-    let count = 0;
-    while (count < left.length && count < right.length && left[count] === right[count]) {
-      count += 1;
-    }
-    return count;
-  }
-
-  function countSharedPathSegments(leftPath, rightPath) {
-    const left = toRepoPath(leftPath).split('/').slice(0, -1).filter(Boolean);
-    const right = toRepoPath(rightPath).split('/').slice(0, -1).filter(Boolean);
-    let count = 0;
-    while (count < left.length && count < right.length && left[count] === right[count]) {
-      count += 1;
-    }
-    return count;
-  }
-
-  function candidateMatchesTypeName(candidate, typeName) {
-    const normalizedTypeName = String(typeName || '').trim().split('.').pop()?.toLowerCase() || '';
-    if (!normalizedTypeName || !candidate?.file) {
-      return false;
-    }
-    if (String(path.basename(candidate.file, path.extname(candidate.file))).toLowerCase() === normalizedTypeName) {
-      return true;
-    }
-    return uniqueStrings(candidate.exports || []).some((value) => String(value).toLowerCase() === normalizedTypeName);
-  }
-
   async function hydrateCSharpModuleEntries(entries, workingDirectory) {
     const hydratedEntries = [];
 
@@ -3448,110 +3000,6 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
         purpose: buildPurpose(entry.file, { exports, deps }),
       };
     });
-  }
-
-  function extractJsonExports(content) {
-    try {
-      const value = JSON.parse(content);
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        return Object.keys(value);
-      }
-    } catch {
-      // Invalid JSON is handled elsewhere; return no inferred exports here.
-    }
-    return [];
-  }
-
-  function extractExplicitExports(content, extension) {
-    if (extension === '.json') {
-      return extractJsonExports(content);
-    }
-    if (extension === '.cs') {
-      return extractCSharpExplicitExports(content);
-    }
-    if (!JS_LIKE_EXTENSIONS.has(extension)) {
-      return [];
-    }
-
-    const exportNames = [];
-    const addExport = value => {
-      const normalized = String(value || '').trim();
-      if (!normalized) {
-        return;
-      }
-      exportNames.push(normalized);
-    };
-
-    const declarationPatterns = [
-      /\bexport\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/g,
-      /\bexport\s+class\s+([A-Za-z_$][\w$]*)/g,
-      /\bexport\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g,
-      /\bexport\s+(?:interface|type|enum)\s+([A-Za-z_$][\w$]*)/g,
-      /\bmodule\.exports\.([A-Za-z_$][\w$]*)\s*=/g,
-      /\bexports\.([A-Za-z_$][\w$]*)\s*=/g,
-    ];
-
-    for (const pattern of declarationPatterns) {
-      let match;
-      while ((match = pattern.exec(content)) !== null) {
-        addExport(match[1]);
-      }
-    }
-
-    const namedExportPattern = /\bexport\s*\{([^}]+)\}/g;
-    let namedExportMatch;
-    while ((namedExportMatch = namedExportPattern.exec(content)) !== null) {
-      const parts = namedExportMatch[1].split(',');
-      for (const part of parts) {
-        const normalized = String(part || '').trim();
-        if (!normalized) {
-          continue;
-        }
-        const aliasParts = normalized.split(/\s+as\s+/i);
-        addExport(aliasParts[1] || aliasParts[0]);
-      }
-    }
-
-    const commonJsObjectPattern = /\bmodule\.exports\s*=\s*\{([\s\S]*?)\}/g;
-    let commonJsObjectMatch;
-    while ((commonJsObjectMatch = commonJsObjectPattern.exec(content)) !== null) {
-      const block = commonJsObjectMatch[1];
-      const propertyPattern = /(?:^|,)\s*(?:([A-Za-z_$][\w$]*)\s*:|([A-Za-z_$][\w$]*)(?=\s*(?:,|$))|['"]([^'"]+)['"]\s*:)/gm;
-      let propertyMatch;
-      while ((propertyMatch = propertyPattern.exec(block)) !== null) {
-        addExport(propertyMatch[1] || propertyMatch[2] || propertyMatch[3]);
-      }
-    }
-
-    if (/\bexport\s+default\b/.test(content)) {
-      addExport('default');
-    }
-
-    const commonJsDefaultPatterns = [
-      /\bmodule\.exports\s*=\s*(?:async\s+)?function\s*([A-Za-z_$][\w$]*)?/,
-      /\bmodule\.exports\s*=\s*class\s*([A-Za-z_$][\w$]*)?/,
-    ];
-    for (const pattern of commonJsDefaultPatterns) {
-      const match = content.match(pattern);
-      if (match) {
-        addExport(match[1] || 'default');
-      }
-    }
-
-    return uniqueStrings(exportNames);
-  }
-
-  async function extractSymbolsForFile(fullPath, content, workingDirectory, extension) {
-    if (!SYMBOL_INDEX_EXTENSIONS.has(extension)) {
-      return [];
-    }
-
-    try {
-      return await symbolIndexer.indexFile(fullPath, content, workingDirectory);
-    } catch (error) {
-      studyLogger.debug('[codebase-study] symbol extraction failed for ' + fullPath + ': ' + (error.message || error));
-      return [];
-    }
   }
 
   function getRoleLabel(repoPath, extension) {
@@ -3653,11 +3101,17 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     const scannedFile = scanLookup?.scannedFiles?.has(repoPath) === true;
     const scannedSymbolsEntry = scanLookup?.symbolLookup?.get(repoPath) || null;
     const scannedImportEntry = scanLookup?.importLookup?.get(repoPath) || null;
-    const needsContent = extension === '.cs' || !scannedFile;
+    const fallbackScanLookup = scannedFile
+      ? null
+      : buildScanLookup(await scanner.scanRepo(workingDirectory, { files: [repoPath] }));
+    const hasScanData = scannedFile || fallbackScanLookup?.scannedFiles?.has(repoPath) === true;
+    const symbolsEntry = scannedSymbolsEntry || fallbackScanLookup?.symbolLookup?.get(repoPath) || null;
+    const importEntry = scannedImportEntry || fallbackScanLookup?.importLookup?.get(repoPath) || null;
+    const needsContent = extension === '.cs' || !hasScanData;
     const content = needsContent ? await fsPromises.readFile(fullPath, 'utf8') : null;
-    const symbols = Array.isArray(scannedSymbolsEntry?.symbols)
-      ? scannedSymbolsEntry.symbols
-      : (scannedFile ? [] : await extractSymbolsForFile(fullPath, content, workingDirectory, extension));
+    const symbols = Array.isArray(symbolsEntry?.symbols)
+      ? symbolsEntry.symbols
+      : [];
     const cSharpHints = extension === '.cs'
       ? extractCSharpReferenceHints(content, repoPath)
       : {
@@ -3669,12 +3123,12 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     const symbolExports = symbols
       .filter(symbol => symbol && symbol.exported && typeof symbol.name === 'string' && !(extension === '.cs' && symbol.kind === 'method'))
       .map(symbol => symbol.name);
-    const explicitExports = Array.isArray(scannedSymbolsEntry?.exports)
-      ? uniqueStrings(scannedSymbolsEntry.exports)
-      : (scannedFile ? [] : extractExplicitExports(content, extension));
-    const dependencies = Array.isArray(scannedImportEntry?.imports)
-      ? uniquePaths(scannedImportEntry.imports)
-      : (scannedFile ? [] : extractDependencies(content, repoPath, workingDirectory, extension));
+    const explicitExports = Array.isArray(symbolsEntry?.exports)
+      ? uniqueStrings(symbolsEntry.exports)
+      : [];
+    const dependencies = Array.isArray(importEntry?.imports)
+      ? uniquePaths(importEntry.imports)
+      : [];
     const exportsList = uniqueStrings([...symbolExports, ...explicitExports]);
 
     return {
@@ -3730,75 +3184,6 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       override_repo_path: profile.override_repo_path || null,
       override_notes: uniqueStrings(profile.override_notes || []),
     };
-  }
-
-  async function getStudyProfileOverrideStatus(workingDirectory) {
-    const resolvedWorkingDirectory = resolveWorkingDirectory(workingDirectory);
-    const repoMetadata = await loadRepoMetadata(resolvedWorkingDirectory);
-    const trackedFiles = loadTrackedFiles(resolvedWorkingDirectory);
-    const overridePath = getStudyProfileOverridePath(resolvedWorkingDirectory);
-    const template = createStudyProfileOverrideTemplate({ repoMetadata, profile: resolveStudyProfile({
-      repoMetadata,
-      trackedFiles,
-      workingDirectory: resolvedWorkingDirectory,
-    }) });
-    let rawOverride = null;
-    let parsedOverride = null;
-    let fileExists = false;
-
-    if (overridePath && fs.existsSync(overridePath)) {
-      fileExists = true;
-      rawOverride = await readTextIfPresent(overridePath);
-      parsedOverride = await readJsonIfPresent(overridePath);
-    }
-
-    const effectiveProfile = resolveStudyProfile({
-      repoMetadata,
-      trackedFiles,
-      workingDirectory: resolvedWorkingDirectory,
-    });
-    const repoSignals = detectStudyProfileSignals({
-      repoMetadata,
-      trackedFiles,
-      profile: effectiveProfile,
-    });
-    const activeOverride = readStudyProfileOverride(resolvedWorkingDirectory);
-
-    return {
-      working_directory: resolvedWorkingDirectory,
-      path: overridePath,
-      repo_path: STUDY_PROFILE_OVERRIDE_FILE.replace(/\\/g, '/'),
-      exists: fileExists,
-      active: Boolean(activeOverride),
-      raw_override: rawOverride,
-      override: parsedOverride,
-      template,
-      study_profile: serializeStudyProfile({ ...effectiveProfile, detection: repoSignals }),
-    };
-  }
-
-  async function saveStudyProfileOverride(workingDirectory, overrideValue, options = {}) {
-    const resolvedWorkingDirectory = resolveWorkingDirectory(workingDirectory);
-    const overridePath = getStudyProfileOverridePath(resolvedWorkingDirectory);
-    if (!overridePath) {
-      throw new Error('Unable to resolve study profile override path');
-    }
-
-    if (options.clear === true || overrideValue === null) {
-      await fsPromises.rm(overridePath, { force: true });
-      return getStudyProfileOverrideStatus(resolvedWorkingDirectory);
-    }
-
-    const normalizedOverride = typeof overrideValue === 'string'
-      ? JSON.parse(overrideValue)
-      : overrideValue;
-    if (!normalizedOverride || typeof normalizedOverride !== 'object' || Array.isArray(normalizedOverride)) {
-      throw new Error('override must be a JSON object');
-    }
-
-    await fsPromises.mkdir(path.dirname(overridePath), { recursive: true });
-    await fsPromises.writeFile(overridePath, `${JSON.stringify(normalizedOverride, null, 2)}\n`, 'utf8');
-    return getStudyProfileOverrideStatus(resolvedWorkingDirectory);
   }
 
   async function maybeWriteStudyProfileOverrideScaffold(workingDirectory, profile) {
@@ -4781,8 +4166,10 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     getStudyStatus,
     evaluateStudy,
     benchmarkStudy,
-    getStudyProfileOverrideStatus,
-    saveStudyProfileOverride,
+    getStudyProfileOverrideStatus: (workingDirectory) => profileManager.getOverrideStatus(workingDirectory),
+    saveStudyProfileOverride: (workingDirectory, overrideValue, options = {}) => (
+      profileManager.saveOverride(workingDirectory, overrideValue, options)
+    ),
     previewBootstrapStudy,
     bootstrapStudy,
     resetStudy,
