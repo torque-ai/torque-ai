@@ -1,7 +1,5 @@
 'use strict';
 
-const database = require('../database');
-const costTracking = require('../db/cost-tracking');
 const logger = require('../logger').child({ component: 'factory-cost-metrics' });
 
 const EMPTY_SUMMARY = Object.freeze({
@@ -11,10 +9,24 @@ const EMPTY_SUMMARY = Object.freeze({
   tasks: [],
 });
 
+const EMPTY_TASK_COST_DATA = Object.freeze({
+  total_cost: 0,
+  provider: null,
+  has_cost_data: false,
+});
+
 const BATCH_TAG_PREFIXES = Object.freeze(['', 'batch:', 'factory:', 'workflow:']);
 
-function getCostPerCycle(project_id) {
-  const summary = buildProjectCostSummary(project_id);
+let _db = null;
+
+function init(deps = {}) {
+  if (deps.db) {
+    _db = deps.db;
+  }
+  return module.exports;
+}
+
+function getCostPerCycle(project_id, summary = buildProjectCostSummary(project_id)) {
   if (summary.cycle_count === 0 || summary.total_cost <= 0) {
     return 0;
   }
@@ -22,8 +34,7 @@ function getCostPerCycle(project_id) {
   return roundMetric(summary.total_cost / summary.cycle_count);
 }
 
-function getCostPerHealthPoint(project_id) {
-  const summary = buildProjectCostSummary(project_id);
+function getCostPerHealthPoint(project_id, summary = buildProjectCostSummary(project_id)) {
   if (summary.total_cost <= 0 || summary.total_improvement <= 0) {
     return 0;
   }
@@ -31,8 +42,7 @@ function getCostPerHealthPoint(project_id) {
   return roundMetric(summary.total_cost / summary.total_improvement);
 }
 
-function getProviderEfficiency(project_id) {
-  const summary = buildProjectCostSummary(project_id);
+function getProviderEfficiency(project_id, summary = buildProjectCostSummary(project_id)) {
   if (!summary.tasks.length) {
     return [];
   }
@@ -90,9 +100,10 @@ function buildProjectCostSummary(project_id) {
     }
 
     const taskRows = getRelevantTasks(db, batchIds);
+    const taskCostData = getTaskCostData(db, taskRows.map((task) => task.id));
     const tasks = taskRows
       .map((task) => {
-        const costData = getTaskCostData(db, task.id);
+        const costData = taskCostData.get(task.id) || EMPTY_TASK_COST_DATA;
         if (!costData.has_cost_data) {
           return null;
         }
@@ -161,57 +172,77 @@ function getRelevantTasks(db, batchIds) {
   return [...new Map(rows.map((row) => [row.id, row])).values()];
 }
 
-function getTaskCostData(db, taskId) {
-  const usageRows = getTaskUsageRows(db, taskId);
-  if (usageRows.length > 0) {
-    return {
-      total_cost: usageRows.reduce((sum, row) => sum + toNumber(row.estimated_cost_usd), 0),
-      provider: null,
-      has_cost_data: true,
-    };
+function getTaskCostData(db, taskIds) {
+  if (!Array.isArray(taskIds) || !taskIds.length) {
+    return new Map();
   }
 
+  const costData = new Map();
+  for (const row of getTaskUsageRows(db, taskIds)) {
+    if ((Number(row?.row_count) || 0) <= 0) {
+      continue;
+    }
+
+    costData.set(row.task_id, {
+      total_cost: toNumber(row.total_cost),
+      provider: null,
+      has_cost_data: true,
+    });
+  }
+
+  for (const row of getTaskTrackingRows(db, taskIds)) {
+    if ((Number(row?.row_count) || 0) <= 0 || costData.has(row.task_id)) {
+      continue;
+    }
+
+    costData.set(row.task_id, {
+      total_cost: toNumber(row.total_cost),
+      provider: row.provider || null,
+      has_cost_data: true,
+    });
+  }
+
+  return costData;
+}
+
+function getTaskUsageRows(db, taskIds) {
+  if (!Array.isArray(taskIds) || !taskIds.length) {
+    return [];
+  }
+
+  const placeholders = taskIds.map(() => '?').join(', ');
   try {
-    const row = db.prepare(`
-      SELECT COALESCE(SUM(cost_usd), 0) AS total_cost,
+    return db.prepare(`
+      SELECT task_id,
+             COALESCE(SUM(estimated_cost_usd), 0) AS total_cost,
+             COUNT(*) AS row_count
+      FROM token_usage
+      WHERE task_id IN (${placeholders})
+      GROUP BY task_id
+    `).all(...taskIds);
+  } catch {
+    return [];
+  }
+}
+
+function getTaskTrackingRows(db, taskIds) {
+  if (!Array.isArray(taskIds) || !taskIds.length) {
+    return [];
+  }
+
+  const placeholders = taskIds.map(() => '?').join(', ');
+  try {
+    return db.prepare(`
+      SELECT task_id,
+             COALESCE(SUM(cost_usd), 0) AS total_cost,
              COUNT(*) AS row_count,
              MAX(provider) AS provider
       FROM cost_tracking
-      WHERE task_id = ?
-    `).get(taskId);
-
-    if ((Number(row?.row_count) || 0) > 0) {
-      return {
-        total_cost: toNumber(row.total_cost),
-        provider: row.provider || null,
-        has_cost_data: true,
-      };
-    }
+      WHERE task_id IN (${placeholders})
+      GROUP BY task_id
+    `).all(...taskIds);
   } catch {
     // cost_tracking may not exist in lightweight test DBs.
-  }
-
-  return { total_cost: 0, provider: null, has_cost_data: false };
-}
-
-function getTaskUsageRows(db, taskId) {
-  try {
-    const rows = costTracking.getTaskTokenUsage(taskId);
-    if (Array.isArray(rows)) {
-      return rows;
-    }
-  } catch {
-    // Fall back to a direct query when the module has not been wired to the DB yet.
-  }
-
-  try {
-    return db.prepare(`
-      SELECT *
-      FROM token_usage
-      WHERE task_id = ?
-      ORDER BY recorded_at DESC
-    `).all(taskId);
-  } catch {
     return [];
   }
 }
@@ -232,7 +263,12 @@ function getTotalImprovement(cycles) {
 
 function getRawDb() {
   try {
-    return typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
+    if (!_db) {
+      return null;
+    }
+    return typeof _db.getDbInstance === 'function'
+      ? _db.getDbInstance()
+      : (typeof _db.prepare === 'function' ? _db : null);
   } catch {
     return null;
   }
@@ -270,7 +306,9 @@ function roundMetric(value) {
 }
 
 module.exports = {
+  init,
   getCostPerCycle,
   getCostPerHealthPoint,
   getProviderEfficiency,
+  buildProjectCostSummary,
 };
