@@ -1,6 +1,6 @@
 # Fabro-Inspired Plans — Index
 
-67 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 50 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream.
+74 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 58 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream, Langfuse, Portkey, Promptfoo, Outlines, TensorZero, AutoGen Studio, Firecrawl, DeepEval.
 
 ## Plan list
 
@@ -93,6 +93,15 @@
 66. **[Auto-Extracted Memory](2026-04-11-fabro-66-auto-extracted-memory.md)** — extract memories from conversations + rerank (mem0)
 67. **[Step-Native Suspend + Rerun](2026-04-11-fabro-67-step-suspend-rerun.md)** — in-step pause w/ resume_url (Pipedream)
 
+### Observability + evaluation + optimization (round 6)
+68. **[LLM Observability Platform](2026-04-11-fabro-68-observability-platform.md)** — sessions + datasets + prompts + universal scores (Langfuse)
+69. **[Semantic Cache + Guardrails Middleware](2026-04-11-fabro-69-semantic-cache-middleware.md)** — near-duplicate hits + pre/post guardrails (Portkey)
+70. **[Eval Framework](2026-04-11-fabro-70-eval-framework.md)** — matrix + judges + red-team CLI (Promptfoo + DeepEval)
+71. **[FSM-Guided Structured Generation](2026-04-11-fabro-71-fsm-guided-generation.md)** — pre-hoc constraint complements SAP (Outlines)
+72. **[Functions + Variants + Optimization Loop](2026-04-11-fabro-72-functions-variants.md)** — stable task ID w/ competing variants + auto-propose (TensorZero)
+73. **[Schema-Backed Visual Builder](2026-04-11-fabro-73-schema-backed-builder.md)** — dual-mode canvas + JSON + gallery (AutoGen Studio)
+74. **[Firecrawl Research Integration](2026-04-11-fabro-74-firecrawl-research.md)** — LLM-ready markdown + schema extraction + crawl (Firecrawl)
+
 ## Source attributions
 
 | Plan | Inspired by |
@@ -142,6 +151,13 @@
 | 65 | Flyte |
 | 66 | mem0 |
 | 67 | Pipedream |
+| 68 | Langfuse |
+| 69 | Portkey |
+| 70 | Promptfoo + DeepEval |
+| 71 | Outlines |
+| 72 | TensorZero |
+| 73 | AutoGen Studio |
+| 74 | Firecrawl |
 
 ## Suggested sequencing
 
@@ -156,6 +172,7 @@
 **Batch I — Software factory loop** (41, 48, 54)
 **Batch J — External integration + authoring** (57, 58, 59, 60, 61)
 **Batch K — Reasoning + workflow quality** (62, 63, 64, 65, 66, 67)
+**Batch L — Observability + evaluation + optimization** (68, 69, 70, 71, 72, 73, 74)
 
 ## How to execute
 
