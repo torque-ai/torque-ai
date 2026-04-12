@@ -1,5 +1,4 @@
 'use strict';
-const { describe, it, expect } = require('vitest');
 const { parsePlanFile, extractVerifyCommand } = require('../factory/plan-parser');
 
 const SAMPLE = `# Feature X Plan
