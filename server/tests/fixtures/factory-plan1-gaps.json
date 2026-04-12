@@ -1,0 +1,88 @@
+{
+  "captured_at": "2026-04-12T22:47:52.126Z",
+  "run_id": "factory-plan1-2026-04-12T22-47-51-924Z",
+  "project_id": "e197725b-69df-497f-bc72-7b03aa80b4b9",
+  "plan_path": "C:\\Users\\Werem\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md",
+  "gaps": [
+    {
+      "code": "mcp_tools_directory_missing",
+      "message": "Expected Phase 9 MCP tool directory server/mcp-tools was not present.",
+      "details": {
+        "expected_path": "C:\\Users\\Werem\\Projects\\torque-public\\server\\mcp-tools",
+        "actual_registry": [
+          "server/tool-defs/factory-defs.js",
+          "server/handlers/factory-handlers.js"
+        ]
+      }
+    },
+    {
+      "code": "factory_decision_log_table_missing",
+      "message": "Expected factory_decision_log table was not present; this repo uses factory_decisions.",
+      "details": {
+        "expected_table": "factory_decision_log",
+        "actual_table": "factory_decisions",
+        "schema_file": "C:\\Users\\Werem\\Projects\\torque-public\\server\\db\\migrations.js"
+      }
+    },
+    {
+      "code": "approve_factory_transition_missing",
+      "message": "Expected approve_factory_transition tool was not present; using approve_factory_gate/approveGate.",
+      "details": {
+        "expected_tool": "approve_factory_transition",
+        "actual_tool": "approve_factory_gate",
+        "implementation_file": "C:\\Users\\Werem\\Projects\\torque-public\\server\\factory\\loop-controller.js"
+      }
+    },
+    {
+      "code": "tick_factory_loop_missing",
+      "message": "Expected tick_factory_loop tool was not present; using advance_factory_loop/advanceLoop.",
+      "details": {
+        "expected_tool": "tick_factory_loop",
+        "actual_tool": "advance_factory_loop",
+        "implementation_file": "C:\\Users\\Werem\\Projects\\torque-public\\server\\factory\\loop-controller.js"
+      }
+    },
+    {
+      "code": "prioritize_stage_did_not_score_work_item",
+      "message": "WI_1 priority did not change during the PRIORITIZE gate.",
+      "details": {
+        "work_item_id": 104,
+        "before_priority": 50,
+        "after_priority": 50
+      }
+    },
+    {
+      "code": "wi1_not_selected_by_loop",
+      "message": "The loop advanced a different plan-file work item into EXECUTE instead of WI_1.",
+      "details": {
+        "requested_work_item_id": 104,
+        "requested_plan_path": "C:\\Users\\Werem\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md",
+        "observed_execute_work_item_id": 209,
+        "observed_execute_plan_path": "C:\\Users\\Werem\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-12-software-factory-phase9-plan-file-intake.md"
+      }
+    },
+    {
+      "code": "factory_decisions_stage_enum_missing_learn",
+      "message": "factory_decisions only allows stages sense/prioritize/plan/execute/verify/ship; there is no learn stage for exact loop replay capture.",
+      "details": {
+        "valid_stages": [
+          "sense",
+          "prioritize",
+          "plan",
+          "execute",
+          "verify",
+          "ship"
+        ],
+        "db_module": "C:\\Users\\Werem\\Projects\\torque-public\\server\\db\\factory-decisions.js"
+      }
+    },
+    {
+      "code": "execute_stage_not_attempted_live",
+      "message": "Live EXECUTE run was not attempted: no dry-run support and Plan 1 would make broad repo changes plus commits.",
+      "details": {
+        "loop_state": "EXECUTE",
+        "plan_path": "C:\\Users\\Werem\\Projects\\torque-public\\docs\\superpowers\\plans\\2026-04-11-fabro-1-workflow-as-code.md"
+      }
+    }
+  ]
+}
