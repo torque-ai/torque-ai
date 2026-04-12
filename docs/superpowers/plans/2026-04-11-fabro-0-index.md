@@ -1,6 +1,6 @@
 # Fabro-Inspired Plans — Index
 
-88 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 74 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream, Langfuse, Portkey, Promptfoo, Outlines, TensorZero, AutoGen Studio, Firecrawl, DeepEval, E2B, smolagents, Zep, Arize Phoenix, Braintrust, Modal, Cody, Dust, Mastra, Vercel AI SDK, Claude Agent SDK, SuperAGI, LangSmith, GPT Researcher, Cloudflare Agents, Inngest AgentKit.
+95 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 82 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream, Langfuse, Portkey, Promptfoo, Outlines, TensorZero, AutoGen Studio, Firecrawl, DeepEval, E2B, smolagents, Zep, Arize Phoenix, Braintrust, Modal, Cody, Dust, Mastra, Vercel AI SDK, Claude Agent SDK, SuperAGI, LangSmith, GPT Researcher, Cloudflare Agents, Inngest AgentKit, LiteLLM, Helicone, fabric, Motia, TypeAgent, Browser Use, Chroma, gptme.
 
 ## Plan list
 
@@ -120,6 +120,15 @@
 87. **[Report Types + Citation Ledger](2026-04-11-fabro-87-report-types-citation-ledger.md)** — typed research outputs + dedup'd source ledger (GPT Researcher)
 88. **[First-Class Router for Crew Networks](2026-04-11-fabro-88-crew-router.md)** — code/llm/hybrid router for Plan 26 crews (AgentKit)
 
+### Gateways + patterns + NL dispatch (round 9)
+89. **[Budget-Aware Routing](2026-04-11-fabro-89-budget-aware-routing.md)** — spend feeds provider selection (LiteLLM)
+90. **[Dual-Integration Observability](2026-04-11-fabro-90-dual-observability.md)** — proxy-or-async + property metadata (Helicone)
+91. **[Pattern Library](2026-04-11-fabro-91-pattern-library.md)** — `.torque/patterns/*/` Markdown corpus + pipe-friendly CLI (fabric)
+92. **[Typed NL Dispatch](2026-04-11-fabro-92-typed-nl-dispatch.md)** — schema-as-dispatch + translator + construction cache (TypeAgent)
+93. **[Accessibility-Tree Browser Tool](2026-04-11-fabro-93-accessibility-browser.md)** — AX state + action primitives + saved auth (Browser Use)
+94. **[Chroma-Backed Archival Memory](2026-04-11-fabro-94-chroma-archival.md)** — collection API + where filters + pluggable embedders (Chroma)
+95. **[Editable Conversation Transcripts](2026-04-11-fabro-95-editable-transcripts.md)** — plain-text log + $EDITOR roundtrip + replay (gptme)
+
 ## Source attributions
 
 | Plan | Inspired by |
@@ -190,6 +199,13 @@
 | 86 | LangSmith |
 | 87 | GPT Researcher |
 | 88 | Inngest AgentKit |
+| 89 | LiteLLM |
+| 90 | Helicone |
+| 91 | fabric |
+| 92 | TypeAgent |
+| 93 | Browser Use |
+| 94 | Chroma |
+| 95 | gptme |
 
 ## Suggested sequencing
 
@@ -207,6 +223,7 @@
 **Batch L — Observability + evaluation + optimization** (68, 69, 70, 71, 72, 73, 74)
 **Batch M — Sandbox + memory + context** (75, 76, 77, 78, 79, 80, 81)
 **Batch N — Authoring + runtime refinement** (82, 83, 84, 85, 86, 87, 88)
+**Batch O — Gateways + patterns + NL dispatch** (89, 90, 91, 92, 93, 94, 95)
 
 ## How to execute
 
