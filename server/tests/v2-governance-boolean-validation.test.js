@@ -424,6 +424,35 @@ describe('api/v2-governance boolean validation', () => {
     });
   });
 
+  it('accepts numeric enabled values for provider toggles and coerces them', async () => {
+    const providerRoutingCore = createMockProviderRoutingCore({ enabled: 0 });
+    const { handlers } = loadHandlers(providerRoutingCore);
+
+    const disabledContext = createMockContext({
+      params: { provider_id: 'codex' },
+      body: { enabled: 0 },
+    });
+    await handlers.handleProviderToggle(disabledContext.req, disabledContext.res);
+
+    expect(providerRoutingCore.updateProvider).toHaveBeenNthCalledWith(1, 'codex', { enabled: 0 });
+    expectSuccessEnvelope(disabledContext.res, {
+      provider: 'codex',
+      enabled: false,
+    });
+
+    const enabledContext = createMockContext({
+      params: { provider_id: 'codex' },
+      body: { enabled: 1 },
+    });
+    await handlers.handleProviderToggle(enabledContext.req, enabledContext.res);
+
+    expect(providerRoutingCore.updateProvider).toHaveBeenNthCalledWith(2, 'codex', { enabled: 1 });
+    expectSuccessEnvelope(enabledContext.res, {
+      provider: 'codex',
+      enabled: true,
+    });
+  });
+
   it('rejects string enabled values for provider configuration', async () => {
     const providerRoutingCore = createMockProviderRoutingCore();
     const { handlers } = loadHandlers(providerRoutingCore);
@@ -458,6 +487,33 @@ describe('api/v2-governance boolean validation', () => {
     expect(res._body.data.configured).toBe(true);
     expect(res._body.data.enabled).toBe(false);
     expectMeta(res._body);
+  });
+
+  it('accepts numeric enabled values for provider configuration and coerces them', async () => {
+    const providerRoutingCore = createMockProviderRoutingCore({ enabled: 0 });
+    const { handlers } = loadHandlers(providerRoutingCore);
+
+    const disabledContext = createMockContext({
+      params: { provider_id: 'codex' },
+      body: { enabled: 0 },
+    });
+    await handlers.handleConfigureProvider(disabledContext.req, disabledContext.res);
+
+    expect(providerRoutingCore.updateProvider).toHaveBeenNthCalledWith(1, 'codex', { enabled: 0 });
+    expect(disabledContext.res.statusCode).toBe(200);
+    expect(disabledContext.res._body.data.enabled).toBe(false);
+    expectMeta(disabledContext.res._body);
+
+    const enabledContext = createMockContext({
+      params: { provider_id: 'codex' },
+      body: { enabled: 1 },
+    });
+    await handlers.handleConfigureProvider(enabledContext.req, enabledContext.res);
+
+    expect(providerRoutingCore.updateProvider).toHaveBeenNthCalledWith(2, 'codex', { enabled: 1 });
+    expect(enabledContext.res.statusCode).toBe(200);
+    expect(enabledContext.res._body.data.enabled).toBe(true);
+    expectMeta(enabledContext.res._body);
   });
 
   it('persists timeout_minutes and default_model through the REST configure path', async () => {

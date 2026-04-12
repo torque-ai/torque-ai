@@ -98,6 +98,20 @@ function parseBooleanValue(value) {
   return null;
 }
 
+function normalizeEnabledBoolean(value) {
+  if (value === undefined) {
+    return { value: undefined };
+  }
+  if (typeof value === 'boolean') {
+    return { value };
+  }
+  if (typeof value === 'number' && Number.isInteger(value) && (value === 0 || value === 1)) {
+    return { value: value === 1 };
+  }
+
+  return { error: 'enabled must be a boolean' };
+}
+
 function normalizeOptionalPositiveInteger(value) {
   if (value === undefined) {
     return { value: undefined };
@@ -1182,20 +1196,21 @@ async function handleProviderToggle(req, res) {
   const requestId = resolveRequestId(req);
   const providerId = req.params?.provider_id;
   const body = req.body || await parseBody(req);
+  const normalizedEnabled = normalizeEnabledBoolean(body.enabled);
 
   const provider = providerRoutingCore.getProvider ? providerRoutingCore.getProvider(providerId) : null;
   if (!provider) {
     return sendError(res, requestId, 'provider_not_found', `Provider not found: ${providerId}`, 404, {}, req);
   }
 
-  if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
-    return sendError(res, requestId, 'validation_error', 'enabled must be a boolean', 400, {
+  if (normalizedEnabled.error) {
+    return sendError(res, requestId, 'validation_error', normalizedEnabled.error, 400, {
       field: 'enabled',
     }, req);
   }
 
-  const enabled = body.enabled !== undefined
-    ? body.enabled
+  const enabled = normalizedEnabled.value !== undefined
+    ? normalizedEnabled.value
     : !provider.enabled;
 
   try {
@@ -1317,6 +1332,7 @@ async function handleConfigureProvider(req, res) {
   const requestId = resolveRequestId(req);
   const providerId = req.params?.provider_id;
   const body = req.body || await parseBody(req);
+  const normalizedEnabled = normalizeEnabledBoolean(body.enabled);
 
   if (!providerId) {
     return sendError(res, requestId, 'validation_error', 'provider_id is required', 400, {}, req);
@@ -1327,15 +1343,15 @@ async function handleConfigureProvider(req, res) {
     return sendError(res, requestId, 'provider_not_found', `Provider not found: ${providerId}`, 404, {}, req);
   }
 
-  if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
-    return sendError(res, requestId, 'validation_error', 'enabled must be a boolean', 400, {
+  if (normalizedEnabled.error) {
+    return sendError(res, requestId, 'validation_error', normalizedEnabled.error, 400, {
       field: 'enabled',
     }, req);
   }
 
   try {
     const updates = {};
-    if (body.enabled !== undefined) updates.enabled = body.enabled ? 1 : 0;
+    if (normalizedEnabled.value !== undefined) updates.enabled = normalizedEnabled.value ? 1 : 0;
     if (body.model) updates.default_model = body.model;
     if (body.max_concurrent !== undefined) updates.max_concurrent = body.max_concurrent;
     if (body.timeout_minutes !== undefined) updates.timeout_minutes = body.timeout_minutes;
