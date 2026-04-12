@@ -613,7 +613,7 @@ function init(taskManager) {
   if (taskManager) {
     v2TaskHandlers.init(taskManager);
     v2WorkflowHandlers.init(taskManager);
-    v2GovernanceHandlers.init(taskManager);
+    v2GovernanceHandlers.init({ taskManager });
     v2InfrastructureHandlers.init(taskManager);
   }
 }
@@ -623,4 +623,6 @@ module.exports = {
   init,
   v2CpRoutes,
   V2_CP_HANDLER_LOOKUP,
+  MAX_BODY_SIZE,
+  validateJsonDepth,
 };

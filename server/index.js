@@ -874,6 +874,42 @@ function init() {
     defaultContainer.registerValue('toolRouter', { callTool });
   }
 
+  const studyTelemetry = require('./db/study-telemetry');
+  studyTelemetry.init({ db });
+  if (!defaultContainer.has('studyTelemetry')) {
+    defaultContainer.registerValue('studyTelemetry', studyTelemetry);
+  }
+
+  const factoryCostMetrics = require('./factory/cost-metrics');
+  factoryCostMetrics.init({ db });
+  if (!defaultContainer.has('factoryCostMetrics')) {
+    defaultContainer.registerValue('factoryCostMetrics', factoryCostMetrics);
+  }
+
+  const factoryFeedbackAnalysis = require('./factory/feedback');
+  factoryFeedbackAnalysis.init({ db });
+  if (!defaultContainer.has('factoryFeedbackAnalysis')) {
+    defaultContainer.registerValue('factoryFeedbackAnalysis', factoryFeedbackAnalysis);
+  }
+
+  const codebaseStudyHandlers = require('./handlers/codebase-study-handlers');
+  codebaseStudyHandlers.init({ db });
+  if (!defaultContainer.has('codebaseStudyHandlers')) {
+    defaultContainer.registerValue('codebaseStudyHandlers', codebaseStudyHandlers);
+  }
+
+  const v2GovernanceHandlers = require('./api/v2-governance-handlers');
+  v2GovernanceHandlers.init({ db });
+  if (!defaultContainer.has('v2GovernanceHandlers')) {
+    defaultContainer.registerValue('v2GovernanceHandlers', v2GovernanceHandlers);
+  }
+
+  const dashboardAdminRoutes = require('./dashboard/routes/admin');
+  dashboardAdminRoutes.init({ db });
+  if (!defaultContainer.has('dashboardAdminRoutes')) {
+    defaultContainer.registerValue('dashboardAdminRoutes', dashboardAdminRoutes);
+  }
+
   // Initialize task-manager early deps (provider registry, config) now that DB is ready.
   // initSubModules() wires the extracted module graph; must run before queue processing.
   taskManager.initEarlyDeps();

@@ -425,7 +425,7 @@ function createApiServer(deps = {}) {
     _initV2TaskManager(serverDeps.taskManager);
     v2TaskHandlers.init(serverDeps.taskManager);
     v2WorkflowHandlers.init(serverDeps.taskManager);
-    v2GovernanceHandlers.init(serverDeps.taskManager);
+    v2GovernanceHandlers.init({ taskManager: serverDeps.taskManager, db: serverDeps.db });
     v2InfrastructureHandlers.init(serverDeps.taskManager);
   }
 

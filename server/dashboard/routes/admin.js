@@ -4,7 +4,6 @@
  * Merged from: coordination.js, approvals.js, schedules.js, benchmarks.js, project-tuning.js, plan-projects.js
  */
 const taskCore = require('../../db/task-core');
-const dbFacade = require('../../database');
 const coordination = require('../../db/coordination');
 const hostManagement = require('../../db/host-management');
 const projectConfigCore = require('../../db/project-config-core');
@@ -12,6 +11,22 @@ const schedulingAutomation = require('../../db/scheduling-automation');
 const validationRules = require('../../db/validation-rules');
 const logger = require('../../logger');
 const { sendJson, sendError, parseBody, safeDecodeParam } = require('../utils');
+
+let _db = null;
+
+function init(deps = {}) {
+  if (deps.db) {
+    _db = deps.db;
+  }
+  return module.exports;
+}
+
+function getDbService() {
+  if (_db) {
+    return _db;
+  }
+  throw new Error('dashboard admin routes require init({ db }) before running schedules');
+}
 
 // ── Coordination ────────────────────────────────────────────────────────
 
@@ -116,7 +131,7 @@ function handleDeleteSchedule(req, res, query, id) {
 
 function handleRunSchedule(req, res, query, id) {
   try {
-    const result = schedulingAutomation.runScheduledTaskNow(id, { db: dbFacade });
+    const result = schedulingAutomation.runScheduledTaskNow(id, { db: getDbService() });
     if (!result) return sendError(res, 'Schedule not found', 404);
     return sendJson(res, result, 202);
   } catch (err) {
@@ -351,7 +366,8 @@ function handleDeletePlanProject(req, res, query, projectId) {
   sendJson(res, { success: true, message: 'Project deleted' });
 }
 
-function createDashboardAdminRoutes() {
+function createDashboardAdminRoutes(deps = {}) {
+  init(deps);
   return {
     handleGetDashboard, handleListAgents, handleListRoutingRules, handleListClaims,
     handleListPendingApprovals, handleGetApprovalHistory, handleApproveTask, handleRejectApproval,
@@ -363,6 +379,7 @@ function createDashboardAdminRoutes() {
 }
 
 module.exports = {
+  init,
   // Coordination
   handleGetDashboard, handleListAgents, handleListRoutingRules, handleListClaims,
   // Approvals

@@ -20,6 +20,15 @@ const DEFAULT_CRON = '*/15 * * * *';
 const DEFAULT_VERSION_INTENT = 'fix';
 const VALID_VERSION_INTENTS = new Set(['feature', 'fix', 'breaking', 'internal']);
 
+let _db = null;
+
+function init(deps = {}) {
+  if (deps.db) {
+    _db = deps.db;
+  }
+  return module.exports;
+}
+
 function normalizeVersionIntent(value) {
   if (typeof value !== 'string') {
     return null;
@@ -33,16 +42,12 @@ function resolveVersionIntent(value) {
 }
 
 function buildStudyService() {
-  let db;
-  try {
-    const { defaultContainer } = require('../container');
-    db = defaultContainer.get('db');
-  } catch {
-    db = require('../database');
+  if (!_db) {
+    throw new Error('Codebase study handlers require init({ db }) before use');
   }
 
   return createCodebaseStudy({
-    db,
+    db: _db,
     taskCore,
     logger: baseLogger,
   });
@@ -712,6 +717,7 @@ async function handleConfigureStudySchedule(args) {
 }
 
 module.exports = {
+  init,
   handleRunCodebaseStudy,
   handleGetStudyStatus,
   handleEvaluateCodebaseStudy,

@@ -2,7 +2,6 @@
 
 const path = require('path');
 
-const database = require('../database');
 const costTracking = require('./cost-tracking');
 const eventTracking = require('./event-tracking');
 const { readStudyArtifacts } = require('../integrations/codebase-study-engine');
@@ -15,6 +14,24 @@ const STUDY_EVENT_TYPES = Object.freeze([
 ]);
 const DEFAULT_RECOMMENDED_PROPOSAL_LIMIT = 2;
 const MIN_COMPARISON_SAMPLE_SIZE = 2;
+
+let _db = null;
+
+function init(deps = {}) {
+  if (deps.db) {
+    _db = deps.db;
+  }
+  return module.exports;
+}
+
+function getDbInstance() {
+  if (!_db) {
+    return null;
+  }
+  return typeof _db.getDbInstance === 'function'
+    ? _db.getDbInstance()
+    : (typeof _db.prepare === 'function' ? _db : null);
+}
 
 function toRepoPath(value) {
   return String(value || '').trim().replace(/\\/g, '/');
@@ -460,7 +477,7 @@ function recordStudyTaskCompleted(task) {
 }
 
 function readStudyEvents({ workingDirectory, sinceDays = 30 } = {}) {
-  const db = database.getDbInstance?.();
+  const db = getDbInstance();
   if (!db || !workingDirectory) {
     return [];
   }
@@ -802,6 +819,7 @@ function getStudyImpactSummary({ workingDirectory, sinceDays = 30 } = {}) {
 }
 
 module.exports = {
+  init,
   recordStudyTaskSubmitted,
   recordStudyTaskCompleted,
   getStudyImpactSummary,
