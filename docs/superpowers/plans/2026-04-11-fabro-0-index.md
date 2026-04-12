@@ -1,6 +1,6 @@
 # Fabro-Inspired Plans — Index
 
-56 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 34 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n.
+61 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 42 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow.
 
 ## Plan list
 
@@ -78,6 +78,13 @@
 48. **[Browser-Driven Research Stage](2026-04-11-fabro-48-research-stage.md)** — (Devika)
 54. **[Project-Scoped Fine-Tune Pipeline](2026-04-11-fabro-54-fine-tune-pipeline.md)** — LoRA per project (Refact)
 
+### External integration + authoring surfaces
+57. **[Agent Protocol External API](2026-04-11-fabro-57-agent-protocol-api.md)** — vendor-neutral HTTP contract (AutoGPT)
+58. **[Signature-Derived Input UIs](2026-04-11-fabro-58-signature-ui.md)** — auto form from function signature (Windmill)
+59. **[Validator-Driven Retry Loop](2026-04-11-fabro-59-validator-retry.md)** — validators participate in repair (Pydantic AI)
+60. **[Graphs-as-Library + Remote Debugger](2026-04-11-fabro-60-graphs-as-library.md)** — embed TORQUE runtime in any Node app (Rivet)
+61. **[Prompt DSL with Schema-Aligned Parsing](2026-04-11-fabro-61-prompt-dsl-sap.md)** — .torquefn files + SAP (BAML)
+
 ## Source attributions
 
 | Plan | Inspired by |
@@ -116,6 +123,11 @@
 | 54 | Refact |
 | 55 | Bolt.diy |
 | 56 | n8n |
+| 57 | AutoGPT |
+| 58 | Windmill |
+| 59 | Pydantic AI |
+| 60 | Rivet |
+| 61 | BAML |
 
 ## Suggested sequencing
 
@@ -128,6 +140,7 @@
 **Batch G — Errors + recovery** (42, 49, 53, 56)
 **Batch H — Reusability + automation** (8, 22, 9, 10, 40)
 **Batch I — Software factory loop** (41, 48, 54)
+**Batch J — External integration + authoring** (57, 58, 59, 60, 61)
 
 ## How to execute
 
