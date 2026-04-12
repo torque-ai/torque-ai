@@ -34,13 +34,46 @@ command -v ssh &>/dev/null || die "ssh is required but not found in PATH"
 
 if [[ $# -eq 0 ]]; then
   cat >&2 << 'USAGE'
-Usage: torque-remote <command...>
+Usage: torque-remote [--branch <ref>] <command...>
 
 Routes commands to the configured remote workstation via SSH.
 Falls back to local execution if the remote is unreachable or overloaded.
 
 Examples:
   torque-remote npx vitest run server/tests/foo.test.js
+  torque-remote --branch wip/experiment npx vitest run
+  torque-remote dotnet build example-project.sln
+  torque-remote cargo test --release
+
+Config: ~/.torque-remote.json + ~/.torque-remote.local.json
+Override: .torque-remote.json in project root
+USAGE
+  exit 1
+fi
+
+# Parse an optional branch override before the command payload.
+# This only accepts --branch as the first positional flag so "$*"
+# still resolves to the command exactly after shifting it away.
+BRANCH_OVERRIDE=""
+if [[ "$1" == "--branch" ]]; then
+  [[ $# -lt 2 ]] && die "Invalid --branch value: "
+  BRANCH_OVERRIDE="$2"
+  if [[ ! "$BRANCH_OVERRIDE" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+    die "Invalid --branch value: $BRANCH_OVERRIDE"
+  fi
+  shift 2
+fi
+
+if [[ $# -eq 0 ]]; then
+  cat >&2 << 'USAGE'
+Usage: torque-remote [--branch <ref>] <command...>
+
+Routes commands to the configured remote workstation via SSH.
+Falls back to local execution if the remote is unreachable or overloaded.
+
+Examples:
+  torque-remote npx vitest run server/tests/foo.test.js
+  torque-remote --branch wip/experiment npx vitest run
   torque-remote dotnet build example-project.sln
   torque-remote cargo test --release
 
@@ -198,16 +231,29 @@ case "$TRANSPORT" in
 
     # Sync
     if [[ "$SYNC_BEFORE_RUN" == "true" ]]; then
-      local_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
-      if [[ "$local_branch" == "HEAD" ]]; then
-        warn "Detached HEAD — skipping remote sync, remote may have stale code"
-      elif [[ ! "$local_branch" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
-        warn "Branch name contains unsafe characters — skipping sync"
-      else
+      if [[ -n "$BRANCH_OVERRIDE" ]]; then
+        local_branch="$BRANCH_OVERRIDE"
+        if ! ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+          "cd \"$REMOTE_PROJECT_PATH\" && git fetch origin && git rev-parse --verify origin/$local_branch" \
+          &>/dev/null; then
+          die "Branch '$local_branch' does not exist on origin"
+        fi
         info "Syncing $local_branch on remote..."
         ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
           "cd \"$REMOTE_PROJECT_PATH\" && git fetch origin && git checkout --force $local_branch && git reset --hard origin/$local_branch" \
           2>&1 | tee -a /tmp/torque-remote-sync.log | grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || warn "Sync failed — remote may have stale code (see /tmp/torque-remote-sync.log)"
+      else
+        local_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
+        if [[ "$local_branch" == "HEAD" ]]; then
+          warn "Detached HEAD — skipping remote sync, remote may have stale code"
+        elif [[ ! "$local_branch" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+          warn "Branch name contains unsafe characters — skipping sync"
+        else
+          info "Syncing $local_branch on remote..."
+          ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+            "cd \"$REMOTE_PROJECT_PATH\" && git fetch origin && git checkout --force $local_branch && git reset --hard origin/$local_branch" \
+            2>&1 | tee -a /tmp/torque-remote-sync.log | grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || warn "Sync failed — remote may have stale code (see /tmp/torque-remote-sync.log)"
+        fi
       fi
     fi
 
