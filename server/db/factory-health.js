@@ -120,18 +120,34 @@ function getLatestScores(projectId) {
   return scores;
 }
 
-function getScoreHistory(projectId, dimension, limit) {
+function getScoreHistory(projectId, dimension, limit, options = {}) {
+  const order = options && options.order === 'DESC' ? 'DESC' : 'ASC';
   return db.prepare(`
     SELECT id, score, scan_type, batch_id, scanned_at, details_json
     FROM factory_health_snapshots
     WHERE project_id = ? AND dimension = ?
-    ORDER BY scanned_at ASC
+    ORDER BY scanned_at ${order}
     LIMIT ?
   `).all(projectId, dimension, limit || 100);
 }
 
-function getBalanceScore(projectId) {
-  const scores = getLatestScores(projectId);
+function getLatestSnapshotIds(projectId) {
+  const rows = db.prepare(`
+    SELECT dimension, MAX(id) AS snapshot_id
+    FROM factory_health_snapshots
+    WHERE project_id = ?
+    GROUP BY dimension
+  `).all(projectId);
+
+  const snapshotIds = {};
+  for (const row of rows) {
+    snapshotIds[row.dimension] = row.snapshot_id;
+  }
+  return snapshotIds;
+}
+
+function getBalanceScore(projectId, latestScores) {
+  const scores = latestScores || getLatestScores(projectId);
   const values = Object.values(scores);
   if (values.length < 2) return 0;
 
@@ -166,12 +182,36 @@ function getFindings(snapshotId) {
   ).all(snapshotId);
 }
 
+function getFindingsForSnapshots(snapshotIds) {
+  const ids = [...new Set((snapshotIds || []).filter(Boolean))];
+  if (ids.length === 0) return {};
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = db.prepare(`
+    SELECT * FROM factory_health_findings
+    WHERE snapshot_id IN (${placeholders})
+    ORDER BY snapshot_id, id
+  `).all(...ids);
+
+  const findingsBySnapshot = {};
+  for (const id of ids) {
+    findingsBySnapshot[id] = [];
+  }
+  for (const row of rows) {
+    if (!findingsBySnapshot[row.snapshot_id]) {
+      findingsBySnapshot[row.snapshot_id] = [];
+    }
+    findingsBySnapshot[row.snapshot_id].push(row);
+  }
+  return findingsBySnapshot;
+}
+
 function getProjectHealthSummary(projectId) {
   const project = getProject(projectId);
   if (!project) return null;
 
   const scores = getLatestScores(projectId);
-  const balance = getBalanceScore(projectId);
+  const balance = getBalanceScore(projectId, scores);
   const weakest = Object.entries(scores).sort((a, b) => a[1] - b[1])[0];
 
   return {
@@ -219,9 +259,11 @@ module.exports = {
   recordSnapshot,
   getLatestScores,
   getScoreHistory,
+  getLatestSnapshotIds,
   getBalanceScore,
   recordFindings,
   getFindings,
+  getFindingsForSnapshots,
   getProjectHealthSummary,
   getProjectPolicy,
   setProjectPolicy,

@@ -12,7 +12,7 @@ const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
 const { pollGitHubIssues } = require('../factory/github-intake');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
-const { getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
+const { buildProjectCostSummary, getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
 const { logDecision, getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
 const notifications = require('../factory/notifications');
 const logger = require('../logger').child({ component: 'factory-handlers' });
@@ -53,7 +53,7 @@ async function handleListFactoryProjects(args) {
   const projects = factoryHealth.listProjects(args.status ? { status: args.status } : undefined);
   const summaries = projects.map(p => {
     const scores = factoryHealth.getLatestScores(p.id);
-    const balance = factoryHealth.getBalanceScore(p.id);
+    const balance = factoryHealth.getBalanceScore(p.id, scores);
     return { ...p, scores, balance };
   });
   return jsonResponse({ projects: summaries });
@@ -62,7 +62,8 @@ async function handleListFactoryProjects(args) {
 async function handleProjectHealth(args) {
   const project = resolveProject(args.project);
   const scores = factoryHealth.getLatestScores(project.id);
-  const balance = factoryHealth.getBalanceScore(project.id);
+  const balance = factoryHealth.getBalanceScore(project.id, scores);
+  const dimensions = Object.keys(scores);
   const weakest = Object.entries(scores).sort((a, b) => a[1] - b[1])[0];
 
   const result = {
@@ -74,17 +75,19 @@ async function handleProjectHealth(args) {
 
   if (args.include_trends) {
     result.trends = {};
-    for (const dim of Object.keys(scores)) {
+    for (const dim of dimensions) {
       result.trends[dim] = factoryHealth.getScoreHistory(project.id, dim, 20);
     }
   }
 
   if (args.include_findings) {
+    const latestSnapshotIds = factoryHealth.getLatestSnapshotIds(project.id);
+    const findingsBySnapshot = factoryHealth.getFindingsForSnapshots(Object.values(latestSnapshotIds));
     result.findings = {};
-    for (const dim of Object.keys(scores)) {
-      const history = factoryHealth.getScoreHistory(project.id, dim, 1);
-      if (history.length > 0) {
-        result.findings[dim] = factoryHealth.getFindings(history[history.length - 1].id);
+    for (const dim of dimensions) {
+      const snapshotId = latestSnapshotIds[dim];
+      if (snapshotId) {
+        result.findings[dim] = findingsBySnapshot[snapshotId] || [];
       }
     }
   }
@@ -205,7 +208,7 @@ async function handleFactoryStatus() {
   const projects = factoryHealth.listProjects();
   const summaries = projects.map(p => {
     const scores = factoryHealth.getLatestScores(p.id);
-    const balance = factoryHealth.getBalanceScore(p.id);
+    const balance = factoryHealth.getBalanceScore(p.id, scores);
     const weakest = Object.entries(scores).sort((a, b) => a[1] - b[1])[0];
     return {
       id: p.id,
@@ -543,12 +546,13 @@ async function handleRecordCorrection(args) {
 
 async function handleFactoryCostMetrics(args) {
   const project = resolveProject(args.project);
+  const summary = buildProjectCostSummary(project.id);
 
   return jsonResponse({
     project: { id: project.id, name: project.name, path: project.path },
-    cost_per_cycle: getCostPerCycle(project.id),
-    cost_per_health_point: getCostPerHealthPoint(project.id),
-    provider_efficiency: getProviderEfficiency(project.id),
+    cost_per_cycle: getCostPerCycle(project.id, summary),
+    cost_per_health_point: getCostPerHealthPoint(project.id, summary),
+    provider_efficiency: getProviderEfficiency(project.id, summary),
   });
 }
 
