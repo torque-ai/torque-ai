@@ -28,6 +28,8 @@ const {
   buildStudyBootstrapPlan,
 } = require('./codebase-study-engine');
 const symbolIndexer = require('../utils/symbol-indexer');
+const { createScanner } = require('./codebase-study/scan');
+const { createEvaluator } = require('./codebase-study/evaluate');
 
 const STUDY_DIR = path.join('docs', 'architecture');
 const STATE_FILE = path.join(STUDY_DIR, 'study-state.json');
@@ -148,6 +150,8 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
   const effectiveBatchSize = Number.isInteger(batchSize) && batchSize > 0
     ? batchSize
     : DEFAULT_LOCAL_BATCH_SIZE;
+  const scanner = createScanner({ symbolIndexer, logger: studyLogger });
+  const evaluator = createEvaluator({ db: _db, taskCore, logger: studyLogger });
 
   function resolveWorkingDirectory(workingDirectory) {
     if (typeof workingDirectory !== 'string' || !workingDirectory.trim()) {
@@ -3021,6 +3025,30 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     return uniquePaths([...(baseValues || []), ...(newValues || [])]);
   }
 
+  function buildScanLookup(scanResult) {
+    const scannedFiles = new Set(uniquePaths(scanResult?.files || []));
+    const symbolLookup = new Map();
+    const importLookup = new Map();
+
+    for (const entry of Array.isArray(scanResult?.symbols) ? scanResult.symbols : []) {
+      if (entry && typeof entry.file === 'string') {
+        symbolLookup.set(entry.file, entry);
+      }
+    }
+
+    for (const entry of Array.isArray(scanResult?.imports) ? scanResult.imports : []) {
+      if (entry && typeof entry.file === 'string') {
+        importLookup.set(entry.file, entry);
+      }
+    }
+
+    return {
+      scannedFiles,
+      symbolLookup,
+      importLookup,
+    };
+  }
+
   function toRepoRelativePath(absolutePath, workingDirectory) {
     return toRepoPath(path.relative(workingDirectory, absolutePath));
   }
@@ -3989,15 +4017,21 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     return `${roleLabel}.`;
   }
 
-  async function buildModuleEntry(workingDirectory, repoPath) {
+  async function buildModuleEntry(workingDirectory, repoPath, scanLookup = null) {
     const fullPath = path.join(workingDirectory, repoPath);
     if (!fs.existsSync(fullPath)) {
       return null;
     }
 
-    const content = await fsPromises.readFile(fullPath, 'utf8');
     const extension = path.extname(repoPath).toLowerCase();
-    const symbols = await extractSymbolsForFile(fullPath, content, workingDirectory, extension);
+    const scannedFile = scanLookup?.scannedFiles?.has(repoPath) === true;
+    const scannedSymbolsEntry = scanLookup?.symbolLookup?.get(repoPath) || null;
+    const scannedImportEntry = scanLookup?.importLookup?.get(repoPath) || null;
+    const needsContent = extension === '.cs' || !scannedFile;
+    const content = needsContent ? await fsPromises.readFile(fullPath, 'utf8') : null;
+    const symbols = Array.isArray(scannedSymbolsEntry?.symbols)
+      ? scannedSymbolsEntry.symbols
+      : (scannedFile ? [] : await extractSymbolsForFile(fullPath, content, workingDirectory, extension));
     const cSharpHints = extension === '.cs'
       ? extractCSharpReferenceHints(content, repoPath)
       : {
@@ -4009,8 +4043,12 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     const symbolExports = symbols
       .filter(symbol => symbol && symbol.exported && typeof symbol.name === 'string' && !(extension === '.cs' && symbol.kind === 'method'))
       .map(symbol => symbol.name);
-    const explicitExports = extractExplicitExports(content, extension);
-    const dependencies = extractDependencies(content, repoPath, workingDirectory, extension);
+    const explicitExports = Array.isArray(scannedSymbolsEntry?.exports)
+      ? uniqueStrings(scannedSymbolsEntry.exports)
+      : (scannedFile ? [] : extractExplicitExports(content, extension));
+    const dependencies = Array.isArray(scannedImportEntry?.imports)
+      ? uniquePaths(scannedImportEntry.imports)
+      : (scannedFile ? [] : extractDependencies(content, repoPath, workingDirectory, extension));
     const exportsList = uniqueStrings([...symbolExports, ...explicitExports]);
 
     return {
@@ -4453,6 +4491,13 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
     const { moduleIndex } = await readModuleIndex(workingDirectory);
     const entryMap = new Map(moduleIndex.modules.map(entry => [entry.file, entry]));
     const trackedFiles = uniquePaths(context.trackedFiles || []);
+    const scanTargets = uniquePaths([
+      ...uniquePaths(batchFiles),
+      ...trackedFiles.filter(file => !entryMap.has(file)),
+    ]);
+    const scanLookup = scanTargets.length > 0
+      ? buildScanLookup(await scanner.scanRepo(workingDirectory, { files: scanTargets }))
+      : buildScanLookup({ files: [], symbols: [], imports: [] });
 
     for (const removedFile of uniquePaths(removedFiles)) {
       entryMap.delete(removedFile);
@@ -4460,7 +4505,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
 
     const updatedEntries = [];
     for (const batchFile of uniquePaths(batchFiles)) {
-      const entry = await buildModuleEntry(workingDirectory, batchFile);
+      const entry = await buildModuleEntry(workingDirectory, batchFile, scanLookup);
       if (entry) {
         entryMap.set(entry.file, entry);
         updatedEntries.push(entry.file);
@@ -4472,7 +4517,7 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       if (entryMap.has(trackedFile)) {
         continue;
       }
-      const entry = await buildModuleEntry(workingDirectory, trackedFile);
+      const entry = await buildModuleEntry(workingDirectory, trackedFile, scanLookup);
       if (entry) {
         entryMap.set(entry.file, entry);
         updatedEntries.push(entry.file);
@@ -4527,47 +4572,8 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       ], activeProfile),
       isBaseline: !context.previousSha,
     });
-    const proposalGate = shouldSubmitStudyProposals(studyDelta, {
-      submitProposals: context.submitProposals === true,
-      proposalSignificanceLevel: context.proposalSignificanceLevel,
-      proposalMinScore: context.proposalMinScore,
-    });
-    const dedupedProposalSet = filterDuplicateStudyProposals(studyDelta.proposals.suggested, taskCore, {
-      project: context.project || path.basename(workingDirectory),
-    });
-    studyDelta.proposals.suggested = dedupedProposalSet.proposals;
-    studyDelta.proposals.policy = {
-      allowed: proposalGate.allowed,
-      reason: proposalGate.reason || null,
-      threshold_level: proposalGate.threshold_level || normalizeStudyThresholdLevel(context.proposalSignificanceLevel),
-      threshold_score: proposalGate.threshold_score ?? normalizeNonNegativeInteger(context.proposalMinScore, DEFAULT_PROPOSAL_MIN_SCORE),
-      suppressed_count: dedupedProposalSet.suppressed.length,
-    };
-    if (dedupedProposalSet.suppressed.length > 0) {
-      const gateReason = proposalGate.allowed
-        ? 'duplicate_suppression'
-        : proposalGate.reason;
-      studyDelta.proposals.errors = dedupedProposalSet.suppressed.map((item) => ({
-        title: item.title,
-        error: gateReason === 'duplicate_suppression'
-          ? `Suppressed duplicate proposal (${item.reason})`
-          : `Proposal gate closed (${proposalGate.reason})`,
-        existing_task_id: item.existing_task_id || null,
-      }));
-    }
-    const proposalSubmission = await submitStudyProposals(studyDelta.proposals.suggested, workingDirectory, {
-      submitProposals: proposalGate.allowed,
-      proposalLimit: context.proposalLimit,
-      project: context.project,
-    });
-    studyDelta.proposals.submitted = proposalSubmission.submitted;
-    studyDelta.proposals.errors = [
-      ...(studyDelta.proposals.errors || []),
-      ...proposalSubmission.errors,
-    ];
-    const studyEvaluation = evaluateStudyArtifacts({
-      knowledgePack,
-      studyDelta,
+    const evaluationResult = await evaluator.evaluateStudy(workingDirectory, {
+      workingDirectory,
       state: {
         file_counts: {
           tracked: trackedFiles.length,
@@ -4577,20 +4583,20 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       moduleIndex: {
         modules: nextModules,
       },
-      workingDirectory,
-    });
-    const studyBenchmark = benchmarkStudyArtifacts({
       knowledgePack,
       studyDelta,
-      studyEvaluation,
-      moduleIndex: {
-        modules: nextModules,
-      },
-      workingDirectory,
+      activeProfile,
+      submitProposals: context.submitProposals === true,
+      proposalLimit: context.proposalLimit,
+      proposalSignificanceLevel: context.proposalSignificanceLevel,
+      proposalMinScore: context.proposalMinScore,
+      project: context.project,
+      persistState: false,
     });
+    studyDelta.proposals = evaluationResult.proposals;
     await writeStudyDelta(workingDirectory, studyDelta);
-    await writeStudyEvaluation(workingDirectory, studyEvaluation);
-    await writeStudyBenchmark(workingDirectory, studyBenchmark);
+    const studyEvaluation = await readJsonIfPresent(paths.evaluationPath);
+    const studyBenchmark = await readJsonIfPresent(paths.benchmarkPath);
     const summaryText = buildSummaryFromKnowledgePack(knowledgePack, studyDelta, studyEvaluation, studyBenchmark);
     const summaryUpdated = await writeTextFileIfChanged(paths.summaryPath, summaryText);
 
@@ -4608,10 +4614,10 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       test_area_count: knowledgePack.expertise?.test_matrix?.length || 0,
       delta_significance_level: studyDelta.significance.level,
       delta_significance_score: studyDelta.significance.score,
-      proposal_count: studyDelta.proposals?.suggested?.length || 0,
-      submitted_proposal_count: studyDelta.proposals?.submitted?.length || 0,
-      proposal_significance_level: proposalGate.threshold_level || normalizeStudyThresholdLevel(context.proposalSignificanceLevel),
-      proposal_min_score: proposalGate.threshold_score ?? normalizeNonNegativeInteger(context.proposalMinScore, DEFAULT_PROPOSAL_MIN_SCORE),
+      proposal_count: evaluationResult.proposals?.suggested?.length || 0,
+      submitted_proposal_count: evaluationResult.proposals?.submitted?.length || 0,
+      proposal_significance_level: evaluationResult.proposals?.policy?.threshold_level || normalizeStudyThresholdLevel(context.proposalSignificanceLevel),
+      proposal_min_score: evaluationResult.proposals?.policy?.threshold_score ?? normalizeNonNegativeInteger(context.proposalMinScore, DEFAULT_PROPOSAL_MIN_SCORE),
       evaluation_score: studyEvaluation.summary.score,
       evaluation_grade: studyEvaluation.summary.grade,
       evaluation_readiness: studyEvaluation.summary.readiness,
@@ -4926,22 +4932,16 @@ function createCodebaseStudy({ db: _db, taskCore, logger, batchSize } = {}) {
       throw new Error('Study artifacts are not ready yet. Run the codebase study before evaluating it.');
     }
 
-    const studyEvaluation = evaluateStudyArtifacts({
-      knowledgePack,
-      studyDelta,
+    await evaluator.evaluateStudy(resolvedWorkingDirectory, {
+      workingDirectory: resolvedWorkingDirectory,
       state,
       moduleIndex,
-      workingDirectory: resolvedWorkingDirectory,
-    });
-    const studyBenchmark = benchmarkStudyArtifacts({
       knowledgePack,
       studyDelta,
-      studyEvaluation,
-      moduleIndex,
-      workingDirectory: resolvedWorkingDirectory,
+      persistState: false,
     });
-    await writeStudyEvaluation(resolvedWorkingDirectory, studyEvaluation);
-    await writeStudyBenchmark(resolvedWorkingDirectory, studyBenchmark);
+    const studyEvaluation = await readJsonIfPresent(paths.evaluationPath);
+    const studyBenchmark = await readJsonIfPresent(paths.benchmarkPath);
     const nextState = normalizeState({
       ...state,
       evaluation_score: studyEvaluation.summary.score,
