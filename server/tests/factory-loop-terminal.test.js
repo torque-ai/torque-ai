@@ -1,48 +1,69 @@
 'use strict';
 
-const { describe, it, expect, beforeEach, vi } = require('vitest');
-
-vi.mock('../db/factory-health', () => ({
-  getProject: vi.fn(),
-  updateProject: vi.fn(),
-  getProjectHealthSummary: vi.fn(() => ({})),
-}));
-vi.mock('../factory/guardrail-runner', () => ({
-  runPostBatchChecks: vi.fn(() => ({ status: 'ok' })),
-}));
-vi.mock('../factory/feedback', () => ({
-  analyzeBatch: vi.fn(() => ({ status: 'ok' })),
-}));
-
+const Database = require('better-sqlite3');
 const factoryHealth = require('../db/factory-health');
+const { LOOP_STATES } = require('../factory/loop-states');
 const loopController = require('../factory/loop-controller');
+
+function createFactoryTables(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      brief TEXT,
+      trust_level TEXT NOT NULL DEFAULT 'supervised',
+      status TEXT NOT NULL DEFAULT 'paused',
+      config_json TEXT,
+      loop_state TEXT DEFAULT 'IDLE',
+      loop_batch_id TEXT,
+      loop_last_action_at TEXT,
+      loop_paused_at_stage TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+}
+
+let db;
+
+beforeAll(() => {
+  db = new Database(':memory:');
+  createFactoryTables(db);
+  factoryHealth.setDb(db);
+});
+
+afterAll(() => {
+  db.close();
+});
 
 describe('factory loop LEARN terminal state', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    db.exec('DELETE FROM factory_projects');
   });
 
-  it('supervised project: LEARN advances to IDLE by default (no auto_continue)', async () => {
-    factoryHealth.getProject.mockReturnValue({
-      id: 'p1',
-      loop_state: 'LEARN',
-      trust_level: 'supervised',
-      loop_batch_id: null,
-      config_json: null,
+  it('LEARN advances to IDLE by default (no auto_continue)', async () => {
+    const project = factoryHealth.registerProject({
+      name: 'DefaultLearn',
+      path: '/test/default-learn-' + Date.now(),
+      trust_level: 'dark',
     });
-    const result = await loopController.advanceLoop('p1');
-    expect(result.new_state).toBe('IDLE');
+    factoryHealth.updateProject(project.id, { loop_state: LOOP_STATES.LEARN });
+
+    const result = await loopController.advanceLoop(project.id);
+    expect(result.new_state).toBe(LOOP_STATES.IDLE);
   });
 
   it('project with loop.auto_continue=true: LEARN advances to SENSE (legacy)', async () => {
-    factoryHealth.getProject.mockReturnValue({
-      id: 'p2',
-      loop_state: 'LEARN',
-      trust_level: 'autonomous',
-      loop_batch_id: null,
-      config_json: JSON.stringify({ loop: { auto_continue: true } }),
+    const project = factoryHealth.registerProject({
+      name: 'AutoContinueLegacy',
+      path: '/test/auto-continue-' + Date.now(),
+      trust_level: 'dark',
+      config: { loop: { auto_continue: true } },
     });
-    const result = await loopController.advanceLoop('p2');
-    expect(result.new_state).toBe('SENSE');
+    factoryHealth.updateProject(project.id, { loop_state: LOOP_STATES.LEARN });
+
+    const result = await loopController.advanceLoop(project.id);
+    expect(result.new_state).toBe(LOOP_STATES.SENSE);
   });
 });

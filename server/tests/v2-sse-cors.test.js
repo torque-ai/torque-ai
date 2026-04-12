@@ -1,6 +1,5 @@
-'use strict';
+import { describe, it, expect, vi } from 'vitest';
 
-const { describe, it, expect, vi } = require('vitest');
 const { sendV2SseHeaders } = require('../api/v2-core-handlers');
 
 function makeRes() {

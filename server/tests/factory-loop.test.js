@@ -85,15 +85,27 @@ describe('loop-states', () => {
     expect(Object.keys(LOOP_STATES)).toHaveLength(8);
   });
 
-  it('TRANSITIONS maps full cycle', () => {
+  it('TRANSITIONS maps full cycle (LEARN terminates at IDLE by default)', () => {
     expect(TRANSITIONS).toEqual({
       [LOOP_STATES.SENSE]: LOOP_STATES.PRIORITIZE,
       [LOOP_STATES.PRIORITIZE]: LOOP_STATES.PLAN,
       [LOOP_STATES.PLAN]: LOOP_STATES.EXECUTE,
       [LOOP_STATES.EXECUTE]: LOOP_STATES.VERIFY,
       [LOOP_STATES.VERIFY]: LOOP_STATES.LEARN,
-      [LOOP_STATES.LEARN]: LOOP_STATES.SENSE,
+      [LOOP_STATES.LEARN]: LOOP_STATES.IDLE,
     });
+  });
+
+  it('loop.auto_continue=true restores LEARN → SENSE in advanceLoop', async () => {
+    const autoProject = factoryHealth.registerProject({
+      name: 'AutoContinueProject',
+      path: '/test/auto-' + Date.now(),
+      trust_level: 'dark',
+      config: { loop: { auto_continue: true } },
+    });
+    factoryHealth.updateProject(autoProject.id, { loop_state: LOOP_STATES.LEARN });
+    const result = await loopController.advanceLoop(autoProject.id);
+    expect(result.new_state).toBe(LOOP_STATES.SENSE);
   });
 
   it('isValidState returns true for valid states', () => {
