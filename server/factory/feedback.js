@@ -408,7 +408,20 @@ function parseCorrectionList(parsedCorrections, jsonValue, feedbackId) {
   }
 }
 
+function ensureDbInitialized() {
+  if (_db) return;
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && defaultContainer.has && defaultContainer.has('db')) {
+      _db = defaultContainer.get('db');
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Lazy DI init failed for factory feedback analysis');
+  }
+}
+
 function getRawDb() {
+  ensureDbInitialized();
   const rawDb = typeof _db?.getDbInstance === 'function'
     ? _db.getDbInstance()
     : (typeof _db?.prepare === 'function' ? _db : null);
