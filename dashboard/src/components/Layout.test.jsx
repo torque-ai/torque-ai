@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { ToastProvider } from './Toast';
 import Layout from './Layout';
@@ -22,6 +22,10 @@ function renderLayout(props = {}, route = '/') {
 }
 
 describe('Layout', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
   it('renders TORQUE branding in sidebar', () => {
     renderLayout();
     // TORQUE appears in both sidebar h1 and breadcrumb span — use getAllByText
@@ -136,5 +140,50 @@ describe('Layout', () => {
     renderLayout({ isConnected: true });
     const header = screen.getByTestId('sidebar-header');
     expect(header).toContainElement(screen.getByLabelText('Connection status: connected'));
+  });
+
+  describe('PausedFactoryBanner', () => {
+    it('does not render paused banner when no projects are paused', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          projects: [{ id: 'p1', name: 'Alpha', status: 'running' }],
+        }),
+      });
+
+      renderLayout();
+
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText(/Factory paused/i)).toBeNull();
+    });
+
+    it('renders paused banner with project name when one project is paused', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          projects: [{ id: 'p1', name: 'Alpha', status: 'paused' }],
+        }),
+      });
+
+      renderLayout();
+
+      expect(await screen.findByText(/Factory paused:.*Alpha/i)).toBeVisible();
+    });
+
+    it('lists multiple paused project names', async () => {
+      fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          projects: [
+            { id: 'p1', name: 'Alpha', status: 'paused' },
+            { id: 'p2', name: 'Beta', status: 'paused' },
+          ],
+        }),
+      });
+
+      renderLayout();
+
+      expect(await screen.findByText(/Factory paused:.*Alpha.*Beta/i)).toBeVisible();
+    });
   });
 });
