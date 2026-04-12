@@ -290,6 +290,12 @@ Use `torque-remote` for heavy commands when a remote workstation is configured:
     torque-remote dotnet build example-project.sln            # build remotely
     torque-remote cargo build --release                    # any heavy command
 
+**Testing uncommitted branches:** Use `--branch <ref>` to sync and run against a non-main branch on the remote. Example:
+
+    torque-remote --branch wip/experiment npx vitest run server/tests/foo.test.js
+
+Without `--branch`, `torque-remote` syncs the current local branch (or falls back to `origin/main` for detached HEAD).
+
 If the remote is unreachable or overloaded, `torque-remote` falls back to local execution automatically.
 
 **Configuration:**
@@ -299,6 +305,20 @@ If the remote is unreachable or overloaded, `torque-remote` falls back to local 
 - Configure via: `set_project_defaults { remote_agent_id: "...", remote_project_path: "...", prefer_remote_tests: true, verify_command: "..." }`
 
 **If no remote is configured** (transport: "local" or no config), commands run locally as before.
+
+## Testing workflow
+
+Pre-push checks are two-tier:
+- Pushes to `main` run the full dashboard + remote server test suite and roll back on failure.
+- Pushes to non-main branches skip tests for fast iteration. Merges to `main` still run the full gate.
+- Escape hatch: `git push --no-verify` bypasses the hook.
+
+Examples:
+
+    git push origin main                    # gated: full dashboard + remote server suite
+    git push origin wip/experiment          # ungated: skip tests for iteration
+
+When iterating on an uncommitted feature branch before it lands on `main`, use `torque-remote --branch <ref>` to sync that branch state and run targeted remote tests.
 
 ## Task Completion Notifications
 
