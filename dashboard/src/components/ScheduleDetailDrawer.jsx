@@ -230,6 +230,8 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, highlightedRunId
   const [highlightedRun, setHighlightedRun] = useState(null);
   const [, setTick] = useState(0);
   const toast = useToast();
+  const drawerRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
 
   const load = useCallback(async (isCancelled = () => false) => {
     if (!scheduleId) return;
@@ -341,11 +343,53 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, highlightedRunId
 
   // Escape to close (when not editing)
   useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawer) return undefined;
+
+    previouslyFocusedRef.current = document.activeElement;
+    const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    const focusable = drawer.querySelectorAll(focusableSelector);
+    if (focusable.length) focusable[0].focus();
+
     function handleKey(e) {
-      if (e.key === 'Escape' && !e.target.closest('input, textarea, select')) onClose();
+      const isEditingField = e.target instanceof Element
+        && e.target.closest('input, textarea, select, [contenteditable="true"]');
+
+      if (
+        e.key === 'Escape'
+        && !isEditingField
+      ) {
+        onClose();
+        return;
+      }
+
+      if (e.key !== 'Tab') return;
+      const focusableElements = drawer.querySelectorAll(focusableSelector);
+      if (!focusableElements.length) return;
+
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
+
+    drawer.addEventListener('keydown', handleKey);
+    return () => {
+      drawer.removeEventListener('keydown', handleKey);
+      if (
+        previouslyFocusedRef.current
+        && document.contains(previouslyFocusedRef.current)
+        && typeof previouslyFocusedRef.current.focus === 'function'
+      ) {
+        previouslyFocusedRef.current.focus();
+      }
+    };
   }, [onClose]);
 
   async function saveField(field, value) {
@@ -632,7 +676,7 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, highlightedRunId
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
 
       {/* Drawer */}
-      <div className={`fixed top-0 right-0 h-full w-[400px] bg-slate-900 border-l-2 ${borderColor} z-50 overflow-y-auto shadow-2xl`} role="dialog" aria-modal="true" aria-label="Schedule details">
+      <div ref={drawerRef} className={`fixed top-0 right-0 h-full w-[400px] bg-slate-900 border-l-2 ${borderColor} z-50 overflow-y-auto shadow-2xl`} role="dialog" aria-modal="true" aria-label="Schedule details">
         {loading ? (
           <div className="p-6 text-slate-400">Loading...</div>
         ) : !schedule ? (
@@ -665,7 +709,7 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, highlightedRunId
                   </span>
                 </div>
               </div>
-              <button onClick={onClose} className="text-slate-500 hover:text-white text-xl p-1 transition-colors">&times;</button>
+              <button aria-label="Close schedule details" onClick={onClose} className="text-slate-500 hover:text-white text-xl p-1 transition-colors">&times;</button>
             </div>
 
             {/* Schedule Section */}

@@ -1,4 +1,4 @@
-import { memo, useEffect } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 
 const BUMP_TYPE_STYLES = {
@@ -129,8 +129,36 @@ function getCommitHash(commit) {
 }
 
 export default memo(function ReleaseDetailDrawer({ release, onClose }) {
+  const drawerRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
+
   useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawer) return undefined;
+
+    previouslyFocusedRef.current = document.activeElement;
+    const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    const focusable = drawer.querySelectorAll(focusableSelector);
+    if (focusable.length) focusable[0].focus();
+
     function handleKeyDown(event) {
+      if (event.key === 'Tab') {
+        const focusableElements = drawer.querySelectorAll(focusableSelector);
+        if (!focusableElements.length) return;
+
+        const first = focusableElements[0];
+        const last = focusableElements[focusableElements.length - 1];
+
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
+
       if (event.key !== 'Escape') return;
 
       if (
@@ -143,8 +171,17 @@ export default memo(function ReleaseDetailDrawer({ release, onClose }) {
       onClose?.();
     }
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    drawer.addEventListener('keydown', handleKeyDown);
+    return () => {
+      drawer.removeEventListener('keydown', handleKeyDown);
+      if (
+        previouslyFocusedRef.current
+        && document.contains(previouslyFocusedRef.current)
+        && typeof previouslyFocusedRef.current.focus === 'function'
+      ) {
+        previouslyFocusedRef.current.focus();
+      }
+    };
   }, [onClose]);
 
   if (!release) {
@@ -165,7 +202,7 @@ export default memo(function ReleaseDetailDrawer({ release, onClose }) {
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
 
-      <div className="fixed top-0 right-0 h-full w-[400px] bg-slate-900 border-l-2 border-blue-500 z-50 overflow-y-auto shadow-2xl" role="dialog" aria-modal="true" aria-label="Release details">
+      <div ref={drawerRef} className="fixed top-0 right-0 h-full w-[400px] bg-slate-900 border-l-2 border-blue-500 z-50 overflow-y-auto shadow-2xl" role="dialog" aria-modal="true" aria-label="Release details">
         <div className="p-5 space-y-4">
           <div className="flex justify-between items-start gap-3">
             <div className="flex-1 min-w-0">

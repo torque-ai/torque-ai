@@ -318,10 +318,12 @@ function ImportModal({ onClose, onImport }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const modalRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
 
   useEffect(() => {
     const modal = modalRef.current;
     if (!modal) return;
+    previouslyFocusedRef.current = document.activeElement;
     const focusable = modal.querySelectorAll('input, textarea, button, [tabindex]:not([tabindex="-1"])');
     if (focusable.length) focusable[0].focus();
     function trap(e) {
@@ -332,7 +334,16 @@ function ImportModal({ onClose, onImport }) {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
     modal.addEventListener('keydown', trap);
-    return () => modal.removeEventListener('keydown', trap);
+    return () => {
+      modal.removeEventListener('keydown', trap);
+      if (
+        previouslyFocusedRef.current
+        && document.contains(previouslyFocusedRef.current)
+        && typeof previouslyFocusedRef.current.focus === 'function'
+      ) {
+        previouslyFocusedRef.current.focus();
+      }
+    };
   }, [onClose]);
 
   async function handlePreview() {
@@ -537,11 +548,13 @@ export default function PlanProjects() {
   const [search, setSearch] = useState(searchParams.get('q') || '');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const deleteConfirmRef = useRef(null);
+  const deleteConfirmPreviousFocusRef = useRef(null);
   const searchTimerRef = useRef(null);
 
   useEffect(() => {
     const modal = deleteConfirmRef.current;
     if (!deleteConfirm || !modal) return;
+    deleteConfirmPreviousFocusRef.current = document.activeElement;
     const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
     if (focusable.length) focusable[0].focus();
     function trap(e) {
@@ -552,7 +565,16 @@ export default function PlanProjects() {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
     modal.addEventListener('keydown', trap);
-    return () => modal.removeEventListener('keydown', trap);
+    return () => {
+      modal.removeEventListener('keydown', trap);
+      if (
+        deleteConfirmPreviousFocusRef.current
+        && document.contains(deleteConfirmPreviousFocusRef.current)
+        && typeof deleteConfirmPreviousFocusRef.current.focus === 'function'
+      ) {
+        deleteConfirmPreviousFocusRef.current.focus();
+      }
+    };
   }, [deleteConfirm]);
 
   const toast = useToast();

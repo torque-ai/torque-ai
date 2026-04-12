@@ -181,6 +181,7 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
   const [activeTab, setActiveTab] = useState('overview');
   const toast = useToast();
   const drawerRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
   const outputEndRef = useRef(null);
   const mountedRef = useRef(true);
   const loadRequestIdRef = useRef(0);
@@ -284,6 +285,7 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
   useEffect(() => {
     const modal = drawerRef.current;
     if (!modal) return;
+    previouslyFocusedRef.current = document.activeElement;
     const focusable = modal.querySelectorAll('input, select, button, [tabindex]:not([tabindex="-1"])');
     if (focusable.length) focusable[0].focus();
     function trap(e) {
@@ -294,7 +296,16 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
     modal.addEventListener('keydown', trap);
-    return () => modal.removeEventListener('keydown', trap);
+    return () => {
+      modal.removeEventListener('keydown', trap);
+      if (
+        previouslyFocusedRef.current
+        && document.contains(previouslyFocusedRef.current)
+        && typeof previouslyFocusedRef.current.focus === 'function'
+      ) {
+        previouslyFocusedRef.current.focus();
+      }
+    };
   }, [onClose]);
 
   async function handleAction(action) {

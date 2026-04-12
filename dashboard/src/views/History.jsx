@@ -219,6 +219,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
   const [focusedIdx, setFocusedIdx] = useState(-1);
   const [showConfirm, setShowConfirm] = useState(null);
   const confirmRef = useRef(null);
+  const confirmPreviousFocusRef = useRef(null);
   const searchTimerRef = useRef(null);
   const tableRef = useRef(null);
   const toast = useToast();
@@ -229,6 +230,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
   useEffect(() => {
     const modal = confirmRef.current;
     if (!showConfirm || !modal) return;
+    confirmPreviousFocusRef.current = document.activeElement;
     const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
     if (focusable.length) focusable[0].focus();
     function trap(e) {
@@ -239,7 +241,16 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
     modal.addEventListener('keydown', trap);
-    return () => modal.removeEventListener('keydown', trap);
+    return () => {
+      modal.removeEventListener('keydown', trap);
+      if (
+        confirmPreviousFocusRef.current
+        && document.contains(confirmPreviousFocusRef.current)
+        && typeof confirmPreviousFocusRef.current.focus === 'function'
+      ) {
+        confirmPreviousFocusRef.current.focus();
+      }
+    };
   }, [showConfirm]);
 
   // Extract unique tags from loaded tasks

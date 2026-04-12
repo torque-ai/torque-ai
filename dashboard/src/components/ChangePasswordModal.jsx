@@ -9,11 +9,13 @@ export default function ChangePasswordModal({ onClose }) {
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const modalRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
 
   useEffect(() => {
     const modal = modalRef.current;
     if (!modal) return;
 
+    previouslyFocusedRef.current = document.activeElement;
     const focusable = modal.querySelectorAll('input, button, [tabindex]:not([tabindex="-1"])');
     if (focusable.length) focusable[0].focus();
 
@@ -33,7 +35,16 @@ export default function ChangePasswordModal({ onClose }) {
     }
 
     modal.addEventListener('keydown', trapFocus);
-    return () => modal.removeEventListener('keydown', trapFocus);
+    return () => {
+      modal.removeEventListener('keydown', trapFocus);
+      if (
+        previouslyFocusedRef.current
+        && document.contains(previouslyFocusedRef.current)
+        && typeof previouslyFocusedRef.current.focus === 'function'
+      ) {
+        previouslyFocusedRef.current.focus();
+      }
+    };
   }, []);
 
   async function handleSubmit(e) {

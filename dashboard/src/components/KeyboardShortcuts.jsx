@@ -115,10 +115,12 @@ export function useKeyboardShortcuts({ onRefresh } = {}) {
 
 export function ShortcutHelpOverlay({ onClose }) {
   const modalRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
 
   useEffect(() => {
     const modal = modalRef.current;
     if (!modal) return;
+    previouslyFocusedRef.current = document.activeElement;
     const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
     if (focusable.length) focusable[0].focus();
     function trap(e) {
@@ -129,7 +131,16 @@ export function ShortcutHelpOverlay({ onClose }) {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
     modal.addEventListener('keydown', trap);
-    return () => modal.removeEventListener('keydown', trap);
+    return () => {
+      modal.removeEventListener('keydown', trap);
+      if (
+        previouslyFocusedRef.current
+        && document.contains(previouslyFocusedRef.current)
+        && typeof previouslyFocusedRef.current.focus === 'function'
+      ) {
+        previouslyFocusedRef.current.focus();
+      }
+    };
   }, [onClose]);
 
   return (
@@ -137,7 +148,7 @@ export function ShortcutHelpOverlay({ onClose }) {
       <div ref={modalRef} className="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-white">Keyboard Shortcuts</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">&times;</button>
+          <button aria-label="Close keyboard shortcuts" onClick={onClose} className="text-slate-400 hover:text-white text-xl">&times;</button>
         </div>
         <div className="space-y-2">
           {SHORTCUTS.map(({ key, description }) => (

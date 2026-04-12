@@ -226,10 +226,12 @@ function isSameDay(dateA, dateB) {
 
 function ConfirmDialog({ action, pending, onCancel, onConfirm }) {
   const modalRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
 
   useEffect(() => {
     const modal = modalRef.current;
     if (!action?.worktree || !modal) return;
+    previouslyFocusedRef.current = document.activeElement;
     const focusable = modal.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
     if (focusable.length) focusable[0].focus();
     function trap(e) {
@@ -240,7 +242,16 @@ function ConfirmDialog({ action, pending, onCancel, onConfirm }) {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
     modal.addEventListener('keydown', trap);
-    return () => modal.removeEventListener('keydown', trap);
+    return () => {
+      modal.removeEventListener('keydown', trap);
+      if (
+        previouslyFocusedRef.current
+        && document.contains(previouslyFocusedRef.current)
+        && typeof previouslyFocusedRef.current.focus === 'function'
+      ) {
+        previouslyFocusedRef.current.focus();
+      }
+    };
   }, [action, onCancel]);
 
   if (!action?.worktree) {
