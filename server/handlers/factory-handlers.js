@@ -384,6 +384,81 @@ async function handleScanPlansDirectory(args) {
   });
 }
 
+async function handleExecutePlanFile(args) {
+  const { createPlanExecutor } = require('../factory/plan-executor');
+  const { handleSmartSubmitTask } = require('./integration/routing');
+  const { handleAwaitTask } = require('./workflow/await');
+  const taskCore = require('../db/task-core');
+
+  const executor = createPlanExecutor({
+    submit: async (taskArgs) => {
+      const result = await handleSmartSubmitTask(taskArgs);
+      if (!result?.task_id) {
+        throw new Error(result?.content?.[0]?.text || 'smart_submit_task did not return task_id');
+      }
+      return { task_id: result.task_id };
+    },
+    awaitTask: async (taskArgs) => {
+      const awaitResult = await handleAwaitTask(taskArgs);
+      const task = taskCore.getTask(taskArgs.task_id);
+
+      if (!task) {
+        return {
+          status: 'failed',
+          verify_status: 'failed',
+          error: awaitResult?.content?.[0]?.text || `Task not found after await: ${taskArgs.task_id}`,
+          task_id: taskArgs.task_id,
+        };
+      }
+
+      return {
+        status: task.status,
+        verify_status: task.status === 'completed' ? 'passed' : 'failed',
+        error: task.error_output || null,
+        task_id: task.id,
+      };
+    },
+  });
+
+  const result = await executor.execute({
+    plan_path: args.plan_path,
+    project: args.project,
+    working_directory: args.working_directory,
+    version_intent: args.version_intent || 'feature',
+  });
+
+  return jsonResponse(result);
+}
+
+async function handleGetPlanExecutionStatus(args) {
+  const { parsePlanFile } = require('../factory/plan-parser');
+
+  const content = fs.readFileSync(args.plan_path, 'utf8');
+  const parsed = parsePlanFile(content);
+  const totalTasks = parsed.tasks.length;
+  const completedTasks = parsed.tasks.filter((task) => task.completed).length;
+  const totalSteps = parsed.tasks.reduce((sum, task) => sum + task.steps.length, 0);
+  const completedSteps = parsed.tasks.reduce((sum, task) => (
+    sum + task.steps.filter((step) => step.done).length
+  ), 0);
+  const nextPending = parsed.tasks.find((task) => !task.completed) || null;
+
+  return jsonResponse({
+    plan_path: args.plan_path,
+    title: parsed.title,
+    total_tasks: totalTasks,
+    completed_tasks: completedTasks,
+    total_steps: totalSteps,
+    completed_steps: completedSteps,
+    next_pending_task: nextPending
+      ? {
+        task_number: nextPending.task_number,
+        task_title: nextPending.task_title,
+      }
+      : null,
+  });
+}
+
 async function handleListPlanIntakeItems(args) {
   const project = resolveProject(args.project_id);
   const items = factoryIntake.listWorkItems({
@@ -700,6 +775,8 @@ module.exports = {
   handleRejectWorkItem,
   handleIntakeFromFindings,
   handleScanPlansDirectory,
+  handleExecutePlanFile,
+  handleGetPlanExecutionStatus,
   handleListPlanIntakeItems,
   handlePollGitHubIssues,
   handleTriggerArchitect,

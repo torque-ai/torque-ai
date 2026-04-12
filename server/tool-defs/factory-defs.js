@@ -232,6 +232,34 @@ const tools = [
     },
   },
   {
+    name: 'execute_plan_file',
+    description: 'Execute a plan file task-by-task: parse → submit each task to TORQUE → await → tick checkboxes. Stops at first failure.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        plan_path: { type: 'string' },
+        project: { type: 'string' },
+        working_directory: { type: 'string' },
+        version_intent: {
+          type: 'string',
+          enum: ['feature', 'fix', 'breaking', 'internal'],
+        },
+      },
+      required: ['plan_path', 'project', 'working_directory'],
+    },
+  },
+  {
+    name: 'get_plan_execution_status',
+    description: 'Parse a plan file and return task/step completion counts + next pending task.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        plan_path: { type: 'string' },
+      },
+      required: ['plan_path'],
+    },
+  },
+  {
     name: 'list_plan_intake_items',
     description: 'List factory work items sourced from plan files for a project.',
     inputSchema: {
