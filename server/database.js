@@ -63,6 +63,7 @@ const factoryHealth = require('./db/factory-health');
 const factoryIntake = require('./db/factory-intake');
 const factoryArchitect = require('./db/factory-architect');
 const factoryFeedback = require('./db/factory-feedback');
+const factoryAudit = require('./db/factory-audit');
 
 
 
@@ -292,6 +293,7 @@ function _wireAllModules() {
   factoryIntake.setDb(db);
   factoryArchitect.setDb(db);
   factoryFeedback.setDb(db);
+  factoryAudit.setDb(db);
   workflowEngine.createWorkflowEngine({ db });
   validationRules.createValidationRules({ db, taskCore: { getTask } });
 
@@ -738,6 +740,7 @@ const _SUB_MODULES = [
   factoryHealth,
   factoryIntake,
   factoryArchitect,
+  factoryAudit,
 ];
 
 // DI wiring internals and factory functions — excluded from the facade

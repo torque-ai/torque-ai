@@ -395,6 +395,27 @@ const MIGRATIONS = [
     ].join('; '),
     down: 'DROP TABLE IF EXISTS factory_decisions',
   },
+  {
+    version: 20,
+    name: 'add_factory_audit_events',
+    up: [
+      [
+        'CREATE TABLE IF NOT EXISTS factory_audit_events (',
+        '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+        '  project_id TEXT NOT NULL REFERENCES factory_projects(id),',
+        '  event_type TEXT NOT NULL,',
+        '  previous_status TEXT,',
+        '  reason TEXT,',
+        '  actor TEXT,',
+        '  source TEXT,',
+        "  created_at TEXT NOT NULL DEFAULT (datetime('now'))",
+        ')',
+      ].join('\n'),
+      'CREATE INDEX IF NOT EXISTS idx_fae_project_time ON factory_audit_events(project_id, created_at)',
+      'CREATE INDEX IF NOT EXISTS idx_fae_event_type ON factory_audit_events(project_id, event_type)',
+    ].join('; '),
+    down: 'DROP TABLE IF EXISTS factory_audit_events',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
