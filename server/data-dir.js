@@ -328,4 +328,12 @@ function setDataDir(dir) {
   _dataDir = dir || null;
 }
 
-module.exports = { getDataDir, setDataDir, migrateLegacyProviderConfigs, HOME_DATA_DIR, LEGACY_DATA_DIR, DEFAULT_DATA_DIR: HOME_DATA_DIR };
+module.exports = {
+  ensureWritableDir,
+  getDataDir,
+  setDataDir,
+  migrateLegacyProviderConfigs,
+  HOME_DATA_DIR,
+  LEGACY_DATA_DIR,
+  DEFAULT_DATA_DIR: HOME_DATA_DIR,
+};

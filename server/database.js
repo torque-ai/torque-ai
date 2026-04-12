@@ -24,8 +24,9 @@
 
 const Database = require('better-sqlite3');
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
-const { getDataDir: _resolveDataDir } = require('./data-dir');
+const { getDataDir: _resolveDataDir, ensureWritableDir: ensureWritableDataDir } = require('./data-dir');
 const logger = require('./logger').child({ component: 'database' });
 const { safeJsonParse } = require('./utils/json');
 const { runMigrations } = require('./db/migrations');
