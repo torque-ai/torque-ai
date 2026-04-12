@@ -317,12 +317,13 @@ describe('Adv Artifacts Handlers', () => {
     });
 
     it('updates storage_path', async () => {
-      const newPath = path.join(testDir, 'custom-artifacts');
-      const result = await safeTool('configure_artifact_storage', { storage_path: newPath });
+      const { getDataDir } = require('../data-dir');
+      const expectedPath = path.join(path.resolve(getDataDir()), 'custom-artifacts');
+      const result = await safeTool('configure_artifact_storage', { storage_path: 'custom-artifacts' });
       const text = getText(result);
       expect(result.isError).toBeFalsy();
       expect(text).toContain('storage_path');
-      expect(text).toContain(newPath);
+      expect(text).toContain(expectedPath);
     });
 
     it('updates multiple settings at once', async () => {
