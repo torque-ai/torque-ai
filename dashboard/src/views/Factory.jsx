@@ -802,8 +802,9 @@ function PolicyPanel({ project, onSave }) {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-1 block text-sm text-slate-400">Budget Ceiling (null = unlimited)</label>
+          <label htmlFor="factory-budget-ceiling" className="mb-1 block text-sm text-slate-400">Budget Ceiling (null = unlimited)</label>
           <input
+            id="factory-budget-ceiling"
             type="number"
             value={policy.budget_ceiling ?? ''}
             onChange={(e) => update('budget_ceiling', e.target.value === '' ? null : Number(e.target.value))}
@@ -813,8 +814,9 @@ function PolicyPanel({ project, onSave }) {
         </div>
 
         <div>
-          <label className="mb-1 block text-sm text-slate-400">Blast Radius % (max codebase change per batch)</label>
+          <label htmlFor="factory-blast-radius" className="mb-1 block text-sm text-slate-400">Blast Radius % (max codebase change per batch)</label>
           <input
+            id="factory-blast-radius"
             type="range"
             min="1"
             max="100"
@@ -826,8 +828,9 @@ function PolicyPanel({ project, onSave }) {
         </div>
 
         <div>
-          <label className="mb-1 block text-sm text-slate-400">Max Tasks per Batch</label>
+          <label htmlFor="factory-max-task" className="mb-1 block text-sm text-slate-400">Max Tasks per Batch</label>
           <input
+            id="factory-max-task"
             type="number"
             min="1"
             value={policy.scope_ceiling?.max_tasks ?? 20}
@@ -837,8 +840,9 @@ function PolicyPanel({ project, onSave }) {
         </div>
 
         <div>
-          <label className="mb-1 block text-sm text-slate-400">Max Files per Task</label>
+          <label htmlFor="factory-max-file" className="mb-1 block text-sm text-slate-400">Max Files per Task</label>
           <input
+            id="factory-max-file"
             type="number"
             min="1"
             value={policy.scope_ceiling?.max_files_per_task ?? 10}
@@ -848,8 +852,9 @@ function PolicyPanel({ project, onSave }) {
         </div>
 
         <div className="col-span-full">
-          <label className="mb-1 flex items-center gap-2 text-sm text-slate-400">
+          <label htmlFor="factory-work-hours-enabled" className="mb-1 flex items-center gap-2 text-sm text-slate-400">
             <input
+              id="factory-work-hours-enabled"
               type="checkbox"
               checked={policy.work_hours !== null}
               onChange={(e) => update('work_hours', e.target.checked ? { start: 9, end: 17 } : null)}
@@ -859,7 +864,11 @@ function PolicyPanel({ project, onSave }) {
           </label>
           {policy.work_hours && (
             <div className="mt-1 flex gap-3">
+              <label htmlFor="factory-work-hours-start" className="sr-only">
+                Work hours start
+              </label>
               <input
+                id="factory-work-hours-start"
                 type="number"
                 min="0"
                 max="23"
@@ -868,7 +877,11 @@ function PolicyPanel({ project, onSave }) {
                 className="w-20 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-sm text-slate-200"
               />
               <span className="self-center text-slate-500">to</span>
+              <label htmlFor="factory-work-hours-end" className="sr-only">
+                Work hours end
+              </label>
               <input
+                id="factory-work-hours-end"
                 type="number"
                 min="0"
                 max="23"
@@ -881,13 +894,14 @@ function PolicyPanel({ project, onSave }) {
         </div>
 
         <div className="col-span-full">
-          <label className="mb-1 block text-sm text-slate-400">Restricted Paths</label>
+          <label htmlFor="factory-restricted-path" className="mb-1 block text-sm text-slate-400">Restricted Paths</label>
           <div className="mb-2 flex flex-wrap gap-2">
             {(policy.restricted_paths || []).map((p, i) => (
               <span key={i} className="inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-900/30 px-2 py-0.5 text-xs text-red-300">
                 {p}
                 <button
                   type="button"
+                  aria-label="Remove restricted path"
                   onClick={() => update('restricted_paths', policy.restricted_paths.filter((_, j) => j !== i))}
                   className="text-red-400 hover:text-red-200"
                 >
@@ -898,6 +912,7 @@ function PolicyPanel({ project, onSave }) {
           </div>
           <div className="flex gap-2">
             <input
+              id="factory-restricted-path"
               value={newPath}
               onChange={(e) => setNewPath(e.target.value)}
               onKeyDown={(e) => {
@@ -925,13 +940,14 @@ function PolicyPanel({ project, onSave }) {
         </div>
 
         <div className="col-span-full">
-          <label className="mb-1 block text-sm text-slate-400">Required Checks</label>
+          <label htmlFor="factory-required-check" className="mb-1 block text-sm text-slate-400">Required Checks</label>
           <div className="mb-2 flex flex-wrap gap-2">
             {(policy.required_checks || []).map((c, i) => (
               <span key={i} className="inline-flex items-center gap-1 rounded border border-blue-500/30 bg-blue-900/30 px-2 py-0.5 text-xs text-blue-300">
                 {c}
                 <button
                   type="button"
+                  aria-label="Remove required check"
                   onClick={() => update('required_checks', policy.required_checks.filter((_, j) => j !== i))}
                   className="text-blue-400 hover:text-blue-200"
                 >
@@ -942,6 +958,7 @@ function PolicyPanel({ project, onSave }) {
           </div>
           <div className="flex gap-2">
             <input
+              id="factory-required-check"
               value={newCheck}
               onChange={(e) => setNewCheck(e.target.value)}
               onKeyDown={(e) => {
@@ -990,8 +1007,9 @@ function PolicyPanel({ project, onSave }) {
               Escalate breaking changes
             </label>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-300">Health drop threshold:</label>
+              <label htmlFor="factory-health-drop-threshold" className="text-sm text-slate-300">Health drop threshold:</label>
               <input
+                id="factory-health-drop-threshold"
                 type="number"
                 min="1"
                 max="100"
@@ -1001,8 +1019,9 @@ function PolicyPanel({ project, onSave }) {
               />
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-300">Budget warning at:</label>
+              <label htmlFor="factory-budget-warning-threshold" className="text-sm text-slate-300">Budget warning at:</label>
               <input
+                id="factory-budget-warning-threshold"
                 type="number"
                 min="1"
                 max="100"
