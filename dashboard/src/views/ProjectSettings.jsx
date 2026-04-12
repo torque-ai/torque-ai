@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { budget as budgetApi, requestV2, routingTemplates } from '../api';
-import ProjectSelector, { parseMarkdownTable } from '../components/ProjectSelector';
+import ProjectSelector from '../components/ProjectSelector';
+import { parseMarkdownTable } from '../components/ProjectSelector.helpers';
 import { useToast } from '../components/Toast';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 
