@@ -87,6 +87,36 @@ async function executeLearnStage(project_id, batch_id) {
   }
 }
 
+function attachBatchId(project_id, batch_id) {
+  if (!project_id) {
+    throw new Error('project_id is required');
+  }
+  if (!batch_id || typeof batch_id !== 'string') {
+    throw new Error('batch_id must be a non-empty string');
+  }
+  const project = getProjectOrThrow(project_id);
+  const currentState = getCurrentLoopState(project);
+  if (currentState !== LOOP_STATES.PLAN && currentState !== LOOP_STATES.EXECUTE) {
+    throw new Error(
+      `Cannot attach batch_id while loop is in ${currentState}; must be PLAN or EXECUTE`
+    );
+  }
+  factoryHealth.updateProject(project.id, {
+    loop_batch_id: batch_id,
+    loop_last_action_at: nowIso(),
+  });
+  logger.info('Factory loop batch_id attached', {
+    project_id: project.id,
+    batch_id,
+    state: currentState,
+  });
+  return {
+    project_id: project.id,
+    loop_batch_id: batch_id,
+    state: currentState,
+  };
+}
+
 function scheduleLoop(project_id, interval_minutes) {
   const project = getProjectOrThrow(project_id);
   const config = project.config_json ? JSON.parse(project.config_json) : {};
@@ -241,4 +271,5 @@ module.exports = {
   rejectGate,
   getLoopState,
   scheduleLoop,
+  attachBatchId,
 };

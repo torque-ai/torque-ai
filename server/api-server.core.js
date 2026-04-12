@@ -357,6 +357,7 @@ const FACTORY_V2_ROUTES = [
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/start$/, tool: 'start_factory_loop', mapParams: ['project'], mapBody: true },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/advance$/, tool: 'advance_factory_loop', mapParams: ['project'], mapBody: true },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/approve$/, tool: 'approve_factory_gate', mapParams: ['project'], mapBody: true },
+  { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/batch$/, tool: 'attach_factory_batch', mapParams: ['project'], mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop$/, tool: 'factory_loop_status', mapParams: ['project'] },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/analyze$/, tool: 'analyze_batch', mapParams: ['project'], mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/drift$/, tool: 'factory_drift_status', mapParams: ['project'], mapQuery: true },

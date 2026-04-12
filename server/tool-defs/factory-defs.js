@@ -391,6 +391,18 @@ const tools = [
     },
   },
   {
+    name: 'attach_factory_batch',
+    description: 'Attach a batch/workflow id to a factory project so VERIFY and LEARN stages can analyze it. Loop must be in PLAN or EXECUTE.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        batch_id: { type: 'string', description: 'Workflow or batch ID to attach to the current loop run' },
+      },
+      required: ['project', 'batch_id'],
+    },
+  },
+  {
     name: 'analyze_batch',
     description: 'Run post-batch feedback analysis for a factory project. Compares pre/post health scores, measures execution efficiency, and records the results.',
     inputSchema: {

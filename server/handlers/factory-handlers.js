@@ -515,6 +515,12 @@ async function handleFactoryLoopStatus(args) {
   return jsonResponse(result);
 }
 
+async function handleAttachFactoryBatch(args) {
+  const project = resolveProject(args.project);
+  const result = loopController.attachBatchId(project.id, args.batch_id);
+  return jsonResponse(result);
+}
+
 async function handleAnalyzeBatch(args) {
   const project = resolveProject(args.project);
   const result = await analyzeBatch(project.id, args.batch_id, {
@@ -619,6 +625,7 @@ module.exports = {
   handleAdvanceFactoryLoop,
   handleApproveFactoryGate,
   handleFactoryLoopStatus,
+  handleAttachFactoryBatch,
   handleAnalyzeBatch,
   handleFactoryDriftStatus,
   handleRecordCorrection,

@@ -66,7 +66,7 @@ const TIER_2 = [
   // Factory intake
   'create_work_item', 'list_work_items', 'update_work_item', 'reject_work_item', 'intake_from_findings', 'poll_github_issues', 'architect_log',
   // Factory loop
-  'start_factory_loop', 'advance_factory_loop', 'approve_factory_gate', 'factory_loop_status',
+  'start_factory_loop', 'advance_factory_loop', 'approve_factory_gate', 'factory_loop_status', 'attach_factory_batch',
 ];
 
 /**
