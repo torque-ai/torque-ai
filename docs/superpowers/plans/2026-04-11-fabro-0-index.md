@@ -1,6 +1,6 @@
 # Fabro-Inspired Plans — Index
 
-61 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 42 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow.
+67 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 50 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream.
 
 ## Plan list
 
@@ -85,6 +85,14 @@
 60. **[Graphs-as-Library + Remote Debugger](2026-04-11-fabro-60-graphs-as-library.md)** — embed TORQUE runtime in any Node app (Rivet)
 61. **[Prompt DSL with Schema-Aligned Parsing](2026-04-11-fabro-61-prompt-dsl-sap.md)** — .torquefn files + SAP (BAML)
 
+### Reasoning + workflow quality (round 5)
+62. **[Reasoning Toolkits](2026-04-11-fabro-62-reasoning-toolkits.md)** — think/analyze/search as MCP tools (Agno)
+63. **[Persistent Threads](2026-04-11-fabro-63-persistent-threads.md)** — first-class thread + history (Marvin)
+64. **[Build-Time DAG Validation](2026-04-11-fabro-64-build-time-validation.md)** — reject bad workflows at submit (Haystack)
+65. **[Task Result Caching](2026-04-11-fabro-65-task-result-caching.md)** — hash-keyed dedupe + single-flight (Flyte)
+66. **[Auto-Extracted Memory](2026-04-11-fabro-66-auto-extracted-memory.md)** — extract memories from conversations + rerank (mem0)
+67. **[Step-Native Suspend + Rerun](2026-04-11-fabro-67-step-suspend-rerun.md)** — in-step pause w/ resume_url (Pipedream)
+
 ## Source attributions
 
 | Plan | Inspired by |
@@ -128,6 +136,12 @@
 | 59 | Pydantic AI |
 | 60 | Rivet |
 | 61 | BAML |
+| 62 | Agno |
+| 63 | Marvin |
+| 64 | Haystack |
+| 65 | Flyte |
+| 66 | mem0 |
+| 67 | Pipedream |
 
 ## Suggested sequencing
 
@@ -141,6 +155,7 @@
 **Batch H — Reusability + automation** (8, 22, 9, 10, 40)
 **Batch I — Software factory loop** (41, 48, 54)
 **Batch J — External integration + authoring** (57, 58, 59, 60, 61)
+**Batch K — Reasoning + workflow quality** (62, 63, 64, 65, 66, 67)
 
 ## How to execute
 
