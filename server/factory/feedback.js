@@ -12,6 +12,15 @@ const VALID_CORRECTION_TYPES = new Set([
   'trust_adjustment',
 ]);
 
+let _db = null;
+
+function init(deps = {}) {
+  if (deps.db) {
+    _db = deps.db;
+  }
+  return module.exports;
+}
+
 function analyzeBatch(project_id, batch_id, options = {}) {
   if (!project_id) throw new Error('project_id is required');
 
@@ -183,7 +192,7 @@ function buildHealthDelta(project_id, latestScores) {
   const healthDelta = {};
 
   for (const [dimension, latestScore] of Object.entries(latestScores || {})) {
-    const recentHistory = getRecentScoreHistory(project_id, dimension, latestScore);
+    const recentHistory = getRecentScoreHistory(project_id, dimension);
     const after = recentHistory.length > 0
       ? toNumber(recentHistory[recentHistory.length - 1].score, latestScore)
       : toNumber(latestScore);
@@ -255,19 +264,9 @@ function buildAnalysisSummary(health_delta, execution_metrics) {
   ].join('; ');
 }
 
-function getRecentScoreHistory(project_id, dimension, latestScore) {
-  let history = factoryHealth.getScoreHistory(project_id, dimension, 2) || [];
-  if (history.length === 0) return history;
-
-  const lastKnownScore = history[history.length - 1] ? toNumber(history[history.length - 1].score) : null;
-  if (lastKnownScore === toNumber(latestScore)) {
-    return history.slice(-2);
-  }
-
-  // getScoreHistory() is oldest-first, so fall back to the full series when
-  // a limited read does not include the latest score.
-  history = factoryHealth.getScoreHistory(project_id, dimension) || history;
-  return history.slice(-2);
+function getRecentScoreHistory(project_id, dimension) {
+  const history = factoryHealth.getScoreHistory(project_id, dimension, 2, { order: 'DESC' }) || [];
+  return history.reverse();
 }
 
 function getExecutionMetric(entry, key) {
@@ -410,8 +409,9 @@ function parseCorrectionList(parsedCorrections, jsonValue, feedbackId) {
 }
 
 function getRawDb() {
-  const database = require('../database');
-  const rawDb = typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
+  const rawDb = typeof _db?.getDbInstance === 'function'
+    ? _db.getDbInstance()
+    : (typeof _db?.prepare === 'function' ? _db : null);
   if (!rawDb) {
     throw new Error('Factory feedback analysis requires an active database connection');
   }
@@ -447,6 +447,7 @@ function formatCurrency(value) {
 }
 
 module.exports = {
+  init,
   analyzeBatch,
   detectDrift,
   recordHumanCorrection,
