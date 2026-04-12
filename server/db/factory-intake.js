@@ -168,9 +168,13 @@ function getIntakeStats(project_id) {
 
 function createFromFindings(project_id, findings, source) {
   const created = [];
+  const skipped = [];
   const insert = db.transaction((items) => {
     for (const f of items) {
-      if (!f.title && !f.message) continue;
+      if (!f.title && !f.message) {
+        skipped.push({ reason: 'missing_title', finding: f });
+        continue;
+      }
       const item = createWorkItem({
         project_id,
         source: source || 'scheduled_scan',
@@ -188,6 +192,10 @@ function createFromFindings(project_id, findings, source) {
     }
   });
   insert(findings);
+  // Return as array for legacy callers; attach created/skipped for richer consumers.
+  // `created.skipped` is a side-channel that keeps the array-shaped contract while
+  // exposing skipped details to the MCP handler.
+  Object.defineProperty(created, 'skipped', { value: skipped, enumerable: false });
   return created;
 }
 

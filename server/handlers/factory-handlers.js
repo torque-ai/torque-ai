@@ -277,12 +277,114 @@ async function handleRejectWorkItem(args) {
 
 async function handleIntakeFromFindings(args) {
   const project = resolveProject(args.project);
-  const result = factoryIntake.createFromFindings(project.id, args.findings, args.source);
+
+  // Collect findings from the explicit array and/or the markdown-file source.
+  const findings = [];
+  if (Array.isArray(args.findings)) {
+    findings.push(...args.findings);
+  }
+
+  let sourceFile = null;
+  if (args.findings_file) {
+    sourceFile = resolveFindingsFile(args.findings_file);
+  } else if (args.dimension) {
+    sourceFile = resolveLatestFindingsByDimension(args.dimension);
+    if (!sourceFile) {
+      throw new Error(`No findings file found for dimension "${args.dimension}" under docs/findings/`);
+    }
+  }
+
+  if (sourceFile) {
+    const parsed = parseFindingsMarkdown(sourceFile);
+    findings.push(...parsed);
+  }
+
+  if (findings.length === 0) {
+    throw new Error('intake_from_findings requires at least one of: findings (array), findings_file (path), or dimension (name)');
+  }
+
+  const created = factoryIntake.createFromFindings(project.id, findings, args.source);
+  // createFromFindings returns an array with a non-enumerable `.skipped` side-channel.
+  const skipped = Array.isArray(created.skipped) ? created.skipped : [];
   return jsonResponse({
-    message: `Imported ${result.created.length} items, ${result.skipped.length} skipped`,
-    created: result.created,
-    skipped: result.skipped,
+    message: `Imported ${created.length} items, ${skipped.length} skipped`,
+    created,
+    skipped,
+    source_file: sourceFile || null,
   });
+}
+
+// --- findings-file helpers ---
+
+function resolveFindingsFile(filePath) {
+  const abs = path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
+  if (!fs.existsSync(abs)) {
+    throw new Error(`Findings file not found: ${filePath}`);
+  }
+  return abs;
+}
+
+function resolveLatestFindingsByDimension(dimension) {
+  const dir = path.resolve(process.cwd(), 'docs', 'findings');
+  if (!fs.existsSync(dir)) return null;
+  const normalized = String(dimension).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const entries = fs.readdirSync(dir)
+    .filter((name) => name.endsWith('.md') && name.toLowerCase().includes(normalized))
+    .sort(); // ISO date prefix sorts chronologically
+  if (entries.length === 0) return null;
+  return path.join(dir, entries[entries.length - 1]);
+}
+
+// Parse a findings markdown file into { title, severity, description, file } objects.
+// Conventions (match the docs/findings/ format produced by scouts):
+//   - Severity buckets are H2 sections: `## HIGH`, `## CRITICAL`, `## LOW`, etc.
+//   - Individual findings are H3 headers: `### TITLE-01: description`
+//   - Optional `**Files:** a.js, b.js` lines are captured into the `file` field.
+function parseFindingsMarkdown(filePath) {
+  const text = fs.readFileSync(filePath, 'utf8');
+  const lines = text.split(/\r?\n/);
+  const SEVERITY_TOKENS = new Set(['critical', 'high', 'medium', 'low', 'info']);
+  const findings = [];
+  let currentSeverity = 'medium';
+  let current = null;
+  const flush = () => {
+    if (!current) return;
+    const description = current.body.join('\n').trim();
+    findings.push({
+      title: current.title,
+      severity: current.severity,
+      description: description || undefined,
+      file: current.file || undefined,
+    });
+    current = null;
+  };
+
+  for (const line of lines) {
+    const h2 = line.match(/^##\s+(.+?)\s*$/);
+    if (h2) {
+      const token = h2[1].trim().toLowerCase();
+      if (SEVERITY_TOKENS.has(token)) {
+        currentSeverity = token;
+      }
+      continue;
+    }
+    const h3 = line.match(/^###\s+(.+?)\s*$/);
+    if (h3) {
+      flush();
+      current = { title: h3[1].trim(), severity: currentSeverity, body: [], file: null };
+      continue;
+    }
+    if (!current) continue;
+    const fileMatch = line.trim().match(/^\*\*Files?:\*\*\s*(.+)$/i);
+    if (fileMatch) {
+      const first = fileMatch[1].split(',')[0].trim().replace(/[`]/g, '').split(/\s/)[0];
+      if (first) current.file = first;
+      continue;
+    }
+    current.body.push(line);
+  }
+  flush();
+  return findings;
 }
 
 async function handlePollGitHubIssues(args) {

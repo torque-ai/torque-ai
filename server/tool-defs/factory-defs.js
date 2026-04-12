@@ -185,7 +185,7 @@ const tools = [
   },
   {
     name: 'intake_from_findings',
-    description: 'Bulk import findings (from scouts, security scans, etc.) into the intake queue. Deduplicates by title. Maps severity to priority automatically.',
+    description: 'Bulk import findings (from scouts, security scans, etc.) into the intake queue. Deduplicates by title. Maps severity to priority automatically. Accepts findings as an explicit array, from a markdown file in docs/findings/, or by dimension name (latest file matching the dimension is used).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -203,11 +203,19 @@ const tools = [
               priority: { type: 'integer' },
             },
           },
-          description: 'Array of finding objects to import',
+          description: 'Array of finding objects to import. At least one of findings/findings_file/dimension is required.',
+        },
+        findings_file: {
+          type: 'string',
+          description: 'Path to a findings markdown file (absolute or relative to cwd). Parses H3 headers as titles and H2 sections as severity buckets.',
+        },
+        dimension: {
+          type: 'string',
+          description: 'Dimension name (e.g. "accessibility", "security"). Resolves to the latest matching file under docs/findings/.',
         },
         source: { type: 'string', description: 'Override source (default: scout)' },
       },
-      required: ['project', 'findings'],
+      required: ['project'],
     },
   },
   {
