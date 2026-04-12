@@ -10,7 +10,6 @@
 const logger = require('../logger').child({ component: 'v2-governance-handlers' });
 
 const crypto = require('crypto');
-const dbFacade = require('../database');
 const taskCore = require('../db/task-core');
 const configCore = require('../db/config-core');
 const fileTracking = require('../db/file-tracking');
@@ -48,11 +47,36 @@ const {
 } = require('../handlers/policy-handlers');
 
 let _taskManager = null;
+let _db = null;
 const VALID_ACTIONS = new Set(['pause', 'resume', 'retry']);
 const STUDY_TOOL_NAME = 'run_codebase_study';
 
-function init(taskManager) {
-  _taskManager = taskManager;
+function init(depsOrTaskManager = {}) {
+  const isDepsObject = depsOrTaskManager
+    && typeof depsOrTaskManager === 'object'
+    && !Array.isArray(depsOrTaskManager);
+
+  if (isDepsObject) {
+    if (depsOrTaskManager.taskManager) {
+      _taskManager = depsOrTaskManager.taskManager;
+    }
+    if (depsOrTaskManager.db) {
+      _db = depsOrTaskManager.db;
+    }
+    return module.exports;
+  }
+
+  if (depsOrTaskManager) {
+    _taskManager = depsOrTaskManager;
+  }
+  return module.exports;
+}
+
+function getDbService() {
+  if (_db) {
+    return _db;
+  }
+  throw new Error('v2 governance handlers require init({ db }) before running schedules');
 }
 
 function parseBooleanValue(value) {
@@ -503,7 +527,7 @@ async function handleRunSchedule(req, res) {
 
   try {
     const result = schedulingAutomation.runScheduledTaskNow
-      ? schedulingAutomation.runScheduledTaskNow(scheduleId, { db: dbFacade })
+      ? schedulingAutomation.runScheduledTaskNow(scheduleId, { db: getDbService() })
       : null;
     if (!result) {
       return sendError(res, requestId, 'schedule_not_found', `Schedule not found: ${scheduleId}`, 404, {}, req);
@@ -1164,8 +1188,14 @@ async function handleProviderToggle(req, res) {
     return sendError(res, requestId, 'provider_not_found', `Provider not found: ${providerId}`, 404, {}, req);
   }
 
+  if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+    return sendError(res, requestId, 'validation_error', 'enabled must be a boolean', 400, {
+      field: 'enabled',
+    }, req);
+  }
+
   const enabled = body.enabled !== undefined
-    ? Boolean(body.enabled)
+    ? body.enabled
     : !provider.enabled;
 
   try {
@@ -1297,9 +1327,15 @@ async function handleConfigureProvider(req, res) {
     return sendError(res, requestId, 'provider_not_found', `Provider not found: ${providerId}`, 404, {}, req);
   }
 
+  if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
+    return sendError(res, requestId, 'validation_error', 'enabled must be a boolean', 400, {
+      field: 'enabled',
+    }, req);
+  }
+
   try {
     const updates = {};
-    if (body.enabled !== undefined) updates.enabled = body.enabled;
+    if (body.enabled !== undefined) updates.enabled = body.enabled ? 1 : 0;
     if (body.model) updates.default_model = body.model;
     if (body.max_concurrent !== undefined) updates.max_concurrent = body.max_concurrent;
     if (body.timeout_minutes !== undefined) updates.timeout_minutes = body.timeout_minutes;
@@ -1632,6 +1668,7 @@ async function handleDetectFileConflicts(req, res) {
 }
 
 function createV2GovernanceHandlers(_deps) {
+  init(_deps);
   return {
     init,
     handleListApprovals,
@@ -1687,6 +1724,7 @@ function createV2GovernanceHandlers(_deps) {
 
 module.exports = {
   init,
+  createV2GovernanceHandlers,
   // Approvals
   handleListApprovals,
   handleApprovalDecision,

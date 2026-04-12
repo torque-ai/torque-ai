@@ -268,7 +268,7 @@ function getEffectiveMaxConcurrent(options = {}) {
  * @returns {any}
  */
 function updateProvider(providerId, config) {
-  const allowed = ['enabled', 'priority', 'cli_path', 'cli_args', 'quota_error_patterns', 'max_concurrent', 'transport'];
+  const allowed = ['enabled', 'priority', 'cli_path', 'cli_args', 'quota_error_patterns', 'max_concurrent', 'timeout_minutes', 'default_model', 'transport'];
   const updates = [];
   const values = [];
 
