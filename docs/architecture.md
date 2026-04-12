@@ -18,8 +18,8 @@ How TORQUE works, from request entry to task completion.
 │       └──────────────┼──────────────┘                           │
 │                      ▼                                          │
 │              ┌──────────────┐                                   │
-│              │  tools.js    │  routeMap dispatch                │
-│              │  500+ tools  │  (pascalToSnake auto-mapping)     │
+│              │  tools.js    │  explicit TOOLS list              │
+│              │ 582 built-in │  + enumerated routeMap wiring     │
 │              └──────┬───────┘                                   │
 │                     │                                           │
 │       ┌─────────────┼─────────────┐                            │
@@ -89,7 +89,7 @@ REST API → route match       → semantic handler         → handleToolCall()
    4. routeMap.get(name) → handler function
 ```
 
-The `routeMap` is built automatically at startup by iterating all handler module exports, converting `handleSomeFunction` to `some_function` via `pascalToSnake()`. This means adding a new `handleFoo` export to any handler module automatically creates a `foo` MCP tool.
+The built-in tool catalog now comes from the explicit `TOOLS` array in `server/tools.js`. Dispatch is wired from the curated `HANDLER_MODULES` list, with `handle*` exports converted via `pascalToSnake()` and additional manual `routeMap.set(...)` registrations for tools that need explicit routing, so new tools must be added to those lists rather than appearing automatically.
 
 ---
 
@@ -428,8 +428,8 @@ database.js (facade)
 | MCP stdio entry | `server/index.js` | ~1,300 |
 | MCP SSE entry | `server/mcp-sse.js` | ~1,600 |
 | REST API | `server/api-server.core.js` | ~2,650 |
-| Tool dispatch | `server/tools.js` | ~335 |
-| Tool definitions | `server/tool-defs/` | 24 files |
+| Tool dispatch | `server/tools.js` | ~820, 582 built-in |
+| Tool definitions | `server/tool-defs/` | 44 files |
 | Handlers | `server/handlers/` | 22 files |
 | Task manager | `server/task-manager.js` | ~2,780 |
 | Provider registry | `server/providers/registry.js` | ~200 |

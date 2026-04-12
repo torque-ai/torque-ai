@@ -45,7 +45,7 @@ Claude Code (IDE)
 | Module | File | Purpose |
 |--------|------|---------|
 | Entry Point | `index.js` | MCP server lifecycle, JSON-RPC handler, orphan mode, shutdown |
-| Tool Definitions | `tools.js` | All 462 MCP tool schemas and dispatch to handlers |
+| Tool Definitions | `tools.js` | All 582 built-in MCP tool schemas and dispatch to handlers |
 | Task Manager | `task-manager.js` | Process spawning, queue processing, health monitoring, retry |
 | Database | `database.js` | SQLite schema, queries, data validation, migrations |
 
@@ -109,12 +109,11 @@ Claude Code (IDE)
 |--------|---------|
 | `execute-api.js` | API provider execution (Anthropic, Groq, OpenAI-compatible providers) |
 | `execute-cli.js` | CLI-backed provider execution (Claude CLI, Codex) |
-| `execute-hashline.js` | Hashline/Hashline-OpenAI execution adapters |
 | `execute-ollama.js` | Ollama execution path and host selection |
 
 ### Database (`db/`)
 
-`server/db/` currently contains 52 modules:
+`server/db/` currently contains 75 modules:
 
 | Module |
 |--------|
@@ -232,8 +231,9 @@ Simple tasks:     Complex tasks:
 
 ### Queue Processing
 
-The task manager maintains a priority queue with distributed locking:
+The legacy queue path maintains a priority queue with distributed locking, but `processQueueInternal()` now branches on `scheduling_mode`: when it is set to `slot-pull`, `queue-scheduler.js` hands off to `server/execution/slot-pull-scheduler.js` via `onSlotFreed()` and skips the legacy dequeue loop.
 
+In legacy mode:
 1. `processQueue()` acquires a distributed lock
 2. Checks available capacity across all providers and hosts
 3. Dequeues highest-priority task that fits available resources
@@ -308,8 +308,8 @@ TORQUE uses SQLite via `better-sqlite3` with 50+ tables organized by domain:
 
 - The MCP server runs single-threaded on Node.js
 - Task execution is delegated to child processes (spawn) or HTTP API calls
-- Queue processing uses distributed locks to prevent race conditions across MCP instances
-- A process-local lock prevents concurrent `processQueue()` calls within the same instance
+- Queue processing keeps distributed and process-local locking for the legacy `processQueue()` path, while `scheduling_mode=slot-pull` branches to `server/execution/slot-pull-scheduler.js` instead of running the legacy dequeue loop
+- The slot-pull scheduler assigns unclaimed queued tasks when provider slots free up and on its 30-second heartbeat
 - Task cleanup uses a guard map to prevent double-processing from close/error handler races
 
 ## Orphan Mode
@@ -318,4 +318,3 @@ When the MCP connection drops but tasks are still running, the server enters "or
 - Continues monitoring running tasks
 - Shuts down cleanly once all tasks complete
 - Prevents zombie processes
-
