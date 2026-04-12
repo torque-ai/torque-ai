@@ -59,14 +59,21 @@ function getCircuitBreaker() {
 }
 
 /**
- * Safely parse config integer value with bounds checking
- * Returns default if value is missing, NaN, or out of bounds
+ * Safely parse config integer value with bounds checking.
+ * Returns default if value is missing, NaN, or out of bounds.
+ *
+ * Honors "0 means disabled" semantics: when the resolved value is exactly 0
+ * AND the caller's defaultVal is 0, return 0 verbatim instead of clamping
+ * up to minVal. This prevents 0-as-disabled config keys (like
+ * `queue_task_ttl_minutes`) from silently becoming 1 because the registry
+ * default of 0 gets clamped through the default minVal=1.
  */
 function safeConfigInt(configKey, defaultVal, minVal = 1, maxVal = 1000) {
   const rawValue = _serverConfig && _serverConfig.get(configKey);
   if (rawValue === null || rawValue === undefined) return defaultVal;
   const parsed = parseInt(rawValue, 10);
   if (isNaN(parsed)) return defaultVal;
+  if (parsed === 0 && defaultVal === 0) return 0;
   return Math.max(minVal, Math.min(parsed, maxVal));
 }
 

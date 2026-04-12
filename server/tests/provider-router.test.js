@@ -92,6 +92,28 @@ describe('provider-router', () => {
       expect(providerRouter.safeConfigInt('low_limit', 7, 2, 20)).toBe(2);
       expect(providerRouter.safeConfigInt('high_limit', 7, 2, 20)).toBe(20);
     });
+
+    it('honors 0-as-disabled when defaultVal is 0 (regression: queue_task_ttl_minutes silently clamping to 1)', () => {
+      // When the registry default is 0 (meaning "disabled") and no override is set,
+      // the resolved value MUST stay 0 — not get clamped up to minVal=1.
+      // The queue_task_ttl_minutes key relies on this: 0 means "no expiry."
+      // Before the fix, this returned 1 and silently auto-cancelled queued tasks
+      // older than 1 minute.
+      configValues.set('queue_task_ttl_minutes', '0');
+      expect(providerRouter.safeConfigInt('queue_task_ttl_minutes', 0)).toBe(0);
+    });
+
+    it('still clamps positive values even when defaultVal is 0', () => {
+      configValues.set('some_minutes', '5');
+      // Caller didn't override minVal — gets the default minVal=1, which lets 5 through unchanged
+      expect(providerRouter.safeConfigInt('some_minutes', 0)).toBe(5);
+    });
+
+    it('still clamps to minVal when defaultVal is non-zero (existing behavior unchanged)', () => {
+      configValues.set('cap', '0');
+      // defaultVal=7, value=0 → 0 is below minVal=2 → clamps to 2 (no 0-as-disabled here)
+      expect(providerRouter.safeConfigInt('cap', 7, 2, 20)).toBe(2);
+    });
   });
 
   describe('getEffectiveGlobalMaxConcurrent', () => {
