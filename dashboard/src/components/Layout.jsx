@@ -176,6 +176,82 @@ function getInitialCollapsed() {
   }
 }
 
+function PausedFactoryBanner() {
+  const navigate = useNavigate();
+  const [pausedProjects, setPausedProjects] = useState([]);
+  const [dismissedKey, setDismissedKey] = useState('');
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadPausedProjects() {
+      try {
+        const csrfToken = window.__torqueCsrf;
+        const response = await fetch('/api/v2/factory/projects', {
+          credentials: 'same-origin',
+          ...(csrfToken ? { headers: { 'X-CSRF-Token': csrfToken } } : {}),
+        });
+        if (!response.ok) throw new Error('Failed to load factory projects');
+
+        const data = await response.json();
+        const paused = Array.isArray(data?.projects)
+          ? data.projects.filter((project) => project?.status === 'paused')
+          : [];
+
+        if (active) setPausedProjects(paused);
+      } catch {
+        if (active) setPausedProjects([]);
+      }
+    }
+
+    loadPausedProjects();
+    const intervalId = setInterval(loadPausedProjects, 30000);
+
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, []);
+
+  const currentKey = pausedProjects
+    .map((project) => String(project.id))
+    .sort()
+    .join(',');
+
+  useEffect(() => {
+    if (dismissedKey && dismissedKey !== currentKey) setDismissedKey('');
+  }, [currentKey, dismissedKey]);
+
+  if (!pausedProjects.length || dismissedKey === currentKey) return null;
+
+  const pausedNames = pausedProjects
+    .map((project) => project.name || project.id)
+    .join(', ');
+
+  return (
+    <div className="bg-amber-500/10 border-b border-amber-500/30 text-amber-200 text-xs px-4 md:px-6 py-2 flex items-center justify-between">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="truncate">Factory paused: {pausedNames}</span>
+        <button
+          type="button"
+          onClick={() => navigate('/factory')}
+          className="text-amber-100 hover:text-white transition-colors"
+        >
+          View Factory
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={() => setDismissedKey(currentKey)}
+        className="text-amber-300 hover:text-amber-100 p-1"
+        aria-label="Dismiss paused factory banner"
+      >
+        X
+      </button>
+    </div>
+  );
+}
+
 
 export default function Layout({ isConnected, isReconnecting, failedCount = 0, stuckCount = 0 }) {
   const [collapsed, setCollapsed] = useState(getInitialCollapsed);
@@ -311,6 +387,7 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
 
       {/* Main content */}
       <main className="flex-1 bg-slate-900 overflow-auto flex flex-col min-w-0">
+        <PausedFactoryBanner />
         {/* Top bar with breadcrumb and notification bell */}
         <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-slate-800/50">
           <div className="flex items-center gap-2 text-sm">
