@@ -480,7 +480,16 @@ function handleScanProject(args) {
   const checks = args.checks || ['summary', 'missing_tests', 'todos', 'file_sizes', 'data_inventory', 'dependencies'];
   const sourceDirs = args.source_dirs || detected.src;
   const testSuffix = args.test_pattern || detected.test;
-  const ignoreDirs = new Set(args.ignore_dirs || ['node_modules', '.git', 'dist', 'build', 'coverage', '.next', '__pycache__', '.venv']);
+  const ignoreDirs = new Set(args.ignore_dirs || [
+    'node_modules', '.git', 'dist', 'build', 'coverage', '.next', '__pycache__', '.venv',
+    // Hidden temp/cache dirs that inflate file counts and TODO noise:
+    '.cache', '.vitest-tmp', '.vitest-logs', '.tmp-vitest',
+    '.codex-temp', '.codex-context', '.codex-worktrees',
+    '.worktrees', '.aider.tags.cache.v4',
+  ]);
+  // Prefix-matched ignores for directories that follow a `.tmp-<suffix>` or
+  // similar pattern (e.g. .tmp-study-repro created by scouting runs).
+  const ignorePrefixes = ['.tmp', '.tmp-'];
 
   // Recursive file walker
   function walkDir(dir, fileList = []) {
@@ -488,6 +497,7 @@ function handleScanProject(args) {
       const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
       for (const entry of entries) {
         if (ignoreDirs.has(entry.name)) continue;
+        if (entry.isDirectory() && ignorePrefixes.some(p => entry.name === p || entry.name.startsWith(p + '-'))) continue;
         const fullPath = path.join(dir, entry.name);
         // Skip symlinks to prevent directory traversal
         try {
