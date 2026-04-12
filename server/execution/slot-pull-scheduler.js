@@ -16,6 +16,7 @@ const logger = require('../logger').child({ component: 'slot-pull-scheduler' });
 const capabilities = require('../db/provider-capabilities');
 const perfTracker = require('../db/provider-performance');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
+const { isRestartBarrierActive } = require('./restart-barrier');
 
 let _db = null;
 let _startTask = null;
@@ -124,6 +125,15 @@ function claimTask(taskId, provider) {
 }
 
 function runSlotPullPass() {
+  // Restart barrier — both onSlotFreed() and the 30s heartbeat land here, and
+  // the heartbeat bypasses the queue scheduler's check entirely. Gate here so
+  // queued tasks cannot promote to running while a restart is draining.
+  const barrier = isRestartBarrierActive(_db);
+  if (barrier) {
+    logger.info('[Slot-pull] Restart barrier active (task ' + (barrier.id || '').slice(0, 8) + '), skipping pass');
+    return { assigned: 0, skipped: 0 };
+  }
+
   const providers = getEnabledProviders();
   let assigned = 0;
   let skipped = 0;

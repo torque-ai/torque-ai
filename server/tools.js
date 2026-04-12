@@ -611,14 +611,15 @@ async function handleRestartServerBarrier(args) {
     };
   }
 
-  // Count ALL non-terminal, non-barrier tasks (running, queued, pending).
-  // Must include queued/pending because startTask is async — tasks may not
-  // have transitioned to 'running' yet when this check runs.
-  const nonTerminalStatuses = ['running', 'queued', 'pending'];
-  let activeTasks = 0;
-  for (const status of nonTerminalStatuses) {
-    activeTasks += taskCore.listTasks({ status, limit: 1000 }).filter(t => t.provider !== 'system').length;
-  }
+  // Count non-barrier tasks split by lifecycle phase. Only the *running* count
+  // gates the drain — queued/pending tasks are held by the barrier and resume
+  // after restart. Report them separately so the user sees what's draining
+  // versus what's parked.
+  const countByStatus = (status) =>
+    taskCore.listTasks({ status, limit: 1000 }).filter(t => t.provider !== 'system').length;
+  const runningTasks = countByStatus('running');
+  const queuedHeld = countByStatus('queued') + countByStatus('pending');
+  const activeTasks = runningTasks + queuedHeld;
 
   // Create barrier task — provider='system' is the sentinel the queue scheduler checks
   const barrierId = require('crypto').randomUUID();
@@ -654,7 +655,7 @@ async function handleRestartServerBarrier(args) {
   }
 
   // Pipeline has active work — start drain watcher
-  logger.info(`[Restart] Drain mode: ${activeTasks} active tasks (timeout: ${drainTimeoutMinutes}min)`);
+  logger.info(`[Restart] Drain mode: ${runningTasks} running, ${queuedHeld} queued held until restart (timeout: ${drainTimeoutMinutes}min)`);
   taskCore.updateTaskStatus(barrierId, 'running', { started_at: new Date().toISOString() });
 
   const drainTimeoutMs = drainTimeoutMinutes * 60 * 1000;
@@ -694,14 +695,18 @@ async function handleRestartServerBarrier(args) {
       return;
     }
 
-    logger.info(`[Restart] Drain: ${running} running (${Math.round(elapsed / 1000)}s elapsed)`);
+    const heldNow = taskCore.listTasks({ status: 'queued', limit: 1000 })
+      .filter(t => t.provider !== 'system').length
+      + taskCore.listTasks({ status: 'pending', limit: 1000 })
+        .filter(t => t.provider !== 'system').length;
+    logger.info(`[Restart] Drain: ${running} running, ${heldNow} queued held (${Math.round(elapsed / 1000)}s elapsed)`);
   }, 10000);
 
   return {
     success: true,
     task_id: barrierId,
     status: 'drain_started',
-    content: [{ type: 'text', text: `Pipeline drain started — barrier ${barrierId.slice(0, 8)} blocks new work. Waiting for ${activeTasks} active task(s). Timeout: ${drainTimeoutMinutes}min.` }],
+    content: [{ type: 'text', text: `Pipeline drain started — barrier ${barrierId.slice(0, 8)} blocks new work. Waiting for ${runningTasks} running task(s) to finish (${queuedHeld} queued held until after restart). Timeout: ${drainTimeoutMinutes}min.` }],
   };
 }
 

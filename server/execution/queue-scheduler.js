@@ -22,6 +22,7 @@ const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
 const modelRoles = require('../db/model-roles');
 const eventBus = require('../event-bus');
+const { isRestartBarrierActive } = require('./restart-barrier');
 
 // Dependency injection
 let db = null;
@@ -664,6 +665,15 @@ function tryOllamaQueueFallback(task, model, selection) {
  * Internal queue processing logic - called only when lock is held.
  */
 function processQueueInternal(options = {}) {
+  // Restart barrier — must be checked BEFORE the slot-pull delegation so both
+  // scheduling modes honor it. Slot-pull also re-checks inside runSlotPullPass()
+  // because its heartbeat bypasses this function entirely.
+  const barrier = isRestartBarrierActive(db);
+  if (barrier) {
+    logger.info(`[Scheduler] Restart barrier active (task ${(barrier.id || '').slice(0, 8)}), skipping queue processing`);
+    return;
+  }
+
   const schedulingMode = db.getConfig ? (db.getConfig('scheduling_mode') || 'legacy') : 'legacy';
   if (schedulingMode === 'slot-pull') {
     const slotPull = require('./slot-pull-scheduler');
@@ -730,20 +740,6 @@ function processQueueInternal(options = {}) {
     const level = gpuMetrics.getPressureLevel();
     logger.warn(`[Scheduler] Deferring queued task starts due to ${level} resource pressure`);
     return;
-  }
-
-  // Restart barrier — if a system restart task is queued or running, stop all new starts.
-  // This makes restart a first-class queue barrier rather than a side-channel process flag.
-  try {
-    const barrierRow = db.prepare(
-      "SELECT id FROM tasks WHERE provider = 'system' AND status IN ('queued', 'running') LIMIT 1"
-    ).get();
-    if (barrierRow) {
-      logger.info(`[Scheduler] Restart barrier active (task ${(barrierRow.id || '').slice(0, 8)}), skipping queue processing`);
-      return;
-    }
-  } catch (barrierErr) {
-    logger.warn(`[Scheduler] Barrier check failed (non-fatal): ${barrierErr.message}`);
   }
 
   // Get multiple queued tasks to find one that can run on an available host
