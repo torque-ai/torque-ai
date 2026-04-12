@@ -890,16 +890,20 @@ async function executeOllamaTask(task) {
 
     // Check if this is a connection/quota error for potential failover
     const isQuotaError = db.isProviderQuotaError('ollama', errorOutput);
+    const currentTask = db.getTask(taskId);
+    const currentMetadata = currentTask?.metadata && typeof currentTask.metadata === 'object'
+      ? currentTask.metadata
+      : safeJsonParse(currentTask?.metadata || task.metadata, {});
+    const userProviderOverride = Boolean(currentMetadata.user_provider_override);
 
     // Invalidate Ollama health cache only on connection/quota failures
     if (isQuotaError) {
       db.invalidateOllamaHealth();
     }
 
-    if (isQuotaError) {
+    if (isQuotaError && !userProviderOverride) {
       // Guard: cap failover attempts to prevent infinite provider bounce (TQ-001)
       const MAX_FAILOVERS = 3;
-      const currentTask = db.getTask(taskId);
       const failoverCount = (currentTask?.retry_count || 0);
       const currentProvider = currentTask?.provider || 'ollama';
       if (failoverCount >= MAX_FAILOVERS) {
@@ -926,6 +930,8 @@ async function executeOllamaTask(task) {
           return;
         }
       }
+    } else if (isQuotaError && userProviderOverride) {
+      logger.info(`[Ollama] Skipping automatic failover for user-overridden task ${taskId}`);
     }
 
     // Mark as failed (use safe update to handle race conditions)
