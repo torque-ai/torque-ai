@@ -1966,7 +1966,7 @@ describe('API Server endpoints', () => {
       url: '/api/tasks?status=running&limit=10',
     });
 
-    expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', { status: 'running', limit: '10' });
+    expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', { status: 'running', limit: 10 });
     expect(response.statusCode).toBe(200);
   });
 
@@ -1992,7 +1992,7 @@ describe('API Server endpoints', () => {
 
     expect(handleToolCallSpy).toHaveBeenCalledWith('cancel_task', {
       task_id: 'abc-123',
-      confirm: 'true',
+      confirm: true,
     });
     expect(response.statusCode).toBe(200);
   });
@@ -2045,7 +2045,7 @@ describe('API Server endpoints', () => {
       url: '/api/ollama/hosts?enabled_only=true',
     });
 
-    expect(handleToolCallSpy).toHaveBeenCalledWith('list_ollama_hosts', { enabled_only: 'true' });
+    expect(handleToolCallSpy).toHaveBeenCalledWith('list_ollama_hosts', { enabled_only: true });
     expect(response.statusCode).toBe(200);
   });
 
@@ -2166,7 +2166,7 @@ describe('API Server endpoints', () => {
       url: '/api/tasks?status=running&limit=10',
     });
 
-    expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', { status: 'running', limit: '10' });
+    expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', { status: 'running', limit: 10 });
     expect(mcpTasksResponse.statusCode).toBe(200);
 
     const mcpStatusResponse = await dispatchRequest(requestHandler, {

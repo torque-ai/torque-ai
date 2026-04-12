@@ -8,7 +8,7 @@
 const http = require('http');
 const { randomUUID } = require('crypto');
 const tools = require('./tools');
-const { handleToolCall } = tools;
+const { handleToolCall, schemaMap } = tools;
 const db = require('./database');
 const taskCore = require('./db/task-core');
 const costTracking = require('./db/cost-tracking');
@@ -451,6 +451,42 @@ function createApiServer(deps = {}) {
       }
     }),
   };
+}
+
+function coerceRestPassthroughValue(toolSchema, key, value, source = 'param') {
+  const propSchema = toolSchema?.properties?.[key];
+
+  if (!propSchema || propSchema.type === 'string') {
+    return { ok: true, value };
+  }
+
+  if (propSchema.type === 'integer') {
+    const n = parseInt(value, 10);
+    if (!Number.isFinite(n) || String(n) !== String(value).trim()) {
+      return { ok: false, error: `Invalid integer for ${source} '${key}': ${value}` };
+    }
+    return { ok: true, value: n };
+  }
+
+  if (propSchema.type === 'number') {
+    const n = Number(value);
+    if (Number.isNaN(n)) {
+      return { ok: false, error: `Invalid number for ${source} '${key}': ${value}` };
+    }
+    return { ok: true, value: n };
+  }
+
+  if (propSchema.type === 'boolean') {
+    if (value === 'true') {
+      return { ok: true, value: true };
+    }
+    if (value === 'false') {
+      return { ok: true, value: false };
+    }
+    return { ok: false, error: `Invalid boolean for ${source} '${key}': ${value}` };
+  }
+
+  return { ok: true, value };
 }
 
 /** Localhost IP addresses that are always allowed to call /api/shutdown */
@@ -965,6 +1001,7 @@ async function handleRequest(req, res, context = {}) {
 
       // Build args for MCP tool
       let args = {};
+      const toolSchema = schemaMap.get(route.tool);
 
       if (route.mapBody) {
         args = Object.prototype.hasOwnProperty.call(req, 'body')
@@ -975,12 +1012,24 @@ async function handleRequest(req, res, context = {}) {
       if (route.mapQuery) {
         for (const [key, value] of Object.entries(req.query)) {
           if (key !== '__proto__' && key !== 'constructor' && key !== 'prototype') {
-            args[key] = value;
+            const coerced = coerceRestPassthroughValue(toolSchema, key, value, 'query param');
+            if (!coerced.ok) {
+              sendJson(res, { error: coerced.error }, 400, req);
+              return;
+            }
+            args[key] = coerced.value;
           }
         }
       }
 
-      Object.assign(args, req.params);
+      for (const [key, value] of Object.entries(req.params)) {
+        const coerced = coerceRestPassthroughValue(toolSchema, key, value, 'path param');
+        if (!coerced.ok) {
+          sendJson(res, { error: coerced.error }, 400, req);
+          return;
+        }
+        args[key] = coerced.value;
+      }
 
       // Call MCP tool
       const result = await handleToolCall(route.tool, args);
