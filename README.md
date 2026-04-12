@@ -15,14 +15,12 @@ TORQUE turns Claude Code into an autonomous software factory. It discovers what 
 
 ## Quick Start
 
-```bash
-# Install
-git clone https://github.com/torque-ai/torque-ai.git
-cd torque-ai/server && npm install
+    # Install
+    git clone https://github.com/torque-ai/torque-ai.git
+    cd torque-ai/server && npm install
 
-# Start the server
-node index.js
-```
+    # Start the server
+    node index.js
 
 On first startup, TORQUE registers itself as an MCP server in your Claude Code configuration. Open any Claude Code session and TORQUE's tools are available immediately.
 
@@ -105,6 +103,8 @@ TORQUE also has a REST API on port 3457 and a direct CLI (`torque-cli`) for scri
 
 - [CLAUDE.md](CLAUDE.md) — Full reference for MCP tools, providers, workflows, and configuration
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Development setup, code style, and PR process
+
+Maintainers: add or recategorize providers in `server/providers/registry.js`. Plugin contracts are validated in `server/plugins/plugin-contract.js`, and plugin discovery/loading is wired in `server/plugins/loader.js`.
 
 ## License
 

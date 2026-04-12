@@ -22,25 +22,23 @@ Copy MCP settings from example:
 
 ## 2) Development Setup
 
-- Node.js 18+
+- Node.js 20+
 - better-sqlite3 native module (prebuilt binaries available for most platforms)
 - Ollama optional for local LLM provider testing
 
 ### Architecture Overview
 
-```
-torque-ai/
-  server/           MCP server, REST API, task execution, providers
-    handlers/        Request handlers (5 domain sub-directories)
-    providers/       10 execution providers (Ollama, Codex, Claude, etc.)
-    tool-defs/       22 tool definition files (JSON Schema)
-    db/              15 database sub-modules
-    execution/       Workflow runtime, queue scheduler
-  cli/               CLI client (api-client, commands, formatter)
-  bin/               Entry points (torque, torque-status)
-  dashboard/         React 19 + Vite + Tailwind dashboard (14 views)
-  agent/             Remote test execution agent
-```
+    torque-ai/
+      server/           MCP server, REST API, task execution, providers
+        handlers/        Request handlers (5 domain sub-directories)
+        providers/       13 execution providers (Ollama, Codex, Claude CLI, cloud APIs, system)
+        tool-defs/       44 tool definition files (JSON Schema)
+        db/              ~75 database modules
+        execution/       Workflow runtime, queue scheduler
+      cli/               CLI client (api-client, commands, formatter)
+      bin/               Entry points (torque, torque-status)
+      dashboard/         React 19 + Vite + Tailwind dashboard (14 views)
+      agent/             Remote test execution agent
 
 ## 3) Running Tests
 
@@ -66,10 +64,9 @@ Smoke tests (quick verification):
 
 ## 5) Adding Tools
 
-1. Define tool schema in `server/tool-defs/<name>.js`
-2. Implement handler in `server/handlers/<name>.js`
-3. Export handler function with `handle` prefix (e.g., `handleMyTool`)
-4. Dispatch auto-wires via `server/tools.js` routeMap
+1. Add the tool definition export to the `TOOLS` array in `server/tools.js` (definitions still live under `server/tool-defs/`).
+2. Implement the handler in `server/handlers/` and make sure its module is listed in `HANDLER_MODULES` in `server/tools.js`.
+3. Add an explicit `routeMap.set('<tool_name>', handleYourTool)` entry in `server/tools.js` with the other manual route mappings.
 
 ## 6) Database Changes
 

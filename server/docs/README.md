@@ -25,9 +25,7 @@ TORQUE is configured automatically when you open the project in Claude Code:
 2. Slash commands load from `.claude/commands/`
 3. Use `/torque-submit` to submit your first task
 
-```
-/torque-submit Write unit tests for src/utils/parser.js
-```
+    /torque-submit Write unit tests for src/utils/parser.js
 
 ## Commands
 
@@ -54,6 +52,8 @@ TORQUE is configured automatically when you open the project in Claude Code:
 | [Tool Reference](api/tool-reference.md) | Complete reference for all ~590 MCP tools |
 | [Troubleshooting](runbooks/troubleshooting.md) | Common issues and solutions |
 
+Maintainers: add or recategorize providers in `server/providers/registry.js`. Plugin contracts are validated in `server/plugins/plugin-contract.js`, and plugin discovery/loading is wired in `server/plugins/loader.js`.
+
 ## Version
 
-TORQUE v2.0.0 — Node.js 18+ — SQLite (better-sqlite3)
+TORQUE v2.0.0 — Node.js 20+ — SQLite (better-sqlite3)
