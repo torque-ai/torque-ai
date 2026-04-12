@@ -1,0 +1,467 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+PASS=0
+FAIL=0
+ERRORS=()
+TEST_ERRORS=()
+TEMP_DIRS=()
+
+RUN_EXIT=0
+RUN_STDOUT=""
+RUN_STDERR=""
+LAST_TEST_ENV=""
+
+SCRIPT_UNDER_TEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)/torque-remote"
+ORIGINAL_PATH="$PATH"
+
+cleanup() {
+  local dir
+  for dir in "${TEMP_DIRS[@]}"; do
+    [[ -n "$dir" && -d "$dir" ]] && rm -rf "$dir"
+  done
+}
+
+trap cleanup EXIT
+
+pass() {
+  echo "  PASS: $1"
+  ((PASS++))
+}
+
+fail() {
+  local test_name="$1"
+  shift
+
+  echo "  FAIL: $test_name"
+
+  local detail
+  local summary=""
+  for detail in "$@"; do
+    echo "        $detail"
+    if [[ -n "$summary" ]]; then
+      summary="${summary}; "
+    fi
+    summary="${summary}${detail}"
+  done
+
+  ERRORS+=("${test_name}: ${summary}")
+  ((FAIL++))
+}
+
+record_failure() {
+  TEST_ERRORS+=("$1")
+}
+
+finish_test() {
+  local test_name="$1"
+  if [[ ${#TEST_ERRORS[@]} -eq 0 ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "${TEST_ERRORS[@]}"
+  fi
+}
+
+slurp_file() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    cat "$file"
+  fi
+}
+
+expect_eq() {
+  local desc="$1"
+  local expected="$2"
+  local actual="$3"
+
+  if [[ "$expected" != "$actual" ]]; then
+    record_failure "$desc (expected '$expected', got '$actual')"
+  fi
+}
+
+expect_nonzero() {
+  local desc="$1"
+  local actual="$2"
+
+  if [[ "$actual" -eq 0 ]]; then
+    record_failure "$desc (expected non-zero exit code, got 0)"
+  fi
+}
+
+expect_contains() {
+  local desc="$1"
+  local haystack="$2"
+  local needle="$3"
+
+  if ! grep -Fq -- "$needle" <<<"$haystack"; then
+    record_failure "$desc (missing '$needle')"
+  fi
+}
+
+expect_not_contains() {
+  local desc="$1"
+  local haystack="$2"
+  local needle="$3"
+
+  if grep -Fq -- "$needle" <<<"$haystack"; then
+    record_failure "$desc (unexpected '$needle')"
+  fi
+}
+
+expect_file_contains() {
+  local desc="$1"
+  local file="$2"
+  local needle="$3"
+  local content
+
+  content="$(slurp_file "$file")"
+  expect_contains "$desc" "$content" "$needle"
+}
+
+expect_file_not_contains() {
+  local desc="$1"
+  local file="$2"
+  local needle="$3"
+  local content
+
+  content="$(slurp_file "$file")"
+  expect_not_contains "$desc" "$content" "$needle"
+}
+
+expect_file_empty() {
+  local desc="$1"
+  local file="$2"
+  local content
+
+  content="$(slurp_file "$file")"
+  if [[ -n "$content" ]]; then
+    record_failure "$desc (expected no shim calls, got '$content')"
+  fi
+}
+
+reset_stub_env() {
+  unset GIT_REV_PARSE_OUTPUT GIT_REV_PARSE_EXIT_CODE GIT_DEFAULT_EXIT_CODE
+  unset SSH_CONNECT_OUTPUT SSH_CONNECT_EXIT_CODE
+  unset SSH_WMIC_OUTPUT SSH_WMIC_EXIT_CODE
+  unset SSH_BRANCH_EXISTS_OUTPUT SSH_BRANCH_EXISTS_EXIT_CODE
+  unset SSH_SYNC_OUTPUT SSH_SYNC_EXIT_CODE
+  unset SSH_EXEC_OUTPUT SSH_EXEC_EXIT_CODE
+}
+
+write_stub_jq() {
+  local path="$1"
+  cat > "$path" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+
+log_file="${TORQUE_REMOTE_TEST_CALLS_LOG:?}"
+{
+  printf 'jq'
+  for arg in "$@"; do
+    printf ' [%s]' "$arg"
+  done
+  printf '\n'
+} >> "$log_file"
+
+if [[ "$#" -lt 3 ]]; then
+  exit 1
+fi
+
+query="$2"
+file="$3"
+field="${query%% //*}"
+field="${field#.}"
+
+if [[ ! -f "$file" ]]; then
+  exit 0
+fi
+
+value="$(sed -nE "s/.*\"$field\"[[:space:]]*:[[:space:]]*\"([^\"]*)\".*/\1/p" "$file" | head -n 1)"
+if [[ -z "$value" ]]; then
+  value="$(sed -nE "s/.*\"$field\"[[:space:]]*:[[:space:]]*(true|false|null|[0-9]+).*/\1/p" "$file" | head -n 1)"
+fi
+
+if [[ -n "$value" && "$value" != "null" ]]; then
+  printf '%s\n' "$value"
+fi
+EOF
+}
+
+write_stub_git() {
+  local path="$1"
+  cat > "$path" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+
+log_file="${TORQUE_REMOTE_TEST_CALLS_LOG:?}"
+{
+  printf 'git'
+  for arg in "$@"; do
+    printf ' [%s]' "$arg"
+  done
+  printf '\n'
+} >> "$log_file"
+
+if [[ "$#" -ge 3 && "$1" == "rev-parse" && "$2" == "--abbrev-ref" && "$3" == "HEAD" ]]; then
+  if [[ "${GIT_REV_PARSE_OUTPUT+x}" == "x" && -n "$GIT_REV_PARSE_OUTPUT" ]]; then
+    printf '%s\n' "$GIT_REV_PARSE_OUTPUT"
+  fi
+  exit "${GIT_REV_PARSE_EXIT_CODE:-0}"
+fi
+
+exit "${GIT_DEFAULT_EXIT_CODE:-0}"
+EOF
+}
+
+write_stub_ssh() {
+  local path="$1"
+  cat > "$path" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+
+log_file="${TORQUE_REMOTE_TEST_CALLS_LOG:?}"
+{
+  printf 'ssh'
+  for arg in "$@"; do
+    printf ' [%s]' "$arg"
+  done
+  printf '\n'
+} >> "$log_file"
+
+print_if_set() {
+  local var_name="$1"
+  if [[ "${!var_name+x}" == "x" && -n "${!var_name}" ]]; then
+    printf '%s' "${!var_name}"
+  fi
+}
+
+remote_cmd=""
+if [[ "$#" -gt 0 ]]; then
+  remote_cmd="${!#}"
+fi
+
+if [[ "$remote_cmd" == "echo ok" ]]; then
+  print_if_set SSH_CONNECT_OUTPUT
+  exit "${SSH_CONNECT_EXIT_CODE:-0}"
+fi
+
+if [[ "$remote_cmd" == "wmic cpu get loadpercentage /value" ]]; then
+  if [[ "${SSH_WMIC_OUTPUT+x}" == "x" ]]; then
+    printf '%s\n' "$SSH_WMIC_OUTPUT"
+  else
+    printf 'LoadPercentage=10\n'
+  fi
+  exit "${SSH_WMIC_EXIT_CODE:-0}"
+fi
+
+if [[ "$remote_cmd" == *"git rev-parse --verify origin/"* ]]; then
+  print_if_set SSH_BRANCH_EXISTS_OUTPUT
+  exit "${SSH_BRANCH_EXISTS_EXIT_CODE:-0}"
+fi
+
+if [[ "$remote_cmd" == *"git checkout --force "* && "$remote_cmd" == *"git reset --hard origin/"* ]]; then
+  if [[ "${SSH_SYNC_OUTPUT+x}" == "x" ]]; then
+    printf '%s\n' "$SSH_SYNC_OUTPUT"
+  else
+    printf 'sync-ok\n'
+  fi
+  exit "${SSH_SYNC_EXIT_CODE:-0}"
+fi
+
+if [[ "${SSH_EXEC_OUTPUT+x}" == "x" && -n "$SSH_EXEC_OUTPUT" ]]; then
+  printf '%s\n' "$SSH_EXEC_OUTPUT"
+fi
+
+exit "${SSH_EXEC_EXIT_CODE:-0}"
+EOF
+}
+
+write_stub_timeout() {
+  local path="$1"
+  cat > "$path" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+
+log_file="${TORQUE_REMOTE_TEST_CALLS_LOG:?}"
+{
+  printf 'timeout'
+  for arg in "$@"; do
+    printf ' [%s]' "$arg"
+  done
+  printf '\n'
+} >> "$log_file"
+
+if [[ "$#" -lt 2 ]]; then
+  exit 125
+fi
+
+shift
+"$@"
+EOF
+}
+
+make_test_env() {
+  local tmp
+  tmp="$(mktemp -d)"
+  TEMP_DIRS+=("$tmp")
+
+  mkdir -p "$tmp/.git" "$tmp/bin" "$tmp/home"
+  : > "$tmp/calls.log"
+
+  cat > "$tmp/.torque-remote.json" <<'EOF'
+{
+  "transport": "ssh",
+  "sync_before_run": true,
+  "timeout_seconds": 30
+}
+EOF
+
+  cat > "$tmp/.torque-remote.local.json" <<'EOF'
+{
+  "host": "fakehost",
+  "user": "fakeuser",
+  "remote_project_path": "/fake"
+}
+EOF
+
+  write_stub_jq "$tmp/bin/jq"
+  write_stub_git "$tmp/bin/git"
+  write_stub_ssh "$tmp/bin/ssh"
+  write_stub_timeout "$tmp/bin/timeout"
+  chmod +x "$tmp/bin/jq" "$tmp/bin/git" "$tmp/bin/ssh" "$tmp/bin/timeout"
+
+  LAST_TEST_ENV="$tmp"
+}
+
+run_torque_remote() {
+  local tmp="$1"
+  shift
+
+  local stdout_file="$tmp/stdout.log"
+  local stderr_file="$tmp/stderr.log"
+
+  : > "$stdout_file"
+  : > "$stderr_file"
+
+  (
+    cd "$tmp" || exit 1
+    HOME="$tmp/home" \
+    PATH="$tmp/bin:$ORIGINAL_PATH" \
+    TORQUE_REMOTE_TEST_CALLS_LOG="$tmp/calls.log" \
+    bash "$SCRIPT_UNDER_TEST" "$@" >"$stdout_file" 2>"$stderr_file"
+  )
+  RUN_EXIT=$?
+  RUN_STDOUT="$(slurp_file "$stdout_file")"
+  RUN_STDERR="$(slurp_file "$stderr_file")"
+}
+
+test_default_syncs_main() {
+  local tmp
+
+  echo "Test: default syncs main"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_file_contains "local branch detection runs" "$tmp/calls.log" "git [rev-parse] [--abbrev-ref] [HEAD]"
+  expect_file_contains "ssh sync checks out main" "$tmp/calls.log" "git checkout --force main"
+  expect_file_contains "ssh sync resets origin/main" "$tmp/calls.log" "git reset --hard origin/main"
+
+  finish_test "test_default_syncs_main"
+}
+
+test_branch_flag_syncs_override() {
+  local tmp
+
+  echo "Test: --branch syncs override"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+
+  run_torque_remote "$tmp" --branch wip/foo echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_file_not_contains "branch override skips local branch detection" "$tmp/calls.log" "git [rev-parse] [--abbrev-ref] [HEAD]"
+  expect_file_contains "ssh sync checks out override branch" "$tmp/calls.log" "git checkout --force wip/foo"
+  expect_file_contains "ssh sync resets origin override branch" "$tmp/calls.log" "git reset --hard origin/wip/foo"
+
+  finish_test "test_branch_flag_syncs_override"
+}
+
+test_branch_flag_missing_errors() {
+  local tmp
+
+  echo "Test: --branch missing branch errors"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export SSH_BRANCH_EXISTS_EXIT_CODE=1
+
+  run_torque_remote "$tmp" --branch bogus-branch echo hi
+
+  expect_nonzero "exit code is non-zero" "$RUN_EXIT"
+  expect_contains "stderr mentions missing origin branch" "$RUN_STDERR" "does not exist on origin"
+  expect_file_not_contains "missing branch does not attempt sync checkout" "$tmp/calls.log" "git checkout --force bogus-branch"
+  expect_file_not_contains "missing branch never invokes main command" "$tmp/calls.log" "echo hi"
+
+  finish_test "test_branch_flag_missing_errors"
+}
+
+test_invalid_branch_name_errors() {
+  local tmp
+
+  echo "Test: invalid --branch name errors"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+
+  run_torque_remote "$tmp" --branch 'foo;rm -rf /' echo hi
+
+  expect_nonzero "exit code is non-zero" "$RUN_EXIT"
+  expect_contains "stderr mentions invalid branch" "$RUN_STDERR" "Invalid"
+  expect_file_empty "invalid branch never executes shimmed commands" "$tmp/calls.log"
+
+  finish_test "test_invalid_branch_name_errors"
+}
+
+main() {
+  if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
+    echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
+    exit 1
+  fi
+
+  test_default_syncs_main
+  test_branch_flag_syncs_override
+  test_branch_flag_missing_errors
+  test_invalid_branch_name_errors
+
+  echo ""
+  echo "=============================="
+  echo "Results: $PASS passed, $FAIL failed"
+  if [[ ${#ERRORS[@]} -gt 0 ]]; then
+    echo ""
+    echo "Failures:"
+    local err
+    for err in "${ERRORS[@]}"; do
+      echo "  - $err"
+    done
+    echo "=============================="
+    exit 1
+  fi
+  echo "=============================="
+  exit 0
+}
+
+main "$@"
