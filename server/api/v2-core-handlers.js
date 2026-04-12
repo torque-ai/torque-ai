@@ -13,6 +13,7 @@ const db = require('../database');
 const { getTask, updateTaskStatus } = require('../db/task-core');
 const { getDefaultProvider, getProvider, listProviders } = require('../db/provider-routing-core');
 const { recordTaskEvent, getTaskEvents } = require('../db/webhooks-streaming');
+const { isLocalhostOrigin } = require('../dashboard/utils');
 const logger = require('../logger').child({ component: 'api-server' });
 const v2Inference = require('./v2-inference');
 
@@ -228,7 +229,7 @@ function sendV2SseHeaders(res, req = null) {
 
   if (req) {
     const origin = req.headers?.origin;
-    if (origin) {
+    if (origin && isLocalhostOrigin(origin)) {
       headers['Access-Control-Allow-Origin'] = origin;
       headers['Access-Control-Allow-Credentials'] = 'true';
     }
