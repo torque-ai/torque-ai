@@ -101,6 +101,23 @@ function listWorkItems({ project_id, status, source, limit } = {}) {
   return db.prepare(sql).all(...params).map(parseWorkItem);
 }
 
+function listOpenWorkItems({ project_id, limit } = {}) {
+  let sql = `
+    SELECT * FROM factory_work_items
+    WHERE 1=1
+      AND status NOT IN ('completed', 'rejected', 'shipped')
+  `;
+  const params = [];
+
+  if (project_id) { sql += ' AND project_id = ?'; params.push(project_id); }
+
+  sql += ' ORDER BY priority DESC, created_at DESC';
+  sql += ' LIMIT ?';
+  params.push(limit || 100);
+
+  return db.prepare(sql).all(...params).map(parseWorkItem);
+}
+
 function updateWorkItem(id, updates) {
   const allowed = ['title', 'description', 'priority', 'status', 'constraints_json', 'batch_id', 'reject_reason', 'linked_item_id'];
   const sets = [];
@@ -204,6 +221,7 @@ module.exports = {
   createWorkItem,
   getWorkItem,
   listWorkItems,
+  listOpenWorkItems,
   updateWorkItem,
   rejectWorkItem,
   findDuplicates,

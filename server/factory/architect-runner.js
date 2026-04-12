@@ -380,10 +380,9 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   }
 
   const healthScores = normalizeHealthScores(factoryHealth.getLatestScores(project_id));
-  // Query both 'pending' (migration v14 default) and 'intake' (original default) for compatibility
-  const pendingItems = factoryIntake.listWorkItems({ project_id, status: 'pending' });
-  const intakeStatusItems = factoryIntake.listWorkItems({ project_id, status: 'intake' });
-  const intakeItems = normalizeIntakeItems([...pendingItems, ...intakeStatusItems]);
+  const openItems = factoryIntake.listOpenWorkItems({ project_id });
+  const RESOLVED_STATUSES = new Set(['completed', 'rejected', 'shipped']);
+  const intakeItems = normalizeIntakeItems(openItems.filter(item => !RESOLVED_STATUSES.has(item.status)));
   const prevCycle = factoryArchitect.getLatestCycle(project_id);
 
   // Load human corrections for architect calibration
