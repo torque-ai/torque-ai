@@ -447,10 +447,10 @@ async function executeOllamaTask(task) {
     // Can be overridden by any later layer if needed
     const adaptiveContextEnabled = serverConfig.getBool('adaptive_context_enabled');
     let adaptiveCtx = null;
+    let taskMetadataParsed = {};
     if (adaptiveContextEnabled) {
       // Extract file paths from task description or metadata
       const taskFiles = [];
-      let taskMetadataParsed = {};
       try {
         taskMetadataParsed = typeof task.metadata === 'object' && task.metadata !== null ? task.metadata : task.metadata ? JSON.parse(task.metadata) : {};
       } catch { /* ignore */ }
