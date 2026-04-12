@@ -847,14 +847,39 @@ function getNextFallbackProvider(taskId) {
     ollamaIsAgentic = isAgenticCapable('ollama', ollamaModel).capable;
   } catch { /* non-fatal — default to skipping */ }
 
+  const isFallbackCandidateEnabled = (candidate) => {
+    if (!candidate) return false;
+
+    if (candidate !== 'codex' && candidate !== 'claude-cli') {
+      const providerConfig = getProvider(candidate);
+      if (!providerConfig || !providerConfig.enabled) {
+        return false;
+      }
+    }
+
+    const configKey = `${candidate.replace(/-/g, '_')}_enabled`;
+    const registryEntry = serverConfig.REGISTRY?.[configKey];
+    if (registryEntry) {
+      return registryEntry.type === 'bool-optin'
+        ? serverConfig.isOptIn(configKey)
+        : serverConfig.getBool(configKey);
+    }
+
+    const rawFlag = serverConfig.get(configKey);
+    if (rawFlag !== null && rawFlag !== undefined) {
+      return serverConfig.getBool(configKey);
+    }
+
+    return true;
+  };
+
   for (const candidate of chain) {
     if (triedProviders.has(candidate)) continue;
     if (candidate === 'ollama' && isGreenfield && !ollamaIsAgentic) {
       logger.info(`[FallbackChain] Skipping raw ollama for greenfield task ${taskId} — model is not agentic-capable`);
       continue;
     }
-    const p = getProvider(candidate);
-    if (p && p.enabled) return candidate;
+    if (isFallbackCandidateEnabled(candidate)) return candidate;
   }
 
   return null; // Chain exhausted
