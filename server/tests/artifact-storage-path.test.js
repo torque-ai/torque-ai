@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
