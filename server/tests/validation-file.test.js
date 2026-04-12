@@ -1,5 +1,6 @@
 'use strict';
 
+const path = require('path');
 const realShared = require('../handlers/shared');
 
 function installMock(modulePath, exports) {
@@ -12,6 +13,8 @@ const getAllFileLocationIssues = vi.fn();
 const resolveFileLocationIssue = vi.fn();
 const resolveFileLocationAnomaly = vi.fn();
 const getSimilarFileSearchResults = vi.fn();
+const taskWorkspaceRoot = '/repo/project';
+const resolvedTaskWorkspaceRoot = path.resolve(taskWorkspaceRoot);
 
 const mockDb = {
   getTask: vi.fn(),
@@ -46,10 +49,10 @@ function resetMockDefaults() {
     }
   }
 
-  mockDb.getTask.mockReturnValue({ id: 'task-default', working_directory: '/repo/project' });
+  mockDb.getTask.mockReturnValue({ id: 'task-default', working_directory: taskWorkspaceRoot });
   mockDb.setExpectedOutputPath.mockReturnValue({
     task_id: 'task-default',
-    expected_directory: '/repo/project/out',
+    expected_directory: `${taskWorkspaceRoot}/out`,
     allow_subdirs: true,
   });
   checkFileLocationAnomalies.mockReturnValue([]);
@@ -263,12 +266,12 @@ describe('validation/file handlers', () => {
         file_extensions: ['.ts'],
       }));
 
-      expect(mockDb.checkDuplicateFiles).toHaveBeenCalledWith('task-3', '/repo/project', {
+      expect(mockDb.checkDuplicateFiles).toHaveBeenCalledWith('task-3', resolvedTaskWorkspaceRoot, {
         fileExtensions: ['.ts'],
       });
       expect(payload).toEqual({
         task_id: 'task-3',
-        working_directory: '/repo/project',
+        working_directory: resolvedTaskWorkspaceRoot,
         duplicates_found: 1,
         duplicates: [
           {
@@ -549,7 +552,7 @@ describe('validation/file handlers', () => {
       expect(mockDb.searchSimilarFiles).toHaveBeenCalledWith(
         'task-6',
         'Widget',
-        '/repo/project',
+        resolvedTaskWorkspaceRoot,
         'filename'
       );
       expect(payload).toEqual({

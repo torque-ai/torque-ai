@@ -221,21 +221,21 @@ describe('integration/index handlers', () => {
     }));
   });
 
-  it('handleTaskChanges shows the staged diff for a temp repo', () => {
+  it('handleTaskChanges shows the tracked diff between the before/after git SHAs', () => {
     initRepo('task-changes-repo');
     writeRepoFile('notes.txt', 'base\n');
     commitAll('initial commit');
 
     const beforeSha = gitSync(['rev-parse', 'HEAD'], { cwd: repoDir });
-    fs.writeFileSync(path.join(repoDir, 'notes.txt'), 'base\nstaged change\n', 'utf8');
-    gitSync(['add', 'notes.txt'], { cwd: repoDir });
-    const afterTree = gitSync(['write-tree'], { cwd: repoDir });
+    writeRepoFile('notes.txt', 'base\nstaged change\n');
+    commitAll('task diff change');
+    const afterSha = gitSync(['rev-parse', 'HEAD'], { cwd: repoDir });
 
     const task = createTask({
       task_description: 'task changes repo',
       working_directory: repoDir,
       git_before_sha: beforeSha,
-      git_after_sha: afterTree,
+      git_after_sha: afterSha,
     });
 
     const result = handleTaskChanges({ task_id: task.id });

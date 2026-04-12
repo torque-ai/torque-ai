@@ -199,8 +199,12 @@ function loadHandlers() {
   childProcess.execFileSync = realExecFileSync;
   childProcess.spawnSync = realSpawnSync;
   try {
+    const handlers = require(HANDLERS_MODULE);
+    if (typeof handlers.init === 'function') {
+      handlers.init({ db: {} });
+    }
     return {
-      handlers: require(HANDLERS_MODULE),
+      handlers,
       mocks,
     };
   } finally {

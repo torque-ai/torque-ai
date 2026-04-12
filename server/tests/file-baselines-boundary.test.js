@@ -83,9 +83,10 @@ describe('file baseline workspace boundaries', () => {
 
   it('flags sibling-prefix paths as unexpected locations', () => {
     const task = createTask();
-    const workDir = path.normalize('/foo');
-    const expectedDir = path.normalize('/foo/out');
-    const siblingFile = path.normalize('/foo/outside/x.js');
+    const workDir = path.join(testDir, `workspace-${randomUUID()}`);
+    const expectedDir = path.join(workDir, 'out');
+    const siblingFile = path.join(workDir, 'outside', 'x.js');
+    fs.mkdirSync(path.dirname(siblingFile), { recursive: true });
 
     fileBaselines.setExpectedOutputPath(task.id, expectedDir, { allowSubdirs: true });
     fileBaselines.recordFileChange(task.id, siblingFile, 'created', {
