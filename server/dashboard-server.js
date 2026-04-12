@@ -25,7 +25,12 @@ const hostManagement = require('./db/host-management');
 const serverConfig = require('./config');
 const { dispatch } = require('./dashboard/router');
 const { sendError, isLocalhostOrigin } = require('./dashboard/utils');
-const { dispatchV2, init: initV2Dispatch } = require('./api/v2-dispatch');
+const {
+  dispatchV2,
+  init: initV2Dispatch,
+  MAX_BODY_SIZE: MAX_V2_BODY_SIZE,
+  validateJsonDepth,
+} = require('./api/v2-dispatch');
 const eventBus = require('./event-bus');
 
 
@@ -727,17 +732,34 @@ async function start(options = {}) {
       // entry and the async handler's readJsonBody() listener attachment.
       if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
         const chunks = [];
-        req.on('data', chunk => chunks.push(chunk));
+        let bodySize = 0;
+        let bodyRejected = false;
+        req.on('data', chunk => {
+          if (bodyRejected || res.writableEnded) {
+            return;
+          }
+          const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          bodySize += bufferChunk.length;
+          if (bodySize > MAX_V2_BODY_SIZE) {
+            bodyRejected = true;
+            sendError(res, 'Request body too large', 413);
+            return;
+          }
+          chunks.push(bufferChunk);
+        });
         req.on('end', () => {
+          if (bodyRejected || res.writableEnded) {
+            return;
+          }
           try {
             const raw = Buffer.concat(chunks).toString('utf8');
             req.body = raw.trim() ? JSON.parse(raw) : {};
-          } catch (_e) {
-            req.body = null; // readJsonBody will re-throw as Invalid JSON
+            validateJsonDepth(req.body);
+          } catch (err) {
+            sendError(res, err.message === 'JSON nesting too deep' ? err.message : 'Invalid JSON', 400);
+            return;
           }
-        });
-        // Wait for body before dispatching
-        req.on('end', () => {
+
           dispatchV2(req, res).then(handled => {
             if (!handled) {
               dispatch(req, res, routeContext).catch(err => {
