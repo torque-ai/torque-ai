@@ -5,7 +5,8 @@ const { runMigrations } = require('../db/migrations');
 const factoryFeedback = require('../db/factory-feedback');
 const factoryHealth = require('../db/factory-health');
 const guardrailDb = require('../db/factory-guardrails');
-const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
+const feedbackAnalysis = require('../factory/feedback');
+const { analyzeBatch, detectDrift, recordHumanCorrection } = feedbackAnalysis;
 
 let db;
 let projectId;
@@ -27,6 +28,7 @@ beforeAll(() => {
   factoryHealth.setDb(db);
   guardrailDb.setDb(db);
   require('../database').getDbInstance = () => db;
+  feedbackAnalysis.init?.({ db: require('../database') });
 });
 
 beforeEach(() => {

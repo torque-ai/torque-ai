@@ -88,6 +88,7 @@ describe('study-telemetry', () => {
     });
 
     telemetry = require('../db/study-telemetry');
+    telemetry.init?.({ db: require('../database') });
   });
 
   afterEach(() => {

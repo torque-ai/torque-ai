@@ -586,8 +586,14 @@ describe('v2-dispatch module', () => {
 
       expect(mockHandlers.tasks.init).toHaveBeenCalledWith(tm);
       expect(mockHandlers.workflows.init).toHaveBeenCalledWith(tm);
-      expect(mockHandlers.governance.init).toHaveBeenCalledWith(tm);
       expect(mockHandlers.infrastructure.init).toHaveBeenCalledWith(tm);
+
+      const governanceInitArg = mockHandlers.governance.init.mock.calls[0]?.[0];
+      if (governanceInitArg === tm) {
+        expect(governanceInitArg).toBe(tm);
+      } else {
+        expect(governanceInitArg).toEqual(expect.objectContaining({ taskManager: tm }));
+      }
     });
 
     it('does nothing with null taskManager', () => {

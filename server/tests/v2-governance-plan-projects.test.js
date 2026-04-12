@@ -60,6 +60,13 @@ function loadHandlers() {
   return require('../api/v2-governance-handlers');
 }
 
+function initHandlersWithDeps(handlers, taskManager = null) {
+  handlers.init?.({ db: mockDb, taskManager });
+  if (taskManager) {
+    handlers.init?.(taskManager);
+  }
+}
+
 function ensureMockFn(target, key) {
   if (!target[key] || typeof target[key].mockReturnValue !== 'function') {
     target[key] = vi.fn();
@@ -145,7 +152,7 @@ beforeEach(() => {
 
   resetMockDefaults();
   handlers = loadHandlers();
-  handlers.init(mockTaskManager);
+  initHandlersWithDeps(handlers);
 });
 
 afterEach(() => {
@@ -231,7 +238,7 @@ describe('api/v2-governance-handlers.handleListPlanProjects', () => {
   it('returns an empty list when listPlanProjects is unavailable', async () => {
     mockDb.listPlanProjects = undefined;
     handlers = loadHandlers();
-    handlers.init(mockTaskManager);
+    initHandlersWithDeps(handlers);
 
     const req = createReq();
     const res = createMockRes();
@@ -498,6 +505,7 @@ describe('api/v2-governance-handlers.handleDeletePlanProject', () => {
   });
 
   it('cancels active tasks, deletes the project, and returns success', async () => {
+    initHandlersWithDeps(handlers, mockTaskManager);
     mockDb.getPlanProject.mockReturnValue({ id: 'plan-1' });
     mockDb.getPlanProjectTasks.mockReturnValue([
       { task_id: 'task-queued', status: 'queued' },
@@ -522,6 +530,7 @@ describe('api/v2-governance-handlers.handleDeletePlanProject', () => {
   });
 
   it('ignores tasks that are not queued, running, or waiting', async () => {
+    initHandlersWithDeps(handlers, mockTaskManager);
     mockDb.getPlanProject.mockReturnValue({ id: 'plan-2' });
     mockDb.getPlanProjectTasks.mockReturnValue([
       { task_id: 'task-completed', status: 'completed' },
@@ -540,6 +549,7 @@ describe('api/v2-governance-handlers.handleDeletePlanProject', () => {
   });
 
   it('falls back to updateTaskStatus when task cancellation throws', async () => {
+    initHandlersWithDeps(handlers, mockTaskManager);
     mockDb.getPlanProject.mockReturnValue({ id: 'plan-3' });
     mockDb.getPlanProjectTasks.mockReturnValue([
       { task_id: 'task-1', status: 'running' },
@@ -561,7 +571,7 @@ describe('api/v2-governance-handlers.handleDeletePlanProject', () => {
   });
 
   it('skips cancellation work when no task manager has been initialized', async () => {
-    handlers.init(null);
+    initHandlersWithDeps(handlers);
     mockDb.getPlanProject.mockReturnValue({ id: 'plan-4' });
 
     const req = createReq({ params: { project_id: 'plan-4' } });

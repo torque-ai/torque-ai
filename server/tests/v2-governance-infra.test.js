@@ -76,6 +76,13 @@ function loadHandlers() {
   return require(HANDLER_MODULE);
 }
 
+function initHandlersWithDeps(handlers, taskManager = null) {
+  handlers.init?.({ db: mockDb, taskManager });
+  if (taskManager) {
+    handlers.init?.(taskManager);
+  }
+}
+
 function createReq(overrides = {}) {
   return {
     params: {},
@@ -204,6 +211,7 @@ describe('api/v2-governance-handlers infrastructure routes', () => {
     vi.restoreAllMocks();
     resetMockDefaults();
     handlers = loadHandlers();
+    initHandlersWithDeps(handlers);
   });
 
   afterEach(() => {
@@ -1013,7 +1021,7 @@ describe('api/v2-governance-handlers infrastructure routes', () => {
     it('includes instance id and short_id when initialized with a task manager', async () => {
       const res = createMockRes();
 
-      handlers.init(mockTaskManager);
+      initHandlersWithDeps(handlers, mockTaskManager);
       mockTaskManager.getMcpInstanceId.mockReturnValue('mcp-instance-abcdef');
       mockSystemState({
         heapUsedMB: 50,

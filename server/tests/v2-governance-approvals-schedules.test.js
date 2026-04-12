@@ -81,6 +81,13 @@ function loadHandlers() {
   return require(HANDLER_MODULE);
 }
 
+function initHandlersWithDeps(handlers, taskManager = null) {
+  handlers.init?.({ db: mockDb, taskManager });
+  if (taskManager) {
+    handlers.init?.(taskManager);
+  }
+}
+
 function createMockRes() {
   const res = {
     statusCode: 200,
@@ -208,7 +215,7 @@ describe('api/v2-governance-handlers approvals and schedules', () => {
     vi.setSystemTime(new Date(FIXED_TIMESTAMP));
     resetMockDefaults();
     handlers = loadHandlers();
-    handlers.init(null);
+    initHandlersWithDeps(handlers);
   });
 
   afterEach(() => {

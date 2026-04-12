@@ -85,6 +85,10 @@ installMock('../task-manager', mockTaskManager);
 
 const admin = require('../dashboard/routes/admin');
 
+function initAdminHandlers() {
+  admin.init?.({ db: mockDb });
+}
+
 function createMockRes() {
   return {
     statusCode: null,
@@ -177,6 +181,7 @@ beforeEach(() => {
   resetToolMocks();
   resetTaskManagerMocks();
   resetFsMocks();
+  initAdminHandlers();
 });
 
 describe('dashboard/admin handlers', () => {

@@ -84,6 +84,10 @@ installMock('fs', mockFs);
 
 const admin = require('../dashboard/routes/admin');
 
+function initAdminHandlers() {
+  admin.init?.({ db: mockDb });
+}
+
 function createMockRes() {
   return {
     statusCode: null,
@@ -205,6 +209,7 @@ beforeEach(() => {
   resetDbDefaults();
   resetDependencyDefaults();
   resetUtilsDefaults();
+  initAdminHandlers();
 });
 
 describe('dashboard/routes/admin', () => {

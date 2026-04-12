@@ -141,6 +141,13 @@ function loadHandlers() {
   return require(HANDLER_MODULE);
 }
 
+function initHandlersWithDeps(handlers, taskManager = null) {
+  handlers.init?.({ db: mockDb, taskManager });
+  if (taskManager) {
+    handlers.init?.(taskManager);
+  }
+}
+
 // ─── Test Helpers ────────────────────────────────────────────────────────
 
 function createMockRes() {
@@ -255,7 +262,7 @@ describe('api/v2-governance-handlers remaining coverage', () => {
     vi.setSystemTime(new Date(FIXED_TIMESTAMP));
     resetAllMocks();
     handlers = loadHandlers();
-    handlers.init(null);
+    initHandlersWithDeps(handlers);
   });
 
   afterEach(() => {
@@ -1130,12 +1137,12 @@ describe('api/v2-governance-handlers remaining coverage', () => {
 
       const { req, res } = createMockContext({
         params: { provider_id: 'codex' },
-        body: { enabled: false, model: 'gpt-5', max_concurrent: 5, timeout_minutes: 10 },
+        body: { enabled: 0, model: 'gpt-5', max_concurrent: 5, timeout_minutes: 10 },
       });
       await handlers.handleConfigureProvider(req, res);
 
       expect(mockDb.updateProvider).toHaveBeenCalledWith('codex', {
-        enabled: false,
+        enabled: 0,
         default_model: 'gpt-5',
         max_concurrent: 5,
         timeout_minutes: 10,
@@ -1263,7 +1270,7 @@ describe('api/v2-governance-handlers remaining coverage', () => {
 
     it('includes instance id when taskManager provides getMcpInstanceId', async () => {
       const mockTm = { getMcpInstanceId: vi.fn().mockReturnValue('abc123def456') };
-      handlers.init(mockTm);
+      initHandlersWithDeps(handlers, mockTm);
       mockDb.countTasks.mockReturnValue(0);
 
       const { req, res } = createMockContext();
@@ -1274,7 +1281,7 @@ describe('api/v2-governance-handlers remaining coverage', () => {
     });
 
     it('omits instance id fields when taskManager has no getMcpInstanceId', async () => {
-      handlers.init(null);
+      initHandlersWithDeps(handlers);
       mockDb.countTasks.mockReturnValue(0);
 
       const { req, res } = createMockContext();
@@ -1968,11 +1975,11 @@ describe('api/v2-governance-handlers remaining coverage', () => {
   describe('init', () => {
     it('sets the taskManager', () => {
       const mockTm = { cancelTask: vi.fn() };
-      handlers.init(mockTm);
+      initHandlersWithDeps(handlers, mockTm);
       // No direct assertion possible on _taskManager, but we verify via
       // handleSystemStatus using getMcpInstanceId
       const mockTm2 = { getMcpInstanceId: vi.fn().mockReturnValue('test-id') };
-      handlers.init(mockTm2);
+      initHandlersWithDeps(handlers, mockTm2);
       // handleSystemStatus will use it
     });
   });

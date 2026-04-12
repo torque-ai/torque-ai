@@ -112,6 +112,13 @@ function loadHandlers() {
   };
 }
 
+function initHandlersWithDeps(handlers, db, taskManager = null) {
+  handlers.init?.({ db, taskManager });
+  if (taskManager) {
+    handlers.init?.(taskManager);
+  }
+}
+
 function createMockRes() {
   return {
     statusCode: 200,
@@ -219,7 +226,7 @@ describe('api/v2-governance-handlers', () => {
     const loaded = loadHandlers();
     handlers = loaded.handlers;
     mocks = loaded.mocks;
-    handlers.init(mocks.taskManager);
+    initHandlersWithDeps(handlers, mocks.db);
   });
 
   afterEach(() => {
@@ -880,6 +887,7 @@ describe('api/v2-governance-handlers', () => {
       });
 
       it('cancels active tasks, deletes the project, and returns success', async () => {
+        initHandlersWithDeps(handlers, mocks.db, mocks.taskManager);
         mocks.db.getPlanProject.mockReturnValue({ id: 'plan-1' });
         mocks.db.getPlanProjectTasks.mockReturnValue([
           { task_id: 'task-queued', status: 'queued' },
@@ -914,6 +922,7 @@ describe('api/v2-governance-handlers', () => {
       });
 
       it('falls back to updateTaskStatus when cancellation throws', async () => {
+        initHandlersWithDeps(handlers, mocks.db, mocks.taskManager);
         mocks.db.getPlanProject.mockReturnValue({ id: 'plan-2' });
         mocks.db.getPlanProjectTasks.mockReturnValue([
           { task_id: 'task-1', status: 'running' },
@@ -938,7 +947,7 @@ describe('api/v2-governance-handlers', () => {
       });
 
       it('skips cancellation when no task manager has been initialized', async () => {
-        handlers.init(null);
+        initHandlersWithDeps(handlers, mocks.db);
         mocks.db.getPlanProject.mockReturnValue({ id: 'plan-3' });
         const { req, res } = createMockContext({
           params: { project_id: 'plan-3' },
