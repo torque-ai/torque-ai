@@ -41,9 +41,15 @@ function resolveVersionIntent(value) {
   return normalizeVersionIntent(value) || DEFAULT_VERSION_INTENT;
 }
 
+function createHandlerError(message, code = ErrorCodes.INTERNAL_ERROR) {
+  const error = new Error(message);
+  error.code = code?.code || code || ErrorCodes.INTERNAL_ERROR.code;
+  return error;
+}
+
 function buildStudyService() {
   if (!_db) {
-    throw new Error('Codebase study handlers require init({ db }) before use');
+    throw createHandlerError('Codebase study handlers require init({ db }) before use');
   }
 
   return createCodebaseStudy({
