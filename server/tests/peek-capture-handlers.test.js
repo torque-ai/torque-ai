@@ -19,14 +19,6 @@ vi.mock('../task-manager', () => currentModules.taskManager);
 vi.mock('../plugins/snapscope/handlers/shared', () => currentModules.peekShared);
 vi.mock('../logger', () => currentModules.logger);
 
-const mockTesseractWorker = {
-  recognize: vi.fn(),
-};
-
-const mockTesseract = {
-  createWorker: vi.fn(async () => mockTesseractWorker),
-};
-
 const sharpState = {
   metadata: { width: 640, height: 480 },
   outputBuffer: Buffer.from('annotated-image'),
@@ -160,7 +152,6 @@ function loadHandlers() {
   installMock('../handlers/shared', realShared);
   installMock('../logger', currentModules.logger);
   installMock('sharp', mockSharp);
-  installMock('tesseract.js', mockTesseract);
 
   delete require.cache[CAPTURE_MODULE_PATH];
 
@@ -179,10 +170,6 @@ describe('peek/capture exported handlers', () => {
     sharpState.metadata = { width: 640, height: 480 };
     sharpState.outputBuffer = Buffer.from('annotated-image');
     vi.spyOn(mockChildProcess, 'execFileSync').mockReturnValue('build ok');
-    mockTesseract.createWorker.mockResolvedValue(mockTesseractWorker);
-    mockTesseractWorker.recognize.mockResolvedValue({
-      data: { text: 'Detected text' },
-    });
 
     tempHomeDir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-peek-capture-handlers-'));
     vi.spyOn(os, 'homedir').mockReturnValue(tempHomeDir);

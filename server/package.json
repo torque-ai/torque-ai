@@ -41,8 +41,7 @@
   },
   "optionalDependencies": {
     "bcryptjs": "^3.0.3",
-    "sharp": "^0.34.5",
-    "tesseract.js": "^7.0.0"
+    "sharp": "^0.34.5"
   },
   "engines": {
     "node": ">=20.0.0"
