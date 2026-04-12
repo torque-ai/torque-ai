@@ -9,6 +9,7 @@ const VALID_SOURCES = new Set([
   'scheduled_scan', 'scout',
   'self_generated', 'ci',
   'api', 'webhook', 'manual',
+  'plan_file',
 ]);
 const VALID_STATUSES = new Set([
   'pending', 'triaged', 'in_progress', 'completed', 'rejected',
