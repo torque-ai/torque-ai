@@ -524,7 +524,7 @@ describe('createFlows', () => {
         last_sha: 'previous-sha',
         run_count: 1,
         tracked_files: ['src/alpha.js', 'src/beta.js'],
-        pending_files: ['src/alpha.js'],
+        pending_files: [],
       },
     });
 
