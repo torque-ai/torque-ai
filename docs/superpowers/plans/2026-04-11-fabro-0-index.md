@@ -1,6 +1,6 @@
 # Fabro-Inspired Plans — Index
 
-95 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 82 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream, Langfuse, Portkey, Promptfoo, Outlines, TensorZero, AutoGen Studio, Firecrawl, DeepEval, E2B, smolagents, Zep, Arize Phoenix, Braintrust, Modal, Cody, Dust, Mastra, Vercel AI SDK, Claude Agent SDK, SuperAGI, LangSmith, GPT Researcher, Cloudflare Agents, Inngest AgentKit, LiteLLM, Helicone, fabric, Motia, TypeAgent, Browser Use, Chroma, gptme.
+103 plans implementing recommendations from `docs/superpowers/research/2026-04-11-fabro-review.md` plus session-derived enhancements plus features scouted from 90 other software-factory / AI-coding / orchestration projects: OpenHands, Aider, SWE-agent, MetaGPT, ChatDev, Plandex, Cline, Goose, GPT-Engineer, TaskWeaver, Sweep, DSPy, CrewAI, LangGraph, Temporal, AutoGen, Trigger.dev, Dagster, Prefect, Continue.dev, GPT Pilot, Cadence, Restate, Argo Workflows, Mentat, Conductor, Smol-Developer, Inngest, Letta (MemGPT), Devika, AutoCodeRover, Kestra, Activepieces, Camunda 8, Refact, Bolt.diy, n8n, AutoGPT, LlamaIndex, Windmill, Pydantic AI, Dify, Rivet, BAML, ControlFlow, Agno, Marvin, Haystack, CAMEL-AI, Dapr Workflows, Flyte, mem0, Pipedream, Langfuse, Portkey, Promptfoo, Outlines, TensorZero, AutoGen Studio, Firecrawl, DeepEval, E2B, smolagents, Zep, Arize Phoenix, Braintrust, Modal, Cody, Dust, Mastra, Vercel AI SDK, Claude Agent SDK, SuperAGI, LangSmith, GPT Researcher, Cloudflare Agents, Inngest AgentKit, LiteLLM, Helicone, fabric, Motia, TypeAgent, Browser Use, Chroma, gptme, Semantic Kernel, Swarm, Guardrails AI, Composio, Burr, Inspect AI, LangMem, Agents Squad.
 
 ## Plan list
 
@@ -129,6 +129,16 @@
 94. **[Chroma-Backed Archival Memory](2026-04-11-fabro-94-chroma-archival.md)** — collection API + where filters + pluggable embedders (Chroma)
 95. **[Editable Conversation Transcripts](2026-04-11-fabro-95-editable-transcripts.md)** — plain-text log + $EDITOR roundtrip + replay (gptme)
 
+### Filters + handoffs + safety evals + managed OAuth (round 10)
+96. **[Filter Pipeline](2026-04-11-fabro-96-filter-pipeline.md)** — pluggable prompt/invocation middleware (Semantic Kernel)
+97. **[Function-Return-Agent Handoff](2026-04-11-fabro-97-swarm-handoff.md)** — tool-return handoff + context_variables (Swarm)
+98. **[Validator On-Fail Action Matrix](2026-04-11-fabro-98-on-fail-matrix.md)** — reask/fix/filter/refrain/exception + ReAsk primitive (Guardrails AI)
+99. **[Managed OAuth + Behavioral Tool Tags](2026-04-11-fabro-99-managed-oauth.md)** — auth-config + connected-account + readOnly/destructive hints (Composio)
+100. **[Action-First State Machine + Fork Recovery](2026-04-11-fabro-100-action-state-machine.md)** — read/write contracts + fork-from-sequence (Burr)
+101. **[Safety-Eval Harness](2026-04-11-fabro-101-safety-eval-harness.md)** — Task/Solver/Scorer + approval policies (Inspect AI)
+102. **[Procedural Memory + Prompt Optimizer](2026-04-11-fabro-102-procedural-memory.md)** — semantic/episodic/procedural split + reflection executor (LangMem)
+103. **[Classifier-First Turn Router](2026-04-11-fabro-103-classifier-first-router.md)** — front-door specialist router + per-specialist ChatStorage (Agents Squad)
+
 ## Source attributions
 
 | Plan | Inspired by |
@@ -206,6 +216,14 @@
 | 93 | Browser Use |
 | 94 | Chroma |
 | 95 | gptme |
+| 96 | Semantic Kernel |
+| 97 | Swarm |
+| 98 | Guardrails AI |
+| 99 | Composio |
+| 100 | Burr |
+| 101 | Inspect AI |
+| 102 | LangMem |
+| 103 | Agents Squad |
 
 ## Suggested sequencing
 
@@ -224,6 +242,7 @@
 **Batch M — Sandbox + memory + context** (75, 76, 77, 78, 79, 80, 81)
 **Batch N — Authoring + runtime refinement** (82, 83, 84, 85, 86, 87, 88)
 **Batch O — Gateways + patterns + NL dispatch** (89, 90, 91, 92, 93, 94, 95)
+**Batch P — Filters + handoffs + safety evals + managed OAuth** (96, 97, 98, 99, 100, 101, 102, 103)
 
 ## How to execute
 
