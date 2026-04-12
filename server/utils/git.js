@@ -10,7 +10,7 @@
  * git-status storms when multiple callers probe the same repo.
  */
 
-const { execFileSync } = require('child_process');
+const childProcess = require('child_process');
 const { TASK_TIMEOUTS } = require('../constants');
 
 // Safe environment variables that prevent git from blocking on prompts
@@ -46,7 +46,8 @@ function safeGitExec(args, opts = {}) {
     ...opts,
     env: { ...process.env, ...GIT_SAFE_ENV, ...(opts.env || {}) },
   };
-  return execFileSync('git', args, merged);
+  const runner = childProcess._realExecFileSync || childProcess.execFileSync;
+  return runner('git', args, merged);
 }
 
 // ─── Worktree fingerprint cache ─────────────────────────────────────
