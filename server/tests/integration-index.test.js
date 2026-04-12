@@ -85,11 +85,13 @@ describe('integration/index handlers', () => {
   }
 
   function initRepo(name = 'repo') {
-    repoDir = path.join(tempDir, name);
+    const suffix = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    repoDir = path.join(tempDir, `${name}-${suffix}`);
     fs.mkdirSync(repoDir, { recursive: true });
     gitSync(['init'], { cwd: repoDir });
     gitSync(['config', 'user.email', 'test@test.com'], { cwd: repoDir });
     gitSync(['config', 'user.name', 'Test'], { cwd: repoDir });
+    gitSync(['config', 'commit.gpgsign', 'false'], { cwd: repoDir });
     return repoDir;
   }
 
@@ -102,7 +104,7 @@ describe('integration/index handlers', () => {
 
   function commitAll(message) {
     gitSync(['add', '--all'], { cwd: repoDir });
-    gitSync(['commit', '-m', message, '--no-gpg-sign'], { cwd: repoDir });
+    gitSync(['commit', '-m', message, '--no-gpg-sign', '--allow-empty-message'], { cwd: repoDir });
   }
 
   it('handleExportReportJSON records the export and returns task JSON with the expected schema', () => {
@@ -246,10 +248,7 @@ describe('integration/index handlers', () => {
     expect(text).toMatch(/M\s+notes\.txt/);
   });
 
-  // TODO: passes in isolation but fails in full-suite — likely git fixture
-  // pollution from sibling tests on shared temp paths. Re-enable once the
-  // test isolation is sorted; tracked in 2026-04-12 remediation notes.
-  it.skip('handleRollbackFile restores the previous file contents in a temp repo', () => {
+  it('handleRollbackFile restores the previous file contents in a temp repo', () => {
     initRepo('rollback-repo');
     const filePath = writeRepoFile('tracked.txt', 'original\n');
     commitAll('add tracked file');
@@ -280,9 +279,7 @@ describe('integration/index handlers', () => {
     }));
   });
 
-  // TODO: passes in isolation but fails in full-suite — same isolation issue
-  // as handleRollbackFile above. Re-enable once test isolation is fixed.
-  it.skip('handleStashChanges stashes modified repo contents and leaves a clean worktree', () => {
+  it('handleStashChanges stashes modified repo contents and leaves a clean worktree', () => {
     initRepo('stash-repo');
     const filePath = writeRepoFile('tracked.txt', 'base\n');
     commitAll('seed repo');
