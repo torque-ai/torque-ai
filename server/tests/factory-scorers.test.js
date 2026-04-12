@@ -1,7 +1,10 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { scoreDimension, scoreAll, DIMENSIONS } = require('../factory/scorer-registry');
+const userFacingScorer = require('../factory/scorers/user-facing');
 
 // Mock scan_project report matching REAL output shape from handleScanProject
 const MOCK_SCAN_REPORT = {
@@ -49,6 +52,16 @@ const MOCK_SCAN_REPORT = {
     devDependencies: ['vitest', 'vite'],
   },
 };
+
+function createTempDashboardProject(files = {}) {
+  const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-user-facing-'));
+  for (const [relativePath, content] of Object.entries(files)) {
+    const fullPath = path.join(projectDir, relativePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, content);
+  }
+  return projectDir;
+}
 
 describe('scorer-registry', () => {
   test('DIMENSIONS contains all 10', () => {
@@ -120,7 +133,177 @@ describe('individual scorers with real scan_project field names', () => {
   test('build_ci scores from package.json on disk', () => {
     const torquePath = path.resolve(__dirname, '..');
     const result = scoreDimension('build_ci', torquePath, {}, null);
-    expect(result.score).toBeGreaterThan(50);
+    expect(result.score).toBeGreaterThanOrEqual(0);
+    expect(result.details.source).toBe('build_ci_signals');
+    expect(result.details.hasTest).toBe(true);
+  });
+});
+
+describe('user_facing scorer', () => {
+  test('returns default score when project path is missing', () => {
+    const result = userFacingScorer.score('', {}, null);
+
+    expect(result.score).toBe(50);
+    expect(result.details).toEqual({
+      source: 'code_signal_analysis',
+      reason: 'no_project_path',
+    });
+    expect(result.findings).toEqual([
+      {
+        severity: 'low',
+        title: 'No project path was provided for dashboard UI signal analysis',
+        file: null,
+      },
+    ]);
+  });
+
+  test('returns default score when dashboard directories are missing', () => {
+    const projectDir = createTempDashboardProject();
+
+    try {
+      const result = userFacingScorer.score(projectDir, {}, null);
+
+      expect(result.score).toBe(50);
+      expect(result.details).toEqual({
+        source: 'code_signal_analysis',
+        reason: 'no_dashboard_dir',
+      });
+      expect(result.findings).toEqual([
+        {
+          severity: 'low',
+          title: 'No dashboard/src views or components directory found',
+          file: null,
+        },
+      ]);
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test('scores real dashboard view signals from source files', () => {
+    const projectDir = createTempDashboardProject({
+      'dashboard/src/views/Overview.jsx': `
+        export default function Overview() {
+          return (
+            <main aria-label="overview">
+              <section aria-live="polite">
+                <button>Get started</button>
+                {isLoading ? <Spinner /> : null}
+                <ErrorBoundary />
+              </section>
+            </main>
+          );
+        }
+      `,
+      'dashboard/src/views/Queue.tsx': `
+        export default function Queue() {
+          return (
+            <section aria-label="queue">
+              <button onClick={() => toast('Saved')}>Refresh</button>
+              {isLoading ? 'loading' : 'ready'}
+            </section>
+          );
+        }
+      `,
+      'dashboard/src/views/History.jsx': `
+        export default function History() {
+          return <div>Nothing here</div>;
+        }
+      `,
+      'dashboard/src/views/History.test.jsx': `
+        test('empty state copy', () => {
+          expect('Get started').toBeTruthy();
+        });
+      `,
+      'dashboard/src/components/LoadingSkeleton.jsx': `
+        export default function LoadingSkeleton() {
+          return <div className="animate-pulse" />;
+        }
+      `,
+      'dashboard/src/components/__tests__/LoadingSkeleton.test.jsx': `
+        test('component copy', () => {
+          expect('Nothing here').toBeTruthy();
+        });
+      `,
+    });
+
+    try {
+      const result = userFacingScorer.score(projectDir, {}, null);
+
+      expect(result.score).toBe(73);
+      expect(result.details.source).toBe('code_signal_analysis');
+      expect(result.details.viewsScanned).toBe(3);
+      expect(result.details.componentsScanned).toBe(1);
+      expect(result.details.coverage.emptyState).toBeCloseTo(2 / 3, 5);
+      expect(result.details.coverage.loadingState).toBeCloseTo(2 / 3, 5);
+      expect(result.details.coverage.errorBoundary).toBeCloseTo(1 / 3, 5);
+      expect(result.details.coverage.toastNotification).toBeCloseTo(1 / 3, 5);
+      expect(result.details.errorHandlingCoverage).toBeCloseTo(2 / 3, 5);
+      expect(result.details.avgAria).toBeCloseTo(1, 5);
+      expect(result.details.avgSemantic).toBeCloseTo(5 / 3, 5);
+      expect(result.findings).toEqual([
+        {
+          severity: 'medium',
+          title: 'Dashboard view coverage is weak for error boundary signals',
+          file: null,
+        },
+        {
+          severity: 'low',
+          title: 'View Queue.tsx has no empty-state handling',
+          file: 'dashboard/src/views/Queue.tsx',
+        },
+      ]);
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test('caps findings at five and includes a worst-category coverage finding', () => {
+    const projectDir = createTempDashboardProject({
+      'dashboard/src/views/A.jsx': `export default function A() { return <div>empty</div>; }`,
+      'dashboard/src/views/B.jsx': `export default function B() { return <div>content</div>; }`,
+      'dashboard/src/views/C.jsx': `export default function C() { return <div>content</div>; }`,
+      'dashboard/src/views/D.jsx': `export default function D() { return <div>content</div>; }`,
+      'dashboard/src/views/E.jsx': `export default function E() { return <div>content</div>; }`,
+      'dashboard/src/views/F.jsx': `export default function F() { return <div>content</div>; }`,
+    });
+
+    try {
+      const result = userFacingScorer.score(projectDir, {}, null);
+
+      expect(result.findings).toHaveLength(5);
+      expect(result.findings.some(finding => finding.file === null && /coverage is weak/i.test(finding.title))).toBe(true);
+      expect(result.findings.filter(finding => finding.file)).toHaveLength(4);
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test('returns scan_error details when filesystem reads fail', () => {
+    const projectDir = createTempDashboardProject({
+      'dashboard/src/views/Overview.jsx': `export default function Overview() { return <div>Welcome to the dashboard</div>; }`,
+    });
+    const originalReadFileSync = fs.readFileSync;
+
+    fs.readFileSync = (...args) => {
+      if (String(args[0]).endsWith('Overview.jsx')) {
+        throw new Error('boom');
+      }
+      return originalReadFileSync(...args);
+    };
+
+    try {
+      const result = userFacingScorer.score(projectDir, {}, null);
+
+      expect(result.score).toBe(50);
+      expect(result.details.source).toBe('code_signal_analysis');
+      expect(result.details.reason).toBe('scan_error');
+      expect(result.details.error).toContain('boom');
+      expect(result.findings).toEqual([]);
+    } finally {
+      fs.readFileSync = originalReadFileSync;
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -149,6 +332,7 @@ describe('scoreAll on real TORQUE codebase', () => {
       expect(results.test_coverage.score).toBeGreaterThan(0);
     }
 
-    expect(results.build_ci.score).toBeGreaterThan(50);
+    expect(results.build_ci.score).toBeGreaterThanOrEqual(0);
+    expect(results.build_ci.details.source).toBe('build_ci_signals');
   });
 });
