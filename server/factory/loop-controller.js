@@ -7,9 +7,12 @@ const {
   isValidState,
   getGatesForTrustLevel,
 } = require('./loop-states');
+const database = require('../database');
 const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory-intake');
 const architectRunner = require('../factory/architect-runner');
 const guardrailRunner = require('../factory/guardrail-runner');
+const { createPlanFileIntake } = require('./plan-file-intake');
 const logger = require('../logger').child({ component: 'loop-controller' });
 
 function nowIso() {
@@ -55,7 +58,22 @@ function assertPausedAtStage(project, stage) {
 }
 
 function executeSenseStage(project_id) {
+  const project = getProjectOrThrow(project_id);
   const summary = factoryHealth.getProjectHealthSummary(project_id);
+
+  if (project.config && project.config.plans_dir) {
+    const db = database.getDbInstance();
+    const planIntake = createPlanFileIntake({ db, factoryIntake });
+    const result = planIntake.scan({
+      project_id: project.id,
+      plans_dir: project.config.plans_dir,
+    });
+    logger.info(
+      `SENSE: scanned ${result.scanned} plan files - ${result.created.length} new, ${result.skipped.length} skipped`,
+      { project_id }
+    );
+  }
+
   logger.info('SENSE stage executed', { project_id });
   return summary;
 }
