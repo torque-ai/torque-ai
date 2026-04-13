@@ -10,10 +10,12 @@ const {
   getGatesForTrustLevel,
 } = require('./loop-states');
 const database = require('../database');
+const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const architectRunner = require('../factory/architect-runner');
 const guardrailRunner = require('../factory/guardrail-runner');
+const { logDecision } = require('./decision-log');
 const { createPlanFileIntake } = require('./plan-file-intake');
 const { createShippedDetector } = require('./shipped-detector');
 const logger = require('../logger').child({ component: 'loop-controller' });
@@ -28,6 +30,14 @@ const WORK_ITEM_STATUS_ORDER = Object.freeze([
   'triaged',
   'intake',
 ]);
+
+const DECISION_STAGE_ACTORS = Object.freeze({
+  sense: 'health_model',
+  prioritize: 'architect',
+  plan: 'planner',
+  execute: 'executor',
+  verify: 'verifier',
+});
 
 function nowIso() {
   return new Date().toISOString();
@@ -105,9 +115,168 @@ function assertPausedAtStage(project, stage) {
   }
 }
 
+function normalizeDecisionStage(stage) {
+  if (!stage || typeof stage !== 'string') {
+    return null;
+  }
+  const normalized = stage.toLowerCase();
+  return DECISION_STAGE_ACTORS[normalized] ? normalized : null;
+}
+
+function getDecisionActor(stage, actor) {
+  const normalizedStage = normalizeDecisionStage(stage);
+  if (actor) {
+    return actor;
+  }
+  return normalizedStage ? DECISION_STAGE_ACTORS[normalizedStage] : null;
+}
+
+function getDecisionBatchId(project, workItem, explicitBatchId) {
+  return explicitBatchId || workItem?.batch_id || project?.loop_batch_id || null;
+}
+
+function getWorkItemDecisionContext(workItem) {
+  if (!workItem) {
+    return {
+      work_item_id: null,
+      priority: null,
+      work_item_status: null,
+      work_item_source: null,
+      plan_path: null,
+    };
+  }
+
+  return {
+    work_item_id: workItem.id ?? null,
+    priority: workItem.priority ?? null,
+    work_item_status: workItem.status || null,
+    work_item_source: workItem.source || null,
+    plan_path: workItem.origin?.plan_path || null,
+  };
+}
+
+function safeLogDecision(entry) {
+  const normalizedStage = normalizeDecisionStage(entry?.stage);
+  const actor = getDecisionActor(normalizedStage, entry?.actor);
+  if (!normalizedStage || !actor || !entry?.action) {
+    return null;
+  }
+
+  try {
+    const db = database.getDbInstance();
+    if (db) {
+      factoryDecisions.setDb(db);
+    }
+
+    return logDecision({
+      ...entry,
+      stage: normalizedStage,
+      actor,
+    });
+  } catch (error) {
+    logger.warn(
+      {
+        err: error.message,
+        project_id: entry?.project_id,
+        stage: normalizedStage,
+        action: entry?.action,
+      },
+      'Failed to log factory decision'
+    );
+    return null;
+  }
+}
+
+function logTransitionDecision({
+  project,
+  currentState,
+  nextState,
+  pausedAtStage,
+  reason,
+  workItem,
+  batchId,
+}) {
+  const effectiveBatchId = getDecisionBatchId(project, workItem, batchId);
+
+  if (nextState === LOOP_STATES.PAUSED) {
+    safeLogDecision({
+      project_id: project.id,
+      stage: pausedAtStage,
+      actor: 'human',
+      action: 'paused_at_gate',
+      reasoning: `Loop paused awaiting approval for ${pausedAtStage}.`,
+      inputs: {
+        previous_state: currentState,
+        trust_level: project.trust_level,
+      },
+      outcome: {
+        from_state: currentState,
+        to_state: nextState,
+        gate_stage: pausedAtStage || null,
+        reason: reason || null,
+        ...getWorkItemDecisionContext(workItem),
+      },
+      confidence: 1,
+      batch_id: effectiveBatchId,
+    });
+    return;
+  }
+
+  if (nextState === LOOP_STATES.EXECUTE && currentState !== LOOP_STATES.EXECUTE) {
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'started_execution',
+      reasoning: `Loop advanced into ${LOOP_STATES.EXECUTE}.`,
+      inputs: {
+        previous_state: currentState,
+        trust_level: project.trust_level,
+      },
+      outcome: {
+        from_state: currentState,
+        to_state: nextState,
+        reason: reason || null,
+        batch_id: effectiveBatchId,
+        ...getWorkItemDecisionContext(workItem),
+      },
+      confidence: 1,
+      batch_id: effectiveBatchId,
+    });
+    return;
+  }
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: currentState,
+    action: `advance_from_${String(currentState).toLowerCase()}`,
+    reasoning: `Loop advanced from ${currentState} to ${nextState}.`,
+    inputs: {
+      previous_state: currentState,
+      trust_level: project.trust_level,
+    },
+    outcome: {
+      from_state: currentState,
+      to_state: nextState,
+      paused_at_stage: pausedAtStage || null,
+      reason: reason || null,
+      batch_id: effectiveBatchId,
+      ...getWorkItemDecisionContext(workItem),
+    },
+    confidence: 1,
+    batch_id: effectiveBatchId,
+  });
+}
+
 function executeSenseStage(project_id) {
   const project = getProjectOrThrow(project_id);
   const summary = factoryHealth.getProjectHealthSummary(project_id);
+  const scanSummary = {
+    plans_dir: project.config?.plans_dir || null,
+    scanned: 0,
+    created_count: 0,
+    shipped_count: 0,
+    skipped_count: 0,
+  };
 
   if (project.config && project.config.plans_dir) {
     const db = database.getDbInstance();
@@ -119,11 +288,35 @@ function executeSenseStage(project_id) {
       project_id: project.id,
       plans_dir: project.config.plans_dir,
     });
+    scanSummary.scanned = result.scanned;
+    scanSummary.created_count = result.created.length;
+    scanSummary.shipped_count = result.shipped_count;
+    scanSummary.skipped_count = result.skipped.length;
     logger.info(
       `SENSE: scanned ${result.scanned} plan files - ${result.created.length} new, ${result.shipped_count} shipped, ${result.skipped.length} skipped`,
       { project_id }
     );
   }
+
+  safeLogDecision({
+    project_id,
+    stage: LOOP_STATES.SENSE,
+    action: 'scanned_plans',
+    reasoning: scanSummary.plans_dir
+      ? 'SENSE stage scanned the configured plans directory.'
+      : 'SENSE stage completed without a configured plans directory.',
+    inputs: {
+      plans_dir: scanSummary.plans_dir,
+    },
+    outcome: {
+      ...scanSummary,
+      balance: summary?.balance ?? null,
+      dimension_count: summary?.dimension_count ?? 0,
+      weakest_dimension: summary?.weakest_dimension || null,
+    },
+    confidence: 1,
+    batch_id: project.loop_batch_id || null,
+  });
 
   logger.info('SENSE stage executed', { project_id });
   return summary;
@@ -143,6 +336,15 @@ function getLoopWorkItem(project_id) {
   }
 
   return items[0] || null;
+}
+
+function tryGetLoopWorkItem(project_id) {
+  try {
+    return getLoopWorkItem(project_id);
+  } catch (error) {
+    logger.debug({ err: error.message, project_id }, 'Unable to resolve loop work item for decision context');
+    return null;
+  }
 }
 
 function getPostStageTransition(currentState, trustLevel) {
@@ -181,8 +383,8 @@ async function awaitTaskToStructuredResult(handleAwaitTask, taskCore, args) {
   };
 }
 
-async function executePlanStage(project) {
-  let workItem = getLoopWorkItem(project.id);
+async function executePlanStage(project, selectedWorkItem = null) {
+  let workItem = selectedWorkItem || getLoopWorkItem(project.id);
 
   if (workItem?.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)) {
     workItem = factoryIntake.updateWorkItem(workItem.id, { status: 'executing' });
@@ -190,6 +392,22 @@ async function executePlanStage(project) {
       project_id: project.id,
       work_item_id: workItem.id,
       plan_path: workItem.origin.plan_path,
+    });
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.PLAN,
+      action: 'skipped_plan_generation',
+      reasoning: 'pre-written plan detected',
+      inputs: {
+        ...getWorkItemDecisionContext(workItem),
+      },
+      outcome: {
+        architect_skipped: true,
+        reason: 'pre-written plan detected',
+        ...getWorkItemDecisionContext(workItem),
+      },
+      confidence: 1,
+      batch_id: getDecisionBatchId(project, workItem),
     });
     return {
       skip_to_execute: true,
@@ -213,6 +431,22 @@ async function executePlanStage(project) {
     project_id: project.id,
     cycle_id: cycle?.id ?? null,
     work_item_id: workItem?.id ?? null,
+  });
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.PLAN,
+    action: 'generated_plan',
+    reasoning: 'architect cycle completed',
+    inputs: {
+      ...getWorkItemDecisionContext(workItem),
+    },
+    outcome: {
+      architect_skipped: false,
+      cycle_id: cycle?.id ?? null,
+      ...getWorkItemDecisionContext(workItem),
+    },
+    confidence: 1,
+    batch_id: getDecisionBatchId(project, workItem),
   });
 
   return {
@@ -263,11 +497,28 @@ async function executePlanFileStage(project, workItem) {
       failed_task: result.failed_task,
       plan_path: targetItem.origin.plan_path,
     });
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'execution_failed',
+      reasoning: `task ${result.failed_task} failed`,
+      inputs: {
+        ...getWorkItemDecisionContext(targetItem),
+      },
+      outcome: {
+        failed_task: result.failed_task,
+        final_state: LOOP_STATES.IDLE,
+        plan_path: targetItem.origin.plan_path,
+      },
+      confidence: 1,
+      batch_id: getDecisionBatchId(project, targetItem),
+    });
     return {
       next_state: LOOP_STATES.IDLE,
       paused_at_stage: null,
       reason: `task ${result.failed_task} failed`,
       stage_result: result,
+      work_item: targetItem,
     };
   }
 
@@ -277,25 +528,80 @@ async function executePlanFileStage(project, workItem) {
     work_item_id: targetItem.id,
     completed_tasks: result.completed_tasks,
   });
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'completed_execution',
+    reasoning: 'plan execution completed',
+    inputs: {
+      ...getWorkItemDecisionContext(targetItem),
+    },
+    outcome: {
+      completed_tasks: result.completed_tasks || 0,
+      final_state: getPostStageTransition(LOOP_STATES.EXECUTE, project.trust_level).next_state,
+      plan_path: targetItem.origin.plan_path,
+    },
+    confidence: 1,
+    batch_id: getDecisionBatchId(project, targetItem),
+  });
 
   return {
     ...getPostStageTransition(LOOP_STATES.EXECUTE, project.trust_level),
     reason: 'plan execution completed',
     stage_result: result,
+    work_item: targetItem,
   };
 }
 
 async function executeVerifyStage(project_id, batch_id) {
   if (!batch_id) {
     logger.info('VERIFY stage: no batch_id, skipping guardrail checks', { project_id });
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.VERIFY,
+      action: 'skipped_verification',
+      reasoning: 'VERIFY stage skipped because no batch_id is attached.',
+      outcome: {
+        status: 'skipped',
+        reason: 'no_batch_id',
+      },
+      confidence: 1,
+      batch_id: null,
+    });
     return { status: 'skipped', reason: 'no_batch_id' };
   }
   try {
     const result = guardrailRunner.runPostBatchChecks(project_id, batch_id, []);
     logger.info('VERIFY stage: guardrail checks complete', { project_id, batch_id, result });
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.VERIFY,
+      action: 'verified_batch',
+      reasoning: 'VERIFY stage completed post-batch guardrail checks.',
+      outcome: {
+        batch_id,
+        status: result?.status || null,
+        passed: result?.passed ?? null,
+      },
+      confidence: 1,
+      batch_id,
+    });
     return result;
   } catch (err) {
     logger.warn(`VERIFY stage guardrail check failed: ${err.message}`, { project_id });
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.VERIFY,
+      action: 'verify_failed',
+      reasoning: err.message,
+      outcome: {
+        batch_id,
+        status: 'error',
+        error: err.message,
+      },
+      confidence: 1,
+      batch_id,
+    });
     return { status: 'error', error: err.message };
   }
 }
@@ -355,12 +661,30 @@ function scheduleLoop(project_id, interval_minutes) {
 
 function startLoop(project_id) {
   const project = getProjectOrThrow(project_id);
+  const previousState = getCurrentLoopState(project);
 
   factoryHealth.updateProject(project.id, {
     loop_state: LOOP_STATES.SENSE,
     loop_batch_id: null,
     loop_last_action_at: nowIso(),
     loop_paused_at_stage: null,
+  });
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.SENSE,
+    action: 'started_loop',
+    reasoning: 'Factory loop started and entered SENSE.',
+    inputs: {
+      previous_state: previousState,
+      trust_level: project.trust_level,
+    },
+    outcome: {
+      from_state: previousState,
+      to_state: LOOP_STATES.SENSE,
+    },
+    confidence: 1,
+    batch_id: null,
   });
 
   executeSenseStage(project.id);
@@ -401,27 +725,50 @@ async function advanceLoop(project_id) {
   let stageResult = null;
   let transitionReason = null;
   let executeStageRan = false;
+  let transitionWorkItem = null;
+
+  if (currentState === LOOP_STATES.PRIORITIZE) {
+    transitionWorkItem = getLoopWorkItem(project.id);
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.PRIORITIZE,
+      action: 'selected_work_item',
+      reasoning: transitionWorkItem
+        ? 'PRIORITIZE selected the highest-priority open work item.'
+        : 'PRIORITIZE found no open work item to select.',
+      outcome: {
+        selection_status: transitionWorkItem ? 'selected' : 'not_found',
+        ...getWorkItemDecisionContext(transitionWorkItem),
+      },
+      confidence: 1,
+      batch_id: getDecisionBatchId(project, transitionWorkItem),
+    });
+  }
 
   if (currentState === LOOP_STATES.PRIORITIZE || nextState === LOOP_STATES.PLAN) {
-    const planStage = await executePlanStage(project);
+    const planStage = await executePlanStage(project, transitionWorkItem);
     if (planStage?.stage_result) {
       stageResult = planStage.stage_result;
     }
     if (planStage?.reason) {
       transitionReason = planStage.reason;
     }
+    if (planStage?.work_item) {
+      transitionWorkItem = planStage.work_item;
+    }
     if (planStage?.skip_to_execute) {
       nextState = LOOP_STATES.EXECUTE;
       pausedAtStage = null;
     }
   } else if (currentState === LOOP_STATES.PLAN || currentState === LOOP_STATES.EXECUTE) {
-    const executeStage = await executePlanFileStage(project);
+    const executeStage = await executePlanFileStage(project, transitionWorkItem);
     if (executeStage) {
       executeStageRan = true;
       stageResult = executeStage.stage_result;
       nextState = executeStage.next_state;
       pausedAtStage = executeStage.paused_at_stage || null;
       transitionReason = executeStage.reason;
+      transitionWorkItem = executeStage.work_item || transitionWorkItem;
     }
   }
 
@@ -439,6 +786,8 @@ async function advanceLoop(project_id) {
     stageResult = await executeLearnStage(project.id, project.loop_batch_id);
   }
 
+  transitionWorkItem = transitionWorkItem || tryGetLoopWorkItem(project.id);
+
   factoryHealth.updateProject(project.id, {
     loop_state: nextState,
     loop_last_action_at: nowIso(),
@@ -451,6 +800,15 @@ async function advanceLoop(project_id) {
     new_state: nextState,
     paused_at_stage: pausedAtStage,
     reason: transitionReason,
+  });
+  logTransitionDecision({
+    project,
+    currentState,
+    nextState,
+    pausedAtStage,
+    reason: transitionReason,
+    workItem: transitionWorkItem,
+    batchId: getDecisionBatchId(project, transitionWorkItem),
   });
 
   return {
@@ -477,6 +835,25 @@ function approveGate(project_id, stage) {
   logger.info('Factory gate approved', {
     project_id: project.id,
     state: stage,
+  });
+  safeLogDecision({
+    project_id: project.id,
+    stage,
+    actor: 'human',
+    action: 'gate_approved',
+    reasoning: `Approval gate cleared for ${stage}.`,
+    inputs: {
+      previous_state: LOOP_STATES.PAUSED,
+      paused_at_stage: stage,
+    },
+    outcome: {
+      from_state: LOOP_STATES.PAUSED,
+      to_state: stage,
+      approved_stage: stage,
+      batch_id: project.loop_batch_id || null,
+    },
+    confidence: 1,
+    batch_id: project.loop_batch_id || null,
   });
 
   return {

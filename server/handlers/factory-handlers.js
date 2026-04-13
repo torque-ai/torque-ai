@@ -3,6 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const database = require('../database');
+const factoryDecisions = require('../db/factory-decisions');
 const factoryAudit = require('../db/factory-audit');
 const factoryArchitect = require('../db/factory-architect');
 const factoryHealth = require('../db/factory-health');
@@ -37,6 +38,14 @@ function jsonResponse(data) {
     content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
     structuredData: data,
   };
+}
+
+function ensureFactoryDecisionDb() {
+  const db = database.getDbInstance();
+  if (db) {
+    factoryDecisions.setDb(db);
+  }
+  return db;
 }
 
 function resolvePlansRepoRoot(projectPath, plansDir) {
@@ -766,6 +775,7 @@ async function handleFactoryCostMetrics(args) {
 
 async function handleDecisionLog(args) {
   const project = resolveProject(args.project);
+  ensureFactoryDecisionDb();
   if (args.batch_id) {
     const decisions = getDecisionContext(project.id, args.batch_id);
     return jsonResponse({ decisions, batch_id: args.batch_id });
