@@ -618,7 +618,7 @@ function evaluateWorkItemShipping(project, workItem, options = {}) {
   };
 }
 
-function maybeShipWorkItemAfterLearn(project_id, batch_id) {
+async function maybeShipWorkItemAfterLearn(project_id, batch_id) {
   try {
     const project = getProjectOrThrow(project_id);
     const rememberedWorkItemId = normalizeWorkItemId(selectedWorkItemIds.get(project_id));
@@ -741,6 +741,63 @@ function maybeShipWorkItemAfterLearn(project_id, batch_id) {
         reason: shippingDecision.reason,
         work_item_id: workItem.id,
       };
+    }
+
+    // Merge the factory worktree into main before marking the work item
+    // shipped. If merge fails, leave the item open with a skipped_shipping
+    // decision so the operator can resolve the conflict.
+    const worktreeRecord = activeFactoryWorktrees.get(project_id) || null;
+    const worktreeRunner = worktreeRecord ? getWorktreeRunner() : null;
+    if (worktreeRecord && worktreeRunner) {
+      try {
+        const mergeResult = await worktreeRunner.mergeToMain({
+          id: worktreeRecord.id,
+          branch: worktreeRecord.branch,
+          target: 'main',
+          strategy: 'merge',
+        });
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.LEARN,
+          action: 'worktree_merged',
+          reasoning: `Merged factory worktree ${worktreeRecord.branch} into main.`,
+          outcome: {
+            branch: worktreeRecord.branch,
+            target_branch: 'main',
+            strategy: mergeResult && mergeResult.strategy,
+            cleaned: mergeResult && mergeResult.cleaned,
+            worktree_id: worktreeRecord.id,
+          },
+          confidence: 1,
+          batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+        });
+        activeFactoryWorktrees.delete(project_id);
+      } catch (err) {
+        logger.warn('worktree merge failed; leaving work item open', {
+          project_id,
+          branch: worktreeRecord.branch,
+          err: err.message,
+        });
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.LEARN,
+          action: 'worktree_merge_failed',
+          reasoning: `Merge failed: ${err.message}. Work item stays open for operator resolution.`,
+          outcome: {
+            branch: worktreeRecord.branch,
+            worktree_path: worktreeRecord.worktreePath,
+            error: err.message,
+          },
+          confidence: 1,
+          batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+        });
+        return {
+          status: 'skipped',
+          reason: 'worktree_merge_failed',
+          work_item_id: workItem.id,
+          error: err.message,
+        };
+      }
     }
 
     const updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
@@ -2224,7 +2281,7 @@ async function executeLearnStage(project_id, batch_id) {
       confidence: 1,
       batch_id,
     });
-    const shippingResult = maybeShipWorkItemAfterLearn(project_id, batch_id);
+    const shippingResult = await maybeShipWorkItemAfterLearn(project_id, batch_id);
     logger.info('LEARN stage: batch analysis complete', {
       project_id,
       batch_id,
