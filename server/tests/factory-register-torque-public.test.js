@@ -58,9 +58,10 @@ describe('torque-public factory registration', () => {
       WHERE id = ?
     `).get(result.id);
 
+    const normalizedRepoRoot = path.resolve(repoRoot).replace(/\\/g, '/');
     expect(row).toBeTruthy();
     expect(row.name).toBe('torque-public');
-    expect(row.path).toBe(repoRoot);
+    expect(row.path).toBe(normalizedRepoRoot);
     expect(row.trust_level).toBe('supervised');
     expect(String(row.loop_state || '').toUpperCase()).toBe('IDLE');
 
