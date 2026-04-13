@@ -256,6 +256,11 @@ const FIXUPS = {
 // Exported handle* functions that are internal callbacks, not MCP tools.
 // These get auto-discovered by the pascalToSnake loop but should be excluded.
 const INTERNAL_HANDLER_EXPORTS = new Set([
+  // Async factory-loop dashboard pathway — handlers are wired directly into
+  // REST routes, not exposed as MCP tools (the sync `advance_factory_loop` /
+  // `factory_loop_status` MCP tools cover that surface).
+  'handleAdvanceFactoryLoopAsync',
+  'handleFactoryLoopJobStatus',
 ]);
 
 const routeMap = new Map();
