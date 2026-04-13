@@ -245,6 +245,41 @@ describe('factory scorer behavioral coverage', () => {
       });
     });
 
+    test('uses scan_report fileSizes totals when missingTests cannot provide a source file count', () => {
+      const projectDir = createProjectFixture({
+        'server/tests/fallback.spec.js': 'test("scan report fallback", () => {});',
+      });
+
+      const result = testCoverageScorer.score(projectDir, {
+        missingTests: {
+          covered: 0,
+          missing: 8,
+          total: 0,
+          coveragePercent: 0,
+        },
+        fileSizes: {
+          totalCodeFiles: 8,
+        },
+      }, null);
+
+      expect(result).toEqual({
+        score: 13,
+        details: {
+          source: 'file_count_heuristic',
+          test_files: 1,
+          source_files: 8,
+          coveragePercent: 13,
+        },
+        findings: [
+          {
+            severity: 'medium',
+            title: 'Test file ratio is 13% (1 test files / 8 source files)',
+            file: null,
+          },
+        ],
+      });
+    });
+
     test('scores realistic poor coverage from missingTests output below 30', () => {
       const result = testCoverageScorer.score('/unused', {
         missingTests: {
@@ -928,6 +963,18 @@ describe('factory scorer behavioral coverage', () => {
         result = runScore();
       }).not.toThrow();
       expectScoreOrFallback(result);
+    });
+
+    test('returns the exact no_data fallback when scan_report omits todos', () => {
+      const result = debtRatioScorer.score('/unused', {
+        summary: { totalFiles: 25 },
+      }, null);
+
+      expect(result).toEqual({
+        score: 50,
+        details: { source: 'no_data' },
+        findings: [],
+      });
     });
 
     test.each([
