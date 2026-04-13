@@ -12,6 +12,29 @@ function setDb(dbInstance) {
   db = dbInstance;
 }
 
+function getDb() {
+  let instance = db;
+  if (!instance) {
+    try {
+      const { defaultContainer } = require('../container');
+      if (defaultContainer && defaultContainer.has && defaultContainer.has('db')) {
+        instance = defaultContainer.get('db');
+      }
+      if (instance) {
+        db = instance;
+      }
+    } catch {
+      // Let the explicit error below surface if no active DB is available.
+    }
+  }
+
+  if (!instance || typeof instance.prepare !== 'function') {
+    throw new Error('Factory guardrails requires an active database connection');
+  }
+
+  return instance;
+}
+
 function recordEvent({ project_id, category, check_name, status, details, batch_id }) {
   if (!project_id) throw new Error('project_id is required');
   if (!VALID_CATEGORIES.has(category)) throw new Error(`Invalid category: ${category}`);
@@ -21,7 +44,7 @@ function recordEvent({ project_id, category, check_name, status, details, batch_
     throw new Error('details must be an object');
   }
 
-  const info = db.prepare(`
+  const info = getDb().prepare(`
     INSERT INTO factory_guardrail_events (project_id, category, check_name, status, details_json, batch_id, created_at)
     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
   `).run(
@@ -44,6 +67,7 @@ function getEvents(project_id, { category, status, limit, offset } = {}) {
   const safeLimit = Number.isInteger(limit) && limit > 0 ? limit : 50;
   const safeOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0;
   const params = [project_id];
+  const instance = getDb();
   let sql = `
     SELECT * FROM factory_guardrail_events
     WHERE project_id = ?
@@ -61,13 +85,13 @@ function getEvents(project_id, { category, status, limit, offset } = {}) {
   sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
   params.push(safeLimit, safeOffset);
 
-  return db.prepare(sql).all(...params).map(parseEvent);
+  return instance.prepare(sql).all(...params).map(parseEvent);
 }
 
 function getLatestByCategory(project_id) {
   if (!project_id) throw new Error('project_id is required');
 
-  const rows = db.prepare(`
+  const rows = getDb().prepare(`
     SELECT * FROM factory_guardrail_events
     WHERE id IN (
       SELECT MAX(id) FROM factory_guardrail_events
@@ -95,12 +119,12 @@ function getGuardrailStatus(project_id) {
 
 function clearEvents(project_id) {
   if (!project_id) throw new Error('project_id is required');
-  const info = db.prepare('DELETE FROM factory_guardrail_events WHERE project_id = ?').run(project_id);
+  const info = getDb().prepare('DELETE FROM factory_guardrail_events WHERE project_id = ?').run(project_id);
   return info.changes;
 }
 
 function getEvent(id) {
-  const row = db.prepare('SELECT * FROM factory_guardrail_events WHERE id = ?').get(id);
+  const row = getDb().prepare('SELECT * FROM factory_guardrail_events WHERE id = ?').get(id);
   return parseEvent(row);
 }
 

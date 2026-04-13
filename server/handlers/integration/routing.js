@@ -95,7 +95,10 @@ function formatSubscriptionInstructions(subscriptionTarget) {
 }
 
 function normalizeInitialTaskStatus(initialStatus) {
-  return initialStatus === 'pending_approval' ? 'pending_approval' : 'pending';
+  // Runnable smart-submit tasks must enter the queue immediately. The legacy
+  // queue scheduler only scans `queued` work, so leaving normal submissions in
+  // `pending` strands them indefinitely.
+  return initialStatus === 'pending_approval' ? 'pending_approval' : 'queued';
 }
 
 function buildSplitSuggestions(files, maxSuggestions = 3) {
