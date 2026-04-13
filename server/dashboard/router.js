@@ -13,12 +13,23 @@ const PROXY_TIMEOUT_MS = 60000;
 
 function proxyToMainApi(clientReq, clientRes) {
   return new Promise((resolve) => {
+    const hasRawBody = Buffer.isBuffer(clientReq._rawBody) && clientReq._rawBody.length > 0;
+    const forwardedHeaders = { ...clientReq.headers, host: `${MAIN_API_HOST}:${MAIN_API_PORT}` };
+    // Strip content-length / transfer-encoding when we drop an empty body so
+    // the upstream doesn't wait for bytes that will never arrive.
+    if (!hasRawBody && clientReq._rawBody !== undefined) {
+      delete forwardedHeaders['content-length'];
+      delete forwardedHeaders['Content-Length'];
+      delete forwardedHeaders['transfer-encoding'];
+      delete forwardedHeaders['Transfer-Encoding'];
+    }
+
     const proxyReq = http.request({
       host: MAIN_API_HOST,
       port: MAIN_API_PORT,
       method: clientReq.method,
       path: clientReq.url,
-      headers: { ...clientReq.headers, host: `${MAIN_API_HOST}:${MAIN_API_PORT}` },
+      headers: forwardedHeaders,
       timeout: PROXY_TIMEOUT_MS,
     }, (proxyRes) => {
       clientRes.writeHead(proxyRes.statusCode, proxyRes.headers);
@@ -34,8 +45,11 @@ function proxyToMainApi(clientReq, clientRes) {
       if (!clientRes.headersSent) sendError(clientRes, 'Upstream API timeout', 504);
       resolve();
     });
-    if (clientReq._rawBody) {
+    if (hasRawBody) {
       proxyReq.write(clientReq._rawBody);
+      proxyReq.end();
+    } else if (clientReq._rawBody !== undefined) {
+      // Body was consumed by the pre-parser but is empty — just end the request.
       proxyReq.end();
     } else {
       clientReq.pipe(proxyReq);
