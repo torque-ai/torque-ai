@@ -16,6 +16,7 @@ const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryWorktrees = require('../db/factory-worktrees');
 const architectRunner = require('../factory/architect-runner');
 const guardrailRunner = require('../factory/guardrail-runner');
 const { logDecision } = require('./decision-log');
@@ -72,11 +73,6 @@ const SELECTED_WORK_ITEM_DECISION_ACTIONS = Object.freeze([
 ]);
 
 const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected']);
-
-// Per-project active factory worktree record. Lives in memory for the lifetime
-// of the server — acceptable because a restart clears it and VERIFY/LEARN can
-// fall back to reading the worktree path from decision logs if needed.
-const activeFactoryWorktrees = new Map();
 
 let sharedWorktreeRunner = null;
 function getWorktreeRunner() {
@@ -746,16 +742,17 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id) {
     // Merge the factory worktree into main before marking the work item
     // shipped. If merge fails, leave the item open with a skipped_shipping
     // decision so the operator can resolve the conflict.
-    const worktreeRecord = activeFactoryWorktrees.get(project_id) || null;
+    const worktreeRecord = factoryWorktrees.getActiveWorktree(project_id);
     const worktreeRunner = worktreeRecord ? getWorktreeRunner() : null;
     if (worktreeRecord && worktreeRunner) {
       try {
         const mergeResult = await worktreeRunner.mergeToMain({
-          id: worktreeRecord.id,
+          id: worktreeRecord.vcWorktreeId,
           branch: worktreeRecord.branch,
           target: 'main',
           strategy: 'merge',
         });
+        factoryWorktrees.markMerged(worktreeRecord.id);
         safeLogDecision({
           project_id,
           stage: LOOP_STATES.LEARN,
@@ -766,12 +763,12 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id) {
             target_branch: 'main',
             strategy: mergeResult && mergeResult.strategy,
             cleaned: mergeResult && mergeResult.cleaned,
-            worktree_id: worktreeRecord.id,
+            worktree_id: worktreeRecord.vcWorktreeId,
+            factory_worktree_id: worktreeRecord.id,
           },
           confidence: 1,
           batch_id: shippingDecision.decision_batch_id || decisionBatchId,
         });
-        activeFactoryWorktrees.delete(project_id);
       } catch (err) {
         logger.warn('worktree merge failed; leaving work item open', {
           project_id,
@@ -786,6 +783,8 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id) {
           outcome: {
             branch: worktreeRecord.branch,
             worktree_path: worktreeRecord.worktreePath,
+            worktree_id: worktreeRecord.vcWorktreeId,
+            factory_worktree_id: worktreeRecord.id,
             error: err.message,
           },
           confidence: 1,
@@ -1914,18 +1913,22 @@ async function executePlanFileStage(project, workItem) {
   let worktreeRecord = null;
   let executionWorkingDirectory = project.path;
   if (worktreeRunner) {
+    let createdWorktree = null;
     try {
-      worktreeRecord = await worktreeRunner.createForBatch({
+      createdWorktree = await worktreeRunner.createForBatch({
         project,
         workItem: targetItem,
         batchId: executeLogBatchId,
       });
-      executionWorkingDirectory = worktreeRecord.worktreePath;
-      activeFactoryWorktrees.set(project.id, {
-        ...worktreeRecord,
-        batchId: executeLogBatchId,
-        workItemId: targetItem.id,
+      worktreeRecord = factoryWorktrees.recordWorktree({
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        batch_id: executeLogBatchId,
+        vc_worktree_id: createdWorktree.id,
+        branch: createdWorktree.branch,
+        worktree_path: createdWorktree.worktreePath,
       });
+      executionWorkingDirectory = worktreeRecord.worktreePath;
       safeLogDecision({
         project_id: project.id,
         stage: LOOP_STATES.EXECUTE,
@@ -1933,7 +1936,8 @@ async function executePlanFileStage(project, workItem) {
         reasoning: `Created isolated worktree for factory batch ${executeLogBatchId}.`,
         inputs: { ...getWorkItemDecisionContext(targetItem) },
         outcome: {
-          worktree_id: worktreeRecord.id,
+          worktree_id: worktreeRecord.vcWorktreeId,
+          factory_worktree_id: worktreeRecord.id,
           worktree_path: worktreeRecord.worktreePath,
           branch: worktreeRecord.branch,
           batch_id: executeLogBatchId,
@@ -1942,6 +1946,22 @@ async function executePlanFileStage(project, workItem) {
         batch_id: executeLogBatchId,
       });
     } catch (err) {
+      if (createdWorktree && !worktreeRecord && typeof worktreeRunner.abandon === 'function') {
+        try {
+          await worktreeRunner.abandon({
+            id: createdWorktree.id,
+            branch: createdWorktree.branch,
+            reason: 'persistence_failed',
+          });
+        } catch (cleanupErr) {
+          logger.warn('factory worktree cleanup failed after persistence error', {
+            project_id: project.id,
+            work_item_id: targetItem.id,
+            branch: createdWorktree.branch,
+            err: cleanupErr.message,
+          });
+        }
+      }
       logger.warn('factory worktree creation failed; falling back to main worktree', {
         project_id: project.id,
         work_item_id: targetItem.id,
@@ -2129,7 +2149,7 @@ async function executeVerifyStage(project_id, batch_id) {
   // worktree for this project. Failure here blocks the loop from reaching
   // LEARN so the operator can decide remediation vs. abandonment before any
   // merge to main.
-  const worktreeRecord = activeFactoryWorktrees.get(project_id) || null;
+  const worktreeRecord = factoryWorktrees.getActiveWorktree(project_id);
   const worktreeRunner = worktreeRecord ? getWorktreeRunner() : null;
 
   // Under pending_approval mode the plan-executor submits tasks and returns

@@ -64,6 +64,7 @@ const factoryIntake = require('./db/factory-intake');
 const factoryArchitect = require('./db/factory-architect');
 const factoryFeedback = require('./db/factory-feedback');
 const factoryAudit = require('./db/factory-audit');
+const factoryWorktrees = require('./db/factory-worktrees');
 
 
 
@@ -157,7 +158,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   'query_stats', 'optimization_history',
   // Factory
   'factory_projects', 'factory_health_snapshots', 'factory_health_findings',
-  'factory_work_items', 'factory_architect_cycles',
+  'factory_work_items', 'factory_architect_cycles', 'factory_worktrees',
 ]);
 
 // === SECURITY: Pattern for valid column definitions (name TYPE [constraints]) ===
@@ -294,6 +295,7 @@ function _wireAllModules() {
   factoryArchitect.setDb(db);
   factoryFeedback.setDb(db);
   factoryAudit.setDb(db);
+  factoryWorktrees.setDb(db);
   workflowEngine.createWorkflowEngine({ db });
   validationRules.createValidationRules({ db, taskCore: { getTask } });
 
@@ -740,6 +742,7 @@ const _SUB_MODULES = [
   factoryHealth,
   factoryIntake,
   factoryArchitect,
+  factoryWorktrees,
 ];
 
 // DI wiring internals and factory functions — excluded from the facade

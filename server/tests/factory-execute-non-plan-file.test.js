@@ -17,6 +17,7 @@ const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryWorktrees = require('../db/factory-worktrees');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
@@ -30,6 +31,19 @@ const originalGetTask = taskCore.getTask;
 
 function createFactoryTables(db) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS vc_worktrees (
+      id TEXT PRIMARY KEY,
+      repo_path TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      feature_name TEXT,
+      base_branch TEXT DEFAULT 'main',
+      status TEXT DEFAULT 'active',
+      commit_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      last_activity_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS factory_projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -87,6 +101,26 @@ function createFactoryTables(db) {
     CREATE INDEX IF NOT EXISTS idx_fwi_project_status
       ON factory_work_items(project_id, status);
 
+    CREATE TABLE IF NOT EXISTS factory_worktrees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER NOT NULL REFERENCES factory_work_items(id),
+      batch_id TEXT NOT NULL,
+      vc_worktree_id TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      merged_at TEXT,
+      abandoned_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_factory_worktrees_project_active
+      ON factory_worktrees(project_id, status);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch
+      ON factory_worktrees(branch);
+
     CREATE TABLE IF NOT EXISTS factory_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
@@ -128,9 +162,11 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
   beforeEach(() => {
     db = new Database(':memory:');
     createFactoryTables(db);
+    loopController.setWorktreeRunnerForTests(null);
     factoryHealth.setDb(db);
     factoryIntake.setDb(db);
     factoryDecisions.setDb(db);
+    factoryWorktrees.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-execute-non-plan-file-'));
@@ -161,9 +197,11 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
   afterEach(() => {
     database.getDbInstance = originalGetDbInstance;
     factoryDecisions.setDb(null);
+    factoryWorktrees.setDb(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     taskCore.getTask = originalGetTask;
+    loopController.setWorktreeRunnerForTests(null);
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

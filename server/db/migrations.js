@@ -439,6 +439,36 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS factory_plan_file_intake;',
     ].join('\n'),
   },
+  {
+    // Keep vc_worktree_id as a tracked identifier instead of an enforced FK:
+    // merge cleanup deletes rows from vc_worktrees after shipping.
+    version: 22,
+    name: 'add_factory_worktrees',
+    up: [
+      [
+        'CREATE TABLE IF NOT EXISTS factory_worktrees (',
+        '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+        '  project_id TEXT NOT NULL REFERENCES factory_projects(id),',
+        '  work_item_id INTEGER NOT NULL REFERENCES factory_work_items(id),',
+        '  batch_id TEXT NOT NULL,',
+        '  vc_worktree_id TEXT NOT NULL,',
+        '  branch TEXT NOT NULL,',
+        '  worktree_path TEXT NOT NULL,',
+        "  status TEXT NOT NULL DEFAULT 'active',",
+        "  created_at TEXT NOT NULL DEFAULT (datetime('now')),",
+        '  merged_at TEXT,',
+        '  abandoned_at TEXT',
+        ')',
+      ].join('\n'),
+      'CREATE INDEX IF NOT EXISTS idx_factory_worktrees_project_active ON factory_worktrees(project_id, status)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch ON factory_worktrees(branch)',
+    ].join('; '),
+    down: [
+      'DROP INDEX IF EXISTS idx_factory_worktrees_project_active',
+      'DROP INDEX IF EXISTS idx_factory_worktrees_branch',
+      'DROP TABLE IF EXISTS factory_worktrees',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

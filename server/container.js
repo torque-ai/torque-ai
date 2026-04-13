@@ -330,6 +330,9 @@ function initModules(db, serverConfig) {
 
     const factoryAudit = require('./db/factory-audit');
     _defaultContainer.registerValue('factoryAudit', factoryAudit);
+
+    const factoryWorktrees = require('./db/factory-worktrees');
+    _defaultContainer.registerValue('factoryWorktrees', factoryWorktrees);
   }
   if (!_defaultContainer.has('providerScoring')) {
     const { createProviderScoring } = require('./db/provider-scoring');

@@ -9,11 +9,25 @@ const factoryFeedback = require('../db/factory-feedback');
 const guardrailDb = require('../db/factory-guardrails');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryWorktrees = require('../db/factory-worktrees');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 
 function createFactoryTables(db) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS vc_worktrees (
+      id TEXT PRIMARY KEY,
+      repo_path TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      feature_name TEXT,
+      base_branch TEXT DEFAULT 'main',
+      status TEXT DEFAULT 'active',
+      commit_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      last_activity_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS factory_projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -50,6 +64,26 @@ function createFactoryTables(db) {
 
     CREATE INDEX IF NOT EXISTS idx_fwi_project_status
       ON factory_work_items(project_id, status);
+
+    CREATE TABLE IF NOT EXISTS factory_worktrees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER NOT NULL REFERENCES factory_work_items(id),
+      batch_id TEXT NOT NULL,
+      vc_worktree_id TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      merged_at TEXT,
+      abandoned_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_factory_worktrees_project_active
+      ON factory_worktrees(project_id, status);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch
+      ON factory_worktrees(branch);
 
     CREATE TABLE IF NOT EXISTS factory_health_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -218,11 +252,13 @@ describe('factory loop work-item shipping', () => {
   beforeEach(() => {
     db = new Database(':memory:');
     createFactoryTables(db);
+    loopController.setWorktreeRunnerForTests(null);
     factoryHealth.setDb(db);
     factoryIntake.setDb(db);
     factoryDecisions.setDb(db);
     factoryFeedback.setDb(db);
     guardrailDb.setDb(db);
+    factoryWorktrees.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
   });
@@ -232,6 +268,8 @@ describe('factory loop work-item shipping', () => {
     factoryDecisions.setDb(null);
     factoryFeedback.setDb(null);
     guardrailDb.setDb(null);
+    factoryWorktrees.setDb(null);
+    loopController.setWorktreeRunnerForTests(null);
     db.close();
     db = null;
   });
@@ -482,6 +520,84 @@ describe('factory loop work-item shipping', () => {
         reason: 'pending_approval_in_progress',
         execution_action: 'completed_execution',
       }),
+    });
+  });
+
+  it('marks the persisted factory worktree as merged after successful LEARN shipping', async () => {
+    const batchId = 'batch-ship-with-worktree';
+    const { project, workItem } = registerPausedVerifyProject({
+      workItemStatus: 'verifying',
+      batchId,
+    });
+    seedLearnDependencies(project.id, batchId);
+
+    const branch = 'feat/factory-merge-me';
+    factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: 'vc-worktree-ship-1',
+      branch,
+      worktree_path: `/tmp/${branch}`,
+    });
+
+    loopController.setWorktreeRunnerForTests({
+      createForBatch: vi.fn(),
+      verify: vi.fn(),
+      mergeToMain: vi.fn(async () => ({
+        merged: true,
+        id: 'vc-worktree-ship-1',
+        branch,
+        target_branch: 'main',
+        strategy: 'merge',
+        cleaned: true,
+      })),
+      abandon: vi.fn(),
+    });
+
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'started_execution',
+      reasoning: 'Loop advanced into EXECUTE.',
+      outcome: {
+        from_state: 'PLAN',
+        to_state: 'EXECUTE',
+      },
+    });
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'completed_execution',
+      reasoning: 'Plan execution completed successfully.',
+      outcome: {
+        completed_tasks: [1],
+        dry_run: false,
+        execution_mode: 'live',
+        task_count: null,
+        simulated: false,
+        submitted_tasks: [],
+        final_state: 'VERIFY',
+      },
+    });
+
+    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    expect(approved.state).toBe(LOOP_STATES.LEARN);
+
+    const result = await loopController.advanceLoop(project.id);
+
+    expect(result.new_state).toBe(LOOP_STATES.IDLE);
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'shipped',
+    });
+    expect(factoryWorktrees.getActiveWorktree(project.id)).toBeNull();
+    expect(factoryWorktrees.getWorktreeByBranch(branch)).toMatchObject({
+      status: 'merged',
+      merged_at: expect.any(String),
+      vc_worktree_id: 'vc-worktree-ship-1',
     });
   });
 });

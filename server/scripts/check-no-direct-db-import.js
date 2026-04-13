@@ -25,6 +25,7 @@ const ALLOWED = new Set([
   'index.js',           // server entry point — opens db, passes to container
   'db/schema.js',       // DDL migrations — needs raw db for ALTER TABLE
   'db/throughput-metrics.js', // DB module — imports from parent database.js
+  'db/factory-worktrees.js',  // DB module — lazy fallback for factory worktree persistence
   // Files that use facade-only core functions (getDbInstance, safeAddColumn, countTasks, isDbClosed)
   'mcp-sse.js',                       // getDbInstance — raw DB for subscription persistence
   'config.js',                        // getDbInstance — raw DB for encrypted API key lookup

@@ -10,6 +10,7 @@ const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryWorktrees = require('../db/factory-worktrees');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
@@ -22,6 +23,19 @@ const originalGetTask = taskCore.getTask;
 
 function createFactoryTables(db) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS vc_worktrees (
+      id TEXT PRIMARY KEY,
+      repo_path TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      feature_name TEXT,
+      base_branch TEXT DEFAULT 'main',
+      status TEXT DEFAULT 'active',
+      commit_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      last_activity_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS factory_projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -79,6 +93,26 @@ function createFactoryTables(db) {
     CREATE INDEX IF NOT EXISTS idx_fwi_project_status
       ON factory_work_items(project_id, status);
 
+    CREATE TABLE IF NOT EXISTS factory_worktrees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER NOT NULL REFERENCES factory_work_items(id),
+      batch_id TEXT NOT NULL,
+      vc_worktree_id TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      merged_at TEXT,
+      abandoned_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_factory_worktrees_project_active
+      ON factory_worktrees(project_id, status);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch
+      ON factory_worktrees(branch);
+
     CREATE TABLE IF NOT EXISTS factory_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
@@ -124,6 +158,12 @@ async function advanceSupervisedPlanProject(projectId) {
   expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
 }
 
+function loadFreshFactoryWorktrees() {
+  const modulePath = require.resolve('../db/factory-worktrees');
+  delete require.cache[modulePath];
+  return require('../db/factory-worktrees');
+}
+
 describe('factory loop-controller EXECUTE modes', () => {
   let db;
   let originalGetDbInstance;
@@ -132,9 +172,11 @@ describe('factory loop-controller EXECUTE modes', () => {
   beforeEach(() => {
     db = new Database(':memory:');
     createFactoryTables(db);
+    loopController.setWorktreeRunnerForTests(null);
     factoryHealth.setDb(db);
     factoryIntake.setDb(db);
     factoryDecisions.setDb(db);
+    factoryWorktrees.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-loop-controller-'));
@@ -150,9 +192,11 @@ describe('factory loop-controller EXECUTE modes', () => {
   afterEach(() => {
     database.getDbInstance = originalGetDbInstance;
     factoryDecisions.setDb(null);
+    factoryWorktrees.setDb(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     taskCore.getTask = originalGetTask;
+    loopController.setWorktreeRunnerForTests(null);
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -355,6 +399,44 @@ describe('factory loop-controller EXECUTE modes', () => {
         from_state: LOOP_STATES.EXECUTE,
         to_state: LOOP_STATES.VERIFY,
       }),
+    });
+  });
+
+  it('persists the factory worktree record so a fresh module instance can resolve it after EXECUTE', async () => {
+    const { project, workItem } = registerPlanProject();
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-1',
+        branch: 'feat/factory-1-persisted-worktree',
+        worktreePath: path.join(project.path, '.worktrees', 'feat-factory-1-persisted-worktree'),
+      })),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 12,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoop(project.id);
+
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(worktreeRunner.createForBatch).toHaveBeenCalledTimes(1);
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+
+    const freshFactoryWorktrees = loadFreshFactoryWorktrees();
+    freshFactoryWorktrees.setDb(db);
+    expect(freshFactoryWorktrees.getActiveWorktree(project.id)).toMatchObject({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: `factory-${project.id}-${workItem.id}`,
+      vc_worktree_id: 'vc-worktree-1',
+      branch: 'feat/factory-1-persisted-worktree',
+      worktree_path: path.join(project.path, '.worktrees', 'feat-factory-1-persisted-worktree'),
+      status: 'active',
     });
   });
 });
