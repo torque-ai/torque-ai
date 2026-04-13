@@ -30,6 +30,12 @@ function writeFixture(rootDir, relativePath, content = '') {
   fs.writeFileSync(filePath, content, 'utf8');
 }
 
+function setFixtureModifiedTime(rootDir, relativePath, isoTimestamp) {
+  const filePath = path.join(rootDir, relativePath);
+  const timestamp = new Date(isoTimestamp);
+  fs.utimesSync(filePath, timestamp, timestamp);
+}
+
 function createProjectFixture(files = {}) {
   const projectDir = makeTempDir('factory-scorers-project-');
   for (const [relativePath, content] of Object.entries(files)) {
@@ -447,6 +453,81 @@ describe('factory scorer behavioral coverage', () => {
       expect(result.score).toBeGreaterThanOrEqual(80);
       expect(result.score).toBeLessThan(90);
     });
+
+    test.each([
+      ['missing', () => path.join(createFindingsDir(), 'missing-findings')],
+      ['empty', () => createFindingsDir()],
+    ])('returns no_findings for a %s findings directory', (_label, makeFindingsDir) => {
+      const result = documentationScorer.score('/unused', {}, makeFindingsDir());
+
+      expect(result).toEqual({
+        score: 50,
+        details: { source: 'no_findings' },
+        findings: [],
+      });
+    });
+
+    test('excludes RESOLVED documentation findings from open count and score math', () => {
+      const findingsDir = createFindingsDir({
+        '2026-04-12-documentation-scan.md': findingsMarkdown([
+          { severity: 'medium', title: 'Architecture guide omits workflow retries', file: 'docs/architecture.md' },
+          { severity: 'low', title: 'CLI examples missing resume flow', file: 'docs/cli.md', status: 'RESOLVED' },
+          { severity: 'low', title: 'Runbook lacks rollback notes', file: 'docs/runbooks/factory.md' },
+        ]),
+      });
+
+      const result = documentationScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details.openFindings).toBe(2);
+      expect(result.score).toBe(84);
+      expect(result.findings).toEqual([
+        {
+          severity: 'medium',
+          title: 'Architecture guide omits workflow retries',
+          file: 'docs/architecture.md',
+        },
+        {
+          severity: 'low',
+          title: 'Runbook lacks rollback notes',
+          file: 'docs/runbooks/factory.md',
+        },
+      ]);
+    });
+
+    test('selects the latest matching documentation report when multiple findings markdown files exist', () => {
+      const olderReport = '2026-04-11-documentation-scan.md';
+      const latestReport = '2026-04-12-documentation-sweep.md';
+      const findingsDir = createFindingsDir({
+        [olderReport]: findingsMarkdown([
+          { severity: 'medium', title: 'Legacy workflow doc missing queue examples', file: 'docs/workflows.md' },
+          { severity: 'low', title: 'CLI quickstart misses tags flag', file: 'docs/cli.md' },
+          { severity: 'low', title: 'Ops guide omits heartbeat explanation', file: 'docs/ops.md' },
+        ]),
+        [latestReport]: findingsMarkdown([
+          { severity: 'medium', title: 'Runbook omits failure recovery steps', file: 'docs/runbooks/factory.md' },
+        ]),
+        '2026-04-20-security-scan.md': findingsMarkdown([
+          { severity: 'critical', title: 'Unrelated security finding', file: 'server/index.js' },
+        ]),
+      });
+
+      setFixtureModifiedTime(findingsDir, olderReport, '2026-04-11T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, latestReport, '2026-04-12T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, '2026-04-20-security-scan.md', '2026-04-20T00:00:00.000Z');
+
+      const result = documentationScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details.file).toBe(path.join(findingsDir, latestReport));
+      expect(result.details.openFindings).toBe(1);
+      expect(result.score).toBe(92);
+      expect(result.findings).toEqual([
+        {
+          severity: 'medium',
+          title: 'Runbook omits failure recovery steps',
+          file: 'docs/runbooks/factory.md',
+        },
+      ]);
+    });
   });
 
   describe('dependency_health scorer', () => {
@@ -477,6 +558,80 @@ describe('factory scorer behavioral coverage', () => {
       expect(result.details.openFindings).toBe(3);
       expect(result.score).toBeGreaterThanOrEqual(80);
       expect(result.score).toBeLessThan(90);
+    });
+
+    test.each([
+      ['missing', () => path.join(createFindingsDir(), 'missing-findings')],
+      ['empty', () => createFindingsDir()],
+    ])('returns no_findings for a %s findings directory', (_label, makeFindingsDir) => {
+      const result = dependencyHealthScorer.score('/unused', {}, makeFindingsDir());
+
+      expect(result).toEqual({
+        score: 50,
+        details: { source: 'no_findings' },
+        findings: [],
+      });
+    });
+
+    test('excludes RESOLVED dependency findings from open count and score math', () => {
+      const findingsDir = createFindingsDir({
+        '2026-04-12-dependency-scan.md': findingsMarkdown([
+          { severity: 'critical', title: 'Lockfile pins a vulnerable transitive package', file: 'package-lock.json' },
+          { severity: 'high', title: 'Resolved npm advisory follow-up', file: 'server/package.json', status: 'RESOLVED' },
+          { severity: 'low', title: 'Optional peer dependency is stale', file: 'dashboard/package.json' },
+        ]),
+      });
+
+      const result = dependencyHealthScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details.openFindings).toBe(2);
+      expect(result.score).toBe(77);
+      expect(result.findings).toEqual([
+        {
+          severity: 'critical',
+          title: 'Lockfile pins a vulnerable transitive package',
+          file: 'package-lock.json',
+        },
+        {
+          severity: 'low',
+          title: 'Optional peer dependency is stale',
+          file: 'dashboard/package.json',
+        },
+      ]);
+    });
+
+    test('selects the latest matching dependency report when multiple findings markdown files exist', () => {
+      const olderReport = '2026-04-11-dependency-scan.md';
+      const latestReport = '2026-04-12-dependency-audit.md';
+      const findingsDir = createFindingsDir({
+        [olderReport]: findingsMarkdown([
+          { severity: 'high', title: 'HTTP client dependency misses a security patch', file: 'server/package.json' },
+          { severity: 'low', title: 'Docs package drifts from lockfile', file: 'package-lock.json' },
+        ]),
+        [latestReport]: findingsMarkdown([
+          { severity: 'high', title: 'SQLite binding needs a patch release', file: 'server/package.json' },
+        ]),
+        '2026-04-20-performance-scan.md': findingsMarkdown([
+          { severity: 'high', title: 'Unrelated performance finding', file: 'server/task-manager.js' },
+        ]),
+      });
+
+      setFixtureModifiedTime(findingsDir, olderReport, '2026-04-11T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, latestReport, '2026-04-12T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, '2026-04-20-performance-scan.md', '2026-04-20T00:00:00.000Z');
+
+      const result = dependencyHealthScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details.file).toBe(path.join(findingsDir, latestReport));
+      expect(result.details.openFindings).toBe(1);
+      expect(result.score).toBe(90);
+      expect(result.findings).toEqual([
+        {
+          severity: 'high',
+          title: 'SQLite binding needs a patch release',
+          file: 'server/package.json',
+        },
+      ]);
     });
   });
 
@@ -542,6 +697,80 @@ describe('factory scorer behavioral coverage', () => {
       expect(result.details.openFindings).toBe(2);
       expect(result.score).toBeGreaterThanOrEqual(80);
       expect(result.score).toBeLessThan(90);
+    });
+
+    test.each([
+      ['missing', () => path.join(createFindingsDir(), 'missing-findings')],
+      ['empty', () => createFindingsDir()],
+    ])('returns no_findings for a %s findings directory', (_label, makeFindingsDir) => {
+      const result = performanceScorer.score('/unused', {}, makeFindingsDir());
+
+      expect(result).toEqual({
+        score: 50,
+        details: { source: 'no_findings' },
+        findings: [],
+      });
+    });
+
+    test('excludes RESOLVED performance findings from open count and score math', () => {
+      const findingsDir = createFindingsDir({
+        '2026-04-12-performance-scan.md': findingsMarkdown([
+          { severity: 'high', title: 'Queue drain path spins CPU during retries', file: 'server/execution/queue-scheduler.js' },
+          { severity: 'critical', title: 'Resolved cache-thrashing incident', file: 'server/db/task-core.js', status: 'RESOLVED' },
+          { severity: 'medium', title: 'Planner query misses an index', file: 'server/db/factory-architect.js' },
+        ]),
+      });
+
+      const result = performanceScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details.openFindings).toBe(2);
+      expect(result.score).toBe(86);
+      expect(result.findings).toEqual([
+        {
+          severity: 'high',
+          title: 'Queue drain path spins CPU during retries',
+          file: 'server/execution/queue-scheduler.js',
+        },
+        {
+          severity: 'medium',
+          title: 'Planner query misses an index',
+          file: 'server/db/factory-architect.js',
+        },
+      ]);
+    });
+
+    test('selects the latest matching performance report when multiple findings markdown files exist', () => {
+      const olderReport = '2026-04-11-performance-scan.md';
+      const latestReport = '2026-04-12-performance-sweep.md';
+      const findingsDir = createFindingsDir({
+        [olderReport]: findingsMarkdown([
+          { severity: 'high', title: 'Scheduler poll loop is expensive', file: 'server/execution/queue-scheduler.js' },
+          { severity: 'medium', title: 'Task list aggregation scans too much history', file: 'server/db/task-core.js' },
+        ]),
+        [latestReport]: findingsMarkdown([
+          { severity: 'medium', title: 'Warm path still has one slow query', file: 'server/db/task-core.js' },
+        ]),
+        '2026-04-20-dependency-scan.md': findingsMarkdown([
+          { severity: 'critical', title: 'Unrelated dependency finding', file: 'server/package.json' },
+        ]),
+      });
+
+      setFixtureModifiedTime(findingsDir, olderReport, '2026-04-11T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, latestReport, '2026-04-12T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, '2026-04-20-dependency-scan.md', '2026-04-20T00:00:00.000Z');
+
+      const result = performanceScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details.file).toBe(path.join(findingsDir, latestReport));
+      expect(result.details.openFindings).toBe(1);
+      expect(result.score).toBe(96);
+      expect(result.findings).toEqual([
+        {
+          severity: 'medium',
+          title: 'Warm path still has one slow query',
+          file: 'server/db/task-core.js',
+        },
+      ]);
     });
   });
 
