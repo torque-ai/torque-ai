@@ -4,7 +4,44 @@
  * Maps HTTP method + URL pattern to route handler functions.
  * The dispatch function is called from dashboard-server.js for all /api/ requests.
  */
+const http = require('http');
 const { parseQuery, parseBody, isLocalhostOrigin, sendJson, sendError } = require('./utils');
+
+const MAIN_API_HOST = '127.0.0.1';
+const MAIN_API_PORT = 3457;
+const PROXY_TIMEOUT_MS = 60000;
+
+function proxyToMainApi(clientReq, clientRes) {
+  return new Promise((resolve) => {
+    const proxyReq = http.request({
+      host: MAIN_API_HOST,
+      port: MAIN_API_PORT,
+      method: clientReq.method,
+      path: clientReq.url,
+      headers: { ...clientReq.headers, host: `${MAIN_API_HOST}:${MAIN_API_PORT}` },
+      timeout: PROXY_TIMEOUT_MS,
+    }, (proxyRes) => {
+      clientRes.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(clientRes);
+      proxyRes.on('end', resolve);
+    });
+    proxyReq.on('error', () => {
+      if (!clientRes.headersSent) sendError(clientRes, 'Upstream API unavailable', 502);
+      resolve();
+    });
+    proxyReq.on('timeout', () => {
+      proxyReq.destroy();
+      if (!clientRes.headersSent) sendError(clientRes, 'Upstream API timeout', 504);
+      resolve();
+    });
+    if (clientReq._rawBody) {
+      proxyReq.write(clientReq._rawBody);
+      proxyReq.end();
+    } else {
+      clientReq.pipe(proxyReq);
+    }
+  });
+}
 
 const tasks = require('./routes/tasks');
 const infrastructure = require('./routes/infrastructure');
@@ -1057,7 +1094,14 @@ async function dispatch(req, res, context) {
       return await route.handler(req, res, query, ...captures, context);
     }
 
-    // No route matched
+    // No dashboard route matched — forward unmatched /api/v2/ requests to the
+    // main API server (port 3457) so the dashboard origin (3456) can reach
+    // endpoints defined in api-server.core.js (e.g. /api/v2/factory/*).
+    // Non-v2 /api/ routes stay local and 404 when no dashboard route matches.
+    if (url.startsWith('/api/v2/')) {
+      return await proxyToMainApi(req, res);
+    }
+
     sendError(res, 'Not found', 404);
 
   } catch (err) {

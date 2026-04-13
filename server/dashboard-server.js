@@ -752,7 +752,9 @@ async function start(options = {}) {
             return;
           }
           try {
-            const raw = Buffer.concat(chunks).toString('utf8');
+            const rawBuffer = Buffer.concat(chunks);
+            const raw = rawBuffer.toString('utf8');
+            req._rawBody = rawBuffer;
             req.body = raw.trim() ? JSON.parse(raw) : {};
             validateJsonDepth(req.body);
           } catch (err) {
