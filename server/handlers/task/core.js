@@ -1001,7 +1001,20 @@ function handleGetResult(args) {
   const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
-  if (task.status === 'running' || task.status === 'queued' || task.status === 'pending') {
+  if (task.status === 'pending_approval') {
+    return {
+      content: [{
+        type: 'text',
+        text: 'Task is pending human approval. Approve or reject it before requesting a result.'
+      }]
+    };
+  }
+
+  if (
+    task.status === 'running'
+    || task.status === 'queued'
+    || task.status === 'pending'
+  ) {
     return {
       content: [{
         type: 'text',

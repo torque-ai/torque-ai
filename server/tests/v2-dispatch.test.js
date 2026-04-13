@@ -12,13 +12,23 @@ const { PassThrough } = require('stream');
 
 const mockHandlers = {
   tasks: {
+    handlePreviewTaskStudyContext: vi.fn(),
     handleSubmitTask: vi.fn(),
     handleListTasks: vi.fn(),
     handleTaskDiff: vi.fn(),
     handleTaskLogs: vi.fn(),
     handleTaskProgress: vi.fn(),
     handleRetryTask: vi.fn(),
+    handleReassignTaskProvider: vi.fn(),
     handleCommitTask: vi.fn(),
+    handleGetTask: vi.fn(),
+    handleCancelTask: vi.fn(),
+    handleDeleteTask: vi.fn(),
+    handleApproveTask: vi.fn(),
+    handleRejectTask: vi.fn(),
+    handleApproveTaskBatch: vi.fn(),
+    handleApproveSwitch: vi.fn(),
+    handleRejectSwitch: vi.fn(),
     init: vi.fn(),
   },
   workflows: {

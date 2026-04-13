@@ -11,6 +11,10 @@
  *   runMigrations(db);  // db = better-sqlite3 instance
  */
 
+// Task lifecycle note:
+// `tasks.status` is defined as an unconstrained TEXT column in schema-tables.js.
+// Adding logical statuses such as `pending_approval` does not require a schema
+// migration unless a future CHECK/enum constraint is introduced.
 const MIGRATIONS = [
   {
     version: 1,
