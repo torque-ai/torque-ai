@@ -15,6 +15,7 @@ const VALID_STATUSES = new Set([
   'pending', 'triaged', 'in_progress', 'completed', 'rejected',
   'intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped',
 ]);
+const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped']);
 const PRIORITY_LEVELS = Object.freeze({
   low: 30,
   default: 50,
@@ -75,6 +76,21 @@ function getWorkItem(id) {
   const row = db.prepare('SELECT * FROM factory_work_items WHERE id = ?').get(id);
   if (!row) return null;
   return parseWorkItem(row);
+}
+
+function getWorkItemForProject(project_id, id, { includeClosed = false } = {}) {
+  if (!project_id) throw new Error('project_id is required');
+
+  const item = getWorkItem(id);
+  if (!item || item.project_id !== project_id) {
+    return null;
+  }
+
+  if (!includeClosed && CLOSED_STATUSES.has(item.status)) {
+    return null;
+  }
+
+  return item;
 }
 
 function parseWorkItem(row) {
@@ -223,8 +239,11 @@ function createFromFindings(project_id, findings, source) {
 
 module.exports = {
   setDb,
+  normalizePriority,
   createWorkItem,
   getWorkItem,
+  getWorkItemForProject,
+  parseWorkItem,
   listWorkItems,
   listOpenWorkItems,
   updateWorkItem,

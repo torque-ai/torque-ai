@@ -515,7 +515,7 @@ const tools = [
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Project ID or path' },
-        stage: { type: 'string', enum: ['sense', 'prioritize', 'plan', 'execute', 'verify', 'ship'], description: 'Filter by factory stage' },
+        stage: { type: 'string', enum: ['sense', 'prioritize', 'plan', 'execute', 'verify', 'learn', 'ship'], description: 'Filter by factory stage' },
         actor: { type: 'string', enum: ['health_model', 'architect', 'planner', 'executor', 'verifier', 'human'], description: 'Filter by actor' },
         since: { type: 'string', description: 'ISO date — only decisions after this time' },
         limit: { type: 'integer', description: 'Max results (default: 100)' },

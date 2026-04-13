@@ -6,6 +6,8 @@ const {
   LOOP_STATES,
   TRANSITIONS,
   getNextState,
+  getPendingGateStage,
+  getResumeStateForApprovedGate,
   isValidState,
   getGatesForTrustLevel,
 } = require('./loop-states');
@@ -37,7 +39,33 @@ const DECISION_STAGE_ACTORS = Object.freeze({
   plan: 'planner',
   execute: 'executor',
   verify: 'verifier',
+  learn: 'verifier',
 });
+
+const PRIORITIZE_SOURCE_BASE_SCORES = Object.freeze({
+  plan_file: 82,
+  manual: 76,
+  api: 72,
+  webhook: 72,
+  github_issue: 68,
+  github: 68,
+  conversation: 64,
+  conversational: 64,
+  ci: 60,
+  scheduled_scan: 56,
+  scout: 56,
+  self_generated: 52,
+});
+
+const SELECTED_WORK_ITEM_DECISION_ACTIONS = Object.freeze([
+  'starting',
+  'skipped_for_plan_file',
+  'selected_work_item',
+  'scored_work_item',
+  'generated_plan',
+]);
+
+const selectedWorkItemIds = new Map();
 
 function nowIso() {
   return new Date().toISOString();
@@ -155,6 +183,116 @@ function getWorkItemDecisionContext(workItem) {
   };
 }
 
+function parseJsonObject(value) {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeWorkItemId(value) {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    return null;
+  }
+  return numeric;
+}
+
+function rememberSelectedWorkItem(project_id, workItem) {
+  const workItemId = normalizeWorkItemId(workItem?.id ?? workItem);
+  if (!project_id || !workItemId) {
+    selectedWorkItemIds.delete(project_id);
+    return null;
+  }
+
+  selectedWorkItemIds.set(project_id, workItemId);
+  return workItemId;
+}
+
+function clearSelectedWorkItem(project_id) {
+  if (!project_id) {
+    return;
+  }
+  selectedWorkItemIds.delete(project_id);
+}
+
+function getSelectedWorkItemIdFromDecisionLog(project_id) {
+  const db = database.getDbInstance();
+  if (!db) {
+    return null;
+  }
+
+  try {
+    const placeholders = SELECTED_WORK_ITEM_DECISION_ACTIONS.map(() => '?').join(', ');
+    const rows = db.prepare(`
+      SELECT inputs_json, outcome_json
+      FROM factory_decisions
+      WHERE project_id = ?
+        AND action IN (${placeholders})
+      ORDER BY id DESC
+      LIMIT 20
+    `).all(project_id, ...SELECTED_WORK_ITEM_DECISION_ACTIONS);
+
+    for (const row of rows) {
+      const inputs = parseJsonObject(row.inputs_json);
+      const outcome = parseJsonObject(row.outcome_json);
+      const workItemId = normalizeWorkItemId(
+        outcome?.work_item_id
+        ?? inputs?.work_item_id
+      );
+      if (workItemId) {
+        return workItemId;
+      }
+    }
+  } catch (error) {
+    logger.debug({ err: error.message, project_id }, 'Unable to restore selected work item from decision log');
+  }
+
+  return null;
+}
+
+function getSelectedWorkItemId(project_id) {
+  const remembered = selectedWorkItemIds.get(project_id);
+  if (remembered) {
+    return remembered;
+  }
+
+  const restored = getSelectedWorkItemIdFromDecisionLog(project_id);
+  if (restored) {
+    selectedWorkItemIds.set(project_id, restored);
+  }
+  return restored;
+}
+
+function getSelectedWorkItem(project_id, { fallbackToLoopSelection = false } = {}) {
+  const selectedWorkItemId = getSelectedWorkItemId(project_id);
+  if (selectedWorkItemId) {
+    const workItem = factoryIntake.getWorkItemForProject(project_id, selectedWorkItemId, {
+      includeClosed: true,
+    });
+    if (!workItem) {
+      throw new Error(`Selected work item ${selectedWorkItemId} is no longer available for project ${project_id}`);
+    }
+    return workItem;
+  }
+
+  return fallbackToLoopSelection ? getLoopWorkItem(project_id) : null;
+}
+
+function tryGetSelectedWorkItem(project_id, options = {}) {
+  try {
+    return getSelectedWorkItem(project_id, options);
+  } catch (error) {
+    logger.debug({ err: error.message, project_id }, 'Unable to resolve selected work item');
+    return null;
+  }
+}
+
 function safeLogDecision(entry) {
   const normalizedStage = normalizeDecisionStage(entry?.stage);
   const actor = getDecisionActor(normalizedStage, entry?.actor);
@@ -235,6 +373,30 @@ function logTransitionDecision({
       outcome: {
         from_state: currentState,
         to_state: nextState,
+        reason: reason || null,
+        batch_id: effectiveBatchId,
+        ...getWorkItemDecisionContext(workItem),
+      },
+      confidence: 1,
+      batch_id: effectiveBatchId,
+    });
+    return;
+  }
+
+  if (nextState === LOOP_STATES.VERIFY && currentState === LOOP_STATES.EXECUTE) {
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.VERIFY,
+      action: 'entered_from_execute',
+      reasoning: `Loop advanced from ${currentState} to ${nextState}.`,
+      inputs: {
+        previous_state: currentState,
+        trust_level: project.trust_level,
+      },
+      outcome: {
+        from_state: currentState,
+        to_state: nextState,
+        paused_at_stage: pausedAtStage || null,
         reason: reason || null,
         batch_id: effectiveBatchId,
         ...getWorkItemDecisionContext(workItem),
@@ -347,12 +509,144 @@ function tryGetLoopWorkItem(project_id) {
   }
 }
 
+function getCreatedAtValue(item) {
+  const createdAt = item?.created_at ? Date.parse(item.created_at) : Number.NaN;
+  if (Number.isFinite(createdAt)) {
+    return createdAt;
+  }
+
+  const numericId = Number(item?.id);
+  return Number.isFinite(numericId) ? numericId : Number.MAX_SAFE_INTEGER;
+}
+
+function compareByIntakeOrder(left, right) {
+  const leftCreatedAt = getCreatedAtValue(left);
+  const rightCreatedAt = getCreatedAtValue(right);
+
+  if (leftCreatedAt !== rightCreatedAt) {
+    return leftCreatedAt - rightCreatedAt;
+  }
+
+  const leftId = Number(left?.id);
+  const rightId = Number(right?.id);
+  if (Number.isFinite(leftId) && Number.isFinite(rightId) && leftId !== rightId) {
+    return leftId - rightId;
+  }
+
+  return String(left?.id || '').localeCompare(String(right?.id || ''));
+}
+
+function clampPriority(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return factoryIntake.normalizePriority(undefined);
+  }
+
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
+function scoreWorkItemForPrioritize(workItem, openItems = []) {
+  if (!workItem) {
+    return null;
+  }
+
+  const oldPriority = factoryIntake.normalizePriority(
+    workItem.priority,
+    factoryIntake.normalizePriority(undefined)
+  );
+  const sourceBase = PRIORITIZE_SOURCE_BASE_SCORES[workItem.source] ?? 62;
+  const createdAt = getCreatedAtValue(workItem);
+  const ageMs = Number.isFinite(createdAt) ? Math.max(0, Date.now() - createdAt) : 0;
+  const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+  const ageBoost = Math.min(12, ageDays);
+
+  const intakeOrder = openItems
+    .slice()
+    .sort(compareByIntakeOrder)
+    .findIndex((item) => item?.id === workItem.id);
+  const intakeIndex = intakeOrder === -1 ? openItems.length : intakeOrder;
+  const backlogBoost = Math.max(0, Math.min(6, openItems.length - intakeIndex - 1));
+
+  const newPriority = clampPriority(sourceBase + ageBoost + backlogBoost);
+
+  return {
+    oldPriority,
+    newPriority,
+    scoreReason: `source=${workItem.source || 'unknown'} base=${sourceBase}; age_days=${ageDays}; intake_order=${intakeIndex + 1}/${Math.max(openItems.length, 1)}`,
+  };
+}
+
+function executePrioritizeStage(project, selectedWorkItem = null) {
+  const openItems = factoryIntake.listOpenWorkItems({ project_id: project.id, limit: 100 });
+  const workItem = selectedWorkItem || getLoopWorkItem(project.id);
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.PRIORITIZE,
+    action: 'selected_work_item',
+    reasoning: workItem
+      ? 'PRIORITIZE selected the highest-priority open work item.'
+      : 'PRIORITIZE found no open work item to select.',
+    outcome: {
+      selection_status: workItem ? 'selected' : 'not_found',
+      ...getWorkItemDecisionContext(workItem),
+    },
+    confidence: 1,
+    batch_id: getDecisionBatchId(project, workItem),
+  });
+
+  if (!workItem) {
+    clearSelectedWorkItem(project.id);
+    return {
+      work_item: null,
+      reason: 'no open work item selected',
+      stage_result: null,
+    };
+  }
+
+  const scoring = scoreWorkItemForPrioritize(workItem, openItems);
+  const updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
+    priority: scoring.newPriority,
+  });
+  rememberSelectedWorkItem(project.id, updatedWorkItem);
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.PRIORITIZE,
+    action: 'scored_work_item',
+    reasoning: 'PRIORITIZE rescored the selected work item before planning.',
+    inputs: {
+      open_work_item_count: openItems.length,
+    },
+    outcome: {
+      work_item_id: updatedWorkItem.id,
+      old_priority: scoring.oldPriority,
+      new_priority: updatedWorkItem.priority,
+      score_reason: scoring.scoreReason,
+      ...getWorkItemDecisionContext(updatedWorkItem),
+    },
+    confidence: 1,
+    batch_id: getDecisionBatchId(project, updatedWorkItem),
+  });
+
+  return {
+    work_item: updatedWorkItem,
+    reason: 'scored selected work item',
+    stage_result: {
+      work_item_id: updatedWorkItem.id,
+      old_priority: scoring.oldPriority,
+      new_priority: updatedWorkItem.priority,
+      score_reason: scoring.scoreReason,
+    },
+  };
+}
+
 function getPostStageTransition(currentState, trustLevel) {
-  const pendingState = getNextState(currentState, trustLevel, 'pending');
-  if (pendingState === LOOP_STATES.PAUSED) {
+  const pendingGateStage = getPendingGateStage(currentState, trustLevel);
+  if (pendingGateStage) {
     return {
       next_state: LOOP_STATES.PAUSED,
-      paused_at_stage: TRANSITIONS[currentState] || null,
+      paused_at_stage: pendingGateStage,
     };
   }
 
@@ -360,6 +654,10 @@ function getPostStageTransition(currentState, trustLevel) {
     next_state: getNextState(currentState, trustLevel, 'approved'),
     paused_at_stage: null,
   };
+}
+
+function shouldDryRunExecute(project) {
+  return project?.trust_level === 'supervised' && project?.config?.execute_live !== true;
 }
 
 async function awaitTaskToStructuredResult(handleAwaitTask, taskCore, args) {
@@ -384,10 +682,17 @@ async function awaitTaskToStructuredResult(handleAwaitTask, taskCore, args) {
 }
 
 async function executePlanStage(project, selectedWorkItem = null) {
-  let workItem = selectedWorkItem || getLoopWorkItem(project.id);
+  let workItem = selectedWorkItem || getSelectedWorkItem(project.id, {
+    fallbackToLoopSelection: true,
+  });
+
+  if (workItem) {
+    rememberSelectedWorkItem(project.id, workItem);
+  }
 
   if (workItem?.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)) {
     workItem = factoryIntake.updateWorkItem(workItem.id, { status: 'executing' });
+    rememberSelectedWorkItem(project.id, workItem);
     logger.info('PLAN stage: pre-written plan detected, skipping architect', {
       project_id: project.id,
       work_item_id: workItem.id,
@@ -396,7 +701,7 @@ async function executePlanStage(project, selectedWorkItem = null) {
     safeLogDecision({
       project_id: project.id,
       stage: LOOP_STATES.PLAN,
-      action: 'skipped_plan_generation',
+      action: 'skipped_for_plan_file',
       reasoning: 'pre-written plan detected',
       inputs: {
         ...getWorkItemDecisionContext(workItem),
@@ -422,9 +727,10 @@ async function executePlanStage(project, selectedWorkItem = null) {
   }
 
   const cycle = await architectRunner.runArchitectCycle(project.id, 'loop_plan');
-  workItem = getLoopWorkItem(project.id);
+  workItem = getSelectedWorkItem(project.id, { fallbackToLoopSelection: true });
   if (workItem && workItem.status !== 'planned') {
     workItem = factoryIntake.updateWorkItem(workItem.id, { status: 'planned' });
+    rememberSelectedWorkItem(project.id, workItem);
   }
 
   logger.info('PLAN stage: architect cycle completed', {
@@ -458,15 +764,35 @@ async function executePlanStage(project, selectedWorkItem = null) {
 }
 
 async function executePlanFileStage(project, workItem) {
-  const targetItem = workItem || getLoopWorkItem(project.id);
+  const targetItem = workItem || getSelectedWorkItem(project.id, {
+    fallbackToLoopSelection: true,
+  });
   if (!targetItem?.origin?.plan_path || !fs.existsSync(targetItem.origin.plan_path)) {
     return null;
   }
+  rememberSelectedWorkItem(project.id, targetItem);
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'starting',
+    reasoning: 'EXECUTE stage started for the selected work item.',
+    inputs: {
+      ...getWorkItemDecisionContext(targetItem),
+    },
+    outcome: {
+      ...getWorkItemDecisionContext(targetItem),
+    },
+    confidence: 1,
+    batch_id: getDecisionBatchId(project, targetItem),
+  });
 
   const { createPlanExecutor } = require('./plan-executor');
   const { handleSmartSubmitTask } = require('../handlers/integration/routing');
   const { handleAwaitTask } = require('../handlers/workflow/await');
   const taskCore = require('../db/task-core');
+  const dry_run = shouldDryRunExecute(project);
+  const decisionBatchId = getDecisionBatchId(project, targetItem);
 
   const executor = createPlanExecutor({
     submit: async (args) => {
@@ -478,12 +804,38 @@ async function executePlanFileStage(project, workItem) {
     },
     awaitTask: (args) => awaitTaskToStructuredResult(handleAwaitTask, taskCore, args),
     projectDefaults: project.config || {},
+    onDryRunTask: dry_run ? async ({ task, prompt, file_paths }) => {
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.EXECUTE,
+        action: 'dry_run_task',
+        reasoning: `dry-run recorded task ${task.task_number} without submission`,
+        inputs: {
+          ...getWorkItemDecisionContext(targetItem),
+          dry_run: true,
+          task_number: task.task_number,
+          task_title: task.task_title,
+        },
+        outcome: {
+          plan_path: targetItem.origin.plan_path,
+          dry_run: true,
+          simulated: true,
+          task_number: task.task_number,
+          task_title: task.task_title,
+          planned_task_description: prompt,
+          file_paths,
+        },
+        confidence: 1,
+        batch_id: decisionBatchId,
+      });
+    } : null,
   });
 
   const result = await executor.execute({
     plan_path: targetItem.origin.plan_path,
     project: project.name,
     working_directory: project.path,
+    dry_run,
   });
 
   if (result.failed_task) {
@@ -511,7 +863,7 @@ async function executePlanFileStage(project, workItem) {
         plan_path: targetItem.origin.plan_path,
       },
       confidence: 1,
-      batch_id: getDecisionBatchId(project, targetItem),
+      batch_id: decisionBatchId,
     });
     return {
       next_state: LOOP_STATES.IDLE,
@@ -538,11 +890,14 @@ async function executePlanFileStage(project, workItem) {
     },
     outcome: {
       completed_tasks: result.completed_tasks || 0,
+      dry_run: result.dry_run === true,
+      task_count: result.task_count ?? null,
+      simulated: result.simulated === true,
       final_state: getPostStageTransition(LOOP_STATES.EXECUTE, project.trust_level).next_state,
       plan_path: targetItem.origin.plan_path,
     },
     confidence: 1,
-    batch_id: getDecisionBatchId(project, targetItem),
+    batch_id: decisionBatchId,
   });
 
   return {
@@ -610,10 +965,46 @@ async function executeLearnStage(project_id, batch_id) {
   try {
     const feedback = require('./feedback');
     const analysis = feedback.analyzeBatch(project_id, batch_id);
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.LEARN,
+      action: 'learned',
+      reasoning: 'LEARN stage analyzed post-batch feedback.',
+      inputs: {
+        batch_id,
+        signals: {
+          health_dimensions: Object.keys(analysis?.health_delta || {}).length,
+          task_count: analysis?.execution_metrics?.task_count ?? null,
+          guardrail_events: analysis?.guardrail_activity?.total ?? 0,
+        },
+      },
+      outcome: {
+        feedback_id: analysis?.feedback_id ?? null,
+        summary: analysis?.summary || null,
+      },
+      confidence: 1,
+      batch_id,
+    });
     logger.info('LEARN stage: batch analysis complete', { project_id, batch_id });
     return analysis;
   } catch (err) {
     logger.warn(`LEARN stage analysis failed: ${err.message}`, { project_id });
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.LEARN,
+      action: 'learn_failed',
+      reasoning: err.message,
+      inputs: {
+        batch_id,
+        signals: null,
+      },
+      outcome: {
+        status: 'error',
+        error: err.message,
+      },
+      confidence: 1,
+      batch_id,
+    });
     return { status: 'error', error: err.message };
   }
 }
@@ -662,6 +1053,7 @@ function scheduleLoop(project_id, interval_minutes) {
 function startLoop(project_id) {
   const project = getProjectOrThrow(project_id);
   const previousState = getCurrentLoopState(project);
+  clearSelectedWorkItem(project.id);
 
   factoryHealth.updateProject(project.id, {
     loop_state: LOOP_STATES.SENSE,
@@ -713,36 +1105,28 @@ async function advanceLoop(project_id) {
     throw new Error('Loop is paused — use approveGate to continue');
   }
 
-  const pendingState = getNextState(currentState, project.trust_level, 'pending');
-  let nextState = pendingState === LOOP_STATES.PAUSED
+  const pendingGateStage = getPendingGateStage(currentState, project.trust_level);
+  let nextState = pendingGateStage
     ? LOOP_STATES.PAUSED
     : getNextState(currentState, project.trust_level, 'approved');
-  let pausedAtStage = nextState === LOOP_STATES.PAUSED
-    ? TRANSITIONS[currentState] || null
-    : null;
+  let pausedAtStage = pendingGateStage || null;
 
   // Execute stage-specific logic before transitioning
   let stageResult = null;
   let transitionReason = null;
-  let executeStageRan = false;
   let transitionWorkItem = null;
 
   if (currentState === LOOP_STATES.PRIORITIZE) {
-    transitionWorkItem = getLoopWorkItem(project.id);
-    safeLogDecision({
-      project_id: project.id,
-      stage: LOOP_STATES.PRIORITIZE,
-      action: 'selected_work_item',
-      reasoning: transitionWorkItem
-        ? 'PRIORITIZE selected the highest-priority open work item.'
-        : 'PRIORITIZE found no open work item to select.',
-      outcome: {
-        selection_status: transitionWorkItem ? 'selected' : 'not_found',
-        ...getWorkItemDecisionContext(transitionWorkItem),
-      },
-      confidence: 1,
-      batch_id: getDecisionBatchId(project, transitionWorkItem),
-    });
+    const prioritizeStage = executePrioritizeStage(project, transitionWorkItem);
+    if (prioritizeStage?.work_item) {
+      transitionWorkItem = prioritizeStage.work_item;
+    }
+    if (prioritizeStage?.reason) {
+      transitionReason = prioritizeStage.reason;
+    }
+    if (!stageResult && prioritizeStage?.stage_result) {
+      stageResult = prioritizeStage.stage_result;
+    }
   }
 
   if (currentState === LOOP_STATES.PRIORITIZE || nextState === LOOP_STATES.PLAN) {
@@ -763,7 +1147,6 @@ async function advanceLoop(project_id) {
   } else if (currentState === LOOP_STATES.PLAN || currentState === LOOP_STATES.EXECUTE) {
     const executeStage = await executePlanFileStage(project, transitionWorkItem);
     if (executeStage) {
-      executeStageRan = true;
       stageResult = executeStage.stage_result;
       nextState = executeStage.next_state;
       pausedAtStage = executeStage.paused_at_stage || null;
@@ -780,13 +1163,13 @@ async function advanceLoop(project_id) {
     }
   }
 
-  if (!executeStageRan && (nextState === LOOP_STATES.VERIFY || currentState === LOOP_STATES.EXECUTE)) {
+  if (nextState === LOOP_STATES.VERIFY) {
     stageResult = await executeVerifyStage(project.id, project.loop_batch_id);
-  } else if (nextState === LOOP_STATES.LEARN || currentState === LOOP_STATES.VERIFY) {
+  } else if (nextState === LOOP_STATES.LEARN || currentState === LOOP_STATES.LEARN) {
     stageResult = await executeLearnStage(project.id, project.loop_batch_id);
   }
 
-  transitionWorkItem = transitionWorkItem || tryGetLoopWorkItem(project.id);
+  transitionWorkItem = transitionWorkItem || tryGetSelectedWorkItem(project.id) || tryGetLoopWorkItem(project.id);
 
   factoryHealth.updateProject(project.id, {
     loop_state: nextState,
@@ -801,6 +1184,9 @@ async function advanceLoop(project_id) {
     paused_at_stage: pausedAtStage,
     reason: transitionReason,
   });
+  if (nextState === LOOP_STATES.IDLE || nextState === LOOP_STATES.SENSE) {
+    clearSelectedWorkItem(project.id);
+  }
   logTransitionDecision({
     project,
     currentState,
@@ -825,16 +1211,18 @@ function approveGate(project_id, stage) {
   const project = getProjectOrThrow(project_id);
   assertValidGateStage(stage);
   assertPausedAtStage(project, stage);
+  const resumeState = getResumeStateForApprovedGate(stage, project.trust_level);
 
   factoryHealth.updateProject(project.id, {
-    loop_state: stage,
+    loop_state: resumeState,
     loop_paused_at_stage: null,
     loop_last_action_at: nowIso(),
   });
 
   logger.info('Factory gate approved', {
     project_id: project.id,
-    state: stage,
+    state: resumeState,
+    approved_stage: stage,
   });
   safeLogDecision({
     project_id: project.id,
@@ -848,7 +1236,7 @@ function approveGate(project_id, stage) {
     },
     outcome: {
       from_state: LOOP_STATES.PAUSED,
-      to_state: stage,
+      to_state: resumeState,
       approved_stage: stage,
       batch_id: project.loop_batch_id || null,
     },
@@ -858,7 +1246,7 @@ function approveGate(project_id, stage) {
 
   return {
     project_id: project.id,
-    state: stage,
+    state: resumeState,
     message: 'Gate approved, loop continuing',
   };
 }
@@ -867,6 +1255,7 @@ function rejectGate(project_id, stage) {
   const project = getProjectOrThrow(project_id);
   assertValidGateStage(stage);
   assertPausedAtStage(project, stage);
+  clearSelectedWorkItem(project.id);
 
   factoryHealth.updateProject(project.id, {
     loop_state: LOOP_STATES.IDLE,

@@ -1,8 +1,9 @@
 'use strict';
 const fs = require('fs');
-const path = require('path');
 const logger = require('../logger').child({ component: 'plan-executor' });
 const { parsePlanFile, extractVerifyCommand } = require('./plan-parser');
+
+const FILE_PATH_RE = /(?:^|[\s"'`(])((?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+)(?=$|[\s"'`),:])/gm;
 
 function buildTaskPrompt(task, planTitle) {
   const lines = [`Plan: ${planTitle}`, `Task ${task.task_number}: ${task.task_title}`, ''];
@@ -35,15 +36,54 @@ function tickTaskInFile(filePath, taskNumber) {
   fs.renameSync(tmp, filePath);
 }
 
-function createPlanExecutor({ submit, awaitTask, projectDefaults = {} }) {
-  async function execute({ plan_path, project, working_directory, version_intent = 'feature' }) {
+function extractFilePaths(text) {
+  if (!text || typeof text !== 'string') {
+    return [];
+  }
+
+  const matches = [];
+  const seen = new Set();
+  for (const match of text.matchAll(FILE_PATH_RE)) {
+    const candidate = match[1]?.replace(/\\/g, '/').replace(/[.,;:]+$/g, '');
+    if (!candidate || seen.has(candidate) || candidate.includes('://')) {
+      continue;
+    }
+    seen.add(candidate);
+    matches.push(candidate);
+  }
+  return matches;
+}
+
+function extractTaskFilePaths(task, fallbackFilePaths = []) {
+  const taskText = [
+    task.task_title,
+    ...task.steps.flatMap((step) => [
+      step.title,
+      ...step.code_blocks.map((block) => block.content),
+    ]),
+  ].join('\n');
+
+  const matches = extractFilePaths(taskText);
+  return matches.length > 0 ? matches : fallbackFilePaths;
+}
+
+function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunTask = null }) {
+  async function execute({
+    plan_path,
+    project,
+    working_directory,
+    version_intent = 'feature',
+    dry_run = false,
+  }) {
     const started = Date.now();
     const content = fs.readFileSync(plan_path, 'utf8');
     const parsed = parsePlanFile(content);
     const verify_command = extractVerifyCommand(content, projectDefaults.verify_command);
+    const planFilePaths = extractFilePaths(content);
 
     const completed_tasks = [];
     let failed_task = null;
+    let task_count = 0;
 
     for (const task of parsed.tasks) {
       if (task.completed) {
@@ -53,6 +93,20 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {} }) {
       }
 
       const prompt = buildTaskPrompt(task, parsed.title);
+      if (dry_run) {
+        task_count += 1;
+        if (typeof onDryRunTask === 'function') {
+          await onDryRunTask({
+            plan_path,
+            plan_title: parsed.title,
+            task,
+            prompt,
+            file_paths: extractTaskFilePaths(task, planFilePaths),
+          });
+        }
+        continue;
+      }
+
       const { task_id } = await submit({
         task: prompt,
         project,
@@ -76,12 +130,20 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {} }) {
       completed_tasks.push(task.task_number);
     }
 
-    return {
+    const result = {
       plan_path,
       completed_tasks,
       failed_task,
       duration_ms: Date.now() - started,
     };
+
+    if (dry_run) {
+      result.dry_run = true;
+      result.task_count = task_count;
+      result.simulated = true;
+    }
+
+    return result;
   }
 
   return { execute };

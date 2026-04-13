@@ -50,7 +50,7 @@ describe('factory bring-up regression — Plan 1 transitions', () => {
     expect(getNextState('PLAN', 'supervised', 'approved')).toBe('EXECUTE');
   });
 
-  it.skip(
+  it(
     'EXECUTE -> VERIFY after successful plan run (see docs/superpowers/plans/2026-04-12-factory-gap-execute-verify-gate.md)',
     () => {
       expect(getNextState('EXECUTE', 'supervised', null)).toBe('VERIFY');

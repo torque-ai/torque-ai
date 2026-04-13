@@ -105,7 +105,7 @@ function insertProject(overrides = {}) {
     trust_level: 'supervised',
     status: 'paused',
     config_json: null,
-    loop_state: 'VERIFY',
+    loop_state: 'LEARN',
     loop_batch_id: 'batch-abc',
     loop_last_action_at: now,
     loop_paused_at_stage: null,

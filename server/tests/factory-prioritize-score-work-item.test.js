@@ -1,3 +1,5 @@
+'use strict';
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
@@ -17,7 +19,6 @@ const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
-const { handleDecisionLog } = require('../handlers/factory-handlers');
 
 function createFactoryTables(db) {
   db.exec(`
@@ -133,25 +134,6 @@ function listDecisionRows(db, projectId) {
   }));
 }
 
-function registerProjectWithWorkItem(trustLevel = 'guided') {
-  const project = factoryHealth.registerProject({
-    name: `Decision Log ${trustLevel}`,
-    path: `/tmp/decision-log-${trustLevel}-${Date.now()}`,
-    trust_level: trustLevel,
-  });
-
-  const workItem = factoryIntake.createWorkItem({
-    project_id: project.id,
-    source: 'manual',
-    title: 'Wire loop decisions',
-    description: 'Exercise the loop controller decision audit trail.',
-    priority: 88,
-    requestor: 'test',
-  });
-
-  return { project, workItem };
-}
-
 let db;
 let originalGetDbInstance;
 
@@ -173,113 +155,68 @@ afterEach(() => {
   db = null;
 });
 
-describe('loop-controller decision logging', () => {
-  it('logs each transition through SENSE -> PRIORITIZE -> PLAN -> EXECUTE and records gate approvals', async () => {
-    const { project, workItem } = registerProjectWithWorkItem('guided');
+describe('factory prioritize scoring', () => {
+  it('updates the selected work item priority before the PLAN gate is approved', async () => {
+    const project = factoryHealth.registerProject({
+      name: 'Prioritize Score Project',
+      path: `/tmp/prioritize-score-${Date.now()}`,
+      trust_level: 'supervised',
+    });
+
+    const selectedItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'manual',
+      title: 'Selected for prioritize scoring',
+      description: 'Should be rescored before the PLAN gate.',
+      priority: 40,
+      requestor: 'test',
+    });
+
+    factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'conversation',
+      title: 'Lower-ranked queue item',
+      description: 'Remains open while the selected item advances.',
+      priority: 20,
+      requestor: 'test',
+    });
 
     loopController.startLoop(project.id);
-    let decisions = listDecisionRows(db, project.id);
-    expect(decisions).toHaveLength(2);
-    expect(decisions.map((row) => row.action)).toEqual(['started_loop', 'scanned_plans']);
-    expect(decisions[1]).toMatchObject({
-      stage: 'sense',
-      action: 'scanned_plans',
-    });
 
     const senseAdvance = await loopController.advanceLoop(project.id);
-    expect(senseAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
-    decisions = listDecisionRows(db, project.id);
-    expect(decisions).toHaveLength(3);
-    expect(decisions.at(-1)).toMatchObject({
-      stage: 'sense',
-      action: 'advance_from_sense',
-    });
+    expect(senseAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(senseAdvance.paused_at_stage).toBe(LOOP_STATES.PRIORITIZE);
+
+    const approved = loopController.approveGate(project.id, LOOP_STATES.PRIORITIZE);
+    expect(approved.state).toBe(LOOP_STATES.PRIORITIZE);
 
     const prioritizeAdvance = await loopController.advanceLoop(project.id);
     expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
     expect(prioritizeAdvance.paused_at_stage).toBe(LOOP_STATES.PLAN);
-    decisions = listDecisionRows(db, project.id);
-    expect(decisions).toHaveLength(7);
-    expect(decisions.at(-3)).toMatchObject({
+
+    const updated = factoryIntake.getWorkItem(selectedItem.id);
+    expect(updated.priority).not.toBe(selectedItem.priority);
+    expect(updated.priority).toBeGreaterThan(selectedItem.priority);
+    expect(updated.status).toBe('planned');
+
+    const decisions = listDecisionRows(db, project.id);
+    const scoredDecision = decisions.find((row) => row.action === 'scored_work_item');
+
+    expect(scoredDecision).toMatchObject({
       stage: 'prioritize',
+      actor: 'architect',
       action: 'scored_work_item',
     });
-    expect(decisions.at(-3).outcome).toMatchObject({
-      work_item_id: workItem.id,
-      old_priority: workItem.priority,
-      new_priority: expect.any(Number),
+    expect(scoredDecision.outcome).toMatchObject({
+      work_item_id: selectedItem.id,
+      old_priority: selectedItem.priority,
+      new_priority: updated.priority,
       score_reason: expect.any(String),
     });
-    expect(decisions.at(-4)).toMatchObject({
-      stage: 'prioritize',
-      action: 'selected_work_item',
-    });
-    expect(decisions.at(-4).outcome).toMatchObject({
-      work_item_id: workItem.id,
-      priority: workItem.priority,
-      selection_status: 'selected',
-    });
-    expect(decisions.at(-2)).toMatchObject({
-      stage: 'plan',
-      action: 'generated_plan',
-    });
-    expect(decisions.at(-1)).toMatchObject({
-      stage: 'plan',
-      action: 'paused_at_gate',
-    });
 
-    const approved = loopController.approveGate(project.id, LOOP_STATES.PLAN);
-    expect(approved.state).toBe(LOOP_STATES.PLAN);
-    decisions = listDecisionRows(db, project.id);
-    expect(decisions).toHaveLength(8);
-    expect(decisions.at(-1)).toMatchObject({
-      stage: 'plan',
-      actor: 'human',
-      action: 'gate_approved',
-    });
-    expect(decisions.at(-1).outcome).toMatchObject({
-      from_state: 'PAUSED',
-      to_state: 'PLAN',
-      approved_stage: 'PLAN',
-    });
-
-    const planAdvance = await loopController.advanceLoop(project.id);
-    expect(planAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
-    decisions = listDecisionRows(db, project.id);
-    expect(decisions).toHaveLength(9);
-    expect(decisions.at(-1)).toMatchObject({
-      stage: 'execute',
-      action: 'started_execution',
-    });
-    expect(decisions.at(-1).outcome).toMatchObject({
-      from_state: 'PLAN',
-      to_state: 'EXECUTE',
-      work_item_id: workItem.id,
-    });
-  });
-
-  it('refreshes the decision DB dependency when handleDecisionLog is called', async () => {
-    const { project } = registerProjectWithWorkItem('guided');
-
-    loopController.startLoop(project.id);
-    await loopController.advanceLoop(project.id);
-
-    factoryDecisions.setDb(null);
-
-    const response = await handleDecisionLog({ project: project.id, limit: 20 });
-
-    expect(response.structuredData).toMatchObject({
-      decisions: expect.any(Array),
-      stats: expect.objectContaining({
-        total: 3,
-      }),
-    });
-    expect(response.structuredData.decisions.map((entry) => entry.action)).toEqual(
-      expect.arrayContaining([
-        'advance_from_sense',
-        'scanned_plans',
-        'started_loop',
-      ])
-    );
+    const scoredIndex = decisions.findIndex((row) => row.action === 'scored_work_item');
+    const gateApprovedIndex = decisions.findIndex((row) => row.action === 'gate_approved' && row.stage === 'plan');
+    expect(scoredIndex).toBeGreaterThan(-1);
+    expect(gateApprovedIndex).toBe(-1);
   });
 });

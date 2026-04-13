@@ -37,6 +37,13 @@ const APPROVAL_GATES = Object.freeze({
   dark: Object.freeze([]),
 });
 
+const EXIT_GATED_STATES = Object.freeze({
+  supervised: Object.freeze([LOOP_STATES.VERIFY]),
+  guided: Object.freeze([]),
+  autonomous: Object.freeze([]),
+  dark: Object.freeze([]),
+});
+
 const VALID_STATES = new Set(Object.values(LOOP_STATES));
 const VALID_APPROVAL_STATUSES = new Set(['approved', 'pending', 'rejected']);
 
@@ -75,6 +82,45 @@ function getGatesForTrustLevel(trustLevel) {
   return APPROVAL_GATES[trustLevel].slice();
 }
 
+function isExitGatedStage(stage, trustLevel) {
+  assertValidState(stage);
+  assertValidTrustLevel(trustLevel);
+  return EXIT_GATED_STATES[trustLevel].includes(stage);
+}
+
+function getPendingGateStage(currentState, trustLevel) {
+  assertValidState(currentState);
+  assertValidTrustLevel(trustLevel);
+
+  if (currentState === LOOP_STATES.IDLE || currentState === LOOP_STATES.PAUSED) {
+    return null;
+  }
+
+  if (isExitGatedStage(currentState, trustLevel)) {
+    return currentState;
+  }
+
+  const nextState = TRANSITIONS[currentState];
+  if (!nextState) {
+    return null;
+  }
+
+  const gatedStates = APPROVAL_GATES[trustLevel];
+  if (gatedStates.includes(nextState) && !isExitGatedStage(nextState, trustLevel)) {
+    return nextState;
+  }
+
+  return null;
+}
+
+function getResumeStateForApprovedGate(stage, trustLevel) {
+  assertValidState(stage);
+  assertValidTrustLevel(trustLevel);
+  return isExitGatedStage(stage, trustLevel)
+    ? (TRANSITIONS[stage] || stage)
+    : stage;
+}
+
 function getNextState(currentState, trustLevel, approvalStatus) {
   assertValidState(currentState);
   assertValidTrustLevel(trustLevel);
@@ -88,21 +134,23 @@ function getNextState(currentState, trustLevel, approvalStatus) {
     return LOOP_STATES.IDLE;
   }
 
-  const nextState = TRANSITIONS[currentState];
-  const gatedStates = APPROVAL_GATES[trustLevel];
-
-  if (gatedStates.includes(nextState) && approvalStatus !== 'approved') {
+  const pendingGateStage = getPendingGateStage(currentState, trustLevel);
+  if (pendingGateStage && approvalStatus !== 'approved') {
     return LOOP_STATES.PAUSED;
   }
 
-  return nextState;
+  return TRANSITIONS[currentState];
 }
 
 module.exports = {
   LOOP_STATES,
   TRANSITIONS,
   APPROVAL_GATES,
+  EXIT_GATED_STATES,
   getNextState,
+  getPendingGateStage,
+  getResumeStateForApprovedGate,
+  isExitGatedStage,
   isValidState,
   getGatesForTrustLevel,
 };
