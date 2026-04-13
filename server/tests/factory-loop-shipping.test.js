@@ -100,6 +100,13 @@ function createFactoryTables(db) {
 
     CREATE INDEX IF NOT EXISTS idx_fd_project_time
       ON factory_decisions(project_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      tags TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -192,6 +199,16 @@ function seedLearnDependencies(projectId, batchId) {
     batch_id: batchId,
     details: { passed: 1, failed: 0 },
   });
+}
+
+function insertBatchTask(db, { taskId, batchId, status }) {
+  db.prepare(`
+    INSERT INTO tasks (id, status, tags)
+    VALUES (?, ?, ?)
+  `).run(taskId, status, JSON.stringify([
+    `factory:batch_id=${batchId}`,
+    'factory:pending_approval',
+  ]));
 }
 
 describe('factory loop work-item shipping', () => {
@@ -335,6 +352,135 @@ describe('factory loop work-item shipping', () => {
         work_item_id: workItem.id,
         reason: 'task_1_failed',
         execution_action: 'execution_failed',
+      }),
+    });
+  });
+
+  it('ships the selected work item after LEARN when all pending-approval batch tasks completed', async () => {
+    const batchId = 'batch-pending-approval-complete';
+    const { project, workItem } = registerPausedVerifyProject({
+      workItemStatus: 'verifying',
+      batchId,
+    });
+    seedLearnDependencies(project.id, batchId);
+
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'started_execution',
+      reasoning: 'Loop advanced into EXECUTE.',
+      outcome: {
+        from_state: 'PLAN',
+        to_state: 'EXECUTE',
+        batch_id: batchId,
+      },
+    });
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'completed_execution',
+      reasoning: 'Pending approval tasks were submitted successfully.',
+      outcome: {
+        completed_tasks: [1, 2],
+        dry_run: true,
+        execution_mode: 'pending_approval',
+        task_count: 2,
+        simulated: false,
+        submitted_tasks: [
+          { task_number: 1, task_id: 'approval-task-1' },
+          { task_number: 2, task_id: 'approval-task-2' },
+        ],
+        final_state: 'VERIFY',
+      },
+    });
+    insertBatchTask(db, { taskId: 'approval-task-1', batchId, status: 'completed' });
+    insertBatchTask(db, { taskId: 'approval-task-2', batchId, status: 'completed' });
+
+    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    expect(approved.state).toBe(LOOP_STATES.LEARN);
+
+    const result = await loopController.advanceLoop(project.id);
+
+    expect(result.previous_state).toBe(LOOP_STATES.LEARN);
+    expect(result.new_state).toBe(LOOP_STATES.IDLE);
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'shipped',
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'shipped_work_item')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        new_status: 'shipped',
+        reason: 'execute_completed_successfully',
+      }),
+    });
+  });
+
+  it('keeps the selected work item open when pending-approval batch tasks are still in progress', async () => {
+    const batchId = 'batch-pending-approval-queued';
+    const { project, workItem } = registerPausedVerifyProject({
+      workItemStatus: 'verifying',
+      batchId,
+    });
+    seedLearnDependencies(project.id, batchId);
+
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'started_execution',
+      reasoning: 'Loop advanced into EXECUTE.',
+      outcome: {
+        from_state: 'PLAN',
+        to_state: 'EXECUTE',
+        batch_id: batchId,
+      },
+    });
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'completed_execution',
+      reasoning: 'Pending approval tasks were submitted successfully.',
+      outcome: {
+        completed_tasks: [1, 2],
+        dry_run: true,
+        execution_mode: 'pending_approval',
+        task_count: 2,
+        simulated: false,
+        submitted_tasks: [
+          { task_number: 1, task_id: 'approval-task-3' },
+          { task_number: 2, task_id: 'approval-task-4' },
+        ],
+        final_state: 'VERIFY',
+      },
+    });
+    insertBatchTask(db, { taskId: 'approval-task-3', batchId, status: 'completed' });
+    insertBatchTask(db, { taskId: 'approval-task-4', batchId, status: 'queued' });
+
+    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    expect(approved.state).toBe(LOOP_STATES.LEARN);
+
+    const result = await loopController.advanceLoop(project.id);
+
+    expect(result.previous_state).toBe(LOOP_STATES.LEARN);
+    expect(result.new_state).toBe(LOOP_STATES.IDLE);
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'verifying',
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'shipped_work_item')).toBeUndefined();
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'skipped_shipping')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        reason: 'pending_approval_in_progress',
+        execution_action: 'completed_execution',
       }),
     });
   });

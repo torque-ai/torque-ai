@@ -68,6 +68,8 @@ const SELECTED_WORK_ITEM_DECISION_ACTIONS = Object.freeze([
 ]);
 
 const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected']);
+const PENDING_APPROVAL_SUCCESS_TASK_STATUSES = new Set(['completed', 'shipped']);
+const PENDING_APPROVAL_FAILURE_TASK_STATUSES = new Set(['failed', 'cancelled']);
 const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
   'completed_execution',
   'execution_failed',
@@ -422,8 +424,98 @@ function getLatestExecutionDecisionForWorkItem(project_id, workItemId) {
   return null;
 }
 
-function evaluateWorkItemShipping(project_id, workItemId) {
-  const executionDecision = getLatestExecutionDecisionForWorkItem(project_id, workItemId);
+function escapeSqlLikeValue(value) {
+  return String(value || '').replace(/[\\%_]/g, '\\$&');
+}
+
+function listTasksForFactoryBatch(batchId) {
+  const db = database.getDbInstance();
+  if (!db || !batchId) {
+    return [];
+  }
+
+  try {
+    const batchTag = `factory:batch_id=${batchId}`;
+    return db.prepare(`
+      SELECT id, status
+      FROM tasks
+      WHERE tags LIKE ? ESCAPE '\\'
+    `).all(`%"${escapeSqlLikeValue(batchTag)}"%`);
+  } catch (error) {
+    logger.debug({ err: error.message, batch_id: batchId }, 'Unable to inspect factory batch tasks');
+    return [];
+  }
+}
+
+function resolvePendingApprovalBatchId(project, workItem, executionDecision, startedExecutionDecision) {
+  return startedExecutionDecision?.outcome?.batch_id
+    || executionDecision?.batch_id
+    || workItem?.batch_id
+    || project?.loop_batch_id
+    || startedExecutionDecision?.batch_id
+    || null;
+}
+
+function evaluatePendingApprovalExecution(project, workItem, executionDecision, startedExecutionDecision) {
+  const decisionAction = executionDecision?.action || null;
+  const decisionBatchId = resolvePendingApprovalBatchId(
+    project,
+    workItem,
+    executionDecision,
+    startedExecutionDecision
+  );
+
+  if (!decisionBatchId) {
+    return {
+      should_ship: false,
+      reason: 'pending_approval_not_submitted',
+      decision_action: decisionAction,
+      decision_batch_id: null,
+    };
+  }
+
+  const batchTasks = listTasksForFactoryBatch(decisionBatchId);
+  if (batchTasks.length === 0) {
+    return {
+      should_ship: false,
+      reason: 'pending_approval_not_submitted',
+      decision_action: decisionAction,
+      decision_batch_id: decisionBatchId,
+    };
+  }
+
+  const failedTask = batchTasks.find((task) => PENDING_APPROVAL_FAILURE_TASK_STATUSES.has(task.status));
+  if (failedTask) {
+    return {
+      should_ship: false,
+      reason: `pending_approval_task_${failedTask.status}`,
+      decision_action: decisionAction,
+      decision_batch_id: decisionBatchId,
+    };
+  }
+
+  const unfinishedTask = batchTasks.find((task) => !PENDING_APPROVAL_SUCCESS_TASK_STATUSES.has(task.status));
+  if (unfinishedTask) {
+    return {
+      should_ship: false,
+      reason: 'pending_approval_in_progress',
+      decision_action: decisionAction,
+      decision_batch_id: decisionBatchId,
+    };
+  }
+
+  return {
+    should_ship: true,
+    reason: 'execute_completed_successfully',
+    decision_action: decisionAction,
+    decision_batch_id: decisionBatchId,
+  };
+}
+
+function evaluateWorkItemShipping(project, workItem, options = {}) {
+  const projectId = typeof project === 'string' ? project : project?.id;
+  const normalizedWorkItemId = normalizeWorkItemId(workItem?.id ?? workItem);
+  const executionDecision = getLatestExecutionDecisionForWorkItem(projectId, normalizedWorkItemId);
   if (!executionDecision) {
     return {
       should_ship: false,
@@ -464,14 +556,13 @@ function evaluateWorkItemShipping(project_id, workItemId) {
   }
 
   if (outcome.dry_run === true) {
-    const submittedTasks = Array.isArray(outcome.submitted_tasks) ? outcome.submitted_tasks : [];
-    if ((outcome.execution_mode || null) === 'pending_approval' && submittedTasks.length > 0) {
-      return {
-        should_ship: false,
-        reason: 'pending_approval_tasks_unfinished',
-        decision_action: decisionAction,
-        decision_batch_id: executionDecision.batch_id || null,
-      };
+    if ((outcome.execution_mode || null) === 'pending_approval') {
+      return evaluatePendingApprovalExecution(
+        typeof project === 'string' ? null : project,
+        typeof workItem === 'object' ? workItem : { id: normalizedWorkItemId },
+        executionDecision,
+        options.startedExecutionDecision || null
+      );
     }
 
     return {
@@ -501,13 +592,16 @@ function evaluateWorkItemShipping(project_id, workItemId) {
 
 function maybeShipWorkItemAfterLearn(project_id, batch_id) {
   try {
+    const project = getProjectOrThrow(project_id);
     const rememberedWorkItemId = normalizeWorkItemId(selectedWorkItemIds.get(project_id));
-    const startedExecutionDecision = rememberedWorkItemId
-      ? null
-      : getLatestStartedExecutionDecision(project_id);
+    const startedExecutionDecision = getLatestStartedExecutionDecision(project_id);
     const workItemId = rememberedWorkItemId || getDecisionRowWorkItemId(startedExecutionDecision);
     const resolutionSource = rememberedWorkItemId ? 'tracked_selection' : 'started_execution';
-    const decisionBatchId = batch_id || startedExecutionDecision?.batch_id || null;
+    const decisionBatchId = batch_id
+      || startedExecutionDecision?.outcome?.batch_id
+      || project.loop_batch_id
+      || startedExecutionDecision?.batch_id
+      || null;
 
     if (!workItemId) {
       safeLogDecision({
@@ -591,7 +685,9 @@ function maybeShipWorkItemAfterLearn(project_id, batch_id) {
       };
     }
 
-    const shippingDecision = evaluateWorkItemShipping(project_id, workItem.id);
+    const shippingDecision = evaluateWorkItemShipping(project, workItem, {
+      startedExecutionDecision,
+    });
     if (!shippingDecision.should_ship) {
       safeLogDecision({
         project_id,
