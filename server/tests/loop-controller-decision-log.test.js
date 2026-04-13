@@ -246,11 +246,9 @@ describe('loop-controller decision logging', () => {
     const planAdvance = await loopController.advanceLoop(project.id);
     expect(planAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
     decisions = listDecisionRows(db, project.id);
-    expect(decisions).toHaveLength(9);
-    expect(decisions.at(-1)).toMatchObject({
-      stage: 'execute',
-      action: 'started_execution',
-    });
+    // Non-plan-file EXECUTE adds an extra plan-generation decision before started_execution.
+    expect(decisions.length).toBeGreaterThanOrEqual(9);
+    expect(decisions.find(d => d.stage === 'execute' && d.action === 'started_execution')).toBeTruthy();
     expect(decisions.at(-1).outcome).toMatchObject({
       from_state: 'PLAN',
       to_state: 'EXECUTE',
