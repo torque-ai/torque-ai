@@ -737,6 +737,35 @@ describe('factory scorer behavioral coverage', () => {
         },
       ]);
     });
+
+    test('prefers the lexicographically latest matching documentation report when mtimes tie', () => {
+      const firstReport = '2026-04-12-documentation-audit.md';
+      const latestReport = '2026-04-12-documentation-sweep.md';
+      const findingsDir = createFindingsDir({
+        [firstReport]: findingsMarkdown([
+          { severity: 'medium', title: 'Audit report still lists stale setup notes', file: 'docs/setup.md' },
+        ]),
+        [latestReport]: findingsMarkdown([
+          { severity: 'medium', title: 'Sweep report captures the remaining recovery gap', file: 'docs/runbooks/factory.md' },
+        ]),
+      });
+
+      setFixtureModifiedTime(findingsDir, firstReport, '2026-04-12T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, latestReport, '2026-04-12T00:00:00.000Z');
+
+      const result = documentationScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details.file).toBe(path.join(findingsDir, latestReport));
+      expect(result.details.openFindings).toBe(1);
+      expect(result.score).toBe(92);
+      expect(result.findings).toEqual([
+        {
+          severity: 'medium',
+          title: 'Sweep report captures the remaining recovery gap',
+          file: 'docs/runbooks/factory.md',
+        },
+      ]);
+    });
   });
 
   describe('dependency_health scorer', () => {
@@ -839,6 +868,35 @@ describe('factory scorer behavioral coverage', () => {
           severity: 'high',
           title: 'SQLite binding needs a patch release',
           file: 'server/package.json',
+        },
+      ]);
+    });
+
+    test('prefers the lexicographically latest matching dependency report when mtimes tie', () => {
+      const firstReport = '2026-04-12-dependency-audit.md';
+      const latestReport = '2026-04-12-dependency-sweep.md';
+      const findingsDir = createFindingsDir({
+        [firstReport]: findingsMarkdown([
+          { severity: 'high', title: 'Audit report notes a stale database client patch', file: 'server/package.json' },
+        ]),
+        [latestReport]: findingsMarkdown([
+          { severity: 'high', title: 'Sweep report isolates the remaining SQLite advisory', file: 'package-lock.json' },
+        ]),
+      });
+
+      setFixtureModifiedTime(findingsDir, firstReport, '2026-04-12T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, latestReport, '2026-04-12T00:00:00.000Z');
+
+      const result = dependencyHealthScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details.file).toBe(path.join(findingsDir, latestReport));
+      expect(result.details.openFindings).toBe(1);
+      expect(result.score).toBe(90);
+      expect(result.findings).toEqual([
+        {
+          severity: 'high',
+          title: 'Sweep report isolates the remaining SQLite advisory',
+          file: 'package-lock.json',
         },
       ]);
     });
@@ -978,6 +1036,35 @@ describe('factory scorer behavioral coverage', () => {
           severity: 'medium',
           title: 'Warm path still has one slow query',
           file: 'server/db/task-core.js',
+        },
+      ]);
+    });
+
+    test('prefers the lexicographically latest matching performance report when mtimes tie', () => {
+      const firstReport = '2026-04-12-performance-audit.md';
+      const latestReport = '2026-04-12-performance-sweep.md';
+      const findingsDir = createFindingsDir({
+        [firstReport]: findingsMarkdown([
+          { severity: 'medium', title: 'Audit report flags one slow aggregation query', file: 'server/db/task-core.js' },
+        ]),
+        [latestReport]: findingsMarkdown([
+          { severity: 'medium', title: 'Sweep report flags the final slow warm-path query', file: 'server/db/factory-architect.js' },
+        ]),
+      });
+
+      setFixtureModifiedTime(findingsDir, firstReport, '2026-04-12T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, latestReport, '2026-04-12T00:00:00.000Z');
+
+      const result = performanceScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details.file).toBe(path.join(findingsDir, latestReport));
+      expect(result.details.openFindings).toBe(1);
+      expect(result.score).toBe(96);
+      expect(result.findings).toEqual([
+        {
+          severity: 'medium',
+          title: 'Sweep report flags the final slow warm-path query',
+          file: 'server/db/factory-architect.js',
         },
       ]);
     });
