@@ -8,7 +8,7 @@ const DISPATCH = { readOnlyHint: false, destructiveHint: false, idempotentHint: 
 const IDEMPOTENT = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const LIFECYCLE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 const ASYNC_RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false };
-const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier', 'get_tool_schema'];
+const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'restart_status', 'unlock_all_tools', 'unlock_tier', 'get_tool_schema'];
 const INTERNAL_ONLY_ROUTE_NAMES = new Set([
   'set_api_key',
   'clear_api_key',

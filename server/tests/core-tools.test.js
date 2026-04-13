@@ -55,6 +55,7 @@ function buildRouteToolMapFromTools() {
 
   routeMap.set('ping', () => ({}));
   routeMap.set('restart_server', () => ({}));
+  routeMap.set('restart_status', () => ({}));
   routeMap.set('unlock_all_tools', () => ({}));
   routeMap.set('unlock_tier', () => ({}));
 

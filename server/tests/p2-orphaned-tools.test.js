@@ -7,6 +7,7 @@ const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 const INLINE_TOOL_HANDLERS = new Set([
   'ping',
   'restart_server',
+  'restart_status',
   'unlock_all_tools',
   'unlock_tier',
   'get_tool_schema',

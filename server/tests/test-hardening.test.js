@@ -13,7 +13,7 @@ const peekHandlers = require('../plugins/snapscope/handlers/analysis');
 const tools = require('../tools');
 const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 
-const INLINE_TOOL_HANDLERS = new Set(['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier', 'get_tool_schema']);
+const INLINE_TOOL_HANDLERS = new Set(['ping', 'restart_server', 'restart_status', 'unlock_all_tools', 'unlock_tier', 'get_tool_schema']);
 const PLUGIN_PROVIDED_TOOL_DEFS = new Set(
   remoteAgentToolDefs
     .filter((def) => def && typeof def.name === 'string')

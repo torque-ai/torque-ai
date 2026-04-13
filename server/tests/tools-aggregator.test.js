@@ -9,7 +9,7 @@ const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../core-tools');
 const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 const realTools = require('../tools');
 
-const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'unlock_all_tools', 'unlock_tier'];
+const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'restart_status', 'unlock_all_tools', 'unlock_tier'];
 const EXPECTED_UNMAPPED_TOOL_NAMES = [
   'set_provider_api_key', 'clear_provider_api_key',
   'run_remote_command', 'run_tests',
