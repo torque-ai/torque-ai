@@ -1068,6 +1068,9 @@ async function executeNonPlanFileStage(project, workItem) {
       provider: 'codex',
       working_directory: project.path || process.cwd(),
       timeout_minutes: 10,
+      // Plan generation is internal factory bookkeeping — never bumps the
+      // versioned project's semver.
+      version_intent: 'internal',
       tags: [
         'factory:internal',
         'factory:plan_generation',
