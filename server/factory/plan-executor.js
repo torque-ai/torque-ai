@@ -4,6 +4,7 @@ const logger = require('../logger').child({ component: 'plan-executor' });
 const { parsePlanFile, extractVerifyCommand } = require('./plan-parser');
 
 const FILE_PATH_RE = /(?:^|[\s"'`(])((?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+)(?=$|[\s"'`),:])/gm;
+const EXECUTION_MODES = new Set(['live', 'suppress', 'pending_approval']);
 
 function buildTaskPrompt(task, planTitle) {
   const lines = [`Plan: ${planTitle}`, `Task ${task.task_number}: ${task.task_title}`, ''];
@@ -67,6 +68,13 @@ function extractTaskFilePaths(task, fallbackFilePaths = []) {
   return matches.length > 0 ? matches : fallbackFilePaths;
 }
 
+function normalizeExecutionMode(executionMode, dryRun) {
+  if (EXECUTION_MODES.has(executionMode)) {
+    return executionMode;
+  }
+  return dryRun ? 'suppress' : 'live';
+}
+
 function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunTask = null }) {
   async function execute({
     plan_path,
@@ -74,14 +82,17 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
     working_directory,
     version_intent = 'feature',
     dry_run = false,
+    execution_mode = null,
   }) {
     const started = Date.now();
     const content = fs.readFileSync(plan_path, 'utf8');
     const parsed = parsePlanFile(content);
     const verify_command = extractVerifyCommand(content, projectDefaults.verify_command);
     const planFilePaths = extractFilePaths(content);
+    const mode = normalizeExecutionMode(execution_mode, dry_run);
 
     const completed_tasks = [];
+    const submitted_tasks = [];
     let failed_task = null;
     let task_count = 0;
 
@@ -93,7 +104,9 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
       }
 
       const prompt = buildTaskPrompt(task, parsed.title);
-      if (dry_run) {
+      const file_paths = extractTaskFilePaths(task, planFilePaths);
+
+      if (mode === 'suppress') {
         task_count += 1;
         if (typeof onDryRunTask === 'function') {
           await onDryRunTask({
@@ -101,18 +114,46 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
             plan_title: parsed.title,
             task,
             prompt,
-            file_paths: extractTaskFilePaths(task, planFilePaths),
+            file_paths,
+            execution_mode: mode,
+            simulated: true,
           });
         }
         continue;
       }
 
-      const { task_id } = await submit({
+      const submission = await submit({
         task: prompt,
         project,
         working_directory,
         version_intent,
+        plan_path,
+        plan_title: parsed.title,
+        plan_task_number: task.task_number,
+        plan_task_title: task.task_title,
+        file_paths,
+        initial_status: mode === 'pending_approval' ? 'pending_approval' : undefined,
       });
+      const task_id = submission?.task_id;
+
+      if (mode === 'pending_approval') {
+        task_count += 1;
+        submitted_tasks.push({ task_number: task.task_number, task_id });
+        if (typeof onDryRunTask === 'function') {
+          await onDryRunTask({
+            plan_path,
+            plan_title: parsed.title,
+            task,
+            prompt,
+            file_paths,
+            execution_mode: mode,
+            simulated: false,
+            initial_status: 'pending_approval',
+            submitted_task_id: task_id,
+          });
+        }
+        continue;
+      }
 
       const result = await awaitTask({
         task_id,
@@ -137,10 +178,14 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
       duration_ms: Date.now() - started,
     };
 
-    if (dry_run) {
+    if (mode !== 'live') {
       result.dry_run = true;
       result.task_count = task_count;
-      result.simulated = true;
+      result.simulated = mode === 'suppress';
+      result.execution_mode = mode;
+      if (submitted_tasks.length > 0) {
+        result.submitted_tasks = submitted_tasks;
+      }
     }
 
     return result;

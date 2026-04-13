@@ -76,6 +76,31 @@ function firstNonEmptyString(...values) {
   return '';
 }
 
+function uniqueTaskIds(taskIds) {
+  if (!Array.isArray(taskIds)) {
+    return [];
+  }
+
+  return [...new Set(
+    taskIds
+      .map((taskId) => (typeof taskId === 'string' ? taskId.trim() : ''))
+      .filter(Boolean)
+  )];
+}
+
+function getPendingApprovalTasksForBatch(batchId) {
+  const normalizedBatchId = typeof batchId === 'string' ? batchId.trim() : '';
+  if (!normalizedBatchId) {
+    return [];
+  }
+
+  return taskCore.listTasks({
+    status: 'pending_approval',
+    tags: [`factory:batch_id=${normalizedBatchId}`],
+    limit: 10000,
+  });
+}
+
 // getPendingSwitchTargetProvider and getPendingSwitchOriginalProvider removed —
 // they were defined but never referenced. Restore from git history if needed.
 
@@ -757,8 +782,8 @@ async function handleDeleteTask(req, res) {
     return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
   }
 
-  const runningStatuses = new Set(['running', 'queued']);
-  if (runningStatuses.has(task.status)) {
+  const activeStatuses = new Set(['running', 'queued', 'pending', 'pending_approval']);
+  if (activeStatuses.has(task.status)) {
     return sendError(res, requestId, 'invalid_status', `Cannot delete task with status: ${task.status}. Cancel it first.`, 400, {}, req);
   }
 
@@ -768,6 +793,161 @@ async function handleDeleteTask(req, res) {
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
   }
+}
+
+// ─── POST /api/v2/tasks/:task_id/approve — Approve held task ────────────────
+
+async function handleApproveTask(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = taskCore.getTask(taskId);
+  } catch (err) {
+    logger.debug('task handler error', { err: err.message });
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (task.status !== 'pending_approval') {
+    return sendError(res, requestId, 'invalid_status', `Cannot approve task with status: ${task.status}`, 409, {}, req);
+  }
+
+  try {
+    const updatedTask = taskCore.updateTaskStatus(task.id, 'queued');
+    if (!updatedTask || updatedTask.status !== 'queued') {
+      return sendError(res, requestId, 'invalid_status', `Task status changed before approval could be applied`, 409, {}, req);
+    }
+
+    emitTaskUpdated(task.id, updatedTask.status);
+    sendSuccess(res, requestId, {
+      approved: true,
+      task_id: task.id,
+      ...buildTaskDetailResponse(updatedTask),
+    }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── POST /api/v2/tasks/:task_id/reject — Reject held task ─────────────────
+
+async function handleRejectTask(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = taskCore.getTask(taskId);
+  } catch (err) {
+    logger.debug('task handler error', { err: err.message });
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (task.status !== 'pending_approval') {
+    return sendError(res, requestId, 'invalid_status', `Cannot reject task with status: ${task.status}`, 409, {}, req);
+  }
+
+  try {
+    const updatedTask = taskCore.updateTaskStatus(task.id, 'cancelled', {
+      cancel_reason: 'human_rejected',
+    });
+    if (!updatedTask || updatedTask.status !== 'cancelled') {
+      return sendError(res, requestId, 'invalid_status', `Task status changed before rejection could be applied`, 409, {}, req);
+    }
+
+    emitTaskUpdated(task.id, updatedTask.status);
+    sendSuccess(res, requestId, {
+      rejected: true,
+      task_id: task.id,
+      ...buildTaskDetailResponse(updatedTask),
+    }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── POST /api/v2/tasks/approve-batch — Bulk-approve held tasks ───────────
+
+async function handleApproveTaskBatch(req, res) {
+  const requestId = resolveRequestId(req);
+  const body = req.body || await parseBody(req);
+  const batchId = typeof body?.batch_id === 'string' ? body.batch_id.trim() : '';
+  const requestedTaskIds = uniqueTaskIds(body?.task_ids);
+
+  if (!batchId && requestedTaskIds.length === 0) {
+    return sendError(res, requestId, 'validation_error', 'batch_id or task_ids is required', 400, {}, req);
+  }
+
+  const candidates = [];
+  const seen = new Set();
+  const skipped = [];
+
+  if (batchId) {
+    for (const task of getPendingApprovalTasksForBatch(batchId)) {
+      if (task?.id && !seen.has(task.id)) {
+        seen.add(task.id);
+        candidates.push(task);
+      }
+    }
+  }
+
+  for (const taskId of requestedTaskIds) {
+    if (seen.has(taskId)) {
+      continue;
+    }
+    try {
+      const task = taskCore.getTask(taskId);
+      if (!task) {
+        skipped.push({ task_id: taskId, reason: 'not_found', status: null });
+        continue;
+      }
+      seen.add(task.id);
+      candidates.push(task);
+    } catch (err) {
+      logger.debug('task handler error', { err: err.message });
+      skipped.push({ task_id: taskId, reason: 'not_found', status: null });
+    }
+  }
+
+  const approvedTasks = [];
+  for (const task of candidates) {
+    if (task.status !== 'pending_approval') {
+      skipped.push({ task_id: task.id, reason: 'not_pending_approval', status: task.status });
+      continue;
+    }
+
+    try {
+      const updatedTask = taskCore.updateTaskStatus(task.id, 'queued');
+      if (!updatedTask || updatedTask.status !== 'queued') {
+        skipped.push({ task_id: task.id, reason: 'status_changed', status: updatedTask?.status || null });
+        continue;
+      }
+
+      emitTaskUpdated(task.id, updatedTask.status);
+      approvedTasks.push(updatedTask);
+    } catch (err) {
+      skipped.push({ task_id: task.id, reason: 'operation_failed', status: task.status });
+      logger.debug('task handler error', { err: err.message });
+    }
+  }
+
+  sendSuccess(res, requestId, {
+    batch_id: batchId || null,
+    requested_task_ids: requestedTaskIds,
+    approved_count: approvedTasks.length,
+    approved_task_ids: approvedTasks.map((task) => task.id),
+    skipped,
+    tasks: approvedTasks.map((task) => buildTaskResponse(task)),
+  }, 200, req);
 }
 
 // ─── POST /api/v2/tasks/:task_id/approve-switch — Approve provider switch ──
@@ -981,6 +1161,9 @@ function createV2TaskHandlers(_deps) {
     handleTaskLogs,
     handleTaskProgress,
     handleDeleteTask,
+    handleApproveTask,
+    handleRejectTask,
+    handleApproveTaskBatch,
     handleApproveSwitch,
     handleRejectSwitch,
   };
@@ -1000,6 +1183,9 @@ module.exports = {
   handleTaskLogs,
   handleTaskProgress,
   handleDeleteTask,
+  handleApproveTask,
+  handleRejectTask,
+  handleApproveTaskBatch,
   handleApproveSwitch,
   handleRejectSwitch,
   createV2TaskHandlers,

@@ -124,7 +124,7 @@ async function advanceSupervisedPlanProject(projectId) {
   expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
 }
 
-describe('factory loop-controller EXECUTE dry run', () => {
+describe('factory loop-controller EXECUTE modes', () => {
   let db;
   let originalGetDbInstance;
   let tempDir;
@@ -200,7 +200,7 @@ describe('factory loop-controller EXECUTE dry run', () => {
     return { project, workItem, planPath };
   }
 
-  it('defaults supervised EXECUTE to dry_run and records simulated tasks', async () => {
+  it('defaults supervised EXECUTE to pending approval and records held task submissions', async () => {
     const { project, workItem, planPath } = registerPlanProject();
     const before = fs.readFileSync(planPath, 'utf8');
 
@@ -218,6 +218,17 @@ describe('factory loop-controller EXECUTE dry run', () => {
       status: 'verifying',
     });
     expect(fs.readFileSync(planPath, 'utf8')).toBe(before);
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledTimes(1);
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      initial_status: 'pending_approval',
+      tags: expect.arrayContaining([
+        `factory:batch_id=factory-${project.id}-${workItem.id}`,
+        `factory:work_item_id=${workItem.id}`,
+        'factory:plan_task_number=1',
+        'factory:pending_approval',
+      ]),
+    }));
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
 
     const decisions = listDecisionRows(db, project.id);
     const dryRunDecision = decisions.find((row) => row.action === 'dry_run_task');
@@ -230,13 +241,19 @@ describe('factory loop-controller EXECUTE dry run', () => {
     expect(dryRunDecision.inputs).toMatchObject({
       work_item_id: workItem.id,
       dry_run: true,
+      simulated: false,
+      execution_mode: 'pending_approval',
       task_number: 1,
       task_title: 'Simulated task',
     });
     expect(dryRunDecision.outcome).toMatchObject({
       plan_path: planPath,
       dry_run: true,
-      simulated: true,
+      simulated: false,
+      execution_mode: 'pending_approval',
+      initial_status: 'pending_approval',
+      held_for_approval: true,
+      task_id: 'live-task-id',
       task_number: 1,
       task_title: 'Simulated task',
       file_paths: ['server/factory/plan-executor.js'],
@@ -244,8 +261,10 @@ describe('factory loop-controller EXECUTE dry run', () => {
     expect(dryRunDecision.outcome.planned_task_description).toContain('Task 1: Simulated task');
     expect(completedDecision.outcome).toMatchObject({
       dry_run: true,
+      execution_mode: 'pending_approval',
       task_count: 1,
-      simulated: true,
+      simulated: false,
+      submitted_tasks: [{ task_number: 1, task_id: 'live-task-id' }],
       plan_path: planPath,
     });
     expect(enteredVerifyDecision).toMatchObject({
@@ -254,6 +273,50 @@ describe('factory loop-controller EXECUTE dry run', () => {
         from_state: LOOP_STATES.EXECUTE,
         to_state: LOOP_STATES.VERIFY,
       }),
+    });
+  });
+
+  it('keeps pure suppression available when config.execute_mode is suppress', async () => {
+    const { project, workItem, planPath } = registerPlanProject({
+      config: { execute_mode: 'suppress' },
+    });
+    const before = fs.readFileSync(planPath, 'utf8');
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoop(project.id);
+
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(fs.readFileSync(planPath, 'utf8')).toBe(before);
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+
+    const decisions = listDecisionRows(db, project.id);
+    const dryRunDecision = decisions.find((row) => row.action === 'dry_run_task');
+    const completedDecision = decisions.find((row) => row.action === 'completed_execution');
+
+    expect(dryRunDecision.inputs).toMatchObject({
+      work_item_id: workItem.id,
+      dry_run: true,
+      simulated: true,
+      execution_mode: 'suppress',
+      task_number: 1,
+    });
+    expect(dryRunDecision.outcome).toMatchObject({
+      plan_path: planPath,
+      dry_run: true,
+      simulated: true,
+      execution_mode: 'suppress',
+      held_for_approval: false,
+      initial_status: null,
+      task_id: null,
+    });
+    expect(completedDecision.outcome).toMatchObject({
+      dry_run: true,
+      execution_mode: 'suppress',
+      task_count: 1,
+      simulated: true,
+      submitted_tasks: [],
+      plan_path: planPath,
     });
   });
 
@@ -281,6 +344,7 @@ describe('factory loop-controller EXECUTE dry run', () => {
     const enteredVerifyDecision = decisions.find((row) => row.action === 'entered_from_execute');
     expect(completedDecision.outcome).toMatchObject({
       dry_run: false,
+      execution_mode: 'live',
       task_count: null,
       simulated: false,
       plan_path: planPath,

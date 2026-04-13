@@ -22,6 +22,7 @@ const MODULE_PATHS = [
 ];
 
 const V2_TASK_HANDLER_NAMES = [
+  'handlePreviewTaskStudyContext',
   'handleSubmitTask',
   'handleListTasks',
   'handleTaskDiff',
@@ -33,6 +34,9 @@ const V2_TASK_HANDLER_NAMES = [
   'handleGetTask',
   'handleCancelTask',
   'handleDeleteTask',
+  'handleApproveTask',
+  'handleRejectTask',
+  'handleApproveTaskBatch',
   'handleApproveSwitch',
   'handleRejectSwitch',
 ];

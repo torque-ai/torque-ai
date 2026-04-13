@@ -163,6 +163,11 @@ function getDecisionBatchId(project, workItem, explicitBatchId) {
   return explicitBatchId || workItem?.batch_id || project?.loop_batch_id || null;
 }
 
+function getFactorySubmissionBatchId(project, workItem) {
+  return getDecisionBatchId(project, workItem)
+    || (project?.id && workItem?.id != null ? `factory-${project.id}-${workItem.id}` : null);
+}
+
 function getWorkItemDecisionContext(workItem) {
   if (!workItem) {
     return {
@@ -656,8 +661,16 @@ function getPostStageTransition(currentState, trustLevel) {
   };
 }
 
-function shouldDryRunExecute(project) {
-  return project?.trust_level === 'supervised' && project?.config?.execute_live !== true;
+function resolveExecuteMode(project) {
+  if (project?.config?.execute_live === true) {
+    return 'live';
+  }
+  if (project?.trust_level !== 'supervised') {
+    return 'live';
+  }
+  return project?.config?.execute_mode === 'suppress'
+    ? 'suppress'
+    : 'pending_approval';
 }
 
 async function awaitTaskToStructuredResult(handleAwaitTask, taskCore, args) {
@@ -771,6 +784,7 @@ async function executePlanFileStage(project, workItem) {
     return null;
   }
   rememberSelectedWorkItem(project.id, targetItem);
+  const executeLogBatchId = getFactorySubmissionBatchId(project, targetItem);
 
   safeLogDecision({
     project_id: project.id,
@@ -784,19 +798,33 @@ async function executePlanFileStage(project, workItem) {
       ...getWorkItemDecisionContext(targetItem),
     },
     confidence: 1,
-    batch_id: getDecisionBatchId(project, targetItem),
+    batch_id: executeLogBatchId,
   });
 
   const { createPlanExecutor } = require('./plan-executor');
   const { handleSmartSubmitTask } = require('../handlers/integration/routing');
   const { handleAwaitTask } = require('../handlers/workflow/await');
   const taskCore = require('../db/task-core');
-  const dry_run = shouldDryRunExecute(project);
+  const executeMode = resolveExecuteMode(project);
+  const dry_run = executeMode !== 'live';
   const decisionBatchId = getDecisionBatchId(project, targetItem);
+  const submissionBatchId = getFactorySubmissionBatchId(project, targetItem);
+  const executeDecisionBatchId = executeMode === 'pending_approval' ? submissionBatchId : decisionBatchId;
 
   const executor = createPlanExecutor({
     submit: async (args) => {
-      const result = await handleSmartSubmitTask(args);
+      const tags = Array.isArray(args.tags) ? [...args.tags] : [];
+      if (args.initial_status === 'pending_approval') {
+        if (submissionBatchId) tags.push(`factory:batch_id=${submissionBatchId}`);
+        tags.push(`factory:work_item_id=${targetItem.id}`);
+        tags.push(`factory:plan_task_number=${args.plan_task_number}`);
+        tags.push('factory:pending_approval');
+      }
+
+      const result = await handleSmartSubmitTask({
+        ...args,
+        tags: [...new Set(tags)],
+      });
       if (!result?.task_id) {
         throw new Error(result?.content?.[0]?.text || 'smart_submit_task did not return task_id');
       }
@@ -804,29 +832,39 @@ async function executePlanFileStage(project, workItem) {
     },
     awaitTask: (args) => awaitTaskToStructuredResult(handleAwaitTask, taskCore, args),
     projectDefaults: project.config || {},
-    onDryRunTask: dry_run ? async ({ task, prompt, file_paths }) => {
+    onDryRunTask: dry_run ? async ({ task, prompt, file_paths, simulated, submitted_task_id, initial_status, execution_mode }) => {
+      const heldForApproval = execution_mode === 'pending_approval';
       safeLogDecision({
         project_id: project.id,
         stage: LOOP_STATES.EXECUTE,
         action: 'dry_run_task',
-        reasoning: `dry-run recorded task ${task.task_number} without submission`,
+        reasoning: heldForApproval
+          ? `submitted task ${task.task_number} and held it for human approval`
+          : `dry-run recorded task ${task.task_number} without submission`,
         inputs: {
           ...getWorkItemDecisionContext(targetItem),
           dry_run: true,
+          simulated: simulated === true,
+          execution_mode,
           task_number: task.task_number,
           task_title: task.task_title,
         },
         outcome: {
           plan_path: targetItem.origin.plan_path,
           dry_run: true,
-          simulated: true,
+          simulated: simulated === true,
+          execution_mode,
+          initial_status: initial_status || null,
+          held_for_approval: heldForApproval,
+          task_id: submitted_task_id || null,
+          batch_id: submissionBatchId,
           task_number: task.task_number,
           task_title: task.task_title,
           planned_task_description: prompt,
           file_paths,
         },
         confidence: 1,
-        batch_id: decisionBatchId,
+        batch_id: executeDecisionBatchId,
       });
     } : null,
   });
@@ -835,7 +873,7 @@ async function executePlanFileStage(project, workItem) {
     plan_path: targetItem.origin.plan_path,
     project: project.name,
     working_directory: project.path,
-    dry_run,
+    execution_mode: executeMode,
   });
 
   if (result.failed_task) {
@@ -891,13 +929,15 @@ async function executePlanFileStage(project, workItem) {
     outcome: {
       completed_tasks: result.completed_tasks || 0,
       dry_run: result.dry_run === true,
+      execution_mode: result.execution_mode || executeMode,
       task_count: result.task_count ?? null,
       simulated: result.simulated === true,
+      submitted_tasks: Array.isArray(result.submitted_tasks) ? result.submitted_tasks : [],
       final_state: getPostStageTransition(LOOP_STATES.EXECUTE, project.trust_level).next_state,
       plan_path: targetItem.origin.plan_path,
     },
     confidence: 1,
-    batch_id: decisionBatchId,
+    batch_id: executeDecisionBatchId,
   });
 
   return {

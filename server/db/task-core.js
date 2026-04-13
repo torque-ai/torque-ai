@@ -42,6 +42,7 @@ const ALLOWED_TASK_COLUMNS = new Set([
 ]);
 
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
+const ACTIVE_TASK_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running']);
 
 const TRANSACTION_RESULT_SENTINEL = 'TORQUE_TRANSACTION_RESULT';
 
@@ -904,7 +905,7 @@ function _cleanOrphanedTaskChildren(taskId) {
 function deleteTask(taskId) {
   const task = db.prepare('SELECT id, status FROM tasks WHERE id = ?').get(taskId);
   if (!task) throw new Error(`Task ${taskId} not found`);
-  if (task.status === 'running' || task.status === 'queued' || task.status === 'pending') {
+  if (ACTIVE_TASK_STATUSES.has(task.status)) {
     throw new Error(`Cannot delete task ${taskId} — status is '${task.status}'. Cancel it first.`);
   }
   const del = db.transaction(() => {

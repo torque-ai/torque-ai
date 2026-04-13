@@ -24,6 +24,7 @@ const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
 const logger = require('../../logger').child({ component: 'integration-routing' });
 const serverConfig = require('../../config');
+const eventBus = require('../../event-bus');
 serverConfig.init({ db: configCore });
 
 /**
@@ -91,6 +92,10 @@ function formatSubscriptionInstructions(subscriptionTarget) {
     + '```json\n'
     + `${JSON.stringify(subscriptionTarget.subscribe_args)}\n`
     + '```\n';
+}
+
+function normalizeInitialTaskStatus(initialStatus) {
+  return initialStatus === 'pending_approval' ? 'pending_approval' : 'pending';
 }
 
 function buildSplitSuggestions(files, maxSuggestions = 3) {
@@ -1255,6 +1260,7 @@ async function handleSmartSubmitTask(args) {
     _routing_template: routing_template || undefined,
     mcp_session_id: __sessionId || undefined,
   };
+  const initialTaskStatus = normalizeInitialTaskStatus(args.initial_status);
 
   if (useTierList) {
     taskCore.createTask({
@@ -1263,7 +1269,7 @@ async function handleSmartSubmitTask(args) {
       working_directory: workingDirectory,
       project: project || undefined,
       tags: tags || undefined,
-      status: 'queued',
+      status: initialTaskStatus,
       provider: override_provider || null,
       model: taskModel,
       timeout_minutes: effectiveTimeout,
@@ -1280,7 +1286,7 @@ async function handleSmartSubmitTask(args) {
       working_directory: workingDirectory,
       project: project || undefined,
       tags: tags || undefined,
-      status: 'queued',
+      status: initialTaskStatus,
       provider: selectedProvider,  // Use the routing-resolved provider (was null — broke template routing)
       model: taskModel,
       timeout_minutes: effectiveTimeout,
@@ -1349,8 +1355,12 @@ async function handleSmartSubmitTask(args) {
     study_context !== false
   );
 
-  // Start the task
-  taskManager.processQueue();
+  if (initialTaskStatus === 'pending_approval') {
+    eventBus.emitTaskUpdated({ taskId, status: initialTaskStatus });
+  } else {
+    // Start queued tasks via the scheduler loop. Held approval tasks stay out of the queue.
+    taskManager.processQueue();
+  }
 
   // Auto-activate CI watch for this repo (fire-and-forget)
   if (workingDirectory) {
@@ -1364,7 +1374,7 @@ async function handleSmartSubmitTask(args) {
   output += `| Field | Value |\n`;
   output += `|-------|-------|\n`;
   output += `| Task ID | \`${taskId}\` |\n`;
-  output += `| Status | queued |\n`;
+  output += `| Status | ${initialTaskStatus} |\n`;
   output += `| Provider | **${selectedProvider}** |\n`;
   output += `| Complexity | ${complexity} |\n`;
   if (taskModel) {
@@ -1380,6 +1390,9 @@ async function handleSmartSubmitTask(args) {
     output += `**Modification routing:** ${modRoutingReason}\n\n`;
   } else {
     output += `${routingResult.reason}\n\n`;
+  }
+  if (initialTaskStatus === 'pending_approval') {
+    output += `Task is held for manual approval. Approve it to move the task into the runnable queue.\n\n`;
   }
   output += `Use \`get_task_status\` with id \`${taskId}\` to check progress.`;
   if (reviewStatus) {

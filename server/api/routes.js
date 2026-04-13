@@ -300,6 +300,30 @@ const routes = [
   },
   {
     method: 'POST',
+    path: /^\/api\/v2\/tasks\/([^/]+)\/approve$/,
+    handlerName: 'handleV2CpApproveTask',
+    mapParams: ['task_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('task_id', 'task id'),
+    }),
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/tasks\/([^/]+)\/reject$/,
+    handlerName: 'handleV2CpRejectTask',
+    mapParams: ['task_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('task_id', 'task id'),
+    }),
+  },
+  {
+    method: 'POST',
+    path: '/api/v2/tasks/approve-batch',
+    handlerName: 'handleV2CpApproveTaskBatch',
+    middleware: buildV2Middleware(),
+  },
+  {
+    method: 'POST',
     path: /^\/api\/v2\/tasks\/([^/]+)\/approve-switch$/,
     handlerName: 'handleV2CpApproveSwitch',
     mapParams: ['task_id'],

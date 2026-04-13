@@ -52,20 +52,21 @@ describe('factory plan-executor dry run', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('simulates EXECUTE without task submission, await, or plan mutation', async () => {
+  it('suppresses EXECUTE without task submission, await, or plan mutation', async () => {
     const before = fs.readFileSync(planPath, 'utf8');
 
     const result = await executor.execute({
       plan_path: planPath,
       project: 'factory-project',
       working_directory: dir,
-      dry_run: true,
+      execution_mode: 'suppress',
     });
 
     expect(result).toMatchObject({
       plan_path: planPath,
       failed_task: null,
       dry_run: true,
+      execution_mode: 'suppress',
       task_count: 2,
       simulated: true,
     });
@@ -78,6 +79,8 @@ describe('factory plan-executor dry run', () => {
         task_number: 1,
         task_title: 'wire executor',
       }),
+      execution_mode: 'suppress',
+      simulated: true,
       prompt: expect.stringContaining('Task 1: wire executor'),
       file_paths: expect.arrayContaining([
         'server/factory/plan-executor.js',
@@ -89,6 +92,8 @@ describe('factory plan-executor dry run', () => {
         task_number: 2,
         task_title: 'add test',
       }),
+      execution_mode: 'suppress',
+      simulated: true,
       file_paths: expect.arrayContaining([
         'server/tests/factory-plan-executor-dry-run.test.js',
       ]),

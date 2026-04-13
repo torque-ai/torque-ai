@@ -45,6 +45,9 @@ function createRouteHandlerLookup({
     handleV2CpGetTask: v2TaskHandlers.handleGetTask,
     handleV2CpCancelTask: v2TaskHandlers.handleCancelTask,
     handleV2CpDeleteTask: v2TaskHandlers.handleDeleteTask,
+    handleV2CpApproveTask: v2TaskHandlers.handleApproveTask,
+    handleV2CpRejectTask: v2TaskHandlers.handleRejectTask,
+    handleV2CpApproveTaskBatch: v2TaskHandlers.handleApproveTaskBatch,
     handleV2CpApproveSwitch: v2TaskHandlers.handleApproveSwitch,
     handleV2CpRejectSwitch: v2TaskHandlers.handleRejectSwitch,
     // V2 Control-Plane: Workflows
