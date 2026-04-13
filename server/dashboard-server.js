@@ -758,9 +758,6 @@ async function start(options = {}) {
             req.body = raw.trim() ? JSON.parse(raw) : {};
             validateJsonDepth(req.body);
           } catch (err) {
-            const rawBuffer = Buffer.concat(chunks);
-            const rawStr = rawBuffer.toString('utf8');
-            process.stderr.write(`[v2-prebody] Invalid JSON for ${req.method} ${req.url}: err=${err.message} bytes=${rawBuffer.length} raw=${JSON.stringify(rawStr.slice(0, 200))}\n`);
             sendError(res, err.message === 'JSON nesting too deep' ? err.message : 'Invalid JSON', 400);
             return;
           }

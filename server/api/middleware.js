@@ -364,6 +364,7 @@ module.exports = {
   sendJson,
   parseQuery,
   applyMiddleware,
+  validateJsonDepth,
   UNAUTHENTICATED_HEALTH_ROUTES,
   DEFAULT_RATE_WINDOW_MS,
   SECURITY_HEADERS,
