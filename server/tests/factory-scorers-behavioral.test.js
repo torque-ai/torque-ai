@@ -280,6 +280,37 @@ describe('factory scorer behavioral coverage', () => {
       });
     });
 
+    test('counts alternative fallback test directories and omits heuristic findings at 50% coverage', () => {
+      const projectDir = createProjectFixture({
+        'test/root.test.js': 'test("root test dir", () => {});',
+        'server/__tests__/server.spec.js': 'test("server __tests__", () => {});',
+        'src/spec/component_test.js': 'test("src spec", () => {});',
+      });
+
+      const result = testCoverageScorer.score(projectDir, {
+        missingTests: {
+          covered: 0,
+          missing: 6,
+          total: 6,
+          coveragePercent: 0,
+        },
+        fileSizes: {
+          totalCodeFiles: 30,
+        },
+      }, null);
+
+      expect(result).toEqual({
+        score: 50,
+        details: {
+          source: 'file_count_heuristic',
+          test_files: 3,
+          source_files: 6,
+          coveragePercent: 50,
+        },
+        findings: [],
+      });
+    });
+
     test('scores realistic poor coverage from missingTests output below 30', () => {
       const result = testCoverageScorer.score('/unused', {
         missingTests: {
@@ -1077,6 +1108,27 @@ describe('factory scorer behavioral coverage', () => {
       }, null);
 
       expect(heavyDebt.score).toBeLessThan(lightDebt.score);
+    });
+
+    test('skips HACK/FIXME penalties when todos.items is not an array', () => {
+      const result = debtRatioScorer.score('/unused', {
+        summary: { totalFiles: 20 },
+        todos: {
+          count: 1,
+          items: 'HACK: this malformed payload should not trigger penalties',
+        },
+      }, null);
+
+      expect(result).toEqual({
+        score: 80,
+        details: {
+          source: 'scan_project',
+          todoCount: 1,
+          totalFiles: 20,
+          density: 0.05,
+        },
+        findings: [],
+      });
     });
   });
 
