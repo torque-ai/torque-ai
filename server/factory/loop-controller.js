@@ -2131,6 +2131,43 @@ async function executeVerifyStage(project_id, batch_id) {
   // merge to main.
   const worktreeRecord = activeFactoryWorktrees.get(project_id) || null;
   const worktreeRunner = worktreeRecord ? getWorktreeRunner() : null;
+
+  // Under pending_approval mode the plan-executor submits tasks and returns
+  // immediately. If we reach VERIFY before those tasks actually complete, a
+  // remote verify run against the empty branch will fail. Guard: if any batch
+  // task is still in a non-terminal state, pause at VERIFY without running
+  // the remote tests. The operator re-advances once tasks finish.
+  const batchIdForGate = (worktreeRecord && worktreeRecord.batchId) || batch_id;
+  if (batchIdForGate) {
+    const batchTasks = listTasksForFactoryBatch(batchIdForGate);
+    if (batchTasks.length > 0) {
+      const nonTerminal = batchTasks.filter(
+        (t) => !['completed', 'shipped', 'cancelled', 'failed'].includes(t.status),
+      );
+      if (nonTerminal.length > 0) {
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.VERIFY,
+          action: 'waiting_for_batch_tasks',
+          reasoning: `VERIFY waiting for ${nonTerminal.length} non-terminal batch task(s) to finish before remote verify.`,
+          outcome: {
+            batch_id: batchIdForGate,
+            pending_count: nonTerminal.length,
+            pending_statuses: nonTerminal.map((t) => t.status),
+          },
+          confidence: 1,
+          batch_id: batchIdForGate,
+        });
+        return {
+          status: 'waiting',
+          reason: 'batch_tasks_not_terminal',
+          pause_at_stage: 'VERIFY',
+          pending_count: nonTerminal.length,
+        };
+      }
+    }
+  }
+
   if (worktreeRecord && worktreeRunner) {
     const project = factoryHealth.getProject(project_id);
     const verifyCommand = (project && project.config && project.config.verify_command)
@@ -2495,6 +2532,10 @@ async function runAdvanceLoop(project_id) {
       nextState = LOOP_STATES.PAUSED;
       pausedAtStage = 'VERIFY_FAIL';
       transitionReason = stageResult.reason || 'verify_failed';
+    } else if (stageResult && stageResult.pause_at_stage === 'VERIFY') {
+      nextState = LOOP_STATES.PAUSED;
+      pausedAtStage = 'VERIFY';
+      transitionReason = stageResult.reason || 'batch_tasks_not_terminal';
     }
   } else if (nextState === LOOP_STATES.LEARN || currentState === LOOP_STATES.LEARN) {
     stageResult = await executeLearnStage(project.id, project.loop_batch_id);
