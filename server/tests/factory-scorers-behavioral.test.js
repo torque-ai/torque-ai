@@ -195,6 +195,55 @@ describe('factory scorer behavioral coverage', () => {
       expectScoreOrFallback(result);
     });
 
+    test.each([
+      ['tests', 'tests/root.test.js'],
+      ['server/tests', 'server/tests/server.spec.js'],
+      ['src/tests', 'src/tests/src_test.js'],
+    ])('falls back to filesystem counting for %s when coveragePercent is zero', (_label, testFilePath) => {
+      const projectDir = createProjectFixture({
+        [testFilePath]: 'test("fallback branch", () => {});',
+      });
+
+      const result = testCoverageScorer.score(projectDir, {
+        missingTests: {
+          covered: 0,
+          missing: 4,
+          total: 4,
+          coveragePercent: 0,
+        },
+      }, null);
+
+      expect(result).toEqual({
+        score: 25,
+        details: {
+          source: 'file_count_heuristic',
+          test_files: 1,
+          source_files: 4,
+          coveragePercent: 25,
+        },
+        findings: [
+          {
+            severity: 'medium',
+            title: 'Test file ratio is 25% (1 test files / 4 source files)',
+            file: null,
+          },
+        ],
+      });
+    });
+
+    test.each([
+      ['empty report', {}],
+      ['zero totals from scan_report', { missingTests: { total: 0, coveragePercent: 0 }, fileSizes: { totalCodeFiles: 0 } }],
+    ])('returns the exact no_data fallback when test and source counts are absent: %s', (_label, scanReport) => {
+      const projectDir = createProjectFixture();
+      const result = testCoverageScorer.score(projectDir, scanReport, null);
+
+      expect(result).toEqual({
+        score: 50,
+        details: { source: 'no_data' },
+        findings: [],
+      });
+    });
     test('scores realistic poor coverage from missingTests output below 30', () => {
       const result = testCoverageScorer.score('/unused', {
         missingTests: {
@@ -787,6 +836,37 @@ describe('factory scorer behavioral coverage', () => {
       expectScoreOrFallback(result);
     });
 
+    test.each([
+      ['2% density', 1, 50, 95],
+      ['5% density', 1, 20, 80],
+      ['10% density', 1, 10, 65],
+      ['20% density', 1, 5, 45],
+      ['greater than 20% density', 2, 5, 20],
+    ])('uses the expected score at %s', (_label, todoCount, totalFiles, expectedScore) => {
+      const result = debtRatioScorer.score('/unused', {
+        summary: { totalFiles },
+        todos: { count: todoCount, items: [] },
+      }, null);
+
+      expect(result.details.source).toBe('scan_project');
+      expect(result.details.todoCount).toBe(todoCount);
+      expect(result.details.totalFiles).toBe(totalFiles);
+      expect(result.score).toBe(expectedScore);
+    });
+
+    test.each([
+      ['missing totalFiles', {}],
+      ['zero totalFiles', { totalFiles: 0 }],
+    ])('guards %s by treating the denominator as 1', (_label, summary) => {
+      const result = debtRatioScorer.score('/unused', {
+        summary,
+        todos: { count: 1, items: [] },
+      }, null);
+
+      expect(result.score).toBe(20);
+      expect(result.details.totalFiles).toBe(1);
+      expect(result.details.density).toBe(1);
+    });
     test('scores a realistic clean scan payload above 90 when TODOs are absent', () => {
       const result = debtRatioScorer.score('/unused', {
         summary: { totalFiles: 40 },
@@ -797,6 +877,39 @@ describe('factory scorer behavioral coverage', () => {
       expect(result.score).toBeGreaterThan(90);
     });
 
+    test('applies HACK/FIXME/XXX penalties while capping findings to the first three', () => {
+      const result = debtRatioScorer.score('/unused', {
+        summary: { totalFiles: 100 },
+        todos: {
+          count: 4,
+          items: [
+            { type: 'HACK', text: 'HACK: temporary queue shortcut for flaky retries', file: 'server/execution/queue-scheduler.js' },
+            { type: 'FIXME', text: 'FIXME: restore lifecycle ownership after restart', file: 'server/task-manager.js' },
+            { type: 'XXX', text: 'XXX: delete fallback code after migration is complete', file: 'server/db/workflow-engine.js' },
+            { type: 'HACK', text: 'HACK: suppress noisy provider health warnings for now', file: 'server/db/provider-health-history.js' },
+          ],
+        },
+      }, null);
+
+      expect(result.score).toBe(60);
+      expect(result.findings).toEqual([
+        {
+          severity: 'medium',
+          title: 'HACK: HACK: temporary queue shortcut for flaky retries',
+          file: 'server/execution/queue-scheduler.js',
+        },
+        {
+          severity: 'medium',
+          title: 'FIXME: FIXME: restore lifecycle ownership after restart',
+          file: 'server/task-manager.js',
+        },
+        {
+          severity: 'medium',
+          title: 'XXX: XXX: delete fallback code after migration is complete',
+          file: 'server/db/workflow-engine.js',
+        },
+      ]);
+    });
     test('drops as TODO density and HACK/FIXME markers increase', () => {
       const lightDebt = debtRatioScorer.score('/unused', {
         summary: { totalFiles: 50 },
@@ -906,3 +1019,4 @@ describe('factory scorer behavioral coverage', () => {
     });
   });
 });
+
