@@ -105,7 +105,6 @@ const FACTORY_V2_ROUTES = [
   {
     method: 'POST',
     path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/advance$/,
-    tool: 'advance_factory_loop_async',
     mapParams: ['project'],
     handlerName: 'handleAdvanceFactoryLoopAsync',
     handler: async (req, res, context) => sendFactoryHandlerResponse(
@@ -119,7 +118,6 @@ const FACTORY_V2_ROUTES = [
   {
     method: 'GET',
     path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/advance\/([^/]+)$/,
-    tool: 'factory_loop_job_status',
     mapParams: ['project', 'job_id'],
     handlerName: 'handleFactoryLoopJobStatus',
     handler: async (req, res, context) => sendFactoryHandlerResponse(

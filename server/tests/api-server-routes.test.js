@@ -20,8 +20,13 @@ describe('api/routes/factory-routes', () => {
         expect(route.path.source).toContain('factory');
       }
 
-      expect(route.tool).toEqual(expect.stringMatching(/^[a-z_]+$/));
-      expect(route.tool.length).toBeGreaterThan(0);
+      // Routes either go through the MCP tool dispatcher (route.tool) or use a
+      // custom handler bound directly (route.handler / route.handlerName). They
+      // must not have neither.
+      const hasTool = typeof route.tool === 'string' && /^[a-z_]+$/.test(route.tool);
+      const hasHandler = typeof route.handler === 'function'
+        || (typeof route.handlerName === 'string' && route.handlerName.length > 0);
+      expect(hasTool || hasHandler).toBe(true);
 
       if (route.mapParams !== undefined) {
         expect(Array.isArray(route.mapParams)).toBe(true);
