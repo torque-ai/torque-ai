@@ -120,7 +120,7 @@ function listOpenWorkItems({ project_id, limit } = {}) {
 }
 
 function updateWorkItem(id, updates) {
-  const allowed = ['title', 'description', 'priority', 'status', 'constraints_json', 'batch_id', 'reject_reason', 'linked_item_id'];
+  const allowed = ['title', 'description', 'priority', 'status', 'origin_json', 'constraints_json', 'batch_id', 'reject_reason', 'linked_item_id'];
   const sets = [];
   const params = [];
 
@@ -132,7 +132,11 @@ function updateWorkItem(id, updates) {
       params.push(normalizePriority(value));
       continue;
     }
-    params.push(key === 'constraints_json' && typeof value === 'object' ? JSON.stringify(value) : value);
+    if ((key === 'origin_json' || key === 'constraints_json') && typeof value === 'object') {
+      params.push(JSON.stringify(value));
+      continue;
+    }
+    params.push(value);
   }
 
   if (sets.length === 0) return getWorkItem(id);

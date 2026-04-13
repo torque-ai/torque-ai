@@ -189,6 +189,50 @@ describe('plan-file-intake', () => {
     expect(result.skipped[0].plan_path).toContain('empty.md');
   });
 
+  it('marks a detected already-shipped plan and reports shipped_count', () => {
+    intake = createPlanFileIntake({
+      db,
+      factoryIntake,
+      shippedDetector: {
+        detectShipped: vi.fn().mockImplementation(({ title }) => ({
+          shipped: title === 'Shipped Plan',
+          confidence: 'high',
+          signals: {
+            file_existence_ratio: 1,
+            git_match_score: 1,
+            commit_keyword_hit: true,
+          },
+        })),
+      },
+    });
+
+    fs.writeFileSync(path.join(dir, 'shipped.md'), [
+      '# Shipped Plan',
+      '',
+      '## Task 1: verify',
+      '- [ ] confirm it landed',
+    ].join('\n'));
+
+    const result = scanPlans();
+    const item = factoryIntake.getWorkItem(result.created[0].id);
+
+    expect(result.shipped_count).toBe(1);
+    expect(result.created[0]).toMatchObject({
+      title: 'Shipped Plan',
+      status: 'shipped',
+      shipped: true,
+      confidence: 'high',
+    });
+    expect(item.status).toBe('shipped');
+    expect(getOrigin(item)).toMatchObject({
+      shipped_signals: {
+        file_existence_ratio: 1,
+        git_match_score: 1,
+        commit_keyword_hit: true,
+      },
+    });
+  });
+
   it('glob filter excludes non-matching files', () => {
     fs.writeFileSync(path.join(dir, 'plan-e.md'), '# E\n## Task 1\n- [ ] go\n');
     fs.writeFileSync(path.join(dir, 'README.md'), '# Readme\n## Task 1\n- [ ] go\n');

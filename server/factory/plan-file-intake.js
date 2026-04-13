@@ -26,7 +26,7 @@ function sha256(text) {
   return crypto.createHash('sha256').update(text).digest('hex');
 }
 
-function createPlanFileIntake({ db, factoryIntake }) {
+function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
   function findPrevious(project_id, plan_path) {
     return db.prepare(`
       SELECT content_hash, work_item_id FROM factory_plan_file_intake
@@ -48,6 +48,7 @@ function createPlanFileIntake({ db, factoryIntake }) {
 
     const created = [];
     const skipped = [];
+    let shipped_count = 0;
     const files = fs.readdirSync(plans_dir)
       .filter((name) => filter.test(name))
       .map((name) => path.join(plans_dir, name));
@@ -72,7 +73,7 @@ function createPlanFileIntake({ db, factoryIntake }) {
         continue;
       }
 
-      const item = factoryIntake.createWorkItem({
+      let item = factoryIntake.createWorkItem({
         project_id,
         source: 'plan_file',
         title: parsed.title,
@@ -90,6 +91,25 @@ function createPlanFileIntake({ db, factoryIntake }) {
         },
       });
 
+      if (shippedDetector && typeof shippedDetector.detectShipped === 'function') {
+        try {
+          const detection = shippedDetector.detectShipped({ content, title: parsed.title });
+          if (detection && detection.shipped === true) {
+            const nextOrigin = {
+              ...(item.origin || {}),
+              shipped_signals: detection.signals,
+            };
+            item = factoryIntake.updateWorkItem(item.id, { status: 'shipped' });
+            item = factoryIntake.updateWorkItem(item.id, { origin_json: nextOrigin });
+            item.shipped = true;
+            item.confidence = detection.confidence;
+            shipped_count += 1;
+          }
+        } catch (err) {
+          logger.warn({ err, plan_path: filePath }, 'shipped detection failed');
+        }
+      }
+
       recordIngest({
         project_id,
         plan_path: filePath,
@@ -100,7 +120,7 @@ function createPlanFileIntake({ db, factoryIntake }) {
       logger.info(`ingested plan: ${path.basename(filePath)} -> work_item ${item.id}`);
     }
 
-    return { created, skipped, scanned: files.length };
+    return { created, skipped, scanned: files.length, shipped_count };
   }
 
   return { scan };

@@ -14,6 +14,7 @@ const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
 const { pollGitHubIssues } = require('../factory/github-intake');
 const { createPlanFileIntake } = require('../factory/plan-file-intake');
+const { createShippedDetector } = require('../factory/shipped-detector');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
 const { buildProjectCostSummary, getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
 const { logDecision, getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
@@ -36,6 +37,40 @@ function jsonResponse(data) {
     content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
     structuredData: data,
   };
+}
+
+function resolvePlansRepoRoot(projectPath, plansDir) {
+  const candidates = [];
+
+  if (projectPath) {
+    candidates.push(path.resolve(projectPath));
+  }
+
+  if (plansDir) {
+    let current = path.resolve(plansDir);
+    while (current && !candidates.includes(current)) {
+      candidates.push(current);
+      const parent = path.dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, '.git'))) {
+      return candidate;
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.existsSync(path.join(candidate, 'server'))) {
+      return candidate;
+    }
+  }
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || path.resolve(plansDir || projectPath || process.cwd());
 }
 
 async function handleRegisterFactoryProject(args) {
@@ -362,7 +397,9 @@ async function handleIntakeFromFindings(args) {
 async function handleScanPlansDirectory(args) {
   const project = resolveProject(args.project_id);
   const db = database.getDbInstance();
-  const planIntake = createPlanFileIntake({ db, factoryIntake });
+  const repoRoot = resolvePlansRepoRoot(project.path, args.plans_dir);
+  const shippedDetector = createShippedDetector({ repoRoot });
+  const planIntake = createPlanFileIntake({ db, factoryIntake, shippedDetector });
   const scanArgs = {
     project_id: project.id,
     plans_dir: args.plans_dir,
@@ -378,8 +415,16 @@ async function handleScanPlansDirectory(args) {
     project_id: project.id,
     scanned: result.scanned,
     created_count: result.created.length,
+    shipped_count: result.shipped_count,
     skipped_count: result.skipped.length,
-    created: result.created.map((item) => ({ id: item.id, title: item.title })),
+    created: result.created.map((item) => {
+      const summary = { id: item.id, title: item.title };
+      if (item.shipped) {
+        summary.shipped = true;
+        summary.confidence = item.confidence;
+      }
+      return summary;
+    }),
     skipped: result.skipped,
   });
 }

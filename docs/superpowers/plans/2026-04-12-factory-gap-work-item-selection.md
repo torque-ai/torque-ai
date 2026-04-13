@@ -12,6 +12,7 @@ Keep the exact work item chosen during PRIORITIZE bound to the subsequent PLAN s
 - `server/db/factory-intake.js`
 - `server/tests/factory-selected-work-item.test.js`
 
-## Tasks
-1. Test-first: add `server/tests/factory-selected-work-item.test.js` covering a pre-written plan item that reaches EXECUTE without being replaced by a different open work item.
-2. Thread the selected work-item identity through `server/factory/loop-controller.js` with the smallest persistence change needed in `server/db/factory-intake.js`, then rerun `npx vitest run tests/factory-selected-work-item.test.js` and `npm run lint:di`.
+## Task 1: Preserve the selected work item through the loop
+
+- [ ] **Step 1: Test-first — selected plan reaches EXECUTE unchanged** — add `server/tests/factory-selected-work-item.test.js` covering a pre-written plan item that reaches EXECUTE without being replaced by a different open work item.
+- [ ] **Step 2: Thread selected work-item identity through loop-controller** — thread the selected work-item identity through `server/factory/loop-controller.js` with the smallest persistence change needed in `server/db/factory-intake.js`, then rerun `npx vitest run tests/factory-selected-work-item.test.js` and `npm run lint:di`.

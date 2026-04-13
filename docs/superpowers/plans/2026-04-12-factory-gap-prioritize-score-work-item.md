@@ -12,6 +12,7 @@ Persist scorer output onto the exact work item the loop is about to advance so t
 - `server/db/factory-intake.js`
 - `server/tests/factory-prioritize-score-work-item.test.js`
 
-## Tasks
-1. Test-first: add `server/tests/factory-prioritize-score-work-item.test.js` to prove a supervised loop run updates the selected work item's `priority` before the PRIORITIZE gate is approved.
-2. Implement the minimal scoring + persistence path in `server/factory/loop-controller.js` and `server/db/factory-intake.js`, then rerun `npx vitest run tests/factory-prioritize-score-work-item.test.js` and `npm run lint:di`.
+## Task 1: Score the selected work item at PRIORITIZE
+
+- [ ] **Step 1: Test-first — PRIORITIZE updates selected work-item priority** — add `server/tests/factory-prioritize-score-work-item.test.js` to prove a supervised loop run updates the selected work item's `priority` before the PRIORITIZE gate is approved.
+- [ ] **Step 2: Minimal scoring + persistence path** — implement the minimal scoring + persistence path in `server/factory/loop-controller.js` and `server/db/factory-intake.js`, then rerun `npx vitest run tests/factory-prioritize-score-work-item.test.js` and `npm run lint:di`.

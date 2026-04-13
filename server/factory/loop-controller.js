@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const {
   LOOP_STATES,
   TRANSITIONS,
@@ -14,6 +15,7 @@ const factoryIntake = require('../db/factory-intake');
 const architectRunner = require('../factory/architect-runner');
 const guardrailRunner = require('../factory/guardrail-runner');
 const { createPlanFileIntake } = require('./plan-file-intake');
+const { createShippedDetector } = require('./shipped-detector');
 const logger = require('../logger').child({ component: 'loop-controller' });
 
 const WORK_ITEM_STATUS_ORDER = Object.freeze([
@@ -37,6 +39,40 @@ function getProjectOrThrow(project_id) {
     throw new Error(`Project not found: ${project_id}`);
   }
   return project;
+}
+
+function resolvePlansRepoRoot(projectPath, plansDir) {
+  const candidates = [];
+
+  if (projectPath) {
+    candidates.push(path.resolve(projectPath));
+  }
+
+  if (plansDir) {
+    let current = path.resolve(plansDir);
+    while (current && !candidates.includes(current)) {
+      candidates.push(current);
+      const parent = path.dirname(current);
+      if (parent === current) {
+        break;
+      }
+      current = parent;
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, '.git'))) {
+      return candidate;
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.existsSync(path.join(candidate, 'server'))) {
+      return candidate;
+    }
+  }
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) || path.resolve(plansDir || projectPath || process.cwd());
 }
 
 function getCurrentLoopState(project) {
@@ -75,13 +111,16 @@ function executeSenseStage(project_id) {
 
   if (project.config && project.config.plans_dir) {
     const db = database.getDbInstance();
-    const planIntake = createPlanFileIntake({ db, factoryIntake });
+    const shippedDetector = createShippedDetector({
+      repoRoot: resolvePlansRepoRoot(project.path, project.config.plans_dir),
+    });
+    const planIntake = createPlanFileIntake({ db, factoryIntake, shippedDetector });
     const result = planIntake.scan({
       project_id: project.id,
       plans_dir: project.config.plans_dir,
     });
     logger.info(
-      `SENSE: scanned ${result.scanned} plan files - ${result.created.length} new, ${result.skipped.length} skipped`,
+      `SENSE: scanned ${result.scanned} plan files - ${result.created.length} new, ${result.shipped_count} shipped, ${result.skipped.length} skipped`,
       { project_id }
     );
   }
