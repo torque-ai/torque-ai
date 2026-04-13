@@ -1,11 +1,17 @@
 'use strict';
 
+const nodePath = require('path');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../logger').child({ component: 'factory-health' });
 const { validatePolicy, mergeWithDefaults, DEFAULT_POLICY } = require('../factory/policy-engine');
 
 const VALID_TRUST_LEVELS = new Set(['supervised', 'guided', 'autonomous', 'dark']);
 const VALID_STATUSES = new Set(['paused', 'running', 'idle']);
+
+function normalizeProjectPath(p) {
+  if (!p || typeof p !== 'string') return p;
+  return nodePath.resolve(p).replace(/\\/g, '/');
+}
 const VALID_DIMENSIONS = new Set([
   'structural', 'test_coverage', 'security', 'user_facing',
   'api_completeness', 'documentation', 'dependency_health',
@@ -24,11 +30,12 @@ function registerProject({ name, path, brief, trust_level, config }) {
   if (!VALID_TRUST_LEVELS.has(level)) {
     throw new Error(`Invalid trust_level: ${level}`);
   }
+  const normalizedPath = normalizeProjectPath(path);
   const now = new Date().toISOString();
   db.prepare(`
     INSERT INTO factory_projects (id, name, path, brief, trust_level, status, config_json, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, 'paused', ?, ?, ?)
-  `).run(id, name, path, brief || null, level, config ? JSON.stringify(config) : null, now, now);
+  `).run(id, name, normalizedPath, brief || null, level, config ? JSON.stringify(config) : null, now, now);
 
   return getProject(id);
 }
@@ -43,7 +50,15 @@ function getProject(id) {
 }
 
 function getProjectByPath(projectPath) {
-  const row = db.prepare('SELECT * FROM factory_projects WHERE path = ?').get(projectPath);
+  const normalized = normalizeProjectPath(projectPath);
+  // Exact match first (fast path for already-normalized rows)
+  let row = db.prepare('SELECT * FROM factory_projects WHERE path = ?').get(normalized);
+  if (!row) {
+    // Fall back to in-memory normalized comparison to catch legacy rows that
+    // were stored with backslashes or non-canonical paths
+    const rows = db.prepare('SELECT * FROM factory_projects').all();
+    row = rows.find(r => normalizeProjectPath(r.path) === normalized) || null;
+  }
   if (!row) return null;
   if (row.config_json) {
     try { row.config = JSON.parse(row.config_json); } catch { row.config = null; }
@@ -59,7 +74,13 @@ function listProjects(filter) {
     params.push(filter.status);
   }
   sql += ' ORDER BY updated_at DESC';
-  return db.prepare(sql).all(...params);
+  const rows = db.prepare(sql).all(...params);
+  for (const row of rows) {
+    if (row.config_json) {
+      try { row.config = JSON.parse(row.config_json); } catch { row.config = null; }
+    }
+  }
+  return rows;
 }
 
 function updateProject(id, updates) {
