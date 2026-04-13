@@ -67,6 +67,13 @@ const SELECTED_WORK_ITEM_DECISION_ACTIONS = Object.freeze([
   'generated_plan',
 ]);
 
+const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected']);
+const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
+  'completed_execution',
+  'execution_failed',
+  'started_execution',
+]);
+
 const selectedWorkItemIds = new Map();
 const loopAdvanceJobs = new Map();
 const activeLoopAdvanceJobs = new Map();
@@ -337,6 +344,334 @@ function tryGetSelectedWorkItem(project_id, options = {}) {
   } catch (error) {
     logger.debug({ err: error.message, project_id }, 'Unable to resolve selected work item');
     return null;
+  }
+}
+
+function hydrateDecisionRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    inputs: row.inputs ?? parseJsonObject(row.inputs_json),
+    outcome: row.outcome ?? parseJsonObject(row.outcome_json),
+  };
+}
+
+function getDecisionRowWorkItemId(row) {
+  const hydrated = hydrateDecisionRow(row);
+  return normalizeWorkItemId(
+    hydrated?.outcome?.work_item_id
+    ?? hydrated?.inputs?.work_item_id
+  );
+}
+
+function getLatestStartedExecutionDecision(project_id) {
+  const db = database.getDbInstance();
+  if (!db || !project_id) {
+    return null;
+  }
+
+  try {
+    const row = db.prepare(`
+      SELECT id, stage, actor, action, reasoning, inputs_json, outcome_json, batch_id
+      FROM factory_decisions
+      WHERE project_id = ?
+        AND stage = 'execute'
+        AND action = 'started_execution'
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(project_id);
+
+    return hydrateDecisionRow(row);
+  } catch (error) {
+    logger.debug({ err: error.message, project_id }, 'Unable to restore started_execution decision');
+    return null;
+  }
+}
+
+function getLatestExecutionDecisionForWorkItem(project_id, workItemId) {
+  const db = database.getDbInstance();
+  if (!db || !project_id || !workItemId) {
+    return null;
+  }
+
+  try {
+    const placeholders = EXECUTION_TERMINAL_DECISION_ACTIONS.map(() => '?').join(', ');
+    const rows = db.prepare(`
+      SELECT id, stage, actor, action, reasoning, inputs_json, outcome_json, batch_id
+      FROM factory_decisions
+      WHERE project_id = ?
+        AND stage = 'execute'
+        AND action IN (${placeholders})
+      ORDER BY id DESC
+      LIMIT 25
+    `).all(project_id, ...EXECUTION_TERMINAL_DECISION_ACTIONS);
+
+    for (const row of rows) {
+      const hydrated = hydrateDecisionRow(row);
+      if (getDecisionRowWorkItemId(hydrated) === workItemId) {
+        return hydrated;
+      }
+    }
+  } catch (error) {
+    logger.debug({ err: error.message, project_id, work_item_id: workItemId }, 'Unable to inspect execute decisions');
+  }
+
+  return null;
+}
+
+function evaluateWorkItemShipping(project_id, workItemId) {
+  const executionDecision = getLatestExecutionDecisionForWorkItem(project_id, workItemId);
+  if (!executionDecision) {
+    return {
+      should_ship: false,
+      reason: 'no_execute_result',
+      decision_action: null,
+      decision_batch_id: null,
+    };
+  }
+
+  const outcome = executionDecision.outcome || {};
+  const decisionAction = executionDecision.action || null;
+
+  if (decisionAction === 'execution_failed') {
+    return {
+      should_ship: false,
+      reason: outcome.failed_task ? `task_${outcome.failed_task}_failed` : 'execution_failed',
+      decision_action: decisionAction,
+      decision_batch_id: executionDecision.batch_id || null,
+    };
+  }
+
+  if (decisionAction !== 'completed_execution') {
+    return {
+      should_ship: false,
+      reason: `unfinished_${decisionAction || 'execution'}`,
+      decision_action: decisionAction,
+      decision_batch_id: executionDecision.batch_id || null,
+    };
+  }
+
+  if (outcome.failed_task) {
+    return {
+      should_ship: false,
+      reason: `task_${outcome.failed_task}_failed`,
+      decision_action: decisionAction,
+      decision_batch_id: executionDecision.batch_id || null,
+    };
+  }
+
+  if (outcome.dry_run === true) {
+    const submittedTasks = Array.isArray(outcome.submitted_tasks) ? outcome.submitted_tasks : [];
+    if ((outcome.execution_mode || null) === 'pending_approval' && submittedTasks.length > 0) {
+      return {
+        should_ship: false,
+        reason: 'pending_approval_tasks_unfinished',
+        decision_action: decisionAction,
+        decision_batch_id: executionDecision.batch_id || null,
+      };
+    }
+
+    return {
+      should_ship: false,
+      reason: `${outcome.execution_mode || 'dry_run'}_execution_not_final`,
+      decision_action: decisionAction,
+      decision_batch_id: executionDecision.batch_id || null,
+    };
+  }
+
+  if (outcome.execution_mode && outcome.execution_mode !== 'live') {
+    return {
+      should_ship: false,
+      reason: `${outcome.execution_mode}_execution_not_final`,
+      decision_action: decisionAction,
+      decision_batch_id: executionDecision.batch_id || null,
+    };
+  }
+
+  return {
+    should_ship: true,
+    reason: 'execute_completed_successfully',
+    decision_action: decisionAction,
+    decision_batch_id: executionDecision.batch_id || null,
+  };
+}
+
+function maybeShipWorkItemAfterLearn(project_id, batch_id) {
+  try {
+    const rememberedWorkItemId = normalizeWorkItemId(selectedWorkItemIds.get(project_id));
+    const startedExecutionDecision = rememberedWorkItemId
+      ? null
+      : getLatestStartedExecutionDecision(project_id);
+    const workItemId = rememberedWorkItemId || getDecisionRowWorkItemId(startedExecutionDecision);
+    const resolutionSource = rememberedWorkItemId ? 'tracked_selection' : 'started_execution';
+    const decisionBatchId = batch_id || startedExecutionDecision?.batch_id || null;
+
+    if (!workItemId) {
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.LEARN,
+        action: 'no_selected_work_item',
+        reasoning: 'LEARN stage could not resolve a selected work item to close.',
+        inputs: {
+          batch_id: batch_id || null,
+          resolution_source: rememberedWorkItemId ? 'tracked_selection' : 'started_execution',
+        },
+        outcome: {
+          reason: 'no_selected_work_item',
+          work_item_id: null,
+          batch_id: batch_id || null,
+        },
+        confidence: 1,
+        batch_id: decisionBatchId,
+      });
+      return {
+        status: 'skipped',
+        reason: 'no_selected_work_item',
+        work_item_id: null,
+      };
+    }
+
+    const workItem = factoryIntake.getWorkItemForProject(project_id, workItemId, {
+      includeClosed: true,
+    });
+
+    if (!workItem) {
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.LEARN,
+        action: 'no_selected_work_item',
+        reasoning: 'LEARN stage found a selected work item id, but the record is no longer available.',
+        inputs: {
+          batch_id: batch_id || null,
+          resolution_source: resolutionSource,
+        },
+        outcome: {
+          reason: 'work_item_missing',
+          work_item_id: workItemId,
+          batch_id: batch_id || null,
+        },
+        confidence: 1,
+        batch_id: decisionBatchId,
+      });
+      return {
+        status: 'skipped',
+        reason: 'work_item_missing',
+        work_item_id: workItemId,
+      };
+    }
+
+    rememberSelectedWorkItem(project_id, workItem);
+
+    if (CLOSED_WORK_ITEM_STATUSES.has(workItem.status)) {
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.LEARN,
+        action: 'already_closed',
+        reasoning: 'LEARN stage skipped shipping because the selected work item is already closed.',
+        inputs: {
+          batch_id: batch_id || null,
+          resolution_source: resolutionSource,
+          work_item_status: workItem.status,
+        },
+        outcome: {
+          work_item_id: workItem.id,
+          work_item_status: workItem.status,
+          reason: 'already_closed',
+        },
+        confidence: 1,
+        batch_id: decisionBatchId,
+      });
+      return {
+        status: 'skipped',
+        reason: 'already_closed',
+        work_item_id: workItem.id,
+      };
+    }
+
+    const shippingDecision = evaluateWorkItemShipping(project_id, workItem.id);
+    if (!shippingDecision.should_ship) {
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.LEARN,
+        action: 'skipped_shipping',
+        reasoning: 'LEARN stage left the selected work item open because EXECUTE did not finish successfully.',
+        inputs: {
+          batch_id: batch_id || null,
+          resolution_source: resolutionSource,
+          work_item_status: workItem.status,
+        },
+        outcome: {
+          work_item_id: workItem.id,
+          work_item_status: workItem.status,
+          reason: shippingDecision.reason,
+          execution_action: shippingDecision.decision_action,
+        },
+        confidence: 1,
+        batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+      });
+      return {
+        status: 'skipped',
+        reason: shippingDecision.reason,
+        work_item_id: workItem.id,
+      };
+    }
+
+    const updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
+      status: 'shipped',
+    });
+    rememberSelectedWorkItem(project_id, updatedWorkItem);
+
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.LEARN,
+      action: 'shipped_work_item',
+      reasoning: 'LEARN stage marked the selected work item as shipped after successful execution.',
+      inputs: {
+        batch_id: batch_id || null,
+        resolution_source: resolutionSource,
+        previous_status: workItem.status,
+      },
+      outcome: {
+        work_item_id: updatedWorkItem.id,
+        previous_status: workItem.status,
+        new_status: updatedWorkItem.status,
+        reason: shippingDecision.reason,
+      },
+      confidence: 1,
+      batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+    });
+
+    return {
+      status: 'shipped',
+      reason: shippingDecision.reason,
+      work_item_id: updatedWorkItem.id,
+    };
+  } catch (error) {
+    logger.warn(`LEARN stage shipping check failed: ${error.message}`, { project_id, batch_id });
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.LEARN,
+      action: 'skipped_shipping',
+      reasoning: 'LEARN stage shipping check failed unexpectedly.',
+      inputs: {
+        batch_id: batch_id || null,
+      },
+      outcome: {
+        reason: 'shipping_check_failed',
+        error: error.message,
+      },
+      confidence: 1,
+      batch_id: batch_id || null,
+    });
+    return {
+      status: 'skipped',
+      reason: 'shipping_check_failed',
+      error: error.message,
+      work_item_id: null,
+    };
   }
 }
 
@@ -1428,7 +1763,14 @@ async function executeLearnStage(project_id, batch_id) {
       confidence: 1,
       batch_id,
     });
-    logger.info('LEARN stage: batch analysis complete', { project_id, batch_id });
+    const shippingResult = maybeShipWorkItemAfterLearn(project_id, batch_id);
+    logger.info('LEARN stage: batch analysis complete', {
+      project_id,
+      batch_id,
+      shipping_status: shippingResult?.status || null,
+      shipping_reason: shippingResult?.reason || null,
+      work_item_id: shippingResult?.work_item_id || null,
+    });
     return analysis;
   } catch (err) {
     logger.warn(`LEARN stage analysis failed: ${err.message}`, { project_id });
