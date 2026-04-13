@@ -478,8 +478,24 @@ function handleScanProject(args) {
 
   const detected = detectProjectType(projectPath);
   const checks = args.checks || ['summary', 'missing_tests', 'todos', 'file_sizes', 'data_inventory', 'dependencies'];
-  const sourceDirs = args.source_dirs || detected.src;
+  const explicitSourceDirs = Array.isArray(args.source_dirs) ? args.source_dirs : null;
+  const sourceDirs = explicitSourceDirs || detected.src;
   const testSuffix = args.test_pattern || detected.test;
+  const validTodoTypes = new Set(['TODO', 'FIXME', 'HACK', 'XXX', 'TEMP']);
+  if (args.todo_types !== undefined && !Array.isArray(args.todo_types)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'todo_types must be an array when provided');
+  }
+  const todoTypes = Array.isArray(args.todo_types) && args.todo_types.length > 0
+    ? args.todo_types.map(type => String(type || '').toUpperCase())
+    : null;
+  if (todoTypes && todoTypes.some(type => !validTodoTypes.has(type))) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'todo_types may only include TODO, FIXME, HACK, XXX, or TEMP');
+  }
+  if (args.todo_limit !== undefined && (!Number.isInteger(args.todo_limit) || args.todo_limit < 0)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'todo_limit must be an integer greater than or equal to 0');
+  }
+  const todoLimit = Number.isInteger(args.todo_limit) ? args.todo_limit : 50;
+  const todoCommentsOnly = args.todo_comments_only === true;
   const ignoreDirs = new Set(args.ignore_dirs || [
     'node_modules', '.git', 'dist', 'build', 'coverage', '.next', '__pycache__', '.venv',
     // Hidden temp/cache dirs that inflate file counts and TODO noise:
@@ -539,6 +555,22 @@ function handleScanProject(args) {
       const content = fs.readFileSync(filePath, 'utf-8');
       return content.split('\n').length;
     } catch { return 0; }
+  }
+
+  const normalizedTodoSourceDirs = explicitSourceDirs
+    ? explicitSourceDirs
+      .map(dir => String(dir || '').replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, ''))
+      .filter(Boolean)
+    : null;
+
+  function isWithinTodoScope(relativePath) {
+    if (!normalizedTodoSourceDirs || normalizedTodoSourceDirs.length === 0) return true;
+    const normalizedRelativePath = relativePath.replace(/\\/g, '/');
+    return normalizedTodoSourceDirs.some(dir => (
+      dir === '.'
+      || normalizedRelativePath === dir
+      || normalizedRelativePath.startsWith(`${dir}/`)
+    ));
   }
 
   const allFiles = walkDir(projectPath);
@@ -618,22 +650,27 @@ function handleScanProject(args) {
   // --- TODOS ---
   if (checks.includes('todos')) {
     const todoPattern = /\b(TODO|FIXME|HACK|XXX|TEMP)\b/i;
+    const commentTodoPattern = /^\s*(?:\/\/|#|\/\*+|\*|<!--|;)\s*(TODO|FIXME|HACK|XXX|TEMP)\b/i;
     const todos = [];
     const codeExts = new Set([...CODE_EXTENSIONS, ...UI_EXTENSIONS]);
+    const activeTodoPattern = todoCommentsOnly ? commentTodoPattern : todoPattern;
 
     for (const f of allFiles) {
       if (!codeExts.has(f.ext)) continue;
       if (f.size > 500000) continue;
+      if (!isWithinTodoScope(f.relativePath)) continue;
       try {
         const content = fs.readFileSync(f.path, 'utf-8');
         const lines = content.split('\n');
         for (let i = 0; i < lines.length; i++) {
-          const match = todoPattern.exec(lines[i]);
+          const match = activeTodoPattern.exec(lines[i]);
           if (match) {
+            const type = match[1].toUpperCase();
+            if (todoTypes && !todoTypes.includes(type)) continue;
             todos.push({
               file: f.relativePath,
               line: i + 1,
-              type: match[1].toUpperCase(),
+              type,
               text: lines[i].trim().substring(0, 120)
             });
           }
@@ -650,7 +687,7 @@ function handleScanProject(args) {
           if (a.line !== b.line) return a.line - b.line;
           return a.type.localeCompare(b.type);
         })
-        .slice(0, 50)
+        .slice(0, todoLimit > 0 ? todoLimit : undefined)
     };
   }
 

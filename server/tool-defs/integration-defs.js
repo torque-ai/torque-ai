@@ -65,11 +65,28 @@ const tools = [
         source_dirs: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Source directories to scan relative to project root (default: ["src"])'
+          description: 'Source directories to scan relative to project root (default: ["src"]). When explicitly provided, TODO discovery is scoped to these directories too.'
         },
         test_pattern: {
           type: 'string',
           description: 'Glob-style test file suffix pattern (default: ".test.ts")'
+        },
+        todo_types: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['TODO', 'FIXME', 'HACK', 'XXX', 'TEMP']
+          },
+          description: 'Optional TODO marker types to include in the TODO report. Defaults to all types.'
+        },
+        todo_limit: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Maximum number of TODO entries to return in the report (default: 50). Set to 0 to return every match.'
+        },
+        todo_comments_only: {
+          type: 'boolean',
+          description: 'When true, only count comment-style TODO markers such as // TODO or # FIXME. Useful for debt inventories that should ignore regex/string literals.'
         },
         ignore_dirs: {
           type: 'array',
