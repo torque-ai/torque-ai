@@ -20,12 +20,22 @@ function getDb() {
       if (defaultContainer && defaultContainer.has && defaultContainer.has('db')) {
         instance = defaultContainer.get('db');
       }
-      if (instance) {
-        db = instance;
+    } catch {
+      // Fall through to direct database fallback below.
+    }
+  }
+  if (!instance) {
+    try {
+      const database = require('../database');
+      if (typeof database.getDbInstance === 'function') {
+        instance = database.getDbInstance();
       }
     } catch {
       // Let the explicit error below surface if no active DB is available.
     }
+  }
+  if (instance) {
+    db = instance;
   }
 
   if (!instance || typeof instance.prepare !== 'function') {
