@@ -311,6 +311,91 @@ describe('factory scorer behavioral coverage', () => {
       });
     });
 
+    test('stays on the scan_project branch when coveragePercent is positive even if missingFiles is malformed', () => {
+      const projectDir = createProjectFixture({
+        'tests/root.test.js': 'test("should not use filesystem fallback", () => {});',
+      });
+
+      const result = testCoverageScorer.score(projectDir, {
+        missingTests: {
+          covered: 3,
+          missing: 1,
+          total: 4,
+          coveragePercent: 75,
+          missingFiles: 'not-an-array',
+        },
+      }, null);
+
+      expect(result).toEqual({
+        score: 75,
+        details: {
+          source: 'scan_project',
+          covered: 3,
+          missing: 1,
+          total: 4,
+          coveragePercent: 75,
+        },
+        findings: [],
+      });
+    });
+
+    test('maps missing-test severities and caps scan_project findings to five files', () => {
+      const result = testCoverageScorer.score('/unused', {
+        missingTests: {
+          covered: 6,
+          missing: 6,
+          total: 12,
+          coveragePercent: 50,
+          missingFiles: [
+            { file: 'server/api/root.js', lines: 360 },
+            { file: 'server/db/router.js', lines: 220 },
+            { file: 'server/logger.js', lines: 90 },
+            { file: 'server/task-manager.js', lines: 301 },
+            { file: 'server/index.js', lines: 101 },
+            { file: 'server/utils/id.js', lines: 20 },
+          ],
+        },
+      }, null);
+
+      expect(result).toEqual({
+        score: 50,
+        details: {
+          source: 'scan_project',
+          covered: 6,
+          missing: 6,
+          total: 12,
+          coveragePercent: 50,
+        },
+        findings: [
+          {
+            severity: 'high',
+            title: 'Missing test for server/api/root.js (360 lines)',
+            file: 'server/api/root.js',
+          },
+          {
+            severity: 'medium',
+            title: 'Missing test for server/db/router.js (220 lines)',
+            file: 'server/db/router.js',
+          },
+          {
+            severity: 'low',
+            title: 'Missing test for server/logger.js (90 lines)',
+            file: 'server/logger.js',
+          },
+          {
+            severity: 'high',
+            title: 'Missing test for server/task-manager.js (301 lines)',
+            file: 'server/task-manager.js',
+          },
+          {
+            severity: 'medium',
+            title: 'Missing test for server/index.js (101 lines)',
+            file: 'server/index.js',
+          },
+        ],
+      });
+    });
+
     test('scores realistic poor coverage from missingTests output below 30', () => {
       const result = testCoverageScorer.score('/unused', {
         missingTests: {
@@ -1135,6 +1220,30 @@ describe('factory scorer behavioral coverage', () => {
 
       expect(result.details.source).toBe('scan_project');
       expect(result.score).toBeGreaterThan(90);
+    });
+
+    test('does not apply penalties when todo items are present but none are HACK, FIXME, or XXX', () => {
+      const result = debtRatioScorer.score('/unused', {
+        summary: { totalFiles: 20 },
+        todos: {
+          count: 2,
+          items: [
+            { type: 'TODO', text: 'TODO: add stricter scanner assertions', file: 'server/tests/factory-scorers-behavioral.test.js' },
+            { type: 'TEMP', text: 'TEMP: keep the fixture small until coverage is stable', file: 'server/tests/task-project-handlers.test.js' },
+          ],
+        },
+      }, null);
+
+      expect(result).toEqual({
+        score: 65,
+        details: {
+          source: 'scan_project',
+          todoCount: 2,
+          totalFiles: 20,
+          density: 0.1,
+        },
+        findings: [],
+      });
     });
 
     test('applies HACK/FIXME/XXX penalties while capping findings to the first three', () => {
