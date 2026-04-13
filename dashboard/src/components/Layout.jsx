@@ -15,6 +15,10 @@ const ROUTE_NAMES = {
   '/operations': 'Operations',
   '/approvals': 'Approvals',
   '/factory': 'Factory',
+  '/factory/intake': 'Factory',
+  '/factory/health': 'Factory',
+  '/factory/decisions': 'Factory',
+  '/factory/policy': 'Factory',
   '/settings': 'Project Settings',
 };
 

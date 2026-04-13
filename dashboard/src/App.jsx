@@ -21,6 +21,11 @@ const OperationsHub = lazy(() => import('./views/OperationsHub'));
 const Approvals = lazy(() => import('./views/Approvals'));
 const ProjectSettings = lazy(() => import('./views/ProjectSettings'));
 const Factory = lazy(() => import('./views/Factory'));
+const FactoryOverview = lazy(() => import('./views/factory/Overview'));
+const FactoryIntake = lazy(() => import('./views/factory/Intake'));
+const FactoryHealth = lazy(() => import('./views/factory/Health'));
+const FactoryActivity = lazy(() => import('./views/factory/Activity'));
+const FactoryPolicy = lazy(() => import('./views/factory/Policy'));
 
 function mergeTaskUpdates(prevTasks, incomingTasks) {
   const updates = new Map(
@@ -296,7 +301,13 @@ function AppInner() {
               <Route path="infrastructure" element={<InfrastructureHub hostActivity={hostActivity} />} />
               <Route path="operations" element={<OperationsHub />} />
               <Route path="approvals" element={<Approvals />} />
-              <Route path="factory" element={<Factory />} />
+              <Route path="factory" element={<Factory />}>
+                <Route index element={<FactoryOverview />} />
+                <Route path="intake" element={<FactoryIntake />} />
+                <Route path="health" element={<FactoryHealth />} />
+                <Route path="decisions" element={<FactoryActivity />} />
+                <Route path="policy" element={<FactoryPolicy />} />
+              </Route>
               <Route path="settings" element={<ProjectSettings />} />
               {/* Redirects for old bookmarks */}
               <Route path="project-settings" element={<Navigate to="/settings" replace />} />
