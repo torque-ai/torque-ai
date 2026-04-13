@@ -71,18 +71,19 @@ afterAll(() => {
 });
 
 describe('loop-states', () => {
-  it('exports all 8 states', () => {
+  it('exports all 9 states (including PLAN_REVIEW)', () => {
     expect(LOOP_STATES).toEqual({
       SENSE: 'SENSE',
       PRIORITIZE: 'PRIORITIZE',
       PLAN: 'PLAN',
+      PLAN_REVIEW: 'PLAN_REVIEW',
       EXECUTE: 'EXECUTE',
       VERIFY: 'VERIFY',
       LEARN: 'LEARN',
       IDLE: 'IDLE',
       PAUSED: 'PAUSED',
     });
-    expect(Object.keys(LOOP_STATES)).toHaveLength(8);
+    expect(Object.keys(LOOP_STATES)).toHaveLength(9);
   });
 
   it('TRANSITIONS maps full cycle (LEARN terminates at IDLE by default)', () => {
