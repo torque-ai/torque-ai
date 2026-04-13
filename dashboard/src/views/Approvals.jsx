@@ -1,15 +1,123 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { approvals as approvalsApi } from '../api';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import { approvals as approvalsApi, tasks as tasksApi } from '../api';
 import { useToast } from '../components/Toast';
 import StatCard from '../components/StatCard';
 import { formatDate } from '../utils/formatters';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 
 const PAGE_LIMIT = 25;
+const FACTORY_POLL_MS = 5000;
+const FACTORY_DESCRIPTION_LIMIT = 200;
 
 function truncateId(id) {
   if (!id) return '-';
   return String(id).substring(0, 8);
+}
+
+function truncateText(value, limit = FACTORY_DESCRIPTION_LIMIT) {
+  const text = String(value || '').trim();
+  if (!text) return '-';
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit).trimEnd()}...`;
+}
+
+function getTaskTagValue(task, prefix) {
+  const tags = Array.isArray(task?.tags) ? task.tags : [];
+  const matchingTag = tags.find((tag) => typeof tag === 'string' && tag.startsWith(`${prefix}=`));
+  return matchingTag ? matchingTag.slice(prefix.length + 1) : null;
+}
+
+function getFactoryProject(task) {
+  return task?.project || task?.project_name || null;
+}
+
+function getFactoryTaskDescription(task) {
+  return truncateText(task?.task_description || task?.description || task?.prompt || '-');
+}
+
+function getFactoryTaskNumber(task) {
+  const planTaskNumber = getTaskTagValue(task, 'factory:plan_task_number');
+  if (planTaskNumber) return planTaskNumber;
+
+  const workItemId = getTaskTagValue(task, 'factory:work_item_id');
+  if (workItemId) return workItemId;
+
+  if (task?.task_number != null) return String(task.task_number);
+  if (task?.number != null) return String(task.number);
+
+  return truncateId(task?.id);
+}
+
+function sortFactoryTasks(tasks) {
+  return [...tasks].sort((a, b) => {
+    const aNumber = Number(getFactoryTaskNumber(a));
+    const bNumber = Number(getFactoryTaskNumber(b));
+
+    if (Number.isFinite(aNumber) && Number.isFinite(bNumber) && aNumber !== bNumber) {
+      return aNumber - bNumber;
+    }
+
+    if (Number.isFinite(aNumber) !== Number.isFinite(bNumber)) {
+      return Number.isFinite(aNumber) ? -1 : 1;
+    }
+
+    const aCreatedAt = new Date(a?.created_at || 0).getTime();
+    const bCreatedAt = new Date(b?.created_at || 0).getTime();
+    if (aCreatedAt !== bCreatedAt) {
+      return aCreatedAt - bCreatedAt;
+    }
+
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+}
+
+function buildFactoryBatches(tasks, projectFilter) {
+  const grouped = new Map();
+
+  for (const task of Array.isArray(tasks) ? tasks : []) {
+    const batchId = getTaskTagValue(task, 'factory:batch_id');
+    if (!batchId) continue;
+
+    const project = getFactoryProject(task);
+    if (projectFilter && project !== projectFilter) continue;
+
+    if (!grouped.has(batchId)) {
+      grouped.set(batchId, {
+        batchId,
+        project,
+        tasks: [],
+      });
+    }
+
+    const group = grouped.get(batchId);
+    if (!group.project && project) {
+      group.project = project;
+    }
+    group.tasks.push(task);
+  }
+
+  return Array.from(grouped.values())
+    .map((group) => {
+      const sortedTasks = sortFactoryTasks(group.tasks);
+      const lastCreatedAt = sortedTasks.reduce((latest, task) => {
+        const value = new Date(task?.created_at || 0).getTime();
+        return Number.isFinite(value) ? Math.max(latest, value) : latest;
+      }, 0);
+
+      return {
+        ...group,
+        count: sortedTasks.length,
+        lastCreatedAt,
+        tasks: sortedTasks,
+      };
+    })
+    .sort((a, b) => {
+      if (b.lastCreatedAt !== a.lastCreatedAt) {
+        return b.lastCreatedAt - a.lastCreatedAt;
+      }
+      return a.batchId.localeCompare(b.batchId, undefined, { numeric: true });
+    });
 }
 
 function SortHeader({ column, label, sortCol, sortDir, onSort }) {
@@ -32,7 +140,7 @@ function SortHeader({ column, label, sortCol, sortDir, onSort }) {
       <span className="inline-flex items-center gap-1">
         {label}
         <span className={`text-[10px] ${active ? 'text-blue-400' : 'text-slate-600 opacity-0 group-hover:opacity-100'} transition-opacity`}>
-          {active ? (sortDir === 'asc' ? '▲' : '▼') : '▲'}
+          {active ? (sortDir === 'asc' ? '^' : 'v') : '^'}
         </span>
       </span>
     </th>
@@ -196,22 +304,148 @@ function StudyTraceDetails({ item }) {
   );
 }
 
+function FactoryBatchCard({
+  batch,
+  expanded,
+  highlighted,
+  onToggle,
+  onApproveBatch,
+  onRejectBatch,
+  onApproveTask,
+  onRejectTask,
+  busyTaskIds,
+  busyBatchId,
+}) {
+  const batchBusy = busyBatchId === batch.batchId;
+
+  return (
+    <div
+      className={`rounded-xl border ${
+        highlighted ? 'border-blue-500/40 bg-slate-900/70' : 'border-slate-700/60 bg-slate-900/50'
+      }`}
+    >
+      <div className="flex flex-col gap-3 border-b border-slate-800/80 px-4 py-4 md:flex-row md:items-center md:justify-between">
+        <button
+          type="button"
+          onClick={() => onToggle(batch.batchId)}
+          aria-expanded={expanded}
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} batch ${batch.batchId}`}
+          className="flex items-start gap-3 text-left text-white"
+        >
+          <span className="mt-0.5 text-slate-400">{expanded ? 'v' : '>'}</span>
+          <div>
+            <p className="text-sm font-semibold">Batch {batch.batchId}</p>
+            <p className="text-xs text-slate-400">
+              {batch.count} task{batch.count === 1 ? '' : 's'}
+              {batch.project ? ` · ${batch.project}` : ''}
+            </p>
+          </div>
+        </button>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={batchBusy}
+            onClick={() => onApproveBatch(batch)}
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+          >
+            {batchBusy ? 'Working...' : 'Approve all'}
+          </button>
+          <button
+            type="button"
+            disabled={batchBusy}
+            onClick={() => onRejectBatch(batch)}
+            className="rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-600/35 disabled:opacity-50"
+          >
+            {batchBusy ? 'Working...' : 'Reject all'}
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="divide-y divide-slate-800/80">
+          {batch.tasks.map((task) => {
+            const taskBusy = busyTaskIds.has(task.id);
+
+            return (
+              <div key={task.id} className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-start md:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-300">
+                      Task {getFactoryTaskNumber(task)}
+                    </span>
+                    {task.id && (
+                      <code className="text-[11px] text-slate-500">{truncateId(task.id)}</code>
+                    )}
+                  </div>
+                  <p className="mt-2 text-sm text-slate-100" title={task?.task_description || task?.description || ''}>
+                    {getFactoryTaskDescription(task)}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                    {task.created_at && <span>Created {formatDate(task.created_at)}</span>}
+                    {getTaskTagValue(task, 'factory:work_item_id') && (
+                      <span>Work item {getTaskTagValue(task, 'factory:work_item_id')}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={taskBusy || batchBusy}
+                    onClick={() => onApproveTask(task)}
+                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {taskBusy ? 'Working...' : 'Approve'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={taskBusy || batchBusy}
+                    onClick={() => onRejectTask(task)}
+                    className="rounded-lg bg-red-600/20 px-3 py-1.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-600/35 disabled:opacity-50"
+                  >
+                    {taskBusy ? 'Working...' : 'Reject'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Approvals() {
   const [pending, setPending] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [actionInProgress, setActionInProgress] = useState(null); // { id, action } | null
+  const [factoryLoading, setFactoryLoading] = useState(true);
+  const [actionInProgress, setActionInProgress] = useState(null);
+  const [factoryActionInProgress, setFactoryActionInProgress] = useState(null);
   const [activeTab, setActiveTab] = useState('pending');
+  const [factoryTasks, setFactoryTasks] = useState([]);
+  const [expandedFactoryBatches, setExpandedFactoryBatches] = useState({});
 
-  // Sort state
   const [pendingSort, setPendingSort] = useState({ col: 'created_at', dir: 'desc' });
   const [historySort, setHistorySort] = useState({ col: 'decided_at', dir: 'desc' });
 
-  // Pagination state
   const [pendingPage, setPendingPage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
 
   const toast = useToast();
+  const location = useLocation();
+  const mountedRef = useRef(true);
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const highlightedSource = searchParams.get('source') === 'factory';
+  const projectFilter = searchParams.get('project') || '';
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -219,13 +453,35 @@ export default function Approvals() {
         approvalsApi.listPending(),
         approvalsApi.getHistory(50),
       ]);
+      if (!mountedRef.current) return;
       setPending(pendingData);
       setHistory(historyData);
     } catch (err) {
       console.error('Failed to load approvals:', err);
-      toast.error('Failed to load approvals');
+      if (mountedRef.current) {
+        toast.error('Failed to load approvals');
+      }
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [toast]);
+
+  const loadFactoryTasks = useCallback(async ({ background = false } = {}) => {
+    try {
+      const data = await tasksApi.list({ status: 'pending_approval', limit: 100 });
+      if (!mountedRef.current) return;
+      setFactoryTasks(Array.isArray(data?.tasks) ? data.tasks : []);
+    } catch (err) {
+      if (!background && mountedRef.current) {
+        console.error('Failed to load factory task approvals:', err);
+        toast.error('Failed to load factory task approvals');
+      }
+    } finally {
+      if (mountedRef.current) {
+        setFactoryLoading(false);
+      }
     }
   }, [toast]);
 
@@ -237,6 +493,44 @@ export default function Approvals() {
     }, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  useEffect(() => {
+    loadFactoryTasks();
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      loadFactoryTasks({ background: true });
+    }, FACTORY_POLL_MS);
+    return () => clearInterval(interval);
+  }, [loadFactoryTasks]);
+
+  const factoryBatches = useMemo(
+    () => buildFactoryBatches(factoryTasks, projectFilter),
+    [factoryTasks, projectFilter]
+  );
+
+  useEffect(() => {
+    setExpandedFactoryBatches((prev) => {
+      const next = { ...prev };
+      const activeBatchIds = new Set(factoryBatches.map((batch) => batch.batchId));
+      let changed = false;
+
+      for (const batchId of activeBatchIds) {
+        if (!(batchId in next)) {
+          next[batchId] = true;
+          changed = true;
+        }
+      }
+
+      for (const batchId of Object.keys(next)) {
+        if (!activeBatchIds.has(batchId)) {
+          delete next[batchId];
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [factoryBatches]);
 
   function makeSort(setter) {
     return (col) => setter(prev => ({
@@ -254,7 +548,9 @@ export default function Approvals() {
     } catch (err) {
       toast.error(`Approve failed: ${err.message}`);
     } finally {
-      setActionInProgress(null);
+      if (mountedRef.current) {
+        setActionInProgress(null);
+      }
     }
   }
 
@@ -267,9 +563,78 @@ export default function Approvals() {
     } catch (err) {
       toast.error(`Reject failed: ${err.message}`);
     } finally {
-      setActionInProgress(null);
+      if (mountedRef.current) {
+        setActionInProgress(null);
+      }
     }
   }
+
+  const handleFactoryTaskAction = useCallback(async (task, decision) => {
+    const snapshot = factoryTasks;
+    const taskId = task.id;
+    const batchId = getTaskTagValue(task, 'factory:batch_id');
+
+    setFactoryActionInProgress({
+      type: decision,
+      batchId,
+      taskIds: [taskId],
+    });
+    setFactoryTasks((prev) => prev.filter((item) => item.id !== taskId));
+
+    try {
+      if (decision === 'approve') {
+        await tasksApi.approve(taskId);
+        toast.success(`Task ${getFactoryTaskNumber(task)} approved`);
+      } else {
+        await tasksApi.reject(taskId);
+        toast.success(`Task ${getFactoryTaskNumber(task)} rejected`);
+      }
+    } catch (err) {
+      if (mountedRef.current) {
+        setFactoryTasks(snapshot);
+      }
+      toast.error(`${decision === 'approve' ? 'Approve' : 'Reject'} failed: ${err.message}`);
+    } finally {
+      if (mountedRef.current) {
+        setFactoryActionInProgress(null);
+      }
+    }
+  }, [factoryTasks, toast]);
+
+  const handleFactoryBatchAction = useCallback(async (batch, decision) => {
+    const snapshot = factoryTasks;
+    const taskIds = batch.tasks.map((task) => task.id);
+
+    setFactoryActionInProgress({
+      type: `${decision}-batch`,
+      batchId: batch.batchId,
+      taskIds,
+    });
+    setFactoryTasks((prev) => prev.filter((task) => !taskIds.includes(task.id)));
+
+    try {
+      if (decision === 'approve') {
+        await tasksApi.approveBatch({ batch_id: batch.batchId, task_ids: taskIds });
+        toast.success(`Approved ${taskIds.length} task${taskIds.length === 1 ? '' : 's'} in ${batch.batchId}`);
+      } else {
+        const results = await Promise.allSettled(taskIds.map((taskId) => tasksApi.reject(taskId)));
+        const failure = results.find((result) => result.status === 'rejected');
+        if (failure?.status === 'rejected') {
+          throw failure.reason instanceof Error ? failure.reason : new Error('Failed to reject batch');
+        }
+        toast.success(`Rejected ${taskIds.length} task${taskIds.length === 1 ? '' : 's'} in ${batch.batchId}`);
+      }
+    } catch (err) {
+      if (mountedRef.current) {
+        setFactoryTasks(snapshot);
+      }
+      toast.error(`${decision === 'approve' ? 'Approve all' : 'Reject all'} failed: ${err.message}`);
+    } finally {
+      if (mountedRef.current) {
+        setFactoryActionInProgress(null);
+      }
+    }
+  }, [factoryTasks, toast]);
 
   const approvedToday = history.filter((h) => {
     if (h.decision !== 'approved') return false;
@@ -303,7 +668,12 @@ export default function Approvals() {
     return sortedHistory.slice(start, start + PAGE_LIMIT);
   }, [sortedHistory, historyPage]);
 
-  if (loading) {
+  const busyTaskIds = useMemo(
+    () => new Set(factoryActionInProgress?.taskIds || []),
+    [factoryActionInProgress]
+  );
+
+  if (loading || factoryLoading) {
     return (
       <div className="p-6">
         <LoadingSkeleton lines={5} />
@@ -318,7 +688,70 @@ export default function Approvals() {
         <p className="text-slate-400 text-sm mt-1">Review and act on pending approval requests</p>
       </div>
 
-      {/* Stat cards */}
+      <section
+        aria-labelledby="factory-task-approvals-heading"
+        className={`mb-6 rounded-2xl border p-4 md:p-5 ${
+          highlightedSource
+            ? 'border-blue-500/40 bg-blue-500/5 shadow-[0_0_0_1px_rgba(59,130,246,0.1)]'
+            : 'border-slate-700/60 bg-slate-800/30'
+        }`}
+      >
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 id="factory-task-approvals-heading" className="text-base font-semibold text-white">
+                Factory Task Approvals
+              </h3>
+              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-300">
+                {factoryBatches.reduce((sum, batch) => sum + batch.count, 0)} pending
+              </span>
+              {highlightedSource && (
+                <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-300">
+                  Source: Factory
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-slate-400">
+              Grouped by factory batch. Approve or reject held execution tasks without leaving the dashboard.
+            </p>
+            {projectFilter && (
+              <p className="mt-2 text-xs text-blue-300">
+                Project filter: {projectFilter}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {factoryBatches.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-dashed border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
+            No tasks awaiting approval.
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {factoryBatches.map((batch) => (
+              <FactoryBatchCard
+                key={batch.batchId}
+                batch={batch}
+                expanded={expandedFactoryBatches[batch.batchId] !== false}
+                highlighted={highlightedSource}
+                onToggle={(batchId) =>
+                  setExpandedFactoryBatches((prev) => ({
+                    ...prev,
+                    [batchId]: prev[batchId] === false,
+                  }))
+                }
+                onApproveBatch={(currentBatch) => handleFactoryBatchAction(currentBatch, 'approve')}
+                onRejectBatch={(currentBatch) => handleFactoryBatchAction(currentBatch, 'reject')}
+                onApproveTask={(task) => handleFactoryTaskAction(task, 'approve')}
+                onRejectTask={(task) => handleFactoryTaskAction(task, 'reject')}
+                busyTaskIds={busyTaskIds}
+                busyBatchId={factoryActionInProgress?.batchId || null}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <StatCard label="Pending" value={pending.length} gradient="orange" />
         <StatCard label="Approved Today" value={approvedToday} gradient="green" />

@@ -147,9 +147,9 @@ async function _fetch(url, options = {}) {
 // ─── Task endpoints (v2 for list/get/diff/logs/retry/submit) ────────────────
 
 export const tasks = {
-  list: (params = {}) => {
+  list: (params = {}, options = {}) => {
     const query = new URLSearchParams(params).toString();
-    return requestV2(`/tasks${query ? `?${query}` : ''}`).then(d => ({
+    return requestV2(`/tasks${query ? `?${query}` : ''}`, options).then(d => ({
       tasks: d.items || [],
       total: d.total || 0,
       pagination: {
@@ -167,6 +167,19 @@ export const tasks = {
     body: JSON.stringify({ provider }),
   }),
   cancel: (id) => requestV2(`/tasks/${id}/cancel`, { method: 'POST' }),
+  approve: (id) => requestV2(`/tasks/${id}/approve`, { method: 'POST' }),
+  reject: (id) => requestV2(`/tasks/${id}/reject`, { method: 'POST' }),
+  approveBatch: (batchIdOrData, taskIds = []) => requestV2('/tasks/approve-batch', {
+    method: 'POST',
+    body: JSON.stringify(
+      typeof batchIdOrData === 'string'
+        ? {
+            batch_id: batchIdOrData,
+            ...(Array.isArray(taskIds) && taskIds.length > 0 ? { task_ids: taskIds } : {}),
+          }
+        : batchIdOrData
+    ),
+  }),
   approveSwitch: (id) => requestV2(`/tasks/${id}/approve-switch`, { method: 'POST' }),
   rejectSwitch: (id) => requestV2(`/tasks/${id}/reject-switch`, { method: 'POST' }),
   previewStudyContext: (data, options = {}) => requestV2('/tasks/preview-study-context', {

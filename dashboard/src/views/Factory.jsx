@@ -1,5 +1,6 @@
 import { Fragment, memo, useState, useEffect, useCallback } from 'react';
-import { factory as factoryApi, getDecisionLog, getFactoryDigest } from '../api';
+import { useNavigate } from 'react-router-dom';
+import { factory as factoryApi, tasks as tasksApi, getDecisionLog, getFactoryDigest } from '../api';
 import { useToast } from '../components/Toast';
 import RadarChart from '../components/RadarChart';
 import StatCard from '../components/StatCard';
@@ -1349,7 +1350,12 @@ export default function Factory() {
   const [recentActivityHydrated, setRecentActivityHydrated] = useState(false);
   const [loopStatusRefreshedAt, setLoopStatusRefreshedAt] = useState(null);
   const [refreshAgeNow, setRefreshAgeNow] = useState(() => Date.now());
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const toast = useToast();
+  const navigate = useNavigate();
+  const selectedProjectName = selectedHealth?.project?.id === selectedProjectId
+    ? selectedHealth?.project?.name || ''
+    : projects.find((project) => project.id === selectedProjectId)?.name || '';
 
   const loadProjects = useCallback(async ({ silent = false } = {}) => {
     if (!silent) {
@@ -1469,6 +1475,7 @@ export default function Factory() {
       setRecentActivity([]);
       setRecentActivityHydrated(false);
       setLoopStatusRefreshedAt(null);
+      setPendingApprovalCount(0);
       setRefreshAgeNow(Date.now());
       return undefined;
     }
@@ -1501,10 +1508,13 @@ export default function Factory() {
       polling = true;
 
       try {
-        const [loopStatus, recentResponse, backlogResponse] = await Promise.all([
+        const [loopStatus, recentResponse, backlogResponse, pendingApprovalResponse] = await Promise.all([
           factoryApi.loopStatus(selectedProjectId).catch(() => null),
           getDecisionLog(selectedProjectId, { limit: 20 }).catch(() => null),
           includeBacklog ? factoryApi.backlog(selectedProjectId).catch(() => null) : Promise.resolve(null),
+          selectedProjectName
+            ? tasksApi.list({ status: 'pending_approval', project: selectedProjectName, limit: 1 }).catch(() => null)
+            : Promise.resolve({ total: 0, tasks: [] }),
         ]);
 
         if (cancelled) {
@@ -1534,6 +1544,9 @@ export default function Factory() {
         if (backlogResponse) {
           applyBacklogResponse(backlogResponse);
         }
+        if (pendingApprovalResponse) {
+          setPendingApprovalCount(Number(pendingApprovalResponse.total) || pendingApprovalResponse.tasks?.length || 0);
+        }
       } finally {
         if (!cancelled) {
           setRecentActivityHydrated(true);
@@ -1556,7 +1569,7 @@ export default function Factory() {
       clearInterval(pollIntervalId);
       clearInterval(ageIntervalId);
     };
-  }, [applyBacklogResponse, selectedProjectId]);
+  }, [applyBacklogResponse, selectedProjectId, selectedProjectName]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -1831,6 +1844,9 @@ export default function Factory() {
   const pausedProjects = projects.filter((project) => project.status === 'paused').length;
   const detail = selectedHealth || buildDetailFallback(projects.find((project) => project.id === selectedProjectId));
   const selectedProject = detail?.project || null;
+  const approvalsHref = selectedProject?.name
+    ? `/approvals?${new URLSearchParams({ project: selectedProject.name, source: 'factory' }).toString()}`
+    : null;
   const detailEntries = getScoreEntries(detail?.scores || {});
   const costMetricsData = costMetrics || normalizeCostMetrics();
   const decisionSinceParam = getDecisionSinceParam(decisionSince);
@@ -2446,11 +2462,22 @@ export default function Factory() {
             <section className="bg-slate-800/60 rounded-lg border border-slate-700 p-4 mt-4">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-slate-200">Factory Loop</h3>
-                {loopRefreshAgeSeconds !== null && (
-                  <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
-                    Refreshed {loopRefreshAgeSeconds}s ago
-                  </span>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {pendingApprovalCount > 0 && approvalsHref && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(approvalsHref)}
+                      className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200 transition-colors hover:border-amber-400/40 hover:bg-amber-500/15"
+                    >
+                      {pendingApprovalCount} task{pendingApprovalCount === 1 ? '' : 's'} awaiting approval &rarr;
+                    </button>
+                  )}
+                  {loopRefreshAgeSeconds !== null && (
+                    <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
+                      Refreshed {loopRefreshAgeSeconds}s ago
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-3 mb-2">
                 <LoopStatusBadge

@@ -7,7 +7,7 @@ import { useKeyboardShortcuts, ShortcutHelpOverlay } from './components/Keyboard
 import Onboarding from './components/Onboarding';
 import Kanban from './views/Kanban';
 import { useWebSocket } from './websocket';
-import { hosts as hostsApi } from './api';
+import { hosts as hostsApi, tasks as tasksApi } from './api';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useTick } from './hooks/useTick';
 import Login from './components/Login';
@@ -18,6 +18,7 @@ const Providers = lazy(() => import('./views/Providers'));
 const WorkflowsHub = lazy(() => import('./views/WorkflowsHub'));
 const InfrastructureHub = lazy(() => import('./views/InfrastructureHub'));
 const OperationsHub = lazy(() => import('./views/OperationsHub'));
+const Approvals = lazy(() => import('./views/Approvals'));
 const ProjectSettings = lazy(() => import('./views/ProjectSettings'));
 const Factory = lazy(() => import('./views/Factory'));
 
@@ -88,6 +89,7 @@ function AppInner() {
   const [wsStats, setWsStats] = useState(null);
   const [workflowTick, setWorkflowTick] = useState(0);
   const [drawerRefreshTick, setDrawerRefreshTick] = useState(0);
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const drawerTaskIdRef = useRef(null);
   drawerTaskIdRef.current = drawerTaskId;
   const relativeTimeTick = useTick(10000);
@@ -171,6 +173,28 @@ function AppInner() {
     };
   }, []);
 
+  const loadPendingApprovalCount = useCallback(async (signal) => {
+    try {
+      const data = await tasksApi.list(
+        { status: 'pending_approval', limit: 1 },
+        signal ? { signal } : {}
+      );
+      if (!signal?.aborted) {
+        setPendingApprovalCount(Number(data?.total) || 0);
+      }
+    } catch {
+      if (!signal?.aborted) {
+        setPendingApprovalCount(0);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadPendingApprovalCount(controller.signal);
+    return () => controller.abort();
+  }, [loadPendingApprovalCount, tasksTick]);
+
   const openDrawer = useCallback((taskId) => {
     setStreamingOutput([]);
     setDrawerTaskId(taskId);
@@ -244,7 +268,17 @@ function AppInner() {
       <ErrorBoundary>
         <Suspense fallback={<div className="flex items-center justify-center h-screen text-slate-400">Loading...</div>}>
           <Routes>
-            <Route element={<Layout isConnected={isConnected} isReconnecting={isReconnecting} failedCount={failedCount} stuckCount={stuckCount} />}>
+            <Route
+              element={
+                <Layout
+                  isConnected={isConnected}
+                  isReconnecting={isReconnecting}
+                  failedCount={failedCount}
+                  stuckCount={stuckCount}
+                  pendingApprovalCount={pendingApprovalCount}
+                />
+              }
+            >
               <Route
                 index
                 element={
@@ -261,6 +295,7 @@ function AppInner() {
               <Route path="providers" element={<Providers statsVersion={statsVersion} tasksTick={tasksTick} />} />
               <Route path="infrastructure" element={<InfrastructureHub hostActivity={hostActivity} />} />
               <Route path="operations" element={<OperationsHub />} />
+              <Route path="approvals" element={<Approvals />} />
               <Route path="factory" element={<Factory />} />
               <Route path="settings" element={<ProjectSettings />} />
               {/* Redirects for old bookmarks */}
@@ -272,7 +307,6 @@ function AppInner() {
               <Route path="workstations" element={<Navigate to="/infrastructure" replace />} />
               <Route path="budget" element={<Navigate to="/operations#budget" replace />} />
               <Route path="schedules" element={<Navigate to="/operations#schedules" replace />} />
-              <Route path="approvals" element={<Navigate to="/operations#approvals" replace />} />
               <Route path="coordination" element={<Navigate to="/operations#coordination" replace />} />
               <Route path="strategy" element={<Navigate to="/operations#routing" replace />} />
               <Route path="strategic" element={<Navigate to="/operations#routing" replace />} />

@@ -105,6 +105,7 @@ function LastRefreshed({ timestamp }) {
 }
 
 const STATUS_COLUMNS = [
+  { id: 'pending_approval', label: 'Pending Approval', color: 'bg-yellow-500', dotColor: 'bg-yellow-400' },
   { id: 'queued', label: 'Queued', color: 'bg-slate-500', dotColor: 'bg-slate-400' },
   { id: 'running', label: 'Running', color: 'bg-blue-500', dotColor: 'bg-blue-400' },
   { id: 'completed', label: 'Completed', color: 'bg-green-500', dotColor: 'bg-green-400' },
@@ -136,6 +137,12 @@ function normalizeStuckTasks(stuckData) {
     pending_approval: stuckData.pending_approval ?? { tasks: [] },
     pending_switch: stuckData.pending_switch ?? { tasks: [] },
   };
+}
+
+function getTaskTagValue(task, prefix) {
+  const tags = Array.isArray(task?.tags) ? task.tags : [];
+  const matchingTag = tags.find((tag) => typeof tag === 'string' && tag.startsWith(`${prefix}=`));
+  return matchingTag ? matchingTag.slice(prefix.length + 1) : null;
 }
 
 function getTaskActivityTarget(task) {
@@ -191,6 +198,13 @@ function buildTaskActivityEvent(task, previousTask) {
       return {
         type: 'task_update',
         message: `Task ${shortId} is pending provider switch on ${target}`,
+        timestamp,
+        severity: 'warning',
+      };
+    case 'pending_approval':
+      return {
+        type: 'task_update',
+        message: `Task ${shortId} is pending approval on ${target}`,
         timestamp,
         severity: 'warning',
       };
@@ -253,6 +267,7 @@ const TaskCard = memo(function TaskCard({
   const hostAct = task.status === 'running' && task.ollama_host_id
     ? hostActivity?.hosts?.[task.ollama_host_id] : null;
   const gpu = hostAct?.gpuMetrics || null;
+  const batchId = getTaskTagValue(task, 'factory:batch_id');
   const providerOptions = useMemo(
     () => buildProviderOptions(providerList, task.provider),
     [providerList, task.provider]
@@ -299,6 +314,11 @@ const TaskCard = memo(function TaskCard({
           {task.project && (
             <span className="max-w-[140px] truncate rounded border border-cyan-500/25 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-200">
               {task.project}
+            </span>
+          )}
+          {batchId && (
+            <span className="max-w-[140px] truncate rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200">
+              Batch {batchId}
             </span>
           )}
           {task.quality_score != null && (
@@ -416,6 +436,22 @@ const TaskCard = memo(function TaskCard({
               </button>
             </>
           )}
+          {task.status === 'pending_approval' && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); onAction(task.id, 'approve'); }}
+                className="text-emerald-400 hover:text-emerald-300 font-medium"
+              >
+                Approve
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onAction(task.id, 'reject'); }}
+                className="text-red-400 hover:text-red-300 font-medium"
+              >
+                Reject
+              </button>
+            </>
+          )}
           {task.status === 'queued' && task.created_at && (
             <QueueAge createdAt={task.created_at} />
           )}
@@ -503,6 +539,7 @@ const TaskCard = memo(function TaskCard({
     && p.started_at === n.started_at && p.completed_at === n.completed_at
     && p.provider === n.provider && p.model === n.model
     && p.project === n.project
+    && JSON.stringify(p.tags || []) === JSON.stringify(n.tags || [])
     && p.ollama_host_id === n.ollama_host_id && p.ollama_host_name === n.ollama_host_name
     && p.gpu_active === n.gpu_active && p.error_output === n.error_output
     && prev.isPinned === next.isPinned && prev.hostActivity === next.hostActivity
@@ -797,14 +834,15 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     return execute(async (isCurrent) => {
       try {
         // Phase 1: critical data first — gets the board visible fast
-        const [queuedData, runningData, pendingData, overviewData] = await Promise.all([
+        const [pendingApprovalData, queuedData, runningData, pendingData, overviewData] = await Promise.all([
+          tasksApi.list({ status: 'pending_approval', limit: 50 }),
           tasksApi.list({ status: 'queued', limit: 50 }),
           tasksApi.list({ status: 'running', limit: 50 }),
           tasksApi.list({ status: 'pending_provider_switch', limit: 20 }),
           statsApi.overview(),
         ]);
         if (!isCurrent()) return;
-        mergeTasks([...queuedData.tasks, ...runningData.tasks, ...pendingData.tasks]);
+        mergeTasks([...pendingApprovalData.tasks, ...queuedData.tasks, ...runningData.tasks, ...pendingData.tasks]);
         setOverview(overviewData);
         setLoading(false);
 
@@ -975,12 +1013,78 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     setRefreshing(false);
   }
 
+  function setTaskStatusLocally(taskId, nextStatus, overrides = {}) {
+    const updatedAt = new Date().toISOString();
+    setAllTasks((prev) => prev.map((task) => (
+      task.id === taskId
+        ? {
+            ...task,
+            status: nextStatus,
+            updated_at: updatedAt,
+            ...overrides,
+          }
+        : task
+    )));
+  }
+
+  function restoreTaskLocally(previousTask) {
+    if (!previousTask?.id) return;
+    setAllTasks((prev) => prev.map((task) => (
+      task.id === previousTask.id ? previousTask : task
+    )));
+  }
+
+  function adjustOverviewCounts(fromStatus, toStatus) {
+    setOverview((prev) => {
+      if (!prev || typeof prev !== 'object') {
+        return prev;
+      }
+
+      const next = { ...prev };
+
+      if (prev.totals) {
+        const totals = { ...prev.totals };
+        if (fromStatus) {
+          totals[fromStatus] = Math.max(0, (Number(totals[fromStatus]) || 0) - 1);
+        }
+        if (toStatus) {
+          totals[toStatus] = (Number(totals[toStatus]) || 0) + 1;
+        }
+        next.totals = totals;
+      }
+
+      if (prev.active && (fromStatus === 'queued' || toStatus === 'queued')) {
+        const active = { ...prev.active };
+        if (fromStatus === 'queued') {
+          active.queued = Math.max(0, (Number(active.queued) || 0) - 1);
+        }
+        if (toStatus === 'queued') {
+          active.queued = (Number(active.queued) || 0) + 1;
+        }
+        next.active = active;
+      }
+
+      return next;
+    });
+  }
+
   async function handleAction(taskId, action) {
+    const currentTask = allTasks.find((task) => task.id === taskId);
     try {
       let successMessage = 'Action completed';
       if (action === 'retry') {
         await tasksApi.retry(taskId);
         successMessage = 'Task queued for retry';
+      } else if (action === 'approve') {
+        setTaskStatusLocally(taskId, 'queued', { completed_at: null });
+        adjustOverviewCounts('pending_approval', 'queued');
+        await tasksApi.approve(taskId);
+        successMessage = 'Task approved';
+      } else if (action === 'reject') {
+        setTaskStatusLocally(taskId, 'cancelled', { completed_at: new Date().toISOString() });
+        adjustOverviewCounts('pending_approval', 'cancelled');
+        await tasksApi.reject(taskId);
+        successMessage = 'Task rejected';
       } else if (action === 'approve-switch') {
         await tasksApi.approveSwitch(taskId);
         successMessage = 'Switch approved';
@@ -989,8 +1093,17 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         successMessage = 'Switch rejected';
       }
       toast.success(successMessage);
-      loadData();
+      if (action !== 'approve' && action !== 'reject') {
+        loadData();
+      }
     } catch (err) {
+      if (action === 'approve') {
+        restoreTaskLocally(currentTask);
+        adjustOverviewCounts('queued', 'pending_approval');
+      } else if (action === 'reject') {
+        restoreTaskLocally(currentTask);
+        adjustOverviewCounts('cancelled', 'pending_approval');
+      }
       console.error(`Action ${action} failed:`, err);
       toast.error(`${action} failed: ${err.message}`);
     }
@@ -1117,6 +1230,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
 
     const totals = overview?.totals || {};
     return {
+      pending_approval: totals.pending_approval,
       running: wsStats?.running ?? totals.running,
       queued: wsStats?.queued ?? totals.queued,
       completed: wsStats?.completed ?? totals.completed,

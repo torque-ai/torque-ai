@@ -1,4 +1,5 @@
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '../test-utils';
 import Kanban from './Kanban';
 
@@ -8,6 +9,9 @@ vi.mock('../api', () => ({
     list: vi.fn(),
     retry: vi.fn(),
     cancel: vi.fn(),
+    approve: vi.fn(),
+    reject: vi.fn(),
+    approveBatch: vi.fn(),
     approveSwitch: vi.fn(),
     rejectSwitch: vi.fn(),
     reassignProvider: vi.fn(),
@@ -105,10 +109,13 @@ function installStorageMock(initialState = {}) {
 
 function createDeferred() {
   let resolve;
-  const promise = new Promise((res) => {
+  let reject;
+  const promise = new Promise((res, rej) => {
     resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  promise.catch(() => {});
+  return { promise, resolve, reject };
 }
 
 describe('Kanban', () => {
@@ -120,6 +127,8 @@ describe('Kanban', () => {
     ]);
     // All list calls return empty by default
     tasksApi.list.mockResolvedValue(emptyTasks);
+    tasksApi.approve.mockResolvedValue({});
+    tasksApi.reject.mockResolvedValue({});
     tasksApi.rejectSwitch.mockResolvedValue({});
     tasksApi.reassignProvider.mockResolvedValue({});
     providersApi.list.mockResolvedValue([]);
@@ -187,6 +196,7 @@ describe('Kanban', () => {
   it('renders kanban column labels', async () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
+      expect(screen.getAllByText('Pending Approval').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Completed').length).toBeGreaterThanOrEqual(1);
@@ -330,6 +340,70 @@ describe('Kanban', () => {
 
     await waitFor(() => {
       expect(tasksApi.rejectSwitch).toHaveBeenCalledWith('task-switch-1');
+    });
+  });
+
+  it('renders the pending approval column and approves held tasks', async () => {
+    const approveDeferred = createDeferred();
+    tasksApi.approve.mockReturnValueOnce(approveDeferred.promise);
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'pending_approval') {
+        return Promise.resolve({
+          tasks: [{
+            ...pendingApprovalTask,
+            tags: ['factory:batch_id=batch-42'],
+          }],
+        });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<Kanban />, { route: '/' });
+
+    const pendingApprovalColumn = await screen.findByRole('list', { name: 'Pending Approval' });
+    expect(within(pendingApprovalColumn).getByText('Pending approval test task')).toBeInTheDocument();
+    expect(within(pendingApprovalColumn).getByText('Batch batch-42')).toBeInTheDocument();
+
+    fireEvent.click(within(pendingApprovalColumn).getByRole('button', { name: 'Approve' }));
+
+    await waitFor(() => {
+      expect(tasksApi.approve).toHaveBeenCalledWith('task-approval-1');
+      const queuedColumn = screen.getByRole('list', { name: 'Queued' });
+      expect(within(queuedColumn).getByText('Pending approval test task')).toBeInTheDocument();
+      expect(within(pendingApprovalColumn).queryByText('Pending approval test task')).toBeNull();
+    });
+
+    approveDeferred.resolve({});
+  });
+
+  it('reverts pending approval tasks when reject fails', async () => {
+    const rejectDeferred = createDeferred();
+    tasksApi.reject.mockReturnValueOnce(rejectDeferred.promise);
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'pending_approval') {
+        return Promise.resolve({ tasks: [pendingApprovalTask] });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<Kanban />, { route: '/' });
+
+    const pendingApprovalColumn = await screen.findByRole('list', { name: 'Pending Approval' });
+    fireEvent.click(within(pendingApprovalColumn).getByRole('button', { name: 'Reject' }));
+
+    await waitFor(() => {
+      expect(tasksApi.reject).toHaveBeenCalledWith('task-approval-1');
+      const cancelledColumn = screen.getByRole('list', { name: 'Cancelled' });
+      expect(within(cancelledColumn).getByText('Pending approval test task')).toBeInTheDocument();
+    });
+
+    rejectDeferred.reject(new Error('Approval backend unavailable'));
+
+    await waitFor(() => {
+      const restoredPendingColumn = screen.getByRole('list', { name: 'Pending Approval' });
+      const cancelledColumn = screen.getByRole('list', { name: 'Cancelled' });
+      expect(within(restoredPendingColumn).getByText('Pending approval test task')).toBeInTheDocument();
+      expect(within(cancelledColumn).queryByText('Pending approval test task')).toBeNull();
     });
   });
 

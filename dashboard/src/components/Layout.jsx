@@ -13,6 +13,7 @@ const ROUTE_NAMES = {
   '/providers': 'Providers',
   '/infrastructure': 'Infrastructure',
   '/operations': 'Operations',
+  '/approvals': 'Approvals',
   '/factory': 'Factory',
   '/settings': 'Project Settings',
 };
@@ -143,27 +144,42 @@ const navItems = [
   { to: '/providers', icon: ChartIcon, label: 'Providers' },
   { to: '/infrastructure', icon: HostIcon, label: 'Infrastructure' },
   { to: '/operations', icon: StrategicIcon, label: 'Operations' },
+  { to: '/approvals', icon: ApprovalIcon, label: 'Approvals' },
   { to: '/factory', icon: FactoryIcon, label: 'Factory' },
   { to: '/settings', icon: SettingsIcon, label: 'Project Settings' },
 ];
 
-function NavItem({ to, icon, label, collapsed }) {
+function NavItem({ to, icon, label, collapsed, badgeCount = 0 }) {
   const IconComponent = icon;
+  const showBadge = badgeCount > 0;
+  const badgeLabel = badgeCount > 99 ? '99+' : String(badgeCount);
   return (
     <NavLink
       to={to}
       end={to === '/'}
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
-        `flex items-center gap-3 px-4 ${collapsed ? 'md:justify-center md:px-2 md:gap-0' : ''} py-2.5 rounded-lg transition-all text-sm ${
+        `relative flex items-center justify-between gap-3 px-4 ${collapsed ? 'md:justify-center md:px-2 md:gap-0' : ''} py-2.5 rounded-lg transition-all text-sm ${
           isActive
             ? 'bg-blue-600/20 text-blue-400 font-medium border border-blue-500/30'
             : 'text-slate-400 hover:bg-slate-700/50 hover:text-white border border-transparent'
         }`
       }
     >
-      <IconComponent />
-      <span className={collapsed ? 'md:hidden' : ''}>{label}</span>
+      <span className={`flex min-w-0 items-center gap-3 ${collapsed ? 'md:gap-0' : ''}`}>
+        <IconComponent />
+        <span className={collapsed ? 'md:hidden' : ''}>{label}</span>
+      </span>
+      {showBadge && (
+        <>
+          <span className={`inline-flex min-w-6 items-center justify-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-300 ${collapsed ? 'md:hidden' : ''}`}>
+            {badgeLabel}
+          </span>
+          <span className={`absolute right-1.5 top-1.5 min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 ${collapsed ? 'hidden md:flex' : 'hidden'}`}>
+            {badgeLabel}
+          </span>
+        </>
+      )}
     </NavLink>
   );
 }
@@ -253,7 +269,7 @@ function PausedFactoryBanner() {
 }
 
 
-export default function Layout({ isConnected, isReconnecting, failedCount = 0, stuckCount = 0 }) {
+export default function Layout({ isConnected, isReconnecting, failedCount = 0, stuckCount = 0, pendingApprovalCount = 0 }) {
   const [collapsed, setCollapsed] = useState(getInitialCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
@@ -379,7 +395,12 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
         {/* Navigation */}
         <nav className="flex-1 p-3 space-y-1">
           {navItems.map((item) => (
-            <NavItem key={item.to} {...item} collapsed={collapsed} />
+            <NavItem
+              key={item.to}
+              {...item}
+              collapsed={collapsed}
+              badgeCount={item.to === '/approvals' ? pendingApprovalCount : 0}
+            />
           ))}
         </nav>
 

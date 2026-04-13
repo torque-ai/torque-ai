@@ -1,4 +1,5 @@
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import Approvals from './Approvals';
 
@@ -10,9 +11,15 @@ vi.mock('../api', () => ({
     approve: vi.fn(),
     reject: vi.fn(),
   },
+  tasks: {
+    list: vi.fn(),
+    approve: vi.fn(),
+    reject: vi.fn(),
+    approveBatch: vi.fn(),
+  },
 }));
 
-import { approvals as approvalsApi } from '../api';
+import { approvals as approvalsApi, tasks as tasksApi } from '../api';
 
 // v2 approvals endpoints resolve to bare arrays, not { approvals: [...] }.
 const mockPendingV2Response = [
@@ -89,12 +96,68 @@ const mockHistoryV2Response = [
   },
 ];
 
+const longFactoryDescription = 'Second factory approval task '.repeat(10);
+
+const mockFactoryTasksResponse = {
+  tasks: [
+    {
+      id: 'task-approval-1',
+      task_description: 'First factory approval task for alpha',
+      project: 'alpha',
+      status: 'pending_approval',
+      created_at: '2026-02-28T10:05:00Z',
+      tags: [
+        'factory:batch_id=batch-42',
+        'factory:work_item_id=work-item-7',
+        'factory:plan_task_number=1',
+      ],
+    },
+    {
+      id: 'task-approval-2',
+      task_description: longFactoryDescription,
+      project: 'alpha',
+      status: 'pending_approval',
+      created_at: '2026-02-28T10:06:00Z',
+      tags: [
+        'factory:batch_id=batch-42',
+        'factory:work_item_id=work-item-7',
+        'factory:plan_task_number=2',
+      ],
+    },
+    {
+      id: 'task-approval-3',
+      task_description: 'Beta factory approval task',
+      project: 'beta',
+      status: 'pending_approval',
+      created_at: '2026-02-28T10:07:00Z',
+      tags: [
+        'factory:batch_id=batch-99',
+        'factory:work_item_id=work-item-9',
+        'factory:plan_task_number=1',
+      ],
+    },
+    {
+      id: 'task-non-factory-1',
+      task_description: 'Pending approval task without factory tags',
+      project: 'alpha',
+      status: 'pending_approval',
+      created_at: '2026-02-28T10:08:00Z',
+      tags: [],
+    },
+  ],
+  total: 4,
+};
+
 describe('Approvals', () => {
   beforeEach(() => {
     approvalsApi.listPending.mockResolvedValue(mockPendingV2Response);
     approvalsApi.getHistory.mockResolvedValue(mockHistoryV2Response);
     approvalsApi.approve.mockResolvedValue({});
     approvalsApi.reject.mockResolvedValue({});
+    tasksApi.list.mockResolvedValue({ tasks: [], total: 0 });
+    tasksApi.approve.mockResolvedValue({});
+    tasksApi.reject.mockResolvedValue({});
+    tasksApi.approveBatch.mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -127,6 +190,86 @@ describe('Approvals', () => {
     await waitFor(() => {
       expect(screen.getByText('Review and act on pending approval requests')).toBeInTheDocument();
     });
+  });
+
+  it('renders grouped factory task approvals with source and project filters', async () => {
+    tasksApi.list.mockResolvedValue(mockFactoryTasksResponse);
+
+    renderWithProviders(<Approvals />, { route: '/approvals?source=factory&project=alpha' });
+
+    const section = await screen.findByRole('region', { name: 'Factory Task Approvals' });
+    expect(within(section).getByText('Source: Factory')).toBeInTheDocument();
+    expect(within(section).getByText('Project filter: alpha')).toBeInTheDocument();
+    expect(within(section).getByText('Batch batch-42')).toBeInTheDocument();
+    expect(within(section).queryByText('Batch batch-99')).toBeNull();
+    expect(within(section).getByText('Task 1')).toBeInTheDocument();
+    expect(
+      within(section).getByText(`${longFactoryDescription.slice(0, 200).trimEnd()}...`)
+    ).toBeInTheDocument();
+  });
+
+  it('approves an entire factory batch and removes it from the list', async () => {
+    tasksApi.list.mockResolvedValue({
+      tasks: mockFactoryTasksResponse.tasks.filter((task) => task.tags.includes('factory:batch_id=batch-42')),
+      total: 2,
+    });
+
+    renderWithProviders(<Approvals />, { route: '/approvals?source=factory' });
+
+    const section = await screen.findByRole('region', { name: 'Factory Task Approvals' });
+    expect(within(section).getByText('Batch batch-42')).toBeInTheDocument();
+
+    fireEvent.click(within(section).getByRole('button', { name: 'Approve all' }));
+
+    await waitFor(() => {
+      expect(tasksApi.approveBatch).toHaveBeenCalledWith({
+        batch_id: 'batch-42',
+        task_ids: ['task-approval-1', 'task-approval-2'],
+      });
+    });
+
+    await waitFor(() => {
+      expect(within(section).queryByText('Batch batch-42')).toBeNull();
+      expect(within(section).getByText('No tasks awaiting approval.')).toBeInTheDocument();
+    });
+  });
+
+  it('rejects all tasks in a factory batch via per-task rejects', async () => {
+    tasksApi.list.mockResolvedValue({
+      tasks: mockFactoryTasksResponse.tasks.filter((task) => task.tags.includes('factory:batch_id=batch-42')),
+      total: 2,
+    });
+
+    renderWithProviders(<Approvals />, { route: '/approvals?source=factory' });
+
+    const section = await screen.findByRole('region', { name: 'Factory Task Approvals' });
+    fireEvent.click(within(section).getByRole('button', { name: 'Reject all' }));
+
+    await waitFor(() => {
+      expect(tasksApi.reject).toHaveBeenCalledTimes(2);
+      expect(tasksApi.reject).toHaveBeenCalledWith('task-approval-1');
+      expect(tasksApi.reject).toHaveBeenCalledWith('task-approval-2');
+    });
+  });
+
+  it('restores a factory task when reject fails', async () => {
+    tasksApi.list.mockResolvedValue({
+      tasks: [mockFactoryTasksResponse.tasks[0]],
+      total: 1,
+    });
+    tasksApi.reject.mockRejectedValueOnce(new Error('boom'));
+
+    renderWithProviders(<Approvals />, { route: '/approvals?source=factory' });
+
+    const section = await screen.findByRole('region', { name: 'Factory Task Approvals' });
+    fireEvent.click(within(section).getByRole('button', { name: 'Reject' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Reject failed: boom')).toBeInTheDocument();
+    });
+
+    expect(within(section).getByText('Task 1')).toBeInTheDocument();
+    expect(within(section).getByText('First factory approval task for alpha')).toBeInTheDocument();
   });
 
   it('displays Pending stat card with correct count', async () => {
