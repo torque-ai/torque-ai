@@ -5,6 +5,17 @@ const factoryIntake = require('../db/factory-intake');
 const factoryArchitect = require('../db/factory-architect');
 const { buildArchitectPrompt } = require('./architect-prompt');
 const logger = require('../logger').child({ component: 'architect-runner' });
+const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'rejected', 'shipped']);
+const PRIORITIZABLE_WORK_ITEM_STATUSES = new Set([
+  'pending',
+  'triaged',
+  'in_progress',
+  'intake',
+  'prioritized',
+  'planned',
+  'executing',
+  'verifying',
+]);
 
 // Items created through the DB store priority as INTEGER (see migration v14);
 // unit-test fixtures and legacy callers may still pass the string form.
@@ -369,6 +380,33 @@ async function runCodexArchitect(prompt, project_id) {
   return null;
 }
 
+function updateBacklogWorkItemStatuses(backlog) {
+  for (const item of backlog) {
+    if (!item || !item.work_item_id) {
+      continue;
+    }
+
+    const currentItem = factoryIntake.getWorkItem(item.work_item_id);
+    if (!currentItem) {
+      continue;
+    }
+
+    if (CLOSED_WORK_ITEM_STATUSES.has(currentItem.status)) {
+      logger.debug('skipped prioritization update on closed item', {
+        work_item_id: item.work_item_id,
+        status: currentItem.status,
+      });
+      continue;
+    }
+
+    if (!PRIORITIZABLE_WORK_ITEM_STATUSES.has(currentItem.status)) {
+      continue;
+    }
+
+    factoryIntake.updateWorkItem(item.work_item_id, { status: 'prioritized' });
+  }
+}
+
 async function runArchitectCycle(project_id, trigger = 'manual') {
   if (!project_id) {
     throw new Error('project_id is required');
@@ -381,8 +419,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
 
   const healthScores = normalizeHealthScores(factoryHealth.getLatestScores(project_id));
   const openItems = factoryIntake.listOpenWorkItems({ project_id });
-  const RESOLVED_STATUSES = new Set(['completed', 'rejected', 'shipped']);
-  const intakeItems = normalizeIntakeItems(openItems.filter(item => !RESOLVED_STATUSES.has(item.status)));
+  const intakeItems = normalizeIntakeItems(openItems.filter((item) => !CLOSED_WORK_ITEM_STATUSES.has(item.status)));
   const prevCycle = factoryArchitect.getLatestCycle(project_id);
 
   // Load human corrections for architect calibration
@@ -467,12 +504,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
     trigger,
   });
 
-  for (const item of backlog) {
-    if (!item.work_item_id) {
-      continue;
-    }
-    factoryIntake.updateWorkItem(item.work_item_id, { status: 'prioritized' });
-  }
+  updateBacklogWorkItemStatuses(backlog);
 
   logger.info('Architect cycle completed', {
     project_id,
@@ -487,4 +519,5 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
 module.exports = {
   runArchitectCycle,
   prioritizeByHealth,
+  updateBacklogWorkItemStatuses,
 };
