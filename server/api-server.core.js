@@ -65,8 +65,15 @@ let v2RateLimit = null;
 
 function getV2RatePolicy() {
   try {
-    const configuredPolicy = (serverConfig.get('v2_rate_policy', 'enforced')).toLowerCase().trim();
-    return V2_RATE_POLICIES.has(configuredPolicy) ? configuredPolicy : 'enforced';
+    // Local single-user mode defaults to disabled — the dashboard polls hard
+    // (5s loop status, 2s job polling, 30s layout banner, multi-fan-out on
+    // first load) and one user trips the 120/min default in seconds. Enterprise
+    // / multi-tenant deployments still default to enforced.
+    const authMode = (process.env.TORQUE_AUTH_MODE || serverConfig.get('auth_mode', 'local')).toLowerCase().trim();
+    const isLocalMode = authMode === 'local';
+    const defaultPolicy = isLocalMode ? 'disabled' : 'enforced';
+    const configuredPolicy = (serverConfig.get('v2_rate_policy', defaultPolicy)).toLowerCase().trim();
+    return V2_RATE_POLICIES.has(configuredPolicy) ? configuredPolicy : defaultPolicy;
   } catch {
     return 'enforced';
   }
