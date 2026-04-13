@@ -76,7 +76,7 @@ const INTAKE_STATUS_BADGE_STYLES = {
   rejected: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
 };
 
-const DECISION_STAGE_OPTIONS = ['sense', 'prioritize', 'plan', 'execute', 'verify', 'ship'];
+const DECISION_STAGE_OPTIONS = ['sense', 'prioritize', 'plan', 'execute', 'verify', 'learn'];
 const DECISION_ACTOR_OPTIONS = ['health_model', 'architect', 'planner', 'executor', 'verifier', 'human'];
 
 const DECISION_STAGE_BADGE_STYLES = {
@@ -85,7 +85,7 @@ const DECISION_STAGE_BADGE_STYLES = {
   plan: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
   execute: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   verify: 'border-teal-500/30 bg-teal-500/10 text-teal-300',
-  ship: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
+  learn: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
 };
 
 const DECISION_ACTOR_BADGE_STYLES = {
@@ -222,12 +222,24 @@ function getProjectsFromResponse(data) {
     return data.map(normalizeProject);
   }
 
+  if (Array.isArray(data?.data)) {
+    return data.data.map(normalizeProject);
+  }
+
   if (Array.isArray(data?.projects)) {
     return data.projects.map(normalizeProject);
   }
 
+  if (Array.isArray(data?.data?.projects)) {
+    return data.data.projects.map(normalizeProject);
+  }
+
   if (Array.isArray(data?.items)) {
     return data.items.map(normalizeProject);
+  }
+
+  if (Array.isArray(data?.data?.items)) {
+    return data.data.items.map(normalizeProject);
   }
 
   return [];
@@ -289,6 +301,10 @@ function getIntakeItemsFromResponse(data) {
     return data.items.map(normalizeIntakeItem);
   }
 
+  if (Array.isArray(data?.data?.items)) {
+    return data.data.items.map(normalizeIntakeItem);
+  }
+
   return [];
 }
 
@@ -309,6 +325,64 @@ function formatTimestamp(value) {
 
   const timestamp = new Date(value);
   return Number.isNaN(timestamp.getTime()) ? value : timestamp.toLocaleString();
+}
+
+function formatRelativeTime(value, now = Date.now()) {
+  if (!value) {
+    return 'Unknown';
+  }
+
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) {
+    return 'Unknown';
+  }
+
+  const diffMs = Math.max(0, now - timestamp.getTime());
+  const diffSeconds = Math.floor(diffMs / 1000);
+
+  if (diffSeconds < 60) {
+    return `${diffSeconds}s ago`;
+  }
+
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) {
+    return `${diffMinutes}m ago`;
+  }
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+function truncateText(value, maxLength = 96) {
+  if (!value) {
+    return '';
+  }
+
+  const text = String(value).trim();
+  if (text.length <= maxLength) {
+    return text;
+  }
+
+  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function normalizeDecisionStage(stage) {
+  const normalized = String(stage || '').trim().toLowerCase();
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (normalized === 'ship') {
+    return 'learn';
+  }
+
+  return normalized;
 }
 
 function toConfidencePercent(value) {
@@ -334,8 +408,9 @@ function normalizeDecisionStats(stats = {}) {
   const byStage = Object.fromEntries(DECISION_STAGE_OPTIONS.map((stage) => [stage, 0]));
 
   for (const [stage, count] of Object.entries(stats?.by_stage || {})) {
-    if (byStage[stage] !== undefined) {
-      byStage[stage] = Number(count) || 0;
+    const normalizedStage = normalizeDecisionStage(stage);
+    if (byStage[normalizedStage] !== undefined) {
+      byStage[normalizedStage] = Number(count) || 0;
     }
   }
 
@@ -355,8 +430,9 @@ function buildDecisionSummary(decisions = []) {
 
   for (const decision of decisions) {
     summary.total += 1;
-    if (summary.by_stage[decision?.stage] !== undefined) {
-      summary.by_stage[decision.stage] += 1;
+    const normalizedStage = normalizeDecisionStage(decision?.stage);
+    if (summary.by_stage[normalizedStage] !== undefined) {
+      summary.by_stage[normalizedStage] += 1;
     }
 
     const numericConfidence = Number(decision?.confidence);
@@ -379,6 +455,42 @@ function getDigestEventCounts(events = []) {
   }
 
   return Array.from(counts.entries()).map(([eventType, count]) => ({ eventType, count }));
+}
+
+const INTAKE_SUMMARY_ORDER = ['pending', 'prioritized', 'planned', 'executing', 'verifying', 'shipped', 'rejected'];
+
+function normalizeIntakeSummaryStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+
+  if (!normalized) {
+    return 'pending';
+  }
+
+  if (normalized === 'pending' || normalized === 'intake') return 'pending';
+  if (normalized === 'prioritized' || normalized === 'triaged') return 'prioritized';
+  if (normalized === 'planned') return 'planned';
+  if (normalized === 'executing' || normalized === 'in_progress') return 'executing';
+  if (normalized === 'verifying') return 'verifying';
+  if (normalized === 'shipped' || normalized === 'completed') return 'shipped';
+  if (normalized === 'rejected') return 'rejected';
+
+  return normalized;
+}
+
+function getIntakeSummary(items = []) {
+  const counts = Object.fromEntries(INTAKE_SUMMARY_ORDER.map((status) => [status, 0]));
+  let other = 0;
+
+  for (const item of items) {
+    const status = normalizeIntakeSummaryStatus(item?.status || item?.displayStatus);
+    if (counts[status] !== undefined) {
+      counts[status] += 1;
+    } else {
+      other += 1;
+    }
+  }
+
+  return { counts, other };
 }
 
 function getScoreEntries(scores = {}) {
@@ -1113,6 +1225,7 @@ export default function Factory() {
   const [projects, setProjects] = useState([]);
   const [projectActivity, setProjectActivity] = useState({});
   const [loading, setLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState(null);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [selectedHealth, setSelectedHealth] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1136,6 +1249,10 @@ export default function Factory() {
   const [activeProjectAction, setActiveProjectAction] = useState(null);
   const [rejectingItemId, setRejectingItemId] = useState(null);
   const [pauseAllBusy, setPauseAllBusy] = useState(false);
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [recentActivityHydrated, setRecentActivityHydrated] = useState(false);
+  const [loopStatusRefreshedAt, setLoopStatusRefreshedAt] = useState(null);
+  const [refreshAgeNow, setRefreshAgeNow] = useState(() => Date.now());
   const toast = useToast();
 
   const loadProjects = useCallback(async ({ silent = false } = {}) => {
@@ -1147,17 +1264,18 @@ export default function Factory() {
       const response = await factoryApi.projects();
       const nextProjects = getProjectsFromResponse(response);
       setProjects(nextProjects);
+      setProjectsError(null);
       setSelectedProjectId((current) => (
-        nextProjects.some((project) => project.id === current) ? current : null
+        nextProjects.some((project) => project.id === current) ? current : nextProjects[0]?.id || null
       ));
     } catch (error) {
-      toast.error(`Failed to load factory projects: ${error.message}`);
+      setProjectsError(error?.message || 'Failed to load factory projects.');
     } finally {
       if (!silent) {
         setLoading(false);
       }
     }
-  }, [toast]);
+  }, []);
 
   const loadProject = useCallback(async (projectId, { fallbackProject = null, isCancelled = () => false } = {}) => {
     if (!projectId) {
@@ -1182,6 +1300,8 @@ export default function Factory() {
           ...response,
           project: mergeLoopState(response?.project || {}, loopStatus),
         }));
+        setLoopStatusRefreshedAt(Date.now());
+        setRefreshAgeNow(Date.now());
       }
     } catch (error) {
       if (!isCancelled()) {
@@ -1240,6 +1360,10 @@ export default function Factory() {
   useEffect(() => {
     if (!selectedProjectId) {
       setSelectedHealth(null);
+      setRecentActivity([]);
+      setRecentActivityHydrated(false);
+      setLoopStatusRefreshedAt(null);
+      setRefreshAgeNow(Date.now());
       return undefined;
     }
 
@@ -1251,6 +1375,78 @@ export default function Factory() {
       cancelled = true;
     };
   }, [loadProject, projects, selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let polling = false;
+
+    setRecentActivity([]);
+    setRecentActivityHydrated(false);
+
+    const pollSelectedProject = async () => {
+      if (polling) {
+        return;
+      }
+
+      polling = true;
+
+      try {
+        const [loopStatus, recentResponse] = await Promise.all([
+          factoryApi.loopStatus(selectedProjectId).catch(() => null),
+          getDecisionLog(selectedProjectId, { limit: 20 }).catch(() => null),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (loopStatus && typeof loopStatus === 'object') {
+          const refreshedAt = Date.now();
+          setProjects((current) => current.map((project) => (
+            project.id === selectedProjectId ? mergeLoopState(project, loopStatus) : project
+          )));
+          setSelectedHealth((current) => {
+            if (!current || current.project?.id !== selectedProjectId) {
+              return current;
+            }
+
+            return {
+              ...current,
+              project: mergeLoopState(current.project, loopStatus),
+            };
+          });
+          setLoopStatusRefreshedAt(refreshedAt);
+          setRefreshAgeNow(refreshedAt);
+        }
+
+        setRecentActivity(Array.isArray(recentResponse?.decisions) ? recentResponse.decisions : []);
+      } finally {
+        if (!cancelled) {
+          setRecentActivityHydrated(true);
+        }
+        polling = false;
+      }
+    };
+
+    pollSelectedProject();
+
+    const pollIntervalId = setInterval(pollSelectedProject, 5000);
+    const ageIntervalId = setInterval(() => {
+      if (!cancelled) {
+        setRefreshAgeNow(Date.now());
+      }
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollIntervalId);
+      clearInterval(ageIntervalId);
+    };
+  }, [selectedProjectId]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -1486,6 +1682,10 @@ export default function Factory() {
   const auditSummary = hasDecisionFilters ? buildDecisionSummary(decisionLog) : decisionStats;
   const digestEventCounts = getDigestEventCounts(digest?.events || []);
   const digestEventTotal = Array.isArray(digest?.events) ? digest.events.length : 0;
+  const intakeSummary = getIntakeSummary(intakeItems);
+  const loopRefreshAgeSeconds = loopStatusRefreshedAt === null
+    ? null
+    : Math.max(0, Math.floor((refreshAgeNow - loopStatusRefreshedAt) / 1000));
 
   return (
     <div className="space-y-6 p-6">
@@ -1494,16 +1694,26 @@ export default function Factory() {
           <h1 className="text-3xl font-bold text-white">Software Factory</h1>
           <p className="mt-1 text-sm text-slate-400">Health, trust, and runtime state across registered factory projects.</p>
         </div>
-        {totalProjects > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={pauseAllBusy}
-            onClick={handlePauseAll}
-            className="inline-flex items-center justify-center rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-200 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={loading}
+            onClick={() => loadProjects({ silent: totalProjects > 0 })}
+            className="inline-flex items-center justify-center rounded-lg border border-slate-600 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pauseAllBusy ? 'Pausing...' : 'Pause All'}
+            {loading ? 'Refreshing...' : 'Refresh'}
           </button>
-        )}
+          {totalProjects > 0 && (
+            <button
+              type="button"
+              disabled={pauseAllBusy}
+              onClick={handlePauseAll}
+              className="inline-flex items-center justify-center rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-200 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {pauseAllBusy ? 'Pausing...' : 'Pause All'}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -1517,67 +1727,36 @@ export default function Factory() {
           <LoadingSkeleton lines={6} height={18} />
         </div>
       ) : totalProjects === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-800/70 px-8 py-16 text-center">
-          <svg
-            className="mx-auto mb-4 h-16 w-16 text-slate-600"
-            viewBox="0 0 64 64"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M10 44h44" />
-            <path d="M14 44V26h12v18" />
-            <path d="M26 44V18h12v26" />
-            <path d="M38 44V30h12v14" />
-            <circle cx="47" cy="17" r="7" />
-            <path d="M47 6v4" />
-            <path d="M47 24v4" />
-            <path d="M36 17h4" />
-            <path d="M54 17h4" />
-            <path d="M39.2 9.2l2.8 2.8" />
-            <path d="M52 22l2.8 2.8" />
-            <path d="M39.2 24.8l2.8-2.8" />
-            <path d="M52 12l2.8-2.8" />
-            <circle cx="47" cy="17" r="2.5" />
-          </svg>
-          <h2 className="text-xl font-semibold text-white">No Factory Projects Yet</h2>
+        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-800/70 px-8 py-12 text-center">
+          <h2 className="text-xl font-semibold text-white">{projectsError ? 'Unable to load factory projects' : 'No factory projects yet'}</h2>
           <p className="mx-auto mt-2 max-w-2xl text-sm text-slate-400">
-            The Software Factory automates health scanning, prioritization, and continuous improvement for your
-            projects.
+            {projectsError || 'No registered projects are available for the factory dashboard yet.'}
           </p>
-          <div className="mx-auto mt-8 max-w-3xl text-left">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">Getting Started</h3>
-            <div className="mt-4 space-y-4">
-              <div className="rounded-xl border border-slate-700/80 bg-slate-900/40 p-4">
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
-                    1
-                  </span>
-                  <p className="text-sm font-medium text-white">Register a project</p>
-                </div>
-                <div className="mt-3 rounded bg-slate-900 px-3 py-2 font-mono text-xs text-slate-300">
-                  register_factory_project({`{`} name: "my-app", path: "/path/to/project" {`}`})
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-700/80 bg-slate-900/40 p-4">
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
-                    2
-                  </span>
-                  <p className="text-sm font-medium text-white">Run a health scan</p>
-                </div>
-                <div className="mt-3 rounded bg-slate-900 px-3 py-2 font-mono text-xs text-slate-300">
-                  scan_project({`{`} path: "/path/to/project" {`}`})
-                </div>
-              </div>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => loadProjects()}
+            className="mt-6 inline-flex items-center justify-center rounded-lg border border-slate-600 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white"
+          >
+            Refresh
+          </button>
         </div>
       ) : (
         <>
+          {projectsError && (
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-100">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p>Factory data may be stale: {projectsError}</p>
+                <button
+                  type="button"
+                  onClick={() => loadProjects({ silent: true })}
+                  className="inline-flex items-center justify-center rounded-lg border border-amber-400/40 bg-slate-900/40 px-3 py-1.5 text-sm font-medium text-amber-100 transition-colors hover:bg-slate-900/60"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-6 xl:grid-cols-3">
             {projects.map((project) => (
               <ProjectCard
@@ -1864,6 +2043,7 @@ export default function Factory() {
                         const decisionKey = decision.id || `${decision.created_at || 'unknown'}-${decision.action || index}`;
                         const confidencePercent = toConfidencePercent(decision.confidence);
                         const isExpanded = Boolean(expandedDecisionIds[decisionKey]);
+                        const normalizedStage = normalizeDecisionStage(decision.stage);
 
                         return (
                           <Fragment key={decisionKey}>
@@ -1871,10 +2051,10 @@ export default function Factory() {
                               <td className="px-4 py-4 text-slate-300">{formatTimestamp(decision.created_at)}</td>
                               <td className="px-4 py-4">
                                 <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
-                                  DECISION_STAGE_BADGE_STYLES[decision.stage] || BADGE_FALLBACK_STYLE
+                                  DECISION_STAGE_BADGE_STYLES[normalizedStage] || BADGE_FALLBACK_STYLE
                                 }`}
                                 >
-                                  {formatLabel(decision.stage)}
+                                  {formatLabel(normalizedStage)}
                                 </span>
                               </td>
                               <td className="px-4 py-4">
@@ -1953,6 +2133,25 @@ export default function Factory() {
                   </span>
                 </div>
                 {intakeLoading && <span className="text-xs uppercase tracking-wide text-slate-500">Refreshing</span>}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                {INTAKE_SUMMARY_ORDER.map((status, index) => (
+                  <Fragment key={status}>
+                    {index > 0 && <span className="text-slate-600">·</span>}
+                    <span className="rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1">
+                      {intakeSummary.counts[status]} {formatLabel(status)}
+                    </span>
+                  </Fragment>
+                ))}
+                {intakeSummary.other > 0 && (
+                  <>
+                    <span className="text-slate-600">·</span>
+                    <span className="rounded-full border border-slate-700 bg-slate-900/60 px-2.5 py-1">
+                      {intakeSummary.other} Other
+                    </span>
+                  </>
+                )}
               </div>
 
               {intakeLoading && intakeItems.length === 0 ? (
@@ -2111,7 +2310,14 @@ export default function Factory() {
 
           {selectedProject && (
             <section className="bg-slate-800/60 rounded-lg border border-slate-700 p-4 mt-4">
-              <h3 className="text-sm font-semibold text-slate-200 mb-2">Factory Loop</h3>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-slate-200">Factory Loop</h3>
+                {loopRefreshAgeSeconds !== null && (
+                  <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
+                    Refreshed {loopRefreshAgeSeconds}s ago
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-3 mb-2">
                 <LoopStatusBadge
                   loopState={selectedProject.loop_state}
@@ -2166,6 +2372,70 @@ export default function Factory() {
               />
               {selectedProject.loop_last_action_at && (
                 <p className="text-xs text-slate-500 mt-1">Last action: {new Date(selectedProject.loop_last_action_at).toLocaleString()}</p>
+              )}
+            </section>
+          )}
+
+          {selectedProject && (
+            <section className="bg-slate-800/60 rounded-lg border border-slate-700 p-4 mt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-200">Recent Activity</h3>
+                  <p className="mt-1 text-xs text-slate-500">Latest decision log entries for the selected project.</p>
+                </div>
+                <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
+                  {recentActivity.length} shown
+                </span>
+              </div>
+
+              {!recentActivityHydrated ? (
+                <div className="mt-4">
+                  <LoadingSkeleton lines={3} height={16} />
+                </div>
+              ) : recentActivity.length === 0 ? (
+                <div className="mt-4 rounded-xl border border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
+                  No activity yet
+                </div>
+              ) : (
+                <div className="mt-4 overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-700 text-left text-sm">
+                    <thead className="text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Time</th>
+                        <th className="px-3 py-2 font-medium">Stage</th>
+                        <th className="px-3 py-2 font-medium">Action</th>
+                        <th className="px-3 py-2 font-medium">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/70">
+                      {recentActivity.map((entry, index) => {
+                        const activityKey = entry.id || `${entry.created_at || 'unknown'}-${entry.action || index}`;
+                        const activityStage = normalizeDecisionStage(entry.stage);
+                        const reason = truncateText(entry.reasoning || entry.reason);
+
+                        return (
+                          <tr key={activityKey} className="align-top">
+                            <td className="px-3 py-3 text-slate-300" title={formatTimestamp(entry.created_at)}>
+                              {formatRelativeTime(entry.created_at, refreshAgeNow)}
+                            </td>
+                            <td className="px-3 py-3">
+                              <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                                DECISION_STAGE_BADGE_STYLES[activityStage] || BADGE_FALLBACK_STYLE
+                              }`}
+                              >
+                                {formatLabel(activityStage)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 text-slate-200">{entry.action || 'Unknown action'}</td>
+                            <td className="px-3 py-3 text-slate-400" title={entry.reasoning || entry.reason || ''}>
+                              {reason || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </section>
           )}
