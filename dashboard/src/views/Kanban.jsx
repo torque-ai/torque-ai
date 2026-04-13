@@ -12,6 +12,8 @@ import TaskSubmitForm from '../components/TaskSubmitForm';
 import HealthBar from '../components/HealthBar';
 import ActivityPanel from '../components/ActivityPanel';
 import { SVGLineChart } from '../components/charts';
+import LoopControlBar from './factory/LoopControlBar';
+import { useFactoryLoopControl } from './factory/useFactoryLoopControl';
 
 const COLUMN_SORT_OPTIONS = [
   { value: 'newest', label: 'Newest first' },
@@ -686,6 +688,7 @@ const NeedsAttentionCard = memo(function NeedsAttentionCard({ task, reason, onOp
 
 export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, statsVersion, tasksTick: _tasksTick, wsStats }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const factoryLoopControl = useFactoryLoopControl();
   const [allTasks, setAllTasks] = useState([]);
   const [providerList, setProviderList] = useState([]);
   const [overview, setOverview] = useState(null);
@@ -1323,6 +1326,11 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     <div className="flex">
       <div className={mainContentClassName}>
         <div className="p-6">
+      <LoopControlBar
+        {...factoryLoopControl}
+        className="mb-4"
+      />
+
       {/* Stale data warning */}
       {staleData && (
         <div className="mb-4 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-amber-950/50 border border-amber-600/40 text-amber-300 text-sm">
