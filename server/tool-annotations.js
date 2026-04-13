@@ -58,6 +58,7 @@ const SUFFIX_RULES = [
 // ── Exact matches (checked after overrides, before prefix/suffix) ──
 const EXACT_MATCHES = Object.freeze({
   ping:             READONLY,
+  restart_status:   READONLY,
   blocked_tasks:    READONLY,
   critical_path:    READONLY,
   what_if:          READONLY,

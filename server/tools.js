@@ -676,7 +676,11 @@ async function handleRestartServerBarrier(args) {
         dispatchTaskEvent('completed', taskCore.getTask(barrierId));
       } catch { /* non-fatal */ }
       process._torqueRestartPending = true;
-      eventBus.emitShutdown(`restart (drain complete): ${reason}`);
+      // Match the empty-pipeline path: give awaiters time to see the
+      // completed barrier event and flush their response before shutdown.
+      setTimeout(() => {
+        eventBus.emitShutdown(`restart (drain complete): ${reason}`);
+      }, RESTART_RESPONSE_GRACE_MS);
       return;
     }
 
@@ -706,8 +710,47 @@ async function handleRestartServerBarrier(args) {
     success: true,
     task_id: barrierId,
     status: 'drain_started',
-    content: [{ type: 'text', text: `Pipeline drain started — barrier ${barrierId.slice(0, 8)} blocks new work. Waiting for ${runningTasks} running task(s) to finish (${queuedHeld} queued held until after restart). Timeout: ${drainTimeoutMinutes}min.` }],
+    running_count: runningTasks,
+    queued_held_count: queuedHeld,
+    content: [{ type: 'text', text: `Pipeline drain started — barrier ${barrierId.slice(0, 8)} blocks new work. Waiting for ${runningTasks} running task(s) to finish (${queuedHeld} queued held until after restart). Timeout: ${drainTimeoutMinutes}min.\n\nTo block until the restart fires: call await_restart (with heartbeats) or await_task { task_id: "${barrierId}" }. To check drain state without blocking: call restart_status.` }],
   };
+}
+
+/**
+ * Read-only snapshot of restart drain state. Returns whether a barrier is
+ * active, and if so, how many tasks are still running vs held in queue. Use
+ * this to observe drain progress without blocking.
+ */
+function handleRestartStatus() {
+  const taskCore = require('./db/task-core');
+  const { isRestartBarrierActive } = require('./execution/restart-barrier');
+  const barrier = isRestartBarrierActive(taskCore);
+  if (!barrier) {
+    return {
+      content: [{ type: 'text', text: 'No restart barrier active. No restart in progress.' }],
+      structuredData: { barrier_active: false },
+    };
+  }
+  const countByStatus = (status) =>
+    taskCore.listTasks({ status, limit: 1000 }).filter(t => t.provider !== 'system').length;
+  const running = countByStatus('running');
+  const queuedHeld = countByStatus('queued') + countByStatus('pending');
+  const startedAt = barrier.started_at || barrier.created_at || null;
+  const elapsedSeconds = startedAt
+    ? Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)
+    : null;
+  const data = {
+    barrier_active: true,
+    barrier_id: barrier.id,
+    barrier_status: barrier.status,
+    running_count: running,
+    queued_held_count: queuedHeld,
+    elapsed_seconds: elapsedSeconds,
+    started_at: startedAt,
+  };
+  const elapsedText = elapsedSeconds != null ? `, ${elapsedSeconds}s elapsed` : '';
+  const text = `Restart barrier ${barrier.id.slice(0, 8)} (status: ${barrier.status}): ${running} running, ${queuedHeld} queued held${elapsedText}.`;
+  return { content: [{ type: 'text', text }], structuredData: data };
 }
 
 /**
@@ -743,6 +786,8 @@ async function handleToolCall(name, args) {
     }
     case 'restart_server':
       return handleRestartServerBarrier(args);
+    case 'restart_status':
+      return handleRestartStatus();
     case 'unlock_all_tools':
       return { __unlock_all_tools: true, content: [{ type: 'text', text: 'All TORQUE tools are now unlocked (Tier 3). The tools list has been refreshed.' }] };
     case 'get_tool_schema': {

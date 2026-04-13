@@ -1976,10 +1976,15 @@ async function handleAwaitRestart(args) {
   try {
     const reason = args.reason || 'await_restart';
     const timeoutMinutes = Math.min(Math.max(args.timeout_minutes || 30, 0.1), 60);
+    const timeoutMs = timeoutMinutes * 60 * 1000;
     const rawHeartbeat = args.heartbeat_minutes != null ? args.heartbeat_minutes : 5;
     const heartbeatMinutes = Math.min(Math.max(rawHeartbeat, 0), 30);
-    
-    // Create or find existing barrier task via restart_server handler
+    const heartbeatEnabled = heartbeatMinutes > 0;
+    const heartbeatMs = heartbeatMinutes * 60 * 1000;
+    const POLL_MS = 5000;
+    const TERMINAL_EVENTS = ['completed', 'failed', 'cancelled'];
+
+    // Create or attach to the barrier task via restart_server.
     const { handleToolCall } = require('../../tools');
     const restartResult = await handleToolCall('restart_server', {
       reason,
@@ -1991,39 +1996,167 @@ async function handleAwaitRestart(args) {
       return makeError(ErrorCodes.INTERNAL_ERROR, 'Failed to create restart barrier task');
     }
 
-    // If the pipeline was empty, the drain watcher may have already completed
-    // the barrier and triggered shutdown. Check immediately.
-    const barrierTask = taskCore.getTask(taskId);
-    if (barrierTask && barrierTask.status === 'completed') {
+    const shutdownSignal = args.__shutdownSignal;
+    const callStart = Date.now();
+
+    const drainSnapshot = () => {
+      const countByStatus = (status) => taskCore
+        .listTasks({ status, limit: 1000 })
+        .filter(t => t.provider !== 'system').length;
       return {
-        content: [{
-          type: 'text',
-          text: '## Restart Ready\n\nPipeline was already empty.\nServer restart triggered — MCP client will reconnect with fresh code.\nRun `/mcp` to force immediate reconnection.',
-        }],
+        running: countByStatus('running'),
+        queuedHeld: countByStatus('queued') + countByStatus('pending'),
       };
+    };
+
+    const barrierElapsedSeconds = (barrierTask) => {
+      const startedAt = barrierTask?.started_at || barrierTask?.created_at;
+      if (!startedAt) return null;
+      return Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+    };
+
+    // Check the barrier's terminal state. Returns a formatted response if
+    // drained (completed), aborted (failed/cancelled), or missing. Returns
+    // null if the barrier is still pending/running.
+    const checkTerminal = () => {
+      const task = taskCore.getTask(taskId);
+      if (!task) {
+        return makeError(ErrorCodes.TASK_NOT_FOUND, `Barrier task disappeared: ${taskId}`);
+      }
+      if (task.status === 'completed') {
+        return {
+          content: [{
+            type: 'text',
+            text: '## Restart Ready\n\nPipeline drained successfully.\nServer restart triggered — MCP client will reconnect with fresh code.\nRun `/mcp` to force immediate reconnection.',
+          }],
+        };
+      }
+      if (task.status === 'failed' || task.status === 'cancelled') {
+        const { running, queuedHeld } = drainSnapshot();
+        const detail = task.error_output
+          ? `\n\nDetail: ${String(task.error_output).slice(0, 500)}`
+          : '';
+        return {
+          content: [{
+            type: 'text',
+            text: `## Restart Aborted\n\nBarrier ${taskId.slice(0, 8)} ended with status **${task.status}**. ${running} task(s) still running, ${queuedHeld} queued released back to the scheduler.${detail}\n\nNothing was restarted. Queued tasks will resume normally.`,
+          }],
+        };
+      }
+      return null;
+    };
+
+    // Immediate check: empty-pipeline path may have already completed.
+    const immediate = checkTerminal();
+    if (immediate) return immediate;
+
+    while (true) {
+      const elapsed = Date.now() - callStart;
+      if (elapsed >= timeoutMs) {
+        const { running, queuedHeld } = drainSnapshot();
+        return {
+          content: [{
+            type: 'text',
+            text: `## Restart Wait Timed Out\n\nWaited ${Math.round(elapsed / 1000)}s but barrier ${taskId.slice(0, 8)} is still draining. ${running} running, ${queuedHeld} queued held.\n\nCall await_restart again to keep waiting, restart_status to check state, or cancel_task ${taskId} to abort the barrier.`,
+          }],
+        };
+      }
+
+      // Work out the next wake: min(poll tick, time-to-heartbeat, time-to-timeout).
+      let waitMs = POLL_MS;
+      let heartbeatDue = false;
+      if (heartbeatEnabled) {
+        const toHeartbeat = heartbeatMs - elapsed;
+        if (toHeartbeat <= 0) {
+          heartbeatDue = true;
+        } else if (toHeartbeat < waitMs) {
+          waitMs = toHeartbeat;
+        }
+      }
+      const toTimeout = timeoutMs - elapsed;
+      if (toTimeout < waitMs) waitMs = toTimeout;
+
+      if (heartbeatDue) {
+        const { running, queuedHeld } = drainSnapshot();
+        const barrierTask = taskCore.getTask(taskId);
+        const drainElapsed = barrierElapsedSeconds(barrierTask);
+        return {
+          content: [{
+            type: 'text',
+            text: `## Restart Drain Heartbeat\n\nBarrier ${taskId.slice(0, 8)} (${barrierTask?.status || 'unknown'}) still draining.\n- Running tasks: ${running}\n- Queued held: ${queuedHeld}\n- Barrier elapsed: ${drainElapsed != null ? drainElapsed + 's' : 'unknown'}\n- This wait: ${Math.round(elapsed / 1000)}s\n\nCall await_restart again to continue waiting.`,
+          }],
+          structuredData: {
+            barrier_id: taskId,
+            barrier_status: barrierTask?.status || null,
+            running_count: running,
+            queued_held_count: queuedHeld,
+            barrier_elapsed_seconds: drainElapsed,
+            call_elapsed_seconds: Math.floor(elapsed / 1000),
+          },
+        };
+      }
+
+      // Wait for a terminal event, shutdown, or timer tick.
+      let signalType = 'poll';
+      await new Promise((resolve) => {
+        let settled = false;
+        let shutdownRef = null;
+        let terminalHandler = null;
+        let taskEvents = null;
+
+        const cleanup = () => {
+          if (timer) clearTimeout(timer);
+          if (shutdownSignal && shutdownRef) {
+            try { shutdownSignal.removeEventListener('abort', shutdownRef); } catch { /* noop */ }
+          }
+          if (taskEvents && terminalHandler) {
+            for (const ev of TERMINAL_EVENTS) {
+              try { taskEvents.removeListener(`task:${ev}`, terminalHandler); } catch { /* noop */ }
+            }
+          }
+        };
+
+        const finish = (type) => {
+          if (settled) return;
+          settled = true;
+          signalType = type;
+          cleanup();
+          resolve();
+        };
+
+        const timer = setTimeout(() => finish('poll'), Math.max(waitMs, 50));
+
+        try {
+          ({ taskEvents } = require('../../hooks/event-dispatch'));
+          terminalHandler = (payload) => {
+            const eid = payload?.id || payload?.taskId;
+            if (eid && eid !== taskId) return;
+            finish('terminal');
+          };
+          for (const ev of TERMINAL_EVENTS) {
+            taskEvents.on(`task:${ev}`, terminalHandler);
+          }
+        } catch (err) {
+          logger.debug('[await_restart] non-critical error wiring event bus: ' + (err.message || err));
+        }
+
+        if (shutdownSignal) {
+          if (shutdownSignal.aborted) { finish('shutdown'); return; }
+          shutdownRef = () => finish('shutdown');
+          try { shutdownSignal.addEventListener('abort', shutdownRef, { once: true }); } catch { /* noop */ }
+        }
+      });
+
+      if (signalType === 'shutdown') {
+        return {
+          content: [{ type: 'text', text: '## Await Interrupted\n\nServer is shutting down while awaiting restart.' }],
+        };
+      }
+
+      // poll or terminal → re-check barrier state.
+      const terminal = checkTerminal();
+      if (terminal) return terminal;
     }
-
-    // Delegate to await_task logic for the barrier task
-    const awaitResult = await handleAwaitTask({
-      task_id: taskId,
-      timeout_minutes: timeoutMinutes,
-      heartbeat_minutes: heartbeatMinutes,
-      __shutdownSignal: args.__shutdownSignal,
-    });
-
-    // Reformat the response to match restart-specific messaging
-    const text = awaitResult?.content?.[0]?.text || '';
-    if (text.includes('completed') || text.includes('Completed')) {
-      return {
-        content: [{
-          type: 'text',
-          text: '## Restart Ready\n\nPipeline drained successfully.\nServer restart triggered — MCP client will reconnect with fresh code.\nRun `/mcp` to force immediate reconnection.',
-        }],
-      };
-    }
-
-    // Pass through heartbeats, timeouts, and other responses as-is
-    return awaitResult;
   } catch (err) {
     return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
   }

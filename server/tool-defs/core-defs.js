@@ -31,6 +31,11 @@ const tools = [
     }
   },
   {
+    name: 'restart_status',
+    description: 'Read-only snapshot of an active restart drain. Returns { barrier_active, barrier_id, barrier_status, running_count, queued_held_count, elapsed_seconds } if a restart barrier exists, otherwise { barrier_active: false }. Use to check drain progress without blocking.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'await_restart',
     description: 'Submit a restart barrier task (or attach to an existing one) and block until the pipeline drains and restart triggers. Returns heartbeat progress snapshots at configurable intervals. Equivalent to calling restart_server + await_task on the barrier task.',
     inputSchema: {
