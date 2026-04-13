@@ -33,8 +33,8 @@ function makeWorktreeManagerMock({ listSeed = [] } = {}) {
 }
 
 describe('sanitizeSlug', () => {
-  it('produces a lower-case hyphenated slug', () => {
-    expect(sanitizeSlug('Reduce tech debt -- 282 TODOs across codebase')).toBe('reduce-tech-debt-282-todos-across-codebase');
+  it('produces a lower-case hyphenated slug (truncated at default maxLen=40)', () => {
+    expect(sanitizeSlug('Reduce tech debt -- 282 TODOs across codebase')).toBe('reduce-tech-debt-282-todos-across-codeba');
   });
 
   it('falls back to "work-item" when title is empty', () => {

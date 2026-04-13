@@ -4,6 +4,7 @@ const LOOP_STATES = Object.freeze({
   SENSE: 'SENSE',
   PRIORITIZE: 'PRIORITIZE',
   PLAN: 'PLAN',
+  PLAN_REVIEW: 'PLAN_REVIEW',
   EXECUTE: 'EXECUTE',
   VERIFY: 'VERIFY',
   LEARN: 'LEARN',
@@ -116,6 +117,9 @@ function getPendingGateStage(currentState, trustLevel) {
 function getResumeStateForApprovedGate(stage, trustLevel) {
   assertValidState(stage);
   assertValidTrustLevel(trustLevel);
+  if (stage === LOOP_STATES.PLAN_REVIEW) {
+    return LOOP_STATES.EXECUTE;
+  }
   return isExitGatedStage(stage, trustLevel)
     ? (TRANSITIONS[stage] || stage)
     : stage;
