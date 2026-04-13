@@ -20,6 +20,7 @@ export default function Overview() {
     detail,
     detailLoading,
     handleToggleProject,
+    loopAdvanceJob,
     loopActionBusy,
     loopRefreshAgeSeconds,
     pendingApprovalCount,
@@ -40,6 +41,7 @@ export default function Overview() {
   const visibleActivity = recentActivity.slice(0, 5);
   const projectToggleLabel = selectedProject.status === 'running' ? 'Pause' : 'Resume';
   const isProjectToggleBusy = activeProjectAction === selectedProject.id;
+  const isAdvanceJobRunning = loopAdvanceJob?.status === 'running' && loopAdvanceJob?.projectId === selectedProject.id;
 
   return (
     <div className="space-y-6">
@@ -164,6 +166,11 @@ export default function Overview() {
           currentStage={selectedProject.loop_state}
           pausedAtStage={selectedProject.loop_paused_at_stage}
         />
+        {isAdvanceJobRunning && (
+          <p className="mt-2 text-xs text-cyan-300">
+            Stage running... Polling every 2s.
+          </p>
+        )}
         {selectedProject.loop_last_action_at && (
           <p className="mt-1 text-xs text-slate-500">Last action: {new Date(selectedProject.loop_last_action_at).toLocaleString()}</p>
         )}

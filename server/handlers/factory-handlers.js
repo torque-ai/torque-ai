@@ -33,11 +33,24 @@ function resolveProject(projectRef) {
   return project;
 }
 
-function jsonResponse(data) {
-  return {
+function jsonResponse(data, options = {}) {
+  const response = {
     content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
     structuredData: data,
   };
+  if (Number.isInteger(options.status)) {
+    response.status = options.status;
+  }
+  if (options.headers && typeof options.headers === 'object') {
+    response.headers = options.headers;
+  }
+  if (options.errorCode) {
+    response.errorCode = options.errorCode;
+  }
+  if (options.errorMessage) {
+    response.errorMessage = options.errorMessage;
+  }
+  return response;
 }
 
 function ensureFactoryDecisionDb() {
@@ -714,6 +727,17 @@ async function handleAdvanceFactoryLoop(args) {
   return jsonResponse(result);
 }
 
+async function handleAdvanceFactoryLoopAsync(args) {
+  const project = resolveProject(args.project);
+  const result = loopController.advanceLoopAsync(project.id);
+  return jsonResponse(result, {
+    status: 202,
+    headers: {
+      Location: `/api/v2/factory/projects/${project.id}/loop/advance/${result.job_id}`,
+    },
+  });
+}
+
 async function handleApproveFactoryGate(args) {
   const project = resolveProject(args.project);
   const result = await loopController.approveGate(project.id, args.stage);
@@ -723,6 +747,21 @@ async function handleApproveFactoryGate(args) {
 async function handleFactoryLoopStatus(args) {
   const project = resolveProject(args.project);
   const result = loopController.getLoopState(project.id);
+  return jsonResponse(result);
+}
+
+async function handleFactoryLoopJobStatus(args) {
+  const project = resolveProject(args.project);
+  const result = loopController.getLoopAdvanceJobStatus(project.id, args.job_id);
+
+  if (!result) {
+    return jsonResponse(null, {
+      status: 404,
+      errorCode: 'loop_job_not_found',
+      errorMessage: `Loop advance job not found: ${args.job_id}`,
+    });
+  }
+
   return jsonResponse(result);
 }
 
@@ -839,8 +878,10 @@ module.exports = {
   handleArchitectLog,
   handleStartFactoryLoop,
   handleAdvanceFactoryLoop,
+  handleAdvanceFactoryLoopAsync,
   handleApproveFactoryGate,
   handleFactoryLoopStatus,
+  handleFactoryLoopJobStatus,
   handleAttachFactoryBatch,
   handleAnalyzeBatch,
   handleFactoryDriftStatus,

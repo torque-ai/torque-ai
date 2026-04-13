@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { factory as factoryApi, getDecisionLog, getFactoryDigest, tasks as tasksApi } from '../../api';
 import { useToast } from '../../components/Toast';
 import {
@@ -47,11 +47,20 @@ export function useFactoryShell() {
   const [recentActivityHydrated, setRecentActivityHydrated] = useState(false);
   const [loopStatusRefreshedAt, setLoopStatusRefreshedAt] = useState(null);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  const [loopAdvanceJob, setLoopAdvanceJob] = useState(null);
+  const selectedProjectIdRef = useRef(null);
   const toast = useToast();
 
   const selectedProjectName = selectedHealth?.project?.id === selectedProjectId
     ? selectedHealth.project?.name || ''
     : projects.find((project) => project.id === selectedProjectId)?.name || '';
+  const activeLoopAdvanceJobId = loopAdvanceJob?.job_id || null;
+  const activeLoopAdvanceProjectId = loopAdvanceJob?.projectId || null;
+  const isLoopAdvanceRunning = loopAdvanceJob?.status === 'running';
+
+  useEffect(() => {
+    selectedProjectIdRef.current = selectedProjectId;
+  }, [selectedProjectId]);
 
   const applyBacklogResponse = useCallback((response) => {
     const normalized = normalizeBacklogResponse(response);
@@ -483,6 +492,124 @@ export function useFactoryShell() {
     selectedProjectId,
   ]);
 
+  useEffect(() => {
+    if (!isLoopAdvanceRunning || !activeLoopAdvanceJobId || !activeLoopAdvanceProjectId) {
+      return undefined;
+    }
+
+    const projectId = activeLoopAdvanceProjectId;
+    const jobId = activeLoopAdvanceJobId;
+    let cancelled = false;
+    let polling = false;
+
+    const pollJob = async () => {
+      if (polling) {
+        return;
+      }
+
+      polling = true;
+      try {
+        const status = await factoryApi.loopJobStatus(projectId, jobId);
+        if (cancelled) {
+          return;
+        }
+
+        setLoopAdvanceJob((current) => {
+          if (!current || current.job_id !== jobId) {
+            return current;
+          }
+
+          const nextJob = { ...current, ...status, projectId: current.projectId };
+          if (
+            current.status === nextJob.status
+            && current.new_state === nextJob.new_state
+            && current.paused_at_stage === nextJob.paused_at_stage
+            && current.reason === nextJob.reason
+            && current.completed_at === nextJob.completed_at
+            && current.error === nextJob.error
+            && JSON.stringify(current.stage_result ?? null) === JSON.stringify(nextJob.stage_result ?? null)
+          ) {
+            return current;
+          }
+
+          return nextJob;
+        });
+
+        if (status.status === 'running') {
+          return;
+        }
+
+        setLoopActionBusy(null);
+        const nextProjects = await loadProjects({ silent: true });
+        if (!cancelled && selectedProjectIdRef.current === projectId) {
+          const fallbackProject = nextProjects.find((project) => project.id === projectId) || null;
+          await Promise.all([
+            loadProject(projectId, { fallbackProject }),
+            loadIntake(projectId),
+            loadBacklog(projectId),
+            loadDecisionLog(projectId, decisionFilters),
+            loadDigest(projectId),
+            loadCostMetrics(projectId),
+          ]);
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        if (status.status === 'completed') {
+          toast.success('Factory stage completed');
+        } else {
+          toast.error(status.error || 'Factory stage failed');
+        }
+        setLoopAdvanceJob(null);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setLoopActionBusy(null);
+        setLoopAdvanceJob(null);
+        const nextProjects = await loadProjects({ silent: true });
+        if (selectedProjectIdRef.current === projectId) {
+          const fallbackProject = nextProjects.find((project) => project.id === projectId) || null;
+          await Promise.all([
+            loadProject(projectId, { fallbackProject }),
+            loadIntake(projectId),
+            loadBacklog(projectId),
+            loadDecisionLog(projectId, decisionFilters),
+            loadDigest(projectId),
+            loadCostMetrics(projectId),
+          ]);
+        }
+        toast.error(`Failed to track factory stage: ${error.message}`);
+      } finally {
+        polling = false;
+      }
+    };
+
+    pollJob();
+    const intervalId = setInterval(pollJob, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [
+    decisionFilters,
+    loadBacklog,
+    loadCostMetrics,
+    loadDecisionLog,
+    loadDigest,
+    loadIntake,
+    loadProject,
+    loadProjects,
+    activeLoopAdvanceJobId,
+    activeLoopAdvanceProjectId,
+    isLoopAdvanceRunning,
+    toast,
+  ]);
+
   const handleToggleProject = useCallback(async (project) => {
     const shouldPause = project.status === 'running';
     const action = shouldPause ? 'pause' : 'resume';
@@ -570,6 +697,25 @@ export function useFactoryShell() {
     }
   }, [loadProject, projects, selectedProjectId, toast]);
 
+  const handleAdvanceLoop = useCallback(async () => {
+    if (!selectedProjectId) {
+      return;
+    }
+
+    setLoopActionBusy('advance');
+    try {
+      const descriptor = await factoryApi.advanceLoopAsync(selectedProjectId);
+      setLoopAdvanceJob({
+        ...descriptor,
+        projectId: selectedProjectId,
+      });
+    } catch (error) {
+      setLoopActionBusy(null);
+      setLoopAdvanceJob(null);
+      toast.error(error?.message || 'Failed to advance loop');
+    }
+  }, [selectedProjectId, toast]);
+
   const totalProjects = projects.length;
   const runningProjects = projects.filter((project) => project.status === 'running').length;
   const pausedProjects = projects.filter((project) => project.status === 'paused').length;
@@ -611,6 +757,7 @@ export function useFactoryShell() {
       handleToggleProject,
       intakeItems,
       intakeLoading,
+      loopAdvanceJob,
       loopActionBusy,
       loopRefreshAgeSeconds,
       loopStatus,
@@ -625,7 +772,7 @@ export function useFactoryShell() {
       setDecisionFilters,
       startLoop: () => runLoopAction('start', () => factoryApi.startLoop(selectedProject.id)),
       approveGate: () => runLoopAction('approve', () => factoryApi.approveGate(selectedProject.id, selectedProject.loop_paused_at_stage)),
-      advanceLoop: () => runLoopAction('advance', () => factoryApi.advanceLoop(selectedProject.id)),
+      advanceLoop: handleAdvanceLoop,
     },
     pauseAllBusy,
     pausedProjects,

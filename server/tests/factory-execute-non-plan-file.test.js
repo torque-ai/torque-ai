@@ -1,0 +1,331 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
+vi.mock('../factory/plan-executor', () => ({
+  createPlanExecutor: vi.fn(),
+}));
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const Database = require('better-sqlite3');
+const database = require('../database');
+const factoryDecisions = require('../db/factory-decisions');
+const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory-intake');
+const routingModule = require('../handlers/integration/routing');
+const awaitModule = require('../handlers/workflow/await');
+const taskCore = require('../db/task-core');
+const planExecutorModule = require('../factory/plan-executor');
+const loopController = require('../factory/loop-controller');
+const { LOOP_STATES } = require('../factory/loop-states');
+
+const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
+const originalHandleAwaitTask = awaitModule.handleAwaitTask;
+const originalGetTask = taskCore.getTask;
+
+function createFactoryTables(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      brief TEXT,
+      trust_level TEXT NOT NULL DEFAULT 'supervised',
+      status TEXT NOT NULL DEFAULT 'paused',
+      config_json TEXT,
+      loop_state TEXT DEFAULT 'IDLE',
+      loop_batch_id TEXT,
+      loop_last_action_at TEXT,
+      loop_paused_at_stage TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS factory_health_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      dimension TEXT NOT NULL,
+      score REAL NOT NULL,
+      details_json TEXT,
+      scan_type TEXT NOT NULL DEFAULT 'incremental',
+      batch_id TEXT,
+      scanned_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS factory_health_findings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      snapshot_id INTEGER NOT NULL REFERENCES factory_health_snapshots(id),
+      severity TEXT NOT NULL,
+      message TEXT NOT NULL,
+      file_path TEXT,
+      details_json TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS factory_work_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      source TEXT NOT NULL,
+      origin_json TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      priority INTEGER NOT NULL DEFAULT 50,
+      requestor TEXT,
+      constraints_json TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      reject_reason TEXT,
+      linked_item_id INTEGER,
+      batch_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_fwi_project_status
+      ON factory_work_items(project_id, status);
+
+    CREATE TABLE IF NOT EXISTS factory_decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      stage TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      action TEXT NOT NULL,
+      reasoning TEXT,
+      inputs_json TEXT,
+      outcome_json TEXT,
+      confidence REAL,
+      batch_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_fd_project_time
+      ON factory_decisions(project_id, created_at);
+  `);
+}
+
+function listDecisionRows(db, projectId) {
+  return db.prepare(`
+    SELECT id, stage, actor, action, reasoning, inputs_json, outcome_json
+    FROM factory_decisions
+    WHERE project_id = ?
+    ORDER BY id ASC
+  `).all(projectId).map((row) => ({
+    ...row,
+    inputs: row.inputs_json ? JSON.parse(row.inputs_json) : null,
+    outcome: row.outcome_json ? JSON.parse(row.outcome_json) : null,
+  }));
+}
+
+describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
+  let db;
+  let originalGetDbInstance;
+  let tempDir;
+  let planExecuteMock;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    createFactoryTables(db);
+    factoryHealth.setDb(db);
+    factoryIntake.setDb(db);
+    factoryDecisions.setDb(db);
+    originalGetDbInstance = database.getDbInstance;
+    database.getDbInstance = () => db;
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-execute-non-plan-file-'));
+    planExecuteMock = vi.fn(async ({ plan_path }) => ({
+      plan_path,
+      completed_tasks: [1],
+      failed_task: null,
+      dry_run: true,
+      execution_mode: 'pending_approval',
+      task_count: 1,
+      simulated: false,
+      submitted_tasks: [{ task_number: 1, task_id: 'held-task-id' }],
+    }));
+    planExecutorModule.createPlanExecutor.mockReset();
+    planExecutorModule.createPlanExecutor.mockImplementation(() => ({
+      execute: planExecuteMock,
+    }));
+    routingModule.handleSmartSubmitTask = vi.fn(async () => ({ task_id: 'plan-gen-task' }));
+    awaitModule.handleAwaitTask = vi.fn(async () => ({ content: [{ type: 'text', text: 'awaited' }] }));
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'completed',
+      output: '',
+      error_output: null,
+    }));
+  });
+
+  afterEach(() => {
+    database.getDbInstance = originalGetDbInstance;
+    factoryDecisions.setDb(null);
+    routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
+    awaitModule.handleAwaitTask = originalHandleAwaitTask;
+    taskCore.getTask = originalGetTask;
+    if (tempDir && fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+    db.close();
+    db = null;
+    tempDir = null;
+  });
+
+  function registerExecuteProject({ description = 'Add regression coverage for factory scoring behavior.' } = {}) {
+    const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    const project = factoryHealth.registerProject({
+      name: 'Execute Non Plan Project',
+      path: projectDir,
+      trust_level: 'supervised',
+    });
+
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'scout',
+      title: 'Add behavioral tests for factory scorers',
+      description,
+      requestor: 'test',
+    });
+
+    const plannedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
+      status: 'planned',
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_paused_at_stage: null,
+      loop_batch_id: null,
+    });
+
+    return { project, workItem: plannedWorkItem, projectDir };
+  }
+
+  it('generates a plan file for scout items without plan_path, persists it, and executes it', async () => {
+    const { project, workItem, projectDir } = registerExecuteProject();
+    const generatedPlan = `# Behavioral Scorer Plan
+
+**Tech Stack:** Node.js, vitest.
+
+## Task 1: Add behavioral scorer tests
+
+- [ ] **Step 1: Add regression coverage**
+
+    Update server/tests/factory-scorers.test.js with scout-driven scorer coverage.
+
+- [ ] **Step 2: Commit**
+
+    git commit -m "test(factory): add scorer behavioral coverage"
+`;
+
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'completed',
+      output: generatedPlan,
+      error_output: null,
+    }));
+
+    const executeAdvance = await loopController.advanceLoop(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+    const expectedPlanPath = path.join(
+      projectDir,
+      'docs',
+      'superpowers',
+      'plans',
+      'auto-generated',
+      `${workItem.id}-add-behavioral-tests-for-factory-scorers.md`
+    );
+
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(executeAdvance.stage_result).toEqual({
+      status: 'skipped',
+      reason: 'no_batch_id',
+    });
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledTimes(1);
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      project: 'factory-architect',
+      provider: 'codex',
+      working_directory: project.path,
+      tags: expect.arrayContaining([
+        'factory:internal',
+        'factory:plan_generation',
+        `factory:project_id=${project.id}`,
+        `factory:work_item_id=${workItem.id}`,
+      ]),
+    }));
+    expect(awaitModule.handleAwaitTask).toHaveBeenCalledWith({
+      task_id: 'plan-gen-task',
+      timeout_minutes: 10,
+    });
+    expect(planExecutorModule.createPlanExecutor).toHaveBeenCalledTimes(1);
+    expect(planExecuteMock).toHaveBeenCalledWith(expect.objectContaining({
+      plan_path: expectedPlanPath,
+      project: project.name,
+      working_directory: project.path,
+      execution_mode: 'pending_approval',
+    }));
+    expect(updatedWorkItem).toMatchObject({
+      id: workItem.id,
+      status: 'verifying',
+      origin: expect.objectContaining({
+        plan_path: expectedPlanPath,
+      }),
+    });
+    expect(fs.existsSync(expectedPlanPath)).toBe(true);
+
+    const planContent = fs.readFileSync(expectedPlanPath, 'utf8');
+    expect(planContent).toContain(`**Source:** auto-generated from work_item #${workItem.id}`);
+    expect(planContent).toContain('## Task 1: Add behavioral scorer tests');
+    expect(planContent).not.toContain('```');
+
+    const decisions = listDecisionRows(db, project.id);
+    const generatedDecision = decisions.find((row) => row.action === 'plan_generated');
+    expect(generatedDecision).toMatchObject({
+      stage: 'execute',
+      reasoning: 'generated plan via Codex for non-plan-file work item',
+      inputs: expect.objectContaining({
+        work_item_id: workItem.id,
+        plan_path: null,
+      }),
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        plan_path: expectedPlanPath,
+        generator: 'codex',
+        generation_task_id: 'plan-gen-task',
+      }),
+    });
+  });
+
+  it('records cannot_generate_plan when the work item has no description and skips execution', async () => {
+    const { project, workItem } = registerExecuteProject({ description: null });
+
+    const executeAdvance = await loopController.advanceLoop(project.id);
+    const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
+
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(executeAdvance.stage_result).toEqual({
+      status: 'skipped',
+      reason: 'no_batch_id',
+    });
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
+    expect(planExecutorModule.createPlanExecutor).not.toHaveBeenCalled();
+    expect(updatedWorkItem.id).toBe(workItem.id);
+    expect(updatedWorkItem.status).toBe('planned');
+    expect(updatedWorkItem.origin).toBeUndefined();
+
+    const decisions = listDecisionRows(db, project.id);
+    const cannotGenerateDecision = decisions.find((row) => row.action === 'cannot_generate_plan');
+    expect(cannotGenerateDecision).toMatchObject({
+      stage: 'execute',
+      reasoning: 'no description',
+      inputs: expect.objectContaining({
+        work_item_id: workItem.id,
+      }),
+      outcome: expect.objectContaining({
+        reason: 'no description',
+        generator: 'codex',
+        generation_task_id: null,
+        work_item_id: workItem.id,
+        plan_path: null,
+      }),
+    });
+  });
+});

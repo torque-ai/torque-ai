@@ -628,6 +628,8 @@ export const factory = {
   loopStatus: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loop`, opts),
   startLoop: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/start`, { method: 'POST', ...opts }),
   advanceLoop: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/advance`, { method: 'POST', ...opts }),
+  advanceLoopAsync: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/advance`, { method: 'POST', ...opts }),
+  loopJobStatus: (projectId, jobId, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/advance/${jobId}`, opts),
   approveGate: (projectId, stage, opts = {}) => requestV2(`/factory/projects/${projectId}/loop/approve`, { method: 'POST', body: JSON.stringify({ stage }), ...opts }),
   analyzeBatch: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/analyze`, { method: 'POST', body: JSON.stringify(data), ...opts }),
   driftStatus: (projectId, params = {}, opts = {}) => requestV2(`/factory/projects/${projectId}/drift${buildQuery(params)}`, opts),
