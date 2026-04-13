@@ -2068,6 +2068,86 @@ async function executePlanFileStage(project, workItem) {
 }
 
 async function executeVerifyStage(project_id, batch_id) {
+  // First: run worktree remote verification if there's an active factory
+  // worktree for this project. Failure here blocks the loop from reaching
+  // LEARN so the operator can decide remediation vs. abandonment before any
+  // merge to main.
+  const worktreeRecord = activeFactoryWorktrees.get(project_id) || null;
+  const worktreeRunner = worktreeRecord ? getWorktreeRunner() : null;
+  if (worktreeRecord && worktreeRunner) {
+    const project = factoryHealth.getProject(project_id);
+    const verifyCommand = (project && project.config && project.config.verify_command)
+      || 'cd server && npx vitest run';
+    try {
+      const res = await worktreeRunner.verify({
+        worktreePath: worktreeRecord.worktreePath,
+        branch: worktreeRecord.branch,
+        verifyCommand,
+      });
+      if (res.passed) {
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.VERIFY,
+          action: 'worktree_verify_passed',
+          reasoning: `Worktree remote verify passed for branch ${worktreeRecord.branch}.`,
+          outcome: {
+            branch: worktreeRecord.branch,
+            worktree_path: worktreeRecord.worktreePath,
+            duration_ms: res.durationMs,
+            verify_command: verifyCommand,
+          },
+          confidence: 1,
+          batch_id,
+        });
+      } else {
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.VERIFY,
+          action: 'worktree_verify_failed',
+          reasoning: `Worktree remote verify FAILED for branch ${worktreeRecord.branch}; pausing loop at VERIFY_FAIL.`,
+          outcome: {
+            branch: worktreeRecord.branch,
+            worktree_path: worktreeRecord.worktreePath,
+            duration_ms: res.durationMs,
+            verify_command: verifyCommand,
+            output_preview: String(res.output || '').slice(-1500),
+          },
+          confidence: 1,
+          batch_id,
+        });
+        return {
+          status: 'failed',
+          reason: 'worktree_verify_failed',
+          pause_at_stage: 'VERIFY_FAIL',
+          branch: worktreeRecord.branch,
+          worktree_path: worktreeRecord.worktreePath,
+          verify_output: String(res.output || '').slice(-1500),
+        };
+      }
+    } catch (err) {
+      logger.warn('worktree verify threw; treating as verify failure', {
+        project_id,
+        branch: worktreeRecord.branch,
+        err: err.message,
+      });
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.VERIFY,
+        action: 'worktree_verify_errored',
+        reasoning: `Worktree verify threw: ${err.message}`,
+        outcome: { branch: worktreeRecord.branch, error: err.message },
+        confidence: 0.5,
+        batch_id,
+      });
+      return {
+        status: 'failed',
+        reason: 'worktree_verify_errored',
+        pause_at_stage: 'VERIFY_FAIL',
+        error: err.message,
+      };
+    }
+  }
+
   if (!batch_id) {
     logger.info('VERIFY stage: no batch_id, skipping guardrail checks', { project_id });
     safeLogDecision({
@@ -2354,6 +2434,11 @@ async function runAdvanceLoop(project_id) {
 
   if (nextState === LOOP_STATES.VERIFY) {
     stageResult = await executeVerifyStage(project.id, project.loop_batch_id);
+    if (stageResult && stageResult.pause_at_stage === 'VERIFY_FAIL') {
+      nextState = LOOP_STATES.PAUSED;
+      pausedAtStage = 'VERIFY_FAIL';
+      transitionReason = stageResult.reason || 'verify_failed';
+    }
   } else if (nextState === LOOP_STATES.LEARN || currentState === LOOP_STATES.LEARN) {
     stageResult = await executeLearnStage(project.id, project.loop_batch_id);
   }
