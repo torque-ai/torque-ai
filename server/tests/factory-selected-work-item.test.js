@@ -1,22 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const { createPlanExecutorMock, executePlanMock } = vi.hoisted(() => {
-  const execute = vi.fn(async () => ({
-    completed_tasks: 1,
-  }));
-
-  return {
-    createPlanExecutorMock: vi.fn(() => ({
-      execute,
-    })),
-    executePlanMock: execute,
-  };
-});
-
 vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
-vi.mock('../factory/plan-executor', () => ({
-  createPlanExecutor: createPlanExecutorMock,
-}));
 vi.mock('../handlers/integration/routing', () => ({
   handleSmartSubmitTask: vi.fn(),
 }));
@@ -144,8 +128,6 @@ beforeEach(() => {
   originalGetDbInstance = database.getDbInstance;
   database.getDbInstance = () => db;
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-selected-work-item-'));
-  executePlanMock.mockClear();
-  createPlanExecutorMock.mockClear();
 });
 
 afterEach(() => {
@@ -206,12 +188,6 @@ describe('factory selected work item', () => {
 
     const executeAdvance = await loopController.advanceLoop(project.id);
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
-    expect(executePlanMock).toHaveBeenCalledTimes(1);
-    expect(executePlanMock).toHaveBeenCalledWith(expect.objectContaining({
-      plan_path: planPath,
-      project: project.name,
-      working_directory: project.path,
-    }));
 
     expect(factoryIntake.getWorkItem(selectedItem.id)).toMatchObject({
       id: selectedItem.id,
@@ -228,6 +204,7 @@ describe('factory selected work item', () => {
     const decisions = listDecisionRows(db, project.id);
     const skippedDecision = decisions.find((row) => row.action === 'skipped_for_plan_file');
     const startingDecision = decisions.find((row) => row.action === 'starting');
+    const completedDecision = decisions.find((row) => row.action === 'completed_execution');
 
     expect(skippedDecision).toMatchObject({
       stage: 'plan',
@@ -240,6 +217,16 @@ describe('factory selected work item', () => {
     });
     expect(startingDecision.inputs).toMatchObject({
       work_item_id: selectedItem.id,
+    });
+    expect(completedDecision).toMatchObject({
+      stage: 'execute',
+    });
+    expect(completedDecision.inputs).toMatchObject({
+      work_item_id: selectedItem.id,
+    });
+    expect(completedDecision.outcome).toMatchObject({
+      final_state: LOOP_STATES.VERIFY,
+      plan_path: planPath,
     });
   });
 });
