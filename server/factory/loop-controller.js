@@ -22,6 +22,8 @@ const { logDecision } = require('./decision-log');
 const { createPlanFileIntake } = require('./plan-file-intake');
 const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
+const { createWorktreeRunner } = require('./worktree-runner');
+const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 const eventBus = require('../event-bus');
 const logger = require('../logger').child({ component: 'loop-controller' });
 
@@ -70,6 +72,30 @@ const SELECTED_WORK_ITEM_DECISION_ACTIONS = Object.freeze([
 ]);
 
 const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected']);
+
+// Per-project active factory worktree record. Lives in memory for the lifetime
+// of the server — acceptable because a restart clears it and VERIFY/LEARN can
+// fall back to reading the worktree path from decision logs if needed.
+const activeFactoryWorktrees = new Map();
+
+let sharedWorktreeRunner = null;
+function getWorktreeRunner() {
+  if (sharedWorktreeRunner) return sharedWorktreeRunner;
+  try {
+    const db = database.getDbInstance();
+    if (!db || typeof db.prepare !== 'function') return null;
+    const worktreeManager = createWorktreeManager({ db });
+    sharedWorktreeRunner = createWorktreeRunner({ worktreeManager, logger });
+    return sharedWorktreeRunner;
+  } catch (err) {
+    logger.warn('factory worktree-runner unavailable; EXECUTE will run in main worktree', { err: err.message });
+    return null;
+  }
+}
+
+function setWorktreeRunnerForTests(runner) {
+  sharedWorktreeRunner = runner;
+}
 const PENDING_APPROVAL_SUCCESS_TASK_STATUSES = new Set(['completed', 'shipped']);
 const PENDING_APPROVAL_FAILURE_TASK_STATUSES = new Set(['failed', 'cancelled']);
 const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
@@ -1823,6 +1849,60 @@ async function executePlanFileStage(project, workItem) {
   rememberSelectedWorkItem(project.id, targetItem);
   const executeLogBatchId = getFactorySubmissionBatchId(project, targetItem);
 
+  // Create an isolated worktree for this batch so Codex edits never touch the
+  // live project.path. Falls back to project.path only when the worktree
+  // runner is unavailable (e.g. db not wired in a test environment) — the
+  // warning is surfaced by getWorktreeRunner.
+  const worktreeRunner = getWorktreeRunner();
+  let worktreeRecord = null;
+  let executionWorkingDirectory = project.path;
+  if (worktreeRunner) {
+    try {
+      worktreeRecord = await worktreeRunner.createForBatch({
+        project,
+        workItem: targetItem,
+        batchId: executeLogBatchId,
+      });
+      executionWorkingDirectory = worktreeRecord.worktreePath;
+      activeFactoryWorktrees.set(project.id, {
+        ...worktreeRecord,
+        batchId: executeLogBatchId,
+        workItemId: targetItem.id,
+      });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.EXECUTE,
+        action: 'worktree_created',
+        reasoning: `Created isolated worktree for factory batch ${executeLogBatchId}.`,
+        inputs: { ...getWorkItemDecisionContext(targetItem) },
+        outcome: {
+          worktree_id: worktreeRecord.id,
+          worktree_path: worktreeRecord.worktreePath,
+          branch: worktreeRecord.branch,
+          batch_id: executeLogBatchId,
+        },
+        confidence: 1,
+        batch_id: executeLogBatchId,
+      });
+    } catch (err) {
+      logger.warn('factory worktree creation failed; falling back to main worktree', {
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        err: err.message,
+      });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.EXECUTE,
+        action: 'worktree_creation_failed',
+        reasoning: `Worktree creation failed: ${err.message}. EXECUTE will run in main worktree (unsafe fallback).`,
+        inputs: { ...getWorkItemDecisionContext(targetItem) },
+        outcome: { error: err.message, fallback: 'main_worktree' },
+        confidence: 0.2,
+        batch_id: executeLogBatchId,
+      });
+    }
+  }
+
   safeLogDecision({
     project_id: project.id,
     stage: LOOP_STATES.EXECUTE,
@@ -1833,6 +1913,8 @@ async function executePlanFileStage(project, workItem) {
     },
     outcome: {
       ...getWorkItemDecisionContext(targetItem),
+      worktree_path: executionWorkingDirectory,
+      worktree_branch: worktreeRecord ? worktreeRecord.branch : null,
     },
     confidence: 1,
     batch_id: executeLogBatchId,
@@ -1909,7 +1991,7 @@ async function executePlanFileStage(project, workItem) {
   const result = await executor.execute({
     plan_path: targetItem.origin.plan_path,
     project: project.name,
-    working_directory: project.path,
+    working_directory: executionWorkingDirectory,
     execution_mode: executeMode,
   });
 
@@ -2497,4 +2579,6 @@ module.exports = {
   getLoopAdvanceJobStatus,
   scheduleLoop,
   attachBatchId,
+  // Test hooks
+  setWorktreeRunnerForTests,
 };
