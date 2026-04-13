@@ -227,6 +227,85 @@ describe('Project Discovery Scanning', () => {
       expect(text).toContain('src/include.ts');
       expect(text).not.toContain('ignoreme/skip.ts');
     });
+
+    it('findTodos filters to requested marker types', async () => {
+      writeFile(
+        'src/filtered.ts',
+        [
+          '// TODO: keep this out',
+          '// FIXME: include this',
+          '// HACK: include this too',
+          '// TEMP: keep this out too',
+        ].join('\n')
+      );
+
+      const text = await scanProject({
+        checks: ['todos'],
+        todo_types: ['FIXME', 'HACK']
+      });
+      expect(text).toContain('**2 found**');
+      expect(text).toContain('**FIXME** src/filtered.ts:2');
+      expect(text).toContain('**HACK** src/filtered.ts:3');
+      expect(text).not.toContain('**TODO**');
+      expect(text).not.toContain('**TEMP**');
+    });
+
+    it('findTodos scopes TODO discovery to explicit source_dirs', async () => {
+      writeFile('server/handlers/keep.js', '// FIXME: include handlers debt');
+      writeFile('server/execution/keep.js', '// HACK: include execution debt');
+      writeFile('dashboard/skip.js', '// FIXME: do not include dashboard debt');
+
+      const text = await scanProject({
+        checks: ['todos'],
+        source_dirs: ['server/handlers', 'server/execution'],
+        todo_types: ['FIXME', 'HACK']
+      });
+      expect(text).toContain('**2 found**');
+      expect(text).toContain('server/handlers/keep.js:1');
+      expect(text).toContain('server/execution/keep.js:1');
+      expect(text).not.toContain('dashboard/skip.js');
+    });
+
+    it('findTodos can return every match when todo_limit is zero', async () => {
+      writeFile(
+        'src/unlimited.ts',
+        [
+          '// TODO: first',
+          '// TODO: second',
+          '// TODO: third',
+        ].join('\n')
+      );
+
+      const text = await scanProject({
+        checks: ['todos'],
+        todo_limit: 0
+      });
+      expect(text).toContain('**3 found**');
+      expect(text).toContain('src/unlimited.ts:1');
+      expect(text).toContain('src/unlimited.ts:2');
+      expect(text).toContain('src/unlimited.ts:3');
+    });
+
+    it('findTodos comment-only mode ignores regex and string literals', async () => {
+      writeFile(
+        'src/comment-only.ts',
+        [
+          "const todoPattern = /\\b(TODO|FIXME|HACK|XXX|TEMP)\\b/i;",
+          "const label = '// FIXME: string literal only';",
+          '// FIXME: real comment',
+        ].join('\n')
+      );
+
+      const text = await scanProject({
+        checks: ['todos'],
+        todo_types: ['FIXME', 'HACK'],
+        todo_comments_only: true
+      });
+      expect(text).toContain('**1 found**');
+      expect(text).toContain('**FIXME** src/comment-only.ts:3');
+      expect(text).not.toContain('src/comment-only.ts:1');
+      expect(text).not.toContain('src/comment-only.ts:2');
+    });
   });
 
   describe('Dependency Analysis', () => {
