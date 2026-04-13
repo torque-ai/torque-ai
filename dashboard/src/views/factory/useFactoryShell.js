@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { factory as factoryApi, getDecisionLog, getFactoryDigest, tasks as tasksApi } from '../../api';
+import { useCallback, useEffect, useState } from 'react';
+import { factory as factoryApi, getDecisionLog, getFactoryDigest } from '../../api';
 import { useToast } from '../../components/Toast';
 import {
   buildDetailFallback,
   getDecisionSinceParam,
   getIntakeItemsFromResponse,
-  getProjectsFromResponse,
-  mergeLoopState,
   normalizeBacklogResponse,
   normalizeCostMetrics,
   normalizeDecisionStage,
@@ -14,18 +12,14 @@ import {
   normalizeHealth,
   normalizeIntakeItem,
 } from './utils';
+import { useFactoryLoopControl } from './useFactoryLoopControl';
 
 const EMPTY_BACKLOG = { items: [], cycleId: null, reasoningSummary: null };
 const EMPTY_DECISION_FILTERS = { stage: '', actor: '', batchId: '', since: '' };
 
 export function useFactoryShell() {
-  const [projects, setProjects] = useState([]);
   const [projectActivity, setProjectActivity] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [projectsError, setProjectsError] = useState(null);
-  const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [selectedHealth, setSelectedHealth] = useState(null);
-  const [loopStatus, setLoopStatus] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [intakeItems, setIntakeItems] = useState([]);
   const [intakeLoading, setIntakeLoading] = useState(false);
@@ -39,28 +33,32 @@ export function useFactoryShell() {
   const [digest, setDigest] = useState(null);
   const [costMetrics, setCostMetrics] = useState(null);
   const [costMetricsLoading, setCostMetricsLoading] = useState(false);
-  const [activeProjectAction, setActiveProjectAction] = useState(null);
-  const [loopActionBusy, setLoopActionBusy] = useState(null);
   const [rejectingItemId, setRejectingItemId] = useState(null);
   const [pauseAllBusy, setPauseAllBusy] = useState(false);
   const [recentActivity, setRecentActivity] = useState([]);
   const [recentActivityHydrated, setRecentActivityHydrated] = useState(false);
-  const [loopStatusRefreshedAt, setLoopStatusRefreshedAt] = useState(null);
-  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
-  const [loopAdvanceJob, setLoopAdvanceJob] = useState(null);
-  const selectedProjectIdRef = useRef(null);
   const toast = useToast();
-
-  const selectedProjectName = selectedHealth?.project?.id === selectedProjectId
-    ? selectedHealth.project?.name || ''
-    : projects.find((project) => project.id === selectedProjectId)?.name || '';
-  const activeLoopAdvanceJobId = loopAdvanceJob?.job_id || null;
-  const activeLoopAdvanceProjectId = loopAdvanceJob?.projectId || null;
-  const isLoopAdvanceRunning = loopAdvanceJob?.status === 'running';
-
-  useEffect(() => {
-    selectedProjectIdRef.current = selectedProjectId;
-  }, [selectedProjectId]);
+  const {
+    activeProjectAction,
+    approvalsHref,
+    approveGate,
+    advanceLoop,
+    handleToggleProject,
+    loadProjects,
+    loading,
+    loopActionBusy,
+    loopAdvanceJob,
+    loopRefreshAgeSeconds,
+    loopStatus,
+    pendingApprovalCount,
+    projects,
+    projectsError,
+    refreshSelectedProject: refreshLoopControl,
+    selectedProject,
+    selectedProjectId,
+    setSelectedProjectId,
+    startLoop,
+  } = useFactoryLoopControl();
 
   const applyBacklogResponse = useCallback((response) => {
     const normalized = normalizeBacklogResponse(response);
@@ -71,35 +69,10 @@ export function useFactoryShell() {
     });
   }, []);
 
-  const loadProjects = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) {
-      setLoading(true);
-    }
-
-    try {
-      const response = await factoryApi.projects();
-      const nextProjects = getProjectsFromResponse(response);
-      setProjects(nextProjects);
-      setProjectsError(null);
-      setSelectedProjectId((current) => (
-        nextProjects.some((project) => project.id === current) ? current : nextProjects[0]?.id || null
-      ));
-      return nextProjects;
-    } catch (error) {
-      setProjectsError(error?.message || 'Failed to load factory projects.');
-      return [];
-    } finally {
-      if (!silent) {
-        setLoading(false);
-      }
-    }
-  }, []);
-
   const loadProject = useCallback(async (projectId, { fallbackProject = null, isCancelled = () => false } = {}) => {
     if (!projectId) {
       if (!isCancelled()) {
         setSelectedHealth(null);
-        setLoopStatus(null);
       }
       return;
     }
@@ -110,17 +83,9 @@ export function useFactoryShell() {
     }
 
     try {
-      const [response, nextLoopStatus] = await Promise.all([
-        factoryApi.health(projectId),
-        factoryApi.loopStatus(projectId).catch(() => null),
-      ]);
+      const response = await factoryApi.health(projectId);
       if (!isCancelled()) {
-        setSelectedHealth(normalizeHealth({
-          ...response,
-          project: mergeLoopState(response?.project || {}, nextLoopStatus),
-        }));
-        setLoopStatus(nextLoopStatus);
-        setLoopStatusRefreshedAt(Date.now());
+        setSelectedHealth(normalizeHealth(response));
       }
     } catch (error) {
       if (!isCancelled()) {
@@ -294,10 +259,6 @@ export function useFactoryShell() {
   }, [toast]);
 
   useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
-
-  useEffect(() => {
     if (projects.length === 0) {
       setProjectActivity({});
       return undefined;
@@ -339,11 +300,8 @@ export function useFactoryShell() {
   useEffect(() => {
     if (!selectedProjectId) {
       setSelectedHealth(null);
-      setLoopStatus(null);
       setRecentActivity([]);
       setRecentActivityHydrated(false);
-      setLoopStatusRefreshedAt(null);
-      setPendingApprovalCount(0);
       return undefined;
     }
 
@@ -415,39 +373,18 @@ export function useFactoryShell() {
 
       polling = true;
       try {
-        const [nextLoopStatus, recentResponse, backlogResponse, pendingApprovalResponse] = await Promise.all([
-          factoryApi.loopStatus(selectedProjectId).catch(() => null),
+        const [recentResponse, backlogResponse] = await Promise.all([
           getDecisionLog(selectedProjectId, { limit: 20 }).catch(() => null),
           includeBacklog ? factoryApi.backlog(selectedProjectId).catch(() => null) : Promise.resolve(null),
-          selectedProjectName
-            ? tasksApi.list({ status: 'pending_approval', project: selectedProjectName, limit: 1 }).catch(() => null)
-            : Promise.resolve({ total: 0, tasks: [] }),
         ]);
 
         if (cancelled) {
           return;
         }
 
-        if (nextLoopStatus && typeof nextLoopStatus === 'object') {
-          const refreshedAt = Date.now();
-          setLoopStatus(nextLoopStatus);
-          setProjects((current) => current.map((project) => (
-            project.id === selectedProjectId ? mergeLoopState(project, nextLoopStatus) : project
-          )));
-          setSelectedHealth((current) => (
-            current && current.project?.id === selectedProjectId
-              ? { ...current, project: mergeLoopState(current.project, nextLoopStatus) }
-              : current
-          ));
-          setLoopStatusRefreshedAt(refreshedAt);
-        }
-
         setRecentActivity(Array.isArray(recentResponse?.decisions) ? recentResponse.decisions : []);
         if (backlogResponse) {
           applyBacklogResponse(backlogResponse);
-        }
-        if (pendingApprovalResponse) {
-          setPendingApprovalCount(Number(pendingApprovalResponse.total) || pendingApprovalResponse.tasks?.length || 0);
         }
       } finally {
         if (!cancelled) {
@@ -464,15 +401,16 @@ export function useFactoryShell() {
       cancelled = true;
       clearInterval(pollIntervalId);
     };
-  }, [applyBacklogResponse, selectedProjectId, selectedProjectName]);
+  }, [applyBacklogResponse, selectedProjectId]);
 
   const refreshSelectedProject = useCallback(async () => {
     if (!selectedProjectId) {
       return;
     }
 
-    const fallbackProject = projects.find((project) => project.id === selectedProjectId) || null;
+    const fallbackProject = selectedProject || projects.find((project) => project.id === selectedProjectId) || null;
     await Promise.all([
+      refreshLoopControl({ includeProjects: true }),
       loadProject(selectedProjectId, { fallbackProject }),
       loadIntake(selectedProjectId),
       loadBacklog(selectedProjectId),
@@ -489,147 +427,10 @@ export function useFactoryShell() {
     loadIntake,
     loadProject,
     projects,
+    refreshLoopControl,
+    selectedProject,
     selectedProjectId,
   ]);
-
-  useEffect(() => {
-    if (!isLoopAdvanceRunning || !activeLoopAdvanceJobId || !activeLoopAdvanceProjectId) {
-      return undefined;
-    }
-
-    const projectId = activeLoopAdvanceProjectId;
-    const jobId = activeLoopAdvanceJobId;
-    let cancelled = false;
-    let polling = false;
-
-    const pollJob = async () => {
-      if (polling) {
-        return;
-      }
-
-      polling = true;
-      try {
-        const status = await factoryApi.loopJobStatus(projectId, jobId);
-        if (cancelled) {
-          return;
-        }
-
-        setLoopAdvanceJob((current) => {
-          if (!current || current.job_id !== jobId) {
-            return current;
-          }
-
-          const nextJob = { ...current, ...status, projectId: current.projectId };
-          if (
-            current.status === nextJob.status
-            && current.new_state === nextJob.new_state
-            && current.paused_at_stage === nextJob.paused_at_stage
-            && current.reason === nextJob.reason
-            && current.completed_at === nextJob.completed_at
-            && current.error === nextJob.error
-            && JSON.stringify(current.stage_result ?? null) === JSON.stringify(nextJob.stage_result ?? null)
-          ) {
-            return current;
-          }
-
-          return nextJob;
-        });
-
-        if (status.status === 'running') {
-          return;
-        }
-
-        setLoopActionBusy(null);
-        const nextProjects = await loadProjects({ silent: true });
-        if (!cancelled && selectedProjectIdRef.current === projectId) {
-          const fallbackProject = nextProjects.find((project) => project.id === projectId) || null;
-          await Promise.all([
-            loadProject(projectId, { fallbackProject }),
-            loadIntake(projectId),
-            loadBacklog(projectId),
-            loadDecisionLog(projectId, decisionFilters),
-            loadDigest(projectId),
-            loadCostMetrics(projectId),
-          ]);
-        }
-
-        if (cancelled) {
-          return;
-        }
-
-        if (status.status === 'completed') {
-          toast.success('Factory stage completed');
-        } else {
-          toast.error(status.error || 'Factory stage failed');
-        }
-        setLoopAdvanceJob(null);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        setLoopActionBusy(null);
-        setLoopAdvanceJob(null);
-        const nextProjects = await loadProjects({ silent: true });
-        if (selectedProjectIdRef.current === projectId) {
-          const fallbackProject = nextProjects.find((project) => project.id === projectId) || null;
-          await Promise.all([
-            loadProject(projectId, { fallbackProject }),
-            loadIntake(projectId),
-            loadBacklog(projectId),
-            loadDecisionLog(projectId, decisionFilters),
-            loadDigest(projectId),
-            loadCostMetrics(projectId),
-          ]);
-        }
-        toast.error(`Failed to track factory stage: ${error.message}`);
-      } finally {
-        polling = false;
-      }
-    };
-
-    pollJob();
-    const intervalId = setInterval(pollJob, 2000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [
-    decisionFilters,
-    loadBacklog,
-    loadCostMetrics,
-    loadDecisionLog,
-    loadDigest,
-    loadIntake,
-    loadProject,
-    loadProjects,
-    activeLoopAdvanceJobId,
-    activeLoopAdvanceProjectId,
-    isLoopAdvanceRunning,
-    toast,
-  ]);
-
-  const handleToggleProject = useCallback(async (project) => {
-    const shouldPause = project.status === 'running';
-    const action = shouldPause ? 'pause' : 'resume';
-    setActiveProjectAction(project.id);
-
-    try {
-      if (shouldPause) {
-        await factoryApi.pause(project.id);
-      } else {
-        await factoryApi.resume(project.id);
-      }
-
-      toast.success(`Project ${action}d`);
-      await loadProjects({ silent: true });
-    } catch (error) {
-      toast.error(`Failed to ${action} project: ${error.message}`);
-    } finally {
-      setActiveProjectAction(null);
-    }
-  }, [loadProjects, toast]);
 
   const handlePauseAll = useCallback(async () => {
     setPauseAllBusy(true);
@@ -680,56 +481,13 @@ export function useFactoryShell() {
     }
   }, [applyBacklogResponse, selectedProjectId, toast]);
 
-  const runLoopAction = useCallback(async (action, runner) => {
-    if (!selectedProjectId) {
-      return;
-    }
-
-    setLoopActionBusy(action);
-    try {
-      await runner();
-      const fallbackProject = projects.find((project) => project.id === selectedProjectId) || null;
-      await loadProject(selectedProjectId, { fallbackProject });
-    } catch (error) {
-      toast.error(error?.message || `Failed to ${action} loop`);
-    } finally {
-      setLoopActionBusy(null);
-    }
-  }, [loadProject, projects, selectedProjectId, toast]);
-
-  const handleAdvanceLoop = useCallback(async () => {
-    if (!selectedProjectId) {
-      return;
-    }
-
-    setLoopActionBusy('advance');
-    try {
-      const descriptor = await factoryApi.advanceLoopAsync(selectedProjectId);
-      setLoopAdvanceJob({
-        ...descriptor,
-        projectId: selectedProjectId,
-      });
-    } catch (error) {
-      setLoopActionBusy(null);
-      setLoopAdvanceJob(null);
-      toast.error(error?.message || 'Failed to advance loop');
-    }
-  }, [selectedProjectId, toast]);
-
   const totalProjects = projects.length;
   const runningProjects = projects.filter((project) => project.status === 'running').length;
   const pausedProjects = projects.filter((project) => project.status === 'paused').length;
-  const baseDetail = selectedHealth || buildDetailFallback(projects.find((project) => project.id === selectedProjectId));
+  const baseDetail = selectedHealth || buildDetailFallback(selectedProject || projects.find((project) => project.id === selectedProjectId));
   const detail = baseDetail
-    ? { ...baseDetail, project: mergeLoopState(baseDetail.project || {}, loopStatus || {}) }
+    ? { ...baseDetail, project: selectedProject || baseDetail.project || null }
     : null;
-  const selectedProject = detail?.project || null;
-  const approvalsHref = selectedProject?.name
-    ? `/approvals?${new URLSearchParams({ project: selectedProject.name, source: 'factory' }).toString()}`
-    : null;
-  const loopRefreshAgeSeconds = loopStatusRefreshedAt === null
-    ? null
-    : Math.max(0, Math.floor((Date.now() - loopStatusRefreshedAt) / 1000));
 
   return {
     activeProjectAction,
@@ -769,10 +527,12 @@ export function useFactoryShell() {
       selectedHealth,
       selectedProject,
       selectedProjectId,
+      setSelectedProjectId,
       setDecisionFilters,
-      startLoop: () => runLoopAction('start', () => factoryApi.startLoop(selectedProject.id)),
-      approveGate: () => runLoopAction('approve', () => factoryApi.approveGate(selectedProject.id, selectedProject.loop_paused_at_stage)),
-      advanceLoop: handleAdvanceLoop,
+      startLoop,
+      approveGate,
+      advanceLoop,
+      projects,
     },
     pauseAllBusy,
     pausedProjects,

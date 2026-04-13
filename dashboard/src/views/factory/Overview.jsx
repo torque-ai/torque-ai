@@ -1,6 +1,7 @@
-import { useNavigate, useOutletContext } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
-import { BatchTimeline, LoopStatusBadge, StatusDot, TrustBadge } from './shared';
+import { BatchTimeline, StatusDot, TrustBadge } from './shared';
+import LoopControlBar from './LoopControlBar';
 import {
   BADGE_FALLBACK_STYLE,
   DECISION_STAGE_BADGE_STYLES,
@@ -13,10 +14,11 @@ import {
 } from './utils';
 
 export default function Overview() {
-  const navigate = useNavigate();
   const {
     activeProjectAction,
     approvalsHref,
+    advanceLoop,
+    approveGate,
     detail,
     detailLoading,
     handleToggleProject,
@@ -24,13 +26,14 @@ export default function Overview() {
     loopActionBusy,
     loopRefreshAgeSeconds,
     pendingApprovalCount,
+    projects,
     recentActivity,
     recentActivityHydrated,
     refreshSelectedProject,
     selectedProject,
+    selectedProjectId,
+    setSelectedProjectId,
     startLoop,
-    approveGate,
-    advanceLoop,
   } = useOutletContext();
 
   if (!selectedProject || !detail) {
@@ -94,87 +97,47 @@ export default function Overview() {
         )}
       </section>
 
-      <section className="mt-4 rounded-lg border border-slate-700 bg-slate-800/60 p-4">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-slate-200">Factory Loop</h3>
-          <div className="flex flex-wrap items-center gap-2">
-            {pendingApprovalCount > 0 && approvalsHref && (
-              <button
-                type="button"
-                onClick={() => navigate(approvalsHref)}
-                className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200 transition-colors hover:border-amber-400/40 hover:bg-amber-500/15"
-              >
-                {pendingApprovalCount} task{pendingApprovalCount === 1 ? '' : 's'} awaiting approval &rarr;
-              </button>
-            )}
-            {loopRefreshAgeSeconds !== null && (
+      <LoopControlBar
+        activeProjectAction={activeProjectAction}
+        approvalsHref={approvalsHref}
+        approveGate={approveGate}
+        advanceLoop={advanceLoop}
+        handleToggleProject={handleToggleProject}
+        loopActionBusy={loopActionBusy}
+        pendingApprovalCount={pendingApprovalCount}
+        projects={projects}
+        selectedProject={selectedProject}
+        selectedProjectId={selectedProjectId}
+        setSelectedProjectId={setSelectedProjectId}
+        startLoop={startLoop}
+      >
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {loopRefreshAgeSeconds !== null ? (
               <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
                 Refreshed {loopRefreshAgeSeconds}s ago
               </span>
+            ) : (
+              <span className="text-xs text-slate-500">Waiting for loop status...</span>
+            )}
+            {isProjectToggleBusy && (
+              <span className="text-xs text-slate-400">{projectToggleLabel} request in progress...</span>
             )}
           </div>
-        </div>
-        <div className="mb-2 flex flex-wrap items-center gap-3">
-          <LoopStatusBadge
-            loopState={selectedProject.loop_state}
+          <BatchTimeline
+            currentStage={selectedProject.loop_state}
             pausedAtStage={selectedProject.loop_paused_at_stage}
           />
-          {(!selectedProject.loop_state || selectedProject.loop_state === 'IDLE') && (
-            <button
-              type="button"
-              disabled={loopActionBusy === 'start'}
-              className="rounded bg-cyan-600 px-3 py-1 text-xs text-white hover:bg-cyan-500 disabled:opacity-50"
-              onClick={startLoop}
-            >
-              {loopActionBusy === 'start' ? 'Starting...' : 'Start Loop'}
-            </button>
+          {isAdvanceJobRunning && (
+            <p className="text-xs text-cyan-300">
+              Stage running... Polling every 2s.
+            </p>
           )}
-          {selectedProject.loop_state === 'PAUSED' && (
-            <button
-              type="button"
-              disabled={loopActionBusy === 'approve'}
-              className="rounded bg-emerald-600 px-3 py-1 text-xs text-white hover:bg-emerald-500 disabled:opacity-50"
-              onClick={approveGate}
-            >
-              {loopActionBusy === 'approve' ? 'Approving...' : 'Approve Gate'}
-            </button>
+          {selectedProject.loop_last_action_at && (
+            <p className="text-xs text-slate-500">Last action: {new Date(selectedProject.loop_last_action_at).toLocaleString()}</p>
           )}
-          {selectedProject.loop_state && selectedProject.loop_state !== 'IDLE' && selectedProject.loop_state !== 'PAUSED' && (
-            <button
-              type="button"
-              disabled={loopActionBusy === 'advance'}
-              className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-500 disabled:opacity-50"
-              onClick={advanceLoop}
-            >
-              {loopActionBusy === 'advance' ? 'Advancing...' : 'Advance'}
-            </button>
-          )}
-          <button
-            type="button"
-            disabled={isProjectToggleBusy}
-            onClick={() => handleToggleProject(selectedProject)}
-            className={`rounded px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
-              selectedProject.status === 'running'
-                ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
-                : 'bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20'
-            }`}
-          >
-            {isProjectToggleBusy ? 'Working...' : projectToggleLabel}
-          </button>
         </div>
-        <BatchTimeline
-          currentStage={selectedProject.loop_state}
-          pausedAtStage={selectedProject.loop_paused_at_stage}
-        />
-        {isAdvanceJobRunning && (
-          <p className="mt-2 text-xs text-cyan-300">
-            Stage running... Polling every 2s.
-          </p>
-        )}
-        {selectedProject.loop_last_action_at && (
-          <p className="mt-1 text-xs text-slate-500">Last action: {new Date(selectedProject.loop_last_action_at).toLocaleString()}</p>
-        )}
-      </section>
+      </LoopControlBar>
 
       <section className="mt-4 rounded-lg border border-slate-700 bg-slate-800/60 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

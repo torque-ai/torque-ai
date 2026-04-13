@@ -19,6 +19,16 @@ vi.mock('../api', () => ({
   providers: {
     list: vi.fn(),
   },
+  factory: {
+    projects: vi.fn(),
+    loopStatus: vi.fn(),
+    startLoop: vi.fn(),
+    advanceLoopAsync: vi.fn(),
+    loopJobStatus: vi.fn(),
+    approveGate: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+  },
   stats: {
     overview: vi.fn(),
     stuck: vi.fn(),
@@ -33,7 +43,7 @@ vi.mock('../hooks/useAbortableRequest', () => ({
   }),
 }));
 
-import { tasks as tasksApi, stats as statsApi, providers as providersApi } from '../api';
+import { factory as factoryApi, tasks as tasksApi, stats as statsApi, providers as providersApi } from '../api';
 import { requestV2 } from '../api';
 
 const emptyTasks = { tasks: [] };
@@ -131,6 +141,14 @@ describe('Kanban', () => {
     tasksApi.reject.mockResolvedValue({});
     tasksApi.rejectSwitch.mockResolvedValue({});
     tasksApi.reassignProvider.mockResolvedValue({});
+    factoryApi.projects.mockResolvedValue([]);
+    factoryApi.loopStatus.mockResolvedValue({ loop_state: 'IDLE', loop_paused_at_stage: null, loop_last_action_at: null });
+    factoryApi.startLoop.mockResolvedValue({});
+    factoryApi.advanceLoopAsync.mockResolvedValue({ job_id: 'loop-job-1', status: 'running' });
+    factoryApi.loopJobStatus.mockResolvedValue({ status: 'completed' });
+    factoryApi.approveGate.mockResolvedValue({});
+    factoryApi.pause.mockResolvedValue({});
+    factoryApi.resume.mockResolvedValue({});
     providersApi.list.mockResolvedValue([]);
     statsApi.overview.mockResolvedValue(mockOverview);
     statsApi.stuck.mockResolvedValue(createStuckTasks());
@@ -243,6 +261,64 @@ describe('Kanban', () => {
     renderWithProviders(<Kanban />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByLabelText('Refresh dashboard data')).toBeInTheDocument();
+    });
+  });
+
+  it('renders the factory loop bar when factory projects exist', async () => {
+    factoryApi.projects.mockResolvedValue([{
+      id: 'factory-1',
+      name: 'torque-public',
+      path: 'C:\\Users\\<os-user>\\Projects\\torque-public',
+      status: 'running',
+      trust_level: 'guided',
+      loop_state: 'PLAN',
+      loop_paused_at_stage: null,
+      loop_last_action_at: '2026-04-13T12:00:00Z',
+    }]);
+    factoryApi.loopStatus.mockResolvedValue({
+      loop_state: 'PLAN',
+      loop_paused_at_stage: null,
+      loop_last_action_at: '2026-04-13T12:00:05Z',
+    });
+    tasksApi.list.mockImplementation(({ status, project }) => {
+      if (status === 'pending_approval' && project === 'torque-public') {
+        return Promise.resolve({ total: 2, tasks: [pendingApprovalTask] });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<Kanban />, { route: '/' });
+
+    expect(await screen.findByText('Factory Loop')).toBeInTheDocument();
+    expect(screen.getByLabelText('Factory project')).toHaveValue('factory-1');
+    expect(screen.getByText('PLAN')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Advance' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /2 tasks awaiting approval/i })).toBeInTheDocument();
+  });
+
+  it('advances the factory loop from Kanban', async () => {
+    factoryApi.projects.mockResolvedValue([{
+      id: 'factory-1',
+      name: 'torque-public',
+      path: 'C:\\Users\\<os-user>\\Projects\\torque-public',
+      status: 'running',
+      trust_level: 'guided',
+      loop_state: 'PLAN',
+      loop_paused_at_stage: null,
+      loop_last_action_at: '2026-04-13T12:00:00Z',
+    }]);
+    factoryApi.loopStatus.mockResolvedValue({
+      loop_state: 'PLAN',
+      loop_paused_at_stage: null,
+      loop_last_action_at: '2026-04-13T12:00:05Z',
+    });
+
+    renderWithProviders(<Kanban />, { route: '/' });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Advance' }));
+
+    await waitFor(() => {
+      expect(factoryApi.advanceLoopAsync).toHaveBeenCalledWith('factory-1');
     });
   });
 
