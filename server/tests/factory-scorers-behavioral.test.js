@@ -244,6 +244,7 @@ describe('factory scorer behavioral coverage', () => {
         findings: [],
       });
     });
+
     test('scores realistic poor coverage from missingTests output below 30', () => {
       const result = testCoverageScorer.score('/unused', {
         missingTests: {
@@ -340,6 +341,99 @@ describe('factory scorer behavioral coverage', () => {
       const worse = securityScorer.score('/unused', {}, worseDir);
 
       expect(worse.score).toBeLessThan(baseline.score);
+    });
+
+    test.each([
+      ['missing', () => path.join(createFindingsDir(), 'missing-findings')],
+      ['empty', () => createFindingsDir()],
+    ])('returns no_findings for a %s findings directory', (_label, makeFindingsDir) => {
+      const result = securityScorer.score('/unused', {}, makeFindingsDir());
+
+      expect(result).toEqual({
+        score: 50,
+        details: { source: 'no_findings' },
+        findings: [],
+      });
+    });
+
+    test('excludes RESOLVED security findings from severity counts, score math, and returned findings', () => {
+      const findingsDir = createFindingsDir({
+        '2026-04-12-security-scan.md': findingsMarkdown([
+          { severity: 'critical', title: 'Admin task runner allows shell injection', file: 'server/execution/sandbox.js:17' },
+          { severity: 'high', title: 'Resolved auth bypass incident', file: 'server/api/v2-governance-handlers.js:35', status: 'RESOLVED' },
+          { severity: 'medium', title: 'Webhook signature check can be skipped on retry', file: 'server/handlers/task/index.js:84' },
+          { severity: 'low', title: 'Verbose error body leaks handler names', file: 'server/logger.js:12' },
+        ]),
+      });
+
+      const result = securityScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details).toEqual({
+        source: 'scout_findings',
+        file: path.join(findingsDir, '2026-04-12-security-scan.md'),
+        critical: 1,
+        high: 0,
+        medium: 1,
+        low: 1,
+      });
+      expect(result.score).toBe(68);
+      expect(result.findings).toEqual([
+        {
+          severity: 'critical',
+          title: 'Admin task runner allows shell injection',
+          file: 'server/execution/sandbox.js:17',
+        },
+        {
+          severity: 'medium',
+          title: 'Webhook signature check can be skipped on retry',
+          file: 'server/handlers/task/index.js:84',
+        },
+        {
+          severity: 'low',
+          title: 'Verbose error body leaks handler names',
+          file: 'server/logger.js:12',
+        },
+      ]);
+    });
+
+    test('selects the latest matching security report when multiple findings markdown files exist', () => {
+      const olderReport = '2026-04-11-security-scan.md';
+      const latestReport = '2026-04-12-security-sweep.md';
+      const findingsDir = createFindingsDir({
+        [olderReport]: findingsMarkdown([
+          { severity: 'critical', title: 'Legacy token endpoint is injectable', file: 'server/api/routes.js:42' },
+          { severity: 'high', title: 'Admin route skips auth guard', file: 'server/api/v2-governance-handlers.js:35' },
+        ]),
+        [latestReport]: findingsMarkdown([
+          { severity: 'medium', title: 'Task metadata error leaks provider internals', file: 'server/task-manager.js:212' },
+        ]),
+        '2026-04-20-documentation-scan.md': findingsMarkdown([
+          { severity: 'low', title: 'Unrelated documentation finding', file: 'docs/factory.md' },
+        ]),
+      });
+
+      setFixtureModifiedTime(findingsDir, olderReport, '2026-04-11T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, latestReport, '2026-04-12T00:00:00.000Z');
+      setFixtureModifiedTime(findingsDir, '2026-04-20-documentation-scan.md', '2026-04-20T00:00:00.000Z');
+
+      const result = securityScorer.score('/unused', {}, findingsDir);
+
+      expect(result.details).toEqual({
+        source: 'scout_findings',
+        file: path.join(findingsDir, latestReport),
+        critical: 0,
+        high: 0,
+        medium: 1,
+        low: 0,
+      });
+      expect(result.score).toBe(95);
+      expect(result.findings).toEqual([
+        {
+          severity: 'medium',
+          title: 'Task metadata error leaks provider internals',
+          file: 'server/task-manager.js:212',
+        },
+      ]);
     });
   });
 
@@ -867,6 +961,7 @@ describe('factory scorer behavioral coverage', () => {
       expect(result.details.totalFiles).toBe(1);
       expect(result.details.density).toBe(1);
     });
+
     test('scores a realistic clean scan payload above 90 when TODOs are absent', () => {
       const result = debtRatioScorer.score('/unused', {
         summary: { totalFiles: 40 },
@@ -910,6 +1005,7 @@ describe('factory scorer behavioral coverage', () => {
         },
       ]);
     });
+
     test('drops as TODO density and HACK/FIXME markers increase', () => {
       const lightDebt = debtRatioScorer.score('/unused', {
         summary: { totalFiles: 50 },
@@ -1019,4 +1115,3 @@ describe('factory scorer behavioral coverage', () => {
     });
   });
 });
-
