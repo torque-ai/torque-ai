@@ -1,6 +1,4 @@
-'use strict';
-
-const { describe, test, expect, beforeEach, afterEach, vi } = require('vitest');
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('../task-manager', () => ({}));
 

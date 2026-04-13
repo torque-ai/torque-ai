@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useCallback } from 'react';
+import { Fragment, memo, useState, useEffect, useCallback } from 'react';
 import { factory as factoryApi, getDecisionLog, getFactoryDigest } from '../api';
 import { useToast } from '../components/Toast';
 import RadarChart from '../components/RadarChart';
@@ -1221,6 +1221,101 @@ function BatchTimeline({ currentStage, pausedAtStage }) {
   );
 }
 
+function normalizeBacklogItem(item = {}, index = 0) {
+  return {
+    work_item_id: item?.work_item_id ?? null,
+    title: item?.title || 'Untitled work item',
+    why: typeof item?.why === 'string' ? item.why.trim() : '',
+    expected_impact: item?.expected_impact && typeof item.expected_impact === 'object' && !Array.isArray(item.expected_impact)
+      ? item.expected_impact
+      : {},
+    scope_budget: item?.scope_budget ?? null,
+    priority_rank: Number.isFinite(Number(item?.priority_rank)) ? Number(item.priority_rank) : index + 1,
+  };
+}
+
+function normalizeBacklogResponse(response = {}) {
+  return {
+    items: Array.isArray(response?.backlog)
+      ? response.backlog.slice(0, 10).map((item, index) => normalizeBacklogItem(item, index))
+      : [],
+    reasoning_summary: response?.reasoning_summary || response?.reasoning || null,
+    cycle_id: response?.cycle_id ?? null,
+  };
+}
+
+function formatCycleLabel(cycleId) {
+  if (cycleId === null || cycleId === undefined || cycleId === '') {
+    return 'No cycle yet';
+  }
+
+  const raw = String(cycleId).trim();
+  return /^cycle\b/i.test(raw) ? raw : `Cycle #${raw}`;
+}
+
+function formatScopeBudget(value) {
+  if (value === null || value === undefined || value === '') {
+    return 'Scope n/a';
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `Scope ${numeric}` : `Scope ${String(value)}`;
+}
+
+function formatImpactValue(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) {
+    return `${numeric > 0 ? '+' : ''}${numeric}`;
+  }
+
+  return String(value || 'n/a');
+}
+
+const ArchitectBacklogItemRow = memo(function ArchitectBacklogItemRow({ item }) {
+  const impactEntries = Object.entries(item.expected_impact || {});
+  const whyText = item.why || 'No rationale provided yet.';
+
+  return (
+    <li className="rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-3">
+            <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-purple-500/30 bg-purple-500/10 px-2 text-xs font-semibold text-purple-200">
+              {item.priority_rank}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-white">{item.title}</p>
+              <p className="mt-2 text-sm text-slate-400">
+                <span className="block truncate" title={whyText}>
+                  {truncateText(whyText, 140)}
+                </span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 xl:max-w-[45%] xl:justify-end">
+          <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
+            {formatScopeBudget(item.scope_budget)}
+          </span>
+          {impactEntries.length === 0 ? (
+            <span className="text-xs text-slate-500">No impact estimate</span>
+          ) : (
+            impactEntries.map(([dimension, delta]) => (
+              <span
+                key={dimension}
+                className="inline-flex items-center rounded-full border border-cyan-500/20 bg-cyan-500/5 px-2.5 py-1 text-xs font-medium text-cyan-200"
+              >
+                {formatLabel(dimension)} {formatImpactValue(delta)}
+              </span>
+            ))
+          )}
+        </div>
+      </div>
+    </li>
+  );
+});
+
 export default function Factory() {
   const [projects, setProjects] = useState([]);
   const [projectActivity, setProjectActivity] = useState({});
@@ -1232,8 +1327,9 @@ export default function Factory() {
   const [intakeItems, setIntakeItems] = useState([]);
   const [intakeLoading, setIntakeLoading] = useState(false);
   const [backlog, setBacklog] = useState([]);
+  const [backlogCycleId, setBacklogCycleId] = useState(null);
   const [backlogReasoning, setBacklogReasoning] = useState(null);
-  const [backlogFlags, setBacklogFlags] = useState([]);
+  const [backlogLoading, setBacklogLoading] = useState(false);
   const [architectLoading, setArchitectLoading] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const [decisionStage, setDecisionStage] = useState('');
@@ -1314,6 +1410,16 @@ export default function Factory() {
     }
   }, [toast]);
 
+  const applyBacklogResponse = useCallback((response, { resetReasoning = false } = {}) => {
+    const normalized = normalizeBacklogResponse(response);
+    setBacklog(normalized.items);
+    setBacklogCycleId(normalized.cycle_id);
+    setBacklogReasoning(normalized.reasoning_summary);
+    if (resetReasoning) {
+      setReasoningExpanded(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
@@ -1387,7 +1493,7 @@ export default function Factory() {
     setRecentActivity([]);
     setRecentActivityHydrated(false);
 
-    const pollSelectedProject = async () => {
+    const pollSelectedProject = async ({ includeBacklog = true } = {}) => {
       if (polling) {
         return;
       }
@@ -1395,9 +1501,10 @@ export default function Factory() {
       polling = true;
 
       try {
-        const [loopStatus, recentResponse] = await Promise.all([
+        const [loopStatus, recentResponse, backlogResponse] = await Promise.all([
           factoryApi.loopStatus(selectedProjectId).catch(() => null),
           getDecisionLog(selectedProjectId, { limit: 20 }).catch(() => null),
+          includeBacklog ? factoryApi.backlog(selectedProjectId).catch(() => null) : Promise.resolve(null),
         ]);
 
         if (cancelled) {
@@ -1424,6 +1531,9 @@ export default function Factory() {
         }
 
         setRecentActivity(Array.isArray(recentResponse?.decisions) ? recentResponse.decisions : []);
+        if (backlogResponse) {
+          applyBacklogResponse(backlogResponse);
+        }
       } finally {
         if (!cancelled) {
           setRecentActivityHydrated(true);
@@ -1432,7 +1542,7 @@ export default function Factory() {
       }
     };
 
-    pollSelectedProject();
+    pollSelectedProject({ includeBacklog: false });
 
     const pollIntervalId = setInterval(pollSelectedProject, 5000);
     const ageIntervalId = setInterval(() => {
@@ -1446,7 +1556,7 @@ export default function Factory() {
       clearInterval(pollIntervalId);
       clearInterval(ageIntervalId);
     };
-  }, [selectedProjectId]);
+  }, [applyBacklogResponse, selectedProjectId]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -1484,17 +1594,44 @@ export default function Factory() {
   useEffect(() => {
     if (!selectedProjectId) {
       setBacklog([]);
+      setBacklogCycleId(null);
       setBacklogReasoning(null);
-      setBacklogFlags([]);
-      return;
+      setBacklogLoading(false);
+      setReasoningExpanded(false);
+      return undefined;
     }
+
+    let cancelled = false;
+    setBacklog([]);
+    setBacklogCycleId(null);
+    setBacklogReasoning(null);
+    setBacklogLoading(true);
+    setReasoningExpanded(false);
+
     factoryApi.backlog(selectedProjectId)
       .then((response) => {
-        setBacklog(response?.backlog || []);
-        setBacklogReasoning(response?.reasoning_summary || null);
+        if (!cancelled) {
+          applyBacklogResponse(response, { resetReasoning: true });
+        }
       })
-      .catch(() => setBacklog([]));
-  }, [selectedProjectId]);
+      .catch((error) => {
+        if (!cancelled) {
+          setBacklog([]);
+          setBacklogCycleId(null);
+          setBacklogReasoning(null);
+          toast.error(`Failed to load architect backlog: ${error.message}`);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBacklogLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [applyBacklogResponse, selectedProjectId, toast]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -1670,6 +1807,25 @@ export default function Factory() {
     }
   }, [toast]);
 
+  const handleRerunArchitect = useCallback(async () => {
+    if (!selectedProjectId) {
+      return;
+    }
+
+    setArchitectLoading(true);
+
+    try {
+      await factoryApi.triggerArchitect(selectedProjectId);
+      const response = await factoryApi.backlog(selectedProjectId);
+      applyBacklogResponse(response);
+      toast.success('Architect cycle completed');
+    } catch (error) {
+      toast.error(`Architect failed: ${error.message}`);
+    } finally {
+      setArchitectLoading(false);
+    }
+  }, [applyBacklogResponse, selectedProjectId, toast]);
+
   const totalProjects = projects.length;
   const runningProjects = projects.filter((project) => project.status === 'running').length;
   const pausedProjects = projects.filter((project) => project.status === 'paused').length;
@@ -1683,6 +1839,7 @@ export default function Factory() {
   const digestEventCounts = getDigestEventCounts(digest?.events || []);
   const digestEventTotal = Array.isArray(digest?.events) ? digest.events.length : 0;
   const intakeSummary = getIntakeSummary(intakeItems);
+  const backlogCycleLabel = formatCycleLabel(backlogCycleId);
   const loopRefreshAgeSeconds = loopStatusRefreshedAt === null
     ? null
     : Math.max(0, Math.floor((refreshAgeNow - loopStatusRefreshedAt) / 1000));
@@ -2223,87 +2380,64 @@ export default function Factory() {
           )}
 
           {selectedProjectId && (
-            <section className="mt-8">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-white">Architect Backlog</h2>
+            <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="text-xl font-semibold text-white">Architect Backlog</h2>
+                    <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-sm text-slate-300">
+                      {backlogCycleLabel}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Ranked work items from the latest architect cycle, refreshed with the active factory view.
+                  </p>
+                </div>
+
                 <button
-                  onClick={() => {
-                    setArchitectLoading(true);
-                    factoryApi.triggerArchitect(selectedProjectId)
-                      .then((response) => {
-                        setBacklog(response?.backlog || []);
-                        setBacklogReasoning(response?.reasoning || null);
-                        setBacklogFlags(response?.flags || []);
-                        toast.success('Architect cycle completed');
-                      })
-                      .catch((err) => toast.error(`Architect failed: ${err.message}`))
-                      .finally(() => setArchitectLoading(false));
-                  }}
+                  type="button"
+                  onClick={handleRerunArchitect}
                   disabled={architectLoading}
-                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-sm font-medium rounded"
+                  className="inline-flex items-center justify-center rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-2 text-sm font-medium text-purple-100 transition-colors hover:bg-purple-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {architectLoading ? 'Running...' : 'Run Architect'}
+                  {architectLoading ? 'Re-running...' : 'Re-run architect'}
                 </button>
               </div>
 
-              {backlogReasoning && (
-                <div className="mb-4">
-                  <button
-                    onClick={() => setReasoningExpanded(!reasoningExpanded)}
-                    className="text-sm text-slate-400 hover:text-white flex items-center gap-1"
-                  >
-                    <span>{reasoningExpanded ? '▼' : '▶'}</span>
-                    <span>Reasoning</span>
-                  </button>
-                  {reasoningExpanded && (
-                    <pre className="mt-2 p-3 bg-slate-800 rounded text-sm text-slate-300 whitespace-pre-wrap">{backlogReasoning}</pre>
-                  )}
+              {backlogLoading && backlog.length === 0 ? (
+                <div className="mt-6">
+                  <LoadingSkeleton lines={4} height={18} />
                 </div>
-              )}
-
-              {backlogFlags.length > 0 && (
-                <div className="mb-4 flex flex-wrap gap-2">
-                  {backlogFlags.map((flag, i) => (
-                    <span key={i} className="px-2 py-1 bg-yellow-900/50 text-yellow-300 text-xs rounded">
-                      ⚠ {flag.item}: {flag.reason}
-                    </span>
-                  ))}
+              ) : backlog.length === 0 ? (
+                <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
+                  No architect cycle yet — click Re-run to generate one.
                 </div>
-              )}
-
-              {backlog.length === 0 ? (
-                <p className="text-slate-500 text-sm">No backlog items. Run the architect to prioritize intake.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-slate-400 border-b border-slate-700">
-                        <th className="py-2 pr-4">Rank</th>
-                        <th className="py-2 pr-4">Title</th>
-                        <th className="py-2 pr-4">Why</th>
-                        <th className="py-2 pr-4">Scope</th>
-                        <th className="py-2">Impact</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {backlog.map((item, i) => (
-                        <tr key={item.work_item_id || i} className="border-b border-slate-800 text-slate-300">
-                          <td className="py-2 pr-4 font-mono text-purple-400">{item.priority_rank || i + 1}</td>
-                          <td className="py-2 pr-4">{item.title}</td>
-                          <td className="py-2 pr-4 text-slate-400">{item.why}</td>
-                          <td className="py-2 pr-4 font-mono">{item.scope_budget}</td>
-                          <td className="py-2">
-                            {item.expected_impact
-                              ? Object.entries(item.expected_impact).map(([dim, delta]) => (
-                                <span key={dim} className="text-xs mr-2">{dim}: {delta > 0 ? '+' : ''}{delta}</span>
-                              ))
-                              : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  <ol className="mt-6 space-y-3">
+                    {backlog.map((item, index) => (
+                      <ArchitectBacklogItemRow key={item.work_item_id || `${item.title}-${index}`} item={item} />
+                    ))}
+                  </ol>
+
+                  {backlogReasoning && (
+                    <div className="mt-6 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+                      <button
+                        type="button"
+                        onClick={() => setReasoningExpanded((current) => !current)}
+                        className="flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-white"
+                      >
+                        <span className="text-xs text-slate-500">{reasoningExpanded ? '▼' : '▶'}</span>
+                        <span>Reasoning</span>
+                      </button>
+                      {reasoningExpanded && (
+                        <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">
+                          {backlogReasoning}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </section>
           )}
