@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+const { createPlanExecutorMock } = vi.hoisted(() => ({
+  createPlanExecutorMock: vi.fn(() => ({ execute: vi.fn() })),
+}));
+
 vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 vi.mock('../factory/plan-executor', () => ({
-  createPlanExecutor: vi.fn(),
+  createPlanExecutor: createPlanExecutorMock,
 }));
 
 const fs = require('fs');
@@ -140,8 +144,8 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       simulated: false,
       submitted_tasks: [{ task_number: 1, task_id: 'held-task-id' }],
     }));
-    planExecutorModule.createPlanExecutor.mockReset();
-    planExecutorModule.createPlanExecutor.mockImplementation(() => ({
+    createPlanExecutorMock.mockReset();
+    createPlanExecutorMock.mockImplementation(() => ({
       execute: planExecuteMock,
     }));
     routingModule.handleSmartSubmitTask = vi.fn(async () => ({ task_id: 'plan-gen-task' }));
@@ -254,7 +258,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       task_id: 'plan-gen-task',
       timeout_minutes: 10,
     });
-    expect(planExecutorModule.createPlanExecutor).toHaveBeenCalledTimes(1);
+    expect(createPlanExecutorMock).toHaveBeenCalledTimes(1);
     expect(planExecuteMock).toHaveBeenCalledWith(expect.objectContaining({
       plan_path: expectedPlanPath,
       project: project.name,
@@ -306,7 +310,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
     expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
     expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
-    expect(planExecutorModule.createPlanExecutor).not.toHaveBeenCalled();
+    expect(createPlanExecutorMock).not.toHaveBeenCalled();
     expect(updatedWorkItem.id).toBe(workItem.id);
     expect(updatedWorkItem.status).toBe('planned');
     expect(updatedWorkItem.origin).toBeUndefined();
