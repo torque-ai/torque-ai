@@ -455,6 +455,86 @@ const tools = [
     },
   },
   {
+    name: 'list_factory_loop_instances',
+    description: 'List factory loop instances for a project. Returns the active instances by default when requested, or the full per-instance loop history for that project.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        active_only: { type: 'boolean', description: 'When true, only return active (non-terminated) loop instances. Default: false.' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'factory_loop_instance_status',
+    description: 'Get the current persisted row for a specific factory loop instance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instance: { type: 'string', description: 'Factory loop instance UUID' },
+      },
+      required: ['instance'],
+    },
+  },
+  {
+    name: 'start_factory_loop_instance',
+    description: 'Create a new explicit factory loop instance for a project. This is the per-instance variant of start_factory_loop.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
+    name: 'advance_factory_loop_instance',
+    description: 'Advance a specific factory loop instance to its next stage. Checks trust-level approval gates before transitioning.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instance: { type: 'string', description: 'Factory loop instance UUID' },
+      },
+      required: ['instance'],
+    },
+  },
+  {
+    name: 'approve_factory_gate_instance',
+    description: 'Approve a paused gate for a specific factory loop instance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instance: { type: 'string', description: 'Factory loop instance UUID' },
+        stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'], description: 'The stage to approve' },
+      },
+      required: ['instance', 'stage'],
+    },
+  },
+  {
+    name: 'reject_factory_gate_instance',
+    description: 'Reject a paused gate for a specific factory loop instance and terminate that instance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instance: { type: 'string', description: 'Factory loop instance UUID' },
+        stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'], description: 'The stage to reject' },
+      },
+      required: ['instance', 'stage'],
+    },
+  },
+  {
+    name: 'retry_factory_verify_instance',
+    description: 'Resume a specific factory loop instance from VERIFY_FAIL so the next advance re-runs verify after operator remediation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instance: { type: 'string', description: 'Factory loop instance UUID' },
+      },
+      required: ['instance'],
+    },
+  },
+  {
     name: 'attach_factory_batch',
     description: 'Attach a batch/workflow id to a factory project so VERIFY and LEARN stages can analyze it. Loop must be in PLAN or EXECUTE.',
     inputSchema: {

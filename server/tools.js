@@ -267,6 +267,8 @@ const INTERNAL_HANDLER_EXPORTS = new Set([
   // `factory_loop_status` MCP tools cover that surface).
   'handleAdvanceFactoryLoopAsync',
   'handleFactoryLoopJobStatus',
+  'handleAdvanceFactoryLoopInstanceAsync',
+  'handleFactoryLoopInstanceJobStatus',
 ]);
 
 const routeMap = new Map();

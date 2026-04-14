@@ -1,5 +1,14 @@
 const factoryHandlers = require('../../handlers/factory-handlers');
+const { parseBody } = require('../middleware');
 const { sendError, sendSuccess } = require('../v2-control-plane');
+
+const UUID_PATH_SEGMENT = '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})';
+const FACTORY_LOOP_INSTANCE_ROUTE = new RegExp(`^\\/api\\/v2\\/factory\\/loops\\/${UUID_PATH_SEGMENT}$`);
+const FACTORY_LOOP_INSTANCE_ADVANCE_ROUTE = new RegExp(`^\\/api\\/v2\\/factory\\/loops\\/${UUID_PATH_SEGMENT}\\/advance$`);
+const FACTORY_LOOP_INSTANCE_ADVANCE_JOB_ROUTE = new RegExp(`^\\/api\\/v2\\/factory\\/loops\\/${UUID_PATH_SEGMENT}\\/advance\\/${UUID_PATH_SEGMENT}$`);
+const FACTORY_LOOP_INSTANCE_APPROVE_ROUTE = new RegExp(`^\\/api\\/v2\\/factory\\/loops\\/${UUID_PATH_SEGMENT}\\/approve$`);
+const FACTORY_LOOP_INSTANCE_REJECT_ROUTE = new RegExp(`^\\/api\\/v2\\/factory\\/loops\\/${UUID_PATH_SEGMENT}\\/reject$`);
+const FACTORY_LOOP_INSTANCE_RETRY_VERIFY_ROUTE = new RegExp(`^\\/api\\/v2\\/factory\\/loops\\/${UUID_PATH_SEGMENT}\\/retry-verify$`);
 
 function parseFactoryHandlerPayload(result) {
   if (result && Object.prototype.hasOwnProperty.call(result, 'structuredData')) {
@@ -18,6 +27,21 @@ function parseFactoryHandlerPayload(result) {
   }
 }
 
+function parseFactoryHandlerErrorMessage(result) {
+  const text = result?.content?.[0]?.text;
+  if (typeof text !== 'string' || text.length === 0) {
+    return 'Factory request failed';
+  }
+
+  const firstLine = text.split(/\r?\n/, 1)[0];
+  const errorCode = result?.errorCode || result?.error_code || null;
+  if (errorCode && firstLine.startsWith(`${errorCode}: `)) {
+    return firstLine.slice(errorCode.length + 2);
+  }
+
+  return firstLine;
+}
+
 async function sendFactoryHandlerResponse(req, res, context, handler, args) {
   const result = await handler(args);
   const status = Number.isInteger(result?.status) ? result.status : 200;
@@ -31,19 +55,52 @@ async function sendFactoryHandlerResponse(req, res, context, handler, args) {
     }
   }
 
-  if (status >= 400) {
+  if (result?.isError || status >= 400) {
     return sendError(
       res,
       context.requestId,
-      result?.errorCode || 'operation_failed',
-      result?.errorMessage || 'Factory request failed',
-      status,
+      result?.errorCode || result?.error_code || 'operation_failed',
+      result?.errorMessage || parseFactoryHandlerErrorMessage(result),
+      status >= 400 ? status : 400,
       {},
       req
     );
   }
 
   return sendSuccess(res, context.requestId, parseFactoryHandlerPayload(result), status, req);
+}
+
+function coerceFactoryBoolean(value) {
+  if (value === true || value === 'true') {
+    return true;
+  }
+  if (value === false || value === 'false') {
+    return false;
+  }
+  return undefined;
+}
+
+async function readFactoryBody(req) {
+  return Object.prototype.hasOwnProperty.call(req, 'body')
+    ? req.body
+    : parseBody(req);
+}
+
+async function sendFactoryRouteHandlerResponse(req, res, context, handler, buildArgs) {
+  try {
+    const args = await buildArgs();
+    return sendFactoryHandlerResponse(req, res, context, handler, args);
+  } catch (error) {
+    return sendError(
+      res,
+      context.requestId,
+      'invalid_request',
+      error instanceof Error ? error.message : String(error),
+      400,
+      {},
+      req,
+    );
+  }
 }
 
 const FACTORY_V2_ROUTES = [
@@ -132,6 +189,132 @@ const FACTORY_V2_ROUTES = [
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/retry-verify$/, tool: 'retry_factory_verify', mapParams: ['project'] },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/batch$/, tool: 'attach_factory_batch', mapParams: ['project'], mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop$/, tool: 'factory_loop_status', mapParams: ['project'] },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loops$/,
+    tool: 'list_factory_loop_instances',
+    mapParams: ['project'],
+    mapQuery: true,
+    handlerName: 'handleListFactoryLoopInstances',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleListFactoryLoopInstances,
+      async () => ({
+        project: req.params.project,
+        active_only: coerceFactoryBoolean(req.query?.active_only),
+      }),
+    ),
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loops\/start$/,
+    tool: 'start_factory_loop_instance',
+    mapParams: ['project'],
+    handlerName: 'handleStartFactoryLoopInstance',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleStartFactoryLoopInstance,
+      async () => ({ project: req.params.project }),
+    ),
+  },
+  {
+    method: 'GET',
+    path: FACTORY_LOOP_INSTANCE_ROUTE,
+    tool: 'factory_loop_instance_status',
+    mapParams: ['instance_id'],
+    handlerName: 'handleFactoryLoopInstanceStatus',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleFactoryLoopInstanceStatus,
+      async () => ({ instance: req.params.instance_id }),
+    ),
+  },
+  {
+    method: 'POST',
+    path: FACTORY_LOOP_INSTANCE_ADVANCE_ROUTE,
+    tool: 'advance_factory_loop_instance',
+    mapParams: ['instance_id'],
+    handlerName: 'handleAdvanceFactoryLoopInstanceAsync',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleAdvanceFactoryLoopInstanceAsync,
+      async () => ({ instance: req.params.instance_id }),
+    ),
+  },
+  {
+    method: 'GET',
+    path: FACTORY_LOOP_INSTANCE_ADVANCE_JOB_ROUTE,
+    mapParams: ['instance_id', 'job_id'],
+    handlerName: 'handleFactoryLoopInstanceJobStatus',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleFactoryLoopInstanceJobStatus,
+      async () => ({
+        instance: req.params.instance_id,
+        job_id: req.params.job_id,
+      }),
+    ),
+  },
+  {
+    method: 'POST',
+    path: FACTORY_LOOP_INSTANCE_APPROVE_ROUTE,
+    tool: 'approve_factory_gate_instance',
+    mapParams: ['instance_id'],
+    mapBody: true,
+    handlerName: 'handleApproveFactoryGateInstance',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleApproveFactoryGateInstance,
+      async () => {
+        const body = await readFactoryBody(req);
+        return { instance: req.params.instance_id, stage: body.stage };
+      },
+    ),
+  },
+  {
+    method: 'POST',
+    path: FACTORY_LOOP_INSTANCE_REJECT_ROUTE,
+    tool: 'reject_factory_gate_instance',
+    mapParams: ['instance_id'],
+    mapBody: true,
+    handlerName: 'handleRejectFactoryGateInstance',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleRejectFactoryGateInstance,
+      async () => {
+        const body = await readFactoryBody(req);
+        return { instance: req.params.instance_id, stage: body.stage };
+      },
+    ),
+  },
+  {
+    method: 'POST',
+    path: FACTORY_LOOP_INSTANCE_RETRY_VERIFY_ROUTE,
+    tool: 'retry_factory_verify_instance',
+    mapParams: ['instance_id'],
+    handlerName: 'handleRetryFactoryVerifyInstance',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleRetryFactoryVerifyInstance,
+      async () => ({ instance: req.params.instance_id }),
+    ),
+  },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/analyze$/, tool: 'analyze_batch', mapParams: ['project'], mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/drift$/, tool: 'factory_drift_status', mapParams: ['project'], mapQuery: true },
   {
@@ -150,5 +333,7 @@ const FACTORY_V2_ROUTES = [
 ];
 
 module.exports = {
+  parseFactoryHandlerPayload,
+  sendFactoryHandlerResponse,
   FACTORY_V2_ROUTES,
 };

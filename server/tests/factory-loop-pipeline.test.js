@@ -15,6 +15,7 @@ const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
+const { FACTORY_V2_ROUTES } = require('../api/routes/factory-routes');
 
 function createFactoryTables(db) {
   db.exec(`
@@ -161,6 +162,79 @@ function createPlanWorkItem(project_id, rootDir, name) {
     requestor: 'test',
     origin: { plan_path: planPath },
   });
+}
+
+function createRouteResponse() {
+  return {
+    statusCode: 200,
+    headers: {},
+    _body: null,
+    setHeader(name, value) {
+      this.headers[name] = value;
+    },
+    writeHead(statusCode, headers) {
+      this.statusCode = statusCode;
+      Object.assign(this.headers, headers || {});
+    },
+    end(body) {
+      this._body = typeof body === 'string' ? JSON.parse(body) : body;
+    },
+  };
+}
+
+function findFactoryRoute(predicate, label) {
+  const route = FACTORY_V2_ROUTES.find(predicate);
+  if (!route) {
+    throw new Error(`Factory route not found: ${label}`);
+  }
+  return route;
+}
+
+async function invokeFactoryRoute(route, { params = {}, query = {}, body } = {}) {
+  const req = {
+    method: route.method,
+    params,
+    query,
+    headers: {},
+    requestId: `req-${Math.random().toString(16).slice(2)}`,
+  };
+  if (body !== undefined) {
+    req.body = body;
+  }
+  const res = createRouteResponse();
+  await route.handler(req, res, { requestId: req.requestId, params, query });
+  return { req, res, body: res._body };
+}
+
+async function advanceLoopViaRest(instanceId) {
+  const advanceRoute = findFactoryRoute(
+    (route) => route.handlerName === 'handleAdvanceFactoryLoopInstanceAsync',
+    'handleAdvanceFactoryLoopInstanceAsync',
+  );
+  const jobRoute = findFactoryRoute(
+    (route) => route.handlerName === 'handleFactoryLoopInstanceJobStatus',
+    'handleFactoryLoopInstanceJobStatus',
+  );
+
+  const started = await invokeFactoryRoute(advanceRoute, {
+    params: { instance_id: instanceId },
+  });
+  expect(started.res.statusCode).toBe(202);
+  expect(started.body?.data?.job_id).toBeTruthy();
+
+  const jobId = started.body.data.job_id;
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const polled = await invokeFactoryRoute(jobRoute, {
+      params: { instance_id: instanceId, job_id: jobId },
+    });
+    expect(polled.res.statusCode).toBe(200);
+    if (polled.body?.data?.status !== 'running') {
+      return polled.body.data;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  throw new Error(`Loop advance job did not settle for instance ${instanceId}`);
 }
 
 describe('factory loop pipeline parallelism', () => {
@@ -310,5 +384,89 @@ describe('factory loop pipeline parallelism', () => {
 
     expect(advanced.instance_id).toBe(oldest.id);
     expect(loopController.getLoopState(newest.instance_id).loop_state).toBe(LOOP_STATES.SENSE);
+  });
+
+  it('drives three loop instances through the REST surface while preserving stage occupancy', async () => {
+    const project = registerProject();
+    createPlanWorkItem(project.id, tempDir, 'rest-parallel-plan');
+
+    const startRoute = findFactoryRoute(
+      (route) => route.tool === 'start_factory_loop_instance',
+      'start_factory_loop_instance',
+    );
+    const listRoute = findFactoryRoute(
+      (route) => route.tool === 'list_factory_loop_instances',
+      'list_factory_loop_instances',
+    );
+
+    const startedFirst = await invokeFactoryRoute(startRoute, {
+      params: { project: project.id },
+    });
+    expect(startedFirst.res.statusCode).toBe(200);
+    const firstInstance = startedFirst.body.data;
+
+    const firstPrioritize = await advanceLoopViaRest(firstInstance.id);
+    expect(firstPrioritize).toMatchObject({
+      previous_state: LOOP_STATES.SENSE,
+      new_state: LOOP_STATES.PRIORITIZE,
+      paused_at_stage: null,
+      reason: 'stage_ready',
+    });
+
+    const firstAfterPrioritize = await advanceLoopViaRest(firstInstance.id);
+    expect(firstAfterPrioritize).toMatchObject({
+      previous_state: LOOP_STATES.PRIORITIZE,
+      paused_at_stage: null,
+    });
+    expect([LOOP_STATES.PLAN, LOOP_STATES.EXECUTE]).toContain(firstAfterPrioritize.new_state);
+
+    const startedSecond = await invokeFactoryRoute(startRoute, {
+      params: { project: project.id },
+    });
+    expect(startedSecond.res.statusCode).toBe(200);
+    const secondInstance = startedSecond.body.data;
+
+    const secondPrioritize = await advanceLoopViaRest(secondInstance.id);
+    expect(secondPrioritize).toMatchObject({
+      previous_state: LOOP_STATES.SENSE,
+      new_state: LOOP_STATES.PRIORITIZE,
+      paused_at_stage: null,
+      reason: 'stage_ready',
+    });
+
+    const startedThird = await invokeFactoryRoute(startRoute, {
+      params: { project: project.id },
+    });
+    expect(startedThird.res.statusCode).toBe(200);
+    const thirdInstance = startedThird.body.data;
+
+    const listed = await invokeFactoryRoute(listRoute, {
+      params: { project: project.id },
+      query: { active_only: 'true' },
+    });
+    expect(listed.res.statusCode).toBe(200);
+    expect(listed.body.data).toMatchObject({
+      project_id: project.id,
+      active_only: true,
+      count: 3,
+    });
+    expect(listed.body.data.instances.map((instance) => instance.id)).toEqual(expect.arrayContaining([
+      firstInstance.id,
+      secondInstance.id,
+      thirdInstance.id,
+    ]));
+    expect(listed.body.data.instances.map((instance) => `${instance.id}:${instance.loop_state}`)).toEqual(expect.arrayContaining([
+      `${firstInstance.id}:${firstAfterPrioritize.new_state}`,
+      `${secondInstance.id}:${LOOP_STATES.PRIORITIZE}`,
+      `${thirdInstance.id}:${LOOP_STATES.SENSE}`,
+    ]));
+
+    const blockedThird = await advanceLoopViaRest(thirdInstance.id);
+    expect(blockedThird).toMatchObject({
+      previous_state: LOOP_STATES.SENSE,
+      new_state: LOOP_STATES.SENSE,
+      paused_at_stage: 'READY_FOR_PRIORITIZE',
+      reason: 'stage_occupied',
+    });
   });
 });

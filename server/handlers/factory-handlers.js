@@ -8,6 +8,7 @@ const factoryAudit = require('../db/factory-audit');
 const factoryArchitect = require('../db/factory-architect');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const { runArchitectCycle } = require('../factory/architect-runner');
 const { scoreAll } = require('../factory/scorer-registry');
 const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSummary } = require('../factory/guardrail-runner');
@@ -20,6 +21,7 @@ const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory
 const { buildProjectCostSummary, getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
 const { logDecision, getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
 const notifications = require('../factory/notifications');
+const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
 function resolveProject(projectRef) {
@@ -51,6 +53,80 @@ function jsonResponse(data, options = {}) {
     response.errorMessage = options.errorMessage;
   }
   return response;
+}
+
+function factoryHandlerError(errorCode, message, status, details = null) {
+  const result = makeError(errorCode, message, details);
+  return {
+    ...result,
+    status,
+    errorCode: result.error_code || errorCode?.code || 'INTERNAL_ERROR',
+    errorMessage: message,
+  };
+}
+
+function normalizeFactoryLoopInstance(instance) {
+  if (!instance) {
+    return null;
+  }
+
+  return {
+    id: instance.id,
+    project_id: instance.project_id,
+    work_item_id: instance.work_item_id || null,
+    batch_id: instance.batch_id || null,
+    loop_state: instance.loop_state,
+    paused_at_stage: instance.paused_at_stage || null,
+    last_action_at: instance.last_action_at || null,
+    created_at: instance.created_at || null,
+    terminated_at: instance.terminated_at || null,
+  };
+}
+
+function classifyFactoryLoopError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (error instanceof loopController.StageOccupiedError || error?.code === 'FACTORY_STAGE_OCCUPIED') {
+    return {
+      errorCode: ErrorCodes.CONFLICT,
+      status: 409,
+      message,
+    };
+  }
+
+  if (message.startsWith('Project not found:') || message.startsWith('Factory loop instance not found:')) {
+    return {
+      errorCode: ErrorCodes.RESOURCE_NOT_FOUND,
+      status: 404,
+      message,
+    };
+  }
+
+  if (
+    message === 'Loop not started for this project'
+    || message.startsWith('Loop is paused')
+    || message.startsWith('Loop is not paused')
+    || message.startsWith('Loop is paused at ')
+    || message.startsWith('Loop is not paused at ')
+    || message.startsWith('Invalid gate stage:')
+  ) {
+    return {
+      errorCode: ErrorCodes.INVALID_STATUS_TRANSITION,
+      status: 409,
+      message,
+    };
+  }
+
+  return {
+    errorCode: ErrorCodes.INTERNAL_ERROR,
+    status: 500,
+    message,
+  };
+}
+
+function buildFactoryLoopErrorResponse(error) {
+  const classified = classifyFactoryLoopError(error);
+  return factoryHandlerError(classified.errorCode, classified.message, classified.status);
 }
 
 function ensureFactoryDecisionDb() {
@@ -756,6 +832,97 @@ async function handleFactoryLoopStatus(args) {
   return jsonResponse(result);
 }
 
+async function handleListFactoryLoopInstances(args) {
+  try {
+    const project = resolveProject(args.project);
+    const activeOnly = args.active_only === true || args.active_only === 'true';
+    const instances = (activeOnly
+      ? loopController.getActiveInstances(project.id)
+      : factoryLoopInstances.listInstances({ project_id: project.id, active_only: false }))
+      .map(normalizeFactoryLoopInstance);
+
+    return jsonResponse({
+      project_id: project.id,
+      active_only: activeOnly,
+      count: instances.length,
+      instances,
+    });
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
+async function handleFactoryLoopInstanceStatus(args) {
+  try {
+    loopController.getLoopState(args.instance);
+    return jsonResponse(normalizeFactoryLoopInstance(factoryLoopInstances.getInstance(args.instance)));
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
+async function handleStartFactoryLoopInstance(args) {
+  try {
+    const project = resolveProject(args.project);
+    const started = await loopController.startLoop(project.id);
+    const instance = factoryLoopInstances.getInstance(started.instance_id);
+    return jsonResponse(normalizeFactoryLoopInstance(instance));
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
+async function handleAdvanceFactoryLoopInstance(args) {
+  try {
+    const result = await loopController.advanceLoop(args.instance);
+    return jsonResponse(result);
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
+async function handleAdvanceFactoryLoopInstanceAsync(args) {
+  try {
+    loopController.getLoopState(args.instance);
+    const result = loopController.advanceLoopAsync(args.instance);
+    return jsonResponse(result, {
+      status: 202,
+      headers: {
+        Location: `/api/v2/factory/loops/${args.instance}/advance/${result.job_id}`,
+      },
+    });
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
+async function handleApproveFactoryGateInstance(args) {
+  try {
+    const result = await loopController.approveGate(args.instance, args.stage);
+    return jsonResponse(result);
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
+async function handleRejectFactoryGateInstance(args) {
+  try {
+    const result = await loopController.rejectGate(args.instance, args.stage);
+    return jsonResponse(result);
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
+async function handleRetryFactoryVerifyInstance(args) {
+  try {
+    const result = loopController.retryVerifyFromFailure(args.instance);
+    return jsonResponse(result);
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
 async function handleFactoryLoopJobStatus(args) {
   const project = resolveProject(args.project);
   const result = loopController.getLoopAdvanceJobStatusForProject(project.id, args.job_id);
@@ -769,6 +936,25 @@ async function handleFactoryLoopJobStatus(args) {
   }
 
   return jsonResponse(result);
+}
+
+async function handleFactoryLoopInstanceJobStatus(args) {
+  try {
+    loopController.getLoopState(args.instance);
+    const result = loopController.getLoopAdvanceJobStatus(args.instance, args.job_id);
+
+    if (!result) {
+      return factoryHandlerError(
+        ErrorCodes.RESOURCE_NOT_FOUND,
+        `Loop advance job not found: ${args.job_id}`,
+        404,
+      );
+    }
+
+    return jsonResponse(result);
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
 }
 
 async function handleAttachFactoryBatch(args) {
@@ -888,7 +1074,16 @@ module.exports = {
   handleApproveFactoryGate,
   handleRetryFactoryVerify,
   handleFactoryLoopStatus,
+  handleListFactoryLoopInstances,
+  handleFactoryLoopInstanceStatus,
+  handleStartFactoryLoopInstance,
+  handleAdvanceFactoryLoopInstance,
+  handleAdvanceFactoryLoopInstanceAsync,
+  handleApproveFactoryGateInstance,
+  handleRejectFactoryGateInstance,
+  handleRetryFactoryVerifyInstance,
   handleFactoryLoopJobStatus,
+  handleFactoryLoopInstanceJobStatus,
   handleAttachFactoryBatch,
   handleAnalyzeBatch,
   handleFactoryDriftStatus,

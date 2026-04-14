@@ -49,6 +49,65 @@ const FACTORY_LOOP_TOOLS = [
       project: { type: 'string' },
     },
   },
+  {
+    name: 'list_factory_loop_instances',
+    handlerName: 'handleListFactoryLoopInstances',
+    required: ['project'],
+    properties: {
+      project: { type: 'string' },
+      active_only: { type: 'boolean' },
+    },
+  },
+  {
+    name: 'factory_loop_instance_status',
+    handlerName: 'handleFactoryLoopInstanceStatus',
+    required: ['instance'],
+    properties: {
+      instance: { type: 'string' },
+    },
+  },
+  {
+    name: 'start_factory_loop_instance',
+    handlerName: 'handleStartFactoryLoopInstance',
+    required: ['project'],
+    properties: {
+      project: { type: 'string' },
+    },
+  },
+  {
+    name: 'advance_factory_loop_instance',
+    handlerName: 'handleAdvanceFactoryLoopInstance',
+    required: ['instance'],
+    properties: {
+      instance: { type: 'string' },
+    },
+  },
+  {
+    name: 'approve_factory_gate_instance',
+    handlerName: 'handleApproveFactoryGateInstance',
+    required: ['instance', 'stage'],
+    properties: {
+      instance: { type: 'string' },
+      stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'] },
+    },
+  },
+  {
+    name: 'reject_factory_gate_instance',
+    handlerName: 'handleRejectFactoryGateInstance',
+    required: ['instance', 'stage'],
+    properties: {
+      instance: { type: 'string' },
+      stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'] },
+    },
+  },
+  {
+    name: 'retry_factory_verify_instance',
+    handlerName: 'handleRetryFactoryVerifyInstance',
+    required: ['instance'],
+    properties: {
+      instance: { type: 'string' },
+    },
+  },
 ];
 
 describe('factory loop MCP tools', () => {
