@@ -242,7 +242,11 @@ describe('loopController.advanceLoop LEARN stage lazy DB wiring', () => {
     });
 
     const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
-    expect(approved.state).toBe(LOOP_STATES.LEARN);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
+
+    const verifyAdvance = await loopController.advanceLoop(project.id);
+    expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.LEARN);
 
     const result = await loopController.advanceLoop(project.id);
 

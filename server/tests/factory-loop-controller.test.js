@@ -129,6 +129,13 @@ function createFactoryTables(db) {
 
     CREATE INDEX IF NOT EXISTS idx_fd_project_time
       ON factory_decisions(project_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      tags TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -162,6 +169,16 @@ function loadFreshFactoryWorktrees() {
   const modulePath = require.resolve('../db/factory-worktrees');
   delete require.cache[modulePath];
   return require('../db/factory-worktrees');
+}
+
+function insertBatchTask(db, { taskId, batchId, status }) {
+  db.prepare(`
+    INSERT INTO tasks (id, status, tags)
+    VALUES (?, ?, ?)
+  `).run(taskId, status, JSON.stringify([
+    `factory:batch_id=${batchId}`,
+    'factory:pending_approval',
+  ]));
 }
 
 describe('factory loop-controller EXECUTE modes', () => {
@@ -399,6 +416,135 @@ describe('factory loop-controller EXECUTE modes', () => {
         from_state: LOOP_STATES.EXECUTE,
         to_state: LOOP_STATES.VERIFY,
       }),
+    });
+  });
+
+  it('reruns VERIFY after approveGate when pending-approval batch tasks become terminal', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-verify-pass',
+        branch: 'feat/factory-verify-pass',
+        worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-pass'),
+      })),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 18,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedTaskCount += 1;
+      const taskId = `approval-task-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: args.initial_status || 'pending_approval',
+      });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoop(project.id);
+
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
+    expect(executeAdvance.reason).toBe('batch_tasks_not_terminal');
+    expect(worktreeRunner.verify).not.toHaveBeenCalled();
+
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-1');
+
+    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
+    expect(loopController.getLoopState(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.VERIFY,
+      loop_paused_at_stage: null,
+    });
+
+    const verifyAdvance = await loopController.advanceLoop(project.id);
+
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+    expect(worktreeRunner.verify).toHaveBeenCalledWith(expect.objectContaining({
+      branch: 'feat/factory-verify-pass',
+      worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-pass'),
+    }));
+    expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.LEARN);
+    expect(verifyAdvance.paused_at_stage).toBeNull();
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.action === 'gate_approved')).toMatchObject({
+      stage: 'verify',
+      outcome: expect.objectContaining({
+        approved_stage: LOOP_STATES.VERIFY,
+        to_state: LOOP_STATES.VERIFY,
+      }),
+    });
+    expect(decisions.find((row) => row.action === 'worktree_verify_passed')).toMatchObject({
+      stage: 'verify',
+      outcome: expect.objectContaining({
+        branch: 'feat/factory-verify-pass',
+      }),
+    });
+  });
+
+  it('pauses at VERIFY_FAIL when rerun VERIFY fails after gate approval', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-verify-fail',
+        branch: 'feat/factory-verify-fail',
+        worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-fail'),
+      })),
+      verify: vi.fn(async () => ({
+        passed: false,
+        output: 'tests failed',
+        durationMs: 22,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedTaskCount += 1;
+      const taskId = `approval-task-fail-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: args.initial_status || 'pending_approval',
+      });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoop(project.id);
+
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
+    expect(worktreeRunner.verify).not.toHaveBeenCalled();
+
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-fail-1');
+
+    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
+
+    const verifyAdvance = await loopController.advanceLoop(project.id);
+
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+    expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(verifyAdvance.paused_at_stage).toBe('VERIFY_FAIL');
+    expect(verifyAdvance.reason).toBe('worktree_verify_failed');
+    expect(loopController.getLoopState(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: 'VERIFY_FAIL',
     });
   });
 

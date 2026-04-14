@@ -5,7 +5,6 @@ const fs = require('fs');
 const path = require('path');
 const {
   LOOP_STATES,
-  TRANSITIONS,
   getNextState,
   getPendingGateStage,
   getResumeStateForApprovedGate,
@@ -424,6 +423,30 @@ function getLatestStartedExecutionDecision(project_id) {
     return hydrateDecisionRow(row);
   } catch (error) {
     logger.debug({ err: error.message, project_id }, 'Unable to restore started_execution decision');
+    return null;
+  }
+}
+
+function getLatestStageDecision(project_id, stage) {
+  const db = database.getDbInstance();
+  const normalizedStage = normalizeDecisionStage(stage);
+  if (!db || !project_id || !normalizedStage) {
+    return null;
+  }
+
+  try {
+    const row = db.prepare(`
+      SELECT id, stage, actor, action, reasoning, inputs_json, outcome_json, batch_id
+      FROM factory_decisions
+      WHERE project_id = ?
+        AND stage = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(project_id, normalizedStage);
+
+    return hydrateDecisionRow(row);
+  } catch (error) {
+    logger.debug({ err: error.message, project_id, stage: normalizedStage }, 'Unable to inspect latest stage decision');
     return null;
   }
 }
@@ -2476,7 +2499,14 @@ async function runAdvanceLoop(project_id) {
     throw new Error('Loop is paused — use approveGate to continue');
   }
 
-  const pendingGateStage = getPendingGateStage(currentState, project.trust_level);
+  // VERIFY is an exit gate under supervised mode. After the operator approves
+  // that gate, the next advance must re-run executeVerifyStage once before the
+  // loop is allowed to proceed to LEARN.
+  const rerunApprovedVerify = currentState === LOOP_STATES.VERIFY
+    && getLatestStageDecision(project.id, LOOP_STATES.VERIFY)?.action === 'gate_approved';
+  const pendingGateStage = rerunApprovedVerify
+    ? null
+    : getPendingGateStage(currentState, project.trust_level);
   let nextState = pendingGateStage
     ? LOOP_STATES.PAUSED
     : getNextState(currentState, project.trust_level, 'approved');
@@ -2557,7 +2587,7 @@ async function runAdvanceLoop(project_id) {
     }
   }
 
-  if (nextState === LOOP_STATES.VERIFY) {
+  if (nextState === LOOP_STATES.VERIFY || rerunApprovedVerify) {
     stageResult = await executeVerifyStage(project.id, project.loop_batch_id);
     if (stageResult && stageResult.pause_at_stage === 'VERIFY_FAIL') {
       nextState = LOOP_STATES.PAUSED;
@@ -2703,7 +2733,9 @@ function approveGate(project_id, stage) {
   const project = getProjectOrThrow(project_id);
   assertValidGateStage(stage);
   assertPausedAtStage(project, stage);
-  const resumeState = getResumeStateForApprovedGate(stage, project.trust_level);
+  const resumeState = stage === LOOP_STATES.VERIFY
+    ? LOOP_STATES.VERIFY
+    : getResumeStateForApprovedGate(stage, project.trust_level);
 
   factoryHealth.updateProject(project.id, {
     loop_state: resumeState,

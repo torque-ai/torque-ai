@@ -245,6 +245,17 @@ function insertBatchTask(db, { taskId, batchId, status }) {
   ]));
 }
 
+async function advanceVerifyThenLearn(projectId) {
+  const verifyAdvance = await loopController.advanceLoop(projectId);
+  expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
+  expect(verifyAdvance.new_state).toBe(LOOP_STATES.LEARN);
+
+  const learnAdvance = await loopController.advanceLoop(projectId);
+  expect(learnAdvance.previous_state).toBe(LOOP_STATES.LEARN);
+
+  return { verifyAdvance, learnAdvance };
+}
+
 describe('factory loop work-item shipping', () => {
   let db;
   let originalGetDbInstance;
@@ -311,13 +322,12 @@ describe('factory loop work-item shipping', () => {
     });
 
     const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
-    expect(approved.state).toBe(LOOP_STATES.LEARN);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
-    const result = await loopController.advanceLoop(project.id);
+    const { learnAdvance } = await advanceVerifyThenLearn(project.id);
 
-    expect(result.previous_state).toBe(LOOP_STATES.LEARN);
-    expect(result.new_state).toBe(LOOP_STATES.IDLE);
-    expect(result.stage_result).toEqual(
+    expect(learnAdvance.new_state).toBe(LOOP_STATES.IDLE);
+    expect(learnAdvance.stage_result).toEqual(
       expect.objectContaining({
         feedback_id: expect.any(Number),
         summary: expect.any(String),
@@ -372,12 +382,11 @@ describe('factory loop work-item shipping', () => {
     });
 
     const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
-    expect(approved.state).toBe(LOOP_STATES.LEARN);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
-    const result = await loopController.advanceLoop(project.id);
+    const { learnAdvance } = await advanceVerifyThenLearn(project.id);
 
-    expect(result.previous_state).toBe(LOOP_STATES.LEARN);
-    expect(result.new_state).toBe(LOOP_STATES.IDLE);
+    expect(learnAdvance.new_state).toBe(LOOP_STATES.IDLE);
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
       id: workItem.id,
       status: 'in_progress',
@@ -437,12 +446,11 @@ describe('factory loop work-item shipping', () => {
     insertBatchTask(db, { taskId: 'approval-task-2', batchId, status: 'completed' });
 
     const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
-    expect(approved.state).toBe(LOOP_STATES.LEARN);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
-    const result = await loopController.advanceLoop(project.id);
+    const { learnAdvance } = await advanceVerifyThenLearn(project.id);
 
-    expect(result.previous_state).toBe(LOOP_STATES.LEARN);
-    expect(result.new_state).toBe(LOOP_STATES.IDLE);
+    expect(learnAdvance.new_state).toBe(LOOP_STATES.IDLE);
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
       id: workItem.id,
       status: 'shipped',
@@ -501,12 +509,14 @@ describe('factory loop work-item shipping', () => {
     insertBatchTask(db, { taskId: 'approval-task-4', batchId, status: 'queued' });
 
     const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
-    expect(approved.state).toBe(LOOP_STATES.LEARN);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
-    const result = await loopController.advanceLoop(project.id);
+    const verifyAdvance = await loopController.advanceLoop(project.id);
 
-    expect(result.previous_state).toBe(LOOP_STATES.LEARN);
-    expect(result.new_state).toBe(LOOP_STATES.IDLE);
+    expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(verifyAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
+    expect(verifyAdvance.reason).toBe('batch_tasks_not_terminal');
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
       id: workItem.id,
       status: 'verifying',
@@ -514,11 +524,11 @@ describe('factory loop work-item shipping', () => {
 
     const decisions = listDecisionRows(db, project.id);
     expect(decisions.find((row) => row.stage === 'learn' && row.action === 'shipped_work_item')).toBeUndefined();
-    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'skipped_shipping')).toMatchObject({
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'skipped_shipping')).toBeUndefined();
+    expect(decisions.find((row) => row.stage === 'verify' && row.action === 'waiting_for_batch_tasks')).toMatchObject({
       outcome: expect.objectContaining({
-        work_item_id: workItem.id,
-        reason: 'pending_approval_in_progress',
-        execution_action: 'completed_execution',
+        batch_id: batchId,
+        pending_count: 1,
       }),
     });
   });
@@ -543,7 +553,11 @@ describe('factory loop work-item shipping', () => {
 
     loopController.setWorktreeRunnerForTests({
       createForBatch: vi.fn(),
-      verify: vi.fn(),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 16,
+      })),
       mergeToMain: vi.fn(async () => ({
         merged: true,
         id: 'vc-worktree-ship-1',
@@ -584,11 +598,11 @@ describe('factory loop work-item shipping', () => {
     });
 
     const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
-    expect(approved.state).toBe(LOOP_STATES.LEARN);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
-    const result = await loopController.advanceLoop(project.id);
+    const { learnAdvance } = await advanceVerifyThenLearn(project.id);
 
-    expect(result.new_state).toBe(LOOP_STATES.IDLE);
+    expect(learnAdvance.new_state).toBe(LOOP_STATES.IDLE);
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
       id: workItem.id,
       status: 'shipped',

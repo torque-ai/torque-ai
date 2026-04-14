@@ -241,7 +241,7 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     });
   });
 
-  it('resumes a paused VERIFY gate at LEARN', () => {
+  it('resumes a paused VERIFY gate at VERIFY', () => {
     const { project } = registerPlanProject();
 
     factoryHealth.updateProject(project.id, {
@@ -253,10 +253,10 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
 
     expect(approved).toMatchObject({
       project_id: project.id,
-      state: LOOP_STATES.LEARN,
+      state: LOOP_STATES.VERIFY,
     });
     expect(loopController.getLoopState(project.id)).toMatchObject({
-      loop_state: LOOP_STATES.LEARN,
+      loop_state: LOOP_STATES.VERIFY,
       loop_paused_at_stage: null,
     });
 
@@ -265,7 +265,7 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
       stage: 'verify',
       outcome: expect.objectContaining({
         approved_stage: LOOP_STATES.VERIFY,
-        to_state: LOOP_STATES.LEARN,
+        to_state: LOOP_STATES.VERIFY,
       }),
     });
   });
