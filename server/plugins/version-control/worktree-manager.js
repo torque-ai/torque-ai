@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { execFileSync } = require('child_process');
+const childProcess = require('child_process');
 
 const DEFAULT_BASE_BRANCH = 'main';
 const DEFAULT_WORKTREE_DIR = '.worktrees';
@@ -48,7 +48,7 @@ function normalizeOptionalNumber(value, fieldName) {
 }
 
 function runGit(cwd, args, options = {}) {
-  return execFileSync('git', args, {
+  return childProcess.execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
     windowsHide: true,

@@ -478,7 +478,8 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(verifyAdvance.paused_at_stage).toBeNull();
 
     const decisions = listDecisionRows(db, project.id);
-    expect(decisions.find((row) => row.action === 'gate_approved')).toMatchObject({
+    const verifyApproved = decisions.filter((row) => row.action === 'gate_approved').pop();
+    expect(verifyApproved).toMatchObject({
       stage: 'verify',
       outcome: expect.objectContaining({
         approved_stage: LOOP_STATES.VERIFY,

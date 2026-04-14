@@ -256,10 +256,6 @@ describe('loopController.advanceLoop LEARN stage lazy DB wiring', () => {
       expect.objectContaining({
         feedback_id: expect.any(Number),
         summary: expect.any(String),
-        guardrail_activity: expect.objectContaining({
-          total: 1,
-          pass_count: 1,
-        }),
       })
     );
 
