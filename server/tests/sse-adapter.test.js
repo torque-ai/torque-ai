@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, vi } = require('vitest');
 const { streamToSse } = require('../streaming/sse-adapter');
 
 describe('streamToSse', () => {

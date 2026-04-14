@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, vi } = require('vitest');
 const { streamRun } = require('../streaming/stream-run');
 const { EventType } = require('../streaming/event-types');
 
