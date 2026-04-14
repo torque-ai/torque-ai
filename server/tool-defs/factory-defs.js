@@ -147,7 +147,7 @@ const tools = [
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Project ID or path' },
-        status: { type: 'string', enum: ['pending', 'triaged', 'in_progress', 'completed', 'rejected'], description: 'Filter by status' },
+        status: { type: 'string', enum: ['pending', 'triaged', 'in_progress', 'completed', 'rejected', 'intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped'], description: 'Filter by status' },
         limit: { type: 'integer', description: 'Max items to return. Default: 50' },
         offset: { type: 'integer', description: 'Offset for pagination' },
       },
@@ -164,7 +164,7 @@ const tools = [
         title: { type: 'string', description: 'New title' },
         description: { type: 'string', description: 'New description' },
         priority: { type: 'integer', description: 'New priority (1-100)' },
-        status: { type: 'string', enum: ['pending', 'triaged', 'in_progress', 'completed', 'rejected'], description: 'New status' },
+        status: { type: 'string', enum: ['pending', 'triaged', 'in_progress', 'completed', 'rejected', 'intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped'], description: 'New status' },
         batch_id: { type: 'string', description: 'Link to a TORQUE batch/workflow' },
         linked_item_id: { type: 'integer', description: 'Link to another work item' },
       },
