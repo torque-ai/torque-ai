@@ -14,6 +14,59 @@ const { storeArtifact, listArtifacts, getArtifact, deleteArtifact, getArtifactCo
 const { validateArtifactMimeType, isPathTraversalSafe, validateObjectDepth, requireTask, ErrorCodes, makeError } = require('../shared');
 const logger = require('../../logger').child({ component: 'advanced-artifacts' });
 
+function getRunDirManager() {
+  try {
+    const { defaultContainer } = require('../../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('runDirManager')) {
+      return defaultContainer.get('runDirManager');
+    }
+  } catch {
+    // Best-effort lookup for deployments that have not booted the container yet.
+  }
+  return null;
+}
+
+function isTextArtifactMimeType(mimeType) {
+  if (typeof mimeType !== 'string' || !mimeType.trim()) {
+    return false;
+  }
+  return mimeType.startsWith('text/')
+    || mimeType === 'application/json'
+    || mimeType === 'application/xml'
+    || mimeType === 'application/javascript'
+    || mimeType.endsWith('+json')
+    || mimeType.endsWith('+xml');
+}
+
+function formatRunArtifactDetails(artifact, includeContent = false) {
+  let output = `## Run Artifact: ${artifact.relative_path}\n\n`;
+  output += `**Artifact ID:** ${artifact.artifact_id}\n`;
+  output += `**Task:** ${artifact.task_id}\n`;
+  output += `**Workflow:** ${artifact.workflow_id || '-'}\n`;
+  output += `**Size:** ${(Number(artifact.size_bytes || 0) / 1024).toFixed(2)} KB\n`;
+  output += `**Type:** ${artifact.mime_type || 'application/octet-stream'}\n`;
+  output += `**Relative Path:** ${artifact.relative_path}\n`;
+  output += `**Path:** ${artifact.absolute_path}\n`;
+  output += `**Promoted:** ${artifact.promoted ? 'Yes' : 'No'}\n`;
+
+  if (includeContent && isTextArtifactMimeType(artifact.mime_type)) {
+    try {
+      const content = fs.readFileSync(artifact.absolute_path, 'utf8');
+      output += `\n### Content\n\n`;
+      output += '```\n';
+      output += content.substring(0, 5000);
+      if (content.length > 5000) {
+        output += `\n... (truncated, ${content.length} total characters)`;
+      }
+      output += '\n```\n';
+    } catch (err) {
+      output += `\n*Could not read content: ${err.message}*\n`;
+    }
+  }
+
+  return output;
+}
+
 
 /**
  * Store an artifact
@@ -275,6 +328,42 @@ function handleListArtifacts(args) {
   };
 }
 
+function handleListRunArtifacts(args) {
+  if (!args || !args.task_id || typeof args.task_id !== 'string') {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
+  }
+
+  const manager = getRunDirManager();
+  if (!manager) {
+    return makeError(ErrorCodes.OPERATION_FAILED, 'Run artifact manager is not available');
+  }
+
+  try {
+    const artifacts = manager.listArtifacts(args.task_id);
+    const runDir = manager.runDirFor(args.task_id);
+    let output = `## Run Artifacts for Task ${args.task_id.substring(0, 8)}...\n\n`;
+    output += `**Run Directory:** ${runDir}\n\n`;
+
+    if (artifacts.length === 0) {
+      output += 'No run artifacts found for this task.\n';
+    } else {
+      output += `| Path | Size | Type | Promoted |\n`;
+      output += `|------|------|------|----------|\n`;
+      for (const artifact of artifacts) {
+        const size = (Number(artifact.size_bytes || 0) / 1024).toFixed(1) + ' KB';
+        output += `| ${artifact.relative_path} | ${size} | ${artifact.mime_type || 'application/octet-stream'} | ${artifact.promoted ? 'yes' : 'no'} |\n`;
+      }
+      output += `\n**Total:** ${artifacts.length} run artifact${artifacts.length === 1 ? '' : 's'}`;
+    }
+
+    return {
+      content: [{ type: 'text', text: output }]
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.OPERATION_FAILED, err.message);
+  }
+}
+
 
 /**
  * Get an artifact
@@ -294,6 +383,30 @@ function handleGetArtifact(args) {
   } else if (args.task_id && args.name) {
     const artifacts = listArtifacts(args.task_id);
     artifact = artifacts.find(a => a.name === args.name);
+  }
+
+  if (!artifact) {
+    const manager = getRunDirManager();
+    if (manager) {
+      try {
+        let runArtifact = null;
+        if (args.artifact_id) {
+          runArtifact = manager.getArtifact(args.artifact_id);
+        } else if (args.task_id && args.name) {
+          runArtifact = manager.listArtifacts(args.task_id).find((entry) =>
+            entry.relative_path === args.name || path.basename(entry.relative_path) === args.name
+          );
+        }
+
+        if (runArtifact) {
+          return {
+            content: [{ type: 'text', text: formatRunArtifactDetails(runArtifact, Boolean(args.include_content)) }]
+          };
+        }
+      } catch (err) {
+        return makeError(ErrorCodes.OPERATION_FAILED, err.message);
+      }
+    }
   }
 
   if (!artifact) {
@@ -335,6 +448,37 @@ function handleGetArtifact(args) {
   return {
     content: [{ type: 'text', text: output }]
   };
+}
+
+function handlePromoteArtifact(args) {
+  if (!args || !args.artifact_id) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'artifact_id is required');
+  }
+  if (!args.dest_path || typeof args.dest_path !== 'string') {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'dest_path is required');
+  }
+
+  const manager = getRunDirManager();
+  if (!manager) {
+    return makeError(ErrorCodes.OPERATION_FAILED, 'Run artifact manager is not available');
+  }
+
+  try {
+    const promotedPath = manager.promoteArtifact(args.artifact_id, { destPath: args.dest_path });
+    const artifact = manager.getArtifact(args.artifact_id);
+    let output = `## Artifact Promoted\n\n`;
+    output += `**Artifact ID:** ${args.artifact_id}\n`;
+    output += `**Destination:** ${promotedPath}\n`;
+    if (artifact) {
+      output += `**Path:** ${artifact.relative_path}\n`;
+      output += `**Promoted:** ${artifact.promoted ? 'Yes' : 'No'}\n`;
+    }
+    return {
+      content: [{ type: 'text', text: output }]
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.OPERATION_FAILED, err.message);
+  }
 }
 
 
@@ -600,7 +744,9 @@ function createArtifactsHandlers() {
   return {
     handleStoreArtifact,
     handleListArtifacts,
+    handleListRunArtifacts,
     handleGetArtifact,
+    handlePromoteArtifact,
     handleDeleteArtifact,
     handleConfigureArtifactStorage,
     handleExportArtifacts,
@@ -610,7 +756,9 @@ function createArtifactsHandlers() {
 module.exports = {
   handleStoreArtifact,
   handleListArtifacts,
+  handleListRunArtifacts,
   handleGetArtifact,
+  handlePromoteArtifact,
   handleDeleteArtifact,
   handleConfigureArtifactStorage,
   handleExportArtifacts,

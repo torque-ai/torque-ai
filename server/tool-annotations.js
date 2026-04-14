@@ -168,6 +168,7 @@ const OVERRIDES = Object.freeze({
   replay_task:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   quick_setup_notifications:       Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   full_project_audit:              Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  list_run_artifacts:              READONLY,
 
   // idempotent: safe mutations, configurations, records
   share_context:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
@@ -188,6 +189,7 @@ const OVERRIDES = Object.freeze({
   conclude_experiment:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   renew_lease:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   acquire_lock:                    Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
+  promote_artifact:                LIFECYCLE,
 
   // ── Tools added by TORQUE competitive features workflow ──
   review_task_output:              Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),

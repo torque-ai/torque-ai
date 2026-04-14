@@ -85,6 +85,18 @@ function resolveRunnableOllamaModel(task) {
   }
 }
 
+function getRunDirManager() {
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('runDirManager')) {
+      return defaultContainer.get('runDirManager');
+    }
+  } catch {
+    // Container is best-effort here; startup can proceed without run-dir indexing support.
+  }
+  return null;
+}
+
 /**
  * Initialize with dependencies. Called from task-manager.js initSubModules().
  */
@@ -378,7 +390,7 @@ async function startTask(taskId) {
   const safeguardResult = runSafeguardPreChecks(task, taskId, provider);
   if (safeguardResult) return safeguardResult;
 
-  const taskMetadata = parseTaskMetadata(task.metadata);
+  let taskMetadata = parseTaskMetadata(task.metadata);
   const taskType = db.classifyTaskType(task.task_description || '');
   const contextTokenEstimate = getTaskContextTokenEstimate(taskMetadata, task.context);
   const preExecutePolicyResult = evaluateTaskPreExecutePolicy({
@@ -461,6 +473,29 @@ async function startTask(taskId) {
   }
 
   // Provider-specific caps are enforced during claim with `tryClaimTaskSlot`.
+
+  const runDirManager = getRunDirManager();
+  let runDir = null;
+  if (runDirManager) {
+    runDir = runDirManager.openRunDir(taskId);
+    const previousRunDir = parseTaskMetadata(claimResult.task?.metadata).run_dir;
+    const rewrittenDescription = typeof task.task_description === 'string'
+      ? task.task_description.replace(/\$run_dir/g, runDir)
+      : task.task_description;
+    taskMetadata = { ...taskMetadata, run_dir: runDir };
+    task.task_description = rewrittenDescription;
+    task.metadata = taskMetadata;
+
+    if (rewrittenDescription !== claimResult.task?.task_description || previousRunDir !== runDir) {
+      const updatedTask = db.updateTask(taskId, {
+        task_description: rewrittenDescription,
+        metadata: taskMetadata,
+      });
+      if (updatedTask) {
+        Object.assign(task, updatedTask);
+      }
+    }
+  }
 
   // === PRE-EXECUTION FILE RESOLUTION ===
   let resolvedFileContext = '';
@@ -638,6 +673,10 @@ async function startTask(taskId) {
     CI: '1',  // Many tools check for CI environment to disable prompts
     CODEX_NON_INTERACTIVE: '1',  // Custom flag for our use
     CLAUDE_NON_INTERACTIVE: '1', // Custom flag for Claude
+    TORQUE_TASK_ID: taskId,
+    TORQUE_WORKFLOW_ID: task.workflow_id || '',
+    TORQUE_WORKFLOW_NODE_ID: task.workflow_node_id || '',
+    TORQUE_RUN_DIR: runDir || '',
     // Ensure git works properly
     GIT_TERMINAL_PROMPT: '0',  // Disable git credential prompts
     // Fix Windows cp1252 encoding crash when LLM output contains emoji/unicode (P59)

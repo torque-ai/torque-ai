@@ -20,9 +20,11 @@
  */
 
 const logger = require('./logger').child({ component: 'container' });
+const path = require('path');
 
 const { createFamilyTemplates } = require('./db/family-templates');
 const { migrateConfigToRegistry } = require('./discovery/config-migrator');
+const { createRunDirManager } = require('./runs/run-dir-manager');
 
 /**
  * Topological sort using Kahn's algorithm.
@@ -201,6 +203,17 @@ function initModules(db, serverConfig) {
   }
   if (!_defaultContainer.has('serverConfig')) {
     _defaultContainer.registerValue('serverConfig', serverConfig);
+  }
+  if (!_defaultContainer.has('runDirManager')) {
+    const dataDir = typeof db.getDataDir === 'function'
+      ? db.getDataDir()
+      : require('./data-dir').getDataDir();
+    const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+    _defaultContainer.registerValue('runDirManager', createRunDirManager({
+      db: rawDb,
+      rootDir: path.join(dataDir, 'runs'),
+      promotedDir: path.join(dataDir, 'promoted'),
+    }));
   }
 
   serverConfig.init({ db });

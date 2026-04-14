@@ -236,6 +236,42 @@ const routes = [
   },
   {
     method: 'GET',
+    path: /^\/api\/v2\/tasks\/([^/]+)\/artifacts$/,
+    handlerName: 'handleV2CpTaskArtifacts',
+    mapParams: ['task_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('task_id', 'task id'),
+    }),
+  },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/tasks\/artifacts\/([^/]+)\/content$/,
+    handlerName: 'handleV2CpTaskArtifactContent',
+    mapParams: ['artifact_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('artifact_id', 'artifact id'),
+    }),
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/tasks\/artifacts\/([^/]+)\/promote$/,
+    handlerName: 'handleV2CpPromoteTaskArtifact',
+    mapParams: ['artifact_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('artifact_id', 'artifact id'),
+    }),
+  },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/tasks\/artifacts\/([^/]+)$/,
+    handlerName: 'handleV2CpTaskArtifact',
+    mapParams: ['artifact_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('artifact_id', 'artifact id'),
+    }),
+  },
+  {
+    method: 'GET',
     path: /^\/api\/v2\/tasks\/([^/]+)\/progress$/,
     handlerName: 'handleV2CpTaskProgress',
     mapParams: ['task_id'],

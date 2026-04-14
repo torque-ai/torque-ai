@@ -624,9 +624,20 @@ function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440) {
  * Prune completed/failed/cancelled tasks beyond a retention count.
  * Keeps the most recent N tasks of each terminal status.
  * @param {number} maxRetained - Maximum completed tasks to keep (default: 5000)
- * @returns {{ pruned: number }} Count of pruned tasks
+ * @returns {{ pruned: number, task_ids: string[] }} Count of pruned tasks
  */
 function pruneOldTasks(maxRetained = 5000) {
+  const rows = db.prepare(`
+    SELECT id
+    FROM tasks
+    WHERE status IN ('completed', 'failed', 'cancelled')
+    ORDER BY created_at DESC
+    LIMIT -1 OFFSET ?
+  `).all(maxRetained);
+  const taskIds = rows.map((row) => row.id).filter(Boolean);
+  if (taskIds.length === 0) {
+    return { pruned: 0, task_ids: [] };
+  }
   const result = db.prepare(`
     DELETE FROM tasks WHERE id IN (
       SELECT id FROM tasks
@@ -635,7 +646,7 @@ function pruneOldTasks(maxRetained = 5000) {
       LIMIT -1 OFFSET ?
     )
   `).run(maxRetained);
-  return { pruned: result.changes };
+  return { pruned: result.changes, task_ids: taskIds };
 }
 
 /**

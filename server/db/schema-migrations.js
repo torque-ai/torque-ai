@@ -239,6 +239,22 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
         WHERE id = 'val-empty-body'
       `).run();
     } catch (e) { logger.debug(`Schema migration (val-empty-body): ${e.message}`); }
+  try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS run_artifacts (
+          artifact_id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL,
+          workflow_id TEXT,
+          relative_path TEXT NOT NULL,
+          absolute_path TEXT NOT NULL,
+          size_bytes INTEGER,
+          mime_type TEXT,
+          promoted INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_artifacts_task ON run_artifacts(task_id);
+      `);
+    } catch (e) { logger.debug(`Schema migration (run_artifacts): ${e.message}`); }
   safeAddColumn('rate_limits', 'provider TEXT');
   safeAddColumn('rate_limits', 'enabled INTEGER DEFAULT 1');
   safeAddColumn('tasks', 'provider TEXT DEFAULT \'codex\'');

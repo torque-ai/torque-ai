@@ -100,6 +100,7 @@ function buildTaskResponse(task) {
     id: task.id,
     status: task.status,
     description: task.task_description || task.description || null,
+    run_dir: metadata.run_dir || null,
     provider: task.provider || null,
     model: task.model || null,
     working_directory: task.working_directory || null,

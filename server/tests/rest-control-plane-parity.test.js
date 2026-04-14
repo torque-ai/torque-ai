@@ -41,7 +41,9 @@ const handlerModule = (names) => {
 installCjsModuleMock('../api/v2-task-handlers', handlerModule([
   'handlePreviewTaskStudyContext',
   'handleSubmitTask', 'handleListTasks', 'handleGetTask', 'handleCancelTask',
-  'handleTaskDiff', 'handleTaskLogs', 'handleTaskProgress', 'handleRetryTask',
+  'handleTaskDiff', 'handleTaskLogs', 'handleTaskArtifacts', 'handleGetTaskArtifact',
+  'handleTaskArtifactContent', 'handlePromoteTaskArtifact',
+  'handleTaskProgress', 'handleRetryTask',
   'handleCommitTask', 'handleDeleteTask', 'handleApproveTask', 'handleRejectTask',
   'handleApproveTaskBatch', 'handleApproveSwitch', 'handleRejectSwitch',
   'handleReassignTaskProvider',

@@ -129,6 +129,7 @@ const VALID_TABLE_NAMES = new Set([
   'retry_attempts',
   'retry_history',
   'retry_rules',
+  'run_artifacts',
   'routing_rules',
   'routing_templates',
   'safeguard_tool_config',
@@ -1218,6 +1219,22 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_task_artifacts_task ON task_artifacts(task_id);
       CREATE INDEX IF NOT EXISTS idx_task_artifacts_name ON task_artifacts(name);
       CREATE INDEX IF NOT EXISTS idx_task_artifacts_expires ON task_artifacts(expires_at);
+    `);
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS run_artifacts (
+        artifact_id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        workflow_id TEXT,
+        relative_path TEXT NOT NULL,
+        absolute_path TEXT NOT NULL,
+        size_bytes INTEGER,
+        mime_type TEXT,
+        promoted INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+  db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_run_artifacts_task ON run_artifacts(task_id);
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS task_breakpoints (

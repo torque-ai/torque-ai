@@ -51,6 +51,22 @@ function ensureTestSchema(dbHandle) {
     ON host_credentials (host_name, host_type, credential_type);
   `);
 
+  dbHandle.exec(`
+    CREATE TABLE IF NOT EXISTS run_artifacts (
+      artifact_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      workflow_id TEXT,
+      relative_path TEXT NOT NULL,
+      absolute_path TEXT NOT NULL,
+      size_bytes INTEGER,
+      mime_type TEXT,
+      promoted INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_artifacts_task
+    ON run_artifacts (task_id);
+  `);
+
   for (const statement of [
     'ALTER TABLE task_file_changes ADD COLUMN stash_ref TEXT',
     'ALTER TABLE task_file_changes ADD COLUMN original_content TEXT',
