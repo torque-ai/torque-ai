@@ -16,6 +16,7 @@ function createRouteHandlerLookup({
     handleV2TaskStatus: v2CoreHandlers.handleV2TaskStatus,
     handleV2TaskCancel: v2CoreHandlers.handleV2TaskCancel,
     handleV2TaskEvents: v2CoreHandlers.handleV2TaskEvents,
+    handleTaskStream: v2CoreHandlers.handleTaskStream,
     handleV2ListProviders: v2CoreHandlers.handleV2ListProviders,
     handleV2ProviderCapabilities: v2CoreHandlers.handleV2ProviderCapabilities,
     handleV2ProviderModels: v2CoreHandlers.handleV2ProviderModels,

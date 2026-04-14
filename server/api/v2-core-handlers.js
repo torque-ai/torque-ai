@@ -648,6 +648,56 @@ async function handleV2TaskEvents(_req, res, context = {}, taskId = null, req = 
   }
 }
 
+async function handleTaskStream(_req, res, _context = {}, taskId = null, req = null) {
+  const resolvedTaskId = req?.params?.task_id || taskId;
+  const taskRow = getV2TaskStatusRow(resolvedTaskId);
+
+  if (!taskRow) {
+    sendJson(res, { error: 'Task not found' }, 404, req || _req);
+    return;
+  }
+
+  if (!taskRow.provider) {
+    sendJson(res, { error: 'Task has no assigned provider' }, 409, req || _req);
+    return;
+  }
+
+  const { defaultContainer } = require('../container');
+  const providerRegistry = defaultContainer?.get?.('providerRegistry') || require('../providers/registry');
+  const provider = providerRegistry?.getProviderInstance?.(taskRow.provider);
+
+  if (!provider) {
+    sendJson(res, { error: `Provider unavailable: ${taskRow.provider}` }, 503, req || _req);
+    return;
+  }
+
+  const { streamRun } = require('../streaming/stream-run');
+  const { streamToSse } = require('../streaming/sse-adapter');
+  const { buildToolSurface, createTaskCallProvider } = require('../streaming/task-stream');
+
+  const abortController = new AbortController();
+  const onClose = () => abortController.abort();
+
+  req?.on?.('close', onClose);
+  _req?.on?.('close', onClose);
+
+  try {
+    await streamToSse(
+      streamRun({
+        prompt: taskRow.task_description,
+        tools: buildToolSurface(taskRow),
+        callProvider: createTaskCallProvider(taskRow, provider, {
+          signal: abortController.signal,
+        }),
+      }),
+      res,
+    );
+  } finally {
+    req?.off?.('close', onClose);
+    _req?.off?.('close', onClose);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Inference handlers
 // ---------------------------------------------------------------------------
@@ -1104,6 +1154,7 @@ module.exports = {
   handleV2TaskStatus,
   handleV2TaskCancel,
   handleV2TaskEvents,
+  handleTaskStream,
   handleV2Inference,
   handleV2ProviderInference,
   handleV2ProviderModels,
