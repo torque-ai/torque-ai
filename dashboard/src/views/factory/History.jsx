@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { useOutletContext } from 'react-router-dom';
 import { factory as factoryApi, getDecisionLog } from '../../api';
@@ -137,6 +137,7 @@ function HistorySkeletonRows() {
 
 export default function History() {
   const { selectedProject } = useOutletContext();
+  const selectedProjectId = selectedProject?.id;
   const [items, setItems] = useState([]);
   const [counts, setCounts] = useState(() => getEmptyCounts());
   const [loading, setLoading] = useState(false);
@@ -144,6 +145,8 @@ export default function History() {
   const [selectedStatus, setSelectedStatus] = useState('');
   const [expandedItemId, setExpandedItemId] = useState(null);
   const [batchDecisionState, setBatchDecisionState] = useState({});
+  const expandedItemIdRef = useRef(expandedItemId);
+  const batchDecisionStateRef = useRef(batchDecisionState);
 
   const updateBatchState = useCallback((batchId, updater) => {
     setBatchDecisionState((current) => {
@@ -157,16 +160,18 @@ export default function History() {
         ? updater(previous)
         : { ...previous, ...updater };
 
-      return { ...current, [batchId]: nextState };
+      const nextBatchState = { ...current, [batchId]: nextState };
+      batchDecisionStateRef.current = nextBatchState;
+      return nextBatchState;
     });
   }, []);
 
   const loadBatchDecisions = useCallback(async (batchId, { force = false, isCancelled = () => false } = {}) => {
-    if (!selectedProject?.id || !batchId) {
+    if (!selectedProjectId || !batchId) {
       return;
     }
 
-    const existing = batchDecisionState[batchId];
+    const existing = batchDecisionStateRef.current[batchId];
     if (!force && (existing?.loading || existing?.loaded)) {
       return;
     }
@@ -174,7 +179,7 @@ export default function History() {
     updateBatchState(batchId, { error: '', loading: true });
 
     try {
-      const response = await getDecisionLog(selectedProject.id, { limit: DECISION_FETCH_LIMIT });
+      const response = await getDecisionLog(selectedProjectId, { limit: DECISION_FETCH_LIMIT });
       if (isCancelled()) {
         return;
       }
@@ -202,10 +207,10 @@ export default function History() {
         loading: false,
       });
     }
-  }, [batchDecisionState, selectedProject?.id, updateBatchState]);
+  }, [selectedProjectId, updateBatchState]);
 
   const loadHistory = useCallback(async ({ isCancelled = () => false } = {}) => {
-    if (!selectedProject?.id) {
+    if (!selectedProjectId) {
       if (!isCancelled()) {
         setItems([]);
         setCounts(getEmptyCounts());
@@ -222,7 +227,7 @@ export default function History() {
 
     try {
       const responses = await Promise.all(
-        TERMINAL_STATUSES.map((status) => factoryApi.intake(selectedProject.id, { status, limit: HISTORY_FETCH_LIMIT }))
+        TERMINAL_STATUSES.map((status) => factoryApi.intake(selectedProjectId, { status, limit: HISTORY_FETCH_LIMIT }))
       );
 
       if (isCancelled()) {
@@ -239,7 +244,7 @@ export default function History() {
         shipped: Number(stats.shipped) || 0,
         rejected: Number(stats.rejected) || 0,
       };
-      const expandedItem = mergedItems.find((item) => item.id === expandedItemId) || null;
+      const expandedItem = mergedItems.find((item) => item.id === expandedItemIdRef.current) || null;
 
       setItems(mergedItems);
       setCounts(nextCounts);
@@ -258,16 +263,26 @@ export default function History() {
         setLoading(false);
       }
     }
-  }, [expandedItemId, loadBatchDecisions, selectedProject?.id]);
+  }, [loadBatchDecisions, selectedProjectId]);
 
   useEffect(() => {
+    expandedItemIdRef.current = expandedItemId;
+  }, [expandedItemId]);
+
+  useEffect(() => {
+    batchDecisionStateRef.current = batchDecisionState;
+  }, [batchDecisionState]);
+
+  useEffect(() => {
+    expandedItemIdRef.current = null;
+    batchDecisionStateRef.current = {};
     setItems([]);
     setCounts(getEmptyCounts());
     setError('');
     setSelectedStatus('');
     setExpandedItemId(null);
     setBatchDecisionState({});
-  }, [selectedProject?.id]);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     let cancelled = false;

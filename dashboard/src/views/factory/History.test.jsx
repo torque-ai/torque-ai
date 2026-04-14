@@ -202,8 +202,9 @@ describe('Factory History', () => {
     });
 
     const expandedPanel = await screen.findByText('Batch Decisions');
-    const panel = expandedPanel.closest('div');
+    const panel = expandedPanel.closest('td');
 
+    expect(panel).not.toBeNull();
     expect(within(panel).getByText('Plan')).toBeInTheDocument();
     expect(within(panel).getByText(/Plan \[queued\]: Prepared the batch for release\./)).toBeInTheDocument();
     expect(within(panel).queryByText(/Different batch/)).not.toBeInTheDocument();
