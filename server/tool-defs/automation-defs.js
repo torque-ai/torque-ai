@@ -207,6 +207,22 @@ const tools = [
     }
   },
   {
+    name: 'schedule_workflow_spec',
+    description: 'Schedule a workflow spec to run on a cron schedule. Equivalent to schedule_task but dispatches run_workflow_spec instead of submit_task.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Schedule name (unique).' },
+        cron: { type: 'string', description: 'Cron expression (e.g., "0 2 * * *" for 2am daily).' },
+        spec_path: { type: 'string', description: 'Path to workflow spec YAML, relative to working_directory or absolute.' },
+        working_directory: { type: 'string' },
+        enabled: { type: 'boolean', default: true },
+        timezone: { type: 'string', description: 'IANA timezone (e.g., "America/Denver"). Defaults to system tz.' }
+      },
+      required: ['name', 'cron', 'spec_path']
+    }
+  },
+  {
     name: 'configure_quota_auto_scale',
     description: 'Configure quota auto-scaling rules. When enabled and provider queue depth exceeds the threshold, new eligible tasks are proactively routed to quota API providers (groq, cerebras, google-ai, openrouter) instead of waiting for a provider queue slot. GLOBAL: applies to all projects.',
     inputSchema: {

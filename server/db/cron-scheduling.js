@@ -104,6 +104,10 @@ function normalizeScheduledTaskInput(dataOrName, cronExpression, taskDescription
 }
 
 function inferScheduleExecutionType(schedule) {
+  if (schedule?.payload_kind === 'workflow_spec') {
+    return 'workflow_spec';
+  }
+
   const taskConfig = isPlainObject(schedule?.task_config)
     ? schedule.task_config
     : safeJsonParse(schedule?.task_config, {});
@@ -823,15 +827,17 @@ function createCronScheduledTask(dataOrName, cronExpression, taskDescription, le
 
   const stmt = db.prepare(`
     INSERT INTO scheduled_tasks (
-      id, name, task_description, working_directory, timeout_minutes,
+      id, name, task_description, payload_kind, spec_path, working_directory, timeout_minutes,
       auto_approve, schedule_type, cron_expression, next_run_at, enabled, created_at, task_config, updated_at, timezone
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
     scheduleId,
     data.name,
     taskConfig.task || 'Scheduled task',
+    data.payload_kind || 'task',
+    data.spec_path || null,
     taskConfig.working_directory || null,
     taskConfig.timeout_minutes || 30,
     taskConfig.auto_approve ? 1 : 0,
