@@ -77,6 +77,15 @@ const routes = [
   { method: 'POST', path: '/api/tasks', tool: 'smart_submit_task', mapBody: true },
   { method: 'POST', path: '/api/tasks/submit', tool: 'submit_task', mapBody: true },
   { method: 'GET', path: '/api/tasks', tool: 'list_tasks', mapQuery: true },
+  {
+    method: 'GET',
+    path: /^\/api\/tasks\/([^/]+)\/stream$/,
+    handlerName: 'handleTaskStream',
+    mapParams: ['task_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('task_id', 'task id'),
+    }),
+  },
   { method: 'GET', path: /^\/api\/tasks\/([^/]+)$/, tool: 'get_result', mapParams: ['task_id'] },
   { method: 'DELETE', path: /^\/api\/tasks\/([^/]+)$/, tool: 'cancel_task', mapParams: ['task_id'], mapQuery: true },
   { method: 'DELETE', path: '/api/tasks', tool: 'delete_task', mapQuery: true },

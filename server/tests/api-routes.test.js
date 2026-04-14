@@ -160,6 +160,7 @@ const SPECIAL_HANDLER_NAMES = [
   'handleV2Inference',
   'handleV2ProviderInference',
   'handleV2TaskEvents',
+  'handleTaskStream',
   'handleV2ListProviders',
   'handleV2ProviderCapabilities',
   'handleV2ProviderModels',
@@ -436,6 +437,7 @@ function createModules() {
       'handleV2Inference',
       'handleV2ProviderInference',
       'handleV2TaskEvents',
+      'handleTaskStream',
       'handleV2ListProviders',
       'handleV2ProviderCapabilities',
       'handleV2ProviderModels',
@@ -454,6 +456,7 @@ function createModules() {
   specialHandlers.handleV2Inference = currentModules.v2Inference.handleV2Inference;
   specialHandlers.handleV2ProviderInference = currentModules.v2Inference.handleV2ProviderInference;
   specialHandlers.handleV2TaskEvents = currentModules.v2Inference.handleV2TaskEvents;
+  specialHandlers.handleTaskStream = currentModules.v2Inference.handleTaskStream;
   specialHandlers.handleV2ListProviders = currentModules.v2Inference.handleV2ListProviders;
   specialHandlers.handleV2ProviderCapabilities = currentModules.v2Inference.handleV2ProviderCapabilities;
   specialHandlers.handleV2ProviderModels = currentModules.v2Inference.handleV2ProviderModels;
@@ -1022,6 +1025,24 @@ describe('v2 middleware wiring', () => {
     });
 
     expect(currentModules.v2Inference.handleV2TaskEvents).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      expect.objectContaining({
+        params: { task_id: 'task/42' },
+      }),
+      'task%2F42',
+      expect.any(Object),
+    );
+    expect(result.req.params.task_id).toBe('task/42');
+  });
+
+  it('decodes task ids for task stream routes', async () => {
+    const result = await dispatchRequest({
+      method: 'GET',
+      url: '/api/tasks/task%2F42/stream',
+    });
+
+    expect(currentModules.v2Inference.handleTaskStream).toHaveBeenCalledWith(
       expect.any(Object),
       expect.any(Object),
       expect.objectContaining({
