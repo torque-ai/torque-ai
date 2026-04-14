@@ -74,6 +74,7 @@ function createFactoryTables(db) {
       reject_reason TEXT,
       linked_item_id INTEGER,
       batch_id TEXT,
+      claimed_by_instance_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -82,6 +83,26 @@ function createFactoryTables(db) {
       ON factory_work_items(project_id, status);
     CREATE INDEX IF NOT EXISTS idx_fwi_status_priority
       ON factory_work_items(status, priority DESC);
+
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER REFERENCES factory_work_items(id),
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      terminated_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE');
+
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL;
 
     CREATE TABLE IF NOT EXISTS factory_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,12 +193,12 @@ describe('factory selected work item', () => {
       requestor: 'test',
     });
 
-    loopController.startLoop(project.id);
+    loopController.startLoopForProject(project.id);
 
-    const senseAdvance = await loopController.advanceLoop(project.id);
+    const senseAdvance = await loopController.advanceLoopForProject(project.id);
     expect(senseAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
 
-    const prioritizeAdvance = await loopController.advanceLoop(project.id);
+    const prioritizeAdvance = await loopController.advanceLoopForProject(project.id);
     expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
     expect(prioritizeAdvance.reason).toBe('pre-written plan detected');
 
@@ -186,7 +207,7 @@ describe('factory selected work item', () => {
       priority: 99,
     });
 
-    const executeAdvance = await loopController.advanceLoop(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
 
     expect(factoryIntake.getWorkItem(selectedItem.id)).toMatchObject({

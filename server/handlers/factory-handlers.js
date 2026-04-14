@@ -717,19 +717,19 @@ async function handleGuardrailEvents(args) {
 
 async function handleStartFactoryLoop(args) {
   const project = resolveProject(args.project);
-  const result = await loopController.startLoop(project.id);
+  const result = await loopController.startLoopForProject(project.id);
   return jsonResponse(result);
 }
 
 async function handleAdvanceFactoryLoop(args) {
   const project = resolveProject(args.project);
-  const result = await loopController.advanceLoop(project.id);
+  const result = await loopController.advanceLoopForProject(project.id);
   return jsonResponse(result);
 }
 
 async function handleAdvanceFactoryLoopAsync(args) {
   const project = resolveProject(args.project);
-  const result = loopController.advanceLoopAsync(project.id);
+  const result = loopController.advanceLoopAsyncForProject(project.id);
   return jsonResponse(result, {
     status: 202,
     headers: {
@@ -740,25 +740,25 @@ async function handleAdvanceFactoryLoopAsync(args) {
 
 async function handleApproveFactoryGate(args) {
   const project = resolveProject(args.project);
-  const result = await loopController.approveGate(project.id, args.stage);
+  const result = await loopController.approveGateForProject(project.id, args.stage);
   return jsonResponse(result);
 }
 
 async function handleRetryFactoryVerify(args) {
   const project = resolveProject(args.project);
-  const result = loopController.retryVerifyFromFailure(project.id);
+  const result = loopController.retryVerifyFromFailureForProject(project.id);
   return jsonResponse(result);
 }
 
 async function handleFactoryLoopStatus(args) {
   const project = resolveProject(args.project);
-  const result = loopController.getLoopState(project.id);
+  const result = loopController.getLoopStateForProject(project.id);
   return jsonResponse(result);
 }
 
 async function handleFactoryLoopJobStatus(args) {
   const project = resolveProject(args.project);
-  const result = loopController.getLoopAdvanceJobStatus(project.id, args.job_id);
+  const result = loopController.getLoopAdvanceJobStatusForProject(project.id, args.job_id);
 
   if (!result) {
     return jsonResponse(null, {
@@ -773,7 +773,7 @@ async function handleFactoryLoopJobStatus(args) {
 
 async function handleAttachFactoryBatch(args) {
   const project = resolveProject(args.project);
-  const result = loopController.attachBatchId(project.id, args.batch_id);
+  const result = loopController.attachBatchIdForProject(project.id, args.batch_id);
   return jsonResponse(result);
 }
 

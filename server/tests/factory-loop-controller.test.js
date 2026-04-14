@@ -86,12 +86,33 @@ function createFactoryTables(db) {
       reject_reason TEXT,
       linked_item_id INTEGER,
       batch_id TEXT,
+      claimed_by_instance_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_fwi_project_status
       ON factory_work_items(project_id, status);
+
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER REFERENCES factory_work_items(id),
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      terminated_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE');
+
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL;
 
     CREATE TABLE IF NOT EXISTS factory_worktrees (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -153,15 +174,15 @@ function listDecisionRows(db, projectId) {
 }
 
 async function advanceSupervisedPlanProject(projectId) {
-  loopController.startLoop(projectId);
+  loopController.startLoopForProject(projectId);
 
-  const senseAdvance = await loopController.advanceLoop(projectId);
+  const senseAdvance = await loopController.advanceLoopForProject(projectId);
   expect(senseAdvance.new_state).toBe(LOOP_STATES.PAUSED);
   expect(senseAdvance.paused_at_stage).toBe(LOOP_STATES.PRIORITIZE);
 
-  loopController.approveGate(projectId, LOOP_STATES.PRIORITIZE);
+  loopController.approveGateForProject(projectId, LOOP_STATES.PRIORITIZE);
 
-  const prioritizeAdvance = await loopController.advanceLoop(projectId);
+  const prioritizeAdvance = await loopController.advanceLoopForProject(projectId);
   expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
 }
 
@@ -266,7 +287,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     const before = fs.readFileSync(planPath, 'utf8');
 
     await advanceSupervisedPlanProject(project.id);
-    const executeAdvance = await loopController.advanceLoop(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(executeAdvance.paused_at_stage).toBeNull();
@@ -344,7 +365,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     const before = fs.readFileSync(planPath, 'utf8');
 
     await advanceSupervisedPlanProject(project.id);
-    const executeAdvance = await loopController.advanceLoop(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(fs.readFileSync(planPath, 'utf8')).toBe(before);
@@ -387,7 +408,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
 
     await advanceSupervisedPlanProject(project.id);
-    const executeAdvance = await loopController.advanceLoop(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(executeAdvance.paused_at_stage).toBeNull();
@@ -450,7 +471,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     loopController.setWorktreeRunnerForTests(worktreeRunner);
 
     await advanceSupervisedPlanProject(project.id);
-    const executeAdvance = await loopController.advanceLoop(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(executeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
     expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
@@ -459,14 +480,14 @@ describe('factory loop-controller EXECUTE modes', () => {
 
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-1');
 
-    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
     expect(approved.state).toBe(LOOP_STATES.VERIFY);
-    expect(loopController.getLoopState(project.id)).toMatchObject({
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
       loop_state: LOOP_STATES.VERIFY,
       loop_paused_at_stage: null,
     });
 
-    const verifyAdvance = await loopController.advanceLoop(project.id);
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
     expect(worktreeRunner.verify).toHaveBeenCalledWith(expect.objectContaining({
@@ -525,7 +546,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     loopController.setWorktreeRunnerForTests(worktreeRunner);
 
     await advanceSupervisedPlanProject(project.id);
-    const executeAdvance = await loopController.advanceLoop(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(executeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
     expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
@@ -533,17 +554,17 @@ describe('factory loop-controller EXECUTE modes', () => {
 
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-fail-1');
 
-    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
     expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
-    const verifyAdvance = await loopController.advanceLoop(project.id);
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
     expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
     expect(verifyAdvance.new_state).toBe(LOOP_STATES.PAUSED);
     expect(verifyAdvance.paused_at_stage).toBe('VERIFY_FAIL');
     expect(verifyAdvance.reason).toBe('worktree_verify_failed');
-    expect(loopController.getLoopState(project.id)).toMatchObject({
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
       loop_state: LOOP_STATES.PAUSED,
       loop_paused_at_stage: 'VERIFY_FAIL',
     });
@@ -552,7 +573,7 @@ describe('factory loop-controller EXECUTE modes', () => {
   it('throws when retryVerifyFromFailure is called outside VERIFY_FAIL', () => {
     const { project } = registerPlanProject();
 
-    expect(() => loopController.retryVerifyFromFailure(project.id)).toThrow('Loop is not paused at VERIFY_FAIL');
+    expect(() => loopController.retryVerifyFromFailureForProject(project.id)).toThrow('Loop is not paused at VERIFY_FAIL');
   });
 
   it('retryVerifyFromFailure resets loop state to VERIFY and clears the paused stage', async () => {
@@ -586,25 +607,25 @@ describe('factory loop-controller EXECUTE modes', () => {
     loopController.setWorktreeRunnerForTests(worktreeRunner);
 
     await advanceSupervisedPlanProject(project.id);
-    await loopController.advanceLoop(project.id);
+    await loopController.advanceLoopForProject(project.id);
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-retry-reset-1');
-    loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
 
-    const failedVerify = await loopController.advanceLoop(project.id);
+    const failedVerify = await loopController.advanceLoopForProject(project.id);
     expect(failedVerify.paused_at_stage).toBe('VERIFY_FAIL');
-    expect(loopController.getLoopState(project.id)).toMatchObject({
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
       loop_state: LOOP_STATES.PAUSED,
       loop_paused_at_stage: 'VERIFY_FAIL',
     });
 
-    const retried = loopController.retryVerifyFromFailure(project.id);
+    const retried = loopController.retryVerifyFromFailureForProject(project.id);
 
     expect(retried).toMatchObject({
       project_id: project.id,
       state: LOOP_STATES.VERIFY,
       message: 'VERIFY retry requested; advance the loop to re-run remote verify',
     });
-    expect(loopController.getLoopState(project.id)).toMatchObject({
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
       loop_state: LOOP_STATES.VERIFY,
       loop_paused_at_stage: null,
     });
@@ -658,16 +679,16 @@ describe('factory loop-controller EXECUTE modes', () => {
     loopController.setWorktreeRunnerForTests(worktreeRunner);
 
     await advanceSupervisedPlanProject(project.id);
-    await loopController.advanceLoop(project.id);
+    await loopController.advanceLoopForProject(project.id);
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-retry-1');
-    loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
 
-    const failedVerify = await loopController.advanceLoop(project.id);
+    const failedVerify = await loopController.advanceLoopForProject(project.id);
     expect(failedVerify.paused_at_stage).toBe('VERIFY_FAIL');
     expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
 
-    loopController.retryVerifyFromFailure(project.id);
-    const retriedVerify = await loopController.advanceLoop(project.id);
+    loopController.retryVerifyFromFailureForProject(project.id);
+    const retriedVerify = await loopController.advanceLoopForProject(project.id);
 
     expect(worktreeRunner.verify).toHaveBeenCalledTimes(2);
     expect(retriedVerify.previous_state).toBe(LOOP_STATES.VERIFY);
@@ -694,7 +715,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     loopController.setWorktreeRunnerForTests(worktreeRunner);
 
     await advanceSupervisedPlanProject(project.id);
-    const executeAdvance = await loopController.advanceLoop(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(worktreeRunner.createForBatch).toHaveBeenCalledTimes(1);

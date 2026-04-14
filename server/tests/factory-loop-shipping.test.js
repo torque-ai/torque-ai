@@ -58,12 +58,33 @@ function createFactoryTables(db) {
       reject_reason TEXT,
       linked_item_id INTEGER,
       batch_id TEXT,
+      claimed_by_instance_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_fwi_project_status
       ON factory_work_items(project_id, status);
+
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER REFERENCES factory_work_items(id),
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      terminated_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE');
+
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL;
 
     CREATE TABLE IF NOT EXISTS factory_worktrees (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -246,11 +267,11 @@ function insertBatchTask(db, { taskId, batchId, status }) {
 }
 
 async function advanceVerifyThenLearn(projectId) {
-  const verifyAdvance = await loopController.advanceLoop(projectId);
+  const verifyAdvance = await loopController.advanceLoopForProject(projectId);
   expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
   expect(verifyAdvance.new_state).toBe(LOOP_STATES.LEARN);
 
-  const learnAdvance = await loopController.advanceLoop(projectId);
+  const learnAdvance = await loopController.advanceLoopForProject(projectId);
   expect(learnAdvance.previous_state).toBe(LOOP_STATES.LEARN);
 
   return { verifyAdvance, learnAdvance };
@@ -321,7 +342,7 @@ describe('factory loop work-item shipping', () => {
       },
     });
 
-    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
     expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
     const { learnAdvance } = await advanceVerifyThenLearn(project.id);
@@ -381,7 +402,7 @@ describe('factory loop work-item shipping', () => {
       },
     });
 
-    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
     expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
     const { learnAdvance } = await advanceVerifyThenLearn(project.id);
@@ -445,7 +466,7 @@ describe('factory loop work-item shipping', () => {
     insertBatchTask(db, { taskId: 'approval-task-1', batchId, status: 'completed' });
     insertBatchTask(db, { taskId: 'approval-task-2', batchId, status: 'completed' });
 
-    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
     expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
     const { learnAdvance } = await advanceVerifyThenLearn(project.id);
@@ -508,10 +529,10 @@ describe('factory loop work-item shipping', () => {
     insertBatchTask(db, { taskId: 'approval-task-3', batchId, status: 'completed' });
     insertBatchTask(db, { taskId: 'approval-task-4', batchId, status: 'queued' });
 
-    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
     expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
-    const verifyAdvance = await loopController.advanceLoop(project.id);
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
     expect(verifyAdvance.new_state).toBe(LOOP_STATES.PAUSED);
@@ -597,7 +618,7 @@ describe('factory loop work-item shipping', () => {
       },
     });
 
-    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
     expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
     const { learnAdvance } = await advanceVerifyThenLearn(project.id);
@@ -681,7 +702,7 @@ describe('factory loop work-item shipping', () => {
       },
     });
 
-    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
     expect(approved.state).toBe(LOOP_STATES.VERIFY);
 
     const { learnAdvance } = await advanceVerifyThenLearn(project.id);

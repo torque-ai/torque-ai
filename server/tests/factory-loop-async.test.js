@@ -48,12 +48,33 @@ function createFactoryTables(db) {
       reject_reason TEXT,
       linked_item_id INTEGER,
       batch_id TEXT,
+      claimed_by_instance_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_fwi_project_status
       ON factory_work_items(project_id, status);
+
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER REFERENCES factory_work_items(id),
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      terminated_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE');
+
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL;
 
     CREATE TABLE IF NOT EXISTS factory_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,7 +118,7 @@ function registerPrioritizeProject(trust_level = 'autonomous') {
 
 async function waitForJobStatus(projectId, jobId, expectedStatus) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const status = loopController.getLoopAdvanceJobStatus(projectId, jobId);
+    const status = loopController.getLoopAdvanceJobStatusForProject(projectId, jobId);
     if (status?.status === expectedStatus) {
       return status;
     }
@@ -140,7 +161,7 @@ describe('factory loop async jobs', () => {
     }));
     const project = registerPrioritizeProject('autonomous');
 
-    const descriptor = loopController.advanceLoopAsync(project.id);
+    const descriptor = loopController.advanceLoopAsyncForProject(project.id);
 
     expect(descriptor).toMatchObject({
       job_id: expect.any(String),
@@ -149,7 +170,7 @@ describe('factory loop async jobs', () => {
       completed_at: null,
     });
 
-    const running = loopController.getLoopAdvanceJobStatus(project.id, descriptor.job_id);
+    const running = loopController.getLoopAdvanceJobStatusForProject(project.id, descriptor.job_id);
     expect(running).toMatchObject({
       job_id: descriptor.job_id,
       status: 'running',
@@ -179,7 +200,7 @@ describe('factory loop async jobs', () => {
     runArchitectCycleSpy.mockRejectedValue(new Error('architect unavailable'));
     const project = registerPrioritizeProject('autonomous');
 
-    const descriptor = loopController.advanceLoopAsync(project.id);
+    const descriptor = loopController.advanceLoopAsyncForProject(project.id);
     const failed = await waitForJobStatus(project.id, descriptor.job_id, 'failed');
 
     expect(failed).toMatchObject({

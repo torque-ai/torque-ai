@@ -7,7 +7,6 @@ const {
   LOOP_STATES,
   getNextState,
   getPendingGateStage,
-  getResumeStateForApprovedGate,
   isValidState,
   getGatesForTrustLevel,
 } = require('./loop-states');
@@ -15,6 +14,7 @@ const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const factoryWorktrees = require('../db/factory-worktrees');
 const architectRunner = require('../factory/architect-runner');
 const guardrailRunner = require('../factory/guardrail-runner');
@@ -110,6 +110,16 @@ const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
   'started_execution',
 ]);
 
+class StageOccupiedError extends Error {
+  constructor(project_id, stage) {
+    super(`Stage ${stage} is already occupied for project ${project_id}`);
+    this.name = 'StageOccupiedError';
+    this.code = 'FACTORY_STAGE_OCCUPIED';
+    this.project_id = project_id;
+    this.stage = stage;
+  }
+}
+
 const selectedWorkItemIds = new Map();
 const loopAdvanceJobs = new Map();
 const activeLoopAdvanceJobs = new Map();
@@ -118,8 +128,8 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function getLoopAdvanceJobKey(project_id, job_id) {
-  return `${project_id}:${job_id}`;
+function getLoopAdvanceJobKey(instance_id, job_id) {
+  return `${instance_id}:${job_id}`;
 }
 
 function snapshotLoopAdvanceJob(job) {
@@ -145,6 +155,7 @@ function emitLoopAdvanceJobEvent(job) {
   eventBus.emitTaskEvent({
     type: 'factory_loop_job',
     project_id: job.project_id,
+    instance_id: job.instance_id,
     job_id: job.job_id,
     status: job.status,
     current_state: job.current_state,
@@ -162,6 +173,28 @@ function getProjectOrThrow(project_id) {
     throw new Error(`Project not found: ${project_id}`);
   }
   return project;
+}
+
+function getInstanceOrThrow(instance_id) {
+  const instance = factoryLoopInstances.getInstance(instance_id);
+  if (!instance) {
+    throw new Error(`Factory loop instance not found: ${instance_id}`);
+  }
+  return instance;
+}
+
+function getLoopContextOrThrow(instance_id) {
+  const instance = getInstanceOrThrow(instance_id);
+  const project = getProjectOrThrow(instance.project_id);
+  return { instance, project };
+}
+
+function getActiveInstances(project_id) {
+  return factoryLoopInstances.listInstances({ project_id, active_only: true });
+}
+
+function getOldestActiveInstance(project_id) {
+  return getActiveInstances(project_id)[0] || null;
 }
 
 function resolvePlansRepoRoot(projectPath, plansDir) {
@@ -198,13 +231,35 @@ function resolvePlansRepoRoot(projectPath, plansDir) {
   return candidates.find((candidate) => fs.existsSync(candidate)) || path.resolve(plansDir || projectPath || process.cwd());
 }
 
-function getCurrentLoopState(project) {
-  const raw = project.loop_state || 'IDLE';
+function getPausedAtStage(loopRecord) {
+  if (!loopRecord || typeof loopRecord !== 'object') {
+    return null;
+  }
+  return loopRecord.paused_at_stage || loopRecord.loop_paused_at_stage || null;
+}
+
+function getCurrentLoopState(loopRecord) {
+  const raw = loopRecord.loop_state || 'IDLE';
   const loopState = raw.toUpperCase();
   if (!isValidState(loopState)) {
-    throw new Error(`Invalid loop state for project ${project.id}: ${String(raw)}`);
+    const ref = loopRecord.id || loopRecord.project_id || 'unknown';
+    throw new Error(`Invalid loop state for ${ref}: ${String(raw)}`);
   }
   return loopState;
+}
+
+function isReadyForStage(pausedAtStage) {
+  return typeof pausedAtStage === 'string' && pausedAtStage.startsWith('READY_FOR_');
+}
+
+function toReadyForStage(stage) {
+  return `READY_FOR_${stage}`;
+}
+
+function getReadyStage(pausedAtStage) {
+  return isReadyForStage(pausedAtStage)
+    ? pausedAtStage.slice('READY_FOR_'.length)
+    : null;
 }
 
 function assertValidGateStage(stage) {
@@ -213,18 +268,162 @@ function assertValidGateStage(stage) {
   }
 }
 
-function assertPausedAtStage(project, stage) {
-  const currentState = getCurrentLoopState(project);
-  if (currentState !== LOOP_STATES.PAUSED) {
+function assertPausedAtStage(loopRecord, stage) {
+  const pausedAtStage = getPausedAtStage(loopRecord);
+  if (!pausedAtStage) {
     throw new Error('Loop is not paused');
   }
 
-  if (!project.loop_paused_at_stage) {
-    throw new Error('Loop has no pending approval stage');
+  if (pausedAtStage !== stage) {
+    throw new Error(`Loop is paused at ${pausedAtStage}, not ${stage}`);
+  }
+}
+
+function mapInstanceToLegacyLoopView(instance) {
+  if (!instance) {
+    return {
+      loop_state: LOOP_STATES.IDLE,
+      loop_batch_id: null,
+      loop_last_action_at: null,
+      loop_paused_at_stage: null,
+    };
   }
 
-  if (project.loop_paused_at_stage !== stage) {
-    throw new Error(`Loop is paused at ${project.loop_paused_at_stage}, not ${stage}`);
+  return {
+    loop_state: getPausedAtStage(instance) ? LOOP_STATES.PAUSED : getCurrentLoopState(instance),
+    loop_batch_id: instance.batch_id || null,
+    loop_last_action_at: instance.last_action_at || null,
+    loop_paused_at_stage: getPausedAtStage(instance),
+  };
+}
+
+function syncLegacyProjectLoopState(project_id) {
+  const oldestActiveInstance = getOldestActiveInstance(project_id);
+  return factoryHealth.updateProject(project_id, mapInstanceToLegacyLoopView(oldestActiveInstance));
+}
+
+function deriveInstanceStateFromLegacyProject(project) {
+  const pausedStage = String(project?.loop_paused_at_stage || '').toUpperCase();
+  let instanceState = String(project?.loop_state || LOOP_STATES.IDLE).toUpperCase();
+
+  if (instanceState === LOOP_STATES.PAUSED) {
+    if (pausedStage.startsWith('READY_FOR_')) {
+      instanceState = pausedStage.slice('READY_FOR_'.length) || LOOP_STATES.IDLE;
+    } else if (pausedStage === 'VERIFY_FAIL') {
+      instanceState = LOOP_STATES.VERIFY;
+    } else if (pausedStage) {
+      instanceState = pausedStage;
+    } else {
+      instanceState = LOOP_STATES.IDLE;
+    }
+  }
+
+  return isValidState(instanceState) ? instanceState : LOOP_STATES.IDLE;
+}
+
+function backfillLegacyProjectLoopInstance(project_id) {
+  const project = getProjectOrThrow(project_id);
+  const legacyState = deriveInstanceStateFromLegacyProject(project);
+  if (legacyState === LOOP_STATES.IDLE) {
+    return null;
+  }
+
+  const instance = factoryLoopInstances.createInstance({
+    project_id: project.id,
+    batch_id: project.loop_batch_id || null,
+  });
+
+  const updated = updateInstanceAndSync(instance.id, {
+    loop_state: legacyState,
+    paused_at_stage: project.loop_paused_at_stage || null,
+    last_action_at: project.loop_last_action_at || instance.last_action_at,
+    batch_id: project.loop_batch_id || null,
+  });
+
+  logger.info('Backfilled legacy project loop state into factory loop instance', {
+    project_id: project.id,
+    instance_id: updated.id,
+    legacy_state: project.loop_state || LOOP_STATES.IDLE,
+    instance_state: legacyState,
+    paused_at_stage: project.loop_paused_at_stage || null,
+  });
+
+  return updated;
+}
+
+function updateInstanceAndSync(id, updates) {
+  const updated = factoryLoopInstances.updateInstance(id, updates);
+  if (updated) {
+    syncLegacyProjectLoopState(updated.project_id);
+  }
+  return updated;
+}
+
+function claimStageForInstanceOrThrow(instance_id, stage) {
+  try {
+    const claimed = factoryLoopInstances.claimStageForInstance(instance_id, stage);
+    syncLegacyProjectLoopState(claimed.project_id);
+    return claimed;
+  } catch (error) {
+    if (error && error.code === 'FACTORY_STAGE_OCCUPIED') {
+      throw new StageOccupiedError(error.project_id, error.stage || stage);
+    }
+    throw error;
+  }
+}
+
+function terminateInstanceAndSync(instance_id) {
+  const before = getInstanceOrThrow(instance_id);
+  factoryIntake.releaseClaimForInstance(instance_id);
+  clearSelectedWorkItem(instance_id);
+  const terminated = factoryLoopInstances.terminateInstance(instance_id);
+  syncLegacyProjectLoopState(before.project_id);
+  return terminated;
+}
+
+function parkInstanceForStage(instance, stage) {
+  return updateInstanceAndSync(instance.id, {
+    paused_at_stage: toReadyForStage(stage),
+    last_action_at: nowIso(),
+  });
+}
+
+function moveInstanceToStage(instance, stage, updates = {}) {
+  let claimed = instance;
+  if (getCurrentLoopState(instance) !== stage) {
+    claimed = claimStageForInstanceOrThrow(instance.id, stage);
+  }
+  return updateInstanceAndSync(claimed.id, {
+    paused_at_stage: Object.prototype.hasOwnProperty.call(updates, 'paused_at_stage')
+      ? updates.paused_at_stage
+      : null,
+    last_action_at: Object.prototype.hasOwnProperty.call(updates, 'last_action_at')
+      ? updates.last_action_at
+      : nowIso(),
+    batch_id: Object.prototype.hasOwnProperty.call(updates, 'batch_id')
+      ? updates.batch_id
+      : claimed.batch_id,
+    work_item_id: Object.prototype.hasOwnProperty.call(updates, 'work_item_id')
+      ? updates.work_item_id
+      : claimed.work_item_id,
+  });
+}
+
+function tryMoveInstanceToStage(instance, stage, updates = {}) {
+  try {
+    return {
+      instance: moveInstanceToStage(instance, stage, updates),
+      blocked: false,
+    };
+  } catch (error) {
+    if (error instanceof StageOccupiedError) {
+      return {
+        instance: parkInstanceForStage(instance, stage),
+        blocked: true,
+        error,
+      };
+    }
+    throw error;
   }
 }
 
@@ -244,12 +443,16 @@ function getDecisionActor(stage, actor) {
   return normalizedStage ? DECISION_STAGE_ACTORS[normalizedStage] : null;
 }
 
-function getDecisionBatchId(project, workItem, explicitBatchId) {
-  return explicitBatchId || workItem?.batch_id || project?.loop_batch_id || null;
+function getDecisionBatchId(project, workItem, explicitBatchId, instance = null) {
+  return explicitBatchId
+    || workItem?.batch_id
+    || instance?.batch_id
+    || project?.loop_batch_id
+    || null;
 }
 
-function getFactorySubmissionBatchId(project, workItem) {
-  return getDecisionBatchId(project, workItem)
+function getFactorySubmissionBatchId(project, workItem, instance = null) {
+  return getDecisionBatchId(project, workItem, null, instance)
     || (project?.id && workItem?.id != null ? `factory-${project.id}-${workItem.id}` : null);
 }
 
@@ -293,25 +496,25 @@ function normalizeWorkItemId(value) {
   return numeric;
 }
 
-function rememberSelectedWorkItem(project_id, workItem) {
+function rememberSelectedWorkItem(instance_id, workItem) {
   const workItemId = normalizeWorkItemId(workItem?.id ?? workItem);
-  if (!project_id || !workItemId) {
-    selectedWorkItemIds.delete(project_id);
+  if (!instance_id || !workItemId) {
+    selectedWorkItemIds.delete(instance_id);
     return null;
   }
 
-  selectedWorkItemIds.set(project_id, workItemId);
+  selectedWorkItemIds.set(instance_id, workItemId);
   return workItemId;
 }
 
-function clearSelectedWorkItem(project_id) {
-  if (!project_id) {
+function clearSelectedWorkItem(instance_id) {
+  if (!instance_id) {
     return;
   }
-  selectedWorkItemIds.delete(project_id);
+  selectedWorkItemIds.delete(instance_id);
 }
 
-function getSelectedWorkItemIdFromDecisionLog(project_id) {
+function getSelectedWorkItemIdFromDecisionLog(project_id, batch_id = null) {
   const db = database.getDbInstance();
   if (!db) {
     return null;
@@ -319,14 +522,20 @@ function getSelectedWorkItemIdFromDecisionLog(project_id) {
 
   try {
     const placeholders = SELECTED_WORK_ITEM_DECISION_ACTIONS.map(() => '?').join(', ');
+    const batchFilter = batch_id ? 'AND batch_id = ?' : '';
     const rows = db.prepare(`
       SELECT inputs_json, outcome_json
       FROM factory_decisions
       WHERE project_id = ?
         AND action IN (${placeholders})
+        ${batchFilter}
       ORDER BY id DESC
       LIMIT 20
-    `).all(project_id, ...SELECTED_WORK_ITEM_DECISION_ACTIONS);
+    `).all(
+      project_id,
+      ...SELECTED_WORK_ITEM_DECISION_ACTIONS,
+      ...(batch_id ? [batch_id] : []),
+    );
 
     for (const row of rows) {
       const inputs = parseJsonObject(row.inputs_json);
@@ -340,27 +549,38 @@ function getSelectedWorkItemIdFromDecisionLog(project_id) {
       }
     }
   } catch (error) {
-    logger.debug({ err: error.message, project_id }, 'Unable to restore selected work item from decision log');
+    logger.debug({ err: error.message, project_id, batch_id }, 'Unable to restore selected work item from decision log');
   }
 
   return null;
 }
 
-function getSelectedWorkItemId(project_id) {
-  const remembered = selectedWorkItemIds.get(project_id);
+function getSelectedWorkItemId(instance, project_id) {
+  const instanceId = typeof instance === 'string' ? instance : instance?.id;
+  const remembered = instanceId ? selectedWorkItemIds.get(instanceId) : null;
   if (remembered) {
     return remembered;
   }
 
-  const restored = getSelectedWorkItemIdFromDecisionLog(project_id);
+  const persisted = normalizeWorkItemId(typeof instance === 'object' ? instance?.work_item_id : null);
+  if (persisted) {
+    if (instanceId) {
+      selectedWorkItemIds.set(instanceId, persisted);
+    }
+    return persisted;
+  }
+
+  const restored = getSelectedWorkItemIdFromDecisionLog(project_id, typeof instance === 'object' ? instance?.batch_id || null : null);
   if (restored) {
-    selectedWorkItemIds.set(project_id, restored);
+    if (instanceId) {
+      selectedWorkItemIds.set(instanceId, restored);
+    }
   }
   return restored;
 }
 
-function getSelectedWorkItem(project_id, { fallbackToLoopSelection = false } = {}) {
-  const selectedWorkItemId = getSelectedWorkItemId(project_id);
+function getSelectedWorkItem(instance, project_id, { fallbackToLoopSelection = false } = {}) {
+  const selectedWorkItemId = getSelectedWorkItemId(instance, project_id);
   if (selectedWorkItemId) {
     const workItem = factoryIntake.getWorkItemForProject(project_id, selectedWorkItemId, {
       includeClosed: true,
@@ -374,11 +594,11 @@ function getSelectedWorkItem(project_id, { fallbackToLoopSelection = false } = {
   return fallbackToLoopSelection ? getLoopWorkItem(project_id) : null;
 }
 
-function tryGetSelectedWorkItem(project_id, options = {}) {
+function tryGetSelectedWorkItem(instance, project_id, options = {}) {
   try {
-    return getSelectedWorkItem(project_id, options);
+    return getSelectedWorkItem(instance, project_id, options);
   } catch (error) {
-    logger.debug({ err: error.message, project_id }, 'Unable to resolve selected work item');
+    logger.debug({ err: error.message, project_id, instance_id: typeof instance === 'object' ? instance?.id : instance }, 'Unable to resolve selected work item');
     return null;
   }
 }
@@ -648,15 +868,16 @@ function evaluateWorkItemShipping(project, workItem, options = {}) {
   };
 }
 
-async function maybeShipWorkItemAfterLearn(project_id, batch_id) {
+async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
   try {
     const project = getProjectOrThrow(project_id);
-    const rememberedWorkItemId = normalizeWorkItemId(selectedWorkItemIds.get(project_id));
+    const rememberedWorkItemId = normalizeWorkItemId(selectedWorkItemIds.get(instance.id));
     const startedExecutionDecision = getLatestStartedExecutionDecision(project_id);
-    const workItemId = rememberedWorkItemId || getDecisionRowWorkItemId(startedExecutionDecision);
+    const workItemId = rememberedWorkItemId || normalizeWorkItemId(instance?.work_item_id) || getDecisionRowWorkItemId(startedExecutionDecision);
     const resolutionSource = rememberedWorkItemId ? 'tracked_selection' : 'started_execution';
     const decisionBatchId = batch_id
       || startedExecutionDecision?.outcome?.batch_id
+      || instance?.batch_id
       || project.loop_batch_id
       || startedExecutionDecision?.batch_id
       || null;
@@ -715,7 +936,7 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id) {
       };
     }
 
-    rememberSelectedWorkItem(project_id, workItem);
+    rememberSelectedWorkItem(instance.id, workItem);
 
     if (CLOSED_WORK_ITEM_STATUSES.has(workItem.status)) {
       safeLogDecision({
@@ -776,7 +997,9 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id) {
     // Merge the factory worktree into main before marking the work item
     // shipped. If merge fails, leave the item open with a skipped_shipping
     // decision so the operator can resolve the conflict.
-    const worktreeRecord = factoryWorktrees.getActiveWorktree(project_id);
+    const worktreeRecord = (batch_id || instance?.batch_id)
+      ? factoryWorktrees.getActiveWorktreeByBatch(batch_id || instance?.batch_id)
+      : factoryWorktrees.getActiveWorktree(project_id);
     const worktreeRunner = worktreeRecord ? getWorktreeRunner() : null;
     if (worktreeRecord && worktreeRunner) {
       try {
@@ -863,7 +1086,8 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id) {
     const updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
       status: 'shipped',
     });
-    rememberSelectedWorkItem(project_id, updatedWorkItem);
+    rememberSelectedWorkItem(instance.id, updatedWorkItem);
+    factoryIntake.releaseClaimForInstance(instance.id);
 
     safeLogDecision({
       project_id,
@@ -1052,7 +1276,7 @@ function logTransitionDecision({
   });
 }
 
-function executeSenseStage(project_id) {
+function executeSenseStage(project_id, instance = null) {
   const project = getProjectOrThrow(project_id);
   const summary = factoryHealth.getProjectHealthSummary(project_id);
   const scanSummary = {
@@ -1100,15 +1324,17 @@ function executeSenseStage(project_id) {
       weakest_dimension: summary?.weakest_dimension || null,
     },
     confidence: 1,
-    batch_id: project.loop_batch_id || null,
+    batch_id: getDecisionBatchId(project, null, null, instance),
   });
 
   logger.info('SENSE stage executed', { project_id });
   return summary;
 }
 
-function getLoopWorkItem(project_id) {
-  const items = factoryIntake.listOpenWorkItems({ project_id, limit: 100 });
+function getLoopWorkItem(project_id, options = {}) {
+  const allowedClaimedBy = options.allowedClaimedBy || null;
+  const items = factoryIntake.listOpenWorkItems({ project_id, limit: 100 })
+    .filter((item) => !item.claimed_by_instance_id || item.claimed_by_instance_id === allowedClaimedBy);
   if (!Array.isArray(items) || items.length === 0) {
     return null;
   }
@@ -1123,13 +1349,45 @@ function getLoopWorkItem(project_id) {
   return items[0] || null;
 }
 
-function tryGetLoopWorkItem(project_id) {
+function tryGetLoopWorkItem(project_id, options = {}) {
   try {
-    return getLoopWorkItem(project_id);
+    return getLoopWorkItem(project_id, options);
   } catch (error) {
     logger.debug({ err: error.message, project_id }, 'Unable to resolve loop work item for decision context');
-    return null;
   }
+  return null;
+}
+
+function claimNextWorkItemForInstance(project_id, instance_id) {
+  const openItems = factoryIntake.listOpenWorkItems({ project_id, limit: 100 });
+  if (!Array.isArray(openItems) || openItems.length === 0) {
+    return { openItems: [], workItem: null };
+  }
+
+  const orderedCandidates = [];
+  for (const status of WORK_ITEM_STATUS_ORDER) {
+    orderedCandidates.push(...openItems.filter((item) => item && item.status === status));
+  }
+  orderedCandidates.push(...openItems.filter((item) => !orderedCandidates.includes(item)));
+
+  for (const item of orderedCandidates) {
+    if (!item) {
+      continue;
+    }
+    if (item.claimed_by_instance_id === instance_id) {
+      return { openItems, workItem: item };
+    }
+    if (item.claimed_by_instance_id) {
+      continue;
+    }
+
+    const claimed = factoryIntake.claimWorkItem(item.id, instance_id);
+    if (claimed) {
+      return { openItems, workItem: claimed };
+    }
+  }
+
+  return { openItems, workItem: null };
 }
 
 function getCreatedAtValue(item) {
@@ -1199,9 +1457,12 @@ function scoreWorkItemForPrioritize(workItem, openItems = []) {
   };
 }
 
-function executePrioritizeStage(project, selectedWorkItem = null) {
-  const openItems = factoryIntake.listOpenWorkItems({ project_id: project.id, limit: 100 });
-  const workItem = selectedWorkItem || getLoopWorkItem(project.id);
+function executePrioritizeStage(project, instance, selectedWorkItem = null) {
+  const claimResult = selectedWorkItem
+    ? { openItems: factoryIntake.listOpenWorkItems({ project_id: project.id, limit: 100 }), workItem: selectedWorkItem }
+    : claimNextWorkItemForInstance(project.id, instance.id);
+  const openItems = claimResult.openItems;
+  const workItem = claimResult.workItem;
 
   safeLogDecision({
     project_id: project.id,
@@ -1215,11 +1476,12 @@ function executePrioritizeStage(project, selectedWorkItem = null) {
       ...getWorkItemDecisionContext(workItem),
     },
     confidence: 1,
-    batch_id: getDecisionBatchId(project, workItem),
+    batch_id: getDecisionBatchId(project, workItem, null, instance),
   });
 
   if (!workItem) {
-    clearSelectedWorkItem(project.id);
+    clearSelectedWorkItem(instance.id);
+    updateInstanceAndSync(instance.id, { work_item_id: null });
     return {
       work_item: null,
       reason: 'no open work item selected',
@@ -1231,7 +1493,8 @@ function executePrioritizeStage(project, selectedWorkItem = null) {
   const updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
     priority: scoring.newPriority,
   });
-  rememberSelectedWorkItem(project.id, updatedWorkItem);
+  rememberSelectedWorkItem(instance.id, updatedWorkItem);
+  updateInstanceAndSync(instance.id, { work_item_id: updatedWorkItem.id });
 
   safeLogDecision({
     project_id: project.id,
@@ -1249,7 +1512,7 @@ function executePrioritizeStage(project, selectedWorkItem = null) {
       ...getWorkItemDecisionContext(updatedWorkItem),
     },
     confidence: 1,
-    batch_id: getDecisionBatchId(project, updatedWorkItem),
+    batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
   });
 
   return {
@@ -1712,18 +1975,19 @@ function lintAutoGeneratedPlan(project, workItem, planContent) {
   };
 }
 
-async function executePlanStage(project, selectedWorkItem = null) {
-  let workItem = selectedWorkItem || getSelectedWorkItem(project.id, {
+async function executePlanStage(project, instance, selectedWorkItem = null) {
+  let workItem = selectedWorkItem || getSelectedWorkItem(instance, project.id, {
     fallbackToLoopSelection: true,
   });
 
   if (workItem) {
-    rememberSelectedWorkItem(project.id, workItem);
+    rememberSelectedWorkItem(instance.id, workItem);
+    updateInstanceAndSync(instance.id, { work_item_id: workItem.id });
   }
 
   if (workItem?.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)) {
     workItem = factoryIntake.updateWorkItem(workItem.id, { status: 'executing' });
-    rememberSelectedWorkItem(project.id, workItem);
+    rememberSelectedWorkItem(instance.id, workItem);
     logger.info('PLAN stage: pre-written plan detected, skipping architect', {
       project_id: project.id,
       work_item_id: workItem.id,
@@ -1743,7 +2007,7 @@ async function executePlanStage(project, selectedWorkItem = null) {
         ...getWorkItemDecisionContext(workItem),
       },
       confidence: 1,
-      batch_id: getDecisionBatchId(project, workItem),
+      batch_id: getDecisionBatchId(project, workItem, null, instance),
     });
     return {
       skip_to_execute: true,
@@ -1758,10 +2022,11 @@ async function executePlanStage(project, selectedWorkItem = null) {
   }
 
   const cycle = await architectRunner.runArchitectCycle(project.id, 'loop_plan');
-  workItem = getSelectedWorkItem(project.id, { fallbackToLoopSelection: true });
+  workItem = getSelectedWorkItem(instance, project.id, { fallbackToLoopSelection: true });
   if (workItem && workItem.status !== 'planned') {
     workItem = factoryIntake.updateWorkItem(workItem.id, { status: 'planned' });
-    rememberSelectedWorkItem(project.id, workItem);
+    rememberSelectedWorkItem(instance.id, workItem);
+    updateInstanceAndSync(instance.id, { work_item_id: workItem.id });
   }
 
   logger.info('PLAN stage: architect cycle completed', {
@@ -1783,7 +2048,7 @@ async function executePlanStage(project, selectedWorkItem = null) {
       ...getWorkItemDecisionContext(workItem),
     },
     confidence: 1,
-    batch_id: getDecisionBatchId(project, workItem),
+    batch_id: getDecisionBatchId(project, workItem, null, instance),
   });
 
   return {
@@ -1794,15 +2059,16 @@ async function executePlanStage(project, selectedWorkItem = null) {
   };
 }
 
-async function executeNonPlanFileStage(project, workItem) {
-  const targetItem = workItem || getSelectedWorkItem(project.id, {
+async function executeNonPlanFileStage(project, instance, workItem) {
+  const targetItem = workItem || getSelectedWorkItem(instance, project.id, {
     fallbackToLoopSelection: true,
   });
   if (!targetItem) {
     return null;
   }
 
-  rememberSelectedWorkItem(project.id, targetItem);
+  rememberSelectedWorkItem(instance.id, targetItem);
+  updateInstanceAndSync(instance.id, { work_item_id: targetItem.id });
   const description = typeof targetItem.description === 'string'
     ? targetItem.description.trim()
     : '';
@@ -1822,7 +2088,7 @@ async function executeNonPlanFileStage(project, workItem) {
         ...getWorkItemDecisionContext(targetItem),
       },
       confidence: 1,
-      batch_id: getDecisionBatchId(project, targetItem),
+      batch_id: getDecisionBatchId(project, targetItem, null, instance),
     });
     return {
       reason: 'no description',
@@ -1842,7 +2108,7 @@ async function executeNonPlanFileStage(project, workItem) {
       origin_json: nextOrigin,
       status: 'executing',
     });
-    rememberSelectedWorkItem(project.id, updatedWorkItem);
+    rememberSelectedWorkItem(instance.id, updatedWorkItem);
     const existingPlanContent = fs.readFileSync(planPath, 'utf8');
     const lint = lintAutoGeneratedPlan(project, updatedWorkItem, existingPlanContent);
     if (lint.blocked) {
@@ -1944,7 +2210,7 @@ async function executeNonPlanFileStage(project, workItem) {
       origin_json: nextOrigin,
       status: 'executing',
     });
-    rememberSelectedWorkItem(project.id, updatedWorkItem);
+    rememberSelectedWorkItem(instance.id, updatedWorkItem);
 
     logger.info('EXECUTE stage: generated plan for non-plan-file work item', {
       project_id: project.id,
@@ -1967,7 +2233,7 @@ async function executeNonPlanFileStage(project, workItem) {
         generation_task_id: generationTaskId,
       },
       confidence: 1,
-      batch_id: getDecisionBatchId(project, updatedWorkItem),
+      batch_id: getDecisionBatchId(project, updatedWorkItem, null, instance),
     });
 
     const lint = lintAutoGeneratedPlan(project, updatedWorkItem, normalizedPlanMarkdown);
@@ -2040,7 +2306,7 @@ async function executeNonPlanFileStage(project, workItem) {
         ...getWorkItemDecisionContext(targetItem),
       },
       confidence: 1,
-      batch_id: getDecisionBatchId(project, targetItem),
+      batch_id: getDecisionBatchId(project, targetItem, null, instance),
     });
     return {
       reason: error.message,
@@ -2049,15 +2315,19 @@ async function executeNonPlanFileStage(project, workItem) {
   }
 }
 
-async function executePlanFileStage(project, workItem) {
-  const targetItem = workItem || getSelectedWorkItem(project.id, {
+async function executePlanFileStage(project, instance, workItem) {
+  const targetItem = workItem || getSelectedWorkItem(instance, project.id, {
     fallbackToLoopSelection: true,
   });
   if (!targetItem?.origin?.plan_path || !fs.existsSync(targetItem.origin.plan_path)) {
     return null;
   }
-  rememberSelectedWorkItem(project.id, targetItem);
-  const executeLogBatchId = getFactorySubmissionBatchId(project, targetItem);
+  rememberSelectedWorkItem(instance.id, targetItem);
+  const executeLogBatchId = getFactorySubmissionBatchId(project, targetItem, instance);
+  updateInstanceAndSync(instance.id, {
+    work_item_id: targetItem.id,
+    batch_id: executeLogBatchId,
+  });
 
   // Create an isolated worktree for this batch so Codex edits never touch the
   // live project.path. Falls back to project.path only when the worktree
@@ -2157,8 +2427,8 @@ async function executePlanFileStage(project, workItem) {
   const taskCore = require('../db/task-core');
   const executeMode = resolveExecuteMode(project);
   const dry_run = executeMode !== 'live';
-  const decisionBatchId = getDecisionBatchId(project, targetItem);
-  const submissionBatchId = getFactorySubmissionBatchId(project, targetItem);
+  const decisionBatchId = getDecisionBatchId(project, targetItem, null, instance);
+  const submissionBatchId = getFactorySubmissionBatchId(project, targetItem, instance);
   const executeDecisionBatchId = executeMode === 'pending_approval' ? submissionBatchId : decisionBatchId;
 
   const executor = createPlanExecutor({
@@ -2298,12 +2568,15 @@ async function executePlanFileStage(project, workItem) {
   };
 }
 
-async function executeVerifyStage(project_id, batch_id) {
+async function executeVerifyStage(project_id, batch_id, instance = null) {
   // First: run worktree remote verification if there's an active factory
   // worktree for this project. Failure here blocks the loop from reaching
   // LEARN so the operator can decide remediation vs. abandonment before any
   // merge to main.
-  const worktreeRecord = factoryWorktrees.getActiveWorktree(project_id);
+  const activeBatchId = batch_id || instance?.batch_id || null;
+  const worktreeRecord = activeBatchId
+    ? factoryWorktrees.getActiveWorktreeByBatch(activeBatchId)
+    : factoryWorktrees.getActiveWorktree(project_id);
   const worktreeRunner = worktreeRecord ? getWorktreeRunner() : null;
 
   // Under pending_approval mode the plan-executor submits tasks and returns
@@ -2311,7 +2584,7 @@ async function executeVerifyStage(project_id, batch_id) {
   // remote verify run against the empty branch will fail. Guard: if any batch
   // task is still in a non-terminal state, pause at VERIFY without running
   // the remote tests. The operator re-advances once tasks finish.
-  const batchIdForGate = (worktreeRecord && worktreeRecord.batchId) || batch_id;
+  const batchIdForGate = (worktreeRecord && worktreeRecord.batchId) || activeBatchId;
   if (batchIdForGate) {
     const batchTasks = listTasksForFactoryBatch(batchIdForGate);
     if (batchTasks.length > 0) {
@@ -2468,7 +2741,7 @@ async function executeVerifyStage(project_id, batch_id) {
   }
 }
 
-async function executeLearnStage(project_id, batch_id) {
+async function executeLearnStage(project_id, batch_id, instance) {
   try {
     const feedback = require('./feedback');
     const analysis = feedback.analyzeBatch(project_id, batch_id);
@@ -2492,7 +2765,7 @@ async function executeLearnStage(project_id, batch_id) {
       confidence: 1,
       batch_id,
     });
-    const shippingResult = await maybeShipWorkItemAfterLearn(project_id, batch_id);
+    const shippingResult = await maybeShipWorkItemAfterLearn(project_id, batch_id, instance);
     logger.info('LEARN stage: batch analysis complete', {
       project_id,
       batch_id,
@@ -2523,34 +2796,68 @@ async function executeLearnStage(project_id, batch_id) {
   }
 }
 
-function attachBatchId(project_id, batch_id) {
+function getLoopInstanceForProjectOrThrow(project_id) {
+  const instance = getOldestActiveInstance(project_id) || backfillLegacyProjectLoopInstance(project_id);
+  if (!instance) {
+    throw new Error('Loop not started for this project');
+  }
+  return instance;
+}
+
+function summarizeInstanceState(project, instance) {
+  return {
+    instance_id: instance.id,
+    project_id: project.id,
+    loop_state: getCurrentLoopState(instance),
+    loop_batch_id: instance.batch_id || null,
+    loop_last_action_at: instance.last_action_at || null,
+    loop_paused_at_stage: getPausedAtStage(instance),
+    work_item_id: instance.work_item_id || null,
+    trust_level: project.trust_level,
+    gates: getGatesForTrustLevel(project.trust_level),
+  };
+}
+
+function attachBatchId(project_id, batch_id, instance_id = null) {
   if (!project_id) {
     throw new Error('project_id is required');
   }
   if (!batch_id || typeof batch_id !== 'string') {
     throw new Error('batch_id must be a non-empty string');
   }
-  const project = getProjectOrThrow(project_id);
-  const currentState = getCurrentLoopState(project);
-  if (currentState !== LOOP_STATES.PLAN && currentState !== LOOP_STATES.EXECUTE) {
+
+  const instance = instance_id
+    ? getInstanceOrThrow(instance_id)
+    : getLoopInstanceForProjectOrThrow(project_id);
+  const project = getProjectOrThrow(instance.project_id);
+  const currentState = getCurrentLoopState(instance);
+  if (currentState !== LOOP_STATES.PLAN && currentState !== LOOP_STATES.EXECUTE && currentState !== LOOP_STATES.VERIFY) {
     throw new Error(
-      `Cannot attach batch_id while loop is in ${currentState}; must be PLAN or EXECUTE`
+      `Cannot attach batch_id while loop is in ${currentState}; must be PLAN, EXECUTE, or VERIFY`
     );
   }
-  factoryHealth.updateProject(project.id, {
-    loop_batch_id: batch_id,
-    loop_last_action_at: nowIso(),
+
+  const updated = updateInstanceAndSync(instance.id, {
+    batch_id,
+    last_action_at: nowIso(),
   });
+
   logger.info('Factory loop batch_id attached', {
     project_id: project.id,
+    instance_id: updated.id,
     batch_id,
     state: currentState,
   });
   return {
     project_id: project.id,
+    instance_id: updated.id,
     loop_batch_id: batch_id,
     state: currentState,
   };
+}
+
+function attachBatchIdForProject(project_id, batch_id) {
+  return attachBatchId(project_id, batch_id, getLoopInstanceForProjectOrThrow(project_id).id);
 }
 
 function scheduleLoop(project_id, interval_minutes) {
@@ -2567,14 +2874,18 @@ function scheduleLoop(project_id, interval_minutes) {
 function startLoop(project_id) {
   const project = getProjectOrThrow(project_id);
   const previousState = getCurrentLoopState(project);
-  clearSelectedWorkItem(project.id);
+  let instance;
+  try {
+    instance = factoryLoopInstances.createInstance({ project_id: project.id });
+  } catch (error) {
+    if (error && error.code === 'FACTORY_STAGE_OCCUPIED') {
+      throw new StageOccupiedError(project.id, LOOP_STATES.SENSE);
+    }
+    throw error;
+  }
 
-  factoryHealth.updateProject(project.id, {
-    loop_state: LOOP_STATES.SENSE,
-    loop_batch_id: null,
-    loop_last_action_at: nowIso(),
-    loop_paused_at_stage: null,
-  });
+  clearSelectedWorkItem(instance.id);
+  syncLegacyProjectLoopState(project.id);
 
   safeLogDecision({
     project_id: project.id,
@@ -2588,207 +2899,335 @@ function startLoop(project_id) {
     outcome: {
       from_state: previousState,
       to_state: LOOP_STATES.SENSE,
+      instance_id: instance.id,
     },
     confidence: 1,
     batch_id: null,
   });
 
-  executeSenseStage(project.id);
+  executeSenseStage(project.id, instance);
 
   logger.info('Factory loop started', {
     project_id: project.id,
+    instance_id: instance.id,
     state: LOOP_STATES.SENSE,
   });
 
   return {
     project_id: project.id,
+    instance_id: instance.id,
     state: LOOP_STATES.SENSE,
     message: 'Factory loop started',
   };
 }
 
-async function runAdvanceLoop(project_id) {
-  const project = getProjectOrThrow(project_id);
-  const currentState = getCurrentLoopState(project);
+function startLoopForProject(project_id) {
+  return startLoop(project_id);
+}
 
-  if (currentState === LOOP_STATES.IDLE) {
+async function runAdvanceLoop(instance_id) {
+  const { project } = getLoopContextOrThrow(instance_id);
+  let instance = getInstanceOrThrow(instance_id);
+  const previousState = getCurrentLoopState(instance);
+  let currentState = previousState;
+  let pausedAtStage = getPausedAtStage(instance);
+
+  if (instance.terminated_at || currentState === LOOP_STATES.IDLE) {
     throw new Error('Loop not started for this project');
   }
 
-  if (currentState === LOOP_STATES.PAUSED) {
+  if (isReadyForStage(pausedAtStage)) {
+    const targetStage = getReadyStage(pausedAtStage);
+    const moved = tryMoveInstanceToStage(instance, targetStage, {
+      paused_at_stage: getPendingGateStage(previousState, project.trust_level) === targetStage ? targetStage : null,
+      batch_id: instance.batch_id,
+      work_item_id: instance.work_item_id,
+    });
+    instance = moved.instance;
+    return {
+      project_id: project.id,
+      instance_id: instance.id,
+      previous_state: previousState,
+      new_state: getCurrentLoopState(instance),
+      paused_at_stage: getPausedAtStage(instance),
+      stage_result: null,
+      reason: moved.blocked ? 'stage_occupied' : 'stage_ready',
+    };
+  }
+
+  if (pausedAtStage) {
     throw new Error('Loop is paused — use approveGate to continue');
   }
 
-  // VERIFY is an exit gate under supervised mode. After the operator approves
-  // that gate, or explicitly retries from VERIFY_FAIL, the next advance must
-  // re-run executeVerifyStage once before the loop is allowed to proceed to
-  // LEARN.
-  const latestVerifyDecision = getLatestStageDecision(project.id, LOOP_STATES.VERIFY);
-  const rerunApprovedVerify = currentState === LOOP_STATES.VERIFY
-    && ['gate_approved', 'retry_verify_requested'].includes(latestVerifyDecision?.action);
-  const pendingGateStage = rerunApprovedVerify
-    ? null
-    : getPendingGateStage(currentState, project.trust_level);
-  let nextState = pendingGateStage
-    ? LOOP_STATES.PAUSED
-    : getNextState(currentState, project.trust_level, 'approved');
-  let pausedAtStage = pendingGateStage || null;
-
-  // Execute stage-specific logic before transitioning
   let stageResult = null;
   let transitionReason = null;
-  let transitionWorkItem = null;
+  let transitionWorkItem = tryGetSelectedWorkItem(instance, project.id) || null;
 
-  if (currentState === LOOP_STATES.PRIORITIZE) {
-    const prioritizeStage = executePrioritizeStage(project, transitionWorkItem);
-    if (prioritizeStage?.work_item) {
-      transitionWorkItem = prioritizeStage.work_item;
-    }
-    if (prioritizeStage?.reason) {
-      transitionReason = prioritizeStage.reason;
-    }
-    if (!stageResult && prioritizeStage?.stage_result) {
-      stageResult = prioritizeStage.stage_result;
-    }
-  }
-
-  if (currentState === LOOP_STATES.PRIORITIZE || nextState === LOOP_STATES.PLAN) {
-    const planStage = await executePlanStage(project, transitionWorkItem);
-    if (planStage?.stage_result) {
-      stageResult = planStage.stage_result;
-    }
-    if (planStage?.reason) {
-      transitionReason = planStage.reason;
-    }
-    if (planStage?.work_item) {
-      transitionWorkItem = planStage.work_item;
-    }
-    if (planStage?.skip_to_execute) {
-      nextState = LOOP_STATES.EXECUTE;
-      pausedAtStage = null;
-    }
-  } else if (currentState === LOOP_STATES.PLAN || currentState === LOOP_STATES.EXECUTE) {
-    let targetItem = transitionWorkItem || tryGetSelectedWorkItem(project.id, {
-      fallbackToLoopSelection: true,
-    });
-    if (targetItem && (!targetItem.origin?.plan_path || !fs.existsSync(targetItem.origin.plan_path))) {
-      const generated = await executeNonPlanFileStage(project, targetItem);
-      if (generated?.work_item) {
-        targetItem = generated.work_item;
-      }
-      if (generated?.stage_result) {
-        stageResult = generated.stage_result;
-      }
-      if (generated?.reason) {
-        transitionReason = generated.reason;
-      }
-      if (generated?.stop_execution) {
-        nextState = generated.next_state || LOOP_STATES.PAUSED;
-        pausedAtStage = generated.paused_at_stage || null;
-        transitionWorkItem = generated.work_item || transitionWorkItem;
-      }
+  switch (currentState) {
+    case LOOP_STATES.SENSE: {
+      const targetStage = getPendingGateStage(currentState, project.trust_level) || getNextState(currentState, project.trust_level, 'approved');
+      const moved = tryMoveInstanceToStage(instance, targetStage, {
+        paused_at_stage: getPendingGateStage(currentState, project.trust_level) === targetStage ? targetStage : null,
+      });
+      instance = moved.instance;
+      transitionReason = moved.blocked ? 'stage_occupied' : 'sense_completed';
+      break;
     }
 
-    if (!pausedAtStage) {
-      const executeStage = await executePlanFileStage(project, targetItem);
+    case LOOP_STATES.PRIORITIZE: {
+      const prioritizeStage = executePrioritizeStage(project, instance, transitionWorkItem);
+      transitionWorkItem = prioritizeStage?.work_item || transitionWorkItem;
+      stageResult = prioritizeStage?.stage_result || null;
+      transitionReason = prioritizeStage?.reason || null;
+      instance = getInstanceOrThrow(instance.id);
+
+      const enterPlan = tryMoveInstanceToStage(instance, LOOP_STATES.PLAN, {
+        work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
+      });
+      if (enterPlan.blocked) {
+        instance = enterPlan.instance;
+        transitionReason = 'stage_occupied';
+        break;
+      }
+
+      instance = enterPlan.instance;
+      const planStage = await executePlanStage(project, instance, transitionWorkItem);
+      if (planStage?.stage_result) {
+        stageResult = planStage.stage_result;
+      }
+      if (planStage?.reason) {
+        transitionReason = planStage.reason;
+      }
+      if (planStage?.work_item) {
+        transitionWorkItem = planStage.work_item;
+      }
+      instance = getInstanceOrThrow(instance.id);
+
+      if (planStage?.skip_to_execute) {
+        const moveToExecute = tryMoveInstanceToStage(instance, LOOP_STATES.EXECUTE, {
+          work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
+        });
+        instance = moveToExecute.instance;
+        if (moveToExecute.blocked) {
+          transitionReason = 'stage_occupied';
+        }
+      } else if (getPendingGateStage(currentState, project.trust_level) === LOOP_STATES.PLAN) {
+        instance = updateInstanceAndSync(instance.id, {
+          paused_at_stage: LOOP_STATES.PLAN,
+          last_action_at: nowIso(),
+        });
+      }
+      break;
+    }
+
+    case LOOP_STATES.PLAN:
+    case LOOP_STATES.EXECUTE: {
+      if (currentState === LOOP_STATES.PLAN) {
+        const moveToExecute = tryMoveInstanceToStage(instance, LOOP_STATES.EXECUTE, {
+          work_item_id: instance.work_item_id,
+        });
+        if (moveToExecute.blocked) {
+          instance = moveToExecute.instance;
+          transitionReason = 'stage_occupied';
+          break;
+        }
+        instance = moveToExecute.instance;
+      }
+
+      let targetItem = transitionWorkItem || tryGetSelectedWorkItem(instance, project.id, {
+        fallbackToLoopSelection: true,
+      });
+      if (targetItem && (!targetItem.origin?.plan_path || !fs.existsSync(targetItem.origin.plan_path))) {
+        const generated = await executeNonPlanFileStage(project, instance, targetItem);
+        if (generated?.work_item) {
+          targetItem = generated.work_item;
+          transitionWorkItem = generated.work_item;
+        }
+        if (generated?.stage_result) {
+          stageResult = generated.stage_result;
+        }
+        if (generated?.reason) {
+          transitionReason = generated.reason;
+        }
+        if (generated?.stop_execution) {
+          instance = updateInstanceAndSync(instance.id, {
+            paused_at_stage: generated.paused_at_stage || LOOP_STATES.PLAN_REVIEW,
+            last_action_at: nowIso(),
+          });
+          break;
+        }
+      }
+
+      const executeStage = await executePlanFileStage(project, instance, targetItem);
       if (executeStage) {
         stageResult = executeStage.stage_result;
-        nextState = executeStage.next_state;
-        pausedAtStage = executeStage.paused_at_stage || null;
         transitionReason = executeStage.reason;
         transitionWorkItem = executeStage.work_item || transitionWorkItem;
       }
+      instance = getInstanceOrThrow(instance.id);
+
+      const executeNextState = executeStage?.next_state || LOOP_STATES.EXECUTE;
+      if (executeNextState === LOOP_STATES.IDLE) {
+        terminateInstanceAndSync(instance.id);
+        return {
+          project_id: project.id,
+          instance_id,
+          previous_state: previousState,
+          new_state: LOOP_STATES.IDLE,
+          paused_at_stage: null,
+          stage_result: stageResult,
+          reason: transitionReason,
+        };
+      }
+
+      if (executeNextState === LOOP_STATES.VERIFY) {
+        const moveToVerify = tryMoveInstanceToStage(instance, LOOP_STATES.VERIFY, {
+          batch_id: executeStage?.work_item?.batch_id || instance.batch_id,
+          work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
+        });
+        if (moveToVerify.blocked) {
+          instance = moveToVerify.instance;
+          transitionReason = 'stage_occupied';
+          break;
+        }
+        instance = moveToVerify.instance;
+        stageResult = await executeVerifyStage(project.id, instance.batch_id, instance);
+        if (stageResult && stageResult.pause_at_stage) {
+          instance = updateInstanceAndSync(instance.id, {
+            paused_at_stage: stageResult.pause_at_stage,
+            last_action_at: nowIso(),
+          });
+          transitionReason = stageResult.reason || transitionReason;
+        }
+      }
+      break;
     }
+
+    case LOOP_STATES.VERIFY: {
+      const latestVerifyDecision = getLatestStageDecision(project.id, LOOP_STATES.VERIFY);
+      const rerunApprovedVerify = ['gate_approved', 'retry_verify_requested'].includes(latestVerifyDecision?.action);
+      stageResult = await executeVerifyStage(project.id, instance.batch_id, instance);
+      if (stageResult && stageResult.pause_at_stage) {
+        instance = updateInstanceAndSync(instance.id, {
+          paused_at_stage: stageResult.pause_at_stage,
+          last_action_at: nowIso(),
+        });
+        transitionReason = stageResult.reason || transitionReason;
+        break;
+      }
+
+      const moveToLearn = tryMoveInstanceToStage(instance, LOOP_STATES.LEARN, {
+        batch_id: instance.batch_id,
+        work_item_id: instance.work_item_id,
+      });
+      instance = moveToLearn.instance;
+      transitionReason = moveToLearn.blocked
+        ? 'stage_occupied'
+        : (rerunApprovedVerify ? 'verify_rerun_completed' : 'verified_batch');
+      break;
+    }
+
+    case LOOP_STATES.LEARN: {
+      stageResult = await executeLearnStage(project.id, instance.batch_id, instance);
+      const cfg = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })() : {};
+      if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
+        const moveToSense = tryMoveInstanceToStage(instance, LOOP_STATES.SENSE, {
+          batch_id: null,
+          work_item_id: null,
+          paused_at_stage: null,
+        });
+        instance = moveToSense.instance;
+        if (moveToSense.blocked) {
+          transitionReason = 'stage_occupied';
+        }
+      } else {
+        terminateInstanceAndSync(instance.id);
+        return {
+          project_id: project.id,
+          instance_id,
+          previous_state: previousState,
+          new_state: LOOP_STATES.IDLE,
+          paused_at_stage: null,
+          stage_result: stageResult,
+          reason: 'learn_completed',
+        };
+      }
+      break;
+    }
+
+    default:
+      throw new Error(`Unsupported loop state: ${currentState}`);
   }
 
-  if (currentState === LOOP_STATES.LEARN && nextState === LOOP_STATES.IDLE) {
-    const cfg = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })() : {};
-    if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
-      nextState = LOOP_STATES.SENSE;
-      pausedAtStage = null;
-    }
-  }
-
-  if (nextState === LOOP_STATES.VERIFY || rerunApprovedVerify) {
-    stageResult = await executeVerifyStage(project.id, project.loop_batch_id);
-    if (stageResult && stageResult.pause_at_stage === 'VERIFY_FAIL') {
-      nextState = LOOP_STATES.PAUSED;
-      pausedAtStage = 'VERIFY_FAIL';
-      transitionReason = stageResult.reason || 'verify_failed';
-    } else if (stageResult && stageResult.pause_at_stage === 'VERIFY') {
-      nextState = LOOP_STATES.PAUSED;
-      pausedAtStage = 'VERIFY';
-      transitionReason = stageResult.reason || 'batch_tasks_not_terminal';
-    }
-  } else if (nextState === LOOP_STATES.LEARN || currentState === LOOP_STATES.LEARN) {
-    stageResult = await executeLearnStage(project.id, project.loop_batch_id);
-  }
-
-  transitionWorkItem = transitionWorkItem || tryGetSelectedWorkItem(project.id) || tryGetLoopWorkItem(project.id);
-
-  factoryHealth.updateProject(project.id, {
-    loop_state: nextState,
-    loop_last_action_at: nowIso(),
-    loop_paused_at_stage: pausedAtStage,
-  });
+  instance = getInstanceOrThrow(instance_id);
+  pausedAtStage = getPausedAtStage(instance);
+  const newState = getCurrentLoopState(instance);
+  transitionWorkItem = transitionWorkItem
+    || tryGetSelectedWorkItem(instance, project.id)
+    || tryGetLoopWorkItem(project.id, { allowedClaimedBy: instance.id });
 
   logger.info('Factory loop advanced', {
     project_id: project.id,
-    previous_state: currentState,
-    new_state: nextState,
+    instance_id: instance.id,
+    previous_state: previousState,
+    new_state: newState,
     paused_at_stage: pausedAtStage,
     reason: transitionReason,
   });
-  if (nextState === LOOP_STATES.IDLE || nextState === LOOP_STATES.SENSE) {
-    clearSelectedWorkItem(project.id);
-  }
+
   logTransitionDecision({
     project,
-    currentState,
-    nextState,
+    currentState: previousState,
+    nextState: pausedAtStage ? LOOP_STATES.PAUSED : newState,
     pausedAtStage,
     reason: transitionReason,
     workItem: transitionWorkItem,
-    batchId: getDecisionBatchId(project, transitionWorkItem),
+    batchId: getDecisionBatchId(project, transitionWorkItem, null, instance),
   });
 
   return {
     project_id: project.id,
-    previous_state: currentState,
-    new_state: nextState,
+    instance_id: instance.id,
+    previous_state: previousState,
+    new_state: newState,
     paused_at_stage: pausedAtStage,
     stage_result: stageResult,
     reason: transitionReason,
   };
 }
 
-async function advanceLoop(project_id) {
-  return runAdvanceLoop(project_id);
+async function advanceLoop(instance_id) {
+  return runAdvanceLoop(instance_id);
 }
 
-function advanceLoopAsync(project_id) {
-  const project = getProjectOrThrow(project_id);
-  const currentState = getCurrentLoopState(project);
+async function advanceLoopForProject(project_id) {
+  return runAdvanceLoop(getLoopInstanceForProjectOrThrow(project_id).id);
+}
+
+function advanceLoopAsync(instance_id) {
+  const { project, instance } = getLoopContextOrThrow(instance_id);
+  const currentState = getCurrentLoopState(instance);
 
   if (currentState === LOOP_STATES.IDLE) {
     throw new Error('Loop not started for this project');
   }
 
-  if (currentState === LOOP_STATES.PAUSED) {
+  if (getPausedAtStage(instance) && !isReadyForStage(getPausedAtStage(instance))) {
     throw new Error('Loop is paused — use approveGate to continue');
   }
 
-  const activeJobId = activeLoopAdvanceJobs.get(project.id);
+  const activeJobId = activeLoopAdvanceJobs.get(instance.id);
   if (activeJobId) {
-    const activeJob = loopAdvanceJobs.get(getLoopAdvanceJobKey(project.id, activeJobId));
+    const activeJob = loopAdvanceJobs.get(getLoopAdvanceJobKey(instance.id, activeJobId));
     if (activeJob?.status === 'running') {
       return snapshotLoopAdvanceJob(activeJob);
     }
-    activeLoopAdvanceJobs.delete(project.id);
+    activeLoopAdvanceJobs.delete(instance.id);
   }
 
   const job = {
     project_id: project.id,
+    instance_id: instance.id,
     job_id: randomUUID(),
     started_at: nowIso(),
     current_state: currentState,
@@ -2801,11 +3240,11 @@ function advanceLoopAsync(project_id) {
     error: null,
   };
 
-  loopAdvanceJobs.set(getLoopAdvanceJobKey(project.id, job.job_id), job);
-  activeLoopAdvanceJobs.set(project.id, job.job_id);
+  loopAdvanceJobs.set(getLoopAdvanceJobKey(instance.id, job.job_id), job);
+  activeLoopAdvanceJobs.set(instance.id, job.job_id);
   emitLoopAdvanceJobEvent(job);
 
-  void runAdvanceLoop(project.id)
+  void runAdvanceLoop(instance.id)
     .then((result) => {
       job.status = 'completed';
       job.new_state = result.new_state ?? null;
@@ -2818,9 +3257,9 @@ function advanceLoopAsync(project_id) {
     .catch((error) => {
       job.status = 'failed';
       try {
-        const latestProject = getProjectOrThrow(project.id);
-        job.new_state = getCurrentLoopState(latestProject);
-        job.paused_at_stage = latestProject.loop_paused_at_stage || null;
+        const latestInstance = getInstanceOrThrow(instance.id);
+        job.new_state = getCurrentLoopState(latestInstance);
+        job.paused_at_stage = getPausedAtStage(latestInstance);
       } catch {
         job.new_state = null;
         job.paused_at_stage = null;
@@ -2829,45 +3268,61 @@ function advanceLoopAsync(project_id) {
       job.error = error instanceof Error ? error.message : String(error);
       logger.warn('Factory loop async advance failed', {
         project_id: project.id,
+        instance_id: instance.id,
         job_id: job.job_id,
         error: job.error,
       });
       emitLoopAdvanceJobEvent(job);
     })
     .finally(() => {
-      if (activeLoopAdvanceJobs.get(project.id) === job.job_id) {
-        activeLoopAdvanceJobs.delete(project.id);
+      if (activeLoopAdvanceJobs.get(instance.id) === job.job_id) {
+        activeLoopAdvanceJobs.delete(instance.id);
       }
     });
 
   return snapshotLoopAdvanceJob(job);
 }
 
-function getLoopAdvanceJobStatus(project_id, job_id) {
+function advanceLoopAsyncForProject(project_id) {
+  return advanceLoopAsync(getLoopInstanceForProjectOrThrow(project_id).id);
+}
+
+function getLoopAdvanceJobStatus(instance_id, job_id) {
+  if (!instance_id || !job_id) {
+    return null;
+  }
+
+  return snapshotLoopAdvanceJob(loopAdvanceJobs.get(getLoopAdvanceJobKey(instance_id, job_id)));
+}
+
+function getLoopAdvanceJobStatusForProject(project_id, job_id) {
   if (!project_id || !job_id) {
     return null;
   }
 
-  return snapshotLoopAdvanceJob(loopAdvanceJobs.get(getLoopAdvanceJobKey(project_id, job_id)));
+  for (const job of loopAdvanceJobs.values()) {
+    if (job.project_id === project_id && job.job_id === job_id) {
+      return snapshotLoopAdvanceJob(job);
+    }
+  }
+  return null;
 }
 
-function approveGate(project_id, stage) {
-  const project = getProjectOrThrow(project_id);
+function approveGate(instance_id, stage) {
+  const { project } = getLoopContextOrThrow(instance_id);
+  const instance = getInstanceOrThrow(instance_id);
   assertValidGateStage(stage);
-  assertPausedAtStage(project, stage);
-  const resumeState = stage === LOOP_STATES.VERIFY
-    ? LOOP_STATES.VERIFY
-    : getResumeStateForApprovedGate(stage, project.trust_level);
+  assertPausedAtStage(instance, stage);
 
-  factoryHealth.updateProject(project.id, {
-    loop_state: resumeState,
-    loop_paused_at_stage: null,
-    loop_last_action_at: nowIso(),
+  const updated = updateInstanceAndSync(instance.id, {
+    paused_at_stage: null,
+    last_action_at: nowIso(),
   });
 
   logger.info('Factory gate approved', {
     project_id: project.id,
-    state: resumeState,
+    instance_id: updated.id,
+    state: getCurrentLoopState(updated),
     approved_stage: stage,
   });
   safeLogDecision({
@@ -2879,38 +3334,40 @@ function approveGate(project_id, stage) {
     inputs: {
       previous_state: LOOP_STATES.PAUSED,
       paused_at_stage: stage,
+      instance_id: updated.id,
     },
     outcome: {
       from_state: LOOP_STATES.PAUSED,
-      to_state: resumeState,
+      to_state: getCurrentLoopState(updated),
       approved_stage: stage,
-      batch_id: project.loop_batch_id || null,
+      batch_id: updated.batch_id || null,
     },
     confidence: 1,
-    batch_id: project.loop_batch_id || null,
+    batch_id: updated.batch_id || null,
   });
 
   return {
     project_id: project.id,
-    state: resumeState,
+    instance_id: updated.id,
+    state: getCurrentLoopState(updated),
     message: 'Gate approved, loop continuing',
   };
 }
 
-function retryVerifyFromFailure(project_id) {
-  const project = factoryHealth.getProject(project_id);
-  if (!project) {
-    throw new Error(`Project not found: ${project_id}`);
-  }
-  if (project.loop_paused_at_stage !== 'VERIFY_FAIL') {
+function approveGateForProject(project_id, stage) {
+  return approveGate(getLoopInstanceForProjectOrThrow(project_id).id, stage);
+}
+
+function retryVerifyFromFailure(instance_id) {
+  const { project } = getLoopContextOrThrow(instance_id);
+  const instance = getInstanceOrThrow(instance_id);
+  if (getPausedAtStage(instance) !== 'VERIFY_FAIL') {
     throw new Error('Loop is not paused at VERIFY_FAIL');
   }
 
-  const updatedAt = nowIso();
-  factoryHealth.updateProject(project.id, {
-    loop_state: LOOP_STATES.VERIFY,
-    loop_paused_at_stage: null,
-    loop_last_action_at: updatedAt,
+  const updated = updateInstanceAndSync(instance.id, {
+    paused_at_stage: null,
+    last_action_at: nowIso(),
   });
 
   safeLogDecision({
@@ -2921,51 +3378,64 @@ function retryVerifyFromFailure(project_id) {
     reasoning: 'Operator triggered VERIFY retry from VERIFY_FAIL',
     outcome: {
       previous_paused_at_stage: 'VERIFY_FAIL',
-      new_state: LOOP_STATES.VERIFY,
+      new_state: getCurrentLoopState(updated),
     },
     confidence: 1,
-    batch_id: project.loop_batch_id || null,
+    batch_id: updated.batch_id || null,
   });
 
   logger.info('Factory VERIFY retry requested', {
     project_id: project.id,
+    instance_id: updated.id,
     previous_paused_at_stage: 'VERIFY_FAIL',
-    state: LOOP_STATES.VERIFY,
+    state: getCurrentLoopState(updated),
   });
 
   return {
     project_id: project.id,
-    state: LOOP_STATES.VERIFY,
+    instance_id: updated.id,
+    state: getCurrentLoopState(updated),
     message: 'VERIFY retry requested; advance the loop to re-run remote verify',
   };
 }
 
-function rejectGate(project_id, stage) {
-  const project = getProjectOrThrow(project_id);
-  assertValidGateStage(stage);
-  assertPausedAtStage(project, stage);
-  clearSelectedWorkItem(project.id);
+function retryVerifyFromFailureForProject(project_id) {
+  return retryVerifyFromFailure(getLoopInstanceForProjectOrThrow(project_id).id);
+}
 
-  factoryHealth.updateProject(project.id, {
-    loop_state: LOOP_STATES.IDLE,
-    loop_paused_at_stage: null,
-    loop_last_action_at: nowIso(),
-  });
+function rejectGate(instance_id, stage) {
+  const { project } = getLoopContextOrThrow(instance_id);
+  const instance = getInstanceOrThrow(instance_id);
+  assertValidGateStage(stage);
+  assertPausedAtStage(instance, stage);
+
+  terminateInstanceAndSync(instance.id);
 
   logger.info('Factory gate rejected', {
     project_id: project.id,
+    instance_id: instance.id,
     rejected_stage: stage,
     state: LOOP_STATES.IDLE,
   });
 
   return {
     project_id: project.id,
+    instance_id: instance.id,
     state: LOOP_STATES.IDLE,
     message: 'Gate rejected, loop stopped',
   };
 }
 
-function getLoopState(project_id) {
+function rejectGateForProject(project_id, stage) {
+  return rejectGate(getLoopInstanceForProjectOrThrow(project_id).id, stage);
+}
+
+function getLoopState(instance_id) {
+  const { project, instance } = getLoopContextOrThrow(instance_id);
+  return summarizeInstanceState(project, instance);
+}
+
+function getLoopStateForProject(project_id) {
   const project = getProjectOrThrow(project_id);
   const loopState = getCurrentLoopState(project);
 
@@ -2981,16 +3451,27 @@ function getLoopState(project_id) {
 }
 
 module.exports = {
+  StageOccupiedError,
   startLoop,
+  startLoopForProject,
   advanceLoop,
+  advanceLoopForProject,
   advanceLoopAsync,
+  advanceLoopAsyncForProject,
   approveGate,
+  approveGateForProject,
   retryVerifyFromFailure,
+  retryVerifyFromFailureForProject,
   rejectGate,
+  rejectGateForProject,
   getLoopState,
+  getLoopStateForProject,
   getLoopAdvanceJobStatus,
+  getLoopAdvanceJobStatusForProject,
+  getActiveInstances,
   scheduleLoop,
   attachBatchId,
+  attachBatchIdForProject,
   // Test hooks
   setWorktreeRunnerForTests,
 };

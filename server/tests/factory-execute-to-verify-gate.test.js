@@ -74,12 +74,33 @@ function createFactoryTables(db) {
       reject_reason TEXT,
       linked_item_id INTEGER,
       batch_id TEXT,
+      claimed_by_instance_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE INDEX IF NOT EXISTS idx_fwi_project_status
       ON factory_work_items(project_id, status);
+
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER REFERENCES factory_work_items(id),
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      terminated_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE');
+
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL;
 
     CREATE TABLE IF NOT EXISTS factory_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -111,15 +132,15 @@ function listDecisionRows(db, projectId) {
 }
 
 async function advanceToExecute(projectId) {
-  loopController.startLoop(projectId);
+  loopController.startLoopForProject(projectId);
 
-  const senseAdvance = await loopController.advanceLoop(projectId);
+  const senseAdvance = await loopController.advanceLoopForProject(projectId);
   expect(senseAdvance.new_state).toBe(LOOP_STATES.PAUSED);
   expect(senseAdvance.paused_at_stage).toBe(LOOP_STATES.PRIORITIZE);
 
-  loopController.approveGate(projectId, LOOP_STATES.PRIORITIZE);
+  loopController.approveGateForProject(projectId, LOOP_STATES.PRIORITIZE);
 
-  const prioritizeAdvance = await loopController.advanceLoop(projectId);
+  const prioritizeAdvance = await loopController.advanceLoopForProject(projectId);
   expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
 }
 
@@ -210,23 +231,23 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
 
     await advanceToExecute(project.id);
 
-    const executeAdvance = await loopController.advanceLoop(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(executeAdvance.paused_at_stage).toBeNull();
     expect(executeAdvance.stage_result).toEqual({
       status: 'skipped',
       reason: 'no_batch_id',
     });
-    expect(loopController.getLoopState(project.id)).toMatchObject({
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
       loop_state: LOOP_STATES.VERIFY,
       loop_paused_at_stage: null,
     });
 
-    const verifyAdvance = await loopController.advanceLoop(project.id);
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
     expect(verifyAdvance.new_state).toBe(LOOP_STATES.PAUSED);
     expect(verifyAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
     expect(verifyAdvance.stage_result).toBeNull();
-    expect(loopController.getLoopState(project.id)).toMatchObject({
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
       loop_state: LOOP_STATES.PAUSED,
       loop_paused_at_stage: LOOP_STATES.VERIFY,
     });
@@ -249,13 +270,13 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
       loop_paused_at_stage: LOOP_STATES.VERIFY,
     });
 
-    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
 
     expect(approved).toMatchObject({
       project_id: project.id,
       state: LOOP_STATES.VERIFY,
     });
-    expect(loopController.getLoopState(project.id)).toMatchObject({
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
       loop_state: LOOP_STATES.VERIFY,
       loop_paused_at_stage: null,
     });

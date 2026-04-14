@@ -2,6 +2,7 @@
 
 const Database = require('better-sqlite3');
 const factoryHealth = require('../db/factory-health');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const { LOOP_STATES } = require('../factory/loop-states');
 const loopController = require('../factory/loop-controller');
 // vitest globals (describe/it/beforeEach/afterEach/expect) are injected by the test runner.
@@ -23,6 +24,36 @@ function createFactoryTables(db) {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_work_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      claimed_by_instance_id TEXT
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER REFERENCES factory_work_items(id),
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      terminated_at TEXT
+    )
+  `);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE')
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL
   `);
   db.exec(`
     CREATE TABLE IF NOT EXISTS factory_health_snapshots (
@@ -81,9 +112,11 @@ beforeEach(() => {
   db = new Database(':memory:');
   createFactoryTables(db);
   factoryHealth.setDb(db);
+  factoryLoopInstances.setDb(db);
 });
 
 afterEach(() => {
+  factoryLoopInstances.setDb(null);
   db.close();
   db = null;
 });
@@ -93,7 +126,7 @@ describe('loopController.attachBatchId', () => {
     const projectId = 'project-plan';
     insertProject({ id: projectId, loop_state: LOOP_STATES.PLAN });
 
-    const result = loopController.attachBatchId(projectId, 'wf-123');
+    const result = loopController.attachBatchIdForProject(projectId, 'wf-123');
 
     expect(result).toMatchObject({
       project_id: projectId,
@@ -109,7 +142,7 @@ describe('loopController.attachBatchId', () => {
     const projectId = 'project-execute';
     insertProject({ id: projectId, loop_state: LOOP_STATES.EXECUTE });
 
-    const result = loopController.attachBatchId(projectId, 'wf-123');
+    const result = loopController.attachBatchIdForProject(projectId, 'wf-123');
 
     expect(result).toMatchObject({
       project_id: projectId,
@@ -125,14 +158,14 @@ describe('loopController.attachBatchId', () => {
     const projectId = 'project-sense';
     insertProject({ id: projectId, loop_state: LOOP_STATES.SENSE });
 
-    const call = () => loopController.attachBatchId(projectId, 'wf-xyz');
+    const call = () => loopController.attachBatchIdForProject(projectId, 'wf-xyz');
 
     expect(call).toThrow(/SENSE/);
-    expect(call).toThrow(/PLAN or EXECUTE/);
+    expect(call).toThrow(/PLAN, EXECUTE, or VERIFY/);
   });
 
   it('rejects unknown project', () => {
-    expect(() => loopController.attachBatchId('does-not-exist', 'wf-1'))
+    expect(() => loopController.attachBatchIdForProject('does-not-exist', 'wf-1'))
       .toThrow(/Project not found/);
   });
 
@@ -140,8 +173,8 @@ describe('loopController.attachBatchId', () => {
     const projectId = 'project-overwrite';
     insertProject({ id: projectId, loop_state: LOOP_STATES.PLAN });
 
-    loopController.attachBatchId(projectId, 'wf-1');
-    loopController.attachBatchId(projectId, 'wf-2');
+    loopController.attachBatchIdForProject(projectId, 'wf-1');
+    loopController.attachBatchIdForProject(projectId, 'wf-2');
 
     const project = factoryHealth.getProject(projectId);
     expect(project.loop_batch_id).toBe('wf-2');

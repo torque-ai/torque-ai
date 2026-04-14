@@ -52,6 +52,7 @@ function createFactoryTables(db) {
       reject_reason TEXT,
       linked_item_id INTEGER,
       batch_id TEXT,
+      claimed_by_instance_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -64,6 +65,26 @@ function createFactoryTables(db) {
       ON factory_work_items(source);
     CREATE INDEX IF NOT EXISTS idx_fwi_linked
       ON factory_work_items(linked_item_id);
+
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER REFERENCES factory_work_items(id),
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      terminated_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE');
+
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL;
 
     CREATE TABLE IF NOT EXISTS factory_plan_file_intake (
       plan_path TEXT NOT NULL,
@@ -119,7 +140,7 @@ describe('loop-controller SENSE plans_dir intake', () => {
       config: { plans_dir: plansDir },
     });
 
-    loopController.startLoop(project.id);
+    loopController.startLoopForProject(project.id);
 
     const row = db.prepare(`
       SELECT id, source, title, origin_json

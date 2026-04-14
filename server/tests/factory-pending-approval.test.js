@@ -67,15 +67,15 @@ function registerPlanProject(testDir) {
 }
 
 async function advanceToExecute(projectId) {
-  loopController.startLoop(projectId);
+  loopController.startLoopForProject(projectId);
 
-  const senseAdvance = await loopController.advanceLoop(projectId);
+  const senseAdvance = await loopController.advanceLoopForProject(projectId);
   expect(senseAdvance.new_state).toBe(LOOP_STATES.PAUSED);
   expect(senseAdvance.paused_at_stage).toBe(LOOP_STATES.PRIORITIZE);
 
-  loopController.approveGate(projectId, LOOP_STATES.PRIORITIZE);
+  loopController.approveGateForProject(projectId, LOOP_STATES.PRIORITIZE);
 
-  const prioritizeAdvance = await loopController.advanceLoop(projectId);
+  const prioritizeAdvance = await loopController.advanceLoopForProject(projectId);
   expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
 }
 
@@ -88,6 +88,7 @@ describe('factory supervised execute pending approval', () => {
     resetTables([
       'tasks',
       'factory_projects',
+      'factory_loop_instances',
       'factory_work_items',
       'factory_decisions',
       'factory_health_snapshots',
@@ -144,7 +145,7 @@ describe('factory supervised execute pending approval', () => {
     const expectedBatchId = `factory-${project.id}-${workItem.id}`;
 
     await advanceToExecute(project.id);
-    const executeAdvance = await loopController.advanceLoop(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();

@@ -33,6 +33,36 @@ function createFactoryTables(db) {
     )
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_work_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      claimed_by_instance_id TEXT
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER REFERENCES factory_work_items(id),
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      terminated_at TEXT
+    )
+  `);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE')
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS factory_health_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
@@ -181,7 +211,7 @@ describe('loopController.advanceLoop LEARN stage', () => {
   it('LEARN stage returns a non-null analysis when a batch_id is attached', async () => {
     insertProject();
 
-    const result = await loopController.advanceLoop('p1');
+    const result = await loopController.advanceLoopForProject('p1');
 
     expect(result.stage_result).toEqual(
       expect.objectContaining({
@@ -203,7 +233,7 @@ describe('loopController.advanceLoop LEARN stage', () => {
     resetFeedbackAnalysisModule();
 
     try {
-      const result = await loopController.advanceLoop('p1');
+      const result = await loopController.advanceLoopForProject('p1');
 
       expect(result.stage_result.status).toBe('error');
       expect(typeof result.stage_result.error).toBe('string');

@@ -2,6 +2,7 @@
 
 const Database = require('better-sqlite3');
 const factoryHealth = require('../db/factory-health');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 
 // Import the modules under test
 const {
@@ -34,6 +35,36 @@ function createFactoryTables(db) {
     )
   `);
   db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_work_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      claimed_by_instance_id TEXT
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER REFERENCES factory_work_items(id),
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      terminated_at TEXT
+    )
+  `);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE')
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS factory_health_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
@@ -64,9 +95,11 @@ beforeAll(() => {
   db = new Database(':memory:');
   createFactoryTables(db);
   factoryHealth.setDb(db);
+  factoryLoopInstances.setDb(db);
 });
 
 afterAll(() => {
+  factoryLoopInstances.setDb(null);
   db.close();
 });
 
@@ -105,7 +138,7 @@ describe('loop-states', () => {
       config: { loop: { auto_continue: true } },
     });
     factoryHealth.updateProject(autoProject.id, { loop_state: LOOP_STATES.LEARN });
-    const result = await loopController.advanceLoop(autoProject.id);
+    const result = await loopController.advanceLoopForProject(autoProject.id);
     expect(result.new_state).toBe(LOOP_STATES.SENSE);
   });
 
@@ -176,24 +209,24 @@ describe('loop-controller', () => {
   });
 
   it('startLoop sets state to SENSE', () => {
-    loopController.startLoop(testProject.id);
+    loopController.startLoopForProject(testProject.id);
 
-    expect(loopController.getLoopState(testProject.id).loop_state).toBe(LOOP_STATES.SENSE);
+    expect(loopController.getLoopStateForProject(testProject.id).loop_state).toBe(LOOP_STATES.SENSE);
   });
 
   it('getLoopState returns IDLE for new project', () => {
-    expect(loopController.getLoopState(testProject.id).loop_state).toBe(LOOP_STATES.IDLE);
+    expect(loopController.getLoopStateForProject(testProject.id).loop_state).toBe(LOOP_STATES.IDLE);
   });
 
   it('advanceLoop moves to next state', () => {
-    loopController.startLoop(testProject.id);
-    loopController.advanceLoop(testProject.id);
+    loopController.startLoopForProject(testProject.id);
+    loopController.advanceLoopForProject(testProject.id);
 
-    expect(loopController.getLoopState(testProject.id).loop_state).toBe(LOOP_STATES.PRIORITIZE);
+    expect(loopController.getLoopStateForProject(testProject.id).loop_state).toBe(LOOP_STATES.PRIORITIZE);
   });
 
   it('advanceLoop throws for IDLE project', async () => {
-    await expect(loopController.advanceLoop(testProject.id)).rejects.toThrow('Loop not started for this project');
+    await expect(loopController.advanceLoopForProject(testProject.id)).rejects.toThrow('Loop not started for this project');
   });
 
   it('startLoop with supervised trust pauses at first gate', () => {
@@ -203,10 +236,10 @@ describe('loop-controller', () => {
       trust_level: 'supervised',
     });
 
-    loopController.startLoop(supervisedProject.id);
-    loopController.advanceLoop(supervisedProject.id);
+    loopController.startLoopForProject(supervisedProject.id);
+    loopController.advanceLoopForProject(supervisedProject.id);
 
-    expect(loopController.getLoopState(supervisedProject.id)).toMatchObject({
+    expect(loopController.getLoopStateForProject(supervisedProject.id)).toMatchObject({
       loop_state: LOOP_STATES.PAUSED,
       loop_paused_at_stage: LOOP_STATES.PRIORITIZE,
       trust_level: 'supervised',
@@ -220,11 +253,11 @@ describe('loop-controller', () => {
       trust_level: 'supervised',
     });
 
-    loopController.startLoop(supervisedProject.id);
-    loopController.advanceLoop(supervisedProject.id);
-    loopController.approveGate(supervisedProject.id, LOOP_STATES.PRIORITIZE);
+    loopController.startLoopForProject(supervisedProject.id);
+    loopController.advanceLoopForProject(supervisedProject.id);
+    loopController.approveGateForProject(supervisedProject.id, LOOP_STATES.PRIORITIZE);
 
-    expect(loopController.getLoopState(supervisedProject.id)).toMatchObject({
+    expect(loopController.getLoopStateForProject(supervisedProject.id)).toMatchObject({
       loop_state: LOOP_STATES.PRIORITIZE,
       loop_paused_at_stage: null,
     });
@@ -237,10 +270,10 @@ describe('loop-controller', () => {
       trust_level: 'supervised',
     });
 
-    loopController.startLoop(supervisedProject.id);
-    loopController.advanceLoop(supervisedProject.id);
+    loopController.startLoopForProject(supervisedProject.id);
+    loopController.advanceLoopForProject(supervisedProject.id);
 
-    expect(() => loopController.approveGate(supervisedProject.id, LOOP_STATES.LEARN))
+    expect(() => loopController.approveGateForProject(supervisedProject.id, LOOP_STATES.LEARN))
       .toThrow(`Loop is paused at ${LOOP_STATES.PRIORITIZE}, not ${LOOP_STATES.LEARN}`);
   });
 
@@ -251,11 +284,11 @@ describe('loop-controller', () => {
       trust_level: 'supervised',
     });
 
-    loopController.startLoop(supervisedProject.id);
-    loopController.advanceLoop(supervisedProject.id);
-    loopController.rejectGate(supervisedProject.id, LOOP_STATES.PRIORITIZE);
+    loopController.startLoopForProject(supervisedProject.id);
+    loopController.advanceLoopForProject(supervisedProject.id);
+    loopController.rejectGateForProject(supervisedProject.id, LOOP_STATES.PRIORITIZE);
 
-    expect(loopController.getLoopState(supervisedProject.id)).toMatchObject({
+    expect(loopController.getLoopStateForProject(supervisedProject.id)).toMatchObject({
       loop_state: LOOP_STATES.IDLE,
       loop_paused_at_stage: null,
     });

@@ -137,6 +137,25 @@ function getActiveWorktree(project_id) {
   }
 }
 
+function getActiveWorktreeByBatch(batch_id) {
+  try {
+    const row = getDb().prepare(`
+      SELECT *
+      FROM factory_worktrees
+      WHERE batch_id = ?
+        AND status = 'active'
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `).get(requireText(batch_id, 'batch_id'));
+    return parseWorktree(row);
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 function getWorktreeByBranch(branch) {
   try {
     const row = getDb().prepare(`
@@ -216,6 +235,7 @@ module.exports = {
   setDb,
   recordWorktree,
   getActiveWorktree,
+  getActiveWorktreeByBatch,
   getWorktreeByBranch,
   markMerged,
   markAbandoned,
