@@ -25,6 +25,7 @@ const FactoryOverview = lazy(() => import('./views/factory/Overview'));
 const FactoryIntake = lazy(() => import('./views/factory/Intake'));
 const FactoryHealth = lazy(() => import('./views/factory/Health'));
 const FactoryActivity = lazy(() => import('./views/factory/Activity'));
+const FactoryHistory = lazy(() => import('./views/factory/History'));
 const FactoryPolicy = lazy(() => import('./views/factory/Policy'));
 
 function mergeTaskUpdates(prevTasks, incomingTasks) {
@@ -306,6 +307,7 @@ function AppInner() {
                 <Route path="intake" element={<FactoryIntake />} />
                 <Route path="health" element={<FactoryHealth />} />
                 <Route path="decisions" element={<FactoryActivity />} />
+                <Route path="history" element={<FactoryHistory />} />
                 <Route path="policy" element={<FactoryPolicy />} />
               </Route>
               <Route path="settings" element={<ProjectSettings />} />

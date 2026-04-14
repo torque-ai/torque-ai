@@ -9,6 +9,7 @@ const FACTORY_TABS = [
   { to: '/factory/intake', label: 'Intake' },
   { to: '/factory/health', label: 'Health' },
   { to: '/factory/decisions', label: 'Activity' },
+  { to: '/factory/history', label: 'History' },
   { to: '/factory/policy', label: 'Policy' },
 ];
 
