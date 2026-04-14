@@ -433,6 +433,17 @@ const tools = [
     },
   },
   {
+    name: 'retry_factory_verify',
+    description: 'Resume a factory loop from VERIFY_FAIL so the next loop advance re-runs remote verify after operator remediation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
     name: 'factory_loop_status',
     description: 'Get current factory loop state for a project — which stage it is in, whether paused, pending approvals, and trust-level gates.',
     inputSchema: {

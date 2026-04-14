@@ -549,6 +549,132 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
+  it('throws when retryVerifyFromFailure is called outside VERIFY_FAIL', () => {
+    const { project } = registerPlanProject();
+
+    expect(() => loopController.retryVerifyFromFailure(project.id)).toThrow('Loop is not paused at VERIFY_FAIL');
+  });
+
+  it('retryVerifyFromFailure resets loop state to VERIFY and clears the paused stage', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-verify-retry-reset',
+        branch: 'feat/factory-verify-retry-reset',
+        worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-retry-reset'),
+      })),
+      verify: vi.fn(async () => ({
+        passed: false,
+        output: 'tests failed',
+        durationMs: 20,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedTaskCount += 1;
+      const taskId = `approval-task-retry-reset-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: args.initial_status || 'pending_approval',
+      });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoop(project.id);
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-retry-reset-1');
+    loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+
+    const failedVerify = await loopController.advanceLoop(project.id);
+    expect(failedVerify.paused_at_stage).toBe('VERIFY_FAIL');
+    expect(loopController.getLoopState(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: 'VERIFY_FAIL',
+    });
+
+    const retried = loopController.retryVerifyFromFailure(project.id);
+
+    expect(retried).toMatchObject({
+      project_id: project.id,
+      state: LOOP_STATES.VERIFY,
+      message: 'VERIFY retry requested; advance the loop to re-run remote verify',
+    });
+    expect(loopController.getLoopState(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.VERIFY,
+      loop_paused_at_stage: null,
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.filter((row) => row.action === 'retry_verify_requested')).toEqual([
+      expect.objectContaining({
+        stage: 'verify',
+        outcome: expect.objectContaining({
+          previous_paused_at_stage: 'VERIFY_FAIL',
+          new_state: LOOP_STATES.VERIFY,
+        }),
+      }),
+    ]);
+  });
+
+  it('reruns VERIFY after retryVerifyFromFailure from VERIFY_FAIL', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-verify-retry',
+        branch: 'feat/factory-verify-retry',
+        worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-retry'),
+      })),
+      verify: vi.fn()
+        .mockResolvedValueOnce({
+          passed: false,
+          output: 'tests failed',
+          durationMs: 19,
+        })
+        .mockResolvedValueOnce({
+          passed: true,
+          output: 'tests passed',
+          durationMs: 17,
+        }),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedTaskCount += 1;
+      const taskId = `approval-task-retry-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: args.initial_status || 'pending_approval',
+      });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoop(project.id);
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-retry-1');
+    loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+
+    const failedVerify = await loopController.advanceLoop(project.id);
+    expect(failedVerify.paused_at_stage).toBe('VERIFY_FAIL');
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+
+    loopController.retryVerifyFromFailure(project.id);
+    const retriedVerify = await loopController.advanceLoop(project.id);
+
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(2);
+    expect(retriedVerify.previous_state).toBe(LOOP_STATES.VERIFY);
+    expect(retriedVerify.new_state).toBe(LOOP_STATES.LEARN);
+    expect(retriedVerify.paused_at_stage).toBeNull();
+  });
+
   it('persists the factory worktree record so a fresh module instance can resolve it after EXECUTE', async () => {
     const { project, workItem } = registerPlanProject();
     const worktreeRunner = {

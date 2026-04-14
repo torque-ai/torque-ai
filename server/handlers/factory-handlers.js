@@ -744,6 +744,12 @@ async function handleApproveFactoryGate(args) {
   return jsonResponse(result);
 }
 
+async function handleRetryFactoryVerify(args) {
+  const project = resolveProject(args.project);
+  const result = loopController.retryVerifyFromFailure(project.id);
+  return jsonResponse(result);
+}
+
 async function handleFactoryLoopStatus(args) {
   const project = resolveProject(args.project);
   const result = loopController.getLoopState(project.id);
@@ -880,6 +886,7 @@ module.exports = {
   handleAdvanceFactoryLoop,
   handleAdvanceFactoryLoopAsync,
   handleApproveFactoryGate,
+  handleRetryFactoryVerify,
   handleFactoryLoopStatus,
   handleFactoryLoopJobStatus,
   handleAttachFactoryBatch,

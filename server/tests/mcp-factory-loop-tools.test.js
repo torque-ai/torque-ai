@@ -34,6 +34,14 @@ const FACTORY_LOOP_TOOLS = [
     },
   },
   {
+    name: 'retry_factory_verify',
+    handlerName: 'handleRetryFactoryVerify',
+    required: ['project'],
+    properties: {
+      project: { type: 'string' },
+    },
+  },
+  {
     name: 'factory_loop_status',
     handlerName: 'handleFactoryLoopStatus',
     required: ['project'],

@@ -2500,10 +2500,12 @@ async function runAdvanceLoop(project_id) {
   }
 
   // VERIFY is an exit gate under supervised mode. After the operator approves
-  // that gate, the next advance must re-run executeVerifyStage once before the
-  // loop is allowed to proceed to LEARN.
+  // that gate, or explicitly retries from VERIFY_FAIL, the next advance must
+  // re-run executeVerifyStage once before the loop is allowed to proceed to
+  // LEARN.
+  const latestVerifyDecision = getLatestStageDecision(project.id, LOOP_STATES.VERIFY);
   const rerunApprovedVerify = currentState === LOOP_STATES.VERIFY
-    && getLatestStageDecision(project.id, LOOP_STATES.VERIFY)?.action === 'gate_approved';
+    && ['gate_approved', 'retry_verify_requested'].includes(latestVerifyDecision?.action);
   const pendingGateStage = rerunApprovedVerify
     ? null
     : getPendingGateStage(currentState, project.trust_level);
@@ -2775,6 +2777,49 @@ function approveGate(project_id, stage) {
   };
 }
 
+function retryVerifyFromFailure(project_id) {
+  const project = factoryHealth.getProject(project_id);
+  if (!project) {
+    throw new Error(`Project not found: ${project_id}`);
+  }
+  if (project.loop_paused_at_stage !== 'VERIFY_FAIL') {
+    throw new Error('Loop is not paused at VERIFY_FAIL');
+  }
+
+  const updatedAt = nowIso();
+  factoryHealth.updateProject(project.id, {
+    loop_state: LOOP_STATES.VERIFY,
+    loop_paused_at_stage: null,
+    loop_last_action_at: updatedAt,
+  });
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.VERIFY,
+    actor: 'human',
+    action: 'retry_verify_requested',
+    reasoning: 'Operator triggered VERIFY retry from VERIFY_FAIL',
+    outcome: {
+      previous_paused_at_stage: 'VERIFY_FAIL',
+      new_state: LOOP_STATES.VERIFY,
+    },
+    confidence: 1,
+    batch_id: project.loop_batch_id || null,
+  });
+
+  logger.info('Factory VERIFY retry requested', {
+    project_id: project.id,
+    previous_paused_at_stage: 'VERIFY_FAIL',
+    state: LOOP_STATES.VERIFY,
+  });
+
+  return {
+    project_id: project.id,
+    state: LOOP_STATES.VERIFY,
+    message: 'VERIFY retry requested; advance the loop to re-run remote verify',
+  };
+}
+
 function rejectGate(project_id, stage) {
   const project = getProjectOrThrow(project_id);
   assertValidGateStage(stage);
@@ -2820,6 +2865,7 @@ module.exports = {
   advanceLoop,
   advanceLoopAsync,
   approveGate,
+  retryVerifyFromFailure,
   rejectGate,
   getLoopState,
   getLoopAdvanceJobStatus,
