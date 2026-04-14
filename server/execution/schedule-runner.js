@@ -63,6 +63,39 @@ function getWorkflowStatusReader(options) {
   };
 }
 
+function getWorkflowSpecRunner(options) {
+  if (typeof options?.runWorkflowSpec === 'function') {
+    return options.runWorkflowSpec;
+  }
+
+  return (specArgs) => {
+    try {
+      const workflowSpecHandlers = require('../handlers/workflow-spec-handlers');
+      if (typeof workflowSpecHandlers.handleRunWorkflowSpec === 'function') {
+        return workflowSpecHandlers.handleRunWorkflowSpec(specArgs);
+      }
+    } catch (error) {
+      return {
+        isError: true,
+        error_code: 'OPERATION_FAILED',
+        content: [{
+          type: 'text',
+          text: `Workflow spec execution is not available: ${error.message}`,
+        }],
+      };
+    }
+
+    return {
+      isError: true,
+      error_code: 'OPERATION_FAILED',
+      content: [{
+        type: 'text',
+        text: 'Workflow spec execution is not available',
+      }],
+    };
+  };
+}
+
 function getScheduledTaskReader(options, db) {
   if (typeof options?.getScheduledTask === 'function') {
     return options.getScheduledTask;
@@ -298,6 +331,104 @@ function executeScheduledTask(schedule, options = {}) {
     scheduled: true,
   };
   const scheduleConsumed = (schedule.schedule_type || 'cron') === 'once';
+
+  if (schedule.payload_kind === 'workflow_spec') {
+    if (!schedule.spec_path) {
+      logger.warn?.(`[schedule] Row ${schedule.id} has payload_kind=workflow_spec but no spec_path; skipping`);
+      db.markScheduledTaskRun(schedule.id, {
+        execution_type: 'workflow',
+        status: 'skipped',
+        skip_reason: 'workflow_spec_missing_path',
+        summary: 'Workflow spec schedule is missing spec_path',
+      });
+      debugLog(`Skipped scheduled workflow spec "${schedule.name}" because spec_path is missing`);
+      return {
+        started: false,
+        skipped: true,
+        execution_type: 'workflow',
+        workflow_id: null,
+        spec_path: null,
+        schedule_id: schedule.id,
+        schedule_name: schedule.name,
+        schedule_consumed: scheduleConsumed,
+        skip_reason: 'workflow_spec_missing_path',
+      };
+    }
+
+    const runWorkflowSpec = getWorkflowSpecRunner(options);
+    let runResult;
+    try {
+      runResult = runWorkflowSpec({ spec_path: schedule.spec_path });
+    } catch (error) {
+      db.markScheduledTaskRun(schedule.id, {
+        execution_type: 'workflow',
+        status: 'failed',
+        summary: error.message,
+        details: {
+          spec_path: schedule.spec_path,
+        },
+      });
+      throw error;
+    }
+
+    if (runResult && typeof runResult.then === 'function') {
+      const errorMessage = `Workflow spec runner for ${schedule.spec_path} must complete synchronously`;
+      db.markScheduledTaskRun(schedule.id, {
+        execution_type: 'workflow',
+        status: 'failed',
+        summary: errorMessage,
+        details: {
+          spec_path: schedule.spec_path,
+        },
+      });
+      throw new Error(errorMessage);
+    }
+
+    if (runResult?.isError || runResult?.error_code) {
+      const errorMessage = extractErrorMessage(runResult, `Failed to run workflow spec ${schedule.spec_path}`);
+      db.markScheduledTaskRun(schedule.id, {
+        execution_type: 'workflow',
+        status: 'failed',
+        summary: errorMessage,
+        details: {
+          spec_path: schedule.spec_path,
+        },
+      });
+      throw new Error(errorMessage);
+    }
+
+    const workflowId = runResult?.workflow_id
+      || runResult?.structuredData?.workflow_id
+      || null;
+
+    db.markScheduledTaskRun(schedule.id, {
+      execution_type: 'workflow',
+      status: 'completed',
+      summary: workflowId
+        ? `Workflow ${workflowId} started`
+        : `Workflow spec ${schedule.spec_path} started`,
+      details: {
+        workflow_status: 'running',
+        workflow_id: workflowId,
+        spec_path: schedule.spec_path,
+      },
+    });
+
+    debugLog(
+      workflowId
+        ? `Executed scheduled workflow spec "${schedule.name}" -> workflow ${workflowId}`
+        : `Executed scheduled workflow spec "${schedule.name}" -> spec ${schedule.spec_path}`
+    );
+    return {
+      started: true,
+      execution_type: 'workflow',
+      workflow_id: workflowId,
+      spec_path: schedule.spec_path,
+      schedule_id: schedule.id,
+      schedule_name: schedule.name,
+      schedule_consumed: scheduleConsumed,
+    };
+  }
 
   if (config.tool_name) {
     const taskId = uuidv4();
