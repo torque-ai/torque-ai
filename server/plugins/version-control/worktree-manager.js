@@ -285,6 +285,29 @@ function createWorktreeManager({ db } = {}) {
     };
   }
 
+  function getWorktreeStatusPorcelain(worktreePath) {
+    return String(runGit(worktreePath, ['status', '--porcelain'])).trim();
+  }
+
+  function assertWorktreeIsClean(worktreePath, action) {
+    const status = getWorktreeStatusPorcelain(worktreePath);
+    if (!status) {
+      return;
+    }
+
+    throw new Error(`worktree ${worktreePath} has uncommitted changes — refusing to ${action}`);
+  }
+
+  function getAheadCommitCount(repoPath, targetBranch, branch) {
+    const output = String(runGit(repoPath, ['rev-list', '--count', `${targetBranch}..${branch}`])).trim();
+    const count = Number.parseInt(output, 10);
+    if (!Number.isFinite(count)) {
+      throw new Error(`unable to determine ahead commit count for ${branch} against ${targetBranch}`);
+    }
+
+    return count;
+  }
+
   function createWorktree(repoPath, featureName, options = {}) {
     const repositoryPath = requireString(repoPath, 'repoPath');
     const requestedFeatureName = requireString(featureName, 'featureName');
@@ -354,6 +377,10 @@ function createWorktreeManager({ db } = {}) {
       && options.delete_branch !== false;
     const removeArgs = ['worktree', 'remove'];
 
+    if (deleteBranch) {
+      assertWorktreeIsClean(existing.worktree_path, 'cleanup');
+    }
+
     if (options.force !== false) {
       removeArgs.push('--force');
     }
@@ -406,6 +433,12 @@ function createWorktreeManager({ db } = {}) {
       || DEFAULT_BASE_BRANCH;
     const deleteAfter = options.deleteAfter !== false && options.delete_after !== false;
     const mergedAt = new Date().toISOString();
+
+    assertWorktreeIsClean(existing.worktree_path, 'merge');
+
+    if (getAheadCommitCount(existing.repo_path, targetBranch, existing.branch) === 0) {
+      throw new Error(`worktree has no commits ahead of ${targetBranch} — refusing to merge empty branch`);
+    }
 
     if (strategy === 'rebase') {
       runGit(existing.worktree_path, ['rebase', targetBranch]);

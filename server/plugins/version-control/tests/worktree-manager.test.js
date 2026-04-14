@@ -33,6 +33,15 @@ function loadManager(db) {
   return require('../worktree-manager').createWorktreeManager({ db });
 }
 
+function runRealGit(cwd, args, options = {}) {
+  return originalExecFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    windowsHide: true,
+    ...options,
+  });
+}
+
 describe('version-control worktree manager', () => {
   let db;
   let manager;
@@ -43,6 +52,26 @@ describe('version-control worktree manager', () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-worktree-manager-'));
     tempDirs.push(repoRoot);
     return repoRoot;
+  }
+
+  function useRealGitManager() {
+    childProcess.execFileSync = originalExecFileSync;
+    manager = loadManager(db);
+  }
+
+  function initGitRepo() {
+    const repoPath = makeRepoRoot();
+    runRealGit(repoPath, ['init', '--initial-branch=main']);
+    runRealGit(repoPath, ['config', 'user.name', 'Worktree Test']);
+    runRealGit(repoPath, ['config', 'user.email', 'worktree-test@example.com']);
+    fs.writeFileSync(path.join(repoPath, 'README.md'), 'seed\n');
+    runRealGit(repoPath, ['add', 'README.md']);
+    runRealGit(repoPath, ['commit', '-m', 'initial commit']);
+    return repoPath;
+  }
+
+  function branchExists(repoPath, branch) {
+    return runRealGit(repoPath, ['branch', '--list', branch]).trim().includes(branch);
   }
 
   function insertWorktree(overrides = {}) {
@@ -254,6 +283,17 @@ describe('version-control worktree manager', () => {
       feature_name: 'api-sync',
       base_branch: 'main',
     });
+    execFileSyncMock.mockImplementation((command, args) => {
+      if (args[0] === 'status') {
+        return '';
+      }
+
+      if (args[0] === 'rev-list') {
+        return '1\n';
+      }
+
+      return '';
+    });
 
     const result = manager.mergeWorktree('wt-merge', {
       strategy: 'rebase',
@@ -270,17 +310,27 @@ describe('version-control worktree manager', () => {
       cleaned: false,
     });
 
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['rebase', 'release'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
       cwd: worktreePath,
       encoding: 'utf8',
       windowsHide: true,
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['checkout', 'release'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['rev-list', '--count', 'release..feat/api-sync'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['merge', '--ff-only', 'feat/api-sync'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['rebase', 'release'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['checkout', 'release'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['merge', '--ff-only', 'feat/api-sync'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
@@ -313,22 +363,100 @@ describe('version-control worktree manager', () => {
       warnings: [],
     });
 
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['worktree', 'remove', '--force', path.join(repoPath, '.worktrees', 'feat-cleanup')], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
+      cwd: path.join(repoPath, '.worktrees', 'feat-cleanup'),
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['worktree', 'remove', '--force', path.join(repoPath, '.worktrees', 'feat-cleanup')], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['worktree', 'prune'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['worktree', 'prune'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['branch', '-D', 'feat/cleanup'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['branch', '-D', 'feat/cleanup'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
     });
     expect(manager.getWorktree('wt-cleanup')).toBeNull();
+  });
+
+  it('mergeWorktree throws when the branch has no commits ahead of target and preserves the worktree', () => {
+    useRealGitManager();
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'empty branch');
+
+    expect(() => manager.mergeWorktree(created.id)).toThrow('no commits ahead');
+    expect(fs.existsSync(created.worktree_path)).toBe(true);
+    expect(branchExists(repoPath, created.branch)).toBe(true);
+    expect(manager.getWorktree(created.id)).not.toBeNull();
+  });
+
+  it('mergeWorktree throws when the worktree has uncommitted changes and preserves the worktree', () => {
+    useRealGitManager();
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'dirty branch');
+
+    fs.writeFileSync(path.join(created.worktree_path, 'draft.txt'), 'draft\n');
+
+    expect(() => manager.mergeWorktree(created.id)).toThrow('uncommitted changes');
+    expect(fs.existsSync(created.worktree_path)).toBe(true);
+    expect(branchExists(repoPath, created.branch)).toBe(true);
+    expect(manager.getWorktree(created.id)).not.toBeNull();
+  });
+
+  it('mergeWorktree succeeds when the worktree branch is ahead and clean', () => {
+    useRealGitManager();
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'clean merge');
+
+    fs.writeFileSync(path.join(created.worktree_path, 'feature.txt'), 'feature\n');
+    runRealGit(created.worktree_path, ['add', 'feature.txt']);
+    runRealGit(created.worktree_path, ['commit', '-m', 'add feature']);
+
+    const result = manager.mergeWorktree(created.id, { deleteAfter: false });
+
+    expect(result).toMatchObject({
+      merged: true,
+      id: created.id,
+      branch: created.branch,
+      target_branch: 'main',
+      strategy: 'merge',
+      cleaned: false,
+    });
+    expect(fs.readFileSync(path.join(repoPath, 'feature.txt'), 'utf8')).toBe('feature\n');
+    expect(manager.getWorktree(created.id)).toMatchObject({
+      id: created.id,
+      status: 'merged',
+    });
+  });
+
+  it('cleanupWorktree blocks dirty branch-deleting cleanup but allows explicit recovery cleanup without deleting the branch', () => {
+    useRealGitManager();
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'dirty cleanup');
+
+    fs.writeFileSync(path.join(created.worktree_path, 'draft.txt'), 'draft\n');
+
+    expect(() => manager.cleanupWorktree(created.id, { deleteBranch: true })).toThrow('uncommitted changes');
+    expect(fs.existsSync(created.worktree_path)).toBe(true);
+    expect(branchExists(repoPath, created.branch)).toBe(true);
+
+    const result = manager.cleanupWorktree(created.id, { deleteBranch: false, force: true });
+
+    expect(result).toMatchObject({
+      id: created.id,
+      removed: true,
+      branchDeleted: false,
+    });
+    expect(fs.existsSync(created.worktree_path)).toBe(false);
+    expect(branchExists(repoPath, created.branch)).toBe(true);
+    expect(manager.getWorktree(created.id)).toBeNull();
   });
 
   it('detects stale worktrees and supports dry-run stale cleanup without deleting rows', () => {
