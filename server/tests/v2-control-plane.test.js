@@ -434,8 +434,8 @@ describe('v2-control-plane task response builders', () => {
       tags: [],
       metadata,
     });
-    expect(result.metadata).toBe(metadata);
-    expect(result.files_modified).toBe(filesModified);
+    expect(result.metadata).toStrictEqual(metadata);
+    expect(result.files_modified).toStrictEqual(filesModified);
   });
 
   it('buildTaskResponse ignores malformed metadata JSON', () => {
