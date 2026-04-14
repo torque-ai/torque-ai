@@ -3,7 +3,9 @@
 const Database = require('better-sqlite3');
 const factoryHealth = require('../db/factory-health');
 const factoryFeedback = require('../db/factory-feedback');
+const factoryIntake = require('../db/factory-intake');
 const guardrailDb = require('../db/factory-guardrails');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const { defaultContainer } = require('../container');
 const loopController = require('../factory/loop-controller');
 // vitest globals (describe/it/beforeEach/afterEach/expect) are injected by the test runner.
@@ -36,9 +38,26 @@ function createFactoryTables(db) {
     CREATE TABLE IF NOT EXISTS factory_work_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
-      claimed_by_instance_id TEXT
+      source TEXT NOT NULL,
+      origin_json TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      priority INTEGER NOT NULL DEFAULT 50,
+      requestor TEXT,
+      constraints_json TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      reject_reason TEXT,
+      linked_item_id INTEGER,
+      batch_id TEXT,
+      claimed_by_instance_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_project_status ON factory_work_items(project_id, status)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_status_priority ON factory_work_items(status, priority DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_source ON factory_work_items(source)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_linked ON factory_work_items(linked_item_id)');
   db.exec(`
     CREATE TABLE IF NOT EXISTS factory_loop_instances (
       id TEXT PRIMARY KEY,
@@ -183,6 +202,8 @@ beforeEach(() => {
   createFactoryTables(db);
   factoryHealth.setDb(db);
   factoryFeedback.setDb(db);
+  factoryIntake.setDb(db);
+  factoryLoopInstances.setDb(db);
   guardrailDb.setDb(db);
 
   defaultContainer.resetForTest && defaultContainer.resetForTest();
@@ -198,6 +219,8 @@ beforeEach(() => {
 afterEach(() => {
   resetFeedbackAnalysisModule();
   defaultContainer.resetForTest && defaultContainer.resetForTest();
+  factoryLoopInstances.setDb(null);
+  factoryIntake.setDb(null);
 
   try {
     db.close();

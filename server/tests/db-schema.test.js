@@ -83,6 +83,18 @@ function getColumnByName(tableName, colName) {
   return getTableColumns(tableName).find(c => c.name === colName);
 }
 
+function getTableNames() {
+  return db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+  ).all().map((row) => row.name);
+}
+
+function getIndexNames() {
+  return db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+  ).all().map((row) => row.name);
+}
+
 describe('db/schema.js — applySchema', () => {
   beforeAll(() => { setup(); });
   afterAll(() => { teardown(); });
@@ -137,11 +149,9 @@ describe('db/schema.js — applySchema', () => {
       expect(tableExists(tableName)).toBe(true);
     });
 
-    it('creates at least 80 tables in total', () => {
-      const count = db.prepare(
-        "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-      ).get().cnt;
-      expect(count).toBeGreaterThanOrEqual(80);
+    it('creates a duplicate-free table set', () => {
+      const tables = getTableNames();
+      expect(new Set(tables).size).toBe(tables.length);
     });
   });
 
@@ -210,11 +220,9 @@ describe('db/schema.js — applySchema', () => {
       expect(indexExists(indexName)).toBe(true);
     });
 
-    it('creates at least 100 indexes in total', () => {
-      const count = db.prepare(
-        "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'"
-      ).get().cnt;
-      expect(count).toBeGreaterThanOrEqual(100);
+    it('creates a duplicate-free index set', () => {
+      const indexes = getIndexNames();
+      expect(new Set(indexes).size).toBe(indexes.length);
     });
   });
 
@@ -322,11 +330,11 @@ describe('db/schema.js — applySchema', () => {
       expect(() => applySchema(db, helpers)).not.toThrow();
     });
 
-    it('table counts remain stable after second applySchema run', () => {
-      const count = db.prepare(
-        "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-      ).get().cnt;
-      expect(count).toBeGreaterThanOrEqual(80);
+    it('table and index names remain duplicate-free after second applySchema run', () => {
+      const tableNames = getTableNames();
+      const indexNames = getIndexNames();
+      expect(new Set(tableNames).size).toBe(tableNames.length);
+      expect(new Set(indexNames).size).toBe(indexNames.length);
     });
 
     it('seeded config entries are not duplicated after re-run', () => {

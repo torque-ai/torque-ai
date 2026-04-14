@@ -15,6 +15,7 @@ const factoryArchitect = require('../db/factory-architect');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 const { handleDecisionLog } = require('../handlers/factory-handlers');
@@ -182,6 +183,7 @@ beforeEach(() => {
   factoryArchitect.setDb(db);
   factoryHealth.setDb(db);
   factoryIntake.setDb(db);
+  factoryLoopInstances.setDb(db);
   factoryDecisions.setDb(db);
   originalGetDbInstance = database.getDbInstance;
   database.getDbInstance = () => db;
@@ -189,6 +191,10 @@ beforeEach(() => {
 
 afterEach(() => {
   database.getDbInstance = originalGetDbInstance;
+  factoryArchitect.setDb(null);
+  factoryHealth.setDb(null);
+  factoryIntake.setDb(null);
+  factoryLoopInstances.setDb(null);
   factoryDecisions.setDb(null);
   db.close();
   db = null;
@@ -217,7 +223,7 @@ describe('loop-controller decision logging', () => {
     });
 
     const prioritizeAdvance = await loopController.advanceLoopForProject(project.id);
-    expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.PLAN);
     expect(prioritizeAdvance.paused_at_stage).toBe(LOOP_STATES.PLAN);
     decisions = listDecisionRows(db, project.id);
     expect(decisions).toHaveLength(7);

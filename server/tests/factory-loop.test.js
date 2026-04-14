@@ -2,6 +2,7 @@
 
 const Database = require('better-sqlite3');
 const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 
 // Import the modules under test
@@ -38,9 +39,26 @@ function createFactoryTables(db) {
     CREATE TABLE IF NOT EXISTS factory_work_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
-      claimed_by_instance_id TEXT
+      source TEXT NOT NULL,
+      origin_json TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      priority INTEGER NOT NULL DEFAULT 50,
+      requestor TEXT,
+      constraints_json TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      reject_reason TEXT,
+      linked_item_id INTEGER,
+      batch_id TEXT,
+      claimed_by_instance_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_project_status ON factory_work_items(project_id, status)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_status_priority ON factory_work_items(status, priority DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_source ON factory_work_items(source)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_linked ON factory_work_items(linked_item_id)');
   db.exec(`
     CREATE TABLE IF NOT EXISTS factory_loop_instances (
       id TEXT PRIMARY KEY,
@@ -95,10 +113,12 @@ beforeAll(() => {
   db = new Database(':memory:');
   createFactoryTables(db);
   factoryHealth.setDb(db);
+  factoryIntake.setDb(db);
   factoryLoopInstances.setDb(db);
 });
 
 afterAll(() => {
+  factoryIntake.setDb(null);
   factoryLoopInstances.setDb(null);
   db.close();
 });
@@ -200,6 +220,8 @@ describe('loop-controller', () => {
 
   beforeEach(() => {
     // Clean up previous projects
+    db.exec("DELETE FROM factory_loop_instances");
+    db.exec("DELETE FROM factory_work_items");
     db.exec("DELETE FROM factory_projects");
     testProject = factoryHealth.registerProject({
       name: 'TestProject',
@@ -218,9 +240,9 @@ describe('loop-controller', () => {
     expect(loopController.getLoopStateForProject(testProject.id).loop_state).toBe(LOOP_STATES.IDLE);
   });
 
-  it('advanceLoop moves to next state', () => {
+  it('advanceLoop moves to next state', async () => {
     loopController.startLoopForProject(testProject.id);
-    loopController.advanceLoopForProject(testProject.id);
+    await loopController.advanceLoopForProject(testProject.id);
 
     expect(loopController.getLoopStateForProject(testProject.id).loop_state).toBe(LOOP_STATES.PRIORITIZE);
   });
@@ -229,7 +251,7 @@ describe('loop-controller', () => {
     await expect(loopController.advanceLoopForProject(testProject.id)).rejects.toThrow('Loop not started for this project');
   });
 
-  it('startLoop with supervised trust pauses at first gate', () => {
+  it('startLoop with supervised trust pauses at first gate', async () => {
     const supervisedProject = factoryHealth.registerProject({
       name: 'SupervisedProject',
       path: '/test/supervised-' + Date.now(),
@@ -237,7 +259,7 @@ describe('loop-controller', () => {
     });
 
     loopController.startLoopForProject(supervisedProject.id);
-    loopController.advanceLoopForProject(supervisedProject.id);
+    await loopController.advanceLoopForProject(supervisedProject.id);
 
     expect(loopController.getLoopStateForProject(supervisedProject.id)).toMatchObject({
       loop_state: LOOP_STATES.PAUSED,
@@ -246,7 +268,7 @@ describe('loop-controller', () => {
     });
   });
 
-  it('approveGate unpauses the loop', () => {
+  it('approveGate unpauses the loop', async () => {
     const supervisedProject = factoryHealth.registerProject({
       name: 'SupervisedProject',
       path: '/test/supervised-' + Date.now(),
@@ -254,7 +276,7 @@ describe('loop-controller', () => {
     });
 
     loopController.startLoopForProject(supervisedProject.id);
-    loopController.advanceLoopForProject(supervisedProject.id);
+    await loopController.advanceLoopForProject(supervisedProject.id);
     loopController.approveGateForProject(supervisedProject.id, LOOP_STATES.PRIORITIZE);
 
     expect(loopController.getLoopStateForProject(supervisedProject.id)).toMatchObject({
@@ -263,7 +285,7 @@ describe('loop-controller', () => {
     });
   });
 
-  it('approveGate throws for wrong stage', () => {
+  it('approveGate throws for wrong stage', async () => {
     const supervisedProject = factoryHealth.registerProject({
       name: 'SupervisedProject',
       path: '/test/supervised-' + Date.now(),
@@ -271,13 +293,13 @@ describe('loop-controller', () => {
     });
 
     loopController.startLoopForProject(supervisedProject.id);
-    loopController.advanceLoopForProject(supervisedProject.id);
+    await loopController.advanceLoopForProject(supervisedProject.id);
 
     expect(() => loopController.approveGateForProject(supervisedProject.id, LOOP_STATES.LEARN))
       .toThrow(`Loop is paused at ${LOOP_STATES.PRIORITIZE}, not ${LOOP_STATES.LEARN}`);
   });
 
-  it('rejectGate stops the loop', () => {
+  it('rejectGate stops the loop', async () => {
     const supervisedProject = factoryHealth.registerProject({
       name: 'SupervisedProject',
       path: '/test/supervised-' + Date.now(),
@@ -285,7 +307,7 @@ describe('loop-controller', () => {
     });
 
     loopController.startLoopForProject(supervisedProject.id);
-    loopController.advanceLoopForProject(supervisedProject.id);
+    await loopController.advanceLoopForProject(supervisedProject.id);
     loopController.rejectGateForProject(supervisedProject.id, LOOP_STATES.PRIORITIZE);
 
     expect(loopController.getLoopStateForProject(supervisedProject.id)).toMatchObject({

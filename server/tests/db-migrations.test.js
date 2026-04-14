@@ -138,8 +138,27 @@ function createBaseSchema(conn, options = {}) {
       CREATE TABLE factory_work_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         project_id TEXT NOT NULL REFERENCES factory_projects(id),
-        status TEXT NOT NULL DEFAULT 'pending'
+        source TEXT NOT NULL,
+        origin_json TEXT,
+        title TEXT NOT NULL,
+        description TEXT,
+        priority INTEGER NOT NULL DEFAULT 50,
+        requestor TEXT,
+        constraints_json TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        reject_reason TEXT,
+        linked_item_id INTEGER,
+        batch_id TEXT,
+        claimed_by_instance_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       );
+    `);
+    conn.exec(`
+      CREATE INDEX idx_fwi_project_status ON factory_work_items(project_id, status);
+      CREATE INDEX idx_fwi_status_priority ON factory_work_items(status, priority DESC);
+      CREATE INDEX idx_fwi_source ON factory_work_items(source);
+      CREATE INDEX idx_fwi_linked ON factory_work_items(linked_item_id);
     `);
   }
 

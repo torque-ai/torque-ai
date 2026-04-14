@@ -8,8 +8,10 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
+const factoryGuardrails = require('../db/factory-guardrails');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const factoryWorktrees = require('../db/factory-worktrees');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
@@ -134,6 +136,17 @@ function createFactoryTables(db) {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch
       ON factory_worktrees(branch);
 
+    CREATE TABLE IF NOT EXISTS factory_guardrail_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      category TEXT NOT NULL,
+      check_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      details_json TEXT,
+      batch_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS factory_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
@@ -177,7 +190,7 @@ async function advanceSupervisedPlanProject(projectId) {
   loopController.startLoopForProject(projectId);
 
   const senseAdvance = await loopController.advanceLoopForProject(projectId);
-  expect(senseAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+  expect(senseAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
   expect(senseAdvance.paused_at_stage).toBe(LOOP_STATES.PRIORITIZE);
 
   loopController.approveGateForProject(projectId, LOOP_STATES.PRIORITIZE);
@@ -212,7 +225,9 @@ describe('factory loop-controller EXECUTE modes', () => {
     createFactoryTables(db);
     loopController.setWorktreeRunnerForTests(null);
     factoryHealth.setDb(db);
+    factoryGuardrails.setDb(db);
     factoryIntake.setDb(db);
+    factoryLoopInstances.setDb(db);
     factoryDecisions.setDb(db);
     factoryWorktrees.setDb(db);
     originalGetDbInstance = database.getDbInstance;
@@ -229,6 +244,10 @@ describe('factory loop-controller EXECUTE modes', () => {
 
   afterEach(() => {
     database.getDbInstance = originalGetDbInstance;
+    factoryHealth.setDb(null);
+    factoryGuardrails.setDb(null);
+    factoryIntake.setDb(null);
+    factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
     factoryWorktrees.setDb(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
@@ -291,9 +310,9 @@ describe('factory loop-controller EXECUTE modes', () => {
 
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(executeAdvance.paused_at_stage).toBeNull();
-    expect(executeAdvance.stage_result).toEqual({
-      status: 'skipped',
-      reason: 'no_batch_id',
+    expect(executeAdvance.stage_result).toMatchObject({
+      passed: true,
+      batch_id: expect.any(String),
     });
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
       id: workItem.id,
@@ -412,9 +431,9 @@ describe('factory loop-controller EXECUTE modes', () => {
 
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(executeAdvance.paused_at_stage).toBeNull();
-    expect(executeAdvance.stage_result).toEqual({
-      status: 'skipped',
-      reason: 'no_batch_id',
+    expect(executeAdvance.stage_result).toMatchObject({
+      passed: true,
+      batch_id: expect.any(String),
     });
     const updatedPlan = fs.readFileSync(planPath, 'utf8');
     expect(updatedPlan).toContain('- [x] **Step 1: Update files**');
@@ -473,7 +492,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     await advanceSupervisedPlanProject(project.id);
     const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
-    expect(executeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
     expect(executeAdvance.reason).toBe('batch_tasks_not_terminal');
     expect(worktreeRunner.verify).not.toHaveBeenCalled();
@@ -548,7 +567,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     await advanceSupervisedPlanProject(project.id);
     const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
-    expect(executeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
     expect(worktreeRunner.verify).not.toHaveBeenCalled();
 
@@ -561,7 +580,7 @@ describe('factory loop-controller EXECUTE modes', () => {
 
     expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
     expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
-    expect(verifyAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(verifyAdvance.paused_at_stage).toBe('VERIFY_FAIL');
     expect(verifyAdvance.reason).toBe('worktree_verify_failed');
     expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
@@ -572,6 +591,7 @@ describe('factory loop-controller EXECUTE modes', () => {
 
   it('throws when retryVerifyFromFailure is called outside VERIFY_FAIL', () => {
     const { project } = registerPlanProject();
+    loopController.startLoopForProject(project.id);
 
     expect(() => loopController.retryVerifyFromFailureForProject(project.id)).toThrow('Loop is not paused at VERIFY_FAIL');
   });

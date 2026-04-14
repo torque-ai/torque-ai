@@ -9,6 +9,7 @@ const factoryFeedback = require('../db/factory-feedback');
 const guardrailDb = require('../db/factory-guardrails');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const factoryWorktrees = require('../db/factory-worktrees');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
@@ -287,6 +288,7 @@ describe('factory loop work-item shipping', () => {
     loopController.setWorktreeRunnerForTests(null);
     factoryHealth.setDb(db);
     factoryIntake.setDb(db);
+    factoryLoopInstances.setDb(db);
     factoryDecisions.setDb(db);
     factoryFeedback.setDb(db);
     guardrailDb.setDb(db);
@@ -297,6 +299,7 @@ describe('factory loop work-item shipping', () => {
 
   afterEach(() => {
     database.getDbInstance = originalGetDbInstance;
+    factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
     factoryFeedback.setDb(null);
     guardrailDb.setDb(null);
@@ -535,7 +538,7 @@ describe('factory loop work-item shipping', () => {
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
-    expect(verifyAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(verifyAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
     expect(verifyAdvance.reason).toBe('batch_tasks_not_terminal');
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({

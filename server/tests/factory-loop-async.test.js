@@ -12,6 +12,7 @@ const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const architectRunner = require('../factory/architect-runner');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
@@ -138,6 +139,7 @@ describe('factory loop async jobs', () => {
     createFactoryTables(db);
     factoryHealth.setDb(db);
     factoryIntake.setDb(db);
+    factoryLoopInstances.setDb(db);
     factoryDecisions.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
@@ -147,6 +149,7 @@ describe('factory loop async jobs', () => {
   afterEach(() => {
     runArchitectCycleSpy.mockRestore();
     database.getDbInstance = originalGetDbInstance;
+    factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
     factoryHealth.setDb(null);
     factoryIntake.setDb(null);
@@ -206,7 +209,7 @@ describe('factory loop async jobs', () => {
     expect(failed).toMatchObject({
       job_id: descriptor.job_id,
       status: 'failed',
-      new_state: LOOP_STATES.PRIORITIZE,
+      new_state: LOOP_STATES.PLAN,
       paused_at_stage: null,
       error: 'architect unavailable',
     });

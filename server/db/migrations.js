@@ -292,7 +292,6 @@ const MIGRATIONS = [
         '  reject_reason TEXT,',
         '  linked_item_id INTEGER,',
         '  batch_id TEXT,',
-        '  claimed_by_instance_id TEXT,',
         "  created_at TEXT NOT NULL DEFAULT (datetime('now')),",
         "  updated_at TEXT NOT NULL DEFAULT (datetime('now'))",
         ')',

@@ -10,8 +10,10 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
+const factoryGuardrails = require('../db/factory-guardrails');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
@@ -102,6 +104,17 @@ function createFactoryTables(db) {
       ON factory_loop_instances(project_id)
       WHERE terminated_at IS NULL;
 
+    CREATE TABLE IF NOT EXISTS factory_guardrail_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      category TEXT NOT NULL,
+      check_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      details_json TEXT,
+      batch_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS factory_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
@@ -135,7 +148,7 @@ async function advanceToExecute(projectId) {
   loopController.startLoopForProject(projectId);
 
   const senseAdvance = await loopController.advanceLoopForProject(projectId);
-  expect(senseAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+  expect(senseAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
   expect(senseAdvance.paused_at_stage).toBe(LOOP_STATES.PRIORITIZE);
 
   loopController.approveGateForProject(projectId, LOOP_STATES.PRIORITIZE);
@@ -153,7 +166,9 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     db = new Database(':memory:');
     createFactoryTables(db);
     factoryHealth.setDb(db);
+    factoryGuardrails.setDb(db);
     factoryIntake.setDb(db);
+    factoryLoopInstances.setDb(db);
     factoryDecisions.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
@@ -169,7 +184,11 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
 
   afterEach(() => {
     database.getDbInstance = originalGetDbInstance;
+    factoryGuardrails.setDb(null);
+    factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
+    factoryHealth.setDb(null);
+    factoryIntake.setDb(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     taskCore.getTask = originalGetTask;
@@ -234,9 +253,9 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     const executeAdvance = await loopController.advanceLoopForProject(project.id);
     expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(executeAdvance.paused_at_stage).toBeNull();
-    expect(executeAdvance.stage_result).toEqual({
-      status: 'skipped',
-      reason: 'no_batch_id',
+    expect(executeAdvance.stage_result).toMatchObject({
+      passed: true,
+      batch_id: expect.any(String),
     });
     expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
       loop_state: LOOP_STATES.VERIFY,
@@ -244,12 +263,15 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     });
 
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
-    expect(verifyAdvance.new_state).toBe(LOOP_STATES.PAUSED);
-    expect(verifyAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
-    expect(verifyAdvance.stage_result).toBeNull();
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.LEARN);
+    expect(verifyAdvance.paused_at_stage).toBeNull();
+    expect(verifyAdvance.stage_result).toMatchObject({
+      passed: true,
+      batch_id: expect.any(String),
+    });
     expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
-      loop_state: LOOP_STATES.PAUSED,
-      loop_paused_at_stage: LOOP_STATES.VERIFY,
+      loop_state: LOOP_STATES.LEARN,
+      loop_paused_at_stage: null,
     });
 
     const decisions = listDecisionRows(db, project.id);
@@ -260,6 +282,7 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
         to_state: LOOP_STATES.VERIFY,
       }),
     });
+    expect(decisions.filter((row) => row.action === 'verified_batch')).toHaveLength(2);
   });
 
   it('resumes a paused VERIFY gate at VERIFY', () => {

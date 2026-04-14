@@ -25,6 +25,78 @@ let handleToolCall;
 let testDir;
 let origDataDir;
 
+function ensureFactoryWorkItemsSchema(dbHandle) {
+  dbHandle.exec(`
+    CREATE TABLE IF NOT EXISTS factory_work_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      source TEXT NOT NULL,
+      origin_json TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      priority INTEGER NOT NULL DEFAULT 50,
+      requestor TEXT,
+      constraints_json TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      reject_reason TEXT,
+      linked_item_id INTEGER,
+      batch_id TEXT,
+      claimed_by_instance_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    )
+  `);
+
+  for (const statement of [
+    "ALTER TABLE factory_work_items ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+    'ALTER TABLE factory_work_items ADD COLUMN origin_json TEXT',
+    "ALTER TABLE factory_work_items ADD COLUMN title TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE factory_work_items ADD COLUMN description TEXT',
+    'ALTER TABLE factory_work_items ADD COLUMN priority INTEGER NOT NULL DEFAULT 50',
+    'ALTER TABLE factory_work_items ADD COLUMN requestor TEXT',
+    'ALTER TABLE factory_work_items ADD COLUMN constraints_json TEXT',
+    "ALTER TABLE factory_work_items ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'",
+    'ALTER TABLE factory_work_items ADD COLUMN reject_reason TEXT',
+    'ALTER TABLE factory_work_items ADD COLUMN linked_item_id INTEGER',
+    'ALTER TABLE factory_work_items ADD COLUMN batch_id TEXT',
+    'ALTER TABLE factory_work_items ADD COLUMN claimed_by_instance_id TEXT',
+    'ALTER TABLE factory_work_items ADD COLUMN created_at TEXT',
+    'ALTER TABLE factory_work_items ADD COLUMN updated_at TEXT',
+  ]) {
+    try {
+      dbHandle.exec(statement);
+    } catch {
+      // Column already exists or this fixture doesn't include factory tables.
+    }
+  }
+
+  try {
+    dbHandle.exec(`
+      UPDATE factory_work_items
+      SET
+        source = COALESCE(NULLIF(TRIM(source), ''), 'manual'),
+        title = COALESCE(NULLIF(TRIM(title), ''), 'fixture'),
+        priority = COALESCE(priority, 50),
+        status = COALESCE(NULLIF(TRIM(status), ''), 'pending'),
+        created_at = COALESCE(created_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at = COALESCE(updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    `);
+  } catch {
+    // factory_work_items may be absent in very small ad-hoc fixtures.
+  }
+
+  dbHandle.exec(`
+    CREATE INDEX IF NOT EXISTS idx_fwi_project_status
+    ON factory_work_items (project_id, status);
+    CREATE INDEX IF NOT EXISTS idx_fwi_status_priority
+    ON factory_work_items (status, priority DESC);
+    CREATE INDEX IF NOT EXISTS idx_fwi_source
+    ON factory_work_items (source);
+    CREATE INDEX IF NOT EXISTS idx_fwi_linked
+    ON factory_work_items (linked_item_id);
+  `);
+}
+
 function ensureTestSchema(dbHandle) {
   if (!dbHandle || typeof dbHandle.exec !== 'function') return;
 
@@ -102,11 +174,7 @@ function ensureTestSchema(dbHandle) {
     ON run_artifacts (task_id);
   `);
 
-  try {
-    dbHandle.exec('ALTER TABLE factory_work_items ADD COLUMN claimed_by_instance_id TEXT');
-  } catch {
-    // Column already exists or the table is absent in this fixture.
-  }
+  ensureFactoryWorkItemsSchema(dbHandle);
 
   dbHandle.exec(`
     CREATE TABLE IF NOT EXISTS factory_loop_instances (
@@ -198,10 +266,13 @@ function _initDb(suiteName) {
     templateBuffer = fs.readFileSync(TEMPLATE_BUF);
   }
 
-  testDir = path.join(os.tmpdir(), `torque-vtest-${suiteName}-${Date.now()}`);
-  fs.mkdirSync(testDir, { recursive: true });
+  const safeSuiteName = String(suiteName || 'suite')
+    .replace(/[^a-z0-9._-]+/gi, '-')
+    .slice(0, 48);
+  testDir = fs.mkdtempSync(path.join(os.tmpdir(), `torque-vtest-${safeSuiteName}-`));
   origDataDir = process.env.TORQUE_DATA_DIR;
   process.env.TORQUE_DATA_DIR = testDir;
+  require('../data-dir').setDataDir(null);
 
   db = require('../database');
   db.resetForTest(templateBuffer);
@@ -261,6 +332,7 @@ function teardownTestDb() {
     } else {
       delete process.env.TORQUE_DATA_DIR;
     }
+    try { require('../data-dir').setDataDir(null); } catch { /* ok */ }
   }
 }
 

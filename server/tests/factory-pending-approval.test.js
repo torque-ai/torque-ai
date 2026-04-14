@@ -7,8 +7,10 @@ const {
   resetTables,
 } = require('./vitest-setup');
 const database = require('../database');
+const factoryGuardrails = require('../db/factory-guardrails');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
@@ -70,7 +72,7 @@ async function advanceToExecute(projectId) {
   loopController.startLoopForProject(projectId);
 
   const senseAdvance = await loopController.advanceLoopForProject(projectId);
-  expect(senseAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+  expect(senseAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
   expect(senseAdvance.paused_at_stage).toBe(LOOP_STATES.PRIORITIZE);
 
   loopController.approveGateForProject(projectId, LOOP_STATES.PRIORITIZE);
@@ -80,11 +82,15 @@ async function advanceToExecute(projectId) {
 }
 
 describe('factory supervised execute pending approval', () => {
+  let dbModule;
   let testDir;
   let safeStartTask;
 
   beforeEach(() => {
-    ({ testDir } = setupTestDbOnly(`factory-pending-approval-${Date.now()}`));
+    ({ db: dbModule, testDir } = setupTestDbOnly(`factory-pending-approval-${Date.now()}`));
+    const rawDb = dbModule.getDbInstance();
+    factoryGuardrails.setDb(rawDb);
+    factoryLoopInstances.setDb(rawDb);
     resetTables([
       'tasks',
       'factory_projects',
@@ -134,6 +140,8 @@ describe('factory supervised execute pending approval', () => {
 
   afterEach(() => {
     queueScheduler.stop();
+    factoryGuardrails.setDb(null);
+    factoryLoopInstances.setDb(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     vi.restoreAllMocks();

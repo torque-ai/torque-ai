@@ -17,6 +17,7 @@ const factoryArchitect = require('../db/factory-architect');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 
@@ -160,18 +161,20 @@ let originalGetDbInstance;
 
 beforeEach(() => {
   db = new Database(':memory:');
-  createFactoryTables(db);
-  factoryArchitect.setDb(db);
-  factoryHealth.setDb(db);
-  factoryIntake.setDb(db);
-  factoryDecisions.setDb(db);
+    createFactoryTables(db);
+    factoryArchitect.setDb(db);
+    factoryHealth.setDb(db);
+    factoryIntake.setDb(db);
+    factoryLoopInstances.setDb(db);
+    factoryDecisions.setDb(db);
   originalGetDbInstance = database.getDbInstance;
   database.getDbInstance = () => db;
 });
 
 afterEach(() => {
-  database.getDbInstance = originalGetDbInstance;
-  factoryDecisions.setDb(null);
+    database.getDbInstance = originalGetDbInstance;
+    factoryLoopInstances.setDb(null);
+    factoryDecisions.setDb(null);
   db.close();
   db = null;
 });
@@ -205,14 +208,14 @@ describe('factory prioritize scoring', () => {
     loopController.startLoopForProject(project.id);
 
     const senseAdvance = await loopController.advanceLoopForProject(project.id);
-    expect(senseAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(senseAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
     expect(senseAdvance.paused_at_stage).toBe(LOOP_STATES.PRIORITIZE);
 
     const approved = loopController.approveGateForProject(project.id, LOOP_STATES.PRIORITIZE);
     expect(approved.state).toBe(LOOP_STATES.PRIORITIZE);
 
     const prioritizeAdvance = await loopController.advanceLoopForProject(project.id);
-    expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(prioritizeAdvance.new_state).toBe(LOOP_STATES.PLAN);
     expect(prioritizeAdvance.paused_at_stage).toBe(LOOP_STATES.PLAN);
 
     const updated = factoryIntake.getWorkItem(selectedItem.id);

@@ -17,6 +17,7 @@ const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const factoryWorktrees = require('../db/factory-worktrees');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
@@ -186,6 +187,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     loopController.setWorktreeRunnerForTests(null);
     factoryHealth.setDb(db);
     factoryIntake.setDb(db);
+    factoryLoopInstances.setDb(db);
     factoryDecisions.setDb(db);
     factoryWorktrees.setDb(db);
     originalGetDbInstance = database.getDbInstance;
@@ -217,6 +219,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
 
   afterEach(() => {
     database.getDbInstance = originalGetDbInstance;
+    factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
     factoryWorktrees.setDb(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
@@ -300,7 +303,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       `${workItem.id}-add-behavioral-tests-for-factory-scorers.md`
     );
 
-    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
     expect(executeAdvance.stage_result).toEqual({
       status: 'skipped',
       reason: 'no_batch_id',
@@ -366,11 +369,8 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     const executeAdvance = await loopController.advanceLoopForProject(project.id);
     const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
 
-    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
-    expect(executeAdvance.stage_result).toEqual({
-      status: 'skipped',
-      reason: 'no_batch_id',
-    });
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+    expect(executeAdvance.stage_result).toBeNull();
     expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
     expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
     expect(createPlanExecutorMock).not.toHaveBeenCalled();

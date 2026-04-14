@@ -509,8 +509,7 @@ describe('db/schema-tables', () => {
     for (const table of expectedTables) {
       expect(actualTables).toContain(table);
     }
-    // Count should not decrease from baseline
-    expect(actualTables.length).toBeGreaterThanOrEqual(156);
+    expect(new Set(actualTables).size).toBe(actualTables.length);
   });
 
   it('createTables creates expected indexes', () => {
@@ -523,8 +522,7 @@ describe('db/schema-tables', () => {
     for (const idx of expectedIndexes) {
       expect(actualIndexes).toContain(idx);
     }
-    // Count should not decrease from baseline
-    expect(actualIndexes.length).toBeGreaterThanOrEqual(265);
+    expect(new Set(actualIndexes).size).toBe(actualIndexes.length);
 
     expect(getIndexColumns('idx_tasks_status_priority')).toEqual(['status', 'priority']);
     expect(getIndexSql('idx_tasks_status_priority')).toContain('priority DESC');

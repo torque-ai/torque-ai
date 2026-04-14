@@ -18,6 +18,7 @@ const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
@@ -170,6 +171,7 @@ describe('factory architect plan lint integration', () => {
     database.getDbInstance = () => db;
     factoryHealth.setDb(db);
     factoryIntake.setDb(db);
+    factoryLoopInstances.setDb(db);
     factoryDecisions.setDb(db);
     loopController.setWorktreeRunnerForTests(null);
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-plan-lint-'));
@@ -202,6 +204,7 @@ describe('factory architect plan lint integration', () => {
     database.getDbInstance = originalGetDbInstance;
     factoryHealth.setDb(null);
     factoryIntake.setDb(null);
+    factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
@@ -245,7 +248,7 @@ describe('factory architect plan lint integration', () => {
     const decisions = listDecisionRows(db, project.id);
     const lintRejected = decisions.find((row) => row.action === 'plan_lint_rejected');
 
-    expect(result.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(result.new_state).toBe(LOOP_STATES.EXECUTE);
     expect(result.paused_at_stage).toBe(LOOP_STATES.PLAN_REVIEW);
     expect(result.stage_result).toMatchObject({
       status: 'paused',

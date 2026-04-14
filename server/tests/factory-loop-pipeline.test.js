@@ -8,6 +8,7 @@ const Database = require('better-sqlite3');
 vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 
 const database = require('../database');
+const factoryArchitect = require('../db/factory-architect');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
@@ -95,6 +96,18 @@ function createFactoryTables(db) {
       ON factory_loop_instances(project_id)
       WHERE terminated_at IS NULL;
 
+    CREATE TABLE IF NOT EXISTS factory_architect_cycles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      input_snapshot_json TEXT NOT NULL,
+      reasoning TEXT NOT NULL,
+      backlog_json TEXT NOT NULL,
+      flags_json TEXT,
+      status TEXT NOT NULL DEFAULT 'completed',
+      trigger TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS factory_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id TEXT NOT NULL REFERENCES factory_projects(id),
@@ -158,6 +171,7 @@ describe('factory loop pipeline parallelism', () => {
   beforeEach(() => {
     db = new Database(':memory:');
     createFactoryTables(db);
+    factoryArchitect.setDb(db);
     factoryHealth.setDb(db);
     factoryIntake.setDb(db);
     factoryDecisions.setDb(db);
@@ -171,6 +185,7 @@ describe('factory loop pipeline parallelism', () => {
   afterEach(() => {
     loopController.setWorktreeRunnerForTests(undefined);
     database.getDbInstance = originalGetDbInstance;
+    factoryArchitect.setDb(null);
     factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
     factoryIntake.setDb(null);
