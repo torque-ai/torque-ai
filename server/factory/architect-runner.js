@@ -7,6 +7,7 @@ const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryArchitect = require('../db/factory-architect');
 const { buildArchitectPrompt } = require('./architect-prompt');
+const { lintPlanContent } = require('./plan-lint');
 const logger = require('../logger').child({ component: 'architect-runner' });
 const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'rejected', 'shipped']);
 const PRIORITIZABLE_WORK_ITEM_STATUSES = new Set([
@@ -541,6 +542,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
 module.exports = {
   PLAN_AUTHORING_GUIDE,
   injectPlanAuthoringGuide,
+  lintPlanContent,
   runArchitectCycle,
   prioritizeByHealth,
   updateBacklogWorkItemStatuses,
