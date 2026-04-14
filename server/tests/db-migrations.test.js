@@ -28,6 +28,7 @@ function createBaseSchema(conn, options = {}) {
     includeDistributedLocks = true,
     includeConfig = true,
     includeComplexityRouting = true,
+    includeFactoryTables = true,
     existingModelAffinityColumns = false,
     includeModelFamilyTemplates = true,
     includeModelRegistry = true,
@@ -119,6 +120,25 @@ function createBaseSchema(conn, options = {}) {
       CREATE TABLE complexity_routing (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         target_provider TEXT
+      );
+    `);
+  }
+
+  if (includeFactoryTables) {
+    conn.exec(`
+      CREATE TABLE factory_projects (
+        id TEXT PRIMARY KEY,
+        loop_state TEXT DEFAULT 'IDLE',
+        loop_batch_id TEXT,
+        loop_last_action_at TEXT,
+        loop_paused_at_stage TEXT
+      );
+    `);
+    conn.exec(`
+      CREATE TABLE factory_work_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT NOT NULL REFERENCES factory_projects(id),
+        status TEXT NOT NULL DEFAULT 'pending'
       );
     `);
   }
@@ -442,6 +462,103 @@ describe('db/migrations', () => {
       );
     });
 
+    it('creates factory loop instance schema during migration v25', () => {
+      createBaseSchema(db);
+
+      subject.runMigrations(db);
+
+      expect(tableExists(db, 'factory_loop_instances')).toBe(true);
+      expect(indexExists(db, 'idx_factory_loop_instances_stage_occupancy')).toBe(true);
+      expect(indexExists(db, 'idx_factory_loop_instances_project_active')).toBe(true);
+      expect(getColumnNames(db, 'factory_work_items')).toContain('claimed_by_instance_id');
+      expect(getColumnNames(db, 'factory_loop_instances')).toEqual(
+        expect.arrayContaining([
+          'id',
+          'project_id',
+          'work_item_id',
+          'batch_id',
+          'loop_state',
+          'paused_at_stage',
+          'last_action_at',
+          'created_at',
+          'terminated_at',
+        ]),
+      );
+    });
+
+    it.each([
+      {
+        label: 'active loop states directly',
+        project: {
+          id: 'project-plan',
+          loop_state: 'PLAN',
+          loop_paused_at_stage: null,
+          loop_batch_id: 'batch-plan',
+          loop_last_action_at: '2026-04-01T00:00:00.000Z',
+        },
+        expectedState: 'PLAN',
+        expectedPaused: null,
+      },
+      {
+        label: 'READY_FOR pause states to the blocked target stage',
+        project: {
+          id: 'project-ready',
+          loop_state: 'PAUSED',
+          loop_paused_at_stage: 'READY_FOR_EXECUTE',
+          loop_batch_id: 'batch-ready',
+          loop_last_action_at: '2026-04-01T01:00:00.000Z',
+        },
+        expectedState: 'EXECUTE',
+        expectedPaused: 'READY_FOR_EXECUTE',
+      },
+      {
+        label: 'VERIFY_FAIL pauses to VERIFY ownership',
+        project: {
+          id: 'project-verify',
+          loop_state: 'PAUSED',
+          loop_paused_at_stage: 'VERIFY_FAIL',
+          loop_batch_id: 'batch-verify',
+          loop_last_action_at: '2026-04-01T02:00:00.000Z',
+        },
+        expectedState: 'VERIFY',
+        expectedPaused: 'VERIFY_FAIL',
+      },
+    ])('backfills legacy project loop rows for $label', ({ project, expectedState, expectedPaused }) => {
+      createBaseSchema(db);
+      db.prepare(`
+        INSERT INTO factory_projects (
+          id,
+          loop_state,
+          loop_batch_id,
+          loop_last_action_at,
+          loop_paused_at_stage
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `).run(
+        project.id,
+        project.loop_state,
+        project.loop_batch_id,
+        project.loop_last_action_at,
+        project.loop_paused_at_stage,
+      );
+
+      subject.runMigrations(db);
+
+      const instance = db.prepare(`
+        SELECT project_id, batch_id, loop_state, paused_at_stage, last_action_at
+        FROM factory_loop_instances
+        WHERE project_id = ?
+      `).get(project.id);
+
+      expect(instance).toMatchObject({
+        project_id: project.id,
+        batch_id: project.loop_batch_id,
+        loop_state: expectedState,
+        paused_at_stage: expectedPaused,
+        last_action_at: project.loop_last_action_at,
+      });
+    });
+
     it('is idempotent when rerun after all migrations have already been applied', () => {
       createBaseSchema(db);
 
@@ -607,6 +724,19 @@ describe('db/migrations', () => {
       expect(indexExists(db, 'idx_conn_accounts_user_toolkit')).toBe(false);
       expect(indexExists(db, 'idx_conn_accounts_status')).toBe(false);
       expect(getAppliedVersions(db)).not.toContain(24);
+    });
+
+    it('rolls back migration v25 by dropping factory loop instances and indexes', () => {
+      createBaseSchema(db);
+      subject.runMigrations(db);
+      expect(tableExists(db, 'factory_loop_instances')).toBe(true);
+
+      subject.rollbackMigration(db, 25);
+
+      expect(tableExists(db, 'factory_loop_instances')).toBe(false);
+      expect(indexExists(db, 'idx_factory_loop_instances_stage_occupancy')).toBe(false);
+      expect(indexExists(db, 'idx_factory_loop_instances_project_active')).toBe(false);
+      expect(getAppliedVersions(db)).not.toContain(25);
     });
 
     it('allows a rolled back migration to be reapplied on the next run', () => {

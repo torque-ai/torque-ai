@@ -102,6 +102,32 @@ function ensureTestSchema(dbHandle) {
     ON run_artifacts (task_id);
   `);
 
+  try {
+    dbHandle.exec('ALTER TABLE factory_work_items ADD COLUMN claimed_by_instance_id TEXT');
+  } catch {
+    // Column already exists or the table is absent in this fixture.
+  }
+
+  dbHandle.exec(`
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER REFERENCES factory_work_items(id),
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      terminated_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE');
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL;
+  `);
+
   for (const statement of [
     'ALTER TABLE task_file_changes ADD COLUMN stash_ref TEXT',
     'ALTER TABLE task_file_changes ADD COLUMN original_content TEXT',

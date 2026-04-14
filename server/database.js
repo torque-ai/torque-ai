@@ -64,6 +64,7 @@ const factoryIntake = require('./db/factory-intake');
 const factoryArchitect = require('./db/factory-architect');
 const factoryFeedback = require('./db/factory-feedback');
 const factoryAudit = require('./db/factory-audit');
+const factoryLoopInstances = require('./db/factory-loop-instances');
 const factoryWorktrees = require('./db/factory-worktrees');
 
 
@@ -295,6 +296,7 @@ function _wireAllModules() {
   factoryArchitect.setDb(db);
   factoryFeedback.setDb(db);
   factoryAudit.setDb(db);
+  factoryLoopInstances.setDb(db);
   factoryWorktrees.setDb(db);
   workflowEngine.createWorkflowEngine({ db });
   validationRules.createValidationRules({ db, taskCore: { getTask } });
@@ -742,6 +744,7 @@ const _SUB_MODULES = [
   factoryHealth,
   factoryIntake,
   factoryArchitect,
+  factoryLoopInstances,
   factoryWorktrees,
 ];
 

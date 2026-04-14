@@ -55,6 +55,9 @@ const EXPECTED_TABLES = [
   "task_artifacts",
   "artifact_config",
   "run_artifacts",
+  "factory_projects",
+  "factory_work_items",
+  "factory_loop_instances",
   "task_breakpoints",
   "debug_sessions",
   "debug_captures",
@@ -259,6 +262,8 @@ const EXPECTED_INDEXES = [
   "idx_task_artifacts_name",
   "idx_task_artifacts_expires",
   "idx_run_artifacts_task",
+  "idx_factory_loop_instances_stage_occupancy",
+  "idx_factory_loop_instances_project_active",
   "idx_task_breakpoints_task",
   "idx_task_breakpoints_pattern",
   "idx_debug_sessions_task",
@@ -729,6 +734,15 @@ describe('db/schema-tables', () => {
     expect(getColumn('recovery_metrics', 'approval_required')).toMatchObject({ type: 'INTEGER', dflt_value: '0' });
     expect(getColumn('recovery_metrics', 'approval_granted')).toMatchObject({ type: 'INTEGER', dflt_value: '0' });
     expect(getColumn('recovery_metrics', 'created_at')).toMatchObject({ type: 'TEXT', notnull: 1 });
+    expect(getColumn('factory_work_items', 'claimed_by_instance_id')).toMatchObject({ type: 'TEXT', notnull: 0 });
+    expect(getColumn('factory_loop_instances', 'id')).toMatchObject({ type: 'TEXT', pk: 1 });
+    expect(getColumn('factory_loop_instances', 'project_id')).toMatchObject({ type: 'TEXT', notnull: 1 });
+    expect(getColumn('factory_loop_instances', 'work_item_id')).toMatchObject({ type: 'INTEGER', notnull: 0 });
+    expect(getColumn('factory_loop_instances', 'loop_state')).toMatchObject({ type: 'TEXT', notnull: 1, dflt_value: "'IDLE'" });
+    expect(getColumn('factory_loop_instances', 'paused_at_stage')).toMatchObject({ type: 'TEXT', notnull: 0 });
+    expect(getColumn('factory_loop_instances', 'terminated_at')).toMatchObject({ type: 'TEXT', notnull: 0 });
+    expect(getIndexSql('idx_factory_loop_instances_stage_occupancy')).toContain("loop_state NOT IN ('IDLE')");
+    expect(getIndexSql('idx_factory_loop_instances_project_active')).toContain('terminated_at IS NULL');
     expect(getColumn('ollama_hosts', 'url')).toMatchObject({ type: 'TEXT', notnull: 1 });
     expect(getColumn('ollama_hosts', 'enabled')).toMatchObject({ type: 'INTEGER', dflt_value: '1' });
     expect(getColumn('ollama_hosts', 'status')).toMatchObject({ type: 'TEXT', dflt_value: "'unknown'" });

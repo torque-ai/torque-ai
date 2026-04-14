@@ -1,5 +1,7 @@
 'use strict';
 
+const { randomUUID } = require('crypto');
+
 /**
  * Validate that all tasks have a recognized status value.
  * SQLite does not support ALTER TABLE ADD CHECK, so this runs as a startup
@@ -21,6 +23,100 @@ function validateTaskStatuses(db, logger) {
 
 function runMigrations(db, logger, safeAddColumn, extras = {}) {
   const { getConfig, setConfig } = extras;
+  function ensureFactoryLoopInstancesSchema() {
+    safeAddColumn('factory_work_items', 'claimed_by_instance_id TEXT');
+
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS factory_loop_instances (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES factory_projects(id),
+          work_item_id INTEGER REFERENCES factory_work_items(id),
+          batch_id TEXT,
+          loop_state TEXT NOT NULL DEFAULT 'IDLE',
+          paused_at_stage TEXT,
+          last_action_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+          terminated_at TEXT
+        )
+      `);
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+        ON factory_loop_instances(project_id, loop_state)
+        WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE')
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+        ON factory_loop_instances(project_id)
+        WHERE terminated_at IS NULL
+      `);
+    } catch (e) {
+      logger.debug(`Schema migration (factory_loop_instances): ${e.message}`);
+    }
+
+    try {
+      const activeProjectLoops = db.prepare(`
+        SELECT id, loop_state, loop_paused_at_stage, loop_last_action_at, loop_batch_id
+        FROM factory_projects
+        WHERE COALESCE(UPPER(loop_state), 'IDLE') != 'IDLE'
+      `).all();
+
+      const hasActiveInstance = db.prepare(`
+        SELECT 1
+        FROM factory_loop_instances
+        WHERE project_id = ?
+          AND terminated_at IS NULL
+        LIMIT 1
+      `);
+
+      const insertInstance = db.prepare(`
+        INSERT INTO factory_loop_instances (
+          id,
+          project_id,
+          batch_id,
+          loop_state,
+          paused_at_stage,
+          last_action_at,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const project of activeProjectLoops) {
+        if (hasActiveInstance.get(project.id)) {
+          continue;
+        }
+
+        const createdAt = project.loop_last_action_at || new Date().toISOString();
+        const normalizedState = String(project.loop_state || 'IDLE').toUpperCase();
+        let instanceState = normalizedState;
+        if (instanceState === 'PAUSED') {
+          const pausedStage = String(project.loop_paused_at_stage || '').toUpperCase();
+          if (pausedStage.startsWith('READY_FOR_')) {
+            instanceState = pausedStage.slice('READY_FOR_'.length) || 'IDLE';
+          } else if (pausedStage === 'VERIFY_FAIL') {
+            instanceState = 'VERIFY';
+          } else if (pausedStage) {
+            instanceState = pausedStage;
+          } else {
+            instanceState = 'IDLE';
+          }
+        }
+
+        insertInstance.run(
+          randomUUID(),
+          project.id,
+          project.loop_batch_id || null,
+          instanceState,
+          project.loop_paused_at_stage || null,
+          project.loop_last_action_at || null,
+          createdAt,
+        );
+      }
+    } catch (e) {
+      logger.debug(`Schema migration (factory_loop_instances backfill): ${e.message}`);
+    }
+  }
   // Wrap all migrations in a savepoint so partial failures can be rolled back
   db.exec("SAVEPOINT migration_batch");
   try {
@@ -799,6 +895,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   // Await restart recovery: structured cancel reason + server epoch
   safeAddColumn('tasks', 'cancel_reason TEXT');
   safeAddColumn('tasks', 'server_epoch INTEGER');
+  ensureFactoryLoopInstancesSchema();
   db.exec("RELEASE SAVEPOINT migration_batch");
   } catch (err) {
     try { db.exec("ROLLBACK TO SAVEPOINT migration_batch"); } catch (_e) { void _e; }

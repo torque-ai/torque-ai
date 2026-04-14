@@ -486,6 +486,31 @@ describe('db/migrations.js', () => {
     expect(tables).toContain('project_tuning');
     // benchmark_results from migration v6
     expect(tables).toContain('benchmark_results');
+    expect(tables).toContain('factory_loop_instances');
+  });
+
+  it('latest factory loop migration is recorded with its schema contract', () => {
+    const migrations = require('../db/migrations');
+    const latestMigration = migrations.MIGRATIONS[migrations.MIGRATIONS.length - 1];
+    const conn = getMigrationsDbInstance();
+
+    const applied = conn.prepare(
+      'SELECT version, name FROM schema_migrations WHERE version = ?'
+    ).get(latestMigration.version);
+    const workItemColumns = conn.prepare('PRAGMA table_info(factory_work_items)').all().map((c) => c.name);
+    const loopInstanceIndexes = conn.prepare(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name = 'factory_loop_instances' ORDER BY name"
+    ).all().map((row) => row.name);
+
+    expect(applied).toEqual({
+      version: latestMigration.version,
+      name: latestMigration.name,
+    });
+    expect(workItemColumns).toContain('claimed_by_instance_id');
+    expect(loopInstanceIndexes).toEqual(expect.arrayContaining([
+      'idx_factory_loop_instances_project_active',
+      'idx_factory_loop_instances_stage_occupancy',
+    ]));
   });
 
   it('migration v9 adds default_model to ollama_hosts', () => {

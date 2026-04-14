@@ -1,5 +1,7 @@
 'use strict';
 
+const { randomUUID } = require('crypto');
+
 /**
  * Database Migration System for TORQUE
  *
@@ -290,6 +292,7 @@ const MIGRATIONS = [
         '  reject_reason TEXT,',
         '  linked_item_id INTEGER,',
         '  batch_id TEXT,',
+        '  claimed_by_instance_id TEXT,',
         "  created_at TEXT NOT NULL DEFAULT (datetime('now')),",
         "  updated_at TEXT NOT NULL DEFAULT (datetime('now'))",
         ')',
@@ -535,6 +538,101 @@ const MIGRATIONS = [
       'DROP INDEX IF EXISTS idx_conn_accounts_user_toolkit',
       'DROP TABLE IF EXISTS connected_accounts',
       'DROP TABLE IF EXISTS auth_configs',
+    ].join('; '),
+  },
+  {
+    version: 25,
+    name: 'add_factory_loop_instances',
+    up: (db) => {
+      try {
+        db.prepare('ALTER TABLE factory_work_items ADD COLUMN claimed_by_instance_id TEXT').run();
+      } catch (_e) {
+        void _e;
+      }
+
+      db.exec([
+        'CREATE TABLE IF NOT EXISTS factory_loop_instances (',
+        '  id TEXT PRIMARY KEY,',
+        '  project_id TEXT NOT NULL REFERENCES factory_projects(id),',
+        '  work_item_id INTEGER REFERENCES factory_work_items(id),',
+        '  batch_id TEXT,',
+        "  loop_state TEXT NOT NULL DEFAULT 'IDLE',",
+        '  paused_at_stage TEXT,',
+        '  last_action_at TEXT,',
+        "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),",
+        '  terminated_at TEXT',
+        ')',
+      ].join('\n'));
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+        ON factory_loop_instances(project_id, loop_state)
+        WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE')
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+        ON factory_loop_instances(project_id)
+        WHERE terminated_at IS NULL
+      `);
+
+      const activeProjectLoops = db.prepare(`
+        SELECT id, loop_state, loop_paused_at_stage, loop_last_action_at, loop_batch_id
+        FROM factory_projects
+        WHERE COALESCE(UPPER(loop_state), 'IDLE') != 'IDLE'
+      `).all();
+      const hasActiveInstance = db.prepare(`
+        SELECT 1
+        FROM factory_loop_instances
+        WHERE project_id = ?
+          AND terminated_at IS NULL
+        LIMIT 1
+      `);
+      const insertInstance = db.prepare(`
+        INSERT INTO factory_loop_instances (
+          id,
+          project_id,
+          batch_id,
+          loop_state,
+          paused_at_stage,
+          last_action_at,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const project of activeProjectLoops) {
+        if (hasActiveInstance.get(project.id)) {
+          continue;
+        }
+
+        const pausedStage = String(project.loop_paused_at_stage || '').toUpperCase();
+        let instanceState = String(project.loop_state || 'IDLE').toUpperCase();
+        if (instanceState === 'PAUSED') {
+          if (pausedStage.startsWith('READY_FOR_')) {
+            instanceState = pausedStage.slice('READY_FOR_'.length) || 'IDLE';
+          } else if (pausedStage === 'VERIFY_FAIL') {
+            instanceState = 'VERIFY';
+          } else if (pausedStage) {
+            instanceState = pausedStage;
+          } else {
+            instanceState = 'IDLE';
+          }
+        }
+
+        insertInstance.run(
+          randomUUID(),
+          project.id,
+          project.loop_batch_id || null,
+          instanceState,
+          project.loop_paused_at_stage || null,
+          project.loop_last_action_at || null,
+          project.loop_last_action_at || new Date().toISOString(),
+        );
+      }
+    },
+    down: [
+      'DROP INDEX IF EXISTS idx_factory_loop_instances_project_active',
+      'DROP INDEX IF EXISTS idx_factory_loop_instances_stage_occupancy',
+      'DROP TABLE IF EXISTS factory_loop_instances',
     ].join('; '),
   },
 ];

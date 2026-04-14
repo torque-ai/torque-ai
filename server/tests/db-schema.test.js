@@ -129,6 +129,7 @@ describe('db/schema.js — applySchema', () => {
       'output_violations', 'report_exports', 'integration_health',
       'integration_tests', 'github_issues', 'email_notifications',
       'provider_config', 'provider_usage', 'routing_rules', 'ollama_hosts',
+      'factory_loop_instances',
       'complexity_routing',
     ];
 
@@ -201,6 +202,8 @@ describe('db/schema.js — applySchema', () => {
       'idx_provider_usage_transport', 'idx_provider_usage_failure_reason',
       'idx_cost_tracking_provider', 'idx_fingerprints_hash',
       'idx_file_locks_path', 'idx_backups_task',
+      'idx_factory_loop_instances_stage_occupancy',
+      'idx_factory_loop_instances_project_active',
     ];
 
     it.each(expectedIndexes)('creates index "%s"', (indexName) => {
@@ -406,6 +409,20 @@ describe('db/schema.js — applySchema', () => {
       const col = getColumnByName('agents', 'status');
       expect(col).toBeTruthy();
       expect(col.dflt_value).toBe("'offline'");
+    });
+
+    it('factory_work_items.claimed_by_instance_id is nullable for terminated instance cleanup', () => {
+      const col = getColumnByName('factory_work_items', 'claimed_by_instance_id');
+      expect(col).toBeTruthy();
+      expect(col.type).toBe('TEXT');
+      expect(col.notnull).toBe(0);
+    });
+
+    it('factory_loop_instances.loop_state defaults to IDLE', () => {
+      const col = getColumnByName('factory_loop_instances', 'loop_state');
+      expect(col).toBeTruthy();
+      expect(col.notnull).toBe(1);
+      expect(col.dflt_value).toBe("'IDLE'");
     });
 
     it('validation_rules.name has NOT NULL constraint', () => {

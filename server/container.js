@@ -344,6 +344,9 @@ function initModules(db, serverConfig) {
     const factoryAudit = require('./db/factory-audit');
     _defaultContainer.registerValue('factoryAudit', factoryAudit);
 
+    const factoryLoopInstances = require('./db/factory-loop-instances');
+    _defaultContainer.registerValue('factoryLoopInstances', factoryLoopInstances);
+
     const factoryWorktrees = require('./db/factory-worktrees');
     _defaultContainer.registerValue('factoryWorktrees', factoryWorktrees);
   }

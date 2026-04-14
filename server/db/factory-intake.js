@@ -136,7 +136,7 @@ function listOpenWorkItems({ project_id, limit } = {}) {
 }
 
 function updateWorkItem(id, updates) {
-  const allowed = ['title', 'description', 'priority', 'status', 'origin_json', 'constraints_json', 'batch_id', 'reject_reason', 'linked_item_id'];
+  const allowed = ['title', 'description', 'priority', 'status', 'origin_json', 'constraints_json', 'batch_id', 'reject_reason', 'linked_item_id', 'claimed_by_instance_id'];
   const sets = [];
   const params = [];
 
@@ -162,6 +162,35 @@ function updateWorkItem(id, updates) {
 
   db.prepare(`UPDATE factory_work_items SET ${sets.join(', ')} WHERE id = ?`).run(...params);
   return getWorkItem(id);
+}
+
+function claimWorkItem(id, instanceId) {
+  if (!instanceId) {
+    throw new Error('instanceId is required');
+  }
+
+  const result = db.prepare(`
+    UPDATE factory_work_items
+    SET claimed_by_instance_id = ?,
+        updated_at = datetime('now')
+    WHERE id = ?
+      AND claimed_by_instance_id IS NULL
+  `).run(instanceId, id);
+
+  return result.changes > 0 ? getWorkItem(id) : null;
+}
+
+function releaseClaimForInstance(instanceId) {
+  if (!instanceId) {
+    throw new Error('instanceId is required');
+  }
+
+  return db.prepare(`
+    UPDATE factory_work_items
+    SET claimed_by_instance_id = NULL,
+        updated_at = datetime('now')
+    WHERE claimed_by_instance_id = ?
+  `).run(instanceId).changes;
 }
 
 function rejectWorkItem(id, reason) {
@@ -247,6 +276,8 @@ module.exports = {
   listWorkItems,
   listOpenWorkItems,
   updateWorkItem,
+  claimWorkItem,
+  releaseClaimForInstance,
   rejectWorkItem,
   findDuplicates,
   linkItems,

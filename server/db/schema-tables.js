@@ -3370,6 +3370,80 @@ function createTables(db, logger) {
     logger.debug(`Schema migration (file_risk_scores): ${e.message}`);
   }
 
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS factory_projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL UNIQUE,
+        brief TEXT,
+        trust_level TEXT NOT NULL DEFAULT 'supervised',
+        status TEXT NOT NULL DEFAULT 'paused',
+        config_json TEXT,
+        loop_state TEXT DEFAULT 'IDLE',
+        loop_batch_id TEXT,
+        loop_last_action_at TEXT,
+        loop_paused_at_stage TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS factory_work_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT NOT NULL REFERENCES factory_projects(id),
+        source TEXT NOT NULL,
+        origin_json TEXT,
+        title TEXT NOT NULL,
+        description TEXT,
+        priority INTEGER NOT NULL DEFAULT 50,
+        requestor TEXT,
+        constraints_json TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        reject_reason TEXT,
+        linked_item_id INTEGER,
+        batch_id TEXT,
+        claimed_by_instance_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_project_status ON factory_work_items(project_id, status)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_status_priority ON factory_work_items(status, priority DESC)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_source ON factory_work_items(source)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_fwi_linked ON factory_work_items(linked_item_id)');
+  } catch (e) {
+    logger.debug(`Schema migration (factory loop base tables): ${e.message}`);
+  }
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS factory_loop_instances (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES factory_projects(id),
+        work_item_id INTEGER REFERENCES factory_work_items(id),
+        batch_id TEXT,
+        loop_state TEXT NOT NULL DEFAULT 'IDLE',
+        paused_at_stage TEXT,
+        last_action_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        terminated_at TEXT
+      )
+    `);
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE')
+    `);
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (factory_loop_instances): ${e.message}`);
+  }
+
   // Add user ownership to API keys (nullable FK)
   try {
     db.exec('ALTER TABLE api_keys ADD COLUMN user_id TEXT REFERENCES users(id)');
