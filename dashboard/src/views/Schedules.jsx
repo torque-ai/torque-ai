@@ -20,6 +20,17 @@ function isStudySchedule(schedule) {
   return schedule?.task_config?.tool_name === 'run_codebase_study';
 }
 
+function isWorkflowSpecSchedule(schedule) {
+  return schedule?.payload_kind === 'workflow_spec';
+}
+
+function getScheduleSummary(schedule) {
+  if (isWorkflowSpecSchedule(schedule)) {
+    return schedule?.spec_path ? `Spec: ${schedule.spec_path}` : 'Workflow spec';
+  }
+  return schedule?.task_description || '';
+}
+
 function formatDeltaLevel(level) {
   if (!level) return 'Unknown';
   return String(level)
@@ -778,6 +789,8 @@ export default function Schedules() {
                 const schedType = schedule.schedule_type || 'cron';
                 const isOnce = schedType === 'once';
                 const isStudy = isStudySchedule(schedule);
+                const isWorkflowSpec = isWorkflowSpecSchedule(schedule);
+                const scheduleSummary = getScheduleSummary(schedule);
                 return (
                   <tr
                     key={schedule.id}
@@ -796,6 +809,11 @@ export default function Schedules() {
                       <div className="flex items-center gap-2">
                         <p className="text-white text-sm font-medium">{schedule.name}</p>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${isOnce ? 'bg-purple-600/20 text-purple-300' : 'bg-blue-600/20 text-blue-300'}`}>{isOnce ? 'One-time' : 'Recurring'}</span>
+                        {isWorkflowSpec && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-600/20 text-sky-300">
+                            Workflow Spec
+                          </span>
+                        )}
                         {isStudy && (
                           <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-cyan-600/20 text-cyan-300">
                             Study
@@ -809,7 +827,12 @@ export default function Schedules() {
                           <span className="text-blue-400">Next: {formatDate(schedule.next_run_at || schedule.next_run)}</span>
                         )}
                       </p>
-                      <p className="text-slate-500 text-xs truncate max-w-xs mt-0.5" title={schedule.task_description}>{schedule.task_description?.substring(0, 60)}{schedule.task_description?.length > 60 ? '...' : ''}</p>
+                      {scheduleSummary && (
+                        <p className="text-slate-500 text-xs truncate max-w-xs mt-0.5" title={scheduleSummary}>
+                          {scheduleSummary.substring(0, 60)}
+                          {scheduleSummary.length > 60 ? '...' : ''}
+                        </p>
+                      )}
                       {isStudy && (
                         <div className="mt-2 flex flex-wrap items-center gap-2">
                           <DeltaBadge level={schedule.delta_significance_level} score={schedule.delta_significance_score} />

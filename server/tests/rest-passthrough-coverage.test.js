@@ -114,6 +114,7 @@ const EXPECTED_DOMAINS = [
   'peek',
   'providers',
   'routing',
+  'schedules',
   'strategic',
   'study',
   'symbols',
@@ -278,7 +279,7 @@ describe('REST passthrough route coverage', () => {
   });
 
   describe('domain coverage', () => {
-    it('covers all 31 expected passthrough domains', () => {
+    it('covers all 32 expected passthrough domains', () => {
       const coveredDomains = [...new Set(
         passthroughRoutes
           .map(extractDomain)

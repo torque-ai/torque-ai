@@ -33,7 +33,7 @@ const TIER_1 = [
   // Factory
   'factory_status', 'pause_project', 'resume_project', 'pause_all_projects', 'project_health', 'trigger_architect', 'architect_backlog',
   // Schedule management
-  'list_scheduled', 'pause_scheduled', 'cancel_scheduled', 'schedule_task',
+  'list_scheduled', 'pause_scheduled', 'cancel_scheduled', 'schedule_task', 'schedule_workflow_spec',
   // Context (compact session resume)
   'get_context',
 ];

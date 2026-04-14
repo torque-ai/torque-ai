@@ -124,6 +124,7 @@ const HANDLER_MODULES = [
   require('./handlers/advanced'),
   require('./handlers/integration'),
   require('./handlers/automation-handlers'),
+  require('./handlers/schedule-handlers'),
   require('./handlers/hashline-handlers'),
   require('./handlers/tsserver-handlers'),
   require('./handlers/policy-handlers'),

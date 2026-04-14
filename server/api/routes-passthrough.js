@@ -404,6 +404,7 @@ const routes = [
   { method: 'GET', path: '/api/v2/tasks/check-task-progress', tool: 'check_task_progress', mapQuery: true },
   { method: 'GET', path: '/api/v2/tasks/check-stalled-tasks', tool: 'check_stalled_tasks', mapQuery: true },
   { method: 'POST', path: '/api/v2/tasks/schedule-task', tool: 'schedule_task', mapBody: true },
+  { method: 'POST', path: '/api/v2/schedules/workflow-spec', tool: 'schedule_workflow_spec', mapBody: true },
   { method: 'POST', path: '/api/v2/tasks/batch-cancel', tool: 'batch_cancel', mapBody: true },
   { method: 'POST', path: '/api/v2/tasks/archive-task', tool: 'archive_task', mapBody: true },
   { method: 'POST', path: '/api/v2/tasks/archive-tasks', tool: 'archive_tasks', mapBody: true },
