@@ -323,6 +323,85 @@ describe('version-control worktree manager', () => {
     });
   });
 
+  it('returns cleanup_failed when post-merge cleanup throws after the merge already succeeded', () => {
+    const repoPath = makeRepoRoot();
+    const worktreePath = path.join(repoPath, '.worktrees', 'feat-cleanup-fail');
+    insertWorktree({
+      id: 'wt-merge-cleanup-fail',
+      repo_path: repoPath,
+      worktree_path: worktreePath,
+      branch: 'feat/cleanup-fail',
+      feature_name: 'cleanup-fail',
+      base_branch: 'main',
+    });
+    execFileSyncMock.mockImplementation((command, args) => {
+      if (args[0] === 'status') {
+        return '';
+      }
+
+      if (args[0] === 'rev-list') {
+        return '1\n';
+      }
+
+      if (args[0] === 'worktree' && args[1] === 'remove') {
+        throw new Error('Permission denied');
+      }
+
+      return '';
+    });
+
+    const result = manager.mergeWorktree('wt-merge-cleanup-fail');
+
+    expect(result).toMatchObject({
+      merged: true,
+      id: 'wt-merge-cleanup-fail',
+      branch: 'feat/cleanup-fail',
+      target_branch: 'main',
+      strategy: 'merge',
+      cleaned: false,
+      cleanup_failed: true,
+      cleanup_error: 'Permission denied',
+      worktree: expect.objectContaining({
+        id: 'wt-merge-cleanup-fail',
+        status: 'merged',
+      }),
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['rev-list', '--count', 'main..feat/cleanup-fail'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['checkout', 'main'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['merge', '--no-ff', 'feat/cleanup-fail'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['status', '--porcelain'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['worktree', 'remove', '--force', worktreePath], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(manager.getWorktree('wt-merge-cleanup-fail')).toMatchObject({
+      id: 'wt-merge-cleanup-fail',
+      status: 'merged',
+    });
+  });
+
   it('cleans up a worktree by removing it from git and deleting the db record', () => {
     const repoPath = makeRepoRoot();
     insertWorktree({

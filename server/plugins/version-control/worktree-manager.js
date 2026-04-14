@@ -432,7 +432,6 @@ function createWorktreeManager({ db } = {}) {
       || normalizeOptionalString(existing.base_branch)
       || DEFAULT_BASE_BRANCH;
     const deleteAfter = options.deleteAfter !== false && options.delete_after !== false;
-    const mergedAt = new Date().toISOString();
 
     assertWorktreeIsClean(existing.worktree_path, 'merge');
 
@@ -454,16 +453,45 @@ function createWorktreeManager({ db } = {}) {
       );
     }
 
+    const mergedAt = new Date().toISOString();
+
     if (deleteAfter) {
-      const cleanup = cleanupWorktree(existing.id, { deleteBranch: true });
+      let cleanup = null;
+      let cleanupError = null;
+      try {
+        cleanup = cleanupWorktree(existing.id, { deleteBranch: true });
+      } catch (error) {
+        cleanupError = extractGitError(error);
+      }
+
+      if (cleanup) {
+        return {
+          merged: true,
+          id: existing.id,
+          branch: existing.branch,
+          target_branch: targetBranch,
+          strategy,
+          cleaned: true,
+          cleanup,
+        };
+      }
+
+      updateWorktree(existing.id, {
+        status: 'merged',
+        last_activity_at: mergedAt,
+        merged_at: mergedAt,
+      });
+
       return {
         merged: true,
         id: existing.id,
         branch: existing.branch,
         target_branch: targetBranch,
         strategy,
-        cleaned: true,
-        cleanup,
+        cleaned: false,
+        cleanup_failed: true,
+        cleanup_error: cleanupError,
+        worktree: getWorktree(existing.id),
       };
     }
 
