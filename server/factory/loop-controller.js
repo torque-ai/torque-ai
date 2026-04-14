@@ -75,7 +75,9 @@ const SELECTED_WORK_ITEM_DECISION_ACTIONS = Object.freeze([
 const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected']);
 
 let sharedWorktreeRunner = null;
+let worktreeRunnerTestOverride = undefined; // undefined = auto; null = disabled; object = forced runner
 function getWorktreeRunner() {
+  if (worktreeRunnerTestOverride !== undefined) return worktreeRunnerTestOverride;
   if (sharedWorktreeRunner) return sharedWorktreeRunner;
   try {
     const db = database.getDbInstance();
@@ -90,7 +92,16 @@ function getWorktreeRunner() {
 }
 
 function setWorktreeRunnerForTests(runner) {
-  sharedWorktreeRunner = runner;
+  // Convention: null = explicitly disable worktree flow in tests; an object
+  // forces that runner; passing undefined (or no arg) clears the override so
+  // the lazy resolver rebuilds on next call.
+  if (runner === undefined) {
+    worktreeRunnerTestOverride = undefined;
+    sharedWorktreeRunner = null;
+  } else {
+    worktreeRunnerTestOverride = runner;
+    sharedWorktreeRunner = runner;
+  }
 }
 const PENDING_APPROVAL_SUCCESS_TASK_STATUSES = new Set(['completed', 'shipped']);
 const PENDING_APPROVAL_FAILURE_TASK_STATUSES = new Set(['failed', 'cancelled']);
