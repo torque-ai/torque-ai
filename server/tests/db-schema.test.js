@@ -97,6 +97,7 @@ describe('db/schema.js — applySchema', () => {
       'scheduled_tasks', 'config', 'distributed_locks', 'archived_tasks',
       'token_usage', 'project_config', 'project_metadata',
       'policy_profiles', 'policy_rules', 'policy_bindings', 'policy_evaluations', 'policy_overrides',
+      'auth_configs', 'connected_accounts',
       'webhooks',
       'webhook_logs', 'retry_history', 'budget_alerts', 'maintenance_schedule',
       'task_file_changes', 'task_file_writes', 'success_metrics', 'format_success_rates',
@@ -156,6 +157,7 @@ describe('db/schema.js — applySchema', () => {
       'idx_health_status_type', 'idx_health_checked_at',
       'idx_scheduled_next_run', 'idx_scheduled_status',
       'idx_token_task', 'idx_token_recorded',
+      'idx_conn_accounts_user_toolkit', 'idx_conn_accounts_status',
       'idx_tasks_project', 'idx_budget_alerts_project',
       'idx_file_changes_task', 'idx_task_file_writes_task', 'idx_task_file_writes_workflow_file', 'idx_retry_history_task',
       'idx_policy_profiles_project', 'idx_policy_rules_stage', 'idx_policy_bindings_profile',
@@ -462,6 +464,14 @@ describe('db/schema.js — applySchema', () => {
       const agentRef = fks.find(fk => fk.table === 'agents');
       expect(taskRef).toBeTruthy();
       expect(agentRef).toBeTruthy();
+    });
+
+    it('connected_accounts references auth_configs(id)', () => {
+      const fks = db.prepare("PRAGMA foreign_key_list('connected_accounts')").all();
+      const ref = fks.find(fk => fk.table === 'auth_configs');
+      expect(ref).toBeTruthy();
+      expect(ref.from).toBe('auth_config_id');
+      expect(ref.to).toBe('id');
     });
 
     it('validation_results references tasks(id) and validation_rules(id)', () => {

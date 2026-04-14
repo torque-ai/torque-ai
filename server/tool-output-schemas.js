@@ -602,6 +602,115 @@ const OUTPUT_SCHEMAS = {
     required: ['total_unique', 'tags'],
   },
 
+  start_oauth_flow: {
+    type: 'object',
+    properties: {
+      toolkit: { type: 'string' },
+      user_id: { type: 'string' },
+      state: { type: 'string' },
+      authorize_url: { type: 'string' },
+    },
+    required: ['toolkit', 'user_id', 'state', 'authorize_url'],
+  },
+
+  complete_oauth_flow: {
+    type: 'object',
+    properties: {
+      toolkit: { type: 'string' },
+      user_id: { type: 'string' },
+      connected_account_id: { type: 'string' },
+    },
+    required: ['toolkit', 'user_id', 'connected_account_id'],
+  },
+
+  list_connected_accounts: {
+    type: 'object',
+    properties: {
+      count: { type: 'number' },
+      accounts: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            user_id: { type: 'string' },
+            toolkit: { type: 'string' },
+            auth_config_id: { type: 'string' },
+            expires_at: { type: ['number', 'null'] },
+            status: { type: 'string' },
+            has_refresh_token: { type: 'boolean' },
+            metadata: { type: 'object' },
+            created_at: { type: 'number' },
+            updated_at: { type: 'number' },
+          },
+          required: ['id', 'user_id', 'toolkit', 'auth_config_id', 'status', 'has_refresh_token', 'metadata', 'created_at', 'updated_at'],
+        },
+      },
+    },
+    required: ['count', 'accounts'],
+  },
+
+  disable_account: {
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean' },
+      account_id: { type: 'string' },
+      status: { type: 'string' },
+    },
+    required: ['ok', 'account_id', 'status'],
+  },
+
+  delete_account: {
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean' },
+      account_id: { type: 'string' },
+    },
+    required: ['ok', 'account_id'],
+  },
+
+  list_tools_by_hints: {
+    type: 'object',
+    properties: {
+      count: { type: 'number' },
+      filters: {
+        type: 'object',
+        properties: {
+          readOnlyHint: { type: 'boolean' },
+          destructiveHint: { type: 'boolean' },
+          idempotentHint: { type: 'boolean' },
+          openWorldHint: { type: 'boolean' },
+        },
+      },
+      tools: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            description: { type: 'string' },
+            readOnlyHint: { type: 'boolean' },
+            destructiveHint: { type: 'boolean' },
+            idempotentHint: { type: 'boolean' },
+            openWorldHint: { type: 'boolean' },
+            annotations: {
+              type: 'object',
+              properties: {
+                readOnlyHint: { type: 'boolean' },
+                destructiveHint: { type: 'boolean' },
+                idempotentHint: { type: 'boolean' },
+                openWorldHint: { type: 'boolean' },
+              },
+              required: ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'],
+            },
+          },
+          required: ['name', 'description', 'readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint', 'annotations'],
+        },
+      },
+    },
+    required: ['count', 'filters', 'tools'],
+  },
+
   get_batch_summary: {
     type: 'object',
     properties: {

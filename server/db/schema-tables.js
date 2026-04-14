@@ -21,6 +21,7 @@ const VALID_TABLE_NAMES = new Set([
   'audit_log',
   'audit_runs',
   'audit_trail',
+  'auth_configs',
   'auto_rollbacks',
   'benchmark_results',
   'budget_alerts',
@@ -37,6 +38,7 @@ const VALID_TABLE_NAMES = new Set([
   'config',
   'config_baselines',
   'config_drift_results',
+  'connected_accounts',
   'coordination_events',
   'cost_budgets',
   'cost_tracking',
@@ -3248,6 +3250,42 @@ function createTables(db, logger) {
     db.exec('CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)');
   } catch (e) {
     logger.debug(`Schema migration (api_keys table): ${e.message}`);
+  }
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS auth_configs (
+        id TEXT PRIMARY KEY,
+        toolkit TEXT NOT NULL,
+        auth_type TEXT NOT NULL CHECK (auth_type IN ('oauth2', 'api_key', 'basic', 'bearer')),
+        client_id TEXT,
+        client_secret_enc TEXT,
+        authorize_url TEXT,
+        token_url TEXT,
+        scopes TEXT,
+        redirect_uri TEXT,
+        created_at INTEGER NOT NULL,
+        UNIQUE (toolkit)
+      );
+
+      CREATE TABLE IF NOT EXISTS connected_accounts (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        toolkit TEXT NOT NULL,
+        auth_config_id TEXT NOT NULL REFERENCES auth_configs(id),
+        access_token_enc TEXT,
+        refresh_token_enc TEXT,
+        expires_at INTEGER,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'revoked', 'expired')),
+        metadata_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_conn_accounts_user_toolkit ON connected_accounts(user_id, toolkit)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_conn_accounts_status ON connected_accounts(status)');
+  } catch (e) {
+    logger.debug(`Schema migration (managed auth tables): ${e.message}`);
   }
 
   // Users table (username/password auth)

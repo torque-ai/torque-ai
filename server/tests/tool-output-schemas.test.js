@@ -61,6 +61,9 @@ describe('tool-output-schemas', () => {
         'workflow_history', 'list_models', 'list_pending_models', 'list_model_roles', 'list_archived',
         'get_archive_stats', 'get_provider_health_trends', 'health_check',
         'integration_health', 'list_tags', 'get_batch_summary',
+        // Fabro #99 managed OAuth + behavioral hints
+        'start_oauth_flow', 'complete_oauth_flow', 'list_connected_accounts',
+        'disable_account', 'delete_account', 'list_tools_by_hints',
       ];
       for (const name of expected) {
         expect(getOutputSchema(name)).toBeDefined();

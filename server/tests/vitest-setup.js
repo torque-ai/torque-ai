@@ -52,6 +52,41 @@ function ensureTestSchema(dbHandle) {
   `);
 
   dbHandle.exec(`
+    CREATE TABLE IF NOT EXISTS auth_configs (
+      id TEXT PRIMARY KEY,
+      toolkit TEXT NOT NULL UNIQUE,
+      auth_type TEXT NOT NULL CHECK (auth_type IN ('oauth2', 'api_key', 'basic', 'bearer')),
+      client_id TEXT,
+      client_secret_enc TEXT,
+      authorize_url TEXT,
+      token_url TEXT,
+      scopes TEXT,
+      redirect_uri TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS connected_accounts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      toolkit TEXT NOT NULL,
+      auth_config_id TEXT NOT NULL REFERENCES auth_configs(id),
+      access_token_enc TEXT,
+      refresh_token_enc TEXT,
+      expires_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'revoked', 'expired')),
+      metadata_json TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_conn_accounts_user_toolkit
+    ON connected_accounts (user_id, toolkit);
+
+    CREATE INDEX IF NOT EXISTS idx_conn_accounts_status
+    ON connected_accounts (status);
+  `);
+
+  dbHandle.exec(`
     CREATE TABLE IF NOT EXISTS run_artifacts (
       artifact_id TEXT PRIMARY KEY,
       task_id TEXT NOT NULL,

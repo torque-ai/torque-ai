@@ -18,6 +18,7 @@ const symbolIndexerHandlers = require('./handlers/symbol-indexer-handlers');
 const templateHandlers = require('./handlers/template-handlers');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 const competitiveFeatureDefs = require('./tool-defs/competitive-feature-defs');
+const { applyBehavioralTags } = require('./tools/behavioral-tags');
 
 let _remoteAgentPluginDefs = null;
 let _remoteAgentPluginHandlers = null;
@@ -62,6 +63,7 @@ const TOOLS = [
   ...require('./tool-defs/strategic-config-defs'),
   ...require('./tool-defs/context-defs'),
   ...require('./tool-defs/codebase-study-defs'),
+  ...require('./tool-defs/managed-oauth-defs'),
   ...competitiveFeatureDefs,
   ...require('./tool-defs/review-defs'),
   ...require('./tool-defs/symbol-indexer-defs'),
@@ -75,7 +77,9 @@ const { getAnnotations, validateCoverage } = require('./tool-annotations');
 
 for (const tool of TOOLS) {
   if (tool && tool.name) {
-    tool.annotations = getAnnotations(tool.name);
+    const hints = getAnnotations(tool.name);
+    Object.assign(tool, applyBehavioralTags(tool, hints));
+    tool.annotations = { ...hints };
   }
 }
 
@@ -148,6 +152,7 @@ const HANDLER_MODULES = [
   require('./handlers/provider-scoring-handlers'),
   require('./handlers/diffusion-handlers'),
   require('./handlers/codebase-study-handlers'),
+  require('./handlers/managed-oauth-handlers'),
   require('./handlers/factory-handlers'),
   evidenceRiskHandlers,
   reviewHandlers,
@@ -294,7 +299,16 @@ routeMap.set('toggle_governance_rule', governanceHandlers.handleToggleGovernance
 
 function getRemoteAgentPluginDefs() {
   if (!_remoteAgentPluginDefs) {
-    _remoteAgentPluginDefs = require('./plugins/remote-agents/tool-defs');
+    _remoteAgentPluginDefs = require('./plugins/remote-agents/tool-defs').map((tool) => {
+      if (!tool || !tool.name) {
+        return tool;
+      }
+
+      const hints = getAnnotations(tool.name);
+      const taggedTool = applyBehavioralTags(tool, hints);
+      taggedTool.annotations = { ...hints };
+      return taggedTool;
+    });
   }
   return _remoteAgentPluginDefs;
 }
