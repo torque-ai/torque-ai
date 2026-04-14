@@ -14,21 +14,62 @@ function sanitizeSlug(title = '', maxLen = 40) {
   return slug || 'work-item';
 }
 
+function resolveBashOnWindows() {
+  const candidates = [
+    process.env.GIT_BASH,
+    'C:/Program Files/Git/bin/bash.exe',
+    'C:/Program Files (x86)/Git/bin/bash.exe',
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch (_) {
+      // ignore
+    }
+  }
+  return null;
+}
+
+function spawnInBash(bashCmd, options) {
+  if (process.platform === 'win32') {
+    const bashPath = resolveBashOnWindows();
+    if (!bashPath) {
+      return {
+        status: 1,
+        stdout: '',
+        stderr: 'Git Bash not found on this Windows host',
+        error: { message: 'bash_not_found' },
+      };
+    }
+    return spawnSync(bashPath, ['-lc', bashCmd], { ...options, windowsHide: true });
+  }
+  return spawnSync('bash', ['-lc', bashCmd], options);
+}
+
 function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
-  const args = ['--branch', branch, command];
   const resolvedCwd = cwd || process.cwd();
   if (logger) logger.info('factory worktree verify: running torque-remote', { branch, command, cwd: resolvedCwd });
-  const result = spawnSync('torque-remote', args, {
-    cwd: resolvedCwd,
-    shell: true,
-    encoding: 'utf8',
-    timeout: 30 * 60 * 1000,
-  });
+  // torque-remote auto-detects branch from cwd and forces remote to match
+  // origin/<branch>. The worktree branch must be pushed first; do that here so
+  // remote can sync. Use --no-verify on the push because the worktree branch is
+  // a non-main feature branch (the gate skips tests for non-main pushes anyway).
+  const baseEnv = { cwd: resolvedCwd, encoding: 'utf8', timeout: 30 * 60 * 1000 };
+  const pushCmd = `git push --no-verify --force-with-lease origin HEAD:refs/heads/${branch}`;
+  const pushResult = spawnInBash(pushCmd, baseEnv);
+  if (pushResult.status !== 0) {
+    return {
+      exitCode: 1,
+      stdout: pushResult.stdout || '',
+      stderr: `[push-worktree-branch] ${pushResult.stderr || ''}`,
+      error: pushResult.error ? pushResult.error.message : null,
+    };
+  }
+  const verifyResult = spawnInBash(`torque-remote ${JSON.stringify(command)}`, baseEnv);
   return {
-    exitCode: typeof result.status === 'number' ? result.status : 1,
-    stdout: result.stdout || '',
-    stderr: result.stderr || '',
-    error: result.error ? result.error.message : null,
+    exitCode: typeof verifyResult.status === 'number' ? verifyResult.status : 1,
+    stdout: verifyResult.stdout || '',
+    stderr: verifyResult.stderr || '',
+    error: verifyResult.error ? verifyResult.error.message : null,
   };
 }
 
