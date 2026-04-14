@@ -445,6 +445,8 @@ function createTables(db, logger) {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         task_description TEXT NOT NULL,
+        payload_kind TEXT NOT NULL DEFAULT 'task',
+        spec_path TEXT,
         working_directory TEXT,
         timeout_minutes INTEGER DEFAULT 30,
         auto_approve INTEGER DEFAULT 0,
@@ -463,6 +465,10 @@ function createTables(db, logger) {
         created_at TEXT NOT NULL
       )
     `);
+  ensureTableColumns(db, 'scheduled_tasks', [
+    "payload_kind TEXT NOT NULL DEFAULT 'task'",
+    'spec_path TEXT',
+  ]);
   db.exec(`
       CREATE INDEX IF NOT EXISTS idx_scheduled_next_run ON scheduled_tasks(next_run_at);
       CREATE INDEX IF NOT EXISTS idx_scheduled_status ON scheduled_tasks(status);
