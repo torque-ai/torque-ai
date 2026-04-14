@@ -120,6 +120,7 @@ describe('db/schema.js — smoke test', () => {
       'resource_limits',
       'bulk_operations',
       'task_artifacts',
+      'run_artifacts',
       'agents',
       'agent_groups',
       'agent_group_members',

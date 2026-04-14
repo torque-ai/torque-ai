@@ -7,6 +7,8 @@
  * These return { data, meta } envelopes — not MCP text blobs.
  */
 
+const fs = require('fs');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider-routing-core');
@@ -64,6 +66,81 @@ function parseTaskMetadata(task) {
   } catch (err) {
     logger.debug("task handler error", { err: err.message });
     return {};
+  }
+}
+
+function getRunDirManager() {
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('runDirManager')) {
+      return defaultContainer.get('runDirManager');
+    }
+  } catch {
+    // Best-effort lookup; handlers return a 503 if the manager is unavailable.
+  }
+  return null;
+}
+
+function isTextArtifactMimeType(mimeType) {
+  if (typeof mimeType !== 'string' || !mimeType.trim()) {
+    return false;
+  }
+  return mimeType.startsWith('text/')
+    || mimeType === 'application/json'
+    || mimeType === 'application/xml'
+    || mimeType === 'application/javascript'
+    || mimeType.endsWith('+json')
+    || mimeType.endsWith('+xml');
+}
+
+function isImageArtifactMimeType(mimeType) {
+  return typeof mimeType === 'string' && mimeType.startsWith('image/');
+}
+
+function normalizeRunArtifactRecord(artifact) {
+  if (!artifact || typeof artifact !== 'object') {
+    return null;
+  }
+
+  const relativePath = typeof artifact.relative_path === 'string' ? artifact.relative_path : '';
+  const mimeType = typeof artifact.mime_type === 'string' && artifact.mime_type.trim()
+    ? artifact.mime_type
+    : 'application/octet-stream';
+
+  return {
+    artifact_id: artifact.artifact_id,
+    task_id: artifact.task_id,
+    workflow_id: artifact.workflow_id || null,
+    name: relativePath ? path.basename(relativePath) : artifact.artifact_id,
+    relative_path: relativePath,
+    absolute_path: artifact.absolute_path || null,
+    size_bytes: Number(artifact.size_bytes) || 0,
+    mime_type: mimeType,
+    promoted: Boolean(artifact.promoted),
+    is_text: isTextArtifactMimeType(mimeType),
+    is_image: isImageArtifactMimeType(mimeType),
+  };
+}
+
+function buildRunArtifactPreview(artifact) {
+  if (!artifact?.is_text || typeof artifact.absolute_path !== 'string' || !artifact.absolute_path.trim()) {
+    return { preview_text: null, preview_truncated: false, preview_error: null };
+  }
+
+  try {
+    const content = fs.readFileSync(artifact.absolute_path, 'utf8');
+    const maxChars = 64000;
+    return {
+      preview_text: content.slice(0, maxChars),
+      preview_truncated: content.length > maxChars,
+      preview_error: null,
+    };
+  } catch (err) {
+    return {
+      preview_text: null,
+      preview_truncated: false,
+      preview_error: err.message,
+    };
   }
 }
 
@@ -402,6 +479,136 @@ async function handleGetTask(req, res) {
   }
 
   sendSuccess(res, requestId, buildTaskDetailResponse(task), 200, req);
+}
+
+async function handleTaskArtifacts(req, res) {
+  const requestId = resolveRequestId(req);
+  const taskId = req.params?.task_id;
+
+  let task;
+  try {
+    task = taskCore.getTask(taskId);
+  } catch (err) {
+    if (String(err.message).includes('Ambiguous')) {
+      return sendError(res, requestId, 'validation_error', err.message, 400, {}, req);
+    }
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  if (!task) {
+    return sendError(res, requestId, 'task_not_found', `Task not found: ${taskId}`, 404, {}, req);
+  }
+
+  const manager = getRunDirManager();
+  if (!manager) {
+    return sendError(res, requestId, 'operation_failed', 'Run artifact manager is not available', 503, {}, req);
+  }
+
+  try {
+    const taskMetadata = parseTaskMetadata(task);
+    const items = manager.listArtifacts(taskId).map((artifact) => {
+      const normalized = normalizeRunArtifactRecord(artifact);
+      return {
+        ...normalized,
+        raw_url: `/api/v2/tasks/artifacts/${encodeURIComponent(normalized.artifact_id)}/content`,
+      };
+    });
+
+    return sendSuccess(res, requestId, {
+      task_id: taskId,
+      run_dir: taskMetadata.run_dir || manager.runDirFor(taskId),
+      items,
+      total: items.length,
+    }, 200, req);
+  } catch (err) {
+    return sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+async function handleGetTaskArtifact(req, res) {
+  const requestId = resolveRequestId(req);
+  const artifactId = req.params?.artifact_id;
+  const manager = getRunDirManager();
+  if (!manager) {
+    return sendError(res, requestId, 'operation_failed', 'Run artifact manager is not available', 503, {}, req);
+  }
+
+  try {
+    const artifact = normalizeRunArtifactRecord(manager.getArtifact(artifactId));
+    if (!artifact) {
+      return sendError(res, requestId, 'artifact_not_found', `Artifact not found: ${artifactId}`, 404, {}, req);
+    }
+
+    const preview = buildRunArtifactPreview(artifact);
+    return sendSuccess(res, requestId, {
+      ...artifact,
+      ...preview,
+      raw_url: `/api/v2/tasks/artifacts/${encodeURIComponent(artifact.artifact_id)}/content`,
+    }, 200, req);
+  } catch (err) {
+    return sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+async function handleTaskArtifactContent(req, res) {
+  const requestId = resolveRequestId(req);
+  const artifactId = req.params?.artifact_id;
+  const manager = getRunDirManager();
+  if (!manager) {
+    return sendError(res, requestId, 'operation_failed', 'Run artifact manager is not available', 503, {}, req);
+  }
+
+  try {
+    const artifact = normalizeRunArtifactRecord(manager.getArtifact(artifactId));
+    if (!artifact) {
+      return sendError(res, requestId, 'artifact_not_found', `Artifact not found: ${artifactId}`, 404, {}, req);
+    }
+    if (!artifact.absolute_path || !fs.existsSync(artifact.absolute_path)) {
+      return sendError(res, requestId, 'artifact_missing', `Artifact file is missing for ${artifactId}`, 404, {}, req);
+    }
+
+    const buffer = fs.readFileSync(artifact.absolute_path);
+    const fileName = (artifact.name || artifact.artifact_id).replace(/"/g, '');
+    res.statusCode = 200;
+    res.setHeader('Content-Type', artifact.mime_type);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.end(buffer);
+  } catch (err) {
+    return sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+async function handlePromoteTaskArtifact(req, res) {
+  const requestId = resolveRequestId(req);
+  const artifactId = req.params?.artifact_id;
+  const manager = getRunDirManager();
+  if (!manager) {
+    return sendError(res, requestId, 'operation_failed', 'Run artifact manager is not available', 503, {}, req);
+  }
+
+  const body = req.body || await parseBody(req);
+  const destPath = typeof body?.dest_path === 'string' ? body.dest_path.trim() : '';
+  if (!destPath) {
+    return sendError(res, requestId, 'validation_error', 'dest_path is required', 400, {}, req);
+  }
+
+  try {
+    const destinationPath = manager.promoteArtifact(artifactId, { destPath });
+    const artifact = normalizeRunArtifactRecord(manager.getArtifact(artifactId));
+    if (!artifact) {
+      return sendError(res, requestId, 'artifact_not_found', `Artifact not found: ${artifactId}`, 404, {}, req);
+    }
+
+    return sendSuccess(res, requestId, {
+      ...artifact,
+      destination_path: destinationPath,
+      raw_url: `/api/v2/tasks/artifacts/${encodeURIComponent(artifact.artifact_id)}/content`,
+    }, 200, req);
+  } catch (err) {
+    return sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
 }
 
 // ─── POST /api/v2/tasks/:task_id/cancel — Cancel task ────────────────────
@@ -1153,6 +1360,10 @@ function createV2TaskHandlers(_deps) {
     handleSubmitTask,
     handleListTasks,
     handleGetTask,
+    handleTaskArtifacts,
+    handleGetTaskArtifact,
+    handleTaskArtifactContent,
+    handlePromoteTaskArtifact,
     handleCancelTask,
     handleRetryTask,
     handleReassignTaskProvider,
@@ -1175,6 +1386,10 @@ module.exports = {
   handleSubmitTask,
   handleListTasks,
   handleGetTask,
+  handleTaskArtifacts,
+  handleGetTaskArtifact,
+  handleTaskArtifactContent,
+  handlePromoteTaskArtifact,
   handleCancelTask,
   handleRetryTask,
   handleReassignTaskProvider,

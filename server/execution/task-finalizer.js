@@ -112,6 +112,22 @@ function parseMetadata(rawMetadata) {
   }
 }
 
+async function indexRunArtifacts(taskId, workflowId = null) {
+  try {
+    const { defaultContainer } = require('../container');
+    if (!defaultContainer || typeof defaultContainer.has !== 'function' || !defaultContainer.has('runDirManager')) {
+      return;
+    }
+    const manager = defaultContainer.get('runDirManager');
+    if (!manager || typeof manager.indexFiles !== 'function') {
+      return;
+    }
+    await manager.indexFiles(taskId, { workflowId });
+  } catch (err) {
+    logger.info(`[finalizer] Run artifact indexing failed for ${taskId}: ${err.message}`);
+  }
+}
+
 function snapshotCtx(ctx) {
   return {
     status: ctx.status,
@@ -595,6 +611,7 @@ async function finalizeTask(taskId, options = {}) {
     });
 
     ctx.task = deps.db.getTask(taskId) || task;
+    await indexRunArtifacts(taskId, ctx.task?.workflow_id || task?.workflow_id || null);
     try {
       recordStudyTaskCompleted(ctx.task);
     } catch (studyTelemetryErr) {
@@ -732,6 +749,7 @@ async function finalizeTask(taskId, options = {}) {
     });
 
     fallbackCtx.task = deps.db.getTask(taskId) || currentTask;
+    await indexRunArtifacts(taskId, fallbackCtx.task?.workflow_id || currentTask?.workflow_id || null);
 
     if (typeof deps.handlePostCompletion === 'function') {
       try {

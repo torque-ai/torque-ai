@@ -160,6 +160,13 @@ export const tasks = {
     }));
   },
   get: (id) => requestV2(`/tasks/${id}`),
+  listArtifacts: (id) => requestV2(`/tasks/${id}/artifacts`),
+  getArtifact: (artifactId) => requestV2(`/tasks/artifacts/${artifactId}`),
+  promoteArtifact: (artifactId, destPath) => requestV2(`/tasks/artifacts/${artifactId}/promote`, {
+    method: 'POST',
+    body: JSON.stringify({ dest_path: destPath }),
+  }),
+  getArtifactContentUrl: (artifactId) => `${V2_BASE}/tasks/artifacts/${encodeURIComponent(artifactId)}/content`,
   diff: (id) => requestV2(`/tasks/${id}/diff`),
   retry: (id) => requestV2(`/tasks/${id}/retry`, { method: 'POST' }),
   reassignProvider: (id, provider) => requestV2(`/tasks/${id}/provider`, {

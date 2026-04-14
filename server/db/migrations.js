@@ -469,6 +469,30 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS factory_worktrees',
     ].join('; '),
   },
+  {
+    version: 23,
+    name: 'add_run_artifacts',
+    up: [
+      [
+        'CREATE TABLE IF NOT EXISTS run_artifacts (',
+        '  artifact_id TEXT PRIMARY KEY,',
+        '  task_id TEXT NOT NULL,',
+        '  workflow_id TEXT,',
+        '  relative_path TEXT NOT NULL,',
+        '  absolute_path TEXT NOT NULL,',
+        '  size_bytes INTEGER,',
+        '  mime_type TEXT,',
+        '  promoted INTEGER NOT NULL DEFAULT 0,',
+        "  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+        ')',
+      ].join('\n'),
+      'CREATE INDEX IF NOT EXISTS idx_run_artifacts_task ON run_artifacts(task_id)',
+    ].join('; '),
+    down: [
+      'DROP INDEX IF EXISTS idx_run_artifacts_task',
+      'DROP TABLE IF EXISTS run_artifacts',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

@@ -336,8 +336,22 @@ const tools = [
     }
   },
   {
+    name: 'list_run_artifacts',
+    description: 'List artifacts produced by a task run.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'Task ID to list run artifacts for'
+        }
+      },
+      required: ['task_id']
+    }
+  },
+  {
     name: 'get_artifact',
-    description: 'Retrieve an artifact by ID or name',
+    description: 'Retrieve a stored artifact or run artifact by ID or name',
     inputSchema: {
       type: 'object',
       properties: {
@@ -360,6 +374,24 @@ const tools = [
         }
       },
       required: []
+    }
+  },
+  {
+    name: 'promote_artifact',
+    description: 'Move an artifact from the ephemeral run dir to permanent storage.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifact_id: {
+          type: 'string',
+          description: 'Run artifact ID to promote'
+        },
+        dest_path: {
+          type: 'string',
+          description: 'Relative destination path under permanent storage'
+        }
+      },
+      required: ['artifact_id', 'dest_path']
     }
   },
   {

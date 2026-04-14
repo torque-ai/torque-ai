@@ -380,6 +380,28 @@ describe('db/migrations', () => {
       );
     });
 
+    it('creates run_artifacts during migration v23 with the expected columns', () => {
+      createBaseSchema(db);
+
+      subject.runMigrations(db);
+
+      expect(tableExists(db, 'run_artifacts')).toBe(true);
+      expect(indexExists(db, 'idx_run_artifacts_task')).toBe(true);
+      expect(getColumnNames(db, 'run_artifacts')).toEqual(
+        expect.arrayContaining([
+          'artifact_id',
+          'task_id',
+          'workflow_id',
+          'relative_path',
+          'absolute_path',
+          'size_bytes',
+          'mime_type',
+          'promoted',
+          'created_at',
+        ]),
+      );
+    });
+
     it('is idempotent when rerun after all migrations have already been applied', () => {
       createBaseSchema(db);
 
@@ -518,6 +540,18 @@ describe('db/migrations', () => {
 
       expect(tableExists(db, 'benchmark_results')).toBe(false);
       expect(getAppliedVersions(db)).not.toContain(6);
+    });
+
+    it('rolls back migration v23 by dropping run_artifacts and removing its version row', () => {
+      createBaseSchema(db);
+      subject.runMigrations(db);
+      expect(tableExists(db, 'run_artifacts')).toBe(true);
+
+      subject.rollbackMigration(db, 23);
+
+      expect(tableExists(db, 'run_artifacts')).toBe(false);
+      expect(indexExists(db, 'idx_run_artifacts_task')).toBe(false);
+      expect(getAppliedVersions(db)).not.toContain(23);
     });
 
     it('allows a rolled back migration to be reapplied on the next run', () => {

@@ -140,6 +140,14 @@ function getTaskHostLabel(taskData) {
   return taskData?.ollama_host_name || taskData?.ollama_host_id || '';
 }
 
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function normalizeProviderDecisionCandidateList(candidates) {
   if (!Array.isArray(candidates)) return [];
   return candidates
@@ -366,6 +374,7 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
     : null;
   const taskDescription = getTaskDescription(task);
   const taskHostLabel = getTaskHostLabel(task);
+  const taskRunDir = task?.run_dir || task?.metadata?.run_dir || '';
   const hasGpuStatus = typeof task?.gpu_active === 'boolean';
   const providerDecisionTrace = getProviderDecisionTrace(task);
 
@@ -438,7 +447,7 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
           <>
             {/* Tabs */}
             <div className="flex border-b border-slate-700">
-              {['overview', 'output', 'diff', 'timeline'].map((tab) => (
+              {['overview', 'artifacts', 'output', 'diff', 'timeline'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -524,6 +533,15 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
                     </div>
                   )}
 
+                  {taskRunDir && (
+                    <div>
+                      <h4 className="heading-sm mb-2">Run Directory</h4>
+                      <code className="text-xs text-slate-300 bg-slate-800 px-2 py-1 rounded block truncate" title={taskRunDir}>
+                        {taskRunDir}
+                      </code>
+                    </div>
+                  )}
+
                   {/* Tags */}
                   {task.tags && task.tags.length > 0 && (
                     <div>
@@ -598,6 +616,10 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
                   outputEndRef={outputEndRef}
                   toast={toast}
                 />
+              )}
+
+              {activeTab === 'artifacts' && (
+                <RunArtifactsTab taskId={taskId} task={task} toast={toast} />
               )}
 
               {activeTab === 'diff' && (
@@ -909,6 +931,232 @@ function OutputTab({ output, errorOutput = '', streamingOutput, outputEndRef, to
           </div>
         )}
         <span ref={outputEndRef} />
+      </div>
+    </div>
+  );
+}
+
+function RunArtifactsTab({ taskId, task, toast }) {
+  const [artifacts, setArtifacts] = useState([]);
+  const [selectedArtifactId, setSelectedArtifactId] = useState('');
+  const [selectedArtifact, setSelectedArtifact] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  const taskRunDir = task?.run_dir || task?.metadata?.run_dir || '';
+
+  const loadArtifacts = useCallback(async () => {
+    if (!taskId) return;
+    setLoading(true);
+    try {
+      const data = await tasksApi.listArtifacts(taskId);
+      const nextArtifacts = Array.isArray(data?.items) ? data.items : [];
+      setArtifacts(nextArtifacts);
+      setSelectedArtifactId((currentId) => {
+        if (currentId && nextArtifacts.some((artifact) => artifact.artifact_id === currentId)) {
+          return currentId;
+        }
+        return nextArtifacts[0]?.artifact_id || '';
+      });
+    } catch (err) {
+      console.error('Failed to load run artifacts:', err);
+      toast?.error('Failed to load run artifacts');
+      setArtifacts([]);
+      setSelectedArtifactId('');
+    } finally {
+      setLoading(false);
+    }
+  }, [taskId, toast]);
+
+  useEffect(() => {
+    setSelectedArtifact(null);
+    void loadArtifacts();
+  }, [loadArtifacts]);
+
+  useEffect(() => {
+    if (!selectedArtifactId) {
+      setSelectedArtifact(null);
+      return;
+    }
+
+    let active = true;
+    setDetailLoading(true);
+    tasksApi.getArtifact(selectedArtifactId)
+      .then((artifact) => {
+        if (!active) return;
+        setSelectedArtifact(artifact);
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.error('Failed to load artifact detail:', err);
+        toast?.error('Failed to load artifact detail');
+        setSelectedArtifact(null);
+      })
+      .finally(() => {
+        if (active) {
+          setDetailLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedArtifactId, toast]);
+
+  async function handlePromoteArtifact() {
+    if (!selectedArtifact?.artifact_id) return;
+    const artifactId = selectedArtifact.artifact_id;
+    const suggestedPath = selectedArtifact.relative_path || selectedArtifact.name || artifactId;
+    const destPath = window.prompt('Promote artifact to a relative destination under permanent storage', suggestedPath);
+    if (!destPath) return;
+
+    setPromoting(true);
+    try {
+      await tasksApi.promoteArtifact(artifactId, destPath);
+      toast?.success('Artifact promoted');
+      await loadArtifacts();
+      const refreshed = await tasksApi.getArtifact(artifactId);
+      setSelectedArtifact(refreshed);
+    } catch (err) {
+      console.error('Failed to promote artifact:', err);
+      toast?.error(`Failed to promote artifact: ${err.message}`);
+    } finally {
+      setPromoting(false);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-slate-500 text-sm text-center py-8">Loading artifacts...</p>;
+  }
+
+  if (artifacts.length === 0) {
+    return (
+      <div className="space-y-3">
+        {taskRunDir && (
+          <div>
+            <h4 className="heading-sm mb-2">Run Directory</h4>
+            <code className="text-xs text-slate-300 bg-slate-800 px-2 py-1 rounded block truncate" title={taskRunDir}>
+              {taskRunDir}
+            </code>
+          </div>
+        )}
+        <p className="text-slate-500 text-sm text-center py-8">No run artifacts were indexed for this task.</p>
+      </div>
+    );
+  }
+
+  const previewArtifact = selectedArtifact || artifacts.find((artifact) => artifact.artifact_id === selectedArtifactId) || null;
+  const rawUrl = previewArtifact?.artifact_id ? tasksApi.getArtifactContentUrl(previewArtifact.artifact_id) : null;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs text-slate-500">{artifacts.length} artifact{artifacts.length === 1 ? '' : 's'} indexed</p>
+          {taskRunDir && (
+            <code className="text-[11px] text-slate-300 bg-slate-800 px-2 py-1 rounded block mt-2 max-w-full truncate" title={taskRunDir}>
+              {taskRunDir}
+            </code>
+          )}
+        </div>
+        <button
+          onClick={() => void loadArtifacts()}
+          className="text-xs text-slate-300 hover:text-white transition-colors"
+        >
+          Refresh
+        </button>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="border border-slate-800 rounded-lg overflow-hidden">
+          <div className="divide-y divide-slate-800">
+            {artifacts.map((artifact) => {
+              const isSelected = artifact.artifact_id === selectedArtifactId;
+              return (
+                <button
+                  key={artifact.artifact_id}
+                  onClick={() => setSelectedArtifactId(artifact.artifact_id)}
+                  className={`w-full text-left px-4 py-3 transition-colors ${isSelected ? 'bg-slate-800/80' : 'hover:bg-slate-800/40'}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm text-white break-all">{artifact.relative_path || artifact.name}</p>
+                      <p className="text-xs text-slate-500 mt-1">{artifact.mime_type} • {formatBytes(artifact.size_bytes)}</p>
+                    </div>
+                    {artifact.promoted && (
+                      <span className="text-[10px] uppercase tracking-wide bg-emerald-900/50 text-emerald-300 px-2 py-1 rounded shrink-0">
+                        Promoted
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="border border-slate-800 rounded-lg p-4 bg-slate-900/40">
+          {detailLoading ? (
+            <p className="text-slate-500 text-sm text-center py-8">Loading artifact preview...</p>
+          ) : previewArtifact ? (
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h4 className="heading-sm break-all">{previewArtifact.relative_path || previewArtifact.name}</h4>
+                  <p className="text-xs text-slate-500 mt-1">{previewArtifact.mime_type} • {formatBytes(previewArtifact.size_bytes)}</p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  {rawUrl && (
+                    <a
+                      href={rawUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      Open
+                    </a>
+                  )}
+                  <button
+                    onClick={handlePromoteArtifact}
+                    disabled={promoting}
+                    className="text-xs text-emerald-300 hover:text-emerald-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {promoting ? 'Promoting...' : 'Promote'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <MetaItem label="Task" value={previewArtifact.task_id} />
+                <MetaItem label="Promoted" value={previewArtifact.promoted ? 'yes' : 'no'} />
+              </div>
+
+              {previewArtifact.is_image && rawUrl && (
+                <div className="border border-slate-800 rounded-lg bg-slate-950/60 p-3">
+                  <img src={rawUrl} alt={previewArtifact.name} className="max-h-[28rem] w-full object-contain rounded" />
+                </div>
+              )}
+
+              {previewArtifact.preview_text && (
+                <pre className="bg-slate-950 p-4 text-sm text-slate-200 rounded-lg whitespace-pre-wrap overflow-x-auto max-h-[28rem] overflow-y-auto">
+                  {previewArtifact.preview_text}
+                  {previewArtifact.preview_truncated ? '\n\n... preview truncated ...' : ''}
+                </pre>
+              )}
+
+              {!previewArtifact.is_image && !previewArtifact.preview_text && (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-4">
+                  <p className="text-sm text-slate-400">Inline preview is not available for this artifact type.</p>
+                  {previewArtifact.preview_error && (
+                    <p className="text-xs text-amber-400 mt-2">{previewArtifact.preview_error}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-slate-500 text-sm text-center py-8">Select an artifact to inspect it.</p>
+          )}
+        </div>
       </div>
     </div>
   );

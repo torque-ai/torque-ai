@@ -29,6 +29,18 @@ const PROVIDER_QUOTA_INFERENCE_LIMITS = Object.freeze({
   'google-ai': { rpm: 15 },
 });
 
+function getRunDirManager() {
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('runDirManager')) {
+      return defaultContainer.get('runDirManager');
+    }
+  } catch {
+    // Best-effort: retention can still prune task rows even if the artifact manager is unavailable.
+  }
+  return null;
+}
+
 /**
  * Initialize scheduler dependencies. Must be called before any scheduler starts.
  */
@@ -382,6 +394,21 @@ function runMaintenanceTask(taskType) {
         const result = db.pruneOldTasks(maxRetained);
         if (result.pruned > 0) {
           debugLog(`Pruned old tasks: ${result.pruned}`);
+        }
+        const runDirManager = getRunDirManager();
+        if (runDirManager && Array.isArray(result.task_ids) && result.task_ids.length > 0) {
+          let sweptFiles = 0;
+          for (const taskId of result.task_ids) {
+            try {
+              const sweep = runDirManager.sweepRunDir(taskId);
+              sweptFiles += Number(sweep?.deleted) || 0;
+            } catch (err) {
+              debugLog(`Run-dir retention sweep failed for ${taskId}: ${err.message}`);
+            }
+          }
+          if (sweptFiles > 0) {
+            debugLog(`Swept ${sweptFiles} run artifact file(s) from pruned tasks`);
+          }
         }
         break;
       }
