@@ -803,6 +803,33 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id) {
           confidence: 1,
           batch_id: shippingDecision.decision_batch_id || decisionBatchId,
         });
+        if (mergeResult && mergeResult.cleanup_failed) {
+          logger.warn('worktree cleanup failed after successful merge; marking work item shipped', {
+            project_id,
+            branch: worktreeRecord.branch,
+            worktree_path: worktreeRecord.worktreePath,
+            err: mergeResult.cleanup_error,
+          });
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.LEARN,
+            action: 'worktree_merged_cleanup_failed',
+            reasoning: `Merged factory worktree ${worktreeRecord.branch} into main, but cleanup failed afterward.`,
+            outcome: {
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+              worktree_id: worktreeRecord.vcWorktreeId,
+              factory_worktree_id: worktreeRecord.id,
+              target_branch: 'main',
+              strategy: mergeResult.strategy,
+              cleaned: false,
+              cleanup_failed: true,
+              cleanup_error: mergeResult.cleanup_error || null,
+            },
+            confidence: 1,
+            batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+          });
+        }
       } catch (err) {
         logger.warn('worktree merge failed; leaving work item open', {
           project_id,

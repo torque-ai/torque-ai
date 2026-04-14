@@ -614,4 +614,105 @@ describe('factory loop work-item shipping', () => {
       vc_worktree_id: 'vc-worktree-ship-1',
     });
   });
+
+  it('ships the work item and records cleanup_failed when merge cleanup fails after main already moved', async () => {
+    const batchId = 'batch-ship-with-worktree-cleanup-fail';
+    const { project, workItem } = registerPausedVerifyProject({
+      workItemStatus: 'verifying',
+      batchId,
+    });
+    seedLearnDependencies(project.id, batchId);
+
+    const branch = 'feat/factory-merge-cleanup-fail';
+    factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: 'vc-worktree-ship-2',
+      branch,
+      worktree_path: `/tmp/${branch}`,
+    });
+
+    loopController.setWorktreeRunnerForTests({
+      createForBatch: vi.fn(),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 16,
+      })),
+      mergeToMain: vi.fn(async () => ({
+        merged: true,
+        id: 'vc-worktree-ship-2',
+        branch,
+        target_branch: 'main',
+        strategy: 'merge',
+        cleaned: false,
+        cleanup_failed: true,
+        cleanup_error: 'Permission denied',
+      })),
+      abandon: vi.fn(),
+    });
+
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'started_execution',
+      reasoning: 'Loop advanced into EXECUTE.',
+      outcome: {
+        from_state: 'PLAN',
+        to_state: 'EXECUTE',
+      },
+    });
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'completed_execution',
+      reasoning: 'Plan execution completed successfully.',
+      outcome: {
+        completed_tasks: [1],
+        dry_run: false,
+        execution_mode: 'live',
+        task_count: null,
+        simulated: false,
+        submitted_tasks: [],
+        final_state: 'VERIFY',
+      },
+    });
+
+    const approved = loopController.approveGate(project.id, LOOP_STATES.VERIFY);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
+
+    const { learnAdvance } = await advanceVerifyThenLearn(project.id);
+
+    expect(learnAdvance.new_state).toBe(LOOP_STATES.IDLE);
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'shipped',
+    });
+    expect(factoryWorktrees.getActiveWorktree(project.id)).toBeNull();
+    expect(factoryWorktrees.getWorktreeByBranch(branch)).toMatchObject({
+      status: 'merged',
+      merged_at: expect.any(String),
+      vc_worktree_id: 'vc-worktree-ship-2',
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'worktree_merged_cleanup_failed')).toMatchObject({
+      outcome: expect.objectContaining({
+        branch,
+        worktree_path: `/tmp/${branch}`,
+        cleanup_failed: true,
+        cleanup_error: 'Permission denied',
+      }),
+    });
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'worktree_merge_failed')).toBeUndefined();
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'shipped_work_item')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        new_status: 'shipped',
+      }),
+    });
+  });
 });
