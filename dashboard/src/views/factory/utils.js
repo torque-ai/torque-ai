@@ -287,20 +287,23 @@ export function normalizeIntakeItem(item = {}) {
   };
 }
 
+const INTAKE_CLOSED_STATUSES = new Set(['completed', 'shipped', 'rejected']);
+
+function isOpenIntakeItem(item) {
+  return !INTAKE_CLOSED_STATUSES.has(String(item?.status || '').toLowerCase());
+}
+
 export function getIntakeItemsFromResponse(data) {
+  let raw = [];
   if (Array.isArray(data)) {
-    return data.map(normalizeIntakeItem);
+    raw = data;
+  } else if (Array.isArray(data?.items)) {
+    raw = data.items;
+  } else if (Array.isArray(data?.data?.items)) {
+    raw = data.data.items;
   }
 
-  if (Array.isArray(data?.items)) {
-    return data.items.map(normalizeIntakeItem);
-  }
-
-  if (Array.isArray(data?.data?.items)) {
-    return data.data.items.map(normalizeIntakeItem);
-  }
-
-  return [];
+  return raw.filter(isOpenIntakeItem).map(normalizeIntakeItem);
 }
 
 export function formatBalance(value) {
