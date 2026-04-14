@@ -1,6 +1,5 @@
 'use strict';
 
-const { afterEach, beforeEach, describe, expect, it, vi } = require('vitest');
 
 const { createAuthConfigStore } = require('../auth/auth-config-store');
 const { getText, rawDb, safeTool, setupTestDb, teardownTestDb } = require('./vitest-setup');

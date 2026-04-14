@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const { applyBehavioralTags, filterByTags, BEHAVIORAL_TAG_KEYS } = require('../tools/behavioral-tags');
 
 describe('behavioralTags', () => {
