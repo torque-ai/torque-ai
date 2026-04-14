@@ -402,6 +402,46 @@ describe('db/migrations', () => {
       );
     });
 
+    it('creates managed OAuth tables during migration v24 with the expected columns and indexes', () => {
+      createBaseSchema(db);
+
+      subject.runMigrations(db);
+
+      expect(tableExists(db, 'auth_configs')).toBe(true);
+      expect(tableExists(db, 'connected_accounts')).toBe(true);
+      expect(indexExists(db, 'idx_conn_accounts_user_toolkit')).toBe(true);
+      expect(indexExists(db, 'idx_conn_accounts_status')).toBe(true);
+      expect(getColumnNames(db, 'auth_configs')).toEqual(
+        expect.arrayContaining([
+          'id',
+          'toolkit',
+          'auth_type',
+          'client_id',
+          'client_secret_enc',
+          'authorize_url',
+          'token_url',
+          'scopes',
+          'redirect_uri',
+          'created_at',
+        ]),
+      );
+      expect(getColumnNames(db, 'connected_accounts')).toEqual(
+        expect.arrayContaining([
+          'id',
+          'user_id',
+          'toolkit',
+          'auth_config_id',
+          'access_token_enc',
+          'refresh_token_enc',
+          'expires_at',
+          'status',
+          'metadata_json',
+          'created_at',
+          'updated_at',
+        ]),
+      );
+    });
+
     it('is idempotent when rerun after all migrations have already been applied', () => {
       createBaseSchema(db);
 
@@ -552,6 +592,21 @@ describe('db/migrations', () => {
       expect(tableExists(db, 'run_artifacts')).toBe(false);
       expect(indexExists(db, 'idx_run_artifacts_task')).toBe(false);
       expect(getAppliedVersions(db)).not.toContain(23);
+    });
+
+    it('rolls back migration v24 by dropping managed OAuth tables and indexes', () => {
+      createBaseSchema(db);
+      subject.runMigrations(db);
+      expect(tableExists(db, 'auth_configs')).toBe(true);
+      expect(tableExists(db, 'connected_accounts')).toBe(true);
+
+      subject.rollbackMigration(db, 24);
+
+      expect(tableExists(db, 'auth_configs')).toBe(false);
+      expect(tableExists(db, 'connected_accounts')).toBe(false);
+      expect(indexExists(db, 'idx_conn_accounts_user_toolkit')).toBe(false);
+      expect(indexExists(db, 'idx_conn_accounts_status')).toBe(false);
+      expect(getAppliedVersions(db)).not.toContain(24);
     });
 
     it('allows a rolled back migration to be reapplied on the next run', () => {
