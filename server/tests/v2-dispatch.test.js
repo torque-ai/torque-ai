@@ -17,6 +17,10 @@ const mockHandlers = {
     handleListTasks: vi.fn(),
     handleTaskDiff: vi.fn(),
     handleTaskLogs: vi.fn(),
+    handleTaskArtifacts: vi.fn(),
+    handleGetTaskArtifact: vi.fn(),
+    handleTaskArtifactContent: vi.fn(),
+    handlePromoteTaskArtifact: vi.fn(),
     handleTaskProgress: vi.fn(),
     handleRetryTask: vi.fn(),
     handleReassignTaskProvider: vi.fn(),
@@ -619,13 +623,13 @@ describe('v2-dispatch module', () => {
       const lookup = v2Dispatch.V2_CP_HANDLER_LOOKUP;
       const keys = Object.keys(lookup);
 
-      // Tasks: Submit, List, Diff, Logs, Progress, Retry, Commit = 7
+      // Tasks: legacy 7 plus task artifact list/get/content = 10
       const taskKeys = keys.filter(k =>
         k.startsWith('handleV2CpSubmitTask') || k.startsWith('handleV2CpListTask') ||
         k.startsWith('handleV2CpTask') || k.startsWith('handleV2CpRetry') ||
         k.startsWith('handleV2CpCommit')
       );
-      expect(taskKeys.length).toBe(7);
+      expect(taskKeys.length).toBe(10);
 
       // Workflows: 11 (8 original + PauseWorkflow, ResumeWorkflow, GetWorkflowTasks)
       const wfKeys = keys.filter(k =>
