@@ -54,30 +54,30 @@ async function validateWorkflowSpec(specPath) {
 }
 
 async function handleScheduleWorkflowSpec(args) {
-  const name = typeof args?.name === 'string' ? args.name.trim() : '';
-  const cron = typeof args?.cron === 'string' ? args.cron.trim() : '';
-  const specPath = typeof args?.spec_path === 'string' ? args.spec_path.trim() : '';
-
-  if (!name || !cron || !specPath) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'name, cron, and spec_path are required');
-  }
-
-  const workingDirectory = typeof args?.working_directory === 'string' && args.working_directory.trim()
-    ? path.resolve(args.working_directory.trim())
-    : null;
-  const specAbs = path.isAbsolute(specPath)
-    ? path.normalize(specPath)
-    : path.resolve(workingDirectory || process.cwd(), specPath);
-
-  const parsed = await validateWorkflowSpec(specAbs);
-  if (!parsed.ok) {
-    return makeError(
-      ErrorCodes.INVALID_PARAM,
-      `Spec ${specAbs} does not parse:\n- ${parsed.errors.join('\n- ')}`
-    );
-  }
-
   try {
+    const name = typeof args?.name === 'string' ? args.name.trim() : '';
+    const cron = typeof args?.cron === 'string' ? args.cron.trim() : '';
+    const specPath = typeof args?.spec_path === 'string' ? args.spec_path.trim() : '';
+
+    if (!name || !cron || !specPath) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'name, cron, and spec_path are required');
+    }
+
+    const workingDirectory = typeof args?.working_directory === 'string' && args.working_directory.trim()
+      ? path.resolve(args.working_directory.trim())
+      : null;
+    const specAbs = path.isAbsolute(specPath)
+      ? path.normalize(specPath)
+      : path.resolve(workingDirectory || process.cwd(), specPath);
+
+    const parsed = await validateWorkflowSpec(specAbs);
+    if (!parsed.ok) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `Spec ${specAbs} does not parse:\n- ${parsed.errors.join('\n- ')}`
+      );
+    }
+
     const schedule = createCronScheduledTask({
       name,
       cron_expression: cron,
@@ -104,7 +104,7 @@ async function handleScheduleWorkflowSpec(args) {
       },
     };
   } catch (error) {
-    return makeError(ErrorCodes.OPERATION_FAILED, `Failed to create workflow spec schedule: ${error.message}`);
+    return makeError(ErrorCodes.OPERATION_FAILED, `Failed to schedule workflow spec: ${error.message}`);
   }
 }
 
