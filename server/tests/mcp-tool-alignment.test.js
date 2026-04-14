@@ -1,0 +1,418 @@
+'use strict';
+
+const fs = require('node:fs');
+const path = require('node:path');
+const acorn = require('acorn');
+
+const { validateCoverage } = require('../tool-annotations');
+const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../core-tools');
+const { TOOLS, routeMap, schemaMap } = require('../tools');
+
+const REPO_ROOT = path.join(__dirname, '..', '..');
+const SERVER_ROOT = path.join(REPO_ROOT, 'server');
+const TOOL_DEFS_DIR = path.join(SERVER_ROOT, 'tool-defs');
+const HANDLERS_DIR = path.join(SERVER_ROOT, 'handlers');
+const TOOLS_AGGREGATOR_TEST_FILE = path.join(__dirname, 'tools-aggregator.test.js');
+const TOOL_SCHEMA_VALIDATION_TEST_FILE = path.join(__dirname, 'tool-schema-validation.test.js');
+const TOOL_ANNOTATIONS_TEST_FILE = path.join(__dirname, 'tool-annotations.test.js');
+const REST_PASSTHROUGH_COVERAGE_TEST_FILE = path.join(__dirname, 'rest-passthrough-coverage.test.js');
+const P3_ASYNC_TRYCATCH_TEST_FILE = path.join(__dirname, 'p3-async-trycatch.test.js');
+const P3_RAW_THROWS_TEST_FILE = path.join(__dirname, 'p3-raw-throws.test.js');
+const CORE_TOOLS_TEST_FILE = path.join(__dirname, 'core-tools.test.js');
+
+const ROUTE_SOURCE_FILES = [
+  path.join(SERVER_ROOT, 'api', 'routes-passthrough.js'),
+];
+
+// Recursive alignment uses the existing p3 exemptions plus a few legacy nested modules
+// whose handlers intentionally delegate error handling today.
+const ASYNC_HANDLER_FILE_EXEMPTIONS = new Set([
+  'comparison-handler.js',
+  'competitive-feature-handlers.js',
+  'discovery-handlers.js',
+  'codebase-study-handlers.js',
+  'review-handler.js',
+  'automation-handlers.js',
+  'governance-handlers.js',
+  'concurrency-handlers.js',
+  'model-registry-handlers.js',
+  'factory-handlers.js',
+  'integration/infra.js',
+  'validation/file.js',
+  'validation/index.js',
+]);
+
+const ASYNC_HANDLER_EXEMPTIONS = new Set([
+  'workflow/await.js:handleRestartRecovery',
+]);
+
+const RAW_THROW_FILE_EXEMPTIONS = new Set([
+  'task-utils.js',
+  'shared.js',
+  'error-codes.js',
+  'snapscope-handlers.js',
+  'comparison-handler.js',
+  'review-handler.js',
+  'factory-handlers.js',
+  'task/core.js',
+]);
+
+function walkJsFiles(dirPath) {
+  const files = [];
+  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkJsFiles(fullPath));
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith('.js')) {
+      files.push(fullPath);
+    }
+  }
+  return files.sort();
+}
+
+function toPosix(value) {
+  return String(value).replace(/\\/g, '/');
+}
+
+function relativeToRepo(filePath) {
+  return toPosix(path.relative(REPO_ROOT, filePath));
+}
+
+function lineReference(filePath, line) {
+  return `${relativeToRepo(filePath)}:${line}`;
+}
+
+function lineNumberForIndex(source, index) {
+  return source.slice(0, index).split(/\r?\n/).length;
+}
+
+function extractStringArrayConstant(filePath, constantName) {
+  const source = fs.readFileSync(filePath, 'utf8');
+  const match = new RegExp(`const\\s+${constantName}\\s*=\\s*\\[(?<body>[\\s\\S]*?)\\];`).exec(source);
+  if (!match) {
+    throw new Error(`Could not find ${constantName} in ${relativeToRepo(filePath)}`);
+  }
+
+  const values = [];
+  const stringRegex = /['"]([^'"]+)['"]/g;
+  for (const stringMatch of match.groups.body.matchAll(stringRegex)) {
+    values.push(stringMatch[1]);
+  }
+
+  return {
+    values,
+    line: lineNumberForIndex(source, match.index),
+  };
+}
+
+function buildToolNameOccurrenceQueues(source) {
+  const queues = new Map();
+  const nameRegex = /\bname\s*:\s*['"]([^'"]+)['"]/g;
+
+  for (const match of source.matchAll(nameRegex)) {
+    const name = match[1];
+    if (!queues.has(name)) {
+      queues.set(name, []);
+    }
+    queues.get(name).push(lineNumberForIndex(source, match.index));
+  }
+
+  return queues;
+}
+
+function collectToolEntries(drifts) {
+  const entries = [];
+
+  for (const filePath of walkJsFiles(TOOL_DEFS_DIR)) {
+    const defs = require(filePath);
+    if (!Array.isArray(defs)) {
+      drifts.push(
+        `${lineReference(filePath, 1)} exports ${typeof defs}, but tool-def files must export arrays. Canonical owner: ${lineReference(TOOL_SCHEMA_VALIDATION_TEST_FILE, 1)}.`
+      );
+      continue;
+    }
+
+    const source = fs.readFileSync(filePath, 'utf8');
+    const lineQueues = buildToolNameOccurrenceQueues(source);
+
+    defs.forEach((def, index) => {
+      if (!def || typeof def.name !== 'string' || def.name.trim().length === 0) {
+        drifts.push(
+          `${lineReference(filePath, 1)} tool-def entry ${index + 1} is missing a non-empty string name. Canonical owner: ${lineReference(TOOL_SCHEMA_VALIDATION_TEST_FILE, 1)}.`
+        );
+        return;
+      }
+
+      const queue = lineQueues.get(def.name);
+      const line = queue && queue.length > 0 ? queue.shift() : 1;
+      entries.push({ name: def.name, filePath, line });
+    });
+  }
+
+  return entries;
+}
+
+function walkAst(node, visit) {
+  if (!node || typeof node !== 'object') {
+    return;
+  }
+  if (Array.isArray(node)) {
+    node.forEach((child) => walkAst(child, visit));
+    return;
+  }
+  if (typeof node.type === 'string') {
+    visit(node);
+  }
+  for (const value of Object.values(node)) {
+    if (!value || typeof value !== 'object') {
+      continue;
+    }
+    walkAst(value, visit);
+  }
+}
+
+function getPropertyName(node) {
+  if (!node) {
+    return null;
+  }
+  if (node.type === 'Identifier') {
+    return node.name;
+  }
+  if (node.type === 'Literal' && typeof node.value === 'string') {
+    return node.value;
+  }
+  return null;
+}
+
+function readRoutePathValue(node) {
+  if (!node) {
+    return null;
+  }
+  if (node.type === 'Literal') {
+    if (typeof node.value === 'string') {
+      return node.value;
+    }
+    if (node.regex && typeof node.regex.pattern === 'string') {
+      return node.regex.pattern;
+    }
+  }
+  if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
+    return node.quasis.map((part) => part.value.cooked || '').join('');
+  }
+  return null;
+}
+
+function extractDomainFromRoutePath(routePath) {
+  const normalized = String(routePath)
+    .replace(/\\\//g, '/')
+    .replace(/^\^/, '')
+    .replace(/\$$/, '');
+  const match = normalized.match(/^\/api\/v2\/([^/]+)/);
+  return match ? match[1] : null;
+}
+
+function collectRouteDomains(filePath) {
+  const source = fs.readFileSync(filePath, 'utf8');
+  const ast = acorn.parse(source, {
+    ecmaVersion: 2023,
+    sourceType: 'script',
+    locations: true,
+  });
+
+  const domains = [];
+  walkAst(ast, (node) => {
+    if (node.type !== 'ObjectExpression') {
+      return;
+    }
+
+    const pathProperty = node.properties.find((property) => (
+      property
+      && property.type === 'Property'
+      && !property.computed
+      && getPropertyName(property.key) === 'path'
+    ));
+
+    if (!pathProperty) {
+      return;
+    }
+
+    const routePath = readRoutePathValue(pathProperty.value);
+    if (!routePath) {
+      return;
+    }
+
+    const domain = extractDomainFromRoutePath(routePath);
+    if (!domain) {
+      return;
+    }
+
+    domains.push({
+      domain,
+      filePath,
+      line: pathProperty.value.loc.start.line,
+    });
+  });
+
+  return domains;
+}
+
+describe('MCP tool alignment', () => {
+  it('keeps tool defs, route exposure, REST domains, and handler guardrails aligned', () => {
+    const drifts = [];
+    const toolEntries = collectToolEntries(drifts);
+    const toolsByName = new Map();
+
+    for (const entry of toolEntries) {
+      if (!toolsByName.has(entry.name)) {
+        toolsByName.set(entry.name, []);
+      }
+      toolsByName.get(entry.name).push(entry);
+    }
+
+    for (const [name, entries] of toolsByName.entries()) {
+      if (entries.length < 2) {
+        continue;
+      }
+      drifts.push(
+        `Duplicate MCP tool name "${name}" in ${entries.map((entry) => lineReference(entry.filePath, entry.line)).join(', ')}. Canonical owner: ${lineReference(CORE_TOOLS_TEST_FILE, 1)}.`
+      );
+    }
+
+    const toolNames = [...toolsByName.keys()].sort();
+    const toolNameSet = new Set(toolNames);
+    const toolsCatalogNames = new Set(TOOLS.map((tool) => tool.name));
+    const uncoveredAnnotations = new Set(validateCoverage(toolNames).uncovered);
+
+    for (const name of toolNames) {
+      const firstEntry = toolsByName.get(name)[0];
+
+      if (!toolsCatalogNames.has(name)) {
+        drifts.push(
+          `${lineReference(firstEntry.filePath, firstEntry.line)} defines "${name}", but server/tools.js does not import it into TOOLS for full unlock exposure. Canonical owners: ${lineReference(CORE_TOOLS_TEST_FILE, 1)}, ${lineReference(TOOLS_AGGREGATOR_TEST_FILE, 1)}.`
+        );
+      }
+
+      if (!schemaMap.has(name)) {
+        drifts.push(
+          `${lineReference(firstEntry.filePath, firstEntry.line)} defines "${name}", but server/tools.js schemaMap has no entry for it. Canonical owner: ${lineReference(TOOL_SCHEMA_VALIDATION_TEST_FILE, 1)}.`
+        );
+      }
+
+      if (uncoveredAnnotations.has(name)) {
+        drifts.push(
+          `${lineReference(firstEntry.filePath, firstEntry.line)} defines "${name}", but server/tool-annotations.js falls back instead of covering it explicitly or by convention. Canonical owner: ${lineReference(TOOL_ANNOTATIONS_TEST_FILE, 1)}.`
+        );
+      }
+    }
+
+    for (const [tierLabel, names] of [
+      ['CORE_TOOL_NAMES', CORE_TOOL_NAMES],
+      ['EXTENDED_TOOL_NAMES', EXTENDED_TOOL_NAMES],
+    ]) {
+      for (const name of names) {
+        if (toolNameSet.has(name)) {
+          continue;
+        }
+        drifts.push(
+          `${lineReference(path.join(SERVER_ROOT, 'core-tools.js'), 1)} lists "${name}" in ${tierLabel}, but no tool-def exports that name. Canonical owner: ${lineReference(CORE_TOOLS_TEST_FILE, 1)}.`
+        );
+      }
+    }
+
+    const inlineToolNames = extractStringArrayConstant(TOOLS_AGGREGATOR_TEST_FILE, 'INLINE_TOOL_NAMES');
+    const expectedUnmappedToolNames = extractStringArrayConstant(TOOLS_AGGREGATOR_TEST_FILE, 'EXPECTED_UNMAPPED_TOOL_NAMES');
+    const aliasedRouteNames = extractStringArrayConstant(TOOLS_AGGREGATOR_TEST_FILE, 'ALIASED_ROUTE_NAMES');
+    const expectedRouteMapSize = TOOLS.length
+      - inlineToolNames.values.length
+      - expectedUnmappedToolNames.values.length
+      + aliasedRouteNames.values.length;
+
+    if (routeMap.size !== expectedRouteMapSize) {
+      drifts.push(
+        `server/tools.js routeMap.size is ${routeMap.size}, expected ${expectedRouteMapSize} from TOOLS.length (${TOOLS.length}) - INLINE_TOOL_NAMES (${inlineToolNames.values.length} at ${lineReference(TOOLS_AGGREGATOR_TEST_FILE, inlineToolNames.line)}) - EXPECTED_UNMAPPED_TOOL_NAMES (${expectedUnmappedToolNames.values.length} at ${lineReference(TOOLS_AGGREGATOR_TEST_FILE, expectedUnmappedToolNames.line)}) + ALIASED_ROUTE_NAMES (${aliasedRouteNames.values.length} at ${lineReference(TOOLS_AGGREGATOR_TEST_FILE, aliasedRouteNames.line)}). Canonical owner: ${lineReference(TOOLS_AGGREGATOR_TEST_FILE, 1)}.`
+      );
+    }
+
+    const expectedDomains = extractStringArrayConstant(
+      REST_PASSTHROUGH_COVERAGE_TEST_FILE,
+      'EXPECTED_DOMAINS'
+    );
+    const expectedDomainSet = new Set(expectedDomains.values);
+
+    for (const filePath of ROUTE_SOURCE_FILES) {
+      for (const route of collectRouteDomains(filePath)) {
+        if (expectedDomainSet.has(route.domain)) {
+          continue;
+        }
+        drifts.push(
+          `${lineReference(route.filePath, route.line)} exposes REST domain "${route.domain}", but EXPECTED_DOMAINS in ${lineReference(REST_PASSTHROUGH_COVERAGE_TEST_FILE, expectedDomains.line)} is missing it. Canonical owner: ${lineReference(REST_PASSTHROUGH_COVERAGE_TEST_FILE, 1)}.`
+        );
+      }
+    }
+
+    for (const filePath of walkJsFiles(HANDLERS_DIR)) {
+      const relativeHandlerPath = toPosix(path.relative(HANDLERS_DIR, filePath));
+      if (ASYNC_HANDLER_FILE_EXEMPTIONS.has(relativeHandlerPath)) {
+        continue;
+      }
+
+      const source = fs.readFileSync(filePath, 'utf8');
+      const ast = acorn.parse(source, {
+        ecmaVersion: 2023,
+        sourceType: 'script',
+        locations: true,
+      });
+
+      for (const statement of ast.body) {
+        if (
+          statement.type !== 'FunctionDeclaration'
+          || !statement.async
+          || !statement.id
+          || !/^handle/.test(statement.id.name)
+        ) {
+          continue;
+        }
+
+        if (ASYNC_HANDLER_EXEMPTIONS.has(`${relativeHandlerPath}:${statement.id.name}`)) {
+          continue;
+        }
+
+        const bodyStatements = statement.body.body || [];
+        const firstStatement = bodyStatements[0];
+        const hasTopLevelTryCatch = bodyStatements.length === 1
+          && firstStatement
+          && firstStatement.type === 'TryStatement'
+          && !!firstStatement.handler;
+
+        if (hasTopLevelTryCatch) {
+          continue;
+        }
+
+        drifts.push(
+          `${lineReference(filePath, statement.loc.start.line)} async handler ${statement.id.name} is missing a single top-level try/catch wrapper. Canonical owner: ${lineReference(P3_ASYNC_TRYCATCH_TEST_FILE, 1)}.`
+        );
+      }
+    }
+
+    const rawThrowRegex = /\bthrow\s+new\s+Error\(/g;
+    for (const filePath of walkJsFiles(HANDLERS_DIR)) {
+      const relativeHandlerPath = toPosix(path.relative(HANDLERS_DIR, filePath));
+      if (RAW_THROW_FILE_EXEMPTIONS.has(relativeHandlerPath)) {
+        continue;
+      }
+
+      const source = fs.readFileSync(filePath, 'utf8');
+      for (const match of source.matchAll(rawThrowRegex)) {
+        drifts.push(
+          `${lineReference(filePath, lineNumberForIndex(source, match.index))} contains raw throw new Error(...). Canonical owner: ${lineReference(P3_RAW_THROWS_TEST_FILE, 1)}.`
+        );
+      }
+    }
+
+    if (drifts.length > 0) {
+      throw new Error(`Alignment drift detected:\n${drifts.map((drift, index) => `${index + 1}. ${drift}`).join('\n')}`);
+    }
+  });
+});

@@ -10,29 +10,7 @@
 
 ---
 
-## Lessons from first run (2026-04-14, abandoned at VERIFY_FAIL)
-
-The first factory run of this plan landed the implementation but failed VERIFY on a cascade of integration issues the plan did not anticipate. Before the next attempt, the plan MUST address:
-
-1. **MCP tool name collision.** The repo already has a `set_budget` tool wired through `core-tools.js` + `tool-defs/validation-defs.js`. This plan must introduce its new scope-aware tool under a different name (e.g., `set_tenant_budget`, `set_scope_budget`, or `budget_set_limit`) OR explicitly extend the existing `set_budget` handler rather than replace it. `tests/core-tools.test.js > tool definitions do not include duplicate names` will fail until this is resolved.
-
-2. **Handler error convention — `makeError`, not `throw`.** All new handlers must return `makeError(ErrorCodes.X, msg)` on validation or operational failure. Raw `throw new Error(...)` fails `tests/p3-raw-throws.test.js`. Apply the same top-level `try { ... } catch (err) { return makeError(...) }` wrapper pattern used by the other validation handlers (see `handleScheduleWorkflowSpec` for a working example).
-
-3. **Coverage-alignment tests must be updated in-plan.** Every new MCP tool touches:
-    - `tests/core-tools.test.js` — expected tool-def count + duplicate-name check
-    - `tests/tool-schema-validation.test.js` — schemaMap entry per tool
-    - `tests/tools-aggregator.test.js` — `routeMap.size === TOOLS.length - INLINE_TOOL_NAMES.length` check
-    - `tests/p3-async-trycatch.test.js` — every async `handle*` needs top-level try/catch
-    - `tests/rest-passthrough-coverage.test.js` — every new domain added to the `EXPECTED_DOMAINS` list
-    Add a dedicated "Task N: Update alignment + style-guard tests" step before the feature tasks land, or bundle the updates into the task that introduces the tools.
-
-4. **Container wiring for tests.** New container-resolved services (`budgetTracker`, `budgetAwareRouter`) must be registered in the test bootstrap (e.g., `tests/vitest-setup.js` or per-test `defaultContainer.set('budgetTracker', createBudgetTracker({ db }))`) so any existing handler tests that pre-existed the plan and now reach through `defaultContainer.get('budgetTracker')` can resolve it. Don't leave this as a remediation cycle.
-
-5. **Existing tests touching the same API surface must be audited.** `tests/validation-cost-handlers.test.js`, `tests/validation-handlers.test.js`, and `tests/provider-failover.test.js` all exercise budget/cost handlers today. The plan must explicitly list what these tests expect and update them alongside the handler rewrite, not after-the-fact.
-
-6. **Pricing table provenance.** Hardcoding per-1M-token pricing in `provider-pricing.js` is brittle. Either (a) expose a configurable override via env/DB so tests can set deterministic prices without editing the module, or (b) note that the table is a rough estimate only and write tests accordingly.
-
-Add these items as explicit preconditions / extra tasks before the next factory run picks this plan back up.
+> See `docs/superpowers/plan-authoring.md` for the alignment checklist.
 
 ---
 

@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryArchitect = require('../db/factory-architect');
@@ -46,8 +49,27 @@ const SCOPE_BUDGET_RULES = [
   { budget: 5, keywords: ['add', 'feature', 'new'] },
 ];
 
+const PLAN_AUTHORING_GUIDE = (() => {
+  try {
+    const guidePath = path.join(__dirname, '..', '..', 'docs', 'superpowers', 'plan-authoring.md');
+    return fs.readFileSync(guidePath, 'utf8').trim();
+  } catch {
+    return '';
+  }
+})();
+
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function injectPlanAuthoringGuide(prompt) {
+  if (!PLAN_AUTHORING_GUIDE) {
+    return prompt;
+  }
+  if (typeof prompt !== 'string' || prompt.length === 0) {
+    return PLAN_AUTHORING_GUIDE;
+  }
+  return `${PLAN_AUTHORING_GUIDE}\n\n---\n\n${prompt}`;
 }
 
 function toFiniteNumber(value) {
@@ -439,14 +461,14 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
     logger.debug(`Could not load corrections: ${err.message}`);
   }
 
-  const prompt = buildArchitectPrompt({
+  const prompt = injectPlanAuthoringGuide(buildArchitectPrompt({
     project,
     healthScores,
     intakeItems,
     previousBacklog: prevCycle ? prevCycle.backlog : [],
     previousReasoning: prevCycle ? prevCycle.reasoning : '',
     corrections,
-  });
+  }));
 
   logger.debug('Built architect prompt for cycle', {
     project_id,
@@ -517,6 +539,8 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
 }
 
 module.exports = {
+  PLAN_AUTHORING_GUIDE,
+  injectPlanAuthoringGuide,
   runArchitectCycle,
   prioritizeByHealth,
   updateBacklogWorkItemStatuses,
