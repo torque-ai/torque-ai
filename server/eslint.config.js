@@ -1,4 +1,5 @@
 const js = require('@eslint/js');
+const noVitestRequireRule = require('./eslint-rules/no-vitest-require');
 
 const vitestGlobals = {
   describe: 'readonly',
@@ -85,6 +86,19 @@ module.exports = [
     },
     rules: {
       'no-redeclare': ['error', { builtinGlobals: false }],
+    },
+  },
+  {
+    files: ['tests/**/*.js', '**/*.test.js'],
+    plugins: {
+      local: {
+        rules: {
+          'no-vitest-require': noVitestRequireRule,
+        },
+      },
+    },
+    rules: {
+      'local/no-vitest-require': 'error',
     },
   },
   {
