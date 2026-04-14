@@ -347,8 +347,15 @@ describe('schemaMap', () => {
   });
 
   it('has entries for tools with inputSchema', () => {
-    const toolsWithSchema = TOOLS.filter((t) => t && t.name && t.inputSchema);
-    expect(schemaMap.size).toBe(toolsWithSchema.length);
+    const toolsWithSchema = TOOLS
+      .filter((t) => t && t.name && t.inputSchema)
+      .map((tool) => tool.name);
+    const schemaToolNames = new Set(toolsWithSchema);
+    const missing = toolsWithSchema.filter((name) => !schemaMap.has(name));
+    const stale = [...schemaMap.keys()].filter((name) => !schemaToolNames.has(name));
+
+    expect(missing).toEqual([]);
+    expect(stale).toEqual([]);
   });
 
   it('maps tool names to their inputSchema objects', () => {

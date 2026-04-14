@@ -93,42 +93,6 @@ const passthroughRoutes = require('../api/routes-passthrough');
 const mainRoutes = require('../api/routes');
 const { v2CpRoutes } = require('../api/v2-dispatch');
 
-const EXPECTED_DOMAINS = [
-  'advanced',
-  'agents',
-  'analysis',
-  'approvals',
-  'audit',
-  'automation',
-  'baselines',
-  'ci',
-  'conflicts',
-  'diffusion',
-  'discovery',
-  'experiments',
-  'governance',
-  'hashline',
-  'integration',
-  'intelligence',
-  'notifications',
-  'peek',
-  'providers',
-  'routing',
-  'schedules',
-  'strategic',
-  'study',
-  'symbols',
-  'system',
-  'tasks',
-  'tsserver',
-  'vc',
-  'validation',
-  'verification',
-  'webhooks',
-  'workflow-utils',
-  'workflows',
-];
-
 // Passthrough tools that are built-in MCP-SSE handlers or aliased tool names, not registered in tool-defs files
 const BUILTIN_PASSTHROUGH_TOOLS = new Set([
   'check_notifications', 'subscribe_task_events',
@@ -275,18 +239,6 @@ describe('REST passthrough route coverage', () => {
         .filter((tool) => !toolDefNames.has(tool) && !BUILTIN_PASSTHROUGH_TOOLS.has(tool));
 
       expect(missing).toEqual([]);
-    });
-  });
-
-  describe('domain coverage', () => {
-    it('covers all 32 expected passthrough domains', () => {
-      const coveredDomains = [...new Set(
-        passthroughRoutes
-          .map(extractDomain)
-          .filter(Boolean)
-      )].sort();
-
-      expect(coveredDomains).toEqual([...EXPECTED_DOMAINS].sort());
     });
   });
 

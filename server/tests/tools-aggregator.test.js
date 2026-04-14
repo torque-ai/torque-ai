@@ -9,19 +9,6 @@ const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../core-tools');
 const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 const realTools = require('../tools');
 
-const INLINE_TOOL_NAMES = ['ping', 'restart_server', 'restart_status', 'unlock_all_tools', 'unlock_tier'];
-const EXPECTED_UNMAPPED_TOOL_NAMES = [
-  'set_provider_api_key', 'clear_provider_api_key',
-  'run_remote_command', 'run_tests',
-  'strategic_config_get', 'strategic_config_set', 'strategic_config_templates', 'strategic_config_apply_template',
-  'get_tool_schema',
-];
-// Route names derived from handler exports that don't match any tool-def name
-const ALIASED_ROUTE_NAMES = [
-  'set_api_key', 'clear_api_key',
-  'config_get', 'config_set', 'config_reset', 'config_templates', 'config_apply_template',
-  'subscribe_task_events', 'get_verification_ledger',
-];
 const TOOL_DEF_REQUESTS = [...new Set(
   [...MODULE_SOURCE.matchAll(/require\(\s*['"](\.\/tool-defs\/[^'"]+)['"]\s*\)/g)].map((match) => match[1]),
 )];
@@ -155,6 +142,36 @@ function collectLiveExpectedRoutes() {
   }
 
   return [...new Set(expected)].sort();
+}
+
+function extractInlineToolNames() {
+  const switchBlockMatch = MODULE_SOURCE.match(
+    /switch\s*\(name\)\s*\{(?<body>[\s\S]*?)\n\s*}\n\n\s*\/\/ Centralized JSON Schema validation/
+  );
+  expect(switchBlockMatch).not.toBeNull();
+
+  return [...new Set(
+    [...switchBlockMatch.groups.body.matchAll(/case\s+'([^']+)'/g)].map((match) => match[1])
+  )].sort();
+}
+
+function collectRouteRegistryDiff() {
+  const toolNames = new Set(getToolNames());
+  const routeNames = [...realTools.routeMap.keys()];
+  const inlineToolNames = extractInlineToolNames()
+    .filter((name) => toolNames.has(name) && !realTools.routeMap.has(name))
+    .sort();
+  const inlineToolNameSet = new Set(inlineToolNames);
+
+  return {
+    inlineToolNames,
+    unmappedToolNames: [...toolNames]
+      .filter((name) => !realTools.routeMap.has(name) && !inlineToolNameSet.has(name))
+      .sort(),
+    aliasedRouteNames: routeNames
+      .filter((name) => !toolNames.has(name))
+      .sort(),
+  };
 }
 
 function getToolNames() {
@@ -757,8 +774,10 @@ describe('tools.js live registry integration', () => {
   });
 
   it('omits inline-only tools from the auto-built routeMap', () => {
+    const { inlineToolNames } = collectRouteRegistryDiff();
+
     expect([...realTools.routeMap.keys()]).not.toEqual(
-      expect.arrayContaining(INLINE_TOOL_NAMES),
+      expect.arrayContaining(inlineToolNames),
     );
   });
 
@@ -780,10 +799,22 @@ describe('tools.js live registry integration', () => {
   });
 
   it('keeps the routeMap count aligned with tool definitions plus inline handlers', () => {
-    const unmappedCount = EXPECTED_UNMAPPED_TOOL_NAMES.length;
-    const aliasedCount = ALIASED_ROUTE_NAMES.length;
-    expect(realTools.routeMap.size).toBe(realTools.TOOLS.length - INLINE_TOOL_NAMES.length - unmappedCount + aliasedCount);
-    expect(realTools.routeMap.size + INLINE_TOOL_NAMES.length + unmappedCount - aliasedCount).toBe(getToolNames().length);
+    const { inlineToolNames, unmappedToolNames, aliasedRouteNames } = collectRouteRegistryDiff();
+    const excludedToolNames = new Set([...inlineToolNames, ...unmappedToolNames]);
+
+    inlineToolNames.forEach((toolName) => {
+      expect(getToolNames()).toContain(toolName);
+      expect(realTools.routeMap.has(toolName)).toBe(false);
+    });
+    unmappedToolNames.forEach((toolName) => {
+      expect(realTools.routeMap.has(toolName)).toBe(false);
+    });
+    aliasedRouteNames.forEach((routeName) => {
+      expect(realTools.routeMap.has(routeName)).toBe(true);
+    });
+
+    expect(realTools.routeMap.size).toBe(realTools.TOOLS.length - excludedToolNames.size + aliasedRouteNames.length);
+    expect(realTools.routeMap.size + excludedToolNames.size - aliasedRouteNames.length).toBe(getToolNames().length);
   });
 
   it('keeps routed handler signatures constrained to zero or one declared parameter', () => {

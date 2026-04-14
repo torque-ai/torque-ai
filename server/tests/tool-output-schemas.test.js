@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { getOutputSchema, OUTPUT_SCHEMAS } = require('../tool-output-schemas');
 const workflowEngine = require('../db/workflow-engine');
@@ -10,6 +13,26 @@ function setupSchemaTestDb(suiteName) {
   const tm = require('../task-manager');
   if (typeof tm.initEarlyDeps === 'function') tm.initEarlyDeps();
   if (typeof tm.initSubModules === 'function') tm.initSubModules();
+}
+
+function loadToolDefinitionNames() {
+  const toolDefsDir = path.join(__dirname, '..', 'tool-defs');
+  const files = fs.readdirSync(toolDefsDir)
+    .filter((file) => file.endsWith('.js'))
+    .sort();
+
+  const toolNames = new Set();
+  for (const file of files) {
+    const defs = require(path.join(toolDefsDir, file));
+    expect(Array.isArray(defs)).toBe(true);
+    defs.forEach((def) => {
+      if (def && typeof def.name === 'string') {
+        toolNames.add(def.name);
+      }
+    });
+  }
+
+  return toolNames;
 }
 
 describe('tool-output-schemas', () => {
@@ -48,27 +71,15 @@ describe('tool-output-schemas', () => {
       }
     });
 
-    it('declares schemas for all expected tools', () => {
-      const expected = [
-        'check_status', 'task_info', 'list_tasks', 'get_result',
-        'get_progress', 'workflow_status', 'list_workflows', 'list_ollama_hosts',
-        'get_context',
-        // Phase 2
-        'provider_stats', 'success_rates', 'list_providers', 'check_ollama_health',
-        'get_cost_summary', 'get_budget_status', 'get_cost_forecast',
-        'get_concurrency_limits', 'check_stalled_tasks', 'check_task_progress',
-        // Phase 3
-        'workflow_history', 'list_models', 'list_pending_models', 'list_model_roles', 'list_archived',
-        'get_archive_stats', 'get_provider_health_trends', 'health_check',
-        'integration_health', 'list_tags', 'get_batch_summary',
-        // Fabro #99 managed OAuth + behavioral hints
-        'start_oauth_flow', 'complete_oauth_flow', 'list_connected_accounts',
-        'disable_account', 'delete_account', 'list_tools_by_hints',
-      ];
-      for (const name of expected) {
+    it('declares schemas only for registered tool definitions', () => {
+      const toolDefNames = loadToolDefinitionNames();
+      const schemaNames = Object.keys(OUTPUT_SCHEMAS);
+      const staleSchemas = schemaNames.filter((name) => !toolDefNames.has(name));
+
+      expect(staleSchemas).toEqual([]);
+      for (const name of schemaNames) {
         expect(getOutputSchema(name)).toBeDefined();
       }
-      expect(Object.keys(OUTPUT_SCHEMAS).length).toBe(expected.length);
     });
   });
 

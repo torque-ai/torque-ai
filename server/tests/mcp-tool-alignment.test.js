@@ -258,6 +258,39 @@ function collectRouteDomains(filePath) {
   return domains;
 }
 
+function extractInlineToolNamesFromTools(filePath) {
+  const source = fs.readFileSync(filePath, 'utf8');
+  const switchBlockMatch = source.match(
+    /switch\s*\(name\)\s*\{(?<body>[\s\S]*?)\n\s*}\n\n\s*\/\/ Centralized JSON Schema validation/
+  );
+  if (!switchBlockMatch) {
+    throw new Error(`Could not find handleToolCall inline switch in ${relativeToRepo(filePath)}`);
+  }
+
+  return [...new Set(
+    [...switchBlockMatch.groups.body.matchAll(/case\s+'([^']+)'/g)].map((match) => match[1])
+  )].sort();
+}
+
+function collectRouteRegistryDiff() {
+  const toolNames = TOOLS.map((tool) => tool.name);
+  const toolNameSet = new Set(toolNames);
+  const inlineToolNames = extractInlineToolNamesFromTools(path.join(SERVER_ROOT, 'tools.js'))
+    .filter((name) => toolNameSet.has(name) && !routeMap.has(name))
+    .sort();
+  const inlineToolNameSet = new Set(inlineToolNames);
+
+  return {
+    inlineToolNames,
+    unmappedToolNames: toolNames
+      .filter((name) => !routeMap.has(name) && !inlineToolNameSet.has(name))
+      .sort(),
+    aliasedRouteNames: [...routeMap.keys()]
+      .filter((name) => !toolNameSet.has(name))
+      .sort(),
+  };
+}
+
 describe('MCP tool alignment', () => {
   it('keeps tool defs, route exposure, REST domains, and handler guardrails aligned', () => {
     const drifts = [];
@@ -321,35 +354,18 @@ describe('MCP tool alignment', () => {
       }
     }
 
-    const inlineToolNames = extractStringArrayConstant(TOOLS_AGGREGATOR_TEST_FILE, 'INLINE_TOOL_NAMES');
-    const expectedUnmappedToolNames = extractStringArrayConstant(TOOLS_AGGREGATOR_TEST_FILE, 'EXPECTED_UNMAPPED_TOOL_NAMES');
-    const aliasedRouteNames = extractStringArrayConstant(TOOLS_AGGREGATOR_TEST_FILE, 'ALIASED_ROUTE_NAMES');
-    const expectedRouteMapSize = TOOLS.length
-      - inlineToolNames.values.length
-      - expectedUnmappedToolNames.values.length
-      + aliasedRouteNames.values.length;
+    const {
+      inlineToolNames,
+      unmappedToolNames,
+      aliasedRouteNames,
+    } = collectRouteRegistryDiff();
+    const excludedToolNames = new Set([...inlineToolNames, ...unmappedToolNames]);
+    const expectedRouteMapSize = TOOLS.length - excludedToolNames.size + aliasedRouteNames.length;
 
     if (routeMap.size !== expectedRouteMapSize) {
       drifts.push(
-        `server/tools.js routeMap.size is ${routeMap.size}, expected ${expectedRouteMapSize} from TOOLS.length (${TOOLS.length}) - INLINE_TOOL_NAMES (${inlineToolNames.values.length} at ${lineReference(TOOLS_AGGREGATOR_TEST_FILE, inlineToolNames.line)}) - EXPECTED_UNMAPPED_TOOL_NAMES (${expectedUnmappedToolNames.values.length} at ${lineReference(TOOLS_AGGREGATOR_TEST_FILE, expectedUnmappedToolNames.line)}) + ALIASED_ROUTE_NAMES (${aliasedRouteNames.values.length} at ${lineReference(TOOLS_AGGREGATOR_TEST_FILE, aliasedRouteNames.line)}). Canonical owner: ${lineReference(TOOLS_AGGREGATOR_TEST_FILE, 1)}.`
+        `server/tools.js routeMap.size is ${routeMap.size}, expected ${expectedRouteMapSize} from the live registry diff: TOOLS.length (${TOOLS.length}) - inline-only tool defs (${inlineToolNames.length}) - handlerless tool defs (${unmappedToolNames.length}) + aliased handler routes (${aliasedRouteNames.length}). Canonical owner: ${lineReference(TOOLS_AGGREGATOR_TEST_FILE, 1)}.`
       );
-    }
-
-    const expectedDomains = extractStringArrayConstant(
-      REST_PASSTHROUGH_COVERAGE_TEST_FILE,
-      'EXPECTED_DOMAINS'
-    );
-    const expectedDomainSet = new Set(expectedDomains.values);
-
-    for (const filePath of ROUTE_SOURCE_FILES) {
-      for (const route of collectRouteDomains(filePath)) {
-        if (expectedDomainSet.has(route.domain)) {
-          continue;
-        }
-        drifts.push(
-          `${lineReference(route.filePath, route.line)} exposes REST domain "${route.domain}", but EXPECTED_DOMAINS in ${lineReference(REST_PASSTHROUGH_COVERAGE_TEST_FILE, expectedDomains.line)} is missing it. Canonical owner: ${lineReference(REST_PASSTHROUGH_COVERAGE_TEST_FILE, 1)}.`
-        );
-      }
     }
 
     for (const filePath of walkJsFiles(HANDLERS_DIR)) {

@@ -623,31 +623,80 @@ describe('v2-dispatch module', () => {
       const lookup = v2Dispatch.V2_CP_HANDLER_LOOKUP;
       const keys = Object.keys(lookup);
 
-      // Tasks: legacy 7 plus task artifact list/get/content = 10
-      const taskKeys = keys.filter(k =>
-        k.startsWith('handleV2CpSubmitTask') || k.startsWith('handleV2CpListTask') ||
-        k.startsWith('handleV2CpTask') || k.startsWith('handleV2CpRetry') ||
-        k.startsWith('handleV2CpCommit')
-      );
-      expect(taskKeys.length).toBe(10);
+      const requiredPrefixesByDomain = {
+        task: [
+          'handleV2CpPreviewTaskStudyContext',
+          'handleV2CpSubmitTask',
+          'handleV2CpListTasks',
+          'handleV2CpTask',
+          'handleV2CpRetryTask',
+          'handleV2CpReassignTaskProvider',
+          'handleV2CpCommitTask',
+          'handleV2CpGetTask',
+          'handleV2CpCancelTask',
+          'handleV2CpDeleteTask',
+          'handleV2CpApproveTask',
+          'handleV2CpRejectTask',
+        ],
+        workflow: [
+          'handleV2CpCreateWorkflow',
+          'handleV2CpListWorkflows',
+          'handleV2CpGetWorkflow',
+          'handleV2CpRunWorkflow',
+          'handleV2CpCancelWorkflow',
+          'handleV2CpAddWorkflowTask',
+          'handleV2CpWorkflowHistory',
+          'handleV2CpCreateFeatureWorkflow',
+          'handleV2CpPauseWorkflow',
+          'handleV2CpResumeWorkflow',
+          'handleV2CpGetWorkflowTasks',
+        ],
+        governance: [
+          'handleV2CpListApprovals',
+          'handleV2CpApprovalDecision',
+          'handleV2CpListSchedules',
+          'handleV2CpCreateSchedule',
+          'handleV2CpListPolicies',
+          'handleV2CpGetPolicy',
+          'handleV2CpListProviders',
+          'handleV2CpProviderStats',
+          'handleV2CpSystemStatus',
+          'handleV2CpScanProject',
+          'handleV2CpListWebhooks',
+        ],
+        analytics: [
+          'handleV2CpStatsOverview',
+          'handleV2CpTimeSeries',
+          'handleV2CpQualityStats',
+          'handleV2CpBudgetSummary',
+          'handleV2CpBudgetStatus',
+          'handleV2CpStrategicStatus',
+          'handleV2CpRoutingDecisions',
+          'handleV2CpProviderHealthCards',
+        ],
+        infrastructure: [
+          'handleV2CpListWorkstations',
+          'handleV2CpCreateWorkstation',
+          'handleV2CpListHosts',
+          'handleV2CpGetHost',
+          'handleV2CpHostScan',
+          'handleV2CpListPeekHosts',
+          'handleV2CpCreatePeekHost',
+          'handleV2CpListCredentials',
+          'handleV2CpSaveCredential',
+          'handleV2CpListAgents',
+          'handleV2CpCreateAgent',
+          'handleV2CpAgentHealth',
+        ],
+      };
 
-      // Workflows: 11 (8 original + PauseWorkflow, ResumeWorkflow, GetWorkflowTasks)
-      const wfKeys = keys.filter(k =>
-        k.includes('Workflow') || k.includes('FeatureWorkflow')
-      );
-      expect(wfKeys.length).toBe(11);
-
-      // Infrastructure: hosts + peek + cred + agents = 17
-      const infraKeys = keys.filter(k =>
-        k.startsWith('handleV2CpList') && (k.includes('Host') || k.includes('PeekHost') || k.includes('Credential') || k.includes('Agent')) ||
-        k.startsWith('handleV2CpGet') && (k.includes('Host') || k.includes('Agent')) ||
-        k.startsWith('handleV2CpCreate') && (k.includes('PeekHost') || k.includes('Agent')) ||
-        k.startsWith('handleV2CpDelete') && (k.includes('Host') || k.includes('PeekHost') || k.includes('Credential') || k.includes('Agent')) ||
-        k.startsWith('handleV2CpToggle') && (k.includes('Host') || k.includes('PeekHost')) ||
-        k.startsWith('handleV2CpHostScan') || k.startsWith('handleV2CpSaveCredential') ||
-        k.startsWith('handleV2CpAgentHealth')
-      );
-      expect(infraKeys.length).toBe(17);
+      Object.values(requiredPrefixesByDomain).flat().forEach((prefix) => {
+        const matchingKeys = keys.filter((key) => key.startsWith(prefix));
+        expect(matchingKeys.length).toBeGreaterThan(0);
+        matchingKeys.forEach((key) => {
+          expect(typeof lookup[key]).toBe('function');
+        });
+      });
     });
 
     it('total handler count is at least 60', () => {

@@ -108,6 +108,17 @@ const { V2_CP_HANDLER_LOOKUP, v2CpRoutes } = require('../api/v2-dispatch');
 const fs = require('fs');
 const path = require('path');
 
+function serializeRoutePath(routePath) {
+  if (typeof routePath === 'string') {
+    return `string:${routePath}`;
+  }
+  return `regex:${routePath.source}/${routePath.flags}`;
+}
+
+function controlPlaneRouteSignature(route) {
+  return `${route.method} ${serializeRoutePath(route.path)} ${route.handlerName}`;
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('REST control-plane parity', () => {
@@ -132,19 +143,17 @@ describe('REST control-plane parity', () => {
     });
 
     it('v2 CP route count matches routes.js definitions', () => {
-      // Compare unique handler names — some handlers serve multiple routes (e.g., GET /config and GET /config/:key)
-      const routeHandlerNames = new Set(
-        routes.filter(r => r.handlerName && r.handlerName.startsWith('handleV2Cp')).map(r => r.handlerName)
+      const routeDefinitions = routes.filter(
+        (route) => route.handlerName && route.handlerName.startsWith('handleV2Cp')
       );
-      const dispatchHandlerNames = new Set(v2CpRoutes.map(r => r.handlerName));
+      const routeSignatures = new Set(routeDefinitions.map(controlPlaneRouteSignature));
+      const dispatchSignatures = new Set(v2CpRoutes.map(controlPlaneRouteSignature));
 
-      // Find any gaps for diagnostic purposes
-      const missingFromDispatch = [...routeHandlerNames].filter(n => !dispatchHandlerNames.has(n));
-      if (missingFromDispatch.length > 0) {
-        console.warn('Handlers in routes but not dispatch:', missingFromDispatch);
-      }
+      const missingFromDispatch = [...routeSignatures].filter((signature) => !dispatchSignatures.has(signature));
+      const missingFromRoutes = [...dispatchSignatures].filter((signature) => !routeSignatures.has(signature));
 
-      expect(dispatchHandlerNames.size).toBe(routeHandlerNames.size);
+      expect(missingFromDispatch).toEqual([]);
+      expect(missingFromRoutes).toEqual([]);
     });
   });
 

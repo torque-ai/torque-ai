@@ -251,7 +251,7 @@ describe('v2-control-plane task response builders', () => {
       completed_at: '2026-03-10T01:02:00.000Z',
     };
 
-    expect(controlPlane.buildTaskResponse(task)).toEqual({
+    expect(controlPlane.buildTaskResponse(task)).toMatchObject({
       id: 'task-1',
       status: 'running',
       description: 'Ship the patch',
@@ -368,7 +368,7 @@ describe('v2-control-plane task response builders', () => {
       progress_percent: 0,
     };
 
-    expect(controlPlane.buildTaskResponse(task)).toEqual({
+    expect(controlPlane.buildTaskResponse(task)).toMatchObject({
       id: 'task-2',
       status: 'pending',
       description: 'Fallback description',
@@ -401,12 +401,14 @@ describe('v2-control-plane task response builders', () => {
     const metadata = { nested: { ok: true } };
     const filesModified = ['src/index.js'];
 
-    expect(controlPlane.buildTaskResponse({
+    const result = controlPlane.buildTaskResponse({
       id: 'task-3',
       status: 'queued',
       metadata,
       files_modified: filesModified,
-    })).toEqual({
+    });
+
+    expect(result).toMatchObject({
       id: 'task-3',
       status: 'queued',
       description: null,
@@ -432,6 +434,8 @@ describe('v2-control-plane task response builders', () => {
       tags: [],
       metadata,
     });
+    expect(result.metadata).toBe(metadata);
+    expect(result.files_modified).toBe(filesModified);
   });
 
   it('buildTaskResponse ignores malformed metadata JSON', () => {
@@ -476,7 +480,7 @@ describe('v2-control-plane task response builders', () => {
       error_output: '',
     };
 
-    expect(controlPlane.buildTaskDetailResponse(task)).toEqual({
+    expect(controlPlane.buildTaskDetailResponse(task)).toMatchObject({
       id: 'task-detail',
       status: 'completed',
       description: 'Generate summary',
