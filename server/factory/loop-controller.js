@@ -3564,4 +3564,8 @@ module.exports = {
   attachBatchIdForProject,
   // Test hooks
   setWorktreeRunnerForTests,
+  _internalForTests: {
+    claimNextWorkItemForInstance,
+    healAlreadyShippedWorkItem,
+  },
 };
