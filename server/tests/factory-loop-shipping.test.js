@@ -814,13 +814,6 @@ describe('factory loop work-item shipping', () => {
       status: 'verifying',
     });
 
-    expect(learnAdvance.stage_result).toEqual(
-      expect.objectContaining({
-        status: 'skipped',
-        reason: expect.stringMatching(/no_worktree_for_batch|worktree_not_merged/),
-      })
-    );
-
     // Decision log should show skipped_shipping with the abandoned reason.
     const decisions = listDecisionRows(db, project.id);
     const skipped = decisions.find((row) => row.stage === 'learn' && row.action === 'skipped_shipping');
@@ -831,6 +824,14 @@ describe('factory loop work-item shipping', () => {
     });
     // Must not also log a shipped_work_item decision.
     expect(decisions.find((row) => row.stage === 'learn' && row.action === 'shipped_work_item')).toBeUndefined();
+    // learnAdvance.stage_result is executeLearnStage's feedback output,
+    // which doesn't surface the shipping-skipped status. The decision
+    // log above is the source of truth for shipping outcomes; the
+    // feedback summary still runs because analyzeBatch runs before
+    // shipping and doesn't depend on merge success.
+    expect(learnAdvance.stage_result).toEqual(
+      expect.objectContaining({ feedback_id: expect.any(Number) })
+    );
   });
 
   it('self-heals a work item that has a merged worktree but non-terminal status before PRIORITIZE picks it', () => {
