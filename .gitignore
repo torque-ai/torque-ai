@@ -85,6 +85,15 @@ dashboard/test-results/
 
 # Stale temp directories
 server/tmp-*/
+server/.codex-temp/
+server/.vitest-temp*/
+server/tests/barrier-test-*.txt
+tmp-codebase-study-*.txt
+.tmp-study-repro/
+.codex-worktrees/
+docs/superpowers/plans/auto-generated/
+docs/superpowers/research/
+.claude/scheduled_tasks.lock
 
 # Drafts (unpublished)
 drafts/
