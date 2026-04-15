@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Factory from './Factory';
 import Overview from './factory/Overview';
+import { ToastProvider } from '../components/Toast';
 
 vi.mock('./factory/useFactoryShell', () => ({
   useFactoryShell: vi.fn(),
@@ -49,13 +50,15 @@ const factoryProject = {
 
 function renderFactory() {
   return render(
-    <MemoryRouter initialEntries={['/factory']}>
-      <Routes>
-        <Route path="/factory" element={<Factory />}>
-          <Route index element={<Overview />} />
-        </Route>
-      </Routes>
-    </MemoryRouter>
+    <ToastProvider>
+      <MemoryRouter initialEntries={['/factory']}>
+        <Routes>
+          <Route path="/factory" element={<Factory />}>
+            <Route index element={<Overview />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>
   );
 }
 
