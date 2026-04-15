@@ -634,6 +634,26 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS factory_loop_instances',
     ].join('; '),
   },
+  {
+    // factory_worktrees.branch was UNIQUE across all rows, so a merged row
+    // with the same branch name blocked any future worktree creation for
+    // that item — which (pre-fail-loud-guard) triggered the silent
+    // fallback-to-main-worktree bug. Convert to a partial unique index
+    // that only enforces uniqueness on active rows; merged/abandoned rows
+    // are historical and shouldn't constrain new work.
+    version: 26,
+    name: 'factory_worktrees_branch_unique_active_only',
+    up: [
+      'DROP INDEX IF EXISTS idx_factory_worktrees_branch',
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch_active
+         ON factory_worktrees(branch)
+         WHERE status = 'active'`,
+    ].join('; '),
+    down: [
+      'DROP INDEX IF EXISTS idx_factory_worktrees_branch_active',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch ON factory_worktrees(branch)',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

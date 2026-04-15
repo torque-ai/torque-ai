@@ -72,8 +72,9 @@ function createTables(db) {
     CREATE INDEX IF NOT EXISTS idx_factory_worktrees_project_active
       ON factory_worktrees(project_id, status);
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch
-      ON factory_worktrees(branch);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch_active
+      ON factory_worktrees(branch)
+      WHERE status = 'active';
   `);
 }
 
@@ -209,6 +210,52 @@ describe('factory worktrees persistence', () => {
       vc_worktree_id: 'vc-worktree-2',
       branch: 'feat/factory-persist',
       worktree_path: 'C:/repo/.worktrees/feat/factory-persist-2',
+    })).toThrow(/UNIQUE/i);
+
+    db.close();
+    factoryWorktrees.setDb(null);
+  });
+
+  it('allows re-recording a branch after the previous worktree is merged', () => {
+    // Partial unique index (status = 'active') — merged rows are historical
+    // and shouldn't block a fresh worktree on the same branch if the work
+    // item re-enters EXECUTE.
+    const db = new Database(dbPath);
+    createTables(db);
+    const workItemId = seedParents(db);
+
+    const factoryWorktrees = loadFreshFactoryWorktrees();
+    factoryWorktrees.setDb(db);
+    const first = factoryWorktrees.recordWorktree({
+      project_id: 'project-1',
+      work_item_id: workItemId,
+      batch_id: 'batch-1',
+      vc_worktree_id: 'vc-worktree-1',
+      branch: 'feat/factory-reuse',
+      worktree_path: 'C:/repo/.worktrees/feat/factory-reuse',
+    });
+    factoryWorktrees.markMerged(first.id);
+
+    // Same branch on a fresh batch should succeed now that the prior row is merged.
+    const second = factoryWorktrees.recordWorktree({
+      project_id: 'project-1',
+      work_item_id: workItemId,
+      batch_id: 'batch-2',
+      vc_worktree_id: 'vc-worktree-2',
+      branch: 'feat/factory-reuse',
+      worktree_path: 'C:/repo/.worktrees/feat/factory-reuse-retry',
+    });
+    expect(second.id).not.toBe(first.id);
+    expect(second.status).toBe('active');
+
+    // But a second active row on the same branch still collides.
+    expect(() => factoryWorktrees.recordWorktree({
+      project_id: 'project-1',
+      work_item_id: workItemId,
+      batch_id: 'batch-3',
+      vc_worktree_id: 'vc-worktree-3',
+      branch: 'feat/factory-reuse',
+      worktree_path: 'C:/repo/.worktrees/feat/factory-reuse-conflict',
     })).toThrow(/UNIQUE/i);
 
     db.close();

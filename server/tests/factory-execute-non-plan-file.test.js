@@ -140,8 +140,9 @@ function createFactoryTables(db) {
     CREATE INDEX IF NOT EXISTS idx_factory_worktrees_project_active
       ON factory_worktrees(project_id, status);
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch
-      ON factory_worktrees(branch);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch_active
+      ON factory_worktrees(branch)
+      WHERE status = 'active';
 
     CREATE TABLE IF NOT EXISTS factory_decisions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
