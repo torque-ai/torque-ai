@@ -410,7 +410,7 @@ describe('factory loop pipeline parallelism', () => {
       previous_state: LOOP_STATES.SENSE,
       new_state: LOOP_STATES.PRIORITIZE,
       paused_at_stage: null,
-      reason: 'stage_ready',
+      reason: 'sense_completed',
     });
 
     const firstAfterPrioritize = await advanceLoopViaRest(firstInstance.id);
@@ -431,7 +431,7 @@ describe('factory loop pipeline parallelism', () => {
       previous_state: LOOP_STATES.SENSE,
       new_state: LOOP_STATES.PRIORITIZE,
       paused_at_stage: null,
-      reason: 'stage_ready',
+      reason: 'sense_completed',
     });
 
     const startedThird = await invokeFactoryRoute(startRoute, {

@@ -32,6 +32,12 @@ describe('factory loop instance routes', () => {
 
   beforeEach(() => {
     vi.resetModules();
+    // Force factory-routes to reload so it picks up the fresh mock handlers.
+    // vi.resetModules() clears vitest's registry but some require.cache entries
+    // can survive; explicitly drop the routes module so the next require()
+    // re-binds factoryHandlers to our mock.
+    try { delete require.cache[require.resolve('../api/routes/factory-routes')]; } catch { /* not loaded yet */ }
+    try { delete require.cache[require.resolve('../handlers/factory-handlers')]; } catch { /* not loaded yet */ }
 
     mockHandlers = {
       handleListFactoryLoopInstances: vi.fn(),
