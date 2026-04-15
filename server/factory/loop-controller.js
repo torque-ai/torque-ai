@@ -2829,9 +2829,16 @@ async function submitVerifyFixTask({
     verifyOutput,
   });
 
+  // plan_task_number tag makes factory-worktree-auto-commit listener
+  // commit this task's output to the branch. Without it, Codex's retry
+  // edits sit uncommitted in the worktree and the re-run of remote
+  // verify runs against the same failing state. Use a synthetic
+  // number beyond the plan's real task range so it doesn't collide.
+  const retryPlanTaskNumber = 1000 + attempt;
   const tags = [
     `factory:batch_id=${batch_id}`,
     `factory:work_item_id=${workItem?.id ?? 'unknown'}`,
+    `factory:plan_task_number=${retryPlanTaskNumber}`,
     `factory:verify_retry=${attempt}`,
   ];
 
@@ -2864,6 +2871,7 @@ async function submitVerifyFixTask({
       task_metadata: {
         plan_path: planPath,
         plan_title: planTitle,
+        plan_task_title: `verify auto-retry #${attempt}`,
         factory_retry_attempt: attempt,
         factory_batch_id: batch_id,
       },
