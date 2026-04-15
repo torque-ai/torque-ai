@@ -260,16 +260,30 @@ function commitCompletedPlanTask(task) {
     }
 
     // Determine which tracked files are semantically changed (ignoring
-    // CR-at-EOL drift) and which files are untracked. Build the list
-    // of paths to stage WITHOUT going through `git add -A`, which
-    // would sweep in pure line-ending drift that PII-GUARD then
-    // false-positives on when it scans the staged index.
-    const semanticTrackedOut = runGit(worktree.worktreePath, [
-      'diff', '--ignore-cr-at-eol', '--name-only', 'HEAD',
+    // CR-at-EOL drift) and which files are untracked. `git diff
+    // --ignore-cr-at-eol --name-only` is broken for this use — it
+    // lists drift-only files even though --quiet on the same diff
+    // exits 0 (confirmed against the Codex-produced worktree). Fall
+    // back to per-file exit-code probing via `git diff --quiet`.
+    const changedTrackedOut = runGit(worktree.worktreePath, [
+      'diff', '--name-only', 'HEAD',
     ]).trim();
-    const semanticTracked = semanticTrackedOut
-      ? semanticTrackedOut.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    const changedTracked = changedTrackedOut
+      ? changedTrackedOut.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
       : [];
+
+    const semanticTracked = changedTracked.filter((p) => {
+      try {
+        childProcess.execFileSync('git', [
+          'diff', '--quiet', '--ignore-cr-at-eol', 'HEAD', '--', p,
+        ], { cwd: worktree.worktreePath, windowsHide: true });
+        return false; // exit 0 → no semantic diff; this is pure drift.
+      } catch (err) {
+        // Any non-zero exit (most commonly 1 for "has diff") counts
+        // as a real change we want to stage.
+        return true;
+      }
+    });
 
     const untrackedOut = runGit(worktree.worktreePath, [
       'ls-files', '--others', '--exclude-standard',
