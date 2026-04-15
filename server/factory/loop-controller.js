@@ -2987,7 +2987,30 @@ function startLoop(project_id) {
     batch_id: null,
   });
 
-  executeSenseStage(project.id, instance);
+  try {
+    executeSenseStage(project.id, instance);
+  } catch (error) {
+    // SENSE failed — terminate the instance we just created so the stage
+    // occupancy lock releases. Otherwise the next startLoop attempt hits
+    // "Stage SENSE is already occupied" even though the instance is
+    // orphaned (never reached PRIORITIZE, no decision log progress).
+    try {
+      terminateInstanceAndSync(instance.id);
+    } catch (cleanupErr) {
+      logger.warn('failed to clean up zombie instance after SENSE error', {
+        project_id: project.id,
+        instance_id: instance.id,
+        original_error: error.message,
+        cleanup_error: cleanupErr.message,
+      });
+    }
+    logger.warn('Factory loop start failed during SENSE; instance terminated', {
+      project_id: project.id,
+      instance_id: instance.id,
+      err: error.message,
+    });
+    throw error;
+  }
 
   logger.info('Factory loop started', {
     project_id: project.id,

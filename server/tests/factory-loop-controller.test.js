@@ -868,4 +868,35 @@ describe('factory loop-controller EXECUTE modes', () => {
       reason: 'no_active_job',
     });
   });
+
+  it('terminates the loop instance if SENSE throws, so subsequent startLoop calls are not blocked', async () => {
+    // Register a project whose configured plans_dir points to a file, not a
+    // directory — plan-file-intake will throw 'plans_dir not found' on the
+    // first scan. Before the fix, that left an orphan instance at SENSE,
+    // blocking future startLoop calls with 'Stage SENSE is already occupied'.
+    const project = factoryHealth.registerProject({
+      name: `Factory SENSE Zombie ${Date.now()}`,
+      path: path.join(tempDir, `project-zombie-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+      trust_level: 'supervised',
+      config: {
+        plans_dir: path.join(tempDir, 'nonexistent-plans-dir'),
+      },
+    });
+
+    expect(() => loopController.startLoopForProject(project.id)).toThrow(/plans_dir/);
+
+    // The instance created in startLoop must have been terminated.
+    expect(loopController.getActiveInstances(project.id)).toHaveLength(0);
+
+    // With the lock released, we can recover by removing the bad config
+    // and starting again (here, point plans_dir at a valid empty dir).
+    const goodPlansDir = path.join(tempDir, `good-plans-${Date.now()}`);
+    fs.mkdirSync(goodPlansDir, { recursive: true });
+    factoryHealth.updateProject(project.id, {
+      config_json: { plans_dir: goodPlansDir },
+    });
+
+    expect(() => loopController.startLoopForProject(project.id)).not.toThrow();
+    expect(loopController.getActiveInstances(project.id)).toHaveLength(1);
+  });
 });
