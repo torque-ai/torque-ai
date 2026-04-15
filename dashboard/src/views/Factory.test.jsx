@@ -146,18 +146,25 @@ describe('Factory overview', () => {
     });
   });
 
-  it('renders the shared loop control bar on the factory overview', () => {
-    renderFactory();
+  it('renders the shared loop control bar on the factory overview', async () => {
+    const { findByRole, findByText } = renderFactory();
 
-    expect(screen.getByText('Factory Loop')).toBeInTheDocument();
+    // LoopControlBar loads instances via an async effect; wait for render.
+    await findByText('Factory Loop');
     expect(screen.getByLabelText('Factory project')).toHaveValue('factory-1');
-    expect(screen.getByText('VERIFY')).toBeInTheDocument();
+    // VERIFY appears both as a state badge and a dt/dd row in the instance card.
+    await vi.waitFor(() => {
+      expect(screen.getAllByText('VERIFY').length).toBeGreaterThan(0);
+    });
     expect(screen.getByRole('button', { name: /2 tasks awaiting approval/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Approve Gate' })).toBeInTheDocument();
+    const approveBtn = await findByRole('button', { name: 'Approve Gate' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Approve Gate' }));
+    fireEvent.click(approveBtn);
 
-    expect(factoryApi.approveGateInstance).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', 'VERIFY');
+    // Handler is async; wait for the API call to land.
+    await vi.waitFor(() => {
+      expect(factoryApi.approveGateInstance).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', 'VERIFY');
+    });
     expect(screen.getAllByRole('button', { name: 'Pause' }).length).toBeGreaterThanOrEqual(1);
   });
 });
