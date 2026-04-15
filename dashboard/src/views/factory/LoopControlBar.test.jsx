@@ -113,9 +113,10 @@ describe('LoopControlBar', () => {
       expect(screen.getAllByTestId('loop-instance-card')).toHaveLength(3);
     });
 
-    expect(screen.getByText('SENSE')).toBeInTheDocument();
-    expect(screen.getByText('PLAN')).toBeInTheDocument();
-    expect(screen.getByText('VERIFY')).toBeInTheDocument();
+    // PLAN text appears both as a state badge and as a dt/dd row; use getAllByText to tolerate.
+    expect(screen.getAllByText('SENSE').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('PLAN').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('VERIFY').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: '#41' })).toHaveAttribute('href', '/factory/intake#work-item-41');
     expect(screen.getByRole('button', { name: 'Retry Verify' })).toBeInTheDocument();
   });
