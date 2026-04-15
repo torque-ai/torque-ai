@@ -155,6 +155,92 @@ function parsePorcelainPaths(output) {
     .filter(Boolean);
 }
 
+function parsePorcelainEntries(output) {
+  // Like parsePorcelainPaths, but preserves the XY status bytes so we can
+  // distinguish "?? untracked" (Codex created a new file) from " M dirty"
+  // (could be real edit OR line-ending drift from a remote test run).
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .map((line) => {
+      if (line.length < 3) return null;
+      const status = line.slice(0, 2);
+      const rawPath = line.slice(3).trim();
+      if (!rawPath) return null;
+      const normalized = rawPath.includes(' -> ')
+        ? rawPath.split(' -> ').pop()
+        : rawPath;
+      if (!normalized) return null;
+      return { status, path: normalized.replace(/^"+|"+$/g, '') };
+    })
+    .filter(Boolean);
+}
+
+function isSemanticallyDirty(worktreePath, filePath) {
+  // Returns true only when the tracked file has a diff beyond CR-at-EOL
+  // and whitespace. CRLF/LF drift from a remote Linux test run against a
+  // Windows worktree is an extremely common false positive — we don't
+  // want to sweep those drifted files into a Codex task's commit, both
+  // because the diff is meaningless and because PII-GUARD then scans
+  // them and false-positives on test fixtures. Exit 1 from `git diff
+  // --quiet` = has diff; exit 0 = no semantic diff.
+  try {
+    require('child_process').execFileSync('git', [
+      'diff',
+      '--quiet',
+      '--ignore-cr-at-eol',
+      '--ignore-all-space',
+      '--',
+      filePath,
+    ], { cwd: worktreePath, windowsHide: true });
+    return false;
+  } catch (err) {
+    // execFileSync throws when exit code != 0; git diff --quiet uses
+    // exit 1 to signal "there is a diff". Any other error we also
+    // treat as "dirty" — better to over-stage than silently drop a
+    // real change.
+    return true;
+  }
+}
+
+function selectPathsToStage(worktreePath, entries) {
+  // Keep untracked files (??, AM), deletes (D), renames (R), copies (C),
+  // and anything flagged as "added" (A) unconditionally — those are
+  // definitionally new/changed content. For "M" modifications, only
+  // stage when there's a semantic diff after ignoring CR-at-EOL. This
+  // is the surgical fix for the phantom-dirty-worktree problem: files
+  // whose only drift is line endings get skipped, the Codex-authored
+  // files get committed, and PII-GUARD scans a clean, intentional set.
+  const staged = [];
+  const skippedDrift = [];
+  for (const entry of entries) {
+    const x = entry.status[0];
+    const y = entry.status[1];
+    const isUntracked = entry.status === '??';
+    const hasStagedChange = x !== ' ' && x !== '?';
+    const hasUnstagedM = y === 'M' || y === 'T';
+    const isDelete = x === 'D' || y === 'D';
+    const isRenameOrAdd = x === 'A' || x === 'R' || x === 'C';
+
+    if (isUntracked || isDelete || isRenameOrAdd || hasStagedChange) {
+      staged.push(entry.path);
+      continue;
+    }
+    // Left with pure " M" / " T" — check for semantic diff.
+    if (hasUnstagedM) {
+      if (isSemanticallyDirty(worktreePath, entry.path)) {
+        staged.push(entry.path);
+      } else {
+        skippedDrift.push(entry.path);
+      }
+      continue;
+    }
+    staged.push(entry.path);
+  }
+  return { staged, skippedDrift };
+}
+
 function formatGitError(error) {
   const parts = [];
   if (error?.message) {
@@ -247,9 +333,30 @@ function commitCompletedPlanTask(task) {
       return;
     }
 
-    const filesChanged = parsePorcelainPaths(statusOutput);
+    const entries = parsePorcelainEntries(statusOutput);
+    const { staged, skippedDrift } = selectPathsToStage(worktree.worktreePath, entries);
+
+    if (staged.length === 0) {
+      safeLogDecision({
+        ...decisionBase,
+        action: 'auto_commit_skipped_clean',
+        reasoning: 'Approved plan task completed. Worktree had dirty files, but all were pure line-ending drift; nothing to commit.',
+        outcome: {
+          task_id: task.id,
+          plan_task_number: planTaskNumber,
+          files_changed: [],
+          skipped_drift_files: skippedDrift,
+        },
+      });
+      return;
+    }
+
     const commitMessage = buildCommitMessage(planTaskNumber, planTaskTitle);
-    runGit(worktree.worktreePath, ['add', '-A']);
+    // Targeted staging instead of `git add -A`: avoids sweeping in
+    // CRLF/LF drift on files Codex didn't touch. That drift would
+    // otherwise trigger PII-GUARD false positives on existing test
+    // fixtures and silently fail the commit.
+    runGit(worktree.worktreePath, ['add', '--', ...staged]);
     runGit(worktree.worktreePath, ['commit', '-m', commitMessage]);
     const commitSha = runGit(worktree.worktreePath, ['rev-parse', 'HEAD']).trim();
 
@@ -259,7 +366,8 @@ function commitCompletedPlanTask(task) {
       reasoning: 'Approved plan task completed with dirty worktree changes, so the factory auto-committed them.',
       outcome: {
         commit_sha: commitSha,
-        files_changed: filesChanged,
+        files_changed: staged,
+        skipped_drift_files: skippedDrift,
         task_id: task.id,
         plan_task_number: planTaskNumber,
       },

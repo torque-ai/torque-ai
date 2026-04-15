@@ -463,4 +463,93 @@ describe('factory worktree auto-commit', () => {
     });
     expect(decisions[0].outcome.error).toContain('simulated commit failure');
   });
+
+  it('skips CRLF-only drift files while still committing real Codex changes', () => {
+    const { worktreePath, repoPath } = initGitWorktree(tempDirs);
+    seedFactoryProject(db, worktreePath);
+    insertTask(db, {
+      taskId: 'task-drift',
+      workingDirectory: worktreePath,
+      tags: [
+        'factory:batch_id=factory-project-1-7',
+        'factory:plan_task_number=3',
+        'factory:pending_approval',
+      ],
+      metadata: { plan_task_title: 'Add the real feature' },
+    });
+
+    // Seed a tracked file with LF line endings, commit it, then rewrite
+    // the same file with CRLF — git diff will flag it as modified, but
+    // it's pure drift. A remote Linux test runner against this Windows
+    // worktree produces exactly this pattern.
+    const driftFile = path.join(worktreePath, 'existing.txt');
+    fs.writeFileSync(driftFile, 'line one\nline two\nline three\n');
+    runRealGit(worktreePath, ['add', 'existing.txt']);
+    runRealGit(worktreePath, ['commit', '-m', 'seed existing.txt']);
+    fs.writeFileSync(driftFile, 'line one\r\nline two\r\nline three\r\n');
+
+    // And the real Codex output: a brand-new file the auto-commit
+    // must include.
+    fs.writeFileSync(path.join(worktreePath, 'real-feature.js'), 'module.exports = {};\n');
+
+    const commitsBefore = countCommits(worktreePath);
+
+    autoCommit.initFactoryWorktreeAutoCommit();
+    taskEvents.emit('task:completed', { id: 'task-drift', status: 'completed' });
+
+    const commitsAfter = countCommits(worktreePath);
+    const decisions = listDecisionRows(db);
+
+    expect(commitsAfter).toBe(commitsBefore + 1);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].action).toBe('auto_committed_task');
+    // The new Codex file must be staged; the CRLF-drift file must not.
+    expect(decisions[0].outcome.files_changed).toContain('real-feature.js');
+    expect(decisions[0].outcome.files_changed).not.toContain('existing.txt');
+    expect(decisions[0].outcome.skipped_drift_files).toContain('existing.txt');
+
+    // The drift file stays dirty in the worktree — a later pass or the
+    // renormalize-on-merge path (worktree-manager.js) handles it.
+    const statusAfter = runRealGit(worktreePath, ['status', '--porcelain']).trim();
+    expect(statusAfter).toContain('existing.txt');
+    expect(statusAfter).not.toContain('real-feature.js');
+  });
+
+  it('logs auto_commit_skipped_clean when the only dirty files are pure line-ending drift', () => {
+    const { worktreePath } = initGitWorktree(tempDirs);
+    seedFactoryProject(db, worktreePath);
+    insertTask(db, {
+      taskId: 'task-only-drift',
+      workingDirectory: worktreePath,
+      tags: [
+        'factory:batch_id=factory-project-1-7',
+        'factory:plan_task_number=3',
+        'factory:pending_approval',
+      ],
+    });
+
+    const driftFile = path.join(worktreePath, 'existing.txt');
+    fs.writeFileSync(driftFile, 'a\nb\nc\n');
+    runRealGit(worktreePath, ['add', 'existing.txt']);
+    runRealGit(worktreePath, ['commit', '-m', 'seed']);
+    fs.writeFileSync(driftFile, 'a\r\nb\r\nc\r\n');
+
+    const commitsBefore = countCommits(worktreePath);
+
+    autoCommit.initFactoryWorktreeAutoCommit();
+    taskEvents.emit('task:completed', { id: 'task-only-drift', status: 'completed' });
+
+    expect(countCommits(worktreePath)).toBe(commitsBefore);
+    const decisions = listDecisionRows(db);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      action: 'auto_commit_skipped_clean',
+      outcome: {
+        task_id: 'task-only-drift',
+        plan_task_number: 3,
+        files_changed: [],
+      },
+    });
+    expect(decisions[0].outcome.skipped_drift_files).toContain('existing.txt');
+  });
 });

@@ -25,28 +25,33 @@ should_skip() {
 }
 
 fallback_scan() {
+  # Delegates to scripts/pii-fallback-scan.js — the previous inline
+  # grep -P fallback was silently broken on Git Bash / Windows (locale
+  # errors, PCRE escape interpretation of \U, \u, etc.) which rejected
+  # legitimate factory commits with spurious "PII detected" errors.
   local file="$1"
-  local content
-  content=$(cat "$file" 2>/dev/null) || return 0
-  local dirty=0
-  if echo "$content" | grep -qP 'C:\Users\[^\]+|/home/[^/\s]+|/Users/[^/\s]+'; then
-    dirty=1
-  fi
-  if echo "$content" | grep -qP '192\.168\.\d+\.\d+|\b10\.\d+\.\d+\.\d+\b|\b172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+\b'; then
-    dirty=1
-  fi
-  if echo "$content" | grep -qP '[a-zA-Z0-9._%+-]+@(?!example\.com|test\.com|noreply)[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'; then
-    dirty=1
-  fi
-  if [ "$dirty" -eq 1 ]; then
-    echo "PII-GUARD [fallback]: PII detected in $file (TORQUE unavailable)"
-    return 1
-  fi
-  return 0
+  [ -f "$file" ] || return 0
+  node "$WORKING_DIR/scripts/pii-fallback-scan.js" "$file"
 }
 
 torque_available() {
-  curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1
+  # Prefer curl; if curl isn't on PATH (git commit may not inherit the
+  # full shell PATH), fall through to a node-based HTTP check.
+  if command -v curl >/dev/null 2>&1; then
+    curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1
+    return $?
+  fi
+  node -e "
+    const http = require('http');
+    const url = process.argv[1];
+    const u = new URL(url);
+    const req = http.request({ hostname: u.hostname, port: u.port, path: u.pathname, method: 'GET', timeout: 2000 }, res => {
+      process.exit(res.statusCode >= 200 && res.statusCode < 300 ? 0 : 1);
+    });
+    req.on('error', () => process.exit(1));
+    req.on('timeout', () => { req.destroy(); process.exit(1); });
+    req.end();
+  " "${TORQUE_API}/api/version"
 }
 
 torque_scan() {
