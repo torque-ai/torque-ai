@@ -17,6 +17,7 @@ function parsePlanFile(content) {
   let codeBuf = [];
   let inIndentedCode = false;
   let indentedCodeBuf = [];
+  let taskStartIdx = null;
 
   function flushIndentedCode() {
     if (currentStep && indentedCodeBuf.length > 0) {
@@ -34,7 +35,7 @@ function parsePlanFile(content) {
       currentStep = null;
     }
   }
-  function closeTask() {
+  function closeTask(endIdx = null) {
     closeStep();
     if (currentTask) {
       currentTask.completed = currentTask.steps.length > 0 && currentTask.steps.every(s => s.done);
@@ -45,12 +46,22 @@ function parsePlanFile(content) {
           if (m) { currentTask.commit_message = m[1]; break; }
         }
       }
+      // Capture the raw markdown text of this task (from its ## header up
+      // to the next ## header) so consumers can scan the prose between
+      // step checkboxes and code blocks — that prose is where file paths
+      // like "Create `server/foo.js`:" live.
+      if (taskStartIdx !== null) {
+        const sliceEnd = endIdx === null ? lines.length : endIdx;
+        currentTask.raw_markdown = lines.slice(taskStartIdx, sliceEnd).join('\n');
+      }
       tasks.push(currentTask);
       currentTask = null;
+      taskStartIdx = null;
     }
   }
 
-  for (const line of lines) {
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx += 1) {
+    const line = lines[lineIdx];
     if (!inCode && currentStep) {
       if (/^(?: {4}|\t)/.test(line)) {
         inIndentedCode = true;
@@ -80,8 +91,9 @@ function parsePlanFile(content) {
 
     const th = line.match(taskHeaderRe);
     if (th) {
-      closeTask();
+      closeTask(lineIdx);
       currentTask = { task_number: Number(th[1]), task_title: th[2], steps: [], commit_message: null, completed: false };
+      taskStartIdx = lineIdx;
       continue;
     }
     const sh = line.match(stepRe);

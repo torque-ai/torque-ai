@@ -2594,8 +2594,31 @@ async function executePlanFileStage(project, instance, workItem) {
     } : null,
   });
 
+  // Resolve the plan file to its copy inside the worktree. Writing ticks
+  // (and reading prior tick state) against main's working tree is wrong in
+  // two ways: it (1) pollutes main with per-batch progress before the merge
+  // commits, and (2) lets phantom [x] markers carried over from a prior
+  // corrupted run be treated as "already done", which causes plan-executor
+  // to skip every task and ship an empty batch.
+  const planPathForExecutor = (() => {
+    if (!executionWorkingDirectory || executionWorkingDirectory === project.path) {
+      return targetItem.origin.plan_path;
+    }
+    try {
+      const relative = path.relative(project.path, targetItem.origin.plan_path);
+      if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+        return targetItem.origin.plan_path;
+      }
+      const worktreeCopy = path.join(executionWorkingDirectory, relative);
+      return fs.existsSync(worktreeCopy) ? worktreeCopy : targetItem.origin.plan_path;
+    } catch (_err) {
+      void _err;
+      return targetItem.origin.plan_path;
+    }
+  })();
+
   const result = await executor.execute({
-    plan_path: targetItem.origin.plan_path,
+    plan_path: planPathForExecutor,
     project: project.name,
     working_directory: executionWorkingDirectory,
     execution_mode: executeMode,

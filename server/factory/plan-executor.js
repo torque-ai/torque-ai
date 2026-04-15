@@ -1,5 +1,6 @@
 'use strict';
 const fs = require('fs');
+const path = require('path');
 const logger = require('../logger').child({ component: 'plan-executor' });
 const { parsePlanFile, extractVerifyCommand } = require('./plan-parser');
 
@@ -56,7 +57,10 @@ function extractFilePaths(text) {
 }
 
 function extractTaskFilePaths(task, fallbackFilePaths = []) {
-  const taskText = [
+  // Prefer raw_markdown when the parser captured it — that includes the
+  // prose between the step checkbox and the code block, where plans
+  // typically name their target files ("Create `server/foo/bar.js`:").
+  const taskText = task.raw_markdown || [
     task.task_title,
     ...task.steps.flatMap((step) => [
       step.title,
@@ -66,6 +70,34 @@ function extractTaskFilePaths(task, fallbackFilePaths = []) {
 
   const matches = extractFilePaths(taskText);
   return matches.length > 0 ? matches : fallbackFilePaths;
+}
+
+function verifyCompletedTaskArtifacts(task, working_directory) {
+  // Trust-but-verify: a [x]-marked task should have produced artifacts.
+  // If every path extracted from the task's code blocks is missing from
+  // the working directory, the [x] is almost certainly stale (carried
+  // over from a corrupted or aborted prior run). Don't trust it.
+  if (!working_directory) {
+    return { trust: true, reason: 'no_working_directory' };
+  }
+  const paths = extractTaskFilePaths(task, []);
+  if (paths.length === 0) {
+    return { trust: true, reason: 'no_extractable_paths' };
+  }
+  const existing = [];
+  const missing = [];
+  for (const p of paths) {
+    const absolute = path.isAbsolute(p) ? p : path.join(working_directory, p);
+    if (fs.existsSync(absolute)) {
+      existing.push(p);
+    } else {
+      missing.push(p);
+    }
+  }
+  if (existing.length === 0) {
+    return { trust: false, reason: 'no_artifacts_present', missing };
+  }
+  return { trust: true, reason: existing.length === paths.length ? 'all_artifacts_present' : 'partial_artifacts_present', missing };
 }
 
 function normalizeExecutionMode(executionMode, dryRun) {
@@ -98,9 +130,19 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
 
     for (const task of parsed.tasks) {
       if (task.completed) {
-        logger.info(`skipping already-completed task ${task.task_number}: ${task.task_title}`);
-        completed_tasks.push(task.task_number);
-        continue;
+        const verification = verifyCompletedTaskArtifacts(task, working_directory);
+        if (!verification.trust) {
+          logger.warn(`task ${task.task_number} is marked [x] but its artifacts are missing — treating as incomplete (likely stale from prior corrupted run)`, {
+            plan_path,
+            task_number: task.task_number,
+            missing_paths: verification.missing,
+          });
+          // Fall through to submission path — don't skip.
+        } else {
+          logger.info(`skipping already-completed task ${task.task_number}: ${task.task_title}`);
+          completed_tasks.push(task.task_number);
+          continue;
+        }
       }
 
       const prompt = buildTaskPrompt(task, parsed.title);

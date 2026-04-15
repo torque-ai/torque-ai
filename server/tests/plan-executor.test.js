@@ -96,4 +96,72 @@ describe('plan-executor', () => {
     expect(r.failed_task).toBeNull();
     expect(r.duration_ms).toBeGreaterThanOrEqual(0);
   });
+
+  it('does not trust [x] markers when the task references files that do not exist', async () => {
+    // This is the live-observed 2026-04-15 failure: the plan's [x]
+    // checkboxes were carried over from a corrupted prior run, but the
+    // referenced source files were never actually created. plan-executor
+    // used to skip every task and ship an empty batch. Now it sees the
+    // missing artifacts, distrusts the [x], and submits the task.
+    const PLAN_WITH_PHANTOM_TICKS = `# Fabro X
+
+**Tech Stack:** Node.js, vitest.
+
+## Task 1: create handoff module
+
+- [x] **Step 1: Implement**
+
+Create \`server/crew/handoff.js\`:
+
+\`\`\`js
+'use strict';
+module.exports = { createHandoff: () => ({ __handoff: true }) };
+\`\`\`
+
+- [x] **Step 2: Tests**
+
+Create \`server/tests/handoff.test.js\`:
+
+\`\`\`js
+expect(1).toBe(1);
+\`\`\`
+`;
+    fs.writeFileSync(planPath, PLAN_WITH_PHANTOM_TICKS);
+    // working_directory (dir) contains the plan but NOT server/crew/handoff.js
+    // or server/tests/handoff.test.js — those files were never created.
+
+    const r = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+
+    // The task must have been submitted — not silently skipped.
+    expect(submitMock).toHaveBeenCalledTimes(1);
+    expect(submitMock.mock.calls[0][0].task).toContain('Task 1');
+    expect(r.completed_tasks).toEqual([1]);
+    expect(r.failed_task).toBeNull();
+  });
+
+  it('still skips [x] tasks when their referenced files exist (genuine resume)', async () => {
+    const PLAN_GENUINE_RESUME = `# Fabro Y
+
+**Tech Stack:** Node.js, vitest.
+
+## Task 1: edit existing file
+
+- [x] **Step 1: Implement**
+
+Modify \`src/already-there.js\`:
+
+\`\`\`js
+// edits
+\`\`\`
+`;
+    fs.writeFileSync(planPath, PLAN_GENUINE_RESUME);
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src', 'already-there.js'), '// existing\n');
+
+    const r = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+
+    // File exists → [x] is trusted, task skipped.
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(r.completed_tasks).toEqual([1]);
+  });
 });
