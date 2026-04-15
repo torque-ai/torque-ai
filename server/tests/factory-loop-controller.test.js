@@ -804,4 +804,68 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
     expect(failureEntry.outcome).not.toHaveProperty('fallback');
   });
+
+  it('cancels a stuck async advance job and parks the instance so rejectGate can recover it', async () => {
+    const { project } = registerPlanProject();
+    loopController.startLoopForProject(project.id);
+
+    const instanceId = loopController.getActiveInstances(project.id)[0].id;
+
+    // Simulate a runAdvanceLoop promise that never resolved — the job sits
+    // in the active map and blocks future advances.
+    const stuckJobId = 'stuck-job-001';
+    loopController._internalForTests.injectFakeAdvanceJobForTests(instanceId, {
+      project_id: project.id,
+      instance_id: instanceId,
+      job_id: stuckJobId,
+      started_at: new Date().toISOString(),
+      current_state: LOOP_STATES.EXECUTE,
+      status: 'running',
+      new_state: null,
+      paused_at_stage: null,
+      stage_result: null,
+      reason: null,
+      completed_at: null,
+      error: null,
+    });
+
+    expect(loopController._internalForTests.getActiveAdvanceJobIdForTests(instanceId)).toBe(stuckJobId);
+
+    const result = loopController.cancelLoopAdvanceJob(instanceId, 'test_stuck_recovery');
+
+    expect(result).toMatchObject({
+      instance_id: instanceId,
+      job_id: stuckJobId,
+      cancelled: true,
+      reason: 'test_stuck_recovery',
+    });
+    expect(result.parked_stage).toBeTruthy();
+
+    // Active map is cleared.
+    expect(loopController._internalForTests.getActiveAdvanceJobIdForTests(instanceId)).toBeNull();
+    // Job snapshot retains its terminal state for audit.
+    const finalJob = loopController._internalForTests.getAdvanceJobSnapshotForTests(instanceId, stuckJobId);
+    expect(finalJob).toMatchObject({
+      status: 'cancelled',
+      error: 'cancelled: test_stuck_recovery',
+    });
+    expect(finalJob.completed_at).toBeTruthy();
+
+    // Instance is parked at its current stage so rejectGate can now drive it.
+    const state = loopController.getLoopState(instanceId);
+    expect(state.loop_paused_at_stage).toBeTruthy();
+  });
+
+  it('returns a no_active_job result when there is nothing to cancel', () => {
+    const { project } = registerPlanProject();
+    loopController.startLoopForProject(project.id);
+    const instanceId = loopController.getActiveInstances(project.id)[0].id;
+
+    const result = loopController.cancelLoopAdvanceJob(instanceId, 'nothing_to_cancel');
+    expect(result).toMatchObject({
+      instance_id: instanceId,
+      cancelled: false,
+      reason: 'no_active_job',
+    });
+  });
 });

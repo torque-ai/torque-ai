@@ -3398,6 +3398,60 @@ function getLoopAdvanceJobStatusForProject(project_id, job_id) {
   return null;
 }
 
+function cancelLoopAdvanceJob(instance_id, reason = 'operator_cancelled') {
+  // Operator recovery for stuck async advance jobs. The underlying promise
+  // is left to complete on its own (we cannot reliably interrupt it from
+  // outside), but the active-job mapping is cleared so subsequent advance
+  // calls can start fresh, and the instance is parked at its current stage
+  // so rejectGate/approveGate can drive it from here.
+  const instance = getInstanceOrThrow(instance_id);
+  const activeJobId = activeLoopAdvanceJobs.get(instance.id);
+  if (!activeJobId) {
+    return {
+      instance_id: instance.id,
+      cancelled: false,
+      reason: 'no_active_job',
+    };
+  }
+
+  const jobKey = getLoopAdvanceJobKey(instance.id, activeJobId);
+  const job = loopAdvanceJobs.get(jobKey);
+  if (job && job.status === 'running') {
+    job.status = 'cancelled';
+    job.completed_at = nowIso();
+    job.error = `cancelled: ${reason}`;
+    emitLoopAdvanceJobEvent(job);
+  }
+  activeLoopAdvanceJobs.delete(instance.id);
+
+  const currentState = getCurrentLoopState(instance);
+  const parkedStage = getPausedAtStage(instance) || currentState;
+  const parkedInstance = updateInstanceAndSync(instance.id, {
+    paused_at_stage: parkedStage,
+    last_action_at: nowIso(),
+  });
+
+  logger.warn('Factory loop advance job cancelled', {
+    project_id: parkedInstance.project_id,
+    instance_id: instance.id,
+    job_id: activeJobId,
+    reason,
+    parked_stage: parkedStage,
+  });
+
+  return {
+    instance_id: instance.id,
+    job_id: activeJobId,
+    cancelled: true,
+    reason,
+    parked_stage: parkedStage,
+  };
+}
+
+function cancelLoopAdvanceJobForProject(project_id, reason) {
+  return cancelLoopAdvanceJob(getLoopInstanceForProjectOrThrow(project_id).id, reason);
+}
+
 function approveGate(instance_id, stage) {
   const { project } = getLoopContextOrThrow(instance_id);
   const instance = getInstanceOrThrow(instance_id);
@@ -3548,6 +3602,8 @@ module.exports = {
   advanceLoopForProject,
   advanceLoopAsync,
   advanceLoopAsyncForProject,
+  cancelLoopAdvanceJob,
+  cancelLoopAdvanceJobForProject,
   approveGate,
   approveGateForProject,
   retryVerifyFromFailure,
@@ -3567,5 +3623,14 @@ module.exports = {
   _internalForTests: {
     claimNextWorkItemForInstance,
     healAlreadyShippedWorkItem,
+    injectFakeAdvanceJobForTests: (instance_id, job) => {
+      const key = getLoopAdvanceJobKey(instance_id, job.job_id);
+      loopAdvanceJobs.set(key, job);
+      activeLoopAdvanceJobs.set(instance_id, job.job_id);
+    },
+    getActiveAdvanceJobIdForTests: (instance_id) => activeLoopAdvanceJobs.get(instance_id) || null,
+    getAdvanceJobSnapshotForTests: (instance_id, job_id) => {
+      return loopAdvanceJobs.get(getLoopAdvanceJobKey(instance_id, job_id)) || null;
+    },
   },
 };
