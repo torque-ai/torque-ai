@@ -177,68 +177,23 @@ function parsePorcelainEntries(output) {
     .filter(Boolean);
 }
 
-function isSemanticallyDirty(worktreePath, filePath) {
-  // Returns true only when the tracked file has a diff beyond CR-at-EOL
-  // and whitespace. CRLF/LF drift from a remote Linux test run against a
-  // Windows worktree is an extremely common false positive — we don't
-  // want to sweep those drifted files into a Codex task's commit, both
-  // because the diff is meaningless and because PII-GUARD then scans
-  // them and false-positives on test fixtures. Exit 1 from `git diff
-  // --quiet` = has diff; exit 0 = no semantic diff.
-  try {
-    require('child_process').execFileSync('git', [
-      'diff',
-      '--quiet',
-      '--ignore-cr-at-eol',
-      '--ignore-all-space',
-      '--',
-      filePath,
-    ], { cwd: worktreePath, windowsHide: true });
-    return false;
-  } catch (err) {
-    // execFileSync throws when exit code != 0; git diff --quiet uses
-    // exit 1 to signal "there is a diff". Any other error we also
-    // treat as "dirty" — better to over-stage than silently drop a
-    // real change.
-    return true;
-  }
-}
-
-function selectPathsToStage(worktreePath, entries) {
-  // Keep untracked files (??, AM), deletes (D), renames (R), copies (C),
-  // and anything flagged as "added" (A) unconditionally — those are
-  // definitionally new/changed content. For "M" modifications, only
-  // stage when there's a semantic diff after ignoring CR-at-EOL. This
-  // is the surgical fix for the phantom-dirty-worktree problem: files
-  // whose only drift is line endings get skipped, the Codex-authored
-  // files get committed, and PII-GUARD scans a clean, intentional set.
-  const staged = [];
-  const skippedDrift = [];
+function classifyEntries(entries) {
+  // Split porcelain entries into two bins:
+  //   - untracked / deleted / renamed / already-staged → add directly
+  //   - modified-tracked (" M", " T", "MM", etc.) → add --renormalize
+  // --renormalize is the magic that drops CRLF/LF-drift-only files from
+  // the commit: if the only diff is line endings, renormalize stages
+  // nothing for that path. Real edits still get staged.
+  const untracked = [];
+  const renormalizeCandidates = [];
   for (const entry of entries) {
-    const x = entry.status[0];
-    const y = entry.status[1];
-    const isUntracked = entry.status === '??';
-    const hasStagedChange = x !== ' ' && x !== '?';
-    const hasUnstagedM = y === 'M' || y === 'T';
-    const isDelete = x === 'D' || y === 'D';
-    const isRenameOrAdd = x === 'A' || x === 'R' || x === 'C';
-
-    if (isUntracked || isDelete || isRenameOrAdd || hasStagedChange) {
-      staged.push(entry.path);
+    if (entry.status === '??') {
+      untracked.push(entry.path);
       continue;
     }
-    // Left with pure " M" / " T" — check for semantic diff.
-    if (hasUnstagedM) {
-      if (isSemanticallyDirty(worktreePath, entry.path)) {
-        staged.push(entry.path);
-      } else {
-        skippedDrift.push(entry.path);
-      }
-      continue;
-    }
-    staged.push(entry.path);
+    renormalizeCandidates.push(entry.path);
   }
-  return { staged, skippedDrift };
+  return { untracked, renormalizeCandidates };
 }
 
 function formatGitError(error) {
@@ -334,9 +289,30 @@ function commitCompletedPlanTask(task) {
     }
 
     const entries = parsePorcelainEntries(statusOutput);
-    const { staged, skippedDrift } = selectPathsToStage(worktree.worktreePath, entries);
+    const { untracked, renormalizeCandidates } = classifyEntries(entries);
 
-    if (staged.length === 0) {
+    // --renormalize is a no-op for files whose only drift is CR-at-EOL
+    // or similar line-ending normalization. For genuinely edited files
+    // it stages the normalized content. So running it against every
+    // tracked-modified path drops drift from the commit automatically,
+    // without needing a per-file diff probe.
+    if (renormalizeCandidates.length > 0) {
+      runGit(worktree.worktreePath, ['add', '--renormalize', '--', ...renormalizeCandidates]);
+    }
+    if (untracked.length > 0) {
+      runGit(worktree.worktreePath, ['add', '--', ...untracked]);
+    }
+
+    const stagedOutput = runGit(worktree.worktreePath, ['diff', '--cached', '--name-only']).trim();
+    const stagedFiles = stagedOutput
+      ? stagedOutput.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+      : [];
+
+    if (stagedFiles.length === 0) {
+      // Everything in the worktree was pure line-ending drift and/or
+      // was already clean post-renormalize. Record the skip so the
+      // audit trail shows which files the drift check dropped.
+      const driftSkipped = renormalizeCandidates.filter((p) => !untracked.includes(p));
       safeLogDecision({
         ...decisionBase,
         action: 'auto_commit_skipped_clean',
@@ -345,20 +321,17 @@ function commitCompletedPlanTask(task) {
           task_id: task.id,
           plan_task_number: planTaskNumber,
           files_changed: [],
-          skipped_drift_files: skippedDrift,
+          skipped_drift_files: driftSkipped,
         },
       });
       return;
     }
 
     const commitMessage = buildCommitMessage(planTaskNumber, planTaskTitle);
-    // Targeted staging instead of `git add -A`: avoids sweeping in
-    // CRLF/LF drift on files Codex didn't touch. That drift would
-    // otherwise trigger PII-GUARD false positives on existing test
-    // fixtures and silently fail the commit.
-    runGit(worktree.worktreePath, ['add', '--', ...staged]);
     runGit(worktree.worktreePath, ['commit', '-m', commitMessage]);
     const commitSha = runGit(worktree.worktreePath, ['rev-parse', 'HEAD']).trim();
+
+    const skippedDrift = renormalizeCandidates.filter((p) => !stagedFiles.includes(p));
 
     safeLogDecision({
       ...decisionBase,
@@ -366,7 +339,7 @@ function commitCompletedPlanTask(task) {
       reasoning: 'Approved plan task completed with dirty worktree changes, so the factory auto-committed them.',
       outcome: {
         commit_sha: commitSha,
-        files_changed: staged,
+        files_changed: stagedFiles,
         skipped_drift_files: skippedDrift,
         task_id: task.id,
         plan_task_number: planTaskNumber,
