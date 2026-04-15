@@ -753,4 +753,54 @@ describe('factory loop-controller EXECUTE modes', () => {
       status: 'active',
     });
   });
+
+  it('pauses EXECUTE at a fail-loud state when worktree creation throws (no fallback to main)', async () => {
+    const { project, workItem, planPath } = registerPlanProject();
+    const planBefore = fs.readFileSync(planPath, 'utf8');
+    const uniqueErrorMsg = 'UNIQUE constraint failed: factory_worktrees.branch';
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => {
+        throw new Error(uniqueErrorMsg);
+      }),
+      verify: vi.fn(),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(worktreeRunner.createForBatch).toHaveBeenCalledTimes(1);
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+    expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.EXECUTE);
+    expect(executeAdvance.stage_result).toMatchObject({
+      status: 'paused',
+      reason: 'worktree_creation_failed',
+      error: uniqueErrorMsg,
+    });
+
+    // No plan tasks should have been submitted — the plan-executor must never run
+    // against project.path when worktree creation fails.
+    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    // And the plan file itself must remain untouched.
+    expect(fs.readFileSync(planPath, 'utf8')).toBe(planBefore);
+
+    const workItemAfter = factoryIntake.getWorkItem(workItem.id);
+    expect(workItemAfter).toMatchObject({
+      id: workItem.id,
+      status: 'in_progress',
+    });
+    expect(String(workItemAfter.reject_reason || '')).toContain('worktree_creation_failed');
+
+    const decisions = listDecisionRows(db, project.id);
+    const failureEntry = decisions.find((d) => d.action === 'worktree_creation_failed');
+    expect(failureEntry).toBeTruthy();
+    expect(failureEntry.outcome).toMatchObject({
+      error: uniqueErrorMsg,
+      next_state: LOOP_STATES.PAUSED,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+    });
+    expect(failureEntry.outcome).not.toHaveProperty('fallback');
+  });
 });

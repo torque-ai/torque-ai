@@ -2390,7 +2390,7 @@ async function executePlanFileStage(project, instance, workItem) {
           });
         }
       }
-      logger.warn('factory worktree creation failed; falling back to main worktree', {
+      logger.error('factory worktree creation failed; pausing instance at EXECUTE', {
         project_id: project.id,
         work_item_id: targetItem.id,
         err: err.message,
@@ -2399,12 +2399,28 @@ async function executePlanFileStage(project, instance, workItem) {
         project_id: project.id,
         stage: LOOP_STATES.EXECUTE,
         action: 'worktree_creation_failed',
-        reasoning: `Worktree creation failed: ${err.message}. EXECUTE will run in main worktree (unsafe fallback).`,
+        reasoning: `Worktree creation failed: ${err.message}. Pausing at EXECUTE — operator must resolve before retry. Running against main worktree would risk workspace corruption.`,
         inputs: { ...getWorkItemDecisionContext(targetItem) },
-        outcome: { error: err.message, fallback: 'main_worktree' },
-        confidence: 0.2,
+        outcome: { error: err.message, next_state: LOOP_STATES.PAUSED, paused_at_stage: LOOP_STATES.EXECUTE },
+        confidence: 1,
         batch_id: executeLogBatchId,
       });
+      factoryIntake.updateWorkItem(targetItem.id, {
+        status: 'in_progress',
+        reject_reason: `worktree_creation_failed: ${err.message}`,
+      });
+      return {
+        reason: `worktree creation failed: ${err.message}`,
+        work_item: targetItem,
+        stop_execution: true,
+        next_state: LOOP_STATES.PAUSED,
+        paused_at_stage: LOOP_STATES.EXECUTE,
+        stage_result: {
+          status: 'paused',
+          reason: 'worktree_creation_failed',
+          error: err.message,
+        },
+      };
     }
   }
 
@@ -3075,6 +3091,14 @@ async function runAdvanceLoop(instance_id) {
         transitionWorkItem = executeStage.work_item || transitionWorkItem;
       }
       instance = getInstanceOrThrow(instance.id);
+
+      if (executeStage?.stop_execution) {
+        instance = updateInstanceAndSync(instance.id, {
+          paused_at_stage: executeStage.paused_at_stage || LOOP_STATES.EXECUTE,
+          last_action_at: nowIso(),
+        });
+        break;
+      }
 
       const executeNextState = executeStage?.next_state || LOOP_STATES.EXECUTE;
       if (executeNextState === LOOP_STATES.IDLE) {
