@@ -899,4 +899,63 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(() => loopController.startLoopForProject(project.id)).not.toThrow();
     expect(loopController.getActiveInstances(project.id)).toHaveLength(1);
   });
+
+  it('awaitTaskToStructuredResult loops past heartbeat responses until the task is terminal', async () => {
+    // Pre-fix: the first heartbeat return ended the await, the task was
+    // still 'running', verify_status was 'failed', and plan-executor
+    // killed a perfectly good Codex batch mid-flight. Observed live on
+    // 2026-04-15 when Codex task 3 for fabro-97 took 14 min; plan-executor
+    // declared it failed after 5 min even though the task later completed.
+    const taskId = 'task-heartbeat-then-complete';
+    let taskStatus = 'running';
+    const fakeTaskCore = {
+      getTask: (id) => (id === taskId ? { id, status: taskStatus, error_output: null } : null),
+    };
+    const handleAwaitTask = vi.fn(async () => ({ content: [{ text: 'heartbeat' }] }));
+    // First two calls: task stays 'running' (two heartbeats).
+    // Third call: flip status to 'completed' before returning — the loop
+    // should see the terminal state on this pass and exit.
+    handleAwaitTask
+      .mockResolvedValueOnce({ content: [{ text: 'heartbeat 1' }] })
+      .mockResolvedValueOnce({ content: [{ text: 'heartbeat 2' }] })
+      .mockImplementationOnce(async () => { taskStatus = 'completed'; return { content: [{ text: 'final' }] }; });
+
+    const result = await loopController._internalForTests.awaitTaskToStructuredResult(
+      handleAwaitTask,
+      fakeTaskCore,
+      { task_id: taskId, verify_command: 'npx vitest run', commit_message: 'test', working_directory: '/tmp' },
+    );
+
+    expect(handleAwaitTask).toHaveBeenCalledTimes(3);
+    expect(result).toMatchObject({
+      status: 'completed',
+      verify_status: 'passed',
+      task_id: taskId,
+    });
+  });
+
+  it('awaitTaskToStructuredResult reports failure when the task ends in a non-completed terminal state', async () => {
+    const taskId = 'task-that-fails';
+    let taskStatus = 'running';
+    const fakeTaskCore = {
+      getTask: (id) => (id === taskId ? { id, status: taskStatus, error_output: 'boom' } : null),
+    };
+    const handleAwaitTask = vi.fn();
+    handleAwaitTask
+      .mockResolvedValueOnce({ content: [{ text: 'heartbeat' }] })
+      .mockImplementationOnce(async () => { taskStatus = 'failed'; return { content: [{ text: 'final' }] }; });
+
+    const result = await loopController._internalForTests.awaitTaskToStructuredResult(
+      handleAwaitTask,
+      fakeTaskCore,
+      { task_id: taskId },
+    );
+
+    expect(result).toMatchObject({
+      status: 'failed',
+      verify_status: 'failed',
+      error: 'boom',
+      task_id: taskId,
+    });
+  });
 });
