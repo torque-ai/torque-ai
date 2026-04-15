@@ -137,6 +137,18 @@ function runGit(worktreePath, args) {
   });
 }
 
+function runGitWithStdin(worktreePath, args, stdin) {
+  // Pipe paths via stdin with --pathspec-from-file=- --pathspec-file-nul
+  // to sidestep the TORQUE-runtime argv-corruption quirk where git eats
+  // the first byte of the first path argument.
+  return childProcess.execFileSync('git', args, {
+    cwd: worktreePath,
+    encoding: 'utf8',
+    windowsHide: true,
+    input: stdin,
+  });
+}
+
 function parsePorcelainPaths(output) {
   return output
     .split(/\r?\n/)
@@ -153,47 +165,6 @@ function parsePorcelainPaths(output) {
       return normalized ? normalized.replace(/^"+|"+$/g, '') : null;
     })
     .filter(Boolean);
-}
-
-function parsePorcelainEntries(output) {
-  // Like parsePorcelainPaths, but preserves the XY status bytes so we can
-  // distinguish "?? untracked" (Codex created a new file) from " M dirty"
-  // (could be real edit OR line-ending drift from a remote test run).
-  return output
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter(Boolean)
-    .map((line) => {
-      if (line.length < 3) return null;
-      const status = line.slice(0, 2);
-      const rawPath = line.slice(3).trim();
-      if (!rawPath) return null;
-      const normalized = rawPath.includes(' -> ')
-        ? rawPath.split(' -> ').pop()
-        : rawPath;
-      if (!normalized) return null;
-      return { status, path: normalized.replace(/^"+|"+$/g, '') };
-    })
-    .filter(Boolean);
-}
-
-function classifyEntries(entries) {
-  // Split porcelain entries into two bins:
-  //   - untracked / deleted / renamed / already-staged → add directly
-  //   - modified-tracked (" M", " T", "MM", etc.) → add --renormalize
-  // --renormalize is the magic that drops CRLF/LF-drift-only files from
-  // the commit: if the only diff is line endings, renormalize stages
-  // nothing for that path. Real edits still get staged.
-  const untracked = [];
-  const renormalizeCandidates = [];
-  for (const entry of entries) {
-    if (entry.status === '??') {
-      untracked.push(entry.path);
-      continue;
-    }
-    renormalizeCandidates.push(entry.path);
-  }
-  return { untracked, renormalizeCandidates };
 }
 
 function formatGitError(error) {
@@ -288,62 +259,30 @@ function commitCompletedPlanTask(task) {
       return;
     }
 
-    // Single-arg `git add -A` sidesteps a reproducible-in-TORQUE-
-    // runtime quirk where multi-path git add corrupts the first byte
-    // of the first path arg ('server/...' → 'erver/...'). After
-    // staging, classify what's semantically staged vs pure CRLF drift
-    // by diffing the index with --ignore-cr-at-eol; drift-only files
-    // get reset out of the index before the commit so PII-GUARD
-    // doesn't scan them and false-positive on existing test fixtures.
-    runGit(worktree.worktreePath, ['add', '-A']);
-
-    const allStagedOutput = runGit(worktree.worktreePath, ['diff', '--cached', '--name-only']).trim();
-    const allStaged = allStagedOutput
-      ? allStagedOutput.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    // Determine which tracked files are semantically changed (ignoring
+    // CR-at-EOL drift) and which files are untracked. Build the list
+    // of paths to stage WITHOUT going through `git add -A`, which
+    // would sweep in pure line-ending drift that PII-GUARD then
+    // false-positives on when it scans the staged index.
+    const semanticTrackedOut = runGit(worktree.worktreePath, [
+      'diff', '--ignore-cr-at-eol', '--name-only', 'HEAD',
+    ]).trim();
+    const semanticTracked = semanticTrackedOut
+      ? semanticTrackedOut.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
       : [];
 
-    if (allStaged.length === 0) {
-      safeLogDecision({
-        ...decisionBase,
-        action: 'auto_commit_skipped_clean',
-        reasoning: 'Approved plan task completed, but nothing staged after git add -A.',
-        outcome: {
-          task_id: task.id,
-          plan_task_number: planTaskNumber,
-          files_changed: [],
-        },
-      });
-      return;
-    }
-
-    const semanticStagedOutput = runGit(worktree.worktreePath, [
-      'diff', '--cached', '--ignore-cr-at-eol', '--name-only',
+    const untrackedOut = runGit(worktree.worktreePath, [
+      'ls-files', '--others', '--exclude-standard',
     ]).trim();
-    const semanticStaged = new Set(semanticStagedOutput
-      ? semanticStagedOutput.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-      : []);
+    const untracked = untrackedOut
+      ? untrackedOut.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+      : [];
 
-    const driftOnly = allStaged.filter((p) => !semanticStaged.has(p));
+    const pathsToStage = [...semanticTracked, ...untracked];
 
-    if (driftOnly.length > 0) {
-      // Reset drift-only files one at a time. A single reset call with
-      // many paths would hit the same argv-corruption quirk that
-      // motivated the single-arg `git add -A` above.
-      for (const driftPath of driftOnly) {
-        try {
-          runGit(worktree.worktreePath, ['reset', 'HEAD', driftPath]);
-          runGit(worktree.worktreePath, ['checkout', '--', driftPath]);
-        } catch (_err) {
-          // Best-effort; if reset or checkout fails here we leave the
-          // path staged. The semanticStaged set still decides whether
-          // to commit below, so a stuck drift file gets included at
-          // worst but doesn't fail the commit.
-          void _err;
-        }
-      }
-    }
-
-    if (semanticStaged.size === 0) {
+    if (pathsToStage.length === 0) {
+      // Worktree only has pure line-ending drift (or is fully clean).
+      const driftPaths = parsePorcelainPaths(statusOutput);
       safeLogDecision({
         ...decisionBase,
         action: 'auto_commit_skipped_clean',
@@ -352,7 +291,37 @@ function commitCompletedPlanTask(task) {
           task_id: task.id,
           plan_task_number: planTaskNumber,
           files_changed: [],
-          skipped_drift_files: driftOnly,
+          skipped_drift_files: driftPaths,
+        },
+      });
+      return;
+    }
+
+    // Stage paths via --pathspec-from-file=- to sidestep the TORQUE-
+    // runtime argv-corruption quirk that eats the first byte of the
+    // first path argument on multi-path git add.
+    runGitWithStdin(
+      worktree.worktreePath,
+      ['add', '--pathspec-from-file=-', '--pathspec-file-nul'],
+      pathsToStage.join('\0'),
+    );
+
+    const allStagedOutput = runGit(worktree.worktreePath, ['diff', '--cached', '--name-only']).trim();
+    const allStaged = allStagedOutput
+      ? allStagedOutput.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+      : [];
+
+    if (allStaged.length === 0) {
+      const driftPaths = parsePorcelainPaths(statusOutput);
+      safeLogDecision({
+        ...decisionBase,
+        action: 'auto_commit_skipped_clean',
+        reasoning: 'Approved plan task completed. pathspec-from-file staging produced no changes; worktree was likely pure line-ending drift.',
+        outcome: {
+          task_id: task.id,
+          plan_task_number: planTaskNumber,
+          files_changed: [],
+          skipped_drift_files: driftPaths,
         },
       });
       return;
@@ -362,14 +331,16 @@ function commitCompletedPlanTask(task) {
     runGit(worktree.worktreePath, ['commit', '-m', commitMessage]);
     const commitSha = runGit(worktree.worktreePath, ['rev-parse', 'HEAD']).trim();
 
+    const driftPaths = parsePorcelainPaths(statusOutput).filter((p) => !allStaged.includes(p));
+
     safeLogDecision({
       ...decisionBase,
       action: 'auto_committed_task',
       reasoning: 'Approved plan task completed with dirty worktree changes, so the factory auto-committed them.',
       outcome: {
         commit_sha: commitSha,
-        files_changed: Array.from(semanticStaged),
-        skipped_drift_files: driftOnly,
+        files_changed: allStaged,
+        skipped_drift_files: driftPaths,
         task_id: task.id,
         plan_task_number: planTaskNumber,
       },
