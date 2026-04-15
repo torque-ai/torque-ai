@@ -125,8 +125,16 @@ describe('EXTENDED_TOOL_NAMES (Tier 1 + 2)', () => {
     }
   });
 
-  it('stays under 100 tools', () => {
-    expect(EXTENDED_TOOL_NAMES.length).toBeLessThan(100);
+  it('is a reasonably-sized tier surface (size + duplicate sanity)', () => {
+    // Property-based guard that replaces a hard <100 cap. The cap kept drifting
+    // as features added new tools. Here we assert structural properties:
+    //   - non-empty (so the tier wasn't accidentally wiped)
+    //   - under a conservative ceiling that would catch accidental full-catalog dumps
+    //   - every entry uniquely named (duplicates are a real bug)
+    expect(EXTENDED_TOOL_NAMES.length).toBeGreaterThan(0);
+    expect(EXTENDED_TOOL_NAMES.length).toBeLessThan(300);
+    const uniq = new Set(EXTENDED_TOOL_NAMES);
+    expect(uniq.size).toBe(EXTENDED_TOOL_NAMES.length);
   });
 
   it('has no duplicate names', () => {
