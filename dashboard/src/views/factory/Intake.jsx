@@ -99,7 +99,7 @@ export default function Intake() {
                   const isRejecting = rejectingItemId === item.id;
 
                   return (
-                    <tr key={item.id} className="align-top">
+                    <tr id={`work-item-${item.id}`} key={item.id} className="align-top">
                       <td className="px-4 py-4">
                         <p className="font-medium text-white">{item.title || 'Untitled work item'}</p>
                         {item.description && (

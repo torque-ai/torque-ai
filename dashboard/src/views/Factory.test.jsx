@@ -8,7 +8,21 @@ vi.mock('./factory/useFactoryShell', () => ({
   useFactoryShell: vi.fn(),
 }));
 
+vi.mock('../api', () => ({
+  factory: {
+    listLoopInstances: vi.fn(),
+    startLoopInstance: vi.fn(),
+    loopInstanceStatus: vi.fn(),
+    advanceLoopInstance: vi.fn(),
+    loopInstanceJobStatus: vi.fn(),
+    approveGateInstance: vi.fn(),
+    rejectGateInstance: vi.fn(),
+    retryVerifyInstance: vi.fn(),
+  },
+}));
+
 import { useFactoryShell } from './factory/useFactoryShell';
+import { factory as factoryApi } from '../api';
 
 const approveGate = vi.fn();
 const handlePauseAll = vi.fn();
@@ -48,6 +62,22 @@ function renderFactory() {
 describe('Factory overview', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    factoryApi.listLoopInstances.mockResolvedValue([{
+      id: '11111111-1111-4111-8111-111111111111',
+      project_id: 'factory-1',
+      work_item_id: 42,
+      batch_id: 'batch-verify-001',
+      loop_state: 'VERIFY',
+      paused_at_stage: 'VERIFY',
+      last_action_at: '2026-04-13T12:00:00Z',
+    }]);
+    factoryApi.startLoopInstance.mockResolvedValue({});
+    factoryApi.loopInstanceStatus.mockResolvedValue({});
+    factoryApi.advanceLoopInstance.mockResolvedValue({ job_id: 'job-1', status: 'running' });
+    factoryApi.loopInstanceJobStatus.mockResolvedValue({ status: 'running' });
+    factoryApi.approveGateInstance.mockResolvedValue({});
+    factoryApi.rejectGateInstance.mockResolvedValue({});
+    factoryApi.retryVerifyInstance.mockResolvedValue({});
     useFactoryShell.mockReturnValue({
       activeProjectAction: null,
       handlePauseAll,
@@ -118,13 +148,13 @@ describe('Factory overview', () => {
 
     expect(screen.getByText('Factory Loop')).toBeInTheDocument();
     expect(screen.getByLabelText('Factory project')).toHaveValue('factory-1');
-    expect(screen.getByText('PAUSED · VERIFY')).toBeInTheDocument();
+    expect(screen.getByText('VERIFY')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /2 tasks awaiting approval/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Approve Gate' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Approve Gate' }));
 
-    expect(approveGate).toHaveBeenCalledTimes(1);
+    expect(factoryApi.approveGateInstance).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', 'VERIFY');
     expect(screen.getAllByRole('button', { name: 'Pause' }).length).toBeGreaterThanOrEqual(1);
   });
 });

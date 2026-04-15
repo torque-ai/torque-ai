@@ -23,6 +23,14 @@ vi.mock('../api', () => ({
     projects: vi.fn(),
     loopStatus: vi.fn(),
     startLoop: vi.fn(),
+    listLoopInstances: vi.fn(),
+    startLoopInstance: vi.fn(),
+    loopInstanceStatus: vi.fn(),
+    advanceLoopInstance: vi.fn(),
+    loopInstanceJobStatus: vi.fn(),
+    approveGateInstance: vi.fn(),
+    rejectGateInstance: vi.fn(),
+    retryVerifyInstance: vi.fn(),
     advanceLoopAsync: vi.fn(),
     loopJobStatus: vi.fn(),
     approveGate: vi.fn(),
@@ -144,6 +152,14 @@ describe('Kanban', () => {
     factoryApi.projects.mockResolvedValue([]);
     factoryApi.loopStatus.mockResolvedValue({ loop_state: 'IDLE', loop_paused_at_stage: null, loop_last_action_at: null });
     factoryApi.startLoop.mockResolvedValue({});
+    factoryApi.listLoopInstances.mockResolvedValue([]);
+    factoryApi.startLoopInstance.mockResolvedValue({});
+    factoryApi.loopInstanceStatus.mockResolvedValue({});
+    factoryApi.advanceLoopInstance.mockResolvedValue({ job_id: 'instance-job-1', status: 'running' });
+    factoryApi.loopInstanceJobStatus.mockResolvedValue({ status: 'running' });
+    factoryApi.approveGateInstance.mockResolvedValue({});
+    factoryApi.rejectGateInstance.mockResolvedValue({});
+    factoryApi.retryVerifyInstance.mockResolvedValue({});
     factoryApi.advanceLoopAsync.mockResolvedValue({ job_id: 'loop-job-1', status: 'running' });
     factoryApi.loopJobStatus.mockResolvedValue({ status: 'completed' });
     factoryApi.approveGate.mockResolvedValue({});
@@ -265,6 +281,15 @@ describe('Kanban', () => {
   });
 
   it('renders the factory loop bar when factory projects exist', async () => {
+    factoryApi.listLoopInstances.mockResolvedValue([{
+      id: '11111111-1111-4111-8111-111111111111',
+      project_id: 'factory-1',
+      work_item_id: 41,
+      batch_id: 'batch-plan-001',
+      loop_state: 'PLAN',
+      paused_at_stage: null,
+      last_action_at: '2026-04-13T12:00:05Z',
+    }]);
     factoryApi.projects.mockResolvedValue([{
       id: 'factory-1',
       name: 'torque-public',
@@ -297,6 +322,15 @@ describe('Kanban', () => {
   });
 
   it('advances the factory loop from Kanban', async () => {
+    factoryApi.listLoopInstances.mockResolvedValue([{
+      id: '11111111-1111-4111-8111-111111111111',
+      project_id: 'factory-1',
+      work_item_id: 41,
+      batch_id: 'batch-plan-001',
+      loop_state: 'PLAN',
+      paused_at_stage: null,
+      last_action_at: '2026-04-13T12:00:05Z',
+    }]);
     factoryApi.projects.mockResolvedValue([{
       id: 'factory-1',
       name: 'torque-public',
@@ -318,7 +352,7 @@ describe('Kanban', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Advance' }));
 
     await waitFor(() => {
-      expect(factoryApi.advanceLoopAsync).toHaveBeenCalledWith('factory-1');
+      expect(factoryApi.advanceLoopInstance).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
     });
   });
 

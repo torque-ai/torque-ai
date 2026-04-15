@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
+import { factory as factoryApi } from '../../api';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
-import { BatchTimeline, StatusDot, TrustBadge } from './shared';
+import { StatusDot, TrustBadge } from './shared';
 import LoopControlBar from './LoopControlBar';
 import {
   BADGE_FALLBACK_STYLE,
@@ -14,17 +16,13 @@ import {
 } from './utils';
 
 export default function Overview() {
+  const [loopSummaries, setLoopSummaries] = useState({});
   const {
     activeProjectAction,
     approvalsHref,
-    advanceLoop,
-    approveGate,
     detail,
     detailLoading,
     handleToggleProject,
-    loopAdvanceJob,
-    loopActionBusy,
-    loopRefreshAgeSeconds,
     pendingApprovalCount,
     projects,
     recentActivity,
@@ -33,8 +31,58 @@ export default function Overview() {
     selectedProject,
     selectedProjectId,
     setSelectedProjectId,
-    startLoop,
   } = useOutletContext();
+
+  useEffect(() => {
+    if (!Array.isArray(projects) || projects.length === 0) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const loadLoopSummaries = async () => {
+      const nextEntries = await Promise.all(projects.map(async (project) => {
+        try {
+          const instances = await factoryApi.listLoopInstances(project.id, { activeOnly: true });
+          const stages = [...new Set((Array.isArray(instances) ? instances : [])
+            .map((instance) => instance?.loop_state)
+            .filter(Boolean))];
+
+          return [
+            project.id,
+            {
+              activeCount: Array.isArray(instances) ? instances.length : 0,
+              stages,
+              error: null,
+            },
+          ];
+        } catch (error) {
+          return [
+            project.id,
+            {
+              activeCount: 0,
+              stages: [],
+              error: error?.message || 'Unable to load loop summary.',
+            },
+          ];
+        }
+      }));
+
+      if (!cancelled) {
+        setLoopSummaries(Object.fromEntries(nextEntries));
+      }
+    };
+
+    void loadLoopSummaries();
+    const intervalId = setInterval(() => {
+      void loadLoopSummaries();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [projects]);
 
   if (!selectedProject || !detail) {
     return null;
@@ -42,9 +90,6 @@ export default function Overview() {
 
   const weakest = detail.weakest_dimension;
   const visibleActivity = recentActivity.slice(0, 5);
-  const projectToggleLabel = selectedProject.status === 'running' ? 'Pause' : 'Resume';
-  const isProjectToggleBusy = activeProjectAction === selectedProject.id;
-  const isAdvanceJobRunning = loopAdvanceJob?.status === 'running' && loopAdvanceJob?.projectId === selectedProject.id;
 
   return (
     <div className="space-y-6">
@@ -97,47 +142,59 @@ export default function Overview() {
         )}
       </section>
 
+      <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Active Loop Summary</h3>
+            <p className="text-sm text-slate-400">Per-project instance counts and active stage mix.</p>
+          </div>
+          <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
+            Refreshes every 5s
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {projects.map((project) => {
+            const summary = loopSummaries[project.id] || { activeCount: 0, stages: [], error: null };
+            const stagesLabel = summary.stages.length > 0 ? summary.stages.join(', ') : '—';
+
+            return (
+              <div
+                key={project.id}
+                className={`rounded-xl border p-4 ${
+                  project.id === selectedProject.id
+                    ? 'border-blue-500/40 bg-blue-500/5'
+                    : 'border-slate-700/70 bg-slate-900/40'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-medium text-white">{project.name || project.id}</p>
+                  <span className="rounded-full border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300">
+                    {summary.activeCount} active
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-slate-300">
+                  {summary.activeCount} active loop{summary.activeCount === 1 ? '' : 's'} • stages: [{stagesLabel}]
+                </p>
+                {summary.error && (
+                  <p className="mt-2 text-xs text-amber-300">{summary.error}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       <LoopControlBar
         activeProjectAction={activeProjectAction}
         approvalsHref={approvalsHref}
-        approveGate={approveGate}
-        advanceLoop={advanceLoop}
         handleToggleProject={handleToggleProject}
-        loopActionBusy={loopActionBusy}
         pendingApprovalCount={pendingApprovalCount}
+        project={selectedProject}
         projects={projects}
-        selectedProject={selectedProject}
         selectedProjectId={selectedProjectId}
         setSelectedProjectId={setSelectedProjectId}
-        startLoop={startLoop}
-      >
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {loopRefreshAgeSeconds !== null ? (
-              <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
-                Refreshed {loopRefreshAgeSeconds}s ago
-              </span>
-            ) : (
-              <span className="text-xs text-slate-500">Waiting for loop status...</span>
-            )}
-            {isProjectToggleBusy && (
-              <span className="text-xs text-slate-400">{projectToggleLabel} request in progress...</span>
-            )}
-          </div>
-          <BatchTimeline
-            currentStage={selectedProject.loop_state}
-            pausedAtStage={selectedProject.loop_paused_at_stage}
-          />
-          {isAdvanceJobRunning && (
-            <p className="text-xs text-cyan-300">
-              Stage running... Polling every 2s.
-            </p>
-          )}
-          {selectedProject.loop_last_action_at && (
-            <p className="text-xs text-slate-500">Last action: {new Date(selectedProject.loop_last_action_at).toLocaleString()}</p>
-          )}
-        </div>
-      </LoopControlBar>
+      />
 
       <section className="mt-4 rounded-lg border border-slate-700 bg-slate-800/60 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
