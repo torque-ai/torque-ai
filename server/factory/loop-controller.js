@@ -141,6 +141,10 @@ function snapshotLoopAdvanceJob(job) {
     job_id: job.job_id,
     started_at: job.started_at,
     current_state: job.current_state,
+    // previous_state mirrors current_state — it's the state captured before the
+    // async advance started running. Provided as a convenience for clients that
+    // want the terminology from the sync advance result shape.
+    previous_state: job.current_state,
     status: job.status,
     new_state: job.new_state ?? null,
     paused_at_stage: job.paused_at_stage ?? null,
