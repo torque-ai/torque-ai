@@ -786,10 +786,16 @@ describe('factory loop-controller EXECUTE modes', () => {
     routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
       submittedTaskCount += 1;
       const taskId = `approval-task-retry-${submittedTaskCount}`;
+      // Retry-submitted fix tasks don't pass initial_status and aren't
+      // tagged pending_approval; mark them completed so the waiting-
+      // for-batch-tasks guard in executeVerifyStage doesn't block the
+      // next verify attempt.
+      const isRetryTask = Array.isArray(args.tags)
+        && args.tags.some((t) => typeof t === 'string' && t.startsWith('factory:verify_retry='));
       insertBatchTask(db, {
         taskId,
         batchId,
-        status: args.initial_status || 'pending_approval',
+        status: isRetryTask ? 'completed' : (args.initial_status || 'pending_approval'),
       });
       return { task_id: taskId };
     });
@@ -808,9 +814,8 @@ describe('factory loop-controller EXECUTE modes', () => {
     loopController.retryVerifyFromFailureForProject(project.id);
     const retriedVerify = await loopController.advanceLoopForProject(project.id);
 
-    // Operator retry fires another round; with auto-retry still in play
-    // this could run up to 3 more times, but the mock now passes on
-    // the very next call.
+    // Operator retry fires another round; the mock's 4th return passes,
+    // so one more verify call is enough to reach LEARN.
     expect(worktreeRunner.verify).toHaveBeenCalledTimes(4);
     expect(retriedVerify.previous_state).toBe(LOOP_STATES.VERIFY);
     expect(retriedVerify.new_state).toBe(LOOP_STATES.LEARN);
