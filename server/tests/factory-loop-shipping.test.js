@@ -741,6 +741,98 @@ describe('factory loop work-item shipping', () => {
     });
   });
 
+  it('refuses to ship when the worktree runner is available but no active worktree exists', async () => {
+    // Reproduces the 2026-04-15 observation: after EXECUTE + VERIFY both
+    // passed, an external action (operator cleanup, janitor, restart)
+    // marked the only factory_worktrees row for the batch as
+    // 'abandoned'. LEARN then skipped the merge block (worktreeRecord
+    // was null) and silently marked the item shipped. Fix must
+    // fail-loud in this case — no merge means no landing on main.
+    const batchId = 'batch-abandoned-worktree';
+    const { project, workItem } = registerPausedVerifyProject({
+      workItemStatus: 'verifying',
+      batchId,
+    });
+    seedLearnDependencies(project.id, batchId);
+
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'started_execution',
+      reasoning: 'Loop advanced into EXECUTE.',
+      outcome: { from_state: 'PLAN', to_state: 'EXECUTE' },
+    });
+    recordExecutionDecision({
+      projectId: project.id,
+      batchId,
+      workItemId: workItem.id,
+      action: 'completed_execution',
+      reasoning: 'Plan execution completed successfully.',
+      outcome: {
+        completed_tasks: [1],
+        dry_run: false,
+        execution_mode: 'live',
+        task_count: null,
+        simulated: false,
+        submitted_tasks: [],
+        final_state: 'VERIFY',
+      },
+    });
+
+    // Install a worktree runner so the new guard engages (tests that
+    // leave the runner null preserve the pre-fix behavior for legacy
+    // dry-run test setups).
+    const worktreeRunner = {
+      createForBatch: vi.fn(),
+      verify: vi.fn(async () => ({ passed: true, output: 'ok', durationMs: 1 })),
+      mergeToMain: vi.fn(async () => ({})),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    // Seed a worktree row for the batch, then abandon it before LEARN.
+    // This mimics what my SQL cleanup (and any future janitor) produces.
+    const abandoned = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      vc_worktree_id: 'vc-abandoned',
+      branch: 'feat/factory-abandoned',
+      worktree_path: '/tmp/abandoned',
+    });
+    factoryWorktrees.markAbandoned(abandoned.id, 'operator_cleanup');
+
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+    expect(approved.state).toBe(LOOP_STATES.VERIFY);
+
+    const { learnAdvance } = await advanceVerifyThenLearn(project.id);
+
+    // Item must NOT be shipped — without a merge, nothing landed on main.
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'verifying',
+    });
+
+    expect(learnAdvance.stage_result).toEqual(
+      expect.objectContaining({
+        status: 'skipped',
+        reason: expect.stringMatching(/no_worktree_for_batch|worktree_not_merged/),
+      })
+    );
+
+    // Decision log should show skipped_shipping with the abandoned reason.
+    const decisions = listDecisionRows(db, project.id);
+    const skipped = decisions.find((row) => row.stage === 'learn' && row.action === 'skipped_shipping');
+    expect(skipped).toBeTruthy();
+    expect(skipped.outcome).toMatchObject({
+      work_item_id: workItem.id,
+      prior_worktree_status: 'abandoned',
+    });
+    // Must not also log a shipped_work_item decision.
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'shipped_work_item')).toBeUndefined();
+  });
+
   it('self-heals a work item that has a merged worktree but non-terminal status before PRIORITIZE picks it', () => {
     // Simulates the incident where a worktree merged to main but the LEARN
     // status-update step didn't land (crash/restart/loop interrupted). The

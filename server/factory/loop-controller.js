@@ -1033,7 +1033,54 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
     const worktreeRecord = (batch_id || instance?.batch_id)
       ? factoryWorktrees.getActiveWorktreeByBatch(batch_id || instance?.batch_id)
       : factoryWorktrees.getActiveWorktree(project_id);
-    const worktreeRunner = worktreeRecord ? getWorktreeRunner() : null;
+    const worktreeRunnerAvailable = getWorktreeRunner();
+    const worktreeRunner = worktreeRecord ? worktreeRunnerAvailable : null;
+
+    // Fail loud when the runner is available but no active worktree is
+    // found. Either the worktree was abandoned manually, cleaned up by a
+    // restart janitor, or the EXECUTE batch never created one — none of
+    // which are states where we should silently mark the item shipped.
+    // Exception: if a prior loop already merged a worktree for this item,
+    // it's genuinely done and marking shipped is correct.
+    if (worktreeRunnerAvailable && !worktreeRecord) {
+      const priorWorktree = factoryWorktrees.getLatestWorktreeForWorkItem(
+        project_id,
+        workItem.id,
+      );
+      if (!priorWorktree || priorWorktree.status !== 'merged') {
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.LEARN,
+          action: 'skipped_shipping',
+          reasoning: 'LEARN found no active worktree to merge and no prior merged worktree for this work item. Refusing to ship without landing code on main.',
+          inputs: {
+            batch_id: batch_id || instance?.batch_id || null,
+            resolution_source: resolutionSource,
+            work_item_status: workItem.status,
+          },
+          outcome: {
+            work_item_id: workItem.id,
+            reason: priorWorktree
+              ? `prior_worktree_status=${priorWorktree.status}`
+              : 'no_worktree_record',
+            prior_worktree_id: priorWorktree ? priorWorktree.id : null,
+            prior_worktree_status: priorWorktree ? priorWorktree.status : null,
+          },
+          confidence: 1,
+          batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+        });
+        return {
+          status: 'skipped',
+          reason: priorWorktree
+            ? `worktree_not_merged_status=${priorWorktree.status}`
+            : 'no_worktree_for_batch',
+          work_item_id: workItem.id,
+        };
+      }
+      // priorWorktree is merged → the code already landed in a prior
+      // loop, this LEARN is just catching up the work item status.
+    }
+
     if (worktreeRecord && worktreeRunner) {
       try {
         const mergeResult = await worktreeRunner.mergeToMain({
