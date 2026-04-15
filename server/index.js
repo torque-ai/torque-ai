@@ -892,6 +892,13 @@ function init() {
     defaultContainer.registerValue('factoryFeedbackAnalysis', factoryFeedbackAnalysis);
   }
 
+  try {
+    const { initFactoryWorktreeAutoCommit } = require('./factory/worktree-auto-commit');
+    initFactoryWorktreeAutoCommit();
+  } catch (err) {
+    debugLog(`Factory worktree auto-commit listener init skipped: ${err.message}`);
+  }
+
   const codebaseStudyHandlers = require('./handlers/codebase-study-handlers');
   codebaseStudyHandlers.init({ db });
   if (!defaultContainer.has('codebaseStudyHandlers')) {

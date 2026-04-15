@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '../test-utils';
 import Kanban from './Kanban';
@@ -483,7 +483,14 @@ describe('Kanban', () => {
       expect(within(pendingApprovalColumn).queryByText('Pending approval test task')).toBeNull();
     });
 
-    approveDeferred.resolve({});
+    await act(async () => {
+      approveDeferred.resolve({});
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Task approved')).toBeInTheDocument();
+    });
   });
 
   it('reverts pending approval tasks when reject fails', async () => {

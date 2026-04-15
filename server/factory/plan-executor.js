@@ -132,6 +132,13 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
         plan_task_number: task.task_number,
         plan_task_title: task.task_title,
         file_paths,
+        task_metadata: {
+          plan_path,
+          plan_title: parsed.title,
+          plan_task_number: task.task_number,
+          plan_task_title: task.task_title,
+          file_paths,
+        },
         initial_status: mode === 'pending_approval' ? 'pending_approval' : undefined,
       });
       const task_id = submission?.task_id;

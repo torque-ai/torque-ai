@@ -1,4 +1,4 @@
-import { screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '../test-utils';
 import History from './History';
 
@@ -314,7 +314,15 @@ describe('History', () => {
       expect(tasksApi.retry).toHaveBeenCalledWith('task-failed-2');
     });
 
-    releaseFirstRetry({});
+    await act(async () => {
+      releaseFirstRetry({});
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('2 tasks queued for retry')).toBeInTheDocument();
+      expect(screen.queryByText('2 selected')).toBeNull();
+    });
   });
 
   it('reloads tasks when sort changes and passes orderBy/orderDir', async () => {

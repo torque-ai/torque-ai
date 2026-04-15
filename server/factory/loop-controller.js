@@ -2878,6 +2878,12 @@ function scheduleLoop(project_id, interval_minutes) {
 function startLoop(project_id) {
   const project = getProjectOrThrow(project_id);
   const previousState = getCurrentLoopState(project);
+  try {
+    const { initFactoryWorktreeAutoCommit } = require('./worktree-auto-commit');
+    initFactoryWorktreeAutoCommit({ project });
+  } catch (error) {
+    logger.warn({ err: error.message, project_id: project.id }, 'Factory worktree auto-commit listener init failed');
+  }
   let instance;
   try {
     instance = factoryLoopInstances.createInstance({ project_id: project.id });
