@@ -808,6 +808,66 @@ describe('factory loop work-item shipping', () => {
     });
   });
 
+  it('does not resurrect a completed work item from the decision log when starting a fresh instance', () => {
+    // Flow that triggered the 2026-04-15 live-test failure: the last
+    // factory loop ran item X to completion (shipped/completed), but its
+    // selected_work_item decision is still in factory_decisions. A fresh
+    // loop instance with no batch_id looked the decision up, skipped the
+    // listOpenWorkItems filter, and PLAN flipped the already-completed
+    // item's status back to 'executing'. Decision log restore must
+    // filter out items that are now closed.
+    const project = factoryHealth.registerProject({
+      name: `Factory Decision Restore ${Date.now()}`,
+      path: `/tmp/factory-decision-restore-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      trust_level: 'supervised',
+    });
+
+    const closedItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'manual',
+      title: 'Previously shipped',
+      requestor: 'test',
+    });
+    factoryIntake.updateWorkItem(closedItem.id, { status: 'completed' });
+
+    const openItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'manual',
+      title: 'Still open',
+      requestor: 'test',
+    });
+
+    // Seed the decision log with a 'selected_work_item' decision pointing
+    // at the now-closed item — simulates the prior loop's history.
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: 'prioritize',
+      actor: 'system',
+      action: 'selected_work_item',
+      reasoning: 'prior loop pick',
+      inputs: {},
+      outcome: { work_item_id: closedItem.id, selection_status: 'selected' },
+      confidence: 1,
+      batch_id: null,
+    });
+
+    // Act as a fresh instance (no batch_id, no prior in-memory selection).
+    // claimNextWorkItemForInstance drives this via tryGetSelectedWorkItem
+    // via getLoopWorkItem → listOpenWorkItems, which respects status. But
+    // PRIORITIZE's selectedWorkItem param is fed by runAdvanceLoop's
+    // tryGetSelectedWorkItem, which is the path we care about here.
+    const freshInstanceId = 'instance-fresh';
+    const claimResult = loopController._internalForTests.claimNextWorkItemForInstance(
+      project.id,
+      freshInstanceId,
+    );
+
+    // Must pick the genuinely open item, not the closed one.
+    expect(claimResult.workItem).toBeTruthy();
+    expect(claimResult.workItem.id).toBe(openItem.id);
+    expect(factoryIntake.getWorkItem(closedItem.id).status).toBe('completed');
+  });
+
   it('does not heal items whose worktree is still active', () => {
     const project = factoryHealth.registerProject({
       name: `Factory Active Worktree ${Date.now()}`,

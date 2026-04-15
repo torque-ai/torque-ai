@@ -548,9 +548,24 @@ function getSelectedWorkItemIdFromDecisionLog(project_id, batch_id = null) {
         outcome?.work_item_id
         ?? inputs?.work_item_id
       );
-      if (workItemId) {
-        return workItemId;
+      if (!workItemId) {
+        continue;
       }
+      // Skip decisions that point at items which are now closed. Without
+      // this guard, a fresh instance with no batch_id can resurrect the
+      // last-selected work item from an earlier (shipped) loop run —
+      // PRIORITIZE then claims it, PLAN flips its status back to
+      // 'executing', and we're back in the flip-back cycle.
+      const workItem = factoryIntake.getWorkItemForProject(project_id, workItemId, {
+        includeClosed: true,
+      });
+      if (!workItem) {
+        continue;
+      }
+      if (CLOSED_WORK_ITEM_STATUSES.has(workItem.status)) {
+        continue;
+      }
+      return workItemId;
     }
   } catch (error) {
     logger.debug({ err: error.message, project_id, batch_id }, 'Unable to restore selected work item from decision log');
@@ -591,6 +606,20 @@ function getSelectedWorkItem(instance, project_id, { fallbackToLoopSelection = f
     });
     if (!workItem) {
       throw new Error(`Selected work item ${selectedWorkItemId} is no longer available for project ${project_id}`);
+    }
+    // Don't resurrect closed items. getSelectedWorkItemId can restore the
+    // most recent selection from the decision log — which, across loop
+    // restarts, includes items that have since been shipped/completed/
+    // rejected. If we returned a closed item here, PRIORITIZE (which trusts
+    // this value and skips listOpenWorkItems) would claim it and PLAN would
+    // flip its status back to 'executing'. Clear the stale in-memory hint
+    // and fall through to the open-item queue.
+    if (CLOSED_WORK_ITEM_STATUSES.has(workItem.status)) {
+      const instanceId = typeof instance === 'string' ? instance : instance?.id;
+      if (instanceId) {
+        selectedWorkItemIds.delete(instanceId);
+      }
+      return fallbackToLoopSelection ? getLoopWorkItem(project_id) : null;
     }
     return workItem;
   }
