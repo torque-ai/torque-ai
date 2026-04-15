@@ -349,14 +349,16 @@ describe('Kanban', () => {
 
     renderWithProviders(<Kanban />, { route: '/' });
 
-    // LoopControlBar loads instances via an async effect; wait for the bar
-    // and the instance card to render before clicking Advance, otherwise the
-    // button handler resolves the instance id before mocks have settled.
+    // LoopControlBar mounts with empty instances, renders a legacy placeholder
+    // from projects' loop_state, then re-renders once listLoopInstances resolves.
+    // Wait until the real non-legacy instance card is present (its work-item
+    // link to #41 only appears on the real instance, not the legacy placeholder)
+    // before clicking Advance. Otherwise the click can land on the legacy button.
     await screen.findByText('Factory Loop');
-    await vi.waitFor(() => {
-      expect(screen.getByTestId('loop-instance-card')).toBeInTheDocument();
-    });
-    const advanceBtn = await screen.findByRole('button', { name: 'Advance' });
+    const workItemLink = await screen.findByRole('link', { name: '#41' });
+    const instanceCard = workItemLink.closest('[data-testid="loop-instance-card"]');
+    expect(instanceCard).not.toBeNull();
+    const advanceBtn = within(instanceCard).getByRole('button', { name: 'Advance' });
 
     fireEvent.click(advanceBtn);
 
