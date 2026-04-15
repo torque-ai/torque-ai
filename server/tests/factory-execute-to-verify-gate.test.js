@@ -165,6 +165,7 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
   beforeEach(() => {
     db = new Database(':memory:');
     createFactoryTables(db);
+    loopController.setWorktreeRunnerForTests(null);
     factoryHealth.setDb(db);
     factoryGuardrails.setDb(db);
     factoryIntake.setDb(db);
@@ -189,6 +190,7 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     factoryDecisions.setDb(null);
     factoryHealth.setDb(null);
     factoryIntake.setDb(null);
+    loopController.setWorktreeRunnerForTests(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     taskCore.getTask = originalGetTask;

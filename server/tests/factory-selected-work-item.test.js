@@ -143,6 +143,7 @@ let tempDir;
 beforeEach(() => {
   db = new Database(':memory:');
   createFactoryTables(db);
+  loopController.setWorktreeRunnerForTests(null);
   factoryHealth.setDb(db);
   factoryIntake.setDb(db);
   factoryDecisions.setDb(db);
@@ -154,6 +155,7 @@ beforeEach(() => {
 afterEach(() => {
   database.getDbInstance = originalGetDbInstance;
   factoryDecisions.setDb(null);
+  loopController.setWorktreeRunnerForTests(null);
   if (tempDir && fs.existsSync(tempDir)) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

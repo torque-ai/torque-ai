@@ -89,6 +89,7 @@ describe('factory supervised execute pending approval', () => {
   beforeEach(() => {
     ({ db: dbModule, testDir } = setupTestDbOnly(`factory-pending-approval-${Date.now()}`));
     const rawDb = dbModule.getDbInstance();
+    loopController.setWorktreeRunnerForTests(null);
     factoryGuardrails.setDb(rawDb);
     factoryLoopInstances.setDb(rawDb);
     resetTables([
@@ -142,6 +143,7 @@ describe('factory supervised execute pending approval', () => {
     queueScheduler.stop();
     factoryGuardrails.setDb(null);
     factoryLoopInstances.setDb(null);
+    loopController.setWorktreeRunnerForTests(null);
     routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
     awaitModule.handleAwaitTask = originalHandleAwaitTask;
     vi.restoreAllMocks();
