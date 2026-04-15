@@ -296,11 +296,17 @@ function commitCompletedPlanTask(task) {
     // it stages the normalized content. So running it against every
     // tracked-modified path drops drift from the commit automatically,
     // without needing a per-file diff probe.
+    // We pass paths after the renormalize/add flags without a `--`
+    // separator. The remote Linux test runner exhibited a git argv
+    // parsing quirk that corrupted the first path byte when `-- <path>`
+    // was used (pathspec 'xisting.txt' from 'existing.txt'). Factory
+    // file names from plans never start with '-' so the separator is
+    // unnecessary here.
     if (renormalizeCandidates.length > 0) {
-      runGit(worktree.worktreePath, ['add', '--renormalize', '--', ...renormalizeCandidates]);
+      runGit(worktree.worktreePath, ['add', '--renormalize', ...renormalizeCandidates]);
     }
     if (untracked.length > 0) {
-      runGit(worktree.worktreePath, ['add', '--', ...untracked]);
+      runGit(worktree.worktreePath, ['add', ...untracked]);
     }
 
     const stagedOutput = runGit(worktree.worktreePath, ['diff', '--cached', '--name-only']).trim();
