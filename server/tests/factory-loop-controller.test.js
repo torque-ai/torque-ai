@@ -422,6 +422,33 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
+  it('tags live-mode plan-task submissions with factory:batch_id + work_item_id + plan_task_number', async () => {
+    // Pre-fix: these tags were only attached when initial_status was
+    // 'pending_approval'. In live mode the submissions had no factory
+    // provenance, so the factory-worktree-auto-commit listener (which
+    // keys off factory:batch_id / factory:plan_task_number) couldn't
+    // correlate the completed Codex task back to its worktree and never
+    // committed. Observed live on 2026-04-15 when fabro-97 finished 3
+    // Codex tasks cleanly but the worktree merge failed with
+    // 'uncommitted changes' because nothing had been committed.
+    const { project, workItem } = registerPlanProject({
+      config: { execute_live: true },
+    });
+
+    await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalled();
+    const firstCall = routingModule.handleSmartSubmitTask.mock.calls[0][0];
+    expect(firstCall.tags).toEqual(expect.arrayContaining([
+      expect.stringMatching(/^factory:batch_id=factory-/),
+      `factory:work_item_id=${workItem.id}`,
+      'factory:plan_task_number=1',
+    ]));
+    // Live mode must NOT tag as pending_approval.
+    expect(firstCall.tags).not.toContain('factory:pending_approval');
+  });
+
   it('allows supervised live EXECUTE only when config.execute_live is true', async () => {
     const { project, planPath } = registerPlanProject({
       config: { execute_live: true },

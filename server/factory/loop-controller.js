@@ -2558,10 +2558,18 @@ async function executePlanFileStage(project, instance, workItem) {
   const executor = createPlanExecutor({
     submit: async (args) => {
       const tags = Array.isArray(args.tags) ? [...args.tags] : [];
+      // Factory-provenance tags must be attached on EVERY submission,
+      // not just pending_approval. The factory-worktree-auto-commit
+      // listener keys off factory:batch_id and factory:plan_task_number
+      // to correlate a completed Codex task back to its worktree. In
+      // live/autonomous mode the tags were being dropped, so the
+      // listener never committed — untracked Codex output piled up in
+      // the worktree and LEARN's merge step threw "uncommitted
+      // changes" even though the code was ready to ship.
+      if (submissionBatchId) tags.push(`factory:batch_id=${submissionBatchId}`);
+      tags.push(`factory:work_item_id=${targetItem.id}`);
+      tags.push(`factory:plan_task_number=${args.plan_task_number}`);
       if (args.initial_status === 'pending_approval') {
-        if (submissionBatchId) tags.push(`factory:batch_id=${submissionBatchId}`);
-        tags.push(`factory:work_item_id=${targetItem.id}`);
-        tags.push(`factory:plan_task_number=${args.plan_task_number}`);
         tags.push('factory:pending_approval');
       }
 
