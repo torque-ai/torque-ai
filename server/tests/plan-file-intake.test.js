@@ -243,4 +243,30 @@ describe('plan-file-intake', () => {
     expect(result.created).toHaveLength(1);
     expect(origin.plan_path).toContain('plan-e.md');
   });
+
+  it('does not throw UNIQUE when a plan is edited and then reverted to a prior content hash', () => {
+    const planPath = path.join(dir, 'revert.md');
+    const contentA = '# Plan A\n## Task 1\n- [ ] step one\n';
+    const contentB = '# Plan A\n## Task 1\n- [ ] step one\n- [ ] step two\n';
+
+    // First scan: ingest content A.
+    fs.writeFileSync(planPath, contentA);
+    expect(scanPlans().created).toHaveLength(1);
+
+    // Second scan: content changed to B → new row.
+    fs.writeFileSync(planPath, contentB);
+    expect(scanPlans().created).toHaveLength(1);
+
+    // Third scan: reverted to A → findPrevious returns B's latest row, the
+    // hashes differ, but (project, path, A-hash) is already in history.
+    // Scan must skip gracefully instead of hitting the PRIMARY KEY.
+    fs.writeFileSync(planPath, contentA);
+    expect(() => scanPlans()).not.toThrow();
+    const thirdResult = scanPlans();
+    expect(thirdResult.created).toHaveLength(0);
+    expect(thirdResult.skipped).toContainEqual(expect.objectContaining({
+      plan_path: planPath,
+      reason: expect.stringMatching(/duplicate|reverted_to_prior_hash/),
+    }));
+  });
 });

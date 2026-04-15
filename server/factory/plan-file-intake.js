@@ -35,10 +35,28 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
     `).get(project_id, plan_path);
   }
 
+  function findByContentHash(project_id, plan_path, content_hash) {
+    // The UNIQUE index is on (project_id, plan_path, content_hash), but
+    // findPrevious only returns the most recent row. If a plan file is
+    // edited then reverted, the "latest" hash differs from today's hash
+    // even though today's hash is already in history — so INSERT would
+    // collide. Check the full history here so the scan is idempotent
+    // across revert cycles.
+    return db.prepare(`
+      SELECT content_hash, work_item_id FROM factory_plan_file_intake
+      WHERE project_id = ? AND plan_path = ? AND content_hash = ?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(project_id, plan_path, content_hash);
+  }
+
   function recordIngest({ project_id, plan_path, content_hash, work_item_id }) {
+    // ON CONFLICT DO NOTHING: defense-in-depth. The scan loop already
+    // checks findByContentHash before calling this, but if a concurrent
+    // scan raced the check, we'd rather no-op than crash SENSE.
     db.prepare(`
       INSERT INTO factory_plan_file_intake (project_id, plan_path, content_hash, work_item_id, created_at)
       VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, plan_path, content_hash) DO NOTHING
     `).run(project_id, plan_path, content_hash, work_item_id, new Date().toISOString());
   }
 
@@ -70,6 +88,15 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
       const previous = findPrevious(project_id, filePath);
       if (previous && previous.content_hash === hash) {
         skipped.push({ plan_path: filePath, reason: 'duplicate', work_item_id: previous.work_item_id });
+        continue;
+      }
+
+      // Latest row doesn't match, but this exact (project, path, hash)
+      // triple may still exist in history (e.g. plan was edited then
+      // reverted). Short-circuit to avoid a UNIQUE collision in SENSE.
+      const reverted = findByContentHash(project_id, filePath, hash);
+      if (reverted) {
+        skipped.push({ plan_path: filePath, reason: 'reverted_to_prior_hash', work_item_id: reverted.work_item_id });
         continue;
       }
 
