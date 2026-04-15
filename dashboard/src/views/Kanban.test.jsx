@@ -349,9 +349,18 @@ describe('Kanban', () => {
 
     renderWithProviders(<Kanban />, { route: '/' });
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Advance' }));
+    // LoopControlBar loads instances via an async effect; wait for the bar
+    // and the instance card to render before clicking Advance, otherwise the
+    // button handler resolves the instance id before mocks have settled.
+    await screen.findByText('Factory Loop');
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('loop-instance-card')).toBeInTheDocument();
+    });
+    const advanceBtn = await screen.findByRole('button', { name: 'Advance' });
 
-    await waitFor(() => {
+    fireEvent.click(advanceBtn);
+
+    await vi.waitFor(() => {
       expect(factoryApi.advanceLoopInstance).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
     });
   });
