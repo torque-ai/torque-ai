@@ -842,7 +842,7 @@ describe('factory loop work-item shipping', () => {
     factoryDecisions.recordDecision({
       project_id: project.id,
       stage: 'prioritize',
-      actor: 'system',
+      actor: 'planner',
       action: 'selected_work_item',
       reasoning: 'prior loop pick',
       inputs: {},
