@@ -1362,24 +1362,80 @@ function tryGetLoopWorkItem(project_id, options = {}) {
   return null;
 }
 
+function healAlreadyShippedWorkItem(project_id, item) {
+  // Self-heal: if an open work item already has a merged factory_worktrees
+  // row, its EXECUTE batch shipped but the work-item status update didn't
+  // land (crash between markMerged and updateWorkItem, or loop interrupted
+  // at LEARN). Advance the item to 'shipped' now so PRIORITIZE won't
+  // re-pick it and trigger a duplicate EXECUTE.
+  try {
+    const latest = factoryWorktrees.getLatestWorktreeForWorkItem(project_id, item.id);
+    if (!latest || latest.status !== 'merged') {
+      return null;
+    }
+    const healed = factoryIntake.updateWorkItem(item.id, { status: 'shipped' });
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.PRIORITIZE,
+      action: 'healed_already_shipped',
+      reasoning: 'Self-heal: work item had a merged factory worktree but status was non-terminal. Advancing to shipped before PRIORITIZE re-picks.',
+      inputs: {
+        work_item_id: item.id,
+        previous_status: item.status,
+      },
+      outcome: {
+        work_item_id: item.id,
+        previous_status: item.status,
+        new_status: 'shipped',
+        factory_worktree_id: latest.id,
+        branch: latest.branch,
+        merged_at: latest.mergedAt || latest.merged_at || null,
+      },
+      confidence: 1,
+      batch_id: latest.batchId || latest.batch_id || null,
+    });
+    return healed;
+  } catch (err) {
+    logger.warn('factory self-heal check for merged worktree failed', {
+      project_id,
+      work_item_id: item?.id,
+      err: err.message,
+    });
+    return null;
+  }
+}
+
 function claimNextWorkItemForInstance(project_id, instance_id) {
   const openItems = factoryIntake.listOpenWorkItems({ project_id, limit: 100 });
   if (!Array.isArray(openItems) || openItems.length === 0) {
     return { openItems: [], workItem: null };
   }
 
+  // Pre-pass: heal any items whose worktrees already merged. These must not
+  // be considered for PRIORITIZE — they already shipped; the EXECUTE was
+  // just never closed out cleanly.
+  const survivors = [];
+  for (const item of openItems) {
+    if (!item) continue;
+    const healed = healAlreadyShippedWorkItem(project_id, item);
+    if (healed) {
+      continue; // dropped from candidates
+    }
+    survivors.push(item);
+  }
+
   const orderedCandidates = [];
   for (const status of WORK_ITEM_STATUS_ORDER) {
-    orderedCandidates.push(...openItems.filter((item) => item && item.status === status));
+    orderedCandidates.push(...survivors.filter((item) => item && item.status === status));
   }
-  orderedCandidates.push(...openItems.filter((item) => !orderedCandidates.includes(item)));
+  orderedCandidates.push(...survivors.filter((item) => !orderedCandidates.includes(item)));
 
   for (const item of orderedCandidates) {
     if (!item) {
       continue;
     }
     if (item.claimed_by_instance_id === instance_id) {
-      return { openItems, workItem: item };
+      return { openItems: survivors, workItem: item };
     }
     if (item.claimed_by_instance_id) {
       continue;
@@ -1387,11 +1443,11 @@ function claimNextWorkItemForInstance(project_id, instance_id) {
 
     const claimed = factoryIntake.claimWorkItem(item.id, instance_id);
     if (claimed) {
-      return { openItems, workItem: claimed };
+      return { openItems: survivors, workItem: claimed };
     }
   }
 
-  return { openItems, workItem: null };
+  return { openItems: survivors, workItem: null };
 }
 
 function getCreatedAtValue(item) {

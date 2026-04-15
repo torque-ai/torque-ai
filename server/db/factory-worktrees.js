@@ -215,6 +215,28 @@ function markAbandoned(id, reason) {
   }
 }
 
+function getLatestWorktreeForWorkItem(project_id, work_item_id) {
+  try {
+    const row = getDb().prepare(`
+      SELECT *
+      FROM factory_worktrees
+      WHERE project_id = ?
+        AND work_item_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `).get(
+      requireText(project_id, 'project_id'),
+      requireInteger(work_item_id, 'work_item_id'),
+    );
+    return parseWorktree(row);
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 function listActiveWorktrees() {
   try {
     return getDb().prepare(`
@@ -237,6 +259,7 @@ module.exports = {
   getActiveWorktree,
   getActiveWorktreeByBatch,
   getWorktreeByBranch,
+  getLatestWorktreeForWorkItem,
   markMerged,
   markAbandoned,
   listActiveWorktrees,

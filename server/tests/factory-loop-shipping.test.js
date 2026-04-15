@@ -739,4 +739,70 @@ describe('factory loop work-item shipping', () => {
       }),
     });
   });
+
+  it('self-heals a work item that has a merged worktree but non-terminal status before PRIORITIZE picks it', async () => {
+    // Simulates the incident where a worktree merged to main but the LEARN
+    // status-update step didn't land (crash/restart/loop interrupted). The
+    // item stays at 'in_progress' in intake while factory_worktrees shows
+    // merged. On the next loop tick, PRIORITIZE must heal the item to
+    // 'shipped' instead of re-picking it and triggering a duplicate EXECUTE.
+    const project = factoryHealth.registerProject({
+      name: `Factory Self Heal ${Date.now()}`,
+      path: `/tmp/factory-self-heal-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      trust_level: 'supervised',
+    });
+
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'manual',
+      title: 'Already shipped but status drifted',
+      description: 'Worktree merged; status never advanced.',
+      requestor: 'test',
+    });
+    factoryIntake.updateWorkItem(workItem.id, { status: 'in_progress' });
+
+    const worktreeRow = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: `factory-${project.id}-${workItem.id}`,
+      vc_worktree_id: 'vc-worktree-already-merged',
+      branch: `feat/factory-${workItem.id}-self-heal`,
+      worktree_path: `/tmp/self-heal-${workItem.id}`,
+    });
+    factoryWorktrees.markMerged(worktreeRow.id);
+
+    loopController.startLoopForProject(project.id);
+    const senseAdvance = await loopController.advanceLoopForProject(project.id);
+    expect(senseAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
+
+    loopController.approveGateForProject(project.id, LOOP_STATES.PRIORITIZE);
+    const prioritizeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    // After heal, item is shipped; PRIORITIZE found no open items.
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'shipped',
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    const healedEntry = decisions.find((row) => row.action === 'healed_already_shipped');
+    expect(healedEntry).toBeTruthy();
+    expect(healedEntry.outcome).toMatchObject({
+      work_item_id: workItem.id,
+      previous_status: 'in_progress',
+      new_status: 'shipped',
+      factory_worktree_id: worktreeRow.id,
+    });
+
+    const selectedEntry = decisions.find((row) => row.stage === 'prioritize' && row.action === 'selected_work_item');
+    expect(selectedEntry).toBeTruthy();
+    expect(selectedEntry.outcome).toMatchObject({
+      selection_status: 'not_found',
+    });
+
+    // Item must not have been re-claimed — there's no instance to re-execute it.
+    expect(factoryIntake.getWorkItem(workItem.id).claimed_by_instance_id).toBeFalsy();
+    // Keep prioritizeAdvance referenced so the assertion chain is complete.
+    expect(prioritizeAdvance).toBeTruthy();
+  });
 });
