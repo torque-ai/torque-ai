@@ -32,7 +32,7 @@ Create `server/tests/handoff.test.js`:
 
 ```js
 'use strict';
-const { describe, it, expect } = require('vitest');
+import { describe, it, expect } from 'vitest';
 const { createHandoff, isHandoff } = require('../crew/handoff');
 
 describe('handoff', () => {
@@ -65,7 +65,7 @@ Create `server/tests/context-variables.test.js`:
 
 ```js
 'use strict';
-const { describe, it, expect } = require('vitest');
+import { describe, it, expect } from 'vitest';
 const { createContextVariables } = require('../crew/context-variables');
 
 describe('contextVariables', () => {
@@ -152,7 +152,7 @@ Create `server/tests/crew-handoff-runner.test.js`:
 
 ```js
 'use strict';
-const { describe, it, expect } = require('vitest');
+import { describe, it, expect } from 'vitest';
 const { runCrewTurn } = require('../crew/crew-runner'); // already exists from Plan 26
 const { createHandoff } = require('../crew/handoff');
 
