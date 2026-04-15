@@ -289,8 +289,47 @@ function createWorktreeManager({ db } = {}) {
     return String(runGit(worktreePath, ['status', '--porcelain'])).trim();
   }
 
+  function renormalizeLineEndings(worktreePath) {
+    // On Windows + remote Linux test runs (torque-remote), vitest's rsync or
+    // git's autocrlf can leave every file in the worktree flagged as
+    // modified purely because of CRLF/LF drift. Stage a renormalize pass
+    // and commit it if anything lands — that converts meaningless
+    // whitespace churn into a single bookkeeping commit so the downstream
+    // clean check can tell real edits from line-ending noise.
+    try {
+      runGit(worktreePath, ['add', '--renormalize', '.']);
+    } catch (_err) {
+      void _err;
+      return { committed: false, reason: 'renormalize_failed' };
+    }
+    const staged = String(runGit(worktreePath, ['diff', '--cached', '--name-only'])).trim();
+    if (!staged) {
+      return { committed: false, reason: 'nothing_to_renormalize' };
+    }
+    try {
+      runGit(worktreePath, [
+        'commit',
+        '-m',
+        'chore: normalize line endings (factory auto-commit)',
+      ]);
+      return { committed: true, files: staged.split('\n').filter(Boolean) };
+    } catch (_err) {
+      void _err;
+      return { committed: false, reason: 'commit_failed' };
+    }
+  }
+
   function assertWorktreeIsClean(worktreePath, action) {
-    const status = getWorktreeStatusPorcelain(worktreePath);
+    let status = getWorktreeStatusPorcelain(worktreePath);
+    if (!status) {
+      return;
+    }
+
+    // First attempt: renormalize line endings and re-check. If the only
+    // "uncommitted changes" were CRLF/LF drift, the worktree becomes
+    // clean after the auto-normalize commit.
+    renormalizeLineEndings(worktreePath);
+    status = getWorktreeStatusPorcelain(worktreePath);
     if (!status) {
       return;
     }

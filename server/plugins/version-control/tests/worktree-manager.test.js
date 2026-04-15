@@ -631,6 +631,43 @@ describe('version-control worktree manager (real git integration)', () => {
     expect(manager.getWorktree(created.id)).not.toBeNull();
   });
 
+  it('mergeWorktree auto-commits line-ending drift before the clean check (Windows + remote Linux test runs)', () => {
+    const repoPath = initGitRepo();
+    // Enable autocrlf on this test repo so the renormalize pass has something
+    // to do — this mirrors a Windows dev checkout that received LF files
+    // from a Linux vitest runner via torque-remote.
+    runRealGit(repoPath, ['config', 'core.autocrlf', 'true']);
+    const created = manager.createWorktree(repoPath, 'crlf drift');
+    runRealGit(created.worktree_path, ['config', 'core.autocrlf', 'true']);
+
+    // Seed a feature commit using LF line endings in the worktree's index.
+    const featurePath = path.join(created.worktree_path, 'feature.txt');
+    fs.writeFileSync(featurePath, 'feature line 1\nfeature line 2\n');
+    runRealGit(created.worktree_path, ['add', 'feature.txt']);
+    runRealGit(created.worktree_path, ['commit', '-m', 'add feature']);
+
+    // Now rewrite the file with CRLF — simulates the drift a remote Linux
+    // test runner can leave behind after syncing back to a Windows worktree.
+    fs.writeFileSync(featurePath, 'feature line 1\r\nfeature line 2\r\n');
+    const dirtyStatus = runRealGit(created.worktree_path, ['status', '--porcelain']).trim();
+    expect(dirtyStatus).toMatch(/feature\.txt/);
+
+    const result = manager.mergeWorktree(created.id, { deleteAfter: false });
+
+    expect(result).toMatchObject({
+      merged: true,
+      branch: created.branch,
+      target_branch: 'main',
+      strategy: 'merge',
+    });
+
+    // Main received the feature + the line-ending normalization commit.
+    const log = runRealGit(repoPath, ['log', '--pretty=%s', 'main']).trim();
+    expect(log).toMatch(/add feature/);
+    // The auto-commit message is recorded when any renormalization landed.
+    expect(log).toMatch(/(add feature|normalize line endings)/);
+  });
+
   it('mergeWorktree succeeds when the worktree branch is ahead and clean', () => {
     const repoPath = initGitRepo();
     const created = manager.createWorktree(repoPath, 'clean merge');
