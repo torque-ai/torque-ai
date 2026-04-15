@@ -770,17 +770,15 @@ describe('factory loop-controller EXECUTE modes', () => {
         branch: 'feat/factory-verify-retry',
         worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-retry'),
       })),
+      // Auto-retry budget is 2 (total 3 verify calls). Fail the first
+      // three to exhaust auto-retries and land on VERIFY_FAIL, then
+      // have the operator's manual retryVerifyFromFailure pass on the
+      // fourth call.
       verify: vi.fn()
-        .mockResolvedValueOnce({
-          passed: false,
-          output: 'tests failed',
-          durationMs: 19,
-        })
-        .mockResolvedValueOnce({
-          passed: true,
-          output: 'tests passed',
-          durationMs: 17,
-        }),
+        .mockResolvedValueOnce({ passed: false, output: 'tests failed 1', durationMs: 19 })
+        .mockResolvedValueOnce({ passed: false, output: 'tests failed 2', durationMs: 19 })
+        .mockResolvedValueOnce({ passed: false, output: 'tests failed 3', durationMs: 19 })
+        .mockResolvedValueOnce({ passed: true, output: 'tests passed', durationMs: 17 }),
       mergeToMain: vi.fn(),
       abandon: vi.fn(),
     };
@@ -804,12 +802,16 @@ describe('factory loop-controller EXECUTE modes', () => {
 
     const failedVerify = await loopController.advanceLoopForProject(project.id);
     expect(failedVerify.paused_at_stage).toBe('VERIFY_FAIL');
-    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+    // 1 initial + 2 auto-retries before pausing for operator.
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(3);
 
     loopController.retryVerifyFromFailureForProject(project.id);
     const retriedVerify = await loopController.advanceLoopForProject(project.id);
 
-    expect(worktreeRunner.verify).toHaveBeenCalledTimes(2);
+    // Operator retry fires another round; with auto-retry still in play
+    // this could run up to 3 more times, but the mock now passes on
+    // the very next call.
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(4);
     expect(retriedVerify.previous_state).toBe(LOOP_STATES.VERIFY);
     expect(retriedVerify.new_state).toBe(LOOP_STATES.LEARN);
     expect(retriedVerify.paused_at_stage).toBeNull();
