@@ -606,7 +606,10 @@ describe('factory loop-controller EXECUTE modes', () => {
 
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
-    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+    // Auto-retry kicks in: initial verify + 2 retries = 3 calls total
+    // before the factory gives up and pauses at VERIFY_FAIL. Each retry
+    // submits a fix task to Codex via handleSmartSubmitTask and awaits it.
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(3);
     expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
     expect(verifyAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(verifyAdvance.paused_at_stage).toBe('VERIFY_FAIL');
@@ -615,6 +618,74 @@ describe('factory loop-controller EXECUTE modes', () => {
       loop_state: LOOP_STATES.PAUSED,
       loop_paused_at_stage: 'VERIFY_FAIL',
     });
+    const retryDecisions = listDecisionRows(db, project.id).filter(
+      (d) => d.action === 'verify_retry_submitted' || d.action === 'verify_retry_task_completed',
+    );
+    // 2 submitted + 2 completed = 4 retry decisions expected.
+    expect(retryDecisions.length).toBe(4);
+  });
+
+  it('auto-retries a failing VERIFY and ships when the second attempt passes', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    let verifyCall = 0;
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-retry',
+        branch: 'feat/factory-verify-retry',
+        worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-retry'),
+      })),
+      verify: vi.fn(async () => {
+        verifyCall += 1;
+        // First attempt fails, second attempt (after the retry fix task)
+        // passes — simulates Codex successfully healing the verify.
+        return verifyCall === 1
+          ? { passed: false, output: 'alignment drift detected', durationMs: 22 }
+          : { passed: true, output: 'ok', durationMs: 22 };
+      }),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedTaskCount += 1;
+      const taskId = `approval-or-retry-task-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: args.initial_status || 'pending_approval',
+      });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+    // Complete pending-approval task so VERIFY can enter.
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-or-retry-task-1');
+    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
+
+    // Verify was called twice: first failed, then auto-retry task ran,
+    // then verify called again and passed.
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(2);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.LEARN);
+    expect(verifyAdvance.paused_at_stage).toBeNull();
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'verify_retry_submitted')).toMatchObject({
+      outcome: expect.objectContaining({ attempt: 1, max_retries: 2 }),
+    });
+    expect(decisions.find((d) => d.action === 'verify_retry_task_completed')).toMatchObject({
+      outcome: expect.objectContaining({ attempt: 1 }),
+    });
+    const passed = decisions.filter((d) => d.action === 'worktree_verify_passed').pop();
+    expect(passed).toMatchObject({
+      outcome: expect.objectContaining({ retry_attempt: 1 }),
+    });
+    // No pause at VERIFY_FAIL.
+    expect(decisions.find((d) => d.action === 'worktree_verify_failed')).toBeUndefined();
   });
 
   it('throws when retryVerifyFromFailure is called outside VERIFY_FAIL', () => {

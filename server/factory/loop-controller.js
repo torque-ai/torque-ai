@@ -2770,6 +2770,121 @@ async function executePlanFileStage(project, instance, workItem) {
   };
 }
 
+const MAX_AUTO_VERIFY_RETRIES = 2;
+
+function stripAnsi(text) {
+  return typeof text === 'string'
+    ? text.replace(/\u001b\[[0-9;]*m/g, '')
+    : '';
+}
+
+function buildVerifyFixPrompt({ planPath, planTitle, branch, verifyCommand, verifyOutput }) {
+  const tail = stripAnsi(String(verifyOutput || '')).slice(-4000);
+  const lines = [
+    `Plan: ${planTitle || '(unknown)'}`,
+    planPath ? `Plan path: ${planPath}` : null,
+    `Factory branch: ${branch}`,
+    `Verify command: ${verifyCommand}`,
+    '',
+    'The plan tasks for this batch were implemented, but the verify step failed. Read the error output below and make the minimum changes needed to turn the failures green. Common issues: a test that references a module the plan forgot to update, an alignment/invariant test that needs the new entry registered, a stale snapshot, a missing import, a type mismatch, or a lint rule violation.',
+    '',
+    'Constraints:',
+    '- Edit only files in this worktree.',
+    '- Do NOT revert the plan\'s intended changes — fix forward.',
+    '- Prefer updating the failing test assertions ONLY if the plan is clearly the authoritative spec and the test is out of date. Otherwise update the production code so the test passes.',
+    '- Do not run the full verify suite yourself. Targeted re-runs of the specific failing file are fine.',
+    '',
+    'Verify output (tail):',
+    '```',
+    tail,
+    '```',
+    '',
+    'After making the edits, stop.',
+  ].filter((x) => x !== null);
+  return lines.join('\n');
+}
+
+async function submitVerifyFixTask({
+  project_id,
+  batch_id,
+  worktreeRecord,
+  workItem,
+  verifyCommand,
+  verifyOutput,
+  attempt,
+}) {
+  const { handleSmartSubmitTask } = require('../handlers/integration/routing');
+  const { handleAwaitTask } = require('../handlers/workflow/await');
+  const taskCore = require('../db/task-core');
+
+  const project = factoryHealth.getProject(project_id);
+  const planPath = workItem?.origin?.plan_path || null;
+  const planTitle = workItem?.title || workItem?.origin?.title || null;
+
+  const prompt = buildVerifyFixPrompt({
+    planPath,
+    planTitle,
+    branch: worktreeRecord.branch,
+    verifyCommand,
+    verifyOutput,
+  });
+
+  const tags = [
+    `factory:batch_id=${batch_id}`,
+    `factory:work_item_id=${workItem?.id ?? 'unknown'}`,
+    `factory:verify_retry=${attempt}`,
+  ];
+
+  safeLogDecision({
+    project_id,
+    stage: LOOP_STATES.VERIFY,
+    action: 'verify_retry_submitted',
+    reasoning: `Auto-retry #${attempt}: submitting a fix task to Codex with the verify error as context.`,
+    inputs: {
+      branch: worktreeRecord.branch,
+      attempt,
+      plan_path: planPath,
+    },
+    outcome: {
+      attempt,
+      branch: worktreeRecord.branch,
+      max_retries: MAX_AUTO_VERIFY_RETRIES,
+    },
+    confidence: 1,
+    batch_id,
+  });
+
+  let submission;
+  try {
+    submission = await handleSmartSubmitTask({
+      task: prompt,
+      project: project?.name,
+      working_directory: worktreeRecord.worktreePath,
+      tags,
+      task_metadata: {
+        plan_path: planPath,
+        plan_title: planTitle,
+        factory_retry_attempt: attempt,
+        factory_batch_id: batch_id,
+      },
+    });
+  } catch (err) {
+    return { submitted: false, reason: 'submit_threw', error: err.message };
+  }
+  const task_id = submission?.task_id;
+  if (!task_id) {
+    return { submitted: false, reason: 'no_task_id', error: submission?.content?.[0]?.text || 'submit returned no task_id' };
+  }
+
+  const awaitResult = await awaitTaskToStructuredResult(handleAwaitTask, taskCore, {
+    task_id,
+    verify_command: verifyCommand,
+    working_directory: worktreeRecord.worktreePath,
+  });
+
+  return { submitted: true, task_id, awaitStatus: awaitResult.status, verifyStatus: awaitResult.verify_status, error: awaitResult.error };
+}
+
 async function executeVerifyStage(project_id, batch_id, instance = null) {
   // First: run worktree remote verification if there's an active factory
   // worktree for this project. Failure here blocks the loop from reaching
@@ -2821,51 +2936,145 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
     const project = factoryHealth.getProject(project_id);
     const verifyCommand = (project && project.config && project.config.verify_command)
       || 'cd server && npx vitest run';
+
+    // Pull the associated work item so the retry prompt can reference the
+    // plan. Best-effort: if we can't resolve it, the retry still runs
+    // with less context.
+    let workItemForRetry = null;
     try {
-      const res = await worktreeRunner.verify({
-        worktreePath: worktreeRecord.worktreePath,
-        branch: worktreeRecord.branch,
-        verifyCommand,
-      });
-      if (res.passed) {
-        safeLogDecision({
-          project_id,
-          stage: LOOP_STATES.VERIFY,
-          action: 'worktree_verify_passed',
-          reasoning: `Worktree remote verify passed for branch ${worktreeRecord.branch}.`,
-          outcome: {
-            branch: worktreeRecord.branch,
-            worktree_path: worktreeRecord.worktreePath,
-            duration_ms: res.durationMs,
-            verify_command: verifyCommand,
-          },
-          confidence: 1,
-          batch_id,
-        });
-      } else {
-        safeLogDecision({
-          project_id,
-          stage: LOOP_STATES.VERIFY,
-          action: 'worktree_verify_failed',
-          reasoning: `Worktree remote verify FAILED for branch ${worktreeRecord.branch}; pausing loop at VERIFY_FAIL.`,
-          outcome: {
-            branch: worktreeRecord.branch,
-            worktree_path: worktreeRecord.worktreePath,
-            duration_ms: res.durationMs,
-            verify_command: verifyCommand,
-            output_preview: String(res.output || '').slice(-1500),
-          },
-          confidence: 1,
-          batch_id,
-        });
-        return {
-          status: 'failed',
-          reason: 'worktree_verify_failed',
-          pause_at_stage: 'VERIFY_FAIL',
+      if (instance && instance.work_item_id) {
+        workItemForRetry = factoryIntake.getWorkItem(instance.work_item_id);
+      } else if (worktreeRecord.workItemId) {
+        workItemForRetry = factoryIntake.getWorkItem(worktreeRecord.workItemId);
+      }
+    } catch (_err) {
+      workItemForRetry = null;
+    }
+
+    // Auto-retry: if verify fails, submit a fix task to Codex with the
+    // error output as context, then re-run verify. Bounded at
+    // MAX_AUTO_VERIFY_RETRIES. If still failing after that, fall
+    // through to pausing at VERIFY_FAIL so the operator takes over.
+    let res = null;
+    let retryAttempt = 0;
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        res = await worktreeRunner.verify({
+          worktreePath: worktreeRecord.worktreePath,
           branch: worktreeRecord.branch,
-          worktree_path: worktreeRecord.worktreePath,
-          verify_output: String(res.output || '').slice(-1500),
-        };
+          verifyCommand,
+        });
+        if (res.passed) {
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.VERIFY,
+            action: 'worktree_verify_passed',
+            reasoning: `Worktree remote verify passed for branch ${worktreeRecord.branch}${retryAttempt > 0 ? ` (after ${retryAttempt} retry attempt${retryAttempt === 1 ? '' : 's'})` : ''}.`,
+            outcome: {
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+              duration_ms: res.durationMs,
+              verify_command: verifyCommand,
+              retry_attempt: retryAttempt,
+            },
+            confidence: 1,
+            batch_id,
+          });
+          break;
+        }
+        if (retryAttempt >= MAX_AUTO_VERIFY_RETRIES) {
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.VERIFY,
+            action: 'worktree_verify_failed',
+            reasoning: `Worktree remote verify FAILED for branch ${worktreeRecord.branch} after ${retryAttempt} auto-retry attempt${retryAttempt === 1 ? '' : 's'}; pausing loop at VERIFY_FAIL.`,
+            outcome: {
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+              duration_ms: res.durationMs,
+              verify_command: verifyCommand,
+              output_preview: String(res.output || '').slice(-1500),
+              retry_attempts: retryAttempt,
+            },
+            confidence: 1,
+            batch_id,
+          });
+          return {
+            status: 'failed',
+            reason: 'worktree_verify_failed',
+            pause_at_stage: 'VERIFY_FAIL',
+            branch: worktreeRecord.branch,
+            worktree_path: worktreeRecord.worktreePath,
+            verify_output: String(res.output || '').slice(-1500),
+            retry_attempts: retryAttempt,
+          };
+        }
+        retryAttempt += 1;
+        const retryResult = await submitVerifyFixTask({
+          project_id,
+          batch_id,
+          worktreeRecord,
+          workItem: workItemForRetry,
+          verifyCommand,
+          verifyOutput: res.output,
+          attempt: retryAttempt,
+        });
+        if (!retryResult.submitted || retryResult.awaitStatus !== 'completed') {
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.VERIFY,
+            action: 'verify_retry_task_failed',
+            reasoning: `Auto-retry #${retryAttempt} task did not complete successfully; abandoning retry loop and pausing at VERIFY_FAIL.`,
+            outcome: {
+              attempt: retryAttempt,
+              submitted: retryResult.submitted,
+              reason: retryResult.reason || retryResult.awaitStatus || null,
+              error: retryResult.error || null,
+              branch: worktreeRecord.branch,
+            },
+            confidence: 1,
+            batch_id,
+          });
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.VERIFY,
+            action: 'worktree_verify_failed',
+            reasoning: `Worktree remote verify FAILED and auto-retry #${retryAttempt} did not produce a completed task; pausing loop at VERIFY_FAIL.`,
+            outcome: {
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+              duration_ms: res.durationMs,
+              verify_command: verifyCommand,
+              output_preview: String(res.output || '').slice(-1500),
+              retry_attempts: retryAttempt,
+            },
+            confidence: 1,
+            batch_id,
+          });
+          return {
+            status: 'failed',
+            reason: 'worktree_verify_failed_retry_task_error',
+            pause_at_stage: 'VERIFY_FAIL',
+            branch: worktreeRecord.branch,
+            worktree_path: worktreeRecord.worktreePath,
+            verify_output: String(res.output || '').slice(-1500),
+            retry_attempts: retryAttempt,
+          };
+        }
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.VERIFY,
+          action: 'verify_retry_task_completed',
+          reasoning: `Auto-retry #${retryAttempt} task completed; re-running remote verify.`,
+          outcome: {
+            attempt: retryAttempt,
+            task_id: retryResult.task_id,
+            branch: worktreeRecord.branch,
+          },
+          confidence: 1,
+          batch_id,
+        });
       }
     } catch (err) {
       logger.warn('worktree verify threw; treating as verify failure', {
