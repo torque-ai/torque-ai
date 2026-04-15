@@ -10,9 +10,9 @@
 
 ---
 
-> See `docs/superpowers/plan-authoring.md` for the alignment checklist.
+The existing simple MCP budget surface stays in place. `set_budget` and `get_budget_status` continue to use the current cost-tracking/budget-watcher flow and must remain backward-compatible. The new scope-aware surface is additive: use `set_scope_budget`, `get_scope_spend`, and `list_scope_budgets`. Do not introduce a second `set_budget`, and do not reuse the earlier draft names `get_spend` / `list_budgets`.
 
----
+Keep the new passthrough routes under the existing `validation` domain (`set-scope-budget`, `get-scope-spend`, `list-scope-budgets`) so `server/tests/rest-passthrough-coverage.test.js` stays on a known domain segment and no new `EXPECTED_DOMAINS` entry is needed.
 
 ## File Structure
 
@@ -20,388 +20,195 @@
 - `server/migrations/0NN-budget-tracker.sql`
 - `server/billing/budget-tracker.js`
 - `server/billing/budget-aware-router.js`
-- `server/billing/provider-pricing.js` — price table per provider/model
+- `server/billing/provider-pricing.js`
 - `server/tests/budget-tracker.test.js`
 - `server/tests/budget-aware-router.test.js`
+- `server/tests/provider-pricing.test.js`
 
 **Modified files:**
-- `server/execution/provider-router.js` — consult budget before provider choice
-- `server/execution/task-finalizer.js` — record spend after completion
+- `server/container.js`
+- `server/execution/provider-router.js`
+- `server/execution/task-finalizer.js`
+- `server/tool-defs/validation-defs.js`
+- `server/handlers/validation/index.js`
+- `server/tool-annotations.js`
+- `server/core-tools.js`
+- `server/tool-output-schemas.js`
+- `server/api/routes-passthrough.js`
+- `server/tests/rest-passthrough-coverage.test.js`
+- `server/tests/schema-tables.test.js`
+- `server/tests/schema-migrations.test.js`
+- `server/tests/vitest-setup.js`
+- `server/tests/test-container-helper.js`
+- `server/tests/validation-cost-handlers.test.js`
+- `server/tests/validation-handlers.test.js`
+- `server/tests/provider-failover.test.js`
+- `server/tests/task-finalizer.test.js`
 
----
+## Task 0: Companion-file updates
 
-## Task 1: Budget tracker
+- [ ] **Step 0a: Register tool def** in `server/tool-defs/validation-defs.js` — add `set_scope_budget`, `get_scope_spend`, and `list_scope_budgets`; do not rename or alter the existing `set_budget`
+- [ ] **Step 0b: Add annotations** in `server/tool-annotations.js` for each new tool name (readOnlyHint, destructiveHint, idempotentHint, openWorldHint — match style of nearby entries)
+- [ ] **Step 0c: Expose in tier** in `server/core-tools.js` (`CORE_TOOL_NAMES`, `EXTENDED_TOOL_NAMES` on current main; use the appropriate tier)
+- [ ] **Step 0d: Output schema** in `server/tool-output-schemas.js` if the tool returns structured data; include the tool name in the EXPECTED list is no longer needed (property-based now)
+- [ ] **Step 0e: REST passthrough route** in `server/api/routes-passthrough.js` if the tool should be reachable over v2 REST; new domain segment must be added to `EXPECTED_DOMAINS` in `server/tests/rest-passthrough-coverage.test.js`
+- [ ] **Step 0f: Study-context schema** — if this tool emits task_description-like content, no-op; otherwise verify no new required fields the validation surface depends on
 
-- [ ] **Step 1: Migration**
+Task 4 completes Task 0a-0f for each new tool. The old `set_budget` tool, its current route, and its existing tests remain in place except where shared wiring must continue to pass legacy behavior.
 
-`server/migrations/0NN-budget-tracker.sql`:
+After making the edits, stop.
 
-```sql
-CREATE TABLE IF NOT EXISTS budget_limits (
-  scope_type TEXT NOT NULL,         -- 'tenant' | 'user' | 'project' | 'domain' | 'global'
-  scope_id TEXT NOT NULL,
-  window TEXT NOT NULL,             -- 'daily' | 'weekly' | 'monthly' | 'total'
-  amount_usd REAL NOT NULL,
-  warn_at_fraction REAL DEFAULT 0.8,
-  hard_cap INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  PRIMARY KEY (scope_type, scope_id, window)
-);
+## Task 1: Budget tracker foundation
 
-CREATE TABLE IF NOT EXISTS spend_records (
-  record_id TEXT PRIMARY KEY,
-  scope_type TEXT NOT NULL,
-  scope_id TEXT NOT NULL,
-  task_id TEXT,
-  provider TEXT NOT NULL,
-  model TEXT,
-  prompt_tokens INTEGER NOT NULL DEFAULT 0,
-  completion_tokens INTEGER NOT NULL DEFAULT 0,
-  amount_usd REAL NOT NULL,
-  occurred_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
+- [ ] **Step 1: Add the migration and schema expectations**
 
-CREATE INDEX IF NOT EXISTS idx_spend_scope_time ON spend_records(scope_type, scope_id, occurred_at);
-```
+    CREATE TABLE IF NOT EXISTS budget_limits (
+      scope_type TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      window TEXT NOT NULL,
+      amount_usd REAL NOT NULL,
+      warn_at_fraction REAL NOT NULL DEFAULT 0.8,
+      hard_cap INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (scope_type, scope_id, window)
+    );
 
-- [ ] **Step 2: Tests**
+    CREATE TABLE IF NOT EXISTS spend_records (
+      record_id TEXT PRIMARY KEY,
+      scope_type TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      task_id TEXT,
+      provider TEXT NOT NULL,
+      model TEXT,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      amount_usd REAL NOT NULL,
+      occurred_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
 
-Create `server/tests/budget-tracker.test.js`:
+    CREATE INDEX IF NOT EXISTS idx_spend_scope_time
+      ON spend_records(scope_type, scope_id, occurred_at);
 
-```js
-'use strict';
-const { describe, it, expect, beforeEach } = require('vitest');
-const { setupTestDb } = require('./helpers/test-db');
-const { createBudgetTracker } = require('../billing/budget-tracker');
+    Update `server/tests/schema-tables.test.js` and `server/tests/schema-migrations.test.js` in the same task so the new tables/indexes are part of the enforced schema inventory. Also update `server/tests/vitest-setup.js` so the test DB creates `budget_limits` and `spend_records` before any handler or router tests run.
 
-describe('budgetTracker', () => {
-  let db, tracker;
-  beforeEach(() => {
-    db = setupTestDb();
-    tracker = createBudgetTracker({ db });
-  });
+- [ ] **Step 2: Implement `server/billing/budget-tracker.js`**
 
-  it('setLimit + getLimit roundtrips', () => {
-    tracker.setLimit({ scopeType: 'tenant', scopeId: 'acme', window: 'monthly', amountUsd: 1000 });
-    const lim = tracker.getLimit({ scopeType: 'tenant', scopeId: 'acme', window: 'monthly' });
-    expect(lim.amount_usd).toBe(1000);
-  });
+    Create `createBudgetTracker({ db })` with `setLimit`, `getLimit`, `recordSpend`, `spendForWindow`, `remaining`, `shouldWarn`, and `isOver`. Keep scope arguments named `scopeType` / `scopeId`, support `tenant`, `user`, `project`, `domain`, and `global`, and keep "no configured limit" semantics as `Infinity` for `remaining(...)`.
 
-  it('recordSpend accumulates + spendForWindow sums correctly', () => {
-    tracker.recordSpend({ scopeType: 'tenant', scopeId: 'acme', provider: 'codex', amountUsd: 1.5 });
-    tracker.recordSpend({ scopeType: 'tenant', scopeId: 'acme', provider: 'codex', amountUsd: 2.0 });
-    expect(tracker.spendForWindow({ scopeType: 'tenant', scopeId: 'acme', window: 'monthly' })).toBe(3.5);
-  });
+- [ ] **Step 3: Add tracker tests**
 
-  it('spendForWindow=daily only counts today', () => {
-    tracker.recordSpend({ scopeType: 'tenant', scopeId: 'a', provider: 'p', amountUsd: 1 });
-    db.prepare(`UPDATE spend_records SET occurred_at = datetime('now', '-2 days')`).run();
-    expect(tracker.spendForWindow({ scopeType: 'tenant', scopeId: 'a', window: 'daily' })).toBe(0);
-  });
+    Add `server/tests/budget-tracker.test.js` covering limit roundtrips, daily/monthly window aggregation, warning threshold behavior, hard-cap comparisons, and the no-limit path. Do not fold the legacy `set_budget` tests into this file; this is the new scoped storage layer only.
 
-  it('remaining returns limit - spent, or Infinity when no limit', () => {
-    tracker.setLimit({ scopeType: 'tenant', scopeId: 'a', window: 'monthly', amountUsd: 100 });
-    tracker.recordSpend({ scopeType: 'tenant', scopeId: 'a', provider: 'p', amountUsd: 30 });
-    expect(tracker.remaining({ scopeType: 'tenant', scopeId: 'a', window: 'monthly' })).toBe(70);
-    expect(tracker.remaining({ scopeType: 'tenant', scopeId: 'nope', window: 'monthly' })).toBe(Infinity);
-  });
+After making the edits, stop.
 
-  it('shouldWarn returns true when spent >= warn_at_fraction × limit', () => {
-    tracker.setLimit({ scopeType: 'tenant', scopeId: 'a', window: 'monthly', amountUsd: 100, warnAtFraction: 0.8 });
-    tracker.recordSpend({ scopeType: 'tenant', scopeId: 'a', provider: 'p', amountUsd: 85 });
-    expect(tracker.shouldWarn({ scopeType: 'tenant', scopeId: 'a', window: 'monthly' })).toBe(true);
-  });
+## Task 2: Test container wiring
 
-  it('isOver returns true when spent >= limit', () => {
-    tracker.setLimit({ scopeType: 'tenant', scopeId: 'a', window: 'monthly', amountUsd: 100 });
-    tracker.recordSpend({ scopeType: 'tenant', scopeId: 'a', provider: 'p', amountUsd: 101 });
-    expect(tracker.isOver({ scopeType: 'tenant', scopeId: 'a', window: 'monthly' })).toBe(true);
-  });
-});
-```
+- [ ] **Step 1: Register tracker and router in test bootstrap**
 
-- [ ] **Step 3: Implement**
+    In `server/tests/vitest-setup.js`, once `budget_limits` and `spend_records` exist, add a helper that installs the scoped budget services for the current DB handle. Main currently uses `defaultContainer.registerValue(...)` and `defaultContainer.resetForTest()` rather than `set(...)` / `clear(...)`, so follow the real container API instead of inventing new methods.
 
-Create `server/billing/budget-tracker.js`:
+    const { createBudgetTracker } = require('../billing/budget-tracker');
+    const { createBudgetAwareRouter } = require('../billing/budget-aware-router');
 
-```js
-'use strict';
-const { randomUUID } = require('crypto');
-
-const WINDOW_SQL = {
-  daily:   `occurred_at >= datetime('now', 'start of day')`,
-  weekly:  `occurred_at >= datetime('now', '-7 days')`,
-  monthly: `occurred_at >= datetime('now', 'start of month')`,
-  total:   `1=1`,
-};
-
-function createBudgetTracker({ db }) {
-  function setLimit({ scopeType, scopeId, window, amountUsd, warnAtFraction = 0.8, hardCap = true }) {
-    db.prepare(`
-      INSERT OR REPLACE INTO budget_limits (scope_type, scope_id, window, amount_usd, warn_at_fraction, hard_cap)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(scopeType, scopeId, window, amountUsd, warnAtFraction, hardCap ? 1 : 0);
-  }
-
-  function getLimit({ scopeType, scopeId, window }) {
-    return db.prepare(`SELECT * FROM budget_limits WHERE scope_type = ? AND scope_id = ? AND window = ?`)
-      .get(scopeType, scopeId, window);
-  }
-
-  function recordSpend({ scopeType, scopeId, taskId = null, provider, model = null, promptTokens = 0, completionTokens = 0, amountUsd }) {
-    const id = `spend_${randomUUID().slice(0, 12)}`;
-    db.prepare(`
-      INSERT INTO spend_records (record_id, scope_type, scope_id, task_id, provider, model, prompt_tokens, completion_tokens, amount_usd)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, scopeType, scopeId, taskId, provider, model, promptTokens, completionTokens, amountUsd);
-  }
-
-  function spendForWindow({ scopeType, scopeId, window }) {
-    const where = WINDOW_SQL[window] || WINDOW_SQL.total;
-    const row = db.prepare(`
-      SELECT COALESCE(SUM(amount_usd), 0) AS total
-      FROM spend_records WHERE scope_type = ? AND scope_id = ? AND ${where}
-    `).get(scopeType, scopeId);
-    return row.total;
-  }
-
-  function remaining({ scopeType, scopeId, window }) {
-    const lim = getLimit({ scopeType, scopeId, window });
-    if (!lim) return Infinity;
-    return Math.max(0, lim.amount_usd - spendForWindow({ scopeType, scopeId, window }));
-  }
-
-  function shouldWarn({ scopeType, scopeId, window }) {
-    const lim = getLimit({ scopeType, scopeId, window });
-    if (!lim) return false;
-    return spendForWindow({ scopeType, scopeId, window }) >= lim.amount_usd * lim.warn_at_fraction;
-  }
-
-  function isOver({ scopeType, scopeId, window }) {
-    const lim = getLimit({ scopeType, scopeId, window });
-    if (!lim) return false;
-    return spendForWindow({ scopeType, scopeId, window }) >= lim.amount_usd;
-  }
-
-  return { setLimit, getLimit, recordSpend, spendForWindow, remaining, shouldWarn, isOver };
-}
-
-module.exports = { createBudgetTracker };
-```
-
-Run tests → PASS. Commit: `feat(billing): budget tracker with windowed spend + limit evaluation`.
-
----
-
-## Task 2: Budget-aware router
-
-- [ ] **Step 1: Pricing + tests**
-
-Create `server/billing/provider-pricing.js`:
-
-```js
-'use strict';
-
-// Approximate per-1M-token pricing for rough cost estimation.
-// Overridable via serverConfig.set('provider_pricing_<name>', ...) per deployment.
-const DEFAULT_PRICING_USD = {
-  codex:             { prompt_per_m: 3.0,  completion_per_m: 15.0 },
-  'codex-spark':     { prompt_per_m: 1.0,  completion_per_m: 5.0 },
-  'claude-cli':      { prompt_per_m: 3.0,  completion_per_m: 15.0 },
-  anthropic:         { prompt_per_m: 3.0,  completion_per_m: 15.0 },
-  deepinfra:         { prompt_per_m: 0.13, completion_per_m: 0.50 },
-  hyperbolic:        { prompt_per_m: 0.40, completion_per_m: 1.20 },
-  groq:              { prompt_per_m: 0.15, completion_per_m: 0.30 },
-  cerebras:          { prompt_per_m: 0.10, completion_per_m: 0.20 },
-  'google-ai':       { prompt_per_m: 0.40, completion_per_m: 1.60 },
-  openrouter:        { prompt_per_m: 1.00, completion_per_m: 4.00 },
-  ollama:            { prompt_per_m: 0,    completion_per_m: 0 },
-  'ollama-cloud':    { prompt_per_m: 0,    completion_per_m: 0 },
-};
-
-function estimateCost({ provider, promptTokens, completionTokens, overrides = null }) {
-  const p = (overrides || {})[provider] || DEFAULT_PRICING_USD[provider] || DEFAULT_PRICING_USD.codex;
-  return (promptTokens / 1_000_000) * p.prompt_per_m + (completionTokens / 1_000_000) * p.completion_per_m;
-}
-
-function estimatePromptCost({ provider, expectedPromptTokens, expectedCompletionTokens = 500, overrides = null }) {
-  return estimateCost({ provider, promptTokens: expectedPromptTokens, completionTokens: expectedCompletionTokens, overrides });
-}
-
-module.exports = { estimateCost, estimatePromptCost, DEFAULT_PRICING_USD };
-```
-
-Create `server/tests/budget-aware-router.test.js`:
-
-```js
-'use strict';
-const { describe, it, expect, beforeEach } = require('vitest');
-const { setupTestDb } = require('./helpers/test-db');
-const { createBudgetTracker } = require('../billing/budget-tracker');
-const { createBudgetAwareRouter } = require('../billing/budget-aware-router');
-
-describe('budgetAwareRouter.pick', () => {
-  let db, tracker, router;
-  beforeEach(() => {
-    db = setupTestDb();
-    tracker = createBudgetTracker({ db });
-    router = createBudgetAwareRouter({ tracker });
-  });
-
-  it('returns preferred provider when plenty of budget remains', () => {
-    tracker.setLimit({ scopeType: 'tenant', scopeId: 'acme', window: 'monthly', amountUsd: 100 });
-    const r = router.pick({
-      scope: { scopeType: 'tenant', scopeId: 'acme' },
-      window: 'monthly',
-      preferred: ['codex', 'ollama'],
-      expectedPromptTokens: 2000,
-      expectedCompletionTokens: 500,
-    });
-    expect(r.provider).toBe('codex');
-    expect(r.reason).toMatch(/within budget/);
-  });
-
-  it('falls back to cheaper provider near budget edge', () => {
-    tracker.setLimit({ scopeType: 'tenant', scopeId: 'acme', window: 'monthly', amountUsd: 10 });
-    tracker.recordSpend({ scopeType: 'tenant', scopeId: 'acme', provider: 'codex', amountUsd: 9.9 });
-    const r = router.pick({
-      scope: { scopeType: 'tenant', scopeId: 'acme' },
-      window: 'monthly',
-      preferred: ['codex', 'deepinfra', 'ollama'],
-      expectedPromptTokens: 2000,
-      expectedCompletionTokens: 500,
-    });
-    expect(r.provider).toBe('ollama');
-    expect(r.reason).toMatch(/cheaper fallback/);
-  });
-
-  it('refuses when over hard budget cap + no free fallback', () => {
-    tracker.setLimit({ scopeType: 'tenant', scopeId: 'acme', window: 'monthly', amountUsd: 10, hardCap: true });
-    tracker.recordSpend({ scopeType: 'tenant', scopeId: 'acme', provider: 'codex', amountUsd: 11 });
-    const r = router.pick({
-      scope: { scopeType: 'tenant', scopeId: 'acme' },
-      window: 'monthly',
-      preferred: ['codex', 'anthropic'],
-      expectedPromptTokens: 2000, expectedCompletionTokens: 500,
-    });
-    expect(r.provider).toBeNull();
-    expect(r.reason).toMatch(/hard cap/);
-  });
-
-  it('no limit = pick first preferred', () => {
-    const r = router.pick({
-      scope: { scopeType: 'tenant', scopeId: 'nope' }, window: 'monthly',
-      preferred: ['codex'], expectedPromptTokens: 100,
-    });
-    expect(r.provider).toBe('codex');
-  });
-});
-```
-
-- [ ] **Step 2: Implement**
-
-Create `server/billing/budget-aware-router.js`:
-
-```js
-'use strict';
-const { estimatePromptCost, DEFAULT_PRICING_USD } = require('./provider-pricing');
-
-function createBudgetAwareRouter({ tracker, pricingOverrides = null }) {
-  function costFor(provider, expectedPromptTokens, expectedCompletionTokens) {
-    return estimatePromptCost({ provider, expectedPromptTokens, expectedCompletionTokens, overrides: pricingOverrides });
-  }
-
-  function pick({ scope, window = 'monthly', preferred, expectedPromptTokens, expectedCompletionTokens = 500 }) {
-    const remaining = tracker.remaining({ scopeType: scope.scopeType, scopeId: scope.scopeId, window });
-    if (remaining === Infinity) return { provider: preferred[0], reason: 'no limit set' };
-
-    // Sort candidates by estimated cost ascending
-    const candidates = preferred.map(p => ({
-      provider: p, estimated: costFor(p, expectedPromptTokens, expectedCompletionTokens),
-    })).sort((a, b) => a.estimated - b.estimated);
-
-    const preferredProvider = preferred[0];
-    const preferredCost = costFor(preferredProvider, expectedPromptTokens, expectedCompletionTokens);
-    if (preferredCost <= remaining) {
-      return { provider: preferredProvider, reason: 'within budget', estimated_cost_usd: preferredCost, remaining_usd: remaining };
+    function installBudgetTestServices(container, dbHandle) {
+      const tracker = createBudgetTracker({ db: dbHandle });
+      const router = createBudgetAwareRouter({ tracker });
+      container.registerValue('budgetTracker', tracker);
+      container.registerValue('budgetAwareRouter', router);
+      return { tracker, router };
     }
 
-    // Find cheapest candidate within remaining budget
-    for (const c of candidates) {
-      if (c.estimated <= remaining) {
-        return { provider: c.provider, reason: `cheaper fallback (preferred ${preferredProvider} would exceed budget)`, estimated_cost_usd: c.estimated, remaining_usd: remaining };
+    Use the helper from `server/tests/vitest-setup.js` for `safeTool(...)` suites, and mirror the same registrations in `server/tests/test-container-helper.js` so fresh per-test containers resolve the new services too.
+
+- [ ] **Step 2: Reset between tests**
+
+    Ensure the helper is re-run after any `defaultContainer.resetForTest()` call so a fresh `budgetTracker` / `budgetAwareRouter` pair is installed per test file or per suite. Replace any assumption that `defaultContainer.clear('budgetTracker')` exists; current main does not expose `clear()`.
+
+- [ ] **Step 3: Wire legacy budget suites**
+
+    In `server/tests/validation-handlers.test.js` and any other suites that reset the default container before calling `safeTool(...)`, install the scoped budget services in `beforeEach` so handler resolution sees the new tracker/router without breaking existing `budgetWatcher` coverage.
+
+After making the edits, stop.
+
+## Task 3: Configurable pricing and router integration
+
+- [ ] **Step 1: Make provider pricing configurable**
+
+    In `server/billing/provider-pricing.js`, export a default per-1M-token pricing table and a helper that merges `process.env.TORQUE_PROVIDER_PRICING_OVERRIDE` (JSON) over the defaults. Override values win field-for-field, and tests must set and restore the env var instead of relying on the default table never changing.
+
+- [ ] **Step 2: Implement `server/billing/budget-aware-router.js`**
+
+    Build a router that consumes `budgetTracker` plus the merged pricing table. Preserve the caller's preferred provider when budget permits, choose the cheapest candidate that still fits when the preferred provider would overspend, and return a structured "blocked by hard cap" result when no allowed fallback fits.
+
+- [ ] **Step 3: Register runtime services**
+
+    In `server/container.js`, register `budgetTracker` and `budgetAwareRouter` as additive runtime services alongside the existing `budgetWatcher`. Keep `budgetWatcher` behavior intact for today's `get_budget_status` and downgrade-template flows; the new router is a scoped routing input, not a replacement for the existing watcher.
+
+- [ ] **Step 4: Wire routing and spend recording**
+
+    Update `server/execution/provider-router.js` to consult the scoped router before final provider selection, and update `server/execution/task-finalizer.js` to record actual spend after completion using `prompt_tokens`, `completion_tokens`, provider, model, and the merged pricing table.
+
+- [ ] **Step 5: Update routing regressions**
+
+    Update `server/tests/provider-failover.test.js` and `server/tests/task-finalizer.test.js` in the same task. Keep the current cost/budget smoke behavior green, then add deterministic budget-pressure cases that set `TORQUE_PROVIDER_PRICING_OVERRIDE` and assert the router either downgrades to the cheaper provider or blocks on a hard cap.
+
+After making the edits, stop.
+
+## Task 4: Scope-aware MCP budget surface
+
+- [ ] **Step 1: Keep legacy `set_budget` intact and add the new names**
+
+    The existing `set_budget` tool in `server/tool-defs/validation-defs.js`, `server/handlers/validation/index.js`, and current docs/tests stays untouched. The new scope-aware tools are `set_scope_budget`, `get_scope_spend`, and `list_scope_budgets`; do not add another `set_budget`, and do not rename the current one.
+
+- [ ] **Step 2: Implement async handlers with `makeError(...)` only**
+
+    Add the new handlers in `server/handlers/validation/index.js` and follow `handleScheduleWorkflowSpec` in `server/handlers/schedule-handlers.js`: validate inputs with `makeError(ErrorCodes.X, ...)`, wrap the full body in `try/catch`, and return `makeError(ErrorCodes.OPERATION_FAILED, ...)` from the catch block. This task must satisfy `server/tests/p3-async-trycatch.test.js` and `server/tests/p3-raw-throws.test.js`.
+
+    async function handleSetScopeBudget(args) {
+      try {
+        const scopeType = typeof args?.scope_type === 'string' ? args.scope_type.trim() : '';
+        const scopeId = typeof args?.scope_id === 'string' ? args.scope_id.trim() : '';
+        if (!scopeType || !scopeId) {
+          return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'scope_type and scope_id are required');
+        }
+
+        return {
+          content: [{ type: 'text', text: 'scope budget updated' }],
+          structuredData: { ok: true },
+        };
+      } catch (err) {
+        return makeError(ErrorCodes.OPERATION_FAILED, `Failed to set scope budget: ${err.message}`);
       }
     }
 
-    // Check hard cap
-    const lim = tracker.getLimit({ scopeType: scope.scopeType, scopeId: scope.scopeId, window });
-    if (lim?.hard_cap) {
-      return { provider: null, reason: 'hard cap: remaining budget is 0 and no fallback fits', remaining_usd: remaining };
-    }
-    return { provider: preferredProvider, reason: 'soft cap exceeded, proceeding anyway', estimated_cost_usd: preferredCost, remaining_usd: remaining };
-  }
+    `handleGetScopeSpend(...)` and `handleListScopeBudgets(...)` must use the same pattern. Never author raw exceptions in these handlers.
 
-  return { pick };
-}
+- [ ] **Step 3: Complete Task 0a-0f for each new tool**
 
-module.exports = { createBudgetAwareRouter };
-```
+    Finish Task 0a-0f for `set_scope_budget`, `get_scope_spend`, and `list_scope_budgets`: tool defs in `server/tool-defs/validation-defs.js`, annotations in `server/tool-annotations.js`, tier exposure in `server/core-tools.js`, output schemas in `server/tool-output-schemas.js`, passthrough routes in `server/api/routes-passthrough.js`, and no new `EXPECTED_DOMAINS` entry because the routes remain under the existing `validation` passthrough domain.
 
-Run tests → PASS. Commit: `feat(billing): budget-aware router with cheapest-fits fallback + hard cap`.
+- [ ] **Step 4: Update `server/tests/validation-cost-handlers.test.js`**
 
----
+    Keep the legacy `set_budget` coverage exactly as the backward-compat guard, then add new scope-aware write/read cases alongside it. If shared helpers are introduced, cover both the existing provider/global shape and the new `scope_type` / `scope_id` shape in the same file.
 
-## Task 3: Wire into provider router + record on finalize + MCP
+- [ ] **Step 5: Update `server/tests/validation-handlers.test.js`**
 
-- [ ] **Step 1: Provider-router integration**
+    Install `budgetTracker` / `budgetAwareRouter` in `beforeEach` when the suite touches the new handlers, preserve the current `set_budget` expectations, and add failure-path assertions for missing params, invalid windows, and catch-path `OPERATION_FAILED` responses.
 
-In `server/execution/provider-router.js` before final provider selection:
+After making the edits, stop.
 
-```js
-const tracker = defaultContainer.get('budgetTracker');
-const router = defaultContainer.get('budgetAwareRouter');
-const scope = { scopeType: 'domain', scopeId: task.domain_id || 'default' };
-const decision = router.pick({
-  scope, window: 'monthly',
-  preferred: [task.provider, ...fallbackProviders],
-  expectedPromptTokens: estimateTokensFromPrompt(task.task_description),
-});
-if (decision.provider === null) {
-  // Block the task
-  return { provider: null, failed: true, reason: decision.reason };
-}
-task.provider = decision.provider;
-addTaskTag(taskId, `budget:${decision.provider}`);
-```
+## Task 5: Targeted verification slices
 
-- [ ] **Step 2: Finalizer records spend**
+- [ ] **Step 1: Run tracker, pricing, and router tests**
 
-In `server/execution/task-finalizer.js` after success:
+    npx vitest run server/tests/budget-tracker.test.js server/tests/provider-pricing.test.js server/tests/budget-aware-router.test.js
 
-```js
-const tracker = defaultContainer.get('budgetTracker');
-const { estimateCost } = require('../billing/provider-pricing');
-const actualCost = estimateCost({
-  provider: task.provider,
-  promptTokens: task.prompt_tokens || 0,
-  completionTokens: task.completion_tokens || 0,
-});
-tracker.recordSpend({
-  scopeType: 'domain', scopeId: task.domain_id || 'default',
-  taskId, provider: task.provider, model: task.model,
-  promptTokens: task.prompt_tokens, completionTokens: task.completion_tokens,
-  amountUsd: actualCost,
-});
-```
+- [ ] **Step 2: Run handler and routing regressions**
 
-- [ ] **Step 3: Admin REST + MCP**
+    npx vitest run server/tests/validation-cost-handlers.test.js server/tests/validation-handlers.test.js server/tests/provider-failover.test.js server/tests/task-finalizer.test.js
 
-```js
-set_budget: { description: 'Set a monthly/weekly/daily budget limit for a scope.', inputSchema: {...} },
-get_spend: { description: 'Get current spend for a scope + window.', inputSchema: {...} },
-list_budgets: { description: 'List configured budgets + current spend.', inputSchema: {...} },
-```
+- [ ] **Step 3: Run alignment and schema guards**
 
-`await_restart`. Smoke: set `{scopeType:'domain', scopeId:'test', window:'monthly', amountUsd:5}`. Submit a codex task with prompt estimated to cost $6 — confirm router switches to ollama (tag `budget:ollama`). After completion, confirm spend recorded and visible via `get_spend`.
+    npx vitest run server/tests/schema-tables.test.js server/tests/schema-migrations.test.js server/tests/p3-async-trycatch.test.js server/tests/p3-raw-throws.test.js server/tests/rest-passthrough-coverage.test.js server/tests/mcp-tool-alignment.test.js
 
-Commit: `feat(billing): wire budget-aware routing + spend recording into task lifecycle`.
+After making the edits, stop.

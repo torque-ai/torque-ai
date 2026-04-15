@@ -7,7 +7,7 @@ function parsePlanFile(content) {
   const tech_stack = (content.match(/\*\*Tech Stack:\*\*\s*([^\n]+)/) || [])[1]?.trim() || null;
 
   const taskHeaderRe = /^##\s+Task\s+(\d+)\s*[:.]\s*(.+?)\s*$/;
-  const stepRe = /^\s*-\s*\[([ xX])\]\s*\*\*Step\s+(\d+)\s*[:.]\s*([^*]+?)\s*\*\*/;
+  const stepRe = /^\s*-\s*\[([ xX])\]\s*\*\*Step\s+([0-9]+[A-Za-z]?)\s*[:.]\s*([^*]+?)\s*\*\*/;
 
   const tasks = [];
   let currentTask = null;
@@ -15,10 +15,21 @@ function parsePlanFile(content) {
   let inCode = false;
   let codeLang = null;
   let codeBuf = [];
+  let inIndentedCode = false;
+  let indentedCodeBuf = [];
+
+  function flushIndentedCode() {
+    if (currentStep && indentedCodeBuf.length > 0) {
+      currentStep.code_blocks.push({ lang: null, content: indentedCodeBuf.join('\n') });
+    }
+    indentedCodeBuf = [];
+    inIndentedCode = false;
+  }
 
   function closeStep() {
     if (currentStep) {
       if (codeBuf.length) currentStep.code_blocks.push({ lang: codeLang, content: codeBuf.join('\n') });
+      flushIndentedCode();
       codeBuf = []; codeLang = null; inCode = false;
       currentStep = null;
     }
@@ -40,6 +51,23 @@ function parsePlanFile(content) {
   }
 
   for (const line of lines) {
+    if (!inCode && currentStep) {
+      if (/^(?: {4}|\t)/.test(line)) {
+        inIndentedCode = true;
+        indentedCodeBuf.push(line.replace(/^(?: {4}|\t)/, ''));
+        continue;
+      }
+
+      if (inIndentedCode && line.trim() === '') {
+        indentedCodeBuf.push('');
+        continue;
+      }
+
+      if (inIndentedCode) {
+        flushIndentedCode();
+      }
+    }
+
     if (/^```/.test(line)) {
       if (!inCode) { inCode = true; codeLang = line.replace(/^```/, '').trim() || null; codeBuf = []; }
       else {
@@ -59,8 +87,9 @@ function parsePlanFile(content) {
     const sh = line.match(stepRe);
     if (sh && currentTask) {
       closeStep();
+      const stepLabel = sh[2];
       currentStep = {
-        step_number: Number(sh[2]),
+        step_number: /^\d+$/.test(stepLabel) ? Number(stepLabel) : stepLabel,
         title: sh[3].trim(),
         done: sh[1].toLowerCase() === 'x',
         code_blocks: [],
@@ -75,6 +104,14 @@ function parsePlanFile(content) {
   return { title, goal, tech_stack, tasks };
 }
 
+function parsePlanMarkdown(content) {
+  const parsed = parsePlanFile(content);
+  return {
+    ...parsed,
+    step_count: parsed.tasks.reduce((sum, task) => sum + task.steps.length, 0),
+  };
+}
+
 function extractVerifyCommand(planContent, projectDefault) {
   if (projectDefault) return projectDefault;
   const tech = (planContent.match(/\*\*Tech Stack:\*\*\s*([^\n]+)/) || [])[1] || '';
@@ -84,4 +121,4 @@ function extractVerifyCommand(planContent, projectDefault) {
   return 'npm test';
 }
 
-module.exports = { parsePlanFile, extractVerifyCommand };
+module.exports = { parsePlanFile, parsePlanMarkdown, extractVerifyCommand };
