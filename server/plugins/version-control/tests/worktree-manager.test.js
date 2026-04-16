@@ -631,6 +631,74 @@ describe('version-control worktree manager (real git integration)', () => {
     expect(manager.getWorktree(created.id)).not.toBeNull();
   });
 
+  it('mergeWorktree renormalize commit uses --no-verify to avoid the pre-commit hook deadlock', () => {
+    // Regression test: the renormalize bookkeeping commit runs from inside
+    // TORQUE's synchronous execFileSync chain (LEARN → mergeWorktree).
+    // Without --no-verify the pre-commit hook re-enters TORQUE via HTTP
+    // and deadlocks, then the fallback regex scanner false-positives on
+    // test-fixture IPs and blocks the commit — failing the merge. This
+    // spec pins --no-verify on the renormalize commit.
+    const repoPath = initGitRepo();
+    runRealGit(repoPath, ['config', 'core.autocrlf', 'true']);
+    const created = manager.createWorktree(repoPath, 'renormalize-no-verify');
+    runRealGit(created.worktree_path, ['config', 'core.autocrlf', 'true']);
+
+    const featurePath = path.join(created.worktree_path, 'feature.txt');
+    fs.writeFileSync(featurePath, 'feature line 1\nfeature line 2\n');
+    runRealGit(created.worktree_path, ['add', 'feature.txt']);
+    runRealGit(created.worktree_path, ['commit', '-m', 'add feature']);
+    fs.writeFileSync(featurePath, 'feature line 1\r\nfeature line 2\r\n');
+
+    const gitSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation(
+      (file, args, options) => originalExecFileSync(file, args, options)
+    );
+
+    manager.mergeWorktree(created.id, { deleteAfter: false });
+
+    const renormalizeCommit = gitSpy.mock.calls.find(
+      ([file, args]) => file === 'git'
+        && Array.isArray(args)
+        && args[0] === 'commit'
+        && args.includes('chore: normalize line endings (factory auto-commit)')
+    );
+    expect(renormalizeCommit).toBeDefined();
+    expect(renormalizeCommit[1]).toContain('--no-verify');
+  });
+
+  it('mergeWorktree pre-merge cleanup commit uses --no-verify for the same reason', () => {
+    // Regression test: attempt-3 of assertWorktreeIsClean commits plan-file
+    // ticks + other semantic drift that landed after the last auto-commit.
+    // Same hook-deadlock + regex-false-positive hazard as the renormalize
+    // path, same fix. This test pins --no-verify on the pre-merge cleanup.
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'pre-merge-no-verify');
+
+    // Seed a feature commit so the branch is ahead of main.
+    const featurePath = path.join(created.worktree_path, 'feature.txt');
+    fs.writeFileSync(featurePath, 'feature v1\n');
+    runRealGit(created.worktree_path, ['add', 'feature.txt']);
+    runRealGit(created.worktree_path, ['commit', '-m', 'add feature']);
+
+    // Leave a semantic (non-drift) uncommitted change — mimics a plan-file
+    // [x] tick that landed after the last auto-commit fired.
+    fs.writeFileSync(featurePath, 'feature v1\nfeature v2 — post-auto-commit addendum\n');
+
+    const gitSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation(
+      (file, args, options) => originalExecFileSync(file, args, options)
+    );
+
+    manager.mergeWorktree(created.id, { deleteAfter: false });
+
+    const cleanupCommit = gitSpy.mock.calls.find(
+      ([file, args]) => file === 'git'
+        && Array.isArray(args)
+        && args[0] === 'commit'
+        && args.includes('chore: pre-merge cleanup (factory auto-commit)')
+    );
+    expect(cleanupCommit).toBeDefined();
+    expect(cleanupCommit[1]).toContain('--no-verify');
+  });
+
   it('mergeWorktree auto-commits line-ending drift before the clean check (Windows + remote Linux test runs)', () => {
     const repoPath = initGitRepo();
     // Enable autocrlf on this test repo so the renormalize pass has something

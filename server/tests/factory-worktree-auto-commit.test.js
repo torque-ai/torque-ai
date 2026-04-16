@@ -329,6 +329,45 @@ describe('factory worktree auto-commit', () => {
     expect(decisions[0].outcome.files_changed).toContain('feature.txt');
   });
 
+  it('passes --no-verify to git commit so the pre-commit hook does not deadlock on the TORQUE HTTP API', () => {
+    // Regression test for the LEARN-stage worktree_merge_failed chain:
+    // the per-task auto-commit runs via execFileSync and the pre-commit
+    // hook's PII-guard re-enters TORQUE via HTTP. When the call site is
+    // inside TORQUE's own event loop, that HTTP call deadlocks and the
+    // fallback regex scanner false-positives on RFC1918 IPs in test
+    // fixtures. The factory has already PII-sanitized inline before
+    // staging, so the hook is a duplicate check. Skipping it via
+    // --no-verify is the fix — this test pins that flag in place.
+    const { worktreePath } = initGitWorktree(tempDirs);
+    seedFactoryProject(db, worktreePath);
+    insertTask(db, {
+      taskId: 'task-no-verify',
+      workingDirectory: worktreePath,
+      tags: [
+        'factory:batch_id=factory-project-1-7',
+        'factory:plan_task_number=5',
+        'factory:pending_approval',
+      ],
+      metadata: { plan_task_title: 'Smoke test' },
+    });
+    fs.writeFileSync(path.join(worktreePath, 'feature.txt'), 'hello\n');
+
+    const gitSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((file, args, options) => (
+      originalExecFileSync(file, args, options)
+    ));
+
+    expect(autoCommit.initFactoryWorktreeAutoCommit()).toBe(true);
+    taskEvents.emit('task:completed', { id: 'task-no-verify', status: 'completed' });
+
+    const commitCalls = gitSpy.mock.calls.filter(
+      ([file, args]) => file === 'git' && Array.isArray(args) && args[0] === 'commit'
+    );
+
+    expect(commitCalls).toHaveLength(1);
+    expect(commitCalls[0][1]).toContain('--no-verify');
+    expect(countCommits(worktreePath)).toBe(2);
+  });
+
   it('logs auto_commit_skipped_clean when the worktree is already clean', () => {
     const { worktreePath } = initGitWorktree(tempDirs);
     seedFactoryProject(db, worktreePath);
