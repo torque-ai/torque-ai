@@ -109,6 +109,46 @@ describe('build-ci scorer', () => {
     expect(result.details.hasTest).toBe(true);
   });
 
+  test('detects dotnet build and test signals from workflows and PowerShell scripts', () => {
+    writeFile('SpudgetBooks.sln', 'Microsoft Visual Studio Solution File, Format Version 12.00');
+    writeFile(
+      'tests/SpudgetBooks.CoreTests/SpudgetBooks.CoreTests.csproj',
+      `<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+  </ItemGroup>
+</Project>`,
+    );
+    writeFile(
+      'tests/SpudgetBooks.CoreTests/InvoiceServiceTests.cs',
+      'namespace SpudgetBooks.CoreTests; public class InvoiceServiceTests {}',
+    );
+    writeFile(
+      '.github/workflows/ci.yml',
+      `name: ci
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - run: dotnet build SpudgetBooks.sln
+      - run: dotnet test SpudgetBooks.sln --no-build`,
+    );
+    writeFile('scripts/build.ps1', 'dotnet build SpudgetBooks.sln');
+
+    const result = score(tempDir, {}, null);
+
+    expect(result.details.ciWorkflowCount).toBe(1);
+    expect(result.details.hasDotnetProject).toBe(true);
+    expect(result.details.hasDotnetTestProject).toBe(true);
+    expect(result.details.hasPowerShellBuildScript).toBe(true);
+    expect(result.details.workflowHasBuildSignal).toBe(true);
+    expect(result.details.workflowHasTestSignal).toBe(true);
+    expect(result.details.hasBuild).toBe(true);
+    expect(result.details.hasTest).toBe(true);
+  });
+
   test('clamp: score stays in [0,100]', () => {
     createHighScoreFixture();
 

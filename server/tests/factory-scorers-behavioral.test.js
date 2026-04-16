@@ -311,6 +311,33 @@ describe('factory scorer behavioral coverage', () => {
       });
     });
 
+    test('counts dotnet test projects and C# test files in the fallback heuristic', () => {
+      const projectDir = createProjectFixture({
+        'tests/SpudgetBooks.CoreTests/SpudgetBooks.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+  </ItemGroup>
+</Project>`,
+        'tests/SpudgetBooks.CoreTests/InvoiceServiceTests.cs': 'namespace SpudgetBooks.CoreTests; public class InvoiceServiceTests {}',
+      });
+
+      const result = testCoverageScorer.score(projectDir, {
+        missingTests: {
+          covered: 0,
+          missing: 4,
+          total: 4,
+          coveragePercent: 0,
+        },
+      }, null);
+
+      expect(result.details.source).toBe('file_count_heuristic');
+      expect(result.details.test_files).toBeGreaterThanOrEqual(2);
+      expect(result.details.source_files).toBe(4);
+      expect(result.score).toBeGreaterThan(0);
+    });
+
     test('stays on the scan_project branch when coveragePercent is positive even if missingFiles is malformed', () => {
       const projectDir = createProjectFixture({
         'tests/root.test.js': 'test("should not use filesystem fallback", () => {});',
@@ -1019,6 +1046,37 @@ describe('factory scorer behavioral coverage', () => {
       expect(result.details.ciWorkflowCount).toBe(1);
       expect(result.score).toBeGreaterThanOrEqual(55);
       expect(result.score).toBeLessThanOrEqual(70);
+    });
+
+    test('detects dotnet workflows and wrapper scripts as build and test signals', () => {
+      const projectDir = createProjectFixture({
+        'SpudgetBooks.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00',
+        'tests/SpudgetBooks.CoreTests/SpudgetBooks.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+  </ItemGroup>
+</Project>`,
+        'tests/SpudgetBooks.CoreTests/InvoiceServiceTests.cs': 'namespace SpudgetBooks.CoreTests; public class InvoiceServiceTests {}',
+        '.github/workflows/ci.yml': `name: ci
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - run: ./scripts/build.ps1
+      - run: dotnet test SpudgetBooks.sln --no-build`,
+        'scripts/build.ps1': 'dotnet build SpudgetBooks.sln',
+      });
+
+      const result = buildCiScorer.score(projectDir, {}, null);
+
+      expect(result.details.source).toBe('build_ci_signals');
+      expect(result.details.hasDotnetProject).toBe(true);
+      expect(result.details.hasDotnetTestProject).toBe(true);
+      expect(result.details.hasBuild).toBe(true);
+      expect(result.details.hasTest).toBe(true);
+      expect(result.findings.map((finding) => finding.title)).not.toContain('No test script in any package.json');
     });
   });
 

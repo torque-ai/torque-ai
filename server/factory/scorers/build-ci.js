@@ -13,6 +13,21 @@ const LINT_CONFIG_FILES = [
   'eslint.config.mjs',
 ];
 
+const IGNORED_DIR_NAMES = new Set([
+  '.git',
+  'node_modules',
+  'coverage',
+  'dist',
+  'build',
+  'bin',
+  'obj',
+]);
+
+const BUILD_SIGNAL_PATTERN = /\b(?:dotnet\s+build|(?:npm|pnpm|yarn)\s+(?:run\s+)?build|build\.ps1)\b/i;
+const TEST_SIGNAL_PATTERN = /\b(?:dotnet\s+test|(?:npm|pnpm|yarn)\s+(?:run\s+)?test|vitest\b|jest\b|pytest\b|test\.ps1)\b/i;
+const DOTNET_TEST_PROJECT_NAME_PATTERN = /\.Tests?\.csproj$/i;
+const DOTNET_TEST_PROJECT_REFERENCE_PATTERN = /<PackageReference\b[^>]*Include\s*=\s*"(?:Microsoft\.NET\.Test\.Sdk|xunit(?:\.[^"]*)?|NUnit(?:\.[^"]*)?|MSTest(?:\.[^"]*)?)"/i;
+
 function clampScore(value) {
   return Math.max(0, Math.min(100, value));
 }
@@ -43,6 +58,111 @@ function loadPackageScripts(packageJsonPath) {
   }
 }
 
+function readTextFile(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function walkFiles(rootDir, visitor) {
+  if (!isDirectory(rootDir)) {
+    return;
+  }
+
+  const stack = [rootDir];
+  while (stack.length > 0) {
+    const currentDir = stack.pop();
+    let entries = [];
+
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        if (!IGNORED_DIR_NAMES.has(entry.name.toLowerCase())) {
+          stack.push(fullPath);
+        }
+        continue;
+      }
+
+      if (entry.isFile()) {
+        visitor(fullPath);
+      }
+    }
+  }
+}
+
+function isDotnetTestProject(filePath) {
+  const fileName = path.basename(filePath);
+  if (!fileName.toLowerCase().endsWith('.csproj')) {
+    return false;
+  }
+
+  if (DOTNET_TEST_PROJECT_NAME_PATTERN.test(fileName)) {
+    return true;
+  }
+
+  return DOTNET_TEST_PROJECT_REFERENCE_PATTERN.test(readTextFile(filePath));
+}
+
+function scanWorkflowSignals(workflowsDir) {
+  let ciWorkflowCount = 0;
+  let workflowHasBuildSignal = false;
+  let workflowHasTestSignal = false;
+
+  if (!isDirectory(workflowsDir)) {
+    return { ciWorkflowCount, workflowHasBuildSignal, workflowHasTestSignal };
+  }
+
+  for (const name of fs.readdirSync(workflowsDir)) {
+    if (!/\.ya?ml$/i.test(name)) {
+      continue;
+    }
+
+    ciWorkflowCount += 1;
+    const workflowText = readTextFile(path.join(workflowsDir, name));
+    workflowHasBuildSignal = workflowHasBuildSignal || BUILD_SIGNAL_PATTERN.test(workflowText);
+    workflowHasTestSignal = workflowHasTestSignal || TEST_SIGNAL_PATTERN.test(workflowText);
+  }
+
+  return { ciWorkflowCount, workflowHasBuildSignal, workflowHasTestSignal };
+}
+
+function scanProjectSignals(projectPath) {
+  const signals = {
+    hasDotnetProject: fs.existsSync(path.join(projectPath, 'global.json')),
+    hasDotnetTestProject: false,
+    hasPowerShellBuildScript: false,
+    hasPowerShellTestScript: false,
+  };
+
+  walkFiles(projectPath, (filePath) => {
+    const normalizedPath = filePath.replace(/\\/g, '/').toLowerCase();
+    const fileName = path.basename(filePath).toLowerCase();
+
+    if (fileName === 'build.ps1' || normalizedPath.endsWith('/build.ps1')) {
+      signals.hasPowerShellBuildScript = true;
+    }
+    if (fileName === 'test.ps1' || normalizedPath.endsWith('/test.ps1')) {
+      signals.hasPowerShellTestScript = true;
+    }
+    if (normalizedPath.endsWith('.sln') || normalizedPath.endsWith('.csproj')) {
+      signals.hasDotnetProject = true;
+    }
+    if (!signals.hasDotnetTestProject && normalizedPath.endsWith('.csproj') && isDotnetTestProject(filePath)) {
+      signals.hasDotnetTestProject = true;
+    }
+  });
+
+  return signals;
+}
+
 function score(projectPath, scanReport, findingsDir) {
   void scanReport;
   void findingsDir;
@@ -59,12 +179,11 @@ function score(projectPath, scanReport, findingsDir) {
     const findings = [];
 
     const workflowsDir = path.join(projectPath, '.github', 'workflows');
-    let ciWorkflowCount = 0;
-    if (isDirectory(workflowsDir)) {
-      ciWorkflowCount = fs.readdirSync(workflowsDir)
-        .filter((name) => /\.ya?ml$/i.test(name))
-        .length;
-    }
+    const {
+      ciWorkflowCount,
+      workflowHasBuildSignal,
+      workflowHasTestSignal,
+    } = scanWorkflowSignals(workflowsDir);
 
     const hasGitlabCi = fs.existsSync(path.join(projectPath, '.gitlab-ci.yml'));
     const hasJenkinsfile = fs.existsSync(path.join(projectPath, 'Jenkinsfile'));
@@ -72,6 +191,7 @@ function score(projectPath, scanReport, findingsDir) {
     const hasAzurePipelines = fs.existsSync(path.join(projectPath, 'azure-pipelines.yml'));
     const hasOtherCiTool = hasGitlabCi || hasJenkinsfile || hasCircleCi || hasAzurePipelines;
 
+    const projectSignals = scanProjectSignals(projectPath);
     let hasBuild = false;
     let hasTest = false;
     let hasLint = false;
@@ -90,6 +210,14 @@ function score(projectPath, scanReport, findingsDir) {
       hasLint = hasLint || Boolean(scripts.lint);
       hasTypecheck = hasTypecheck || Boolean(scripts.typecheck || scripts['type-check'] || scripts.tsc);
     }
+
+    hasBuild = hasBuild ||
+      workflowHasBuildSignal ||
+      projectSignals.hasPowerShellBuildScript;
+    hasTest = hasTest ||
+      workflowHasTestSignal ||
+      projectSignals.hasPowerShellTestScript ||
+      projectSignals.hasDotnetTestProject;
 
     const lintSearchDirs = [
       projectPath,
@@ -164,6 +292,12 @@ function score(projectPath, scanReport, findingsDir) {
         hasTypecheck,
         hasLintConfig,
         hasPreCommit,
+        hasDotnetProject: projectSignals.hasDotnetProject,
+        hasDotnetTestProject: projectSignals.hasDotnetTestProject,
+        hasPowerShellBuildScript: projectSignals.hasPowerShellBuildScript,
+        hasPowerShellTestScript: projectSignals.hasPowerShellTestScript,
+        workflowHasBuildSignal,
+        workflowHasTestSignal,
       },
       findings: findings.slice(0, 5),
     };
