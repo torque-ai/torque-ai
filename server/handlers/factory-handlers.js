@@ -10,7 +10,7 @@ const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const { runArchitectCycle } = require('../factory/architect-runner');
-const { scoreAll } = require('../factory/scorer-registry');
+const { scoreAll, resolveHealthScanSourceDirs } = require('../factory/scorer-registry');
 const { runPreBatchChecks, runPostBatchChecks, runPreShipChecks, getGuardrailSummary } = require('../factory/guardrail-runner');
 const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
@@ -242,10 +242,12 @@ async function handleScanProjectHealth(args) {
   let scanReport = {};
   try {
     const { handleScanProject } = require('../handlers/integration/infra');
-    const result = handleScanProject({
-      path: project.path,
-      source_dirs: ['server', 'dashboard/src', 'src'],
-    });
+    const scanArgs = { path: project.path };
+    const sourceDirs = resolveHealthScanSourceDirs(project.path);
+    if (Array.isArray(sourceDirs) && sourceDirs.length > 0) {
+      scanArgs.source_dirs = sourceDirs;
+    }
+    const result = handleScanProject(scanArgs);
     // Use the structured scanResult, not the markdown text
     if (result?.scanResult && typeof result.scanResult === 'object') {
       scanReport = result.scanResult;

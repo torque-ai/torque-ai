@@ -3,6 +3,99 @@
 const fs = require('fs');
 const path = require('path');
 
+const IGNORED_DIR_NAMES = new Set([
+  '.git',
+  'node_modules',
+  'coverage',
+  'dist',
+  'build',
+  'bin',
+  'obj',
+]);
+
+const GENERIC_TEST_FILE_PATTERN = /\.test\.|\.spec\.|_test\./i;
+const DOTNET_TEST_FILE_PATTERN = /Tests?\.cs$/i;
+const DOTNET_TEST_PROJECT_NAME_PATTERN = /\.Tests?\.csproj$/i;
+const DOTNET_TEST_PROJECT_REFERENCE_PATTERN = /<PackageReference\b[^>]*Include\s*=\s*"(?:Microsoft\.NET\.Test\.Sdk|xunit(?:\.[^"]*)?|NUnit(?:\.[^"]*)?|MSTest(?:\.[^"]*)?)"/i;
+
+function isDirectory(dirPath) {
+  try {
+    return fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function walkFiles(rootDir, visitor) {
+  if (!isDirectory(rootDir)) {
+    return;
+  }
+
+  const stack = [rootDir];
+  while (stack.length > 0) {
+    const currentDir = stack.pop();
+    let entries = [];
+
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        if (!IGNORED_DIR_NAMES.has(entry.name.toLowerCase())) {
+          stack.push(fullPath);
+        }
+        continue;
+      }
+
+      if (entry.isFile()) {
+        visitor(fullPath);
+      }
+    }
+  }
+}
+
+function isDotnetTestProject(filePath) {
+  const fileName = path.basename(filePath);
+  if (!fileName.toLowerCase().endsWith('.csproj')) {
+    return false;
+  }
+
+  if (DOTNET_TEST_PROJECT_NAME_PATTERN.test(fileName)) {
+    return true;
+  }
+
+  try {
+    const projectFile = fs.readFileSync(filePath, 'utf8');
+    return DOTNET_TEST_PROJECT_REFERENCE_PATTERN.test(projectFile);
+  } catch {
+    return false;
+  }
+}
+
+function isTestAsset(filePath) {
+  const fileName = path.basename(filePath);
+
+  return GENERIC_TEST_FILE_PATTERN.test(fileName) ||
+    DOTNET_TEST_FILE_PATTERN.test(fileName) ||
+    isDotnetTestProject(filePath);
+}
+
+function countTestAssets(projectPath) {
+  let testFileCount = 0;
+
+  walkFiles(projectPath, (filePath) => {
+    if (isTestAsset(filePath)) {
+      testFileCount += 1;
+    }
+  });
+
+  return testFileCount;
+}
+
 function score(projectPath, scanReport, findingsDir) {
   void findingsDir;
 
@@ -27,25 +120,9 @@ function score(projectPath, scanReport, findingsDir) {
     };
   }
 
-  // Fallback: count test files directly (handles non-co-located test directories)
-  const testDirs = ['tests', 'test', '__tests__', 'spec'];
-  let testFileCount = 0;
+  // Fallback: count recognized test assets directly, including .NET test projects/files.
+  const testFileCount = countTestAssets(projectPath);
   let sourceFileCount = mt?.total || scanReport?.fileSizes?.totalCodeFiles || 0;
-
-  for (const testDir of testDirs) {
-    const candidates = [
-      path.join(projectPath, testDir),
-      path.join(projectPath, 'server', testDir),
-      path.join(projectPath, 'src', testDir),
-    ];
-    for (const dir of candidates) {
-      try {
-        if (!fs.existsSync(dir)) continue;
-        const files = fs.readdirSync(dir).filter(f => /\.test\.|\.spec\.|_test\./i.test(f));
-        testFileCount += files.length;
-      } catch { /* skip */ }
-    }
-  }
 
   if (testFileCount === 0 && sourceFileCount === 0) {
     return { score: 50, details: { source: 'no_data' }, findings: [] };

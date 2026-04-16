@@ -311,6 +311,33 @@ describe('factory scorer behavioral coverage', () => {
       });
     });
 
+    test('counts dotnet test projects and C# test files in the fallback heuristic', () => {
+      const projectDir = createProjectFixture({
+        'tests/SpudgetBooks.CoreTests/SpudgetBooks.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+  </ItemGroup>
+</Project>`,
+        'tests/SpudgetBooks.CoreTests/InvoiceServiceTests.cs': 'namespace SpudgetBooks.CoreTests; public class InvoiceServiceTests {}',
+      });
+
+      const result = testCoverageScorer.score(projectDir, {
+        missingTests: {
+          covered: 0,
+          missing: 4,
+          total: 4,
+          coveragePercent: 0,
+        },
+      }, null);
+
+      expect(result.details.source).toBe('file_count_heuristic');
+      expect(result.details.test_files).toBeGreaterThanOrEqual(2);
+      expect(result.details.source_files).toBe(4);
+      expect(result.score).toBeGreaterThan(0);
+    });
+
     test('stays on the scan_project branch when coveragePercent is positive even if missingFiles is malformed', () => {
       const projectDir = createProjectFixture({
         'tests/root.test.js': 'test("should not use filesystem fallback", () => {});',
@@ -645,6 +672,32 @@ describe('factory scorer behavioral coverage', () => {
       expect(result.score).toBeGreaterThan(60);
       expect(result.score).toBeLessThan(85);
     });
+
+    test('detects WPF dashboard XAML surfaces without defaulting to the fallback score', () => {
+      const projectDir = createProjectFixture({
+        'Sections/Dashboard/MainDashboard.xaml': `
+          <UserControl x:Class="SpudgetBooks.Sections.Dashboard.MainDashboard"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              AutomationProperties.Name="Dashboard">
+            <Grid>
+              <TextBlock Text="No invoices yet" />
+              <ProgressBar IsIndeterminate="True" Visibility="{Binding IsBusy}" />
+              <TextBlock Text="{Binding StatusMessage}" />
+              <TextBlock Text="{Binding ErrorMessage}" />
+              <Button Content="Refresh" />
+            </Grid>
+          </UserControl>
+        `,
+      });
+
+      const result = userFacingScorer.score(projectDir, {}, null);
+
+      expect(result.score).toBeGreaterThan(50);
+      expect(result.details.viewsScanned).toBe(1);
+      expect(result.details.xamlViewsScanned).toBe(1);
+      expect(result.details.coverage.dashboardLike).toBeGreaterThan(0);
+    });
   });
 
   describe('api_completeness scorer', () => {
@@ -716,6 +769,45 @@ describe('factory scorer behavioral coverage', () => {
       const moreComplete = apiCompletenessScorer.score(projectDir, {}, null);
 
       expect(moreComplete.score).toBeGreaterThan(incomplete.score);
+    });
+
+    test('detects ASP.NET controller and minimal API surfaces', () => {
+      const projectDir = createProjectFixture({
+        'SpudgetBooks.Api/Controllers/V1/InvoicesController.cs': `
+          using Microsoft.AspNetCore.Mvc;
+
+          namespace SpudgetBooks.Api.Controllers.V1;
+
+          [ApiController]
+          [Route("api/v1/invoices")]
+          public class InvoicesController : ControllerBase
+          {
+            [HttpGet]
+            public IActionResult List() => Ok();
+
+            [HttpPost]
+            public IActionResult Create() => Ok();
+          }
+        `,
+        'SpudgetBooks.Api/Program.cs': `
+          var builder = WebApplication.CreateBuilder(args);
+          var app = builder.Build();
+          app.MapControllers();
+          app.MapGet("/api/v1/health", () => Results.Ok());
+          app.MapPost("/api/v1/imports", () => Results.Ok());
+          app.Run();
+        `,
+      });
+
+      const result = apiCompletenessScorer.score(projectDir, {}, null);
+
+      expect(result.score).toBeGreaterThan(50);
+      expect(result.details.restToolCount).toBeGreaterThanOrEqual(4);
+      expect(result.details.controllerCount).toBe(1);
+      expect(result.details.attributeEndpointCount).toBe(2);
+      expect(result.details.minimalEndpointCount).toBe(2);
+      expect(result.details.usesMapControllers).toBe(true);
+      expect(result.details.surfaceMode).toBe('rest_only');
     });
   });
 
@@ -1019,6 +1111,37 @@ describe('factory scorer behavioral coverage', () => {
       expect(result.details.ciWorkflowCount).toBe(1);
       expect(result.score).toBeGreaterThanOrEqual(55);
       expect(result.score).toBeLessThanOrEqual(70);
+    });
+
+    test('detects dotnet workflows and wrapper scripts as build and test signals', () => {
+      const projectDir = createProjectFixture({
+        'SpudgetBooks.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00',
+        'tests/SpudgetBooks.CoreTests/SpudgetBooks.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+  </ItemGroup>
+</Project>`,
+        'tests/SpudgetBooks.CoreTests/InvoiceServiceTests.cs': 'namespace SpudgetBooks.CoreTests; public class InvoiceServiceTests {}',
+        '.github/workflows/ci.yml': `name: ci
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - run: ./scripts/build.ps1
+      - run: dotnet test SpudgetBooks.sln --no-build`,
+        'scripts/build.ps1': 'dotnet build SpudgetBooks.sln',
+      });
+
+      const result = buildCiScorer.score(projectDir, {}, null);
+
+      expect(result.details.source).toBe('build_ci_signals');
+      expect(result.details.hasDotnetProject).toBe(true);
+      expect(result.details.hasDotnetTestProject).toBe(true);
+      expect(result.details.hasBuild).toBe(true);
+      expect(result.details.hasTest).toBe(true);
+      expect(result.findings.map((finding) => finding.title)).not.toContain('No test script in any package.json');
     });
   });
 
