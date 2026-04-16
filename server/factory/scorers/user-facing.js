@@ -3,14 +3,29 @@
 const fs = require('fs');
 const path = require('path');
 
-const JSX_FILE_RE = /\.(jsx|tsx)$/i;
+const UI_FILE_RE = /\.(jsx|tsx|xaml)$/i;
 const TEST_FILE_RE = /(^|[\\/])__tests__([\\/]|$)|\.(test|spec)\.(jsx|tsx)$/i;
 const EMPTY_STATE_RE = /(no\s+\w+\s+yet|welcome to|get started|nothing here|empty)/i;
 const LOADING_STATE_RE = /(animate-pulse|<Skeleton|isLoading|loading\s*\?|Spinner)/i;
 const ERROR_BOUNDARY_RE = /(ErrorBoundary|componentDidCatch|getDerivedStateFromError)/i;
 const TOAST_NOTIFICATION_RE = /(toast|notify|<Toast|<Notification|<Snackbar)/i;
+const WPF_LOADING_STATE_RE = /\b(IsBusy|Loading|ProgressBar|ProgressRing|BusyIndicator)\b/i;
+const WPF_ERROR_STATE_RE = /\b(Error|HasError|Validation\.Errors|Exception)\b/i;
+const WPF_NOTIFICATION_RE = /\b(Snackbar|Toast|Notification|MessageQueue|StatusMessage)\b/i;
 const ARIA_ATTR_RE = /aria-[a-z]+=/g;
 const SEMANTIC_HTML_RE = /(<main|<nav|<header|<footer|<button|<section|<article|role=)/g;
+const AUTOMATION_ATTR_RE = /AutomationProperties\.(?:Name|HelpText|LabeledBy)=/g;
+const XAML_STRUCTURE_RE = /<(?:Window|UserControl|Page|Grid|StackPanel|DockPanel|GroupBox|TabControl|TabItem|ListView|DataGrid|Button|TextBlock)\b/g;
+const DASHBOARD_NAME_RE = /\b(dashboard|overview|summary|workspace|analytics|status|home)\b/i;
+
+const UI_ROOTS = [
+  { relativePath: path.join('dashboard', 'src', 'views'), bucket: 'views' },
+  { relativePath: path.join('dashboard', 'src', 'pages'), bucket: 'views' },
+  { relativePath: path.join('dashboard', 'src', 'components'), bucket: 'components' },
+  { relativePath: path.join('Sections', 'Dashboard'), bucket: 'views' },
+  { relativePath: 'Views', bucket: 'views' },
+  { relativePath: 'Pages', bucket: 'views' },
+];
 
 function normalizeRelative(projectPath, filePath) {
   return path.relative(projectPath, filePath).split(path.sep).join('/');
@@ -35,7 +50,7 @@ function walkUiFiles(dirPath) {
       files.push(...walkUiFiles(fullPath));
       continue;
     }
-    if (entry.isFile() && JSX_FILE_RE.test(entry.name) && !TEST_FILE_RE.test(fullPath)) {
+    if (entry.isFile() && UI_FILE_RE.test(entry.name) && !TEST_FILE_RE.test(fullPath)) {
       files.push(fullPath);
     }
   }
@@ -43,14 +58,47 @@ function walkUiFiles(dirPath) {
   return files;
 }
 
-function analyzeViewContent(content) {
+function collectUiFiles(projectPath) {
+  const buckets = {
+    views: new Set(),
+    components: new Set(),
+  };
+  let rootDetected = false;
+
+  for (const root of UI_ROOTS) {
+    const fullPath = path.join(projectPath, root.relativePath);
+    if (!fs.existsSync(fullPath)) {
+      continue;
+    }
+    rootDetected = true;
+    for (const filePath of walkUiFiles(fullPath)) {
+      buckets[root.bucket].add(filePath);
+    }
+  }
+
+  return {
+    rootDetected,
+    viewFiles: Array.from(buckets.views).sort(),
+    componentFiles: Array.from(buckets.components).sort(),
+  };
+}
+
+function analyzeViewContent(content, relativePath) {
+  const isXaml = /\.xaml$/i.test(relativePath);
+  const ariaMatches = content.match(ARIA_ATTR_RE) || [];
+  const automationMatches = isXaml ? content.match(AUTOMATION_ATTR_RE) || [] : [];
+  const semanticMatches = content.match(SEMANTIC_HTML_RE) || [];
+  const xamlStructureMatches = isXaml ? content.match(XAML_STRUCTURE_RE) || [] : [];
+
   return {
     emptyState: EMPTY_STATE_RE.test(content),
-    loadingState: LOADING_STATE_RE.test(content),
-    errorBoundary: ERROR_BOUNDARY_RE.test(content),
-    toastNotification: TOAST_NOTIFICATION_RE.test(content),
-    ariaAttrs: (content.match(ARIA_ATTR_RE) || []).length,
-    semanticHtml: (content.match(SEMANTIC_HTML_RE) || []).length,
+    loadingState: LOADING_STATE_RE.test(content) || (isXaml && WPF_LOADING_STATE_RE.test(content)),
+    errorBoundary: ERROR_BOUNDARY_RE.test(content) || (isXaml && WPF_ERROR_STATE_RE.test(content)),
+    toastNotification: TOAST_NOTIFICATION_RE.test(content) || (isXaml && WPF_NOTIFICATION_RE.test(content)),
+    ariaAttrs: ariaMatches.length + automationMatches.length,
+    semanticHtml: semanticMatches.length + xamlStructureMatches.length,
+    dashboardLike: DASHBOARD_NAME_RE.test(relativePath) || (isXaml && DASHBOARD_NAME_RE.test(content)),
+    isXaml,
   };
 }
 
@@ -73,12 +121,9 @@ function score(projectPath, scanReport, findingsDir) {
   }
 
   try {
-    const viewsDir = path.join(projectPath, 'dashboard', 'src', 'views');
-    const componentsDir = path.join(projectPath, 'dashboard', 'src', 'components');
-    const hasViewsDir = fs.existsSync(viewsDir);
-    const hasComponentsDir = fs.existsSync(componentsDir);
+    const { rootDetected, viewFiles, componentFiles } = collectUiFiles(projectPath);
 
-    if (!hasViewsDir && !hasComponentsDir) {
+    if (!rootDetected) {
       return {
         score: 50,
         details: { source: 'code_signal_analysis', reason: 'no_dashboard_dir' },
@@ -92,15 +137,14 @@ function score(projectPath, scanReport, findingsDir) {
       };
     }
 
-    const viewFiles = walkUiFiles(viewsDir);
-    const componentFiles = walkUiFiles(componentsDir);
     const viewSignals = [];
 
     for (const filePath of viewFiles) {
       const content = fs.readFileSync(filePath, 'utf8');
+      const relativePath = normalizeRelative(projectPath, filePath);
       viewSignals.push({
-        file: normalizeRelative(projectPath, filePath),
-        ...analyzeViewContent(content),
+        file: relativePath,
+        ...analyzeViewContent(content, relativePath),
       });
     }
 
@@ -116,14 +160,17 @@ function score(projectPath, scanReport, findingsDir) {
     const errorHandlingCount = viewSignals.filter(
       view => view.errorBoundary || view.toastNotification
     ).length;
+    const dashboardLikeCount = viewSignals.filter(view => view.dashboardLike).length;
     const totalAria = viewSignals.reduce((sum, view) => sum + view.ariaAttrs, 0);
     const totalSemantic = viewSignals.reduce((sum, view) => sum + view.semanticHtml, 0);
+    const xamlViewCount = viewSignals.filter(view => view.isXaml).length;
 
     const emptyStateCoverage = ratio(emptyStateCount, totalViews);
     const loadingStateCoverage = ratio(loadingStateCount, totalViews);
     const errorBoundaryCoverage = ratio(errorBoundaryCount, totalViews);
     const toastCoverage = ratio(toastCount, totalViews);
     const errorHandlingCoverage = ratio(errorHandlingCount, totalViews);
+    const dashboardLikeCoverage = ratio(dashboardLikeCount, totalViews);
     const avgAria = totalViews > 0 ? totalAria / totalViews : 0;
     const avgSemantic = totalViews > 0 ? totalSemantic / totalViews : 0;
 
@@ -131,6 +178,10 @@ function score(projectPath, scanReport, findingsDir) {
     computedScore += 20 * emptyStateCoverage;
     computedScore += 15 * loadingStateCoverage;
     computedScore += 15 * errorHandlingCoverage;
+    if (xamlViewCount > 0) {
+      if (dashboardLikeCoverage >= 0.5) computedScore += 10;
+      else if (dashboardLikeCoverage > 0) computedScore += 5;
+    }
     if (avgAria >= 2) computedScore += 10;
     else if (avgAria >= 1) computedScore += 5;
     if (avgSemantic >= 3) computedScore += 10;
@@ -191,10 +242,12 @@ function score(projectPath, scanReport, findingsDir) {
           loadingState: loadingStateCoverage,
           errorBoundary: errorBoundaryCoverage,
           toastNotification: toastCoverage,
+          dashboardLike: dashboardLikeCoverage,
         },
         errorHandlingCoverage,
         avgAria,
         avgSemantic,
+        xamlViewsScanned: xamlViewCount,
       },
       findings: findings.slice(0, 5),
     };
@@ -211,4 +264,11 @@ function score(projectPath, scanReport, findingsDir) {
   }
 }
 
-module.exports = { score };
+module.exports = {
+  normalizeRelative,
+  clampScore,
+  ratio,
+  walkUiFiles,
+  analyzeViewContent,
+  score,
+};

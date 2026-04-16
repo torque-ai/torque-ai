@@ -57,6 +57,49 @@ describe('api-completeness scorer', () => {
     expect(result.findings.some((finding) => /parity/i.test(finding.title))).toBe(true);
   });
 
+  test('detects ASP.NET controllers and minimal APIs as a real API surface', () => {
+    writeFile(
+      'SpudgetBooks.Api/Controllers/V1/InvoicesController.cs',
+      `
+        using Microsoft.AspNetCore.Mvc;
+
+        namespace SpudgetBooks.Api.Controllers.V1;
+
+        [ApiController]
+        [Route("api/v1/invoices")]
+        public class InvoicesController : ControllerBase
+        {
+          [HttpGet]
+          public IActionResult List() => Ok();
+
+          [HttpPost]
+          public IActionResult Create() => Ok();
+        }
+      `,
+    );
+    writeFile(
+      'SpudgetBooks.Api/Program.cs',
+      `
+        var builder = WebApplication.CreateBuilder(args);
+        var app = builder.Build();
+        app.MapControllers();
+        app.MapGet("/api/v1/health", () => Results.Ok());
+        app.MapPost("/api/v1/imports", () => Results.Ok());
+        app.Run();
+      `,
+    );
+
+    const result = score(tempDir, {}, null);
+
+    expect(result.details.reason).toBeUndefined();
+    expect(result.details.restToolCount).toBeGreaterThan(0);
+    expect(result.details.controllerCount).toBeGreaterThan(0);
+    expect(result.details.attributeEndpointCount).toBeGreaterThan(0);
+    expect(result.details.minimalEndpointCount).toBeGreaterThan(0);
+    expect(result.details.usesMapControllers).toBe(true);
+    expect(result.details.surfaceMode).toBe('rest_only');
+  });
+
   test('edge case: missing projectPath', () => {
     const result = score(null, {}, null);
 

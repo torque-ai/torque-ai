@@ -672,6 +672,32 @@ describe('factory scorer behavioral coverage', () => {
       expect(result.score).toBeGreaterThan(60);
       expect(result.score).toBeLessThan(85);
     });
+
+    test('detects WPF dashboard XAML surfaces without defaulting to the fallback score', () => {
+      const projectDir = createProjectFixture({
+        'Sections/Dashboard/MainDashboard.xaml': `
+          <UserControl x:Class="SpudgetBooks.Sections.Dashboard.MainDashboard"
+              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+              AutomationProperties.Name="Dashboard">
+            <Grid>
+              <TextBlock Text="No invoices yet" />
+              <ProgressBar IsIndeterminate="True" Visibility="{Binding IsBusy}" />
+              <TextBlock Text="{Binding StatusMessage}" />
+              <TextBlock Text="{Binding ErrorMessage}" />
+              <Button Content="Refresh" />
+            </Grid>
+          </UserControl>
+        `,
+      });
+
+      const result = userFacingScorer.score(projectDir, {}, null);
+
+      expect(result.score).toBeGreaterThan(50);
+      expect(result.details.viewsScanned).toBe(1);
+      expect(result.details.xamlViewsScanned).toBe(1);
+      expect(result.details.coverage.dashboardLike).toBeGreaterThan(0);
+    });
   });
 
   describe('api_completeness scorer', () => {
@@ -743,6 +769,45 @@ describe('factory scorer behavioral coverage', () => {
       const moreComplete = apiCompletenessScorer.score(projectDir, {}, null);
 
       expect(moreComplete.score).toBeGreaterThan(incomplete.score);
+    });
+
+    test('detects ASP.NET controller and minimal API surfaces', () => {
+      const projectDir = createProjectFixture({
+        'SpudgetBooks.Api/Controllers/V1/InvoicesController.cs': `
+          using Microsoft.AspNetCore.Mvc;
+
+          namespace SpudgetBooks.Api.Controllers.V1;
+
+          [ApiController]
+          [Route("api/v1/invoices")]
+          public class InvoicesController : ControllerBase
+          {
+            [HttpGet]
+            public IActionResult List() => Ok();
+
+            [HttpPost]
+            public IActionResult Create() => Ok();
+          }
+        `,
+        'SpudgetBooks.Api/Program.cs': `
+          var builder = WebApplication.CreateBuilder(args);
+          var app = builder.Build();
+          app.MapControllers();
+          app.MapGet("/api/v1/health", () => Results.Ok());
+          app.MapPost("/api/v1/imports", () => Results.Ok());
+          app.Run();
+        `,
+      });
+
+      const result = apiCompletenessScorer.score(projectDir, {}, null);
+
+      expect(result.score).toBeGreaterThan(50);
+      expect(result.details.restToolCount).toBeGreaterThanOrEqual(4);
+      expect(result.details.controllerCount).toBe(1);
+      expect(result.details.attributeEndpointCount).toBe(2);
+      expect(result.details.minimalEndpointCount).toBe(2);
+      expect(result.details.usesMapControllers).toBe(true);
+      expect(result.details.surfaceMode).toBe('rest_only');
     });
   });
 

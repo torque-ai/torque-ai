@@ -67,6 +67,36 @@ describe('user-facing scorer', () => {
     expect(result.findings.some((finding) => /empty-state handling/i.test(finding.title))).toBe(true);
   });
 
+  test('detects WPF dashboard XAML without falling back to no_dashboard_dir', () => {
+    const projectDir = path.join(tempDir, 'SpudgetBooks');
+    fs.mkdirSync(projectDir, { recursive: true });
+    writeFile(
+      'SpudgetBooks/Sections/Dashboard/MainDashboard.xaml',
+      `
+        <UserControl x:Class="SpudgetBooks.Sections.Dashboard.MainDashboard"
+            xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            AutomationProperties.Name="Main Dashboard">
+          <Grid>
+            <TextBlock Text="No invoices yet" />
+            <ProgressBar IsIndeterminate="True" Visibility="{Binding IsBusy}" />
+            <TextBlock Text="{Binding StatusMessage}" />
+            <TextBlock Text="{Binding ErrorMessage}" />
+            <Button Content="Refresh" />
+          </Grid>
+        </UserControl>
+      `,
+    );
+
+    const result = score(projectDir, {}, null);
+
+    expect(result.score).not.toBe(50);
+    expect(result.details.reason).toBeUndefined();
+    expect(result.details.viewsScanned).toBe(1);
+    expect(result.details.xamlViewsScanned).toBe(1);
+    expect(result.details.coverage.dashboardLike).toBeGreaterThan(0);
+  });
+
   test('edge case: missing projectPath', () => {
     const nullResult = score(null, {}, null);
     const emptyResult = score('', {}, null);
