@@ -167,8 +167,8 @@ function collectRestSurface(projectPath) {
   }
 
   return {
-    restTools,
     ...aspNetSurface,
+    restTools,
   };
 }
 
