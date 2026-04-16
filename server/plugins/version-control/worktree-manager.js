@@ -608,6 +608,18 @@ function createWorktreeManager({ db } = {}) {
       throw new Error(`worktree has no commits ahead of ${targetBranch} — refusing to merge empty branch`);
     }
 
+    // Sanitize the merge TARGET working tree as well. The feature-worktree
+    // cleanup above only handles drift on the source side; if the main
+    // checkout (existing.repo_path) has CRLF/LF drift or uncommitted
+    // bookkeeping changes, `git checkout targetBranch` or the subsequent
+    // `git merge` aborts with:
+    //   "error: Your local changes to the following files would be
+    //    overwritten by merge"
+    // ...even though the drift is harmless line-ending churn. Same three
+    // attempts (renormalize → semantic-diff short-circuit → pre-merge
+    // cleanup) work here — we reuse the same function.
+    assertWorktreeIsClean(existing.repo_path, 'merge-target');
+
     if (strategy === 'rebase') {
       runGit(existing.worktree_path, ['rebase', targetBranch]);
       runGit(existing.repo_path, ['checkout', targetBranch]);
