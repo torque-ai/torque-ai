@@ -365,6 +365,74 @@ function createWorktreeManager({ db } = {}) {
       return;
     }
 
+    // Third attempt: commit remaining semantic changes (plan-file [x]
+    // ticks that land after the last auto-commit, verify-retry edits,
+    // etc.) with inline PII sanitization. This mirrors the auto-commit
+    // logic but runs at merge time as a catch-all.
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const { scanAndReplace } = require('../../utils/pii-guard');
+
+      const changedOut = String(runGit(worktreePath, ['diff', '--name-only', 'HEAD'])).trim();
+      const changed = changedOut ? changedOut.split(/\r?\n/).filter(Boolean) : [];
+      const untrackedOut = String(runGit(worktreePath, ['ls-files', '--others', '--exclude-standard'])).trim();
+      const untracked = untrackedOut ? untrackedOut.split(/\r?\n/).filter(Boolean) : [];
+
+      // Filter to semantic changes only (skip pure CRLF drift)
+      const semantic = changed.filter((p) => {
+        try {
+          require('child_process').execFileSync('git', [
+            'diff', '--quiet', '--ignore-cr-at-eol', 'HEAD', '--', p,
+          ], { cwd: worktreePath, windowsHide: true });
+          return false;
+        } catch (_e) {
+          return true;
+        }
+      });
+
+      const toStage = [...semantic, ...untracked];
+      if (toStage.length === 0) {
+        return;
+      }
+
+      for (const filePath of toStage) {
+        const absPath = path.join(worktreePath, filePath);
+        if (!fs.existsSync(absPath)) continue;
+        try {
+          const content = fs.readFileSync(absPath, 'utf8');
+          const result = scanAndReplace(content, { workingDirectory: worktreePath });
+          if (!result.clean && result.sanitized) {
+            fs.writeFileSync(absPath, result.sanitized);
+          }
+        } catch (_piiErr) {
+          void _piiErr;
+        }
+      }
+
+      // Stage via stdin pathspec to avoid argv quirk
+      require('child_process').execFileSync('git', [
+        'add', '--pathspec-from-file=-', '--pathspec-file-nul',
+      ], {
+        cwd: worktreePath,
+        encoding: 'utf8',
+        windowsHide: true,
+        input: toStage.join('\0'),
+      });
+
+      runGit(worktreePath, ['commit', '-m', 'chore: pre-merge cleanup (factory auto-commit)']);
+    } catch (_commitErr) {
+      void _commitErr;
+    }
+
+    // Final check after cleanup commit.
+    if (!hasSemanticDiffAgainstHead(worktreePath) && !hasUntrackedFiles(worktreePath)) {
+      return;
+    }
+    if (!getWorktreeStatusPorcelain(worktreePath)) {
+      return;
+    }
+
     throw new Error(`worktree ${worktreePath} has uncommitted changes — refusing to ${action}`);
   }
 
