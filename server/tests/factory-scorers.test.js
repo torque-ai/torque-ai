@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { scoreDimension, scoreAll, DIMENSIONS } = require('../factory/scorer-registry');
+const { scoreDimension, scoreAll, DIMENSIONS, resolveHealthScanSourceDirs } = require('../factory/scorer-registry');
 const userFacingScorer = require('../factory/scorers/user-facing');
 
 // Mock scan_project report matching REAL output shape from handleScanProject
@@ -308,9 +308,120 @@ describe('user_facing scorer', () => {
 });
 
 describe('scoreAll on real TORQUE codebase', () => {
+  test('scores mixed dotnet and WPF fixtures from ecosystem-aware scan inputs', () => {
+    const projectDir = createTempDashboardProject({
+      'package.json': JSON.stringify({
+        name: 'spudgetbooks-shell',
+        scripts: {
+          build: 'dotnet build SpudgetBooks.sln',
+          test: 'dotnet test SpudgetBooks.sln --no-build',
+          lint: 'eslint .',
+          typecheck: 'tsc --noEmit',
+        },
+      }),
+      '.eslintrc.json': '{}',
+      '.husky/pre-commit': 'npm test',
+      'SpudgetBooks.sln': 'Microsoft Visual Studio Solution File, Format Version 12.00',
+      'SpudgetBooks.Core/InvoiceService.cs': 'namespace SpudgetBooks.Core; public sealed class InvoiceService { }',
+      'SpudgetBooks.Api/Controllers/V1/InvoicesController.cs': `
+        using Microsoft.AspNetCore.Mvc;
+
+        namespace SpudgetBooks.Api.Controllers.V1;
+
+        [ApiController]
+        [Route("api/v1/invoices")]
+        public class InvoicesController : ControllerBase
+        {
+          [HttpGet]
+          public IActionResult List() => Ok();
+        }
+      `,
+      'SpudgetBooks.Api/Program.cs': `
+        var builder = WebApplication.CreateBuilder(args);
+        var app = builder.Build();
+        app.MapControllers();
+        app.MapGet("/api/v1/health", () => Results.Ok());
+        app.Run();
+      `,
+      'Sections/Dashboard/MainDashboard.xaml': `
+        <UserControl x:Class="SpudgetBooks.Sections.Dashboard.MainDashboard"
+            xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            AutomationProperties.Name="Dashboard">
+          <Grid>
+            <TextBlock Text="No invoices yet" />
+            <ProgressBar IsIndeterminate="True" Visibility="{Binding IsBusy}" />
+            <TextBlock Text="{Binding StatusMessage}" />
+            <TextBlock Text="{Binding ErrorMessage}" />
+            <Button Content="Refresh" />
+          </Grid>
+        </UserControl>
+      `,
+      'tests/SpudgetBooks.CoreTests/SpudgetBooks.CoreTests.csproj': `<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+  </ItemGroup>
+</Project>`,
+      'tests/SpudgetBooks.CoreTests/InvoiceServiceTests.cs': 'namespace SpudgetBooks.CoreTests; public class InvoiceServiceTests { }',
+      '.github/workflows/ci.yml': `
+        name: ci
+        jobs:
+          build:
+            runs-on: windows-latest
+            steps:
+              - run: dotnet build SpudgetBooks.sln
+              - run: dotnet test SpudgetBooks.sln --no-build
+      `,
+      'openapi.json': '{}',
+    });
+
+    try {
+      const sourceDirs = resolveHealthScanSourceDirs(projectDir);
+      expect(sourceDirs).toEqual(expect.arrayContaining([
+        'Sections',
+        'SpudgetBooks.Api',
+        'SpudgetBooks.Core',
+      ]));
+      expect(sourceDirs).not.toContain('tests');
+
+      const results = scoreAll(projectDir, {
+        missingTests: {
+          covered: 0,
+          missing: 3,
+          total: 3,
+          coveragePercent: 0,
+        },
+        fileSizes: {
+          totalCodeFiles: 5,
+        },
+      }, null, [
+        'test_coverage',
+        'build_ci',
+        'user_facing',
+        'api_completeness',
+      ]);
+
+      expect(results.test_coverage.score).toBeGreaterThan(50);
+      expect(results.test_coverage.details.source).not.toBe('no_data');
+      expect(results.build_ci.score).toBeGreaterThan(50);
+      expect(results.build_ci.details.source).toBe('build_ci_signals');
+      expect(results.build_ci.details.hasDotnetProject).toBe(true);
+      expect(results.build_ci.details.hasTest).toBe(true);
+      expect(results.user_facing.score).toBeGreaterThan(50);
+      expect(results.user_facing.details.source).toBe('code_signal_analysis');
+      expect(results.user_facing.details.xamlViewsScanned).toBe(1);
+      expect(results.api_completeness.score).toBeGreaterThan(50);
+      expect(results.api_completeness.details.source).toBe('rest_mcp_parity');
+      expect(results.api_completeness.details.surfaceMode).toBe('rest_only');
+    } finally {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   test('produces non-zero scores for filesystem dimensions', () => {
     const torquePath = path.resolve(__dirname, '..');
-    const { handleScanProject } = require('../handlers/integration/infra');
 
     let scanReport = {};
     try {
