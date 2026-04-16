@@ -4013,6 +4013,52 @@ function normalizeAwaitFactoryLoopTimeoutMinutes(timeout_minutes) {
   return Math.min(Math.max(Number.isFinite(numeric) ? numeric : 60, 1), 240);
 }
 
+// Linear ordering of loop stages — used so await_factory_loop can resolve when
+// an autonomous loop races past a target state. Without this, a caller asking
+// target_states=['PRIORITIZE'] on an autonomous loop that transitions
+// SENSE→PRIORITIZE→PLAN→EXECUTE in under the wake interval would miss the
+// target window and hang until timeout.
+const STAGE_ORDER_RANKS = Object.freeze({
+  SENSE: 1,
+  PRIORITIZE: 2,
+  PLAN: 3,
+  PLAN_REVIEW: 3.5,
+  EXECUTE: 4,
+  VERIFY: 5,
+  LEARN: 6,
+  IDLE: 7,
+});
+
+function hasReachedTargetState(instance, targetStates) {
+  if (!Array.isArray(targetStates) || targetStates.length === 0) {
+    return false;
+  }
+  // Exact match on loop_state — preserves existing semantics and handles
+  // non-linear states like PAUSED directly.
+  if (targetStates.includes(instance.loop_state)) {
+    return true;
+  }
+  // Exact match on paused_at_stage — caller asked for PRIORITIZE and loop is
+  // paused at PRIORITIZE.
+  if (instance.paused_at_stage && targetStates.includes(instance.paused_at_stage)) {
+    return true;
+  }
+  // Ordinal progression check — if the loop has advanced past ANY target state
+  // in the linear SENSE→PRIORITIZE→...→IDLE ordering, consider it reached.
+  const effectiveState = instance.paused_at_stage || instance.loop_state;
+  const currentRank = STAGE_ORDER_RANKS[effectiveState];
+  if (currentRank == null) {
+    return false;
+  }
+  for (const target of targetStates) {
+    const targetRank = STAGE_ORDER_RANKS[target];
+    if (targetRank != null && currentRank >= targetRank) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function awaitFactoryLoop(project_id, {
   target_states = null,
   target_paused_stages = null,
@@ -4040,7 +4086,7 @@ async function awaitFactoryLoop(project_id, {
       return { status: 'terminated', instance, elapsed_ms: elapsedMs, timed_out: false };
     }
 
-    if (Array.isArray(target_states) && target_states.includes(instance.loop_state)) {
+    if (hasReachedTargetState(instance, target_states)) {
       return { status: 'target_state_reached', instance, elapsed_ms: elapsedMs, timed_out: false };
     }
 
