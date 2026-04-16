@@ -1160,7 +1160,9 @@ describe('factory loop-controller EXECUTE modes', () => {
       },
       latest_decision: {
         stage: 'sense',
-        action: 'started_loop',
+        // SENSE logs 'started_loop' then 'scanned_plans'; either is a
+        // valid "latest" depending on heartbeat timing.
+        action: expect.stringMatching(/^started_loop$|^scanned_plans$/),
         created_at: expect.any(String),
       },
     });
