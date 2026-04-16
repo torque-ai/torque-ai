@@ -711,6 +711,43 @@ const OUTPUT_SCHEMAS = {
     required: ['count', 'filters', 'tools'],
   },
 
+  create_handoff_agent: {
+    type: 'object',
+    properties: {
+      name: { type: 'string' },
+      wrapper_tool: { type: 'string' },
+      tools: { type: 'array', items: { type: 'string' } },
+      system_prompt: { type: 'string' },
+      registered_at: { type: 'string' },
+      updated_at: { type: 'string' },
+    },
+    required: ['name', 'wrapper_tool', 'tools', 'system_prompt', 'registered_at', 'updated_at'],
+  },
+
+  get_handoff_history: {
+    type: 'object',
+    properties: {
+      task_id: { type: 'string' },
+      workflow_id: { type: ['string', 'null'] },
+      count: { type: 'number' },
+      history: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            from: { type: 'string' },
+            to: { type: 'string' },
+            at: { type: 'number' },
+            patch: { type: 'object' },
+            workflow_id: { type: ['string', 'null'] },
+          },
+          required: ['from', 'to', 'at', 'patch'],
+        },
+      },
+    },
+    required: ['task_id', 'count', 'history'],
+  },
+
   get_batch_summary: {
     type: 'object',
     properties: {

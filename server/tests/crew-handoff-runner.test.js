@@ -1,12 +1,16 @@
 'use strict';
 
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 
 const { runCrewTurn } = require('../crew/crew-runner');
 const { createContextVariables } = require('../crew/context-variables');
-const { createHandoff } = require('../crew/handoff');
+const { createHandoff, getHandoffHistory, resetHandoffState } = require('../crew/handoff');
 
 describe('crew-runner handoff', () => {
+  beforeEach(() => {
+    resetHandoffState();
+  });
+
   it('swaps active agent when a tool returns a handoff', async () => {
     const agents = {
       triage: {
@@ -62,5 +66,41 @@ describe('crew-runner handoff', () => {
     });
 
     await expect(run()).rejects.toThrow(/handoff/i);
+  });
+
+  it('records handoff history for a task-scoped lookup when task context is provided', async () => {
+    const agents = {
+      triage: {
+        tools: {
+          route: async () => createHandoff('billing', { contextPatch: { issue: 'refund' } }),
+        },
+      },
+      billing: {
+        tools: {
+          respond: async () => 'ok',
+        },
+      },
+    };
+    const state = {
+      activeAgent: 'triage',
+      contextVariables: createContextVariables(),
+    };
+
+    await runCrewTurn({
+      agents,
+      state,
+      taskId: 'task-123',
+      workflowId: 'wf-123',
+      toolCall: { name: 'route', args: {} },
+    });
+
+    expect(getHandoffHistory('task-123')).toEqual([
+      expect.objectContaining({
+        from: 'triage',
+        to: 'billing',
+        patch: { issue: 'refund' },
+        workflow_id: 'wf-123',
+      }),
+    ]);
   });
 });

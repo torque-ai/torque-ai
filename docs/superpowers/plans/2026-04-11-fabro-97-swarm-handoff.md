@@ -146,7 +146,7 @@ Run tests → PASS. Commit: `feat(crew): handoff sentinel + context-variables pr
 
 ## Task 2: Crew-runner integration + loop guard
 
-- [ ] **Step 1: Runner integration test**
+- [x] **Step 1: Runner integration test**
 
 Create `server/tests/crew-handoff-runner.test.js`:
 
@@ -184,7 +184,7 @@ describe('crew-runner handoff', () => {
 });
 ```
 
-- [ ] **Step 2: Patch crew-runner**
+- [x] **Step 2: Patch crew-runner**
 
 In `server/crew/crew-runner.js`, after invoking a tool:
 

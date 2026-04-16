@@ -11,7 +11,21 @@ const { safeJsonParse } = require('../../db/event-tracking');
 const coordinationDb = require('../../db/coordination');
 const { getPrometheusMetrics, setRateLimit, setTaskQuota, getRoutingRules } = require('../../db/provider-routing-core');
 const serverConfig = require('../../config');
+const { buildHandoffToolName, registerHandoffAgent, getHandoffHistory: getRecordedHandoffHistory } = require('../../crew/handoff');
+const { normalizeMetadata } = require('../../utils/normalize-metadata');
 const { validateObjectDepth, safeLimit, safeDate, requireTask, ErrorCodes, makeError } = require('../shared');
+
+function getTaskCore() {
+  try {
+    return require('../../container').defaultContainer.get('taskCore');
+  } catch (_err) {
+    try {
+      return require('../../db/task-core');
+    } catch (_innerErr) {
+      return null;
+    }
+  }
+}
 
 
 // Phase 1: Agent Lifecycle Handlers
@@ -215,6 +229,137 @@ function handleUpdateAgent(args) {
 
   return {
     content: [{ type: 'text', text: `Agent ${agent.name} updated successfully` }]
+  };
+}
+
+/**
+ * @param {Object} args - Handler arguments.
+ * @returns {Object} MCP response payload.
+ */
+function handleCreateHandoffAgent(args) {
+  const { name, system_prompt, tools } = args;
+
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'name is required');
+  }
+  if (!system_prompt || typeof system_prompt !== 'string' || system_prompt.trim().length === 0) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'system_prompt is required');
+  }
+
+  try {
+    const record = registerHandoffAgent({
+      name,
+      systemPrompt: system_prompt,
+      tools,
+    });
+    const wrapperTool = buildHandoffToolName(record.name);
+    const structuredData = {
+      name: record.name,
+      wrapper_tool: wrapperTool,
+      tools: record.tools,
+      system_prompt: record.systemPrompt,
+      registered_at: record.registeredAt,
+      updated_at: record.updatedAt,
+    };
+
+    let output = `## Handoff Agent Registered\n\n`;
+    output += `**Name:** ${record.name}\n`;
+    output += `**Wrapper Tool:** ${wrapperTool}\n`;
+    output += `**System Prompt:** ${record.systemPrompt}\n`;
+    if (record.tools.length > 0) {
+      output += `**Declared Tools:** ${record.tools.join(', ')}\n`;
+    } else {
+      output += `**Declared Tools:** none\n`;
+    }
+    output += `**Registered At:** ${record.registeredAt}\n`;
+
+    return {
+      content: [{ type: 'text', text: output }],
+      structuredData,
+    };
+  } catch (error) {
+    return makeError(ErrorCodes.INVALID_PARAM, error.message || 'Failed to register handoff agent');
+  }
+}
+
+/**
+ * @param {Object} args - Handler arguments.
+ * @returns {Object} MCP response payload.
+ */
+function handleGetHandoffHistory(args) {
+  const { task_id } = args;
+
+  if (!task_id || typeof task_id !== 'string' || task_id.trim().length === 0) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required');
+  }
+  const normalizedTaskId = task_id.trim();
+
+  const taskCore = getTaskCore();
+  const task = taskCore && typeof taskCore.getTask === 'function'
+    ? taskCore.getTask(normalizedTaskId)
+    : null;
+  if (!task) {
+    return makeError(ErrorCodes.TASK_NOT_FOUND, `Task not found: ${normalizedTaskId}`);
+  }
+
+  const metadata = normalizeMetadata(task.metadata);
+  const persistedHistory = Array.isArray(metadata.handoff_history) ? metadata.handoff_history : [];
+  const runtimeHistory = getRecordedHandoffHistory(normalizedTaskId);
+  const mergedHistory = [...persistedHistory, ...runtimeHistory];
+  const history = [];
+  const seen = new Set();
+  for (const entry of mergedHistory) {
+    const normalizedEntry = {
+      from: entry?.from,
+      to: entry?.to,
+      at: entry?.at,
+      patch: entry?.patch,
+      workflow_id: entry?.workflow_id || task.workflow_id || null,
+    };
+    const dedupeKey = `${normalizedEntry.from}|${normalizedEntry.to}|${normalizedEntry.at}|${normalizedEntry.workflow_id || ''}|${JSON.stringify(normalizedEntry.patch && typeof normalizedEntry.patch === 'object' && !Array.isArray(normalizedEntry.patch) ? normalizedEntry.patch : {})}`;
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+    history.push(normalizedEntry);
+  }
+
+  const structuredData = {
+    task_id: normalizedTaskId,
+    workflow_id: task.workflow_id || null,
+    count: history.length,
+    history: history.map((entry) => ({
+      from: entry.from,
+      to: entry.to,
+      at: entry.at,
+      patch: entry.patch && typeof entry.patch === 'object' && !Array.isArray(entry.patch) ? { ...entry.patch } : {},
+      workflow_id: entry.workflow_id || task.workflow_id || null,
+    })),
+  };
+
+  if (history.length === 0) {
+    return {
+      content: [{ type: 'text', text: `No handoff history recorded for task ${normalizedTaskId}.` }],
+      structuredData,
+    };
+  }
+
+  let output = `## Handoff History (${history.length})\n\n`;
+  output += `**Task ID:** ${normalizedTaskId}\n`;
+  if (task.workflow_id) {
+    output += `**Workflow ID:** ${task.workflow_id}\n`;
+  }
+  output += `\n| From | To | When | Patch |\n`;
+  output += `|------|----|------|-------|\n`;
+  for (const entry of structuredData.history) {
+    const patchText = Object.keys(entry.patch).length > 0 ? JSON.stringify(entry.patch) : '{}';
+    const when = Number.isFinite(entry.at) ? new Date(entry.at).toISOString() : String(entry.at);
+    output += `| ${entry.from} | ${entry.to} | ${when} | ${patchText} |\n`;
+  }
+
+  return {
+    content: [{ type: 'text', text: output }],
+    structuredData,
   };
 }
 
@@ -947,6 +1092,8 @@ function createCoordinationHandlers() {
     handleListAgents,
     handleGetAgent,
     handleUpdateAgent,
+    handleCreateHandoffAgent,
+    handleGetHandoffHistory,
     handleClaimTask,
     handleRenewLease,
     handleReleaseTask,
@@ -979,6 +1126,8 @@ module.exports = {
   handleListAgents,
   handleGetAgent,
   handleUpdateAgent,
+  handleCreateHandoffAgent,
+  handleGetHandoffHistory,
   handleClaimTask,
   handleRenewLease,
   handleReleaseTask,
