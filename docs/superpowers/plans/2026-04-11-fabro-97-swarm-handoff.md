@@ -26,7 +26,7 @@
 
 ## Task 1: Handoff sentinel + context variables
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/handoff.test.js`:
 
@@ -98,7 +98,7 @@ describe('contextVariables', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/crew/handoff.js`:
 
