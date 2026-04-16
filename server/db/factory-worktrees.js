@@ -174,6 +174,25 @@ function getWorktreeByBranch(branch) {
   }
 }
 
+function getActiveWorktreeByBranch(branch) {
+  try {
+    const row = getDb().prepare(`
+      SELECT *
+      FROM factory_worktrees
+      WHERE branch = ?
+        AND status = 'active'
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `).get(requireText(branch, 'branch'));
+    return parseWorktree(row);
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 function markMerged(id) {
   try {
     const result = getDb().prepare(`
@@ -259,6 +278,7 @@ module.exports = {
   getActiveWorktree,
   getActiveWorktreeByBatch,
   getWorktreeByBranch,
+  getActiveWorktreeByBranch,
   getLatestWorktreeForWorkItem,
   markMerged,
   markAbandoned,

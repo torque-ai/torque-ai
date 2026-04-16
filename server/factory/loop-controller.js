@@ -388,6 +388,40 @@ function terminateInstanceAndSync(instance_id) {
   const before = getInstanceOrThrow(instance_id);
   factoryIntake.releaseClaimForInstance(instance_id);
   clearSelectedWorkItem(instance_id);
+
+  // Abandon any factory_worktrees row created by this instance's batch so
+  // the UNIQUE(branch, status='active') index doesn't block future retries
+  // of the same work item. The vc-level worktree is best-effort cleaned up
+  // via the shared runner; DB-level cleanup is authoritative.
+  if (before.batch_id) {
+    try {
+      const active = factoryWorktrees.getActiveWorktreeByBatch(before.batch_id);
+      if (active) {
+        factoryWorktrees.markAbandoned(active.id, 'instance_terminated');
+        const worktreeRunner = getWorktreeRunner();
+        if (worktreeRunner && typeof worktreeRunner.abandon === 'function' && active.vcWorktreeId) {
+          Promise.resolve(worktreeRunner.abandon({
+            id: active.vcWorktreeId,
+            branch: active.branch,
+            reason: 'instance_terminated',
+          })).catch((err) => {
+            logger.warn('factory worktree: vc cleanup after termination failed', {
+              instance_id,
+              stale_vc_worktree_id: active.vcWorktreeId,
+              err: err.message,
+            });
+          });
+        }
+      }
+    } catch (err) {
+      logger.warn('factory worktree: failed to abandon active row during termination', {
+        instance_id,
+        batch_id: before.batch_id,
+        err: err.message,
+      });
+    }
+  }
+
   const terminated = factoryLoopInstances.terminateInstance(instance_id);
   syncLegacyProjectLoopState(before.project_id);
   eventBus.emitFactoryLoopChanged({
@@ -2512,6 +2546,52 @@ async function executePlanFileStage(project, instance, workItem) {
         workItem: targetItem,
         batchId: executeLogBatchId,
       });
+      // Reclaim any stale 'active' factory_worktrees row that would block
+      // the UNIQUE(branch, status='active') index. This happens when a
+      // previous EXECUTE failed mid-flight (or its instance got terminated)
+      // and the row was never marked merged/abandoned. Without this, the
+      // retry deterministically fails with UNIQUE constraint failed —
+      // blocking the same work item forever.
+      const stale = factoryWorktrees.getActiveWorktreeByBranch(createdWorktree.branch);
+      if (stale) {
+        logger.warn('factory worktree: reclaiming stale active row before retry', {
+          project_id: project.id,
+          work_item_id: targetItem.id,
+          branch: createdWorktree.branch,
+          stale_factory_worktree_id: stale.id,
+          stale_batch_id: stale.batch_id,
+        });
+        factoryWorktrees.markAbandoned(stale.id, 'reclaim_before_retry');
+        if (typeof worktreeRunner.abandon === 'function' && stale.vcWorktreeId) {
+          try {
+            await worktreeRunner.abandon({
+              id: stale.vcWorktreeId,
+              branch: stale.branch,
+              reason: 'reclaim_before_retry',
+            });
+          } catch (cleanupErr) {
+            logger.warn('factory worktree: stale vc cleanup best-effort failed', {
+              project_id: project.id,
+              stale_vc_worktree_id: stale.vcWorktreeId,
+              err: cleanupErr.message,
+            });
+          }
+        }
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.EXECUTE,
+          action: 'worktree_reclaimed',
+          reasoning: 'Abandoned stale active factory_worktrees row so new EXECUTE can proceed.',
+          inputs: { ...getWorkItemDecisionContext(targetItem) },
+          outcome: {
+            stale_factory_worktree_id: stale.id,
+            stale_batch_id: stale.batch_id,
+            branch: stale.branch,
+          },
+          confidence: 1,
+          batch_id: executeLogBatchId,
+        });
+      }
       worktreeRecord = factoryWorktrees.recordWorktree({
         project_id: project.id,
         work_item_id: targetItem.id,
