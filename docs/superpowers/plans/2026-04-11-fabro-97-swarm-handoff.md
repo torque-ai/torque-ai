@@ -214,7 +214,7 @@ Run tests → PASS. Commit: `feat(crew): handoff-aware crew-runner + loop guard`
 
 ## Task 3: MCP surface
 
-- [ ] **Step 1: Register tools**
+- [x] **Step 1: Register tools**
 
 In `server/handlers/mcp-tools.js`:
 
@@ -237,7 +237,7 @@ get_handoff_history: {
 },
 ```
 
-- [ ] **Step 2: Smoke**
+- [x] **Step 2: Smoke**
 
 Start TORQUE → register `triage` and `billing` handoff agents via MCP → run a crew turn where triage calls a routing tool → confirm activeAgent switches and context merges.
 
