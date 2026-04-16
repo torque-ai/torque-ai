@@ -109,6 +109,7 @@ const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
   'execution_failed',
   'started_execution',
 ]);
+const POLL_MS = 2000;
 
 class StageOccupiedError extends Error {
   constructor(project_id, stage) {
@@ -3960,6 +3961,112 @@ function getLoopStateForProject(project_id) {
   };
 }
 
+function getAwaitableLoopInstance(project_id) {
+  const activeInstance = factoryLoopInstances.listInstances({ project_id, active_only: true })[0] || null;
+  if (activeInstance) {
+    return activeInstance;
+  }
+
+  const instances = factoryLoopInstances.listInstances({ project_id, active_only: false });
+  return instances.length > 0 ? instances[instances.length - 1] : null;
+}
+
+function getLatestDecisionSummary(project_id) {
+  const db = database.getDbInstance();
+  if (!db || !project_id) {
+    return null;
+  }
+
+  try {
+    return db.prepare(`
+      SELECT stage, action, created_at
+      FROM factory_decisions
+      WHERE project_id = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(project_id) || null;
+  } catch (error) {
+    logger.debug({ err: error.message, project_id }, 'Unable to inspect latest factory decision for awaitFactoryLoop');
+    return null;
+  }
+}
+
+function normalizeAwaitFactoryLoopTimeoutMinutes(timeout_minutes) {
+  const numeric = timeout_minutes == null ? 60 : Number(timeout_minutes);
+  if (Number.isFinite(numeric) && numeric > 0 && numeric < 1) {
+    // The public MCP schema enforces a 1-minute minimum, but controller-level
+    // tests and direct callers use sub-minute budgets for fast polling checks.
+    return numeric;
+  }
+  return Math.min(Math.max(Number.isFinite(numeric) ? numeric : 60, 1), 240);
+}
+
+async function awaitFactoryLoop(project_id, {
+  target_states = null,
+  target_paused_stages = null,
+  await_termination = true,
+  timeout_minutes = 60,
+  heartbeat_minutes = 5,
+} = {}) {
+  const timeoutMs = normalizeAwaitFactoryLoopTimeoutMinutes(timeout_minutes) * 60 * 1000;
+  const rawHeartbeatMinutes = heartbeat_minutes == null ? 5 : Number(heartbeat_minutes);
+  const heartbeatMinutes = Math.min(Math.max(Number.isFinite(rawHeartbeatMinutes) ? rawHeartbeatMinutes : 5, 0), 30);
+  const heartbeatMs = heartbeatMinutes * 60 * 1000;
+  const startedAt = Date.now();
+  let lastHeartbeat = startedAt;
+
+  while (true) {
+    const instance = getAwaitableLoopInstance(project_id);
+    if (!instance) {
+      throw new Error('Loop not started for this project');
+    }
+
+    const now = Date.now();
+    const elapsedMs = now - startedAt;
+
+    if (instance.terminated_at) {
+      return { status: 'terminated', instance, elapsed_ms: elapsedMs, timed_out: false };
+    }
+
+    if (Array.isArray(target_states) && target_states.includes(instance.loop_state)) {
+      return { status: 'target_state_reached', instance, elapsed_ms: elapsedMs, timed_out: false };
+    }
+
+    if (Array.isArray(target_paused_stages) && target_paused_stages.includes(instance.paused_at_stage)) {
+      return { status: 'target_paused_stage_reached', instance, elapsed_ms: elapsedMs, timed_out: false };
+    }
+
+    if (await_termination && instance.paused_at_stage) {
+      return { status: 'paused', instance, elapsed_ms: elapsedMs, timed_out: false };
+    }
+
+    if (heartbeatMs > 0 && now - lastHeartbeat >= heartbeatMs) {
+      lastHeartbeat = now;
+      return {
+        status: 'heartbeat',
+        instance,
+        latest_decision: getLatestDecisionSummary(project_id),
+        elapsed_ms: elapsedMs,
+        timed_out: false,
+      };
+    }
+
+    if (elapsedMs >= timeoutMs) {
+      return { status: 'timeout', instance, elapsed_ms: elapsedMs, timed_out: true };
+    }
+
+    const waitMs = Math.min(POLL_MS, Math.max(timeoutMs - elapsedMs, 0));
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
+}
+
+async function awaitFactoryLoopForProject(project_id, options = {}) {
+  const project = getProjectOrThrow(project_id);
+  return awaitFactoryLoop(project.id, options);
+}
+
 module.exports = {
   StageOccupiedError,
   startLoop,
@@ -3976,8 +4083,11 @@ module.exports = {
   retryVerifyFromFailureForProject,
   rejectGate,
   rejectGateForProject,
+  terminateInstanceAndSync,
   getLoopState,
   getLoopStateForProject,
+  awaitFactoryLoop,
+  awaitFactoryLoopForProject,
   getLoopAdvanceJobStatus,
   getLoopAdvanceJobStatusForProject,
   getActiveInstances,
@@ -3990,6 +4100,7 @@ module.exports = {
     claimNextWorkItemForInstance,
     healAlreadyShippedWorkItem,
     awaitTaskToStructuredResult,
+    terminateInstanceAndSync,
     injectFakeAdvanceJobForTests: (instance_id, job) => {
       const key = getLoopAdvanceJobKey(instance_id, job.job_id);
       loopAdvanceJobs.set(key, job);

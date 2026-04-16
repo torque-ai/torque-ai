@@ -42,6 +42,7 @@ describe('factory loop instance routes', () => {
     mockHandlers = {
       handleListFactoryLoopInstances: vi.fn(),
       handleStartFactoryLoopInstance: vi.fn(),
+      handleAwaitFactoryLoop: vi.fn(),
       handleFactoryLoopInstanceStatus: vi.fn(),
       handleAdvanceFactoryLoopInstanceAsync: vi.fn(),
       handleFactoryLoopInstanceJobStatus: vi.fn(),
@@ -93,6 +94,15 @@ describe('factory loop instance routes', () => {
       handlerName: 'handleStartFactoryLoopInstance',
     });
     expect(startRoute.path.test('/api/v2/factory/projects/project-1/loops/start')).toBe(true);
+
+    const awaitRoute = findRoute((route) => route.tool === 'await_factory_loop', 'await_factory_loop');
+    expect(awaitRoute).toMatchObject({
+      method: 'POST',
+      mapParams: ['project'],
+      mapBody: true,
+      handlerName: 'handleAwaitFactoryLoop',
+    });
+    expect(awaitRoute.path.test('/api/v2/factory/projects/project-1/loop/await')).toBe(true);
 
     const statusRoute = findRoute((route) => route.tool === 'factory_loop_instance_status', 'factory_loop_instance_status');
     expect(statusRoute).toMatchObject({
@@ -179,6 +189,44 @@ describe('factory loop instance routes', () => {
       notFoundResult: { status: 404, errorCode: 'RESOURCE_NOT_FOUND', errorMessage: 'Project not found: proj-404' },
       expectedNotFoundArgs: { project: 'proj-404' },
       notFoundReq: { params: { project: 'proj-404' } },
+    },
+    {
+      label: 'await project loop',
+      routeSelector: (route) => route.tool === 'await_factory_loop',
+      handlerName: 'handleAwaitFactoryLoop',
+      req: {
+        params: { project: 'proj-1' },
+        body: {
+          target_states: ['VERIFY'],
+          heartbeat_minutes: 5,
+        },
+      },
+      successResult: {
+        structuredData: {
+          status: 'heartbeat',
+          timed_out: false,
+          instance: { id: INSTANCE_ID, project_id: 'proj-1', loop_state: 'EXECUTE' },
+          latest_decision: { stage: 'execute', action: 'started_execution', created_at: '2026-04-15T00:00:00.000Z' },
+        },
+      },
+      expectedArgs: {
+        project: 'proj-1',
+        target_states: ['VERIFY'],
+        heartbeat_minutes: 5,
+      },
+      expectedStatus: 200,
+      expectedData: {
+        status: 'heartbeat',
+        timed_out: false,
+        instance: { id: INSTANCE_ID, project_id: 'proj-1', loop_state: 'EXECUTE' },
+        latest_decision: { stage: 'execute', action: 'started_execution', created_at: '2026-04-15T00:00:00.000Z' },
+      },
+      notFoundResult: { status: 404, errorCode: 'RESOURCE_NOT_FOUND', errorMessage: 'Project not found: proj-404' },
+      expectedNotFoundArgs: {
+        project: 'proj-404',
+        await_termination: false,
+      },
+      notFoundReq: { params: { project: 'proj-404' }, body: { await_termination: false } },
     },
     {
       label: 'instance status',

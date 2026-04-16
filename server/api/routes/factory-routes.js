@@ -161,6 +161,24 @@ const FACTORY_V2_ROUTES = [
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/start$/, tool: 'start_factory_loop', mapParams: ['project'], mapBody: true },
   {
     method: 'POST',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/await$/,
+    tool: 'await_factory_loop',
+    mapParams: ['project'],
+    mapBody: true,
+    handlerName: 'handleAwaitFactoryLoop',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleAwaitFactoryLoop,
+      async () => ({
+        project: req.params.project,
+        ...(req.body || {}),
+      }),
+    ),
+  },
+  {
+    method: 'POST',
     path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/advance$/,
     mapParams: ['project'],
     handlerName: 'handleAdvanceFactoryLoopAsync',

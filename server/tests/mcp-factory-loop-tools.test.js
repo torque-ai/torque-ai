@@ -17,6 +17,19 @@ const FACTORY_LOOP_TOOLS = [
     },
   },
   {
+    name: 'await_factory_loop',
+    handlerName: 'handleAwaitFactoryLoop',
+    required: ['project'],
+    properties: {
+      project: { type: 'string' },
+      target_states: { type: 'array' },
+      target_paused_stages: { type: 'array' },
+      await_termination: { type: 'boolean' },
+      timeout_minutes: { type: 'number' },
+      heartbeat_minutes: { type: 'number' },
+    },
+  },
+  {
     name: 'advance_factory_loop',
     handlerName: 'handleAdvanceFactoryLoop',
     required: ['project'],

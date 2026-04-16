@@ -1063,4 +1063,107 @@ describe('factory loop-controller EXECUTE modes', () => {
       task_id: taskId,
     });
   });
+
+  it('awaitFactoryLoop resolves immediately when the instance is already at the target state', async () => {
+    const { project } = registerPlanProject();
+
+    const started = loopController.startLoopForProject(project.id);
+    const advanced = await loopController.advanceLoopForProject(project.id);
+
+    expect(advanced.new_state).toBe(LOOP_STATES.PRIORITIZE);
+
+    const result = await loopController.awaitFactoryLoop(project.id, {
+      target_states: [LOOP_STATES.PRIORITIZE],
+      heartbeat_minutes: 0,
+      timeout_minutes: 1,
+    });
+
+    expect(result).toMatchObject({
+      status: 'target_state_reached',
+      timed_out: false,
+      instance: {
+        id: started.instance_id,
+        project_id: project.id,
+        loop_state: LOOP_STATES.PRIORITIZE,
+      },
+    });
+    expect(result.elapsed_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it('awaitFactoryLoop resolves when the instance terminates', async () => {
+    const { project } = registerPlanProject();
+    const started = loopController.startLoopForProject(project.id);
+
+    const timer = setTimeout(() => {
+      loopController.terminateInstanceAndSync(started.instance_id);
+    }, 25);
+
+    try {
+      const result = await loopController.awaitFactoryLoop(project.id, {
+        heartbeat_minutes: 0,
+        timeout_minutes: 1,
+      });
+
+      expect(result).toMatchObject({
+        status: 'terminated',
+        timed_out: false,
+        instance: {
+          id: started.instance_id,
+          project_id: project.id,
+        },
+      });
+      expect(result.instance.terminated_at).toBeTruthy();
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  it('awaitFactoryLoop returns timeout when nothing changes', async () => {
+    const { project } = registerPlanProject();
+    const started = loopController.startLoopForProject(project.id);
+
+    const result = await loopController.awaitFactoryLoop(project.id, {
+      target_states: [LOOP_STATES.LEARN],
+      timeout_minutes: 0.05,
+      heartbeat_minutes: 0,
+    });
+
+    expect(result).toMatchObject({
+      status: 'timeout',
+      timed_out: true,
+      instance: {
+        id: started.instance_id,
+        project_id: project.id,
+        loop_state: LOOP_STATES.SENSE,
+      },
+    });
+    expect(result.elapsed_ms).toBeGreaterThanOrEqual(2500);
+  });
+
+  it('awaitFactoryLoop returns heartbeat snapshots when configured and nothing else matches', async () => {
+    const { project } = registerPlanProject();
+    const started = loopController.startLoopForProject(project.id);
+
+    const result = await loopController.awaitFactoryLoop(project.id, {
+      target_states: [LOOP_STATES.LEARN],
+      heartbeat_minutes: 0.02,
+      timeout_minutes: 1,
+    });
+
+    expect(result).toMatchObject({
+      status: 'heartbeat',
+      timed_out: false,
+      instance: {
+        id: started.instance_id,
+        project_id: project.id,
+        loop_state: LOOP_STATES.SENSE,
+      },
+      latest_decision: {
+        stage: 'sense',
+        action: 'started_loop',
+        created_at: expect.any(String),
+      },
+    });
+    expect(result.elapsed_ms).toBeGreaterThanOrEqual(1000);
+  });
 });

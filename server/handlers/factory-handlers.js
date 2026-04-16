@@ -797,6 +797,22 @@ async function handleStartFactoryLoop(args) {
   return jsonResponse(result);
 }
 
+async function handleAwaitFactoryLoop(args) {
+  try {
+    const project = resolveProject(args.project);
+    const result = await loopController.awaitFactoryLoopForProject(project.id, {
+      target_states: args.target_states,
+      target_paused_stages: args.target_paused_stages,
+      await_termination: args.await_termination,
+      timeout_minutes: args.timeout_minutes,
+      heartbeat_minutes: args.heartbeat_minutes,
+    });
+    return jsonResponse(result);
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
 async function handleAdvanceFactoryLoop(args) {
   const project = resolveProject(args.project);
   const result = await loopController.advanceLoopForProject(project.id);
@@ -1069,6 +1085,7 @@ module.exports = {
   handleArchitectBacklog,
   handleArchitectLog,
   handleStartFactoryLoop,
+  handleAwaitFactoryLoop,
   handleAdvanceFactoryLoop,
   handleAdvanceFactoryLoopAsync,
   handleApproveFactoryGate,

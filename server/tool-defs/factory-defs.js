@@ -410,6 +410,30 @@ const tools = [
     },
   },
   {
+    name: 'await_factory_loop',
+    description: 'Block until a factory loop instance reaches a target state, terminates, or pauses. Wakes via internal poll (2s) with heartbeat snapshots every N minutes — re-invoke after each heartbeat to continue waiting. Use this instead of polling factory_loop_status in a loop.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        target_states: {
+          type: 'array',
+          items: { type: 'string', enum: ['SENSE', 'PRIORITIZE', 'PLAN', 'EXECUTE', 'VERIFY', 'LEARN', 'IDLE', 'PAUSED'] },
+          description: 'Loop states to await',
+        },
+        target_paused_stages: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'paused_at_stage values to await (e.g. VERIFY_FAIL, EXECUTE)',
+        },
+        await_termination: { type: 'boolean', default: true, description: 'Resolve when instance terminates or hits any pause' },
+        timeout_minutes: { type: 'number', default: 60, minimum: 1, maximum: 240 },
+        heartbeat_minutes: { type: 'number', default: 5, minimum: 0, maximum: 30 },
+      },
+      required: ['project'],
+    },
+  },
+  {
     name: 'advance_factory_loop',
     description: 'Advance the factory loop to its next stage. Checks trust-level approval gates before transitioning.',
     inputSchema: {
