@@ -133,6 +133,7 @@ const OVERRIDES = Object.freeze({
   approve_factory_gate_instance:   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   reject_factory_gate_instance:    Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   retry_factory_verify_instance:   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
+  terminate_factory_loop_instance: Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: true,  openWorldHint: false }),
   attach_factory_batch:            Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   analyze_batch:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   factory_drift_status:            Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),

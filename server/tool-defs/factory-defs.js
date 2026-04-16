@@ -559,6 +559,17 @@ const tools = [
     },
   },
   {
+    name: 'terminate_factory_loop_instance',
+    description: 'Forcibly terminate a factory loop instance regardless of stage, releasing any stage claim and abandoning any active factory_worktrees row. Use to recover from stuck paused_at_stage states (e.g. EXECUTE pauses after worktree creation failures) that rejectGate cannot reach because the stage is not a valid gate.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        instance: { type: 'string', description: 'Factory loop instance UUID' },
+      },
+      required: ['instance'],
+    },
+  },
+  {
     name: 'attach_factory_batch',
     description: 'Attach a batch/workflow id to a factory project so VERIFY and LEARN stages can analyze it. Loop must be in PLAN or EXECUTE.',
     inputSchema: {

@@ -9,6 +9,7 @@ const FACTORY_LOOP_INSTANCE_ADVANCE_JOB_ROUTE = new RegExp(`^\\/api\\/v2\\/facto
 const FACTORY_LOOP_INSTANCE_APPROVE_ROUTE = new RegExp(`^\\/api\\/v2\\/factory\\/loops\\/${UUID_PATH_SEGMENT}\\/approve$`);
 const FACTORY_LOOP_INSTANCE_REJECT_ROUTE = new RegExp(`^\\/api\\/v2\\/factory\\/loops\\/${UUID_PATH_SEGMENT}\\/reject$`);
 const FACTORY_LOOP_INSTANCE_RETRY_VERIFY_ROUTE = new RegExp(`^\\/api\\/v2\\/factory\\/loops\\/${UUID_PATH_SEGMENT}\\/retry-verify$`);
+const FACTORY_LOOP_INSTANCE_TERMINATE_ROUTE = new RegExp(`^\\/api\\/v2\\/factory\\/loops\\/${UUID_PATH_SEGMENT}\\/terminate$`);
 
 function parseFactoryHandlerPayload(result) {
   if (result && Object.prototype.hasOwnProperty.call(result, 'structuredData')) {
@@ -336,6 +337,20 @@ const FACTORY_V2_ROUTES = [
       res,
       context,
       factoryHandlers.handleRetryFactoryVerifyInstance,
+      async () => ({ instance: req.params.instance_id }),
+    ),
+  },
+  {
+    method: 'POST',
+    path: FACTORY_LOOP_INSTANCE_TERMINATE_ROUTE,
+    tool: 'terminate_factory_loop_instance',
+    mapParams: ['instance_id'],
+    handlerName: 'handleTerminateFactoryLoopInstance',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleTerminateFactoryLoopInstance,
       async () => ({ instance: req.params.instance_id }),
     ),
   },

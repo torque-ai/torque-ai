@@ -939,6 +939,47 @@ async function handleRetryFactoryVerifyInstance(args) {
   }
 }
 
+// Operator-level terminate — unlike rejectGate (which only works at valid gate
+// stages), this forcibly terminates any instance regardless of state. Intended
+// for recovering from stuck paused_at_stage states (e.g. EXECUTE failures that
+// leave the stage claim held). terminateInstanceAndSync() handles worktree
+// row cleanup so the branch name is immediately available for retries.
+async function handleTerminateFactoryLoopInstance(args) {
+  try {
+    const instance = factoryLoopInstances.getInstance(args.instance);
+    if (!instance) {
+      return factoryHandlerError(
+        ErrorCodes.RESOURCE_NOT_FOUND,
+        `Factory loop instance not found: ${args.instance}`,
+        404,
+      );
+    }
+    if (instance.terminated_at) {
+      return jsonResponse({
+        instance_id: instance.id,
+        project_id: instance.project_id,
+        already_terminated: true,
+        terminated_at: instance.terminated_at,
+      });
+    }
+    const before = {
+      loop_state: instance.loop_state,
+      paused_at_stage: instance.paused_at_stage || null,
+      batch_id: instance.batch_id || null,
+    };
+    const terminated = loopController.terminateInstanceAndSync(instance.id);
+    return jsonResponse({
+      instance_id: terminated.id,
+      project_id: terminated.project_id,
+      terminated_at: terminated.terminated_at,
+      previous_state: before,
+      message: 'Factory loop instance terminated',
+    });
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
 async function handleFactoryLoopJobStatus(args) {
   const project = resolveProject(args.project);
   const result = loopController.getLoopAdvanceJobStatusForProject(project.id, args.job_id);
@@ -1099,6 +1140,7 @@ module.exports = {
   handleApproveFactoryGateInstance,
   handleRejectFactoryGateInstance,
   handleRetryFactoryVerifyInstance,
+  handleTerminateFactoryLoopInstance,
   handleFactoryLoopJobStatus,
   handleFactoryLoopInstanceJobStatus,
   handleAttachFactoryBatch,
