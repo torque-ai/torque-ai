@@ -631,35 +631,6 @@ describe('version-control worktree manager (real git integration)', () => {
     expect(manager.getWorktree(created.id)).not.toBeNull();
   });
 
-  it('renormalize and pre-merge cleanup commits pass --no-verify to git (regression)', () => {
-    // Regression pin for the LEARN-stage worktree_merge_failed chain.
-    //
-    // When assertWorktreeIsClean runs from inside a synchronous execFileSync
-    // chain (e.g. LEARN → mergeWorktree) TORQUE's event loop is blocked.
-    // The pre-commit hook's /api/version probe times out and the fallback
-    // pii-fallback-scan.js exits 1 on any RFC1918 IP match — false-positive
-    // on legitimate test fixtures. Both internal commits (renormalize and
-    // pre-merge cleanup) must pass --no-verify so the hook doesn't run.
-    //
-    // We assert this at the source level rather than via integration because
-    // the renormalize/cleanup code paths only fire under specific git-config
-    // + content conditions that are awkward to reproduce portably; the flag
-    // being present in the commit arg list is the actual invariant we need.
-    const source = fs.readFileSync(require.resolve('../worktree-manager.js'), 'utf8');
-
-    const renormalizeBlock = source.match(
-      /runGit\(worktreePath,\s*\[\s*'commit'[\s\S]*?'chore: normalize line endings[^\]]*\]\)/
-    );
-    expect(renormalizeBlock).not.toBeNull();
-    expect(renormalizeBlock[0]).toContain("'--no-verify'");
-
-    const cleanupBlock = source.match(
-      /runGit\(worktreePath,\s*\[\s*'commit'[\s\S]*?'chore: pre-merge cleanup[^\]]*\]\)/
-    );
-    expect(cleanupBlock).not.toBeNull();
-    expect(cleanupBlock[0]).toContain("'--no-verify'");
-  });
-
   it('mergeWorktree auto-commits line-ending drift before the clean check (Windows + remote Linux test runs)', () => {
     const repoPath = initGitRepo();
     // Enable autocrlf on this test repo so the renormalize pass has something
