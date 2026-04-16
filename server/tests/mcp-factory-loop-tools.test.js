@@ -14,6 +14,7 @@ const FACTORY_LOOP_TOOLS = [
     required: ['project'],
     properties: {
       project: { type: 'string' },
+      auto_advance: { type: 'boolean' },
     },
   },
   {
