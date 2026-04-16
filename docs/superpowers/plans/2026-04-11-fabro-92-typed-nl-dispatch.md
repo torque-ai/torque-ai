@@ -34,7 +34,7 @@
 
 ## Task 1: Action registry + executor
 
-- [ ] **Step 1: Registry tests**
+- [x] **Step 1: Registry tests**
 
 Create `server/tests/action-registry.test.js`:
 
@@ -86,7 +86,7 @@ describe('actionRegistry', () => {
 });
 ```
 
-- [ ] **Step 2: Implement registry + executor**
+- [x] **Step 2: Implement registry + executor**
 
 Create `server/dispatch/action-registry.js`:
 

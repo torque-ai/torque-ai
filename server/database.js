@@ -102,7 +102,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   'workflows', 'workflow_steps', 'workflow_templates', 'workflow_forks',
   'template_conditions', 'task_dependencies',
   // Caching & priorities
-  'task_cache', 'cache_config', 'cache_stats',
+  'construction_cache', 'task_cache', 'cache_config', 'cache_stats',
   'task_priority_scores', 'priority_config',
   // Intelligence & experiments
   'experiments', 'strategy_experiments', 'intelligence_log',
