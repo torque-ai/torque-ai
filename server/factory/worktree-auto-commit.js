@@ -1,6 +1,7 @@
 'use strict';
 
 const childProcess = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
@@ -339,6 +340,40 @@ function commitCompletedPlanTask(task) {
         },
       });
       return;
+    }
+
+    // Sanitize PII in staged files BEFORE git commit. The pre-commit
+    // hook calls PII-GUARD which curls TORQUE at 127.0.0.1:3457, but
+    // TORQUE's event loop is blocked by this synchronous execFileSync
+    // chain (auto-commit listener → git commit → hook → curl → TORQUE
+    // can't respond). The hook falls back to the regex scanner, which
+    // flags existing test-fixture IPs (10.x.x.x) in files the factory
+    // legitimately touched. Running TORQUE's own PII scanner as a
+    // direct module call bypasses the HTTP deadlock and auto-replaces
+    // real PII with safe placeholders before staging.
+    let piiFixCount = 0;
+    try {
+      const { scanAndReplace } = require('../utils/pii-guard');
+      for (const stagedPath of allStaged) {
+        const absPath = path.join(worktree.worktreePath, stagedPath);
+        if (!fs.existsSync(absPath)) continue;
+        const content = fs.readFileSync(absPath, 'utf8');
+        const result = scanAndReplace(content, { workingDirectory: worktree.worktreePath });
+        if (!result.clean && result.sanitized) {
+          fs.writeFileSync(absPath, result.sanitized);
+          runGitWithStdin(
+            worktree.worktreePath,
+            ['add', '--pathspec-from-file=-', '--pathspec-file-nul'],
+            stagedPath,
+          );
+          piiFixCount += result.findings.length;
+        }
+      }
+    } catch (piiErr) {
+      logger.warn('PII pre-sanitize failed (non-fatal); git commit will attempt anyway', {
+        err: piiErr.message,
+        worktree_path: worktree.worktreePath,
+      });
     }
 
     const commitMessage = buildCommitMessage(planTaskNumber, planTaskTitle);
