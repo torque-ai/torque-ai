@@ -767,6 +767,8 @@ describe('tools.js live registry integration', () => {
     ['list_policies', 'handleListPolicies'],
     ['export_report_csv', 'handleExportReportCSV'],
     ['export_report_json', 'handleExportReportJSON'],
+    ['create_handoff_agent', 'handleCreateHandoffAgent'],
+    ['get_handoff_history', 'handleGetHandoffHistory'],
   ])('contains %s routed to %s', (toolName, handlerName) => {
     expect(realTools.routeMap.has(toolName)).toBe(true);
     expect(realTools.routeMap.get(toolName)).toEqual(expect.any(Function));

@@ -1113,6 +1113,43 @@ const tools = [
     }
   },
   {
+    name: 'create_handoff_agent',
+    description: 'Declare a named agent that other agents can hand off to. Registers tool wrappers that return createHandoff() sentinels.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Handoff agent name'
+        },
+        system_prompt: {
+          type: 'string',
+          description: 'System prompt/instructions for the handoff agent'
+        },
+        tools: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional tool names exposed to the handoff agent'
+        }
+      },
+      required: ['name', 'system_prompt']
+    }
+  },
+  {
+    name: 'get_handoff_history',
+    description: 'Return the handoff chain for a given workflow/task.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'Task ID whose handoff chain should be returned'
+        }
+      },
+      required: ['task_id']
+    }
+  },
+  {
     name: 'claim_task',
     description: 'Claim a task with a lease for exclusive execution',
     inputSchema: {

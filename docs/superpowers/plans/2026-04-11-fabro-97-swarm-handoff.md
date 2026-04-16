@@ -26,7 +26,7 @@
 
 ## Task 1: Handoff sentinel + context variables
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/handoff.test.js`:
 
@@ -98,7 +98,7 @@ describe('contextVariables', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/crew/handoff.js`:
 
@@ -146,7 +146,7 @@ Run tests → PASS. Commit: `feat(crew): handoff sentinel + context-variables pr
 
 ## Task 2: Crew-runner integration + loop guard
 
-- [ ] **Step 1: Runner integration test**
+- [x] **Step 1: Runner integration test**
 
 Create `server/tests/crew-handoff-runner.test.js`:
 
@@ -184,7 +184,7 @@ describe('crew-runner handoff', () => {
 });
 ```
 
-- [ ] **Step 2: Patch crew-runner**
+- [x] **Step 2: Patch crew-runner**
 
 In `server/crew/crew-runner.js`, after invoking a tool:
 
@@ -214,7 +214,7 @@ Run tests → PASS. Commit: `feat(crew): handoff-aware crew-runner + loop guard`
 
 ## Task 3: MCP surface
 
-- [ ] **Step 1: Register tools**
+- [x] **Step 1: Register tools**
 
 In `server/handlers/mcp-tools.js`:
 
@@ -237,7 +237,7 @@ get_handoff_history: {
 },
 ```
 
-- [ ] **Step 2: Smoke**
+- [x] **Step 2: Smoke**
 
 Start TORQUE → register `triage` and `billing` handoff agents via MCP → run a crew turn where triage calls a routing tool → confirm activeAgent switches and context merges.
 
