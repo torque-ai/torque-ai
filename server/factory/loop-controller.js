@@ -360,6 +360,13 @@ function updateInstanceAndSync(id, updates) {
   const updated = factoryLoopInstances.updateInstance(id, updates);
   if (updated) {
     syncLegacyProjectLoopState(updated.project_id);
+    eventBus.emitFactoryLoopChanged({
+      type: 'state_changed',
+      project_id: updated.project_id,
+      instance_id: updated.id,
+      loop_state: updated.loop_state,
+      paused_at_stage: updated.paused_at_stage || null,
+    });
   }
   return updated;
 }
@@ -383,6 +390,11 @@ function terminateInstanceAndSync(instance_id) {
   clearSelectedWorkItem(instance_id);
   const terminated = factoryLoopInstances.terminateInstance(instance_id);
   syncLegacyProjectLoopState(before.project_id);
+  eventBus.emitFactoryLoopChanged({
+    type: 'terminated',
+    project_id: before.project_id,
+    instance_id: instance_id,
+  });
   return terminated;
 }
 
@@ -4055,10 +4067,47 @@ async function awaitFactoryLoop(project_id, {
       return { status: 'timeout', instance, elapsed_ms: elapsedMs, timed_out: true };
     }
 
-    const waitMs = Math.min(POLL_MS, Math.max(timeoutMs - elapsedMs, 0));
-    if (waitMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-    }
+    // Wait for event-bus wakeup, heartbeat timer, or timeout — same pattern as handleAwaitTask.
+    // Event-bus wakes instantly on state changes; timer serves as heartbeat/timeout fallback.
+    await new Promise((resolve) => {
+      let resolved = false;
+      let listenerRef = null;
+
+      const done = () => {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timer);
+          if (listenerRef) {
+            eventBus.removeFactoryLoopListener(listenerRef);
+            listenerRef = null;
+          }
+          resolve();
+        }
+      };
+
+      // Compute timer delay: min of (heartbeat interval, remaining timeout, poll fallback)
+      const remaining = timeoutMs - (Date.now() - startedAt);
+      let timerDelay = Math.max(remaining, 0);
+      if (heartbeatMs > 0) {
+        const sinceLastHeartbeat = Date.now() - lastHeartbeat;
+        const untilHeartbeat = Math.max(heartbeatMs - sinceLastHeartbeat, 0);
+        timerDelay = Math.min(timerDelay, untilHeartbeat);
+      }
+      // Poll fallback — ensures we still re-check periodically even if an event
+      // is missed (e.g. state changed by a code path that doesn't go through
+      // updateInstanceAndSync).
+      timerDelay = Math.min(timerDelay, POLL_MS);
+
+      const timer = setTimeout(done, Math.max(timerDelay, 50));
+
+      // Wake instantly on factory loop state changes for this project
+      listenerRef = (payload) => {
+        if (payload && payload.project_id === project_id) {
+          done();
+        }
+      };
+      eventBus.onFactoryLoopChanged(listenerRef);
+    });
   }
 }
 

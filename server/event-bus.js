@@ -29,6 +29,11 @@ function createEventBus() {
     onTaskEvent: (fn) => emitter.on('task-event', fn),
     emitTaskEvent: (data) => emitter.emit('task-event', data),
 
+    // Factory loop state-change events (wakes awaitFactoryLoop instantly)
+    onFactoryLoopChanged: (fn) => emitter.on('factory-loop-changed', fn),
+    emitFactoryLoopChanged: (data) => emitter.emit('factory-loop-changed', data),
+    removeFactoryLoopListener: (fn) => emitter.removeListener('factory-loop-changed', fn),
+
     // Model discovery events
     onModelDiscovered: (fn) => emitter.on('model-discovered', fn),
     emitModelDiscovered: (data) => emitter.emit('model-discovered', data),
