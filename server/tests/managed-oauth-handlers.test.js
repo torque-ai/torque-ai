@@ -81,6 +81,7 @@ describe('managed OAuth MCP surface', () => {
           'Content-Type': 'application/x-www-form-urlencoded',
           Accept: 'application/json',
         }),
+        body: 'code=oauth-code&client_id=client-id&redirect_uri=https%3A%2F%2Ftorque.test%2Foauth%2Fcallback&grant_type=authorization_code',
       }),
     );
     expect(completeData.connected_account_id).toMatch(/^ca_/);
