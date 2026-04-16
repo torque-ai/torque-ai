@@ -100,6 +100,28 @@ function createPlanFileIntake({ db, factoryIntake, shippedDetector }) {
         continue;
       }
 
+      // If the most recent work item for this plan_path is still active
+      // (pending, in_progress, verifying, etc.), the hash change is almost
+      // always self-induced — EXECUTE stage ticks plan checkboxes, which
+      // rewrites the file and changes the sha. Re-ingesting here would
+      // produce a duplicate work item for the same plan while the factory
+      // is still processing the original. Skip. Once the original item
+      // reaches a closed state (shipped/completed/rejected), the next
+      // hash change is treated as legitimate new work from the user.
+      if (previous && previous.work_item_id && typeof factoryIntake.getWorkItem === 'function') {
+        const prevItem = factoryIntake.getWorkItem(previous.work_item_id);
+        const CLOSED = factoryIntake.CLOSED_STATUSES || new Set(['completed', 'rejected', 'shipped']);
+        if (prevItem && prevItem.status && !CLOSED.has(prevItem.status)) {
+          skipped.push({
+            plan_path: filePath,
+            reason: 'prior_item_still_active',
+            work_item_id: previous.work_item_id,
+            prior_status: prevItem.status,
+          });
+          continue;
+        }
+      }
+
       let item = factoryIntake.createWorkItem({
         project_id,
         source: 'plan_file',

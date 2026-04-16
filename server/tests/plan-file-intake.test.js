@@ -140,11 +140,16 @@ describe('plan-file-intake', () => {
     expect(secondResult.skipped[0].reason).toBe('duplicate');
   });
 
-  it('re-ingests when content hash changes', () => {
+  it('re-ingests when content hash changes after the prior item closes', () => {
     const filePath = path.join(dir, 'plan-c.md');
     fs.writeFileSync(filePath, '# C\n## Task 1: x\n- [ ] v1\n');
 
-    scanPlans();
+    const firstScan = scanPlans();
+    const priorItemId = firstScan.created[0].id;
+
+    // Close the prior item so the second hash change is treated as new work
+    // from the user rather than a self-induced checkbox tick during EXECUTE.
+    factoryIntake.updateWorkItem(priorItemId, { status: 'shipped' });
 
     fs.writeFileSync(filePath, '# C\n## Task 1: x\n- [ ] v2 (changed)\n');
     const result = scanPlans();
@@ -152,6 +157,35 @@ describe('plan-file-intake', () => {
 
     expect(result.created).toHaveLength(1);
     expect(origin.content_hash).not.toEqual(origin.previous_hash);
+  });
+
+  it('skips re-ingest when the prior item for this plan is still active (factory self-induced hash churn)', () => {
+    // Regression pin for the fabro-97 duplicate (item 230 → item 248).
+    // When the factory's EXECUTE stage ticks plan checkboxes, the plan
+    // file content hash changes. Without this guard, SENSE's next intake
+    // scan sees the hash change and creates a duplicate work item for
+    // the same plan — but the original is still in_progress. Skip the
+    // re-ingest while the prior item is non-terminal; resume if it
+    // reaches a closed state (shipped/completed/rejected).
+    const filePath = path.join(dir, 'plan-active.md');
+    fs.writeFileSync(filePath, '# Active\n## Task 1: a\n- [ ] step\n');
+
+    const firstScan = scanPlans();
+    expect(firstScan.created).toHaveLength(1);
+    const priorItemId = firstScan.created[0].id;
+
+    // Leave the prior item in the default 'pending' status and mutate
+    // the plan file the way a checkbox tick would.
+    fs.writeFileSync(filePath, '# Active\n## Task 1: a\n- [x] step\n');
+    const secondScan = scanPlans();
+
+    expect(secondScan.created).toHaveLength(0);
+    expect(secondScan.skipped).toContainEqual(expect.objectContaining({
+      plan_path: filePath,
+      reason: 'prior_item_still_active',
+      work_item_id: priorItemId,
+      prior_status: 'pending',
+    }));
   });
 
   it('skips files with no checkboxes', () => {
