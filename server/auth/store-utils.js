@@ -1,6 +1,7 @@
 'use strict';
 
 const credentialCrypto = require('../utils/credential-crypto');
+const VALID_AUTH_TYPES = new Set(['oauth2', 'api_key', 'basic', 'bearer']);
 
 function resolveDbHandle(db) {
   if (db && typeof db.prepare === 'function' && typeof db.exec === 'function') {
@@ -51,6 +52,81 @@ function ensureManagedOAuthTables(dbHandle) {
   `);
 }
 
+function normalizeRequiredString(value, label) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${label} is required`);
+  }
+
+  return value.trim();
+}
+
+function normalizeOptionalString(value, label) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error(`${label} must be a string`);
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeRequiredSecret(value, label) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${label} is required`);
+  }
+
+  return value;
+}
+
+function normalizeOptionalSecret(value, label) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error(`${label} must be a string`);
+  }
+
+  return value;
+}
+
+function normalizeAuthType(value) {
+  const normalized = normalizeRequiredString(value, 'auth_type');
+  if (!VALID_AUTH_TYPES.has(normalized)) {
+    throw new Error('auth_type must be one of: oauth2, api_key, basic, bearer');
+  }
+
+  return normalized;
+}
+
+function normalizeOptionalTimestamp(value, label) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new Error(`${label} must be a finite number`);
+  }
+
+  return numeric;
+}
+
+function normalizeMetadataObject(value) {
+  if (value === undefined || value === null) {
+    return {};
+  }
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('metadata must be a plain object');
+  }
+
+  return value;
+}
+
 function encryptSecret(secret) {
   if (typeof secret !== 'string' || secret.length === 0) {
     return null;
@@ -94,4 +170,11 @@ module.exports = {
   encryptSecret,
   decryptSecret,
   parseMetadata,
+  normalizeRequiredString,
+  normalizeOptionalString,
+  normalizeRequiredSecret,
+  normalizeOptionalSecret,
+  normalizeAuthType,
+  normalizeOptionalTimestamp,
+  normalizeMetadataObject,
 };
