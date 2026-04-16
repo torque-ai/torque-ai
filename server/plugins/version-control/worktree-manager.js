@@ -319,18 +319,49 @@ function createWorktreeManager({ db } = {}) {
     }
   }
 
+  function hasSemanticDiffAgainstHead(worktreePath) {
+    // Returns true only when the working tree has a semantic diff vs HEAD
+    // — i.e. anything beyond CR-at-EOL / whitespace drift and untracked
+    // files git would ignore. Used as a strict clean check for merge:
+    // we don't care if existing files drifted on line endings; we care
+    // whether there's uncommitted real work.
+    try {
+      runGit(worktreePath, [
+        'diff', '--quiet', '--ignore-cr-at-eol', '--ignore-all-space', 'HEAD',
+      ]);
+      return false;
+    } catch (_err) {
+      return true;
+    }
+  }
+
+  function hasUntrackedFiles(worktreePath) {
+    const output = String(runGit(worktreePath, [
+      'ls-files', '--others', '--exclude-standard',
+    ])).trim();
+    return output.length > 0;
+  }
+
   function assertWorktreeIsClean(worktreePath, action) {
-    let status = getWorktreeStatusPorcelain(worktreePath);
+    const status = getWorktreeStatusPorcelain(worktreePath);
     if (!status) {
       return;
     }
 
-    // First attempt: renormalize line endings and re-check. If the only
-    // "uncommitted changes" were CRLF/LF drift, the worktree becomes
-    // clean after the auto-normalize commit.
+    // First attempt: renormalize line endings and commit the bookkeeping
+    // change. If PII-GUARD or another pre-commit hook blocks the commit
+    // (common when test-fixture files drift on line endings), fall
+    // through to the semantic check.
     renormalizeLineEndings(worktreePath);
-    status = getWorktreeStatusPorcelain(worktreePath);
-    if (!status) {
+    if (!getWorktreeStatusPorcelain(worktreePath)) {
+      return;
+    }
+
+    // Second attempt: treat the worktree as clean if the only diff
+    // against HEAD is CR-at-EOL + whitespace drift AND there are no
+    // untracked files. The merge only cares about committed history;
+    // drift in the feature worktree doesn't affect what lands on main.
+    if (!hasSemanticDiffAgainstHead(worktreePath) && !hasUntrackedFiles(worktreePath)) {
       return;
     }
 
