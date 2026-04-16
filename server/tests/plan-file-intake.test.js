@@ -168,15 +168,17 @@ describe('plan-file-intake', () => {
     // re-ingest while the prior item is non-terminal; resume if it
     // reaches a closed state (shipped/completed/rejected).
     const filePath = path.join(dir, 'plan-active.md');
-    fs.writeFileSync(filePath, '# Active\n## Task 1: a\n- [ ] step\n');
+    fs.writeFileSync(filePath, '# Active\n## Task 1: a\n- [ ] step 1\n- [ ] step 2\n');
 
     const firstScan = scanPlans();
     expect(firstScan.created).toHaveLength(1);
     const priorItemId = firstScan.created[0].id;
 
     // Leave the prior item in the default 'pending' status and mutate
-    // the plan file the way a checkbox tick would.
-    fs.writeFileSync(filePath, '# Active\n## Task 1: a\n- [x] step\n');
+    // the plan file the way a checkbox tick would — tick step 1 but
+    // keep at least one unticked step so parsePlan still recognizes it
+    // as a plan (step_count counts UNTICKED boxes and skips if zero).
+    fs.writeFileSync(filePath, '# Active\n## Task 1: a\n- [x] step 1\n- [ ] step 2\n');
     const secondScan = scanPlans();
 
     expect(secondScan.created).toHaveLength(0);
@@ -285,11 +287,19 @@ describe('plan-file-intake', () => {
 
     // First scan: ingest content A.
     fs.writeFileSync(planPath, contentA);
-    expect(scanPlans().created).toHaveLength(1);
+    const firstScan = scanPlans();
+    expect(firstScan.created).toHaveLength(1);
+
+    // Close A's item so the second scan's hash change is treated as new
+    // user work instead of self-induced churn (see prior_item_still_active
+    // skip path).
+    factoryIntake.updateWorkItem(firstScan.created[0].id, { status: 'shipped' });
 
     // Second scan: content changed to B → new row.
     fs.writeFileSync(planPath, contentB);
-    expect(scanPlans().created).toHaveLength(1);
+    const secondScan = scanPlans();
+    expect(secondScan.created).toHaveLength(1);
+    factoryIntake.updateWorkItem(secondScan.created[0].id, { status: 'shipped' });
 
     // Third scan: reverted to A → findPrevious returns B's latest row, the
     // hashes differ, but (project, path, A-hash) is already in history.
