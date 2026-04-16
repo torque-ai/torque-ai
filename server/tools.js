@@ -22,6 +22,7 @@ const { applyBehavioralTags } = require('./tools/behavioral-tags');
 
 let _remoteAgentPluginDefs = null;
 let _remoteAgentPluginHandlers = null;
+let _runtimeRegisteredToolDefs = [];
 
 // ── Tool definitions (JSON schemas) ──
 const TOOLS = [
@@ -75,11 +76,44 @@ const TOOLS = [
 // ── Merge MCP tool annotations (Phase: MCP ecosystem improvements) ──
 const { getAnnotations, validateCoverage } = require('./tool-annotations');
 
+function toBehavioralAnnotationSnapshot(tool) {
+  return {
+    readOnlyHint: Boolean(tool.readOnlyHint),
+    destructiveHint: Boolean(tool.destructiveHint),
+    idempotentHint: Boolean(tool.idempotentHint),
+    openWorldHint: Boolean(tool.openWorldHint),
+  };
+}
+
+function decorateToolDefinition(tool, hintSource) {
+  if (!tool || !tool.name) {
+    return tool;
+  }
+
+  const hints = hintSource || tool.annotations || getAnnotations(tool.name);
+  const taggedTool = applyBehavioralTags(tool, hints);
+  taggedTool.annotations = toBehavioralAnnotationSnapshot(taggedTool);
+  return taggedTool;
+}
+
+function setRuntimeRegisteredToolDefs(toolDefs = []) {
+  _runtimeRegisteredToolDefs = Array.isArray(toolDefs)
+    ? toolDefs
+      .filter((tool) => tool && typeof tool.name === 'string')
+      .map((tool) => decorateToolDefinition(tool))
+    : [];
+}
+
+function getRuntimeRegisteredToolDefs() {
+  return _runtimeRegisteredToolDefs.map((tool) => ({
+    ...tool,
+    annotations: tool && tool.annotations ? { ...tool.annotations } : undefined,
+  }));
+}
+
 for (const tool of TOOLS) {
   if (tool && tool.name) {
-    const hints = getAnnotations(tool.name);
-    Object.assign(tool, applyBehavioralTags(tool, hints));
-    tool.annotations = { ...hints };
+    Object.assign(tool, decorateToolDefinition(tool));
   }
 }
 
@@ -301,16 +335,7 @@ routeMap.set('toggle_governance_rule', governanceHandlers.handleToggleGovernance
 
 function getRemoteAgentPluginDefs() {
   if (!_remoteAgentPluginDefs) {
-    _remoteAgentPluginDefs = require('./plugins/remote-agents/tool-defs').map((tool) => {
-      if (!tool || !tool.name) {
-        return tool;
-      }
-
-      const hints = getAnnotations(tool.name);
-      const taggedTool = applyBehavioralTags(tool, hints);
-      taggedTool.annotations = { ...hints };
-      return taggedTool;
-    });
+    _remoteAgentPluginDefs = require('./plugins/remote-agents/tool-defs').map((tool) => decorateToolDefinition(tool));
   }
   return _remoteAgentPluginDefs;
 }
@@ -815,7 +840,9 @@ async function handleToolCall(name, args) {
     case 'get_tool_schema': {
       const toolName = args.tool_name;
       if (!toolName) return { content: [{ type: 'text', text: 'tool_name is required' }], isError: true };
-      const match = TOOLS.find(t => t.name === toolName) || getPluginToolDef(toolName);
+      const match = TOOLS.find(t => t.name === toolName)
+        || getRuntimeRegisteredToolDefs().find(t => t && t.name === toolName)
+        || getPluginToolDef(toolName);
       if (!match) return { content: [{ type: 'text', text: `Tool not found: ${toolName}` }], isError: true };
       return {
         content: [{ type: 'text', text: JSON.stringify({ name: match.name, description: match.description, inputSchema: match.inputSchema }, null, 2) }],
@@ -878,7 +905,17 @@ async function handleToolCall(name, args) {
 
 function createTools(_deps) {
   // deps reserved for Phase 5 when database.js facade is removed
-  return { TOOLS, routeMap, schemaMap, handleToolCall, validateArgsAgainstSchema, INTERNAL_HANDLER_EXPORTS };
+  return {
+    TOOLS,
+    routeMap,
+    schemaMap,
+    handleToolCall,
+    validateArgsAgainstSchema,
+    INTERNAL_HANDLER_EXPORTS,
+    decorateToolDefinition,
+    setRuntimeRegisteredToolDefs,
+    getRuntimeRegisteredToolDefs,
+  };
 }
 
 module.exports = {
@@ -888,6 +925,9 @@ module.exports = {
   handleToolCall,
   validateArgsAgainstSchema,
   INTERNAL_HANDLER_EXPORTS,
+  decorateToolDefinition,
+  setRuntimeRegisteredToolDefs,
+  getRuntimeRegisteredToolDefs,
   createTools,
   cleanupStaleRestartBarriers,
 };

@@ -33,6 +33,7 @@ describe('managed OAuth MCP surface', () => {
   });
 
   afterEach(() => {
+    require('../tools').setRuntimeRegisteredToolDefs([]);
     global.fetch = originalFetch;
     vi.restoreAllMocks();
     teardownTestDb();
@@ -135,5 +136,29 @@ describe('managed OAuth MCP surface', () => {
     expect(data.tools.every((tool) => tool.readOnlyHint === true && tool.destructiveHint === false)).toBe(true);
     expect(data.tools.some((tool) => tool.name === 'list_connected_accounts')).toBe(true);
     expect(data.tools.some((tool) => tool.name === 'delete_account')).toBe(false);
+  });
+
+  it('includes runtime-registered plugin tools in behavioral hint filtering', async () => {
+    require('../tools').setRuntimeRegisteredToolDefs([
+      {
+        name: 'plugin_runtime_read_tool',
+        description: 'Plugin-provided read-only tool',
+        inputSchema: { type: 'object', properties: {} },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+    ]);
+
+    const result = await safeTool('list_tools_by_hints', {
+      readOnlyHint: true,
+      destructiveHint: false,
+    });
+    const data = parseStructured(result);
+
+    expect(data.tools.some((tool) => tool.name === 'plugin_runtime_read_tool')).toBe(true);
   });
 });

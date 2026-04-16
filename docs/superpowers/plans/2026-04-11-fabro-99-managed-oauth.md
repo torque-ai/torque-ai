@@ -228,7 +228,7 @@ Run tests → PASS. Commit: `feat(auth): managed-oauth tables + auth-config + co
 
 ## Task 2: OAuth controller + behavioral tags
 
-- [ ] **Step 1: OAuth controller**
+- [x] **Step 1: OAuth controller**
 
 Create `server/auth/oauth-controller.js`:
 
@@ -273,7 +273,7 @@ function createOAuthController({ authConfigStore, connectedAccountStore, fetchFn
 module.exports = { createOAuthController };
 ```
 
-- [ ] **Step 2: Behavioral tags tests**
+- [x] **Step 2: Behavioral tags tests**
 
 Create `server/tests/behavioral-tags.test.js`:
 
@@ -312,7 +312,7 @@ describe('behavioralTags', () => {
 });
 ```
 
-- [ ] **Step 3: Implement tags**
+- [x] **Step 3: Implement tags**
 
 Create `server/tools/behavioral-tags.js`:
 

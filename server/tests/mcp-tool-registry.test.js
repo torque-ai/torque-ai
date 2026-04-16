@@ -140,12 +140,25 @@ describe('ToolRegistry', () => {
     const schema = buildToolSchema();
     const handler = vi.fn();
 
-    const fullName = registry.registerTool('task', 'submit', schema, handler);
+    const fullName = registry.registerTool('task', 'submit', schema, handler, {
+      description: 'Submit a task',
+    });
     schema.properties.task.minLength = 99;
 
     expect(registry.lookupTool(fullName)).toEqual({
       schema: buildToolSchema(),
       handler,
+      description: 'Submit a task',
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
     });
   });
 
@@ -228,6 +241,48 @@ describe('ToolRegistry', () => {
 
     const [second] = registry.listTools();
     expect(second.schema.properties.task.minLength).toBe(1);
+  });
+
+  it('registerTool infers behavioral tags from the namespaced tool name', () => {
+    const registry = new ToolRegistry();
+
+    registry.registerTool('task', 'submit', buildToolSchema(), vi.fn());
+
+    expect(registry.getTool('torque.task.submit')).toMatchObject({
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    });
+  });
+
+  it('registerTool prefers explicit behavioral hints metadata when supplied', () => {
+    const registry = new ToolRegistry();
+
+    registry.registerTool('system', 'health', buildToolSchema(), vi.fn(), {
+      behavioralHints: {
+        readOnlyHint: true,
+      },
+    });
+
+    expect(registry.getTool('torque.system.health')).toMatchObject({
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
   });
 
   it('unregisterTool removes an existing tool and returns true', () => {
