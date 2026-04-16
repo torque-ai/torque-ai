@@ -295,7 +295,15 @@ async function handleScanProjectHealth(args) {
 
 async function handleSetFactoryTrustLevel(args) {
   const project = resolveProject(args.project);
-  const updated = factoryHealth.updateProject(project.id, { trust_level: args.trust_level });
+  const updates = { trust_level: args.trust_level };
+  // Allow setting project config alongside trust level. Merges into
+  // existing config_json so callers can set individual keys like
+  // { loop: { auto_continue: true } } without overwriting everything.
+  if (args.config && typeof args.config === 'object') {
+    const existing = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })() : {};
+    updates.config_json = JSON.stringify({ ...existing, ...args.config });
+  }
+  const updated = factoryHealth.updateProject(project.id, updates);
   logger.info(`Trust level for "${updated.name}" changed to ${args.trust_level}`);
   return jsonResponse({
     message: `Trust level for "${updated.name}" set to: ${updated.trust_level}`,
@@ -793,6 +801,10 @@ async function handleGuardrailEvents(args) {
 
 async function handleStartFactoryLoop(args) {
   const project = resolveProject(args.project);
+  if (args.auto_advance === true) {
+    const result = loopController.startLoopAutoAdvanceForProject(project.id);
+    return jsonResponse(result);
+  }
   const result = await loopController.startLoopForProject(project.id);
   return jsonResponse(result);
 }
@@ -967,7 +979,9 @@ async function handleTerminateFactoryLoopInstance(args) {
       paused_at_stage: instance.paused_at_stage || null,
       batch_id: instance.batch_id || null,
     };
-    const terminated = loopController.terminateInstanceAndSync(instance.id);
+    // Operator force-terminate always abandons the worktree — the operator
+    // is explicitly killing this instance and wants the stage claim freed.
+    const terminated = loopController.terminateInstanceAndSync(instance.id, { abandonWorktree: true });
     return jsonResponse({
       instance_id: terminated.id,
       project_id: terminated.project_id,

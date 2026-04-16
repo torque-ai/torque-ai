@@ -384,16 +384,21 @@ function claimStageForInstanceOrThrow(instance_id, stage) {
   }
 }
 
-function terminateInstanceAndSync(instance_id) {
+function terminateInstanceAndSync(instance_id, { abandonWorktree = false } = {}) {
   const before = getInstanceOrThrow(instance_id);
   factoryIntake.releaseClaimForInstance(instance_id);
   clearSelectedWorkItem(instance_id);
 
-  // Abandon any factory_worktrees row created by this instance's batch so
-  // the UNIQUE(branch, status='active') index doesn't block future retries
-  // of the same work item. The vc-level worktree is best-effort cleaned up
-  // via the shared runner; DB-level cleanup is authoritative.
-  if (before.batch_id) {
+  // Only abandon the factory_worktrees row when explicitly requested
+  // (operator force-terminate) or when the instance died mid-flight
+  // (paused_at_stage indicates it never completed LEARN). Clean LEARN
+  // terminations either already markMerged the row (successful merge)
+  // or left it active for operator resolution (failed merge with Codex
+  // work still on the branch). Unconditionally abandoning here was
+  // destroying shipped Codex work when the merge had failed — the
+  // worktree and its commits vanished with no recovery path.
+  const shouldAbandon = abandonWorktree || Boolean(before.paused_at_stage);
+  if (shouldAbandon && before.batch_id) {
     try {
       const active = factoryWorktrees.getActiveWorktreeByBatch(before.batch_id);
       if (active) {
@@ -3462,8 +3467,25 @@ function startLoop(project_id) {
   };
 }
 
+// Start + auto-advance: creates the instance at SENSE, then kicks off the
+// auto-advance chain so the entire cycle runs without operator intervention.
+// The chain stops at any gate pause (trust-level dependent) or on termination.
+function startLoopAutoAdvance(project_id) {
+  const result = startLoop(project_id);
+  advanceLoopAsync(result.instance_id, { autoAdvance: true });
+  return {
+    ...result,
+    auto_advance: true,
+    message: 'Factory loop started with auto-advance',
+  };
+}
+
 function startLoopForProject(project_id) {
   return startLoop(project_id);
+}
+
+function startLoopAutoAdvanceForProject(project_id) {
+  return startLoopAutoAdvance(project_id);
 }
 
 async function runAdvanceLoop(instance_id) {
@@ -3753,7 +3775,7 @@ async function advanceLoopForProject(project_id) {
   return runAdvanceLoop(getLoopInstanceForProjectOrThrow(project_id).id);
 }
 
-function advanceLoopAsync(instance_id) {
+function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
   const { project, instance } = getLoopContextOrThrow(instance_id);
   const currentState = getCurrentLoopState(instance);
 
@@ -3802,6 +3824,23 @@ function advanceLoopAsync(instance_id) {
       job.reason = result.reason ?? null;
       job.completed_at = nowIso();
       emitLoopAdvanceJobEvent(job);
+
+      // Auto-advance: if the caller requested continuous driving AND the
+      // instance is neither terminated (IDLE) nor paused at a gate, enqueue
+      // the next advance. The 100ms delay prevents tight synchronous loops
+      // on stages that complete instantly (SENSE, PRIORITIZE).
+      if (autoAdvance && result.new_state !== LOOP_STATES.IDLE && !result.paused_at_stage) {
+        setTimeout(() => {
+          try {
+            advanceLoopAsync(instance_id, { autoAdvance: true });
+          } catch (err) {
+            logger.debug('Auto-advance chain stopped', {
+              instance_id,
+              err: err.message,
+            });
+          }
+        }, 100);
+      }
     })
     .catch((error) => {
       job.status = 'failed';
@@ -4012,7 +4051,9 @@ function rejectGate(instance_id, stage) {
   assertValidGateStage(stage);
   assertPausedAtStage(instance, stage);
 
-  terminateInstanceAndSync(instance.id);
+  // Gate rejection is an operator action — abandon the worktree so the
+  // branch name is free for future retries of the same work item.
+  terminateInstanceAndSync(instance.id, { abandonWorktree: true });
 
   logger.info('Factory gate rejected', {
     project_id: project.id,
@@ -4246,6 +4287,8 @@ module.exports = {
   StageOccupiedError,
   startLoop,
   startLoopForProject,
+  startLoopAutoAdvance,
+  startLoopAutoAdvanceForProject,
   advanceLoop,
   advanceLoopForProject,
   advanceLoopAsync,

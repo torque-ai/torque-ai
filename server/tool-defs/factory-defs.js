@@ -70,7 +70,7 @@ const tools = [
   },
   {
     name: 'set_factory_trust_level',
-    description: 'Change the trust level for a factory project. Higher trust = more autonomy.',
+    description: 'Change the trust level and/or config for a factory project. Higher trust = more autonomy. Config is merged into existing project config.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -79,6 +79,10 @@ const tools = [
           type: 'string',
           enum: ['supervised', 'guided', 'autonomous', 'dark'],
           description: 'New trust level',
+        },
+        config: {
+          type: 'object',
+          description: 'Project config to merge. E.g. { loop: { auto_continue: true } } to enable continuous cycling.',
         },
       },
       required: ['project', 'trust_level'],
@@ -400,11 +404,12 @@ const tools = [
   },
   {
     name: 'start_factory_loop',
-    description: 'Start the factory SENSE→PRIORITIZE→PLAN→EXECUTE→VERIFY→LEARN cycle for a project. Begins at SENSE stage.',
+    description: 'Start the factory SENSE→PRIORITIZE→PLAN→EXECUTE→VERIFY→LEARN cycle for a project. Begins at SENSE stage. With auto_advance=true, the full cycle runs without operator advance calls — the server auto-advances through each stage until the loop terminates or hits a trust-level gate.',
     inputSchema: {
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Project ID or path' },
+        auto_advance: { type: 'boolean', description: 'When true, auto-advance through all stages without manual advance calls. Stops at gate pauses or termination. Default: false.' },
       },
       required: ['project'],
     },
