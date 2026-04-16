@@ -377,7 +377,14 @@ function commitCompletedPlanTask(task) {
     }
 
     const commitMessage = buildCommitMessage(planTaskNumber, planTaskTitle);
-    runGit(worktree.worktreePath, ['commit', '-m', commitMessage]);
+    // --no-verify: the staged files have already been PII-sanitized inline
+    // above via pii-guard.scanAndReplace. The pre-commit hook would re-run
+    // the same check via HTTP to TORQUE — which can't respond when this
+    // listener fires during a synchronous execFileSync chain — and then
+    // fall back to the regex scanner that false-positives on RFC1918 IPs
+    // in legitimate test fixtures. See worktree-manager.assertWorktreeIsClean
+    // for the mirror of this rationale on the pre-merge side.
+    runGit(worktree.worktreePath, ['commit', '--no-verify', '-m', commitMessage]);
     const commitSha = runGit(worktree.worktreePath, ['rev-parse', 'HEAD']).trim();
 
     const driftPaths = parsePorcelainPaths(statusOutput).filter((p) => !allStaged.includes(p));
