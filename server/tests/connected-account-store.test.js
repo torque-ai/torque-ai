@@ -87,4 +87,28 @@ describe('connectedAccountStore', () => {
 
     expect(accounts.get(id)).toBeUndefined();
   });
+
+  it('rejects invalid account input before hitting sqlite constraints', () => {
+    const config = configs.getByToolkit('github');
+
+    expect(() => accounts.create({
+      user_id: '   ',
+      toolkit: 'github',
+      auth_config_id: config.id,
+      access_token: 'tok',
+    })).toThrow('user_id is required');
+    expect(() => accounts.create({
+      user_id: 'alice',
+      toolkit: 'github',
+      auth_config_id: config.id,
+      access_token: '',
+    })).toThrow('access_token is required');
+    expect(() => accounts.create({
+      user_id: 'alice',
+      toolkit: 'github',
+      auth_config_id: config.id,
+      access_token: 'tok',
+      metadata: [],
+    })).toThrow('metadata must be a plain object');
+  });
 });

@@ -6,6 +6,10 @@ const {
   ensureManagedOAuthTables,
   encryptSecret,
   decryptSecret,
+  normalizeRequiredString,
+  normalizeOptionalString,
+  normalizeOptionalSecret,
+  normalizeAuthType,
 } = require('./store-utils');
 
 function normalizeAuthConfigRow(row, crypto) {
@@ -40,7 +44,14 @@ function createAuthConfigStore({ db, crypto = null }) {
       scopes,
       redirect_uri,
     }) {
-      const normalizedToolkit = String(toolkit || '').trim();
+      const normalizedToolkit = normalizeRequiredString(toolkit, 'toolkit');
+      const normalizedAuthType = normalizeAuthType(auth_type);
+      const normalizedClientId = normalizeOptionalString(client_id, 'client_id');
+      const normalizedClientSecret = normalizeOptionalSecret(client_secret, 'client_secret');
+      const normalizedAuthorizeUrl = normalizeOptionalString(authorize_url, 'authorize_url');
+      const normalizedTokenUrl = normalizeOptionalString(token_url, 'token_url');
+      const normalizedScopes = normalizeOptionalString(scopes, 'scopes');
+      const normalizedRedirectUri = normalizeOptionalString(redirect_uri, 'redirect_uri');
       const now = Date.now();
       const existing = dbHandle.prepare('SELECT id, created_at FROM auth_configs WHERE toolkit = ?').get(normalizedToolkit);
       const id = existing?.id || `ac_${randomUUID().slice(0, 12)}`;
@@ -71,17 +82,17 @@ function createAuthConfigStore({ db, crypto = null }) {
       `).run(
         id,
         normalizedToolkit,
-        auth_type,
-        client_id || null,
-        typeof client_secret === 'string' && client_secret.length > 0
+        normalizedAuthType,
+        normalizedClientId,
+        normalizedClientSecret
           ? (crypto && typeof crypto.encrypt === 'function'
-            ? crypto.encrypt(client_secret)
-            : encryptSecret(client_secret))
+            ? crypto.encrypt(normalizedClientSecret)
+            : encryptSecret(normalizedClientSecret))
           : null,
-        authorize_url || null,
-        token_url || null,
-        scopes || null,
-        redirect_uri || null,
+        normalizedAuthorizeUrl,
+        normalizedTokenUrl,
+        normalizedScopes,
+        normalizedRedirectUri,
         createdAt,
       );
 
@@ -89,7 +100,9 @@ function createAuthConfigStore({ db, crypto = null }) {
     },
 
     getByToolkit(toolkit) {
-      const row = dbHandle.prepare('SELECT * FROM auth_configs WHERE toolkit = ?').get(String(toolkit || '').trim());
+      const row = dbHandle.prepare('SELECT * FROM auth_configs WHERE toolkit = ?').get(
+        normalizeRequiredString(toolkit, 'toolkit'),
+      );
       return normalizeAuthConfigRow(row, crypto);
     },
 

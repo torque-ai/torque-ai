@@ -64,4 +64,16 @@ describe('authConfigStore', () => {
     expect(id).toMatch(/^ac_/);
     expect(store.getByToolkit('github').client_secret).toBe('super-secret');
   });
+
+  it('rejects invalid config input before hitting sqlite constraints', () => {
+    expect(() => store.upsert({ toolkit: '   ', auth_type: 'oauth2' })).toThrow('toolkit is required');
+    expect(() => store.upsert({ toolkit: 'github', auth_type: 'saml' })).toThrow(
+      'auth_type must be one of: oauth2, api_key, basic, bearer',
+    );
+    expect(() => store.upsert({
+      toolkit: 'github',
+      auth_type: 'oauth2',
+      client_id: { bad: true },
+    })).toThrow('client_id must be a string');
+  });
 });

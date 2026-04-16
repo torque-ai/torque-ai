@@ -45,16 +45,30 @@ function buildServices() {
 }
 
 function getRegisteredTools() {
-  const { TOOLS } = require('../tools');
+  const {
+    TOOLS,
+    decorateToolDefinition,
+    getRuntimeRegisteredToolDefs,
+  } = require('../tools');
   const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
-  const baseTools = TOOLS
-    .filter((tool) => tool && typeof tool.name === 'string')
-    .map((tool) => applyBehavioralTags(tool, tool.annotations || getAnnotations(tool.name)));
-  const pluginTools = remoteAgentToolDefs
-    .filter((tool) => tool && typeof tool.name === 'string')
-    .map((tool) => applyBehavioralTags(tool, getAnnotations(tool.name)));
+  const registeredTools = new Map();
 
-  return [...baseTools, ...pluginTools];
+  for (const tool of [
+    ...TOOLS,
+    ...getRuntimeRegisteredToolDefs(),
+    ...remoteAgentToolDefs,
+  ]) {
+    if (!tool || typeof tool.name !== 'string') {
+      continue;
+    }
+
+    const decoratedTool = typeof decorateToolDefinition === 'function'
+      ? decorateToolDefinition(tool)
+      : applyBehavioralTags(tool, tool.annotations || getAnnotations(tool.name));
+    registeredTools.set(decoratedTool.name, decoratedTool);
+  }
+
+  return [...registeredTools.values()];
 }
 
 function buildHintFilter(args = {}) {

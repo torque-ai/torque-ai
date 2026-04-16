@@ -1362,11 +1362,13 @@ function init() {
   }
 
   // Collect plugin MCP tools — dedup against built-ins
+  const toolsModule = require('./tools');
   const builtInTools = getTools();
   const builtInNames = new Set(builtInTools.map(t => t.name));
   const pluginTools = [];
   const pluginTier1 = [];
   const pluginTier2 = [];
+  toolsModule.setRuntimeRegisteredToolDefs([]);
   for (const plugin of loadedPlugins) {
     let tools;
     try {
@@ -1382,7 +1384,7 @@ function init() {
           debugLog(`Plugin "${plugin.name}" tool "${tool.name}" shadows built-in — skipping`);
           continue;
         }
-        pluginTools.push(tool);
+        pluginTools.push(toolsModule.decorateToolDefinition(tool));
       }
     }
     // Collect tier membership from plugins
@@ -1392,6 +1394,7 @@ function init() {
       if (tiers && Array.isArray(tiers.tier2)) pluginTier2.push(...tiers.tier2);
     }
   }
+  toolsModule.setRuntimeRegisteredToolDefs(pluginTools);
 
   // Merge plugin tier names into the shared tier arrays
   const mergedCoreTierNames = [...CORE_TOOL_NAMES, ...pluginTier1];

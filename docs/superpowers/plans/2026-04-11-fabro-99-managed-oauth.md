@@ -30,7 +30,7 @@
 
 ## Task 1: Schema + stores
 
-- [ ] **Step 1: Migration**
+- [x] **Step 1: Migration**
 
 Create `server/migrations/0XX-managed-oauth-tables.sql`:
 
@@ -67,7 +67,7 @@ CREATE INDEX idx_conn_accounts_user_toolkit ON connected_accounts(user_id, toolk
 CREATE INDEX idx_conn_accounts_status ON connected_accounts(status);
 ```
 
-- [ ] **Step 2: Store tests**
+- [x] **Step 2: Store tests**
 
 Create `server/tests/auth-config-store.test.js`:
 
@@ -149,7 +149,7 @@ describe('connectedAccountStore', () => {
 });
 ```
 
-- [ ] **Step 3: Implement stores**
+- [x] **Step 3: Implement stores**
 
 Create `server/auth/auth-config-store.js`:
 
@@ -228,7 +228,7 @@ Run tests → PASS. Commit: `feat(auth): managed-oauth tables + auth-config + co
 
 ## Task 2: OAuth controller + behavioral tags
 
-- [ ] **Step 1: OAuth controller**
+- [x] **Step 1: OAuth controller**
 
 Create `server/auth/oauth-controller.js`:
 
@@ -273,7 +273,7 @@ function createOAuthController({ authConfigStore, connectedAccountStore, fetchFn
 module.exports = { createOAuthController };
 ```
 
-- [ ] **Step 2: Behavioral tags tests**
+- [x] **Step 2: Behavioral tags tests**
 
 Create `server/tests/behavioral-tags.test.js`:
 
@@ -312,7 +312,7 @@ describe('behavioralTags', () => {
 });
 ```
 
-- [ ] **Step 3: Implement tags**
+- [x] **Step 3: Implement tags**
 
 Create `server/tools/behavioral-tags.js`:
 

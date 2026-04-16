@@ -1,6 +1,8 @@
 'use strict';
 
 const { isSafeRegex } = require('../utils/safe-regex');
+const { getAnnotations } = require('../tool-annotations');
+const { applyBehavioralTags } = require('../tools/behavioral-tags');
 
 const VALID_NAMESPACES = new Set(['task', 'workflow', 'provider', 'system']);
 
@@ -25,6 +27,71 @@ function typeMatches(expected, value) {
 
 function formatExpectedType(type) {
   return Array.isArray(type) ? type.join(' | ') : type;
+}
+
+function camelToSnake(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.replace(/([A-Z])/g, (match, char, index) => (index > 0 ? '_' : '') + char.toLowerCase());
+}
+
+function toBehavioralAnnotationSnapshot(tool) {
+  return {
+    readOnlyHint: Boolean(tool.readOnlyHint),
+    destructiveHint: Boolean(tool.destructiveHint),
+    idempotentHint: Boolean(tool.idempotentHint),
+    openWorldHint: Boolean(tool.openWorldHint),
+  };
+}
+
+function cloneAnnotations(annotations) {
+  return annotations ? { ...annotations } : undefined;
+}
+
+function inferAnnotationName(fullName, metadata = {}) {
+  const safeMetadata = metadata && typeof metadata === 'object' ? metadata : {};
+  if (typeof safeMetadata.annotationName === 'string' && safeMetadata.annotationName.trim()) {
+    return safeMetadata.annotationName.trim();
+  }
+
+  const parts = String(fullName || '').trim().split('.');
+  if (parts.length === 3 && parts[0] === 'torque') {
+    const [, namespace, action] = parts;
+    return `${camelToSnake(action)}_${namespace}`;
+  }
+
+  return camelToSnake(parts[parts.length - 1] || fullName);
+}
+
+function normalizeBehavioralMetadata(fullName, metadata = {}) {
+  const safeMetadata = metadata && typeof metadata === 'object' ? metadata : {};
+  const explicitHints = safeMetadata.behavioralHints || safeMetadata.annotations;
+  const hintSource = explicitHints && typeof explicitHints === 'object'
+    ? explicitHints
+    : getAnnotations(inferAnnotationName(fullName, safeMetadata));
+  const taggedTool = applyBehavioralTags({ name: fullName }, hintSource);
+  const annotations = toBehavioralAnnotationSnapshot(taggedTool);
+
+  return {
+    description: typeof safeMetadata.description === 'string' ? safeMetadata.description : '',
+    annotations,
+    ...annotations,
+  };
+}
+
+function cloneToolEntry(entry) {
+  return {
+    schema: cloneSchema(entry.schema),
+    handler: entry.handler,
+    description: entry.description,
+    annotations: cloneAnnotations(entry.annotations),
+    readOnlyHint: entry.readOnlyHint,
+    destructiveHint: entry.destructiveHint,
+    idempotentHint: entry.idempotentHint,
+    openWorldHint: entry.openWorldHint,
+  };
 }
 
 function normalizeNamespace(namespace) {
@@ -166,7 +233,7 @@ class ToolRegistry {
     this.tools = new Map();
   }
 
-  registerTool(namespace, name, schema, handler) {
+  registerTool(namespace, name, schema, handler, metadata = {}) {
     const normalizedNamespace = normalizeNamespace(namespace);
     const normalizedName = normalizeToolName(name);
 
@@ -182,10 +249,12 @@ class ToolRegistry {
       throw new Error(`Tool already registered: ${fullName}`);
     }
 
+    const behavioralMetadata = normalizeBehavioralMetadata(fullName, metadata);
     this.tools.set(fullName, {
       namespace: normalizedNamespace,
       schema: cloneSchema(schema),
       handler,
+      ...behavioralMetadata,
     });
     return fullName;
   }
@@ -200,10 +269,7 @@ class ToolRegistry {
       return null;
     }
 
-    return {
-      schema: cloneSchema(entry.schema),
-      handler: entry.handler,
-    };
+    return cloneToolEntry(entry);
   }
 
   unregisterTool(fullName) {
@@ -218,7 +284,7 @@ class ToolRegistry {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([name, entry]) => ({
         name,
-        schema: cloneSchema(entry.schema),
+        ...cloneToolEntry(entry),
       }));
   }
 

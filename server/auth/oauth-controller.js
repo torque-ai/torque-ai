@@ -18,28 +18,19 @@ function createOAuthController({ authConfigStore, connectedAccountStore, fetchFn
       const cfg = authConfigStore.getByToolkit(toolkit);
       if (!cfg) throw new Error(`no auth_config for ${toolkit}`);
 
-      const requestBody = new URLSearchParams({
-        code,
-        client_id: cfg.client_id,
-        redirect_uri: cfg.redirect_uri,
-        grant_type: 'authorization_code',
-      });
-      if (cfg.client_secret) {
-        requestBody.set('client_secret', cfg.client_secret);
-      }
-
       const res = await fetchFn(cfg.token_url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           Accept: 'application/json',
         },
-        body: requestBody.toString(),
+        body: new URLSearchParams({
+          code,
+          client_id: cfg.client_id,
+          redirect_uri: cfg.redirect_uri,
+          grant_type: 'authorization_code',
+        }).toString(),
       });
-
-      if (res && res.ok === false) {
-        throw new Error(`token exchange failed with status ${res.status}`);
-      }
 
       const tok = await res.json();
       if (!tok.access_token) throw new Error('no access_token in token response');

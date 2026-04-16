@@ -7,6 +7,11 @@ const {
   encryptSecret,
   decryptSecret,
   parseMetadata,
+  normalizeRequiredString,
+  normalizeRequiredSecret,
+  normalizeOptionalSecret,
+  normalizeOptionalTimestamp,
+  normalizeMetadataObject,
 } = require('./store-utils');
 
 function normalizeSafeRow(row) {
@@ -54,6 +59,13 @@ function createConnectedAccountStore({ db, crypto = null }) {
 
   return {
     create({ user_id, toolkit, auth_config_id, access_token, refresh_token, expires_at, metadata = {} }) {
+      const normalizedUserId = normalizeRequiredString(user_id, 'user_id');
+      const normalizedToolkit = normalizeRequiredString(toolkit, 'toolkit');
+      const normalizedAuthConfigId = normalizeRequiredString(auth_config_id, 'auth_config_id');
+      const normalizedAccessToken = normalizeRequiredSecret(access_token, 'access_token');
+      const normalizedRefreshToken = normalizeOptionalSecret(refresh_token, 'refresh_token');
+      const normalizedExpiresAt = normalizeOptionalTimestamp(expires_at, 'expires_at');
+      const normalizedMetadata = normalizeMetadataObject(metadata);
       const id = `ca_${randomUUID().slice(0, 12)}`;
       const now = Date.now();
 
@@ -74,21 +86,21 @@ function createConnectedAccountStore({ db, crypto = null }) {
         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
       `).run(
         id,
-        String(user_id || '').trim(),
-        String(toolkit || '').trim(),
-        auth_config_id,
-        typeof access_token === 'string' && access_token.length > 0
+        normalizedUserId,
+        normalizedToolkit,
+        normalizedAuthConfigId,
+        normalizedAccessToken
           ? (crypto && typeof crypto.encrypt === 'function'
-            ? crypto.encrypt(access_token)
-            : encryptSecret(access_token))
+            ? crypto.encrypt(normalizedAccessToken)
+            : encryptSecret(normalizedAccessToken))
           : null,
-        typeof refresh_token === 'string' && refresh_token.length > 0
+        normalizedRefreshToken
           ? (crypto && typeof crypto.encrypt === 'function'
-            ? crypto.encrypt(refresh_token)
-            : encryptSecret(refresh_token))
+            ? crypto.encrypt(normalizedRefreshToken)
+            : encryptSecret(normalizedRefreshToken))
           : null,
-        expires_at || null,
-        JSON.stringify(metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {}),
+        normalizedExpiresAt,
+        JSON.stringify(normalizedMetadata),
         now,
         now,
       );
@@ -97,17 +109,19 @@ function createConnectedAccountStore({ db, crypto = null }) {
     },
 
     get(id) {
-      const row = dbHandle.prepare('SELECT * FROM connected_accounts WHERE id = ?').get(id);
+      const row = dbHandle.prepare('SELECT * FROM connected_accounts WHERE id = ?').get(
+        normalizeRequiredString(id, 'id'),
+      );
       return normalizeDecryptedRow(row, crypto);
     },
 
     list({ user_id, toolkit } = {}) {
       const filters = ['user_id = ?'];
-      const params = [String(user_id || '').trim()];
+      const params = [normalizeRequiredString(user_id, 'user_id')];
 
       if (toolkit) {
         filters.push('toolkit = ?');
-        params.push(String(toolkit).trim());
+        params.push(normalizeRequiredString(toolkit, 'toolkit'));
       }
 
       return dbHandle.prepare(`
@@ -127,7 +141,10 @@ function createConnectedAccountStore({ db, crypto = null }) {
           AND status = 'active'
         ORDER BY updated_at DESC, rowid DESC
         LIMIT 1
-      `).get(String(user_id || '').trim(), String(toolkit || '').trim());
+      `).get(
+        normalizeRequiredString(user_id, 'user_id'),
+        normalizeRequiredString(toolkit, 'toolkit'),
+      );
 
       return normalizeDecryptedRow(row, crypto);
     },
@@ -137,13 +154,15 @@ function createConnectedAccountStore({ db, crypto = null }) {
         UPDATE connected_accounts
         SET status = 'disabled', updated_at = ?
         WHERE id = ?
-      `).run(Date.now(), id);
+      `).run(Date.now(), normalizeRequiredString(id, 'id'));
 
       return result.changes > 0;
     },
 
     delete(id) {
-      const result = dbHandle.prepare('DELETE FROM connected_accounts WHERE id = ?').run(id);
+      const result = dbHandle.prepare('DELETE FROM connected_accounts WHERE id = ?').run(
+        normalizeRequiredString(id, 'id'),
+      );
       return result.changes > 0;
     },
   };
