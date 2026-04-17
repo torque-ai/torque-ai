@@ -665,6 +665,10 @@ function tryOllamaQueueFallback(task, model, selection) {
  * Internal queue processing logic - called only when lock is held.
  */
 function processQueueInternal(options = {}) {
+  // Guard against delayed queue ticks after shutdown/teardown before any DB reads.
+  if (_stopped || !db || typeof db.getRunningCount !== 'function') return;
+  if (typeof db.isReady === 'function' && !db.isReady()) return;
+
   // Restart barrier — must be checked BEFORE the slot-pull delegation so both
   // scheduling modes honor it. Slot-pull also re-checks inside runSlotPullPass()
   // because its heartbeat bypasses this function entirely.
@@ -692,9 +696,6 @@ function processQueueInternal(options = {}) {
     }
     _lastQueueProcessAt = now;
   }
-
-  // Guard against calls after DB has been closed (e.g., event-driven timer in tests)
-  if (_stopped || !db || typeof db.getRunningCount !== 'function') return;
 
   // Expire stale queued tasks
   const queueTtlMinutes = _safeConfigInt ? _safeConfigInt('queue_task_ttl_minutes', 0) : 0;
