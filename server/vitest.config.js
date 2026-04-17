@@ -1,7 +1,14 @@
 const { defineConfig } = require('vitest/config');
 const os = require('os');
+const path = require('path');
 
 module.exports = defineConfig({
+  resolve: {
+    alias: {
+      'better-sqlite3': path.resolve(__dirname, 'tests/shims/better-sqlite3.js'),
+      uuid: path.resolve(__dirname, 'tests/shims/uuid.js'),
+    },
+  },
   test: {
     globals: true,
     testTimeout: 15000,

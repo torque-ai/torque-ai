@@ -12,6 +12,9 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
+const { installBetterSqlite3Shim } = require('./shims/register-better-sqlite3');
+
+installBetterSqlite3Shim();
 
 const TEMPLATE_DIR = path.join(os.tmpdir(), 'torque-vitest-template');
 const TEMPLATE_BUF = path.join(TEMPLATE_DIR, 'template.db.buf');
@@ -91,13 +94,20 @@ module.exports = async function setup() {
   // Delete stale template DB from prior runs — INSERT OR IGNORE seeds
   // won't overwrite existing rows, so stale data leaks across runs.
   fs.mkdirSync(TEMPLATE_DIR, { recursive: true });
-  const TEMPLATE_DB = path.join(TEMPLATE_DIR, 'torque.db');
-  try { fs.unlinkSync(TEMPLATE_DB); } catch { /* first run */ }
-  try { fs.unlinkSync(TEMPLATE_DB + '-wal'); } catch { /* no WAL */ }
-  try { fs.unlinkSync(TEMPLATE_DB + '-shm'); } catch { /* no SHM */ }
+  for (const templateName of ['tasks.db', 'torque.db']) {
+    const templatePath = path.join(TEMPLATE_DIR, templateName);
+    try { fs.unlinkSync(templatePath); } catch { /* first run */ }
+    try { fs.unlinkSync(templatePath + '-wal'); } catch { /* no WAL */ }
+    try { fs.unlinkSync(templatePath + '-shm'); } catch { /* no SHM */ }
+  }
 
   const origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = TEMPLATE_DIR;
+  const runDataDir = path.join(
+    TEMPLATE_DIR,
+    `seed-${process.pid}-${Date.now()}`
+  );
+  fs.mkdirSync(runDataDir, { recursive: true });
+  process.env.TORQUE_DATA_DIR = runDataDir;
 
   // Clear module cache to ensure fresh init
   delete require.cache[require.resolve('../database')];
@@ -124,6 +134,13 @@ module.exports = async function setup() {
   fs.writeFileSync(TEMPLATE_BUF, buffer);
 
   db.close();
+
+  try {
+    fs.rmSync(runDataDir, { recursive: true, force: true });
+  } catch {
+    // Ignore temp cleanup failures on Windows if antivirus or another
+    // process briefly holds a handle after SQLite close.
+  }
 
   // Restore env
   if (origDataDir !== undefined) {

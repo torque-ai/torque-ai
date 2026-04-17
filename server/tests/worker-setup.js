@@ -27,6 +27,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const childProcess = require('child_process');
+const { installBetterSqlite3Shim } = require('./shims/register-better-sqlite3');
+
+installBetterSqlite3Shim();
 
 const TEST_DATA_ROOT = path.join(os.tmpdir(), 'torque-vitest-workers');
 const workerId = process.env.VITEST_WORKER_ID || process.env.TEST_WORKER_ID || String(process.pid);
