@@ -33,8 +33,40 @@ function tickProject(project) {
       const state = instance.loop_state;
       const paused = instance.paused_at_stage;
 
-      // Skip terminated, idle, or paused-at-gate instances
-      if (state === 'IDLE' || (paused && !paused.startsWith('READY_FOR_'))) continue;
+      // Skip terminated or idle instances
+      if (state === 'IDLE') continue;
+
+      // Recover stuck PAUSED-at-EXECUTE with empty batch: if the EXECUTE
+      // stage paused (worktree failure, empty plan, etc.) but there are no
+      // running or queued tasks for the batch, terminate and let the tick's
+      // auto-start logic begin a fresh cycle with the next work item.
+      if (paused === 'EXECUTE' && instance.batch_id) {
+        try {
+          const taskCore = require('../db/task-core');
+          const batchTasks = taskCore.listTasks({
+            tags: [`factory:batch_id=${instance.batch_id}`],
+            status: 'running',
+          });
+          const queuedTasks = taskCore.listTasks({
+            tags: [`factory:batch_id=${instance.batch_id}`],
+            status: 'queued',
+          });
+          if (batchTasks.length === 0 && queuedTasks.length === 0) {
+            logger.warn('Factory tick: recovering PAUSED-at-EXECUTE with empty batch', {
+              project_id: project.id,
+              instance_id: instance.id,
+              batch_id: instance.batch_id,
+            });
+            loopController.terminateInstanceAndSync(instance.id, { abandonWorktree: true });
+            continue; // auto-start below will create a fresh instance
+          }
+        } catch (checkErr) {
+          logger.debug('Factory tick: batch check failed', { err: checkErr.message });
+        }
+      }
+
+      // Skip paused-at-gate instances (need operator approval, not a tick)
+      if (paused && !paused.startsWith('READY_FOR_') && paused !== 'EXECUTE') continue;
 
       try {
         loopController.advanceLoopAsync(instance.id, { autoAdvance: true });

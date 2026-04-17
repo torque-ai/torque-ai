@@ -2832,6 +2832,40 @@ async function executePlanFileStage(project, instance, workItem) {
     };
   }
 
+  // If the plan executor completed with zero tasks (all skipped or plan
+  // had no parseable "## Task N:" sections), skip to IDLE instead of
+  // advancing to VERIFY with an empty batch. Log a diagnostic decision
+  // so the operator knows WHY nothing was submitted.
+  if (!result.completed_tasks && !result.task_count) {
+    logger.warn('EXECUTE stage: plan executor completed with zero tasks — skipping to IDLE', {
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      plan_path: targetItem.origin?.plan_path,
+    });
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'empty_execution',
+      reasoning: 'Plan executor completed but produced zero tasks. The plan may have had no "## Task N:" sections, all tasks were already ticked, or the generated plan was empty. Skipping to IDLE instead of verifying an empty batch.',
+      inputs: { ...getWorkItemDecisionContext(targetItem) },
+      outcome: {
+        completed_tasks: 0,
+        task_count: 0,
+        plan_path: targetItem.origin?.plan_path,
+        final_state: LOOP_STATES.IDLE,
+      },
+      confidence: 1,
+      batch_id: decisionBatchId,
+    });
+    return {
+      next_state: LOOP_STATES.IDLE,
+      paused_at_stage: null,
+      reason: 'empty_execution',
+      stage_result: result,
+      work_item: targetItem,
+    };
+  }
+
   factoryIntake.updateWorkItem(targetItem.id, { status: 'verifying' });
   logger.info('EXECUTE stage: plan executor completed successfully', {
     project_id: project.id,
