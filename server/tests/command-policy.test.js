@@ -21,6 +21,9 @@ describe('command-policy', () => {
       expect(validateCommand('git diff --stat HEAD~1')).toEqual({ allowed: true });
       expect(validateCommand('git', ['status', '--short'])).toEqual({ allowed: true });
       expect(validateCommand('git', ['log', '--oneline', '-5'])).toEqual({ allowed: true });
+      expect(validateCommand('dotnet', ['test', 'Torque.sln', '--nologo'])).toEqual({ allowed: true });
+      expect(validateCommand('pwsh.exe', ['-NoProfile', '-File', 'scripts/verify.ps1'])).toEqual({ allowed: true });
+      expect(validateCommand('cmd.exe', ['/c', 'dir'])).toEqual({ allowed: true });
     });
 
     it('blocks dangerous advanced_shell commands without the explicit flag', () => {
@@ -34,13 +37,25 @@ describe('command-policy', () => {
       expect(chained.allowed).toBe(false);
       expect(chained.reason).toContain('metacharacter');
 
+      const dotnetChained = validateCommand('dotnet test Torque.sln && git status');
+      expect(dotnetChained.allowed).toBe(false);
+      expect(dotnetChained.reason).toContain('metacharacter');
+
       const piped = validateCommand('npm', ['test', '|', 'cat']);
       expect(piped.allowed).toBe(false);
       expect(piped.reason).toContain('metacharacter');
 
+      const pwshPiped = validateCommand('pwsh', ['-NoProfile', '-Command', 'dotnet test | Select-String failed']);
+      expect(pwshPiped.allowed).toBe(false);
+      expect(pwshPiped.reason).toContain('metacharacter');
+
       const subshell = validateCommand('node', ['--check', '$(whoami)']);
       expect(subshell.allowed).toBe(false);
       expect(subshell.reason).toContain('metacharacter');
+
+      const cmdChained = validateCommand('cmd.exe', ['/c', 'dotnet test && git status']);
+      expect(cmdChained.allowed).toBe(false);
+      expect(cmdChained.reason).toContain('metacharacter');
     });
 
     it('allows advanced_shell commands when dangerous is true', () => {
@@ -65,7 +80,7 @@ describe('command-policy', () => {
         callback(null, 'ok', '');
       });
 
-      const result = await executeValidatedCommand('git', ['status', '--short'], {
+      const result = await executeValidatedCommand('cmd.exe', ['/c', 'dir'], {
         profile: 'safe_verify',
         source: 'command-policy.test',
         caller: 'executeValidatedCommand',
@@ -74,8 +89,8 @@ describe('command-policy', () => {
 
       expect(result.stdout).toBe('ok');
       expect(execSpy).toHaveBeenCalledWith(
-        'git',
-        ['status', '--short'],
+        'cmd.exe',
+        ['/c', 'dir'],
         expect.objectContaining({
           encoding: 'utf8',
           windowsHide: true,
