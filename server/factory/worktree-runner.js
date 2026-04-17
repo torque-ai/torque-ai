@@ -154,21 +154,31 @@ function createWorktreeRunner({
     // Detect the default branch — some projects use 'master' not 'main'.
     let baseBranch = 'main';
     try {
-      const headRef = spawnInBash(
-        `cd "${project.path}" && git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'`,
-        { encoding: 'utf8', windowsHide: true }
-      );
-      const detected = (headRef.stdout || '').trim();
-      if (detected) {
-        baseBranch = detected;
-      } else {
-        const masterCheck = spawnInBash(
-          `cd "${project.path}" && git rev-parse --verify master 2>/dev/null`,
-          { encoding: 'utf8', windowsHide: true }
-        );
-        if (masterCheck.status === 0) baseBranch = 'master';
+      const { execFileSync } = require('child_process');
+      const headRef = execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
+        cwd: project.path,
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 5000,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      }).trim().replace(/^refs\/remotes\/origin\//, '');
+      if (headRef) {
+        baseBranch = headRef;
       }
-    } catch (_e) { void _e; }
+    } catch (_e) {
+      void _e;
+      // Fallback: check if 'master' branch exists locally
+      try {
+        const { execFileSync } = require('child_process');
+        execFileSync('git', ['rev-parse', '--verify', 'master'], {
+          cwd: project.path,
+          windowsHide: true,
+          timeout: 5000,
+          stdio: 'ignore',
+        });
+        baseBranch = 'master';
+      } catch (_e2) { void _e2; }
+    }
 
     const record = worktreeManager.createWorktree(project.path, featureName, {
       baseBranch,
