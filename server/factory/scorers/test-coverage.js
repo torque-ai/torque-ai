@@ -14,6 +14,7 @@ const IGNORED_DIR_NAMES = new Set([
 ]);
 
 const GENERIC_TEST_FILE_PATTERN = /\.test\.|\.spec\.|_test\./i;
+const PYTHON_TEST_FILE_PATTERN = /^test_.*\.py$|_test\.py$|conftest\.py$/i;
 const DOTNET_TEST_FILE_PATTERN = /Tests?\.cs$/i;
 const DOTNET_TEST_PROJECT_NAME_PATTERN = /\.Tests?\.csproj$/i;
 const DOTNET_TEST_PROJECT_REFERENCE_PATTERN = /<PackageReference\b[^>]*Include\s*=\s*"(?:Microsoft\.NET\.Test\.Sdk|xunit(?:\.[^"]*)?|NUnit(?:\.[^"]*)?|MSTest(?:\.[^"]*)?)"/i;
@@ -80,6 +81,7 @@ function isTestAsset(filePath) {
   const fileName = path.basename(filePath);
 
   return GENERIC_TEST_FILE_PATTERN.test(fileName) ||
+    PYTHON_TEST_FILE_PATTERN.test(fileName) ||
     DOTNET_TEST_FILE_PATTERN.test(fileName) ||
     isDotnetTestProject(filePath);
 }

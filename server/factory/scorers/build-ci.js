@@ -140,6 +140,17 @@ function scanProjectSignals(projectPath) {
     hasDotnetTestProject: false,
     hasPowerShellBuildScript: false,
     hasPowerShellTestScript: false,
+    // Python ecosystem
+    hasPythonProject: fs.existsSync(path.join(projectPath, 'pyproject.toml'))
+      || fs.existsSync(path.join(projectPath, 'setup.py'))
+      || fs.existsSync(path.join(projectPath, 'setup.cfg')),
+    hasPythonTests: false,
+    hasPythonBuild: fs.existsSync(path.join(projectPath, 'pyproject.toml'))
+      || fs.existsSync(path.join(projectPath, 'Makefile')),
+    hasPythonLint: fs.existsSync(path.join(projectPath, 'pyproject.toml'))
+      || fs.existsSync(path.join(projectPath, '.flake8'))
+      || fs.existsSync(path.join(projectPath, 'ruff.toml'))
+      || fs.existsSync(path.join(projectPath, '.ruff.toml')),
   };
 
   walkFiles(projectPath, (filePath) => {
@@ -157,6 +168,15 @@ function scanProjectSignals(projectPath) {
     }
     if (!signals.hasDotnetTestProject && normalizedPath.endsWith('.csproj') && isDotnetTestProject(filePath)) {
       signals.hasDotnetTestProject = true;
+    }
+    // Python test detection: test_*.py, *_test.py, conftest.py, pytest.ini
+    if (!signals.hasPythonTests && (
+      /^test_.*\.py$/i.test(fileName) ||
+      /_test\.py$/i.test(fileName) ||
+      fileName === 'conftest.py' ||
+      fileName === 'pytest.ini'
+    )) {
+      signals.hasPythonTests = true;
     }
   });
 
@@ -213,11 +233,14 @@ function score(projectPath, scanReport, findingsDir) {
 
     hasBuild = hasBuild ||
       workflowHasBuildSignal ||
-      projectSignals.hasPowerShellBuildScript;
+      projectSignals.hasPowerShellBuildScript ||
+      projectSignals.hasPythonBuild;
     hasTest = hasTest ||
       workflowHasTestSignal ||
       projectSignals.hasPowerShellTestScript ||
-      projectSignals.hasDotnetTestProject;
+      projectSignals.hasDotnetTestProject ||
+      projectSignals.hasPythonTests;
+    hasLint = hasLint || projectSignals.hasPythonLint;
 
     const lintSearchDirs = [
       projectPath,
@@ -226,11 +249,12 @@ function score(projectPath, scanReport, findingsDir) {
     ];
     const hasLintConfig = lintSearchDirs.some((dirPath) =>
       LINT_CONFIG_FILES.some((fileName) => fs.existsSync(path.join(dirPath, fileName))),
-    );
+    ) || projectSignals.hasPythonLint;
 
     const hasPreCommit =
       directoryHasFile(path.join(projectPath, '.husky')) ||
-      fs.existsSync(path.join(projectPath, '.git', 'hooks', 'pre-commit'));
+      fs.existsSync(path.join(projectPath, '.git', 'hooks', 'pre-commit')) ||
+      fs.existsSync(path.join(projectPath, '.pre-commit-config.yaml'));
 
     let totalScore = 0;
 
@@ -296,6 +320,10 @@ function score(projectPath, scanReport, findingsDir) {
         hasDotnetTestProject: projectSignals.hasDotnetTestProject,
         hasPowerShellBuildScript: projectSignals.hasPowerShellBuildScript,
         hasPowerShellTestScript: projectSignals.hasPowerShellTestScript,
+        hasPythonProject: projectSignals.hasPythonProject,
+        hasPythonTests: projectSignals.hasPythonTests,
+        hasPythonBuild: projectSignals.hasPythonBuild,
+        hasPythonLint: projectSignals.hasPythonLint,
         workflowHasBuildSignal,
         workflowHasTestSignal,
       },
