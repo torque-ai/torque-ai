@@ -12,6 +12,7 @@ const factoryLoopInstances = require('../db/factory-loop-instances');
 const loopController = require('./loop-controller');
 const logger = require('../logger').child({ component: 'factory-tick' });
 const taskCore = require('../db/task-core');
+const timerRegistry = require('../timer-registry');
 
 const DEFAULT_TICK_INTERVAL_MINUTES = 5;
 const DEFAULT_TICK_INTERVAL_MS = DEFAULT_TICK_INTERVAL_MINUTES * 60 * 1000;
@@ -127,12 +128,28 @@ function extractFactoryBatchId(task) {
   return batchTag ? batchTag.slice('factory:batch_id='.length) : null;
 }
 
+function clearTrackedInterval(timer) {
+  if (!timer) {
+    return;
+  }
+  timerRegistry.remove(timer);
+  clearInterval(timer);
+}
+
+function clearTrackedTimeout(timer) {
+  if (!timer) {
+    return;
+  }
+  timerRegistry.remove(timer);
+  clearTimeout(timer);
+}
+
 function clearScheduledProjectTick(projectId) {
   const scheduled = scheduledProjectTicks.get(projectId);
   if (!scheduled) {
     return;
   }
-  clearTimeout(scheduled.timer);
+  clearTrackedTimeout(scheduled.timer);
   scheduledProjectTicks.delete(projectId);
 }
 
@@ -147,13 +164,14 @@ function scheduleProjectTick(projectId, delayMs = 0, reason = 'scheduled_tick') 
     return;
   }
   clearScheduledProjectTick(projectId);
-  const timer = setTimeout(() => {
+  const timer = timerRegistry.trackTimeout(setTimeout(() => {
+    timerRegistry.remove(timer);
     scheduledProjectTicks.delete(projectId);
     const project = getFreshProject(projectId);
     if (project) {
       tickProject(project);
     }
-  }, normalizedDelayMs);
+  }, normalizedDelayMs));
   if (typeof timer.unref === 'function') {
     timer.unref();
   }
@@ -379,11 +397,11 @@ function startTick(project, intervalMs = getTickIntervalMs(project)) {
     if (active.interval_ms === nextIntervalMs) {
       return;
     }
-    clearInterval(active.timer);
+    clearTrackedInterval(active.timer);
     activeTimers.delete(freshProject.id);
   }
 
-  const timer = setInterval(() => tickProject(freshProject.id), nextIntervalMs);
+  const timer = timerRegistry.trackInterval(setInterval(() => tickProject(freshProject.id), nextIntervalMs));
   if (typeof timer.unref === 'function') {
     timer.unref();
   }
@@ -405,22 +423,22 @@ function startTick(project, intervalMs = getTickIntervalMs(project)) {
 function stopTick(projectId) {
   const active = activeTimers.get(projectId);
   if (active) {
-    clearInterval(active.timer);
+    clearTrackedInterval(active.timer);
     activeTimers.delete(projectId);
     logger.info('Factory tick stopped', { project_id: projectId });
   }
   clearScheduledProjectTick(projectId);
 }
 
-function stopAll() {
-  for (const [projectId, active] of activeTimers) {
-    clearInterval(active.timer);
-    logger.info('Factory tick stopped (shutdown)', { project_id: projectId });
+function stopAll(reason = 'shutdown') {
+  for (const [projectId, active] of activeTimers.entries()) {
+    clearTrackedInterval(active.timer);
+    logger.info(`Factory tick stopped (${reason})`, { project_id: projectId });
   }
   activeTimers.clear();
-  for (const [projectId, scheduled] of scheduledProjectTicks) {
-    clearTimeout(scheduled.timer);
-    logger.info('Factory tick scheduled wake cleared (shutdown)', { project_id: projectId });
+  for (const [projectId, scheduled] of scheduledProjectTicks.entries()) {
+    clearTrackedTimeout(scheduled.timer);
+    logger.info(`Factory tick scheduled wake cleared (${reason})`, { project_id: projectId });
   }
   scheduledProjectTicks.clear();
 }

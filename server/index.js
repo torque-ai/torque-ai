@@ -595,6 +595,12 @@ async function gracefulShutdown(signal) {
       }
       // Stop PID heartbeat
       stopPidHeartbeat();
+      try {
+        const { stopAll } = require('./factory/factory-tick');
+        stopAll('shutdown');
+      } catch (factoryTickErr) {
+        debugLog(`Factory tick shutdown cleanup skipped: ${factoryTickErr.message}`);
+      }
       // Clear all tracked intervals (maintenance, coordination, queue, quota, stdio heartbeat, orphan check, error rate)
       timerRegistry.clearAll();
       // Close readline interface to release stdin file descriptor and event listeners
@@ -931,27 +937,15 @@ function init() {
     debugLog(`Factory worktree auto-commit listener init skipped: ${err.message}`);
   }
 
-  // Resume auto-advance for active factory loop instances. When TORQUE
-  // restarts, the in-memory setTimeout chains that drive auto-advance die.
-  // This scan finds active instances whose projects have auto_continue
-  // enabled (implying full autonomy) and re-kicks the auto-advance chain.
+  // Factory tick owns startup re-arm for active loops and persisted cooldown
+  // wakes. Clear any stale in-memory project timers first so repeated init()
+  // cycles do not reuse dead handles or leave duplicate drivers behind.
+  // `resumeAutoAdvanceOnStartup()` remains available for targeted recovery,
+  // but startup now relies on the shared project scheduler as the single
+  // source of truth.
   try {
-    const { resumeAutoAdvanceOnStartup } = require('./factory/loop-controller');
-    const resumed = resumeAutoAdvanceOnStartup();
-    if (resumed > 0) {
-      debugLog(`Factory auto-advance resumed for ${resumed} active instance(s)`);
-    }
-  } catch (err) {
-    debugLog(`Factory auto-advance resume skipped: ${err.message}`);
-  }
-
-  // Factory tick — server-side timer that periodically checks and advances
-  // active factory loops. Safety net for auto_advance: if the event chain
-  // breaks (crash, timeout, unhandled state), the tick picks it up within
-  // N minutes. Also auto-starts new loops for auto_continue projects with
-  // no active instances.
-  try {
-    const { initFactoryTicks } = require('./factory/factory-tick');
+    const { stopAll, initFactoryTicks } = require('./factory/factory-tick');
+    stopAll('startup_reinit');
     const ticking = initFactoryTicks();
     if (ticking > 0) {
       debugLog(`Factory tick started for ${ticking} running project(s)`);
@@ -1793,6 +1787,12 @@ const _testing = {
   getMcpPlatform: () => mcpPlatform,
   resetForTest() {
     stopPidHeartbeat();
+    try {
+      const { stopAll } = require('./factory/factory-tick');
+      stopAll('test_reset');
+    } catch (_e) {
+      void _e;
+    }
     timerRegistry.clearAll();
     maintenanceScheduler.stopAll();
     queueProcessingInterval = null;

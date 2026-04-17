@@ -35,6 +35,39 @@ function resolveProject(projectRef) {
   return project;
 }
 
+function getFactoryTickScheduler() {
+  try {
+    return require('../factory/factory-tick');
+  } catch (_e) {
+    void _e;
+    return null;
+  }
+}
+
+function stopProjectTickScheduler(projectId) {
+  if (!projectId) {
+    return;
+  }
+  const factoryTick = getFactoryTickScheduler();
+  if (factoryTick?.stopTick) {
+    factoryTick.stopTick(projectId);
+  }
+}
+
+function rearmProjectTickScheduler(project) {
+  if (!project?.id) {
+    return;
+  }
+  const factoryTick = getFactoryTickScheduler();
+  if (!factoryTick?.startTick) {
+    return;
+  }
+  if (factoryTick.stopTick) {
+    factoryTick.stopTick(project.id);
+  }
+  factoryTick.startTick(project);
+}
+
 function jsonResponse(data, options = {}) {
   const response = {
     content: [{ type: 'text', text: JSON.stringify(data, null, 2) }],
@@ -329,11 +362,7 @@ async function handlePauseProject(args) {
   } catch (err) {
     logger.warn({ err }, 'Failed to record pause audit event');
   }
-  // Stop factory tick timer when project is paused
-  try {
-    const { stopTick } = require('../factory/factory-tick');
-    stopTick(updated.id);
-  } catch (_e) { void _e; /* factory-tick not loaded */ }
+  stopProjectTickScheduler(updated.id);
   logger.info(`Factory project paused: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" paused`,
@@ -357,11 +386,7 @@ async function handleResumeProject(args) {
   } catch (err) {
     logger.warn({ err }, 'Failed to record resume audit event');
   }
-  // Start factory tick timer when project resumes
-  try {
-    const { startTick } = require('../factory/factory-tick');
-    startTick(updated);
-  } catch (_e) { void _e; /* factory-tick not loaded */ }
+  rearmProjectTickScheduler(updated);
   logger.info(`Factory project resumed: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" running`,
@@ -388,6 +413,7 @@ async function handlePauseAllProjects(args = {}) {
       } catch (err) {
         logger.warn({ err }, 'Failed to record pause audit event');
       }
+      stopProjectTickScheduler(updated.id);
       paused++;
     }
   }
