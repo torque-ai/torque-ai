@@ -234,6 +234,19 @@ const FACTORY_V2_ROUTES = [
     ),
   },
   {
+    method: 'GET',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/cycles$/,
+    mapParams: ['project'],
+    handlerName: 'handleFactoryCycleHistory',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleFactoryCycleHistory,
+      async () => ({ project: req.params.project }),
+    ),
+  },
+  {
     method: 'POST',
     path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loops\/start$/,
     tool: 'start_factory_loop_instance',

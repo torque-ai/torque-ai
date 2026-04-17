@@ -302,6 +302,26 @@ describe('factory loop-controller EXECUTE modes', () => {
     return { project, workItem, planPath };
   }
 
+  function parkProjectAtVerifyFail(projectId) {
+    const instance = factoryLoopInstances.listInstances({
+      project_id: projectId,
+      active_only: true,
+    })[0];
+    expect(instance).toBeTruthy();
+
+    const lastActionAt = new Date().toISOString();
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: 'VERIFY_FAIL',
+      last_action_at: lastActionAt,
+    });
+    factoryHealth.updateProject(projectId, {
+      loop_state: LOOP_STATES.PAUSED,
+      loop_last_action_at: lastActionAt,
+      loop_paused_at_stage: 'VERIFY_FAIL',
+    });
+  }
+
   it('defaults supervised EXECUTE to pending approval and records held task submissions', async () => {
     const { project, workItem, planPath } = registerPlanProject();
     const before = fs.readFileSync(planPath, 'utf8');
@@ -562,7 +582,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
-  it('pauses at VERIFY_FAIL when rerun VERIFY fails after gate approval', async () => {
+  it('auto-rejects work item after MAX_AUTO_VERIFY_RETRIES and advances past VERIFY_FAIL', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
     const worktreeRunner = {
@@ -586,43 +606,46 @@ describe('factory loop-controller EXECUTE modes', () => {
       insertBatchTask(db, {
         taskId,
         batchId,
-        status: args.initial_status || 'pending_approval',
+        status: 'completed',
       });
       return { task_id: taskId };
     });
     loopController.setWorktreeRunnerForTests(worktreeRunner);
 
     await advanceSupervisedPlanProject(project.id);
-    const executeAdvance = await loopController.advanceLoopForProject(project.id);
-
-    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
-    expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
-    expect(worktreeRunner.verify).not.toHaveBeenCalled();
-
-    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-fail-1');
-
-    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
-    expect(approved.state).toBe(LOOP_STATES.VERIFY);
-
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
-    // Auto-retry kicks in: initial verify + 2 retries = 3 calls total
-    // before the factory gives up and pauses at VERIFY_FAIL. Each retry
-    // submits a fix task to Codex via handleSmartSubmitTask and awaits it.
-    expect(worktreeRunner.verify).toHaveBeenCalledTimes(3);
-    expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
+    // Auto-retry kicks in: initial verify + 3 retries = 4 calls total
+    // before the factory gives up and auto-rejects the item. Because the
+    // completed batch task let EXECUTE enter VERIFY inline, the advance
+    // remains at VERIFY rather than pausing the loop.
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(4);
+    expect(verifyAdvance.previous_state).toBe(LOOP_STATES.EXECUTE);
     expect(verifyAdvance.new_state).toBe(LOOP_STATES.VERIFY);
-    expect(verifyAdvance.paused_at_stage).toBe('VERIFY_FAIL');
-    expect(verifyAdvance.reason).toBe('worktree_verify_failed');
+    expect(verifyAdvance.paused_at_stage).toBeNull();
+    expect(verifyAdvance.stage_result).toMatchObject({
+      status: 'passed',
+      reason: 'auto_rejected_after_max_retries',
+    });
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'rejected',
+      reject_reason: 'verify_failed_after_3_retries',
+    });
     expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
-      loop_state: LOOP_STATES.PAUSED,
-      loop_paused_at_stage: 'VERIFY_FAIL',
+      loop_state: LOOP_STATES.VERIFY,
+      loop_paused_at_stage: null,
     });
     const retryDecisions = listDecisionRows(db, project.id).filter(
       (d) => d.action === 'verify_retry_submitted' || d.action === 'verify_retry_task_completed',
     );
-    // 2 submitted + 2 completed = 4 retry decisions expected.
-    expect(retryDecisions.length).toBe(4);
+    expect(retryDecisions.length).toBe(6);
+    expect(listDecisionRows(db, project.id).find((d) => d.action === 'auto_rejected_verify_fail')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        retry_attempts: 3,
+      }),
+    });
   });
 
   it('auto-retries a failing VERIFY and ships when the second attempt passes', async () => {
@@ -675,7 +698,7 @@ describe('factory loop-controller EXECUTE modes', () => {
 
     const decisions = listDecisionRows(db, project.id);
     expect(decisions.find((d) => d.action === 'verify_retry_submitted')).toMatchObject({
-      outcome: expect.objectContaining({ attempt: 1, max_retries: 2 }),
+      outcome: expect.objectContaining({ attempt: 1, max_retries: 3 }),
     });
     expect(decisions.find((d) => d.action === 'verify_retry_task_completed')).toMatchObject({
       outcome: expect.objectContaining({ attempt: 1 }),
@@ -728,10 +751,8 @@ describe('factory loop-controller EXECUTE modes', () => {
     await advanceSupervisedPlanProject(project.id);
     await loopController.advanceLoopForProject(project.id);
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-retry-reset-1');
-    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+    parkProjectAtVerifyFail(project.id);
 
-    const failedVerify = await loopController.advanceLoopForProject(project.id);
-    expect(failedVerify.paused_at_stage).toBe('VERIFY_FAIL');
     expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
       loop_state: LOOP_STATES.PAUSED,
       loop_paused_at_stage: 'VERIFY_FAIL',
@@ -770,15 +791,7 @@ describe('factory loop-controller EXECUTE modes', () => {
         branch: 'feat/factory-verify-retry',
         worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-retry'),
       })),
-      // Auto-retry budget is 2 (total 3 verify calls). Fail the first
-      // three to exhaust auto-retries and land on VERIFY_FAIL, then
-      // have the operator's manual retryVerifyFromFailure pass on the
-      // fourth call.
-      verify: vi.fn()
-        .mockResolvedValueOnce({ passed: false, output: 'tests failed 1', durationMs: 19 })
-        .mockResolvedValueOnce({ passed: false, output: 'tests failed 2', durationMs: 19 })
-        .mockResolvedValueOnce({ passed: false, output: 'tests failed 3', durationMs: 19 })
-        .mockResolvedValueOnce({ passed: true, output: 'tests passed', durationMs: 17 }),
+      verify: vi.fn(async () => ({ passed: true, output: 'tests passed', durationMs: 17 })),
       mergeToMain: vi.fn(),
       abandon: vi.fn(),
     };
@@ -786,16 +799,10 @@ describe('factory loop-controller EXECUTE modes', () => {
     routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
       submittedTaskCount += 1;
       const taskId = `approval-task-retry-${submittedTaskCount}`;
-      // Retry-submitted fix tasks don't pass initial_status and aren't
-      // tagged pending_approval; mark them completed so the waiting-
-      // for-batch-tasks guard in executeVerifyStage doesn't block the
-      // next verify attempt.
-      const isRetryTask = Array.isArray(args.tags)
-        && args.tags.some((t) => typeof t === 'string' && t.startsWith('factory:verify_retry='));
       insertBatchTask(db, {
         taskId,
         batchId,
-        status: isRetryTask ? 'completed' : (args.initial_status || 'pending_approval'),
+        status: args.initial_status || 'pending_approval',
       });
       return { task_id: taskId };
     });
@@ -804,19 +811,12 @@ describe('factory loop-controller EXECUTE modes', () => {
     await advanceSupervisedPlanProject(project.id);
     await loopController.advanceLoopForProject(project.id);
     db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-retry-1');
-    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
-
-    const failedVerify = await loopController.advanceLoopForProject(project.id);
-    expect(failedVerify.paused_at_stage).toBe('VERIFY_FAIL');
-    // 1 initial + 2 auto-retries before pausing for operator.
-    expect(worktreeRunner.verify).toHaveBeenCalledTimes(3);
+    parkProjectAtVerifyFail(project.id);
 
     loopController.retryVerifyFromFailureForProject(project.id);
     const retriedVerify = await loopController.advanceLoopForProject(project.id);
 
-    // Operator retry fires another round; the mock's 4th return passes,
-    // so one more verify call is enough to reach LEARN.
-    expect(worktreeRunner.verify).toHaveBeenCalledTimes(4);
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
     expect(retriedVerify.previous_state).toBe(LOOP_STATES.VERIFY);
     expect(retriedVerify.new_state).toBe(LOOP_STATES.LEARN);
     expect(retriedVerify.paused_at_stage).toBeNull();

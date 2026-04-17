@@ -15,8 +15,68 @@ import {
   truncateText,
 } from './utils';
 
+const CYCLE_STATUS_BADGE_STYLES = {
+  active: 'border-blue-500/30 bg-blue-500/10 text-blue-300',
+  completed: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  failed: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
+};
+
+function formatCycleDuration(durationMs) {
+  const numeric = Number(durationMs);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return '—';
+  }
+
+  const totalSeconds = Math.floor(numeric / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m`;
+  }
+
+  const totalHours = Math.floor(totalMinutes / 60);
+  if (totalHours < 24) {
+    return `${totalHours}h ${totalMinutes % 60}m`;
+  }
+
+  const totalDays = Math.floor(totalHours / 24);
+  return `${totalDays}d ${totalHours % 24}h`;
+}
+
+function formatCycleStages(stageProgression = []) {
+  if (!Array.isArray(stageProgression) || stageProgression.length === 0) {
+    return '—';
+  }
+
+  return stageProgression
+    .map((stage) => formatLabel(normalizeDecisionStage(stage)))
+    .join(', ');
+}
+
+function formatCycleWorkItem(cycle = {}) {
+  const title = typeof cycle.work_item_title === 'string' ? cycle.work_item_title.trim() : '';
+  const workItemId = cycle.work_item_id ?? null;
+
+  if (title && workItemId) {
+    return `${title} (#${workItemId})`;
+  }
+  if (title) {
+    return title;
+  }
+  if (workItemId) {
+    return `#${workItemId}`;
+  }
+  return '—';
+}
+
 export default function Overview() {
   const [loopSummaries, setLoopSummaries] = useState({});
+  const [cycleHistory, setCycleHistory] = useState([]);
+  const [cycleHistoryLoading, setCycleHistoryLoading] = useState(false);
+  const [cycleHistoryError, setCycleHistoryError] = useState('');
   const {
     activeProjectAction,
     approvalsHref,
@@ -83,6 +143,44 @@ export default function Overview() {
       clearInterval(intervalId);
     };
   }, [projects]);
+
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setCycleHistory([]);
+      setCycleHistoryError('');
+      setCycleHistoryLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const loadCycleHistory = async () => {
+      setCycleHistoryLoading(true);
+      setCycleHistoryError('');
+
+      try {
+        const cycles = await factoryApi.cycleHistory(selectedProjectId);
+        if (!cancelled) {
+          setCycleHistory(Array.isArray(cycles) ? cycles : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCycleHistory([]);
+          setCycleHistoryError(error?.message || 'Unable to load cycle history.');
+        }
+      } finally {
+        if (!cancelled) {
+          setCycleHistoryLoading(false);
+        }
+      }
+    };
+
+    void loadCycleHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId]);
 
   if (!selectedProject || !detail) {
     return null;
@@ -248,6 +346,79 @@ export default function Overview() {
                       <td className="px-3 py-3 text-slate-200">{entry.action || 'Unknown action'}</td>
                       <td className="px-3 py-3 text-slate-400" title={entry.reasoning || entry.reason || ''}>
                         {reason || '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          )}
+        </section>
+
+      <section className="mt-4 rounded-lg border border-slate-700 bg-slate-800/60 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-200">Cycle History</h3>
+            <p className="mt-1 text-xs text-slate-500">Last 20 factory loop instances for the selected project.</p>
+          </div>
+          <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-300">
+            {cycleHistoryLoading ? 'Loading...' : `${cycleHistory.length} shown`}
+          </span>
+        </div>
+
+        {cycleHistoryError && (
+          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            {cycleHistoryError}
+          </div>
+        )}
+
+        {cycleHistoryLoading && cycleHistory.length === 0 ? (
+          <div className="mt-4">
+            <LoadingSkeleton lines={4} height={16} />
+          </div>
+        ) : cycleHistory.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
+            No recent factory cycles yet
+          </div>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-700 text-left text-sm">
+              <thead className="text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Instance ID</th>
+                  <th className="px-3 py-2 font-medium">Work Item</th>
+                  <th className="px-3 py-2 font-medium">Started</th>
+                  <th className="px-3 py-2 font-medium">Duration</th>
+                  <th className="px-3 py-2 font-medium">Stages Reached</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-700/70">
+                {cycleHistory.map((cycle) => {
+                  const status = String(cycle?.status || '').toLowerCase();
+                  return (
+                    <tr key={cycle.instance_id} className="align-top">
+                      <td className="px-3 py-3 font-mono text-slate-300">
+                        {cycle.instance_id ? String(cycle.instance_id).slice(0, 8) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-slate-200" title={formatCycleWorkItem(cycle)}>
+                        {truncateText(formatCycleWorkItem(cycle), 72)}
+                      </td>
+                      <td className="px-3 py-3 text-slate-300" title={formatTimestamp(cycle.started_at)}>
+                        {formatRelativeTime(cycle.started_at)}
+                      </td>
+                      <td className="px-3 py-3 text-slate-300">{formatCycleDuration(cycle.duration_ms)}</td>
+                      <td className="px-3 py-3 text-slate-400" title={formatCycleStages(cycle.stage_progression)}>
+                        {truncateText(formatCycleStages(cycle.stage_progression), 96) || '—'}
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                          CYCLE_STATUS_BADGE_STYLES[status] || BADGE_FALLBACK_STYLE
+                        }`}
+                        >
+                          {formatLabel(status)}
+                        </span>
                       </td>
                     </tr>
                   );

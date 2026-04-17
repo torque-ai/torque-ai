@@ -137,6 +137,143 @@ function ensureFactoryDecisionDb() {
   return db;
 }
 
+const MAX_FACTORY_CYCLE_HISTORY = 20;
+const FACTORY_CYCLE_FAILURE_ACTIONS = new Set([
+  'cannot_generate_plan',
+  'execution_failed',
+  'learn_failed',
+  'plan_lint_rejected',
+  'skipped_shipping',
+  'verify_failed',
+  'verify_retry_task_failed',
+  'worktree_creation_failed',
+  'worktree_merge_failed',
+  'worktree_verify_errored',
+  'worktree_verify_failed',
+]);
+
+function normalizeFactoryCycleStage(stage) {
+  const normalized = typeof stage === 'string' ? stage.trim().toLowerCase() : '';
+  if (!normalized) {
+    return null;
+  }
+  return normalized === 'ship' ? 'learn' : normalized;
+}
+
+function calculateFactoryCycleDurationMs(instance, nowMs = Date.now()) {
+  const startedAtMs = Date.parse(instance?.created_at || '');
+  if (!Number.isFinite(startedAtMs)) {
+    return null;
+  }
+
+  const endedAtMs = instance?.terminated_at
+    ? Date.parse(instance.terminated_at)
+    : instance?.last_action_at
+      ? Math.max(Date.parse(instance.last_action_at), nowMs)
+      : nowMs;
+
+  if (!Number.isFinite(endedAtMs) || endedAtMs < startedAtMs) {
+    return null;
+  }
+
+  return endedAtMs - startedAtMs;
+}
+
+function selectFactoryCycleInstanceByTimestamp(instances, timestampMs) {
+  if (!Array.isArray(instances) || instances.length === 0 || !Number.isFinite(timestampMs)) {
+    return null;
+  }
+
+  const activeCandidates = [];
+  const historicalCandidates = [];
+
+  for (const instance of instances) {
+    const startedAtMs = Date.parse(instance?.created_at || '');
+    if (!Number.isFinite(startedAtMs) || startedAtMs > timestampMs) {
+      continue;
+    }
+
+    historicalCandidates.push(instance);
+
+    const terminatedAtMs = Date.parse(instance?.terminated_at || '');
+    if (!Number.isFinite(terminatedAtMs) || terminatedAtMs >= timestampMs) {
+      activeCandidates.push(instance);
+    }
+  }
+
+  if (activeCandidates.length > 0) {
+    return activeCandidates[activeCandidates.length - 1];
+  }
+
+  return historicalCandidates.length > 0
+    ? historicalCandidates[historicalCandidates.length - 1]
+    : null;
+}
+
+function resolveFactoryCycleDecisionInstance(decision, instances, instanceById, instancesByBatch) {
+  if (!decision) {
+    return null;
+  }
+
+  const timestampMs = Date.parse(decision.created_at || '');
+
+  if (decision.batch_id) {
+    const batchMatches = instancesByBatch.get(decision.batch_id) || [];
+    if (batchMatches.length === 1) {
+      return batchMatches[0];
+    }
+    if (batchMatches.length > 1) {
+      return selectFactoryCycleInstanceByTimestamp(batchMatches, timestampMs) || batchMatches[batchMatches.length - 1];
+    }
+  }
+
+  const decisionInstanceId = decision?.inputs?.instance_id || decision?.outcome?.instance_id || null;
+  if (typeof decisionInstanceId === 'string' && instanceById.has(decisionInstanceId)) {
+    return instanceById.get(decisionInstanceId);
+  }
+
+  return selectFactoryCycleInstanceByTimestamp(instances, timestampMs);
+}
+
+function summarizeFactoryCycleInstance(instance, decisions, workItemTitle) {
+  const stageProgression = [];
+  const seenStages = new Set();
+
+  for (const decision of decisions) {
+    const normalizedStage = normalizeFactoryCycleStage(decision?.stage);
+    if (!normalizedStage || seenStages.has(normalizedStage)) {
+      continue;
+    }
+    seenStages.add(normalizedStage);
+    stageProgression.push(normalizedStage);
+  }
+
+  if (stageProgression.length === 0 && !instance?.terminated_at) {
+    const fallbackStage = normalizeFactoryCycleStage(instance?.paused_at_stage || instance?.loop_state);
+    if (fallbackStage) {
+      stageProgression.push(fallbackStage);
+    }
+  }
+
+  return {
+    instance_id: instance.id,
+    work_item_id: instance.work_item_id || null,
+    work_item_title: workItemTitle || null,
+    batch_id: instance.batch_id || null,
+    loop_state: instance.loop_state || null,
+    paused_at_stage: instance.paused_at_stage || null,
+    started_at: instance.created_at || null,
+    last_action_at: instance.last_action_at || null,
+    terminated_at: instance.terminated_at || null,
+    duration_ms: calculateFactoryCycleDurationMs(instance),
+    decision_count: decisions.length,
+    stage_progression: stageProgression,
+    status: instance.terminated_at
+      ? (decisions.some((decision) => FACTORY_CYCLE_FAILURE_ACTIONS.has(decision?.action)) ? 'failed' : 'completed')
+      : 'active',
+  };
+}
+
 function resolvePlansRepoRoot(projectPath, plansDir) {
   const candidates = [];
 
@@ -926,6 +1063,104 @@ async function handleListFactoryLoopInstances(args) {
   }
 }
 
+async function handleFactoryCycleHistory(args) {
+  try {
+    const project = resolveProject(args.project);
+    const db = ensureFactoryDecisionDb();
+    const instances = factoryLoopInstances.listInstances({
+      project_id: project.id,
+      active_only: false,
+    });
+    const recentInstances = instances.slice(-MAX_FACTORY_CYCLE_HISTORY);
+
+    if (!db || recentInstances.length === 0) {
+      return jsonResponse({
+        project_id: project.id,
+        count: 0,
+        cycles: [],
+      });
+    }
+
+    const oldestStartedAt = recentInstances[0]?.created_at || null;
+    const decisionParams = [project.id];
+    const decisionWhere = ['project_id = ?'];
+
+    if (oldestStartedAt) {
+      decisionWhere.push('created_at >= ?');
+      decisionParams.push(oldestStartedAt);
+    }
+
+    const decisionRows = db.prepare(`
+      SELECT id, stage, action, batch_id, inputs_json, outcome_json, created_at
+      FROM factory_decisions
+      WHERE ${decisionWhere.join(' AND ')}
+      ORDER BY created_at ASC, id ASC
+    `).all(...decisionParams)
+      .map((row) => factoryDecisions.parseDecisionRow({ ...row }));
+
+    const workItemTitleStatement = db.prepare(`
+      SELECT title
+      FROM factory_work_items
+      WHERE project_id = ?
+        AND id = ?
+      LIMIT 1
+    `);
+
+    const instanceById = new Map();
+    const instancesByBatch = new Map();
+    const decisionsByInstanceId = new Map();
+
+    for (const instance of recentInstances) {
+      instanceById.set(instance.id, instance);
+      decisionsByInstanceId.set(instance.id, []);
+
+      if (instance.batch_id) {
+        const batchInstances = instancesByBatch.get(instance.batch_id) || [];
+        batchInstances.push(instance);
+        instancesByBatch.set(instance.batch_id, batchInstances);
+      }
+    }
+
+    for (const decision of decisionRows) {
+      const matchedInstance = resolveFactoryCycleDecisionInstance(
+        decision,
+        recentInstances,
+        instanceById,
+        instancesByBatch,
+      );
+
+      if (!matchedInstance) {
+        continue;
+      }
+
+      decisionsByInstanceId.get(matchedInstance.id)?.push(decision);
+    }
+
+    const cycles = recentInstances
+      .slice()
+      .reverse()
+      .map((instance) => {
+        const workItemRow = instance.work_item_id
+          ? workItemTitleStatement.get(project.id, instance.work_item_id)
+          : null;
+
+        return summarizeFactoryCycleInstance(
+          instance,
+          decisionsByInstanceId.get(instance.id) || [],
+          workItemRow?.title || null,
+        );
+      });
+
+    return jsonResponse({
+      project_id: project.id,
+      count: cycles.length,
+      cycles,
+    });
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
+  }
+}
+
 async function handleFactoryLoopInstanceStatus(args) {
   try {
     loopController.getLoopState(args.instance);
@@ -1194,6 +1429,7 @@ module.exports = {
   handleRetryFactoryVerify,
   handleFactoryLoopStatus,
   handleListFactoryLoopInstances,
+  handleFactoryCycleHistory,
   handleFactoryLoopInstanceStatus,
   handleStartFactoryLoopInstance,
   handleAdvanceFactoryLoopInstance,

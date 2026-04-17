@@ -5,7 +5,7 @@ module.exports = {
     globals: true,
     testTimeout: 15000,
     hookTimeout: 10000,
-    include: ['server/tests/**/*.test.js', 'server/tests/test-*.js'],
+    include: ['server/tests/**/*.test.js', 'server/tests/test-*.js', 'server/plugins/**/tests/**/*.test.js'],
     exclude: ['**/test-container-helper.js', '**/dashboard.test.js', '**/node_modules/**'],
     setupFiles: ['server/tests/worker-setup.js'],
     pool: 'forks',

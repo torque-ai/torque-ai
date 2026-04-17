@@ -11,6 +11,7 @@ vi.mock('./factory/useFactoryShell', () => ({
 
 vi.mock('../api', () => ({
   factory: {
+    cycleHistory: vi.fn(),
     listLoopInstances: vi.fn(),
     startLoopInstance: vi.fn(),
     loopInstanceStatus: vi.fn(),
@@ -65,6 +66,15 @@ function renderFactory() {
 describe('Factory overview', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    factoryApi.cycleHistory.mockResolvedValue([{
+      instance_id: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa',
+      work_item_id: 42,
+      work_item_title: 'Stabilize verify handoff',
+      started_at: '2026-04-13T11:00:00Z',
+      duration_ms: 420000,
+      stage_progression: ['sense', 'prioritize', 'plan', 'execute', 'verify', 'learn'],
+      status: 'completed',
+    }]);
     factoryApi.listLoopInstances.mockResolvedValue([{
       id: '11111111-1111-4111-8111-111111111111',
       project_id: 'factory-1',
@@ -151,11 +161,15 @@ describe('Factory overview', () => {
 
     // LoopControlBar loads instances via an async effect; wait for render.
     await findByText('Factory Loop');
+    await vi.waitFor(() => {
+      expect(factoryApi.cycleHistory).toHaveBeenCalledWith('factory-1');
+    });
     expect(screen.getByLabelText('Factory project')).toHaveValue('factory-1');
     // VERIFY appears both as a state badge and a dt/dd row in the instance card.
     await vi.waitFor(() => {
       expect(screen.getAllByText('VERIFY').length).toBeGreaterThan(0);
     });
+    expect(screen.getByText('Cycle History')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /2 tasks awaiting approval/i })).toBeInTheDocument();
     const approveBtn = await findByRole('button', { name: 'Approve Gate' });
 

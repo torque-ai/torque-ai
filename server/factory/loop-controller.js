@@ -2908,7 +2908,7 @@ async function executePlanFileStage(project, instance, workItem) {
   };
 }
 
-const MAX_AUTO_VERIFY_RETRIES = 2;
+const MAX_AUTO_VERIFY_RETRIES = 3;
 
 function stripAnsi(text) {
   return typeof text === 'string'
@@ -3099,8 +3099,8 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
 
     // Auto-retry: if verify fails, submit a fix task to Codex with the
     // error output as context, then re-run verify. Bounded at
-    // MAX_AUTO_VERIFY_RETRIES. If still failing after that, fall
-    // through to pausing at VERIFY_FAIL so the operator takes over.
+    // MAX_AUTO_VERIFY_RETRIES. If still failing after that, auto-reject
+    // the work item so the loop can advance to the next item.
     let res = null;
     let retryAttempt = 0;
     try {
@@ -3134,7 +3134,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             project_id,
             stage: LOOP_STATES.VERIFY,
             action: 'worktree_verify_failed',
-            reasoning: `Worktree remote verify FAILED for branch ${worktreeRecord.branch} after ${retryAttempt} auto-retry attempt${retryAttempt === 1 ? '' : 's'}; pausing loop at VERIFY_FAIL.`,
+            reasoning: `Worktree remote verify FAILED for branch ${worktreeRecord.branch} after ${retryAttempt} auto-retry attempt${retryAttempt === 1 ? '' : 's'}; auto-rejecting the work item and advancing.`,
             outcome: {
               branch: worktreeRecord.branch,
               worktree_path: worktreeRecord.worktreePath,
@@ -3146,8 +3146,8 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             confidence: 1,
             batch_id,
           });
-          // Before pausing: check if the work was already done on main
-          // (manual fix in a different session). If so, ship it.
+          // Before auto-rejecting: check if the work was already done on
+          // main (manual fix in a different session). If so, ship it.
           try {
             const { createShippedDetector } = require('./shipped-detector');
             const project = getProjectOrThrow(project_id);
@@ -3166,7 +3166,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
                   project_id,
                   stage: LOOP_STATES.VERIFY,
                   action: 'auto_shipped_at_verify_fail',
-                  reasoning: `Verify failed but shipped-detector found matching commits on main (${detection.confidence} confidence). Marking shipped instead of pausing.`,
+                  reasoning: `Verify failed but shipped-detector found matching commits on main (${detection.confidence} confidence). Marking shipped instead of auto-rejecting.`,
                   inputs: { work_item_id: wi.id },
                   outcome: { confidence: detection.confidence, signals: detection.signals },
                   confidence: 1,
@@ -3177,15 +3177,26 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             }
           } catch (_e) { void _e; }
 
-          return {
-            status: 'failed',
-            reason: 'worktree_verify_failed',
-            pause_at_stage: 'VERIFY_FAIL',
-            branch: worktreeRecord.branch,
-            worktree_path: worktreeRecord.worktreePath,
-            verify_output: String(res.output || '').slice(-1500),
-            retry_attempts: retryAttempt,
-          };
+          // Auto-reject: mark the work item as rejected and let the loop
+          // advance past this item instead of stalling at VERIFY_FAIL.
+          if (instance && instance.work_item_id) {
+            try {
+              factoryIntake.updateWorkItem(instance.work_item_id, {
+                status: 'rejected',
+                reject_reason: `verify_failed_after_${retryAttempt}_retries`,
+              });
+            } catch (_e) { void _e; }
+          }
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.VERIFY,
+            action: 'auto_rejected_verify_fail',
+            reasoning: `Auto-rejected work item after ${retryAttempt} verify retries. Advancing to LEARN to process next item.`,
+            outcome: { work_item_id: instance?.work_item_id || null, retry_attempts: retryAttempt },
+            confidence: 1,
+            batch_id,
+          });
+          return { status: 'passed', reason: 'auto_rejected_after_max_retries' };
         }
         retryAttempt += 1;
         const retryResult = await submitVerifyFixTask({

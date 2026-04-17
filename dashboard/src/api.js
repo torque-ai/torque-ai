@@ -637,6 +637,8 @@ export const factory = {
     `/factory/projects/${projectId}/loops${buildQuery({ ...params, active_only: activeOnly })}`,
     opts,
   ).then((d) => unwrapListPayload(d, 'instances')),
+  cycleHistory: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/cycles`, opts)
+    .then((d) => unwrapListPayload(d, 'cycles')),
   startLoopInstance: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loops/start`, { method: 'POST', ...opts }),
   loopInstanceStatus: (instanceId, opts = {}) => requestV2(`/factory/loops/${instanceId}`, opts),
   advanceLoopInstance: (instanceId, opts = {}) => requestV2(`/factory/loops/${instanceId}/advance`, { method: 'POST', ...opts }),
