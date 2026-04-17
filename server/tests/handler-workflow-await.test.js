@@ -8,7 +8,9 @@ vi.mock('../hooks/event-dispatch', () => {
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
 const fileTracking = require('../db/file-tracking');
+const fs = require('fs');
 const handlers = require('../handlers/workflow/await');
+const projectConfigCore = require('../db/project-config-core');
 const shellPolicy = require('../utils/shell-policy');
 const childProcess = require('child_process');
 const { taskEvents } = require('../hooks/event-dispatch');
@@ -17,8 +19,20 @@ function textOf(result) {
   return result?.content?.[0]?.text || '';
 }
 
+async function withPlatform(platform, fn) {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: platform });
+
+  try {
+    return await fn();
+  } finally {
+    Object.defineProperty(process, 'platform', original);
+  }
+}
+
 describe('workflow-await handlers', () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     taskEvents.removeAllListeners();
     vi.useRealTimers();
@@ -303,6 +317,83 @@ describe('workflow-await handlers', () => {
       expect(gitCalls).toHaveLength(0);
     });
 
+    it('runs verify locally when project defaults disable remote wrapping', async () => {
+      await withPlatform('win32', async () => {
+        vi.spyOn(shellPolicy, 'validateShellCommand').mockReturnValue({ ok: true });
+        vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue({
+          prefer_remote_tests: false,
+        });
+        const execSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((bin, args) => {
+          if (bin === 'cmd') {
+            expect(args).toEqual(['/c', 'npm test']);
+            return 'local verify ok';
+          }
+          throw new Error(`unexpected binary: ${bin}`);
+        });
+
+        const output = await handlers.formatFinalSummary(
+          { verify_command: 'npm test' },
+          { id: 'wf-1', name: 'Local Verify WF', working_directory: 'C:\\repo' },
+          [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
+          null,
+          Date.now() - 5000
+        );
+
+        expect(output).toContain('**Result:** PASSED');
+        expect(execSpy).toHaveBeenCalledWith(
+          'cmd',
+          ['/c', 'npm test'],
+          expect.objectContaining({ cwd: 'C:\\repo' })
+        );
+        expect(execSpy.mock.calls).toHaveLength(1);
+      });
+    });
+
+    it('falls back to local verify on Windows when torque-remote exists but bash cannot be resolved', async () => {
+      await withPlatform('win32', async () => {
+        const originalPath = process.env.PATH;
+        const originalGitBash = process.env.GIT_BASH;
+        process.env.PATH = 'C:\\mockbin';
+        delete process.env.GIT_BASH;
+
+        try {
+          vi.spyOn(shellPolicy, 'validateShellCommand').mockReturnValue({ ok: true });
+          vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue({});
+          vi.spyOn(fs, 'existsSync').mockImplementation((candidate) => candidate === 'C:\\mockbin\\torque-remote');
+          const execSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((bin, args) => {
+            if (bin === 'cmd') {
+              expect(args).toEqual(['/c', 'npm test']);
+              return 'local fallback ok';
+            }
+            throw new Error(`unexpected binary: ${bin}`);
+          });
+
+          const output = await handlers.formatFinalSummary(
+            { verify_command: 'npm test' },
+            { id: 'wf-1', name: 'Fallback Verify WF', working_directory: 'C:\\repo' },
+            [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
+            null,
+            Date.now() - 5000
+          );
+
+          expect(output).toContain('**Result:** PASSED');
+          expect(execSpy).toHaveBeenCalledWith(
+            'cmd',
+            ['/c', 'npm test'],
+            expect.objectContaining({ cwd: 'C:\\repo' })
+          );
+          expect(execSpy.mock.calls.some(([bin]) => String(bin).toLowerCase().includes('bash'))).toBe(false);
+        } finally {
+          process.env.PATH = originalPath;
+          if (originalGitBash === undefined) {
+            delete process.env.GIT_BASH;
+          } else {
+            process.env.GIT_BASH = originalGitBash;
+          }
+        }
+      });
+    });
+
     it('returns "No changes to commit" when git diff and untracked checks are empty', async () => {
       vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([]);
       vi.spyOn(taskCore, 'getTask').mockReturnValue({ files_modified: [] });
@@ -476,6 +567,60 @@ describe('workflow-await handlers', () => {
       const text = textOf(result);
       expect(text).toContain('Task Finished');
       expect(text).toContain('task-cancel');
+    });
+
+    it('runs Windows remote verify via bash.exe with the resolved torque-remote script path', async () => {
+      await withPlatform('win32', async () => {
+        const originalPath = process.env.PATH;
+        const originalGitBash = process.env.GIT_BASH;
+        process.env.PATH = 'C:\\mockbin';
+        process.env.GIT_BASH = 'C:\\Git\\bin\\bash.exe';
+
+        try {
+          vi.spyOn(shellPolicy, 'validateShellCommand').mockReturnValue({ ok: true });
+          vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue({});
+          vi.spyOn(fs, 'existsSync').mockImplementation((candidate) => (
+            candidate === 'C:\\mockbin\\torque-remote' || candidate === 'C:\\Git\\bin\\bash.exe'
+          ));
+          const execSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((bin, args) => {
+            if (bin === 'C:\\Git\\bin\\bash.exe') {
+              expect(args).toEqual(['C:\\mockbin\\torque-remote', 'npm test']);
+              return 'remote verify ok';
+            }
+            throw new Error(`unexpected binary: ${bin}`);
+          });
+          vi.spyOn(taskCore, 'getTask')
+            .mockReturnValueOnce({ id: 'task-remote', status: 'running' })
+            .mockReturnValueOnce({
+              id: 'task-remote',
+              status: 'completed',
+              exit_code: 0,
+              output: 'done',
+              working_directory: 'C:\\repo',
+            });
+
+          const result = await handlers.handleAwaitTask({
+            task_id: 'task-remote',
+            verify_command: 'npm test',
+            poll_interval_ms: 1,
+            timeout_minutes: 1,
+          });
+
+          expect(textOf(result)).toContain('✅ Passed');
+          expect(execSpy).toHaveBeenCalledWith(
+            'C:\\Git\\bin\\bash.exe',
+            ['C:\\mockbin\\torque-remote', 'npm test'],
+            expect.objectContaining({ cwd: 'C:\\repo' })
+          );
+        } finally {
+          process.env.PATH = originalPath;
+          if (originalGitBash === undefined) {
+            delete process.env.GIT_BASH;
+          } else {
+            process.env.GIT_BASH = originalGitBash;
+          }
+        }
+      });
     });
 
     it('waits and returns when task transitions to terminal state', async () => {

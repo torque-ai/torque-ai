@@ -2,7 +2,9 @@
  * Workflow await / polling handlers (non-blocking yield-on-completion)
  */
 
+const fs = require('fs');
 const path = require('path');
+const childProcess = require('child_process');
 const taskCore = require('../../db/task-core');
 const fileTracking = require('../../db/file-tracking');
 const taskMetadata = require('../../db/task-metadata');
@@ -13,13 +15,14 @@ const {
 } = require('../../contracts/peek');
 const { requireTask, requireWorkflow, ErrorCodes, makeError } = require('../shared');
 const { TASK_TIMEOUTS } = require('../../constants');
-const { safeExecChain } = require('../../utils/safe-exec');
 const { executeValidatedCommandSync } = require('../../execution/command-policy');
 const { checkResourceGate } = require('../../utils/resource-gate');
 const { mutex: commitMutex } = require('../../utils/commit-mutex');
 const { filterTempFiles } = require('../../utils/temp-file-filter');
 const hostMonitoring = require('../../utils/host-monitoring');
 const activityMonitoring = require('../../utils/activity-monitoring');
+const projectConfigCore = require('../../db/project-config-core');
+const shellPolicy = require('../../utils/shell-policy');
 let _commitMutex = null, _cmLoaded = false;
 function getCommitMutex() {
   if (!_cmLoaded) { _cmLoaded = true; try { _commitMutex = require('../../utils/commit-mutex'); } catch { _commitMutex = null; } }
@@ -29,52 +32,156 @@ const { handlePeekUi } = require('../../plugins/snapscope/handlers/capture');
 const logger = require('../../logger').child({ component: 'workflow-await' });
 const { safeJsonParse } = require('../../utils/json');
 
+function getFirstOutputLine(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) || null;
+}
+
+function getCommandLookup(command) {
+  return process.platform === 'win32' ? `${command}.exe` : command;
+}
+
+function getLookupOptions() {
+  return {
+    encoding: 'utf8',
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  };
+}
+
+function splitPathEntries(rawPath = process.env.PATH || '') {
+  return String(rawPath || '')
+    .split(path.delimiter)
+    .map((entry) => entry.trim().replace(/^"+|"+$/g, ''))
+    .filter(Boolean);
+}
+
+function resolveExistingPath(candidates) {
+  for (const candidate of candidates.filter(Boolean)) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch {
+      // Ignore invalid candidate paths and keep scanning.
+    }
+  }
+  return null;
+}
+
+function resolvePathCommandOnWindows(command, suffixes = ['']) {
+  const candidates = [];
+  for (const dir of splitPathEntries()) {
+    for (const suffix of suffixes) {
+      candidates.push(path.join(dir, `${command}${suffix}`));
+    }
+  }
+  return resolveExistingPath(candidates);
+}
+
+function resolveBashOnWindows() {
+  return resolveExistingPath([
+    process.env.GIT_BASH,
+    'C:/Program Files/Git/bin/bash.exe',
+    'C:/Program Files/Git/usr/bin/bash.exe',
+    'C:/Program Files (x86)/Git/bin/bash.exe',
+    'C:/Program Files (x86)/Git/usr/bin/bash.exe',
+    resolvePathCommandOnWindows('bash', ['.exe']),
+  ]);
+}
+
+function resolveTorqueRemoteOnWindows() {
+  return resolveExistingPath([
+    resolvePathCommandOnWindows('torque-remote', ['', '.cmd', '.bat', '.exe', '.sh']),
+  ]);
+}
+
+function buildVerifyExecutionDecision(cwd, verifyCommand) {
+  const remoteCheck = shouldUseTorqueRemote(cwd);
+  if (remoteCheck.use) {
+    if (process.platform === 'win32') {
+      return {
+        ...remoteCheck,
+        command: remoteCheck.bashPath,
+        args: [remoteCheck.scriptPath, verifyCommand],
+      };
+    }
+    return {
+      ...remoteCheck,
+      command: remoteCheck.scriptPath,
+      args: [verifyCommand],
+    };
+  }
+
+  return {
+    ...remoteCheck,
+    command: process.platform === 'win32' ? 'cmd' : 'sh',
+    args: process.platform === 'win32' ? ['/c', verifyCommand] : ['-c', verifyCommand],
+  };
+}
+
+function runVerifyCommandSync(cwd, verifyCommand, options = {}) {
+  const decision = buildVerifyExecutionDecision(cwd, verifyCommand);
+  try {
+    return {
+      decision,
+      output: childProcess.execFileSync(decision.command, decision.args, {
+        encoding: 'utf8',
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        ...options,
+      }),
+    };
+  } catch (error) {
+    error.verifyDecision = decision;
+    throw error;
+  }
+}
+
 /**
  * Determine whether verify commands should route through torque-remote.
- * Returns false when the project explicitly sets prefer_remote_tests: false,
- * or when torque-remote isn't on PATH. On Windows, torque-remote is a bash
- * script that Node can't exec directly — resolve the bash path so callers
- * can spawn via `bash <script-path>` instead of direct execution.
+ * Returns structured launch metadata so verify call sites can use the same
+ * Windows-safe routing behavior.
  */
 function shouldUseTorqueRemote(cwd) {
-  // Check project preference first — explicit false means skip wrapping.
   try {
-    const { getProjectDefaults } = require('../../db/project-config-core');
-    const defaults = getProjectDefaults(cwd);
+    const defaults = projectConfigCore.getProjectDefaults(cwd);
     if (defaults && defaults.prefer_remote_tests === false) {
-      return { use: false, reason: 'prefer_remote_tests=false' };
+      return {
+        use: false,
+        reason: 'prefer_remote_tests=false',
+        scriptPath: null,
+        bashPath: null,
+      };
     }
-  } catch { /* project-config-core not available — fall through to PATH check */ }
-
-  // Detect torque-remote on PATH
-  try {
-    const whichResult = require('child_process').execFileSync('which', ['torque-remote'], {
-      encoding: 'utf8',
-      windowsHide: true,
-      stdio: ['pipe', 'pipe', 'ignore'],
-    }).trim();
-    if (!whichResult) {
-      return { use: false, reason: 'not_on_path' };
-    }
-    // On Windows, Node can't exec bash scripts directly. Resolve a bash
-    // path so callers can spawn via `bash <script-path>`.
-    let bashPath = null;
-    if (process.platform === 'win32') {
-      const fs = require('fs');
-      for (const candidate of [
-        process.env.GIT_BASH,
-        'C:/Program Files/Git/bin/bash.exe',
-        'C:/Program Files (x86)/Git/bin/bash.exe',
-      ].filter(Boolean)) {
-        try { if (fs.existsSync(candidate)) { bashPath = candidate; break; } } catch {}
-      }
-      if (!bashPath) {
-        return { use: false, reason: 'bash_not_found_on_windows' };
-      }
-    }
-    return { use: true, scriptPath: whichResult, bashPath };
   } catch {
-    return { use: false, reason: 'not_on_path' };
+    // Missing project config should not block local verification fallback.
+  }
+
+  if (process.platform === 'win32') {
+    const scriptPath = resolveTorqueRemoteOnWindows();
+    if (!scriptPath) {
+      return { use: false, reason: 'not_on_path', scriptPath: null, bashPath: null };
+    }
+    const bashPath = resolveBashOnWindows();
+    if (!bashPath) {
+      return { use: false, reason: 'bash_not_found_on_windows', scriptPath, bashPath: null };
+    }
+    return { use: true, reason: 'torque_remote_available', scriptPath, bashPath };
+  }
+
+  try {
+    const scriptPath = getFirstOutputLine(
+      childProcess.execFileSync(getCommandLookup('which'), ['torque-remote'], getLookupOptions())
+    );
+    if (!scriptPath) {
+      return { use: false, reason: 'not_on_path', scriptPath: null, bashPath: null };
+    }
+    return { use: true, reason: 'torque_remote_available', scriptPath, bashPath: null };
+  } catch {
+    return { use: false, reason: 'not_on_path', scriptPath: null, bashPath: null };
   }
 }
 
@@ -1197,14 +1304,13 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
       if (args.verify_command && wfStatus === 'completed') {
         const targetHostId = args.host_id || null;
         const gateResult = checkResourceGate(hostMonitoring.hostActivityCache, targetHostId);
-        const { validateShellCommand } = require('../../utils/shell-policy');
         output += `\n### Verification\n\n`;
         if (!gateResult.allowed) {
           output += `Verify skipped: ${gateResult.reason}\n`;
           return output;
         }
 
-        const shellCheck = validateShellCommand(args.verify_command);
+        const shellCheck = shellPolicy.validateShellCommand(args.verify_command);
         if (!shellCheck.ok) {
           output += `**Rejected:** ${shellCheck.reason}\n`;
           return output;
@@ -1229,32 +1335,21 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
           if (governanceWarnings) {
             output += governanceWarnings;
           }
-          const remoteCheck = shouldUseTorqueRemote(cwd);
-          const effectiveCommand = remoteCheck.use
-            ? `torque-remote ${args.verify_command}`
-            : args.verify_command;
-          const verifyResult = safeExecChain(effectiveCommand, {
+          const verifyResult = runVerifyCommandSync(cwd, args.verify_command, {
             cwd,
             timeout: TASK_TIMEOUTS.VERIFY_COMMAND,
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'pipe']
           });
-          if (verifyResult.exitCode === 0) {
+          if (verifyResult) {
             const trimmed = (verifyResult.output || '').trim().substring(0, 2000);
             output += `**Verify command:** \`${args.verify_command}\`\n`;
             output += `**Result:** PASSED\n`;
             if (trimmed) output += `\`\`\`\n${trimmed}\n\`\`\`\n`;
-          } else {
-            const stderr = `${verifyResult.output || ''}\n${verifyResult.error || ''}`.trim().substring(0, 1000);
-            output += `**Verify command:** \`${args.verify_command}\`\n`;
-            output += `**Result:** FAILED\n`;
-            output += `\`\`\`\n${stderr}\n\`\`\`\n`;
-            return output;  // Don't auto-commit if verify failed
           }
         } catch (verifyErr) {
+          const stderr = `${verifyErr.stdout || ''}\n${verifyErr.stderr || ''}\n${verifyErr.message || ''}`.trim().substring(0, 1000);
           output += `**Verify command:** \`${args.verify_command}\`\n`;
           output += `**Result:** FAILED\n`;
-          output += `\`\`\`\n${(verifyErr.message || '').toString().substring(0, 1000)}\n\`\`\`\n`;
+          output += `\`\`\`\n${stderr}\n\`\`\`\n`;
           return output;  // Don't auto-commit if verify failed
         }
       }
@@ -1689,6 +1784,11 @@ async function handleAwaitTask(args) {
           if (cwd) {
             let governanceWarnings = '';
             try {
+              const shellCheck = shellPolicy.validateShellCommand(args.verify_command);
+              if (!shellCheck.ok) {
+                output += `\n### Verify Command\n**Rejected:** ${shellCheck.reason}\n`;
+                return { content: [{ type: 'text', text: output }] };
+              }
               const governanceResult = await evaluatePreVerifyGovernance(
                 task,
                 args.verify_command,
@@ -1699,44 +1799,11 @@ async function handleAwaitTask(args) {
                 return { content: [{ type: 'text', text: output }] };
               }
               governanceWarnings = formatPreVerifyGovernance(governanceResult?.warned, 'warnings');
-              const remoteCheck = shouldUseTorqueRemote(cwd);
-
-              let verifyResult;
-              if (remoteCheck.use) {
-                // On Windows, torque-remote is a bash script — Node can't
-                // exec it directly (ENOENT). Spawn via resolved bash path.
-                const execName = remoteCheck.bashPath || 'torque-remote';
-                const execArgs = remoteCheck.bashPath
-                  ? [remoteCheck.scriptPath, args.verify_command]
-                  : [args.verify_command];
-                verifyResult = executeValidatedCommandSync(
-                  execName,
-                  execArgs,
-                  {
-                    profile: 'safe_verify',
-                    source: 'await_task',
-                    caller: 'handleAwaitTask',
-                    cwd,
-                    timeout: TASK_TIMEOUTS.BUILD_VERIFY || 60000,
-                    encoding: 'utf8',
-                  }
-                );
-              } else {
-                // Direct execution (no torque-remote or prefer_remote_tests=false)
-                verifyResult = executeValidatedCommandSync(
-                  process.platform === 'win32' ? 'cmd' : 'sh',
-                  process.platform === 'win32' ? ['/c', args.verify_command] : ['-c', args.verify_command],
-                  {
-                    profile: 'safe_verify',
-                    source: 'await_task',
-                    caller: 'handleAwaitTask',
-                    cwd,
-                    timeout: TASK_TIMEOUTS.BUILD_VERIFY || 60000,
-                    encoding: 'utf8',
-                  }
-                );
-              }
-              output += `\n### Verify Command\n${governanceWarnings}✅ Passed\n\`\`\`\n${(verifyResult || '').toString().trim().substring(0, 1000)}\n\`\`\`\n`;
+              const verifyResult = runVerifyCommandSync(cwd, args.verify_command, {
+                cwd,
+                timeout: TASK_TIMEOUTS.BUILD_VERIFY || 60000,
+              });
+              output += `\n### Verify Command\n${governanceWarnings}✅ Passed\n\`\`\`\n${(verifyResult.output || '').toString().trim().substring(0, 1000)}\n\`\`\`\n`;
             } catch (err) {
               const errMsg = (err.stderr || err.stdout || err.message || '').toString().substring(0, 1500);
               output += `\n### Verify Command\n${governanceWarnings}❌ Failed\n\`\`\`\n${errMsg}\n\`\`\`\n`;
