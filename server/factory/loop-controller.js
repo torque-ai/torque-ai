@@ -4305,12 +4305,60 @@ async function awaitFactoryLoopForProject(project_id, options = {}) {
   return awaitFactoryLoop(project.id, options);
 }
 
+// Resume auto-advance for active instances after server restart. Called once
+// during startup. Scans for non-terminated instances whose project config
+// has loop.auto_continue enabled and kicks off the auto-advance chain.
+function resumeAutoAdvanceOnStartup() {
+  let resumed = 0;
+  try {
+    const projects = factoryHealth.listProjects();
+    for (const project of projects) {
+      const cfg = project.config_json
+        ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })()
+        : {};
+      if (!cfg?.loop?.auto_continue) {
+        continue;
+      }
+      const instances = factoryLoopInstances.listInstances({
+        project_id: project.id,
+        active_only: true,
+      });
+      for (const instance of instances) {
+        if (instance.terminated_at) continue;
+        const state = getCurrentLoopState(instance);
+        const paused = getPausedAtStage(instance);
+        if (state === LOOP_STATES.IDLE || paused) continue;
+        try {
+          advanceLoopAsync(instance.id, { autoAdvance: true });
+          resumed += 1;
+          logger.info('Resumed auto-advance after restart', {
+            project_id: project.id,
+            instance_id: instance.id,
+            state,
+          });
+        } catch (err) {
+          logger.warn('Failed to resume auto-advance after restart', {
+            project_id: project.id,
+            instance_id: instance.id,
+            state,
+            err: err.message,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn('resumeAutoAdvanceOnStartup scan failed', { err: err.message });
+  }
+  return resumed;
+}
+
 module.exports = {
   StageOccupiedError,
   startLoop,
   startLoopForProject,
   startLoopAutoAdvance,
   startLoopAutoAdvanceForProject,
+  resumeAutoAdvanceOnStartup,
   advanceLoop,
   advanceLoopForProject,
   advanceLoopAsync,

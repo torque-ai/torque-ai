@@ -899,6 +899,20 @@ function init() {
     debugLog(`Factory worktree auto-commit listener init skipped: ${err.message}`);
   }
 
+  // Resume auto-advance for active factory loop instances. When TORQUE
+  // restarts, the in-memory setTimeout chains that drive auto-advance die.
+  // This scan finds active instances whose projects have auto_continue
+  // enabled (implying full autonomy) and re-kicks the auto-advance chain.
+  try {
+    const { resumeAutoAdvanceOnStartup } = require('./factory/loop-controller');
+    const resumed = resumeAutoAdvanceOnStartup();
+    if (resumed > 0) {
+      debugLog(`Factory auto-advance resumed for ${resumed} active instance(s)`);
+    }
+  } catch (err) {
+    debugLog(`Factory auto-advance resume skipped: ${err.message}`);
+  }
+
   const codebaseStudyHandlers = require('./handlers/codebase-study-handlers');
   codebaseStudyHandlers.init({ db });
   if (!defaultContainer.has('codebaseStudyHandlers')) {
