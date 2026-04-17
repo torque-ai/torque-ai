@@ -2839,7 +2839,7 @@ async function executePlanFileStage(project, instance, workItem) {
   // tasks (pre-ticked checkboxes), so checking it for truthiness wrongly
   // treats "all tasks skipped" as success. Check submitted_tasks instead.
   const actuallySubmitted = Array.isArray(result.submitted_tasks) ? result.submitted_tasks.length : 0;
-  if (actuallySubmitted === 0 && !result.failed_task) {
+  if (actuallySubmitted === 0 && !result.failed_task && !result.dry_run) {
     logger.warn('EXECUTE stage: plan executor completed with zero tasks — skipping to IDLE', {
       project_id: project.id,
       work_item_id: targetItem.id,
