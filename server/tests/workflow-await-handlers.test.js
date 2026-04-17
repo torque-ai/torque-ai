@@ -120,6 +120,16 @@ function textOf(result) {
   return result?.content?.[0]?.text || '';
 }
 
+function isVerifyExecutor(command) {
+  return typeof command === 'string'
+    && (
+      command === 'torque-remote'
+      || command === 'cmd'
+      || command === 'sh'
+      || /(?:^|[\\/])bash(?:\.exe)?$/i.test(command)
+    );
+}
+
 function makeId(prefix) {
   const id = `${prefix}-${nextId}`;
   nextId += 1;
@@ -1025,10 +1035,9 @@ describe('workflow await handlers (module-mocked)', () => {
         working_directory: cwd,
       });
       setTaskFileChanges('task-success', [{ relative_path: 'src/task.js', is_outside_workdir: 0 }]);
-      // The handler now uses torque-remote when available, falling back to cmd/sh
+      // The handler may use torque-remote, cmd/sh, or a resolved bash.exe path.
       mocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
-        if (command === 'torque-remote') return 'verify ok\n';
-        if (command === 'cmd' || command === 'sh') return 'verify ok\n';
+        if (isVerifyExecutor(command)) return 'verify ok\n';
         if (command !== 'git') return '';
         if (args[0] === 'rev-parse') return 'task123\n';
         return '';
@@ -1054,9 +1063,9 @@ describe('workflow await handlers (module-mocked)', () => {
       expect(textOf(result)).toContain('### Auto-Commit');
       expect(textOf(result)).toContain('✅ Committed: task123');
       expect(textOf(result)).toContain('✅ Pushed');
-      // Verify the verify command was called (may be via torque-remote or cmd/sh)
+      // Verify the verify command was called, including the Windows bash.exe wrapper.
       const verifyCall = mocks.executeValidatedCommandSync.mock.calls.find(
-        ([cmd]) => cmd === 'torque-remote' || cmd === 'cmd' || cmd === 'sh'
+        ([cmd]) => isVerifyExecutor(cmd)
       );
       expect(verifyCall).toBeTruthy();
       expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
@@ -1071,9 +1080,9 @@ describe('workflow await handlers (module-mocked)', () => {
       createTask({ id: 'task-verify-fail', status: 'running' });
       const verifyError = new Error('verify failed');
       verifyError.stderr = 'failing tests';
-      // The handler now uses torque-remote or cmd/sh for verify commands
+      // The handler may use torque-remote, cmd/sh, or a resolved bash.exe path.
       mocks.executeValidatedCommandSync.mockImplementation((command) => {
-        if (command === 'torque-remote' || command === 'cmd' || command === 'sh') {
+        if (isVerifyExecutor(command)) {
           throw verifyError;
         }
         return '';
