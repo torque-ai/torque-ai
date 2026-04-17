@@ -64,6 +64,7 @@ const WORKFLOW_SPEC_SCHEMA = {
           on_fail: { type: 'string', enum: ON_FAIL_ENUM },
           alternate_node_id: { type: 'string' },
           condition: { type: 'string' },
+          goal_gate: { type: 'boolean' },
           __remove: { type: 'boolean' },
         },
       },
