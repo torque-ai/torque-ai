@@ -111,6 +111,64 @@ describe('createWorktreeRunner.verify', () => {
     expect(result.output).toContain('boom');
   });
 
+  it('falls back to local verify when remote sync is unavailable', async () => {
+    const runRemoteVerify = vi.fn(() => ({
+      exitCode: 1,
+      stdout: '',
+      stderr: '[push-worktree-branch] fatal: unable to access https://github.com/org/repo.git: Could not resolve host: github.com',
+    }));
+    const runLocalVerify = vi.fn(() => ({
+      exitCode: 0,
+      stdout: 'local ok',
+      stderr: '',
+    }));
+    const runner = createWorktreeRunner({
+      worktreeManager: makeWorktreeManagerMock(),
+      runRemoteVerify,
+      runLocalVerify,
+    });
+
+    const result = await runner.verify({
+      worktreePath: 'C:/wt',
+      branch: 'feat/fallback',
+      verifyCommand: 'npx vitest run server/tests/factory-worktree-runner.test.js',
+    });
+
+    expect(result.passed).toBe(true);
+    expect(runRemoteVerify).toHaveBeenCalledTimes(1);
+    expect(runLocalVerify).toHaveBeenCalledWith(expect.objectContaining({
+      branch: 'feat/fallback',
+      command: 'npx vitest run server/tests/factory-worktree-runner.test.js',
+      cwd: 'C:/wt',
+      fallbackReason: expect.stringContaining('[push-worktree-branch]'),
+    }));
+    expect(result.output).toContain('local ok');
+    expect(result.output).toContain('[fallback-local-verify]');
+  });
+
+  it('does not fall back for ordinary verify failures', async () => {
+    const runRemoteVerify = vi.fn(() => ({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'tests failed',
+    }));
+    const runLocalVerify = vi.fn();
+    const runner = createWorktreeRunner({
+      worktreeManager: makeWorktreeManagerMock(),
+      runRemoteVerify,
+      runLocalVerify,
+    });
+
+    const result = await runner.verify({
+      worktreePath: 'C:/wt',
+      branch: 'feat/fail',
+      verifyCommand: 'echo test',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(runLocalVerify).not.toHaveBeenCalled();
+  });
+
   it('requires branch', async () => {
     const runner = createWorktreeRunner({
       worktreeManager: makeWorktreeManagerMock(),
