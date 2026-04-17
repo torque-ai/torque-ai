@@ -184,10 +184,10 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
         initial_status: mode === 'pending_approval' ? 'pending_approval' : undefined,
       });
       const task_id = submission?.task_id;
+      task_count += 1;
+      submitted_tasks.push({ task_number: task.task_number, task_id });
 
       if (mode === 'pending_approval') {
-        task_count += 1;
-        submitted_tasks.push({ task_number: task.task_number, task_id });
         if (typeof onDryRunTask === 'function') {
           await onDryRunTask({
             plan_path,
