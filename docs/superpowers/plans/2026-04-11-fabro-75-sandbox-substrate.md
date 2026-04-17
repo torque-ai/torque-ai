@@ -31,7 +31,7 @@
 
 ## Task 1: Interface + local backend
 
-- [ ] **Step 1: Interface contract**
+- [x] **Step 1: Interface contract**
 
 Create `server/sandbox/sandbox-interface.js`:
 
@@ -54,7 +54,7 @@ Create `server/sandbox/sandbox-interface.js`:
 module.exports = { /* marker only */ };
 ```
 
-- [ ] **Step 2: Local backend tests**
+- [x] **Step 2: Local backend tests**
 
 Create `server/tests/local-process-backend.test.js`:
 
@@ -119,7 +119,7 @@ describe('localProcessBackend', () => {
 });
 ```
 
-- [ ] **Step 3: Implement local backend**
+- [x] **Step 3: Implement local backend**
 
 Create `server/sandbox/backends/local-process.js`:
 
