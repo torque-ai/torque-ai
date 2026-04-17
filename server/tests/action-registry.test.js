@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const { createActionRegistry } = require('../dispatch/action-registry');
 
 describe('actionRegistry', () => {
