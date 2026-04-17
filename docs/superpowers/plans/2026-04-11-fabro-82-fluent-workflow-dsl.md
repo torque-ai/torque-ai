@@ -25,7 +25,7 @@
 
 ## Task 1: Step + Builder
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `packages/workflow-dsl/tests/builder.test.ts`:
 
@@ -95,7 +95,7 @@ describe('createWorkflow().toSpec()', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `packages/workflow-dsl/src/step.ts`:
 
