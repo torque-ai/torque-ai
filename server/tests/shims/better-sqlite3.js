@@ -66,12 +66,36 @@ function normalizeDatabaseSource(source) {
   return { filename: source };
 }
 
+function normalizeBindValue(value) {
+  if (value === undefined) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(normalizeBindValue);
+  }
+
+  if (
+    value
+    && typeof value === 'object'
+    && !Buffer.isBuffer(value)
+    && !(value instanceof Date)
+    && Object.getPrototypeOf(value) === Object.prototype
+  ) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entryValue]) => [key, normalizeBindValue(entryValue)])
+    );
+  }
+
+  return value;
+}
+
 function wrapStatement(statement) {
   const wrapper = {
-    all: (...args) => statement.all(...args),
-    get: (...args) => statement.get(...args),
-    run: (...args) => statement.run(...args),
-    iterate: (...args) => statement.iterate(...args),
+    all: (...args) => statement.all(...args.map(normalizeBindValue)),
+    get: (...args) => statement.get(...args.map(normalizeBindValue)),
+    run: (...args) => statement.run(...args.map(normalizeBindValue)),
+    iterate: (...args) => statement.iterate(...args.map(normalizeBindValue)),
     columns: (...args) => statement.columns(...args),
     setAllowBareNamedParameters: (...args) => {
       statement.setAllowBareNamedParameters(...args);
