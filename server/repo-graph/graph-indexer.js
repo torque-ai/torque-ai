@@ -62,7 +62,13 @@ function buildBodyPreview(content, symbol) {
 
   const lines = content.split(/\r?\n/);
   const startLine = Math.max(1, Number(symbol.startLine) || 1);
-  const endLine = Math.max(startLine, Number(symbol.endLine) || startLine);
+  let endLine = Math.max(startLine, Number(symbol.endLine) || startLine);
+  // Regex fallback parser sets endLine === startLine for all symbols,
+  // which captures only the declaration line. When endLine isn't meaningful,
+  // expand the preview window to capture the body (up to MAX_BODY_PREVIEW_LINES).
+  if (endLine === startLine) {
+    endLine = startLine + MAX_BODY_PREVIEW_LINES - 1;
+  }
   const preview = lines
     .slice(startLine - 1, Math.min(lines.length, endLine, startLine + MAX_BODY_PREVIEW_LINES - 1))
     .join('\n')
