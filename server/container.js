@@ -234,6 +234,7 @@ function initModules(db, serverConfig) {
   const providerRegistry = require('./providers/registry');
   providerRegistry.init({ db });
   providerRegistry.registerProviderClass('codex', require('./providers/v2-cli-providers').CodexCliProvider);
+  providerRegistry.registerProviderClass('claude-code-sdk', require('./providers/claude-code-sdk'));
   if (!_defaultContainer.has('providerRegistry')) {
     _defaultContainer.registerValue('providerRegistry', providerRegistry);
   }

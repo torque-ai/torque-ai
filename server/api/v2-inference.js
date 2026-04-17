@@ -161,6 +161,15 @@ function buildV2ExecutionPlan({
     }];
   }
 
+  if (providerId === 'claude-code-sdk') {
+    return [{
+      provider: 'claude-code-sdk',
+      transport: 'cli',
+      reason: requestedTransport === 'cli' ? 'request_transport_cli' : 'provider_transport_cli',
+      status: 'pending',
+    }];
+  }
+
   const providerFamily = providerId === 'codex' ? 'codex' : providerId;
 
   if (providerFamily !== 'codex') {

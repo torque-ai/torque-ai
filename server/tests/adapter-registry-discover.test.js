@@ -70,6 +70,7 @@ function installAllProviderMocks() {
     'ollama-strategic': makeProviderMock('ollama-strategic', { supportsStreaming: false }),
     codex: makeProviderMock('codex', { supportsStreaming: false }),
     'claude-cli': makeProviderMock('claude-cli', { supportsStreaming: false }),
+    'claude-code-sdk': makeProviderMock('claude-code-sdk'),
     ollama: makeProviderMock('ollama'),
   };
 
@@ -82,6 +83,7 @@ function installAllProviderMocks() {
   installMock('../providers/ollama-cloud', providers['ollama-cloud'].MockClass);
   installMock('../providers/openrouter', providers.openrouter.MockClass);
   installMock('../providers/ollama-strategic', providers['ollama-strategic'].MockClass);
+  installMock('../providers/claude-code-sdk', providers['claude-code-sdk'].MockClass);
   installMock('../providers/v2-cli-providers', {
     CodexCliProvider: providers.codex.MockClass,
     ClaudeCliProvider: providers['claude-cli'].MockClass,
@@ -138,7 +140,8 @@ describe('adapter-registry discoverAllModels', () => {
 
     expect(result).toBeDefined();
     expect(typeof result).toBe('object');
-    // Local Ollama providers run unconditionally
+    // Local/CLI-discovered providers run unconditionally
+    expect(result).toHaveProperty('claude-code-sdk');
     expect(result).toHaveProperty('ollama');
     expect(result).toHaveProperty('ollama-strategic');
   });
@@ -175,10 +178,11 @@ describe('adapter-registry discoverAllModels', () => {
     expect(result).not.toHaveProperty('deepinfra');
   });
 
-  it('includes local Ollama providers even without API keys', async () => {
-    // configMock has no keys at all — local providers must still run
+  it('includes local and CLI-backed providers even without API keys', async () => {
+    // configMock has no keys at all — local/CLI providers must still run
     const result = await registry.discoverAllModels(null);
 
+    expect(result).toHaveProperty('claude-code-sdk');
     expect(result).toHaveProperty('ollama');
     expect(result).toHaveProperty('ollama-strategic');
   });
@@ -199,7 +203,9 @@ describe('adapter-registry discoverAllModels', () => {
     expect(result.ollama).toHaveProperty('error');
     expect(result.ollama.error).toMatch(/ollama connection refused/);
 
-    // Other local providers still run fine
+    // Other local/CLI providers still run fine
+    expect(result).toHaveProperty('claude-code-sdk');
+    expect(result['claude-code-sdk']).not.toHaveProperty('error');
     expect(result).toHaveProperty('ollama-strategic');
     expect(result['ollama-strategic']).not.toHaveProperty('error');
   });

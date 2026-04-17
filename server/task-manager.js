@@ -40,6 +40,7 @@ function initEarlyDeps() {
   providerCfg.init({ db });
   serverConfig.init({ db });
   providerRegistry.registerProviderClass('codex', require('./providers/v2-cli-providers').CodexCliProvider);
+  providerRegistry.registerProviderClass('claude-code-sdk', require('./providers/claude-code-sdk'));
   providerRegistry.registerProviderClass('anthropic', require('./providers/anthropic'));
   providerRegistry.registerProviderClass('groq', require('./providers/groq'));
   providerRegistry.registerProviderClass('hyperbolic', require('./providers/hyperbolic'));

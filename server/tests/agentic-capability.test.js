@@ -76,6 +76,13 @@ describe('isAgenticCapable — excluded providers', () => {
     expect(result.reason).toContain('claude-cli');
   });
 
+  it('returns false for claude-code-sdk', () => {
+    const result = isAgenticCapable('claude-code-sdk', 'claude-sonnet-4-20250514');
+    expect(result.capable).toBe(false);
+    expect(result.source).toBe('config');
+    expect(result.reason).toContain('claude-code-sdk');
+  });
+
 });
 
 describe('isAgenticCapable — whitelist (built-in)', () => {

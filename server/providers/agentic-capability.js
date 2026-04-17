@@ -18,7 +18,7 @@
 // These providers use their own execution paths and must never be routed through
 // the agentic tool-calling loop.
 
-const EXCLUDED_PROVIDERS = new Set(['codex', 'claude-cli']);
+const EXCLUDED_PROVIDERS = new Set(['codex', 'claude-cli', 'claude-code-sdk']);
 
 // ── Cloud providers known to support OpenAI-compatible tool calling ───────────
 

@@ -51,6 +51,7 @@ describe('provider adapter registry', () => {
     const expected = [
       'anthropic',
       'claude-cli',
+      'claude-code-sdk',
       'codex',
       'deepinfra',
       'groq',

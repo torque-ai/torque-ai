@@ -7,7 +7,7 @@ describe('safe-env', () => {
   beforeEach(() => {
     // Set up test env vars
     process.env.PATH = '/usr/bin:/usr/local/bin';
-    process.env.HOME = '/home/testuser';
+    process.env.HOME = '/home/<user>';
     process.env.OPENAI_API_KEY = 'sk-test-openai-key';
     process.env.ANTHROPIC_API_KEY = 'sk-test-anthropic-key';
     process.env.DEEPINFRA_API_KEY = 'sk-test-deepinfra-key';
@@ -53,6 +53,13 @@ describe('safe-env', () => {
 
   it('includes ANTHROPIC_API_KEY only for claude-cli', () => {
     const env = buildSafeEnv('claude-cli');
+    expect(env.ANTHROPIC_API_KEY).toBe('sk-test-anthropic-key');
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.DEEPINFRA_API_KEY).toBeUndefined();
+  });
+
+  it('includes ANTHROPIC_API_KEY only for claude-code-sdk', () => {
+    const env = buildSafeEnv('claude-code-sdk');
     expect(env.ANTHROPIC_API_KEY).toBe('sk-test-anthropic-key');
     expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.DEEPINFRA_API_KEY).toBeUndefined();

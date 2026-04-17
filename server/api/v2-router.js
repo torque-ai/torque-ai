@@ -62,7 +62,7 @@ function getV2ProviderTransport(provider) {
   const explicit = normalizeV2Transport(provider?.transport);
   if (explicit) return explicit;
   if (provider?.provider === 'codex') return 'hybrid';
-  if (provider?.provider === 'claude-cli') return 'cli';
+  if (provider?.provider === 'claude-cli' || provider?.provider === 'claude-code-sdk') return 'cli';
   return 'api';
 }
 

@@ -16,7 +16,7 @@ const logger = require('../logger').child({ component: 'activity-monitoring' });
 // Agent providers that work silently — editing files and running commands
 // without necessarily producing stdout. Stall detection must check the
 // filesystem before declaring these providers stalled.
-const AGENT_PROVIDERS = new Set(['codex', 'claude-cli']);
+const AGENT_PROVIDERS = new Set(['codex', 'claude-cli', 'claude-code-sdk']);
 
 // Dependency injection
 let _runningProcesses = null;
@@ -237,7 +237,7 @@ function getTaskActivity(taskId, opts = {}) {
   // If threshold is null, stall detection is disabled for this provider
   let isStalled = threshold !== null && lastActivitySeconds > threshold;
 
-  // For agent providers (codex, claude-cli), stdout silence doesn't mean stalled.
+  // For agent providers (codex, claude-cli, claude-code-sdk), stdout silence doesn't mean stalled.
   // Check if the agent is actively modifying files before declaring it stalled.
   // When skipGitCheck is true (status rendering), skip the filesystem probe
   // and rely on the last known stall state to avoid spawning git processes.

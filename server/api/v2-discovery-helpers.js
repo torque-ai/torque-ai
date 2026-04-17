@@ -41,7 +41,7 @@ function getV2ProviderTransport(provider) {
   const explicit = normalizeV2Transport(provider?.transport);
   if (explicit) return explicit;
   if (provider?.provider === 'codex') return 'hybrid';
-  if (provider?.provider === 'claude-cli') return 'cli';
+  if (provider?.provider === 'claude-cli' || provider?.provider === 'claude-code-sdk') return 'cli';
   return 'api';
 }
 
@@ -55,6 +55,14 @@ const PROVIDER_MODELS = {
     models: ['gpt-5.3-codex-spark'],
   },
   'claude-cli': {
+    source: 'static',
+    models: [
+      'claude-sonnet-4-20250514',
+      'claude-haiku-4-20250514',
+      'claude-opus-4-20250514',
+    ],
+  },
+  'claude-code-sdk': {
     source: 'static',
     models: [
       'claude-sonnet-4-20250514',

@@ -80,4 +80,76 @@ module.exports = [
       required: ['surface', 'utterance'],
     },
   },
+  {
+    name: 'dispatch_subagent',
+    description: 'Dispatch a Claude Code subagent with isolated context + restricted tool list + optional skill. Returns subagent result only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+        },
+        model: {
+          type: 'string',
+        },
+        allowed_tools: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        disallowed_tools: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        mode: {
+          type: 'string',
+          enum: ['auto', 'acceptEdits', 'plan', 'bypassPermissions'],
+        },
+        skill: {
+          type: 'string',
+        },
+        timeout_ms: {
+          type: 'integer',
+        },
+      },
+      required: ['prompt'],
+    },
+  },
+  {
+    name: 'resume_session',
+    description: 'Resume a prior Claude Code session by ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session_id: {
+          type: 'string',
+        },
+      },
+      required: ['session_id'],
+    },
+  },
+  {
+    name: 'fork_session',
+    description: 'Fork a prior session into a new branch.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source_session_id: {
+          type: 'string',
+        },
+        name: {
+          type: 'string',
+        },
+      },
+      required: ['source_session_id'],
+    },
+  },
+  {
+    name: 'list_sessions',
+    description: 'List Claude Code sessions.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
 ];

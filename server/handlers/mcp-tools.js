@@ -22,6 +22,34 @@ function buildToolResult(payload) {
   };
 }
 
+function validateStringArrayArg(args, field) {
+  const value = args[field];
+  if (value === undefined) {
+    return null;
+  }
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || !entry.trim())) {
+    return makeError(ErrorCodes.INVALID_PARAM, `${field} must be an array of non-empty strings`);
+  }
+  return null;
+}
+
+function getClaudeCodeSdkProvider() {
+  try {
+    const providerRegistry = defaultContainer.get('providerRegistry');
+    const provider = providerRegistry?.getProviderInstance?.('claude-code-sdk');
+    if (provider) {
+      return provider;
+    }
+  } catch (error) {
+    void error;
+    // Fall through to direct registry access when the DI container is not booted.
+  }
+
+  const providerRegistry = require('../providers/registry');
+  providerRegistry.registerProviderClass('claude-code-sdk', require('../providers/claude-code-sdk'));
+  return providerRegistry.getProviderInstance('claude-code-sdk');
+}
+
 function toToolFragment(value) {
   return String(value || '')
     .trim()
@@ -476,8 +504,134 @@ async function handleDispatchNl(args) {
   }
 }
 
+async function handleDispatchSubagent(args = {}) {
+  try {
+    const promptError = requireString(args, 'prompt', 'prompt');
+    if (promptError) return promptError;
+
+    const modelError = optionalString(args, 'model', 'model');
+    if (modelError) return modelError;
+
+    const skillError = optionalString(args, 'skill', 'skill');
+    if (skillError) return skillError;
+
+    const allowedToolsError = validateStringArrayArg(args, 'allowed_tools');
+    if (allowedToolsError) return allowedToolsError;
+
+    const disallowedToolsError = validateStringArrayArg(args, 'disallowed_tools');
+    if (disallowedToolsError) return disallowedToolsError;
+
+    if (
+      args.timeout_ms !== undefined
+      && (!Number.isInteger(args.timeout_ms) || args.timeout_ms < 1)
+    ) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'timeout_ms must be a positive integer');
+    }
+
+    const provider = getClaudeCodeSdkProvider();
+    if (!provider || typeof provider.dispatchSubagent !== 'function') {
+      return makeError(ErrorCodes.NO_HOSTS_AVAILABLE, 'claude-code-sdk provider is unavailable');
+    }
+
+    const result = await provider.dispatchSubagent({
+      prompt: args.prompt.trim(),
+      model: args.model || null,
+      allowed_tools: Array.isArray(args.allowed_tools) ? args.allowed_tools : [],
+      disallowed_tools: Array.isArray(args.disallowed_tools) ? args.disallowed_tools : [],
+      mode: args.mode,
+      skill: args.skill || null,
+      timeout_ms: args.timeout_ms,
+      working_directory: process.cwd(),
+    });
+
+    return buildToolResult({
+      ok: true,
+      ...result,
+    });
+  } catch (error) {
+    return buildToolResult({
+      ok: false,
+      error: error.message || String(error),
+    });
+  }
+}
+
+async function handleResumeSession(args = {}) {
+  try {
+    const sessionError = requireString(args, 'session_id', 'session_id');
+    if (sessionError) return sessionError;
+
+    const provider = getClaudeCodeSdkProvider();
+    if (!provider || typeof provider.resumeSession !== 'function') {
+      return makeError(ErrorCodes.NO_HOSTS_AVAILABLE, 'claude-code-sdk provider is unavailable');
+    }
+
+    return buildToolResult({
+      ok: true,
+      session: provider.resumeSession(args.session_id.trim()),
+    });
+  } catch (error) {
+    return buildToolResult({
+      ok: false,
+      error: error.message || String(error),
+    });
+  }
+}
+
+async function handleForkSession(args = {}) {
+  try {
+    const sessionError = requireString(args, 'source_session_id', 'source_session_id');
+    if (sessionError) return sessionError;
+
+    const nameError = optionalString(args, 'name', 'name');
+    if (nameError) return nameError;
+
+    const provider = getClaudeCodeSdkProvider();
+    if (!provider || typeof provider.forkSession !== 'function') {
+      return makeError(ErrorCodes.NO_HOSTS_AVAILABLE, 'claude-code-sdk provider is unavailable');
+    }
+
+    return buildToolResult({
+      ok: true,
+      session: provider.forkSession(args.source_session_id.trim(), {
+        name: args.name || null,
+      }),
+    });
+  } catch (error) {
+    return buildToolResult({
+      ok: false,
+      error: error.message || String(error),
+    });
+  }
+}
+
+async function handleListSessions() {
+  try {
+    const provider = getClaudeCodeSdkProvider();
+    if (!provider || typeof provider.listSessions !== 'function') {
+      return makeError(ErrorCodes.NO_HOSTS_AVAILABLE, 'claude-code-sdk provider is unavailable');
+    }
+
+    const sessions = provider.listSessions();
+    return buildToolResult({
+      ok: true,
+      count: sessions.length,
+      sessions,
+    });
+  } catch (error) {
+    return buildToolResult({
+      ok: false,
+      error: error.message || String(error),
+    });
+  }
+}
+
 module.exports = {
   handleRegisterActionSchema,
   handleListActions,
   handleDispatchNl,
+  handleDispatchSubagent,
+  handleResumeSession,
+  handleForkSession,
+  handleListSessions,
 };

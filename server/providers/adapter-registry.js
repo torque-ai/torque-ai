@@ -23,6 +23,7 @@ const GoogleAIProvider = require('./google-ai');
 const OllamaCloudProvider = require('./ollama-cloud');
 const OpenRouterProvider = require('./openrouter');
 const OllamaStrategicProvider = require('./ollama-strategic');
+const ClaudeCodeSdkProvider = require('./claude-code-sdk');
 const { CodexCliProvider, ClaudeCliProvider } = require('./v2-cli-providers');
 const { OllamaProvider } = require('./v2-local-providers');
 
@@ -213,6 +214,10 @@ registerApiAdapter('claude-cli', ClaudeCliProvider, {
   supportsStream: false,
   supportsAsync: false,
 });
+registerApiAdapter('claude-code-sdk', ClaudeCodeSdkProvider, {
+  supportsStream: true,
+  supportsAsync: false,
+});
 registerApiAdapter('ollama', OllamaProvider, {
   supportsStream: true,
   supportsAsync: true,
@@ -246,7 +251,7 @@ function invalidateAdapterCache(providerId) {
   }
 }
 
-const LOCAL_PROVIDERS = new Set(['ollama', 'ollama-strategic']);
+const LOCAL_PROVIDERS = new Set(['ollama', 'ollama-strategic', 'claude-code-sdk']);
 
 /**
  * Run model discovery across all registered provider adapters.

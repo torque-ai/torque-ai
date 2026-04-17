@@ -29,7 +29,7 @@
 
 ## Task 1: Permission chain
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/permission-chain.test.js`:
 
@@ -118,7 +118,7 @@ describe('evaluatePermission', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/providers/claude-code/permission-chain.js`:
 
@@ -180,7 +180,7 @@ Run tests → PASS. Commit: `feat(claude-code): permission chain with hook/setti
 
 ## Task 2: Session store + skills loader
 
-- [ ] **Step 1: Session store (file-backed)**
+- [x] **Step 1: Session store (file-backed)**
 
 Create `server/providers/claude-code/session-store.js`:
 
@@ -237,7 +237,7 @@ function createSessionStore({ rootDir }) {
 module.exports = { createSessionStore };
 ```
 
-- [ ] **Step 2: Skills loader**
+- [x] **Step 2: Skills loader**
 
 Create `server/providers/claude-code/skills-loader.js`:
 
@@ -279,11 +279,11 @@ Tests + implementation straightforward. Commit: `feat(claude-code): session stor
 
 ## Task 3: Provider adapter + MCP
 
-- [ ] **Step 1: Provider adapter**
+- [x] **Step 1: Provider adapter**
 
 Create `server/providers/claude-code-sdk.js`. The adapter spawns Claude Code with `--print` + `--output-format stream-json`, streams chunks, evaluates permissions on each tool call, manages sessions via `--resume <id>` or `--fork-session`, and yields events in the Plan 83 streaming event shape.
 
-- [ ] **Step 2: MCP tools**
+- [x] **Step 2: MCP tools**
 
 ```js
 dispatch_subagent: {

@@ -340,6 +340,7 @@ describe('db/schema.js — smoke test', () => {
       const providers = rows.map(r => r.provider);
       expect(providers).toContain('codex');
       expect(providers).toContain('claude-cli');
+      expect(providers).toContain('claude-code-sdk');
       expect(providers).toContain('ollama');
     });
 
@@ -358,8 +359,8 @@ describe('db/schema.js — smoke test', () => {
       expect(columnNames).toContain('max_retries');
 
       const rows = rawDb().prepare(
-        'SELECT provider, transport FROM provider_config WHERE provider IN (?, ?, ?)',
-      ).all('codex', 'claude-cli', 'ollama');
+        'SELECT provider, transport FROM provider_config WHERE provider IN (?, ?, ?, ?)',
+      ).all('codex', 'claude-cli', 'claude-code-sdk', 'ollama');
       const transportByProvider = {};
       rows.forEach((row) => {
         transportByProvider[row.provider] = row.transport;
@@ -367,6 +368,7 @@ describe('db/schema.js — smoke test', () => {
 
       expect(transportByProvider.codex).toBe('hybrid');
       expect(transportByProvider['claude-cli']).toBe('cli');
+      expect(transportByProvider['claude-code-sdk']).toBe('cli');
       expect(transportByProvider.ollama).toBe('api');
       // Note: anthropic may or may not be seeded depending on template DB state.
       // The seed is commented out in schema-seeds.js but prior runs can leave stale rows.

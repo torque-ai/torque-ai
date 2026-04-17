@@ -47,6 +47,7 @@ const EXPECTED_CONFIG_DEFAULTS = {
 const VALID_PROVIDER_NAMES = new Set([
   'codex',
   'claude-cli',
+  'claude-code-sdk',
   'ollama',
   'anthropic',
   'groq',
@@ -159,6 +160,7 @@ describe('db/schema-seeds', () => {
 
     expect(providers.some((row) => row.provider === 'codex')).toBe(true);
     expect(providers.some((row) => row.provider === 'claude-cli')).toBe(true);
+    expect(providers.some((row) => row.provider === 'claude-code-sdk')).toBe(true);
     expect(providers.some((row) => row.provider === 'ollama')).toBe(true);
   });
 
@@ -166,7 +168,7 @@ describe('db/schema-seeds', () => {
     const rows = db.prepare(`
       SELECT provider, capability_tags, quality_band
       FROM provider_config
-      WHERE provider IN ('codex', 'claude-cli', 'ollama', 'groq')
+      WHERE provider IN ('codex', 'claude-cli', 'claude-code-sdk', 'ollama', 'groq')
       ORDER BY provider
     `).all();
     const byProvider = Object.fromEntries(rows.map((row) => [row.provider, row]));
@@ -185,6 +187,13 @@ describe('db/schema-seeds', () => {
       'reasoning',
     ]);
     expect(byProvider['claude-cli'].quality_band).toBe('A');
+    expect(JSON.parse(byProvider['claude-code-sdk'].capability_tags)).toEqual([
+      'file_creation',
+      'file_edit',
+      'multi_file',
+      'reasoning',
+    ]);
+    expect(byProvider['claude-code-sdk'].quality_band).toBe('A');
     expect(JSON.parse(byProvider['ollama'].capability_tags)).toEqual([
       'file_edit',
       'reasoning',

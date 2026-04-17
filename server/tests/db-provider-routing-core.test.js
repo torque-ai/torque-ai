@@ -121,6 +121,7 @@ describe('db/provider-routing-core', () => {
       expect(core.normalizeProviderTransport(' Cli ', 'codex')).toBe('cli');
       expect(core.normalizeProviderTransport(undefined, 'codex')).toBe('hybrid');
       expect(core.normalizeProviderTransport(undefined, 'claude-cli')).toBe('cli');
+      expect(core.normalizeProviderTransport(undefined, 'claude-code-sdk')).toBe('cli');
       expect(core.normalizeProviderTransport(undefined, 'anthropic')).toBe('api');
     });
 

@@ -43,6 +43,22 @@ const PROVIDER_REGISTRY = {
       reasoning: true,
     },
   },
+  'claude-code-sdk': {
+    name: 'Claude Code SDK',
+    transport: 'cli',
+    local: false,
+    request_rate_per_minute: 60,
+    features: {
+      chat: true,
+      stream: true,
+      tools: true,
+      vision: false,
+      embeddings: false,
+      image_input: false,
+      file_edit: true,
+      reasoning: true,
+    },
+  },
   ollama: {
     name: 'Ollama (Local)',
     transport: 'api',

@@ -173,6 +173,7 @@ function normalizeProviderTransport(rawTransport, providerId) {
 
   if (providerId === 'codex') return 'hybrid';
   if (providerId === 'claude-cli') return 'cli';
+  if (providerId === 'claude-code-sdk') return 'cli';
   return 'api';
 }
 
