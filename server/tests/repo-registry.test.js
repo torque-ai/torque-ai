@@ -26,18 +26,32 @@ function makeTempRepo(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
+function seedLegacyMigrationTables(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS model_family_templates (
+      family TEXT PRIMARY KEY,
+      tuning_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE TABLE IF NOT EXISTS model_registry (
+      model_name TEXT PRIMARY KEY,
+      status TEXT DEFAULT 'pending'
+    );
+  `);
+}
+
 describe('repo-graph/repo-registry', () => {
   let db;
   let registry;
   let tempDirs;
 
   beforeEach(() => {
+    tempDirs = [];
     db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     createTables(db, createLogger());
+    seedLegacyMigrationTables(db);
     runMigrations(db);
     registry = createRepoRegistry({ db });
-    tempDirs = [];
   });
 
   afterEach(() => {
