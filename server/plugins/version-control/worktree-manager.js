@@ -487,7 +487,26 @@ function createWorktreeManager({ db } = {}) {
     const createdAt = new Date().toISOString();
 
     fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
-    runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, baseBranch]);
+    try {
+      runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, baseBranch]);
+    } catch (addErr) {
+      // Stale branch from a prior run that wasn't fully cleaned up (e.g.,
+      // abandon deleted the worktree directory but git branch -d failed
+      // because the branch had unmerged commits). Force-delete the orphan
+      // branch and retry once.
+      const errMsg = addErr && typeof addErr.stderr === 'string' ? addErr.stderr : String(addErr?.message || '');
+      if (/branch named .* already exists/i.test(errMsg)) {
+        logger.warn('createWorktree: stale branch detected, force-deleting and retrying', {
+          branch,
+          repoPath: repositoryPath,
+        });
+        try { runGit(repositoryPath, ['branch', '-D', branch]); } catch { /* best effort */ }
+        try { runGit(repositoryPath, ['worktree', 'prune']); } catch { /* best effort */ }
+        runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, baseBranch]);
+      } else {
+        throw addErr;
+      }
+    }
 
     const record = {
       id: randomUUID(),
