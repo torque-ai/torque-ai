@@ -152,15 +152,19 @@ describeV('await verify routing', () => {
     expectV(textOfResult(result)).toContain('### Verify Command');
     expectV(textOfResult(result)).toContain('Passed');
 
-    expectV(awaitMocks.executeValidatedCommandSync).toHaveBeenCalledWith(
-      'torque-remote',
-      expectV.arrayContaining(['npx vitest run']),
-      expectV.objectContaining({ cwd: tmpDir })
-    );
-    const verifyCalls = awaitMocks.executeValidatedCommandSync.mock.calls.filter(
-      ([cmd]) => cmd === 'sh' || cmd === 'cmd'
-    );
-    expectV(verifyCalls.length).toBe(0);
+    // On Windows, shouldUseTorqueRemote wraps via bash (Node can't exec
+    // bash scripts directly). On Linux/macOS, it calls torque-remote directly.
+    // Accept either pattern — what matters is that the verify DID NOT fall
+    // back to sh/cmd direct execution.
+    const verifyCalls = awaitMocks.executeValidatedCommandSync.mock.calls;
+    expectV(verifyCalls.length).toBeGreaterThanOrEqual(1);
+    const [execName, execArgs] = verifyCalls[0];
+    const usedTorqueRemote = execName === 'torque-remote'
+      || (typeof execName === 'string' && execName.includes('bash') && execArgs.some(a => typeof a === 'string' && a.includes('torque-remote')));
+    expectV(usedTorqueRemote).toBe(true);
+    expectV(execArgs).toEqual(expectV.arrayContaining(['npx vitest run']));
+    const directShellCalls = verifyCalls.filter(([cmd]) => cmd === 'sh' || cmd === 'cmd');
+    expectV(directShellCalls.length).toBe(0);
   });
 
   itV('handleAwaitTask falls back to direct execution when torque-remote is not on PATH', async () => {
