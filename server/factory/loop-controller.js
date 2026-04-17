@@ -2832,11 +2832,14 @@ async function executePlanFileStage(project, instance, workItem) {
     };
   }
 
-  // If the plan executor completed with zero tasks (all skipped or plan
-  // had no parseable "## Task N:" sections), skip to IDLE instead of
-  // advancing to VERIFY with an empty batch. Log a diagnostic decision
-  // so the operator knows WHY nothing was submitted.
-  if (!result.completed_tasks && !result.task_count) {
+  // If the plan executor completed but SUBMITTED zero tasks (all were
+  // already-ticked from a prior run, plan had no parseable sections, or
+  // task generation failed), skip to IDLE instead of advancing to VERIFY
+  // with an empty batch. NOTE: result.completed_tasks includes SKIPPED
+  // tasks (pre-ticked checkboxes), so checking it for truthiness wrongly
+  // treats "all tasks skipped" as success. Check submitted_tasks instead.
+  const actuallySubmitted = Array.isArray(result.submitted_tasks) ? result.submitted_tasks.length : 0;
+  if (actuallySubmitted === 0 && !result.failed_task) {
     logger.warn('EXECUTE stage: plan executor completed with zero tasks — skipping to IDLE', {
       project_id: project.id,
       work_item_id: targetItem.id,

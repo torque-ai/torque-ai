@@ -223,18 +223,16 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
     const result = {
       plan_path,
       completed_tasks,
+      submitted_tasks,
       failed_task,
+      task_count,
       duration_ms: Date.now() - started,
     };
 
     if (mode !== 'live') {
       result.dry_run = true;
-      result.task_count = task_count;
       result.simulated = mode === 'suppress';
       result.execution_mode = mode;
-      if (submitted_tasks.length > 0) {
-        result.submitted_tasks = submitted_tasks;
-      }
     }
 
     return result;
