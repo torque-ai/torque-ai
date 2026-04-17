@@ -110,6 +110,7 @@ const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
   'started_execution',
 ]);
 const POLL_MS = 2000;
+const DEFAULT_LOOP_COOLDOWN_MINUTES = 30;
 
 class StageOccupiedError extends Error {
   constructor(project_id, stage) {
@@ -127,6 +128,58 @@ const activeLoopAdvanceJobs = new Map();
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function parseFactoryProjectConfig(project) {
+  if (!project?.config_json) {
+    return {};
+  }
+  try {
+    return JSON.parse(project.config_json);
+  } catch {
+    return {};
+  }
+}
+
+function getLoopCooldownMinutes(project) {
+  const configuredValue = Number(parseFactoryProjectConfig(project)?.loop?.cooldown_minutes);
+  return Number.isFinite(configuredValue) && configuredValue > 0
+    ? configuredValue
+    : DEFAULT_LOOP_COOLDOWN_MINUTES;
+}
+
+function setLoopAutoContinueAfter(project, autoContinueAfter) {
+  if (!project?.id || !autoContinueAfter) {
+    return;
+  }
+  const config = parseFactoryProjectConfig(project);
+  factoryHealth.updateProject(project.id, {
+    config_json: JSON.stringify({
+      ...config,
+      loop: {
+        ...(config.loop || {}),
+        auto_continue_after: autoContinueAfter,
+      },
+    }),
+  });
+}
+
+function clearLoopAutoContinueAfter(project) {
+  if (!project?.id) {
+    return;
+  }
+  const config = parseFactoryProjectConfig(project);
+  if (!config.loop || !Object.prototype.hasOwnProperty.call(config.loop, 'auto_continue_after')) {
+    return;
+  }
+  const nextLoop = { ...config.loop };
+  delete nextLoop.auto_continue_after;
+  factoryHealth.updateProject(project.id, {
+    config_json: JSON.stringify({
+      ...config,
+      loop: nextLoop,
+    }),
+  });
 }
 
 function getLoopAdvanceJobKey(instance_id, job_id) {
@@ -251,6 +304,15 @@ function getCurrentLoopState(loopRecord) {
     throw new Error(`Invalid loop state for ${ref}: ${String(raw)}`);
   }
   return loopState;
+}
+
+function isAutoResumablePausedState(project, instance) {
+  const pausedAtStage = getPausedAtStage(instance);
+  if (pausedAtStage !== LOOP_STATES.VERIFY) {
+    return false;
+  }
+  const latestVerifyDecision = getLatestStageDecision(project.id, LOOP_STATES.VERIFY);
+  return latestVerifyDecision?.action === 'waiting_for_batch_tasks';
 }
 
 function isReadyForStage(pausedAtStage) {
@@ -3040,7 +3102,8 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
   // immediately. If we reach VERIFY before those tasks actually complete, a
   // remote verify run against the empty branch will fail. Guard: if any batch
   // task is still in a non-terminal state, pause at VERIFY without running
-  // the remote tests. The operator re-advances once tasks finish.
+  // the remote tests. The scheduler re-checks this pause when terminal task
+  // events arrive; approval-gated VERIFY pauses still require an operator.
   const batchIdForGate = (worktreeRecord && worktreeRecord.batchId) || activeBatchId;
   if (batchIdForGate) {
     const batchTasks = listTasksForFactoryBatch(batchIdForGate);
@@ -3425,6 +3488,7 @@ function scheduleLoop(project_id, interval_minutes) {
 function startLoop(project_id) {
   const project = getProjectOrThrow(project_id);
   const previousState = getCurrentLoopState(project);
+  clearLoopAutoContinueAfter(project);
   try {
     const { initFactoryWorktreeAutoCommit } = require('./worktree-auto-commit');
     initFactoryWorktreeAutoCommit({ project });
@@ -3505,8 +3569,20 @@ function startLoop(project_id) {
 // auto-advance chain so the entire cycle runs without operator intervention.
 // The chain stops at any gate pause (trust-level dependent) or on termination.
 function startLoopAutoAdvance(project_id) {
+  const project = getProjectOrThrow(project_id);
   const result = startLoop(project_id);
   advanceLoopAsync(result.instance_id, { autoAdvance: true });
+  if (project.status === 'running') {
+    try {
+      const { startTick } = require('./factory-tick');
+      startTick(project);
+    } catch (error) {
+      logger.debug('Factory loop auto-advance: tick scheduler unavailable', {
+        project_id,
+        err: error.message,
+      });
+    }
+  }
   return {
     ...result,
     auto_advance: true,
@@ -3522,7 +3598,7 @@ function startLoopAutoAdvanceForProject(project_id) {
   return startLoopAutoAdvance(project_id);
 }
 
-async function runAdvanceLoop(instance_id) {
+async function runAdvanceLoop(instance_id, { autoAdvance = false } = {}) {
   const { project } = getLoopContextOrThrow(instance_id);
   let instance = getInstanceOrThrow(instance_id);
   const previousState = getCurrentLoopState(instance);
@@ -3550,6 +3626,14 @@ async function runAdvanceLoop(instance_id) {
       stage_result: null,
       reason: moved.blocked ? 'stage_occupied' : 'stage_ready',
     };
+  }
+
+  if (pausedAtStage && autoAdvance && isAutoResumablePausedState(project, instance)) {
+    instance = updateInstanceAndSync(instance.id, {
+      paused_at_stage: null,
+      last_action_at: nowIso(),
+    });
+    pausedAtStage = null;
   }
 
   if (pausedAtStage) {
@@ -3734,29 +3818,28 @@ async function runAdvanceLoop(instance_id) {
 
     case LOOP_STATES.LEARN: {
       stageResult = await executeLearnStage(project.id, instance.batch_id, instance);
-      const cfg = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })() : {};
-      if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
-        const moveToSense = tryMoveInstanceToStage(instance, LOOP_STATES.SENSE, {
-          batch_id: null,
-          work_item_id: null,
-          paused_at_stage: null,
-        });
-        instance = moveToSense.instance;
-        if (moveToSense.blocked) {
-          transitionReason = 'stage_occupied';
-        }
+      const config = parseFactoryProjectConfig(project);
+      if (config?.loop?.auto_continue === true) {
+        const cooldownMinutes = getLoopCooldownMinutes(project);
+        const autoContinueAfter = new Date(Date.now() + (cooldownMinutes * 60 * 1000)).toISOString();
+        setLoopAutoContinueAfter(project, autoContinueAfter);
+        stageResult = stageResult && typeof stageResult === 'object'
+          ? {
+            ...stageResult,
+            auto_continue_scheduled: true,
+            auto_continue_after: autoContinueAfter,
+            cooldown_minutes: cooldownMinutes,
+          }
+          : {
+            auto_continue_scheduled: true,
+            auto_continue_after: autoContinueAfter,
+            cooldown_minutes: cooldownMinutes,
+          };
       } else {
-        terminateInstanceAndSync(instance.id);
-        return {
-          project_id: project.id,
-          instance_id,
-          previous_state: previousState,
-          new_state: LOOP_STATES.IDLE,
-          paused_at_stage: null,
-          stage_result: stageResult,
-          reason: 'learn_completed',
-        };
+        clearLoopAutoContinueAfter(project);
       }
+      terminateInstanceAndSync(instance.id);
+      transitionReason = 'learn_completed';
       break;
     }
 
@@ -3812,12 +3895,17 @@ async function advanceLoopForProject(project_id) {
 function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
   const { project, instance } = getLoopContextOrThrow(instance_id);
   const currentState = getCurrentLoopState(instance);
+  const pausedAtStage = getPausedAtStage(instance);
 
   if (currentState === LOOP_STATES.IDLE) {
     throw new Error('Loop not started for this project');
   }
 
-  if (getPausedAtStage(instance) && !isReadyForStage(getPausedAtStage(instance))) {
+  if (
+    pausedAtStage
+    && !isReadyForStage(pausedAtStage)
+    && !(autoAdvance && isAutoResumablePausedState(project, instance))
+  ) {
     throw new Error('Loop is paused — use approveGate to continue');
   }
 
@@ -3849,7 +3937,7 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
   activeLoopAdvanceJobs.set(instance.id, job.job_id);
   emitLoopAdvanceJobEvent(job);
 
-  void runAdvanceLoop(instance.id)
+  void runAdvanceLoop(instance.id, { autoAdvance })
     .then((result) => {
       job.status = 'completed';
       job.new_state = result.new_state ?? null;

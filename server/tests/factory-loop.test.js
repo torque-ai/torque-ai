@@ -150,7 +150,7 @@ describe('loop-states', () => {
     });
   });
 
-  it('loop.auto_continue=true restores LEARN → SENSE in advanceLoop', async () => {
+  it('loop.auto_continue=true keeps LEARN terminal and persists the cooldown restart marker', async () => {
     const autoProject = factoryHealth.registerProject({
       name: 'AutoContinueProject',
       path: '/test/auto-' + Date.now(),
@@ -159,7 +159,13 @@ describe('loop-states', () => {
     });
     factoryHealth.updateProject(autoProject.id, { loop_state: LOOP_STATES.LEARN });
     const result = await loopController.advanceLoopForProject(autoProject.id);
-    expect(result.new_state).toBe(LOOP_STATES.SENSE);
+    expect(result.new_state).toBe(LOOP_STATES.IDLE);
+    expect(result.stage_result).toMatchObject({
+      auto_continue_scheduled: true,
+      cooldown_minutes: 30,
+    });
+    const updatedProject = factoryHealth.getProject(autoProject.id);
+    expect(JSON.parse(updatedProject.config_json).loop.auto_continue_after).toEqual(expect.any(String));
   });
 
   it('isValidState returns true for valid states', () => {

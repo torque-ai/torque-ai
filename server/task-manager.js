@@ -168,9 +168,21 @@ function evaluateTaskPreExecutePolicy(...args) { return _taskExecutionHooks.eval
 function fireTaskCompletionPolicyHook(...args) { return _taskExecutionHooks.fireTaskCompletionPolicyHook(...args); }
 
 function handleTaskStatusTransitionForWorkflow(taskId, status, previousStatus) {
+  let updatedTask = null;
+  try {
+    updatedTask = taskCore.getTask(taskId);
+    eventBus.emitTaskUpdated({
+      taskId,
+      status,
+      previous_status: previousStatus,
+      updated_task: updatedTask,
+    });
+  } catch (err) {
+    logger.info(`[TaskManager] Failed to emit task transition event for ${taskId}: ${err.message}`);
+  }
+
   if (WORKFLOW_TERMINAL_STATUSES.has(status) && previousStatus !== status) {
     try {
-      const updatedTask = taskCore.getTask(taskId);
       fireTaskCompletionPolicyHook(updatedTask || { id: taskId, status });
     } catch (err) {
       logger.info(`[TaskManager] Failed to fire completion policy hook for ${taskId}: ${err.message}`);

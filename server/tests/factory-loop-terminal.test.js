@@ -109,7 +109,7 @@ describe('factory loop LEARN terminal state', () => {
     expect(result.new_state).toBe(LOOP_STATES.IDLE);
   });
 
-  it('project with loop.auto_continue=true: LEARN advances to SENSE (legacy)', async () => {
+  it('project with loop.auto_continue=true: LEARN terminates at IDLE and schedules a cooldown restart', async () => {
     const project = factoryHealth.registerProject({
       name: 'AutoContinueLegacy',
       path: '/test/auto-continue-' + Date.now(),
@@ -119,6 +119,12 @@ describe('factory loop LEARN terminal state', () => {
     factoryHealth.updateProject(project.id, { loop_state: LOOP_STATES.LEARN });
 
     const result = await loopController.advanceLoopForProject(project.id);
-    expect(result.new_state).toBe(LOOP_STATES.SENSE);
+    expect(result.new_state).toBe(LOOP_STATES.IDLE);
+    expect(result.stage_result).toMatchObject({
+      auto_continue_scheduled: true,
+      cooldown_minutes: 30,
+    });
+    const updatedProject = factoryHealth.getProject(project.id);
+    expect(JSON.parse(updatedProject.config_json).loop.auto_continue_after).toEqual(expect.any(String));
   });
 });
