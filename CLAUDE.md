@@ -620,5 +620,64 @@ Use `/torque-sweep` when you want the full scout set, automatic triage, and imme
 - **Capture by `process` or `title`** so the verification target is explicit. Use `list_windows` when you need to discover what is running.
 - **Prefer window-targeted capture over blind desktop capture** so the result stays stable and actionable.
 
+## Factory Auto-Pilot
+
+The software factory runs autonomously when configured. One API call starts a self-driving cycle.
+
+### Starting the Factory
+
+```bash
+# Start with auto-advance (zero operator calls needed)
+start_factory_loop { project: "torque-public", auto_advance: true }
+
+# Or via REST
+curl -X POST http://127.0.0.1:3457/api/v2/factory/projects/<id>/loop/start \
+  -H "Content-Type: application/json" -d '{"auto_advance":true}'
+```
+
+### Configuration
+
+Enable continuous cycling and dark trust (no gates) via `set_factory_trust_level`:
+```
+set_factory_trust_level {
+  project: "torque-public",
+  trust_level: "dark",
+  config: { loop: { auto_continue: true } }
+}
+```
+
+- **auto_advance** — server chains stage transitions automatically via setTimeout. Fires instantly on stage completion. Retries after 30s on transient failures.
+- **auto_continue** — LEARN wraps back to SENSE instead of terminating, picking the next backlog item.
+- **factory tick** — 5-min setInterval safety net (`server/factory/factory-tick.js`). Catches anything auto_advance missed. Starts/stops with `pause_project`/`resume_project`. Auto-starts new loops for auto_continue projects with no active instances.
+- **startup resume** — on server restart, scans for active auto_continue instances and re-kicks auto_advance.
+
+### Operator Tools
+
+| Tool | Purpose |
+|------|---------|
+| `reset_factory_loop` | Clear stuck loop state, terminate instances, free stage occupancy |
+| `terminate_factory_loop_instance` | Force-terminate any instance (frees stage claims + worktree cleanup) |
+| `retry_factory_verify` | Resume from VERIFY_FAIL after operator fixes the issue |
+| `approve_factory_gate` / `reject_factory_gate` | Gate approval for supervised/guided trust levels |
+
+### Auto-Ship Detection
+
+At PRIORITIZE, the shipped-detector checks if git commit subjects already match the work item's title. Items that were fixed manually in a prior session are auto-marked shipped and skipped — no wasted execution cycles.
+
+At VERIFY_FAIL (after exhausting retries), the same check runs as a recovery path: if the work is already on main, ship it instead of stalling.
+
+### Worktree Lifecycle
+
+- **Creation:** auto-detects default branch (master vs main) per project
+- **Stale branch:** force-deletes orphan git branches on collision (`git branch -D` + retry)
+- **Stale DB rows:** reclaims active `factory_worktrees` rows from prior failed runs
+- **Merge:** cleans both source worktree AND target repo before merge (handles CRLF drift)
+- **Internal commits:** use `--no-verify` (PII already sanitized inline, hook would deadlock)
+- **Termination:** only abandons worktrees on failure/operator-kill, not on clean LEARN completion
+
+### Plan File Intake Dedup
+
+Plan intake skips re-ingest when the prior work item for the same plan_path is still active (pending, in_progress, verifying). This prevents duplicate work items from factory's own checkbox ticking changing the content hash.
+
 ---
 *Full safeguard documentation: see `docs/safeguards.md`*
