@@ -29,7 +29,7 @@
 
 ## Task 1: Permission chain
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/permission-chain.test.js`:
 
@@ -118,7 +118,7 @@ describe('evaluatePermission', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/providers/claude-code/permission-chain.js`:
 
