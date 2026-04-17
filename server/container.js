@@ -23,6 +23,9 @@ const logger = require('./logger').child({ component: 'container' });
 const path = require('path');
 
 const { createFamilyTemplates } = require('./db/family-templates');
+const { createActionRegistry } = require('./dispatch/action-registry');
+const { createConstructionCache } = require('./dispatch/construction-cache');
+const { createExecutor } = require('./dispatch/executor');
 const { migrateConfigToRegistry } = require('./discovery/config-migrator');
 const { createRunDirManager } = require('./runs/run-dir-manager');
 
@@ -196,6 +199,9 @@ const _defaultContainer = createContainer();
 // Register services that use the proper DI factory pattern (createXxx(deps)).
 // These are resolved at boot() time, after all values (e.g. 'db') are registered.
 _defaultContainer.register('familyTemplates', ['db'], createFamilyTemplates);
+_defaultContainer.register('actionRegistry', [], () => createActionRegistry());
+_defaultContainer.register('constructionCache', ['db'], ({ db }) => createConstructionCache({ db }));
+_defaultContainer.register('executor', ['actionRegistry'], ({ actionRegistry }) => createExecutor({ registry: actionRegistry }));
 
 function initModules(db, serverConfig) {
   if (!_defaultContainer.has('db')) {
@@ -227,6 +233,7 @@ function initModules(db, serverConfig) {
 
   const providerRegistry = require('./providers/registry');
   providerRegistry.init({ db });
+  providerRegistry.registerProviderClass('codex', require('./providers/v2-cli-providers').CodexCliProvider);
   if (!_defaultContainer.has('providerRegistry')) {
     _defaultContainer.registerValue('providerRegistry', providerRegistry);
   }
@@ -493,6 +500,7 @@ function initModules(db, serverConfig) {
     _defaultContainer.registerValue('contextHandler', require('./handlers/context-handler'));
     _defaultContainer.registerValue('experimentHandlers', require('./handlers/experiment-handlers'));
     _defaultContainer.registerValue('inboundWebhookHandlers', require('./handlers/inbound-webhook-handlers'));
+    _defaultContainer.registerValue('mcpToolsHandlers', require('./handlers/mcp-tools'));
     _defaultContainer.registerValue('orchestratorHandlers', require('./handlers/orchestrator-handlers'));
     _defaultContainer.registerValue('providerCrudHandlers', require('./handlers/provider-crud-handlers'));
     _defaultContainer.registerValue('providerHandlers', require('./handlers/provider-handlers'));

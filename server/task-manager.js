@@ -35,10 +35,11 @@ function initEarlyDeps() {
   if (!db || !db.isReady || !db.isReady()) return;
   _earlyDepsInitialized = true;
 
-  // Register API provider classes for lazy initialization via registry
+  // Register provider classes for lazy initialization via registry
   providerRegistry.init({ db });
   providerCfg.init({ db });
   serverConfig.init({ db });
+  providerRegistry.registerProviderClass('codex', require('./providers/v2-cli-providers').CodexCliProvider);
   providerRegistry.registerProviderClass('anthropic', require('./providers/anthropic'));
   providerRegistry.registerProviderClass('groq', require('./providers/groq'));
   providerRegistry.registerProviderClass('hyperbolic', require('./providers/hyperbolic'));

@@ -34,7 +34,7 @@
 
 ## Task 1: Action registry + executor
 
-- [ ] **Step 1: Registry tests**
+- [x] **Step 1: Registry tests**
 
 Create `server/tests/action-registry.test.js`:
 
@@ -86,7 +86,7 @@ describe('actionRegistry', () => {
 });
 ```
 
-- [ ] **Step 2: Implement registry + executor**
+- [x] **Step 2: Implement registry + executor**
 
 Create `server/dispatch/action-registry.js`:
 
@@ -161,7 +161,7 @@ Run tests → PASS. Commit: `feat(dispatch): action registry + deterministic exe
 
 ## Task 2: Translator + construction cache
 
-- [ ] **Step 1: Translator tests**
+- [x] **Step 1: Translator tests**
 
 Create `server/tests/translator.test.js`:
 
@@ -212,7 +212,7 @@ describe('translateToAction', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/dispatch/translator.js`:
 
@@ -256,7 +256,7 @@ module.exports = { translateToAction };
 
 Run tests → PASS. Commit: `feat(dispatch): translator with SAP + schema-retry loop`.
 
-- [ ] **Step 3: Construction cache tests + impl**
+- [x] **Step 3: Construction cache tests + impl**
 
 Create `server/tests/construction-cache.test.js`:
 
@@ -395,7 +395,7 @@ Run tests → PASS. Commit: `feat(dispatch): construction cache with template �
 
 ## Task 3: MCP glue
 
-- [ ] **Step 1: Tools**
+- [x] **Step 1: Tools**
 
 ```js
 register_action_schema: { description: 'Register a JSON schema + handlers for an action surface.', inputSchema: {...} },
@@ -409,7 +409,7 @@ dispatch_nl: {
 },
 ```
 
-- [ ] **Step 2: dispatch_nl handler**
+- [x] **Step 2: dispatch_nl handler**
 
 ```js
 case 'dispatch_nl': {

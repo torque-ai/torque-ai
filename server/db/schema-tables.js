@@ -39,6 +39,7 @@ const VALID_TABLE_NAMES = new Set([
   'config_baselines',
   'config_drift_results',
   'connected_accounts',
+  'construction_cache',
   'coordination_events',
   'cost_budgets',
   'cost_tracking',
@@ -1343,6 +1344,18 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_templates_name ON workflow_templates(name);
     `);
   db.exec(`
+      CREATE TABLE IF NOT EXISTS construction_cache (
+        pattern_id TEXT PRIMARY KEY,
+        surface TEXT NOT NULL,
+        normalized_template TEXT NOT NULL,
+        template_regex TEXT NOT NULL,
+        action_template_json TEXT NOT NULL,
+        hit_count INTEGER NOT NULL DEFAULT 0,
+        learned_from_utterance TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+  db.exec(`
       CREATE TABLE IF NOT EXISTS task_cache (
         id TEXT PRIMARY KEY,
         content_hash TEXT NOT NULL,
@@ -1447,6 +1460,7 @@ function createTables(db, logger) {
       )
     `);
   db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_construction_surface ON construction_cache(surface);
       CREATE INDEX IF NOT EXISTS idx_cache_hash ON task_cache(content_hash);
       CREATE INDEX IF NOT EXISTS idx_cache_expires ON task_cache(expires_at);
       CREATE INDEX IF NOT EXISTS idx_priority_combined ON task_priority_scores(combined_score DESC);
