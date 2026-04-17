@@ -1135,10 +1135,13 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
 
     if (worktreeRecord && worktreeRunner) {
       try {
+        // Use the worktree's base_branch as merge target — not all projects
+        // use 'main' (SpudgetBooks uses 'master').
+        const mergeTarget = worktreeRecord.base_branch || worktreeRecord.baseBranch || 'main';
         const mergeResult = await worktreeRunner.mergeToMain({
           id: worktreeRecord.vcWorktreeId,
           branch: worktreeRecord.branch,
-          target: 'main',
+          target: mergeTarget,
           strategy: 'merge',
         });
         factoryWorktrees.markMerged(worktreeRecord.id);

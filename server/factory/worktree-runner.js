@@ -151,8 +151,27 @@ function createWorktreeRunner({
     const slug = sanitizeSlug(workItem.title || `item-${workItem.id}`);
     const featureName = `factory-${workItem.id}-${slug}`;
 
+    // Detect the default branch — some projects use 'master' not 'main'.
+    let baseBranch = 'main';
+    try {
+      const headRef = spawnInBash(
+        `cd "${project.path}" && git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||'`,
+        { encoding: 'utf8', windowsHide: true }
+      );
+      const detected = (headRef.stdout || '').trim();
+      if (detected) {
+        baseBranch = detected;
+      } else {
+        const masterCheck = spawnInBash(
+          `cd "${project.path}" && git rev-parse --verify master 2>/dev/null`,
+          { encoding: 'utf8', windowsHide: true }
+        );
+        if (masterCheck.status === 0) baseBranch = 'master';
+      }
+    } catch (_e) { void _e; }
+
     const record = worktreeManager.createWorktree(project.path, featureName, {
-      baseBranch: 'main',
+      baseBranch,
     });
     if (logger) {
       logger.info('factory worktree created', {
