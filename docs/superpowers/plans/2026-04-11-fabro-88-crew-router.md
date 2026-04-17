@@ -213,7 +213,7 @@ Run tests → PASS. Commit: `feat(crew): code/llm/hybrid/round-robin router fact
 
 ## Task 2: Wire into crew runtime
 
-- [ ] **Step 1: Update crew-runtime.js**
+- [x] **Step 1: Update crew-runtime.js**
 
 In `server/crew/crew-runtime.js` (from Plan 26) — accept optional `router`:
 
@@ -242,7 +242,7 @@ async function runCrew({ objective, roles, mode = 'round_robin', max_rounds = 5,
 function reducer(state, turn) { return { ...state, [turn.role]: turn.output }; }
 ```
 
-- [ ] **Step 2: Extend `kind: crew` config**
+- [x] **Step 2: Extend `kind: crew` config**
 
 In `server/tool-defs/workflow-defs.js` add to the `crew` schema:
 
@@ -261,7 +261,7 @@ router: {
 
 When `router.mode === 'code'`, the runtime evaluates `code_fn` as a sandboxed function (Plan 75 sandbox or restricted `vm` context) — never shell-interpolated. `mode: llm` delegates to a router agent call via the same provider dispatch. `mode: hybrid` combines them.
 
-- [ ] **Step 3: Document modes**
+- [x] **Step 3: Document modes**
 
 Update `docs/crew-flow.md` (from Plan 26) with a new section:
 

@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, vi } = require('vitest');
 const { codeRouter, llmRouter, hybridRouter, roundRobinRouter } = require('../crew/routers');
 
 describe('routers', () => {

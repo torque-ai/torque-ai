@@ -1,8 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { createRequire } from 'node:module';
-import Database from 'better-sqlite3';
-
-const require = createRequire(import.meta.url);
+const Database = require('better-sqlite3');
 const serverConfig = require('../config');
 const taskCore = require('../db/task-core');
 const createCancellationHandler = require('../execution/task-cancellation');
