@@ -2,7 +2,8 @@
 
 import { beforeEach, describe, it, expect } from 'vitest';
 
-const { runCrewTurn } = require('../crew/crew-runner');
+const { runCrew, runCrewTurn } = require('../crew/crew-runner');
+const { codeRouter } = require('../crew/routers');
 const { createContextVariables } = require('../crew/context-variables');
 const { createHandoff, getHandoffHistory, resetHandoffState } = require('../crew/handoff');
 
@@ -102,5 +103,58 @@ describe('crew-runner handoff', () => {
         workflow_id: 'wf-123',
       }),
     ]);
+  });
+});
+
+describe('runCrew', () => {
+  it('defaults to round-robin routing and exits when output matches schema', async () => {
+    const roles = [{ name: 'planner' }, { name: 'critic' }];
+    const result = await runCrew({
+      objective: 'Ship a recommendation',
+      roles,
+      max_rounds: 3,
+      output_schema: {
+        type: 'object',
+        required: ['done', 'recommendation'],
+        properties: {
+          done: { const: true },
+          recommendation: { type: 'string' },
+        },
+      },
+      callRole: async ({ role, history }) => {
+        if (role.name === 'planner') {
+          return { output: { done: false, draft: history.length + 1 } };
+        }
+        return { output: { done: true, recommendation: 'merge it' } };
+      },
+    });
+
+    expect(result.terminated_by).toBe('output_matched_schema');
+    expect(result.rounds).toBe(2);
+    expect(result.history.map((entry) => entry.role)).toEqual(['planner', 'critic']);
+    expect(result.final_output).toEqual({ done: true, recommendation: 'merge it' });
+  });
+
+  it('stops early when the injected router returns null', async () => {
+    const roles = [{ name: 'planner' }, { name: 'critic' }];
+    const router = codeRouter((_state, turn) => (turn.turn_count === 0 ? 'critic' : null));
+    const result = await runCrew({
+      objective: 'Stop after one turn',
+      roles,
+      router,
+      callRole: async ({ role }) => ({ output: { speaker: role.name } }),
+    });
+
+    expect(result.terminated_by).toBe('router_stopped');
+    expect(result.rounds).toBe(1);
+    expect(result.history).toEqual([
+      expect.objectContaining({
+        role: 'critic',
+        agent: 'critic',
+        turn_count: 0,
+        output: { speaker: 'critic' },
+      }),
+    ]);
+    expect(result.final_output).toEqual({ speaker: 'critic' });
   });
 });

@@ -30,7 +30,7 @@ Each router has access to: shared state (Plan 27), turn history, message counts 
 
 ## Task 1: Routers
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/crew-routers.test.js`:
 
@@ -129,7 +129,7 @@ describe('routers', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/crew/routers.js`:
 

@@ -1,8 +1,12 @@
 'use strict';
 
+const Ajv = require('ajv');
 const { createContextVariables } = require('./context-variables');
 const { isHandoff, recordHandoffHistory } = require('./handoff');
+const { roundRobinRouter } = require('./routers');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
+
+const ajv = new Ajv({ allErrors: true, strict: false });
 
 function getTaskCore() {
   try {
@@ -107,6 +111,87 @@ function getTool(agent, agentName, toolName) {
   return tool;
 }
 
+function reducer(state, turn) {
+  return { ...state, [turn.role]: turn.output };
+}
+
+function extractRoleOutput(result) {
+  return result && typeof result === 'object' && Object.prototype.hasOwnProperty.call(result, 'output')
+    ? result.output
+    : result;
+}
+
+async function runCrew(opts = {}) {
+  const {
+    objective,
+    roles,
+    mode = 'round_robin',
+    max_rounds = 5,
+    output_schema,
+    router = null,
+    callRole,
+  } = opts;
+
+  if (!Array.isArray(roles) || roles.length === 0) {
+    throw new Error('runCrew: roles must be a non-empty array');
+  }
+  if (typeof callRole !== 'function') {
+    throw new Error('runCrew: callRole must be a function');
+  }
+  if (!Number.isInteger(max_rounds) || max_rounds < 1) {
+    throw new Error('runCrew: max_rounds must be a positive integer');
+  }
+
+  const activeRouter = router || roundRobinRouter();
+  if (!activeRouter || typeof activeRouter.pick !== 'function') {
+    throw new Error('runCrew: router must implement pick({ roles, state, turn })');
+  }
+
+  const validate = output_schema ? ajv.compile(output_schema) : null;
+  const history = [];
+
+  for (let turn_count = 0; turn_count < max_rounds * roles.length; turn_count += 1) {
+    const nextAgentName = await activeRouter.pick({
+      roles,
+      state: history.reduce(reducer, {}),
+      turn: { turn_count, history, mode },
+    });
+    if (nextAgentName === null) {
+      return {
+        terminated_by: 'router_stopped',
+        rounds: turn_count,
+        history,
+        final_output: history[history.length - 1]?.output || null,
+      };
+    }
+
+    const role = roles.find((entry) => entry.name === nextAgentName);
+    if (!role) {
+      throw new Error(`runCrew: router returned unknown role "${nextAgentName}"`);
+    }
+
+    const result = await callRole({ role, history, objective });
+    const output = extractRoleOutput(result);
+    history.push({ role: role.name, agent: role.name, turn_count, output });
+
+    if (validate && validate(output)) {
+      return {
+        terminated_by: 'output_matched_schema',
+        rounds: turn_count + 1,
+        history,
+        final_output: output,
+      };
+    }
+  }
+
+  return {
+    terminated_by: 'max_rounds',
+    rounds: max_rounds,
+    history,
+    final_output: history[history.length - 1]?.output || null,
+  };
+}
+
 async function runCrewTurn(opts = {}) {
   const { agents, state, toolCall } = opts;
 
@@ -179,4 +264,4 @@ async function runCrewTurn(opts = {}) {
   return { activeAgent: state.activeAgent, result };
 }
 
-module.exports = { runCrewTurn };
+module.exports = { runCrew, runCrewTurn };
