@@ -329,6 +329,7 @@ describe('api/v2-inference pure helpers', () => {
   it('leaves non-remapped attempt providers unchanged', () => {
     expect(handlers.getV2AttemptProvider('ollama', 'api')).toBe('ollama');
     expect(handlers.getV2AttemptProvider('claude-cli', 'cli')).toBe('claude-cli');
+    expect(handlers.getV2AttemptProvider('claude-code-sdk', 'cli')).toBe('claude-code-sdk');
   });
 
   it('prefers the explicit prompt field when present', () => {
@@ -502,6 +503,19 @@ describe('api/v2-inference pure helpers', () => {
       provider: 'anthropic',
       transport: 'api',
       reason: 'request_transport_api',
+      status: 'pending',
+    }]);
+  });
+
+  it('forces claude-code-sdk onto cli transport without fallback', () => {
+    expect(handlers.buildV2ExecutionPlan({
+      providerId: 'claude-code-sdk',
+      requestedTransport: 'api',
+      providerConfig: { transport: 'api' },
+    })).toEqual([{
+      provider: 'claude-code-sdk',
+      transport: 'cli',
+      reason: 'provider_transport_cli',
       status: 'pending',
     }]);
   });

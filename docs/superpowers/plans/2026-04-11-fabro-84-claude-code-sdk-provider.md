@@ -180,7 +180,7 @@ Run tests → PASS. Commit: `feat(claude-code): permission chain with hook/setti
 
 ## Task 2: Session store + skills loader
 
-- [ ] **Step 1: Session store (file-backed)**
+- [x] **Step 1: Session store (file-backed)**
 
 Create `server/providers/claude-code/session-store.js`:
 
@@ -237,7 +237,7 @@ function createSessionStore({ rootDir }) {
 module.exports = { createSessionStore };
 ```
 
-- [ ] **Step 2: Skills loader**
+- [x] **Step 2: Skills loader**
 
 Create `server/providers/claude-code/skills-loader.js`:
 

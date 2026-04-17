@@ -17,6 +17,7 @@ describe('v2-provider-registry', () => {
     const expectedProviders = [
       'codex',
       'claude-cli',
+      'claude-code-sdk',
       'ollama',
       'anthropic',
       'groq',

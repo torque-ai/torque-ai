@@ -5,6 +5,7 @@ const { safeJsonParse } = require('../utils/json');
 const DEFAULT_CAPABILITIES = {
   codex: { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
   'claude-cli': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
+  'claude-code-sdk': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
   deepinfra: { capabilities: ['reasoning', 'large_context', 'code_review'], band: 'B' },
   'ollama-cloud': { capabilities: ['reasoning', 'large_context', 'code_review'], band: 'B' },
   hyperbolic: { capabilities: ['reasoning', 'large_context'], band: 'B' },

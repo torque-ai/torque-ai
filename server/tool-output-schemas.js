@@ -763,6 +763,52 @@ const OUTPUT_SCHEMAS = {
     },
     required: ['workflow_id', 'workflow_status'],
   },
+
+  dispatch_subagent: {
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean' },
+      session_id: { type: 'string' },
+      claude_session_id: { type: ['string', 'null'] },
+      output: { type: 'string' },
+      usage: { type: 'object' },
+      mode: { type: 'string' },
+      skill: { type: ['string', 'null'] },
+      error: { type: 'string' },
+    },
+    required: ['ok'],
+  },
+
+  resume_session: {
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean' },
+      session: { type: 'object' },
+      error: { type: 'string' },
+    },
+    required: ['ok'],
+  },
+
+  fork_session: {
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean' },
+      session: { type: 'object' },
+      error: { type: 'string' },
+    },
+    required: ['ok'],
+  },
+
+  list_sessions: {
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean' },
+      count: { type: 'number' },
+      sessions: { type: 'array' },
+      error: { type: 'string' },
+    },
+    required: ['ok'],
+  },
 };
 
 /**

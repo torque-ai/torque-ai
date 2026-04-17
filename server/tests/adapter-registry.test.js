@@ -87,6 +87,7 @@ function installProviderMocks() {
     'ollama-strategic': createMockProviderClass('ollama-strategic', { supportsStreaming: false }),
     codex: createMockProviderClass('codex', { supportsStreaming: false }),
     'claude-cli': createMockProviderClass('claude-cli', { supportsStreaming: false }),
+    'claude-code-sdk': createMockProviderClass('claude-code-sdk'),
     ollama: createMockProviderClass('ollama'),
   };
 
@@ -95,6 +96,7 @@ function installProviderMocks() {
   installMock('../providers/hyperbolic', providers.hyperbolic.MockProvider);
   installMock('../providers/deepinfra', providers.deepinfra.MockProvider);
   installMock('../providers/ollama-strategic', providers['ollama-strategic'].MockProvider);
+  installMock('../providers/claude-code-sdk', providers['claude-code-sdk'].MockProvider);
   installMock('../providers/v2-cli-providers', {
     CodexCliProvider: providers.codex.MockProvider,
     ClaudeCliProvider: providers['claude-cli'].MockProvider,
@@ -114,6 +116,7 @@ function loadRegistry() {
 const expectedBuiltInProviderIds = [
   'anthropic',
   'claude-cli',
+  'claude-code-sdk',
   'codex',
   'deepinfra',
   'groq',

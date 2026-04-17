@@ -131,6 +131,9 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertProvider.run('claude-cli', 1, 2, 'claude', 'cli', null, JSON.stringify([
       'hit your limit', 'rate limit', 'resets', '429', 'quota exceeded', 'too many requests'
     ]), 10, now);
+  insertProvider.run('claude-code-sdk', 0, 4, 'claude', 'cli', null, JSON.stringify([
+      'hit your limit', 'rate limit', 'resets', '429', 'quota exceeded', 'too many requests'
+    ]), 10, now);
   insertProvider.run('ollama', 1, 3, 'api', 'api', null, JSON.stringify([
       'connection refused', 'timeout', 'ECONNREFUSED', 'model not found'
     ]), 2, now);
@@ -160,7 +163,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       'rate_limit', '429', 'model_not_available', 'server_error'
     ]), 50, now);
   const providerTypes = {
-    codex: 'cloud-cli', 'claude-cli': 'cloud-cli',
+    codex: 'cloud-cli', 'claude-cli': 'cloud-cli', 'claude-code-sdk': 'cloud-cli',
     ollama: 'ollama',
     anthropic: 'cloud-api', deepinfra: 'cloud-api', groq: 'cloud-api',
     hyperbolic: 'cloud-api', cerebras: 'cloud-api', 'google-ai': 'cloud-api',
@@ -175,6 +178,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   const PROVIDER_CAPABILITIES = {
     codex: { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
     'claude-cli': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
+    'claude-code-sdk': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
     deepinfra: { capabilities: ['reasoning', 'large_context', 'code_review'], band: 'B' },
     'ollama-cloud': { capabilities: ['reasoning', 'large_context', 'code_review'], band: 'B' },
     hyperbolic: { capabilities: ['reasoning', 'large_context'], band: 'B' },
