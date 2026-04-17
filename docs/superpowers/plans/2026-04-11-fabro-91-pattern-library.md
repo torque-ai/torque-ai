@@ -32,7 +32,7 @@ A `runPattern(patternName, input, vars)` entry point renders + runs + returns. T
 
 ## Task 1: Pattern loader
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/pattern-loader.test.js`:
 
@@ -101,7 +101,7 @@ describe('loadPatternsFromDir', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/patterns/pattern-loader.js`:
 
