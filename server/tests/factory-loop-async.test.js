@@ -1,10 +1,6 @@
-import Database from 'better-sqlite3';
-import { createRequire } from 'node:module';
-import path from 'node:path';
-import os from 'node:os';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const require = createRequire(import.meta.url);
+const Database = require('better-sqlite3');
+const path = require('node:path');
+const os = require('node:os');
 
 vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 

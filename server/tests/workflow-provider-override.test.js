@@ -81,6 +81,47 @@ describe('BUG-001b: workflow node provider override preserved through requeue', 
     }
   });
 
+  it('persists crew kind metadata and synthesizes a task description from the crew objective', async () => {
+    const result = await safeTool('create_workflow', {
+      name: 'crew-metadata-test',
+      working_directory: testDir,
+      tasks: [
+        {
+          node_id: 'crew-plan',
+          kind: 'crew',
+          crew: {
+            objective: 'Route planner, critic, and writer until done',
+            roles: [{ name: 'planner' }, { name: 'critic' }, { name: 'writer' }],
+            max_rounds: 8,
+            router: {
+              mode: 'hybrid',
+              code_fn: 'return turn.turn_count === 0 ? [\'planner\'] : [\'critic\', \'writer\'];',
+              agent_model: 'gpt-5.3-codex-spark',
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const workflowId = extractUUID(getText(result));
+    const [task] = db.getWorkflowTasks(workflowId);
+    expect(task.task_description).toBe('Crew objective: Route planner, critic, and writer until done');
+
+    const meta = parseMeta(task);
+    expect(meta.kind).toBe('crew');
+    expect(meta.crew).toEqual({
+      objective: 'Route planner, critic, and writer until done',
+      roles: [{ name: 'planner' }, { name: 'critic' }, { name: 'writer' }],
+      max_rounds: 8,
+      router: {
+        mode: 'hybrid',
+        code_fn: 'return turn.turn_count === 0 ? [\'planner\'] : [\'critic\', \'writer\'];',
+        agent_model: 'gpt-5.3-codex-spark',
+      },
+    });
+  });
+
   // ── BUG REPRODUCTION: provider survives requeue (updateTaskStatus 'queued') ──
 
   it('preserves provider when task is requeued via updateTaskStatus', () => {
@@ -211,6 +252,49 @@ describe('BUG-001b: workflow node provider override preserved through requeue', 
     const meta = parseMeta(addedTask);
     expect(meta.user_provider_override).toBe(true);
     expect(meta.intended_provider).toBe('openrouter');
+  });
+
+  it('add_workflow_task accepts crew nodes without an explicit task_description', async () => {
+    const wfResult = await safeTool('create_workflow', {
+      name: 'add-crew-task-test',
+      working_directory: testDir,
+      tasks: [
+        { node_id: 'seed', task_description: 'Seed task' },
+      ],
+    });
+    expect(wfResult.isError).toBeFalsy();
+    const workflowId = extractUUID(getText(wfResult));
+
+    const addResult = await safeTool('add_workflow_task', {
+      workflow_id: workflowId,
+      node_id: 'crew-node',
+      kind: 'crew',
+      crew: {
+        objective: 'Have planner speak first',
+        roles: [{ name: 'planner' }, { name: 'critic' }],
+        router: {
+          mode: 'code',
+          code_fn: 'return turn.turn_count === 0 ? \'planner\' : null;',
+        },
+      },
+    });
+    expect(addResult.isError).toBeFalsy();
+
+    const tasks = db.getWorkflowTasks(workflowId);
+    const addedTask = tasks.find((task) => task.workflow_node_id === 'crew-node');
+    expect(addedTask).toBeTruthy();
+    expect(addedTask.task_description).toBe('Crew objective: Have planner speak first');
+
+    const meta = parseMeta(addedTask);
+    expect(meta.kind).toBe('crew');
+    expect(meta.crew).toEqual({
+      objective: 'Have planner speak first',
+      roles: [{ name: 'planner' }, { name: 'critic' }],
+      router: {
+        mode: 'code',
+        code_fn: 'return turn.turn_count === 0 ? \'planner\' : null;',
+      },
+    });
   });
 
   // ── Mixed queue: override + auto-routed tasks coexist correctly ──

@@ -84,10 +84,187 @@ function buildEmptyWorkflowStartError(workflow) {
   };
 }
 
+const CREW_EXECUTION_MODES = new Set(['round_robin', 'hierarchical', 'parallel']);
+const CREW_ROUTER_MODES = new Set(['code', 'llm', 'hybrid', 'round_robin']);
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function cloneJsonValue(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function normalizeCrewTaskConfig(crew) {
+  if (!isPlainObject(crew)) {
+    return null;
+  }
+
+  const normalized = {};
+  if (typeof crew.objective === 'string') {
+    normalized.objective = crew.objective;
+  }
+  if (Array.isArray(crew.roles)) {
+    normalized.roles = crew.roles.map((role) => {
+      const nextRole = {};
+      if (typeof role?.name === 'string') nextRole.name = role.name;
+      if (typeof role?.description === 'string') nextRole.description = role.description;
+      if (typeof role?.provider === 'string') nextRole.provider = role.provider;
+      if (typeof role?.model === 'string') nextRole.model = role.model;
+      return nextRole;
+    });
+  }
+  if (typeof crew.mode === 'string') {
+    normalized.mode = crew.mode;
+  }
+  if (Number.isInteger(crew.max_rounds)) {
+    normalized.max_rounds = crew.max_rounds;
+  }
+  if (isPlainObject(crew.output_schema)) {
+    normalized.output_schema = cloneJsonValue(crew.output_schema);
+  }
+  if (isPlainObject(crew.router)) {
+    const router = {};
+    if (typeof crew.router.mode === 'string') router.mode = crew.router.mode;
+    if (typeof crew.router.code_fn === 'string') router.code_fn = crew.router.code_fn;
+    if (typeof crew.router.agent_model === 'string') router.agent_model = crew.router.agent_model;
+    if (typeof crew.router.agent_provider === 'string') router.agent_provider = crew.router.agent_provider;
+    normalized.router = router;
+  }
+
+  return normalized;
+}
+
+function validateCrewTaskLike(taskLike, nodeId, workflowId) {
+  const nodeLabel = nodeId || '(auto)';
+  const workflowLabel = workflowId || '(unknown)';
+  const kind = typeof taskLike?.kind === 'string' ? taskLike.kind.trim() : '';
+
+  if (!kind) {
+    return null;
+  }
+  if (kind !== 'crew') {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `Unsupported kind '${kind}' for node '${nodeLabel}' in workflow '${workflowLabel}'. Only 'crew' is currently supported.`
+    );
+  }
+  if (!isPlainObject(taskLike.crew)) {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `Crew task '${nodeLabel}' in workflow '${workflowLabel}' requires a crew object.`
+    );
+  }
+
+  const crew = taskLike.crew;
+  const objective = typeof crew.objective === 'string' ? crew.objective.trim() : '';
+  if (!objective) {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `Crew task '${nodeLabel}' in workflow '${workflowLabel}' requires crew.objective as a non-empty string.`
+    );
+  }
+  if (!Array.isArray(crew.roles) || crew.roles.length === 0) {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `Crew task '${nodeLabel}' in workflow '${workflowLabel}' requires crew.roles as a non-empty array.`
+    );
+  }
+  for (let index = 0; index < crew.roles.length; index += 1) {
+    const role = crew.roles[index];
+    if (!isPlainObject(role)) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `crew.roles[${index}] for node '${nodeLabel}' in workflow '${workflowLabel}' must be an object.`
+      );
+    }
+    const roleName = typeof role.name === 'string' ? role.name.trim() : '';
+    if (!roleName) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `crew.roles[${index}] for node '${nodeLabel}' in workflow '${workflowLabel}' requires a non-empty name.`
+      );
+    }
+    for (const fieldName of ['description', 'provider', 'model']) {
+      if (role[fieldName] !== undefined && typeof role[fieldName] !== 'string') {
+        return makeError(
+          ErrorCodes.INVALID_PARAM,
+          `crew.roles[${index}].${fieldName} for node '${nodeLabel}' in workflow '${workflowLabel}' must be a string when provided.`
+        );
+      }
+    }
+  }
+  if (crew.mode !== undefined && !CREW_EXECUTION_MODES.has(crew.mode)) {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `crew.mode for node '${nodeLabel}' in workflow '${workflowLabel}' must be one of: ${Array.from(CREW_EXECUTION_MODES).join(', ')}.`
+    );
+  }
+  if (crew.max_rounds !== undefined && (!Number.isInteger(crew.max_rounds) || crew.max_rounds < 1 || crew.max_rounds > 20)) {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `crew.max_rounds for node '${nodeLabel}' in workflow '${workflowLabel}' must be an integer between 1 and 20.`
+    );
+  }
+  if (crew.output_schema !== undefined && !isPlainObject(crew.output_schema)) {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `crew.output_schema for node '${nodeLabel}' in workflow '${workflowLabel}' must be an object when provided.`
+    );
+  }
+  if (crew.router !== undefined) {
+    if (!isPlainObject(crew.router)) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `crew.router for node '${nodeLabel}' in workflow '${workflowLabel}' must be an object when provided.`
+      );
+    }
+    const routerMode = typeof crew.router.mode === 'string' ? crew.router.mode.trim() : '';
+    if (!routerMode || !CREW_ROUTER_MODES.has(routerMode)) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `crew.router.mode for node '${nodeLabel}' in workflow '${workflowLabel}' must be one of: ${Array.from(CREW_ROUTER_MODES).join(', ')}.`
+      );
+    }
+    if ((routerMode === 'code' || routerMode === 'hybrid')
+      && (typeof crew.router.code_fn !== 'string' || crew.router.code_fn.trim().length === 0)) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `crew.router.code_fn is required for router mode '${routerMode}' on node '${nodeLabel}' in workflow '${workflowLabel}'.`
+      );
+    }
+    if ((routerMode === 'llm' || routerMode === 'hybrid')
+      && (typeof crew.router.agent_model !== 'string' || crew.router.agent_model.trim().length === 0)) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `crew.router.agent_model is required for router mode '${routerMode}' on node '${nodeLabel}' in workflow '${workflowLabel}'.`
+      );
+    }
+    if (crew.router.agent_provider !== undefined && typeof crew.router.agent_provider !== 'string') {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `crew.router.agent_provider for node '${nodeLabel}' in workflow '${workflowLabel}' must be a string when provided.`
+      );
+    }
+  }
+
+  return null;
+}
+
 function getEffectiveWorkflowTaskDescription(taskLike) {
-  return (taskLike.task && typeof taskLike.task === 'string' && taskLike.task.trim().length > 0)
-    ? taskLike.task
-    : taskLike.task_description;
+  if (taskLike.task && typeof taskLike.task === 'string' && taskLike.task.trim().length > 0) {
+    return taskLike.task;
+  }
+  if (taskLike.task_description && typeof taskLike.task_description === 'string' && taskLike.task_description.trim().length > 0) {
+    return taskLike.task_description;
+  }
+  if (taskLike.kind === 'crew' && isPlainObject(taskLike.crew)) {
+    const objective = typeof taskLike.crew.objective === 'string' ? taskLike.crew.objective.trim() : '';
+    if (objective) {
+      return `Crew objective: ${objective}`;
+    }
+  }
+  return null;
 }
 
 function safeParseInt(value, fallback, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY) {
@@ -125,6 +302,10 @@ function buildWorkflowTaskMetadata(taskLike) {
   }
   if (taskLike.routing_template) {
     metaObj._routing_template = taskLike.routing_template;
+  }
+  if (taskLike.kind === 'crew') {
+    metaObj.kind = 'crew';
+    metaObj.crew = normalizeCrewTaskConfig(taskLike.crew);
   }
   return metaObj;
 }
@@ -333,6 +514,11 @@ function normalizeInitialWorkflowTasks(taskDefs, workflowId, workflowWorkingDire
       };
     }
     seenNodeIds.add(nodeId);
+
+    const crewTaskError = validateCrewTaskLike(taskDef, nodeId, workflowId);
+    if (crewTaskError) {
+      return { ...crewTaskError };
+    }
 
     const effectiveDescription = getEffectiveWorkflowTaskDescription(taskDef);
     if (!effectiveDescription || typeof effectiveDescription !== 'string' || effectiveDescription.trim().length === 0) {
@@ -901,9 +1087,12 @@ function handleAddWorkflowTask(args) {
   // Support both 'task' (full prompt, from REST/MCP submit_task convention)
   // and 'task_description' (from MCP add_workflow_task convention).
   // When both are provided, 'task' is the full prompt and 'task_description' is just a label.
-  const effectiveDescription = (args.task && typeof args.task === 'string' && args.task.trim().length > 0)
-    ? args.task
-    : args.task_description;
+  const crewTaskError = validateCrewTaskLike(args, args.node_id, args.workflow_id);
+  if (crewTaskError) {
+    return crewTaskError;
+  }
+
+  const effectiveDescription = getEffectiveWorkflowTaskDescription(args);
 
   // Input validation
   if (!effectiveDescription || typeof effectiveDescription !== 'string' || effectiveDescription.trim().length === 0) {
@@ -1000,6 +1189,8 @@ function handleAddWorkflowTask(args) {
     project: resolvedProject,
     context_from: Array.isArray(args.context_from) ? args.context_from.slice() : [],
     routing_template: resolvedRoutingTemplate || undefined,
+    kind: args.kind,
+    crew: args.crew,
   };
   const policyResult = evaluateWorkflowTaskSubmissionPolicy(policyTask, args.workflow_id, workflow.working_directory);
   if (policyResult?.blocked === true) {

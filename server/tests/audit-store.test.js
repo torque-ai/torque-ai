@@ -1,8 +1,7 @@
 'use strict'
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import Database from 'better-sqlite3'
-import store from '../db/audit-store.js'
+const Database = require('better-sqlite3')
+const store = require('../db/audit-store.js')
 
 let db
 

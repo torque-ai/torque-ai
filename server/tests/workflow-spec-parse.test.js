@@ -107,6 +107,48 @@ tasks:
       { node_id: 'keep-me', task: 'Keep me', task_description: 'Keep me' },
     ]);
   });
+
+  it('accepts crew tasks with router configuration', () => {
+    const yamlText = `
+version: 1
+name: crew-workflow
+tasks:
+  - node_id: crew-plan
+    kind: crew
+    crew:
+      objective: Coordinate a planner and critic
+      roles:
+        - name: planner
+        - name: critic
+      max_rounds: 8
+      router:
+        mode: hybrid
+        code_fn: |
+          if (turn.turn_count === 0) return ['planner'];
+          return ['critic'];
+        agent_model: gpt-5.3-codex-spark
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(true);
+    expect(result.spec.tasks).toEqual([
+      {
+        node_id: 'crew-plan',
+        kind: 'crew',
+        crew: {
+          objective: 'Coordinate a planner and critic',
+          roles: [{ name: 'planner' }, { name: 'critic' }],
+          max_rounds: 8,
+          router: {
+            mode: 'hybrid',
+            code_fn: "if (turn.turn_count === 0) return ['planner'];\nreturn ['critic'];\n",
+            agent_model: 'gpt-5.3-codex-spark',
+          },
+        },
+      },
+    ]);
+  });
 });
 
 describe('workflow-spec parseSpec', () => {
