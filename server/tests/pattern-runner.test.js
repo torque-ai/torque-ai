@@ -1,7 +1,5 @@
 'use strict';
 
-const { describe, it, expect, vi } = require('vitest');
-
 const { runPattern } = require('../patterns/pattern-runner');
 
 describe('runPattern', () => {

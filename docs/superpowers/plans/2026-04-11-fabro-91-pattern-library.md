@@ -252,7 +252,7 @@ Run tests → PASS. Commit: `feat(patterns): runner with {{input}} + named var s
 
 ## Task 3: CLI + MCP + watcher
 
-- [ ] **Step 1: CLI**
+- [x] **Step 1: CLI**
 
 Create `server/patterns/cli.js`:
 
@@ -312,7 +312,7 @@ function readStdin() {
 main().catch(err => { console.error(err); process.exit(1); });
 ```
 
-- [ ] **Step 2: MCP tools**
+- [x] **Step 2: MCP tools**
 
 ```js
 list_patterns: { description: 'List all patterns from .torque/patterns/.', inputSchema: { type: 'object', properties: {} } },
@@ -329,7 +329,7 @@ run_pattern: {
 },
 ```
 
-- [ ] **Step 3: Container + example pattern**
+- [x] **Step 3: Container + example pattern**
 
 ```js
 container.factory('patternsStore', (c) => {

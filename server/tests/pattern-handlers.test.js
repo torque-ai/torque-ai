@@ -1,7 +1,5 @@
 'use strict';
 
-const { describe, expect, it, vi } = require('vitest');
-
 const { createPatternHandlers } = require('../handlers/pattern-handlers');
 
 describe('pattern-handlers', () => {

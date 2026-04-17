@@ -20,7 +20,8 @@ function resolvePatternsStore() {
     if (defaultContainer?.has?.('patternsStore')) {
       return defaultContainer.get('patternsStore');
     }
-  } catch {
+  } catch (error) {
+    void error;
     // Fall back to a local store when the DI container is not booted.
   }
 
@@ -36,11 +37,18 @@ function resolveProviderRegistry() {
     if (defaultContainer?.has?.('providerRegistry')) {
       return defaultContainer.get('providerRegistry');
     }
-  } catch {
+  } catch (error) {
+    void error;
     // Fall back to the module singleton when the DI container is not booted.
   }
 
   return require('../providers/registry');
+}
+
+function createPatternHandlerError(message, code = ErrorCodes.INTERNAL_ERROR) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
 }
 
 function ensureProviderRegistration(providerRegistry, providerName) {
@@ -60,20 +68,22 @@ function ensureProviderRegistration(providerRegistry, providerName) {
         providerRegistry.init({ db });
       }
     }
-  } catch {
+  } catch (error) {
+    void error;
     // Best-effort bootstrap only.
   }
 
   try {
     providerRegistry.registerProviderClass('codex', require('../providers/v2-cli-providers').CodexCliProvider);
-  } catch {
+  } catch (error) {
+    void error;
     // Ignore duplicate or unavailable registration paths.
   }
 }
 
 async function callProviderPrompt(provider, prompt, options = {}) {
   if (!provider) {
-    throw new Error('Provider instance is unavailable');
+    throw createPatternHandlerError('Provider instance is unavailable', ErrorCodes.NO_HOSTS_AVAILABLE);
   }
 
   if (typeof provider.runPrompt === 'function') {
@@ -96,7 +106,10 @@ async function callProviderPrompt(provider, prompt, options = {}) {
     return result?.output ?? result;
   }
 
-  throw new Error(`Provider "${provider.name || 'unknown'}" does not support prompt execution`);
+  throw createPatternHandlerError(
+    `Provider "${provider.name || 'unknown'}" does not support prompt execution`,
+    ErrorCodes.INVALID_PARAM,
+  );
 }
 
 function createPatternHandlers(deps = {}) {
