@@ -1,6 +1,9 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
+import { describe, expect, it } from 'vitest';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 const { parseMentions } = require('../repo-graph/mention-parser');
 
 describe('parseMentions', () => {

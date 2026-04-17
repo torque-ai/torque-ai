@@ -315,7 +315,7 @@ Run tests → PASS. Commit: `feat(mention): resolver for file/symbol/repo/dir/ur
 
 ## Task 4: Wire + MCP tools
 
-- [ ] **Step 1: Task startup injects resolved context**
+- [x] **Step 1: Task startup injects resolved context**
 
 In `server/execution/task-startup.js`:
 
@@ -336,7 +336,7 @@ if (parsed.mentions.length > 0) {
 }
 ```
 
-- [ ] **Step 2: MCP tools**
+- [x] **Step 2: MCP tools**
 
 ```js
 register_repo: { description: 'Register a repo for cross-repo code graph queries + @-mention resolution.', inputSchema: {...} },

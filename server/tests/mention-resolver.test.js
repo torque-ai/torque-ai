@@ -1,10 +1,13 @@
 'use strict';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
-const { describe, it, expect, beforeEach, afterEach, vi } = require('vitest');
 
 const { createTables } = require('../db/schema-tables');
 const { runMigrations } = require('../db/migrations');
