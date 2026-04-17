@@ -182,8 +182,11 @@ const OVERRIDES = Object.freeze({
   quick_setup_notifications:       Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   full_project_audit:              Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   list_run_artifacts:              READONLY,
+  list_patterns:                   READONLY,
+  describe_pattern:                READONLY,
   read_transcript:                 READONLY,
   replay_from_transcript:          DISPATCH,
+  run_pattern:                     DISPATCH,
 
   // idempotent: safe mutations, configurations, records
   share_context:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),

@@ -308,6 +308,14 @@ class CodexCliProvider extends CliProviderAdapter {
     });
   }
 
+  buildApiInput(task, model, options = {}) {
+    if (options?.raw_prompt === true) {
+      return cleanText(task);
+    }
+
+    return this.buildPrompt(task, model);
+  }
+
   buildPrompt(task, model) {
     return prompts.wrapWithInstructions(cleanText(task), 'codex', model);
   }
@@ -346,7 +354,7 @@ class CodexCliProvider extends CliProviderAdapter {
 
     const requestBody = {
       model: selectedModel,
-      input: this.buildPrompt(task, selectedModel),
+      input: this.buildApiInput(task, selectedModel, options),
     };
 
     if (Number.isFinite(Number(options?.maxTokens))) {
@@ -411,7 +419,9 @@ class CodexCliProvider extends CliProviderAdapter {
   }
 
   buildCommand(task, model, options) {
-    const prompt = this.buildPrompt(task, model);
+    const prompt = options?.raw_prompt === true
+      ? cleanText(task)
+      : this.buildPrompt(task, model);
     const args = ['exec', '--skip-git-repo-check'];
 
     if (model) {
@@ -434,6 +444,37 @@ class CodexCliProvider extends CliProviderAdapter {
       finalArgs: args,
       stdinPrompt: prompt,
     };
+  }
+
+  async runPrompt(promptInput, model, options = {}) {
+    let prompt = promptInput;
+    let resolvedModel = model;
+    const submitOptions = { ...options, raw_prompt: true };
+
+    if (promptInput && typeof promptInput === 'object' && !Array.isArray(promptInput)) {
+      prompt = promptInput.prompt;
+      resolvedModel = cleanText(promptInput.model) || model || null;
+
+      if (promptInput.transport) {
+        submitOptions.transport = promptInput.transport;
+      }
+      if (promptInput.working_directory) {
+        submitOptions.working_directory = promptInput.working_directory;
+      }
+
+      const requestedMaxTokens = Number(promptInput.max_tokens ?? promptInput.maxTokens);
+      if (Number.isFinite(requestedMaxTokens)) {
+        submitOptions.maxTokens = requestedMaxTokens;
+      }
+    }
+
+    const normalizedPrompt = cleanText(prompt);
+    if (!normalizedPrompt) {
+      throw new Error('prompt must be a non-empty string');
+    }
+
+    const result = await this.submit(normalizedPrompt, resolvedModel, submitOptions);
+    return result?.output ?? result;
   }
 }
 

@@ -152,7 +152,7 @@ Run tests → PASS. Commit: `feat(patterns): filesystem loader for .torque/patte
 
 ## Task 2: Pattern runner
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/pattern-runner.test.js`:
 
@@ -223,7 +223,7 @@ describe('runPattern', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/patterns/pattern-runner.js`:
 

@@ -616,6 +616,76 @@ describe('v2-cli-providers', () => {
     });
   });
 
+  it('runs raw prompts through the Codex CLI without wrapping instructions', async () => {
+    setPlatform('linux');
+    let spawnedChild;
+    const loaded = loadProviders({
+      childProcess: {
+        spawn: vi.fn(() => {
+          spawnedChild = createMockChild({
+            stdout: ['  raw output  '],
+            code: 0,
+          });
+          return spawnedChild;
+        }),
+      },
+    });
+    const provider = new loaded.CodexCliProvider();
+
+    const output = await provider.runPrompt({
+      prompt: 'System prompt\n\nUser prompt',
+      max_tokens: 123,
+      working_directory: '/tmp/patterns',
+    });
+
+    expect(output).toBe('raw output');
+    expect(spawnedChild.getStdinText()).toBe('System prompt\n\nUser prompt');
+    expect(loaded.prompts.wrapWithInstructions).not.toHaveBeenCalled();
+    expect(loaded.childProcess.spawn).toHaveBeenCalledWith(
+      'codex',
+      ['exec', '--skip-git-repo-check', '--full-auto', '-C', '/tmp/patterns', '-'],
+      expect.objectContaining({
+        cwd: '/tmp/patterns',
+      }),
+    );
+  });
+
+  it('runs raw prompts through the Codex API when transport=api is requested', async () => {
+    process.env.OPENAI_API_KEY = 'env-token';
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        output_text: 'pattern result',
+        usage: {
+          input_tokens: 2,
+          output_tokens: 1,
+          total_tokens: 3,
+        },
+      }),
+    });
+    const loaded = loadProviders();
+    const provider = new loaded.CodexCliProvider();
+
+    const output = await provider.runPrompt({
+      prompt: 'System prompt\n\nUser prompt',
+      transport: 'api',
+      max_tokens: 77,
+    });
+
+    expect(output).toBe('pattern result');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/responses',
+      expect.objectContaining({
+        body: JSON.stringify({
+          model: 'gpt-5.3-codex',
+          input: 'System prompt\n\nUser prompt',
+          max_output_tokens: 77,
+        }),
+      }),
+    );
+    expect(loaded.prompts.wrapWithInstructions).not.toHaveBeenCalled();
+  });
+
   it('throws when Codex API transport has no available token', async () => {
     delete process.env.OPENAI_API_KEY;
     const loaded = loadProviders({
