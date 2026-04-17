@@ -14,6 +14,12 @@ let _codexIntelligence = null;
 let _db = null;
 let _nvmNodePath = null;
 
+function getExecutionDescription(task) {
+  return typeof task?.execution_description === 'string' && task.execution_description.trim()
+    ? task.execution_description
+    : task.task_description;
+}
+
 function init({ wrapWithInstructions, providerCfg, contextEnrichment, codexIntelligence, db, nvmNodePath }) {
   if (!wrapWithInstructions) throw new Error('command-builders: wrapWithInstructions is required');
   if (!providerCfg) throw new Error('command-builders: providerCfg is required');
@@ -34,7 +40,8 @@ function init({ wrapWithInstructions, providerCfg, contextEnrichment, codexIntel
  * @returns {{ cliPath: string, finalArgs: string[], stdinPrompt: string }}
  */
 function buildClaudeCliCommand(task, providerConfig, resolvedFileContext) {
-  const effectiveTaskDescription = applyStudyContextPrompt(task.task_description, task.metadata);
+  const promptDescription = getExecutionDescription(task);
+  const effectiveTaskDescription = applyStudyContextPrompt(promptDescription, task.metadata);
   const wrappedDescription = _wrapWithInstructions(
     effectiveTaskDescription,
     'claude-cli',
@@ -75,7 +82,8 @@ function buildClaudeCliCommand(task, providerConfig, resolvedFileContext) {
  * @returns {Promise<{ cliPath: string, finalArgs: string[], stdinPrompt: string }>}
  */
 async function buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles) {
-  const effectiveTaskDescription = applyStudyContextPrompt(task.task_description, task.metadata);
+  const promptDescription = getExecutionDescription(task);
+  const effectiveTaskDescription = applyStudyContextPrompt(promptDescription, task.metadata);
   let stdinPrompt;
 
   if (resolvedFiles && resolvedFiles.length > 0 && task.working_directory) {

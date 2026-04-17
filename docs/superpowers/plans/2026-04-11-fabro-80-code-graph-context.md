@@ -172,7 +172,7 @@ Commit: `feat(repo-graph): registry + multi-repo indexer`.
 
 ## Task 3: Mention resolver
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/mention-resolver.test.js`:
 
@@ -234,7 +234,7 @@ describe('mentionResolver', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/repo-graph/mention-resolver.js`:
 

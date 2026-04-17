@@ -769,10 +769,23 @@ describe('tools.js live registry integration', () => {
     ['export_report_json', 'handleExportReportJSON'],
     ['create_handoff_agent', 'handleCreateHandoffAgent'],
     ['get_handoff_history', 'handleGetHandoffHistory'],
+    ['register_repo', 'handleRegisterRepo'],
+    ['list_repos', 'handleListRepos'],
+    ['reindex_repo', 'handleReindexRepo'],
+    ['resolve_mentions', 'handleResolveMentions'],
   ])('contains %s routed to %s', (toolName, handlerName) => {
     expect(realTools.routeMap.has(toolName)).toBe(true);
     expect(realTools.routeMap.get(toolName)).toEqual(expect.any(Function));
     expect(realTools.routeMap.get(toolName).name).toBe(handlerName);
+  });
+
+  it('includes repo graph MCP tool defs in the live TOOLS catalog', () => {
+    expect(getToolNames()).toEqual(expect.arrayContaining([
+      'register_repo',
+      'list_repos',
+      'reindex_repo',
+      'resolve_mentions',
+    ]));
   });
 
   it('omits inline-only tools from the auto-built routeMap', () => {

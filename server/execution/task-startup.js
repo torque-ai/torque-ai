@@ -12,6 +12,7 @@ const { execFileSync } = require('child_process');
 const logger = require('../logger').child({ component: 'task-startup' });
 const { TASK_TIMEOUTS } = require('../constants');
 const { parseGitStatusLine } = require('../utils/git');
+const { parseMentions } = require('../repo-graph/mention-parser');
 
 // ── Injected Dependencies ──────────────────────────────────────────────────
 let db;
@@ -95,6 +96,81 @@ function getRunDirManager() {
     // Container is best-effort here; startup can proceed without run-dir indexing support.
   }
   return null;
+}
+
+function getMentionResolver() {
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('mentionResolver')) {
+      return defaultContainer.get('mentionResolver');
+    }
+  } catch {
+    // The container is optional here; startup can continue without mention resolution.
+  }
+
+  try {
+    const { createMentionResolver } = require('../repo-graph/mention-resolver');
+    const rawDb = typeof db?.getDbInstance === 'function' ? db.getDbInstance() : db;
+    return createMentionResolver({ db: rawDb, logger });
+  } catch {
+    return null;
+  }
+}
+
+function formatResolvedMentionContext(result) {
+  const body = typeof result?.content === 'string' && result.content.trim()
+    ? result.content
+    : typeof result?.body_preview === 'string' && result.body_preview.trim()
+      ? result.body_preview
+      : JSON.stringify(result);
+
+  if (!body) return null;
+  return `## Context: ${result.raw}\n${body}`;
+}
+
+async function buildExecutionDescriptionWithMentions(task, taskId) {
+  const description = typeof task?.task_description === 'string' ? task.task_description : '';
+  if (!description.trim()) {
+    return description;
+  }
+
+  const parsed = parseMentions(description);
+  if (!Array.isArray(parsed.mentions) || parsed.mentions.length === 0) {
+    return description;
+  }
+
+  const resolver = getMentionResolver();
+  if (!resolver || typeof resolver.resolve !== 'function') {
+    logger.debug(`[MentionContext] Mention resolver unavailable for task ${taskId}`);
+    return description;
+  }
+
+  try {
+    const resolved = await resolver.resolve(parsed.mentions);
+    const resolvedBlocks = resolved
+      .filter((entry) => entry && entry.resolved)
+      .map(formatResolvedMentionContext)
+      .filter(Boolean);
+    const unresolvedCount = resolved.filter((entry) => !entry || !entry.resolved).length;
+
+    if (unresolvedCount > 0 && typeof db.addTaskTags === 'function') {
+      try {
+        db.addTaskTags(taskId, [`mentions:unresolved:${unresolvedCount}`]);
+      } catch (err) {
+        logger.debug(`[MentionContext] Failed to tag unresolved mentions for ${taskId}: ${err.message}`);
+      }
+    }
+
+    if (resolvedBlocks.length === 0) {
+      return description;
+    }
+
+    logger.info(`[MentionContext] Resolved ${resolvedBlocks.length}/${resolved.length} @-mention(s) for task ${taskId}`);
+    return `${resolvedBlocks.join('\n\n')}\n\n---\n\n${description}`;
+  } catch (err) {
+    logger.info(`[MentionContext] Non-fatal mention resolution error for task ${taskId}: ${err.message}`);
+    return description;
+  }
 }
 
 /**
@@ -555,6 +631,11 @@ async function startTask(taskId) {
     }
   }
 
+  const executionDescription = await buildExecutionDescriptionWithMentions(task, taskId);
+  const executionTask = executionDescription === task.task_description
+    ? task
+    : { ...task, execution_description: executionDescription };
+
   // Build command arguments based on provider
   let cliPath;
   let finalArgs;
@@ -572,7 +653,10 @@ async function startTask(taskId) {
         task.model = resolvedOllamaModel;
       }
     }
-    return executeOllamaTask(task);
+    if (executionTask !== task) {
+      executionTask.model = task.model;
+    }
+    return executeOllamaTask(executionTask);
   } else if (providerRegistry.isApiProvider(provider)) {
     // All cloud API providers use the same execution path via registry
     const instance = providerRegistry.getProviderInstance(provider);
@@ -633,22 +717,26 @@ async function startTask(taskId) {
         task.provider = 'codex';
         task.model = null;
       }
+      if (executionTask !== task) {
+        executionTask.provider = task.provider;
+        executionTask.model = task.model;
+      }
 
-      const codexResult = await buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles);
+      const codexResult = await buildCodexCommand(executionTask, providerConfig, resolvedFileContext, resolvedFiles);
       cliPath = codexResult.cliPath;
       finalArgs = codexResult.finalArgs;
       stdinPrompt = codexResult.stdinPrompt;
     } else {
-      return executeApiProvider(task, instance);
+      return executeApiProvider(executionTask, instance);
     }
   } else if (provider === 'claude-cli') {
-    const claudeResult = buildClaudeCliCommand(task, providerConfig, resolvedFileContext);
+    const claudeResult = buildClaudeCliCommand(executionTask, providerConfig, resolvedFileContext);
     cliPath = claudeResult.cliPath;
     finalArgs = claudeResult.finalArgs;
     stdinPrompt = claudeResult.stdinPrompt;
   } else {
     // Codex (default)
-    const codexResult = await buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles);
+    const codexResult = await buildCodexCommand(executionTask, providerConfig, resolvedFileContext, resolvedFiles);
     cliPath = codexResult.cliPath;
     finalArgs = codexResult.finalArgs;
     stdinPrompt = codexResult.stdinPrompt;

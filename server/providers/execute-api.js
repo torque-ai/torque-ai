@@ -118,6 +118,12 @@ function normalizeProviderName(provider) {
   return typeof provider === 'string' ? provider.trim().toLowerCase() : '';
 }
 
+function getExecutionDescription(task) {
+  return typeof task?.execution_description === 'string' && task.execution_description.trim()
+    ? task.execution_description
+    : task.task_description;
+}
+
 function isProviderEnabledAndHealthy(provider) {
   const normalizedProvider = normalizeProviderName(provider);
   if (!normalizedProvider) {
@@ -252,10 +258,11 @@ async function enrichTaskDescription(task) {
   try {
     meta = typeof task.metadata === 'string' ? safeJsonParse(task.metadata, {}) : (task.metadata || {});
   } catch {
-    return task.task_description;
+    return getExecutionDescription(task);
   }
 
-  let effectiveDescription = task.task_description;
+  const promptDescription = getExecutionDescription(task);
+  let effectiveDescription = promptDescription;
   const contextFiles = meta.context_files;
   const canStuffContext = meta.context_stuff !== false
     && Array.isArray(contextFiles)
@@ -266,7 +273,7 @@ async function enrichTaskDescription(task) {
     const result = await stuffContext({
       contextFiles,
       workingDirectory: task.working_directory || process.cwd(),
-      taskDescription: task.task_description,
+      taskDescription: promptDescription,
       provider: task.provider,
       model: task.model || undefined,
       contextBudget: meta.context_budget || undefined,
@@ -314,7 +321,7 @@ async function executeApiProvider(task, provider) {
     logger.info(`Starting API provider task`, { taskId, provider: provider.name, model });
 
     // Context-stuff: prepend file contents for free API providers
-    let effectiveDescription = task.task_description;
+    let effectiveDescription = getExecutionDescription(task);
     try {
       effectiveDescription = await enrichTaskDescription(task);
     } catch (ctxErr) {

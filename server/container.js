@@ -210,11 +210,11 @@ function initModules(db, serverConfig) {
   if (!_defaultContainer.has('serverConfig')) {
     _defaultContainer.registerValue('serverConfig', serverConfig);
   }
+  const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
   if (!_defaultContainer.has('runDirManager')) {
     const dataDir = typeof db.getDataDir === 'function'
       ? db.getDataDir()
       : require('./data-dir').getDataDir();
-    const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
     _defaultContainer.registerValue('runDirManager', createRunDirManager({
       db: rawDb,
       rootDir: path.join(dataDir, 'runs'),
@@ -573,6 +573,27 @@ function initModules(db, serverConfig) {
       symbolIndexer.init(db);
     }
     _defaultContainer.registerValue('symbolIndexer', symbolIndexer);
+  }
+  const { createRepoRegistry } = require('./repo-graph/repo-registry');
+  const ensureRepoRegistry = () => createRepoRegistry({ db: rawDb });
+  if (!_defaultContainer.has('repoRegistry')) {
+    _defaultContainer.registerValue('repoRegistry', createRepoRegistry({ db: rawDb }));
+  }
+  if (!_defaultContainer.has('graphIndexer')) {
+    const { createGraphIndexer } = require('./repo-graph/graph-indexer');
+    _defaultContainer.registerValue('graphIndexer', createGraphIndexer({
+      db: rawDb,
+      repoRegistry: ensureRepoRegistry(),
+      logger: logger.child({ component: 'graph-indexer' }),
+    }));
+  }
+  if (!_defaultContainer.has('mentionResolver')) {
+    const { createMentionResolver } = require('./repo-graph/mention-resolver');
+    _defaultContainer.registerValue('mentionResolver', createMentionResolver({
+      db: rawDb,
+      repoRegistry: ensureRepoRegistry(),
+      logger: logger.child({ component: 'mention-resolver' }),
+    }));
   }
   if (!_defaultContainer.has('templateRegistry')) {
     const { createTemplateRegistry } = require('./templates/registry');
