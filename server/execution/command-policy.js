@@ -59,6 +59,19 @@ const COMMAND_PROFILES = {
       name: 'gh auth status',
       match: (cmd, args) => isExecutable(cmd, 'gh') && matchesArg(args, 0, 'auth') && matchesArg(args, 1, 'status'),
     },
+    // .NET ecosystem
+    {
+      name: 'dotnet',
+      match: (cmd) => isExecutable(cmd, 'dotnet'),
+    },
+    {
+      name: 'pwsh',
+      match: (cmd) => isExecutable(cmd, 'pwsh'),
+    },
+    {
+      name: 'cmd',
+      match: (cmd) => isExecutable(cmd, 'cmd'),
+    },
   ],
   build: [
     {
