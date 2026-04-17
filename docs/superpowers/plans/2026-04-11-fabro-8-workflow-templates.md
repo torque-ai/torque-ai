@@ -292,7 +292,7 @@ git push --no-verify origin main
 
 ## Task 2: Wire into parser
 
-- [ ] **Step 1: Schema additions**
+- [x] **Step 1: Schema additions**
 
 In `server/workflow-spec/schema.js` top-level properties:
 
@@ -306,7 +306,7 @@ Per task `properties`:
 __remove: { type: 'boolean' },
 ```
 
-- [ ] **Step 2: Parser integration**
+- [x] **Step 2: Parser integration**
 
 In `server/workflow-spec/parse.js`, modify `parseSpec` to resolve extends BEFORE validation:
 
@@ -323,13 +323,13 @@ async function parseSpec(filePath) {
 
 (The detour through `js-yaml.dump` then `parseSpecString` ensures the same validation pipeline runs.)
 
-- [ ] **Step 3: Update test suite**
+- [x] **Step 3: Update test suite**
 
 The existing `parseSpec` tests still need to pass. Run the full `workflow-spec` test set:
 
 `npx vitest run tests/workflow-spec --no-coverage` → all PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/workflow-spec/parse.js server/workflow-spec/schema.js
