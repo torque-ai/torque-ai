@@ -29,6 +29,55 @@ const { handlePeekUi } = require('../../plugins/snapscope/handlers/capture');
 const logger = require('../../logger').child({ component: 'workflow-await' });
 const { safeJsonParse } = require('../../utils/json');
 
+/**
+ * Determine whether verify commands should route through torque-remote.
+ * Returns false when the project explicitly sets prefer_remote_tests: false,
+ * or when torque-remote isn't on PATH. On Windows, torque-remote is a bash
+ * script that Node can't exec directly — resolve the bash path so callers
+ * can spawn via `bash <script-path>` instead of direct execution.
+ */
+function shouldUseTorqueRemote(cwd) {
+  // Check project preference first — explicit false means skip wrapping.
+  try {
+    const { getProjectDefaults } = require('../../db/project-config-core');
+    const defaults = getProjectDefaults(cwd);
+    if (defaults && defaults.prefer_remote_tests === false) {
+      return { use: false, reason: 'prefer_remote_tests=false' };
+    }
+  } catch { /* project-config-core not available — fall through to PATH check */ }
+
+  // Detect torque-remote on PATH
+  try {
+    const whichResult = require('child_process').execFileSync('which', ['torque-remote'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
+    if (!whichResult) {
+      return { use: false, reason: 'not_on_path' };
+    }
+    // On Windows, Node can't exec bash scripts directly. Resolve a bash
+    // path so callers can spawn via `bash <script-path>`.
+    let bashPath = null;
+    if (process.platform === 'win32') {
+      const fs = require('fs');
+      for (const candidate of [
+        process.env.GIT_BASH,
+        'C:/Program Files/Git/bin/bash.exe',
+        'C:/Program Files (x86)/Git/bin/bash.exe',
+      ].filter(Boolean)) {
+        try { if (fs.existsSync(candidate)) { bashPath = candidate; break; } } catch {}
+      }
+      if (!bashPath) {
+        return { use: false, reason: 'bash_not_found_on_windows' };
+      }
+    }
+    return { use: true, scriptPath: whichResult, bashPath };
+  } catch {
+    return { use: false, reason: 'not_on_path' };
+  }
+}
+
 function buildTaskPeekArtifactSection(taskId, options = {}) {
   if (!taskId || typeof taskMetadata.listArtifacts !== 'function') {
     return '';
@@ -1180,12 +1229,8 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
           if (governanceWarnings) {
             output += governanceWarnings;
           }
-          let hasTorqueRemote = false;
-          try {
-            require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore', windowsHide: true });
-            hasTorqueRemote = true;
-          } catch {}
-          const effectiveCommand = hasTorqueRemote
+          const remoteCheck = shouldUseTorqueRemote(cwd);
+          const effectiveCommand = remoteCheck.use
             ? `torque-remote ${args.verify_command}`
             : args.verify_command;
           const verifyResult = safeExecChain(effectiveCommand, {
@@ -1654,17 +1699,19 @@ async function handleAwaitTask(args) {
                 return { content: [{ type: 'text', text: output }] };
               }
               governanceWarnings = formatPreVerifyGovernance(governanceResult?.warned, 'warnings');
-              let hasTorqueRemote = false;
-              try {
-                require('child_process').execFileSync('which', ['torque-remote'], { stdio: 'ignore', windowsHide: true });
-                hasTorqueRemote = true;
-              } catch {}
+              const remoteCheck = shouldUseTorqueRemote(cwd);
 
               let verifyResult;
-              if (hasTorqueRemote) {
+              if (remoteCheck.use) {
+                // On Windows, torque-remote is a bash script — Node can't
+                // exec it directly (ENOENT). Spawn via resolved bash path.
+                const execName = remoteCheck.bashPath || 'torque-remote';
+                const execArgs = remoteCheck.bashPath
+                  ? [remoteCheck.scriptPath, args.verify_command]
+                  : [args.verify_command];
                 verifyResult = executeValidatedCommandSync(
-                  'torque-remote',
-                  [args.verify_command],
+                  execName,
+                  execArgs,
                   {
                     profile: 'safe_verify',
                     source: 'await_task',
@@ -1675,7 +1722,7 @@ async function handleAwaitTask(args) {
                   }
                 );
               } else {
-                // Direct execution (backward compatibility)
+                // Direct execution (no torque-remote or prefer_remote_tests=false)
                 verifyResult = executeValidatedCommandSync(
                   process.platform === 'win32' ? 'cmd' : 'sh',
                   process.platform === 'win32' ? ['/c', args.verify_command] : ['-c', args.verify_command],
