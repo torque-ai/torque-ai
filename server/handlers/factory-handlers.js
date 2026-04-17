@@ -302,7 +302,7 @@ async function handleSetFactoryTrustLevel(args) {
   // existing config_json so callers can set individual keys like
   // { loop: { auto_continue: true } } without overwriting everything.
   if (args.config && typeof args.config === 'object') {
-    const existing = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })() : {};
+    const existing = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch (_e) { void _e; return {}; } })() : {};
     updates.config_json = JSON.stringify({ ...existing, ...args.config });
   }
   const updated = factoryHealth.updateProject(project.id, updates);
@@ -333,7 +333,7 @@ async function handlePauseProject(args) {
   try {
     const { stopTick } = require('../factory/factory-tick');
     stopTick(updated.id);
-  } catch { /* factory-tick not loaded */ }
+  } catch (_e) { void _e; /* factory-tick not loaded */ }
   logger.info(`Factory project paused: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" paused`,
@@ -361,7 +361,7 @@ async function handleResumeProject(args) {
   try {
     const { startTick } = require('../factory/factory-tick');
     startTick(updated);
-  } catch { /* factory-tick not loaded */ }
+  } catch (_e) { void _e; /* factory-tick not loaded */ }
   logger.info(`Factory project resumed: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" running`,
@@ -830,7 +830,7 @@ async function handleResetFactoryLoop(args) {
       try {
         loopController.terminateInstanceAndSync(inst.id, { abandonWorktree: true });
         terminated++;
-      } catch { /* best effort */ }
+      } catch (_e) { void _e; /* best effort */ }
     }
   }
   logger.info('Factory loop reset', {

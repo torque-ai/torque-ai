@@ -18,7 +18,7 @@ const activeTimers = new Map(); // project_id → intervalId
 
 function getProjectConfig(project) {
   if (!project.config_json) return {};
-  try { return JSON.parse(project.config_json); } catch { return {}; }
+  try { return JSON.parse(project.config_json); } catch (_e) { void _e; return {}; }
 }
 
 function tickProject(project) {
