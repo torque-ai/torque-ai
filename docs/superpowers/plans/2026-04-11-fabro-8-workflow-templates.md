@@ -341,7 +341,7 @@ git push --no-verify origin main
 
 ## Task 3: Reference template
 
-- [ ] **Step 1: Create the template**
+- [x] **Step 1: Create the template**
 
 Create `workflows/templates/feature-pipeline.yaml`:
 
@@ -384,7 +384,7 @@ tasks:
     tags: [shipping]
 ```
 
-- [ ] **Step 2: Create a concrete child as smoke test**
+- [x] **Step 2: Create a concrete child as smoke test**
 
 Create `workflows/example-extends-feature.yaml`:
 
@@ -401,13 +401,13 @@ tasks:
       Write a step-by-step plan to docs/superpowers/plans/auto-plan.md.
 ```
 
-- [ ] **Step 3: Verify it parses**
+- [x] **Step 3: Verify it parses**
 
 Use the MCP `validate_workflow_spec` tool against the new file. Expected: `valid: true` with all 4 tasks present (plan from child override, implement/verify/ship from base).
 
 If running headless without TORQUE: `node -e "require('./workflow-spec').parseSpec('workflows/example-extends-feature.yaml').then(r => console.log(JSON.stringify(r.ok ? r.spec.tasks.map(t=>t.node_id) : r.errors, null, 2)))"` → expect `["plan","implement","verify","ship"]`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add workflows/templates/feature-pipeline.yaml workflows/example-extends-feature.yaml
