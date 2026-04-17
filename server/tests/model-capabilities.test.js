@@ -42,6 +42,33 @@ describe('Model Capabilities Registry', () => {
       param_size_b: 14,
       source: 'fixture',
     });
+    // Reasoning-specialist model (replaces hardcoded deepseek-r1:14b refs)
+    mod.upsertModelCapabilities('test-reasoning:14b', {
+      score_code_gen: 0.6,
+      score_refactoring: 0.6,
+      score_testing: 0.6,
+      score_reasoning: 0.95,
+      score_docs: 0.5,
+      lang_typescript: 0.6, lang_javascript: 0.6, lang_python: 0.7,
+      lang_csharp: 0.5, lang_go: 0.5, lang_rust: 0.5, lang_general: 0.65,
+      context_window: 16384,
+      param_size_b: 14,
+      is_thinking_model: 1,
+      source: 'fixture',
+    });
+    // Small-context model for context_window filter tests
+    mod.upsertModelCapabilities('test-small-ctx:4b', {
+      score_code_gen: 0.4,
+      score_refactoring: 0.3,
+      score_testing: 0.3,
+      score_reasoning: 0.3,
+      score_docs: 0.4,
+      lang_typescript: 0.4, lang_javascript: 0.4, lang_python: 0.4,
+      lang_csharp: 0.3, lang_go: 0.3, lang_rust: 0.3, lang_general: 0.35,
+      context_window: 2048,
+      param_size_b: 4,
+      source: 'fixture',
+    });
   });
   afterAll(() => teardownTestDb());
 
@@ -57,8 +84,8 @@ describe('Model Capabilities Registry', () => {
       expect(row.score_code_gen).toBeGreaterThanOrEqual(0.85);
     });
 
-    it('deepseek-r1:14b has highest reasoning score', () => {
-      const row = rawDb().prepare('SELECT * FROM model_capabilities WHERE model_name = ?').get('deepseek-r1:14b');
+    it('test-reasoning:14b has highest reasoning score', () => {
+      const row = rawDb().prepare('SELECT * FROM model_capabilities WHERE model_name = ?').get('test-reasoning:14b');
       expect(row).toBeTruthy();
       expect(row.score_reasoning).toBeGreaterThanOrEqual(0.85);
     });
@@ -90,7 +117,7 @@ describe('Model Capabilities Registry', () => {
 
   describe('listModelCapabilities', () => {
     it('returns all seeded models', () => {
-      expect(mod.listModelCapabilities().length).toBeGreaterThanOrEqual(6);
+      expect(mod.listModelCapabilities().length).toBeGreaterThanOrEqual(4);
     });
   });
 
@@ -114,19 +141,19 @@ describe('Model Capabilities Registry', () => {
 
   describe('selectBestModel', () => {
     it('ranks the quality test model first for code_gen + typescript', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'complex', [TEST_MODELS.QUALITY, TEST_MODELS.BALANCED, 'qwen3:8b', 'deepseek-r1:14b']);
+      const result = mod.selectBestModel('code_gen', 'typescript', 'complex', [TEST_MODELS.QUALITY, TEST_MODELS.BALANCED, 'test-reasoning:14b']);
       expect(result.length).toBeGreaterThan(0);
       expect(result[0].model).toBe(TEST_MODELS.QUALITY);
     });
 
-    it('ranks deepseek-r1:14b first for reasoning tasks', () => {
-      const result = mod.selectBestModel('reasoning', 'general', 'normal', [TEST_MODELS.QUALITY, TEST_MODELS.BALANCED, 'deepseek-r1:14b', 'qwen3:8b']);
-      expect(result[0].model).toBe('deepseek-r1:14b');
+    it('ranks reasoning model first for reasoning tasks', () => {
+      const result = mod.selectBestModel('reasoning', 'general', 'normal', [TEST_MODELS.QUALITY, TEST_MODELS.BALANCED, 'test-reasoning:14b']);
+      expect(result[0].model).toBe('test-reasoning:14b');
     });
 
     it('filters models by context window', () => {
-      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', [TEST_MODELS.QUALITY, 'gemma3:4b'], { estimatedTokens: 5000 });
-      expect(result.map(r => r.model)).not.toContain('gemma3:4b');
+      const result = mod.selectBestModel('code_gen', 'typescript', 'normal', [TEST_MODELS.QUALITY, 'test-small-ctx:4b'], { estimatedTokens: 5000 });
+      expect(result.map(r => r.model)).not.toContain('test-small-ctx:4b');
     });
 
     it('returns empty array for empty models', () => {
