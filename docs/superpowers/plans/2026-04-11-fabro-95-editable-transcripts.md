@@ -30,7 +30,7 @@
 
 ## Task 1: Transcript log
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/transcript-log.test.js`:
 
@@ -98,7 +98,7 @@ describe('transcriptLog', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/transcripts/transcript-log.js`:
 
