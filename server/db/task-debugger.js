@@ -163,14 +163,17 @@ function checkBreakpoints(taskId, text, type = 'output') {
 function createDebugSession(session) {
   const stmt = db.prepare(`
     INSERT INTO debug_sessions (
-      id, task_id, status, step_mode, created_at
-    ) VALUES (?, ?, ?, ?, ?)
+      id, task_id, status, current_breakpoint_id, paused_at_sequence, captured_state, step_mode, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
     session.id,
     session.task_id,
     session.status || 'active',
+    session.current_breakpoint_id || null,
+    session.paused_at_sequence || null,
+    session.captured_state !== undefined ? JSON.stringify(session.captured_state) : null,
     session.step_mode || null,
     new Date().toISOString()
   );

@@ -23,6 +23,7 @@ const { extractBuildErrorFiles } = require('./post-task');
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { checkResourceGate } = require('../utils/resource-gate');
 const { elicit } = require('../mcp/elicitation');
+const { copyWorkspaceToSandbox } = require('../sandbox/workspace-sync');
 
 // Providers that get auto-verify by default
 const AUTO_VERIFY_PROVIDERS = new Set([
@@ -46,6 +47,7 @@ let _db = null;
 let _startTask = null;
 let _processQueue = null;
 let _testRunnerRegistry = null;
+let _sandboxManager = null;
 
 function tryParseJson(value) {
   if (!value || typeof value !== 'string') return null;
@@ -68,16 +70,156 @@ function isRetryTask(task) {
  */
 function init(deps) {
   if (deps.db) _db = deps.db;
-  serverConfig.init({ db: deps.db });
+  serverConfig.init({ db: deps.db || _db });
   if (deps.startTask) _startTask = deps.startTask;
   if (deps.processQueue) _processQueue = deps.processQueue;
   if (deps.testRunnerRegistry) _testRunnerRegistry = deps.testRunnerRegistry;
+  if (Object.prototype.hasOwnProperty.call(deps, 'sandboxManager')) {
+    _sandboxManager = deps.sandboxManager || null;
+  }
 }
 
 function getRouter() {
   if (_testRunnerRegistry) return _testRunnerRegistry;
   _testRunnerRegistry = createTestRunnerRegistry();
   return _testRunnerRegistry;
+}
+
+function getTaskMetadata(task) {
+  const metadata = typeof task?.metadata === 'object' ? task.metadata : tryParseJson(task?.metadata);
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return {};
+  }
+  return metadata;
+}
+
+function pickFirstString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function pickFirstPositiveInteger(...values) {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function resolveVerifySandboxConfig(taskMetadata) {
+  return {
+    enabled: taskMetadata.verify_in_sandbox === true,
+    backend: pickFirstString(
+      taskMetadata.verify_sandbox_backend,
+      taskMetadata.sandbox_backend,
+      'local-process',
+    ) || 'local-process',
+    image: pickFirstString(
+      taskMetadata.verify_sandbox_image,
+      taskMetadata.sandbox_image,
+    ),
+    timeoutMs: pickFirstPositiveInteger(
+      taskMetadata.verify_sandbox_timeout_ms,
+      taskMetadata.sandbox_timeout_ms,
+      300000,
+    ) || 300000,
+    workspacePath: pickFirstString(
+      taskMetadata.verify_sandbox_workspace,
+      taskMetadata.sandbox_workspace,
+      'workspace',
+    ) || 'workspace',
+  };
+}
+
+function buildSandboxShellInvocation(command, backend) {
+  if (backend === 'local-process' && process.platform === 'win32') {
+    return {
+      cmd: 'cmd',
+      args: ['/d', '/s', '/c', command],
+    };
+  }
+
+  return {
+    cmd: 'sh',
+    args: ['-lc', command],
+  };
+}
+
+async function runVerifyCommandInSandbox(task, verifyCommand, sandboxConfig) {
+  const startMs = Date.now();
+
+  if (!_sandboxManager) {
+    return {
+      success: false,
+      output: '',
+      error: 'sandbox manager is not initialized',
+      exitCode: 1,
+      durationMs: Date.now() - startMs,
+      remote: false,
+      sandboxed: true,
+      timedOut: false,
+    };
+  }
+
+  const created = await _sandboxManager.create({
+    backend: sandboxConfig.backend,
+    image: sandboxConfig.image || undefined,
+    timeoutMs: sandboxConfig.timeoutMs,
+  });
+
+  try {
+    const syncSummary = await copyWorkspaceToSandbox({
+      sandboxManager: _sandboxManager,
+      sandboxId: created.sandboxId,
+      sourceDir: task.working_directory,
+      targetDir: sandboxConfig.workspacePath,
+    });
+    const shellCommand = buildSandboxShellInvocation(verifyCommand, created.backend);
+    const result = await _sandboxManager.runCommand(created.sandboxId, {
+      ...shellCommand,
+      cwd: sandboxConfig.workspacePath,
+      timeoutMs: sandboxConfig.timeoutMs,
+    });
+
+    return {
+      success: result.exitCode === 0,
+      output: result.stdout || '',
+      error: result.stderr || '',
+      exitCode: result.exitCode,
+      durationMs: Date.now() - startMs,
+      remote: created.backend !== 'local-process',
+      sandboxed: true,
+      timedOut: false,
+      sandbox_backend: created.backend,
+      sandbox_id: created.sandboxId,
+      workspace_sync: syncSummary,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      output: '',
+      error: error.message || String(error),
+      exitCode: 1,
+      durationMs: Date.now() - startMs,
+      remote: created.backend !== 'local-process',
+      sandboxed: true,
+      timedOut: false,
+      sandbox_backend: created.backend,
+      sandbox_id: created.sandboxId,
+    };
+  } finally {
+    try {
+      await _sandboxManager.destroy(created.sandboxId);
+    } catch (destroyError) {
+      logger.warn(`[auto-verify] Failed to destroy sandbox ${created.sandboxId}: ${destroyError.message}`);
+    }
+  }
 }
 
 /**
@@ -126,6 +268,9 @@ async function handleAutoVerifyRetry(ctx) {
   const verifyCommand = config.verify_command;
   if (!verifyCommand) return;
 
+  const taskMetadata = getTaskMetadata(task);
+  const sandboxConfig = resolveVerifySandboxConfig(taskMetadata);
+
   const hostMonitoring = require('../utils/host-monitoring');
   const hostId = task.ollama_host_id || null;
   const gateResult = checkResourceGate(hostMonitoring.hostActivityCache, hostId);
@@ -143,15 +288,17 @@ async function handleAutoVerifyRetry(ctx) {
     return;
   }
 
-  logger.info(`[auto-verify] Task ${taskId}: running verify_command for project "${project}"`);
-
-  // Run verify_command (routes to remote agent when configured, falls back to local).
-  // Pass provider so codex tasks auto-discover a remote workstation with test_runners.
-  const router = getRouter();
-  const verifyResult = await router.runVerifyCommand(verifyCommand, task.working_directory, {
-    timeout: 300000, // 5 minutes — tsc + vitest can be slow on large projects
-    provider,
-  });
+  const verifyResult = sandboxConfig.enabled
+    ? await runVerifyCommandInSandbox(task, verifyCommand, sandboxConfig)
+    : await getRouter().runVerifyCommand(verifyCommand, task.working_directory, {
+      timeout: 300000, // 5 minutes — tsc + vitest can be slow on large projects
+      provider,
+    });
+  logger.info(
+    sandboxConfig.enabled
+      ? `[auto-verify] Task ${taskId}: ran verify_command in sandbox backend "${verifyResult.sandbox_backend || sandboxConfig.backend}" for project "${project}"`
+      : `[auto-verify] Task ${taskId}: running verify_command for project "${project}"`,
+  );
   const verifyOutput = (verifyResult.output || '') + (verifyResult.error || '');
   const verifyExitCode = verifyResult.exitCode;
 
@@ -302,7 +449,6 @@ async function handleAutoVerifyRetry(ctx) {
   }
 
   // Try elicitation before auto-fix or failure — let the human decide
-  const taskMetadata = typeof task.metadata === 'object' ? task.metadata : tryParseJson(task.metadata) || {};
   const mcpSessionId = taskMetadata.mcp_session_id;
   if (mcpSessionId) {
     try {

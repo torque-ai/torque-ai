@@ -211,7 +211,7 @@ Run tests → PASS. Commit: `feat(sandbox): local-process backend with cwd escap
 
 ## Task 2: Manager
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/sandbox-manager.test.js`:
 
@@ -252,7 +252,7 @@ describe('sandboxManager', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/sandbox/sandbox-manager.js`:
 

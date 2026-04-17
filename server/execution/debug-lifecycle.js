@@ -10,11 +10,13 @@ const taskCore = require('../db/task-core');
 const taskMetadata = require('../db/task-metadata');
 const logger = require('../logger').child({ component: 'debug-lifecycle' });
 const { pauseProcess } = require('./process-lifecycle');
+const { copyWorkspaceToSandbox } = require('../sandbox/workspace-sync');
 
 // DI slots — set via init()
 let _runningProcesses = null;
 let _startTask = null;
 let _estimateProgress = null;
+let _sandboxManager = null;
 
 /**
  * Initialize with dependencies that would be circular if required directly.
@@ -25,9 +27,144 @@ let _estimateProgress = null;
  * @param {Function} deps.estimateProgressFn - task-manager.estimateProgress
  */
 function init({ runningProcesses, startTaskFn, estimateProgressFn }) {
-  _runningProcesses = runningProcesses;
-  _startTask = startTaskFn;
-  _estimateProgress = estimateProgressFn;
+  if (runningProcesses) _runningProcesses = runningProcesses;
+  if (startTaskFn) _startTask = startTaskFn;
+  if (estimateProgressFn) _estimateProgress = estimateProgressFn;
+  if (arguments[0] && Object.prototype.hasOwnProperty.call(arguments[0], 'sandboxManager')) {
+    _sandboxManager = arguments[0].sandboxManager || null;
+  }
+}
+
+function tryParseJson(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function getTaskMetadata(task) {
+  const metadata = typeof task?.metadata === 'object' ? task.metadata : tryParseJson(task?.metadata);
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return {};
+  }
+  return metadata;
+}
+
+function pickFirstString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function pickFirstPositiveInteger(...values) {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function resolveDebugSandboxConfig(taskMetadata) {
+  return {
+    enabled: taskMetadata.debug_in_sandbox === true,
+    backend: pickFirstString(
+      taskMetadata.debug_sandbox_backend,
+      taskMetadata.sandbox_backend,
+      'local-process',
+    ) || 'local-process',
+    image: pickFirstString(
+      taskMetadata.debug_sandbox_image,
+      taskMetadata.sandbox_image,
+    ),
+    timeoutMs: pickFirstPositiveInteger(
+      taskMetadata.debug_sandbox_timeout_ms,
+      taskMetadata.sandbox_timeout_ms,
+      3600000,
+    ) || 3600000,
+    workspacePath: pickFirstString(
+      taskMetadata.debug_sandbox_workspace,
+      taskMetadata.sandbox_workspace,
+      'workspace',
+    ) || 'workspace',
+  };
+}
+
+function mergeCapturedState(session, updates) {
+  const capturedState = session?.captured_state && typeof session.captured_state === 'object'
+    ? session.captured_state
+    : {};
+  return {
+    ...capturedState,
+    ...updates,
+  };
+}
+
+async function attachDebugSandbox(taskId, session) {
+  if (!_sandboxManager || !session?.id) {
+    return;
+  }
+
+  const task = taskCore.getTask(taskId);
+  if (!task?.working_directory) {
+    return;
+  }
+
+  const sandboxConfig = resolveDebugSandboxConfig(getTaskMetadata(task));
+  if (!sandboxConfig.enabled) {
+    return;
+  }
+
+  const existingSandbox = session?.captured_state?.sandbox;
+  if (existingSandbox?.sandbox_id) {
+    return;
+  }
+
+  try {
+    const created = await _sandboxManager.create({
+      backend: sandboxConfig.backend,
+      image: sandboxConfig.image || undefined,
+      timeoutMs: sandboxConfig.timeoutMs,
+    });
+    const syncSummary = await copyWorkspaceToSandbox({
+      sandboxManager: _sandboxManager,
+      sandboxId: created.sandboxId,
+      sourceDir: task.working_directory,
+      targetDir: sandboxConfig.workspacePath,
+    });
+
+    taskMetadata.updateDebugSession(session.id, {
+      captured_state: mergeCapturedState(session, {
+        sandbox: {
+          sandbox_id: created.sandboxId,
+          backend: created.backend,
+          image: sandboxConfig.image || null,
+          workspace_path: sandboxConfig.workspacePath,
+          created_at: new Date().toISOString(),
+          workspace_sync: syncSummary,
+        },
+      }),
+    });
+    logger.info(`Attached sandbox ${created.sandboxId} to debug session ${session.id}`);
+  } catch (error) {
+    taskMetadata.updateDebugSession(session.id, {
+      captured_state: mergeCapturedState(session, {
+        sandbox: {
+          backend: sandboxConfig.backend,
+          image: sandboxConfig.image || null,
+          error: error.message || String(error),
+          requested_at: new Date().toISOString(),
+        },
+      }),
+    });
+    logger.warn(`Failed to attach sandbox for debug session ${session.id}: ${error.message}`);
+  }
 }
 
 /**
@@ -185,11 +322,12 @@ function pauseTaskForDebug(taskId, breakpoint) {
         current_breakpoint_id: breakpoint.id
       });
     } else {
-      taskMetadata.updateDebugSession(session.id, {
+      session = taskMetadata.updateDebugSession(session.id, {
         status: 'paused',
         current_breakpoint_id: breakpoint.id
-      });
+      }) || session;
     }
+    void attachDebugSandbox(taskId, session);
 
     // Capture state
     taskMetadata.recordDebugCapture({

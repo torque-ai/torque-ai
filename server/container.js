@@ -243,6 +243,28 @@ function initModules(db, serverConfig) {
   if (!_defaultContainer.has('mcpProtocol')) {
     _defaultContainer.registerValue('mcpProtocol', mcpProtocol);
   }
+  if (!_defaultContainer.has('sandboxManager')) {
+    const { createSandboxManager } = require('./sandbox/sandbox-manager');
+    const { createLocalProcessBackend } = require('./sandbox/backends/local-process');
+
+    const sandboxManager = createSandboxManager();
+    sandboxManager.registerBackend('local-process', createLocalProcessBackend({
+      workDir: path.join('.torque', 'sandbox'),
+    }));
+
+    if (process.env.E2B_API_KEY) {
+      try {
+        const { createE2BBackend } = require('./sandbox/backends/e2b-backend');
+        sandboxManager.registerBackend('e2b', createE2BBackend({
+          apiKey: process.env.E2B_API_KEY,
+        }));
+      } catch (error) {
+        logger.warn(`Container: unable to register e2b sandbox backend: ${error.message}`);
+      }
+    }
+
+    _defaultContainer.registerValue('sandboxManager', sandboxManager);
+  }
 
   // Stateless db utilities — pure functions, no DI needed
   if (!_defaultContainer.has('configKeys')) {

@@ -202,6 +202,20 @@ function handleInspectState(args) {
     }
   }
 
+  const sandbox = state.session.captured_state && state.session.captured_state.sandbox;
+  if (sandbox) {
+    output += `**Sandbox Backend:** ${sandbox.backend || 'unknown'}\n`;
+    if (sandbox.sandbox_id) {
+      output += `**Sandbox ID:** ${sandbox.sandbox_id}\n`;
+    }
+    if (sandbox.workspace_path) {
+      output += `**Sandbox Workspace:** ${sandbox.workspace_path}\n`;
+    }
+    if (sandbox.error) {
+      output += `**Sandbox Error:** ${sandbox.error}\n`;
+    }
+  }
+
   if (state.captures.length > 0) {
     output += `\n### Captures (${state.captures.length})\n\n`;
 
@@ -261,6 +275,20 @@ function handleDebugStatus(args) {
 
     if (session.current_breakpoint_id) {
       output += `**Current Breakpoint:** ${session.current_breakpoint_id.substring(0, 8)}...\n`;
+    }
+
+    const sandbox = session.captured_state && session.captured_state.sandbox;
+    if (sandbox) {
+      output += `**Sandbox Backend:** ${sandbox.backend || 'unknown'}\n`;
+      if (sandbox.sandbox_id) {
+        output += `**Sandbox ID:** ${sandbox.sandbox_id}\n`;
+      }
+      if (sandbox.workspace_path) {
+        output += `**Sandbox Workspace:** ${sandbox.workspace_path}\n`;
+      }
+      if (sandbox.error) {
+        output += `**Sandbox Error:** ${sandbox.error}\n`;
+      }
     }
 
     const captures = getDebugCaptures(session.id);
