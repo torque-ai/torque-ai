@@ -329,6 +329,11 @@ async function handlePauseProject(args) {
   } catch (err) {
     logger.warn({ err }, 'Failed to record pause audit event');
   }
+  // Stop factory tick timer when project is paused
+  try {
+    const { stopTick } = require('../factory/factory-tick');
+    stopTick(updated.id);
+  } catch { /* factory-tick not loaded */ }
   logger.info(`Factory project paused: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" paused`,
@@ -352,6 +357,11 @@ async function handleResumeProject(args) {
   } catch (err) {
     logger.warn({ err }, 'Failed to record resume audit event');
   }
+  // Start factory tick timer when project resumes
+  try {
+    const { startTick } = require('../factory/factory-tick');
+    startTick(updated);
+  } catch { /* factory-tick not loaded */ }
   logger.info(`Factory project resumed: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" running`,
@@ -801,6 +811,40 @@ async function handleGuardrailEvents(args) {
   return jsonResponse({ project: project.name, events });
 }
 
+async function handleResetFactoryLoop(args) {
+  const project = resolveProject(args.project);
+  const updated = factoryHealth.updateProject(project.id, {
+    loop_state: 'IDLE',
+    loop_batch_id: null,
+    loop_last_action_at: null,
+    loop_paused_at_stage: null,
+  });
+  // Terminate any lingering active instances so stage occupancy is freed
+  const instances = factoryLoopInstances.listInstances({
+    project_id: project.id,
+    active_only: true,
+  });
+  let terminated = 0;
+  for (const inst of instances) {
+    if (!inst.terminated_at) {
+      try {
+        loopController.terminateInstanceAndSync(inst.id, { abandonWorktree: true });
+        terminated++;
+      } catch { /* best effort */ }
+    }
+  }
+  logger.info('Factory loop reset', {
+    project_id: project.id,
+    terminated_instances: terminated,
+  });
+  return jsonResponse({
+    message: `Factory loop reset for "${updated.name}". ${terminated} instance(s) terminated.`,
+    project_id: project.id,
+    loop_state: 'IDLE',
+    terminated_instances: terminated,
+  });
+}
+
 async function handleStartFactoryLoop(args) {
   const project = resolveProject(args.project);
   if (args.auto_advance === true) {
@@ -1141,6 +1185,7 @@ module.exports = {
   handleTriggerArchitect,
   handleArchitectBacklog,
   handleArchitectLog,
+  handleResetFactoryLoop,
   handleStartFactoryLoop,
   handleAwaitFactoryLoop,
   handleAdvanceFactoryLoop,

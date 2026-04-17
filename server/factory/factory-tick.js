@@ -1,0 +1,137 @@
+'use strict';
+
+// Factory tick — server-side timer that periodically advances active factory
+// loop instances. Complements the auto_advance event chain: auto_advance fires
+// instantly on stage completion for zero-latency progression, while the tick
+// catches anything the chain missed (crashes, timeouts, unhandled states).
+//
+// Registered via timer-registry so it's tracked alongside other server timers.
+// Starts when a project has status=running, stops on pause/stop.
+
+const factoryHealth = require('../db/factory-health');
+const factoryLoopInstances = require('../db/factory-loop-instances');
+const loopController = require('./loop-controller');
+const logger = require('../logger').child({ component: 'factory-tick' });
+
+const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const activeTimers = new Map(); // project_id → intervalId
+
+function getProjectConfig(project) {
+  if (!project.config_json) return {};
+  try { return JSON.parse(project.config_json); } catch { return {}; }
+}
+
+function tickProject(project) {
+  try {
+    const instances = factoryLoopInstances.listInstances({
+      project_id: project.id,
+      active_only: true,
+    });
+
+    for (const instance of instances) {
+      if (instance.terminated_at) continue;
+      const state = instance.loop_state;
+      const paused = instance.paused_at_stage;
+
+      // Skip terminated, idle, or paused-at-gate instances
+      if (state === 'IDLE' || (paused && !paused.startsWith('READY_FOR_'))) continue;
+
+      try {
+        loopController.advanceLoopAsync(instance.id, { autoAdvance: true });
+        logger.debug('Factory tick: advanced instance', {
+          project_id: project.id,
+          instance_id: instance.id,
+          state,
+        });
+      } catch (err) {
+        // Expected when an advance job is already running — not an error
+        if (err.message && err.message.includes('already running')) return;
+        logger.debug('Factory tick: advance skipped', {
+          project_id: project.id,
+          instance_id: instance.id,
+          err: err.message,
+        });
+      }
+    }
+
+    // If no active instances exist for a running + auto_continue project,
+    // start a new loop automatically.
+    const cfg = getProjectConfig(project);
+    if (cfg?.loop?.auto_continue && instances.filter(i => !i.terminated_at).length === 0) {
+      try {
+        loopController.startLoopAutoAdvance(project.id);
+        logger.info('Factory tick: started new auto-advance loop', {
+          project_id: project.id,
+        });
+      } catch (err) {
+        logger.debug('Factory tick: could not start new loop', {
+          project_id: project.id,
+          err: err.message,
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn('Factory tick failed for project', {
+      project_id: project.id,
+      err: err.message,
+    });
+  }
+}
+
+function startTick(project, intervalMs = DEFAULT_TICK_INTERVAL_MS) {
+  if (activeTimers.has(project.id)) return; // already ticking
+
+  const timer = setInterval(() => tickProject(project), intervalMs);
+  activeTimers.set(project.id, timer);
+  logger.info('Factory tick started', {
+    project_id: project.id,
+    project_name: project.name,
+    interval_ms: intervalMs,
+  });
+
+  // Also tick immediately on start (don't wait for first interval)
+  tickProject(project);
+}
+
+function stopTick(projectId) {
+  const timer = activeTimers.get(projectId);
+  if (timer) {
+    clearInterval(timer);
+    activeTimers.delete(projectId);
+    logger.info('Factory tick stopped', { project_id: projectId });
+  }
+}
+
+function stopAll() {
+  for (const [projectId, timer] of activeTimers) {
+    clearInterval(timer);
+    logger.info('Factory tick stopped (shutdown)', { project_id: projectId });
+  }
+  activeTimers.clear();
+}
+
+// Called on server startup — scan for running projects and start ticking
+function initFactoryTicks() {
+  let started = 0;
+  try {
+    const projects = factoryHealth.listProjects();
+    for (const project of projects) {
+      if (project.status !== 'running') continue;
+      const cfg = getProjectConfig(project);
+      const intervalMs = cfg?.loop?.tick_interval_ms || DEFAULT_TICK_INTERVAL_MS;
+      startTick(project, intervalMs);
+      started++;
+    }
+  } catch (err) {
+    logger.warn('initFactoryTicks failed', { err: err.message });
+  }
+  return started;
+}
+
+module.exports = {
+  initFactoryTicks,
+  startTick,
+  stopTick,
+  stopAll,
+  tickProject,
+};

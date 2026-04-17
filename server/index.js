@@ -945,6 +945,21 @@ function init() {
     debugLog(`Factory auto-advance resume skipped: ${err.message}`);
   }
 
+  // Factory tick — server-side timer that periodically checks and advances
+  // active factory loops. Safety net for auto_advance: if the event chain
+  // breaks (crash, timeout, unhandled state), the tick picks it up within
+  // N minutes. Also auto-starts new loops for auto_continue projects with
+  // no active instances.
+  try {
+    const { initFactoryTicks } = require('./factory/factory-tick');
+    const ticking = initFactoryTicks();
+    if (ticking > 0) {
+      debugLog(`Factory tick started for ${ticking} running project(s)`);
+    }
+  } catch (err) {
+    debugLog(`Factory tick init skipped: ${err.message}`);
+  }
+
   const codebaseStudyHandlers = require('./handlers/codebase-study-handlers');
   codebaseStudyHandlers.init({ db });
   if (!defaultContainer.has('codebaseStudyHandlers')) {

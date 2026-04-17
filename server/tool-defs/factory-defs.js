@@ -403,6 +403,17 @@ const tools = [
     },
   },
   {
+    name: 'reset_factory_loop',
+    description: 'Reset a stuck factory loop. Nulls project-level loop_state, terminates any active instances, and frees stage occupancy. Use when the loop is stuck at a stage with no active tasks.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
     name: 'start_factory_loop',
     description: 'Start the factory SENSE→PRIORITIZE→PLAN→EXECUTE→VERIFY→LEARN cycle for a project. Begins at SENSE stage. With auto_advance=true, the full cycle runs without operator advance calls — the server auto-advances through each stage until the loop terminates or hits a trust-level gate.',
     inputSchema: {
