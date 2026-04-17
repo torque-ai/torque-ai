@@ -386,11 +386,15 @@ function findPlaceholderArtifacts(workingDir, modifiedFiles = []) {
   );
 
   // Skip build output directories — compiled/minified assets trigger false positives
-  const BUILD_OUTPUT_PATTERNS = /(?:^|\/)(?:dist|build|out|\.next|\.nuxt|node_modules)\//;
+  const BUILD_OUTPUT_PATTERNS = /(?:^|\/)(?:dist|build|out|publish|\.next|\.nuxt|node_modules|bin|obj)\//;
+  // Skip binary file extensions — reading as UTF-8 produces gibberish that
+  // the placeholder detector misidentifies as stub content
+  const BINARY_EXT_RE = /\.(?:dll|exe|pdb|nupkg|snk|ico|png|jpg|jpeg|gif|bmp|woff2?|ttf|eot|zip|tar|gz|7z|pdf|db|sqlite)$/i;
 
   for (const entry of getGitStatusEntries(workingDir)) {
     if (!entry || entry.isDeleted || !entry.filePath) continue;
     if (BUILD_OUTPUT_PATTERNS.test(entry.filePath)) continue;
+    if (BINARY_EXT_RE.test(entry.filePath)) continue;
 
     const fullPath = path.join(workingDir, entry.filePath);
     const candidates = expandArtifactCandidatePaths(fullPath, entry.filePath);
