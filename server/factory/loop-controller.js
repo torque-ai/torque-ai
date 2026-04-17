@@ -3844,10 +3844,14 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
     })
     .catch((error) => {
       job.status = 'failed';
+      let latestState = null;
+      let latestPaused = null;
       try {
         const latestInstance = getInstanceOrThrow(instance.id);
-        job.new_state = getCurrentLoopState(latestInstance);
-        job.paused_at_stage = getPausedAtStage(latestInstance);
+        latestState = getCurrentLoopState(latestInstance);
+        latestPaused = getPausedAtStage(latestInstance);
+        job.new_state = latestState;
+        job.paused_at_stage = latestPaused;
       } catch {
         job.new_state = null;
         job.paused_at_stage = null;
@@ -3861,6 +3865,24 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
         error: job.error,
       });
       emitLoopAdvanceJobEvent(job);
+
+      // Auto-advance resilience: if the advance failed but the instance
+      // is still active (not terminated, not paused at a gate), retry
+      // after a cooldown. Transient failures (SSH timeout during remote
+      // verify, temporary network blip) shouldn't kill the entire chain.
+      // The 30s delay prevents tight retry loops on persistent failures.
+      if (autoAdvance && latestState && latestState !== LOOP_STATES.IDLE && !latestPaused) {
+        setTimeout(() => {
+          try {
+            advanceLoopAsync(instance_id, { autoAdvance: true });
+          } catch (retryErr) {
+            logger.debug('Auto-advance retry after failure also failed', {
+              instance_id,
+              err: retryErr.message,
+            });
+          }
+        }, 30000);
+      }
     })
     .finally(() => {
       if (activeLoopAdvanceJobs.get(instance.id) === job.job_id) {
