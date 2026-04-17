@@ -403,6 +403,17 @@ const tools = [
     },
   },
   {
+    name: 'factory_cycle_history',
+    description: 'Get the last 20 factory loop cycle instances for a project with decision counts, stage progression, duration, and status.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
     name: 'reset_factory_loop',
     description: 'Reset a stuck factory loop. Nulls project-level loop_state, terminates any active instances, and frees stage occupancy. Use when the loop is stuck at a stage with no active tasks.',
     inputSchema: {

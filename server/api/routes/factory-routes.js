@@ -236,6 +236,7 @@ const FACTORY_V2_ROUTES = [
   {
     method: 'GET',
     path: /^\/api\/v2\/factory\/projects\/([^/]+)\/cycles$/,
+    tool: 'factory_cycle_history',
     mapParams: ['project'],
     handlerName: 'handleFactoryCycleHistory',
     handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
