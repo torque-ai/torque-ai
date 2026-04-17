@@ -33,7 +33,7 @@
 
 ## Task 1: Mention parser
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/mention-parser.test.js`:
 
@@ -87,7 +87,7 @@ describe('parseMentions', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/repo-graph/mention-parser.js`:
 

@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const { randomUUID } = require('crypto');
 
 /**
@@ -17,6 +19,10 @@ const { randomUUID } = require('crypto');
 // `tasks.status` is defined as an unconstrained TEXT column in schema-tables.js.
 // Adding logical statuses such as `pending_approval` does not require a schema
 // migration unless a future CHECK/enum constraint is introduced.
+function readSqlMigration(fileName) {
+  return fs.readFileSync(path.join(__dirname, '..', 'migrations', fileName), 'utf8');
+}
+
 const MIGRATIONS = [
   {
     version: 1,
@@ -652,6 +658,17 @@ const MIGRATIONS = [
     down: [
       'DROP INDEX IF EXISTS idx_factory_worktrees_branch_active',
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_worktrees_branch ON factory_worktrees(branch)',
+    ].join('; '),
+  },
+  {
+    version: 27,
+    name: 'add_repo_graph_registry',
+    up: readSqlMigration('027-repo-graph.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_repo_symbols_qualified',
+      'DROP INDEX IF EXISTS idx_repo_symbols_name',
+      'DROP TABLE IF EXISTS repo_symbols',
+      'DROP TABLE IF EXISTS registered_repos',
     ].join('; '),
   },
 ];
