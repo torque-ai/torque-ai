@@ -194,7 +194,7 @@ Run tests → PASS. Commit: `feat(workflow-dsl): fluent builder with step/then/p
 
 ## Task 2: Compile + submit helper
 
-- [ ] **Step 1: Compile + submit**
+- [x] **Step 1: Compile + submit**
 
 Create `packages/workflow-dsl/src/compile.ts`:
 
@@ -215,7 +215,7 @@ export async function submitToTorque(spec: any, { torqueBaseUrl, fetcher = fetch
 
 Tests (`packages/workflow-dsl/tests/compile.test.ts`) use `vi.fn()` as a fake fetch + verify posted body equals `spec`.
 
-- [ ] **Step 2: Docs + example**
+- [x] **Step 2: Docs + example**
 
 `packages/workflow-dsl/README.md` — installation + example:
 
