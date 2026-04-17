@@ -1680,6 +1680,43 @@ function executePrioritizeStage(project, instance, selectedWorkItem = null) {
     };
   }
 
+  // Auto-detect already-shipped items before wasting execution cycles.
+  // If git commit subjects match the item's title (meaning a human or
+  // prior session already fixed this), mark it shipped and re-select.
+  try {
+    const { createShippedDetector } = require('./shipped-detector');
+    const detector = createShippedDetector({ repoRoot: project.path });
+    const planContent = workItem.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)
+      ? fs.readFileSync(workItem.origin.plan_path, 'utf8')
+      : workItem.description || '';
+    const detection = detector.detectShipped({ content: planContent, title: workItem.title });
+    if (detection.shipped && detection.confidence !== 'low') {
+      factoryIntake.updateWorkItem(workItem.id, { status: 'shipped' });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.PRIORITIZE,
+        action: 'auto_shipped_at_prioritize',
+        reasoning: `Shipped-detector found existing commits matching "${workItem.title}" with ${detection.confidence} confidence — skipping to next item.`,
+        inputs: { ...getWorkItemDecisionContext(workItem) },
+        outcome: {
+          work_item_id: workItem.id,
+          confidence: detection.confidence,
+          signals: detection.signals,
+        },
+        confidence: 1,
+        batch_id: getDecisionBatchId(project, workItem, null, instance),
+      });
+      logger.info('PRIORITIZE auto-shipped already-done item', {
+        project_id: project.id,
+        work_item_id: workItem.id,
+        title: workItem.title,
+        confidence: detection.confidence,
+      });
+      // Re-select next item recursively (bounded by open item count)
+      return executePrioritizeStage(project, instance);
+    }
+  } catch (_e) { void _e; }
+
   const scoring = scoreWorkItemForPrioritize(workItem, openItems);
   const updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {
     priority: scoring.newPriority,
@@ -3109,6 +3146,37 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             confidence: 1,
             batch_id,
           });
+          // Before pausing: check if the work was already done on main
+          // (manual fix in a different session). If so, ship it.
+          try {
+            const { createShippedDetector } = require('./shipped-detector');
+            const project = getProjectOrThrow(project_id);
+            const wi = instance.work_item_id
+              ? factoryIntake.getWorkItem(instance.work_item_id)
+              : null;
+            if (wi) {
+              const detector = createShippedDetector({ repoRoot: project.path });
+              const detection = detector.detectShipped({
+                content: wi.description || wi.title || '',
+                title: wi.title,
+              });
+              if (detection.shipped && detection.confidence !== 'low') {
+                factoryIntake.updateWorkItem(wi.id, { status: 'shipped' });
+                safeLogDecision({
+                  project_id,
+                  stage: LOOP_STATES.VERIFY,
+                  action: 'auto_shipped_at_verify_fail',
+                  reasoning: `Verify failed but shipped-detector found matching commits on main (${detection.confidence} confidence). Marking shipped instead of pausing.`,
+                  inputs: { work_item_id: wi.id },
+                  outcome: { confidence: detection.confidence, signals: detection.signals },
+                  confidence: 1,
+                  batch_id,
+                });
+                return { status: 'passed', reason: 'auto_shipped_at_verify_fail' };
+              }
+            }
+          } catch (_e) { void _e; }
+
           return {
             status: 'failed',
             reason: 'worktree_verify_failed',
