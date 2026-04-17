@@ -49,6 +49,8 @@ const TIER_2 = [
   'smart_submit_task', 'check_status', 'get_result', 'get_progress',
   // Workflows (advanced)
   'create_feature_workflow', 'cancel_workflow',
+  // Typed NL dispatch
+  'register_action_schema', 'list_actions', 'dispatch_nl',
   // Project config (advanced)
   'configure_stall_detection', 'auto_verify_and_fix', 'commit_task',
   // Batch orchestration

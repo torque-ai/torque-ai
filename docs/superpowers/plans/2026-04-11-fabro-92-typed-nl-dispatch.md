@@ -161,7 +161,7 @@ Run tests → PASS. Commit: `feat(dispatch): action registry + deterministic exe
 
 ## Task 2: Translator + construction cache
 
-- [ ] **Step 1: Translator tests**
+- [x] **Step 1: Translator tests**
 
 Create `server/tests/translator.test.js`:
 
@@ -212,7 +212,7 @@ describe('translateToAction', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/dispatch/translator.js`:
 
@@ -256,7 +256,7 @@ module.exports = { translateToAction };
 
 Run tests → PASS. Commit: `feat(dispatch): translator with SAP + schema-retry loop`.
 
-- [ ] **Step 3: Construction cache tests + impl**
+- [x] **Step 3: Construction cache tests + impl**
 
 Create `server/tests/construction-cache.test.js`:
 
