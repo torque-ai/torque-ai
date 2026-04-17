@@ -26,7 +26,21 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const Module = require('module');
 const childProcess = require('child_process');
+
+function wireSharedServerNodeModules() {
+  const sharedServerNodeModules = path.resolve(__dirname, '..', '..', '..', '..', 'server', 'node_modules');
+  if (!fs.existsSync(sharedServerNodeModules)) return;
+
+  const nodePathEntries = (process.env.NODE_PATH || '').split(path.delimiter).filter(Boolean);
+  if (!nodePathEntries.includes(sharedServerNodeModules)) {
+    process.env.NODE_PATH = [sharedServerNodeModules, ...nodePathEntries].join(path.delimiter);
+    Module._initPaths();
+  }
+}
+
+wireSharedServerNodeModules();
 
 const TEST_DATA_ROOT = path.join(os.tmpdir(), 'torque-vitest-workers');
 const workerId = process.env.VITEST_WORKER_ID || process.env.TEST_WORKER_ID || String(process.pid);

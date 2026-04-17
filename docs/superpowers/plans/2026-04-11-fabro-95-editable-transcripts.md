@@ -290,7 +290,7 @@ Commit: `feat(transcripts): editor roundtrip via $EDITOR + TOML pretty form`.
 
 ## Task 3: CLI + MCP + wire into run dir
 
-- [ ] **Step 1: CLI**
+- [x] **Step 1: CLI**
 
 Create `server/cli/transcript-cli.js`:
 
@@ -340,7 +340,7 @@ async function main() {
 main().catch(err => { console.error(err); process.exit(1); });
 ```
 
-- [ ] **Step 2: MCP tools**
+- [x] **Step 2: MCP tools**
 
 ```js
 read_transcript: { description: 'Read a task\'s transcript (list of messages).', inputSchema: { type: 'object', required: ['task_id'], properties: { task_id: { type: 'string' } } } },
@@ -348,7 +348,7 @@ edit_transcript: { description: 'Replace a task\'s transcript with validated mes
 replay_from_transcript: { description: 'Resume a task from its (possibly-edited) transcript. The next turn sees the edited history.', inputSchema: { type: 'object', required: ['task_id'], properties: { task_id: { type: 'string' } } } },
 ```
 
-- [ ] **Step 3: Wire into task startup + Claude Code provider**
+- [x] **Step 3: Wire into task startup + Claude Code provider**
 
 In `server/execution/task-startup.js`: when opening a run dir (Plan 85), create a transcript log and expose it through `task.__transcript`. Each message from provider streams (text_delta → append chunk to running message; tool_call / tool_result → append immediately on completion) is persisted.
 
