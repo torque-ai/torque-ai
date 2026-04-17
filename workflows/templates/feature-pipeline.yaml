@@ -1,0 +1,36 @@
+version: 1
+name: feature-pipeline-base
+description: Plan -> implement -> verify -> ship. Override `name` and `goal` in concrete specs.
+project: torque
+version_intent: feature
+tasks:
+  - node_id: plan
+    task: |
+      Read the goal from the workflow description. Write a step-by-step plan to
+      docs/superpowers/plans/auto-plan.md including file paths, test code, and commits.
+    provider: claude-cli
+    tags: [planning]
+
+  - node_id: implement
+    task: |
+      Read docs/superpowers/plans/auto-plan.md and execute every step.
+      Commit after each task completes.
+    provider: codex
+    depends_on: [plan]
+    tags: [coding]
+
+  - node_id: verify
+    task: |
+      Run the project verify command and confirm everything passes.
+      If failures are found, write a short report to docs/findings/verify.md.
+    provider: codex
+    depends_on: [implement]
+    tags: [verify]
+    goal_gate: true
+
+  - node_id: ship
+    task: |
+      All checks passed. Push to origin/main and produce a one-line summary.
+    provider: codex
+    depends_on: [verify]
+    tags: [shipping]
