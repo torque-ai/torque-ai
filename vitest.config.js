@@ -1,6 +1,13 @@
+const path = require('path');
 const os = require('os');
 
 module.exports = {
+  resolve: {
+    alias: {
+      'better-sqlite3': path.resolve(__dirname, 'server/tests/shims/better-sqlite3.js'),
+      uuid: path.resolve(__dirname, 'server/tests/shims/uuid.js'),
+    },
+  },
   test: {
     globals: true,
     testTimeout: 15000,
