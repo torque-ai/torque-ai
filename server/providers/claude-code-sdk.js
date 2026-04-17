@@ -144,6 +144,71 @@ function extractTextFromContent(content) {
   return combined;
 }
 
+function normalizeTranscriptMessages(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .filter((message) => message && typeof message === 'object' && !Array.isArray(message))
+    .map((message) => ({ ...message }));
+}
+
+function renderTranscriptSeed(messages) {
+  return messages.map((message) => JSON.stringify(message)).join('\n');
+}
+
+function buildPromptWithSeedMessages(promptText, seedMessages) {
+  if (!Array.isArray(seedMessages) || seedMessages.length === 0) {
+    return promptText;
+  }
+
+  return [
+    'The operator edited the prior transcript for this task.',
+    'Treat the JSONL transcript below as the authoritative conversation history and continue from its final turn.',
+    'Do not restate the transcript. Continue with the next turn only.',
+    '<conversation_transcript_jsonl>',
+    renderTranscriptSeed(seedMessages),
+    '</conversation_transcript_jsonl>',
+    '',
+    promptText,
+  ].join('\n');
+}
+
+function appendTranscriptMessage(transcript, message) {
+  if (!transcript || typeof transcript.append !== 'function') {
+    return cleanText(message?.message_id) || null;
+  }
+
+  return transcript.append(message);
+}
+
+function upsertTranscriptMessage(transcript, message) {
+  const normalizedMessage = {
+    ...message,
+    message_id: cleanText(message?.message_id) || `msg_${randomUUID().slice(0, 12)}`,
+  };
+
+  if (!transcript || typeof transcript.read !== 'function' || typeof transcript.replace !== 'function') {
+    appendTranscriptMessage(transcript, normalizedMessage);
+    return normalizedMessage.message_id;
+  }
+
+  const messages = transcript.read();
+  const existingIndex = messages.findIndex((entry) => entry && entry.message_id === normalizedMessage.message_id);
+  if (existingIndex === -1) {
+    appendTranscriptMessage(transcript, normalizedMessage);
+    return normalizedMessage.message_id;
+  }
+
+  messages[existingIndex] = {
+    ...messages[existingIndex],
+    ...normalizedMessage,
+  };
+  transcript.replace(messages);
+  return normalizedMessage.message_id;
+}
+
 function normalizeToolCall(record) {
   if (!record || typeof record !== 'object') return null;
 
@@ -171,6 +236,38 @@ function normalizeToolCall(record) {
       tool_call_id: cleanText(block.id) || `tool_${randomUUID()}`,
       name: cleanText(block.name),
       args: block.input && typeof block.input === 'object' ? block.input : {},
+    };
+  }
+
+  return null;
+}
+
+function normalizeToolResult(record) {
+  if (!record || typeof record !== 'object') return null;
+
+  const toContent = (value, error = null) => {
+    if (value === undefined || value === null || value === '') {
+      return error ? JSON.stringify({ error }) : '';
+    }
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  };
+
+  if ((record.type === 'tool_result' || record.type === EventType.TOOL_RESULT) && (record.tool_call_id || record.id)) {
+    const error = cleanText(record.error) || null;
+    return {
+      tool_call_id: cleanText(record.tool_call_id) || cleanText(record.id) || `tool_${randomUUID()}`,
+      content: toContent(record.result ?? record.output ?? record.content, error),
+      error,
+    };
+  }
+
+  const block = record.content_block;
+  if (block && block.type === 'tool_result') {
+    const error = cleanText(block.error) || null;
+    return {
+      tool_call_id: cleanText(block.tool_use_id) || cleanText(block.tool_call_id) || cleanText(block.id) || `tool_${randomUUID()}`,
+      content: toContent(block.content ?? block.result ?? block.output, error),
+      error,
     };
   }
 
@@ -447,6 +544,7 @@ class ClaudeCodeSdkProvider extends BaseProvider {
     skillPrompt,
     localSessionId,
     sessionMeta,
+    forceFreshSession = false,
   }) {
     const args = [
       '--print',
@@ -484,7 +582,9 @@ class ClaudeCodeSdkProvider extends BaseProvider {
     const claudeSessionId = cleanText(sessionMeta.metadata?.claude_session_id);
     const forkFromClaudeSessionId = cleanText(sessionMeta.metadata?.fork_from_claude_session_id);
     const messageCount = this.sessionStore.readAll(localSessionId).length;
-    if (forkFromClaudeSessionId) {
+    if (forceFreshSession) {
+      args.push('--session-id', claudeSessionId);
+    } else if (forkFromClaudeSessionId) {
       args.push('--resume', forkFromClaudeSessionId, '--fork-session', '--session-id', claudeSessionId);
     } else if (messageCount > 0) {
       args.push('--resume', claudeSessionId);
@@ -504,17 +604,37 @@ class ClaudeCodeSdkProvider extends BaseProvider {
     const workingDirectory = cleanText(options.working_directory) || process.cwd();
     const projectSettings = readProjectSettings(workingDirectory);
     const { settings, mode } = resolvePermissionConfig(projectSettings, options);
+    const seedMessages = normalizeTranscriptMessages(options.seed_messages);
+    const forceFreshSession = options.force_fresh_session === true || seedMessages.length > 0;
     const sessionInfo = this.ensureSession({
-      sessionId: options.session_id,
+      sessionId: forceFreshSession ? null : options.session_id,
       workingDirectory,
-      preferActiveSession: options.prefer_active_session === true,
+      preferActiveSession: forceFreshSession ? false : options.prefer_active_session === true,
     });
     const localSessionId = sessionInfo.session_id;
     const sessionMeta = this.readSessionMeta(localSessionId);
     const skill = this.resolveSkill(workingDirectory, options.skill);
-    const promptText = cleanText(prompt);
+    const rawPromptText = cleanText(prompt);
+    const transcript = options.transcript && typeof options.transcript.append === 'function'
+      ? options.transcript
+      : null;
 
-    if (!promptText) {
+    if (seedMessages.length > 0 && transcript && typeof transcript.read === 'function' && typeof transcript.replace === 'function') {
+      const existingTranscript = transcript.read();
+      if (existingTranscript.length === 0) {
+        transcript.replace(seedMessages);
+      }
+    }
+
+    if (seedMessages.length > 0 && this.sessionStore.readAll(localSessionId).length === 0) {
+      for (const message of seedMessages) {
+        this.sessionStore.append(localSessionId, message);
+      }
+    }
+
+    const promptText = buildPromptWithSeedMessages(rawPromptText, seedMessages);
+
+    if (!rawPromptText) {
       throw new Error('prompt must be a non-empty string');
     }
 
@@ -539,16 +659,22 @@ class ClaudeCodeSdkProvider extends BaseProvider {
       skillPrompt,
       localSessionId,
       sessionMeta,
+      forceFreshSession,
     });
 
     const userMessage = {
       role: 'user',
-      content: cleanText(prompt),
+      content: rawPromptText,
       timestamp: new Date().toISOString(),
     };
     this.sessionStore.append(localSessionId, userMessage);
+    appendTranscriptMessage(transcript, userMessage);
 
     const startTime = Date.now();
+    const transcriptAssistantState = {
+      messageId: null,
+      timestamp: null,
+    };
     const result = await new Promise((resolve, reject) => {
       const child = spawn(cliPath, commandArgs, {
         cwd: workingDirectory,
@@ -588,6 +714,30 @@ class ClaudeCodeSdkProvider extends BaseProvider {
         fn(value);
       };
 
+      const syncAssistantTranscript = (content) => {
+        if (!transcript) {
+          return;
+        }
+
+        const nextContent = typeof content === 'string' ? content : '';
+        if (!transcriptAssistantState.messageId) {
+          transcriptAssistantState.timestamp = new Date().toISOString();
+          transcriptAssistantState.messageId = appendTranscriptMessage(transcript, {
+            role: 'assistant',
+            content: nextContent,
+            timestamp: transcriptAssistantState.timestamp,
+          });
+          return;
+        }
+
+        transcriptAssistantState.messageId = upsertTranscriptMessage(transcript, {
+          message_id: transcriptAssistantState.messageId,
+          role: 'assistant',
+          content: nextContent,
+          timestamp: transcriptAssistantState.timestamp || new Date().toISOString(),
+        });
+      };
+
       const onRecord = async (record) => {
         const usagePatch = normalizeUsage(record);
         if (usagePatch) {
@@ -621,6 +771,16 @@ class ClaudeCodeSdkProvider extends BaseProvider {
             });
           }
 
+          appendTranscriptMessage(transcript, {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: toolCall.tool_call_id,
+              name: toolCall.name,
+              args: toolCall.args,
+            }],
+          });
+
           if (permission.decision !== 'allow') {
             permissionDeniedError = new Error(
               `Claude tool "${toolCall.name}" denied by ${permission.source}: ${permission.reason}`,
@@ -634,11 +794,30 @@ class ClaudeCodeSdkProvider extends BaseProvider {
         if (textDelta) {
           sawTextDelta = true;
           aggregatedText += textDelta;
+          syncAssistantTranscript(aggregatedText);
           if (typeof options.onChunk === 'function') {
             await options.onChunk(textDelta);
           }
           if (typeof options.onEvent === 'function') {
             await options.onEvent({ type: EventType.TEXT_DELTA, delta: textDelta });
+          }
+          return;
+        }
+
+        const toolResult = normalizeToolResult(record);
+        if (toolResult) {
+          appendTranscriptMessage(transcript, {
+            role: 'tool',
+            tool_call_id: toolResult.tool_call_id,
+            content: toolResult.content,
+            ...(toolResult.error ? { metadata: { error: toolResult.error } } : {}),
+          });
+          if (typeof options.onEvent === 'function') {
+            await options.onEvent({
+              type: EventType.TOOL_RESULT,
+              tool_call_id: toolResult.tool_call_id,
+              ...(toolResult.error ? { error: toolResult.error } : { result: toolResult.content }),
+            });
           }
           return;
         }
@@ -739,6 +918,16 @@ class ClaudeCodeSdkProvider extends BaseProvider {
       timestamp: new Date().toISOString(),
     };
     this.sessionStore.append(localSessionId, assistantMessage);
+    if (transcriptAssistantState.messageId) {
+      upsertTranscriptMessage(transcript, {
+        message_id: transcriptAssistantState.messageId,
+        role: 'assistant',
+        content: result.output,
+        timestamp: transcriptAssistantState.timestamp || assistantMessage.timestamp,
+      });
+    } else {
+      appendTranscriptMessage(transcript, assistantMessage);
+    }
 
     const updatedMeta = this.readSessionMeta(localSessionId);
     if (cleanText(updatedMeta.metadata?.fork_from_claude_session_id)) {

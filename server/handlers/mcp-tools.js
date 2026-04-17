@@ -1,11 +1,15 @@
 'use strict';
 
+const { randomUUID } = require('crypto');
 const { defaultContainer } = require('../container');
 const { translateToAction } = require('../dispatch/translator');
+const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
+const { validateTranscript } = require('../transcripts/transcript-validator');
 const {
   ErrorCodes,
   makeError,
   optionalString,
+  requireTask,
   requireString,
 } = require('./shared');
 
@@ -48,6 +52,95 @@ function getClaudeCodeSdkProvider() {
   const providerRegistry = require('../providers/registry');
   providerRegistry.registerProviderClass('claude-code-sdk', require('../providers/claude-code-sdk'));
   return providerRegistry.getProviderInstance('claude-code-sdk');
+}
+
+function getRunDirManager() {
+  try {
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('runDirManager')) {
+      return defaultContainer.get('runDirManager');
+    }
+  } catch (error) {
+    void error;
+  }
+  return null;
+}
+
+function parseTaskMetadata(task) {
+  if (!task || task.metadata == null) {
+    return {};
+  }
+
+  if (typeof task.metadata === 'object' && !Array.isArray(task.metadata)) {
+    return { ...task.metadata };
+  }
+
+  if (typeof task.metadata !== 'string') {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(task.metadata);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function getTranscriptLogForTask(taskId) {
+  return createTaskTranscriptLog({
+    taskId,
+    runDirManager: getRunDirManager(),
+  });
+}
+
+function normalizeTagList(task) {
+  if (Array.isArray(task?.tags)) {
+    return task.tags.filter((tag) => typeof tag === 'string' && tag.trim()).map((tag) => tag.trim());
+  }
+
+  if (typeof task?.tags === 'string' && task.tags.trim()) {
+    try {
+      const parsed = JSON.parse(task.tags);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((tag) => typeof tag === 'string' && tag.trim()).map((tag) => tag.trim());
+      }
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function normalizeReplayDescription(taskDescription, metadata) {
+  if (typeof taskDescription !== 'string' || !taskDescription) {
+    return '';
+  }
+
+  const previousRunDir = typeof metadata?.run_dir === 'string' ? metadata.run_dir.trim() : '';
+  if (!previousRunDir) {
+    return taskDescription;
+  }
+
+  return taskDescription.split(previousRunDir).join('$run_dir');
+}
+
+function resolveReplayProvider(task, metadata) {
+  const candidates = [
+    task?.provider,
+    metadata?.requested_provider,
+    metadata?.original_provider,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return '';
 }
 
 function toToolFragment(value) {
@@ -626,6 +719,192 @@ async function handleListSessions() {
   }
 }
 
+async function handleReadTranscript(args = {}) {
+  try {
+    const taskError = requireString(args, 'task_id', 'task_id');
+    if (taskError) return taskError;
+
+    const taskId = args.task_id.trim();
+    const { error: taskLookupError } = requireTask(taskId);
+    if (taskLookupError) return taskLookupError;
+
+    const transcriptLog = getTranscriptLogForTask(taskId);
+    const messages = transcriptLog.read();
+    const validation = validateTranscript(messages);
+
+    return buildToolResult({
+      ok: validation.ok,
+      task_id: taskId,
+      file_path: transcriptLog.filePath,
+      count: messages.length,
+      messages,
+      errors: validation.errors,
+    });
+  } catch (error) {
+    return buildToolResult({
+      ok: false,
+      error: error.message || String(error),
+    });
+  }
+}
+
+async function handleEditTranscript(args = {}) {
+  try {
+    const taskError = requireString(args, 'task_id', 'task_id');
+    if (taskError) return taskError;
+
+    const taskId = args.task_id.trim();
+    const { error: taskLookupError } = requireTask(taskId);
+    if (taskLookupError) return taskLookupError;
+
+    if (!Array.isArray(args.messages)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'messages must be an array');
+    }
+
+    const validation = validateTranscript(args.messages);
+    if (!validation.ok) {
+      return buildToolResult({
+        ok: false,
+        task_id: taskId,
+        errors: validation.errors,
+      });
+    }
+
+    const transcriptLog = getTranscriptLogForTask(taskId);
+    transcriptLog.replace(args.messages);
+
+    return buildToolResult({
+      ok: true,
+      task_id: taskId,
+      file_path: transcriptLog.filePath,
+      count: args.messages.length,
+      messages: args.messages,
+    });
+  } catch (error) {
+    return buildToolResult({
+      ok: false,
+      error: error.message || String(error),
+    });
+  }
+}
+
+async function handleReplayFromTranscript(args = {}) {
+  try {
+    const taskError = requireString(args, 'task_id', 'task_id');
+    if (taskError) return taskError;
+
+    const taskId = args.task_id.trim();
+    const { task, error: taskLookupError } = requireTask(taskId);
+    if (taskLookupError) return taskLookupError;
+
+    const transcriptLog = getTranscriptLogForTask(taskId);
+    const messages = transcriptLog.read();
+    if (messages.length === 0) {
+      return buildToolResult({
+        ok: false,
+        task_id: taskId,
+        file_path: transcriptLog.filePath,
+        error: `No transcript found for task ${taskId}`,
+      });
+    }
+
+    const validation = validateTranscript(messages);
+    if (!validation.ok) {
+      return buildToolResult({
+        ok: false,
+        task_id: taskId,
+        file_path: transcriptLog.filePath,
+        errors: validation.errors,
+      });
+    }
+
+    const metadata = parseTaskMetadata(task);
+    const provider = resolveReplayProvider(task, metadata);
+    if (provider !== 'claude-code-sdk') {
+      return buildToolResult({
+        ok: false,
+        task_id: taskId,
+        provider: provider || null,
+        error: 'replay_from_transcript currently supports claude-code-sdk tasks only',
+      });
+    }
+
+    const replayTaskId = randomUUID();
+    const taskCore = require('../db/task-core');
+    const providerRoutingCore = require('../db/provider-routing-core');
+    const taskManager = require('../task-manager');
+
+    const replayMetadata = {
+      ...metadata,
+      requested_provider: provider,
+      user_provider_override: true,
+      transcript_seed_from_task_id: taskId,
+      transcript_replay_of: taskId,
+    };
+    delete replayMetadata.run_dir;
+    delete replayMetadata.transcript_path;
+    delete replayMetadata.claude_session_id;
+    delete replayMetadata.claude_local_session_id;
+    delete replayMetadata.fork_from_claude_session_id;
+
+    const replayTags = normalizeTagList(task);
+    if (!replayTags.includes(`replay_of:${taskId}`)) {
+      replayTags.push(`replay_of:${taskId}`);
+    }
+
+    taskCore.createTask({
+      id: replayTaskId,
+      status: 'queued',
+      task_description: normalizeReplayDescription(task.task_description, metadata),
+      working_directory: task.working_directory || null,
+      timeout_minutes: task.timeout_minutes,
+      auto_approve: Boolean(task.auto_approve),
+      priority: task.priority || 0,
+      max_retries: task.max_retries,
+      template_name: task.template_name || null,
+      isolated_workspace: task.isolated_workspace || null,
+      project: task.project || null,
+      tags: replayTags,
+      provider,
+      model: task.model || null,
+      complexity: task.complexity || 'normal',
+      metadata: replayMetadata,
+    });
+
+    providerRoutingCore.createTaskReplay({
+      id: randomUUID(),
+      original_task_id: taskId,
+      replay_task_id: replayTaskId,
+      modified_inputs: {
+        transcript_seed_from_task_id: taskId,
+        transcript_message_count: messages.length,
+      },
+      diff_summary: 'Replay from transcript',
+    });
+
+    try {
+      taskManager.processQueue();
+    } catch (error) {
+      void error;
+    }
+
+    return buildToolResult({
+      ok: true,
+      task_id: taskId,
+      replay_task_id: replayTaskId,
+      provider,
+      status: 'queued',
+      file_path: transcriptLog.filePath,
+      transcript_message_count: messages.length,
+    });
+  } catch (error) {
+    return buildToolResult({
+      ok: false,
+      error: error.message || String(error),
+    });
+  }
+}
+
 module.exports = {
   handleRegisterActionSchema,
   handleListActions,
@@ -634,4 +913,7 @@ module.exports = {
   handleResumeSession,
   handleForkSession,
   handleListSessions,
+  handleReadTranscript,
+  handleEditTranscript,
+  handleReplayFromTranscript,
 };

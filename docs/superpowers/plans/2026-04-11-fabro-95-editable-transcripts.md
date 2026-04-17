@@ -149,7 +149,7 @@ Run tests → PASS. Commit: `feat(transcripts): append/read/replace JSONL log wi
 
 ## Task 2: Validator + TOML editor roundtrip
 
-- [ ] **Step 1: Validator tests**
+- [x] **Step 1: Validator tests**
 
 Create `server/tests/transcript-validator.test.js`:
 
@@ -203,7 +203,7 @@ describe('validateTranscript', () => {
 });
 ```
 
-- [ ] **Step 2: Implement validator**
+- [x] **Step 2: Implement validator**
 
 Create `server/transcripts/transcript-validator.js`:
 
@@ -236,7 +236,7 @@ module.exports = { validateTranscript };
 
 Run tests → PASS. Commit: `feat(transcripts): validator with role check + tool_call linkage`.
 
-- [ ] **Step 3: TOML editor roundtrip**
+- [x] **Step 3: TOML editor roundtrip**
 
 Create `server/transcripts/transcript-editor.js`:
 
