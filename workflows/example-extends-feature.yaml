@@ -1,0 +1,10 @@
+version: 1
+name: example-extends-feature
+description: Concrete example showing how to extend the feature-pipeline template.
+extends: templates/feature-pipeline.yaml
+# Override goal at runtime, override individual task prompts here:
+tasks:
+  - node_id: plan
+    task: |
+      Implement a placeholder /api/v2/health endpoint that returns { status: "ok" }.
+      Write a step-by-step plan to docs/superpowers/plans/auto-plan.md.

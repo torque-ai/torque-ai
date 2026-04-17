@@ -26,7 +26,7 @@
 
 ## Task 1: Resolver
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/workflow-spec-extends.test.js`:
 
@@ -177,11 +177,11 @@ tasks:
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 `npx vitest run tests/workflow-spec-extends.test.js --no-coverage` → FAIL.
 
-- [ ] **Step 3: Implement resolver**
+- [x] **Step 3: Implement resolver**
 
 Create `server/workflow-spec/extends.js`:
 
@@ -278,9 +278,9 @@ async function resolveExtends(specPath) {
 module.exports = { resolveExtends, MAX_DEPTH };
 ```
 
-- [ ] **Step 4: Run tests** → PASS.
+- [x] **Step 4: Run tests** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/workflow-spec/extends.js server/tests/workflow-spec-extends.test.js
@@ -292,7 +292,7 @@ git push --no-verify origin main
 
 ## Task 2: Wire into parser
 
-- [ ] **Step 1: Schema additions**
+- [x] **Step 1: Schema additions**
 
 In `server/workflow-spec/schema.js` top-level properties:
 
@@ -306,7 +306,7 @@ Per task `properties`:
 __remove: { type: 'boolean' },
 ```
 
-- [ ] **Step 2: Parser integration**
+- [x] **Step 2: Parser integration**
 
 In `server/workflow-spec/parse.js`, modify `parseSpec` to resolve extends BEFORE validation:
 
@@ -323,13 +323,13 @@ async function parseSpec(filePath) {
 
 (The detour through `js-yaml.dump` then `parseSpecString` ensures the same validation pipeline runs.)
 
-- [ ] **Step 3: Update test suite**
+- [x] **Step 3: Update test suite**
 
 The existing `parseSpec` tests still need to pass. Run the full `workflow-spec` test set:
 
 `npx vitest run tests/workflow-spec --no-coverage` → all PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/workflow-spec/parse.js server/workflow-spec/schema.js
@@ -341,7 +341,7 @@ git push --no-verify origin main
 
 ## Task 3: Reference template
 
-- [ ] **Step 1: Create the template**
+- [x] **Step 1: Create the template**
 
 Create `workflows/templates/feature-pipeline.yaml`:
 
@@ -384,7 +384,7 @@ tasks:
     tags: [shipping]
 ```
 
-- [ ] **Step 2: Create a concrete child as smoke test**
+- [x] **Step 2: Create a concrete child as smoke test**
 
 Create `workflows/example-extends-feature.yaml`:
 
@@ -401,13 +401,13 @@ tasks:
       Write a step-by-step plan to docs/superpowers/plans/auto-plan.md.
 ```
 
-- [ ] **Step 3: Verify it parses**
+- [x] **Step 3: Verify it parses**
 
 Use the MCP `validate_workflow_spec` tool against the new file. Expected: `valid: true` with all 4 tasks present (plan from child override, implement/verify/ship from base).
 
 If running headless without TORQUE: `node -e "require('./workflow-spec').parseSpec('workflows/example-extends-feature.yaml').then(r => console.log(JSON.stringify(r.ok ? r.spec.tasks.map(t=>t.node_id) : r.errors, null, 2)))"` → expect `["plan","implement","verify","ship"]`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add workflows/templates/feature-pipeline.yaml workflows/example-extends-feature.yaml
@@ -419,7 +419,7 @@ git push --no-verify origin main
 
 ## Task 4: Docs + restart + smoke
 
-- [ ] **Step 1: Append to `docs/workflow-specs.md`**
+- [x] **Step 1: Append to `docs/workflow-specs.md`**
 
 ````markdown
 ## Templates and inheritance
@@ -474,11 +474,11 @@ tasks:
 ```
 ````
 
-- [ ] **Step 2: Restart, smoke test**
+- [x] **Step 2: Restart, smoke test**
 
 `await_restart`. Then via MCP: `validate_workflow_spec { spec_path: "workflows/example-extends-feature.yaml" }` → expect `valid: true` with 4 tasks.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/workflow-specs.md
