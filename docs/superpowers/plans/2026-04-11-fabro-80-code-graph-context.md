@@ -123,7 +123,7 @@ Run tests → PASS. Commit: `feat(mention): parser extracts @-mentions with kind
 
 ## Task 2: Repo registry + indexer
 
-- [ ] **Step 1: Migration**
+- [x] **Step 1: Migration**
 
 `server/migrations/0NN-repo-graph.sql`:
 
@@ -156,11 +156,11 @@ CREATE INDEX IF NOT EXISTS idx_repo_symbols_name ON repo_symbols(name);
 CREATE INDEX IF NOT EXISTS idx_repo_symbols_qualified ON repo_symbols(qualified_name);
 ```
 
-- [ ] **Step 2: Registry**
+- [x] **Step 2: Registry**
 
 Create `server/repo-graph/repo-registry.js` exposing `{ register, getByName, get, list, unregister, markIndexed }`. `register` is idempotent on `name` — returns existing `repo_id` if present. See analogous factory patterns in Plan 50 catalog.
 
-- [ ] **Step 3: Indexer**
+- [x] **Step 3: Indexer**
 
 Create `server/repo-graph/graph-indexer.js`: uses Plan 49's symbol-search `indexFile` to walk repo files, inserts/updates `repo_symbols` rows. Skips `node_modules`, `.git`, `dist`, `build`. Exposes `indexRepo(repoId)` and `indexAll()`.
 
