@@ -184,10 +184,10 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
         initial_status: mode === 'pending_approval' ? 'pending_approval' : undefined,
       });
       const task_id = submission?.task_id;
-      task_count += 1;
-      submitted_tasks.push({ task_number: task.task_number, task_id });
 
       if (mode === 'pending_approval') {
+        task_count += 1;
+        submitted_tasks.push({ task_number: task.task_number, task_id });
         if (typeof onDryRunTask === 'function') {
           await onDryRunTask({
             plan_path,
@@ -223,16 +223,18 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
     const result = {
       plan_path,
       completed_tasks,
-      submitted_tasks,
       failed_task,
-      task_count,
       duration_ms: Date.now() - started,
     };
 
     if (mode !== 'live') {
       result.dry_run = true;
+      result.task_count = task_count;
       result.simulated = mode === 'suppress';
       result.execution_mode = mode;
+      if (submitted_tasks.length > 0) {
+        result.submitted_tasks = submitted_tasks;
+      }
     }
 
     return result;
