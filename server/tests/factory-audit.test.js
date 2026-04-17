@@ -4,6 +4,7 @@ const Database = require('better-sqlite3');
 const { runMigrations } = require('../db/migrations');
 
 const factoryHandlersPath = require.resolve('../handlers/factory-handlers');
+const factoryTickPath = require.resolve('../factory/factory-tick');
 
 let db;
 let factoryAudit;
@@ -70,7 +71,7 @@ function listRows() {
   `).all();
 }
 
-function loadHandlersWithMockedFactoryHealth(project) {
+function loadHandlersWithMockedFactoryHealth(project, { factoryTick } = {}) {
   vi.resetModules();
 
   const actualFactoryHealth = require('../db/factory-health');
@@ -90,6 +91,11 @@ function loadHandlersWithMockedFactoryHealth(project) {
 
   vi.doMock('../db/factory-health', () => mockFactoryHealth);
   installCjsModuleMock('../db/factory-health', mockFactoryHealth);
+  if (factoryTick) {
+    installCjsModuleMock('../factory/factory-tick', factoryTick);
+  } else {
+    delete require.cache[factoryTickPath];
+  }
   delete require.cache[factoryHandlersPath];
 
   const freshFactoryAudit = require('../db/factory-audit');
@@ -131,6 +137,7 @@ afterEach(() => {
   vi.doUnmock('../db/factory-health');
   vi.restoreAllMocks();
   vi.resetModules();
+  delete require.cache[factoryTickPath];
   db.close();
 });
 
@@ -200,8 +207,14 @@ describe('factory-audit DB module', () => {
 describe('factory pause/resume audit handlers', () => {
   it('pause handler emits audit row via DB', async () => {
     setProjectStatus(projectId, 'running');
+    const mockFactoryTick = {
+      stopTick: vi.fn(),
+      startTick: vi.fn(),
+    };
 
-    const { handlers, mockFactoryHealth } = loadHandlersWithMockedFactoryHealth(getProjectRow(projectId));
+    const { handlers, mockFactoryHealth } = loadHandlersWithMockedFactoryHealth(getProjectRow(projectId), {
+      factoryTick: mockFactoryTick,
+    });
     await handlers.handlePauseProject({
       project: projectId,
       reason: 'manual',
@@ -210,6 +223,8 @@ describe('factory pause/resume audit handlers', () => {
     });
 
     expect(mockFactoryHealth.updateProject).toHaveBeenCalledWith(projectId, { status: 'paused' });
+    expect(mockFactoryTick.stopTick).toHaveBeenCalledWith(projectId);
+    expect(mockFactoryTick.startTick).not.toHaveBeenCalled();
     expect(listRows()).toEqual([
       expect.objectContaining({
         project_id: projectId,
@@ -224,8 +239,14 @@ describe('factory pause/resume audit handlers', () => {
 
   it('resume handler emits audit row via DB', async () => {
     setProjectStatus(projectId, 'paused');
+    const mockFactoryTick = {
+      stopTick: vi.fn(),
+      startTick: vi.fn(),
+    };
 
-    const { handlers, mockFactoryHealth } = loadHandlersWithMockedFactoryHealth(getProjectRow(projectId));
+    const { handlers, mockFactoryHealth } = loadHandlersWithMockedFactoryHealth(getProjectRow(projectId), {
+      factoryTick: mockFactoryTick,
+    });
     await handlers.handleResumeProject({
       project: projectId,
       reason: 'manual',
@@ -234,6 +255,11 @@ describe('factory pause/resume audit handlers', () => {
     });
 
     expect(mockFactoryHealth.updateProject).toHaveBeenCalledWith(projectId, { status: 'running' });
+    expect(mockFactoryTick.stopTick).toHaveBeenCalledWith(projectId);
+    expect(mockFactoryTick.startTick).toHaveBeenCalledWith(expect.objectContaining({
+      id: projectId,
+      status: 'running',
+    }));
     expect(listRows()).toEqual([
       expect.objectContaining({
         project_id: projectId,

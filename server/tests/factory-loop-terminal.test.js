@@ -1,9 +1,11 @@
 'use strict';
 
 const Database = require('better-sqlite3');
+const { vi } = require('vitest');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryTick = require('../factory/factory-tick');
 const { LOOP_STATES } = require('../factory/loop-states');
 const loopController = require('../factory/loop-controller');
 
@@ -85,9 +87,15 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  factoryTick.stopAll('test_cleanup');
   factoryIntake.setDb(null);
   factoryLoopInstances.setDb(null);
   db.close();
+});
+
+afterEach(() => {
+  factoryTick.stopAll('test_cleanup');
+  vi.restoreAllMocks();
 });
 
 describe('factory loop LEARN terminal state', () => {
@@ -113,10 +121,13 @@ describe('factory loop LEARN terminal state', () => {
     const project = factoryHealth.registerProject({
       name: 'AutoContinueLegacy',
       path: '/test/auto-continue-' + Date.now(),
-      trust_level: 'dark',
+      trust_level: 'supervised',
       config: { loop: { auto_continue: true } },
     });
-    factoryHealth.updateProject(project.id, { loop_state: LOOP_STATES.LEARN });
+    factoryHealth.updateProject(project.id, {
+      status: 'running',
+      loop_state: LOOP_STATES.LEARN,
+    });
 
     const result = await loopController.advanceLoopForProject(project.id);
     expect(result.new_state).toBe(LOOP_STATES.IDLE);
@@ -126,5 +137,65 @@ describe('factory loop LEARN terminal state', () => {
     });
     const updatedProject = factoryHealth.getProject(project.id);
     expect(JSON.parse(updatedProject.config_json).loop.auto_continue_after).toEqual(expect.any(String));
+    expect(loopController.getActiveInstances(project.id)).toHaveLength(0);
+  });
+
+  it('restarts from a fresh instance after the cooldown expires', async () => {
+    const project = factoryHealth.registerProject({
+      name: 'AutoContinueRestart',
+      path: '/test/auto-continue-restart-' + Date.now(),
+      trust_level: 'supervised',
+      config: { loop: { auto_continue: true } },
+    });
+    factoryHealth.updateProject(project.id, {
+      status: 'running',
+      loop_state: LOOP_STATES.LEARN,
+    });
+
+    const learnAdvance = await loopController.advanceLoopForProject(project.id);
+    expect(learnAdvance.new_state).toBe(LOOP_STATES.IDLE);
+
+    const terminatedInstance = factoryLoopInstances.listInstances({
+      project_id: project.id,
+      active_only: false,
+    })[0];
+    expect(terminatedInstance).toMatchObject({
+      project_id: project.id,
+      loop_state: LOOP_STATES.LEARN,
+      terminated_at: expect.any(String),
+    });
+
+    const updatedProject = factoryHealth.getProject(project.id);
+    const nextConfig = JSON.parse(updatedProject.config_json);
+    factoryHealth.updateProject(project.id, {
+      config_json: JSON.stringify({
+        ...nextConfig,
+        loop: {
+          ...nextConfig.loop,
+          auto_continue_after: new Date(Date.now() - 1000).toISOString(),
+        },
+      }),
+    });
+
+    const startTickSpy = vi.spyOn(factoryTick, 'startTick').mockImplementation(() => {});
+
+    factoryTick.tickProject(project.id);
+
+    const activeInstances = loopController.getActiveInstances(project.id);
+    expect(activeInstances).toHaveLength(1);
+    expect(activeInstances[0]).toMatchObject({
+      project_id: project.id,
+      loop_state: LOOP_STATES.PRIORITIZE,
+      paused_at_stage: LOOP_STATES.PRIORITIZE,
+      terminated_at: null,
+    });
+    expect(activeInstances[0].id).not.toBe(terminatedInstance.id);
+    expect(startTickSpy).toHaveBeenCalledWith(expect.objectContaining({
+      id: project.id,
+      status: 'running',
+    }));
+
+    const restartedProject = factoryHealth.getProject(project.id);
+    expect(JSON.parse(restartedProject.config_json).loop.auto_continue_after).toBeUndefined();
   });
 });

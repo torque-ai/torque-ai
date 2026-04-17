@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
+vi.mock('../event-bus', async () => {
+  const actual = await vi.importActual('../event-bus');
+  return {
+    ...actual,
+    emitTaskEvent: vi.fn(),
+  };
+});
 
 const Database = require('better-sqlite3');
 const database = require('../database');
@@ -11,6 +17,7 @@ const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const factoryWorktrees = require('../db/factory-worktrees');
+const factoryTick = require('../factory/factory-tick');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 
@@ -306,6 +313,7 @@ describe('factory loop work-item shipping', () => {
     guardrailDb.setDb(null);
     factoryWorktrees.setDb(null);
     loopController.setWorktreeRunnerForTests(null);
+    factoryTick.stopAll('test_cleanup');
     db.close();
     db = null;
   });
@@ -556,6 +564,33 @@ describe('factory loop work-item shipping', () => {
         pending_count: 1,
       }),
     });
+  });
+
+  it('keeps approval-gated VERIFY pauses parked when the scheduler self-ticks', async () => {
+    const batchId = 'batch-verify-approval-gated';
+    const { project } = registerPausedVerifyProject({
+      workItemStatus: 'verifying',
+      batchId,
+    });
+    factoryHealth.updateProject(project.id, { status: 'running' });
+
+    await expect(loopController.advanceLoopForProject(project.id)).rejects.toThrow(
+      'Loop is paused — use approveGate to continue',
+    );
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: LOOP_STATES.VERIFY,
+    });
+
+    factoryTick.tickProject(project.id);
+
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: LOOP_STATES.VERIFY,
+    });
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.stage === 'verify' && row.action === 'waiting_for_batch_tasks')).toBeUndefined();
+    expect(decisions.find((row) => row.action === 'gate_approved')).toBeUndefined();
   });
 
   it('marks the persisted factory worktree as merged after successful LEARN shipping', async () => {

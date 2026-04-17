@@ -216,6 +216,18 @@ function insertBatchTask(db, { taskId, batchId, status }) {
   ]));
 }
 
+async function waitForProjectLoopState(projectId, predicate, description) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const state = loopController.getLoopStateForProject(projectId);
+    if (predicate(state)) {
+      return state;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error(`Timed out waiting for project ${projectId} to reach ${description}`);
+}
+
 describe('factory loop-controller EXECUTE modes', () => {
   let db;
   let originalGetDbInstance;
@@ -1167,5 +1179,55 @@ describe('factory loop-controller EXECUTE modes', () => {
       },
     });
     expect(result.elapsed_ms).toBeGreaterThanOrEqual(1000);
+  });
+
+  it('resumeAutoAdvanceOnStartup resumes active auto-continue instances but leaves gate-paused ones parked', async () => {
+    const resumableProject = factoryHealth.registerProject({
+      name: `Factory Auto Resume ${Date.now()}`,
+      path: path.join(tempDir, `project-auto-resume-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+      trust_level: 'supervised',
+      config: {
+        loop: {
+          auto_continue: true,
+        },
+      },
+    });
+    const pausedProject = factoryHealth.registerProject({
+      name: `Factory Auto Resume Paused ${Date.now()}`,
+      path: path.join(tempDir, `project-auto-resume-paused-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+      trust_level: 'supervised',
+      config: {
+        loop: {
+          auto_continue: true,
+        },
+      },
+    });
+
+    loopController.startLoopForProject(resumableProject.id);
+    loopController.startLoopForProject(pausedProject.id);
+    await loopController.advanceLoopForProject(pausedProject.id);
+
+    expect(loopController.getLoopStateForProject(pausedProject.id)).toMatchObject({
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: LOOP_STATES.PRIORITIZE,
+    });
+
+    const resumed = loopController.resumeAutoAdvanceOnStartup();
+
+    expect(resumed).toBe(1);
+
+    const resumedState = await waitForProjectLoopState(
+      resumableProject.id,
+      (state) => state.loop_paused_at_stage === LOOP_STATES.PRIORITIZE,
+      'a PRIORITIZE gate pause after startup resume',
+    );
+    expect(resumedState).toMatchObject({
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: LOOP_STATES.PRIORITIZE,
+    });
+    expect(loopController.getLoopStateForProject(pausedProject.id)).toMatchObject({
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: LOOP_STATES.PRIORITIZE,
+    });
   });
 });
