@@ -40,7 +40,8 @@ function getClaudeCodeSdkProvider() {
     if (provider) {
       return provider;
     }
-  } catch {
+  } catch (error) {
+    void error;
     // Fall through to direct registry access when the DI container is not booted.
   }
 

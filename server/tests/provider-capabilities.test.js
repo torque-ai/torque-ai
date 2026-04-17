@@ -166,6 +166,13 @@ describe('provider-capabilities', () => {
               quality_band: 'A',
             };
           }
+          if (provider === 'claude-code-sdk') {
+            return {
+              enabled: 0,
+              capability_tags: ['file_creation', 'file_edit', 'multi_file', 'reasoning'],
+              quality_band: 'A',
+            };
+          }
           return { enabled: 1 };
         },
       });

@@ -279,11 +279,11 @@ Tests + implementation straightforward. Commit: `feat(claude-code): session stor
 
 ## Task 3: Provider adapter + MCP
 
-- [ ] **Step 1: Provider adapter**
+- [x] **Step 1: Provider adapter**
 
 Create `server/providers/claude-code-sdk.js`. The adapter spawns Claude Code with `--print` + `--output-format stream-json`, streams chunks, evaluates permissions on each tool call, manages sessions via `--resume <id>` or `--fork-session`, and yields events in the Plan 83 streaming event shape.
 
-- [ ] **Step 2: MCP tools**
+- [x] **Step 2: MCP tools**
 
 ```js
 dispatch_subagent: {
