@@ -33,7 +33,7 @@
 
 ## Task 1: Mention parser
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/mention-parser.test.js`:
 
@@ -87,7 +87,7 @@ describe('parseMentions', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/repo-graph/mention-parser.js`:
 
@@ -123,7 +123,7 @@ Run tests → PASS. Commit: `feat(mention): parser extracts @-mentions with kind
 
 ## Task 2: Repo registry + indexer
 
-- [ ] **Step 1: Migration**
+- [x] **Step 1: Migration**
 
 `server/migrations/0NN-repo-graph.sql`:
 
@@ -156,11 +156,11 @@ CREATE INDEX IF NOT EXISTS idx_repo_symbols_name ON repo_symbols(name);
 CREATE INDEX IF NOT EXISTS idx_repo_symbols_qualified ON repo_symbols(qualified_name);
 ```
 
-- [ ] **Step 2: Registry**
+- [x] **Step 2: Registry**
 
 Create `server/repo-graph/repo-registry.js` exposing `{ register, getByName, get, list, unregister, markIndexed }`. `register` is idempotent on `name` — returns existing `repo_id` if present. See analogous factory patterns in Plan 50 catalog.
 
-- [ ] **Step 3: Indexer**
+- [x] **Step 3: Indexer**
 
 Create `server/repo-graph/graph-indexer.js`: uses Plan 49's symbol-search `indexFile` to walk repo files, inserts/updates `repo_symbols` rows. Skips `node_modules`, `.git`, `dist`, `build`. Exposes `indexRepo(repoId)` and `indexAll()`.
 
@@ -172,7 +172,7 @@ Commit: `feat(repo-graph): registry + multi-repo indexer`.
 
 ## Task 3: Mention resolver
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/mention-resolver.test.js`:
 
@@ -234,7 +234,7 @@ describe('mentionResolver', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/repo-graph/mention-resolver.js`:
 
@@ -315,7 +315,7 @@ Run tests → PASS. Commit: `feat(mention): resolver for file/symbol/repo/dir/ur
 
 ## Task 4: Wire + MCP tools
 
-- [ ] **Step 1: Task startup injects resolved context**
+- [x] **Step 1: Task startup injects resolved context**
 
 In `server/execution/task-startup.js`:
 
@@ -336,7 +336,7 @@ if (parsed.mentions.length > 0) {
 }
 ```
 
-- [ ] **Step 2: MCP tools**
+- [x] **Step 2: MCP tools**
 
 ```js
 register_repo: { description: 'Register a repo for cross-repo code graph queries + @-mention resolution.', inputSchema: {...} },

@@ -33,6 +33,7 @@ function createDeps({ task = createTask(), depOverrides = {} } = {}) {
   const db = {
     getTask: vi.fn((taskId) => tasks.get(taskId) ?? null),
     getDefaultProvider: vi.fn(() => 'codex'),
+    addTaskTags: vi.fn(),
     updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
       const current = tasks.get(taskId) ?? { id: taskId };
       const updated = { ...current, status, ...patch };
@@ -181,12 +182,20 @@ function loadTaskStartup(options = {}) {
   const loggerMock = { child: vi.fn(() => mockLogger) };
   const constantsMock = { TASK_TIMEOUTS: { GIT_STATUS: 1000 } };
   const gitMock = { parseGitStatusLine: mockParseGitStatusLine };
+  const mentionResolver = options.mentionResolver || null;
+  const containerMock = {
+    defaultContainer: {
+      has: vi.fn((name) => name === 'mentionResolver' && Boolean(mentionResolver)),
+      get: vi.fn((name) => (name === 'mentionResolver' ? mentionResolver : null)),
+    },
+  };
 
   installCjsModuleMock('fs', mockFs);
   installCjsModuleMock('child_process', mockChildProcess);
   installCjsModuleMock('../logger', loggerMock);
   installCjsModuleMock('../constants', constantsMock);
   installCjsModuleMock('../utils/git', gitMock);
+  installCjsModuleMock('../container', containerMock);
 
   delete require.cache[MODULE_PATH];
   const taskStartup = require('../execution/task-startup.js');
@@ -241,6 +250,53 @@ describe('task-startup', () => {
     expect(ctx.deps.buildCodexCommand).toHaveBeenCalled();
     expect(ctx.deps.spawnAndTrackProcess).toHaveBeenCalledTimes(1);
     expect(ctx.module.getRunningTaskCount()).toBe(2);
+  });
+
+  it('injects resolved mention context into the execution prompt and tags unresolved mentions', async () => {
+    const mentionResolver = {
+      resolve: vi.fn(async () => ([
+        {
+          kind: 'symbol',
+          value: 'utils.hello',
+          raw: '@symbol:utils.hello',
+          resolved: true,
+          body_preview: 'export function hello() {\n  return "hi";\n}',
+        },
+        {
+          kind: 'file',
+          value: 'missing.js',
+          raw: '@file:missing.js',
+          resolved: false,
+          reason: 'not found',
+        },
+      ])),
+    };
+    const task = createTask({
+      task_description: 'Use @symbol:utils.hello and inspect @file:missing.js',
+    });
+    const ctx = loadTaskStartup({ task, mentionResolver });
+
+    const result = await ctx.module.startTask(task.id);
+
+    expect(result).toEqual({ queued: false, started: true });
+    expect(mentionResolver.resolve).toHaveBeenCalledWith([
+      expect.objectContaining({ raw: '@symbol:utils.hello' }),
+      expect.objectContaining({ raw: '@file:missing.js' }),
+    ]);
+    expect(ctx.deps.db.addTaskTags).toHaveBeenCalledWith(task.id, ['mentions:unresolved:1']);
+    expect(ctx.deps.buildCodexCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task_description: 'Use @symbol:utils.hello and inspect @file:missing.js',
+        execution_description: expect.stringContaining('## Context: @symbol:utils.hello'),
+      }),
+      expect.any(Object),
+      '',
+      [],
+    );
+    expect(ctx.deps.resolveFileReferences).toHaveBeenCalledWith(
+      'Use @symbol:utils.hello and inspect @file:missing.js',
+      'C:/repo',
+    );
   });
 
   it('startTask calls runPreflightChecks and proceeds to execution on success', async () => {

@@ -65,6 +65,12 @@ function isLargeModelBlockedOnHost(...args) { return _isLargeModelBlockedOnHost 
 function buildFileContext(...args) { return _buildFileContext ? _buildFileContext(...args) : ''; }
 function processQueue(...args) { return _processQueue ? _processQueue(...args) : undefined; }
 
+function getExecutionDescription(task) {
+  return typeof task?.execution_description === 'string' && task.execution_description.trim()
+    ? task.execution_description
+    : task.task_description;
+}
+
 function requeueTaskAfterAttemptedStart(taskId, patch = {}) {
   if (typeof db?.requeueTaskAfterAttemptedStart === 'function') {
     return db.requeueTaskAfterAttemptedStart(taskId, patch);
@@ -513,8 +519,10 @@ async function executeOllamaTask(task) {
       options.seed = parseInt(seed, 10);
     }
 
+    const promptDescription = getExecutionDescription(task);
+
     // Extract and read files referenced in the task description
-    let prompt = applyStudyContextPrompt(task.task_description, taskMetadataParsed);
+    let prompt = applyStudyContextPrompt(promptDescription, taskMetadataParsed);
 
     // Resolve working directory - try task field, then project defaults, then env base path
     let workingDir = task.working_directory;
@@ -537,11 +545,16 @@ async function executeOllamaTask(task) {
 
     // Resolve file references using shared resolution (replaces Ollama-specific regex)
     try {
-      const resolution = resolveFileReferences(prompt, workingDir);
+      const resolution = resolveFileReferences(task.task_description || promptDescription, workingDir);
       if (resolution.resolved.length > 0) {
-        const fileContext = await buildFileContext(resolution.resolved, workingDir, 15000, task.task_description);
+        const fileContext = await buildFileContext(
+          resolution.resolved,
+          workingDir,
+          15000,
+          task.task_description || promptDescription
+        );
         if (fileContext) {
-          prompt = applyStudyContextPrompt(task.task_description + fileContext, taskMetadataParsed);
+          prompt = applyStudyContextPrompt(promptDescription + fileContext, taskMetadataParsed);
           logger.info(`[Ollama] Included ${resolution.resolved.length} resolved file(s) in prompt for task ${taskId}`);
         }
       }

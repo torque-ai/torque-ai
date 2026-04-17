@@ -53,7 +53,14 @@ const MAX_FILE_SIZE = 256 * 1024;
  * Initialize the symbol indexer with a database instance.
  */
 function init(db) {
-  _db = db;
+  const rawDb = db && typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+  if (!rawDb || typeof rawDb.exec !== 'function') {
+    logger.warn('[symbol-indexer] init skipped: SQLite handle unavailable');
+    _db = null;
+    return false;
+  }
+
+  _db = rawDb;
   _db.exec(`
     CREATE TABLE IF NOT EXISTS symbol_index (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,6 +79,7 @@ function init(db) {
     CREATE INDEX IF NOT EXISTS idx_symbol_kind ON symbol_index(kind, working_dir);
     CREATE INDEX IF NOT EXISTS idx_symbol_hash ON symbol_index(content_hash);
   `);
+  return true;
 }
 
 /**

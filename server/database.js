@@ -138,6 +138,8 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   // Integration & reporting
   'integration_config', 'integration_health', 'integration_tests',
   'github_issues', 'report_exports',
+  // Repo graph
+  'registered_repos', 'repo_symbols',
   // Test coverage & diff
   'test_coverage', 'diff_previews',
   // Impact analysis

@@ -873,6 +873,38 @@ function init() {
   if (!defaultContainer.has('toolRouter')) {
     defaultContainer.registerValue('toolRouter', { callTool });
   }
+  const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+  const { createRepoRegistry } = require('./repo-graph/repo-registry');
+  let repoRegistry = null;
+  const getRepoRegistry = () => repoRegistry || createRepoRegistry({ db: rawDb });
+  if (!defaultContainer.has('symbolIndexer')) {
+    const { createSymbolIndexer } = require('./utils/symbol-indexer');
+    const symbolIndexer = createSymbolIndexer({ db });
+    if (typeof symbolIndexer.init === 'function') {
+      symbolIndexer.init(db);
+    }
+    defaultContainer.registerValue('symbolIndexer', symbolIndexer);
+  }
+  if (!defaultContainer.has('repoRegistry')) {
+    repoRegistry = createRepoRegistry({ db: rawDb });
+    defaultContainer.registerValue('repoRegistry', repoRegistry);
+  }
+  if (!defaultContainer.has('graphIndexer')) {
+    const { createGraphIndexer } = require('./repo-graph/graph-indexer');
+    defaultContainer.registerValue('graphIndexer', createGraphIndexer({
+      db: rawDb,
+      repoRegistry: getRepoRegistry(),
+      logger: logger.child({ component: 'graph-indexer' }),
+    }));
+  }
+  if (!defaultContainer.has('mentionResolver')) {
+    const { createMentionResolver } = require('./repo-graph/mention-resolver');
+    defaultContainer.registerValue('mentionResolver', createMentionResolver({
+      db: rawDb,
+      repoRegistry: getRepoRegistry(),
+      logger: logger.child({ component: 'mention-resolver' }),
+    }));
+  }
 
   const studyTelemetry = require('./db/study-telemetry');
   studyTelemetry.init({ db });
