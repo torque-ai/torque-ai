@@ -623,6 +623,21 @@ function initModules(db, serverConfig) {
     registry.loadTemplates();
     _defaultContainer.registerValue('templateRegistry', registry);
   }
+  if (!_defaultContainer.has('patternsStore')) {
+    const { createPatternsStore } = require('./patterns/store');
+    const patternsStore = createPatternsStore({
+      cwd: process.cwd(),
+      dir: path.join(process.cwd(), '.torque', 'patterns'),
+    });
+    if (typeof db.onClose === 'function') {
+      db.onClose(() => {
+        if (typeof patternsStore.shutdown === 'function') {
+          patternsStore.shutdown();
+        }
+      });
+    }
+    _defaultContainer.registerValue('patternsStore', patternsStore);
+  }
   if (!_defaultContainer.has('projectDetector')) {
     const { createProjectDetector } = require('./templates/detector');
     const templateRegistry = _defaultContainer.get('templateRegistry');

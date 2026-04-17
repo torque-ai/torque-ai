@@ -51,6 +51,10 @@ Planning:
   decompose <description>  Break a feature into tasks
   plan import <file.md>    Import a plan document
 
+Patterns:
+  fabric -l               List prompt patterns from .torque/patterns
+  fabric -p <name>        Run a prompt pattern with stdin/stdout piping
+
 Providers:
   provider list           Show all providers and their status
   provider add            Add a new provider (interactive)
@@ -436,6 +440,14 @@ if (EXISTING_COMMANDS.has(command)) {
   runHandler(handleTemplate);
 } else if (command === 'plan') {
   runHandler(handlePlan);
+} else if (command === 'fabric') {
+  require(path.join(__dirname, '..', 'server', 'patterns', 'cli'))
+    .main(process.argv.slice(3))
+    .then((code) => { process.exitCode = code; })
+    .catch((err) => {
+      console.error(err.message || String(err));
+      process.exitCode = 1;
+    });
 } else if (command === 'backup') {
   runHandler(handleBackup);
 } else if (command === 'transcript') {

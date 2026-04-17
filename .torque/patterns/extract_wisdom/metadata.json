@@ -1,0 +1,5 @@
+{
+  "description": "Pull key insights and actionable takeaways from a passage.",
+  "tags": ["insights", "summary", "fabric"],
+  "variables": ["input"]
+}
