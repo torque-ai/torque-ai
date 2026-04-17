@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, vi } = require('vitest');
 const { createSandboxManager } = require('../sandbox/sandbox-manager');
 
 describe('sandboxManager', () => {
