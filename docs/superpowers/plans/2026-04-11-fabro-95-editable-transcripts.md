@@ -30,7 +30,7 @@
 
 ## Task 1: Transcript log
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/transcript-log.test.js`:
 
@@ -98,7 +98,7 @@ describe('transcriptLog', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/transcripts/transcript-log.js`:
 
@@ -149,7 +149,7 @@ Run tests → PASS. Commit: `feat(transcripts): append/read/replace JSONL log wi
 
 ## Task 2: Validator + TOML editor roundtrip
 
-- [ ] **Step 1: Validator tests**
+- [x] **Step 1: Validator tests**
 
 Create `server/tests/transcript-validator.test.js`:
 
@@ -203,7 +203,7 @@ describe('validateTranscript', () => {
 });
 ```
 
-- [ ] **Step 2: Implement validator**
+- [x] **Step 2: Implement validator**
 
 Create `server/transcripts/transcript-validator.js`:
 
@@ -236,7 +236,7 @@ module.exports = { validateTranscript };
 
 Run tests → PASS. Commit: `feat(transcripts): validator with role check + tool_call linkage`.
 
-- [ ] **Step 3: TOML editor roundtrip**
+- [x] **Step 3: TOML editor roundtrip**
 
 Create `server/transcripts/transcript-editor.js`:
 
@@ -290,7 +290,7 @@ Commit: `feat(transcripts): editor roundtrip via $EDITOR + TOML pretty form`.
 
 ## Task 3: CLI + MCP + wire into run dir
 
-- [ ] **Step 1: CLI**
+- [x] **Step 1: CLI**
 
 Create `server/cli/transcript-cli.js`:
 
@@ -340,7 +340,7 @@ async function main() {
 main().catch(err => { console.error(err); process.exit(1); });
 ```
 
-- [ ] **Step 2: MCP tools**
+- [x] **Step 2: MCP tools**
 
 ```js
 read_transcript: { description: 'Read a task\'s transcript (list of messages).', inputSchema: { type: 'object', required: ['task_id'], properties: { task_id: { type: 'string' } } } },
@@ -348,7 +348,7 @@ edit_transcript: { description: 'Replace a task\'s transcript with validated mes
 replay_from_transcript: { description: 'Resume a task from its (possibly-edited) transcript. The next turn sees the edited history.', inputSchema: { type: 'object', required: ['task_id'], properties: { task_id: { type: 'string' } } } },
 ```
 
-- [ ] **Step 3: Wire into task startup + Claude Code provider**
+- [x] **Step 3: Wire into task startup + Claude Code provider**
 
 In `server/execution/task-startup.js`: when opening a run dir (Plan 85), create a transcript log and expose it through `task.__transcript`. Each message from provider streams (text_delta → append chunk to running message; tool_call / tool_result → append immediately on completion) is persisted.
 

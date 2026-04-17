@@ -74,6 +74,7 @@ Database:
 Diagnostics:
   doctor                  Run diagnostic checks
   logs [task-id]          View server or task logs
+  transcript <cmd> <id>   View/edit/validate a task transcript
   budget                  Show cost tracking and budget status
   budget --forecast       Show cost forecast and projections
 
@@ -331,6 +332,74 @@ async function handleBackup() {
 }
 
 // ===================================================================
+// HF7: torque transcript view|edit|validate <task-id>
+// ===================================================================
+async function handleTranscript() {
+  const transcriptCommand = subcommand;
+  const taskId = process.argv[4];
+
+  if (!transcriptCommand || !taskId) {
+    console.error('Usage: torque transcript {view|edit|validate} <task-id>');
+    process.exitCode = 1;
+    return;
+  }
+
+  const {
+    createTaskTranscriptLog,
+  } = require(path.join(__dirname, '..', 'server', 'transcripts', 'transcript-log'));
+  const {
+    editTranscript,
+  } = require(path.join(__dirname, '..', 'server', 'transcripts', 'transcript-editor'));
+  const {
+    validateTranscript,
+  } = require(path.join(__dirname, '..', 'server', 'transcripts', 'transcript-validator'));
+
+  const log = createTaskTranscriptLog({ taskId });
+
+  if (transcriptCommand === 'view') {
+    const messages = log.read();
+    if (messages.length === 0) {
+      console.log('(empty transcript)');
+      return;
+    }
+
+    for (const message of messages) {
+      console.log(`\n--- [${message.role}] ${message.timestamp || 'unknown time'} ---`);
+      console.log(message.content || JSON.stringify(message, null, 2));
+    }
+    return;
+  }
+
+  if (transcriptCommand === 'edit') {
+    const result = await editTranscript({ messages: log.read() });
+    if (!result.ok) {
+      console.error('Validation failed:');
+      for (const error of result.errors) {
+        console.error(`  - ${error}`);
+      }
+      process.exitCode = 1;
+      return;
+    }
+
+    log.replace(result.messages);
+    console.log(`Updated ${result.messages.length} messages.`);
+    return;
+  }
+
+  if (transcriptCommand === 'validate') {
+    const validation = validateTranscript(log.read());
+    console.log(JSON.stringify(validation, null, 2));
+    if (!validation.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  console.error(`Unknown transcript command: ${transcriptCommand}`);
+  process.exitCode = 1;
+}
+
+// ===================================================================
 // Command dispatcher
 // ===================================================================
 
@@ -369,6 +438,8 @@ if (EXISTING_COMMANDS.has(command)) {
   runHandler(handlePlan);
 } else if (command === 'backup') {
   runHandler(handleBackup);
+} else if (command === 'transcript') {
+  runHandler(handleTranscript);
 } else {
   console.error(`Unknown command: ${command}\nRun 'torque --help' for usage.`);
   process.exitCode = 1;

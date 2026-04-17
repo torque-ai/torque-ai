@@ -171,6 +171,32 @@ function parseTaskMetadata(task) {
   }
 }
 
+function buildProviderExecutionOptions(task, controller, extra = {}) {
+  const metadata = parseTaskMetadata(task);
+  const options = {
+    timeout: task.timeout_minutes || 30,
+    maxTokens: 4096,
+    signal: controller.signal,
+    working_directory: task.working_directory || process.cwd(),
+    ...extra,
+  };
+
+  if (task?.provider === 'claude-code-sdk') {
+    if (task.__transcript) {
+      options.transcript = task.__transcript;
+    }
+
+    if (metadata.transcript_seed_from_task_id) {
+      options.seed_messages = task.__transcript && typeof task.__transcript.read === 'function'
+        ? task.__transcript.read()
+        : [];
+      options.force_fresh_session = true;
+    }
+  }
+
+  return options;
+}
+
 function requeueTaskAfterAttemptedStart(taskId, patch = {}) {
   if (typeof db?.requeueTaskAfterAttemptedStart === 'function') {
     return db.requeueTaskAfterAttemptedStart(taskId, patch);
@@ -362,6 +388,7 @@ async function executeApiProvider(task, provider) {
     // Issue #9: startTimeMs is hoisted so the finally block can record usage on
     // both success and failure paths.
     startTimeMs = Date.now();
+    const providerOptions = buildProviderExecutionOptions(taskClone, controller);
 
     if (provider.supportsStreaming) {
       // Use streaming path — pipe tokens to stream chunks + dashboard
@@ -374,9 +401,7 @@ async function executeApiProvider(task, provider) {
         streamAttempt += 1;
         try {
           result = await provider.submitStream(effectiveDescription, model, {
-            timeout: task.timeout_minutes || 30,
-            maxTokens: 4096,
-            signal: controller.signal,
+            ...providerOptions,
             onChunk: (token) => {
               try {
                 db.addStreamChunk(streamId, token, 'stdout');
@@ -401,11 +426,7 @@ async function executeApiProvider(task, provider) {
       }
     } else {
       // Non-streaming fallback
-      result = await submitWithRetry(taskClone, provider, model, {
-        timeout: task.timeout_minutes || 30,
-        maxTokens: 4096,
-        signal: controller.signal,
-      });
+      result = await submitWithRetry(taskClone, provider, model, providerOptions);
     }
 
     if (controller.signal.aborted) {
@@ -437,6 +458,19 @@ async function executeApiProvider(task, provider) {
       dashboard.notifyTaskUpdated(taskId);
       try { if (processQueue) processQueue(); } catch { /* ignore */ }
       return;
+    }
+
+    if (result?.session_id || result?.claude_session_id) {
+      try {
+        const currentMetadata = parseTaskMetadata(taskClone || task);
+        db.patchTaskMetadata(taskId, {
+          ...currentMetadata,
+          ...(result.session_id ? { claude_local_session_id: result.session_id } : {}),
+          ...(result.claude_session_id ? { claude_session_id: result.claude_session_id } : {}),
+        });
+      } catch (metadataError) {
+        logger.debug(`Failed to persist provider session metadata for task ${taskId}: ${metadataError.message}`);
+      }
     }
 
     db.updateTaskStatus(taskId, 'completed', {

@@ -44,6 +44,16 @@ function textOf(result) {
   return result?.content?.[0]?.text || '';
 }
 
+function isVerifyExecutor(command) {
+  return typeof command === 'string'
+    && (
+      command === 'torque-remote'
+      || command === 'cmd'
+      || command === 'sh'
+      || /(?:^|[\\/])bash(?:\.exe)?$/i.test(command)
+    );
+}
+
 function createWorkflow(overrides = {}) {
   const id = overrides.id || randomUUID();
   return workflowEngine.createWorkflow({
@@ -335,7 +345,7 @@ describe('workflow-await handlers with DB-backed state', () => {
     it('runs verify_command after a task completes', async () => {
       const taskId = createTask({ status: 'running' });
       mocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
-        if (command === 'bash' || command === 'cmd' || command === 'sh' || command === 'torque-remote') return 'verify ok\n';
+        if (isVerifyExecutor(command)) return 'verify ok\n';
         if (command === 'git' && args[0] === 'rev-parse') return 'abc123\n';
         if (command === 'git' && args[0] === 'diff') return '';
         return '';
@@ -356,19 +366,18 @@ describe('workflow-await handlers with DB-backed state', () => {
       expect(textOf(result)).toContain('### Verify Command');
       expect(textOf(result)).toContain('Passed');
       expect(textOf(result)).toContain('verify ok');
-      // When scripts/torque-test.sh exists in cwd, routing goes through bash.
-      // When it doesn't (e.g., in a stripped environment), falls back to sh/cmd.
-      expect(mocks.executeValidatedCommandSync).toHaveBeenCalledWith(
-        expect.stringMatching(/^(bash|cmd|sh|torque-remote)$/),
-        expect.any(Array),
-        expect.objectContaining({ cwd: process.cwd() })
+      // Windows may route through a resolved bash.exe path; other environments use bash/cmd/sh.
+      const verifyCall = mocks.executeValidatedCommandSync.mock.calls.find(
+        ([command]) => isVerifyExecutor(command)
       );
+      expect(verifyCall).toBeTruthy();
+      expect(verifyCall[2]).toEqual(expect.objectContaining({ cwd: process.cwd() }));
     });
 
     it('captures verify_command failures without aborting the task result', async () => {
       const taskId = createTask({ status: 'running' });
       mocks.executeValidatedCommandSync.mockImplementation((command) => {
-        if (command === 'bash' || command === 'cmd' || command === 'sh' || command === 'torque-remote') {
+        if (isVerifyExecutor(command)) {
           const error = new Error('verify failed');
           error.stderr = 'failing test output';
           throw error;

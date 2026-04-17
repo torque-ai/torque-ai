@@ -152,4 +152,53 @@ module.exports = [
       required: [],
     },
   },
+  {
+    name: 'read_transcript',
+    description: 'Read a task transcript from its run directory.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'Task ID whose transcript should be read.',
+        },
+      },
+      required: ['task_id'],
+    },
+  },
+  {
+    name: 'edit_transcript',
+    description: 'Replace a task transcript with a validated message list.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'Task ID whose transcript should be replaced.',
+        },
+        messages: {
+          type: 'array',
+          description: 'Validated transcript messages to persist.',
+          items: {
+            type: 'object',
+          },
+        },
+      },
+      required: ['task_id', 'messages'],
+    },
+  },
+  {
+    name: 'replay_from_transcript',
+    description: 'Create a replay task that resumes from an edited transcript.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'Original task ID whose transcript should seed the replay.',
+        },
+      },
+      required: ['task_id'],
+    },
+  },
 ];

@@ -13,6 +13,8 @@ const logger = require('../logger').child({ component: 'task-startup' });
 const { TASK_TIMEOUTS } = require('../constants');
 const { parseGitStatusLine } = require('../utils/git');
 const { parseMentions } = require('../repo-graph/mention-parser');
+const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
+const { validateTranscript } = require('../transcripts/transcript-validator');
 
 // ── Injected Dependencies ──────────────────────────────────────────────────
 let db;
@@ -554,15 +556,43 @@ async function startTask(taskId) {
   let runDir = null;
   if (runDirManager) {
     runDir = runDirManager.openRunDir(taskId);
-    const previousRunDir = parseTaskMetadata(claimResult.task?.metadata).run_dir;
+    const previousMetadata = parseTaskMetadata(claimResult.task?.metadata);
+    const previousRunDir = previousMetadata.run_dir;
     const rewrittenDescription = typeof task.task_description === 'string'
       ? task.task_description.replace(/\$run_dir/g, runDir)
       : task.task_description;
-    taskMetadata = { ...taskMetadata, run_dir: runDir };
+    const transcriptLog = createTaskTranscriptLog({ taskId, runDir, runDirManager });
+    const seedTaskId = typeof taskMetadata.transcript_seed_from_task_id === 'string'
+      ? taskMetadata.transcript_seed_from_task_id.trim()
+      : '';
+    const currentTranscriptMessages = transcriptLog.read();
+
+    if (seedTaskId && currentTranscriptMessages.length === 0) {
+      const sourceTranscriptLog = createTaskTranscriptLog({ taskId: seedTaskId, runDirManager });
+      const seedMessages = sourceTranscriptLog.read();
+      const seedValidation = validateTranscript(seedMessages);
+      if (!seedValidation.ok) {
+        throw new Error(`Transcript seed for task ${seedTaskId} is invalid: ${seedValidation.errors.join('; ')}`);
+      }
+      if (seedMessages.length > 0) {
+        transcriptLog.replace(seedMessages);
+      }
+    }
+
+    taskMetadata = {
+      ...taskMetadata,
+      run_dir: runDir,
+      transcript_path: transcriptLog.filePath,
+    };
     task.task_description = rewrittenDescription;
     task.metadata = taskMetadata;
+    task.__transcript = transcriptLog;
 
-    if (rewrittenDescription !== claimResult.task?.task_description || previousRunDir !== runDir) {
+    if (
+      rewrittenDescription !== claimResult.task?.task_description
+      || previousRunDir !== runDir
+      || previousMetadata.transcript_path !== transcriptLog.filePath
+    ) {
       const updatedTask = db.updateTask(taskId, {
         task_description: rewrittenDescription,
         metadata: taskMetadata,
@@ -570,6 +600,8 @@ async function startTask(taskId) {
       if (updatedTask) {
         Object.assign(task, updatedTask);
       }
+      task.metadata = taskMetadata;
+      task.__transcript = transcriptLog;
     }
   }
 
@@ -765,6 +797,7 @@ async function startTask(taskId) {
     TORQUE_WORKFLOW_ID: task.workflow_id || '',
     TORQUE_WORKFLOW_NODE_ID: task.workflow_node_id || '',
     TORQUE_RUN_DIR: runDir || '',
+    TORQUE_TRANSCRIPT_PATH: taskMetadata.transcript_path || '',
     // Ensure git works properly
     GIT_TERMINAL_PROMPT: '0',  // Disable git credential prompts
     // Fix Windows cp1252 encoding crash when LLM output contains emoji/unicode (P59)

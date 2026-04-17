@@ -182,6 +182,8 @@ const OVERRIDES = Object.freeze({
   quick_setup_notifications:       Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   full_project_audit:              Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   list_run_artifacts:              READONLY,
+  read_transcript:                 READONLY,
+  replay_from_transcript:          DISPATCH,
 
   // idempotent: safe mutations, configurations, records
   share_context:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
@@ -196,6 +198,7 @@ const OVERRIDES = Object.freeze({
   override_policy_decision:        Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   bulk_approve_models:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   complete_oauth_flow:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
+  edit_transcript:                 IDEMPOTENT,
 
   // lifecycle: state transitions, lock/lease management
   watch_ci_repo:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),

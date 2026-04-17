@@ -11,11 +11,25 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const Module = require('module');
 const { execFileSync } = require('child_process');
 
 const TEMPLATE_DIR = path.join(os.tmpdir(), 'torque-vitest-template');
 const TEMPLATE_BUF = path.join(TEMPLATE_DIR, 'template.db.buf');
 const TEMPLATE_STAMP = path.join(TEMPLATE_DIR, '.ready');
+
+function wireSharedServerNodeModules() {
+  const sharedServerNodeModules = path.resolve(__dirname, '..', '..', '..', '..', 'server', 'node_modules');
+  if (!fs.existsSync(sharedServerNodeModules)) return;
+
+  const nodePathEntries = (process.env.NODE_PATH || '').split(path.delimiter).filter(Boolean);
+  if (!nodePathEntries.includes(sharedServerNodeModules)) {
+    process.env.NODE_PATH = [sharedServerNodeModules, ...nodePathEntries].join(path.delimiter);
+    Module._initPaths();
+  }
+}
+
+wireSharedServerNodeModules();
 
 /** Snapshot git.exe PIDs before the suite runs (Windows only). */
 let preExistingGitPids = new Set();
