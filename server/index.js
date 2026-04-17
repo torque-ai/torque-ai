@@ -1094,10 +1094,17 @@ function init() {
   } catch {
     // Container may not have booted — fall back to direct creation
   }
+  let sandboxManager = null;
+  try {
+    sandboxManager = defaultContainer.get('sandboxManager');
+  } catch {
+    // Sandbox support is optional for bootstrapping and tests.
+  }
   if (!testRunnerRegistry) {
     testRunnerRegistry = createTestRunnerRegistry();
   }
-  require('./validation/auto-verify-retry').init({ testRunnerRegistry });
+  require('./validation/auto-verify-retry').init({ testRunnerRegistry, sandboxManager });
+  require('./execution/debug-lifecycle').init({ sandboxManager });
   require('./validation/post-task').init({ testRunnerRegistry });
   require('./validation/build-verification').init({ testRunnerRegistry });
 

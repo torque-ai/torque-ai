@@ -46,6 +46,45 @@ function spawnInBash(bashCmd, options) {
   return spawnSync('bash', ['-lc', bashCmd], options);
 }
 
+function spawnInSystemShell(command, options) {
+  if (process.platform === 'win32') {
+    return spawnSync('cmd', ['/d', '/s', '/c', command], { ...options, windowsHide: true });
+  }
+  return spawnSync('sh', ['-lc', command], options);
+}
+
+function summarizeVerifyFailure(result) {
+  const text = [result && result.stderr, result && result.error, result && result.stdout]
+    .filter(Boolean)
+    .join('\n');
+  const line = text
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .find(Boolean);
+  return line || 'remote verify unavailable';
+}
+
+function shouldFallbackToLocalVerify(result) {
+  const text = [result && result.stderr, result && result.error, result && result.stdout]
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase();
+  if (!text) return false;
+  return (
+    text.includes('[push-worktree-branch]')
+    || text.includes('could not resolve host')
+    || text.includes('could not read from remote repository')
+    || text.includes('repository not found')
+    || text.includes('git bash not found')
+    || text.includes('bash_not_found')
+    || (text.includes('torque-remote') && (
+      text.includes('not found')
+      || text.includes('is not recognized')
+      || text.includes('enoent')
+    ))
+  );
+}
+
 function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
   const resolvedCwd = cwd || process.cwd();
   if (logger) logger.info('factory worktree verify: running torque-remote', { branch, command, cwd: resolvedCwd });
@@ -73,9 +112,33 @@ function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
   };
 }
 
+function defaultRunLocalVerify({ branch, command, cwd, logger, fallbackReason }) {
+  const resolvedCwd = cwd || process.cwd();
+  if (logger) {
+    logger.warn('factory worktree verify: falling back to local execution', {
+      branch,
+      command,
+      cwd: resolvedCwd,
+      fallback_reason: fallbackReason || null,
+    });
+  }
+  const result = spawnInSystemShell(command, {
+    cwd: resolvedCwd,
+    encoding: 'utf8',
+    timeout: 30 * 60 * 1000,
+  });
+  return {
+    exitCode: typeof result.status === 'number' ? result.status : 1,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+    error: result.error ? result.error.message : null,
+  };
+}
+
 function createWorktreeRunner({
   worktreeManager,
   runRemoteVerify = defaultRunRemoteVerify,
+  runLocalVerify = defaultRunLocalVerify,
   logger,
 } = {}) {
   if (!worktreeManager || typeof worktreeManager.createWorktree !== 'function') {
@@ -112,7 +175,26 @@ function createWorktreeRunner({
     const command = String(verifyCommand || 'cd server && npx vitest run').trim();
     const cwd = workingDirectory || worktreePath;
     const start = Date.now();
-    const out = await Promise.resolve(runRemoteVerify({ branch, command, cwd, logger }));
+    let out = await Promise.resolve(runRemoteVerify({ branch, command, cwd, logger }));
+    if (out && out.exitCode !== 0 && shouldFallbackToLocalVerify(out)) {
+      const fallbackSummary = summarizeVerifyFailure(out);
+      const localResult = await Promise.resolve(runLocalVerify({
+        branch,
+        command,
+        cwd,
+        logger,
+        fallbackReason: fallbackSummary,
+      }));
+      out = {
+        exitCode: localResult.exitCode,
+        stdout: localResult.stdout || '',
+        stderr: [
+          `[fallback-local-verify] ${fallbackSummary}`,
+          localResult.stderr || '',
+        ].filter(Boolean).join('\n'),
+        error: localResult.error ? localResult.error : null,
+      };
+    }
     const durationMs = Date.now() - start;
     const passed = out && typeof out === 'object' ? out.exitCode === 0 : false;
     const output = [

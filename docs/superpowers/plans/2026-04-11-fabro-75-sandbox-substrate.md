@@ -31,7 +31,7 @@
 
 ## Task 1: Interface + local backend
 
-- [ ] **Step 1: Interface contract**
+- [x] **Step 1: Interface contract**
 
 Create `server/sandbox/sandbox-interface.js`:
 
@@ -54,7 +54,7 @@ Create `server/sandbox/sandbox-interface.js`:
 module.exports = { /* marker only */ };
 ```
 
-- [ ] **Step 2: Local backend tests**
+- [x] **Step 2: Local backend tests**
 
 Create `server/tests/local-process-backend.test.js`:
 
@@ -119,7 +119,7 @@ describe('localProcessBackend', () => {
 });
 ```
 
-- [ ] **Step 3: Implement local backend**
+- [x] **Step 3: Implement local backend**
 
 Create `server/sandbox/backends/local-process.js`:
 
@@ -211,7 +211,7 @@ Run tests → PASS. Commit: `feat(sandbox): local-process backend with cwd escap
 
 ## Task 2: Manager
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/sandbox-manager.test.js`:
 
@@ -252,7 +252,7 @@ describe('sandboxManager', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/sandbox/sandbox-manager.js`:
 
@@ -306,11 +306,11 @@ Run tests → PASS. Commit: `feat(sandbox): manager + backend registry`.
 
 ## Task 3: E2B adapter + MCP + use-sites
 
-- [ ] **Step 1: E2B backend**
+- [x] **Step 1: E2B backend**
 
 Create `server/sandbox/backends/e2b-backend.js` — thin wrapper around `@e2b/code-interpreter`. Requires `E2B_API_KEY`. Implements the same `{ create, runCommand, fs, destroy, snapshot }` surface. See E2B SDK docs; the adapter forwards `runCommand` to the SDK's `commands.run` with the same arg shape, forwards `fs.read/write/list` to `files.read/write/list`, and calls `kill()` on destroy.
 
-- [ ] **Step 2: Container + MCP tools**
+- [x] **Step 2: Container + MCP tools**
 
 ```js
 container.factory('sandboxManager', (c) => {
@@ -334,7 +334,7 @@ sandbox_write: { description: 'Write content to a file in a sandbox.', inputSche
 destroy_sandbox: { description: 'Destroy a sandbox and free resources.', inputSchema: { type: 'object', required: ['sandbox_id'], properties: { sandbox_id: {type:'string'} } } },
 ```
 
-- [ ] **Step 3: Opt-in for verify + debug**
+- [x] **Step 3: Opt-in for verify + debug**
 
 In `server/validation/auto-verify-retry.js`: when task metadata has `verify_in_sandbox: true`, create a sandbox, copy workspace into it, run the verify command via `runCommand`, tear down. In Plan 42 debug-session-runtime: attach a long-lived sandbox to each session for reproducing bugs safely.
 
