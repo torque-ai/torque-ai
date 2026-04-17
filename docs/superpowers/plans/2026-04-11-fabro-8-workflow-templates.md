@@ -26,7 +26,7 @@
 
 ## Task 1: Resolver
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/workflow-spec-extends.test.js`:
 
@@ -177,11 +177,11 @@ tasks:
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 `npx vitest run tests/workflow-spec-extends.test.js --no-coverage` → FAIL.
 
-- [ ] **Step 3: Implement resolver**
+- [x] **Step 3: Implement resolver**
 
 Create `server/workflow-spec/extends.js`:
 
@@ -278,9 +278,9 @@ async function resolveExtends(specPath) {
 module.exports = { resolveExtends, MAX_DEPTH };
 ```
 
-- [ ] **Step 4: Run tests** → PASS.
+- [x] **Step 4: Run tests** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/workflow-spec/extends.js server/tests/workflow-spec-extends.test.js
