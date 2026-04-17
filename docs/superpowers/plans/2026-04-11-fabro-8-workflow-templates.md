@@ -419,7 +419,7 @@ git push --no-verify origin main
 
 ## Task 4: Docs + restart + smoke
 
-- [ ] **Step 1: Append to `docs/workflow-specs.md`**
+- [x] **Step 1: Append to `docs/workflow-specs.md`**
 
 ````markdown
 ## Templates and inheritance
@@ -474,11 +474,11 @@ tasks:
 ```
 ````
 
-- [ ] **Step 2: Restart, smoke test**
+- [x] **Step 2: Restart, smoke test**
 
 `await_restart`. Then via MCP: `validate_workflow_spec { spec_path: "workflows/example-extends-feature.yaml" }` → expect `valid: true` with 4 tasks.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/workflow-specs.md

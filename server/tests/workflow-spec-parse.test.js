@@ -3,7 +3,6 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { afterEach, beforeEach, describe, expect, it } = require('vitest');
 const { parseSpec, parseSpecString } = require('../workflow-spec/parse');
 
 let tmpDir;
