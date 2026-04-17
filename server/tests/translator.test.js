@@ -1,6 +1,9 @@
 'use strict';
 
-const { describe, it, expect, vi } = require('vitest');
+import { describe, expect, it, vi } from 'vitest';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 const { translateToAction } = require('../dispatch/translator');
 
 describe('translateToAction', () => {

@@ -119,9 +119,15 @@ function normalizeModelOutput(raw) {
   return JSON.stringify(raw ?? '');
 }
 
+function createHandlerError(message, code = ErrorCodes.INTERNAL_ERROR) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 async function callTranslatorModel(provider, prompt) {
   if (!provider) {
-    throw new Error('codex provider is unavailable');
+    throw createHandlerError('codex provider is unavailable', ErrorCodes.NO_HOSTS_AVAILABLE);
   }
 
   if (typeof provider.runPrompt === 'function') {
@@ -134,7 +140,7 @@ async function callTranslatorModel(provider, prompt) {
     return normalizeModelOutput(result);
   }
 
-  throw new Error('codex provider does not support prompt execution');
+  throw createHandlerError('codex provider does not support prompt execution', ErrorCodes.INVALID_PARAM);
 }
 
 function normalizeHandlerSpec({ surface, actionName, handlerSpec }) {
@@ -246,7 +252,7 @@ function createActionHandler(handlerConfig) {
     const toolArgs = buildToolArgs(action, handlerConfig, context);
     const result = await tools.handleToolCall(handlerConfig.tool, toolArgs);
     if (result?.isError) {
-      throw new Error(extractToolText(result) || `tool ${handlerConfig.tool} failed`);
+      throw createHandlerError(extractToolText(result) || `tool ${handlerConfig.tool} failed`);
     }
     return result;
   };
@@ -298,21 +304,21 @@ function getDispatchServices() {
 }
 
 async function handleRegisterActionSchema(args) {
-  const surfaceError = requireString(args, 'surface', 'surface');
-  if (surfaceError) return surfaceError;
-
-  const descriptionError = optionalString(args, 'description', 'description');
-  if (descriptionError) return descriptionError;
-
-  if (!args.schema || typeof args.schema !== 'object' || Array.isArray(args.schema)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'schema must be a JSON schema object');
-  }
-
-  if (args.handlers !== undefined && (!args.handlers || typeof args.handlers !== 'object' || Array.isArray(args.handlers))) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'handlers must be an object when provided');
-  }
-
   try {
+    const surfaceError = requireString(args, 'surface', 'surface');
+    if (surfaceError) return surfaceError;
+
+    const descriptionError = optionalString(args, 'description', 'description');
+    if (descriptionError) return descriptionError;
+
+    if (!args.schema || typeof args.schema !== 'object' || Array.isArray(args.schema)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'schema must be a JSON schema object');
+    }
+
+    if (args.handlers !== undefined && (!args.handlers || typeof args.handlers !== 'object' || Array.isArray(args.handlers))) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'handlers must be an object when provided');
+    }
+
     const { actionRegistry } = getDispatchServices();
     const normalized = normalizeHandlers({
       surface: args.surface.trim(),
@@ -343,10 +349,10 @@ async function handleRegisterActionSchema(args) {
 }
 
 async function handleListActions(args = {}) {
-  const descriptionError = optionalString(args, 'surface', 'surface');
-  if (descriptionError) return descriptionError;
-
   try {
+    const descriptionError = optionalString(args, 'surface', 'surface');
+    if (descriptionError) return descriptionError;
+
     const { actionRegistry } = getDispatchServices();
     const surfaces = [];
 
@@ -381,13 +387,13 @@ async function handleListActions(args = {}) {
 }
 
 async function handleDispatchNl(args) {
-  const surfaceError = requireString(args, 'surface', 'surface');
-  if (surfaceError) return surfaceError;
-
-  const utteranceError = requireString(args, 'utterance', 'utterance');
-  if (utteranceError) return utteranceError;
-
   try {
+    const surfaceError = requireString(args, 'surface', 'surface');
+    if (surfaceError) return surfaceError;
+
+    const utteranceError = requireString(args, 'utterance', 'utterance');
+    if (utteranceError) return utteranceError;
+
     const surfaceName = args.surface.trim();
     const utterance = args.utterance.trim();
     const {

@@ -1,6 +1,9 @@
 'use strict';
 
-const { beforeEach, afterEach, describe, expect, it } = require('vitest');
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { createConstructionCache } = require('../dispatch/construction-cache');
 

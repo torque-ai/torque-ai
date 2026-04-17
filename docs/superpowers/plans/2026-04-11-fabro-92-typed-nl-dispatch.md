@@ -395,7 +395,7 @@ Run tests â†’ PASS. Commit: `feat(dispatch): construction cache with template â†
 
 ## Task 3: MCP glue
 
-- [ ] **Step 1: Tools**
+- [x] **Step 1: Tools**
 
 ```js
 register_action_schema: { description: 'Register a JSON schema + handlers for an action surface.', inputSchema: {...} },
@@ -409,7 +409,7 @@ dispatch_nl: {
 },
 ```
 
-- [ ] **Step 2: dispatch_nl handler**
+- [x] **Step 2: dispatch_nl handler**
 
 ```js
 case 'dispatch_nl': {
