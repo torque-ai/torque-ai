@@ -130,7 +130,7 @@ describeV('await verify routing', () => {
 
   itV('handleAwaitTask routes through torque-remote when it is on PATH', async () => {
     viV.spyOn(require('child_process'), 'execFileSync').mockImplementation((cmd, args) => {
-      if (cmd === 'which' && args[0] === 'torque-remote') return '';
+      if (cmd === 'which' && args[0] === 'torque-remote') return '/usr/local/bin/torque-remote';
       throw new Error('unexpected execFileSync call');
     });
 
@@ -199,7 +199,7 @@ describeV('await verify routing', () => {
 
   itV('handleAwaitWorkflow routes through torque-remote when it is on PATH', async () => {
     viV.spyOn(require('child_process'), 'execFileSync').mockImplementation((cmd, args) => {
-      if (cmd === 'which' && args[0] === 'torque-remote') return '';
+      if (cmd === 'which' && args[0] === 'torque-remote') return '/usr/local/bin/torque-remote';
       throw new Error('unexpected execFileSync call');
     });
 
