@@ -291,6 +291,8 @@ describe('version-control worktree manager', () => {
       cleaned: false,
     });
 
+    // Call sequence: (1) assertClean(worktree), (2) rev-list ahead check,
+    // (3) assertClean(repo — merge-target), (4) rebase, (5) checkout, (6) merge
     expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
       cwd: worktreePath,
       encoding: 'utf8',
@@ -301,17 +303,23 @@ describe('version-control worktree manager', () => {
       encoding: 'utf8',
       windowsHide: true,
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['rebase', 'release'], {
-      cwd: worktreePath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['checkout', 'release'], {
+    // Call 3: assertWorktreeIsClean(repo_path, 'merge-target') — target-side cleanup
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['status', '--porcelain'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['merge', '--ff-only', 'feat/api-sync'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['rebase', 'release'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['checkout', 'release'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['merge', '--ff-only', 'feat/api-sync'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
@@ -366,6 +374,7 @@ describe('version-control worktree manager', () => {
         status: 'merged',
       }),
     });
+    // Call sequence includes assertClean(repo_path, 'merge-target') at position 3
     expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
       cwd: worktreePath,
       encoding: 'utf8',
@@ -376,22 +385,28 @@ describe('version-control worktree manager', () => {
       encoding: 'utf8',
       windowsHide: true,
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['checkout', 'main'], {
+    // Call 3: target-side cleanup check
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['status', '--porcelain'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['merge', '--no-ff', 'feat/cleanup-fail'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['checkout', 'main'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['status', '--porcelain'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['merge', '--no-ff', 'feat/cleanup-fail'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['status', '--porcelain'], {
       cwd: worktreePath,
       encoding: 'utf8',
       windowsHide: true,
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['worktree', 'remove', '--force', worktreePath], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(7, 'git', ['worktree', 'remove', '--force', worktreePath], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
@@ -619,16 +634,27 @@ describe('version-control worktree manager (real git integration)', () => {
     expect(manager.getWorktree(created.id)).not.toBeNull();
   });
 
-  it('mergeWorktree throws when the worktree has uncommitted changes and preserves the worktree', () => {
+  it('mergeWorktree auto-commits untracked files via pre-merge cleanup and merges successfully', () => {
+    // Post --no-verify fix: assertWorktreeIsClean's attempt-3 (pre-merge
+    // cleanup) commits untracked files + semantic diffs with --no-verify.
+    // This means uncommitted changes no longer block the merge — they get
+    // committed as "chore: pre-merge cleanup" before the merge proceeds.
     const repoPath = initGitRepo();
     const created = manager.createWorktree(repoPath, 'dirty branch');
 
+    // Seed a feature commit so the branch is ahead
+    fs.writeFileSync(path.join(created.worktree_path, 'feature.txt'), 'feature\n');
+    runRealGit(created.worktree_path, ['add', 'feature.txt']);
+    runRealGit(created.worktree_path, ['commit', '-m', 'add feature']);
+
+    // Leave an untracked file — pre-merge cleanup will commit it
     fs.writeFileSync(path.join(created.worktree_path, 'draft.txt'), 'draft\n');
 
-    expect(() => manager.mergeWorktree(created.id)).toThrow('uncommitted changes');
-    expect(fs.existsSync(created.worktree_path)).toBe(true);
-    expect(branchExists(repoPath, created.branch)).toBe(true);
-    expect(manager.getWorktree(created.id)).not.toBeNull();
+    const result = manager.mergeWorktree(created.id, { deleteAfter: false });
+    expect(result).toMatchObject({ merged: true });
+
+    const log = runRealGit(repoPath, ['log', '--pretty=%s', 'main']).trim();
+    expect(log).toMatch(/pre-merge cleanup/);
   });
 
   it('mergeWorktree auto-commits line-ending drift before the clean check (Windows + remote Linux test runs)', () => {

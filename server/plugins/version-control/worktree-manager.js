@@ -383,6 +383,12 @@ function createWorktreeManager({ db } = {}) {
     // ticks that land after the last auto-commit, verify-retry edits,
     // etc.) with inline PII sanitization. This mirrors the auto-commit
     // logic but runs at merge time as a catch-all.
+    // SKIP for 'cleanup' action — auto-committing then deleting the
+    // branch would lose the work. Cleanup should fail-loud so the
+    // operator knows there's uncommitted work to preserve.
+    if (action === 'cleanup') {
+      throw new Error(`worktree ${worktreePath} has uncommitted changes — refusing to ${action}`);
+    }
     try {
       const fs = require('fs');
       const path = require('path');
