@@ -1,4 +1,6 @@
 const js = require('@eslint/js');
+const noHardcodedFactoryProviderRule = require('./eslint-rules/no-hardcoded-factory-provider');
+const noSpawnSyncInFactoryRule = require('./eslint-rules/no-spawn-sync-in-factory');
 const noVitestRequireRule = require('./eslint-rules/no-vitest-require');
 
 const vitestGlobals = {
@@ -99,6 +101,21 @@ module.exports = [
     },
     rules: {
       'local/no-vitest-require': 'error',
+    },
+  },
+  {
+    files: ['server/factory/**/*.js', 'server/handlers/**/*.js'],
+    plugins: {
+      local: {
+        rules: {
+          'no-hardcoded-factory-provider': noHardcodedFactoryProviderRule,
+          'no-spawn-sync-in-factory': noSpawnSyncInFactoryRule,
+        },
+      },
+    },
+    rules: {
+      'local/no-hardcoded-factory-provider': 'error',
+      'local/no-spawn-sync-in-factory': 'error',
     },
   },
   {
