@@ -119,7 +119,7 @@ Run tests → PASS. Commit: `feat(constraints): compile schema/literal/regex int
 
 ## Task 2: Backend adapters + provider wrapper
 
-- [ ] **Step 1: Backend adapters**
+- [x] **Step 1: Backend adapters**
 
 Create `server/constraints/backend-adapters.js`:
 
@@ -172,7 +172,7 @@ function translate({ providerBackend, constraint }) {
 module.exports = { translate, ADAPTERS };
 ```
 
-- [ ] **Step 2: Structured provider adapter tests**
+- [x] **Step 2: Structured provider adapter tests**
 
 Create `server/tests/structured-provider-adapter.test.js`:
 
@@ -220,7 +220,7 @@ describe('wrapWithStructuredSupport', () => {
 });
 ```
 
-- [ ] **Step 3: Implement adapter**
+- [x] **Step 3: Implement adapter**
 
 Create `server/constraints/structured-provider-adapter.js`:
 
