@@ -1022,7 +1022,7 @@ git commit -m "feat: add workflow firing and origin metadata to scheduler tick"
 - Modify: `server/handlers/advanced/scheduling.js:74-103` (handleListSchedules)
 - Test: `server/tests/handler-adv-scheduling.test.js`
 
-- [ ] **Step 1: Write test for one-time schedule appearing in list**
+- [x] **Step 1: Write test for one-time schedule appearing in list**
 
 ```js
 describe('list_schedules with one-time', () => {
@@ -1059,7 +1059,7 @@ describe('list_schedules with one-time', () => {
 });
 ```
 
-- [ ] **Step 2: Update `handleListSchedules`**
+- [x] **Step 2: Update `handleListSchedules`**
 
 Replace the function in `server/handlers/advanced/scheduling.js`:
 
@@ -1100,13 +1100,13 @@ function handleListSchedules(args) {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `npx vitest run server/tests/handler-adv-scheduling.test.js -t "list_schedules" --reporter=verbose 2>&1 | tail -20`
 
 Expected: All list_schedules tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```
 git add server/handlers/advanced/scheduling.js server/tests/handler-adv-scheduling.test.js
