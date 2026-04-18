@@ -24,6 +24,8 @@ const notifications = require('../factory/notifications');
 const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
+const STALL_THRESHOLD_MS = 30 * 60 * 1000;
+
 function resolveProject(projectRef) {
   let project = factoryHealth.getProject(projectRef);
   if (!project) {
@@ -63,6 +65,14 @@ function factoryHandlerError(errorCode, message, status, details = null) {
     errorCode: result.error_code || errorCode?.code || 'INTERNAL_ERROR',
     errorMessage: message,
   };
+}
+
+function normalizeProjectLoopState(loopState) {
+  if (typeof loopState !== 'string') {
+    return 'IDLE';
+  }
+  const normalized = loopState.trim().toUpperCase();
+  return normalized || 'IDLE';
 }
 
 function normalizeFactoryLoopInstance(instance) {
@@ -538,16 +548,20 @@ async function handlePauseAllProjects(args = {}) {
 
 async function handleFactoryStatus() {
   const projects = factoryHealth.listProjects();
+  const nowMs = Date.now();
   const summaries = projects.map(p => {
     const scores = factoryHealth.getLatestScores(p.id);
     const balance = factoryHealth.getBalanceScore(p.id, scores);
     const weakest = Object.entries(scores).sort((a, b) => a[1] - b[1])[0];
+    const loopState = normalizeProjectLoopState(p.loop_state);
     return {
       id: p.id,
       name: p.name,
       path: p.path,
       trust_level: p.trust_level,
       status: p.status,
+      loop_state: loopState,
+      loop_paused_at_stage: p.loop_paused_at_stage || null,
       balance,
       weakest_dimension: weakest ? weakest[0] : null,
       dimension_count: Object.keys(scores).length,
@@ -556,10 +570,18 @@ async function handleFactoryStatus() {
 
   const running = summaries.filter(p => p.status === 'running').length;
   const paused = summaries.filter(p => p.status === 'paused').length;
+  const stalled = projects.filter((project) => {
+    const loopState = normalizeProjectLoopState(project.loop_state);
+    if (loopState === 'IDLE' || !project.loop_last_action_at) {
+      return false;
+    }
+    const lastActionMs = Date.parse(project.loop_last_action_at);
+    return Number.isFinite(lastActionMs) && (nowMs - lastActionMs) > STALL_THRESHOLD_MS;
+  }).length;
 
   return jsonResponse({
     projects: summaries,
-    summary: { total: projects.length, running, paused },
+    summary: { total: projects.length, running, paused, stalled },
   });
 }
 
