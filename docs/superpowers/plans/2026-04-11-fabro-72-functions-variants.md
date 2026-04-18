@@ -321,7 +321,7 @@ Run tests → PASS. Commit: `feat(functions): variant selector with canary traff
 
 ## Task 3: Optimizer (proposes new variants from winners)
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/optimizer.test.js`:
 
@@ -367,7 +367,7 @@ describe('optimizer.propose', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/functions/optimizer.js`:
 
