@@ -35,7 +35,7 @@
 
 ## Task 1: Migration + stores
 
-- [ ] **Step 1: Migration**
+- [x] **Step 1: Migration**
 
 `server/migrations/0NN-functions-variants.sql`:
 
@@ -88,7 +88,7 @@ CREATE INDEX IF NOT EXISTS idx_variant_invocations_variant ON variant_invocation
 CREATE INDEX IF NOT EXISTS idx_variant_invocations_time ON variant_invocations(created_at);
 ```
 
-- [ ] **Step 2: Tests for both stores**
+- [x] **Step 2: Tests for both stores**
 
 Create `server/tests/variant-store.test.js`:
 
@@ -109,15 +109,15 @@ describe('functions + variants', () => {
 
   it('register function + create variant + set label', () => {
     const fnId = fnStore.register({ name: 'extract_name', inputSchema: { type: 'object' } });
-    const v1 = varStore.create({ functionId: fnId, name: 'v1-codex', provider: 'codex', prompt: 'extract the name from: {{input}}' });
+    const v1 = varStore.create({ functionId: fnId, name: 'v1-<git-user>', provider: '<git-user>', prompt: 'extract the name from: {{input}}' });
     varStore.setLabel(fnId, 'production', v1);
     expect(varStore.resolveByLabel(fnId, 'production').variant_id).toBe(v1);
   });
 
   it('setLabel overwrites prior label', () => {
     const fnId = fnStore.register({ name: 'f' });
-    const a = varStore.create({ functionId: fnId, name: 'a', provider: 'codex', prompt: 'x' });
-    const b = varStore.create({ functionId: fnId, name: 'b', provider: 'codex', prompt: 'y' });
+    const a = varStore.create({ functionId: fnId, name: 'a', provider: '<git-user>', prompt: 'x' });
+    const b = varStore.create({ functionId: fnId, name: 'b', provider: '<git-user>', prompt: 'y' });
     varStore.setLabel(fnId, 'production', a);
     varStore.setLabel(fnId, 'production', b);
     expect(varStore.resolveByLabel(fnId, 'production').variant_id).toBe(b);
@@ -125,14 +125,14 @@ describe('functions + variants', () => {
 
   it('listVariants returns all variants for a function', () => {
     const fnId = fnStore.register({ name: 'f' });
-    varStore.create({ functionId: fnId, name: 'a', provider: 'codex', prompt: 'x' });
+    varStore.create({ functionId: fnId, name: 'a', provider: '<git-user>', prompt: 'x' });
     varStore.create({ functionId: fnId, name: 'b', provider: 'ollama', prompt: 'y' });
     expect(varStore.listForFunction(fnId)).toHaveLength(2);
   });
 
   it('recordInvocation persists trace for optimizer', () => {
     const fnId = fnStore.register({ name: 'f' });
-    const v = varStore.create({ functionId: fnId, name: 'v', provider: 'codex', prompt: 'x' });
+    const v = varStore.create({ functionId: fnId, name: 'v', provider: '<git-user>', prompt: 'x' });
     varStore.recordInvocation({ taskId: 't1', functionId: fnId, variantId: v, outputPreview: 'out', durationMs: 123 });
     const rows = db.prepare('SELECT * FROM variant_invocations WHERE function_id = ?').all(fnId);
     expect(rows).toHaveLength(1);
@@ -140,7 +140,7 @@ describe('functions + variants', () => {
 });
 ```
 
-- [ ] **Step 3: Implement both stores**
+- [x] **Step 3: Implement both stores**
 
 Create `server/functions/function-store.js`:
 
@@ -217,7 +217,7 @@ Run tests → PASS. Commit: `feat(functions): function + variant stores with lab
 
 ## Task 2: Variant selector (resolves label + traffic split)
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/variant-selector.test.js`:
 
@@ -240,15 +240,15 @@ describe('variantSelector.pick', () => {
 
   it('picks production variant when no canary is set', () => {
     const fnId = fnStore.register({ name: 'f' });
-    const v = varStore.create({ functionId: fnId, name: 'v', provider: 'codex', prompt: 'x' });
+    const v = varStore.create({ functionId: fnId, name: 'v', provider: '<git-user>', prompt: 'x' });
     varStore.setLabel(fnId, 'production', v);
     expect(selector.pick({ functionId: fnId }).variant_id).toBe(v);
   });
 
   it('splits traffic between production and canary by traffic_pct', () => {
     const fnId = fnStore.register({ name: 'f' });
-    const prod = varStore.create({ functionId: fnId, name: 'prod', provider: 'codex', prompt: 'x' });
-    const can = varStore.create({ functionId: fnId, name: 'can',  provider: 'codex', prompt: 'y' });
+    const prod = varStore.create({ functionId: fnId, name: 'prod', provider: '<git-user>', prompt: 'x' });
+    const can = varStore.create({ functionId: fnId, name: 'can',  provider: '<git-user>', prompt: 'y' });
     varStore.setLabel(fnId, 'production', prod);
     varStore.setLabel(fnId, 'canary', can, { trafficPct: 0.1 });
     // Run 1000 picks and confirm canary gets ~10%
@@ -262,8 +262,8 @@ describe('variantSelector.pick', () => {
 
   it('stable pick given seed reproduces same variant', () => {
     const fnId = fnStore.register({ name: 'f' });
-    const a = varStore.create({ functionId: fnId, name: 'a', provider: 'codex', prompt: 'x' });
-    const b = varStore.create({ functionId: fnId, name: 'b', provider: 'codex', prompt: 'y' });
+    const a = varStore.create({ functionId: fnId, name: 'a', provider: '<git-user>', prompt: 'x' });
+    const b = varStore.create({ functionId: fnId, name: 'b', provider: '<git-user>', prompt: 'y' });
     varStore.setLabel(fnId, 'production', a);
     varStore.setLabel(fnId, 'canary', b, { trafficPct: 0.5 });
     const p1 = selector.pick({ functionId: fnId, seed: 'stable-key' });
@@ -278,7 +278,7 @@ describe('variantSelector.pick', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/functions/variant-selector.js`:
 
@@ -321,7 +321,7 @@ Run tests → PASS. Commit: `feat(functions): variant selector with canary traff
 
 ## Task 3: Optimizer (proposes new variants from winners)
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/optimizer.test.js`:
 
@@ -347,7 +347,7 @@ describe('optimizer.propose', () => {
 
   it('proposes a child variant based on highest-scored parent', async () => {
     const fnId = fnStore.register({ name: 'f' });
-    const v1 = varStore.create({ functionId: fnId, name: 'v1', provider: 'codex', prompt: 'basic prompt' });
+    const v1 = varStore.create({ functionId: fnId, name: 'v1', provider: '<git-user>', prompt: 'basic prompt' });
     varStore.recordInvocation({ taskId: 't1', functionId: fnId, variantId: v1, outputPreview: 'good answer' });
     db.prepare(`INSERT INTO scores (score_id, subject_type, subject_id, name, value, source) VALUES ('s1','variant_invocation','t1','quality',0.9,'llm_judge')`).run();
 
@@ -367,7 +367,7 @@ describe('optimizer.propose', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/functions/optimizer.js`:
 
@@ -447,7 +447,7 @@ Run tests → PASS. Commit: `feat(optimizer): proposes child variants from highe
 
 ## Task 4: Task integration + MCP tools
 
-- [ ] **Step 1: Resolve function + variant on submission**
+- [x] **Step 1: Resolve function + variant on submission**
 
 In `server/execution/task-startup.js`:
 
@@ -479,7 +479,7 @@ if (task.__function_id && task.__variant_id) {
 }
 ```
 
-- [ ] **Step 2: MCP tools**
+- [x] **Step 2: MCP tools**
 
 ```js
 register_function: { description: 'Register a function with input/output schemas.', inputSchema: {...} },
