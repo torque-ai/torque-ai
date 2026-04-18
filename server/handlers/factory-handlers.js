@@ -646,7 +646,26 @@ async function handleFactoryStatus() {
     const scores = factoryHealth.getLatestScores(p.id);
     const balance = factoryHealth.getBalanceScore(p.id, scores);
     const weakest = Object.entries(scores).sort((a, b) => a[1] - b[1])[0];
-    const loopState = normalizeProjectLoopState(p.loop_state);
+
+    // Derive loop_state from the active instance, not the project row.
+    // The project row is a write-through cache that can go stale when
+    // instances are terminated (e.g. restart barrier) without a matching
+    // syncLegacyProjectLoopState call. Reading from the instance makes
+    // factory_status truthful even when drift exists; the periodic
+    // reconciler in factory-tick closes the gap in the legacy row.
+    const activeInstances = factoryLoopInstances.listInstances({
+      project_id: p.id,
+      active_only: true,
+    });
+    const activeInstance = Array.isArray(activeInstances) ? activeInstances[0] : null;
+    const loopState = activeInstance
+      ? normalizeProjectLoopState(activeInstance.loop_state)
+      : 'IDLE';
+    const pausedAtStage = activeInstance ? (activeInstance.paused_at_stage || null) : null;
+    const lastActionAt = activeInstance
+      ? (activeInstance.last_action_at || null)
+      : (p.loop_last_action_at || null);
+
     if (getCachedCommitsToday(p.path, nowMs) !== null) {
       cacheHitCount += 1;
     }
@@ -659,7 +678,8 @@ async function handleFactoryStatus() {
       status: p.status,
       commits_today: commitsToday,
       loop_state: loopState,
-      loop_paused_at_stage: p.loop_paused_at_stage || null,
+      loop_paused_at_stage: pausedAtStage,
+      loop_last_action_at: lastActionAt,
       balance,
       weakest_dimension: weakest ? weakest[0] : null,
       dimension_count: Object.keys(scores).length,
@@ -670,12 +690,14 @@ async function handleFactoryStatus() {
   const paused = summaries.filter(p => p.status === 'paused').length;
   const productionToday = summaries.reduce((sum, project) => sum + project.commits_today, 0);
   const zeroCommitProjects = summaries.filter(project => project.status === 'running' && project.commits_today === 0).length;
-  const stalled = projects.filter((project) => {
-    const loopState = normalizeProjectLoopState(project.loop_state);
-    if (loopState === 'IDLE' || !project.loop_last_action_at) {
+  // Stall calculation uses the instance-derived state too, so a dead
+  // instance can't look "running but stalled" forever — with no active
+  // instance, loop_state is IDLE and the project is excluded from stalled.
+  const stalled = summaries.filter((summary) => {
+    if (summary.loop_state === 'IDLE' || !summary.loop_last_action_at) {
       return false;
     }
-    const lastActionMs = Date.parse(project.loop_last_action_at);
+    const lastActionMs = Date.parse(summary.loop_last_action_at);
     return Number.isFinite(lastActionMs) && (nowMs - lastActionMs) > STALL_THRESHOLD_MS;
   }).length;
 
