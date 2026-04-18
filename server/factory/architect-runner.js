@@ -50,27 +50,38 @@ const SCOPE_BUDGET_RULES = [
   { budget: 5, keywords: ['add', 'feature', 'new'] },
 ];
 
-const PLAN_AUTHORING_GUIDE = (() => {
-  try {
-    const guidePath = path.join(__dirname, '..', '..', 'docs', 'superpowers', 'plan-authoring.md');
-    return fs.readFileSync(guidePath, 'utf8').trim();
-  } catch {
+function loadPlanAuthoringGuide(projectPath) {
+  if (!projectPath) {
     return '';
   }
-})();
+
+  const projectGuidePath = path.join(projectPath, 'docs', 'plan-authoring.md');
+  try {
+    return fs.readFileSync(projectGuidePath, 'utf8').trim();
+  } catch {}
+
+  try {
+    if (fs.existsSync(path.join(projectPath, 'server', 'factory'))) {
+      const torqueGuidePath = path.join(__dirname, '..', '..', 'docs', 'superpowers', 'plan-authoring.md');
+      return fs.readFileSync(torqueGuidePath, 'utf8').trim();
+    }
+  } catch {}
+
+  return '';
+}
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function injectPlanAuthoringGuide(prompt) {
-  if (!PLAN_AUTHORING_GUIDE) {
+function injectPlanAuthoringGuide(prompt, guide) {
+  if (!guide) {
     return prompt;
   }
   if (typeof prompt !== 'string' || prompt.length === 0) {
-    return PLAN_AUTHORING_GUIDE;
+    return guide;
   }
-  return `${PLAN_AUTHORING_GUIDE}\n\n---\n\n${prompt}`;
+  return `${guide}\n\n---\n\n${prompt}`;
 }
 
 function toFiniteNumber(value) {
@@ -480,6 +491,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
     logger.debug(`Could not load corrections: ${err.message}`);
   }
 
+  const guide = loadPlanAuthoringGuide(project.path);
   const prompt = injectPlanAuthoringGuide(buildArchitectPrompt({
     project,
     healthScores,
@@ -487,7 +499,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
     previousBacklog: prevCycle ? prevCycle.backlog : [],
     previousReasoning: prevCycle ? prevCycle.reasoning : '',
     corrections,
-  }));
+  }), guide);
 
   logger.debug('Built architect prompt for cycle', {
     project_id,
@@ -561,7 +573,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
 }
 
 module.exports = {
-  PLAN_AUTHORING_GUIDE,
+  loadPlanAuthoringGuide,
   injectPlanAuthoringGuide,
   lintPlanContent,
   runArchitectCycle,

@@ -13,7 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
-const { PLAN_AUTHORING_GUIDE, injectPlanAuthoringGuide } = require('../factory/architect-runner');
+const { loadPlanAuthoringGuide, injectPlanAuthoringGuide } = require('../factory/architect-runner');
 const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
@@ -134,15 +134,18 @@ function listDecisionRows(db, projectId) {
 
 describe('factory architect plan-authoring guide injection', () => {
   it('loads the guide from disk', () => {
-    expect(typeof PLAN_AUTHORING_GUIDE).toBe('string');
-    expect(PLAN_AUTHORING_GUIDE.length).toBeGreaterThan(0);
-    expect(PLAN_AUTHORING_GUIDE).toContain('# Plan Authoring Guide for TORQUE Factory');
-    expect(PLAN_AUTHORING_GUIDE).toContain('## Required checks when adding new MCP tools');
+    const guide = loadPlanAuthoringGuide(path.join(__dirname, '..', '..'));
+
+    expect(typeof guide).toBe('string');
+    expect(guide.length).toBeGreaterThan(0);
+    expect(guide).toContain('# Plan Authoring Guide for TORQUE Factory');
+    expect(guide).toContain('## Required checks when adding new MCP tools');
   });
 
   it('prepends the guide and a divider before the architect prompt', () => {
+    const guide = loadPlanAuthoringGuide(path.join(__dirname, '..', '..'));
     const inner = '## System context\nfoo bar baz';
-    const injected = injectPlanAuthoringGuide(inner);
+    const injected = injectPlanAuthoringGuide(inner, guide);
 
     expect(injected.indexOf('# Plan Authoring Guide for TORQUE Factory')).toBe(0);
     expect(injected.indexOf('## System context')).toBeGreaterThan(
@@ -153,7 +156,8 @@ describe('factory architect plan-authoring guide injection', () => {
   });
 
   it('still returns a guide-prefixed string for an empty inner prompt', () => {
-    const rebuilt = injectPlanAuthoringGuide('');
+    const guide = loadPlanAuthoringGuide(path.join(__dirname, '..', '..'));
+    const rebuilt = injectPlanAuthoringGuide('', guide);
     expect(typeof rebuilt).toBe('string');
     expect(rebuilt.startsWith('# Plan Authoring Guide')).toBe(true);
   });
