@@ -12,8 +12,10 @@ const factoryHealth = require('../db/factory-health');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const database = require('../database');
 const eventBus = require('../event-bus');
+const { handleRetryFactoryVerify } = require('../handlers/factory-handlers');
 const loopController = require('./loop-controller');
 const { detectStuckLoops } = require('./stuck-loop-detector');
+const { recoverStalledVerifyLoops } = require('./verify-stall-recovery');
 const logger = require('../logger').child({ component: 'factory-tick' });
 
 const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -24,7 +26,7 @@ function getProjectConfig(project) {
   try { return JSON.parse(project.config_json); } catch (_e) { void _e; return {}; }
 }
 
-function tickProject(project) {
+async function tickProject(project) {
   try {
     // Auto-resume: if the project is paused but has auto_continue, the
     // operator didn't explicitly pause it — it drifted (restart, reset,
@@ -139,6 +141,13 @@ function tickProject(project) {
         logger.warn('Factory tick detected stalled loop', payload);
         eventBus.emitFactoryLoopStalled(payload);
       }
+
+      await recoverStalledVerifyLoops({
+        db,
+        logger,
+        eventBus,
+        retryFactoryVerify: ({ project_id }) => handleRetryFactoryVerify({ project: project_id }),
+      });
     }
   } catch (err) {
     logger.warn('Factory tick failed for project', {
@@ -151,7 +160,7 @@ function tickProject(project) {
 function startTick(project, intervalMs = DEFAULT_TICK_INTERVAL_MS) {
   if (activeTimers.has(project.id)) return; // already ticking
 
-  const timer = setInterval(() => tickProject(project), intervalMs);
+  const timer = setInterval(() => { void tickProject(project); }, intervalMs);
   activeTimers.set(project.id, timer);
   logger.info('Factory tick started', {
     project_id: project.id,
@@ -165,7 +174,7 @@ function startTick(project, intervalMs = DEFAULT_TICK_INTERVAL_MS) {
   // hang (filesystem lock, stale lockfile) the entire server would stall
   // after binding its ports but before serving any HTTP requests.
   setImmediate(() => {
-    try { tickProject(project); } catch (_e) { void _e; }
+    void tickProject(project);
   });
 }
 

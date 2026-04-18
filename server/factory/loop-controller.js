@@ -4152,13 +4152,14 @@ function approveGateForProject(project_id, stage) {
   return approveGate(getLoopInstanceForProjectOrThrow(project_id).id, stage);
 }
 
-function retryVerifyFromFailure(instance_id) {
+function completeVerifyRetry(instance_id, reasoning, invalidStateMessage, matcher) {
   const { project } = getLoopContextOrThrow(instance_id);
   const instance = getInstanceOrThrow(instance_id);
-  if (getPausedAtStage(instance) !== 'VERIFY_FAIL') {
-    throw new Error('Loop is not paused at VERIFY_FAIL');
+  if (!matcher(instance)) {
+    throw new Error(invalidStateMessage);
   }
 
+  const previousPausedAtStage = getPausedAtStage(instance) || null;
   const updated = updateInstanceAndSync(instance.id, {
     paused_at_stage: null,
     last_action_at: nowIso(),
@@ -4169,9 +4170,9 @@ function retryVerifyFromFailure(instance_id) {
     stage: LOOP_STATES.VERIFY,
     actor: 'human',
     action: 'retry_verify_requested',
-    reasoning: 'Operator triggered VERIFY retry from VERIFY_FAIL',
+    reasoning,
     outcome: {
-      previous_paused_at_stage: 'VERIFY_FAIL',
+      previous_paused_at_stage: previousPausedAtStage,
       new_state: getCurrentLoopState(updated),
     },
     confidence: 1,
@@ -4181,7 +4182,7 @@ function retryVerifyFromFailure(instance_id) {
   logger.info('Factory VERIFY retry requested', {
     project_id: project.id,
     instance_id: updated.id,
-    previous_paused_at_stage: 'VERIFY_FAIL',
+    previous_paused_at_stage: previousPausedAtStage,
     state: getCurrentLoopState(updated),
   });
 
@@ -4191,6 +4192,34 @@ function retryVerifyFromFailure(instance_id) {
     state: getCurrentLoopState(updated),
     message: 'VERIFY retry requested; advance the loop to re-run remote verify',
   };
+}
+
+function retryVerify(instance_id) {
+  return completeVerifyRetry(
+    instance_id,
+    'Operator triggered VERIFY retry',
+    'Loop is not in VERIFY or paused at VERIFY/VERIFY_FAIL',
+    (instance) => {
+      const pausedAtStage = getPausedAtStage(instance);
+      if (pausedAtStage) {
+        return pausedAtStage === 'VERIFY_FAIL' || pausedAtStage === 'VERIFY';
+      }
+      return getCurrentLoopState(instance) === LOOP_STATES.VERIFY;
+    },
+  );
+}
+
+function retryVerifyForProject(project_id) {
+  return retryVerify(getLoopInstanceForProjectOrThrow(project_id).id);
+}
+
+function retryVerifyFromFailure(instance_id) {
+  return completeVerifyRetry(
+    instance_id,
+    'Operator triggered VERIFY retry from VERIFY_FAIL',
+    'Loop is not paused at VERIFY_FAIL',
+    (instance) => getPausedAtStage(instance) === 'VERIFY_FAIL',
+  );
 }
 
 function retryVerifyFromFailureForProject(project_id) {
@@ -4516,6 +4545,8 @@ module.exports = {
   cancelLoopAdvanceJobForProject,
   approveGate,
   approveGateForProject,
+  retryVerify,
+  retryVerifyForProject,
   retryVerifyFromFailure,
   retryVerifyFromFailureForProject,
   rejectGate,

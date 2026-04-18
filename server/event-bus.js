@@ -38,6 +38,12 @@ function createEventBus() {
     onFactoryLoopStalled: (fn) => emitter.on('factory:loop_stalled', fn),
     emitFactoryLoopStalled: (data) => emitter.emit('factory:loop_stalled', data),
 
+    // Factory VERIFY auto-recovery events
+    onFactoryVerifyAutoRetry: (fn) => emitter.on('factory:verify_auto_retry', fn),
+    emitFactoryVerifyAutoRetry: (data) => emitter.emit('factory:verify_auto_retry', data),
+    onFactoryVerifyUnrecoverable: (fn) => emitter.on('factory:verify_unrecoverable', fn),
+    emitFactoryVerifyUnrecoverable: (data) => emitter.emit('factory:verify_unrecoverable', data),
+
     // Model discovery events
     onModelDiscovered: (fn) => emitter.on('model-discovered', fn),
     emitModelDiscovered: (data) => emitter.emit('model-discovered', data),

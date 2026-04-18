@@ -1054,8 +1054,8 @@ async function handleApproveFactoryGate(args) {
 }
 
 async function handleRetryFactoryVerify(args) {
-  const project = resolveProject(args.project);
-  const result = loopController.retryVerifyFromFailureForProject(project.id);
+  const project = resolveProject(args.project || args.project_id);
+  const result = loopController.retryVerifyForProject(project.id);
   return jsonResponse(result);
 }
 
