@@ -9,7 +9,7 @@ const VALID_SOURCES = new Set([
   'scheduled_scan', 'scout',
   'self_generated', 'ci',
   'api', 'webhook', 'manual',
-  'plan_file',
+  'plan_file', 'architect',
 ]);
 const VALID_STATUSES = new Set([
   'pending', 'triaged', 'in_progress', 'completed', 'rejected',
@@ -45,26 +45,42 @@ function normalizePriority(priority, fallback = PRIORITY_LEVELS.default) {
   throw new Error(`Invalid priority: ${priority}`);
 }
 
-function createWorkItem({ project_id, source, origin, title, description, priority, requestor, constraints }) {
+function createWorkItem({
+  project_id,
+  source,
+  origin,
+  origin_json,
+  title,
+  description,
+  priority,
+  requestor,
+  constraints,
+  status,
+}) {
   if (!project_id) throw new Error('project_id is required');
   if (!title || typeof title !== 'string') throw new Error('title is required');
   if (source && !VALID_SOURCES.has(source)) throw new Error(`Invalid source: ${source}`);
+  if (status && !VALID_STATUSES.has(status)) throw new Error(`Invalid status: ${status}`);
 
   // Table uses INTEGER AUTOINCREMENT id and INTEGER priority (from migration v14)
   const numericPriority = normalizePriority(priority);
   const now = new Date().toISOString();
+  const serializedOrigin = origin_json != null
+    ? (typeof origin_json === 'string' ? origin_json : JSON.stringify(origin_json))
+    : (origin ? JSON.stringify(origin) : null);
   const info = db.prepare(`
     INSERT INTO factory_work_items (project_id, source, origin_json, title, description, priority, requestor, constraints_json, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     project_id,
     source || 'conversation',
-    origin ? JSON.stringify(origin) : null,
+    serializedOrigin,
     title,
     description || null,
     numericPriority,
     requestor || null,
     constraints ? JSON.stringify(constraints) : null,
+    status || 'pending',
     now,
     now,
   );

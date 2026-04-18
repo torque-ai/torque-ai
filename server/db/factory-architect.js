@@ -27,6 +27,30 @@ function createCycle({ project_id, input_snapshot, reasoning, backlog, flags, tr
   return getCycle(info.lastInsertRowid);
 }
 
+function updateCycle(id, updates) {
+  const allowed = ['input_snapshot_json', 'reasoning', 'backlog_json', 'flags_json', 'status', 'trigger'];
+  const sets = [];
+  const params = [];
+
+  for (const [key, value] of Object.entries(updates || {})) {
+    if (!allowed.includes(key)) continue;
+    sets.push(`${key} = ?`);
+    if (key.endsWith('_json') && value && typeof value === 'object') {
+      params.push(JSON.stringify(value));
+      continue;
+    }
+    params.push(value);
+  }
+
+  if (sets.length === 0) {
+    return getCycle(id);
+  }
+
+  params.push(id);
+  db.prepare(`UPDATE factory_architect_cycles SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  return getCycle(id);
+}
+
 function getCycle(id) {
   const row = db.prepare('SELECT * FROM factory_architect_cycles WHERE id = ?').get(id);
   if (!row) return null;
@@ -71,6 +95,7 @@ function getReasoningLog(project_id, limit) {
 module.exports = {
   setDb,
   createCycle,
+  updateCycle,
   getCycle,
   getLatestCycle,
   listCycles,

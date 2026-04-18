@@ -417,6 +417,76 @@ async function runArchitectLLM(prompt, project_id, projectPath) {
   return null;
 }
 
+function getArchitectItemPriority(priorityRank) {
+  const rank = toFiniteNumber(priorityRank);
+  if (rank === null) {
+    return 50;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(100 - rank)));
+}
+
+function promoteBacklogToIntake(project, cycle, backlog) {
+  let promoted = 0;
+  let skippedExisting = 0;
+
+  for (const entry of backlog) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+
+    if (entry.work_item_id !== null && entry.work_item_id !== undefined) {
+      skippedExisting += 1;
+      continue;
+    }
+
+    try {
+      const created = factoryIntake.createWorkItem({
+        project_id: project.id,
+        title: entry.title,
+        description: entry.why || entry.title,
+        source: 'architect',
+        origin_json: JSON.stringify({
+          architect_cycle_id: cycle.id,
+          priority_rank: entry.priority_rank,
+          scope_budget: entry.scope_budget,
+          expected_impact: entry.expected_impact || {},
+        }),
+        status: 'pending',
+        priority: getArchitectItemPriority(entry.priority_rank),
+      });
+      entry.work_item_id = created.id;
+      promoted += 1;
+    } catch (error) {
+      logger.warn('architect_backlog_promotion_failed', {
+        project_id: project.id,
+        cycle_id: cycle.id,
+        title: entry.title || null,
+        error: error.message,
+      });
+    }
+  }
+
+  let storedCycle = cycle;
+  if (promoted > 0) {
+    storedCycle = factoryArchitect.updateCycle(cycle.id, {
+      backlog_json: JSON.stringify(backlog),
+    });
+  } else {
+    storedCycle.backlog = backlog;
+    storedCycle.backlog_json = JSON.stringify(backlog);
+  }
+
+  logger.info('architect_backlog_promoted_to_intake', {
+    project_id: project.id,
+    cycle_id: cycle.id,
+    promoted,
+    skipped_existing: skippedExisting,
+  });
+
+  return storedCycle;
+}
+
 function updateBacklogWorkItemStatuses(backlog) {
   for (const item of backlog) {
     if (!item || !item.work_item_id) {
@@ -546,15 +616,16 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   });
 
   updateBacklogWorkItemStatuses(backlog);
+  const storedCycle = promoteBacklogToIntake(project, cycle, backlog);
 
   logger.info('Architect cycle completed', {
     project_id,
-    cycle_id: cycle && cycle.id ? cycle.id : null,
+    cycle_id: storedCycle && storedCycle.id ? storedCycle.id : null,
     trigger,
     backlog_count: backlog.length,
   });
 
-  return cycle;
+  return storedCycle;
 }
 
 module.exports = {
