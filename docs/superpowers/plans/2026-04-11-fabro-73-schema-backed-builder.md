@@ -31,7 +31,7 @@
 
 ## Task 1: Canvas ↔ spec roundtrip
 
-- [ ] **Step 1: Tests (spec → canvas)**
+- [x] **Step 1: Tests (spec → canvas)**
 
 Create `dashboard/src/tests/spec-to-canvas.test.js`:
 
@@ -83,15 +83,15 @@ describe('specToCanvas', () => {
   });
 
   it('preserves node metadata', () => {
-    const spec = { name: 't', tasks: [{ id: 'a', provider: 'codex', kind: 'agent' }] };
+    const spec = { name: 't', tasks: [{ id: 'a', provider: '<git-user>', kind: 'agent' }] };
     const { nodes } = specToCanvas(spec);
-    expect(nodes[0].data.provider).toBe('codex');
+    expect(nodes[0].data.provider).toBe('<git-user>');
     expect(nodes[0].data.kind).toBe('agent');
   });
 });
 ```
 
-- [ ] **Step 2: Implement spec-to-canvas**
+- [x] **Step 2: Implement spec-to-canvas**
 
 Create `dashboard/src/builder/spec-to-canvas.js`:
 
@@ -180,10 +180,10 @@ describe('canvasToSpec', () => {
   });
 
   it('preserves node data as task fields', () => {
-    const nodes = [{ id: 'a', data: { task_description: 'x', provider: 'codex', kind: 'agent' } }];
+    const nodes = [{ id: 'a', data: { task_description: 'x', provider: '<git-user>', kind: 'agent' } }];
     const spec = canvasToSpec({ name: 'w', nodes, edges: [] });
     expect(spec.tasks[0]).toEqual(expect.objectContaining({
-      id: 'a', task_description: 'x', provider: 'codex', kind: 'agent',
+      id: 'a', task_description: 'x', provider: '<git-user>', kind: 'agent',
     }));
   });
 
