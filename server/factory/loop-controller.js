@@ -4659,6 +4659,7 @@ module.exports = {
   rejectGate,
   rejectGateForProject,
   terminateInstanceAndSync,
+  syncLegacyProjectLoopState,
   getLoopState,
   getLoopStateForProject,
   awaitFactoryLoop,

@@ -128,6 +128,23 @@ async function tickProject(project) {
       }
     }
 
+    // Drift reconciliation: sync the legacy project-level loop_state
+    // columns from the active instance every tick. Idempotent. Closes
+    // the dual-source-of-truth gap where project_row.loop_state can
+    // lie about a dead loop (e.g. when restart barrier terminates an
+    // instance but nothing updates the project row). Without this,
+    // factory_status can report EXECUTE for a project with zero
+    // active instances for hours — exactly the pattern that hid two
+    // of three projects sitting idle on 2026-04-18.
+    try {
+      loopController.syncLegacyProjectLoopState(project.id);
+    } catch (err) {
+      logger.debug('Factory tick: legacy state sync failed', {
+        project_id: project.id,
+        err: err.message,
+      });
+    }
+
     const db = database.getDbInstance();
     if (db) {
       for (const stuckLoop of detectStuckLoops(db)) {
