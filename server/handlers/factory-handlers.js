@@ -2,6 +2,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const childProcess = require('child_process');
 const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryAudit = require('../db/factory-audit');
@@ -25,6 +26,97 @@ const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
 const STALL_THRESHOLD_MS = 30 * 60 * 1000;
+const COMMITS_TODAY_CACHE_TTL_MS = 60 * 1000;
+const COMMITS_TODAY_TIMEOUT_MS = 5 * 1000;
+const commitsTodayCache = new Map();
+
+function getCachedCommitsToday(projectPath, nowMs = Date.now()) {
+  if (typeof projectPath !== 'string' || !projectPath.trim()) {
+    return null;
+  }
+  const cached = commitsTodayCache.get(projectPath);
+  if (!cached) {
+    return null;
+  }
+  if ((nowMs - cached.cachedAtMs) >= COMMITS_TODAY_CACHE_TTL_MS) {
+    commitsTodayCache.delete(projectPath);
+    return null;
+  }
+  return cached.commitsToday;
+}
+
+function clearCommitsTodayCache() {
+  commitsTodayCache.clear();
+}
+
+async function countCommitsToday(projectPath) {
+  if (typeof projectPath !== 'string' || !projectPath.trim()) {
+    return 0;
+  }
+
+  const cached = getCachedCommitsToday(projectPath);
+  if (cached !== null) {
+    return cached;
+  }
+
+  const commitsToday = await new Promise((resolve) => {
+    let child;
+    try {
+      child = childProcess.spawn('git', ['log', '--since=midnight', '--oneline'], {
+        cwd: projectPath,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      });
+    } catch {
+      resolve(0);
+      return;
+    }
+
+    let stdout = '';
+    let settled = false;
+    const finish = (value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve(value);
+    };
+    const timeoutId = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // Best effort only — the helper still resolves to 0 on timeout.
+      }
+      finish(0);
+    }, COMMITS_TODAY_TIMEOUT_MS);
+
+    if (child.stdout) {
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+    }
+
+    child.on('error', () => finish(0));
+    child.on('close', (code) => {
+      if (code !== 0) {
+        finish(0);
+        return;
+      }
+      const count = stdout
+        .split(/\r?\n/)
+        .filter(line => line.trim().length > 0)
+        .length;
+      finish(count);
+    });
+  });
+
+  commitsTodayCache.set(projectPath, {
+    commitsToday,
+    cachedAtMs: Date.now(),
+  });
+  return commitsToday;
+}
 
 function resolveProject(projectRef) {
   let project = factoryHealth.getProject(projectRef);
@@ -549,27 +641,35 @@ async function handlePauseAllProjects(args = {}) {
 async function handleFactoryStatus() {
   const projects = factoryHealth.listProjects();
   const nowMs = Date.now();
-  const summaries = projects.map(p => {
+  let cacheHitCount = 0;
+  const summaries = await Promise.all(projects.map(async (p) => {
     const scores = factoryHealth.getLatestScores(p.id);
     const balance = factoryHealth.getBalanceScore(p.id, scores);
     const weakest = Object.entries(scores).sort((a, b) => a[1] - b[1])[0];
     const loopState = normalizeProjectLoopState(p.loop_state);
+    if (getCachedCommitsToday(p.path, nowMs) !== null) {
+      cacheHitCount += 1;
+    }
+    const commitsToday = await countCommitsToday(p.path);
     return {
       id: p.id,
       name: p.name,
       path: p.path,
       trust_level: p.trust_level,
       status: p.status,
+      commits_today: commitsToday,
       loop_state: loopState,
       loop_paused_at_stage: p.loop_paused_at_stage || null,
       balance,
       weakest_dimension: weakest ? weakest[0] : null,
       dimension_count: Object.keys(scores).length,
     };
-  });
+  }));
 
   const running = summaries.filter(p => p.status === 'running').length;
   const paused = summaries.filter(p => p.status === 'paused').length;
+  const productionToday = summaries.reduce((sum, project) => sum + project.commits_today, 0);
+  const zeroCommitProjects = summaries.filter(project => project.status === 'running' && project.commits_today === 0).length;
   const stalled = projects.filter((project) => {
     const loopState = normalizeProjectLoopState(project.loop_state);
     if (loopState === 'IDLE' || !project.loop_last_action_at) {
@@ -579,9 +679,23 @@ async function handleFactoryStatus() {
     return Number.isFinite(lastActionMs) && (nowMs - lastActionMs) > STALL_THRESHOLD_MS;
   }).length;
 
+  logger.debug('Loaded factory_status productivity snapshot', {
+    'x-cache-hit-count': cacheHitCount,
+    project_count: summaries.length,
+    production_today: productionToday,
+    zero_commit_projects: zeroCommitProjects,
+  });
+
   return jsonResponse({
     projects: summaries,
-    summary: { total: projects.length, running, paused, stalled },
+    summary: {
+      total: projects.length,
+      running,
+      paused,
+      stalled,
+      production_today: productionToday,
+      zero_commit_projects: zeroCommitProjects,
+    },
   });
 }
 
@@ -1471,3 +1585,12 @@ module.exports = {
   handleFactoryNotifications,
   handleFactoryDigest,
 };
+
+Object.defineProperty(module.exports, '__test', {
+  value: {
+    countCommitsToday,
+    clearCommitsTodayCache,
+    getCachedCommitsToday,
+  },
+  enumerable: false,
+});
