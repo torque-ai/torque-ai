@@ -597,7 +597,7 @@ git commit -m "feat: add createOneTimeSchedule and auto-delete in markScheduledT
 - Modify: `server/tool-defs/advanced-defs.js`
 - Test: `server/tests/handler-adv-scheduling.test.js`
 
-- [ ] **Step 1: Write integration tests for the MCP tool**
+- [x] **Step 1: Write integration tests for the MCP tool**
 
 Add to `server/tests/handler-adv-scheduling.test.js`:
 
@@ -678,13 +678,13 @@ describe('create_one_time_schedule', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run server/tests/handler-adv-scheduling.test.js -t "create_one_time_schedule" --reporter=verbose 2>&1 | tail -20`
 
 Expected: FAIL -- handler not found or tool not defined.
 
-- [ ] **Step 3: Add the MCP tool definition**
+- [x] **Step 3: Add the MCP tool definition**
 
 Add to the array in `server/tool-defs/advanced-defs.js`, after the `toggle_schedule` definition (after line 191):
 
@@ -747,7 +747,7 @@ Add to the array in `server/tool-defs/advanced-defs.js`, after the `toggle_sched
 },
 ```
 
-- [ ] **Step 4: Add the handler**
+- [x] **Step 4: Add the handler**
 
 Update the import at the top of `server/handlers/advanced/scheduling.js` to include `createOneTimeSchedule`:
 
@@ -821,7 +821,7 @@ function handleCreateOneTimeSchedule(args) {
 }
 ```
 
-- [ ] **Step 5: Export the handler**
+- [x] **Step 5: Export the handler**
 
 Add `handleCreateOneTimeSchedule` to both `createSchedulingHandlers` and `module.exports`:
 
@@ -850,13 +850,13 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run: `npx vitest run server/tests/handler-adv-scheduling.test.js -t "create_one_time_schedule" --reporter=verbose 2>&1 | tail -30`
 
 Expected: All create_one_time_schedule tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```
 git add server/handlers/advanced/scheduling.js server/tool-defs/advanced-defs.js server/tests/handler-adv-scheduling.test.js
