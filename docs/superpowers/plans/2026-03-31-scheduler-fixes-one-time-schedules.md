@@ -243,7 +243,7 @@ git commit -m "fix(cancel_scheduled): use schedulingAutomation instead of projec
 - Modify: `server/db/cron-scheduling.js`
 - Test: `server/tests/handler-adv-scheduling.test.js`
 
-- [ ] **Step 1: Write tests for delay parsing**
+- [x] **Step 1: Write tests for delay parsing**
 
 Add a new `describe('parseDelay')` block in `server/tests/handler-adv-scheduling.test.js`:
 
@@ -288,13 +288,13 @@ describe('parseDelay', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run server/tests/handler-adv-scheduling.test.js -t "parseDelay" --reporter=verbose 2>&1 | tail -20`
 
 Expected: FAIL -- `cronScheduling.parseDelay is not a function`
 
-- [ ] **Step 3: Implement `parseDelay`**
+- [x] **Step 3: Implement `parseDelay`**
 
 Add to `server/db/cron-scheduling.js`, before the exports section:
 
@@ -343,13 +343,13 @@ function parseDelay(delayStr) {
 
 Add `parseDelay` to the `module.exports` object.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run server/tests/handler-adv-scheduling.test.js -t "parseDelay" --reporter=verbose 2>&1 | tail -20`
 
 Expected: All parseDelay tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```
 git add server/db/cron-scheduling.js server/tests/handler-adv-scheduling.test.js
