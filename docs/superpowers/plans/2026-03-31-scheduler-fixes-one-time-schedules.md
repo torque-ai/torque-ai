@@ -37,7 +37,7 @@
 - Modify: `server/handlers/advanced/scheduling.js:112-134`
 - Test: `server/tests/handler-adv-scheduling.test.js`
 
-- [ ] **Step 1: Write a failing test for explicit `enabled: false`**
+- [x] **Step 1: Write a failing test for explicit `enabled: false`**
 
 Add a test that creates an enabled schedule, toggles with `enabled: false`, then verifies calling toggle again with `enabled: false` keeps it disabled (not toggling back).
 
@@ -87,13 +87,13 @@ it('toggles when enabled is omitted', async () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run test to verify failure**
 
 Run: `npx vitest run server/tests/handler-adv-scheduling.test.js --reporter=verbose 2>&1 | tail -30`
 
 Expected: The "respects explicit enabled: false" test may fail if the second call toggles instead of setting. The "toggles when enabled is omitted" test may fail if omitting `enabled` doesn't trigger toggle.
 
-- [ ] **Step 3: Fix the handler**
+- [x] **Step 3: Fix the handler**
 
 In `server/handlers/advanced/scheduling.js`, replace the `handleToggleSchedule` function:
 
@@ -129,13 +129,13 @@ function handleToggleSchedule(args) {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run server/tests/handler-adv-scheduling.test.js --reporter=verbose 2>&1 | tail -30`
 
 Expected: All toggle_schedule tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```
 git add server/handlers/advanced/scheduling.js server/tests/handler-adv-scheduling.test.js
@@ -721,7 +721,7 @@ Add to the array in `server/tool-defs/advanced-defs.js`, after the `toggle_sched
       },
       provider: {
         type: 'string',
-        description: 'Provider to use (e.g., "codex", "ollama")'
+        description: 'Provider to use (e.g., "<git-user>", "ollama")'
       },
       model: {
         type: 'string',
