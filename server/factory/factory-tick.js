@@ -10,7 +10,10 @@
 
 const factoryHealth = require('../db/factory-health');
 const factoryLoopInstances = require('../db/factory-loop-instances');
+const database = require('../database');
+const eventBus = require('../event-bus');
 const loopController = require('./loop-controller');
+const { detectStuckLoops } = require('./stuck-loop-detector');
 const logger = require('../logger').child({ component: 'factory-tick' });
 
 const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -120,6 +123,21 @@ function tickProject(project) {
           project_id: project.id,
           err: err.message,
         });
+      }
+    }
+
+    const db = database.getDbInstance();
+    if (db) {
+      for (const stuckLoop of detectStuckLoops(db)) {
+        const payload = {
+          event: 'factory_loop_stalled',
+          project_id: stuckLoop.project_id,
+          project_name: stuckLoop.project_name,
+          loop_state: stuckLoop.loop_state,
+          stalled_minutes: stuckLoop.stalled_minutes,
+        };
+        logger.warn('Factory tick detected stalled loop', payload);
+        eventBus.emitFactoryLoopStalled(payload);
       }
     }
   } catch (err) {

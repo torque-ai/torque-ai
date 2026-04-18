@@ -34,6 +34,10 @@ function createEventBus() {
     emitFactoryLoopChanged: (data) => emitter.emit('factory-loop-changed', data),
     removeFactoryLoopListener: (fn) => emitter.removeListener('factory-loop-changed', fn),
 
+    // Factory stalled-loop events
+    onFactoryLoopStalled: (fn) => emitter.on('factory:loop_stalled', fn),
+    emitFactoryLoopStalled: (data) => emitter.emit('factory:loop_stalled', data),
+
     // Model discovery events
     onModelDiscovered: (fn) => emitter.on('model-discovered', fn),
     emitModelDiscovered: (data) => emitter.emit('model-discovered', data),
