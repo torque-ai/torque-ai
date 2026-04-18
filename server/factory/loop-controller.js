@@ -1721,6 +1721,46 @@ function executePrioritizeStage(project, instance, selectedWorkItem = null) {
     };
   }
 
+  // Stuck-executing auto-reject: if PRIORITIZE finds a work item already
+  // in 'executing' status with updated_at older than 1 hour, a prior
+  // cycle claimed it but never reached a terminal state (shipped,
+  // rejected, failed). The LEARN reject-not-skip fix closes most of
+  // these, but defense-in-depth: close items that slip through here
+  // so PRIORITIZE doesn't re-pick the same wedged item every cycle.
+  if (workItem.status === 'executing') {
+    const STUCK_THRESHOLD_MS = 60 * 60 * 1000; // 1h
+    const updatedAtMs = workItem.updated_at ? Date.parse(workItem.updated_at) : NaN;
+    if (Number.isFinite(updatedAtMs) && (Date.now() - updatedAtMs) > STUCK_THRESHOLD_MS) {
+      const stalledMinutes = Math.round((Date.now() - updatedAtMs) / 60000);
+      try {
+        factoryIntake.updateWorkItem(workItem.id, {
+          status: 'rejected',
+          reject_reason: `stuck_executing_over_1h_no_progress (${stalledMinutes}m since updated_at)`,
+        });
+      } catch (_e) { void _e; }
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.PRIORITIZE,
+        action: 'auto_rejected_stuck_executing',
+        reasoning: `Work item was in 'executing' status for ${stalledMinutes} minutes without reaching a terminal state. A prior cycle likely failed silently — rejecting so PRIORITIZE can pick real work.`,
+        outcome: {
+          work_item_id: workItem.id,
+          stalled_minutes: stalledMinutes,
+          prior_status: 'executing',
+        },
+        confidence: 1,
+        batch_id: getDecisionBatchId(project, workItem, null, instance),
+      });
+      logger.warn('PRIORITIZE auto-rejected stuck-executing item', {
+        project_id: project.id,
+        work_item_id: workItem.id,
+        title: workItem.title,
+        stalled_minutes: stalledMinutes,
+      });
+      return executePrioritizeStage(project, instance);
+    }
+  }
+
   // Auto-detect already-shipped items before wasting execution cycles.
   // If git commit subjects match the item's title (meaning a human or
   // prior session already fixed this), mark it shipped and re-select.
