@@ -3715,6 +3715,20 @@ async function runAdvanceLoop(instance_id) {
           transitionReason = generated.reason;
         }
         if (generated?.stop_execution) {
+          // If the stage asked to go to IDLE (e.g. cannot_generate_plan
+          // auto-rejected the item), terminate and exit instead of pausing.
+          if (generated.next_state === LOOP_STATES.IDLE) {
+            terminateInstanceAndSync(instance.id);
+            return {
+              project_id: project.id,
+              instance_id: instance.id,
+              previous_state: previousState,
+              new_state: LOOP_STATES.IDLE,
+              paused_at_stage: null,
+              stage_result: generated.stage_result || null,
+              reason: generated.reason || 'stop_execution_idle',
+            };
+          }
           instance = updateInstanceAndSync(instance.id, {
             paused_at_stage: generated.paused_at_stage || LOOP_STATES.PLAN_REVIEW,
             last_action_at: nowIso(),
