@@ -8,7 +8,7 @@
 const CATEGORIES = [
   'security', 'xaml_wpf', 'architectural', 'reasoning',
   'large_code_gen', 'documentation', 'simple_generation',
-  'targeted_file_edit', 'default',
+  'targeted_file_edit', 'plan_generation', 'default',
 ];
 
 const CATEGORY_META = {
@@ -52,12 +52,23 @@ const CATEGORY_META = {
     description: 'Fixing, updating, or modifying specific files',
     keywords: 'fix, update, modify + specific file reference',
   },
+  plan_generation: {
+    displayName: 'Plan Generation',
+    description: 'Generating structured execution plans (markdown task lists) from a work item description. Pure text output — must route to text-gen providers, not action-agents.',
+    keywords: 'execution plan, ## Task N:, plan generation, factory planning',
+  },
   default: {
     displayName: 'Default (catch-all)',
     description: 'Everything that does not match another category',
     keywords: '',
   },
 };
+
+// Plan generation has very strong signals — the factory's prompt explicitly
+// says "You are generating an execution plan" and requires "## Task N:" grammar.
+// Must match before any file-reference or documentation pattern, since plan
+// prompts mention file paths and writing markdown.
+const PLAN_GENERATION_RE = /\b(generating an execution plan|execution plan for (a )?(single )?(factory )?work item|generate.*execution plan|## Task N:|auto-generated from work_item|Architect for a software factory|prioritize work items based on project health)\b/i;
 
 const SECURITY_RE = /\b(security|vulnerab|audit|penetrat|auth|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i;
 const XAML_KEYWORD_RE = /\b(xaml|wpf|uwp|maui|avalonia)\b/i;
@@ -122,6 +133,11 @@ function isTargetedFileEdit(desc) {
 function classify(taskDescription, files) {
   const desc = taskDescription || '';
   if (!desc) return 'default';
+
+  // Plan generation must win over every other pattern: the prompt mentions
+  // security-like words ("auth"), file paths, and markdown docs, which would
+  // otherwise drag it into the wrong categories.
+  if (PLAN_GENERATION_RE.test(desc)) return 'plan_generation';
 
   if (SECURITY_RE.test(desc)) return 'security';
   if (XAML_KEYWORD_RE.test(desc) || hasXamlFile(files)) return 'xaml_wpf';

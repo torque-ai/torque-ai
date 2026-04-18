@@ -37,6 +37,11 @@
       {"provider": "groq", "model": "qwen/qwen3-32b"},
       {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-30b-a3b:free"}
     ],
+    "plan_generation": [
+      {"provider": "ollama"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"}
+    ],
     "targeted_file_edit": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"}

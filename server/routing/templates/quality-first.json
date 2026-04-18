@@ -37,6 +37,11 @@
       {"provider": "codex"},
       {"provider": "groq", "model": "qwen/qwen3-32b"}
     ],
+    "plan_generation": [
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"}
+    ],
     "targeted_file_edit": [
       {"provider": "codex"},
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"}

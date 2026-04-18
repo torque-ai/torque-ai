@@ -37,6 +37,11 @@
       {"provider": "claude-cli"},
       {"provider": "ollama"}
     ],
+    "plan_generation": [
+      {"provider": "ollama"},
+      {"provider": "groq", "model": "openai/gpt-oss-120b"},
+      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"}
+    ],
     "targeted_file_edit": [
       {"provider": "codex"},
       {"provider": "claude-cli"},
