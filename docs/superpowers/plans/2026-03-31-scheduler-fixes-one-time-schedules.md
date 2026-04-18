@@ -1121,7 +1121,7 @@ git commit -m "feat: show schedule type and run_at in list_schedules output"
 - Modify: `server/db/cron-scheduling.js:431-451`
 - Test: `server/tests/handler-adv-scheduling.test.js`
 
-- [ ] **Step 1: Write test for toggling one-time schedules**
+- [x] **Step 1: Write test for toggling one-time schedules**
 
 ```js
 describe('toggle one-time schedule', () => {
@@ -1149,7 +1149,7 @@ describe('toggle one-time schedule', () => {
 });
 ```
 
-- [ ] **Step 2: Update `toggleScheduledTask`**
+- [x] **Step 2: Update `toggleScheduledTask`**
 
 Replace in `server/db/cron-scheduling.js`:
 
@@ -1182,13 +1182,13 @@ function toggleScheduledTask(id, enabled) {
 }
 ```
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `npx vitest run server/tests/handler-adv-scheduling.test.js --reporter=verbose 2>&1 | tail -30`
 
 Expected: All tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```
 git add server/db/cron-scheduling.js server/tests/handler-adv-scheduling.test.js
