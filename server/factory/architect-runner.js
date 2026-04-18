@@ -341,8 +341,8 @@ function buildReasoning({ project, trigger, healthScores, intakeItems, backlog, 
 }
 
 /**
- * Submit the architect prompt to Codex and parse the JSON response.
- * Falls back to null if Codex is unavailable or response is unparseable.
+ * Submit the architect prompt to <git-user> and parse the JSON response.
+ * Falls back to null if <git-user> is unavailable or response is unparseable.
  */
 // Submit the architect prompt via smart routing. The classifier detects
 // this as 'plan_generation' (structured text output, no file actions), and

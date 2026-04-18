@@ -27,8 +27,8 @@ const { copyWorkspaceToSandbox } = require('../sandbox/workspace-sync');
 
 // Providers that get auto-verify by default
 const AUTO_VERIFY_PROVIDERS = new Set([
-  'codex',
-  'codex-spark',
+  '<git-user>',
+  '<git-user>-spark',
   'ollama',
 ]);
 
@@ -227,7 +227,7 @@ async function runVerifyCommandInSandbox(task, verifyCommand, sandboxConfig) {
  *
  * Guards:
  * - Only runs for completed tasks (ctx.status === 'completed')
- * - Only runs for Codex/Codex-Spark providers (unless auto_verify_on_completion explicitly set)
+ * - Only runs for <git-user>/<git-user>-Spark providers (unless auto_verify_on_completion explicitly set)
  * - Only runs when verify_command is configured for the project
  *
  * On verify failure with retries available:
@@ -388,11 +388,11 @@ async function handleAutoVerifyRetry(ctx) {
   // Wrapped in try/catch for safety — if scoped check fails, fall through to retry logic
   try {
     // Source 1: ctx.filesModified (parsed from proc.output by extractModifiedFiles at ctx creation)
-    // Source 2: Re-parse both stdout + stderr (Codex puts file updates in stderr)
+    // Source 2: Re-parse both stdout + stderr (<git-user> puts file updates in stderr)
     // Source 3: git diff (fallback — picks up ALL uncommitted changes, not task-specific)
     let taskModifiedFiles = Array.isArray(ctx.filesModified) ? [...ctx.filesModified] : [];
     if (!taskModifiedFiles.length) {
-      // Try parsing combined output + errorOutput (Codex file update patterns are in stderr)
+      // Try parsing combined output + errorOutput (<git-user> file update patterns are in stderr)
       const combinedOutput = (ctx.output || '') + '\n' + (ctx.errorOutput || '');
       taskModifiedFiles = extractModifiedFiles(combinedOutput);
       if (taskModifiedFiles.length) {
