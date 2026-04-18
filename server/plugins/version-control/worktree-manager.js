@@ -493,21 +493,33 @@ function createWorktreeManager({ db } = {}) {
     const createdAt = new Date().toISOString();
 
     fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+    // Clean up stale worktree directory if it exists from a prior run
+    // that wasn't fully removed (git worktree remove succeeded but
+    // the physical directory persisted due to file locks).
+    if (fs.existsSync(worktreePath)) {
+      logger.warn('createWorktree: removing stale worktree directory', {
+        worktreePath,
+        branch,
+      });
+      try { fs.rmSync(worktreePath, { recursive: true, force: true }); } catch (_e) { void _e; }
+      try { runGit(repositoryPath, ['worktree', 'prune']); } catch (_e) { void _e; }
+    }
     try {
       runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, baseBranch]);
     } catch (addErr) {
-      // Stale branch from a prior run that wasn't fully cleaned up (e.g.,
-      // abandon deleted the worktree directory but git branch -d failed
-      // because the branch had unmerged commits). Force-delete the orphan
-      // branch and retry once.
+      // Stale branch from a prior run that wasn't fully cleaned up.
+      // Force-delete the orphan branch and retry once.
       const errMsg = addErr && typeof addErr.stderr === 'string' ? addErr.stderr : String(addErr?.message || '');
-      if (/branch named .* already exists/i.test(errMsg)) {
+      if (/branch named .* already exists/i.test(errMsg) || /already exists/i.test(errMsg)) {
         logger.warn('createWorktree: stale branch detected, force-deleting and retrying', {
           branch,
           repoPath: repositoryPath,
         });
-        try { runGit(repositoryPath, ['branch', '-D', branch]); } catch { /* best effort */ }
-        try { runGit(repositoryPath, ['worktree', 'prune']); } catch { /* best effort */ }
+        try { runGit(repositoryPath, ['branch', '-D', branch]); } catch (_e) { void _e; }
+        try { runGit(repositoryPath, ['worktree', 'prune']); } catch (_e) { void _e; }
+        if (fs.existsSync(worktreePath)) {
+          try { fs.rmSync(worktreePath, { recursive: true, force: true }); } catch (_e) { void _e; }
+        }
         runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, baseBranch]);
       } else {
         throw addErr;
