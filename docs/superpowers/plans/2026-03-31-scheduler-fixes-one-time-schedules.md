@@ -1202,7 +1202,7 @@ git commit -m "feat: toggle preserves run_at for one-time schedules"
 **Files:**
 - Modify: `server/api/v2-governance-handlers.js:152-182`
 
-- [ ] **Step 1: Update `handleCreateSchedule`**
+- [x] **Step 1: Update `handleCreateSchedule`**
 
 Replace the function to support both cron and one-time creation. This also fixes the existing bug where `createCronScheduledTask` was called with positional args instead of an object:
 
@@ -1270,13 +1270,13 @@ async function handleCreateSchedule(req, res) {
 }
 ```
 
-- [ ] **Step 2: Run existing dashboard tests**
+- [x] **Step 2: Run existing dashboard tests**
 
 Run: `npx vitest run server/tests/dashboard-admin-routes.test.js --reporter=verbose 2>&1 | tail -20`
 
 Expected: Existing tests still pass. Some may need adjustment if they relied on the old positional-args signature.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```
 git add server/api/v2-governance-handlers.js
