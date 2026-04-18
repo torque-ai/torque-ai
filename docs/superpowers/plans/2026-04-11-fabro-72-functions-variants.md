@@ -447,7 +447,7 @@ Run tests → PASS. Commit: `feat(optimizer): proposes child variants from highe
 
 ## Task 4: Task integration + MCP tools
 
-- [ ] **Step 1: Resolve function + variant on submission**
+- [x] **Step 1: Resolve function + variant on submission**
 
 In `server/execution/task-startup.js`:
 
@@ -479,7 +479,7 @@ if (task.__function_id && task.__variant_id) {
 }
 ```
 
-- [ ] **Step 2: MCP tools**
+- [x] **Step 2: MCP tools**
 
 ```js
 register_function: { description: 'Register a function with input/output schemas.', inputSchema: {...} },
