@@ -4563,6 +4563,32 @@ function resumeAutoAdvanceOnStartup() {
         project_id: project.id,
         active_only: true,
       });
+
+      // Orphan-project reconciliation: no active instances but
+      // auto_continue is set means the last instance was terminated
+      // by a prior restart or crash and nothing kicked a new one.
+      // Start a fresh loop so the project doesn't silently sit with
+      // loop_state stuck at a stale value (EXECUTE, VERIFY, etc.)
+      // until an operator manually resets.
+      if (!instances.length) {
+        setImmediate(() => {
+          try {
+            startLoopAutoAdvance(project.id);
+            logger.info('Started fresh loop for orphan auto-continue project after restart', {
+              project_id: project.id,
+              prior_legacy_state: project.loop_state || null,
+            });
+          } catch (err) {
+            logger.warn('Failed to start fresh loop for orphan auto-continue project', {
+              project_id: project.id,
+              err: err.message,
+            });
+          }
+        });
+        resumed += 1;
+        continue;
+      }
+
       for (const instance of instances) {
         if (instance.terminated_at) continue;
         const state = getCurrentLoopState(instance);
