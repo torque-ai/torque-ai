@@ -74,6 +74,14 @@ function init(deps) {
   if (deps.startTask) _startTask = deps.startTask;
   if (deps.processQueue) _processQueue = deps.processQueue;
   if (deps.testRunnerRegistry) _testRunnerRegistry = deps.testRunnerRegistry;
+  if (deps.agentRegistry !== undefined && !deps.testRunnerRegistry) {
+    const { createRemoteTestRouter } = require('../plugins/remote-agents/remote-test-routing');
+    const router = createRemoteTestRouter({ agentRegistry: deps.agentRegistry, db: _db, logger });
+    _testRunnerRegistry = {
+      runVerifyCommand: router.runVerifyCommand,
+      runRemoteOrLocal: router.runRemoteOrLocal,
+    };
+  }
   if (Object.prototype.hasOwnProperty.call(deps, 'sandboxManager')) {
     _sandboxManager = deps.sandboxManager || null;
   }

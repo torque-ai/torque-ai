@@ -78,6 +78,14 @@ function init(deps) {
   if (deps.parseGitStatusLine) _parseGitStatusLine = deps.parseGitStatusLine;
   if (deps.sanitizeLLMOutput) _sanitizeLLMOutput = deps.sanitizeLLMOutput;
   if (deps.testRunnerRegistry) _testRunnerRegistry = deps.testRunnerRegistry;
+  if (deps.agentRegistry !== undefined && !deps.testRunnerRegistry) {
+    const { createRemoteTestRouter } = require('../plugins/remote-agents/remote-test-routing');
+    const router = createRemoteTestRouter({ agentRegistry: deps.agentRegistry, db, logger });
+    _testRunnerRegistry = {
+      runVerifyCommand: router.runVerifyCommand,
+      runRemoteOrLocal: router.runRemoteOrLocal,
+    };
+  }
   buildVerification.init({
     db,
     parseCommand,

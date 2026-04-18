@@ -45,9 +45,9 @@ function sanitizeTemplateVariable(value) {
 function _getTestRunnerRegistry() {
   try {
     const { getTestRunnerRegistry } = require('../index');
-    return getTestRunnerRegistry();
+    return getTestRunnerRegistry() || createTestRunnerRegistry();
   } catch {
-    return null;
+    return createTestRunnerRegistry();
   }
 }
 
