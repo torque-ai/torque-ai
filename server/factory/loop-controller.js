@@ -1082,9 +1082,39 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
     // Merge the factory worktree into main before marking the work item
     // shipped. If merge fails, leave the item open with a skipped_shipping
     // decision so the operator can resolve the conflict.
-    const worktreeRecord = (batch_id || instance?.batch_id)
+    let worktreeRecord = (batch_id || instance?.batch_id)
       ? factoryWorktrees.getActiveWorktreeByBatch(batch_id || instance?.batch_id)
       : factoryWorktrees.getActiveWorktree(project_id);
+
+    // If the DB thinks the worktree is active but the directory is gone
+    // (restart janitor, manual rm, or corrupted state), abandon it and
+    // fall through to the no-worktree recovery path below — otherwise
+    // the merge call will crash and the loop will retry forever.
+    if (worktreeRecord && worktreeRecord.worktreePath
+        && !fs.existsSync(worktreeRecord.worktreePath)) {
+      try {
+        factoryWorktrees.markAbandoned(
+          worktreeRecord.id,
+          'worktreePath_missing_on_disk_at_learn',
+        );
+      } catch (_e) { void _e; }
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.LEARN,
+        action: 'worktree_path_missing_abandoned',
+        reasoning: 'Active factory worktree DB row points to a path that no longer exists on disk. Marking abandoned and falling through to no-worktree recovery.',
+        outcome: {
+          work_item_id: workItem.id,
+          worktree_id: worktreeRecord.id,
+          worktree_path: worktreeRecord.worktreePath,
+          branch: worktreeRecord.branch,
+        },
+        confidence: 1,
+        batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+      });
+      worktreeRecord = null;
+    }
+
     const worktreeRunnerAvailable = getWorktreeRunner();
     const worktreeRunner = worktreeRecord ? worktreeRunnerAvailable : null;
 
@@ -1100,11 +1130,26 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
         workItem.id,
       );
       if (!priorWorktree || priorWorktree.status !== 'merged') {
+        // Reject the work item instead of just skipping — otherwise
+        // PRIORITIZE will re-select it on the next cycle and we spin
+        // forever. This was the exact failure mode that kept work
+        // item 115 in 'executing' state for 11+ hours on 2026-04-18
+        // after its worktree directory was cleaned up by a restart
+        // janitor.
+        const rejectReason = priorWorktree
+          ? `no_worktree_for_batch_prior_status=${priorWorktree.status}`
+          : 'no_worktree_for_batch_after_execute';
+        try {
+          factoryIntake.updateWorkItem(workItem.id, {
+            status: 'rejected',
+            reject_reason: rejectReason,
+          });
+        } catch (_e) { void _e; }
         safeLogDecision({
           project_id,
           stage: LOOP_STATES.LEARN,
-          action: 'skipped_shipping',
-          reasoning: 'LEARN found no active worktree to merge and no prior merged worktree for this work item. Refusing to ship without landing code on main.',
+          action: 'auto_rejected_no_worktree',
+          reasoning: 'LEARN found no active worktree to merge and no prior merged worktree for this work item. Rejecting so PRIORITIZE does not re-select it.',
           inputs: {
             batch_id: batch_id || instance?.batch_id || null,
             resolution_source: resolutionSource,
@@ -1112,9 +1157,7 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
           },
           outcome: {
             work_item_id: workItem.id,
-            reason: priorWorktree
-              ? `prior_worktree_status=${priorWorktree.status}`
-              : 'no_worktree_record',
+            reason: rejectReason,
             prior_worktree_id: priorWorktree ? priorWorktree.id : null,
             prior_worktree_status: priorWorktree ? priorWorktree.status : null,
           },
@@ -1122,10 +1165,8 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
           batch_id: shippingDecision.decision_batch_id || decisionBatchId,
         });
         return {
-          status: 'skipped',
-          reason: priorWorktree
-            ? `worktree_not_merged_status=${priorWorktree.status}`
-            : 'no_worktree_for_batch',
+          status: 'rejected',
+          reason: rejectReason,
           work_item_id: workItem.id,
         };
       }
