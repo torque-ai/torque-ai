@@ -151,7 +151,7 @@ Commit: `feat(builder): spec → canvas (React Flow nodes + edges) with topologi
 
 ## Task 2: Canvas → spec
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `dashboard/src/tests/canvas-to-spec.test.js`:
 
@@ -210,7 +210,7 @@ describe('canvasToSpec', () => {
 });
 ```
 
-- [ ] **Step 2: Implement canvas-to-spec**
+- [x] **Step 2: Implement canvas-to-spec**
 
 Create `dashboard/src/builder/canvas-to-spec.js`:
 
