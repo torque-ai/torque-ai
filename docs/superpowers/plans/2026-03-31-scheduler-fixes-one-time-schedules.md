@@ -1351,7 +1351,7 @@ git commit -m "feat: dashboard schedule type toggle, datetime picker, and type c
 
 ## Task 11: Full Test Suite Verification
 
-- [ ] **Step 1: Run all scheduler-related tests**
+- [x] **Step 1: Run all scheduler-related tests**
 
 ```
 npx vitest run server/tests/handler-adv-scheduling.test.js server/tests/task-operations-handlers.test.js server/tests/maintenance-scheduler.test.js --reporter=verbose 2>&1 | tail -40
@@ -1359,7 +1359,7 @@ npx vitest run server/tests/handler-adv-scheduling.test.js server/tests/task-ope
 
 Expected: All tests pass.
 
-- [ ] **Step 2: Run full server test suite**
+- [x] **Step 2: Run full server test suite**
 
 ```
 npx vitest run server/tests/ --reporter=verbose 2>&1 | tail -40
@@ -1367,7 +1367,7 @@ npx vitest run server/tests/ --reporter=verbose 2>&1 | tail -40
 
 Expected: No regressions.
 
-- [ ] **Step 3: Fix any regressions and commit**
+- [x] **Step 3: Fix any regressions and commit**
 
 Only if Step 2 found issues:
 ```
