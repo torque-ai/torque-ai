@@ -23,6 +23,26 @@ function getProjectConfig(project) {
 
 function tickProject(project) {
   try {
+    // Auto-resume: if the project is paused but has auto_continue, the
+    // operator didn't explicitly pause it — it drifted (restart, reset,
+    // instance termination set status=paused). Resume it so the tick
+    // can do its job. Explicit operator pauses use pause_project which
+    // also calls stopTick — so if the tick IS running, the pause wasn't
+    // intentional.
+    const freshProject = factoryHealth.getProject(project.id);
+    if (freshProject && freshProject.status === 'paused') {
+      const cfg = getProjectConfig(freshProject);
+      if (cfg?.loop?.auto_continue) {
+        factoryHealth.updateProject(project.id, { status: 'running' });
+        logger.info('Factory tick: auto-resumed paused auto_continue project', {
+          project_id: project.id,
+          project_name: freshProject.name,
+        });
+      } else {
+        return; // genuinely paused, no auto_continue — skip
+      }
+    }
+
     const instances = factoryLoopInstances.listInstances({
       project_id: project.id,
       active_only: true,
@@ -142,14 +162,18 @@ function stopAll() {
   activeTimers.clear();
 }
 
-// Called on server startup — scan for running projects and start ticking
+// Called on server startup — scan for projects that should be ticking.
+// Includes running projects AND paused projects with auto_continue
+// (the tick's auto-resume logic will set them back to running).
 function initFactoryTicks() {
   let started = 0;
   try {
     const projects = factoryHealth.listProjects();
     for (const project of projects) {
-      if (project.status !== 'running') continue;
       const cfg = getProjectConfig(project);
+      const shouldTick = project.status === 'running'
+        || (project.status === 'paused' && cfg?.loop?.auto_continue);
+      if (!shouldTick) continue;
       const intervalMs = cfg?.loop?.tick_interval_ms || DEFAULT_TICK_INTERVAL_MS;
       startTick(project, intervalMs);
       started++;
