@@ -242,6 +242,16 @@ async function handleAutoVerifyRetry(ctx) {
   // Guard: only completed tasks
   if (ctx.status !== 'completed') return;
 
+  // Guard: skip internal factory tasks (architect cycles, plan generation).
+  // Those produce structured text output (JSON, markdown) and never modify
+  // code — running verify on them produces meaningless tests:fail:N tags
+  // and burns compute on unrelated test suites.
+  const tags = Array.isArray(task?.tags) ? task.tags : [];
+  if (tags.includes('factory:internal')) {
+    logger.info(`[auto-verify] Task ${taskId}: skipping verify — factory:internal task`);
+    return;
+  }
+
   // Guard: need a working directory
   if (!task || !task.working_directory) return;
 

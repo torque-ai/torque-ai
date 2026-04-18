@@ -349,7 +349,7 @@ function buildReasoning({ project, trigger, healthScores, intakeItems, backlog, 
 // the active routing template picks an appropriate text-gen provider chain.
 // Do NOT hardcode a provider here — that would violate the dispatch spirit
 // and force this JSON-generation task onto action-agent providers.
-async function runArchitectLLM(prompt, project_id) {
+async function runArchitectLLM(prompt, project_id, projectPath) {
   const taskCore = require('../db/task-core');
   const { handleSmartSubmitTask } = require('../handlers/integration/routing');
 
@@ -360,7 +360,12 @@ async function runArchitectLLM(prompt, project_id) {
     const submitResult = await handleSmartSubmitTask({
       task: taskDescription,
       project: 'factory-architect',
-      working_directory: null,
+      // Run the architect in the target project's own working directory so
+      // study intelligence, target-file scanning, and context enrichment
+      // pull from the right codebase. Previously null, which meant the
+      // provider ran in the server's own working dir and mixed TORQUE's
+      // source tree into every project's architect prompt.
+      working_directory: projectPath || null,
       timeout_minutes: 10,
       version_intent: 'internal',
       tags: [
@@ -512,7 +517,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
 
   if (hasTaskManager) {
     try {
-      const llmResult = await runArchitectLLM(prompt, project_id);
+      const llmResult = await runArchitectLLM(prompt, project_id, project.path);
       if (llmResult && Array.isArray(llmResult.backlog) && llmResult.backlog.length > 0) {
         backlog = llmResult.backlog;
         reasoning = llmResult.reasoning || 'LLM-prioritized backlog';
