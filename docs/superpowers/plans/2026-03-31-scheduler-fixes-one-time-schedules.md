@@ -364,7 +364,7 @@ git commit -m "feat: add parseDelay utility for one-time schedule relative offse
 - Modify: `server/db/cron-scheduling.js`
 - Test: `server/tests/handler-adv-scheduling.test.js`
 
-- [ ] **Step 1: Write tests for one-time schedule creation and fire-and-delete**
+- [x] **Step 1: Write tests for one-time schedule creation and fire-and-delete**
 
 Add to `server/tests/handler-adv-scheduling.test.js`:
 
@@ -450,13 +450,13 @@ describe('one-time schedule DB functions', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run server/tests/handler-adv-scheduling.test.js -t "one-time schedule DB" --reporter=verbose 2>&1 | tail -20`
 
 Expected: FAIL -- `cronScheduling.createOneTimeSchedule is not a function`
 
-- [ ] **Step 3: Implement `createOneTimeSchedule`**
+- [x] **Step 3: Implement `createOneTimeSchedule`**
 
 Add to `server/db/cron-scheduling.js`, after `createCronScheduledTask`:
 
@@ -530,7 +530,7 @@ function createOneTimeSchedule(data) {
 }
 ```
 
-- [ ] **Step 4: Modify `markScheduledTaskRun` to delete one-time schedules**
+- [x] **Step 4: Modify `markScheduledTaskRun` to delete one-time schedules**
 
 Replace the existing `markScheduledTaskRun` function:
 
@@ -560,7 +560,7 @@ function markScheduledTaskRun(id) {
 }
 ```
 
-- [ ] **Step 5: Add exports**
+- [x] **Step 5: Add exports**
 
 Add `createOneTimeSchedule` to the `module.exports` in `server/db/cron-scheduling.js`:
 
@@ -575,13 +575,13 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run: `npx vitest run server/tests/handler-adv-scheduling.test.js -t "one-time schedule DB" --reporter=verbose 2>&1 | tail -30`
 
 Expected: All one-time schedule DB tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```
 git add server/db/cron-scheduling.js server/tests/handler-adv-scheduling.test.js
