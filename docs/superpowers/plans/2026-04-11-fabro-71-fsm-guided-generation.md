@@ -21,14 +21,14 @@
 
 **Modified files:**
 - `server/providers/ollama.js` — accept constraint param → JSON mode / format param
-- `server/providers/codex.js` — no constraint (passthrough, SAP fallback)
+- `server/providers/<git-user>.js` — no constraint (passthrough, SAP fallback)
 - `server/providers/anthropic.js` — no constraint (passthrough, SAP fallback)
 
 ---
 
 ## Task 1: Constraint compiler
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/constraint-compiler.test.js`:
 
@@ -82,7 +82,7 @@ describe('compileConstraint', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/constraints/constraint-compiler.js`:
 
@@ -119,7 +119,7 @@ Run tests → PASS. Commit: `feat(constraints): compile schema/literal/regex int
 
 ## Task 2: Backend adapters + provider wrapper
 
-- [ ] **Step 1: Backend adapters**
+- [x] **Step 1: Backend adapters**
 
 Create `server/constraints/backend-adapters.js`:
 
@@ -152,7 +152,7 @@ const ADAPTERS = {
   },
 
   // Cloud providers with no constraint support — pass nothing, rely on SAP.
-  codex: () => ({}),
+  <git-user>: () => ({}),
   anthropic: () => ({}),
   groq: () => ({}),
   deepinfra: () => ({}),
@@ -172,7 +172,7 @@ function translate({ providerBackend, constraint }) {
 module.exports = { translate, ADAPTERS };
 ```
 
-- [ ] **Step 2: Structured provider adapter tests**
+- [x] **Step 2: Structured provider adapter tests**
 
 Create `server/tests/structured-provider-adapter.test.js`:
 
@@ -197,12 +197,12 @@ describe('wrapWithStructuredSupport', () => {
 
   it('skips constraint params for non-supporting backend + falls back to SAP', async () => {
     const baseProvider = { runPrompt: vi.fn(async () => 'Here is the answer:\n{"name":"Bob"}') };
-    const wrapped = wrapWithStructuredSupport(baseProvider, { backend: 'codex' });
+    const wrapped = wrapWithStructuredSupport(baseProvider, { backend: '<git-user>' });
     const r = await wrapped.runPrompt({
       prompt: 'extract name',
       output_schema: { type: 'object', required: ['name'] },
     });
-    // codex received no guided_json
+    // <git-user> received no guided_json
     expect(baseProvider.runPrompt).toHaveBeenCalledWith(expect.not.objectContaining({ guided_json: expect.anything() }));
     // SAP extracted the name
     expect(r.parsed.name).toBe('Bob');
@@ -211,7 +211,7 @@ describe('wrapWithStructuredSupport', () => {
 
   it('reports validation failure when output fails both constraint AND sap', async () => {
     const baseProvider = { runPrompt: vi.fn(async () => 'hopelessly unrelated prose') };
-    const wrapped = wrapWithStructuredSupport(baseProvider, { backend: 'codex' });
+    const wrapped = wrapWithStructuredSupport(baseProvider, { backend: '<git-user>' });
     const r = await wrapped.runPrompt({
       prompt: 'x', output_schema: { type: 'object', required: ['name'] },
     });
@@ -220,7 +220,7 @@ describe('wrapWithStructuredSupport', () => {
 });
 ```
 
-- [ ] **Step 3: Implement adapter**
+- [x] **Step 3: Implement adapter**
 
 Create `server/constraints/structured-provider-adapter.js`:
 
@@ -273,19 +273,19 @@ Run tests → PASS. Commit: `feat(constraints): structured-provider-adapter + SA
 
 ## Task 3: Wire into provider dispatch
 
-- [ ] **Step 1: Provider registry flag**
+- [x] **Step 1: Provider registry flag**
 
 Each provider registration gets a `backend` string identifying its constraint capability:
 
 ```js
-providerRegistry.register('codex',     { runPrompt, backend: 'codex' });      // no constraints, SAP only
+providerRegistry.register('<git-user>',     { runPrompt, backend: '<git-user>' });      // no constraints, SAP only
 providerRegistry.register('ollama',    { runPrompt, backend: 'ollama' });     // JSON mode
 providerRegistry.register('deepinfra', { runPrompt, backend: 'deepinfra' });  // SAP only
 // vLLM adapter (if TORQUE is configured with a vLLM endpoint)
 providerRegistry.register('vllm',      { runPrompt, backend: 'vllm' });
 ```
 
-- [ ] **Step 2: Dispatch wraps with structured support**
+- [x] **Step 2: Dispatch wraps with structured support**
 
 In the task dispatch path that calls a provider:
 
@@ -305,7 +305,7 @@ if (!result.ok) {
 }
 ```
 
-- [ ] **Step 3: MCP tool surface**
+- [x] **Step 3: MCP tool surface**
 
 Existing task submission already accepts `output_schema`. Add:
 
@@ -320,6 +320,6 @@ Tag tasks that used pre-hoc constraint vs SAP fallback for analytics:
 addTaskTag(taskId, result.used_sap ? 'constraint:sap_fallback' : `constraint:${backend}_native`);
 ```
 
-`await_restart`. Smoke: submit task to ollama with `output_schema: {type:'object', required:['name']}` and see `constraint:ollama_native` tag. Submit same task to codex, see `constraint:sap_fallback` tag but same parsed result.
+`await_restart`. Smoke: submit task to ollama with `output_schema: {type:'object', required:['name']}` and see `constraint:ollama_native` tag. Submit same task to <git-user>, see `constraint:sap_fallback` tag but same parsed result.
 
 Commit: `feat(constraints): wire provider dispatch through structured-adapter`.
