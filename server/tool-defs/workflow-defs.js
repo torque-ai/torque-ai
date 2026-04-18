@@ -305,22 +305,9 @@ const tools = [
   },
   {
     name: 'add_workflow_task',
-    description: 'Add a task to a workflow with optional dependencies',
+    description: 'Add a task to a workflow with optional dependencies. Either task_description (for plain tasks) OR kind="crew"+crew (for multi-role crew tasks) is required — the handler validates this at runtime.',
     inputSchema: {
       type: 'object',
-      anyOf: [
-        {
-          required: ['task_description']
-        },
-        {
-          required: ['kind', 'crew'],
-          properties: {
-            kind: {
-              const: 'crew'
-            }
-          }
-        }
-      ],
       properties: {
         workflow_id: {
           type: 'string',
