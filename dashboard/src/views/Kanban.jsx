@@ -966,10 +966,15 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     setAllTasks((prev) => {
       if (prev.length === 0) return liveTasks;
       const updates = new Map(liveTasks.map((t) => [t.id, t]));
-      // Filter out deleted tasks, then merge updates with preserved API-fetched tasks
+      // Filter out deleted tasks, then merge updates with preserved API-fetched tasks.
+      // WS deltas only carry a subset of fields (see DELTA_FIELDS in dashboard-server.js);
+      // spread keeps API-only fields like `project` and `tags` from being wiped.
       const merged = prev
         .filter(t => !deletedIds.has(t.id))
-        .map((t) => updates.get(t.id) || t);
+        .map((t) => {
+          const update = updates.get(t.id);
+          return update ? { ...t, ...update } : t;
+        });
       const existingIds = new Set(merged.map((t) => t.id));
       for (const task of liveTasks) {
         if (!existingIds.has(task.id)) merged.push(task);

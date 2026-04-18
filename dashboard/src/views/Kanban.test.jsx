@@ -788,4 +788,50 @@ describe('Kanban', () => {
     expect(pinnedFromStorage).toEqual(['task-run-1']);
     expect(new Set(hiddenColsFromStorage)).toEqual(new Set(['queued']));
   });
+
+  // Regression: WS deltas from `tasks:batch-updated` only carry a subset of fields
+  // (see DELTA_FIELDS in server/dashboard-server.js). Before the merge fix, Kanban
+  // replaced the full API-fetched row with the sparse delta, wiping `project`/`tags`
+  // and making the project + factory batch badges flash and disappear on refresh.
+  it('preserves project and factory tag badges when a sparse WS delta arrives', async () => {
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'running') {
+        return Promise.resolve({
+          tasks: [{
+            ...runningTask,
+            project: 'alpha',
+            tags: ['factory:batch_id=batch-42'],
+          }],
+        });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    const { rerender } = renderWithProviders(
+      <Kanban tasks={[]} />,
+      { route: '/' }
+    );
+
+    const runningColumn = await screen.findByRole('list', { name: 'Running' });
+    await waitFor(() => {
+      expect(within(runningColumn).getByText('alpha')).toBeInTheDocument();
+      expect(within(runningColumn).getByText('Batch batch-42')).toBeInTheDocument();
+    });
+
+    // App.jsx receives `tasks:batch-updated` and propagates a delta-only payload
+    // (no `project`, no `tags`) as the `tasks` prop. The badges must survive.
+    rerender(
+      <Kanban tasks={[{
+        id: 'task-run-1',
+        status: 'running',
+        provider: 'codex',
+        progress_percent: 50,
+      }]} />
+    );
+
+    await waitFor(() => {
+      expect(within(runningColumn).getByText('alpha')).toBeInTheDocument();
+      expect(within(runningColumn).getByText('Batch batch-42')).toBeInTheDocument();
+    });
+  });
 });
