@@ -344,30 +344,43 @@ function buildReasoning({ project, trigger, healthScores, intakeItems, backlog, 
  * Submit the architect prompt to Codex and parse the JSON response.
  * Falls back to null if Codex is unavailable or response is unparseable.
  */
-async function runCodexArchitect(prompt, project_id) {
-  const taskManager = require('../task-manager');
+// Submit the architect prompt via smart routing. The classifier detects
+// this as 'plan_generation' (structured text output, no file actions), and
+// the active routing template picks an appropriate text-gen provider chain.
+// Do NOT hardcode a provider here — that would violate the dispatch spirit
+// and force this JSON-generation task onto action-agent providers.
+async function runArchitectLLM(prompt, project_id) {
   const taskCore = require('../db/task-core');
-  const { v4: uuidv4 } = require('uuid');
+  const { handleSmartSubmitTask } = require('../handlers/integration/routing');
 
-  const taskId = uuidv4();
   const taskDescription = `You are the Architect for a software factory. Read the context below and return ONLY valid JSON output matching the specified format. No explanation outside the JSON.\n\n${prompt}`;
 
-  taskCore.createTask({
-    id: taskId,
-    status: 'pending',
-    task_description: taskDescription,
-    working_directory: null,
-    project: 'factory-architect',
-    provider: 'codex',
-    timeout_minutes: 10,
-    metadata: JSON.stringify({ factory_internal: true, architect_cycle: true, project_id }),
-  });
-
-  // Start and await the task
+  let taskId;
   try {
-    taskManager.startTask(taskId);
+    const submitResult = await handleSmartSubmitTask({
+      task: taskDescription,
+      project: 'factory-architect',
+      working_directory: null,
+      timeout_minutes: 10,
+      version_intent: 'internal',
+      tags: [
+        'factory:internal',
+        'factory:architect_cycle',
+        `factory:project_id=${project_id}`,
+      ],
+      task_metadata: {
+        factory_internal: true,
+        architect_cycle: true,
+        project_id,
+      },
+    });
+    taskId = submitResult?.task_id || null;
+    if (!taskId) {
+      logger.warn('Architect task submission returned no task_id');
+      return null;
+    }
   } catch (err) {
-    logger.warn(`Failed to start Codex architect task: ${err.message}`);
+    logger.warn(`Failed to submit architect task: ${err.message}`);
     return null;
   }
 
@@ -388,7 +401,7 @@ async function runCodexArchitect(prompt, project_id) {
           }
         }
       } catch (parseErr) {
-        logger.warn(`Failed to parse Codex architect output: ${parseErr.message}`);
+        logger.warn(`Failed to parse architect output: ${parseErr.message}`);
       }
       return null;
     }
@@ -399,7 +412,7 @@ async function runCodexArchitect(prompt, project_id) {
     await new Promise(resolve => setTimeout(resolve, 3000));
   }
 
-  logger.warn('Codex architect task timed out');
+  logger.warn('Architect task timed out');
   return null;
 }
 
@@ -481,12 +494,15 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
     previous_cycle_id: prevCycle ? prevCycle.id : null,
   });
 
-  // Try LLM-based prioritization via Codex, fall back to deterministic
+  // Try LLM-based prioritization via smart routing, fall back to deterministic.
+  // The routing template decides which provider handles architect cycles —
+  // 'plan_generation' category maps to text-gen providers (cerebras/groq/ollama)
+  // in default templates, explicitly avoiding action-agent providers.
   let backlog;
   let reasoning;
   let llmUsed = false;
 
-  // Only attempt Codex LLM when a real task manager is available (not in tests)
+  // Only attempt LLM when a real task manager is available (not in tests)
   const hasTaskManager = (() => {
     try {
       const tm = require('../task-manager');
@@ -496,15 +512,15 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
 
   if (hasTaskManager) {
     try {
-      const codexResult = await runCodexArchitect(prompt, project_id);
-      if (codexResult && Array.isArray(codexResult.backlog) && codexResult.backlog.length > 0) {
-        backlog = codexResult.backlog;
-        reasoning = codexResult.reasoning || 'LLM-prioritized backlog';
+      const llmResult = await runArchitectLLM(prompt, project_id);
+      if (llmResult && Array.isArray(llmResult.backlog) && llmResult.backlog.length > 0) {
+        backlog = llmResult.backlog;
+        reasoning = llmResult.reasoning || 'LLM-prioritized backlog';
         llmUsed = true;
-        logger.info('Architect cycle used Codex LLM', { project_id, backlog_count: backlog.length });
+        logger.info('Architect cycle used LLM', { project_id, backlog_count: backlog.length });
       }
     } catch (err) {
-      logger.info(`Codex architect failed, falling back to deterministic: ${err.message}`);
+      logger.info(`Architect LLM failed, falling back to deterministic: ${err.message}`);
     }
   }
 
