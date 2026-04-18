@@ -871,11 +871,11 @@ git commit -m "feat: add create_one_time_schedule MCP tool"
 - Modify: `server/maintenance/scheduler.js:110-137`
 - Test: `server/tests/maintenance-scheduler.test.js`
 
-- [ ] **Step 1: Read the current test file to understand mock patterns**
+- [x] **Step 1: Read the current test file to understand mock patterns**
 
 Read `server/tests/maintenance-scheduler.test.js` to understand how `buildDb`, `startMaintenanceScheduler`, and mocks are set up. Adapt new tests to match the existing pattern.
 
-- [ ] **Step 2: Write tests for origin metadata and workflow firing**
+- [x] **Step 2: Write tests for origin metadata and workflow firing**
 
 Add tests that verify:
 1. Origin metadata (`scheduled_by`, `schedule_name`, `scheduled`) is attached to `createTask` calls
@@ -938,7 +938,7 @@ it('runs workflow when workflow_id is in task_config', async () => {
 });
 ```
 
-- [ ] **Step 3: Modify the scheduler tick**
+- [x] **Step 3: Modify the scheduler tick**
 
 In `server/maintenance/scheduler.js`, check the function signature of `startMaintenanceScheduler`. If it doesn't already accept an `opts` parameter, add one.
 
@@ -1001,13 +1001,13 @@ Replace the C-2 block (lines ~110-137):
 
 Make sure the `opts` variable is accessible in the scheduler tick closure. If `startMaintenanceScheduler(db)` is the current signature, change it to `startMaintenanceScheduler(db, opts = {})`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npx vitest run server/tests/maintenance-scheduler.test.js --reporter=verbose 2>&1 | tail -30`
 
 Expected: All tests pass including new ones.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```
 git add server/maintenance/scheduler.js server/tests/maintenance-scheduler.test.js
