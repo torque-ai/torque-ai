@@ -2,7 +2,80 @@
 
 const path = require('path');
 const fs = require('fs');
-const { spawnSync } = require('child_process');
+const { spawnSync, spawn } = require('child_process');
+
+// Async variant of spawnInBash that returns a Promise — used for verify
+// commands that can run up to 30 minutes. spawnSync would block the Node
+// event loop for the entire duration, freezing all HTTP responses and
+// other factory loops.
+function spawnInBashAsync(bashCmd, options = {}) {
+  return new Promise((resolve) => {
+    let cmd, args;
+    if (process.platform === 'win32') {
+      const bashPath = resolveBashOnWindows();
+      if (!bashPath) {
+        resolve({ status: 1, stdout: '', stderr: 'Git Bash not found on this Windows host', error: { message: 'bash_not_found' } });
+        return;
+      }
+      cmd = bashPath;
+      args = ['-lc', bashCmd];
+    } else {
+      cmd = 'bash';
+      args = ['-lc', bashCmd];
+    }
+    const child = spawn(cmd, args, { ...options, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    let timer = null;
+    let timedOut = false;
+    if (options.timeout && options.timeout > 0) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        try { child.kill('SIGKILL'); } catch (_e) { void _e; }
+      }, options.timeout);
+    }
+    child.stdout?.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    child.stderr?.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    child.on('error', (err) => {
+      if (timer) clearTimeout(timer);
+      resolve({ status: 1, stdout, stderr, error: err });
+    });
+    child.on('close', (code, signal) => {
+      if (timer) clearTimeout(timer);
+      const error = timedOut ? { message: `timeout after ${options.timeout}ms` } : null;
+      resolve({ status: typeof code === 'number' ? code : 1, stdout, stderr, error, signal });
+    });
+  });
+}
+
+function spawnInSystemShellAsync(command, options = {}) {
+  return new Promise((resolve) => {
+    const cmd = process.platform === 'win32' ? 'cmd' : 'sh';
+    const args = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-lc', command];
+    const child = spawn(cmd, args, { ...options, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    let timer = null;
+    let timedOut = false;
+    if (options.timeout && options.timeout > 0) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        try { child.kill('SIGKILL'); } catch (_e) { void _e; }
+      }, options.timeout);
+    }
+    child.stdout?.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    child.stderr?.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    child.on('error', (err) => {
+      if (timer) clearTimeout(timer);
+      resolve({ status: 1, stdout, stderr, error: err });
+    });
+    child.on('close', (code, signal) => {
+      if (timer) clearTimeout(timer);
+      const error = timedOut ? { message: `timeout after ${options.timeout}ms` } : null;
+      resolve({ status: typeof code === 'number' ? code : 1, stdout, stderr, error, signal });
+    });
+  });
+}
 
 function sanitizeSlug(title = '', maxLen = 40) {
   const slug = String(title)
@@ -85,16 +158,18 @@ function shouldFallbackToLocalVerify(result) {
   );
 }
 
-function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
+async function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
   const resolvedCwd = cwd || process.cwd();
   if (logger) logger.info('factory worktree verify: running torque-remote', { branch, command, cwd: resolvedCwd });
   // torque-remote auto-detects branch from cwd and forces remote to match
   // origin/<branch>. The worktree branch must be pushed first; do that here so
   // remote can sync. Use --no-verify on the push because the worktree branch is
   // a non-main feature branch (the gate skips tests for non-main pushes anyway).
-  const baseEnv = { cwd: resolvedCwd, encoding: 'utf8', timeout: 30 * 60 * 1000 };
+  // Use async spawn so the Node event loop stays responsive during the up-to-30-minute
+  // verify command — spawnSync would freeze all HTTP responses and other factory loops.
+  const baseEnv = { cwd: resolvedCwd, timeout: 30 * 60 * 1000 };
   const pushCmd = `git push --no-verify --force-with-lease origin HEAD:refs/heads/${branch}`;
-  const pushResult = spawnInBash(pushCmd, baseEnv);
+  const pushResult = await spawnInBashAsync(pushCmd, baseEnv);
   if (pushResult.status !== 0) {
     return {
       exitCode: 1,
@@ -103,7 +178,7 @@ function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
       error: pushResult.error ? pushResult.error.message : null,
     };
   }
-  const verifyResult = spawnInBash(`torque-remote ${JSON.stringify(command)}`, baseEnv);
+  const verifyResult = await spawnInBashAsync(`torque-remote ${JSON.stringify(command)}`, baseEnv);
   return {
     exitCode: typeof verifyResult.status === 'number' ? verifyResult.status : 1,
     stdout: verifyResult.stdout || '',
@@ -112,7 +187,7 @@ function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
   };
 }
 
-function defaultRunLocalVerify({ branch, command, cwd, logger, fallbackReason }) {
+async function defaultRunLocalVerify({ branch, command, cwd, logger, fallbackReason }) {
   const resolvedCwd = cwd || process.cwd();
   if (logger) {
     logger.warn('factory worktree verify: falling back to local execution', {
@@ -122,9 +197,8 @@ function defaultRunLocalVerify({ branch, command, cwd, logger, fallbackReason })
       fallback_reason: fallbackReason || null,
     });
   }
-  const result = spawnInSystemShell(command, {
+  const result = await spawnInSystemShellAsync(command, {
     cwd: resolvedCwd,
-    encoding: 'utf8',
     timeout: 30 * 60 * 1000,
   });
   return {

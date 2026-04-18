@@ -141,8 +141,14 @@ function startTick(project, intervalMs = DEFAULT_TICK_INTERVAL_MS) {
     interval_ms: intervalMs,
   });
 
-  // Also tick immediately on start (don't wait for first interval)
-  tickProject(project);
+  // Also tick immediately on start (don't wait for first interval).
+  // Defer via setImmediate so the tick can't block the event loop during
+  // startup — tickProject uses spawnSync for git worktree ops, and if those
+  // hang (filesystem lock, stale lockfile) the entire server would stall
+  // after binding its ports but before serving any HTTP requests.
+  setImmediate(() => {
+    try { tickProject(project); } catch (_e) { void _e; }
+  });
 }
 
 function stopTick(projectId) {

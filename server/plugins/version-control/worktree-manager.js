@@ -54,6 +54,8 @@ function runGit(cwd, args, options = {}) {
     cwd,
     encoding: 'utf8',
     windowsHide: true,
+    timeout: 30000,
+    killSignal: 'SIGKILL',
     ...options,
   });
 }
