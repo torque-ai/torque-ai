@@ -1301,7 +1301,7 @@ This is a full-file rewrite since changes touch most of the component. See the s
 7. **Schedule column**: Show cron expression for cron, formatted datetime for one-time
 8. **Column count**: Update empty-state `colSpan` to 7
 
-- [ ] **Step 1: Update form state**
+- [x] **Step 1: Update form state**
 
 Change the initial `form` state (line 47):
 
@@ -1318,29 +1318,29 @@ const [form, setForm] = useState({
 });
 ```
 
-- [ ] **Step 2: Update validation and create handler**
+- [x] **Step 2: Update validation and create handler**
 
 Replace `handleCreate` to validate based on schedule_type and send the correct payload.
 
-- [ ] **Step 3: Update form JSX**
+- [x] **Step 3: Update form JSX**
 
 Add type toggle (Cron | One-Time segmented button). Show cron input when cron, datetime-local input when once. Use `[color-scheme:dark]` class on the datetime input for dark mode compatibility.
 
-- [ ] **Step 4: Update table**
+- [x] **Step 4: Update table**
 
 Add Type column header. In each row, show a colored badge (blue for Cron, purple for Once). Update the Schedule column to show formatted datetime for one-time schedules. Update colSpan to 7.
 
-- [ ] **Step 5: Reset form on submit**
+- [x] **Step 5: Reset form on submit**
 
 Update the form reset in handleCreate to include the new fields.
 
-- [ ] **Step 6: Build verification**
+- [x] **Step 6: Build verification**
 
 Run: `cd dashboard && npm run build 2>&1 | tail -10`
 
 Expected: Build succeeds.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```
 git add dashboard/src/views/Schedules.jsx
