@@ -217,7 +217,7 @@ Run tests → PASS. Commit: `feat(functions): function + variant stores with lab
 
 ## Task 2: Variant selector (resolves label + traffic split)
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/variant-selector.test.js`:
 
@@ -278,7 +278,7 @@ describe('variantSelector.pick', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/functions/variant-selector.js`:
 
