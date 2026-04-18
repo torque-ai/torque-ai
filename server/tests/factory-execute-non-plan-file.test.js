@@ -311,9 +311,9 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     });
     expect(routingModule.handleSmartSubmitTask).toHaveBeenCalled();
     expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
-      project: 'factory-architect',
-      provider: 'codex',
+      project: 'factory-plan',
       working_directory: project.path,
+      version_intent: 'internal',
       tags: expect.arrayContaining([
         'factory:internal',
         'factory:plan_generation',
@@ -370,13 +370,15 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     const executeAdvance = await loopController.advanceLoopForProject(project.id);
     const updatedWorkItem = factoryIntake.getWorkItem(workItem.id);
 
-    expect(executeAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.IDLE);
     expect(executeAdvance.stage_result).toBeNull();
+    expect(executeAdvance.reason).toBe('no description');
     expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
     expect(awaitModule.handleAwaitTask).not.toHaveBeenCalled();
     expect(createPlanExecutorMock).not.toHaveBeenCalled();
     expect(updatedWorkItem.id).toBe(workItem.id);
-    expect(updatedWorkItem.status).toBe('planned');
+    expect(updatedWorkItem.status).toBe('rejected');
+    expect(updatedWorkItem.reject_reason).toContain('no description');
     expect(updatedWorkItem.origin).toBeUndefined();
 
     const decisions = listDecisionRows(db, project.id);
@@ -389,7 +391,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       }),
       outcome: expect.objectContaining({
         reason: 'no description',
-        generator: 'codex',
+        generator: '<git-user>',
         generation_task_id: null,
         work_item_id: workItem.id,
         plan_path: null,

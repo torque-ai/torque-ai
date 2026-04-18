@@ -362,35 +362,20 @@ function buildReasoning({ project, trigger, healthScores, intakeItems, backlog, 
 // and force this JSON-generation task onto action-agent providers.
 async function runArchitectLLM(prompt, project_id, projectPath) {
   const taskCore = require('../db/task-core');
-  const { handleSmartSubmitTask } = require('../handlers/integration/routing');
+  const { submitFactoryInternalTask } = require('./internal-task-submit');
 
   const taskDescription = `You are the Architect for a software factory. Read the context below and return ONLY valid JSON output matching the specified format. No explanation outside the JSON.\n\n${prompt}`;
 
   let taskId;
   try {
-    const submitResult = await handleSmartSubmitTask({
+    const { task_id } = await submitFactoryInternalTask({
       task: taskDescription,
-      project: 'factory-architect',
-      // Run the architect in the target project's own working directory so
-      // study intelligence, target-file scanning, and context enrichment
-      // pull from the right codebase. Previously null, which meant the
-      // provider ran in the server's own working dir and mixed TORQUE's
-      // source tree into every project's architect prompt.
-      working_directory: projectPath || null,
+      working_directory: projectPath,
+      kind: 'architect_cycle',
+      project_id,
       timeout_minutes: 10,
-      version_intent: 'internal',
-      tags: [
-        'factory:internal',
-        'factory:architect_cycle',
-        `factory:project_id=${project_id}`,
-      ],
-      task_metadata: {
-        factory_internal: true,
-        architect_cycle: true,
-        project_id,
-      },
     });
-    taskId = submitResult?.task_id || null;
+    taskId = task_id;
     if (!taskId) {
       logger.warn('Architect task submission returned no task_id');
       return null;
