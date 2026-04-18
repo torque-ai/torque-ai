@@ -273,7 +273,7 @@ Run tests → PASS. Commit: `feat(constraints): structured-provider-adapter + SA
 
 ## Task 3: Wire into provider dispatch
 
-- [ ] **Step 1: Provider registry flag**
+- [x] **Step 1: Provider registry flag**
 
 Each provider registration gets a `backend` string identifying its constraint capability:
 
@@ -285,7 +285,7 @@ providerRegistry.register('deepinfra', { runPrompt, backend: 'deepinfra' });  //
 providerRegistry.register('vllm',      { runPrompt, backend: 'vllm' });
 ```
 
-- [ ] **Step 2: Dispatch wraps with structured support**
+- [x] **Step 2: Dispatch wraps with structured support**
 
 In the task dispatch path that calls a provider:
 
@@ -305,7 +305,7 @@ if (!result.ok) {
 }
 ```
 
-- [ ] **Step 3: MCP tool surface**
+- [x] **Step 3: MCP tool surface**
 
 Existing task submission already accepts `output_schema`. Add:
 
