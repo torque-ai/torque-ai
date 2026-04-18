@@ -31,7 +31,7 @@
 
 ## Task 1: Canvas ↔ spec roundtrip
 
-- [ ] **Step 1: Tests (spec → canvas)**
+- [x] **Step 1: Tests (spec → canvas)**
 
 Create `dashboard/src/tests/spec-to-canvas.test.js`:
 
@@ -83,15 +83,15 @@ describe('specToCanvas', () => {
   });
 
   it('preserves node metadata', () => {
-    const spec = { name: 't', tasks: [{ id: 'a', provider: 'codex', kind: 'agent' }] };
+    const spec = { name: 't', tasks: [{ id: 'a', provider: '<git-user>', kind: 'agent' }] };
     const { nodes } = specToCanvas(spec);
-    expect(nodes[0].data.provider).toBe('codex');
+    expect(nodes[0].data.provider).toBe('<git-user>');
     expect(nodes[0].data.kind).toBe('agent');
   });
 });
 ```
 
-- [ ] **Step 2: Implement spec-to-canvas**
+- [x] **Step 2: Implement spec-to-canvas**
 
 Create `dashboard/src/builder/spec-to-canvas.js`:
 
@@ -151,7 +151,7 @@ Commit: `feat(builder): spec → canvas (React Flow nodes + edges) with topologi
 
 ## Task 2: Canvas → spec
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `dashboard/src/tests/canvas-to-spec.test.js`:
 
@@ -180,10 +180,10 @@ describe('canvasToSpec', () => {
   });
 
   it('preserves node data as task fields', () => {
-    const nodes = [{ id: 'a', data: { task_description: 'x', provider: 'codex', kind: 'agent' } }];
+    const nodes = [{ id: 'a', data: { task_description: 'x', provider: '<git-user>', kind: 'agent' } }];
     const spec = canvasToSpec({ name: 'w', nodes, edges: [] });
     expect(spec.tasks[0]).toEqual(expect.objectContaining({
-      id: 'a', task_description: 'x', provider: 'codex', kind: 'agent',
+      id: 'a', task_description: 'x', provider: '<git-user>', kind: 'agent',
     }));
   });
 
@@ -210,7 +210,7 @@ describe('canvasToSpec', () => {
 });
 ```
 
-- [ ] **Step 2: Implement canvas-to-spec**
+- [x] **Step 2: Implement canvas-to-spec**
 
 Create `dashboard/src/builder/canvas-to-spec.js`:
 
@@ -242,7 +242,7 @@ Run tests → PASS. Commit: `feat(builder): canvas → spec roundtrip with round
 
 ## Task 3: Builder UI + Gallery + JSON editor
 
-- [ ] **Step 1: Builder view**
+- [x] **Step 1: Builder view**
 
 Install `@xyflow/react` (`npm install @xyflow/react`). Create `dashboard/src/views/WorkflowBuilder.jsx`:
 
@@ -335,14 +335,14 @@ export default function WorkflowBuilder() {
 }
 ```
 
-- [ ] **Step 2: Gallery + Palette + JsonEditor**
+- [x] **Step 2: Gallery + Palette + JsonEditor**
 
 Three supporting components:
 - `NodePalette.jsx` — renders a list of node kinds (`agent`, `inline`, `jq_transform`, `human`, `crew`, etc.) — drag/click to add.
 - `Gallery.jsx` — fetches `/api/workflow_templates?pinned=true`, lists them, and calls `onPick(template)` when clicked.
 - `JsonEditor.jsx` — textarea with JSON-parse-on-blur that calls `onChange(parsedSpec)`, validation errors shown inline.
 
-- [ ] **Step 3: MCP tools**
+- [x] **Step 3: MCP tools**
 
 ```js
 pin_to_gallery: {
