@@ -242,7 +242,7 @@ Run tests → PASS. Commit: `feat(builder): canvas → spec roundtrip with round
 
 ## Task 3: Builder UI + Gallery + JSON editor
 
-- [ ] **Step 1: Builder view**
+- [x] **Step 1: Builder view**
 
 Install `@xyflow/react` (`npm install @xyflow/react`). Create `dashboard/src/views/WorkflowBuilder.jsx`:
 
@@ -335,14 +335,14 @@ export default function WorkflowBuilder() {
 }
 ```
 
-- [ ] **Step 2: Gallery + Palette + JsonEditor**
+- [x] **Step 2: Gallery + Palette + JsonEditor**
 
 Three supporting components:
 - `NodePalette.jsx` — renders a list of node kinds (`agent`, `inline`, `jq_transform`, `human`, `crew`, etc.) — drag/click to add.
 - `Gallery.jsx` — fetches `/api/workflow_templates?pinned=true`, lists them, and calls `onPick(template)` when clicked.
 - `JsonEditor.jsx` — textarea with JSON-parse-on-blur that calls `onChange(parsedSpec)`, validation errors shown inline.
 
-- [ ] **Step 3: MCP tools**
+- [x] **Step 3: MCP tools**
 
 ```js
 pin_to_gallery: {
