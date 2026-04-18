@@ -150,13 +150,13 @@ git commit -m "fix(toggle_schedule): respect explicit enabled param via 'in' che
 - Modify: `server/handlers/task/operations.js:580-628`
 - Test: `server/tests/task-operations-handlers.test.js`
 
-- [ ] **Step 1: Run existing cancel_scheduled tests to confirm current state**
+- [x] **Step 1: Run existing cancel_scheduled tests to confirm current state**
 
 Run: `npx vitest run server/tests/task-operations-handlers.test.js -t "cancel_scheduled" --reporter=verbose 2>&1 | tail -20`
 
 Expected: Either passes (if DI is wired in test setup) or fails with "getScheduledTask is not a function".
 
-- [ ] **Step 2: Add the scheduling-automation import**
+- [x] **Step 2: Add the scheduling-automation import**
 
 At the top of `server/handlers/task/operations.js`, add:
 
@@ -164,7 +164,7 @@ At the top of `server/handlers/task/operations.js`, add:
 const schedulingAutomation = require('../../db/scheduling-automation');
 ```
 
-- [ ] **Step 3: Fix `handleCancelScheduled`**
+- [x] **Step 3: Fix `handleCancelScheduled`**
 
 Replace `projectConfigCore.getScheduledTask` and `projectConfigCore.deleteScheduledTask` with `schedulingAutomation.getScheduledTask` and `schedulingAutomation.deleteScheduledTask` in the `handleCancelScheduled` function (around line 580).
 
@@ -191,7 +191,7 @@ function handleCancelScheduled(args) {
 }
 ```
 
-- [ ] **Step 4: Fix `handlePauseScheduled`**
+- [x] **Step 4: Fix `handlePauseScheduled`**
 
 Replace `projectConfigCore` calls with `schedulingAutomation` in `handlePauseScheduled` (around line 605):
 
@@ -222,13 +222,13 @@ function handlePauseScheduled(args) {
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run: `npx vitest run server/tests/task-operations-handlers.test.js -t "cancel_scheduled" --reporter=verbose 2>&1 | tail -20`
 
 Expected: All cancel_scheduled and pause_scheduled tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```
 git add server/handlers/task/operations.js
