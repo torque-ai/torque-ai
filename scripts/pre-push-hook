@@ -131,7 +131,13 @@ echo "[pre-push] Pushing HEAD to origin/main for remote server tests..."
 git push --no-verify origin HEAD:refs/heads/main
 
 cd "$REPO_ROOT"
-run_with_flake_retry "Server tests" 'torque-remote npx vitest run --reporter=dot'
+# IMPORTANT: cd into server/ before invoking vitest so the tuned
+# server/vitest.config.js is picked up instead of the (stale) root
+# vitest.config.js. The server config uses pool=threads and retry=1 —
+# the root config uses pool=forks with no retry, which reproducibly
+# causes ~30–50 cross-file flakes that don't happen from server/.
+# Matches the dashboard pattern above.
+run_with_flake_retry "Server tests" 'torque-remote "cd server && npx vitest run --reporter=dot"'
 server_output="$RETRIED_OUTPUT"
 server_exit="$RETRIED_EXIT"
 echo "$server_output" | tail -5
