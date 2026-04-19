@@ -180,6 +180,28 @@ function listProjectFactoryWorktrees(db, projectId) {
   }
 }
 
+// Look up vc_worktrees rows for a repo. The factory row is inserted AFTER
+// the physical worktree is created (see loop-controller.js: createForBatch
+// returns, THEN factoryWorktrees.recordWorktree runs). During that window
+// a reconcile pass that only looks at factory_worktrees will see the dir
+// as an orphan and reclaim it, wiping the just-created worktree out from
+// under the EXECUTE stage. Consulting vc_worktrees closes the race: the
+// vc row is inserted atomically with the physical dir by worktree-manager.
+function listRepoVcWorktrees(db, repoPath) {
+  try {
+    return db.prepare(`
+      SELECT id, repo_path, worktree_path, branch, status, created_at
+      FROM vc_worktrees
+      WHERE repo_path = ?
+    `).all(repoPath);
+  } catch (err) {
+    if (err && typeof err.message === 'string' && err.message.includes('no such table')) {
+      return [];
+    }
+    throw err;
+  }
+}
+
 function listWorktreeDirs(projectPath, worktreeDir = DEFAULT_WORKTREE_DIR) {
   const root = path.isAbsolute(worktreeDir)
     ? worktreeDir
@@ -201,11 +223,14 @@ function listWorktreeDirs(projectPath, worktreeDir = DEFAULT_WORKTREE_DIR) {
 }
 
 // Decide whether a directory is a reclaimable orphan.
-//   - matching DB row with reclaimable status → yes
+//   - matching factory_worktrees row with reclaimable status → yes
+//   - matching factory_worktrees row with active/non-reclaimable status → no (still in use)
+//   - no factory_worktrees row, but a vc_worktrees row for this path → no (mid-create;
+//     factory row hasn't been inserted yet — deleting the dir would wipe the
+//     worktree out from under a live EXECUTE stage)
 //   - no DB row, directory name starts with feat-factory- → yes (factory-created, abandoned without DB record)
-//   - matching DB row with active/non-reclaimable status → no (still in use)
 //   - no DB row, non-factory naming → no (user worktree, leave alone)
-function classifyDir(dirPath, rowsByPath) {
+function classifyDir(dirPath, rowsByPath, vcRowsByPath = new Map()) {
   const key = normalizePathKey(dirPath);
   const row = rowsByPath.get(key);
   const leaf = path.basename(dirPath);
@@ -215,6 +240,11 @@ function classifyDir(dirPath, rowsByPath) {
       return { action: 'reclaim', reason: `db row status=${row.status}`, row };
     }
     return { action: 'skip', reason: `db row status=${row.status}`, row };
+  }
+
+  const vcRow = vcRowsByPath.get(key);
+  if (vcRow) {
+    return { action: 'skip', reason: `vc_worktrees row present (status=${vcRow.status || 'unknown'})`, row: null };
   }
 
   if (leaf.startsWith(FACTORY_LEAF_PREFIX)) {
@@ -251,8 +281,16 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
     }
   }
 
+  const vcRows = listRepoVcWorktrees(db, project_path);
+  const vcRowsByPath = new Map();
+  for (const row of vcRows) {
+    if (row.worktree_path) {
+      vcRowsByPath.set(normalizePathKey(row.worktree_path), row);
+    }
+  }
+
   for (const dirPath of dirs) {
-    const classification = classifyDir(dirPath, rowsByPath);
+    const classification = classifyDir(dirPath, rowsByPath, vcRowsByPath);
     if (classification.action === 'skip') {
       skipped.push({ worktreePath: dirPath, reason: classification.reason });
       continue;
@@ -292,6 +330,7 @@ module.exports = {
   reclaimDir,
   classifyDir,
   listProjectFactoryWorktrees,
+  listRepoVcWorktrees,
   forceRmDir,
   clearReadOnlyRecursive,
   RECLAIMABLE_STATUSES,
