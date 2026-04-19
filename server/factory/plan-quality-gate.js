@@ -52,6 +52,23 @@ function parseTasks(planMarkdown) {
 function runDeterministicRules(planMarkdown) {
   const hardFails = [];
   const warnings = [];
+
+  // Rule 10 — check before parsing, short-circuits runaway plans.
+  if (typeof planMarkdown === 'string' && planMarkdown.length > RULES.plan_size_upper_bound.maxBytes) {
+    hardFails.push({
+      rule: 'plan_size_upper_bound',
+      detail: `Plan is ${planMarkdown.length} bytes; upper bound is ${RULES.plan_size_upper_bound.maxBytes}.`,
+    });
+  }
+
+  // Rule 9 — detect non-standard task grammar BEFORE parseTasks, which only matches "## Task N:" with N ≥ 1.
+  if (/^## (Step \d+|Task 0):/m.test(planMarkdown || '')) {
+    hardFails.push({
+      rule: 'task_heading_grammar',
+      detail: 'Plan uses "## Step N:" or "## Task 0:" grammar; only "## Task N:" (N≥1) is accepted.',
+    });
+  }
+
   const tasks = parseTasks(planMarkdown);
 
   // Rule 1
@@ -115,6 +132,21 @@ function runDeterministicRules(planMarkdown) {
         rule: 'task_avoids_vague_phrases',
         taskNumber: task.number,
         detail: `Task ${task.number} contains ${hits} vague phrases (threshold ${RULES.task_avoids_vague_phrases.minHits}).`,
+      });
+    }
+  }
+
+  // Rule 8 — duplicate titles.
+  const titleCounts = new Map();
+  for (const task of tasks) {
+    const normalized = task.title.toLowerCase();
+    titleCounts.set(normalized, (titleCounts.get(normalized) || 0) + 1);
+  }
+  for (const [title, count] of titleCounts) {
+    if (count > 1) {
+      hardFails.push({
+        rule: 'no_duplicate_task_titles',
+        detail: `Title "${title}" appears ${count} times; task titles must be unique.`,
       });
     }
   }
