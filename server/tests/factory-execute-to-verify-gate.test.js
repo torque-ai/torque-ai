@@ -287,6 +287,51 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     expect(decisions.filter((row) => row.action === 'verified_batch')).toHaveLength(2);
   });
 
+  // Regression: before 8171e04d, any exception from executor.execute (submit
+  // failure, await timeout, fs ENOENT, anything) propagated unwrapped up to
+  // runAdvanceLoop's generic .catch, which logged a bland warning and
+  // scheduled auto_advance to retry after 30s. The instance state never
+  // updated, no decision log, and the same failure spun every 30s forever.
+  // The try/catch now surfaces the error as an `execute_exception` decision
+  // with the real error text and pauses the instance at EXECUTE.
+  it('pauses EXECUTE and emits execute_exception when the plan executor throws', async () => {
+    const { project, workItem } = registerPlanProject();
+
+    const failureMessage = 'simulated provider outage during task submit';
+    routingModule.handleSmartSubmitTask = vi.fn(async () => {
+      throw new Error(failureMessage);
+    });
+
+    await advanceToExecute(project.id);
+
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.EXECUTE);
+    expect(executeAdvance.reason).toBe('execute_exception');
+    expect(executeAdvance.stage_result).toMatchObject({
+      status: 'paused',
+      reason: 'execute_exception',
+      error: expect.stringContaining(failureMessage),
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    const exceptionDecision = decisions.find((row) => row.action === 'execute_exception');
+    expect(exceptionDecision).toBeTruthy();
+    expect(exceptionDecision).toMatchObject({
+      stage: 'execute',
+      outcome: expect.objectContaining({
+        error: expect.stringContaining(failureMessage),
+        next_state: LOOP_STATES.PAUSED,
+        paused_at_stage: LOOP_STATES.EXECUTE,
+      }),
+    });
+
+    const updated = factoryIntake.getWorkItem(workItem.id);
+    expect(updated.status).toBe('in_progress');
+    expect(updated.reject_reason).toMatch(/^execute_exception: /);
+  });
+
   it('resumes a paused VERIFY gate at VERIFY', () => {
     const { project } = registerPlanProject();
 
