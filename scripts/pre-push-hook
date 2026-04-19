@@ -61,6 +61,45 @@ tests_have_failures() {
   echo "$output" | grep -qE '^[[:space:]]*(Test Files|Tests)[[:space:]].*failed'
 }
 
+# Distinguishes real test failures (tests that ran and asserted wrong) from
+# transient file-load failures (vitest's /@id/ internal module resolver
+# flaking under parallel load; "N Test Files failed | 0 Tests failed").
+# Real test failures should fail the gate immediately. File-load flakes
+# deserve one retry before blocking.
+is_file_load_only_flake() {
+  local output="$1"
+  # "Tests  N failed" means real assertion failures — not a flake
+  if echo "$output" | grep -qE '^[[:space:]]*Tests[[:space:]]+[0-9]+ failed'; then
+    return 1
+  fi
+  # "Test Files N failed" with no test-level failures — likely file-load flake
+  if echo "$output" | grep -qE '^[[:space:]]*Test Files[[:space:]].*failed'; then
+    return 0
+  fi
+  return 1
+}
+
+# Run a test command with one auto-retry if the only failure shape is
+# file-load (see is_file_load_only_flake). Exports RETRIED_OUTPUT and
+# RETRIED_EXIT so the caller can evaluate the final result.
+run_with_flake_retry() {
+  local label="$1"
+  local cmd="$2"
+
+  set +e
+  RETRIED_OUTPUT=$(eval "$cmd" 2>&1)
+  RETRIED_EXIT=$?
+  set -e
+
+  if [ "$RETRIED_EXIT" -ne 0 ] && is_file_load_only_flake "$RETRIED_OUTPUT"; then
+    echo "[pre-push] $label: file-load flake detected (0 test failures, N file-load failures) — retrying once..."
+    set +e
+    RETRIED_OUTPUT=$(eval "$cmd" 2>&1)
+    RETRIED_EXIT=$?
+    set -e
+  fi
+}
+
 echo "[pre-push] Running dashboard tests on remote..."
 # Dashboard tests used to run locally, but local CPU contention with the
 # live TORQUE server (factory loops, stall watchers, event bus) caused
@@ -73,10 +112,9 @@ echo "[pre-push] Running dashboard tests on remote..."
 # so the remote shell changes dir before running the test runner;
 # otherwise vitest picks up the server suite too.
 cd "$REPO_ROOT"
-set +e
-dash_output=$(torque-remote "cd dashboard && npx vitest run --reporter=dot" 2>&1)
-dash_exit=$?
-set -e
+run_with_flake_retry "Dashboard tests" 'torque-remote "cd dashboard && npx vitest run --reporter=dot"'
+dash_output="$RETRIED_OUTPUT"
+dash_exit="$RETRIED_EXIT"
 echo "$dash_output" | tail -5
 if [ "$dash_exit" -ne 0 ] || tests_have_failures "$dash_output"; then
   echo "[pre-push] BLOCKED: Dashboard tests failed (exit $dash_exit)"
@@ -93,11 +131,10 @@ echo "[pre-push] Pushing HEAD to origin/main for remote server tests..."
 git push --no-verify origin HEAD:refs/heads/main
 
 cd "$REPO_ROOT"
-set +e
-server_output=$(torque-remote npx vitest run --reporter=dot 2>&1)
-server_exit=$?
+run_with_flake_retry "Server tests" 'torque-remote npx vitest run --reporter=dot'
+server_output="$RETRIED_OUTPUT"
+server_exit="$RETRIED_EXIT"
 echo "$server_output" | tail -5
-set -e
 if [ "$server_exit" -ne 0 ] || tests_have_failures "$server_output"; then
   echo "[pre-push] Server tests failed; rolling origin/main back to $previous_sha..."
   if ! git push --no-verify --force origin "$previous_sha":refs/heads/main; then
