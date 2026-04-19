@@ -67,3 +67,66 @@ describe('ClaudeOllamaProvider.checkHealth', () => {
     hostsSpy.mockRestore();
   });
 });
+
+describe('ClaudeOllamaProvider.listModels', () => {
+  it('returns union of local models across all active hosts', async () => {
+    const hostsSpy = vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([
+      { id: 'h1', name: 'HostA', url: 'http://host-a.test:11434', enabled: 1 },
+      { id: 'h2', name: 'HostB', url: 'http://host-b.test:11434', enabled: 1 },
+    ]);
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (url) => {
+      if (url.includes('host-a')) return { ok: true, json: async () => ({ models: [
+        { name: 'qwen3-coder:30b' }, { name: 'gemma4:latest' },
+      ] }) };
+      return { ok: true, json: async () => ({ models: [
+        { name: 'qwen3.5:latest' }, { name: 'gemma4:latest' },
+      ] }) };
+    });
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    const models = await p.listModels();
+    expect(models.sort()).toEqual(['gemma4:latest', 'qwen3-coder:30b', 'qwen3.5:latest']);
+    hostsSpy.mockRestore();
+    fetchSpy.mockRestore();
+  });
+
+  it('filters out cloud-tagged models', async () => {
+    const hostsSpy = vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([
+      { id: 'h1', url: 'http://host-a.test:11434', enabled: 1 },
+    ]);
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true, json: async () => ({ models: [
+        { name: 'qwen3-coder:30b' },
+        { name: 'qwen3-coder:480b-cloud' },
+        { name: 'gpt-oss:120b-cloud' },
+      ] }),
+    });
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    const models = await p.listModels();
+    expect(models).toEqual(['qwen3-coder:30b']);
+    hostsSpy.mockRestore();
+    fetchSpy.mockRestore();
+  });
+
+  it('returns empty array when no hosts are registered', async () => {
+    const hostsSpy = vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([]);
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    expect(await p.listModels()).toEqual([]);
+    hostsSpy.mockRestore();
+  });
+
+  it('skips a host whose /api/tags fails', async () => {
+    const hostsSpy = vi.spyOn(hostManagement, 'listOllamaHosts').mockReturnValue([
+      { id: 'h1', url: 'http://host-a.test:11434', enabled: 1 },
+      { id: 'h2', url: 'http://host-b.test:11434', enabled: 1 },
+    ]);
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async (url) => {
+      if (url.includes('host-a')) throw new Error('ECONNREFUSED');
+      return { ok: true, json: async () => ({ models: [{ name: 'qwen3.5:latest' }] }) };
+    });
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    const models = await p.listModels();
+    expect(models).toEqual(['qwen3.5:latest']);
+    hostsSpy.mockRestore();
+    fetchSpy.mockRestore();
+  });
+});

@@ -93,6 +93,33 @@ class ClaudeOllamaProvider extends BaseProvider {
 
     return { available: true, models, version: `${cleanText(ollamaResult.stdout)} / ${cleanText(claudeResult.stdout)}` };
   }
+
+  async listModels() {
+    const hosts = hostManagement.listOllamaHosts({ enabled: true }) || [];
+    const union = new Set();
+    for (const host of hosts) {
+      const url = cleanText(host.url);
+      if (!url) continue;
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const resp = await fetch(`${url.replace(/\/$/, '')}/api/tags`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        const models = Array.isArray(data?.models) ? data.models : [];
+        for (const m of models) {
+          const name = cleanText(m?.name);
+          if (!name) continue;
+          if (name.endsWith('-cloud')) continue;
+          union.add(name);
+        }
+      } catch {
+        // host unreachable -- skip, don't fail the whole listing
+      }
+    }
+    return Array.from(union).sort();
+  }
 }
 
 module.exports = ClaudeOllamaProvider;
