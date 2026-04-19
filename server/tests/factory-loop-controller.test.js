@@ -819,22 +819,23 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(submissionFailDecisions.length).toBeGreaterThanOrEqual(2);
   });
 
-  // Skipped 2026-04-19: this test asserts the pre-4b6dc8e5 behavior
-  // ("verify retry pauses without invoking the auto-router when cwd is
-  // missing"). Commit 4b6dc8e5 ("fix(factory): self-recover worktree
-  // cwd_missing instead of pausing") deliberately inverted that behavior —
-  // the factory now self-recovers by submitting new retry tasks instead of
-  // pausing at VERIFY_FAIL. As written, the test expects exactly 1 call to
-  // handleSmartSubmitTask and a VERIFY_FAIL pause; the new impl produces 3
-  // calls (EXECUTE + 2 recovery attempts) and does NOT pause. Needs to be
-  // rewritten against the new contract (assert recovery-attempt count,
-  // assert the new decision_action name, etc.) — leaving skipped until
-  // someone with the factory-recovery context does that.
-  it.skip('verify retry pauses without invoking the auto-router for retries when the worktree path no longer exists on disk', async () => {
+  // Rewritten 2026-04-19 against the contract introduced in commit 4b6dc8e5
+  // ("fix(factory): self-recover worktree cwd_missing instead of pausing").
+  // When a verify retry detects a missing worktree directory, the factory
+  // probes whether the branch still exists and — if so — calls
+  // `git worktree add <path> <branch>` to re-attach the branch at the
+  // expected path instead of pausing at VERIFY_FAIL. Verify retry then
+  // proceeds down the normal path.
+  //
+  // Under the test harness's stubbed git (server/tests/worker-setup.js
+  // stubs all git commands to succeed), both the branch probe AND the
+  // worktree-add succeed, so this test exercises the recovery-success path.
+  // Asserting `verify_retry_worktree_recovered` proves the new code path
+  // fires when cwd is missing. The previous assertion (one-call pause at
+  // VERIFY_FAIL) described the pre-4b6dc8e5 behavior and no longer holds.
+  it('verify retry self-recovers the worktree when the directory is missing but the branch still exists', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
-    // Path that is intentionally NOT created on disk to simulate a stale
-    // worktree row whose physical directory has already been cleaned up.
     const wtPathMissing = path.join(project.path, '.worktrees', 'feat-factory-cwd-missing');
     expect(fs.existsSync(wtPathMissing)).toBe(false);
     const worktreeRunner = {
@@ -854,15 +855,9 @@ describe('factory loop-controller EXECUTE modes', () => {
     let submittedCount = 0;
     routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
       submittedCount += 1;
-      // The EXECUTE phase plan-task submission is allowed (1st call).
-      // Any subsequent call would be a verify-retry — which the Fix 6 guard
-      // must short-circuit BEFORE handleSmartSubmitTask is invoked.
-      if (submittedCount === 1) {
-        const taskId = `approval-task-cwd-missing-1`;
-        insertBatchTask(db, { taskId, batchId, status: args.initial_status || 'pending_approval' });
-        return { task_id: taskId };
-      }
-      throw new Error('handleSmartSubmitTask should not be called for verify-retry when cwd is missing');
+      const taskId = `approval-task-cwd-missing-${submittedCount}`;
+      insertBatchTask(db, { taskId, batchId, status: args.initial_status || 'pending_approval' });
+      return { task_id: taskId };
     });
     loopController.setWorktreeRunnerForTests(worktreeRunner);
 
@@ -873,20 +868,23 @@ describe('factory loop-controller EXECUTE modes', () => {
 
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
-    // Only the EXECUTE-phase submission happened; no retry submission.
-    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledTimes(1);
-    expect(verifyAdvance.stage_result).toMatchObject({
-      status: 'failed',
-      pause_at_stage: 'VERIFY_FAIL',
-    });
+    // Recovery decision fires at least once, with the branch + worktree path
+    // captured in the outcome. This is the load-bearing assertion — it proves
+    // the new cwd_missing recovery code path ran.
     const decisions = listDecisionRows(db, project.id);
-    expect(decisions.find((d) => d.action === 'verify_retry_cwd_missing')).toMatchObject({
+    const recoveredDecisions = decisions.filter((d) => d.action === 'verify_retry_worktree_recovered');
+    expect(recoveredDecisions.length).toBeGreaterThanOrEqual(1);
+    expect(recoveredDecisions[0]).toMatchObject({
       stage: 'verify',
       outcome: expect.objectContaining({
         worktree_path: wtPathMissing,
         branch: 'feat/factory-cwd-missing',
       }),
     });
+    // The loop did NOT pause at VERIFY_FAIL (which is what the pre-4b6dc8e5
+    // behavior would have done) — after retries exhaust, it advances via
+    // auto_rejected_verify_fail instead.
+    expect(verifyAdvance.stage_result?.pause_at_stage).not.toBe('VERIFY_FAIL');
   });
 
   it('throws when retryVerifyFromFailure is called outside VERIFY_FAIL', () => {
