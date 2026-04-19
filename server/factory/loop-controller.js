@@ -3694,6 +3694,52 @@ async function executePlanFileStage(project, instance, workItem) {
           stale_batch_id: stale.batch_id,
           owning_task_id: stale.owningTaskId || null,
         });
+        // If a live task owns the stale worktree, cancel it first and wait
+        // briefly for the process to exit so file handles release. Without
+        // this the subsequent `git worktree remove` / fs.rmSync hit
+        // "Device or resource busy" on Windows and the reclaim produces
+        // phantom state.
+        if (stale.owningTaskId) {
+          try {
+            const taskCore = require('../db/task-core');
+            const owning = taskCore.getTask(stale.owningTaskId);
+            const liveStatuses = new Set(['queued', 'running', 'pending']);
+            if (owning && liveStatuses.has(owning.status)) {
+              logger.warn('factory worktree: cancelling owning task before reclaim', {
+                factory_worktree_id: stale.id,
+                owning_task_id: stale.owningTaskId,
+                status: owning.status,
+              });
+              try {
+                const taskManager = require('../task-manager');
+                taskManager.cancelTask(
+                  stale.owningTaskId,
+                  'pre_reclaim_before_create',
+                  { cancel_reason: 'worktree_reclaim' },
+                );
+              } catch (cancelErr) {
+                logger.warn('factory worktree: cancel owning task threw', {
+                  owning_task_id: stale.owningTaskId,
+                  err: cancelErr && cancelErr.message,
+                });
+              }
+              const deadline = Date.now() + 5000;
+              while (Date.now() < deadline) {
+                const latest = taskCore.getTask(stale.owningTaskId);
+                if (!latest) break;
+                if (['completed', 'failed', 'cancelled', 'skipped'].includes(latest.status)) {
+                  break;
+                }
+                await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+              }
+            }
+          } catch (ownershipErr) {
+            logger.warn('factory worktree: owning-task check failed; proceeding with reclaim', {
+              stale_factory_worktree_id: stale.id,
+              err: ownershipErr && ownershipErr.message,
+            });
+          }
+        }
         factoryWorktrees.markAbandoned(stale.id, 'pre_reclaim_before_create');
         if (typeof worktreeRunner.abandon === 'function' && stale.vcWorktreeId) {
           // Let errors propagate — if cleanup fails (e.g. a process still
@@ -3898,6 +3944,21 @@ async function executePlanFileStage(project, instance, workItem) {
       });
       if (!result?.task_id) {
         throw new Error(result?.content?.[0]?.text || 'smart_submit_task did not return task_id');
+      }
+      // Record the task as the worktree's current owner so the pre-reclaim
+      // flow can cancel it before trying to clean up the directory. Only
+      // applies when a factory worktree is active (non-worktree executions
+      // fall through without owner tracking).
+      if (worktreeRecord && worktreeRecord.id) {
+        try {
+          factoryWorktrees.setOwningTask(worktreeRecord.id, result.task_id);
+        } catch (ownErr) {
+          logger.warn('factory worktree: setOwningTask failed', {
+            factory_worktree_id: worktreeRecord.id,
+            task_id: result.task_id,
+            err: ownErr && ownErr.message,
+          });
+        }
       }
       return { task_id: result.task_id };
     },

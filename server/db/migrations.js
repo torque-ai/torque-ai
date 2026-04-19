@@ -690,7 +690,6 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS factory_scout_findings_intake;',
     ].join('\n'),
   },
-  },
   {
     version: 29,
     name: 'add_factory_worktrees_owning_task_id',
