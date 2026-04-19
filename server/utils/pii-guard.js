@@ -189,10 +189,28 @@ if (OS_USERNAME && OS_USERNAME.length > 2) {
   });
 }
 
-// Git user.name (only if different from OS username)
-if (GIT_USER_NAME && GIT_USER_NAME.length > 2 && GIT_USER_NAME.toLowerCase() !== OS_USERNAME.toLowerCase()) {
+// Git user.name (only if different from OS username).
+//
+// Two guards against collateral damage in source code:
+//   1. Allowlist of technical tokens that are common identifiers (provider
+//      names, vendor names) — if the git user equals one of these, skip the
+//      pattern entirely. Without this, a user whose name equals a provider
+//      name would have registerProviderClass(<name>, ...) rewritten.
+//   2. Word boundaries () on both sides. This still matches quoted
+//      strings like 'Alice' (quote is a non-word char, so  matches),
+//      but stops compound identifiers — AliceCliProvider is left alone.
+const IDENTITY_ALLOWLIST = new Set([
+  'codex', 'claude', 'ollama', 'groq', 'cerebras',
+  'anthropic', 'deepinfra', 'hyperbolic', 'openai', 'google',
+]);
+if (
+  GIT_USER_NAME
+  && GIT_USER_NAME.length > 2
+  && GIT_USER_NAME.toLowerCase() !== OS_USERNAME.toLowerCase()
+  && !IDENTITY_ALLOWLIST.has(GIT_USER_NAME.toLowerCase())
+) {
   BUILTIN_CATEGORIES.auto_identity.patterns.push({
-    regex: new RegExp(escapeRegexLiteral(GIT_USER_NAME), 'gi'),
+    regex: new RegExp('\\b' + escapeRegexLiteral(GIT_USER_NAME) + '\\b', 'gi'),
     replacement: '<git-user>',
   });
 }

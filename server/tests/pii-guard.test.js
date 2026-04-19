@@ -144,4 +144,32 @@ describe('pii-guard', () => {
       expect(result.findings[0].line).toBe(2);
     });
   });
+
+  describe('auto_identity — git user name boundary + allowlist', () => {
+    function loadWithGitUser(gitUserName) {
+      vi.resetModules();
+      vi.doMock('child_process', () => ({
+        execFileSync: (cmd, args) => {
+          if (args && args[1] === 'user.name') return gitUserName + '\n';
+          if (args && args[1] === 'user.email') return 'someone@corp.test\n';
+          return '';
+        },
+      }));
+      return require('../utils/pii-guard');
+    }
+
+    it('does not clobber provider names when git user matches an allowlisted technical token', () => {
+      const guard = loadWithGitUser('Codex');
+      const src = "registerProviderClass('codex', require('./providers/x').CodexCliProvider)";
+      const result = guard.scanAndReplace(src);
+      expect(result.sanitized).toBe(src);
+    });
+
+    it('does not clobber compound identifiers when a non-allowlisted git user happens to be a prefix', () => {
+      const guard = loadWithGitUser('Alice');
+      const src = 'class AliceCliProvider {} // AliceHelper extends it';
+      const result = guard.scanAndReplace(src);
+      expect(result.sanitized).toBe(src);
+    });
+  });
 });
