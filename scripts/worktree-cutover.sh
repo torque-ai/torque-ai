@@ -46,9 +46,38 @@ if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
 fi
 
 if [ "$TORQUE_RUNNING" = "true" ]; then
+  echo "  Draining the pipeline before shutdown..."
+  # Poll /api/v2/tasks?status=running until the queue empties. We do NOT
+  # submit a barrier task here — the drain is cooperative; queued work
+  # keeps scheduling while running tasks complete. If the operator needs
+  # a hard barrier, they run `await_restart` via the MCP tool before the
+  # cutover.
+  #
+  # Timeout: 30 minutes. Plan tasks can be long; the cutover is itself a
+  # controlled operation, so waiting is the right default.
+  DRAIN_DEADLINE=$(( $(date +%s) + 30 * 60 ))
+  while true; do
+    RUNNING=$(curl -s --max-time 3 "${TORQUE_API}/api/v2/tasks?status=running&limit=1000" 2>/dev/null \
+      | (grep -oE '"id"' || true) | wc -l | tr -d '[:space:]')
+    if [ -z "$RUNNING" ]; then RUNNING=0; fi
+    if [ "$RUNNING" = "0" ]; then
+      echo "[ok] Pipeline drained."
+      break
+    fi
+    if [ "$(date +%s)" -gt "$DRAIN_DEADLINE" ]; then
+      echo "[warn] Drain timed out after 30 minutes with $RUNNING task(s) still running."
+      echo "       Aborting cutover so running work is not trampled. Merge landed,"
+      echo "       but TORQUE was NOT restarted. Options:"
+      echo "       1. Wait for tasks to complete, then re-run: bash $0 $1"
+      echo "       2. Cancel in-flight tasks manually, then re-run"
+      echo "       3. Emergency override: bash stop-torque.sh --force && restart manually"
+      exit 2
+    fi
+    echo "    $RUNNING task(s) running — sleeping 15s..."
+    sleep 15
+  done
+
   echo "  Restarting TORQUE on updated main..."
-  # Use stop-torque.sh (graceful shutdown) then restart
-  # restart_server MCP tool is blocked on REST API for security
   STOP_SCRIPT="${REPO_ROOT}/stop-torque.sh"
   if [ -f "$STOP_SCRIPT" ]; then
     bash "$STOP_SCRIPT" 2>&1 | sed 's/^/    /'
