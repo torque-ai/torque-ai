@@ -98,6 +98,18 @@ describe('version-control worktree manager', () => {
       record.last_activity_at,
     );
 
+    // Materialize the worktree path on disk so the worktree-manager's
+    // fs.existsSync guards (e.g. in assertWorktreeIsClean) don't short-
+    // circuit tests that exercise the full cleanup / merge sequence.
+    // Tests that want to simulate a vanished worktree should either use
+    // createWorktree (with a real dir) and then rm it, or pass
+    // overrides.skipMkdir = true.
+    if (!overrides.skipMkdir) {
+      try {
+        fs.mkdirSync(record.worktree_path, { recursive: true });
+      } catch { /* best effort */ }
+    }
+
     return record;
   }
 
