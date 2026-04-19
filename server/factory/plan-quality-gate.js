@@ -158,8 +158,40 @@ async function runLlmSemanticCheck(_opts) {
   return null;
 }
 
-function buildFeedbackPrompt(_hardFails, _warnings, _llmCritique) {
-  return null;
+function buildFeedbackPrompt(hardFails, warnings, llmCritique) {
+  const hasHardFails = Array.isArray(hardFails) && hardFails.length > 0;
+  const hasCritique = typeof llmCritique === 'string' && llmCritique.trim().length > 0;
+  if (!hasHardFails && !hasCritique) {
+    return null;
+  }
+
+  const lines = ['## Prior plan rejected — address these issues in the next plan.', ''];
+
+  if (hasHardFails) {
+    lines.push('### Violations (must fix):');
+    for (const v of hardFails) {
+      const prefix = v.taskNumber ? `- [${v.rule}] Task ${v.taskNumber}:` : `- [${v.rule}]`;
+      lines.push(`${prefix} ${v.detail}`);
+    }
+    lines.push('');
+  }
+
+  if (Array.isArray(warnings) && warnings.length > 0) {
+    lines.push('### Warnings (consider fixing):');
+    for (const w of warnings) {
+      const prefix = w.taskNumber ? `- [${w.rule}] Task ${w.taskNumber}:` : `- [${w.rule}]`;
+      lines.push(`${prefix} ${w.detail}`);
+    }
+    lines.push('');
+  }
+
+  if (hasCritique) {
+    lines.push('### Semantic concern:');
+    lines.push(llmCritique.trim());
+    lines.push('');
+  }
+
+  return lines.join('\n');
 }
 
 async function evaluatePlan(_opts) {
