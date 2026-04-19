@@ -267,16 +267,8 @@ To disable a plugin, remove it from `DEFAULT_PLUGIN_NAMES` in `server/index.js` 
 ### Remote Agent Federation (Plugin)
 
 Remote agent registration, health checks, and distributed test routing are provided
-by the `remote-agents` plugin (`server/plugins/remote-agents/`). The plugin is loaded
-by default via `DEFAULT_PLUGIN_NAMES` in `server/index.js`.
-
-**Architecture:** The core defines a `TestRunnerRegistry` (`server/test-runner-registry.js`)
-that validation modules call for running verify commands and tests. By default, commands
-run locally. When the remote-agents plugin loads, it registers remote-or-local routing
-that checks for configured remote agents and falls back to local execution.
-
-**To disable:** Remove `'remote-agents'` from `DEFAULT_PLUGIN_NAMES` in `server/index.js`.
-The validation pipeline will fall back to local-only command execution.
+by the `remote-agents` plugin (loaded by default). To disable, remove `'remote-agents'`
+from `DEFAULT_PLUGIN_NAMES` in `server/index.js`.
 
 ## Remote Workstation
 
