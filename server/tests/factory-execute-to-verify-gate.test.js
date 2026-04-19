@@ -306,7 +306,9 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
 
     const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
-    expect(executeAdvance.new_state).toBe(LOOP_STATES.PAUSED);
+    // The instance pauses AT EXECUTE — loop_state stays EXECUTE, but
+    // paused_at_stage is set. What matters: the tick / auto_advance won't
+    // re-enter EXECUTE while paused_at_stage is set, so the spin is broken.
     expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.EXECUTE);
     expect(executeAdvance.reason).toBe('execute_exception');
     expect(executeAdvance.stage_result).toMatchObject({
@@ -314,6 +316,9 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
       reason: 'execute_exception',
       error: expect.stringContaining(failureMessage),
     });
+
+    const projectState = loopController.getLoopStateForProject(project.id);
+    expect(projectState.loop_paused_at_stage).toBe(LOOP_STATES.EXECUTE);
 
     const decisions = listDecisionRows(db, project.id);
     const exceptionDecision = decisions.find((row) => row.action === 'execute_exception');
