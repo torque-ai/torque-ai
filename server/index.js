@@ -1309,28 +1309,17 @@ function init() {
       debugLog(`Host task count reconcile error: ${reconcileErr.message}`);
     }
 
-    // Workflow dependency sweep — re-evaluate all running workflows.
-    // If a task completed just before the crash and handleWorkflowTermination() never fired,
-    // downstream 'blocked' tasks stay stuck forever. This sweep catches that case.
+    // Workflow DAG startup reconciler — repairs restart clone edges, re-readies
+    // dependency-satisfied nodes, replays terminal side-effects, and settles status.
     try {
-      const { handleWorkflowTermination } = require('./execution/workflow-runtime');
-      const runningWorkflows = db.listWorkflows({ status: 'running', limit: 100 });
-      let workflowsSwept = 0;
-      const dbHandle = db.getDbInstance();
-      for (const wf of runningWorkflows) {
-        const terminalTasks = dbHandle.prepare(
-          "SELECT id FROM tasks WHERE workflow_id = ? AND status IN ('completed', 'failed', 'cancelled')"
-        ).all(wf.id);
-        for (const t of terminalTasks) {
-          try { handleWorkflowTermination(t.id); } catch { /* already evaluated or workflow done */ }
-        }
-        if (terminalTasks.length > 0) workflowsSwept++;
-      }
-      if (workflowsSwept > 0) {
-        debugLog(`Startup: re-evaluated dependencies for ${workflowsSwept} running workflows`);
+      const { reconcileWorkflowsOnStartup } = require('./execution/workflow-runtime');
+      const result = reconcileWorkflowsOnStartup({ limit: 10000 });
+      const actions = result && result.actions ? result.actions : {};
+      if ((actions.workflows_scanned || 0) > 0) {
+        debugLog(`Startup workflow reconciler: scanned ${actions.workflows_scanned || 0}, rewired ${actions.dependencies_rewired || 0}, re-readied ${actions.tasks_rereadied || 0}, replayed ${actions.terminations_replayed || 0}, completion checks ${actions.completion_checks || 0}`);
       }
     } catch (wfErr) {
-      debugLog(`Startup workflow sweep error: ${wfErr.message}`);
+      debugLog(`Startup workflow reconciler error: ${wfErr.message}`);
     }
   } catch (err) {
     debugLog(`Startup orphan cleanup error: ${err.message}`);

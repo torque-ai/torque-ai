@@ -31,6 +31,9 @@ let _dashboard = null;
 const terminalGuards = new Map(); // workflowId -> boolean
 const terminalPending = new Map(); // workflowId -> Set of taskIds waiting for re-evaluation
 const WORKFLOW_BLOCKER_CONTEXT_KEY = 'workflow_blocker';
+const STARTUP_WORKFLOW_STATUSES = ['running', 'paused'];
+const STARTUP_READY_STATUSES = ['blocked', 'waiting', 'pending'];
+const TERMINAL_TASK_STATUSES = ['completed', 'failed', 'cancelled', 'skipped'];
 
 /**
  * Initialize the module with required dependencies.
@@ -949,6 +952,235 @@ function detectContinueDeadlock(taskId, failingParentTaskId, workflowId) {
 // Workflow DAG Functions
 // ---------------------------------------------------------------------------
 
+function getRawDbHandle() {
+  if (db && typeof db.getDbInstance === 'function') {
+    return db.getDbInstance();
+  }
+  return db;
+}
+
+function listStartupWorkflows(limit = 10000) {
+  const rawDb = getRawDbHandle();
+  if (rawDb && typeof rawDb.prepare === 'function') {
+    return rawDb.prepare(`
+      SELECT * FROM workflows
+      WHERE status IN ('running', 'paused')
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(limit);
+  }
+
+  if (db && typeof db.listWorkflows === 'function') {
+    try {
+      const workflows = db.listWorkflows({ status: STARTUP_WORKFLOW_STATUSES, limit });
+      if (Array.isArray(workflows) && workflows.length > 0) return workflows.slice(0, limit);
+    } catch {
+      // Fall through to scalar status calls for older facades.
+    }
+
+    const workflows = [];
+    for (const status of STARTUP_WORKFLOW_STATUSES) {
+      const rows = db.listWorkflows({ status, limit });
+      if (Array.isArray(rows)) workflows.push(...rows);
+    }
+    return workflows.slice(0, limit);
+  }
+
+  return [];
+}
+
+function getTaskForStartup(taskId) {
+  if (!taskId) return null;
+  if (db && typeof db.getTask === 'function') {
+    return db.getTask(taskId);
+  }
+
+  const rawDb = getRawDbHandle();
+  if (rawDb && typeof rawDb.prepare === 'function') {
+    return rawDb.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) || null;
+  }
+  return null;
+}
+
+function areTaskDependenciesSatisfiedForStartup(taskId) {
+  if (db && typeof db.areTaskDependenciesSatisfied === 'function') {
+    return db.areTaskDependenciesSatisfied(taskId);
+  }
+
+  const deps = db && typeof db.getTaskDependencies === 'function'
+    ? (db.getTaskDependencies(taskId) || [])
+    : [];
+  if (deps.length === 0) return { satisfied: true, deps };
+
+  const satisfied = deps.every((dep) => {
+    const status = dep.depends_on_status || getTaskForStartup(dep.depends_on_task_id)?.status;
+    return TERMINAL_TASK_STATUSES.includes(status);
+  });
+  return { satisfied, deps };
+}
+
+function getReplacementForSupersededTask(task, workflowId) {
+  if (!task || task.status !== 'cancelled') return null;
+
+  const metadata = normalizeMetadata(task.metadata);
+  const replacementId = metadata.resubmitted_as;
+  if (!replacementId || replacementId === task.id) return null;
+
+  const replacement = getTaskForStartup(replacementId);
+  if (!replacement || replacement.status === 'cancelled') return null;
+  if (workflowId && replacement.workflow_id && replacement.workflow_id !== workflowId) return null;
+
+  return replacement;
+}
+
+function rewireSupersededTaskDependencies(rawDb, workflowId, originalTaskId, replacementTaskId) {
+  if (!rawDb || typeof rawDb.prepare !== 'function') {
+    return { inbound: 0, outbound: 0 };
+  }
+
+  const inbound = rawDb.prepare(`
+    UPDATE task_dependencies
+    SET depends_on_task_id = ?
+    WHERE depends_on_task_id = ? AND workflow_id = ?
+  `).run(replacementTaskId, originalTaskId, workflowId).changes;
+
+  const outbound = rawDb.prepare(`
+    UPDATE task_dependencies
+    SET task_id = ?
+    WHERE task_id = ? AND workflow_id = ?
+  `).run(replacementTaskId, originalTaskId, workflowId).changes;
+
+  return { inbound, outbound };
+}
+
+function countStartupWorkflowTasks(tasks) {
+  const counts = {
+    terminal: 0,
+    running: 0,
+    queued: 0,
+    blocked_or_pending: 0,
+  };
+
+  for (const task of tasks) {
+    if (TERMINAL_TASK_STATUSES.includes(task.status)) counts.terminal++;
+    if (task.status === 'running') counts.running++;
+    if (task.status === 'queued') counts.queued++;
+    if (['blocked', 'waiting', 'pending'].includes(task.status)) counts.blocked_or_pending++;
+  }
+
+  return counts;
+}
+
+function safeStartupWorkflowLog(level, message, meta) {
+  const fn = logger && typeof logger[level] === 'function' ? logger[level] : null;
+  if (!fn) return;
+  try {
+    if (meta !== undefined) fn.call(logger, message, meta);
+    else fn.call(logger, message);
+  } catch {
+    // Startup reconciliation must not fail because logging failed.
+  }
+}
+
+/**
+ * Reconcile active workflow DAG state after server startup.
+ *
+ * This repairs restart-resubmitted task edges, re-queues dependency-ready nodes,
+ * replays terminal side-effects, and then asks the normal completion checker to
+ * settle workflow status.
+ *
+ * @param {{ limit?: number }} options
+ * @returns {{ reconciled: boolean, actions: object, workflows: object[] }}
+ */
+function reconcileWorkflowsOnStartup(options = {}) {
+  if (!db) throw new Error('workflow runtime not initialized');
+
+  const limit = Number.isInteger(options.limit) && options.limit > 0 ? options.limit : 10000;
+  const rawDb = getRawDbHandle();
+  const workflows = listStartupWorkflows(limit);
+  const actions = {
+    workflows_scanned: 0,
+    terminal: 0,
+    running: 0,
+    queued: 0,
+    blocked_or_pending: 0,
+    dependencies_rewired: 0,
+    tasks_rereadied: 0,
+    terminations_replayed: 0,
+    completion_checks: 0,
+    errors: 0,
+  };
+  const workflowResults = [];
+
+  for (const workflow of workflows) {
+    actions.workflows_scanned++;
+    try {
+      const workflowId = workflow.id;
+      const tasks = db.getWorkflowTasks(workflowId) || [];
+      const counts = countStartupWorkflowTasks(tasks);
+      actions.terminal += counts.terminal;
+      actions.running += counts.running;
+      actions.queued += counts.queued;
+      actions.blocked_or_pending += counts.blocked_or_pending;
+
+      let dependenciesRewired = 0;
+      for (const task of tasks) {
+        const replacement = getReplacementForSupersededTask(task, workflowId);
+        if (!replacement) continue;
+
+        const result = rewireSupersededTaskDependencies(rawDb, workflowId, task.id, replacement.id);
+        dependenciesRewired += result.inbound + result.outbound;
+      }
+      actions.dependencies_rewired += dependenciesRewired;
+
+      let tasksRereadied = 0;
+      for (const task of tasks) {
+        if (!STARTUP_READY_STATUSES.includes(task.status)) continue;
+
+        const dependencyState = areTaskDependenciesSatisfiedForStartup(task.id);
+        if (dependencyState && dependencyState.satisfied) {
+          if (unblockTask(task.id)) tasksRereadied++;
+        }
+      }
+      actions.tasks_rereadied += tasksRereadied;
+
+      let terminationsReplayed = 0;
+      for (const task of tasks) {
+        if (!TERMINAL_TASK_STATUSES.includes(task.status)) continue;
+        handleWorkflowTermination(task.id);
+        terminationsReplayed++;
+      }
+      actions.terminations_replayed += terminationsReplayed;
+
+      checkWorkflowCompletion(workflowId);
+      actions.completion_checks++;
+
+      workflowResults.push({
+        id: workflowId,
+        counts,
+        dependencies_rewired: dependenciesRewired,
+        tasks_rereadied: tasksRereadied,
+        terminations_replayed: terminationsReplayed,
+      });
+    } catch (err) {
+      actions.errors++;
+      safeStartupWorkflowLog('warn', `Startup workflow reconciler failed for ${workflow.id}: ${err.message}`, {
+        workflow_id: workflow.id,
+        error: err.message,
+      });
+    }
+  }
+
+  return {
+    reconciled: actions.dependencies_rewired > 0
+      || actions.tasks_rereadied > 0
+      || actions.terminations_replayed > 0
+      || actions.completion_checks > 0,
+    actions,
+    workflows: workflowResults,
+  };
+}
+
 /**
  * Handle workflow-related bookkeeping when a task reaches a terminal state.
  * This must be called from ALL code paths that transition a task to a terminal
@@ -1451,6 +1683,7 @@ function createWorkflowRuntime(_deps) {
     handlePlanProjectTaskFailure,
     generatePipelineDocumentation,
     handlePipelineStepCompletion,
+    reconcileWorkflowsOnStartup,
     handleWorkflowTermination,
     evaluateWorkflowDependencies,
     unblockTask,
@@ -1473,6 +1706,7 @@ module.exports = {
   handlePlanProjectTaskFailure,
   generatePipelineDocumentation,
   handlePipelineStepCompletion,
+  reconcileWorkflowsOnStartup,
   handleWorkflowTermination,
   evaluateWorkflowDependencies,
   unblockTask,
