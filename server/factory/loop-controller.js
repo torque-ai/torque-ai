@@ -4213,6 +4213,8 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
     // the error output as context, then re-run verify. Bounded at
     // MAX_AUTO_VERIFY_RETRIES. If still failing after that, auto-reject
     // the work item so the loop can advance to the next item.
+    const verifyReview = require('./verify-review');
+    let review = null;
     let res = null;
     let retryAttempt = 0;
     let submissionFailures = 0;
@@ -4242,6 +4244,139 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
           });
           break;
         }
+
+        // Verify-review classifier: on the FIRST failure only, classify the
+        // failure as task_caused, baseline_broken, environment_failure, or
+        // ambiguous. Baseline_broken / environment_failure short-circuit the
+        // retry loop — the item is rejected, the project is paused, and an
+        // event is emitted. Task_caused / ambiguous / classifier-throw all
+        // fall through to the existing retry path.
+        if (retryAttempt === 0 && !review) {
+          try {
+            const wi = instance?.work_item_id
+              ? factoryIntake.getWorkItem(instance.work_item_id)
+              : null;
+            review = await verifyReview.reviewVerifyFailure({
+              verifyOutput: res,
+              workingDirectory: project?.path || process.cwd(),
+              worktreeBranch: worktreeRecord.branch,
+              mergeBase: worktreeRecord.base_branch || 'main',
+              workItem: wi,
+              project: project || { id: project_id, path: null },
+            });
+          } catch (err) {
+            logger.warn('verify-review classifier failed; falling through to existing retry path', {
+              project_id, err: err.message,
+            });
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.VERIFY,
+              action: 'verify_reviewer_fail_open',
+              reasoning: `Classifier threw: ${err.message}. Retrying as before.`,
+              outcome: { work_item_id: instance?.work_item_id || null },
+              confidence: 1,
+              batch_id,
+            });
+            review = null;
+          }
+
+          if (review && (review.classification === 'baseline_broken'
+                         || review.classification === 'environment_failure')) {
+            if (instance?.work_item_id) {
+              try {
+                factoryIntake.updateWorkItem(instance.work_item_id, {
+                  status: 'rejected',
+                  reject_reason: review.suggestedRejectReason,
+                });
+              } catch (_e) { void _e; }
+            }
+
+            try {
+              const currentProject = factoryHealth.getProject(project_id);
+              const cfg = currentProject?.config_json ? JSON.parse(currentProject.config_json) : {};
+              cfg.baseline_broken_since = new Date().toISOString();
+              cfg.baseline_broken_reason = review.suggestedRejectReason;
+              cfg.baseline_broken_evidence = {
+                failing_tests: review.failingTests,
+                exit_code: res.exitCode,
+                environment_signals: review.environmentSignals,
+                llm_critique: review.llmCritique,
+              };
+              cfg.baseline_broken_probe_attempts = 0;
+              cfg.baseline_broken_tick_count = 0;
+              factoryHealth.updateProject(project_id, {
+                status: 'paused',
+                config_json: JSON.stringify(cfg),
+              });
+            } catch (_e) { void _e; }
+
+            try {
+              if (review.classification === 'baseline_broken') {
+                eventBus.emitFactoryProjectBaselineBroken({
+                  project_id,
+                  reason: review.suggestedRejectReason,
+                  failing_tests: review.failingTests,
+                  evidence: { exit_code: res.exitCode, llm_critique: review.llmCritique },
+                });
+              } else {
+                eventBus.emitFactoryProjectEnvironmentFailure({
+                  project_id,
+                  signals: review.environmentSignals,
+                  exit_code: res.exitCode,
+                });
+              }
+            } catch (_e) { void _e; }
+
+            const action = review.classification === 'baseline_broken'
+              ? 'verify_reviewed_baseline_broken'
+              : 'verify_reviewed_environment_failure';
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.VERIFY,
+              action,
+              reasoning: review.classification === 'baseline_broken'
+                ? `Baseline broken — ${review.failingTests.length} failing test(s) unrelated to this diff. ${review.llmCritique || ''}`
+                : `Environment failure — signals: ${review.environmentSignals.join(', ')}.`,
+              outcome: {
+                work_item_id: instance?.work_item_id || null,
+                classification: review.classification,
+                confidence: review.confidence,
+                modifiedFiles: review.modifiedFiles,
+                failingTests: review.failingTests,
+                intersection: review.intersection,
+                environmentSignals: review.environmentSignals,
+                llmVerdict: review.llmVerdict,
+              },
+              confidence: 1,
+              batch_id,
+            });
+
+            return { status: 'rejected', reason: review.classification };
+          }
+
+          const reviewedAction = review && review.classification === 'task_caused'
+            ? 'verify_reviewed_task_caused'
+            : 'verify_reviewed_ambiguous_retrying';
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.VERIFY,
+            action: reviewedAction,
+            reasoning: review
+              ? `Classifier says ${review.classification} (confidence=${review.confidence}); existing retry path will fire.`
+              : 'Classifier unavailable; retrying as before.',
+            outcome: review ? {
+              work_item_id: instance?.work_item_id || null,
+              classification: review.classification,
+              confidence: review.confidence,
+              modifiedFiles: review.modifiedFiles,
+              failingTests: review.failingTests,
+              intersection: review.intersection,
+            } : { work_item_id: instance?.work_item_id || null, classifier: 'unavailable' },
+            confidence: 1,
+            batch_id,
+          });
+        }
+
         if (retryAttempt >= MAX_AUTO_VERIFY_RETRIES) {
           safeLogDecision({
             project_id,
@@ -5773,6 +5908,7 @@ module.exports = {
   startLoopAutoAdvanceForProject,
   resumeAutoAdvanceOnStartup,
   executeNonPlanFileStage,
+  executeVerifyStage,
   advanceLoop,
   advanceLoopForProject,
   advanceLoopAsync,
