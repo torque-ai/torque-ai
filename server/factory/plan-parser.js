@@ -6,7 +6,11 @@ function parsePlanFile(content) {
   const goal = (content.match(/\*\*Goal:\*\*\s*([^\n]+)/) || [])[1]?.trim() || null;
   const tech_stack = (content.match(/\*\*Tech Stack:\*\*\s*([^\n]+)/) || [])[1]?.trim() || null;
 
-  const taskHeaderRe = /^##\s+Task\s+(\d+)\s*[:.]\s*(.+?)\s*$/;
+  // Accept h2/h3/h4 task headers — plans vary in nesting depth (top-level
+  // `## Task N:` vs. under a `## Tasks` umbrella with `### Task N:`). The
+  // strict h2-only regex produced zero-task parses on otherwise-valid plans
+  // and triggered the EXECUTE spin-loop (2026-04-19 item 102 incident).
+  const taskHeaderRe = /^#{2,4}\s+Task\s+(\d+)\s*[:.]\s*(.+?)\s*$/;
   const stepRe = /^\s*-\s*\[([ xX])\]\s*\*\*Step\s+([0-9]+[A-Za-z]?)\s*[:.]\s*([^*]+?)\s*\*\*/;
 
   const tasks = [];

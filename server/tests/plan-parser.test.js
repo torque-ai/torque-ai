@@ -92,4 +92,42 @@ describe('parsePlanFile', () => {
     expect(parsed.goal).toContain('Add feature X');
     expect(parsed.tech_stack).toContain('better-sqlite3');
   });
+
+  // Regression: the h2-only task-header regex rejected plans that used
+  // h3 task headers (e.g. under a "## Tasks" umbrella). Parser returned
+  // zero tasks, EXECUTE stage entered the spin-loop (2026-04-19 item 102).
+  it('accepts h3 "### Task N:" headers in addition to h2', () => {
+    const H3_PLAN = `# Nested Plan
+
+**Goal:** demo nested headers.
+
+## Tasks
+
+### Task 1: Setup
+
+- [ ] **Step 1: Setup**
+
+### Task 2: Teardown
+
+- [ ] **Step 1: Teardown**
+`;
+    const parsed = parsePlanFile(H3_PLAN);
+    expect(parsed.tasks).toHaveLength(2);
+    expect(parsed.tasks[0].task_number).toBe(1);
+    expect(parsed.tasks[0].task_title).toBe('Setup');
+    expect(parsed.tasks[1].task_number).toBe(2);
+    expect(parsed.tasks[1].task_title).toBe('Teardown');
+  });
+
+  it('accepts h4 "#### Task N:" headers too', () => {
+    const H4_PLAN = `# Deeply Nested
+
+#### Task 1: Only
+
+- [ ] **Step 1: Work**
+`;
+    const parsed = parsePlanFile(H4_PLAN);
+    expect(parsed.tasks).toHaveLength(1);
+    expect(parsed.tasks[0].task_number).toBe(1);
+  });
 });
