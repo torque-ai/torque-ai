@@ -40,6 +40,30 @@ echo "  Merging ${BRANCH} into main..."
 git merge "$BRANCH" --no-edit
 echo "[ok] Merged"
 
+# Dashboard bundle is served from dashboard/dist/. Only dist/index.html and
+# dist/vite.svg are tracked — dist/assets/*.js|*.css are gitignored. If a
+# feature branch touched dashboard sources or bumped deps, the committed
+# index.html now references hashed asset filenames that don't exist on
+# anyone else's disk until they rebuild. Do the rebuild now so the live
+# TORQUE server (which serves from dashboard/dist) won't 404 the bundle
+# after restart. Gate on the merge diff so server-only cutovers stay quiet.
+merge_changed_files=$(git diff --name-only HEAD@{1} HEAD 2>/dev/null || true)
+if echo "$merge_changed_files" | grep -qE "^dashboard/(src/|package(-lock)?\.json$|vite\.config\.)"; then
+  echo "  Dashboard sources changed — rebuilding bundle..."
+  if [ -d "${REPO_ROOT}/dashboard" ]; then
+    # npx vite build (not 'npm run build') so the torque-remote-guard doesn't
+    # route the build to the remote workstation — dashboard/dist must live
+    # on the local filesystem to be served by dashboard-server.js.
+    (cd "${REPO_ROOT}/dashboard" && npx vite build 2>&1 | tail -3) \
+      || echo "[warn] Dashboard rebuild failed — bundles may be stale. Run 'cd dashboard && npx vite build' manually."
+    if ! git -C "${REPO_ROOT}" diff --quiet -- dashboard/dist/index.html 2>/dev/null; then
+      echo "[warn] dashboard/dist/index.html changed during rebuild — origin/main will drift from local."
+      echo "       Commit it so future pulls stay in sync:"
+      echo "         git add dashboard/dist/index.html && git commit -m 'chore(dashboard): rebuild bundle'"
+    fi
+  fi
+fi
+
 TORQUE_RUNNING=false
 if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
   TORQUE_RUNNING=true
