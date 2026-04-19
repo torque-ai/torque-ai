@@ -45,8 +45,37 @@ function detectEnvironmentFailure(verifyOutput) {
   return { detected: signals.length > 0, signals, reason };
 }
 
-function parseFailingTests(_verifyOutput) {
-  return [];
+function parseFailingTests(verifyOutput) {
+  if (!verifyOutput) return [];
+  const combined = String(verifyOutput.stdout || '') + '\n' + String(verifyOutput.stderr || '');
+  if (!combined.trim()) return [];
+
+  const paths = new Set();
+
+  // Pytest: "FAILED tests/foo.py::test_bar - ..." or "FAILED tests/foo.py - collection error"
+  const pytestRe = /^FAILED\s+([A-Za-z0-9_./\\-]+?\.py)(?:::|\s|$)/gm;
+  for (const m of combined.matchAll(pytestRe)) {
+    paths.add(m[1]);
+  }
+
+  // Vitest arrow pointer: "❯ src/foo.test.ts:line:col"
+  const vitestPointerRe = /❯\s+([A-Za-z0-9_./\\-]+?\.(?:ts|tsx|js|jsx|mjs|cjs)):\d+/g;
+  for (const m of combined.matchAll(vitestPointerRe)) {
+    paths.add(m[1]);
+  }
+  // Vitest FAIL header: "FAIL  src/foo.test.ts > describe > it"
+  const vitestFailRe = /^\s*FAIL\s+([A-Za-z0-9_./\\-]+?\.(?:ts|tsx|js|jsx|mjs|cjs))\s*>/gm;
+  for (const m of combined.matchAll(vitestFailRe)) {
+    paths.add(m[1]);
+  }
+
+  // Dotnet test: "Test Files: <path>/<name>.dll" or "Failed ... Files: <path>/<name>.dll"
+  const dotnetRe = /(?:Test Files?:|Files:)\s*([A-Za-z]:[\\/]?[^\s]+\.dll|[\\/][^\s]+\.dll|[A-Za-z0-9_./\\-]+?\.dll)/g;
+  for (const m of combined.matchAll(dotnetRe)) {
+    paths.add(m[1]);
+  }
+
+  return Array.from(paths);
 }
 
 async function getModifiedFiles(_workingDirectory, _worktreeBranch, _mergeBase) {

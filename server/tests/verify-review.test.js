@@ -64,3 +64,73 @@ describe('detectEnvironmentFailure', () => {
     expect(r.detected).toBe(false);
   });
 });
+
+const { parseFailingTests } = require('../factory/verify-review');
+
+describe('parseFailingTests', () => {
+  it('parses pytest FAILED lines into test file paths', () => {
+    const out = {
+      stdout: `
+...
+FAILED tests/foo.py::test_bar - AssertionError: expected 1 got 2
+FAILED tests/baz.py::test_qux - ValueError: bad input
+===================== 2 failed, 3 passed in 1.23s ====================
+`,
+      stderr: '',
+    };
+    const r = parseFailingTests(out);
+    expect(r).toContain('tests/foo.py');
+    expect(r).toContain('tests/baz.py');
+    expect(r).toHaveLength(2);
+  });
+
+  it('parses vitest failure pointer lines into test file paths', () => {
+    const out = {
+      stdout: `
+ FAIL  src/components/Foo.test.tsx > Foo > renders
+   Error: expect(received).toBe(expected)
+ ❯ src/components/Foo.test.tsx:12:5
+ FAIL  src/utils/bar.test.ts > bar > adds
+ ❯ src/utils/bar.test.ts:8:3
+`,
+      stderr: '',
+    };
+    const r = parseFailingTests(out);
+    expect(r).toContain('src/components/Foo.test.tsx');
+    expect(r).toContain('src/utils/bar.test.ts');
+    expect(r).toHaveLength(2);
+  });
+
+  it('parses dotnet test failure summary into test DLL paths', () => {
+    const out = {
+      stdout: `
+Failed!  - Failed:     3, Passed:     5, Skipped:     0, Total:     8
+Test Files: /r/tests/Foo.Tests/bin/Debug/net8.0/Foo.Tests.dll
+Test Files: /r/tests/Bar.Tests/bin/Debug/net8.0/Bar.Tests.dll
+`,
+      stderr: '',
+    };
+    const r = parseFailingTests(out);
+    expect(r.some(p => p.endsWith('Foo.Tests.dll'))).toBe(true);
+    expect(r.some(p => p.endsWith('Bar.Tests.dll'))).toBe(true);
+  });
+
+  it('returns empty array on unknown output format', () => {
+    const out = { stdout: 'Some unexpected output with no test results', stderr: '' };
+    expect(parseFailingTests(out)).toEqual([]);
+  });
+
+  it('returns empty array on empty output', () => {
+    expect(parseFailingTests({ stdout: '', stderr: '' })).toEqual([]);
+    expect(parseFailingTests({})).toEqual([]);
+    expect(parseFailingTests(null)).toEqual([]);
+  });
+
+  it('de-duplicates when the same file fails multiple tests', () => {
+    const out = {
+      stdout: `FAILED tests/foo.py::test_a\nFAILED tests/foo.py::test_b\n`,
+      stderr: '',
+    };
+    expect(parseFailingTests(out)).toEqual(['tests/foo.py']);
+  });
+});
