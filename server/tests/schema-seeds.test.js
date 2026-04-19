@@ -46,8 +46,10 @@ const EXPECTED_CONFIG_DEFAULTS = {
 
 const VALID_PROVIDER_NAMES = new Set([
   'codex',
+  'codex-spark',
   'claude-cli',
   'claude-code-sdk',
+  'claude-ollama',
   'ollama',
   'anthropic',
   'groq',
