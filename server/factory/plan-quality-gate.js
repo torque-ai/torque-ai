@@ -154,8 +154,63 @@ function runDeterministicRules(planMarkdown) {
   return { hardFails, warnings };
 }
 
-async function runLlmSemanticCheck(_opts) {
-  return null;
+async function runLlmSemanticCheck({ plan, workItem, project, timeoutMs = LLM_TIMEOUT_MS }) {
+  const { submitFactoryInternalTask } = require('./internal-task-submit');
+  const { handleAwaitTask } = require('../handlers/workflow/await');
+  const taskCore = require('../db/task-core');
+
+  const prompt = buildLlmPrompt({ plan, workItem });
+  let taskId;
+  try {
+    const submitResult = await submitFactoryInternalTask({
+      task: prompt,
+      working_directory: project?.path || process.cwd(),
+      kind: 'plan_generation',
+      project_id: project?.id,
+      work_item_id: workItem?.id,
+      timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)),
+    });
+    taskId = submitResult?.task_id || null;
+  } catch (_e) {
+    return null;
+  }
+  if (!taskId) return null;
+
+  try {
+    await handleAwaitTask({ task_id: taskId, timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)), heartbeat_minutes: 0 });
+  } catch (_e) {
+    return null;
+  }
+  const task = taskCore.getTask(taskId);
+  if (!task || task.status !== 'completed') return null;
+
+  const raw = (task.output || '').trim();
+  if (!raw) return null;
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(raw);
+    if (parsed && typeof parsed.critique === 'string') {
+      if (parsed.verdict === 'no-go') return `[no-go] ${parsed.critique.trim()}`;
+      return parsed.critique.trim();
+    }
+  } catch (_e) {
+    // Unparseable — fall through and return the raw output as critique.
+    void _e;
+  }
+  return raw;
+}
+
+function buildLlmPrompt({ plan, workItem }) {
+  return `You are a quality reviewer for a software factory's auto-generated implementation plans.
+
+Work item title: ${workItem?.title || '(none)'}
+Work item description: ${workItem?.description || '(none)'}
+
+Return ONLY valid JSON in this shape: {"verdict":"go"|"no-go","critique":"one sentence explaining the verdict"}
+
+Plan:
+${plan}
+`;
 }
 
 function buildFeedbackPrompt(hardFails, warnings, llmCritique) {

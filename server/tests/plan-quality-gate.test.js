@@ -208,12 +208,41 @@ describe('buildFeedbackPrompt', () => {
 });
 
 describe('runLlmSemanticCheck', () => {
-  beforeEach(() => { vi.resetModules(); });
+  const submitPath = require.resolve('../factory/internal-task-submit');
+  const awaitPath = require.resolve('../handlers/workflow/await');
+  const taskCorePath = require.resolve('../db/task-core');
+  const gatePath = require.resolve('../factory/plan-quality-gate');
+  const savedCache = new Map();
+
+  function installMock(resolvedPath, exportsValue) {
+    if (!savedCache.has(resolvedPath)) {
+      savedCache.set(resolvedPath, require.cache[resolvedPath]);
+    }
+    require.cache[resolvedPath] = {
+      id: resolvedPath,
+      filename: resolvedPath,
+      loaded: true,
+      exports: exportsValue,
+    };
+  }
+
+  beforeEach(() => {
+    delete require.cache[gatePath];
+  });
+
+  afterEach(() => {
+    for (const [path, original] of savedCache) {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    }
+    savedCache.clear();
+    delete require.cache[gatePath];
+  });
 
   it('returns null when the submission helper throws', async () => {
-    vi.doMock('../factory/internal-task-submit', () => ({
+    installMock(submitPath, {
       submitFactoryInternalTask: vi.fn().mockRejectedValue(new Error('provider down')),
-    }));
+    });
     const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
     const result = await runLlmSemanticCheck({
       plan: '## Task 1: Example\n\nSome body.',
@@ -224,15 +253,15 @@ describe('runLlmSemanticCheck', () => {
   });
 
   it('returns null when the awaited task does not complete', async () => {
-    vi.doMock('../factory/internal-task-submit', () => ({
+    installMock(submitPath, {
       submitFactoryInternalTask: vi.fn().mockResolvedValue({ task_id: 'tid-1' }),
-    }));
-    vi.doMock('../handlers/workflow/await', () => ({
+    });
+    installMock(awaitPath, {
       handleAwaitTask: vi.fn().mockResolvedValue({ status: 'timeout' }),
-    }));
-    vi.doMock('../db/task-core', () => ({
+    });
+    installMock(taskCorePath, {
       getTask: vi.fn().mockReturnValue({ status: 'running', output: null }),
-    }));
+    });
     const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
     const result = await runLlmSemanticCheck({
       plan: '## Task 1: Example\n\nSome body.',
@@ -243,18 +272,18 @@ describe('runLlmSemanticCheck', () => {
   });
 
   it('returns the critique when the task completes with a go verdict and one-sentence critique', async () => {
-    vi.doMock('../factory/internal-task-submit', () => ({
+    installMock(submitPath, {
       submitFactoryInternalTask: vi.fn().mockResolvedValue({ task_id: 'tid-2' }),
-    }));
-    vi.doMock('../handlers/workflow/await', () => ({
+    });
+    installMock(awaitPath, {
       handleAwaitTask: vi.fn().mockResolvedValue({ status: 'completed' }),
-    }));
-    vi.doMock('../db/task-core', () => ({
+    });
+    installMock(taskCorePath, {
       getTask: vi.fn().mockReturnValue({
         status: 'completed',
         output: '{"verdict":"go","critique":"Plan covers the stated goal."}',
       }),
-    }));
+    });
     const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
     const result = await runLlmSemanticCheck({
       plan: '## Task 1: Example\n\nSome body.',
@@ -265,15 +294,15 @@ describe('runLlmSemanticCheck', () => {
   });
 
   it('returns the raw string when the task output is unparseable (treated as go)', async () => {
-    vi.doMock('../factory/internal-task-submit', () => ({
+    installMock(submitPath, {
       submitFactoryInternalTask: vi.fn().mockResolvedValue({ task_id: 'tid-3' }),
-    }));
-    vi.doMock('../handlers/workflow/await', () => ({
+    });
+    installMock(awaitPath, {
       handleAwaitTask: vi.fn().mockResolvedValue({ status: 'completed' }),
-    }));
-    vi.doMock('../db/task-core', () => ({
+    });
+    installMock(taskCorePath, {
       getTask: vi.fn().mockReturnValue({ status: 'completed', output: 'not json at all' }),
-    }));
+    });
     const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
     const result = await runLlmSemanticCheck({
       plan: '## Task 1: Example\n\nSome body.',
