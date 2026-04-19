@@ -85,21 +85,44 @@ function forceRmSync(target) {
     if (!fs.existsSync(target)) return;
   } catch { /* fall through to shell */ }
   const { execFileSync } = childProcess;
-  try {
-    if (process.platform === 'win32') {
-      execFileSync('cmd', ['/c', 'rmdir', '/s', '/q', target], { stdio: 'ignore', windowsHide: true, timeout: 20000 });
-    } else {
-      execFileSync('rm', ['-rf', target], { stdio: 'ignore', timeout: 20000 });
-    }
-  } catch (shellErr) {
-    // Final failure — propagate so the caller surfaces a real diagnostic.
-    if (fs.existsSync(target)) {
-      throw new Error(`forceRmSync: unable to remove ${target}: ${shellErr && shellErr.message}`);
-    }
+  // Shell fallbacks. On Windows the path must use backslashes (cmd treats
+  // forward slashes as option switches, so a forward-slash path turns into
+  // an Invalid switch error). Some directories also carry ACLs that
+  // plain cmd rmdir cannot clear but bash rm -rf can (MSYS handles the
+  // quirks differently). Order: cmd rmdir -> icacls reset + cmd rmdir ->
+  // bash rm -rf.
+  const winPath = target.replace(/\//g, '\\');
+  const bashPath = target.replace(/'/g, "'\\''");
+  const attempts = [];
+  if (process.platform === 'win32') {
+    attempts.push(() => execFileSync('cmd', ['/c', 'rmdir', '/s', '/q', winPath], {
+      stdio: 'ignore', windowsHide: true, timeout: 20000,
+    }));
+    attempts.push(() => {
+      execFileSync('icacls', [winPath, '/reset', '/T', '/C', '/Q'], {
+        stdio: 'ignore', windowsHide: true, timeout: 30000,
+      });
+      execFileSync('cmd', ['/c', 'rmdir', '/s', '/q', winPath], {
+        stdio: 'ignore', windowsHide: true, timeout: 20000,
+      });
+    });
+    attempts.push(() => execFileSync('bash', ['-c', 'rm -rf \'' + bashPath + '\''], {
+      stdio: 'ignore', windowsHide: true, timeout: 20000,
+    }));
+  } else {
+    attempts.push(() => execFileSync('rm', ['-rf', target], {
+      stdio: 'ignore', timeout: 20000,
+    }));
   }
-  if (fs.existsSync(target)) {
-    throw new Error(`forceRmSync: path still exists after layered cleanup: ${target}`);
+  let lastErr = null;
+  for (const attempt of attempts) {
+    try { attempt(); } catch (err) { lastErr = err; }
+    if (!fs.existsSync(target)) return;
   }
+  throw new Error(
+    'forceRmSync: path still exists after layered cleanup: ' + target
+    + (lastErr ? ' (last shell error: ' + lastErr.message + ')' : '')
+  );
 }
 
 function runGit(cwd, args, options = {}) {
