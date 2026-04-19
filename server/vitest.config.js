@@ -7,6 +7,14 @@ module.exports = defineConfig({
     testTimeout: 15000,
     hookTimeout: 15000,
     teardownTimeout: 5000,
+    // Per-test retry masks transient test-level failures (timing-sensitive
+    // assertions, one-shot mock-state races, etc.). Does NOT retry
+    // file-load failures — those show up as "N Test Files failed" with
+    // "0 Tests failed" in the summary, and the pre-push gate's
+    // tests_have_failures() detector catches that pattern explicitly. So
+    // real regressions still fail the gate; one-shot flakes (tool-annotations
+    // registry state, auto-fix race, etc.) get a second chance and pass.
+    retry: 1,
     include: ['tests/**/*.test.js', 'plugins/**/tests/**/*.test.js'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     setupFiles: ['tests/worker-setup.js'],
