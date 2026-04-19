@@ -433,6 +433,47 @@ describe('reconcileProject', () => {
     expect(fs.existsSync(midCreateDir)).toBe(true);
   });
 
+  it('when a path has both an old abandoned and a new active row, honors the NEWEST row (does not reclaim)', () => {
+    // Regression: the branch → path map is deterministic, so one path
+    // accumulates multiple factory_worktrees rows across its lifetime.
+    // Every pre-reclaim marks the prior row abandoned and the next
+    // EXECUTE inserts a fresh active row. If reconcile's rowsByPath Map
+    // resolves to the OLDEST row (abandoned), it deletes the freshly
+    // created dir that the newer active row actually owns — observed
+    // live on torque-public item 79 (2026-04-19).
+    const project = makeProject();
+    const reusedDir = makeWorktreeDir(project.path, 'feat-factory-500-reused');
+
+    // Insert old abandoned row FIRST (lower auto-increment id), then
+    // the new active row for the same path (higher id).
+    insertRow(dbHandle, {
+      project_id: project.id,
+      branch: 'feat/factory-500-reused',
+      worktree_path: reusedDir,
+      status: 'abandoned',
+      batch_id: 'batch-old',
+      vc_worktree_id: 'vc-old',
+    });
+    insertRow(dbHandle, {
+      project_id: project.id,
+      branch: 'feat/factory-500-reused',
+      worktree_path: reusedDir,
+      status: 'active',
+      batch_id: 'batch-new',
+      vc_worktree_id: 'vc-new',
+    });
+
+    const result = reconcileProject({
+      db: dbHandle,
+      project_id: project.id,
+      project_path: project.path,
+    });
+
+    expect(result.cleaned).toHaveLength(0);
+    expect(result.skipped.map((s) => s.worktreePath)).toContain(reusedDir);
+    expect(fs.existsSync(reusedDir)).toBe(true);
+  });
+
   it('scopes by project_id: row from project A does not classify project B dirs', () => {
     const projA = makeProject('a');
     const projB = makeProject('b');
