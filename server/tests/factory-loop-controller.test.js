@@ -739,16 +739,14 @@ describe('factory loop-controller EXECUTE modes', () => {
     let submittedCount = 0;
     routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
       submittedCount += 1;
-      // Approval phase: first call is the plan task (returns task_id).
-      // First retry submission: transient failure (no task_id).
-      // Second retry submission: succeeds.
+      // 1st: pending-approval plan task. 2nd: transient retry failure.
+      // 3rd+: retry submission succeeds.
       if (submittedCount === 1) {
-        const taskId = `approval-task-transient`;
-        insertBatchTask(db, { taskId, batchId, status: 'completed' });
+        const taskId = `approval-task-transient-1`;
+        insertBatchTask(db, { taskId, batchId, status: args.initial_status || 'pending_approval' });
         return { task_id: taskId };
       }
       if (submittedCount === 2) {
-        // Transient submission failure: no task_id returned.
         return {};
       }
       const taskId = `retry-task-transient-${submittedCount}`;
@@ -758,9 +756,12 @@ describe('factory loop-controller EXECUTE modes', () => {
     loopController.setWorktreeRunnerForTests(worktreeRunner);
 
     await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-transient-1');
+    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
-    // Verify was called twice: first failed, then after successful retry submission, verify passed.
     expect(worktreeRunner.verify).toHaveBeenCalledTimes(2);
     expect(verifyAdvance.new_state).toBe(LOOP_STATES.LEARN);
     expect(verifyAdvance.paused_at_stage).toBeNull();
@@ -771,7 +772,6 @@ describe('factory loop-controller EXECUTE modes', () => {
         reason: 'no_task_id',
       }),
     });
-    // Worktree verify did not pause at VERIFY_FAIL.
     expect(decisions.find((d) => d.action === 'worktree_verify_failed')).toBeUndefined();
   });
 
@@ -793,18 +793,20 @@ describe('factory loop-controller EXECUTE modes', () => {
     let submittedCount = 0;
     routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
       submittedCount += 1;
-      // First: approval task succeeds.
       if (submittedCount === 1) {
-        const taskId = `approval-task-exhaust`;
-        insertBatchTask(db, { taskId, batchId, status: 'completed' });
+        const taskId = `approval-task-exhaust-1`;
+        insertBatchTask(db, { taskId, batchId, status: args.initial_status || 'pending_approval' });
         return { task_id: taskId };
       }
-      // All subsequent retry submissions fail transiently.
       return {};
     });
     loopController.setWorktreeRunnerForTests(worktreeRunner);
 
     await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-exhaust-1');
+    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
     expect(verifyAdvance.stage_result).toMatchObject({
@@ -817,7 +819,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(submissionFailDecisions.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('verify retry pauses without invoking the auto-router when the worktree path no longer exists on disk', async () => {
+  it('verify retry pauses without invoking the auto-router for retries when the worktree path no longer exists on disk', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
     // Path that is intentionally NOT created on disk to simulate a stale
@@ -838,16 +840,30 @@ describe('factory loop-controller EXECUTE modes', () => {
       mergeToMain: vi.fn(),
       abandon: vi.fn(),
     };
-    routingModule.handleSmartSubmitTask = vi.fn(async () => {
-      throw new Error('handleSmartSubmitTask should not be called when cwd is missing');
+    let submittedCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedCount += 1;
+      // The EXECUTE phase plan-task submission is allowed (1st call).
+      // Any subsequent call would be a verify-retry — which the Fix 6 guard
+      // must short-circuit BEFORE handleSmartSubmitTask is invoked.
+      if (submittedCount === 1) {
+        const taskId = `approval-task-cwd-missing-1`;
+        insertBatchTask(db, { taskId, batchId, status: args.initial_status || 'pending_approval' });
+        return { task_id: taskId };
+      }
+      throw new Error('handleSmartSubmitTask should not be called for verify-retry when cwd is missing');
     });
     loopController.setWorktreeRunnerForTests(worktreeRunner);
 
     await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-cwd-missing-1');
+    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+
     const verifyAdvance = await loopController.advanceLoopForProject(project.id);
 
-    // Auto-router was never invoked — the guard short-circuited the retry.
-    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    // Only the EXECUTE-phase submission happened; no retry submission.
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledTimes(1);
     expect(verifyAdvance.stage_result).toMatchObject({
       status: 'failed',
       pause_at_stage: 'VERIFY_FAIL',

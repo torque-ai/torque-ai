@@ -1,6 +1,5 @@
-'use strict';
+import { describe, it, expect } from 'vitest';
 
-const { describe, it, expect } = require('vitest');
 const {
   isEmptyBranchMergeError,
   countPriorEmptyMergeFailuresForWorkItem,
