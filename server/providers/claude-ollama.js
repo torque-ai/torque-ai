@@ -2,7 +2,7 @@
 
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { spawn, spawnSync } = require('child_process');
+const child_process = require('child_process');
 
 const BaseProvider = require('./base');
 const hostManagement = require('../db/host-management');
@@ -46,6 +46,52 @@ class ClaudeOllamaProvider extends BaseProvider {
 
   get supportsStreaming() {
     return true;
+  }
+
+  resolveOllamaBinary() {
+    if (this.ollamaBinary) return this.ollamaBinary;
+    return process.platform === 'win32' ? 'ollama.exe' : 'ollama';
+  }
+
+  resolveClaudeBinary() {
+    if (this.claudeBinary) return this.claudeBinary;
+    return process.platform === 'win32' ? 'claude.exe' : 'claude';
+  }
+
+  async checkHealth() {
+    const ollamaResult = child_process.spawnSync(this.resolveOllamaBinary(), ['--version'], {
+      timeout: 5000, encoding: 'utf8', windowsHide: true,
+    });
+    if (!ollamaResult || ollamaResult.status !== 0) {
+      return {
+        available: false,
+        models: [],
+        error: `ollama binary not reachable: ${cleanText(ollamaResult?.stderr) || cleanText(ollamaResult?.stdout) || 'unknown error'}`,
+      };
+    }
+
+    const claudeResult = child_process.spawnSync(this.resolveClaudeBinary(), ['--version'], {
+      timeout: 5000, encoding: 'utf8', windowsHide: true,
+    });
+    if (!claudeResult || claudeResult.status !== 0) {
+      return {
+        available: false,
+        models: [],
+        error: `claude binary not reachable: ${cleanText(claudeResult?.stderr) || cleanText(claudeResult?.stdout) || 'unknown error'}`,
+      };
+    }
+
+    const hosts = hostManagement.listOllamaHosts({ enabled: true }) || [];
+    if (hosts.length === 0) {
+      return { available: false, models: [], error: 'no active Ollama host registered' };
+    }
+
+    const models = await this.listModels();
+    if (models.length === 0) {
+      return { available: false, models: [], error: 'no local models available on any host' };
+    }
+
+    return { available: true, models, version: `${cleanText(ollamaResult.stdout)} / ${cleanText(claudeResult.stdout)}` };
   }
 }
 
