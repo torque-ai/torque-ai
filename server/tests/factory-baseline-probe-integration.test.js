@@ -21,7 +21,10 @@ function seedPausedBaselineProject(db, { probeAttempts = 0, tickCountSincePause 
 
 describe('factory-tick baseline probe phase', () => {
   let db;
-  beforeEach(() => { ({ db } = setupTestDb('baseline-probe-tick')); });
+  beforeEach(() => {
+    setupTestDb('baseline-probe-tick');
+    db = rawDb();
+  });
   afterEach(() => { teardownTestDb(); vi.restoreAllMocks(); });
 
   it('probes paused project on first tick; clears flag + resumes on green probe', async () => {
@@ -126,6 +129,3 @@ describe('factory-tick baseline probe phase', () => {
     expect(cfg.baseline_broken_since).toBeTruthy();
   });
 });
-
-// rawDb is imported for symmetry with other factory integration tests; reference so lint doesn't complain.
-void rawDb;
