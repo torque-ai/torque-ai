@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const { createWorktreeRunner, sanitizeSlug } = require('../factory/worktree-runner');
+const { createWorktreeRunner, sanitizeSlug, resolveSystemShellCommand } = require('../factory/worktree-runner');
 
 function makeWorktreeManagerMock({ listSeed = [] } = {}) {
   const worktrees = [...listSeed];
@@ -48,6 +48,34 @@ describe('sanitizeSlug', () => {
   });
 });
 
+describe('resolveSystemShellCommand', () => {
+  const originalComSpec = process.env.ComSpec;
+  afterEach(() => {
+    if (originalComSpec === undefined) delete process.env.ComSpec;
+    else process.env.ComSpec = originalComSpec;
+  });
+
+  it('uses process.env.ComSpec on win32 when set', () => {
+    process.env.ComSpec = 'C:\\Windows\\System32\\cmd.exe';
+    const resolved = resolveSystemShellCommand('win32', 'echo hello');
+    expect(resolved.cmd).toBe('C:\\Windows\\System32\\cmd.exe');
+    expect(resolved.args).toEqual(['/d', '/s', '/c', 'echo hello']);
+  });
+
+  it('falls back to cmd.exe on win32 when ComSpec is unset', () => {
+    delete process.env.ComSpec;
+    const resolved = resolveSystemShellCommand('win32', 'echo hello');
+    expect(resolved.cmd).toBe('cmd.exe');
+    expect(resolved.args).toEqual(['/d', '/s', '/c', 'echo hello']);
+  });
+
+  it('uses sh on non-windows platforms', () => {
+    const resolved = resolveSystemShellCommand('linux', 'echo hello');
+    expect(resolved.cmd).toBe('sh');
+    expect(resolved.args).toEqual(['-lc', 'echo hello']);
+  });
+});
+
 describe('createWorktreeRunner.createForBatch', () => {
   let worktreeManager;
   let runner;
@@ -79,11 +107,16 @@ describe('createWorktreeRunner.createForBatch', () => {
 });
 
 describe('createWorktreeRunner.verify', () => {
+  // Default countCommitsAhead used in tests below — assume the branch has commits.
+  // Tests that need to exercise the empty-branch path inject 0 explicitly.
+  const nonEmptyCountCommitsAhead = () => 5;
+
   it('passes when the verify runner returns exit 0', async () => {
     const runRemoteVerify = vi.fn(() => ({ exitCode: 0, stdout: 'ok', stderr: '' }));
     const runner = createWorktreeRunner({
       worktreeManager: makeWorktreeManagerMock(),
       runRemoteVerify,
+      countCommitsAhead: nonEmptyCountCommitsAhead,
     });
     const result = await runner.verify({
       worktreePath: 'C:/repo/.worktrees/feat/x',
@@ -101,6 +134,7 @@ describe('createWorktreeRunner.verify', () => {
     const runner = createWorktreeRunner({
       worktreeManager: makeWorktreeManagerMock(),
       runRemoteVerify: vi.fn(() => ({ exitCode: 1, stdout: '', stderr: 'boom' })),
+      countCommitsAhead: nonEmptyCountCommitsAhead,
     });
     const result = await runner.verify({
       worktreePath: 'C:/wt',
@@ -126,6 +160,7 @@ describe('createWorktreeRunner.verify', () => {
       worktreeManager: makeWorktreeManagerMock(),
       runRemoteVerify,
       runLocalVerify,
+      countCommitsAhead: nonEmptyCountCommitsAhead,
     });
 
     const result = await runner.verify({
@@ -157,6 +192,7 @@ describe('createWorktreeRunner.verify', () => {
       worktreeManager: makeWorktreeManagerMock(),
       runRemoteVerify,
       runLocalVerify,
+      countCommitsAhead: nonEmptyCountCommitsAhead,
     });
 
     const result = await runner.verify({
@@ -173,8 +209,54 @@ describe('createWorktreeRunner.verify', () => {
     const runner = createWorktreeRunner({
       worktreeManager: makeWorktreeManagerMock(),
       runRemoteVerify: vi.fn(),
+      countCommitsAhead: nonEmptyCountCommitsAhead,
     });
     await expect(runner.verify({ verifyCommand: 'x' })).rejects.toThrow(/branch/);
+  });
+
+  it('skips remote verify and returns empty_branch when branch has zero commits ahead of base', async () => {
+    const runRemoteVerify = vi.fn();
+    const runLocalVerify = vi.fn();
+    const countCommitsAhead = vi.fn(() => 0);
+    const runner = createWorktreeRunner({
+      worktreeManager: makeWorktreeManagerMock(),
+      runRemoteVerify,
+      runLocalVerify,
+      countCommitsAhead,
+    });
+    const result = await runner.verify({
+      worktreePath: 'C:/wt',
+      branch: 'feat/empty',
+      verifyCommand: 'echo test',
+      baseBranch: 'main',
+    });
+    expect(result.passed).toBe(false);
+    expect(result.reason).toBe('empty_branch');
+    expect(result.output).toMatch(/no commits ahead of main/);
+    expect(runRemoteVerify).not.toHaveBeenCalled();
+    expect(runLocalVerify).not.toHaveBeenCalled();
+    expect(countCommitsAhead).toHaveBeenCalledWith({
+      cwd: 'C:/wt',
+      baseBranch: 'main',
+      branch: 'feat/empty',
+    });
+  });
+
+  it('runs remote verify normally when branch has commits ahead of base', async () => {
+    const runRemoteVerify = vi.fn(() => ({ exitCode: 0, stdout: 'ok', stderr: '' }));
+    const countCommitsAhead = vi.fn(() => 3);
+    const runner = createWorktreeRunner({
+      worktreeManager: makeWorktreeManagerMock(),
+      runRemoteVerify,
+      countCommitsAhead,
+    });
+    const result = await runner.verify({
+      worktreePath: 'C:/wt',
+      branch: 'feat/has-commits',
+      verifyCommand: 'echo test',
+    });
+    expect(result.passed).toBe(true);
+    expect(runRemoteVerify).toHaveBeenCalledTimes(1);
   });
 });
 

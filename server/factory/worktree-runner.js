@@ -48,10 +48,21 @@ function spawnInBashAsync(bashCmd, options = {}) {
   });
 }
 
+// Resolve the system shell binary + args for the given platform. On Windows
+// we use process.env.ComSpec (typically C:\Windows\System32\cmd.exe) so the
+// spawn doesn't rely on `cmd` being on PATH — child processes inherited from
+// some parents have a stripped PATH and `spawn('cmd', ...)` fails with ENOENT.
+function resolveSystemShellCommand(platform, command) {
+  if (platform === 'win32') {
+    const cmd = process.env.ComSpec || 'cmd.exe';
+    return { cmd, args: ['/d', '/s', '/c', command] };
+  }
+  return { cmd: 'sh', args: ['-lc', command] };
+}
+
 function spawnInSystemShellAsync(command, options = {}) {
   return new Promise((resolve) => {
-    const cmd = process.platform === 'win32' ? 'cmd' : 'sh';
-    const args = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-lc', command];
+    const { cmd, args } = resolveSystemShellCommand(process.platform, command);
     const child = spawn(cmd, args, { ...options, windowsHide: true });
     let stdout = '';
     let stderr = '';
@@ -120,10 +131,8 @@ function spawnInBash(bashCmd, options) {
 }
 
 function spawnInSystemShell(command, options) {
-  if (process.platform === 'win32') {
-    return spawnSync('cmd', ['/d', '/s', '/c', command], { ...options, windowsHide: true });
-  }
-  return spawnSync('sh', ['-lc', command], options);
+  const { cmd, args } = resolveSystemShellCommand(process.platform, command);
+  return spawnSync(cmd, args, { ...options, windowsHide: true });
 }
 
 function summarizeVerifyFailure(result) {
@@ -209,10 +218,33 @@ async function defaultRunLocalVerify({ branch, command, cwd, logger, fallbackRea
   };
 }
 
+// Fix 3: count commits on `branch` that are not on `baseBranch`. Used as a
+// pre-flight inside verify() so we don't push or remote-test an empty branch
+// (which previously false-passed the verify and then collapsed at LEARN with
+// "refusing to merge empty branch", looping the same work item forever).
+function defaultCountCommitsAhead({ cwd, baseBranch, branch }) {
+  if (!cwd || !baseBranch || !branch) return 0;
+  try {
+    if (!fs.existsSync(cwd)) return 0;
+    const { execFileSync } = require('child_process');
+    const out = execFileSync(
+      'git',
+      ['rev-list', '--count', `${baseBranch}..${branch}`],
+      { cwd, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] },
+    ).trim();
+    const n = Number.parseInt(out, 10);
+    return Number.isFinite(n) ? n : 0;
+  } catch (_e) {
+    void _e;
+    return 0;
+  }
+}
+
 function createWorktreeRunner({
   worktreeManager,
   runRemoteVerify = defaultRunRemoteVerify,
   runLocalVerify = defaultRunLocalVerify,
+  countCommitsAhead = defaultCountCommitsAhead,
   logger,
 } = {}) {
   if (!worktreeManager || typeof worktreeManager.createWorktree !== 'function') {
@@ -273,11 +305,32 @@ function createWorktreeRunner({
     };
   }
 
-  async function verify({ worktreePath, branch, verifyCommand, workingDirectory }) {
+  async function verify({ worktreePath, branch, verifyCommand, workingDirectory, baseBranch = 'main' }) {
     if (!branch) throw new Error('verify requires branch');
     const command = String(verifyCommand || 'cd server && npx vitest run').trim();
     const cwd = workingDirectory || worktreePath;
     const start = Date.now();
+
+    // Fix 3: pre-flight empty-branch check. If the branch has no commits
+    // ahead of base, skip remote/local verify entirely and report the
+    // accurate state (failed + reason=empty_branch) instead of false-passing.
+    const aheadCount = countCommitsAhead({ cwd, baseBranch, branch });
+    if (aheadCount === 0) {
+      if (logger) {
+        logger.warn('factory worktree verify: skipped (empty branch)', {
+          branch,
+          base_branch: baseBranch,
+          worktree_path: worktreePath,
+        });
+      }
+      return {
+        passed: false,
+        output: `[empty-branch] Branch ${branch} has no commits ahead of ${baseBranch}; nothing to verify.`,
+        durationMs: Date.now() - start,
+        reason: 'empty_branch',
+      };
+    }
+
     let out = await Promise.resolve(runRemoteVerify({ branch, command, cwd, logger }));
     if (out && out.exitCode !== 0 && shouldFallbackToLocalVerify(out)) {
       const fallbackSummary = summarizeVerifyFailure(out);
@@ -374,4 +427,5 @@ function createWorktreeRunner({
 module.exports = {
   createWorktreeRunner,
   sanitizeSlug,
+  resolveSystemShellCommand,
 };

@@ -447,9 +447,9 @@ describe('factory loop-controller EXECUTE modes', () => {
     // 'pending_approval'. In live mode the submissions had no factory
     // provenance, so the factory-worktree-auto-commit listener (which
     // keys off factory:batch_id / factory:plan_task_number) couldn't
-    // correlate the completed Codex task back to its worktree and never
+    // correlate the completed <git-user> task back to its worktree and never
     // committed. Observed live on 2026-04-15 when fabro-97 finished 3
-    // Codex tasks cleanly but the worktree merge failed with
+    // <git-user> tasks cleanly but the worktree merge failed with
     // 'uncommitted changes' because nothing had been committed.
     const { project, workItem } = registerPlanProject({
       config: { execute_live: true },
@@ -585,11 +585,13 @@ describe('factory loop-controller EXECUTE modes', () => {
   it('auto-rejects work item after MAX_AUTO_VERIFY_RETRIES and advances past VERIFY_FAIL', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPath1 = path.join(project.path, '.worktrees', 'feat-factory-verify-fail');
+    fs.mkdirSync(wtPath1, { recursive: true });
     const worktreeRunner = {
       createForBatch: vi.fn(async () => ({
         id: 'vc-worktree-verify-fail',
         branch: 'feat/factory-verify-fail',
-        worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-fail'),
+        worktreePath: wtPath1,
       })),
       verify: vi.fn(async () => ({
         passed: false,
@@ -651,17 +653,19 @@ describe('factory loop-controller EXECUTE modes', () => {
   it('auto-retries a failing VERIFY and ships when the second attempt passes', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPath2 = path.join(project.path, '.worktrees', 'feat-factory-verify-retry');
+    fs.mkdirSync(wtPath2, { recursive: true });
     let verifyCall = 0;
     const worktreeRunner = {
       createForBatch: vi.fn(async () => ({
         id: 'vc-worktree-retry',
         branch: 'feat/factory-verify-retry',
-        worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-retry'),
+        worktreePath: wtPath2,
       })),
       verify: vi.fn(async () => {
         verifyCall += 1;
         // First attempt fails, second attempt (after the retry fix task)
-        // passes — simulates Codex successfully healing the verify.
+        // passes — simulates <git-user> successfully healing the verify.
         return verifyCall === 1
           ? { passed: false, output: 'alignment drift detected', durationMs: 22 }
           : { passed: true, output: 'ok', durationMs: 22 };
@@ -711,6 +715,169 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(decisions.find((d) => d.action === 'worktree_verify_failed')).toBeUndefined();
   });
 
+  it('retries a transient submission failure (no task_id) without consuming a verify attempt', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPathTransient = path.join(project.path, '.worktrees', 'feat-factory-transient-submit');
+    fs.mkdirSync(wtPathTransient, { recursive: true });
+    let verifyCall = 0;
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-transient',
+        branch: 'feat/factory-transient-submit',
+        worktreePath: wtPathTransient,
+      })),
+      verify: vi.fn(async () => {
+        verifyCall += 1;
+        return verifyCall === 1
+          ? { passed: false, output: 'first verify failed', durationMs: 19 }
+          : { passed: true, output: 'ok', durationMs: 19 };
+      }),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedCount += 1;
+      // 1st: pending-approval plan task. 2nd: transient retry failure.
+      // 3rd+: retry submission succeeds.
+      if (submittedCount === 1) {
+        const taskId = `approval-task-transient-1`;
+        insertBatchTask(db, { taskId, batchId, status: args.initial_status || 'pending_approval' });
+        return { task_id: taskId };
+      }
+      if (submittedCount === 2) {
+        return {};
+      }
+      const taskId = `retry-task-transient-${submittedCount}`;
+      insertBatchTask(db, { taskId, batchId, status: 'completed' });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-transient-1');
+    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(2);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.LEARN);
+    expect(verifyAdvance.paused_at_stage).toBeNull();
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'verify_retry_submission_failed')).toMatchObject({
+      stage: 'verify',
+      outcome: expect.objectContaining({
+        reason: 'no_task_id',
+      }),
+    });
+    expect(decisions.find((d) => d.action === 'worktree_verify_failed')).toBeUndefined();
+  });
+
+  it('pauses at VERIFY_FAIL after MAX_SUBMISSION_FAILURES consecutive transient submission errors', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPathExhaust = path.join(project.path, '.worktrees', 'feat-factory-submit-exhaust');
+    fs.mkdirSync(wtPathExhaust, { recursive: true });
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-exhaust',
+        branch: 'feat/factory-submit-exhaust',
+        worktreePath: wtPathExhaust,
+      })),
+      verify: vi.fn(async () => ({ passed: false, output: 'verify red', durationMs: 19 })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedCount += 1;
+      if (submittedCount === 1) {
+        const taskId = `approval-task-exhaust-1`;
+        insertBatchTask(db, { taskId, batchId, status: args.initial_status || 'pending_approval' });
+        return { task_id: taskId };
+      }
+      return {};
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-exhaust-1');
+    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(verifyAdvance.stage_result).toMatchObject({
+      status: 'failed',
+      pause_at_stage: 'VERIFY_FAIL',
+      reason: expect.stringMatching(/submission_failures/),
+    });
+    const decisions = listDecisionRows(db, project.id);
+    const submissionFailDecisions = decisions.filter((d) => d.action === 'verify_retry_submission_failed');
+    expect(submissionFailDecisions.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('verify retry pauses without invoking the auto-router for retries when the worktree path no longer exists on disk', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    // Path that is intentionally NOT created on disk to simulate a stale
+    // worktree row whose physical directory has already been cleaned up.
+    const wtPathMissing = path.join(project.path, '.worktrees', 'feat-factory-cwd-missing');
+    expect(fs.existsSync(wtPathMissing)).toBe(false);
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-cwd-missing',
+        branch: 'feat/factory-cwd-missing',
+        worktreePath: wtPathMissing,
+      })),
+      verify: vi.fn(async () => ({
+        passed: false,
+        output: 'tests failed',
+        durationMs: 22,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedCount += 1;
+      // The EXECUTE phase plan-task submission is allowed (1st call).
+      // Any subsequent call would be a verify-retry — which the Fix 6 guard
+      // must short-circuit BEFORE handleSmartSubmitTask is invoked.
+      if (submittedCount === 1) {
+        const taskId = `approval-task-cwd-missing-1`;
+        insertBatchTask(db, { taskId, batchId, status: args.initial_status || 'pending_approval' });
+        return { task_id: taskId };
+      }
+      throw new Error('handleSmartSubmitTask should not be called for verify-retry when cwd is missing');
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    await loopController.advanceLoopForProject(project.id);
+    db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-cwd-missing-1');
+    loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
+
+    // Only the EXECUTE-phase submission happened; no retry submission.
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledTimes(1);
+    expect(verifyAdvance.stage_result).toMatchObject({
+      status: 'failed',
+      pause_at_stage: 'VERIFY_FAIL',
+    });
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'verify_retry_cwd_missing')).toMatchObject({
+      stage: 'verify',
+      outcome: expect.objectContaining({
+        worktree_path: wtPathMissing,
+        branch: 'feat/factory-cwd-missing',
+      }),
+    });
+  });
+
   it('throws when retryVerifyFromFailure is called outside VERIFY_FAIL', () => {
     const { project } = registerPlanProject();
     loopController.startLoopForProject(project.id);
@@ -721,11 +888,13 @@ describe('factory loop-controller EXECUTE modes', () => {
   it('retryVerifyFromFailure resets loop state to VERIFY and clears the paused stage', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPath3 = path.join(project.path, '.worktrees', 'feat-factory-verify-retry-reset');
+    fs.mkdirSync(wtPath3, { recursive: true });
     const worktreeRunner = {
       createForBatch: vi.fn(async () => ({
         id: 'vc-worktree-verify-retry-reset',
         branch: 'feat/factory-verify-retry-reset',
-        worktreePath: path.join(project.path, '.worktrees', 'feat-factory-verify-retry-reset'),
+        worktreePath: wtPath3,
       })),
       verify: vi.fn(async () => ({
         passed: false,
@@ -1008,8 +1177,8 @@ describe('factory loop-controller EXECUTE modes', () => {
   it('awaitTaskToStructuredResult loops past heartbeat responses until the task is terminal', async () => {
     // Pre-fix: the first heartbeat return ended the await, the task was
     // still 'running', verify_status was 'failed', and plan-executor
-    // killed a perfectly good Codex batch mid-flight. Observed live on
-    // 2026-04-15 when Codex task 3 for fabro-97 took 14 min; plan-executor
+    // killed a perfectly good <git-user> batch mid-flight. Observed live on
+    // 2026-04-15 when <git-user> task 3 for fabro-97 took 14 min; plan-executor
     // declared it failed after 5 min even though the task later completed.
     const taskId = 'task-heartbeat-then-complete';
     let taskStatus = 'running';

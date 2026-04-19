@@ -172,7 +172,17 @@ describe('factory selected work item', () => {
       trust_level: 'dark',
     });
     const planPath = path.join(tempDir, 'selected-plan.md');
-    fs.writeFileSync(planPath, '# Selected plan\n');
+    // Plan has one already-completed task with no file references so the
+    // executor treats it as trusted-complete (no submit/await call) without
+    // tripping Fix 1's no_tasks_executed pause for empty plans.
+    fs.writeFileSync(planPath, [
+      '# Selected plan',
+      '',
+      '## Task 1: noop',
+      '',
+      '- [x] **Step 1: already done**',
+      '',
+    ].join('\n'));
 
     const selectedItem = factoryIntake.createWorkItem({
       project_id: project.id,

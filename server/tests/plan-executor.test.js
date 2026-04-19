@@ -139,6 +139,41 @@ expect(1).toBe(1);
     expect(r.failed_task).toBeNull();
   });
 
+  it('flags no_tasks_executed when live mode parses zero tasks from the plan', async () => {
+    // Live regression: factory cycle 2026-04-19 had EXECUTE return
+    // completed_tasks: [] with no failed_task because the worktree's plan
+    // copy parsed to zero actionable tasks. LEARN then refused to merge the
+    // empty branch, looping forever. Fix 1 surfaces this as an execute-fail
+    // signal so the loop can pause / quarantine.
+    const EMPTY_PLAN = `# Plan with no actionable tasks
+
+Some narrative text but no \`## Task N:\` headers, so parsePlanFile
+returns zero entries.
+`;
+    fs.writeFileSync(planPath, EMPTY_PLAN);
+    const r = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(r.completed_tasks).toEqual([]);
+    expect(r.failed_task).toBeNull();
+    expect(r.no_tasks_executed).toBe(true);
+    expect(r.no_tasks_reason).toBe('plan_parsed_zero_tasks');
+  });
+
+  it('does not flag no_tasks_executed when at least one task ran', async () => {
+    const r = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    expect(r.no_tasks_executed).toBeFalsy();
+  });
+
+  it('does not flag no_tasks_executed in non-live (suppress / pending_approval) modes', async () => {
+    const EMPTY_PLAN = `# Empty
+
+Narrative only.
+`;
+    fs.writeFileSync(planPath, EMPTY_PLAN);
+    const r = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir, execution_mode: 'suppress' });
+    expect(r.no_tasks_executed).toBeFalsy();
+  });
+
   it('still skips [x] tasks when their referenced files exist (genuine resume)', async () => {
     const PLAN_GENUINE_RESUME = `# Fabro Y
 

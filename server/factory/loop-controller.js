@@ -1343,11 +1343,54 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
             worktree_path: worktreeRecord.worktreePath,
             worktree_id: worktreeRecord.vcWorktreeId,
             factory_worktree_id: worktreeRecord.id,
+            work_item_id: workItem.id,
             error: err.message,
           },
           confidence: 1,
           batch_id: shippingDecision.decision_batch_id || decisionBatchId,
         });
+
+        // Fix 2: if this is the second consecutive empty-branch merge failure
+        // for the same work item, auto-quarantine it. Otherwise the LEARN
+        // stage bounces straight back to SENSE which re-picks the same item
+        // and EXECUTE produces another empty branch, looping forever.
+        try {
+          const priorDecisions = factoryDecisions.listDecisions(project_id, {
+            stage: LOOP_STATES.LEARN,
+            limit: 200,
+          });
+          if (shouldQuarantineForEmptyMerges({
+            currentErrorMessage: err.message,
+            priorDecisions,
+            workItemId: workItem.id,
+          })) {
+            factoryIntake.updateWorkItem(workItem.id, {
+              status: 'rejected',
+              reject_reason: 'consecutive_empty_executions',
+            });
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.LEARN,
+              action: 'auto_quarantined_empty_merges',
+              reasoning: `Work item ${workItem.id} produced empty branches across consecutive EXECUTE cycles; auto-rejecting so the loop can advance.`,
+              outcome: {
+                work_item_id: workItem.id,
+                branch: worktreeRecord.branch,
+              },
+              confidence: 1,
+              batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+            });
+            return {
+              status: 'skipped',
+              reason: 'auto_quarantined_empty_merges',
+              work_item_id: workItem.id,
+              error: err.message,
+            };
+          }
+        } catch (_quarantineErr) {
+          void _quarantineErr;
+        }
+
         return {
           status: 'skipped',
           reason: 'worktree_merge_failed',
@@ -3377,6 +3420,51 @@ async function executePlanFileStage(project, instance, workItem) {
     execution_mode: executeMode,
   });
 
+  // Fix 1: if live execute returned zero completions AND zero failures,
+  // pause at EXECUTE — VERIFY would false-pass on the empty branch and the
+  // loop would otherwise cycle forever on the same work item.
+  if (result.no_tasks_executed) {
+    factoryIntake.updateWorkItem(targetItem.id, {
+      status: 'in_progress',
+      reject_reason: `execute_failed_no_tasks_${result.no_tasks_reason || 'unknown'}`,
+    });
+    logger.error('EXECUTE stage: live executor produced no completed and no failed tasks — pausing at EXECUTE', {
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      reason: result.no_tasks_reason,
+      parsed_task_count: result.parsed_task_count,
+      plan_path: targetItem.origin.plan_path,
+    });
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'execution_failed_no_tasks',
+      reasoning: `Live plan executor produced no completed and no failed tasks (${result.no_tasks_reason}). Pausing at EXECUTE so the operator can investigate (likely an empty / unparseable plan or worktree-copy mismatch).`,
+      inputs: {
+        ...getWorkItemDecisionContext(targetItem),
+      },
+      outcome: {
+        no_tasks_reason: result.no_tasks_reason,
+        parsed_task_count: result.parsed_task_count,
+        plan_path: targetItem.origin.plan_path,
+        next_state: LOOP_STATES.PAUSED,
+        paused_at_stage: LOOP_STATES.EXECUTE,
+      },
+      confidence: 1,
+      batch_id: decisionBatchId,
+    });
+    return {
+      next_state: LOOP_STATES.PAUSED,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      reason: 'execute_failed_no_tasks',
+      stage_result: {
+        ...result,
+        status: 'paused',
+      },
+      work_item: targetItem,
+    };
+  }
+
   if (result.failed_task) {
     factoryIntake.updateWorkItem(targetItem.id, {
       status: 'in_progress',
@@ -3450,6 +3538,33 @@ async function executePlanFileStage(project, instance, workItem) {
 }
 
 const MAX_AUTO_VERIFY_RETRIES = 3;
+// Fix 4: separate budget for transient submission failures (no_task_id,
+// submit_threw). These are not test failures — they're auto-router or
+// provider hiccups that may recover on a subsequent attempt. Capped low
+// so a persistent provider outage doesn't spin forever.
+const MAX_SUBMISSION_FAILURES = 2;
+const FATAL_SUBMISSION_REASONS = new Set(['cwd_missing']);
+
+// Fix 2: detect the "no commits ahead of <base>" merge-time failure that
+// signals an empty execution. Pure helpers are exported for testability.
+function isEmptyBranchMergeError(message) {
+  return typeof message === 'string' && /no commits ahead/i.test(message);
+}
+
+function countPriorEmptyMergeFailuresForWorkItem(decisions, workItemId) {
+  if (!Array.isArray(decisions) || workItemId == null) return 0;
+  return decisions.filter((d) => {
+    if (!d || d.action !== 'worktree_merge_failed') return false;
+    const outcome = d.outcome || {};
+    if (outcome.work_item_id !== workItemId) return false;
+    return isEmptyBranchMergeError(outcome.error || '');
+  }).length;
+}
+
+function shouldQuarantineForEmptyMerges({ currentErrorMessage, priorDecisions, workItemId, threshold = 1 }) {
+  if (!isEmptyBranchMergeError(currentErrorMessage)) return false;
+  return countPriorEmptyMergeFailuresForWorkItem(priorDecisions, workItemId) >= threshold;
+}
 
 function stripAnsi(text) {
   return typeof text === 'string'
@@ -3496,6 +3611,33 @@ async function submitVerifyFixTask({
   const { handleAwaitTask } = require('../handlers/workflow/await');
   const taskCore = require('../db/task-core');
 
+  // Fix 6: short-circuit when the worktree directory does not exist on disk.
+  // Without this guard, smart_submit_task fails with INTERNAL_ERROR
+  // ("working_directory does not exist") which the retry loop misclassifies
+  // as a generic "no_task_id" failure. By detecting cwd_missing here we
+  // surface a precise reason and avoid wasting a retry attempt against a
+  // path that won't reappear by retrying.
+  if (worktreeRecord?.worktreePath && !fs.existsSync(worktreeRecord.worktreePath)) {
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.VERIFY,
+      action: 'verify_retry_cwd_missing',
+      reasoning: `Auto-retry skipped: worktree directory ${worktreeRecord.worktreePath} does not exist on disk.`,
+      outcome: {
+        attempt,
+        branch: worktreeRecord.branch,
+        worktree_path: worktreeRecord.worktreePath,
+      },
+      confidence: 1,
+      batch_id,
+    });
+    return {
+      submitted: false,
+      reason: 'cwd_missing',
+      error: `worktree directory missing on disk: ${worktreeRecord.worktreePath}`,
+    };
+  }
+
   const project = factoryHealth.getProject(project_id);
   const planPath = workItem?.origin?.plan_path || null;
   const planTitle = workItem?.title || workItem?.origin?.title || null;
@@ -3525,7 +3667,7 @@ async function submitVerifyFixTask({
     project_id,
     stage: LOOP_STATES.VERIFY,
     action: 'verify_retry_submitted',
-    reasoning: `Auto-retry #${attempt}: submitting a fix task to <git-user> with the verify error as context.`,
+    reasoning: `Auto-retry #${attempt}: submitting a fix task via the auto-router with the verify error as context.`,
     inputs: {
       branch: worktreeRecord.branch,
       attempt,
@@ -3638,12 +3780,13 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
       workItemForRetry = null;
     }
 
-    // Auto-retry: if verify fails, submit a fix task to <git-user> with the
-    // error output as context, then re-run verify. Bounded at
+    // Auto-retry: if verify fails, submit a fix task via the auto-router with
+    // the error output as context, then re-run verify. Bounded at
     // MAX_AUTO_VERIFY_RETRIES. If still failing after that, auto-reject
     // the work item so the loop can advance to the next item.
     let res = null;
     let retryAttempt = 0;
+    let submissionFailures = 0;
     try {
       // eslint-disable-next-line no-constant-condition
       while (true) {
@@ -3749,7 +3892,96 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
           verifyOutput: res.output,
           attempt: retryAttempt,
         });
-        if (!retryResult.submitted || retryResult.awaitStatus !== 'completed') {
+
+        // Fix 4: classify the retry result.
+        // (a) submission did not happen — distinguish fatal vs transient.
+        if (retryResult.submitted === false) {
+          if (FATAL_SUBMISSION_REASONS.has(retryResult.reason)) {
+            // Fatal: cwd missing, etc. Pause immediately — retrying won't help.
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.VERIFY,
+              action: 'worktree_verify_failed',
+              reasoning: `Worktree verify FAILED: retry submission cannot proceed (${retryResult.reason}). Pausing at VERIFY_FAIL.`,
+              outcome: {
+                branch: worktreeRecord.branch,
+                worktree_path: worktreeRecord.worktreePath,
+                duration_ms: res.durationMs,
+                verify_command: verifyCommand,
+                output_preview: String(res.output || '').slice(-1500),
+                retry_attempts: retryAttempt,
+                submission_reason: retryResult.reason,
+              },
+              confidence: 1,
+              batch_id,
+            });
+            return {
+              status: 'failed',
+              reason: `verify_retry_${retryResult.reason}`,
+              pause_at_stage: 'VERIFY_FAIL',
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+              verify_output: String(res.output || '').slice(-1500),
+              retry_attempts: retryAttempt,
+            };
+          }
+          // Transient submission failure (no task_id, submit_threw, etc.).
+          // Don't consume a retry attempt — the test never ran. Re-attempt
+          // the submission, capped at MAX_SUBMISSION_FAILURES so a persistent
+          // provider outage doesn't loop forever.
+          submissionFailures += 1;
+          retryAttempt -= 1;
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.VERIFY,
+            action: 'verify_retry_submission_failed',
+            reasoning: `Auto-retry submission failed (${retryResult.reason || 'unknown'}); not consuming a retry attempt (${submissionFailures}/${MAX_SUBMISSION_FAILURES}).`,
+            outcome: {
+              attempt: retryAttempt + 1,
+              submission_failures: submissionFailures,
+              max_submission_failures: MAX_SUBMISSION_FAILURES,
+              reason: retryResult.reason || null,
+              error: retryResult.error || null,
+              branch: worktreeRecord.branch,
+            },
+            confidence: 1,
+            batch_id,
+          });
+          if (submissionFailures >= MAX_SUBMISSION_FAILURES) {
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.VERIFY,
+              action: 'worktree_verify_failed',
+              reasoning: `Worktree verify FAILED: ${submissionFailures} consecutive retry-submission errors; pausing at VERIFY_FAIL for operator triage.`,
+              outcome: {
+                branch: worktreeRecord.branch,
+                worktree_path: worktreeRecord.worktreePath,
+                duration_ms: res.durationMs,
+                verify_command: verifyCommand,
+                output_preview: String(res.output || '').slice(-1500),
+                retry_attempts: retryAttempt,
+                submission_failures: submissionFailures,
+              },
+              confidence: 1,
+              batch_id,
+            });
+            return {
+              status: 'failed',
+              reason: 'worktree_verify_failed_submission_failures',
+              pause_at_stage: 'VERIFY_FAIL',
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+              verify_output: String(res.output || '').slice(-1500),
+              retry_attempts: retryAttempt,
+              submission_failures: submissionFailures,
+            };
+          }
+          continue;
+        }
+
+        // (b) submission OK but task did not complete — preserve existing
+        // pause behavior (provider crashed, await timed out, etc.).
+        if (retryResult.awaitStatus !== 'completed') {
           safeLogDecision({
             project_id,
             stage: LOOP_STATES.VERIFY,
@@ -3791,6 +4023,8 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             retry_attempts: retryAttempt,
           };
         }
+        // (c) submission OK + task completed — reset transient counter and re-verify.
+        submissionFailures = 0;
         safeLogDecision({
           project_id,
           stage: LOOP_STATES.VERIFY,
@@ -5114,6 +5348,11 @@ module.exports = {
   attachBatchId,
   attachBatchIdForProject,
   buildAutoGeneratedPlanPrompt,
+  // Pure helpers (Fix 2 — fallback quarantine if upstream's empty-branch
+  // resolver in maybeShipWorkItemAfterLearn ever fails open).
+  isEmptyBranchMergeError,
+  countPriorEmptyMergeFailuresForWorkItem,
+  shouldQuarantineForEmptyMerges,
   // Test hooks
   setWorktreeRunnerForTests,
   _internalForTests: {

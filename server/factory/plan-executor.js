@@ -227,6 +227,20 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
       duration_ms: Date.now() - started,
     };
 
+    // Fix 1: live mode that produced no completion AND no failure means the
+    // plan executor silently no-oped — either the plan parsed to zero tasks
+    // or every task fell through without producing an outcome. Surface this
+    // as a hard signal so the loop can pause at EXECUTE rather than advance
+    // to VERIFY (which would false-pass on an empty diff and then collapse
+    // at LEARN's "no commits ahead" merge refusal).
+    if (mode === 'live' && completed_tasks.length === 0 && failed_task == null) {
+      result.no_tasks_executed = true;
+      result.no_tasks_reason = parsed.tasks.length === 0
+        ? 'plan_parsed_zero_tasks'
+        : 'all_tasks_skipped_or_unprocessed';
+      result.parsed_task_count = parsed.tasks.length;
+    }
+
     if (mode !== 'live') {
       result.dry_run = true;
       result.task_count = task_count;
