@@ -4249,25 +4249,108 @@ async function submitVerifyFixTask({
   // as a generic "no_task_id" failure. By detecting cwd_missing here we
   // surface a precise reason and avoid wasting a retry attempt against a
   // path that won't reappear by retrying.
+  //
+  // Dark-factory recovery: before giving up, attempt to recreate the
+  // worktree from the existing branch (git objects still hold the commits
+  // even when the worktree dir was deleted). If the branch also vanished,
+  // the work is unrecoverable — auto-reject so the loop moves on instead
+  // of pausing for operator intervention.
   if (worktreeRecord?.worktreePath && !fs.existsSync(worktreeRecord.worktreePath)) {
-    safeLogDecision({
-      project_id,
-      stage: LOOP_STATES.VERIFY,
-      action: 'verify_retry_cwd_missing',
-      reasoning: `Auto-retry skipped: worktree directory ${worktreeRecord.worktreePath} does not exist on disk.`,
-      outcome: {
-        attempt,
-        branch: worktreeRecord.branch,
-        worktree_path: worktreeRecord.worktreePath,
-      },
-      confidence: 1,
-      batch_id,
-    });
-    return {
-      submitted: false,
-      reason: 'cwd_missing',
-      error: `worktree directory missing on disk: ${worktreeRecord.worktreePath}`,
-    };
+    const projectForRecovery = factoryHealth.getProject(project_id);
+    const repoPath = projectForRecovery?.path;
+    const branch = worktreeRecord.branch;
+    const worktreePath = worktreeRecord.worktreePath;
+
+    // Probe whether the branch still exists locally.
+    let branchExists = false;
+    if (repoPath && branch) {
+      try {
+        const { execFileSync } = require('child_process');
+        execFileSync('git', ['show-ref', '--verify', `refs/heads/${branch}`], {
+          cwd: repoPath,
+          stdio: 'ignore',
+          windowsHide: true,
+          timeout: 5000,
+        });
+        branchExists = true;
+      } catch (_probeErr) { void _probeErr; }
+    }
+
+    if (branchExists) {
+      try {
+        const { execFileSync } = require('child_process');
+        const pathMod = require('path');
+        fs.mkdirSync(pathMod.dirname(worktreePath), { recursive: true });
+        // Prune first — a stale entry in .git/worktrees may still claim
+        // ownership even though the directory is gone.
+        try { execFileSync('git', ['worktree', 'prune'], { cwd: repoPath, windowsHide: true, timeout: 10000 }); } catch (_e) { void _e; }
+        // `worktree add <path> <branch>` (no -b) attaches an existing branch.
+        execFileSync('git', ['worktree', 'add', worktreePath, branch], {
+          cwd: repoPath,
+          windowsHide: true,
+          timeout: 30000,
+        });
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.VERIFY,
+          action: 'verify_retry_worktree_recovered',
+          reasoning: `Worktree directory vanished mid-verify; recovered by re-attaching branch ${branch} at ${worktreePath}. Proceeding with retry.`,
+          outcome: { attempt, branch, worktree_path: worktreePath },
+          confidence: 1,
+          batch_id,
+        });
+        // Fall through to the normal submission path — the worktree is live again.
+      } catch (recoverErr) {
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.VERIFY,
+          action: 'verify_retry_worktree_recovery_failed',
+          reasoning: `Worktree recovery attempt failed: ${recoverErr.message}. Returning cwd_missing for operator triage.`,
+          outcome: { attempt, branch, worktree_path: worktreePath, error: recoverErr.message },
+          confidence: 1,
+          batch_id,
+        });
+        return {
+          submitted: false,
+          reason: 'cwd_missing',
+          error: `worktree directory missing and recovery failed: ${recoverErr.message}`,
+        };
+      }
+    } else {
+      // Branch also gone — the work is unrecoverable. Auto-reject so the
+      // loop moves on instead of pausing for operator.
+      try {
+        factoryIntake.updateWorkItem(workItem.id, {
+          status: 'rejected',
+          reject_reason: 'worktree_and_branch_lost_during_verify',
+        });
+      } catch (rejectErr) {
+        logger.warn('verify-recovery: updateWorkItem failed', {
+          project_id, work_item_id: workItem?.id, err: rejectErr.message,
+        });
+      }
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.VERIFY,
+        action: 'auto_rejected_worktree_lost',
+        reasoning: `Both worktree directory and branch ${branch} vanished mid-verify. Work is unrecoverable — auto-rejecting item so loop advances.`,
+        outcome: {
+          attempt,
+          branch,
+          worktree_path: worktreePath,
+          work_item_id: workItem?.id ?? null,
+          next_state: LOOP_STATES.IDLE,
+        },
+        confidence: 1,
+        batch_id,
+      });
+      return {
+        submitted: false,
+        reason: 'worktree_lost',
+        error: `worktree directory and branch ${branch} both missing — auto-rejected`,
+        auto_rejected: true,
+      };
+    }
   }
 
   const project = factoryHealth.getProject(project_id);
@@ -4681,6 +4764,18 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
         // Fix 4: classify the retry result.
         // (a) submission did not happen — distinguish fatal vs transient.
         if (retryResult.submitted === false) {
+          // Dark-factory recovery: submitVerifyFixTask already auto-rejected
+          // the item (worktree + branch both lost). Advance the loop past
+          // VERIFY so the factory picks the next item.
+          if (retryResult.auto_rejected) {
+            return {
+              status: 'passed',
+              reason: retryResult.reason || 'auto_rejected_during_verify',
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+              retry_attempts: retryAttempt,
+            };
+          }
           if (FATAL_SUBMISSION_REASONS.has(retryResult.reason)) {
             // Fatal: cwd missing, etc. Pause immediately — retrying won't help.
             safeLogDecision({
