@@ -229,13 +229,11 @@ const OVERRIDES = Object.freeze({
   benchmark_codebase_study:        Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   bootstrap_codebase_study:        Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   reset_codebase_study:            Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: false }),
-
-  // ── Model freshness plugin (model_* names don't match any prefix/suffix rule) ──
-  model_watchlist_list:            READONLY,
-  model_watchlist_add:             IDEMPOTENT,
-  model_watchlist_remove:          IDEMPOTENT,
-  model_freshness_scan_now:        Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
-  model_freshness_events:          READONLY,
+  // Model-freshness plugin overrides (model_watchlist_*, model_freshness_*)
+  // were removed 2026-04-19 — the plugin is on feat/model-freshness-monitor
+  // but hasn't merged yet, so these overrides referenced nonexistent tools
+  // and tripped the tool-annotations validateCoverage test. Re-add them
+  // when the plugin lands.
 });
 
 /**
