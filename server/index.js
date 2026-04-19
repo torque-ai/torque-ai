@@ -13,11 +13,6 @@
  * - SQLite persistence
  */
 
-// DIAGNOSTIC: install worktree-delete tracer before anything else so it
-// catches every downstream caller's fs.rmSync and git worktree remove.
-// Safe no-op for non-factory paths. See server/factory/worktree-delete-trace.js.
-require('./factory/worktree-delete-trace').install();
-
 const readline = require('readline');
 const childProcess = require('child_process');
 const fs = require('fs');
