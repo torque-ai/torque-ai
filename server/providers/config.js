@@ -326,8 +326,8 @@ function resolveSystemPrompt(model) {
 function isProviderEnabled(provider) {
   const key = `${provider.replace(/-/g, '_')}_enabled`;
   const val = db.getConfig(key);
-  // Opt-in providers (require setup): codex, codex_spark, deepinfra, hyperbolic
-  const optInProviders = ['codex', 'codex_spark', 'deepinfra', 'hyperbolic'];
+  // Opt-in providers (require setup): codex, codex_spark, deepinfra, hyperbolic, claude_ollama
+  const optInProviders = ['codex', 'codex_spark', 'deepinfra', 'hyperbolic', 'claude_ollama'];
   if (optInProviders.includes(provider.replace(/-/g, '_'))) {
     return val === '1';
   }
