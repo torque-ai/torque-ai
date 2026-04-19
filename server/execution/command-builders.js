@@ -12,10 +12,19 @@ const { applyStudyContextPrompt } = require('../integrations/codebase-study-engi
 // the shared object database + refs at <main>/.git/, both outside the
 // worktree's cwd. The --full-auto workspace-write sandbox only permits writes
 // inside cwd, so `git add`/`git commit` fail with "Permission denied" trying
-// to create index.lock or write new objects. Resolve the common gitdir
-// (parent of worktrees/<name>/) so the caller can pass it via --add-dir,
-// covering both per-worktree and shared state in one writable root.
-function resolveWorktreeGitDir(workingDirectory) {
+// to create index.lock or write new objects.
+//
+// Previous fix widened the sandbox to the entire common .git dir. That let
+// Codex accidentally corrupt the main repo's HEAD by running
+// `git --git-dir=<common> --work-tree=<worktree> checkout -f master -- .`
+// during recovery attempts. This resolver narrows the writable roots to
+// just the subdirs commit + push actually need to write, leaving
+// <common>/HEAD and other top-level files read-only.
+//
+// Probe (git commit + git push on a feature branch) writes to:
+//   objects/, refs/, logs/, worktrees/<leaf>/
+// Not to: HEAD, index, packed-refs, hooks/, info/, config.
+function resolveSandboxWritableRoots(workingDirectory) {
   try {
     const gitPath = path.join(workingDirectory, '.git');
     const st = fs.statSync(gitPath);
@@ -27,9 +36,6 @@ function resolveWorktreeGitDir(workingDirectory) {
     const perWorktreeGitDir = path.isAbsolute(linked)
       ? linked
       : path.resolve(workingDirectory, linked);
-    // commondir file inside the per-worktree gitdir points to the shared .git
-    // (relative or absolute). Falls back to <perWorktreeGitDir>/../.. which is
-    // git's standard layout when commondir is missing or unreadable.
     let commonGitDir;
     try {
       const commondirFile = path.join(perWorktreeGitDir, 'commondir');
@@ -38,7 +44,18 @@ function resolveWorktreeGitDir(workingDirectory) {
     } catch {
       commonGitDir = path.resolve(perWorktreeGitDir, '..', '..');
     }
-    return commonGitDir;
+    // mkdirSync for logs/ because a fresh repo may not have it yet; Codex's
+    // --add-dir must reference an existing dir.
+    for (const sub of ['objects', 'refs', 'logs']) {
+      const p = path.join(commonGitDir, sub);
+      try { fs.mkdirSync(p, { recursive: true }); } catch { /* best effort */ }
+    }
+    return {
+      perWorktreeGitDir,
+      commonObjectsDir: path.join(commonGitDir, 'objects'),
+      commonRefsDir: path.join(commonGitDir, 'refs'),
+      commonLogsDir: path.join(commonGitDir, 'logs'),
+    };
   } catch {
     return null;
   }
@@ -172,9 +189,12 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
 
   if (task.working_directory) {
     codexArgs.push('-C', task.working_directory);
-    const linkedGitDir = resolveWorktreeGitDir(task.working_directory);
-    if (linkedGitDir) {
-      codexArgs.push('--add-dir', linkedGitDir);
+    const sandboxRoots = resolveSandboxWritableRoots(task.working_directory);
+    if (sandboxRoots) {
+      codexArgs.push('--add-dir', sandboxRoots.perWorktreeGitDir);
+      codexArgs.push('--add-dir', sandboxRoots.commonObjectsDir);
+      codexArgs.push('--add-dir', sandboxRoots.commonRefsDir);
+      codexArgs.push('--add-dir', sandboxRoots.commonLogsDir);
     }
   }
 
