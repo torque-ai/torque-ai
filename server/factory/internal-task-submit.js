@@ -58,8 +58,14 @@ async function submitFactoryInternalTask({
     task_metadata,
   });
 
+  if (result?.isError || !result?.task_id) {
+    const detail = result?.content?.[0]?.text || 'no task_id returned';
+    const code = result?.error_code ? ` [${result.error_code}]` : '';
+    throw new Error(`smart_submit_task failed${code}: ${detail}`);
+  }
+
   return {
-    task_id: result?.task_id || null,
+    task_id: result.task_id,
   };
 }
 

@@ -153,4 +153,36 @@ describe('submitFactoryInternalTask', () => {
       project_id: 'project-9',
     })).resolves.toEqual({ task_id: 'internal-task-9' });
   });
+
+  // Regression: smart_submit_task returns { isError: true, content: [...], error_code }
+  // on failure (e.g. provider exhausted, invalid project). The old code only checked
+  // result?.task_id, returned { task_id: null }, and the caller threw a generic
+  // "smart_submit_task did not return task_id" — throwing away the real reason.
+  it('propagates the smart_submit_task error text when the submitter returns an error response', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({
+      isError: true,
+      error_code: 'PROVIDER_UNAVAILABLE',
+      content: [{ type: 'text', text: 'PROVIDER_UNAVAILABLE: codex quota exhausted' }],
+    });
+
+    await expect(submitFactoryInternalTask({
+      task: 'plan work',
+      working_directory: '/repo',
+      kind: 'plan_generation',
+      project_id: 'project-42',
+    })).rejects.toThrow(/\[PROVIDER_UNAVAILABLE\].*codex quota exhausted/);
+  });
+
+  it('throws with detail when submitter silently returns no task_id and no error flag', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: null });
+
+    await expect(submitFactoryInternalTask({
+      task: 'plan work',
+      working_directory: '/repo',
+      kind: 'plan_generation',
+      project_id: 'project-42',
+    })).rejects.toThrow(/smart_submit_task failed.*no task_id returned/);
+  });
 });
