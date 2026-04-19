@@ -74,6 +74,33 @@ Anthropic's Claude Code CLI. Best for architectural decisions and complex debugg
 1. Install: `npm install -g @anthropic-ai/claude-code`
 2. Authenticate: `claude auth`
 
+### claude-ollama (Local + Claude Code harness)
+
+Wraps `ollama launch claude --model <local> -- -p "<prompt>"` so local Ollama models
+drive the Claude Code harness (Read/Edit/Bash/tool loop) instead of the raw
+prompt-response shape used by the `ollama` provider. Disabled by default.
+
+**Requires:**
+- `ollama` binary on PATH (tested with 0.20.7+)
+- `claude` binary on PATH (Claude Code CLI)
+- At least one healthy Ollama host with non-cloud models
+
+**Not for cloud Ollama models** — those tags (`*-cloud`) use SSH-keypair signin at
+ollama.com and cannot be reached through the launcher bridge. Use `ollama-cloud`
+(bearer-token REST) for those.
+
+**Concurrency:** 1 task per host (VRAM constraint; model swaps are slow).
+
+**Enable:**
+```
+configure_provider { provider: "claude-ollama", enabled: true }
+```
+
+**Use:**
+```
+smart_submit_task { provider: "claude-ollama", model: "qwen3-coder:30b", description: "..." }
+```
+
 ## API Providers (BYOK)
 
 Cloud API providers are disabled by default. To enable one:
