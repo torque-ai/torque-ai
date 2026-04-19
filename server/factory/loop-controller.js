@@ -3821,23 +3821,39 @@ async function executePlanFileStage(project, instance, workItem) {
   // Fix 1: if live execute returned zero completions AND zero failures,
   // pause at EXECUTE — VERIFY would false-pass on the empty branch and the
   // loop would otherwise cycle forever on the same work item.
+  //
+  // Auto-recovery: reason `plan_parsed_zero_tasks` is deterministic and
+  // means the parser can't even see any tasks — retrying with the same
+  // plan will always fail. Reject the item outright so the loop moves to
+  // the next work item instead of requiring operator intervention. Other
+  // reasons (e.g. `all_tasks_skipped_or_unprocessed`) may be transient
+  // (flaky provider, task mid-flight) and still pause for review.
   if (result.no_tasks_executed) {
+    const unrecoverable = result.no_tasks_reason === 'plan_parsed_zero_tasks';
+    const updatedStatus = unrecoverable ? 'rejected' : 'in_progress';
+    const rejectReason = unrecoverable
+      ? 'plan_parsed_zero_tasks'
+      : `execute_failed_no_tasks_${result.no_tasks_reason || 'unknown'}`;
     factoryIntake.updateWorkItem(targetItem.id, {
-      status: 'in_progress',
-      reject_reason: `execute_failed_no_tasks_${result.no_tasks_reason || 'unknown'}`,
+      status: updatedStatus,
+      reject_reason: rejectReason,
     });
-    logger.error('EXECUTE stage: live executor produced no completed and no failed tasks — pausing at EXECUTE', {
+    const level = unrecoverable ? 'warn' : 'error';
+    logger[level]('EXECUTE stage: live executor produced no completed and no failed tasks', {
       project_id: project.id,
       work_item_id: targetItem.id,
       reason: result.no_tasks_reason,
       parsed_task_count: result.parsed_task_count,
       plan_path: targetItem.origin.plan_path,
+      resolution: unrecoverable ? 'auto_rejected' : 'paused_for_operator',
     });
     safeLogDecision({
       project_id: project.id,
       stage: LOOP_STATES.EXECUTE,
-      action: 'execution_failed_no_tasks',
-      reasoning: `Live plan executor produced no completed and no failed tasks (${result.no_tasks_reason}). Pausing at EXECUTE so the operator can investigate (likely an empty / unparseable plan or worktree-copy mismatch).`,
+      action: unrecoverable ? 'auto_rejected_unparseable_plan' : 'execution_failed_no_tasks',
+      reasoning: unrecoverable
+        ? `Plan at ${targetItem.origin.plan_path} parsed to zero tasks — rejecting work item to avoid infinite re-entry. Retrying would produce the same zero-task result on every tick.`
+        : `Live plan executor produced no completed and no failed tasks (${result.no_tasks_reason}). Pausing at EXECUTE so the operator can investigate (likely a worktree-copy mismatch or mid-flight task state).`,
       inputs: {
         ...getWorkItemDecisionContext(targetItem),
       },
@@ -3845,15 +3861,30 @@ async function executePlanFileStage(project, instance, workItem) {
         no_tasks_reason: result.no_tasks_reason,
         parsed_task_count: result.parsed_task_count,
         plan_path: targetItem.origin.plan_path,
-        next_state: LOOP_STATES.PAUSED,
-        paused_at_stage: LOOP_STATES.EXECUTE,
+        next_state: unrecoverable ? LOOP_STATES.IDLE : LOOP_STATES.PAUSED,
+        paused_at_stage: unrecoverable ? null : LOOP_STATES.EXECUTE,
       },
       confidence: 1,
       batch_id: decisionBatchId,
     });
+    if (unrecoverable) {
+      // Terminate the instance so the tick picks the next work item from
+      // SENSE on its next cycle.
+      return {
+        next_state: LOOP_STATES.IDLE,
+        stop_execution: true,
+        reason: 'auto_rejected_unparseable_plan',
+        stage_result: {
+          ...result,
+          status: 'rejected',
+        },
+        work_item: targetItem,
+      };
+    }
     return {
       next_state: LOOP_STATES.PAUSED,
       paused_at_stage: LOOP_STATES.EXECUTE,
+      stop_execution: true,
       reason: 'execute_failed_no_tasks',
       stage_result: {
         ...result,
