@@ -183,6 +183,51 @@ describe('classifyDir', () => {
     expect(result.action).toBe('reclaim');
     expect(result.reason).toContain('abandoned');
   });
+
+  it('skips a freshly-created factory dir whose .git redirect is younger than the orphan min-age', () => {
+    // Defense-in-depth against the write-ahead race where worktree-manager's
+    // createWorktree creates the physical dir BEFORE inserting its
+    // vc_worktrees row. A reconcile in that window queries vc_worktrees
+    // while the insert is in flight, misses the row, and would reclaim the
+    // dir. The .git-mtime freshness check catches it.
+    const project = makeProject();
+    const freshDir = makeWorktreeDir(project.path, 'feat-factory-901-fresh');
+    fs.writeFileSync(path.join(freshDir, '.git'), 'gitdir: /irrelevant\n', 'utf8');
+
+    const nowMs = Date.now();
+    const result = classifyDir(freshDir, new Map(), new Map(), nowMs);
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('fresh factory dir');
+  });
+
+  it('reclaims a factory dir with no .git redirect regardless of freshness (truly broken, no metadata)', () => {
+    // If the .git file is missing entirely, git can't be using this dir.
+    // Freshness only protects dirs that have a .git redirect.
+    const project = makeProject();
+    const brokenDir = makeWorktreeDir(project.path, 'feat-factory-902-no-git');
+    // No .git file. makeWorktreeDir only writes a placeholder.txt.
+
+    const result = classifyDir(brokenDir, new Map(), new Map());
+    expect(result.action).toBe('reclaim');
+    expect(result.reason).toContain('orphan');
+  });
+
+  it('reclaims an older factory dir even though it has a .git redirect (stale orphan)', () => {
+    // A worktree with a .git redirect older than the min-age is a real
+    // orphan — any in-flight create has long since finished or died. Safe
+    // to reclaim.
+    const project = makeProject();
+    const oldDir = makeWorktreeDir(project.path, 'feat-factory-903-stale');
+    const dotGit = path.join(oldDir, '.git');
+    fs.writeFileSync(dotGit, 'gitdir: /irrelevant\n', 'utf8');
+    // Backdate the .git file's mtime by 10 minutes (> 60s threshold).
+    const oldTime = Date.now() - 10 * 60 * 1000;
+    fs.utimesSync(dotGit, oldTime / 1000, oldTime / 1000);
+
+    const result = classifyDir(oldDir, new Map(), new Map());
+    expect(result.action).toBe('reclaim');
+    expect(result.reason).toContain('orphan');
+  });
 });
 
 describe('reclaimDir', () => {

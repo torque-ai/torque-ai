@@ -222,15 +222,44 @@ function listWorktreeDirs(projectPath, worktreeDir = DEFAULT_WORKTREE_DIR) {
   return { root, dirs };
 }
 
+// Minimum age (ms) before a factory-named dir with no DB row is considered
+// a reclaimable orphan. Defense against a write-ahead race that even the
+// vc_worktrees check doesn't fully close: worktree-manager's createWorktree
+// creates the physical dir via `git worktree add` (line 519) BEFORE inserting
+// the vc_worktrees row (line 578). Between those two synchronous steps, a
+// parallel tick's reconcile that happens to query vc_worktrees first can
+// miss the row-in-flight and reclaim the dir. Ages are cheap to compute
+// from the .git redirect file's mtime; a truly abandoned dir will survive
+// this window and get reclaimed on the next tick.
+const ORPHAN_DIR_MIN_AGE_MS = 60 * 1000;
+
+// Read the .git redirect file inside a worktree dir and return its mtime.
+// Null on any read failure — the caller treats null as "don't use freshness
+// to skip", preserving pre-fix reclaim behavior for truly broken dirs.
+function readDotGitMtime(dirPath) {
+  try {
+    const dotGit = path.join(dirPath, '.git');
+    const stat = fs.statSync(dotGit);
+    if (!stat.isFile()) return null;
+    return stat.mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 // Decide whether a directory is a reclaimable orphan.
 //   - matching factory_worktrees row with reclaimable status → yes
 //   - matching factory_worktrees row with active/non-reclaimable status → no (still in use)
 //   - no factory_worktrees row, but a vc_worktrees row for this path → no (mid-create;
 //     factory row hasn't been inserted yet — deleting the dir would wipe the
 //     worktree out from under a live EXECUTE stage)
+//   - no DB row, directory name starts with feat-factory-, .git redirect
+//     file mtime younger than ORPHAN_DIR_MIN_AGE_MS → no (freshly created
+//     by an in-flight createWorktree call whose vc_worktrees insert hasn't
+//     committed yet)
 //   - no DB row, directory name starts with feat-factory- → yes (factory-created, abandoned without DB record)
 //   - no DB row, non-factory naming → no (user worktree, leave alone)
-function classifyDir(dirPath, rowsByPath, vcRowsByPath = new Map()) {
+function classifyDir(dirPath, rowsByPath, vcRowsByPath = new Map(), nowMs = Date.now()) {
   const key = normalizePathKey(dirPath);
   const row = rowsByPath.get(key);
   const leaf = path.basename(dirPath);
@@ -248,6 +277,15 @@ function classifyDir(dirPath, rowsByPath, vcRowsByPath = new Map()) {
   }
 
   if (leaf.startsWith(FACTORY_LEAF_PREFIX)) {
+    const mtime = readDotGitMtime(dirPath);
+    if (mtime !== null && (nowMs - mtime) < ORPHAN_DIR_MIN_AGE_MS) {
+      const ageSec = Math.round((nowMs - mtime) / 1000);
+      return {
+        action: 'skip',
+        reason: `fresh factory dir (.git age ${ageSec}s < ${ORPHAN_DIR_MIN_AGE_MS / 1000}s); likely mid-create`,
+        row: null,
+      };
+    }
     return { action: 'reclaim', reason: 'orphan factory dir with no db row', row: null };
   }
 
