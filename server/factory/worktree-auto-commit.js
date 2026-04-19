@@ -12,7 +12,15 @@ const { logDecision } = require('./decision-log');
 const { taskEvents } = require('../hooks/event-dispatch');
 const logger = require('../logger').child({ component: 'factory-worktree-auto-commit' });
 
-const ELIGIBLE_TRUST_LEVELS = new Set(['supervised', 'autonomous']);
+// Mirror of factory-health.js VALID_TRUST_LEVELS. Earlier this set was
+// ['supervised', 'autonomous'], which silently excluded 'dark' (the most
+// automated trust level — the one that needs auto-commit the most). With
+// 'dark' projects the listener never registered at boot, so Codex's edits
+// stayed uncommitted on the feat branch, LEARN's merge always failed
+// "no commits ahead", and the loop spun re-running the same plan tasks
+// forever. Including every real trust level keeps boot-time eligibility
+// in sync with project registration.
+const ELIGIBLE_TRUST_LEVELS = new Set(['supervised', 'guided', 'autonomous', 'dark']);
 const BATCH_TAG_PREFIX = 'factory:batch_id=';
 const PLAN_TASK_TAG_PREFIX = 'factory:plan_task_number=';
 

@@ -291,6 +291,30 @@ describe('factory worktree auto-commit', () => {
     childProcess.execFileSync = originalExecFileSync;
   });
 
+  it('registers the listener when only "dark" trust-level projects exist (regression: skipped pre-fix)', () => {
+    // Earlier ELIGIBLE_TRUST_LEVELS = ['supervised', 'autonomous'] silently
+    // excluded 'dark', the most automated trust level. Result: with only
+    // dark projects registered, the boot-time init returned false and the
+    // listener never attached. Codex output never got committed back to
+    // factory feat branches; LEARN merges always failed "no commits ahead";
+    // EXECUTE re-ran the same plan tasks forever. This test pins down that
+    // dark trust qualifies for auto-commit.
+    db.prepare(`
+      INSERT INTO factory_projects (id, name, path, trust_level, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'project-dark',
+      'Factory Dark Trust',
+      '/tmp/factory-dark',
+      'dark',
+      'running',
+      '2026-04-19T00:00:00.000Z',
+      '2026-04-19T00:00:00.000Z',
+    );
+
+    expect(autoCommit.initFactoryWorktreeAutoCommit()).toBe(true);
+  });
+
   it('commits dirty factory worktree changes after a completed plan task and logs auto_committed_task', () => {
     const { worktreePath } = initGitWorktree(tempDirs);
     seedFactoryProject(db, worktreePath);
