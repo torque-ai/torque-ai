@@ -214,6 +214,7 @@ function registerPausedVerifyProject({ workItemStatus, batchId }) {
   });
 
   factoryHealth.updateProject(project.id, {
+    status: 'running', // resume gate — new project-row pause check would otherwise abort the verify loop
     loop_state: LOOP_STATES.PAUSED,
     loop_paused_at_stage: LOOP_STATES.VERIFY,
     loop_batch_id: batchId,

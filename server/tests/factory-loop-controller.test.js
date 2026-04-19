@@ -281,12 +281,19 @@ describe('factory loop-controller EXECUTE modes', () => {
     git commit -m "feat: simulated task"
 `);
 
-    const project = factoryHealth.registerProject({
+    const projectRow = factoryHealth.registerProject({
       name: 'Loop Controller Dry Run Project',
       path: projectDir,
       trust_level: 'supervised',
       config,
     });
+    // registerProject defaults status='paused'. Production flips this via
+    // resume_project before the loop can advance; the factory's verify retry
+    // loop now (correctly) aborts mid-iteration if the project is paused, so
+    // test harness projects must mirror the resume flow or the retry tests
+    // see zero verify calls.
+    factoryHealth.updateProject(projectRow.id, { status: 'running' });
+    const project = factoryHealth.getProject(projectRow.id);
 
     const workItem = factoryIntake.createWorkItem({
       project_id: project.id,

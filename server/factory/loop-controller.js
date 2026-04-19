@@ -243,6 +243,22 @@ function getPausedAtStage(loopRecord) {
   return loopRecord.paused_at_stage || loopRecord.loop_paused_at_stage || null;
 }
 
+// `pause_project` writes factory_projects.status='paused', but the legacy gate
+// above only reads instance-level paused_at_stage. Without this second gate,
+// an in-flight VERIFY retry or auto-advance chain keeps firing after the
+// operator pauses the project (observed: bitsy work-item 471 submitted a
+// verify-retry task 3m30s AFTER pause_project landed). Checking the project
+// row flag makes pause actually bite across every entry and re-entry point.
+function isProjectStatusPaused(project_id) {
+  if (!project_id) return false;
+  try {
+    const project = factoryHealth.getProject(project_id);
+    return project?.status === 'paused';
+  } catch {
+    return false;
+  }
+}
+
 function getCurrentLoopState(loopRecord) {
   const raw = loopRecord.loop_state || 'IDLE';
   const loopState = raw.toUpperCase();
@@ -4238,6 +4254,29 @@ const MAX_AUTO_VERIFY_RETRIES = 3;
 const MAX_SUBMISSION_FAILURES = 2;
 const FATAL_SUBMISSION_REASONS = new Set(['cwd_missing']);
 
+// Retry counter persistence: count tasks tagged factory:verify_retry=N that
+// share this batch_id. executeVerifyStage uses this to seed its local
+// retryAttempt so re-entries (stall recovery, VERIFY_FAIL resume, dispatcher
+// dispatch) cannot reset the counter and cycle 1..3 again forever. Tags are
+// already written on every verify-retry submission, so there's no new schema
+// cost for this counter — the tasks table is the source of truth.
+function countPriorVerifyRetryTasksForBatch(batch_id) {
+  if (!batch_id) return 0;
+  try {
+    const taskCore = require('../db/task-core');
+    const tasks = taskCore.listTasks({
+      tags: [`factory:batch_id=${batch_id}`],
+      limit: 200,
+    });
+    return tasks.filter((t) =>
+      Array.isArray(t.tags)
+      && t.tags.some((tag) => typeof tag === 'string' && tag.startsWith('factory:verify_retry=')),
+    ).length;
+  } catch {
+    return 0;
+  }
+}
+
 // Fix 2: detect the "no commits ahead of <base>" merge-time failure that
 // signals an empty execution. Pure helpers are exported for testability.
 function isEmptyBranchMergeError(message) {
@@ -4265,8 +4304,16 @@ function stripAnsi(text) {
     : '';
 }
 
+// The factory's verify-retry prompt feeds Codex the tail of the verify output
+// so it can fix the failure. 4000 chars was too narrow for typical pip / dotnet /
+// pytest failures: a full traceback + Python context easily evicts the actual
+// error line off the top of the window, leaving the retry to guess blind.
+// 16000 gives the root cause enough room alongside the traceback without
+// blowing past reasonable prompt budgets.
+const VERIFY_FIX_PROMPT_TAIL_BUDGET = 16000;
+
 function buildVerifyFixPrompt({ planPath, planTitle, branch, verifyCommand, verifyOutput }) {
-  const tail = stripAnsi(String(verifyOutput || '')).slice(-4000);
+  const tail = stripAnsi(String(verifyOutput || '')).slice(-VERIFY_FIX_PROMPT_TAIL_BUDGET);
   const lines = [
     `Plan: ${planTitle || '(unknown)'}`,
     planPath ? `Plan path: ${planPath}` : null,
@@ -4581,11 +4628,40 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
     const verifyReview = require('./verify-review');
     let review = null;
     let res = null;
-    let retryAttempt = 0;
+    // Seed the retry counter from prior verify-retry tasks for this batch.
+    // Without this, any re-entry to executeVerifyStage (stall-recovery,
+    // VERIFY_FAIL resume, dispatcher re-entry) resets retryAttempt to 0 and
+    // the loop cycles retry=1..3 again instead of emitting
+    // auto_rejected_verify_fail. The retry tags persisted on task rows are
+    // the cross-call source of truth.
+    let retryAttempt = countPriorVerifyRetryTasksForBatch(batch_id);
     let submissionFailures = 0;
     try {
       // eslint-disable-next-line no-constant-condition
       while (true) {
+        // Project-row pause gate, re-checked on every iteration. An operator's
+        // pause_project must interrupt an in-flight verify-retry loop — not
+        // wait for the current retry to finish before the next iteration can
+        // submit another Codex task.
+        if (isProjectStatusPaused(project_id)) {
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.VERIFY,
+            action: 'verify_aborted_project_paused',
+            reasoning: 'Project was paused mid-verify; aborting retry loop instead of submitting another fix task.',
+            outcome: { retry_attempts: retryAttempt },
+            confidence: 1,
+            batch_id,
+          });
+          return {
+            status: 'paused',
+            reason: 'project_paused_mid_verify',
+            pause_at_stage: 'VERIFY',
+            branch: worktreeRecord.branch,
+            worktree_path: worktreeRecord.worktreePath,
+            retry_attempts: retryAttempt,
+          };
+        }
         res = await worktreeRunner.verify({
           worktreePath: worktreeRecord.worktreePath,
           branch: worktreeRecord.branch,
@@ -5679,10 +5755,17 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
       emitLoopAdvanceJobEvent(job);
 
       // Auto-advance: if the caller requested continuous driving AND the
-      // instance is neither terminated (IDLE) nor paused at a gate, enqueue
-      // the next advance. The 100ms delay prevents tight synchronous loops
-      // on stages that complete instantly (SENSE, PRIORITIZE).
-      if (autoAdvance && result.new_state !== LOOP_STATES.IDLE && !result.paused_at_stage) {
+      // instance is neither terminated (IDLE) nor paused at a gate AND the
+      // project row isn't paused, enqueue the next advance. The 100ms delay
+      // prevents tight synchronous loops on stages that complete instantly
+      // (SENSE, PRIORITIZE). The project-row check stops the chain the moment
+      // pause_project lands, without waiting for the current stage to finish.
+      if (
+        autoAdvance
+        && result.new_state !== LOOP_STATES.IDLE
+        && !result.paused_at_stage
+        && !isProjectStatusPaused(project.id)
+      ) {
         setTimeout(() => {
           try {
             advanceLoopAsync(instance_id, { autoAdvance: true });
@@ -5720,11 +5803,19 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
       emitLoopAdvanceJobEvent(job);
 
       // Auto-advance resilience: if the advance failed but the instance
-      // is still active (not terminated, not paused at a gate), retry
-      // after a cooldown. Transient failures (SSH timeout during remote
-      // verify, temporary network blip) shouldn't kill the entire chain.
-      // The 30s delay prevents tight retry loops on persistent failures.
-      if (autoAdvance && latestState && latestState !== LOOP_STATES.IDLE && !latestPaused) {
+      // is still active (not terminated, not paused at a gate, and project
+      // row isn't paused), retry after a cooldown. Transient failures (SSH
+      // timeout during remote verify, temporary network blip) shouldn't kill
+      // the entire chain. The 30s delay prevents tight retry loops on
+      // persistent failures. The project-row pause check keeps this branch
+      // from fighting an operator's pause_project call.
+      if (
+        autoAdvance
+        && latestState
+        && latestState !== LOOP_STATES.IDLE
+        && !latestPaused
+        && !isProjectStatusPaused(project.id)
+      ) {
         setTimeout(() => {
           try {
             advanceLoopAsync(instance_id, { autoAdvance: true });
@@ -6314,6 +6405,10 @@ module.exports = {
   attachBatchId,
   attachBatchIdForProject,
   buildAutoGeneratedPlanPrompt,
+  buildVerifyFixPrompt,
+  VERIFY_FIX_PROMPT_TAIL_BUDGET,
+  isProjectStatusPaused,
+  countPriorVerifyRetryTasksForBatch,
   // Pure helpers (Fix 2 — fallback quarantine if upstream's empty-branch
   // resolver in maybeShipWorkItemAfterLearn ever fails open).
   isEmptyBranchMergeError,

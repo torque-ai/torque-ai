@@ -458,7 +458,7 @@ async function handleAutoVerifyRetry(ctx) {
     ctx.output = (ctx.output || '') +
       `\n\n[auto-verify] Verification failed (exit ${verifyExitCode}) but provider completed successfully (exit 0). ` +
       `Errors may be pre-existing or from concurrent changes. Task stays completed.\n` +
-      `Verify errors (first 1500 chars): ${(verifyOutput || '').slice(0, 1500)}`;
+      `Verify errors (last 4000 chars): ${(verifyOutput || '').slice(-4000)}`;
     return; // Task stays completed
   }
 
@@ -466,7 +466,9 @@ async function handleAutoVerifyRetry(ctx) {
   const mcpSessionId = taskMetadata.mcp_session_id;
   if (mcpSessionId) {
     try {
-      const truncatedErrors = (verifyOutput || '').slice(0, 1500);
+      // Tail clip: pytest/pip/dotnet errors are at the end of the log,
+      // not the start. Head clips miss the actual failure every time.
+      const truncatedErrors = (verifyOutput || '').slice(-4000);
       const response = await elicit(mcpSessionId, {
         message: `Task ${taskId}: verification failed.\n\n${truncatedErrors}\n\nApprove anyway, reject (mark failed), or let auto-fix proceed?`,
         requestedSchema: {
@@ -488,7 +490,7 @@ async function handleAutoVerifyRetry(ctx) {
           logger.info(`[auto-verify] Task ${taskId}: human rejected — marking failed`);
           ctx.status = 'failed';
           ctx.errorOutput = (ctx.errorOutput || '') +
-            `\n\n[auto-verify] Human rejected. Verification failed:\n${(verifyOutput || '').slice(0, 4000)}`;
+            `\n\n[auto-verify] Human rejected. Verification failed:\n${(verifyOutput || '').slice(-6000)}`;
           return; // Skip auto-fix
         }
         // 'auto-fix' — fall through to existing retry logic
@@ -524,14 +526,17 @@ async function handleAutoVerifyRetry(ctx) {
     }
     ctx.status = 'failed';
     ctx.errorOutput = (ctx.errorOutput || '') +
-      `\n\n[auto-verify] Verification failed:\n${(verifyOutput || '').slice(0, 4000)}`;
+      `\n\n[auto-verify] Verification failed:\n${(verifyOutput || '').slice(-6000)}`;
     return;
   }
 
   // Build error-feedback prompt
   const originalDesc = task.task_description || '';
-  const originalOutput = (ctx.output || task.output || '').slice(0, 2000);
-  const errors = (verifyOutput || '').slice(0, 4000);
+  // Tail clip throughout: the actionable content (failing assertion, stack
+  // trace root, pip/dotnet error) lives at the end of the buffer. Head clips
+  // waste the budget on "collected 47 items" preambles.
+  const originalOutput = (ctx.output || task.output || '').slice(-4000);
+  const errors = (verifyOutput || '').slice(-8000);
   const errorOutput = verifyOutput || '';
   let fixDescription = '';
   try {
@@ -613,7 +618,7 @@ async function handleAutoVerifyRetry(ctx) {
   // (earlyExit skips handleProviderFailover which is the normal terminal write)
   ctx.status = 'failed';
   ctx.errorOutput = (ctx.errorOutput || '') +
-    `\n\n[auto-verify] Verification failed, fix task ${fixTaskId} submitted:\n${errors.slice(0, 2000)}`;
+    `\n\n[auto-verify] Verification failed, fix task ${fixTaskId} submitted:\n${errors.slice(-3000)}`;
   try {
     _db.updateTaskStatus(taskId, 'failed', {
       exit_code: task.exit_code || 0,
