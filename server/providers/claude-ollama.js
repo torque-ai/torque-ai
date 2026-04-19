@@ -374,6 +374,27 @@ class ClaudeOllamaProvider extends BaseProvider {
       },
     };
   }
+
+  async submit(task, model, options = {}) {
+    return this.runPrompt(task, model, options);
+  }
+
+  async submitStream(task, model, options = {}) {
+    return this.runPrompt(task, model, options);
+  }
+
+  async dispatchSubagent(options = {}) {
+    const prompt = cleanText(options.prompt);
+    if (!prompt) throw new Error('prompt must be a non-empty string');
+    const response = await this.submit(prompt, options.model || null, options);
+    return {
+      session_id: response.session_id,
+      claude_session_id: response.claude_session_id,
+      output: response.output,
+      usage: response.usage,
+      mode: SUPPORTED_PERMISSION_MODES.has(cleanText(options.mode)) ? cleanText(options.mode) : DEFAULT_MODE,
+    };
+  }
 }
 
 module.exports = ClaudeOllamaProvider;

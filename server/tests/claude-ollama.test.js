@@ -253,6 +253,41 @@ describe('ClaudeOllamaProvider.runPrompt — tool permission', () => {
   });
 });
 
+describe('ClaudeOllamaProvider — public API', () => {
+  it('submit delegates to runPrompt', async () => {
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    const spy = vi.spyOn(p, 'runPrompt').mockResolvedValue({ output: 'ok', status: 'completed', usage: {} });
+    await p.submit('task', 'qwen3-coder:30b', { working_directory: '/tmp' });
+    expect(spy).toHaveBeenCalledWith('task', 'qwen3-coder:30b', { working_directory: '/tmp' });
+    spy.mockRestore();
+  });
+
+  it('submitStream delegates to runPrompt', async () => {
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    const spy = vi.spyOn(p, 'runPrompt').mockResolvedValue({ output: 'ok', status: 'completed', usage: {} });
+    await p.submitStream('task', 'qwen3-coder:30b', { working_directory: '/tmp' });
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('dispatchSubagent forwards prompt and returns structured result', async () => {
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    const spy = vi.spyOn(p, 'submit').mockResolvedValue({
+      output: 'done', status: 'completed', session_id: 's1',
+      claude_session_id: 'cs1', usage: { tokens: 10 },
+    });
+    const res = await p.dispatchSubagent({ prompt: 'go', model: 'qwen3-coder:30b' });
+    expect(res.output).toBe('done');
+    expect(res.session_id).toBe('s1');
+    spy.mockRestore();
+  });
+
+  it('dispatchSubagent rejects empty prompt', async () => {
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    await expect(p.dispatchSubagent({ prompt: '' })).rejects.toThrow(/non-empty/);
+  });
+});
+
 describe('ClaudeOllamaProvider.runPrompt — session append', () => {
   it('appends user and assistant messages to the session store', async () => {
     const p = new ClaudeOllamaProvider({ enabled: true });
