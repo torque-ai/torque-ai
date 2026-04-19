@@ -451,10 +451,30 @@ async function checkPushBeforeSubagentTests(task, _rule, _context) {
   return { pass: true };
 }
 
-function checkNoForceRestart(_task, _rule, _context) {
-  // Restart is always a barrier task now — force-restart no longer exists.
-  // This checker is kept for backward compatibility but always passes.
-  return { pass: true };
+function checkNoForceRestart(_task, _rule, context) {
+  // Block force-shutdown while the pipeline has in-flight work. The shutdown
+  // handler passes { force, running, queued } via context when a force flag
+  // is present in the request body; we refuse unless the caller has proof of
+  // operator override (context.operator_override === true).
+  //
+  // Stop-torque.sh and cutover paths should drain via await_restart first.
+  // An emergency escape hatch for truly stuck pipelines is the explicit
+  // operator_override flag in the request body.
+  if (!context || context.force !== true) {
+    return { pass: true };
+  }
+  const running = Number.isFinite(context.running) ? context.running : 0;
+  const queued = Number.isFinite(context.queued) ? context.queued : 0;
+  if (running === 0 && queued === 0) {
+    return { pass: true };
+  }
+  if (context.operator_override === true) {
+    return { pass: true };
+  }
+  return {
+    pass: false,
+    message: `Force-shutdown blocked: ${running} running + ${queued} queued task(s). Drain the pipeline via await_restart, or pass operator_override:true for emergency override.`,
+  };
 }
 
 const CHECKERS = Object.freeze({

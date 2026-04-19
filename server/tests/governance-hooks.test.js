@@ -516,5 +516,51 @@ describe('governance/hooks', () => {
       expect(result).toEqual({ pass: true });
       expect(execSpy).not.toHaveBeenCalled();
     });
+
+    it('checkNoForceRestart passes when force is not set (non-force shutdown)', () => {
+      const result = CHECKERS.checkNoForceRestart({}, { config: null }, {});
+      expect(result).toEqual({ pass: true });
+    });
+
+    it('checkNoForceRestart passes when force is true but no tasks are running or queued', () => {
+      const result = CHECKERS.checkNoForceRestart(
+        {},
+        { config: null },
+        { force: true, running: 0, queued: 0 },
+      );
+      expect(result).toEqual({ pass: true });
+    });
+
+    it('checkNoForceRestart BLOCKS force-shutdown when running tasks exist', () => {
+      const result = CHECKERS.checkNoForceRestart(
+        {},
+        { config: null },
+        { force: true, running: 2, queued: 0 },
+      );
+      expect(result.pass).toBe(false);
+      expect(result.message).toContain('Force-shutdown blocked');
+      expect(result.message).toContain('2 running');
+      expect(result.message).toContain('await_restart');
+      expect(result.message).toContain('operator_override');
+    });
+
+    it('checkNoForceRestart BLOCKS force-shutdown when queued tasks exist', () => {
+      const result = CHECKERS.checkNoForceRestart(
+        {},
+        { config: null },
+        { force: true, running: 0, queued: 3 },
+      );
+      expect(result.pass).toBe(false);
+      expect(result.message).toContain('3 queued');
+    });
+
+    it('checkNoForceRestart allows force-shutdown with explicit operator_override', () => {
+      const result = CHECKERS.checkNoForceRestart(
+        {},
+        { config: null },
+        { force: true, running: 1, queued: 1, operator_override: true },
+      );
+      expect(result).toEqual({ pass: true });
+    });
   });
 });
