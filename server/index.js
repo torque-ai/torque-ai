@@ -931,18 +931,19 @@ function init() {
     debugLog(`Factory worktree auto-commit listener init skipped: ${err.message}`);
   }
 
-  // Resume auto-advance for active factory loop instances. When TORQUE
-  // restarts, the in-memory setTimeout chains that drive auto-advance die.
-  // This scan finds active instances whose projects have auto_continue
-  // enabled (implying full autonomy) and re-kicks the auto-advance chain.
+  // Reconcile active factory loop state after restart before the periodic
+  // tick safety net starts. This repairs stale project rows and re-kicks
+  // auto-advance chains that died with the previous process.
   try {
-    const { resumeAutoAdvanceOnStartup } = require('./factory/loop-controller');
-    const resumed = resumeAutoAdvanceOnStartup();
-    if (resumed > 0) {
-      debugLog(`Factory auto-advance resumed for ${resumed} active instance(s)`);
+    const { reconcileFactoryProjectsOnStartup } = require('./factory/startup-reconciler');
+    const result = reconcileFactoryProjectsOnStartup();
+    const actions = result && result.actions ? result.actions : {};
+    const resumed = (actions.advanced || 0) + (actions.restarted || 0);
+    if (resumed > 0 || actions.deferred_verify > 0) {
+      debugLog(`Factory startup reconciled ${resumed} active loop(s); deferred VERIFY=${actions.deferred_verify || 0}`);
     }
   } catch (err) {
-    debugLog(`Factory auto-advance resume skipped: ${err.message}`);
+    debugLog(`Factory startup reconcile skipped: ${err.message}`);
   }
 
   // Factory tick — server-side timer that periodically checks and advances
@@ -1134,10 +1135,46 @@ function init() {
 
   // Instance-aware orphan cleanup — distinguishes tasks from crashed instances vs active siblings
   try {
-    const runningTasks = db.listTasks({ status: 'running', limit: 1000 });
+    const runningTasks = db.getDbInstance().prepare(`
+      SELECT * FROM tasks
+      WHERE status IN ('running','claimed')
+      ORDER BY created_at ASC
+      LIMIT 1000
+    `).all();
     const now = Date.now();
     const GRACE_PERIOD_MS = 30000; // 30 seconds grace period for startup race conditions
     let orphansCleaned = 0;
+    const parseStartupTaskMetadata = (task) => {
+      if (!task || !task.metadata) return {};
+      if (typeof task.metadata === 'object' && !Array.isArray(task.metadata)) return task.metadata;
+      try {
+        const parsed = JSON.parse(task.metadata);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch {
+        return {};
+      }
+    };
+    const taskHasFactoryTag = (task) => {
+      if (Array.isArray(task.tags)) {
+        return task.tags.some(tag => String(tag).includes('factory'));
+      }
+      return String(task.tags || '').includes('factory');
+    };
+    const taskHasRunningWorkflow = (task) => {
+      if (!task.workflow_id) return false;
+      try {
+        const workflow = db.getWorkflow(task.workflow_id);
+        return workflow && workflow.status === 'running';
+      } catch {
+        return false;
+      }
+    };
+    const shouldCloneStartupOrphan = (task) => {
+      const metadata = parseStartupTaskMetadata(task);
+      return metadata.auto_resubmit_on_restart === true
+        || taskHasFactoryTag(task)
+        || taskHasRunningWorkflow(task);
+    };
     const markStartupOrphanCancelled = (task, updates) => {
       db.updateTaskStatus(task.id, 'cancelled', { ...updates, cancel_reason: 'orphan_cleanup' });
       if (task.ollama_host_id) {
@@ -1183,11 +1220,15 @@ function init() {
     };
 
     for (const task of runningTasks) {
+      const cloneWithResumeContext = shouldCloneStartupOrphan(task);
       const startedAt = task.started_at ? new Date(task.started_at).getTime() : 0;
       const runningTime = now - startedAt;
       const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
 
       if (!task.mcp_instance_id) {
+        if (cloneWithResumeContext) {
+          continue;
+        }
         // Legacy task with no owner — use grace period + timeout logic
         if (runningTime > Math.max(GRACE_PERIOD_MS, timeoutMs)) {
           requeueOrphanedTask(task, 'Server restarted — task interrupted (no instance owner)');
@@ -1195,11 +1236,17 @@ function init() {
       } else if (task.mcp_instance_id === taskManager.getMcpInstanceId()) {
         // Our task but not in runningProcesses — leftover from our own crash/restart
         if (!taskManager.hasRunningProcess(task.id)) {
+          if (cloneWithResumeContext) {
+            continue;
+          }
           requeueOrphanedTask(task, 'Server restarted — task orphaned from previous instance');
         }
       } else {
         // Task owned by another instance — check if that instance is alive
         if (!taskManager.isInstanceAlive(task.mcp_instance_id)) {
+          if (cloneWithResumeContext) {
+            continue;
+          }
           // Dead instance can't complete this task — requeue immediately.
           // Previous behavior waited for timeout, but a confirmed-dead instance
           // will never finish the work. Waiting just blocks queue slots.
@@ -1227,6 +1274,25 @@ function init() {
         // Instance is alive — leave task alone, sibling session is handling it
       }
     }
+    try {
+      const taskCore = require('./db/task-core');
+      const { reconcileOrphanedTasksOnStartup } = require('./execution/startup-task-reconciler');
+      const result = reconcileOrphanedTasksOnStartup({
+        db,
+        taskCore,
+        getMcpInstanceId: () => taskManager.getMcpInstanceId(),
+        isInstanceAlive: (instanceId) => taskManager.isInstanceAlive(instanceId),
+        logger,
+        eligibleOnly: true,
+      });
+      const actions = result && result.actions ? result.actions : {};
+      if ((actions.cancelled || 0) > 0 || (actions.cloned || 0) > 0) {
+        orphansCleaned += actions.cancelled || 0;
+        debugLog(`Startup task reconciler: cancelled ${actions.cancelled || 0}, cloned ${actions.cloned || 0}, capped ${actions.capped || 0}`);
+      }
+    } catch (taskReconcileErr) {
+      debugLog(`Startup task reconciler error: ${taskReconcileErr.message}`);
+    }
     if (orphansCleaned > 0) {
       debugLog(`Startup cleanup: recovered ${orphansCleaned} orphaned tasks`);
       // Defer queue processing so requeued tasks get picked up after full init
@@ -1243,28 +1309,17 @@ function init() {
       debugLog(`Host task count reconcile error: ${reconcileErr.message}`);
     }
 
-    // Workflow dependency sweep — re-evaluate all running workflows.
-    // If a task completed just before the crash and handleWorkflowTermination() never fired,
-    // downstream 'blocked' tasks stay stuck forever. This sweep catches that case.
+    // Workflow DAG startup reconciler — repairs restart clone edges, re-readies
+    // dependency-satisfied nodes, replays terminal side-effects, and settles status.
     try {
-      const { handleWorkflowTermination } = require('./execution/workflow-runtime');
-      const runningWorkflows = db.listWorkflows({ status: 'running', limit: 100 });
-      let workflowsSwept = 0;
-      const dbHandle = db.getDbInstance();
-      for (const wf of runningWorkflows) {
-        const terminalTasks = dbHandle.prepare(
-          "SELECT id FROM tasks WHERE workflow_id = ? AND status IN ('completed', 'failed', 'cancelled')"
-        ).all(wf.id);
-        for (const t of terminalTasks) {
-          try { handleWorkflowTermination(t.id); } catch { /* already evaluated or workflow done */ }
-        }
-        if (terminalTasks.length > 0) workflowsSwept++;
-      }
-      if (workflowsSwept > 0) {
-        debugLog(`Startup: re-evaluated dependencies for ${workflowsSwept} running workflows`);
+      const { reconcileWorkflowsOnStartup } = require('./execution/workflow-runtime');
+      const result = reconcileWorkflowsOnStartup({ limit: 10000 });
+      const actions = result && result.actions ? result.actions : {};
+      if ((actions.workflows_scanned || 0) > 0) {
+        debugLog(`Startup workflow reconciler: scanned ${actions.workflows_scanned || 0}, rewired ${actions.dependencies_rewired || 0}, re-readied ${actions.tasks_rereadied || 0}, replayed ${actions.terminations_replayed || 0}, completion checks ${actions.completion_checks || 0}`);
       }
     } catch (wfErr) {
-      debugLog(`Startup workflow sweep error: ${wfErr.message}`);
+      debugLog(`Startup workflow reconciler error: ${wfErr.message}`);
     }
   } catch (err) {
     debugLog(`Startup orphan cleanup error: ${err.message}`);

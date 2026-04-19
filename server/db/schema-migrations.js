@@ -890,6 +890,15 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
 
   // Resume context for failed task retries
   safeAddColumn('tasks', 'resume_context TEXT');
+  try {
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_resubmitted_from_active
+      ON tasks(json_extract(metadata,'$.resubmitted_from'))
+      WHERE status != 'cancelled' AND json_extract(metadata,'$.resubmitted_from') IS NOT NULL
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (tasks resubmitted_from active index): ${e.message}`);
+  }
   migrateModelAgnostic(db);
 
   // Await restart recovery: structured cancel reason + server epoch

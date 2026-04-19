@@ -1,0 +1,367 @@
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
+
+const Database = require('better-sqlite3');
+const taskCore = require('../db/task-core');
+const serverConfig = require('../config');
+const { reconcileOrphanedTasksOnStartup } = require('../execution/startup-task-reconciler');
+
+let db;
+let logger;
+
+const TASK_COLUMNS = [
+  'id',
+  'status',
+  'task_description',
+  'working_directory',
+  'provider',
+  'model',
+  'timeout_minutes',
+  'auto_approve',
+  'priority',
+  'context',
+  'output',
+  'error_output',
+  'created_at',
+  'started_at',
+  'completed_at',
+  'cancel_reason',
+  'retry_count',
+  'max_retries',
+  'depends_on',
+  'template_name',
+  'isolated_workspace',
+  'approval_status',
+  'project',
+  'workflow_id',
+  'workflow_node_id',
+  'tags',
+  'ollama_host_id',
+  'complexity',
+  'review_status',
+  'metadata',
+  'mcp_instance_id',
+  'original_provider',
+  'provider_switched_at',
+  'stall_timeout_seconds',
+  'resume_context',
+  'server_epoch',
+];
+
+function createSchema(sqliteDb) {
+  sqliteDb.exec(`
+    CREATE TABLE tasks (
+      id TEXT PRIMARY KEY,
+      status TEXT DEFAULT 'pending',
+      task_description TEXT,
+      working_directory TEXT,
+      provider TEXT,
+      model TEXT,
+      timeout_minutes INTEGER DEFAULT 30,
+      auto_approve INTEGER DEFAULT 0,
+      priority INTEGER DEFAULT 0,
+      context TEXT,
+      output TEXT DEFAULT '',
+      error_output TEXT DEFAULT '',
+      created_at TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      cancel_reason TEXT,
+      retry_count INTEGER DEFAULT 0,
+      max_retries INTEGER DEFAULT 2,
+      depends_on TEXT,
+      template_name TEXT,
+      isolated_workspace TEXT,
+      approval_status TEXT,
+      project TEXT,
+      workflow_id TEXT,
+      workflow_node_id TEXT,
+      tags TEXT,
+      ollama_host_id TEXT,
+      complexity TEXT,
+      review_status TEXT,
+      metadata TEXT,
+      mcp_instance_id TEXT,
+      original_provider TEXT,
+      provider_switched_at TEXT,
+      stall_timeout_seconds INTEGER,
+      resume_context TEXT,
+      server_epoch INTEGER
+    );
+
+    CREATE TABLE workflows (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      working_directory TEXT,
+      status TEXT DEFAULT 'pending',
+      created_at TEXT
+    );
+
+    CREATE TABLE task_dependencies (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workflow_id TEXT NOT NULL,
+      task_id TEXT NOT NULL,
+      depends_on_task_id TEXT NOT NULL,
+      condition_expr TEXT,
+      on_fail TEXT DEFAULT 'skip',
+      alternate_task_id TEXT,
+      created_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_resubmitted_from_active
+      ON tasks(json_extract(metadata,'$.resubmitted_from'))
+      WHERE status != 'cancelled' AND json_extract(metadata,'$.resubmitted_from') IS NOT NULL;
+  `);
+}
+
+function serializeValue(column, value) {
+  if ((column === 'metadata' || column === 'tags' || column === 'context' || column === 'depends_on') && value !== null && value !== undefined) {
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  }
+  return value;
+}
+
+function insertTask(overrides = {}) {
+  const now = new Date().toISOString();
+  const task = {
+    id: overrides.id || `task-${Math.random().toString(16).slice(2)}`,
+    status: 'running',
+    task_description: 'startup reconciler task',
+    working_directory: process.cwd(),
+    provider: 'codex',
+    model: 'gpt-test',
+    timeout_minutes: 30,
+    auto_approve: 0,
+    priority: 0,
+    context: null,
+    output: '',
+    error_output: '',
+    created_at: now,
+    started_at: now,
+    completed_at: null,
+    cancel_reason: null,
+    retry_count: 0,
+    max_retries: 2,
+    depends_on: null,
+    template_name: null,
+    isolated_workspace: null,
+    approval_status: 'not_required',
+    project: null,
+    workflow_id: null,
+    workflow_node_id: null,
+    tags: null,
+    ollama_host_id: null,
+    complexity: 'normal',
+    review_status: null,
+    metadata: null,
+    mcp_instance_id: null,
+    original_provider: 'codex',
+    provider_switched_at: null,
+    stall_timeout_seconds: null,
+    resume_context: null,
+    server_epoch: 0,
+    ...overrides,
+  };
+
+  const placeholders = TASK_COLUMNS.map(() => '?').join(', ');
+  db.prepare(`
+    INSERT INTO tasks (${TASK_COLUMNS.join(', ')})
+    VALUES (${placeholders})
+  `).run(...TASK_COLUMNS.map(column => serializeValue(column, task[column])));
+
+  return task.id;
+}
+
+function runReconciler(options = {}) {
+  return reconcileOrphanedTasksOnStartup({
+    db,
+    taskCore,
+    getMcpInstanceId: () => 'mcp-current',
+    isInstanceAlive: (instanceId) => instanceId === 'mcp-live',
+    logger,
+    ...options,
+  });
+}
+
+function getTaskRow(taskId) {
+  return db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+}
+
+function parseMetadata(row) {
+  return row && row.metadata ? JSON.parse(row.metadata) : {};
+}
+
+function cloneRowsFor(originalTaskId) {
+  return db.prepare('SELECT * FROM tasks').all()
+    .filter(row => parseMetadata(row).resubmitted_from === originalTaskId);
+}
+
+beforeEach(() => {
+  db = new Database(':memory:');
+  createSchema(db);
+  taskCore.setDb(db);
+  serverConfig.setEpoch(0);
+  logger = {
+    info: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+  };
+});
+
+afterEach(() => {
+  taskCore.setDb(null);
+  serverConfig.setEpoch(0);
+  db.close();
+  vi.restoreAllMocks();
+});
+
+describe('startup task reconciler', () => {
+  test('No orphans -> no-op', () => {
+    const result = runReconciler();
+
+    expect(result.reconciled).toBe(false);
+    expect(result.actions.candidates).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) as count FROM tasks').get().count).toBe(0);
+  });
+
+  test('Orphan with metadata.auto_resubmit_on_restart=true -> cancelled and cloned with resume_context', () => {
+    insertTask({
+      id: 'task-auto',
+      task_description: 'resume this task',
+      metadata: { auto_resubmit_on_restart: true },
+      output: 'Wrote server/example.js\n$ npm run test',
+      error_output: 'previous failure',
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(1);
+    expect(result.actions.cloned).toBe(1);
+
+    const original = getTaskRow('task-auto');
+    expect(original.status).toBe('cancelled');
+    expect(original.cancel_reason).toBe('server_restart');
+    expect(original.error_output).toContain('[startup-reconciler] task cancelled by server restart');
+
+    const clones = cloneRowsFor('task-auto');
+    expect(clones).toHaveLength(1);
+    expect(clones[0].status).toBe('queued');
+    expect(clones[0].resume_context).toBeTruthy();
+    expect(parseMetadata(clones[0]).resubmitted_from).toBe('task-auto');
+    expect(parseMetadata(original).resubmitted_as).toBe(clones[0].id);
+  });
+
+  test('Orphan without flag/tag/workflow -> cancelled but not cloned', () => {
+    insertTask({ id: 'task-legacy' });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(1);
+    expect(result.actions.cloned).toBe(0);
+    expect(getTaskRow('task-legacy').status).toBe('cancelled');
+    expect(db.prepare('SELECT COUNT(*) as count FROM tasks').get().count).toBe(1);
+  });
+
+  test('Factory-tagged orphan -> cloned', () => {
+    insertTask({
+      id: 'task-factory',
+      tags: ['factory:batch_id=batch-1'],
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(1);
+    expect(result.actions.cloned).toBe(1);
+    expect(cloneRowsFor('task-factory')).toHaveLength(1);
+  });
+
+  test('Double-run idempotency -> second call no-ops when resubmitted_as points to active clone', () => {
+    insertTask({
+      id: 'task-idempotent',
+      metadata: { auto_resubmit_on_restart: true },
+    });
+
+    runReconciler();
+    const clone = cloneRowsFor('task-idempotent')[0];
+    expect(clone).toBeTruthy();
+
+    db.prepare("UPDATE tasks SET status = 'running' WHERE id = ?").run('task-idempotent');
+    const second = runReconciler();
+
+    expect(second.actions.skipped).toBe(1);
+    expect(second.actions.cancelled).toBe(0);
+    expect(second.actions.cloned).toBe(0);
+    expect(cloneRowsFor('task-idempotent')).toHaveLength(1);
+    expect(getTaskRow('task-idempotent').status).toBe('running');
+  });
+
+  test('Resume-context propagation -> clone resume_context parses back correctly', () => {
+    insertTask({
+      id: 'task-resume',
+      task_description: 'preserve useful progress',
+      provider: 'codex',
+      metadata: { auto_resubmit_on_restart: true },
+      output: [
+        'Wrote server/resume-target.js',
+        '$ npm run test',
+        'Implemented most of the parser.',
+      ].join('\n'),
+      error_output: 'Error: failed after parser update',
+    });
+
+    runReconciler();
+
+    const clone = cloneRowsFor('task-resume')[0];
+    const resumeContext = JSON.parse(clone.resume_context);
+
+    expect(resumeContext.goal).toBe('preserve useful progress');
+    expect(resumeContext.provider).toBe('codex');
+    expect(resumeContext.filesModified).toContain('server/resume-target.js');
+    expect(resumeContext.commandsRun).toContain('npm run test');
+    expect(resumeContext.errorDetails).toContain('failed after parser update');
+    expect(resumeContext.durationMs).toBe(0);
+  });
+
+  test('Resubmit cap restart_resubmit_count=3 -> cancelled, not cloned', () => {
+    insertTask({
+      id: 'task-capped',
+      metadata: {
+        auto_resubmit_on_restart: true,
+        restart_resubmit_count: 3,
+      },
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(1);
+    expect(result.actions.capped).toBe(1);
+    expect(result.actions.cloned).toBe(0);
+    expect(getTaskRow('task-capped').status).toBe('cancelled');
+    expect(cloneRowsFor('task-capped')).toHaveLength(0);
+  });
+
+  test('Unique index race -> SQLITE_CONSTRAINT is skipped gracefully', () => {
+    insertTask({
+      id: 'task-race',
+      metadata: { auto_resubmit_on_restart: true },
+    });
+    insertTask({
+      id: 'existing-race-clone',
+      status: 'queued',
+      metadata: { resubmitted_from: 'task-race' },
+    });
+
+    const result = runReconciler();
+
+    expect(result.actions.cancelled).toBe(1);
+    expect(result.actions.constraint_skipped).toBe(1);
+    expect(result.actions.cloned).toBe(0);
+    expect(getTaskRow('task-race').status).toBe('cancelled');
+    expect(cloneRowsFor('task-race')).toHaveLength(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('skipped duplicate resubmit'),
+      expect.objectContaining({ task_id: 'task-race' }),
+    );
+  });
+});
