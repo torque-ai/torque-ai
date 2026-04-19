@@ -114,3 +114,41 @@ describe('runDeterministicRules — per-task content', () => {
     expect(hardFails.some(f => f.rule === 'task_avoids_vague_phrases' && f.taskNumber === 1)).toBe(true);
   });
 });
+
+describe('runDeterministicRules — shape and budget', () => {
+  it('rule 8: duplicate task titles hard-fail no_duplicate_task_titles', () => {
+    const plan = `## Task 1: Wire src/foo.ts\n\nBody references src/foo.ts and runs npx vitest to verify. Body is long enough for rule 4.\n\n## Task 2: Wire src/foo.ts\n\nAnother body referencing src/bar.ts and running npx vitest. Body is long enough for rule 4.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.some(f => f.rule === 'no_duplicate_task_titles')).toBe(true);
+  });
+
+  it('rule 8: distinct titles pass no_duplicate_task_titles', () => {
+    const plan = `## Task 1: Wire src/foo.ts\n\nBody references src/foo.ts and runs npx vitest to verify. Body is long enough for rule 4.\n\n## Task 2: Wire src/bar.ts\n\nAnother body referencing src/bar.ts and running npx vitest. Body is long enough for rule 4.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'no_duplicate_task_titles')).toBeUndefined();
+  });
+
+  it('rule 9: "## Step 1:" grammar hard-fails task_heading_grammar', () => {
+    const plan = `## Step 1: Wire src/foo.ts\n\nBody references src/foo.ts and runs npx vitest to verify. Body is long enough for rule 4.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.some(f => f.rule === 'task_heading_grammar')).toBe(true);
+  });
+
+  it('rule 9: "## Task 0:" hard-fails task_heading_grammar', () => {
+    const plan = `## Task 0: Wire src/foo.ts\n\nBody references src/foo.ts and runs npx vitest to verify. Body is long enough for rule 4.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.some(f => f.rule === 'task_heading_grammar')).toBe(true);
+  });
+
+  it('rule 10: plan > 100 KB hard-fails plan_size_upper_bound', () => {
+    const body = `## Task 1: Big plan\n\nBody references src/foo.ts and runs npx vitest. ${'x'.repeat(101 * 1024)}`;
+    const { hardFails } = runDeterministicRules(body);
+    expect(hardFails.some(f => f.rule === 'plan_size_upper_bound')).toBe(true);
+  });
+
+  it('rule 10: plan at 99 KB passes plan_size_upper_bound', () => {
+    const body = `## Task 1: Sized plan\n\nBody references src/foo.ts and runs npx vitest. ${'x'.repeat(99 * 1024)}`;
+    const { hardFails } = runDeterministicRules(body);
+    expect(hardFails.find(f => f.rule === 'plan_size_upper_bound')).toBeUndefined();
+  });
+});
