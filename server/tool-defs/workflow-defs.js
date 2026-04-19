@@ -52,7 +52,7 @@ const CREW_SCHEMA = {
           },
           provider: {
             type: 'string',
-            enum: ['codex', 'claude-cli', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'],
+            enum: ['codex', 'claude-cli', 'claude-ollama', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'],
             description: 'Optional provider override for this role'
           },
           model: {
@@ -270,7 +270,7 @@ const tools = [
               },
               provider: {
                 type: 'string',
-                enum: ['codex', 'claude-cli', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'],
+                enum: ['codex', 'claude-cli', 'claude-ollama', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'],
                 description: 'Optional provider override for this node'
               },
               model: {
@@ -374,7 +374,7 @@ const tools = [
         provider: {
           type: 'string',
           description: 'Execution provider for this task (overrides project default)',
-          enum: ['codex', 'claude-cli', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter']
+          enum: ['codex', 'claude-cli', 'claude-ollama', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter']
         },
         model: {
           type: 'string',

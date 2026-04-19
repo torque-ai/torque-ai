@@ -56,7 +56,7 @@ const tools = [
       type: 'object',
       properties: {
         working_directory: { type: 'string', description: 'Project directory' },
-        provider: { type: 'string', description: 'Default provider for this project (codex, claude-cli, ollama, ollama-cloud, anthropic, cerebras, deepinfra, google-ai, groq, hyperbolic, openrouter)', enum: ['codex', 'claude-cli', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'] },
+        provider: { type: 'string', description: 'Default provider for this project (codex, claude-cli, claude-ollama, ollama, ollama-cloud, anthropic, cerebras, deepinfra, google-ai, groq, hyperbolic, openrouter)', enum: ['codex', 'claude-cli', 'claude-ollama', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'] },
         model: { type: 'string', description: 'Default model for this project' },
         verify_command: { type: 'string', description: 'Post-task verify command (e.g., "npx tsc --noEmit && npx vitest run")' },
         auto_fix: { type: 'boolean', description: 'Auto-fix type errors after task completion' },

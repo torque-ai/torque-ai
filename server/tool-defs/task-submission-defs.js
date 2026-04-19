@@ -50,10 +50,11 @@ module.exports = [
         },
         "provider": {
           "type": "string",
-          "description": "Execution provider. Only used when auto_route=false. (codex, claude-cli, ollama, ollama-cloud, anthropic, cerebras, deepinfra, google-ai, groq, hyperbolic, openrouter)",
+          "description": "Execution provider. Only used when auto_route=false. (codex, claude-cli, claude-ollama, ollama, ollama-cloud, anthropic, cerebras, deepinfra, google-ai, groq, hyperbolic, openrouter)",
           "enum": [
             "codex",
             "claude-cli",
+            "claude-ollama",
             "ollama",
             "ollama-cloud",
             "anthropic",
