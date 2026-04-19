@@ -6,6 +6,8 @@ In a CommonJS test file (one using `require()` / `module.exports` / no top-level
 
 Observed on: **vitest 4.1.4, Node 22.x, Windows (Git Bash) + `pool: 'threads'`**. Also reproduces under the vitest default pool.
 
+Verified 2026-04-19: reproduces on `vitest@latest`, which npm resolves to `4.1.4` (registry `dist-tags`: `latest: 4.1.4`, `beta: 4.1.0-beta.6`). There is no newer stable line to test against at time of filing.
+
 This bit us while writing tests for a module that reads `git config user.name` via `execFileSync` at module-load time. The mock never fired; `GIT_USER_NAME` always came from the real git config. Larger effect observed: a third `it()` block in the test file got silently dropped from vitest's test discovery (the file was reported as containing 22 tests when it contained 23), which we suspect is a downstream artifact of the mock not activating during the collection pass.
 
 Working around it requires direct module mutation (`childProcess.execFileSync = mockedFn` before each test, restore after), which is verbose and easy to get wrong.
