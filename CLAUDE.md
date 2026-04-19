@@ -672,7 +672,7 @@ At VERIFY_FAIL (after exhausting retries), the same check runs as a recovery pat
 - **Stale branch:** force-deletes orphan git branches on collision (`git branch -D` + retry)
 - **Stale DB rows:** reclaims active `factory_worktrees` rows from prior failed runs
 - **Merge:** cleans both source worktree AND target repo before merge (handles CRLF drift)
-- **Internal commits:** use `--no-verify` (PII already sanitized inline, hook would deadlock)
+- **Internal commits:** use `--no-verify` (the pre-commit PII hook reports-and-blocks findings since 571bb53c; without the bypass, factory commits that legitimately contain PII-adjacent strings would be rejected)
 - **Termination:** only abandons worktrees on failure/operator-kill, not on clean LEARN completion
 
 ### Plan File Intake Dedup
