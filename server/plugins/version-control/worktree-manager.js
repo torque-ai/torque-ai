@@ -435,6 +435,15 @@ function createWorktreeManager({ db } = {}) {
   }
 
   function assertWorktreeIsClean(worktreePath, action) {
+    // If the worktree path no longer exists on disk, there's nothing to
+    // preserve — the cleanup is trivially safe. Without this guard, the
+    // downstream git invocations run with a missing cwd, which on Windows
+    // falls back to the parent process's cwd and can report unrelated
+    // uncommitted changes from TORQUE itself as if they belonged to this
+    // worktree (false positive → cleanup refused → EXECUTE paused forever).
+    if (!fs.existsSync(worktreePath)) {
+      return;
+    }
     const status = getWorktreeStatusPorcelain(worktreePath);
     if (!status) {
       return;

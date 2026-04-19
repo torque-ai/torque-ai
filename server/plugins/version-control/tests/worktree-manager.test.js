@@ -98,6 +98,18 @@ describe('version-control worktree manager', () => {
       record.last_activity_at,
     );
 
+    // Materialize the worktree path on disk so the worktree-manager's
+    // fs.existsSync guards (e.g. in assertWorktreeIsClean) don't short-
+    // circuit tests that exercise the full cleanup / merge sequence.
+    // Tests that want to simulate a vanished worktree should either use
+    // createWorktree (with a real dir) and then rm it, or pass
+    // overrides.skipMkdir = true.
+    if (!overrides.skipMkdir) {
+      try {
+        fs.mkdirSync(record.worktree_path, { recursive: true });
+      } catch { /* best effort */ }
+    }
+
     return record;
   }
 
@@ -810,6 +822,32 @@ describe('version-control worktree manager (real git integration)', () => {
     });
     expect(fs.existsSync(created.worktree_path)).toBe(false);
     expect(branchExists(repoPath, created.branch)).toBe(true);
+    expect(manager.getWorktree(created.id)).toBeNull();
+  });
+
+  it('cleanupWorktree succeeds when the worktree directory is already gone (stale DB row)', () => {
+    // Guards the factory's abandon→cleanupWorktree→assertWorktreeIsClean
+    // path: when another process or a partial prior cleanup has already
+    // removed the worktree dir, the row's branch-delete cleanup must
+    // still succeed. Without the fs.existsSync guard in
+    // assertWorktreeIsClean, `git status --porcelain` runs with a
+    // missing cwd and on Windows falls back to the parent process's cwd,
+    // producing a false-positive "has uncommitted changes" and wedging
+    // the factory at EXECUTE forever.
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'vanished worktree');
+
+    // Simulate the worktree directory being removed out from under the DB.
+    // Leave the branch in place so the delete-branch path is exercised.
+    fs.rmSync(created.worktree_path, { recursive: true, force: true });
+    expect(fs.existsSync(created.worktree_path)).toBe(false);
+
+    const result = manager.cleanupWorktree(created.id, { deleteBranch: true });
+
+    expect(result).toMatchObject({
+      id: created.id,
+      removed: true,
+    });
     expect(manager.getWorktree(created.id)).toBeNull();
   });
 });
