@@ -292,6 +292,61 @@ describe('executeVerifyStage + verify-review integration', () => {
     eventBus.removeListener('factory:project_baseline_broken', eventSpy);
   });
 
+  it('Scenario 3 (environment_failure): rejects item, pauses project, emits env-failure event', async () => {
+    const loopController = require('../factory/loop-controller');
+    const verifyReview = require('../factory/verify-review');
+    const eventBus = require('../event-bus');
+
+    const { projectId, workItemId, batchId } = seedProjectItemAndWorktree(dbHandle);
+
+    const verify = vi.fn().mockResolvedValue({
+      passed: false,
+      exitCode: 127,
+      stdout: '',
+      stderr: 'pytest: command not found',
+      output: 'pytest: command not found',
+      durationMs: 100,
+      timedOut: false,
+    });
+    loopController.setWorktreeRunnerForTests({ verify });
+
+    vi.spyOn(verifyReview, 'reviewVerifyFailure').mockResolvedValue({
+      classification: 'environment_failure',
+      confidence: 'high',
+      modifiedFiles: [],
+      failingTests: [],
+      intersection: [],
+      environmentSignals: ['exit_127', 'stderr_ENOENT'],
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: 'verify_failed_environment',
+    });
+
+    const eventSpy = vi.fn();
+    eventBus.onFactoryProjectEnvironmentFailure(eventSpy);
+
+    const instance = { id: 'inst-3', project_id: projectId, batch_id: batchId, work_item_id: workItemId };
+    const r = await loopController.executeVerifyStage(projectId, batchId, instance);
+
+    expect(r.status).toBe('rejected');
+    expect(r.reason).toBe('environment_failure');
+
+    const item = dbHandle.prepare('SELECT status, reject_reason FROM factory_work_items WHERE id = ?').get(workItemId);
+    expect(item.status).toBe('rejected');
+    expect(item.reject_reason).toBe('verify_failed_environment');
+
+    const project = dbHandle.prepare('SELECT status, config_json FROM factory_projects WHERE id = ?').get(projectId);
+    expect(project.status).toBe('paused');
+    const cfg = JSON.parse(project.config_json);
+    expect(cfg.baseline_broken_since).toBeTruthy();
+    expect(cfg.baseline_broken_reason).toBe('verify_failed_environment');
+
+    expect(eventSpy).toHaveBeenCalledTimes(1);
+    expect(eventSpy.mock.calls[0][0].project_id).toBe(projectId);
+
+    eventBus.removeListener('factory:project_environment_failure', eventSpy);
+  });
+
   it('Scenario 6 (classifier throws): fail-open, retry path fires', async () => {
     const loopController = require('../factory/loop-controller');
     const verifyReview = require('../factory/verify-review');

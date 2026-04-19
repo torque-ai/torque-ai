@@ -1276,6 +1276,15 @@ async function handleResumeProjectBaselineFixed(args) {
       status: 'running',
       config_json: JSON.stringify(cfg),
     });
+    // Re-start factory tick timer on resume. The pause path stops the tick
+    // for trust_level != autonomous/dark or non-auto_continue projects, so
+    // without startTick here the project would sit in status='running' with
+    // no active tick, and nothing would advance. Mirror handleResumeProject.
+    try {
+      const updated = factoryHealth.getProject(projectRow.id);
+      const factoryTick = require('../factory/factory-tick');
+      factoryTick.startTick(updated);
+    } catch (_e) { void _e; /* factory-tick not loaded */ }
     try {
       const eventBus = require('../event-bus');
       eventBus.emitFactoryProjectBaselineCleared({
