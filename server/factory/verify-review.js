@@ -88,7 +88,7 @@ async function getModifiedFiles(workingDirectory, worktreeBranch, mergeBase) {
     try {
       child = childProcess.spawn('git', ['diff', '--name-only', `${mergeBase}...${worktreeBranch}`], {
         cwd: workingDirectory,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'ignore'],
         windowsHide: true,
       });
     } catch (_e) {
