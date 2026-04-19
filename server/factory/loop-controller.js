@@ -3524,11 +3524,55 @@ async function executePlanFileStage(project, instance, workItem) {
   if (worktreeRunner) {
     let createdWorktree = null;
     try {
-      createdWorktree = await worktreeRunner.createForBatch({
-        project,
-        workItem: targetItem,
-        batchId: executeLogBatchId,
-      });
+      try {
+        createdWorktree = await worktreeRunner.createForBatch({
+          project,
+          workItem: targetItem,
+          batchId: executeLogBatchId,
+        });
+      } catch (firstErr) {
+        // Retry once after reconciling orphan worktrees if the error looks
+        // like a stale-state collision. "already exists" is how git reports
+        // both stale path entries and stale branch names. Reconciling the
+        // project's .worktrees/ against the DB removes any dir whose DB row
+        // is abandoned/shipped/merged (or missing for a factory-named dir),
+        // then the retry proceeds on a clean slate. We only retry on the
+        // already-exists signal — other failures (permissions, disk full)
+        // should surface immediately.
+        const errMsg = firstErr && typeof firstErr.message === 'string' ? firstErr.message : '';
+        if (/already exists/i.test(errMsg)) {
+          try {
+            const database = require('../database');
+            const db = database.getDbInstance();
+            if (db && project.path) {
+              const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
+              const rec = reconcileOrphanWorktrees({
+                db,
+                project_id: project.id,
+                project_path: project.path,
+              });
+              logger.warn('factory worktree: reconciled orphans before retry', {
+                project_id: project.id,
+                work_item_id: targetItem.id,
+                cleaned: rec.cleaned.length,
+                failed: rec.failed.length,
+              });
+            }
+          } catch (reconcileErr) {
+            logger.warn('factory worktree: reconcile-before-retry failed', {
+              project_id: project.id,
+              err: reconcileErr.message,
+            });
+          }
+          createdWorktree = await worktreeRunner.createForBatch({
+            project,
+            workItem: targetItem,
+            batchId: executeLogBatchId,
+          });
+        } else {
+          throw firstErr;
+        }
+      }
       // Reclaim any stale 'active' factory_worktrees row that would block
       // the UNIQUE(branch, status='active') index. This happens when a
       // previous EXECUTE failed mid-flight (or its instance got terminated)

@@ -16,6 +16,7 @@ const { handleRetryFactoryVerify } = require('../handlers/factory-handlers');
 const loopController = require('./loop-controller');
 const { detectStuckLoops } = require('./stuck-loop-detector');
 const { recoverStalledVerifyLoops } = require('./verify-stall-recovery');
+const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
 const logger = require('../logger').child({ component: 'factory-tick' });
 
 const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -46,6 +47,38 @@ async function tickProject(project) {
       } else {
         return; // genuinely paused, no auto_continue — skip
       }
+    }
+
+    // Reconcile orphan worktrees left behind by prior crashed/restarted
+    // instances. If a .worktrees/feat-factory-* dir exists with its
+    // factory_worktrees row marked abandoned/shipped/merged (or missing
+    // entirely for a factory-named branch), `git worktree add` will later
+    // fail with "already exists" and pause the loop at EXECUTE. Clean these
+    // up now so the subsequent auto-start finds a usable disk state. Fail
+    // soft — reconciliation is best-effort and must not stall the tick.
+    try {
+      const db = database.getDbInstance();
+      if (db && project.path) {
+        const result = reconcileOrphanWorktrees({
+          db,
+          project_id: project.id,
+          project_path: project.path,
+        });
+        if (result.cleaned.length > 0 || result.failed.length > 0) {
+          logger.info('Factory tick: worktree reconcile', {
+            project_id: project.id,
+            scanned: result.scanned,
+            cleaned: result.cleaned.length,
+            skipped: result.skipped.length,
+            failed: result.failed.length,
+          });
+        }
+      }
+    } catch (err) {
+      logger.debug('Factory tick: worktree reconcile failed', {
+        project_id: project.id,
+        err: err.message,
+      });
     }
 
     const instances = factoryLoopInstances.listInstances({
