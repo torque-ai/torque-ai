@@ -145,7 +145,7 @@ async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, 
   const raw = String(task.output || '').trim();
   if (!raw) return { verdict: null, critique: null };
   try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const jsonMatch = raw.match(/\{[\s\S]*?\}/);
     const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(raw);
     const verdict = parsed && parsed.verdict === 'no-go' ? 'no-go'
                   : parsed && parsed.verdict === 'go' ? 'go'
