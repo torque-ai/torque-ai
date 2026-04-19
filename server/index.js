@@ -1135,10 +1135,46 @@ function init() {
 
   // Instance-aware orphan cleanup — distinguishes tasks from crashed instances vs active siblings
   try {
-    const runningTasks = db.listTasks({ status: 'running', limit: 1000 });
+    const runningTasks = db.getDbInstance().prepare(`
+      SELECT * FROM tasks
+      WHERE status IN ('running','claimed')
+      ORDER BY created_at ASC
+      LIMIT 1000
+    `).all();
     const now = Date.now();
     const GRACE_PERIOD_MS = 30000; // 30 seconds grace period for startup race conditions
     let orphansCleaned = 0;
+    const parseStartupTaskMetadata = (task) => {
+      if (!task || !task.metadata) return {};
+      if (typeof task.metadata === 'object' && !Array.isArray(task.metadata)) return task.metadata;
+      try {
+        const parsed = JSON.parse(task.metadata);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch {
+        return {};
+      }
+    };
+    const taskHasFactoryTag = (task) => {
+      if (Array.isArray(task.tags)) {
+        return task.tags.some(tag => String(tag).includes('factory'));
+      }
+      return String(task.tags || '').includes('factory');
+    };
+    const taskHasRunningWorkflow = (task) => {
+      if (!task.workflow_id) return false;
+      try {
+        const workflow = db.getWorkflow(task.workflow_id);
+        return workflow && workflow.status === 'running';
+      } catch {
+        return false;
+      }
+    };
+    const shouldCloneStartupOrphan = (task) => {
+      const metadata = parseStartupTaskMetadata(task);
+      return metadata.auto_resubmit_on_restart === true
+        || taskHasFactoryTag(task)
+        || taskHasRunningWorkflow(task);
+    };
     const markStartupOrphanCancelled = (task, updates) => {
       db.updateTaskStatus(task.id, 'cancelled', { ...updates, cancel_reason: 'orphan_cleanup' });
       if (task.ollama_host_id) {
@@ -1184,11 +1220,15 @@ function init() {
     };
 
     for (const task of runningTasks) {
+      const cloneWithResumeContext = shouldCloneStartupOrphan(task);
       const startedAt = task.started_at ? new Date(task.started_at).getTime() : 0;
       const runningTime = now - startedAt;
       const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
 
       if (!task.mcp_instance_id) {
+        if (cloneWithResumeContext) {
+          continue;
+        }
         // Legacy task with no owner — use grace period + timeout logic
         if (runningTime > Math.max(GRACE_PERIOD_MS, timeoutMs)) {
           requeueOrphanedTask(task, 'Server restarted — task interrupted (no instance owner)');
@@ -1196,11 +1236,17 @@ function init() {
       } else if (task.mcp_instance_id === taskManager.getMcpInstanceId()) {
         // Our task but not in runningProcesses — leftover from our own crash/restart
         if (!taskManager.hasRunningProcess(task.id)) {
+          if (cloneWithResumeContext) {
+            continue;
+          }
           requeueOrphanedTask(task, 'Server restarted — task orphaned from previous instance');
         }
       } else {
         // Task owned by another instance — check if that instance is alive
         if (!taskManager.isInstanceAlive(task.mcp_instance_id)) {
+          if (cloneWithResumeContext) {
+            continue;
+          }
           // Dead instance can't complete this task — requeue immediately.
           // Previous behavior waited for timeout, but a confirmed-dead instance
           // will never finish the work. Waiting just blocks queue slots.
@@ -1227,6 +1273,25 @@ function init() {
         }
         // Instance is alive — leave task alone, sibling session is handling it
       }
+    }
+    try {
+      const taskCore = require('./db/task-core');
+      const { reconcileOrphanedTasksOnStartup } = require('./execution/startup-task-reconciler');
+      const result = reconcileOrphanedTasksOnStartup({
+        db,
+        taskCore,
+        getMcpInstanceId: () => taskManager.getMcpInstanceId(),
+        isInstanceAlive: (instanceId) => taskManager.isInstanceAlive(instanceId),
+        logger,
+        eligibleOnly: true,
+      });
+      const actions = result && result.actions ? result.actions : {};
+      if ((actions.cancelled || 0) > 0 || (actions.cloned || 0) > 0) {
+        orphansCleaned += actions.cancelled || 0;
+        debugLog(`Startup task reconciler: cancelled ${actions.cancelled || 0}, cloned ${actions.cloned || 0}, capped ${actions.capped || 0}`);
+      }
+    } catch (taskReconcileErr) {
+      debugLog(`Startup task reconciler error: ${taskReconcileErr.message}`);
     }
     if (orphansCleaned > 0) {
       debugLog(`Startup cleanup: recovered ${orphansCleaned} orphaned tasks`);
