@@ -112,6 +112,46 @@ describe('stream-parser.extractTextDelta', () => {
   });
 });
 
+describe('stream-parser — stream_event envelope (claude-cli --verbose)', () => {
+  it('extractTextDelta unwraps stream_event → content_block_delta → delta.text', () => {
+    const record = {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'hello' },
+      },
+      session_id: 's1',
+    };
+    expect(parser.extractTextDelta(record)).toBe('hello');
+  });
+
+  it('normalizeUsage reads stream_event → message_start → message.usage', () => {
+    const record = {
+      type: 'stream_event',
+      event: {
+        type: 'message_start',
+        message: { id: 'm1', role: 'assistant', usage: { input_tokens: 100, output_tokens: 5 } },
+      },
+    };
+    const usage = parser.normalizeUsage(record);
+    expect(usage).toEqual({ prompt_tokens: 100, completion_tokens: 5, total_tokens: 105 });
+  });
+
+  it('normalizeToolCall unwraps stream_event → content_block_start with tool_use block', () => {
+    const record = {
+      type: 'stream_event',
+      event: {
+        type: 'content_block_start',
+        content_block: { type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/tmp/x' } },
+      },
+    };
+    const call = parser.normalizeToolCall(record);
+    expect(call.name).toBe('Read');
+    expect(call.args).toEqual({ file_path: '/tmp/x' });
+  });
+});
+
 describe('stream-parser.extractFallbackText', () => {
   it('reads .text field', () => {
     expect(parser.extractFallbackText({ text: 'foo' })).toBe('foo');

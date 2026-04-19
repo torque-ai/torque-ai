@@ -8,6 +8,16 @@ function cleanText(value) {
   return String(value).trim();
 }
 
+// Claude-cli --verbose stream-json wraps real payloads in {type:'stream_event',event:{...}}.
+// Messages from message_start also carry usage at record.event.message.usage. This helper
+// unwraps the envelope so downstream extractors see the payload they expect.
+function unwrapStreamEvent(record) {
+  if (record && record.type === 'stream_event' && record.event && typeof record.event === 'object') {
+    return record.event;
+  }
+  return record;
+}
+
 function extractTextFromContent(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -26,8 +36,9 @@ function extractTextFromContent(content) {
   return combined;
 }
 
-function normalizeToolCall(record) {
-  if (!record || typeof record !== 'object') return null;
+function normalizeToolCall(rawRecord) {
+  if (!rawRecord || typeof rawRecord !== 'object') return null;
+  const record = unwrapStreamEvent(rawRecord);
 
   if ((record.type === 'tool_call' || record.type === EventType.TOOL_CALL) && record.name) {
     return {
@@ -59,8 +70,9 @@ function normalizeToolCall(record) {
   return null;
 }
 
-function normalizeToolResult(record) {
-  if (!record || typeof record !== 'object') return null;
+function normalizeToolResult(rawRecord) {
+  if (!rawRecord || typeof rawRecord !== 'object') return null;
+  const record = unwrapStreamEvent(rawRecord);
 
   const toContent = (value, error = null) => {
     if (value === undefined || value === null || value === '') {
@@ -91,10 +103,12 @@ function normalizeToolResult(record) {
   return null;
 }
 
-function normalizeUsage(record) {
-  if (!record || typeof record !== 'object') return null;
-  const usage = record.usage && typeof record.usage === 'object' ? record.usage : null;
-  if (!usage) return null;
+function normalizeUsage(rawRecord) {
+  if (!rawRecord || typeof rawRecord !== 'object') return null;
+  const record = unwrapStreamEvent(rawRecord);
+  // message_start payloads carry usage at record.message.usage; other shapes put it at record.usage.
+  const usage = (record.message && typeof record.message === 'object' && record.message.usage) || record.usage;
+  if (!usage || typeof usage !== 'object') return null;
 
   const promptTokens = Number(usage.input_tokens || usage.prompt_tokens || 0);
   const completionTokens = Number(usage.output_tokens || usage.completion_tokens || 0);
@@ -107,14 +121,20 @@ function normalizeUsage(record) {
   };
 }
 
-function extractTextDelta(record) {
-  if (!record || typeof record !== 'object') return '';
+function extractTextDelta(rawRecord) {
+  if (!rawRecord || typeof rawRecord !== 'object') return '';
+  const record = unwrapStreamEvent(rawRecord);
 
   if (record.type === 'text_delta' && typeof record.delta === 'string') {
     return record.delta;
   }
 
   if (record.type === 'content_block_delta' && typeof record.delta?.text === 'string') {
+    return record.delta.text;
+  }
+
+  // claude-cli --verbose nests content_block_delta events with delta.type='text_delta'
+  if (record.type === 'content_block_delta' && record.delta && record.delta.type === 'text_delta' && typeof record.delta.text === 'string') {
     return record.delta.text;
   }
 
