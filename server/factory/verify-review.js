@@ -225,6 +225,25 @@ async function reviewVerifyFailure({
 
   const deterministicBase = failingTests.length > 0 ? 'baseline_candidate' : 'ambiguous';
 
+  // Skip the LLM tiebreak when there's nothing to reason about. Running it
+  // on a completely empty signal (no parsed failing tests AND no modified
+  // files) would burn a Torque submission to no purpose — and legacy tests
+  // that don't mock reviewVerifyFailure would see an unexpected extra
+  // internal-task submission. Return ambiguous/low immediately.
+  if (failingTests.length === 0 && modifiedFiles.length === 0) {
+    return {
+      classification: 'ambiguous',
+      confidence: 'low',
+      modifiedFiles,
+      failingTests,
+      intersection,
+      environmentSignals: [],
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: null,
+    };
+  }
+
   const llm = await module.exports.runLlmTiebreak({
     failingTests,
     modifiedFiles,
