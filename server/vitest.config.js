@@ -10,7 +10,12 @@ module.exports = defineConfig({
     include: ['tests/**/*.test.js', 'plugins/**/tests/**/*.test.js'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     setupFiles: ['tests/worker-setup.js'],
-    pool: 'forks',
+    // 'threads' gives tighter test isolation than 'forks' on Windows, which
+    // avoids shared-cache pollution between suites that load the same module
+    // under different mocks (e.g. auto-verify-retry, routing-templates).
+    // The full suite reproducibly had 48 cross-file failures on forks that
+    // drop to 0 on threads, while individual file runs pass either way.
+    pool: 'threads',
     // Suppresses unhandled rejection noise from provider mocks in CI pipelines.
     // Disable locally to catch real async leaks during development.
     dangerouslyIgnoreUnhandledErrors: !!process.env.CI,
