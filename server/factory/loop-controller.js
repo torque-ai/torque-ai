@@ -6320,94 +6320,12 @@ async function awaitFactoryLoopForProject(project_id, options = {}) {
   return awaitFactoryLoop(project.id, options);
 }
 
-// Resume auto-advance for active instances after server restart. Called once
-// during startup. Scans for non-terminated instances whose project config
-// has loop.auto_continue enabled and kicks off the auto-advance chain.
-function resumeAutoAdvanceOnStartup() {
-  let resumed = 0;
-  try {
-    const projects = factoryHealth.listProjects();
-    for (const project of projects) {
-      const cfg = project.config_json
-        ? (() => { try { return JSON.parse(project.config_json); } catch { return {}; } })()
-        : {};
-      if (!cfg?.loop?.auto_continue) {
-        continue;
-      }
-      const instances = factoryLoopInstances.listInstances({
-        project_id: project.id,
-        active_only: true,
-      });
-
-      // Orphan-project reconciliation: no active instances but
-      // auto_continue is set means the last instance was terminated
-      // by a prior restart or crash and nothing kicked a new one.
-      // Start a fresh loop so the project doesn't silently sit with
-      // loop_state stuck at a stale value (EXECUTE, VERIFY, etc.)
-      // until an operator manually resets.
-      if (!instances.length) {
-        setImmediate(() => {
-          try {
-            startLoopAutoAdvance(project.id);
-            logger.info('Started fresh loop for orphan auto-continue project after restart', {
-              project_id: project.id,
-              prior_legacy_state: project.loop_state || null,
-            });
-          } catch (err) {
-            logger.warn('Failed to start fresh loop for orphan auto-continue project', {
-              project_id: project.id,
-              err: err.message,
-            });
-          }
-        });
-        resumed += 1;
-        continue;
-      }
-
-      for (const instance of instances) {
-        if (instance.terminated_at) continue;
-        const state = getCurrentLoopState(instance);
-        const paused = getPausedAtStage(instance);
-        if (state === LOOP_STATES.IDLE || paused) continue;
-        // Skip VERIFY-state instances on startup. The verify stage uses
-        // spawnSync to run `torque-remote "npx vitest run"` with a 30-minute
-        // timeout, which would block the event loop for the entire verify
-        // duration — preventing the server from responding to any HTTP
-        // request. The operator can retry these via retry_factory_verify
-        // once the server is fully online.
-        if (state === LOOP_STATES.VERIFY) {
-          logger.info('Skipping VERIFY-state instance on startup (blocks event loop)', {
-            project_id: project.id,
-            instance_id: instance.id,
-          });
-          continue;
-        }
-        // Defer via setImmediate so the whole startup path completes
-        // synchronously before any potentially-blocking advance fires.
-        setImmediate(() => {
-          try {
-            advanceLoopAsync(instance.id, { autoAdvance: true });
-            logger.info('Resumed auto-advance after restart', {
-              project_id: project.id,
-              instance_id: instance.id,
-              state,
-            });
-          } catch (err) {
-            logger.warn('Failed to resume auto-advance after restart', {
-              project_id: project.id,
-              instance_id: instance.id,
-              state,
-              err: err.message,
-            });
-          }
-        });
-        resumed += 1;
-      }
-    }
-  } catch (err) {
-    logger.warn('resumeAutoAdvanceOnStartup scan failed', { err: err.message });
-  }
-  return resumed;
+/**
+ * @deprecated Use startup-reconciler.reconcileFactoryProjectsOnStartup().
+ */
+function resumeAutoAdvanceOnStartup(options) {
+  const { reconcileFactoryProjectsOnStartup } = require('./startup-reconciler');
+  return reconcileFactoryProjectsOnStartup(options);
 }
 
 module.exports = {

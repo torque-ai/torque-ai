@@ -931,18 +931,19 @@ function init() {
     debugLog(`Factory worktree auto-commit listener init skipped: ${err.message}`);
   }
 
-  // Resume auto-advance for active factory loop instances. When TORQUE
-  // restarts, the in-memory setTimeout chains that drive auto-advance die.
-  // This scan finds active instances whose projects have auto_continue
-  // enabled (implying full autonomy) and re-kicks the auto-advance chain.
+  // Reconcile active factory loop state after restart before the periodic
+  // tick safety net starts. This repairs stale project rows and re-kicks
+  // auto-advance chains that died with the previous process.
   try {
-    const { resumeAutoAdvanceOnStartup } = require('./factory/loop-controller');
-    const resumed = resumeAutoAdvanceOnStartup();
-    if (resumed > 0) {
-      debugLog(`Factory auto-advance resumed for ${resumed} active instance(s)`);
+    const { reconcileFactoryProjectsOnStartup } = require('./factory/startup-reconciler');
+    const result = reconcileFactoryProjectsOnStartup();
+    const actions = result && result.actions ? result.actions : {};
+    const resumed = (actions.advanced || 0) + (actions.restarted || 0);
+    if (resumed > 0 || actions.deferred_verify > 0) {
+      debugLog(`Factory startup reconciled ${resumed} active loop(s); deferred VERIFY=${actions.deferred_verify || 0}`);
     }
   } catch (err) {
-    debugLog(`Factory auto-advance resume skipped: ${err.message}`);
+    debugLog(`Factory startup reconcile skipped: ${err.message}`);
   }
 
   // Factory tick — server-side timer that periodically checks and advances
