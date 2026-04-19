@@ -4254,6 +4254,29 @@ const MAX_AUTO_VERIFY_RETRIES = 3;
 const MAX_SUBMISSION_FAILURES = 2;
 const FATAL_SUBMISSION_REASONS = new Set(['cwd_missing']);
 
+// Retry counter persistence: count tasks tagged factory:verify_retry=N that
+// share this batch_id. executeVerifyStage uses this to seed its local
+// retryAttempt so re-entries (stall recovery, VERIFY_FAIL resume, dispatcher
+// dispatch) cannot reset the counter and cycle 1..3 again forever. Tags are
+// already written on every verify-retry submission, so there's no new schema
+// cost for this counter — the tasks table is the source of truth.
+function countPriorVerifyRetryTasksForBatch(batch_id) {
+  if (!batch_id) return 0;
+  try {
+    const taskCore = require('../db/task-core');
+    const tasks = taskCore.listTasks({
+      tags: [`factory:batch_id=${batch_id}`],
+      limit: 200,
+    });
+    return tasks.filter((t) =>
+      Array.isArray(t.tags)
+      && t.tags.some((tag) => typeof tag === 'string' && tag.startsWith('factory:verify_retry=')),
+    ).length;
+  } catch {
+    return 0;
+  }
+}
+
 // Fix 2: detect the "no commits ahead of <base>" merge-time failure that
 // signals an empty execution. Pure helpers are exported for testability.
 function isEmptyBranchMergeError(message) {
@@ -4605,7 +4628,13 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
     const verifyReview = require('./verify-review');
     let review = null;
     let res = null;
-    let retryAttempt = 0;
+    // Seed the retry counter from prior verify-retry tasks for this batch.
+    // Without this, any re-entry to executeVerifyStage (stall-recovery,
+    // VERIFY_FAIL resume, dispatcher re-entry) resets retryAttempt to 0 and
+    // the loop cycles retry=1..3 again instead of emitting
+    // auto_rejected_verify_fail. The retry tags persisted on task rows are
+    // the cross-call source of truth.
+    let retryAttempt = countPriorVerifyRetryTasksForBatch(batch_id);
     let submissionFailures = 0;
     try {
       // eslint-disable-next-line no-constant-condition
@@ -6379,6 +6408,7 @@ module.exports = {
   buildVerifyFixPrompt,
   VERIFY_FIX_PROMPT_TAIL_BUDGET,
   isProjectStatusPaused,
+  countPriorVerifyRetryTasksForBatch,
   // Pure helpers (Fix 2 — fallback quarantine if upstream's empty-branch
   // resolver in maybeShipWorkItemAfterLearn ever fails open).
   isEmptyBranchMergeError,
