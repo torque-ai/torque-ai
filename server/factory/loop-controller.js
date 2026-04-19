@@ -3882,12 +3882,63 @@ async function executePlanFileStage(project, instance, workItem) {
     }
   })();
 
-  const result = await executor.execute({
-    plan_path: planPathForExecutor,
-    project: project.name,
-    working_directory: executionWorkingDirectory,
-    execution_mode: executeMode,
-  });
+  let result;
+  try {
+    result = await executor.execute({
+      plan_path: planPathForExecutor,
+      project: project.name,
+      working_directory: executionWorkingDirectory,
+      execution_mode: executeMode,
+    });
+  } catch (execErr) {
+    // Silent-spin fix: before this catch, any exception from the plan
+    // executor (submit failure, fs.readFileSync ENOENT on a missing
+    // worktree-plan, await timeout, etc.) propagated unwrapped back to
+    // runAdvanceLoop, which logged a generic warning and retried after
+    // 30s without updating the instance state or emitting a decision.
+    // The loop thrashed every 30s on the same failure forever (seen on
+    // torque-public item 100 and bitsy item 479 today). Capture the
+    // exception, surface it in the decision log, and pause the instance
+    // so the operator can see what went wrong and the tick stops
+    // re-driving the same dead end.
+    factoryIntake.updateWorkItem(targetItem.id, {
+      status: 'in_progress',
+      reject_reason: `execute_exception: ${(execErr?.message || '').slice(0, 160)}`,
+    });
+    logger.error('EXECUTE stage: plan executor threw — pausing at EXECUTE', {
+      project_id: project.id,
+      work_item_id: targetItem.id,
+      plan_path: planPathForExecutor,
+      err: execErr?.message || String(execErr),
+    });
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.EXECUTE,
+      action: 'execute_exception',
+      reasoning: `Plan executor threw: ${(execErr?.message || '').slice(0, 180)}. Pausing at EXECUTE — auto-advance would otherwise silently retry every 30s on the same failure.`,
+      inputs: { ...getWorkItemDecisionContext(targetItem) },
+      outcome: {
+        error: (execErr?.message || String(execErr)).slice(0, 500),
+        plan_path: planPathForExecutor,
+        next_state: LOOP_STATES.PAUSED,
+        paused_at_stage: LOOP_STATES.EXECUTE,
+      },
+      confidence: 1,
+      batch_id: decisionBatchId,
+    });
+    return {
+      next_state: LOOP_STATES.PAUSED,
+      paused_at_stage: LOOP_STATES.EXECUTE,
+      stop_execution: true,
+      reason: 'execute_exception',
+      stage_result: {
+        status: 'paused',
+        reason: 'execute_exception',
+        error: (execErr?.message || String(execErr)).slice(0, 500),
+      },
+      work_item: targetItem,
+    };
+  }
 
   // Fix 1: if live execute returned zero completions AND zero failures,
   // pause at EXECUTE — VERIFY would false-pass on the empty branch and the
