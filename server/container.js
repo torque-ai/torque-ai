@@ -202,6 +202,17 @@ _defaultContainer.register('familyTemplates', ['db'], createFamilyTemplates);
 _defaultContainer.register('actionRegistry', [], () => createActionRegistry());
 _defaultContainer.register('constructionCache', ['db'], ({ db }) => createConstructionCache({ db }));
 _defaultContainer.register('executor', ['actionRegistry'], ({ actionRegistry }) => createExecutor({ registry: actionRegistry }));
+_defaultContainer.register('runDirManager', ['db'], ({ db }) => {
+  const dataDir = typeof db.getDataDir === 'function'
+    ? db.getDataDir()
+    : require('./data-dir').getDataDir();
+  const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+  return createRunDirManager({
+    db: rawDb,
+    rootDir: path.join(dataDir, 'runs'),
+    promotedDir: path.join(dataDir, 'promoted'),
+  });
+});
 
 function initModules(db, serverConfig) {
   if (!_defaultContainer.has('db')) {
@@ -210,18 +221,6 @@ function initModules(db, serverConfig) {
   if (!_defaultContainer.has('serverConfig')) {
     _defaultContainer.registerValue('serverConfig', serverConfig);
   }
-  const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
-  if (!_defaultContainer.has('runDirManager')) {
-    const dataDir = typeof db.getDataDir === 'function'
-      ? db.getDataDir()
-      : require('./data-dir').getDataDir();
-    _defaultContainer.registerValue('runDirManager', createRunDirManager({
-      db: rawDb,
-      rootDir: path.join(dataDir, 'runs'),
-      promotedDir: path.join(dataDir, 'promoted'),
-    }));
-  }
-
   serverConfig.init({ db });
   logger.info('Container: config.js wired via init(deps)');
 

@@ -87,6 +87,45 @@ describe('runDirManager', () => {
     expect(updated.absolute_path).toBe(promotedPath);
   });
 
+  it('reindexAllRunDirs walks every task dir and indexes files the finalizer missed', () => {
+    const firstRunDir = manager.openRunDir('t1');
+    fs.writeFileSync(path.join(firstRunDir, 'outputs', 'first.txt'), 'one');
+
+    db.prepare(`
+      INSERT INTO tasks (id, status, task_description, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run('t2', 'completed', 'second task', new Date().toISOString());
+    const secondRunDir = manager.openRunDir('t2');
+    fs.writeFileSync(path.join(secondRunDir, 'scratch', 'second.md'), '# second');
+
+    fs.writeFileSync(path.join(root, 'stray.txt'), 'not a task dir');
+    fs.mkdirSync(path.join(root, '.hidden-bad'), { recursive: true });
+
+    const result = manager.reindexAllRunDirs();
+
+    expect(result.tasksScanned).toBe(3);
+    expect(result.artifactsIndexed).toBe(2);
+
+    const rows = db.prepare('SELECT task_id, relative_path FROM run_artifacts ORDER BY task_id, relative_path').all();
+    expect(rows).toEqual([
+      { task_id: 't1', relative_path: 'outputs/first.txt' },
+      { task_id: 't2', relative_path: 'scratch/second.md' },
+    ]);
+  });
+
+  it('reindexAllRunDirs is idempotent across repeated runs', () => {
+    const runDir = manager.openRunDir('t1');
+    fs.writeFileSync(path.join(runDir, 'outputs', 'only.txt'), 'hi');
+
+    manager.reindexAllRunDirs();
+    const firstIds = db.prepare('SELECT artifact_id FROM run_artifacts ORDER BY artifact_id').all();
+
+    manager.reindexAllRunDirs();
+    const secondIds = db.prepare('SELECT artifact_id FROM run_artifacts ORDER BY artifact_id').all();
+
+    expect(secondIds).toEqual(firstIds);
+  });
+
   it('sweepRunDir deletes only non-promoted files and removes the empty run dir', async () => {
     const runDir = manager.openRunDir('t1');
     fs.writeFileSync(path.join(runDir, 'outputs', 'keep.txt'), 'k');

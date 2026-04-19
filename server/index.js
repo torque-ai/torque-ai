@@ -1042,6 +1042,26 @@ function init() {
     // Non-fatal during migration — existing require() paths still work
   }
 
+  // Backfill artifact index for pre-existing run dirs. The run-scoped-artifacts
+  // feature was shipped with its container registration buried in a legacy init
+  // path that never ran, so nothing was indexed on finalization. indexFiles is
+  // idempotent (upserts by task_id + relative_path), so the sweep is safe to run
+  // on every startup; tasks with nothing to index are skipped at the fs.existsSync
+  // check inside indexFiles.
+  try {
+    if (defaultContainer.has('runDirManager')) {
+      const runDirManager = defaultContainer.get('runDirManager');
+      if (runDirManager && typeof runDirManager.reindexAllRunDirs === 'function') {
+        const result = runDirManager.reindexAllRunDirs();
+        if (result.tasksScanned > 0) {
+          debugLog(`Run artifacts reindex: scanned ${result.tasksScanned} task dir(s), indexed ${result.artifactsIndexed} file(s)`);
+        }
+      }
+    }
+  } catch (err) {
+    debugLog(`Run artifacts reindex skipped: ${err.message}`);
+  }
+
   // Load built-in plugins plus any mode-specific plugins the loader adds.
   let loadedPlugins = [];
   try {

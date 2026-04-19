@@ -189,7 +189,33 @@ function createRunDirManager({ db, rootDir, promotedDir = null }) {
     return { deleted };
   }
 
-  return { openRunDir, indexFiles, listArtifacts, getArtifact, promoteArtifact, sweepRunDir, runDirFor };
+  function reindexAllRunDirs() {
+    if (!fs.existsSync(rootPath)) {
+      return { tasksScanned: 0, artifactsIndexed: 0 };
+    }
+
+    let tasksScanned = 0;
+    let artifactsIndexed = 0;
+    for (const entry of fs.readdirSync(rootPath, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      try {
+        normalizeTaskId(entry.name);
+      } catch {
+        continue;
+      }
+      try {
+        const result = indexFiles(entry.name);
+        tasksScanned += 1;
+        artifactsIndexed += result.count || 0;
+      } catch {
+        // Skip failures and keep sweeping; one bad dir must not abort the rest.
+      }
+    }
+
+    return { tasksScanned, artifactsIndexed };
+  }
+
+  return { openRunDir, indexFiles, listArtifacts, getArtifact, promoteArtifact, sweepRunDir, runDirFor, reindexAllRunDirs };
 }
 
 function normalizeArtifactRow(row) {
