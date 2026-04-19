@@ -134,3 +134,60 @@ Test Files: /r/tests/Bar.Tests/bin/Debug/net8.0/Bar.Tests.dll
     expect(parseFailingTests(out)).toEqual(['tests/foo.py']);
   });
 });
+
+const childProcess = require('node:child_process');
+const { getModifiedFiles } = require('../factory/verify-review');
+
+describe('getModifiedFiles', () => {
+  let spawnSpy;
+
+  afterEach(() => {
+    if (spawnSpy) spawnSpy.mockRestore();
+  });
+
+  function mockGitDiff(stdout, exitCode = 0) {
+    spawnSpy = vi.spyOn(childProcess, 'spawn').mockImplementation(() => {
+      const { EventEmitter } = require('node:events');
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      process.nextTick(() => {
+        child.stdout.emit('data', Buffer.from(stdout));
+        child.emit('close', exitCode);
+      });
+      return child;
+    });
+  }
+
+  it('returns parsed file paths from git diff --name-only', async () => {
+    mockGitDiff('src/foo.ts\ntests/foo.test.ts\n');
+    const r = await getModifiedFiles('/tmp/p', 'feat/factory-1-example', 'main');
+    expect(r).toEqual(['src/foo.ts', 'tests/foo.test.ts']);
+  });
+
+  it('returns empty array when git exits non-zero', async () => {
+    mockGitDiff('', 128);
+    const r = await getModifiedFiles('/tmp/p', 'feat/factory-1-example', 'main');
+    expect(r).toEqual([]);
+  });
+
+  it('returns empty array when git spawn throws', async () => {
+    spawnSpy = vi.spyOn(childProcess, 'spawn').mockImplementation(() => {
+      throw new Error('spawn EPERM');
+    });
+    const r = await getModifiedFiles('/tmp/p', 'feat/factory-1-example', 'main');
+    expect(r).toEqual([]);
+  });
+
+  it('returns empty array when stdout is empty', async () => {
+    mockGitDiff('');
+    const r = await getModifiedFiles('/tmp/p', 'feat/factory-1-example', 'main');
+    expect(r).toEqual([]);
+  });
+
+  it('strips blank lines and trims whitespace', async () => {
+    mockGitDiff('src/a.ts\n\n  src/b.ts  \n\n');
+    const r = await getModifiedFiles('/tmp/p', 'feat/factory-1-example', 'main');
+    expect(r).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+});

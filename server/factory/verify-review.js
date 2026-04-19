@@ -1,5 +1,7 @@
 'use strict';
 
+const childProcess = require('node:child_process');
+
 const LLM_TIMEOUT_MS = 60_000;
 const ENVIRONMENT_EXIT_CODES = new Set([127, 126, 124]);
 const ENVIRONMENT_STDERR_PATTERNS = [
@@ -78,8 +80,32 @@ function parseFailingTests(verifyOutput) {
   return Array.from(paths);
 }
 
-async function getModifiedFiles(_workingDirectory, _worktreeBranch, _mergeBase) {
-  return [];
+async function getModifiedFiles(workingDirectory, worktreeBranch, mergeBase) {
+  if (!workingDirectory || !worktreeBranch || !mergeBase) return [];
+  return new Promise((resolve) => {
+    let stdout = '';
+    let child;
+    try {
+      child = childProcess.spawn('git', ['diff', '--name-only', `${mergeBase}...${worktreeBranch}`], {
+        cwd: workingDirectory,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+    } catch (_e) {
+      resolve([]);
+      return;
+    }
+    child.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+    child.on('error', () => resolve([]));
+    child.on('close', (code) => {
+      if (code !== 0) return resolve([]);
+      const paths = stdout
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+      resolve(paths);
+    });
+  });
 }
 
 async function runLlmTiebreak(_opts) {
