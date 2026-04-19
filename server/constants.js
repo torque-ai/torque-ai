@@ -90,6 +90,7 @@ const PROVIDER_DEFAULT_TIMEOUTS = {
   'codex': 480,
   'codex-spark': 480,
   'claude-cli': 480,
+  'claude-ollama': 480,
   'ollama': 480,
   'anthropic': 480,
   'deepinfra': 480,
