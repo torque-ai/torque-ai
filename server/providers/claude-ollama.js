@@ -228,9 +228,14 @@ class ClaudeOllamaProvider extends BaseProvider {
     const timeoutMs = Number(options.timeout_ms) > 0 ? Number(options.timeout_ms) : DEFAULT_TIMEOUT_MS;
     const startTime = Date.now();
 
-    const selectedHost = hostManagement.selectOllamaHostForModel
-      ? hostManagement.selectOllamaHostForModel(cleanText(model))
-      : null;
+    let selectedHost = null;
+    try {
+      if (typeof hostManagement.selectOllamaHostForModel === 'function') {
+        selectedHost = hostManagement.selectOllamaHostForModel(cleanText(model));
+      }
+    } catch {
+      // host selection unavailable (e.g. DB not initialized in tests) -- fall back to default lock
+    }
     const hostId = selectedHost?.id || selectedHost?.host_id || 'default-host';
     const release = await hostMutex.acquireHostLock(hostId);
 
