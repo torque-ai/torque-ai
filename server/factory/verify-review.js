@@ -181,16 +181,95 @@ Return ONLY valid JSON in this exact shape:
 `;
 }
 
-async function reviewVerifyFailure(_opts) {
+async function reviewVerifyFailure({
+  verifyOutput,
+  workingDirectory,
+  worktreeBranch,
+  mergeBase,
+  workItem,
+  project,
+  options = {},
+}) {
+  const env = detectEnvironmentFailure(verifyOutput);
+  if (env.detected) {
+    return {
+      classification: 'environment_failure',
+      confidence: 'high',
+      modifiedFiles: [],
+      failingTests: [],
+      intersection: [],
+      environmentSignals: env.signals,
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: 'verify_failed_environment',
+    };
+  }
+
+  const failingTests = parseFailingTests(verifyOutput);
+  const modifiedFiles = await module.exports.getModifiedFiles(workingDirectory, worktreeBranch, mergeBase);
+  const intersection = failingTests.filter((t) => modifiedFiles.includes(t));
+
+  if (intersection.length > 0) {
+    return {
+      classification: 'task_caused',
+      confidence: 'high',
+      modifiedFiles,
+      failingTests,
+      intersection,
+      environmentSignals: [],
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: null,
+    };
+  }
+
+  const deterministicBase = failingTests.length > 0 ? 'baseline_candidate' : 'ambiguous';
+
+  const llm = await module.exports.runLlmTiebreak({
+    failingTests,
+    modifiedFiles,
+    workItem,
+    project,
+    timeoutMs: options.llmTimeoutMs,
+  });
+
+  if (!llm || llm.verdict === null) {
+    return {
+      classification: 'ambiguous',
+      confidence: 'low',
+      modifiedFiles,
+      failingTests,
+      intersection,
+      environmentSignals: [],
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: null,
+    };
+  }
+
+  if (llm.verdict === 'no-go') {
+    return {
+      classification: 'baseline_broken',
+      confidence: deterministicBase === 'baseline_candidate' ? 'high' : 'medium',
+      modifiedFiles,
+      failingTests,
+      intersection,
+      environmentSignals: [],
+      llmVerdict: 'no-go',
+      llmCritique: llm.critique,
+      suggestedRejectReason: 'verify_failed_baseline_unrelated',
+    };
+  }
+
   return {
-    classification: 'ambiguous',
-    confidence: 'low',
-    modifiedFiles: [],
-    failingTests: [],
-    intersection: [],
+    classification: 'task_caused',
+    confidence: deterministicBase === 'baseline_candidate' ? 'medium' : 'low',
+    modifiedFiles,
+    failingTests,
+    intersection,
     environmentSignals: [],
-    llmVerdict: null,
-    llmCritique: null,
+    llmVerdict: 'go',
+    llmCritique: llm.critique,
     suggestedRejectReason: null,
   };
 }

@@ -307,3 +307,123 @@ describe('runLlmTiebreak', () => {
     expect(r).toEqual({ verdict: null, critique: null });
   });
 });
+
+const verifyReview = require('../factory/verify-review');
+
+describe('reviewVerifyFailure orchestrator', () => {
+  it('environment_failure: returns environment_failure without calling LLM', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({ verdict: 'go', critique: 'should not be called' });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue(['src/foo.ts']);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: { exitCode: 127, stdout: '', stderr: 'pytest: command not found', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('environment_failure');
+    expect(r.confidence).toBe('high');
+    expect(llmSpy).not.toHaveBeenCalled();
+    expect(r.environmentSignals.length).toBeGreaterThan(0);
+    expect(r.suggestedRejectReason).toBe('verify_failed_environment');
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+
+  it('task_caused: intersection non-empty returns task_caused without calling LLM', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({ verdict: 'go', critique: 'should not be called' });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue(['tests/foo.test.ts', 'src/foo.ts']);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: { exitCode: 1, stdout: 'FAIL  tests/foo.test.ts > Foo > renders\n❯ tests/foo.test.ts:12:5', stderr: '', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('task_caused');
+    expect(r.confidence).toBe('high');
+    expect(r.intersection).toContain('tests/foo.test.ts');
+    expect(llmSpy).not.toHaveBeenCalled();
+    expect(r.suggestedRejectReason).toBeNull();
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+
+  it('baseline_candidate + LLM no-go: returns baseline_broken with critique', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({ verdict: 'no-go', critique: 'Failures are in the legacy reconciler module this diff never touched.' });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue(['src/feature_x.py']);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: { exitCode: 1, stdout: 'FAILED tests/legacy_reconciler_test.py::test_something - ...', stderr: '', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('baseline_broken');
+    expect(r.confidence).toBe('high');
+    expect(llmSpy).toHaveBeenCalledTimes(1);
+    expect(r.llmVerdict).toBe('no-go');
+    expect(r.llmCritique).toContain('legacy reconciler');
+    expect(r.suggestedRejectReason).toBe('verify_failed_baseline_unrelated');
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+
+  it('baseline_candidate + LLM go: returns task_caused (LLM overruled deterministic)', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({ verdict: 'go', critique: 'Test imports the modified util via deep path alias.' });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue(['src/util.ts']);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: { exitCode: 1, stdout: 'FAIL  tests/consumer.test.ts > ...\n❯ tests/consumer.test.ts:8:3', stderr: '', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('task_caused');
+    expect(r.confidence).toBe('medium');
+    expect(r.llmVerdict).toBe('go');
+    expect(r.suggestedRejectReason).toBeNull();
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+
+  it('baseline_candidate + LLM null: returns ambiguous (conservative)', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({ verdict: null, critique: null });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue(['src/foo.ts']);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: { exitCode: 1, stdout: 'FAILED tests/bar.py::test_baz', stderr: '', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('ambiguous');
+    expect(r.confidence).toBe('low');
+    expect(r.suggestedRejectReason).toBeNull();
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+
+  it('ambiguous (no failing tests parsed) + LLM no-go: returns baseline_broken confidence medium', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({ verdict: 'no-go', critique: 'Output indicates a runner-level failure unrelated to the diff.' });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue(['src/foo.ts']);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: { exitCode: 1, stdout: 'Some unknown output format', stderr: '', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('baseline_broken');
+    expect(r.confidence).toBe('medium');
+    expect(r.suggestedRejectReason).toBe('verify_failed_baseline_unrelated');
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+});
