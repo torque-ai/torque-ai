@@ -273,15 +273,32 @@ verify_and_kill_lingering_nodes() {
 }
 
 # ── Step 1: Graceful HTTP shutdown ──
+# By default, the server's /api/shutdown endpoint refuses when the pipeline
+# has in-flight work (running/queued/pending/blocked tasks). This script
+# issues a non-force shutdown so that refusal is honored — operators should
+# drain via await_restart first, then call this script.
+#
+# Passing --force on the command line DOES drive a force-shutdown (used
+# by worktree-cutover.sh only after its own drain step, and by emergency
+# operator recovery). Force still has a governance-layer check behind it:
+# the no-force-restart rule at server/governance/hooks.js blocks even
+# force:true when tasks are running unless operator_override:true is set.
 try_http_shutdown() {
-  log "Attempting graceful shutdown via http://127.0.0.1:${API_PORT}/api/shutdown ..."
+  local body
+  if [ "$FORCE" -eq 1 ]; then
+    body='{"reason":"stop-torque.sh --force","force":true,"operator_override":true}'
+    log "Attempting force shutdown via http://127.0.0.1:${API_PORT}/api/shutdown (operator override acknowledged)..."
+  else
+    body='{"reason":"stop-torque.sh"}'
+    log "Attempting graceful shutdown via http://127.0.0.1:${API_PORT}/api/shutdown (requires drained pipeline)..."
+  fi
   if response=$(curl -s --max-time 5 -X POST \
     -H "Content-Type: application/json" \
     -H "X-Requested-With: XMLHttpRequest" \
-    -d '{"reason":"stop-torque.sh","force":true}' \
+    -d "$body" \
     "http://127.0.0.1:${API_PORT}/api/shutdown" 2>/dev/null); then
     if echo "$response" | grep -q "shutting_down"; then
-      log "Graceful shutdown accepted. Waiting for process to exit..."
+      log "Shutdown accepted. Waiting for process to exit..."
       # Wait up to 10 seconds for process to exit
       local i=1
       while [ "$i" -le 20 ]; do
@@ -293,6 +310,17 @@ try_http_shutdown() {
         i=$((i + 1))
       done
       log "Server still responding after 10s — falling through to PID kill."
+      return 1
+    fi
+    # 409 with a task-count error means the pipeline is busy. Echo the server's
+    # reply so the operator sees exactly what's in flight.
+    if echo "$response" | grep -q "Shutdown blocked"; then
+      log "Shutdown refused: pipeline is not empty. Drain via await_restart first, or re-run with --force."
+      log "Server response: $response"
+      return 1
+    fi
+    if echo "$response" | grep -q "Governance blocked"; then
+      log "Shutdown refused by governance: $response"
       return 1
     fi
   fi
