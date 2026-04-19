@@ -9,16 +9,39 @@ const VALID_CATEGORIES = new Set(GUARDRAIL_CATEGORIES);
 let db = null;
 
 function setDb(dbInstance) {
-  db = dbInstance;
+  db = resolveDbHandle(dbInstance);
+}
+
+// Container-friendly handle resolver: accept a raw better-sqlite3 instance,
+// the database.js module (which exposes getDbInstance), or a generic getter
+// object (getDb()). Mirrors factory-worktrees.js. Required because
+// container.js registers `db` as the whole database module, not the raw
+// prepared-statement handle — guardrails used to see the module, miss the
+// .prepare method, and throw "Factory guardrails requires an active
+// database connection" even though the DB was fully initialized.
+function resolveDbHandle(candidate) {
+  if (!candidate) {
+    return null;
+  }
+  if (typeof candidate.prepare === 'function') {
+    return candidate;
+  }
+  if (typeof candidate.getDbInstance === 'function') {
+    return candidate.getDbInstance();
+  }
+  if (typeof candidate.getDb === 'function') {
+    return candidate.getDb();
+  }
+  return null;
 }
 
 function getDb() {
-  let instance = db;
+  let instance = resolveDbHandle(db);
   if (!instance) {
     try {
       const { defaultContainer } = require('../container');
       if (defaultContainer && defaultContainer.has && defaultContainer.has('db')) {
-        instance = defaultContainer.get('db');
+        instance = resolveDbHandle(defaultContainer.get('db'));
       }
     } catch {
       // Fall through to direct database fallback below.
@@ -27,9 +50,7 @@ function getDb() {
   if (!instance) {
     try {
       const database = require('../database');
-      if (typeof database.getDbInstance === 'function') {
-        instance = database.getDbInstance();
-      }
+      instance = resolveDbHandle(database);
     } catch {
       // Let the explicit error below surface if no active DB is available.
     }
