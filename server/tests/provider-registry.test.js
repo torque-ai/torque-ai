@@ -115,7 +115,7 @@ describe('Provider Registry', () => {
     });
 
     it('includes all local CLI providers in the codex category', () => {
-      expect(registry.PROVIDER_CATEGORIES.codex).toEqual(['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk']);
+      expect(registry.PROVIDER_CATEGORIES.codex).toEqual(['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk', 'claude-ollama']);
     });
 
     it('includes all cloud providers in the api category', () => {
