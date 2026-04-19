@@ -72,7 +72,7 @@ describe('analyzeTaskForRouting with routing templates', () => {
         simple_generation: 'ollama', targeted_file_edit: 'ollama', plan_generation: 'ollama', default: 'ollama',
       },
       complexity_overrides: {
-        reasoning: { complex: '<git-user>' },
+        reasoning: { complex: 'codex' },
       },
     });
     templateStore.setActiveTemplate(custom.id);
