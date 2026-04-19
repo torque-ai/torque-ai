@@ -450,5 +450,6 @@ module.exports = {
   createWorktreeRunner,
   sanitizeSlug,
   resolveBranchName,
+  detectDefaultBranch,
   resolveSystemShellCommand,
 };

@@ -1192,9 +1192,17 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
 
     if (worktreeRecord && worktreeRunner) {
       try {
-        // Use the worktree's base_branch as merge target — not all projects
-        // use 'main' (example-project uses 'master').
-        const mergeTarget = worktreeRecord.base_branch || worktreeRecord.baseBranch || 'main';
+        // Use the worktree's base_branch if stored on the factory_worktrees
+        // row; otherwise re-detect from the repo (bitsy uses master, the
+        // hardcoded 'main' default produces `git rev-list main..feat/...`
+        // → unknown revision → worktree_merge_failed). detectDefaultBranch
+        // consults origin/HEAD and falls back to whichever of master/main
+        // actually exists locally.
+        const { detectDefaultBranch } = require('./worktree-runner');
+        const mergeTarget = worktreeRecord.base_branch
+          || worktreeRecord.baseBranch
+          || detectDefaultBranch(project.path)
+          || 'main';
         const mergeResult = await worktreeRunner.mergeToMain({
           id: worktreeRecord.vcWorktreeId,
           branch: worktreeRecord.branch,
