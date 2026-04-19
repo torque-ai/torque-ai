@@ -4394,8 +4394,26 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
 
   if (worktreeRecord && worktreeRunner) {
     const project = factoryHealth.getProject(project_id);
-    const verifyCommand = (project && project.config && project.config.verify_command)
-      || 'cd server && npx vitest run';
+    // Priority: factory config_json -> project_defaults (set via
+    // set_project_defaults) -> hardcoded vitest fallback. Factory config
+    // expresses explicit loop intent; project_defaults is the general
+    // per-project config; the hardcoded string is last resort for repos
+    // that have neither configured.
+    let verifyCommand = project && project.config && project.config.verify_command;
+    if (!verifyCommand && project && project.name) {
+      try {
+        const projectConfigCore = require('../db/project-config-core');
+        const defaults = projectConfigCore.getProjectConfig(project.name);
+        if (defaults && defaults.verify_command) {
+          verifyCommand = defaults.verify_command;
+        }
+      } catch (_pccErr) {
+        void _pccErr;
+      }
+    }
+    if (!verifyCommand) {
+      verifyCommand = 'cd server && npx vitest run';
+    }
 
     // Pull the associated work item so the retry prompt can reference the
     // plan. Best-effort: if we can't resolve it, the retry still runs
