@@ -311,11 +311,22 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
     return { root, scanned: 0, cleaned, skipped, failed };
   }
 
+  // The branch → path map is deterministic, so a single path will
+  // accumulate multiple factory_worktrees rows across its lifetime: every
+  // pre-reclaim marks the prior row abandoned and the next EXECUTE inserts
+  // a fresh active row for the same path. listProjectFactoryWorktrees
+  // returns them newest-first (ORDER BY id DESC). A plain Map.set loop
+  // overwrites each entry, so the final Map holds the OLDEST row per path
+  // — typically abandoned — and classifyDir then reclaims the fresh dir
+  // that the just-inserted active row actually owns. Keep only the
+  // first-seen (newest) row per path.
   const rows = listProjectFactoryWorktrees(db, project_id);
   const rowsByPath = new Map();
   for (const row of rows) {
-    if (row.worktree_path) {
-      rowsByPath.set(normalizePathKey(row.worktree_path), row);
+    if (!row.worktree_path) continue;
+    const key = normalizePathKey(row.worktree_path);
+    if (!rowsByPath.has(key)) {
+      rowsByPath.set(key, row);
     }
   }
 
