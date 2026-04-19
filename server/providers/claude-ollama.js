@@ -207,6 +207,11 @@ class ClaudeOllamaProvider extends BaseProvider {
     const sessionMeta = this.readSessionMeta(localSessionId);
     const claudeSessionId = cleanText(sessionMeta.metadata?.claude_session_id) || randomUUID();
     const messageCount = this.sessionStore.readAll(localSessionId).length;
+    this.sessionStore.append(localSessionId, {
+      role: 'user',
+      content: rawPromptText,
+      timestamp: new Date().toISOString(),
+    });
 
     const permissionMode = SUPPORTED_PERMISSION_MODES.has(cleanText(options.mode))
       ? cleanText(options.mode) : DEFAULT_MODE;
@@ -344,6 +349,12 @@ class ClaudeOllamaProvider extends BaseProvider {
       }, timeoutMs);
 
       child.stdin.end(rawPromptText, 'utf8');
+    });
+
+    this.sessionStore.append(localSessionId, {
+      role: 'assistant',
+      content: result.output,
+      timestamp: new Date().toISOString(),
     });
 
     const durationMs = Date.now() - startTime;

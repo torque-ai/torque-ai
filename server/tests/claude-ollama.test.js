@@ -253,6 +253,31 @@ describe('ClaudeOllamaProvider.runPrompt — tool permission', () => {
   });
 });
 
+describe('ClaudeOllamaProvider.runPrompt — session append', () => {
+  it('appends user and assistant messages to the session store', async () => {
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    const fakeStdout = JSON.stringify({ type: 'text_delta', delta: 'OK' }) + '\n';
+    const spawnSpy = vi.spyOn(child_process, 'spawn').mockImplementation(() => {
+      const { EventEmitter } = require('events');
+      const c = new EventEmitter();
+      c.stdout = new EventEmitter(); c.stderr = new EventEmitter();
+      c.stdin = { end: vi.fn() }; c.kill = vi.fn();
+      setImmediate(() => { c.stdout.emit('data', Buffer.from(fakeStdout)); c.emit('close', 0, null); });
+      return c;
+    });
+
+    const result = await p.runPrompt('ping', 'qwen3-coder:30b', {
+      working_directory: '/tmp/wd',
+    });
+    const messages = p.sessionStore.readAll(result.session_id);
+    const roles = messages.map(m => m.role);
+    expect(roles).toEqual(['user', 'assistant']);
+    expect(messages[0].content).toBe('ping');
+    expect(messages[1].content).toBe('OK');
+    spawnSpy.mockRestore();
+  });
+});
+
 describe('ClaudeOllamaProvider.runPrompt — simple text', () => {
   it('spawns with correct binary+args and returns collected output', async () => {
     const p = new ClaudeOllamaProvider({ enabled: true });
