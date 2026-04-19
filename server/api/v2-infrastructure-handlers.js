@@ -468,151 +468,6 @@ async function handleDeleteCredential(req, res) {
   sendSuccess(res, requestId, { removed: true, host: hostName, credential_type: credType }, 200, req);
 }
 
-// ─── Remote Agents ──────────────────────────────────────────────────────────
-
-function _resetRegistryCache() { /* no-op — registry is managed by plugin singleton */ }
-function _getRegistry() {
-  const { getInstalledRegistry } = require('../plugins/remote-agents');
-  return getInstalledRegistry();
-}
-
-function _sanitizeAgent(agent) {
-  if (!agent) return null;
-  const { secret: _secret, ...safe } = agent;
-  return {
-    ...safe,
-    tls: Boolean(agent.tls),
-    rejectUnauthorized: agent.rejectUnauthorized === undefined ? true : Boolean(agent.rejectUnauthorized),
-  };
-}
-
-function _listAgents() {
-  const registry = _getRegistry();
-  if (!registry) return [];
-  return registry.getAll().map(_sanitizeAgent);
-}
-
-function _getAgent(agentId) {
-  const registry = _getRegistry();
-  if (!registry) return null;
-  return _sanitizeAgent(registry.get(agentId));
-}
-
-async function _healthCheckAgent(agentId) {
-  const registry = _getRegistry();
-  if (!registry) return null;
-
-  await registry.runHealthChecks();
-  return _sanitizeAgent(registry.get(agentId));
-}
-
-async function handleListAgents(req, res) {
-  const requestId = resolveRequestId(req);
-  try {
-    const agents = _listAgents();
-    sendList(res, requestId, agents, agents.length, req);
-  } catch (err) {
-    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
-  }
-}
-
-async function handleCreateAgent(req, res) {
-  const requestId = resolveRequestId(req);
-  const body = req.body || await parseBody(req);
-
-  const id = (body.id || '').trim();
-  const name = (body.name || '').trim();
-  const host = (body.host || '').trim();
-  const secret = (body.secret || '').trim();
-
-  if (!id || !name || !host || !secret) {
-    return sendError(res, requestId, 'validation_error', 'id, name, host, and secret are required', 400, {}, req);
-  }
-
-  const registry = _getRegistry();
-  if (!registry) {
-    return sendError(res, requestId, 'not_initialized', 'Agent registry not initialized', 500, {}, req);
-  }
-
-  try {
-    const port = parseInt(body.port, 10) || 3460;
-    registry.register({
-      id, name, host, port, secret,
-      max_concurrent: parseInt(body.max_concurrent, 10) || 3,
-      tls: Boolean(body.tls),
-      rejectUnauthorized: body.rejectUnauthorized !== false,
-    });
-
-    const created = _getAgent(id);
-    if (!created) {
-      return sendError(res, requestId, 'operation_failed', 'Registered but failed to read result', 500, {}, req);
-    }
-    sendSuccess(res, requestId, created, 201, req);
-  } catch (err) {
-    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
-  }
-}
-
-async function handleGetAgent(req, res) {
-  const requestId = resolveRequestId(req);
-  const agentId = req.params?.agent_id;
-
-  const agent = _getAgent(agentId);
-  if (!agent) {
-    return sendError(res, requestId, 'agent_not_found', `Agent not found: ${agentId}`, 404, {}, req);
-  }
-  sendSuccess(res, requestId, agent, 200, req);
-}
-
-async function handleAgentHealth(req, res) {
-  const requestId = resolveRequestId(req);
-  const agentId = req.params?.agent_id;
-
-  const existing = _getAgent(agentId);
-  if (!existing) {
-    return sendError(res, requestId, 'agent_not_found', `Agent not found: ${agentId}`, 404, {}, req);
-  }
-
-  const registry = _getRegistry();
-  if (!registry) {
-    return sendError(res, requestId, 'not_initialized', 'Agent registry not initialized', 500, {}, req);
-  }
-
-  try {
-    const client = registry.getClient(agentId);
-    if (!client) {
-      return sendSuccess(res, requestId, { ...existing, status: 'disabled' }, 200, req);
-    }
-
-    const refreshed = await _healthCheckAgent(agentId);
-    sendSuccess(res, requestId, refreshed || existing, 200, req);
-  } catch (err) {
-    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
-  }
-}
-
-async function handleDeleteAgent(req, res) {
-  const requestId = resolveRequestId(req);
-  const agentId = req.params?.agent_id;
-
-  const existing = _getAgent(agentId);
-  if (!existing) {
-    return sendError(res, requestId, 'agent_not_found', `Agent not found: ${agentId}`, 404, {}, req);
-  }
-
-  const registry = _getRegistry();
-  if (!registry) {
-    return sendError(res, requestId, 'not_initialized', 'Agent registry not initialized', 500, {}, req);
-  }
-
-  try {
-    registry.remove(agentId);
-    sendSuccess(res, requestId, { removed: true, id: existing.id, name: existing.name }, 200, req);
-  } catch (err) {
-    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
-  }
-}
-
 // ─── Host Management (new v2 routes) ────────────────────────────────────────
 
 async function handleAddHost(req, res) {
@@ -733,11 +588,6 @@ function createV2InfrastructureHandlers(_deps) {
     handleListCredentials,
     handleSaveCredential,
     handleDeleteCredential,
-    handleListAgents,
-    handleCreateAgent,
-    handleGetAgent,
-    handleAgentHealth,
-    handleDeleteAgent,
     handleAddHost,
     handleRefreshModels,
     handleHostActivity,
@@ -748,7 +598,6 @@ function createV2InfrastructureHandlers(_deps) {
 
 module.exports = {
   init,
-  _resetRegistryCache,
   // Workstations
   handleListWorkstations,
   handleCreateWorkstation,
@@ -771,12 +620,6 @@ module.exports = {
   handleListCredentials,
   handleSaveCredential,
   handleDeleteCredential,
-  // Remote Agents
-  handleListAgents,
-  handleCreateAgent,
-  handleGetAgent,
-  handleAgentHealth,
-  handleDeleteAgent,
   // Host Management (new)
   handleAddHost,
   handleRefreshModels,

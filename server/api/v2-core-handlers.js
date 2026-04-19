@@ -2,8 +2,7 @@
  * V2 API Core Handlers
  *
  * Inference validation/normalization, task status/cancel/events handlers,
- * provider listing/capabilities/detail/models/health handlers,
- * and remote execution handlers.
+ * and provider listing/capabilities/detail/models/health handlers.
  *
  * Extracted from api-server.core.js to reduce file size.
  */
@@ -38,26 +37,6 @@ const {
   getV2ProviderModels,
   getV2ProviderHealthPayload,
 } = require('./v2-discovery-helpers');
-
-let _remoteAgentPluginHandlers = null;
-
-function getRemoteAgentPluginHandlers() {
-  if (_remoteAgentPluginHandlers) {
-    return _remoteAgentPluginHandlers;
-  }
-
-  const { getInstalledRegistry } = require('../plugins/remote-agents');
-  const agentRegistry = getInstalledRegistry();
-  if (!agentRegistry) return null;
-
-  const database = require('../database');
-  const { createHandlers } = require('../plugins/remote-agents/handlers');
-  _remoteAgentPluginHandlers = createHandlers({
-    agentRegistry,
-    db: database,
-  });
-  return _remoteAgentPluginHandlers;
-}
 
 // ---------------------------------------------------------------------------
 // Inference helpers
@@ -1110,18 +1089,6 @@ function handleV2ProviderDetail(_req, res, context = {}, providerId, req = null)
   }
 }
 
-// ---------------------------------------------------------------------------
-// Remote execution handlers
-// ---------------------------------------------------------------------------
-
-async function handleV2RemoteRun(req, res, _context = {}) {
-  return getRemoteAgentPluginHandlers().run_remote_command(req, res);
-}
-
-async function handleV2RemoteTest(req, res, _context = {}) {
-  return getRemoteAgentPluginHandlers().run_tests(req, res);
-}
-
 module.exports = {
   // Inference helpers (needed by v2-inference init and other consumers)
   normalizeMessageContent,
@@ -1162,6 +1129,4 @@ module.exports = {
   handleV2ListProviders,
   handleV2ProviderCapabilities,
   handleV2ProviderDetail,
-  handleV2RemoteRun,
-  handleV2RemoteTest,
 };

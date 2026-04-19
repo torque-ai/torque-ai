@@ -141,7 +141,6 @@ const ROUTE_HANDLER_LOOKUP = createRouteHandlerLookup({
   v2AnalyticsHandlers,
   v2InfrastructureHandlers,
   quotaLifecycleHandlers,
-  handleBootstrapWorkstation: require('./plugins/remote-agents/bootstrap').handleBootstrapWorkstation,
 });
 
 const hasPiiScanRoute = routes.some((route) => route.method === PII_SCAN_ROUTE.method && route.path === PII_SCAN_ROUTE.path);

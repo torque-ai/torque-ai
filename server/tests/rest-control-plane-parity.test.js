@@ -90,16 +90,10 @@ installCjsModuleMock('../api/v2-infrastructure-handlers', handlerModule([
   'handleUpdateHost',
   'handleHostScan', 'handleListPeekHosts', 'handleCreatePeekHost',
   'handleDeletePeekHost', 'handleTogglePeekHost', 'handleListCredentials',
-  'handleSaveCredential', 'handleDeleteCredential', 'handleListAgents',
-  'handleCreateAgent', 'handleGetAgent', 'handleAgentHealth', 'handleDeleteAgent',
+  'handleSaveCredential', 'handleDeleteCredential',
   'handleAddHost', 'handleRefreshModels',
   'handleHostActivity', 'handleProviderPercentiles', 'handleCoordinationDashboard',
 ]));
-installCjsModuleMock('../plugins/remote-agents/handlers', handlerModule([
-  'handleRunRemoteCommand',
-  'handleRunTests',
-]));
-
 // ─── Load modules ───────────────────────────────────────────────────────────
 
 const routes = require('../api/routes');

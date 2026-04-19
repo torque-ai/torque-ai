@@ -474,11 +474,6 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpListCredentials: v2InfrastructureHandlers.handleListCredentials,
   handleV2CpSaveCredential: v2InfrastructureHandlers.handleSaveCredential,
   handleV2CpDeleteCredential: v2InfrastructureHandlers.handleDeleteCredential,
-  handleV2CpListAgents: v2InfrastructureHandlers.handleListAgents,
-  handleV2CpCreateAgent: v2InfrastructureHandlers.handleCreateAgent,
-  handleV2CpGetAgent: v2InfrastructureHandlers.handleGetAgent,
-  handleV2CpAgentHealth: v2InfrastructureHandlers.handleAgentHealth,
-  handleV2CpDeleteAgent: v2InfrastructureHandlers.handleDeleteAgent,
   // Host Management (new)
   handleV2CpAddHost: v2InfrastructureHandlers.handleAddHost,
   handleV2CpRefreshModels: v2InfrastructureHandlers.handleRefreshModels,

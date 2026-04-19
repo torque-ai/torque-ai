@@ -45,7 +45,6 @@ const PASSTHROUGH_CASES = [
   { method: 'GET', path: '/api/v2/advanced/get-audit-log', tool: 'get_audit_log', domain: 'advanced' },
   { method: 'GET', path: '/api/v2/advanced/get-resource-usage/{task_id}', tool: 'get_resource_usage', domain: 'advanced' },
   { method: 'POST', path: '/api/v2/approvals/approve-diff', tool: 'approve_diff', domain: 'approvals' },
-  { method: 'POST', path: '/api/v2/automation/run-tests', tool: 'run_tests', domain: 'automation' },
   { method: 'DELETE', path: '/api/v2/automation/delete-task-template', tool: 'delete_task_template', domain: 'automation' },
   { method: 'POST', path: '/api/v2/audit', tool: 'audit_codebase', domain: 'audit' },
   { method: 'PATCH', path: '/api/v2/audit/findings/{finding_id}', tool: 'update_audit_finding', domain: 'audit' },

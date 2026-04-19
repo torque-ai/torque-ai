@@ -123,11 +123,6 @@ const mockHandlers = {
     handleListCredentials: vi.fn(),
     handleSaveCredential: vi.fn(),
     handleDeleteCredential: vi.fn(),
-    handleListAgents: vi.fn(),
-    handleCreateAgent: vi.fn(),
-    handleGetAgent: vi.fn(),
-    handleAgentHealth: vi.fn(),
-    handleDeleteAgent: vi.fn(),
     init: vi.fn(),
   },
 };
@@ -186,10 +181,6 @@ installCjsModuleMock('../api/v2-workflow-handlers', mockHandlers.workflows);
 installCjsModuleMock('../api/v2-governance-handlers', mockHandlers.governance);
 installCjsModuleMock('../api/v2-analytics-handlers', mockHandlers.analytics);
 installCjsModuleMock('../api/v2-infrastructure-handlers', mockHandlers.infrastructure);
-installCjsModuleMock('../plugins/remote-agents/handlers', {
-  handleRunRemoteCommand: vi.fn(),
-  handleRunTests: vi.fn(),
-});
 installCjsModuleMock('../handlers/concurrency-handlers', {
   handleGetConcurrencyLimits: vi.fn(() => toolResultJson({ limits: [] })),
   handleSetConcurrencyLimit: vi.fn(() => toolResultText('ok')),
@@ -523,15 +514,6 @@ describe('v2-dispatch module', () => {
       expect(req.params).toEqual({ host_name: 'myhost', credential_type: 'ssh' });
     });
 
-    it('extracts agent_id from path', async () => {
-      const req = mockReq('GET', '/api/v2/agents/agent-7/health');
-      const res = mockRes();
-
-      await v2Dispatch.dispatchV2(req, res);
-
-      expect(mockHandlers.infrastructure.handleAgentHealth).toHaveBeenCalledOnce();
-      expect(req.params).toEqual({ agent_id: 'agent-7' });
-    });
   });
 
   describe('dispatchV2 — query parsing', () => {
@@ -691,9 +673,6 @@ describe('v2-dispatch module', () => {
           'handleV2CpCreatePeekHost',
           'handleV2CpListCredentials',
           'handleV2CpSaveCredential',
-          'handleV2CpListAgents',
-          'handleV2CpCreateAgent',
-          'handleV2CpAgentHealth',
         ],
       };
 
@@ -710,7 +689,7 @@ describe('v2-dispatch module', () => {
     });
 
     it('total handler count is at least 60', () => {
-      expect(Object.keys(v2Dispatch.V2_CP_HANDLER_LOOKUP).length).toBeGreaterThanOrEqual(60);
+      expect(Object.keys(v2Dispatch.V2_CP_HANDLER_LOOKUP).length).toBeGreaterThanOrEqual(55);
     });
   });
 });

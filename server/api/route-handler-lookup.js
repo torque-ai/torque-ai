@@ -8,7 +8,6 @@ function createRouteHandlerLookup({
   v2AnalyticsHandlers,
   v2InfrastructureHandlers,
   quotaLifecycleHandlers,
-  handleBootstrapWorkstation,
 }) {
   return {
     handleV2Inference: v2CoreHandlers.handleV2Inference,
@@ -22,8 +21,6 @@ function createRouteHandlerLookup({
     handleV2ProviderModels: v2CoreHandlers.handleV2ProviderModels,
     handleV2ProviderHealth: v2CoreHandlers.handleV2ProviderHealth,
     handleV2ProviderDetail: v2CoreHandlers.handleV2ProviderDetail,
-    handleV2RemoteRun: v2CoreHandlers.handleV2RemoteRun,
-    handleV2RemoteTest: v2CoreHandlers.handleV2RemoteTest,
     handlePiiScan: quotaLifecycleHandlers.handlePiiScan,
     handleShutdown: quotaLifecycleHandlers.handleShutdown,
     handleClaudeEvent: quotaLifecycleHandlers.handleClaudeEvent,
@@ -32,7 +29,6 @@ function createRouteHandlerLookup({
     handleGetQuotaHistory: quotaLifecycleHandlers.handleGetQuotaHistory,
     handleGetQuotaAutoScale: quotaLifecycleHandlers.handleGetQuotaAutoScale,
     handleGetProviderQuotas: quotaLifecycleHandlers.handleGetProviderQuotas,
-    handleBootstrapWorkstation,
     // V2 Control-Plane: Tasks
     handleV2CpPreviewTaskStudyContext: v2TaskHandlers.handlePreviewTaskStudyContext,
     handleV2CpSubmitTask: v2TaskHandlers.handleSubmitTask,
@@ -150,11 +146,6 @@ function createRouteHandlerLookup({
     handleV2CpListCredentials: v2InfrastructureHandlers.handleListCredentials,
     handleV2CpSaveCredential: v2InfrastructureHandlers.handleSaveCredential,
     handleV2CpDeleteCredential: v2InfrastructureHandlers.handleDeleteCredential,
-    handleV2CpListAgents: v2InfrastructureHandlers.handleListAgents,
-    handleV2CpCreateAgent: v2InfrastructureHandlers.handleCreateAgent,
-    handleV2CpGetAgent: v2InfrastructureHandlers.handleGetAgent,
-    handleV2CpAgentHealth: v2InfrastructureHandlers.handleAgentHealth,
-    handleV2CpDeleteAgent: v2InfrastructureHandlers.handleDeleteAgent,
   };
 }
 

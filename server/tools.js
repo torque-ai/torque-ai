@@ -20,9 +20,8 @@ const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 const competitiveFeatureDefs = require('./tool-defs/competitive-feature-defs');
 const { applyBehavioralTags } = require('./tools/behavioral-tags');
 
-let _remoteAgentPluginDefs = null;
-let _remoteAgentPluginHandlers = null;
 let _runtimeRegisteredToolDefs = [];
+let _runtimeRegisteredToolHandlers = new Map();
 
 // ── Tool definitions (JSON schemas) ──
 const TOOLS = [
@@ -104,6 +103,11 @@ function setRuntimeRegisteredToolDefs(toolDefs = []) {
       .filter((tool) => tool && typeof tool.name === 'string')
       .map((tool) => decorateToolDefinition(tool))
     : [];
+  _runtimeRegisteredToolHandlers = new Map(
+    _runtimeRegisteredToolDefs
+      .filter((tool) => typeof tool.handler === 'function')
+      .map((tool) => [tool.name, tool.handler])
+  );
 }
 
 function getRuntimeRegisteredToolDefs() {
@@ -111,6 +115,14 @@ function getRuntimeRegisteredToolDefs() {
     ...tool,
     annotations: tool && tool.annotations ? { ...tool.annotations } : undefined,
   }));
+}
+
+function getRuntimeRegisteredToolDef(toolName) {
+  return _runtimeRegisteredToolDefs.find((tool) => tool && tool.name === toolName) || null;
+}
+
+function getRuntimeRegisteredToolHandler(toolName) {
+  return _runtimeRegisteredToolHandlers.get(toolName) || null;
 }
 
 for (const tool of TOOLS) {
@@ -340,53 +352,6 @@ routeMap.set('detect_project_type', templateHandlers.handleDetectProjectType);
 routeMap.set('get_governance_rules', governanceHandlers.handleGetGovernanceRules);
 routeMap.set('set_governance_rule_mode', governanceHandlers.handleSetGovernanceRuleMode);
 routeMap.set('toggle_governance_rule', governanceHandlers.handleToggleGovernanceRule);
-
-function getRemoteAgentPluginDefs() {
-  if (!_remoteAgentPluginDefs) {
-    _remoteAgentPluginDefs = require('./plugins/remote-agents/tool-defs').map((tool) => decorateToolDefinition(tool));
-  }
-  return _remoteAgentPluginDefs;
-}
-
-function getRemoteAgentPluginHandlers() {
-  if (_remoteAgentPluginHandlers) {
-    return _remoteAgentPluginHandlers;
-  }
-
-  const { getInstalledRegistry } = require('./plugins/remote-agents');
-  const agentRegistry = getInstalledRegistry();
-  if (!agentRegistry) return null;
-
-  let database;
-  try {
-    const { defaultContainer } = require('./container');
-    database = defaultContainer.get('db');
-  } catch {
-    database = require('./database');
-  }
-  const { createHandlers } = require('./plugins/remote-agents/handlers');
-
-  _remoteAgentPluginHandlers = createHandlers({
-    agentRegistry,
-    db: database,
-  });
-  return _remoteAgentPluginHandlers;
-}
-
-function getPluginToolDef(toolName) {
-  return getRemoteAgentPluginDefs().find((tool) => tool && tool.name === toolName) || null;
-}
-
-function getPluginToolHandler(toolName) {
-  if (!getPluginToolDef(toolName)) {
-    return null;
-  }
-
-  const handlers = getRemoteAgentPluginHandlers();
-  return handlers && typeof handlers[toolName] === 'function'
-    ? handlers[toolName]
-    : null;
-}
 
 const FILE_WRITE_TOOL_NAMES = new Set([
   'add_import_statement',
@@ -849,8 +814,7 @@ async function handleToolCall(name, args) {
       const toolName = args.tool_name;
       if (!toolName) return { content: [{ type: 'text', text: 'tool_name is required' }], isError: true };
       const match = TOOLS.find(t => t.name === toolName)
-        || getRuntimeRegisteredToolDefs().find(t => t && t.name === toolName)
-        || getPluginToolDef(toolName);
+        || getRuntimeRegisteredToolDef(toolName);
       if (!match) return { content: [{ type: 'text', text: `Tool not found: ${toolName}` }], isError: true };
       return {
         content: [{ type: 'text', text: JSON.stringify({ name: match.name, description: match.description, inputSchema: match.inputSchema }, null, 2) }],
@@ -870,7 +834,7 @@ async function handleToolCall(name, args) {
   }
 
   // Centralized JSON Schema validation (Phase 2)
-  const schema = schemaMap.get(name) || getPluginToolDef(name)?.inputSchema;
+  const schema = schemaMap.get(name) || getRuntimeRegisteredToolDef(name)?.inputSchema;
   if (schema) {
     const validationError = validateArgsAgainstSchema(args || {}, schema);
     if (validationError) {
@@ -893,7 +857,7 @@ async function handleToolCall(name, args) {
   }
 
   // Auto-routed handlers
-  const handler = routeMap.get(name) || getPluginToolHandler(name);
+  const handler = routeMap.get(name) || getRuntimeRegisteredToolHandler(name);
   if (handler) {
     const effectiveArgs = applyTaskExecutionContext(args);
     const result = await handler(effectiveArgs);

@@ -101,7 +101,6 @@ const routes = [
   // Providers
   { method: 'GET', path: '/api/providers', tool: 'list_providers' },
   { method: 'GET', path: '/api/provider-quotas', handlerName: 'handleGetProviderQuotas' },
-  { method: 'GET', path: '/api/bootstrap/workstation', handlerName: 'handleBootstrapWorkstation', skipAuth: true },
   { method: 'POST', path: '/api/providers/configure', tool: 'configure_provider', mapBody: true },
   { method: 'POST', path: '/api/providers/default', tool: 'set_default_provider', mapBody: true },
   // TDA-10: Legacy Ollama host routes — use /api/v2/hosts/* instead
@@ -193,19 +192,6 @@ const routes = [
       params: validateDecodedParamField('provider_id', 'provider id'),
     }),
   },
-  {
-    method: 'POST',
-    path: '/api/v2/remote/run',
-    handlerName: 'handleV2RemoteRun',
-    middleware: buildV2Middleware(),
-  },
-  {
-    method: 'POST',
-    path: '/api/v2/remote/test',
-    handlerName: 'handleV2RemoteTest',
-    middleware: buildV2Middleware(),
-  },
-
   // ─── V2 Control-Plane: Tasks ─────────────────────────────────────────────
   {
     method: 'POST',
@@ -1224,52 +1210,6 @@ const routes = [
     mapParams: ['host_name', 'credential_type'],
     middleware: buildV2Middleware({
       params: validateDecodedParamField('host_name', 'host name'),
-    }),
-  },
-
-  // Remote Agents
-  {
-    method: 'GET',
-    path: '/api/v2/agents',
-    tool: 'list_remote_agents',
-    handlerName: 'handleV2CpListAgents',
-    middleware: buildV2Middleware(),
-  },
-  {
-    method: 'POST',
-    path: '/api/v2/agents',
-    tool: 'register_remote_agent',
-    handlerName: 'handleV2CpCreateAgent',
-    middleware: buildV2Middleware(),
-  },
-  {
-    method: 'GET',
-    path: /^\/api\/v2\/agents\/([^/]+)$/,
-    tool: 'get_remote_agent',
-    handlerName: 'handleV2CpGetAgent',
-    mapParams: ['agent_id'],
-    middleware: buildV2Middleware({
-      params: validateDecodedParamField('agent_id', 'agent id'),
-    }),
-  },
-  {
-    method: 'GET',
-    path: /^\/api\/v2\/agents\/([^/]+)\/health$/,
-    tool: 'check_remote_agent_health',
-    handlerName: 'handleV2CpAgentHealth',
-    mapParams: ['agent_id'],
-    middleware: buildV2Middleware({
-      params: validateDecodedParamField('agent_id', 'agent id'),
-    }),
-  },
-  {
-    method: 'DELETE',
-    path: /^\/api\/v2\/agents\/([^/]+)$/,
-    tool: 'remove_remote_agent',
-    handlerName: 'handleV2CpDeleteAgent',
-    mapParams: ['agent_id'],
-    middleware: buildV2Middleware({
-      params: validateDecodedParamField('agent_id', 'agent id'),
     }),
   },
 

@@ -4,11 +4,9 @@ const { EventEmitter } = require('events');
 
 const HANDLER_MODULE = '../api/v2-infrastructure-handlers';
 const CONTROL_PLANE_MODULE = '../api/v2-control-plane';
-const AGENT_REGISTRY_MODULE = '../plugins/remote-agents';
 const MODULE_PATHS = [
   HANDLER_MODULE,
   CONTROL_PLANE_MODULE,
-  AGENT_REGISTRY_MODULE,
   '../api/middleware',
   '../database',
   '../db/email-peek',
@@ -27,7 +25,6 @@ const state = {
   workstations: new Map(),
   peekHosts: new Map(),
   credentials: new Map(),
-  agents: new Map(),
 };
 
 const mockDb = {
@@ -68,15 +65,6 @@ const mockWorkstationModel = {
 
 const mockWorkstationHandlers = {
   handleProbeWorkstation: vi.fn(),
-};
-
-const mockRegistry = {
-  getAll: vi.fn(),
-  get: vi.fn(),
-  register: vi.fn(),
-  getClient: vi.fn(),
-  runHealthChecks: vi.fn(),
-  remove: vi.fn(),
 };
 
 const mockDiscovery = {
@@ -184,27 +172,6 @@ function seedCredential(hostName, hostType, credential) {
     ...clone(credential),
   });
 }
-
-function seedAgent(agent) {
-  state.agents.set(agent.id, {
-    enabled: 1,
-    status: 'unknown',
-    consecutive_failures: 0,
-    created_at: '2026-03-01T00:00:00.000Z',
-    ...clone(agent),
-  });
-}
-
-function createAgentDb() {
-  return {
-    prepare: vi.fn(),
-  };
-}
-
-let _mockRegistryEnabled = true;
-const mockRemoteAgentsPlugin = {
-  getInstalledRegistry: () => _mockRegistryEnabled ? mockRegistry : null,
-};
 
 function createReq(overrides = {}) {
   return {
@@ -318,7 +285,6 @@ function resetState() {
   state.workstations.clear();
   state.peekHosts.clear();
   state.credentials.clear();
-  state.agents.clear();
 }
 
 function resetMockDefaults() {
@@ -391,7 +357,7 @@ function resetMockDefaults() {
     state.peekHosts.set(hostName, { ...existing, ...clone(updates) });
     return { changes: 1 };
   });
-  mockDb.getDbInstance.mockReset().mockImplementation(() => createAgentDb());
+  mockDb.getDbInstance.mockReset().mockReturnValue(null);
 
   mockHostManagement.listCredentials.mockReset().mockImplementation((hostName, hostType) => {
     const bucket = state.credentials.get(credentialKey(hostName, hostType));
@@ -420,68 +386,6 @@ function resetMockDefaults() {
     state.credentials.delete(credentialKey(hostName, hostType));
     return true;
   });
-
-  mockRegistry.getAll.mockReset().mockImplementation(() => Array.from(state.agents.values()).map(clone));
-  mockRegistry.get.mockReset().mockImplementation((agentId) => clone(state.agents.get(agentId)));
-  mockRegistry.register.mockReset().mockImplementation((agent) => {
-    const existing = state.agents.get(agent.id) || {};
-    state.agents.set(agent.id, {
-      ...existing,
-      id: agent.id,
-      name: agent.name,
-      host: agent.host,
-      port: agent.port,
-      secret: agent.secret,
-      max_concurrent: agent.max_concurrent,
-      tls: agent.tls ? 1 : 0,
-      rejectUnauthorized: agent.rejectUnauthorized ? 1 : 0,
-      created_at: existing.created_at || '2026-03-01T00:00:00.000Z',
-      status: existing.status || 'unknown',
-      consecutive_failures: existing.consecutive_failures || 0,
-    });
-  });
-  mockRegistry.getClient.mockReset().mockReturnValue(null);
-  mockRegistry.runHealthChecks.mockReset().mockImplementation(async () => {
-    const now = new Date(Date.now()).toISOString();
-    const results = [];
-
-    for (const agent of Array.from(state.agents.values())) {
-      if (!agent.enabled) continue;
-
-      const client = mockRegistry.getClient(agent.id);
-      if (!client) continue;
-
-      const result = await client.checkHealth();
-      const current = state.agents.get(agent.id);
-      if (!current) continue;
-
-      if (result) {
-        state.agents.set(agent.id, {
-          ...current,
-          status: 'healthy',
-          consecutive_failures: 0,
-          last_health_check: now,
-          last_healthy: now,
-          metrics: JSON.stringify(result.system || {}),
-        });
-        results.push({ id: agent.id, status: 'healthy' });
-        continue;
-      }
-
-      const failures = (current.consecutive_failures || 0) + 1;
-      const status = failures >= 3 ? 'down' : 'degraded';
-      state.agents.set(agent.id, {
-        ...current,
-        status,
-        consecutive_failures: failures,
-        last_health_check: now,
-      });
-      results.push({ id: agent.id, status, failures });
-    }
-
-    return results;
-  });
-  mockRegistry.remove.mockReset().mockImplementation((agentId) => state.agents.delete(agentId));
 
   mockDiscovery.scanNetworkForOllama.mockReset().mockResolvedValue({ totalFound: 0, hosts: [] });
 
@@ -512,7 +416,6 @@ function loadHandlers() {
   installCjsModuleMock('../db/coordination', mockCoordination);
   installCjsModuleMock('../workstation/model', mockWorkstationModel);
   installCjsModuleMock('../handlers/workstation-handlers', mockWorkstationHandlers);
-  installCjsModuleMock(AGENT_REGISTRY_MODULE, mockRemoteAgentsPlugin);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   installCjsModuleMock('../discovery', mockDiscovery);
   installCjsModuleMock('../utils/host-monitoring', mockHostMonitoring);
@@ -527,7 +430,6 @@ describe('api/v2-infrastructure-handlers', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-10T12:00:00.000Z'));
     vi.restoreAllMocks();
-    _mockRegistryEnabled = true;
     resetMockDefaults();
     handlers = loadHandlers();
     handlers.init(mockTaskManager);
@@ -1419,435 +1321,6 @@ describe('api/v2-infrastructure-handlers', () => {
         status: 404,
         code: 'credential_not_found',
         message: 'Credential not found',
-      });
-    });
-  });
-
-  describe('handleListAgents', () => {
-    it('returns a sanitized agent list without secrets', async () => {
-      seedAgent({
-        id: 'agent-a',
-        name: 'Agent A',
-        host: 'agent-a.internal',
-        port: 3460,
-        secret: 'top-secret',
-        tls: 1,
-        rejectUnauthorized: 0,
-        created_at: '2026-03-05T00:00:00.000Z',
-      });
-      seedAgent({
-        id: 'agent-b',
-        name: 'Agent B',
-        host: 'agent-b.internal',
-        port: 3461,
-        secret: 'other-secret',
-        created_at: '2026-03-06T00:00:00.000Z',
-      });
-      const res = createMockRes();
-
-      await handlers.handleListAgents(createReq(), res);
-
-      const data = expectList(res, {
-        items: expect.arrayContaining([
-          expect.objectContaining({ id: 'agent-a', name: 'Agent A', tls: true, rejectUnauthorized: false }),
-          expect.objectContaining({ id: 'agent-b', name: 'Agent B', tls: false, rejectUnauthorized: true }),
-        ]),
-        total: 2,
-      });
-      expect(data.items[0]).not.toHaveProperty('secret');
-      expect(data.items[1]).not.toHaveProperty('secret');
-    });
-
-    it('returns an empty list when the agent db is unavailable', async () => {
-      mockDb.getDbInstance.mockReturnValue(null);
-      const res = createMockRes();
-
-      await handlers.handleListAgents(createReq(), res);
-
-      expectList(res, { items: [], total: 0 });
-    });
-  });
-
-  describe('handleCreateAgent', () => {
-    it('returns 400 when required fields are blank after trimming', async () => {
-      const res = createMockRes();
-
-      await handlers.handleCreateAgent(
-        createReq({
-          body: {
-            id: '  ',
-            name: '  ',
-            host: '  ',
-            secret: '  ',
-          },
-        }),
-        res,
-      );
-
-      expectError(res, {
-        code: 'validation_error',
-        message: 'id, name, host, and secret are required',
-      });
-    });
-
-    it('returns 500 when the agent registry is not initialized', async () => {
-      _mockRegistryEnabled = false;
-      const res = createMockRes();
-
-      await handlers.handleCreateAgent(
-        createReq({
-          body: {
-            id: 'agent-a',
-            name: 'Agent A',
-            host: 'agent-a.internal',
-            secret: 'secret',
-          },
-        }),
-        res,
-      );
-
-      expectError(res, {
-        status: 500,
-        code: 'not_initialized',
-        message: 'Agent registry not initialized',
-      });
-      _mockRegistryEnabled = true;
-    });
-
-    it('parses the body, applies defaults, and returns 201', async () => {
-      mockParseBody.mockResolvedValue({
-        id: 'agent-a',
-        name: 'Agent A',
-        host: 'agent-a.internal',
-        secret: 'secret-a',
-      });
-      const res = createMockRes();
-
-      await handlers.handleCreateAgent(createReq(), res);
-
-      expect(mockParseBody).toHaveBeenCalledOnce();
-      expect(mockRegistry.register).toHaveBeenCalledWith({
-        id: 'agent-a',
-        name: 'Agent A',
-        host: 'agent-a.internal',
-        port: 3460,
-        secret: 'secret-a',
-        max_concurrent: 3,
-        tls: false,
-        rejectUnauthorized: true,
-      });
-      expect(expectSuccess(res, { status: 201 })).toEqual({
-        id: 'agent-a',
-        name: 'Agent A',
-        host: 'agent-a.internal',
-        port: 3460,
-        max_concurrent: 3,
-        tls: false,
-        rejectUnauthorized: true,
-        created_at: '2026-03-01T00:00:00.000Z',
-        status: 'unknown',
-        consecutive_failures: 0,
-      });
-    });
-
-    it('trims string fields and respects explicit tls settings', async () => {
-      const res = createMockRes();
-
-      await handlers.handleCreateAgent(
-        createReq({
-          body: {
-            id: '  agent-b  ',
-            name: '  Agent B  ',
-            host: '  secure.internal  ',
-            port: '4443',
-            secret: '  secret-b  ',
-            max_concurrent: '8',
-            tls: true,
-            rejectUnauthorized: false,
-          },
-        }),
-        res,
-      );
-
-      expect(mockRegistry.register).toHaveBeenCalledWith({
-        id: 'agent-b',
-        name: 'Agent B',
-        host: 'secure.internal',
-        port: 4443,
-        secret: 'secret-b',
-        max_concurrent: 8,
-        tls: true,
-        rejectUnauthorized: false,
-      });
-      expect(expectSuccess(res, { status: 201 })).toEqual(expect.objectContaining({
-        id: 'agent-b',
-        port: 4443,
-        max_concurrent: 8,
-        tls: true,
-        rejectUnauthorized: false,
-      }));
-    });
-
-    it('returns 500 when registration succeeds but the reread is missing', async () => {
-      mockRegistry.register.mockImplementation(() => undefined);
-      const res = createMockRes();
-
-      await handlers.handleCreateAgent(
-        createReq({
-          body: {
-            id: 'agent-c',
-            name: 'Agent C',
-            host: 'agent-c.internal',
-            secret: 'secret-c',
-          },
-        }),
-        res,
-      );
-
-      expectError(res, {
-        status: 500,
-        code: 'operation_failed',
-        message: 'Registered but failed to read result',
-      });
-    });
-  });
-
-  describe('handleGetAgent', () => {
-    it('returns a single sanitized agent', async () => {
-      seedAgent({
-        id: 'agent-a',
-        name: 'Agent A',
-        host: 'agent-a.internal',
-        port: 3460,
-        secret: 'top-secret',
-      });
-      const res = createMockRes();
-
-      await handlers.handleGetAgent(
-        createReq({ params: { agent_id: 'agent-a' } }),
-        res,
-      );
-
-      const data = expectSuccess(res);
-      expect(data).toEqual(expect.objectContaining({
-        id: 'agent-a',
-        name: 'Agent A',
-        host: 'agent-a.internal',
-      }));
-      expect(data).not.toHaveProperty('secret');
-    });
-
-    it('returns 404 when the agent is missing', async () => {
-      const res = createMockRes();
-
-      await handlers.handleGetAgent(
-        createReq({ params: { agent_id: 'missing-agent' } }),
-        res,
-      );
-
-      expectError(res, {
-        status: 404,
-        code: 'agent_not_found',
-        message: 'Agent not found: missing-agent',
-      });
-    });
-  });
-
-  describe('handleAgentHealth', () => {
-    it('returns 404 when the agent is missing', async () => {
-      const res = createMockRes();
-
-      await handlers.handleAgentHealth(
-        createReq({ params: { agent_id: 'missing-agent' } }),
-        res,
-      );
-
-      expectError(res, {
-        status: 404,
-        code: 'agent_not_found',
-        message: 'Agent not found: missing-agent',
-      });
-    });
-
-    it('returns disabled when the registry has no client for the agent', async () => {
-      seedAgent({
-        id: 'agent-a',
-        name: 'Agent A',
-        host: 'agent-a.internal',
-        secret: 'secret-a',
-        status: 'healthy',
-      });
-      mockRegistry.getClient.mockReturnValue(null);
-      const res = createMockRes();
-
-      await handlers.handleAgentHealth(
-        createReq({ params: { agent_id: 'agent-a' } }),
-        res,
-      );
-
-      expect(mockRegistry.getClient).toHaveBeenCalledWith('agent-a');
-      expect(expectSuccess(res)).toEqual(expect.objectContaining({
-        id: 'agent-a',
-        status: 'disabled',
-      }));
-      expect(state.agents.get('agent-a').status).toBe('healthy');
-    });
-
-    it('updates health, resets failures, and stores metrics on success', async () => {
-      seedAgent({
-        id: 'agent-b',
-        name: 'Agent B',
-        host: 'agent-b.internal',
-        secret: 'secret-b',
-        consecutive_failures: 2,
-        metrics: '{"stale":true}',
-      });
-      mockRegistry.getClient.mockReturnValue({
-        checkHealth: vi.fn().mockResolvedValue({
-          system: { load_avg: 0.5, platform: 'linux' },
-        }),
-      });
-      const res = createMockRes();
-
-      await handlers.handleAgentHealth(
-        createReq({ params: { agent_id: 'agent-b' } }),
-        res,
-      );
-
-      expect(expectSuccess(res)).toEqual(expect.objectContaining({
-        id: 'agent-b',
-        status: 'healthy',
-        consecutive_failures: 0,
-        last_health_check: '2026-03-10T12:00:00.000Z',
-        last_healthy: '2026-03-10T12:00:00.000Z',
-        metrics: JSON.stringify({ load_avg: 0.5, platform: 'linux' }),
-      }));
-    });
-
-    it('marks the agent down and increments failures when health check throws', async () => {
-      seedAgent({
-        id: 'agent-c',
-        name: 'Agent C',
-        host: 'agent-c.internal',
-        secret: 'secret-c',
-        consecutive_failures: 3,
-        last_healthy: '2026-03-09T10:00:00.000Z',
-        metrics: '{"cached":true}',
-      });
-      mockRegistry.getClient.mockReturnValue({
-        checkHealth: vi.fn().mockResolvedValue(null),
-      });
-      const res = createMockRes();
-
-      await handlers.handleAgentHealth(
-        createReq({ params: { agent_id: 'agent-c' } }),
-        res,
-      );
-
-      expect(expectSuccess(res)).toEqual(expect.objectContaining({
-        id: 'agent-c',
-        status: 'down',
-        consecutive_failures: 4,
-        last_health_check: '2026-03-10T12:00:00.000Z',
-        last_healthy: '2026-03-09T10:00:00.000Z',
-        metrics: '{"cached":true}',
-      }));
-    });
-
-    it('returns 404 when registry is null (agent lookup fails first)', async () => {
-      _mockRegistryEnabled = false;
-      const res = createMockRes();
-
-      await handlers.handleAgentHealth(
-        createReq({ params: { agent_id: 'agent-d' } }),
-        res,
-      );
-
-      _mockRegistryEnabled = true;
-      expectError(res, {
-        status: 404,
-        code: 'agent_not_found',
-        message: 'Agent not found: agent-d',
-      });
-    });
-  });
-
-  describe('handleDeleteAgent', () => {
-    it('removes an agent through the registry', async () => {
-      seedAgent({
-        id: 'agent-a',
-        name: 'Agent A',
-        host: 'agent-a.internal',
-        secret: 'secret-a',
-      });
-      const res = createMockRes();
-
-      await handlers.handleDeleteAgent(
-        createReq({ params: { agent_id: 'agent-a' } }),
-        res,
-      );
-
-      expect(mockRegistry.remove).toHaveBeenCalledWith('agent-a');
-      expect(expectSuccess(res)).toEqual({
-        removed: true,
-        id: 'agent-a',
-        name: 'Agent A',
-      });
-    });
-
-    it('returns 404 when the agent does not exist', async () => {
-      const res = createMockRes();
-
-      await handlers.handleDeleteAgent(
-        createReq({ params: { agent_id: 'missing-agent' } }),
-        res,
-      );
-
-      expectError(res, {
-        status: 404,
-        code: 'agent_not_found',
-        message: 'Agent not found: missing-agent',
-      });
-    });
-
-    it('returns 404 when registry is null (agent lookup fails first)', async () => {
-      _mockRegistryEnabled = false;
-      const res = createMockRes();
-
-      await handlers.handleDeleteAgent(
-        createReq({ params: { agent_id: 'agent-b' } }),
-        res,
-      );
-
-      _mockRegistryEnabled = true;
-      expectError(res, {
-        status: 404,
-        code: 'agent_not_found',
-        message: 'Agent not found: agent-b',
-      });
-    });
-
-    it('returns 500 when the registry remove call throws', async () => {
-      seedAgent({
-        id: 'agent-c',
-        name: 'Agent C',
-        host: 'agent-c.internal',
-        secret: 'secret-c',
-      });
-      mockRegistry.remove.mockImplementation(() => {
-        throw new Error('remove failed');
-      });
-      const res = createMockRes();
-
-      await handlers.handleDeleteAgent(
-        createReq({ params: { agent_id: 'agent-c' } }),
-        res,
-      );
-
-      expectError(res, {
-        status: 500,
-        code: 'operation_failed',
-        message: 'remove failed',
       });
     });
   });

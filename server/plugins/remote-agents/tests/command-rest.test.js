@@ -151,18 +151,14 @@ describe('remote command REST handlers', () => {
     clearModules(MODULES_TO_CLEAR);
   });
 
-  it('defines POST control-plane routes for remote run and remote test', () => {
+  it('does not define core control-plane routes for remote run and remote test', () => {
     const { routes } = loadModules();
 
-    expect(routes).toContainEqual(expect.objectContaining({
-      method: 'POST',
+    expect(routes).not.toContainEqual(expect.objectContaining({
       path: '/api/v2/remote/run',
-      handlerName: 'handleV2RemoteRun',
     }));
-    expect(routes).toContainEqual(expect.objectContaining({
-      method: 'POST',
+    expect(routes).not.toContainEqual(expect.objectContaining({
       path: '/api/v2/remote/test',
-      handlerName: 'handleV2RemoteTest',
     }));
   });
 

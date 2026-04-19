@@ -50,13 +50,11 @@ function getRegisteredTools() {
     decorateToolDefinition,
     getRuntimeRegisteredToolDefs,
   } = require('../tools');
-  const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
   const registeredTools = new Map();
 
   for (const tool of [
     ...TOOLS,
     ...getRuntimeRegisteredToolDefs(),
-    ...remoteAgentToolDefs,
   ]) {
     if (!tool || typeof tool.name !== 'string') {
       continue;

@@ -144,11 +144,6 @@ const V2_INFRASTRUCTURE_HANDLER_NAMES = [
   'handleListCredentials',
   'handleSaveCredential',
   'handleDeleteCredential',
-  'handleListAgents',
-  'handleCreateAgent',
-  'handleGetAgent',
-  'handleAgentHealth',
-  'handleDeleteAgent',
   'handleAddHost',
   'handleRefreshModels',
   'handleHostActivity',
@@ -166,8 +161,6 @@ const SPECIAL_HANDLER_NAMES = [
   'handleV2ProviderModels',
   'handleV2ProviderHealth',
   'handleV2ProviderDetail',
-  'handleV2RemoteRun',
-  'handleV2RemoteTest',
   'handleGetQuotaStatus',
   'handleGetQuotaHistory',
   'handleGetQuotaAutoScale',
@@ -443,8 +436,6 @@ function createModules() {
       'handleV2ProviderModels',
       'handleV2ProviderHealth',
       'handleV2ProviderDetail',
-      'handleV2RemoteRun',
-      'handleV2RemoteTest',
     ]),
     v2TaskHandlers: createHandlerModule(V2_TASK_HANDLER_NAMES),
     v2WorkflowHandlers: createHandlerModule(V2_WORKFLOW_HANDLER_NAMES),
@@ -462,8 +453,6 @@ function createModules() {
   specialHandlers.handleV2ProviderModels = currentModules.v2Inference.handleV2ProviderModels;
   specialHandlers.handleV2ProviderHealth = currentModules.v2Inference.handleV2ProviderHealth;
   specialHandlers.handleV2ProviderDetail = currentModules.v2Inference.handleV2ProviderDetail;
-  specialHandlers.handleV2RemoteRun = currentModules.v2Inference.handleV2RemoteRun;
-  specialHandlers.handleV2RemoteTest = currentModules.v2Inference.handleV2RemoteTest;
 }
 
 function installModuleMocks() {
@@ -711,7 +700,7 @@ beforeEach(() => {
 describe('api/routes route table', () => {
   it('exports a large flat route table', () => {
     expect(Array.isArray(routes)).toBe(true);
-    expect(routes.length).toBeGreaterThan(170);
+    expect(routes.length).toBeGreaterThan(160);
   });
 
   it('only marks openapi and shutdown routes as skipAuth', () => {
@@ -721,7 +710,6 @@ describe('api/routes route table', () => {
 
     expect(skipAuthPaths).toEqual([
       '/api/openapi.json',
-      '/api/bootstrap/workstation',
       '/api/auth/login',
       '/api/auth/setup',
       '/api/auth/status',
@@ -1381,22 +1369,6 @@ describe('provider and infrastructure routes', () => {
     );
   });
 
-  it('dispatches the v2 agent health route', async () => {
-    await dispatchRequest({
-      method: 'GET',
-      url: '/api/v2/agents/agent-3/health',
-    });
-
-    expect(currentModules.v2InfrastructureHandlers.handleAgentHealth).toHaveBeenCalledWith(
-      expect.any(Object),
-      expect.any(Object),
-      expect.objectContaining({
-        params: { agent_id: 'agent-3' },
-      }),
-      'agent-3',
-      expect.any(Object),
-    );
-  });
 });
 
 describe('auth, error, and not-found integration', () => {

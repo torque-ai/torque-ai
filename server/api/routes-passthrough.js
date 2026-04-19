@@ -10,7 +10,7 @@
  */
 
 const routes = [
-  // ═══ Generated REST routes for 505 MCP tools ═══
+  // ═══ Generated REST routes for 503 MCP tools ═══
   // Generated: 2026-03-13
   // Pattern: tool-passthrough via handleToolCall()
 
@@ -95,9 +95,7 @@ const routes = [
   { method: 'POST', path: '/api/v2/approvals/approve-diff', tool: 'approve_diff', mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/approvals\/check-approval-gate\/([^/]+)$/, tool: 'check_approval_gate', mapQuery: true, mapParams: ['task_id'] },
 
-  // ─── automation (26 routes) ───────────────────────────────────────────────────
-  { method: 'POST', path: '/api/v2/automation/run-remote-command', tool: 'run_remote_command', mapBody: true },
-  { method: 'POST', path: '/api/v2/automation/run-tests', tool: 'run_tests', mapBody: true },
+  // ─── automation (24 routes) ───────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/automation/configure-quota-auto-scale', tool: 'configure_quota_auto_scale', mapBody: true },
   { method: 'POST', path: '/api/v2/automation/add-ts-interface-members', tool: 'add_ts_interface_members', mapBody: true },
   { method: 'POST', path: '/api/v2/automation/inject-class-dependency', tool: 'inject_class_dependency', mapBody: true },
