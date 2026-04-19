@@ -1670,3 +1670,67 @@ git push origin feat/model-freshness-monitor
 ```
 
 (Do NOT cutover to main yet — leave the plugin enabled on the feature branch for a few scan cycles to validate the registry endpoint stays stable before graduating.)
+
+---
+
+## Post-implementation corrections (2026-04-19)
+
+This plan was executed end-to-end. Seven defects were discovered during execution and should be baked into re-runs.
+
+### 1. Vitest imports via globals, not `require('vitest')`
+
+**Symptom:** Every test file failed with "Vitest cannot be imported in a CommonJS module using require()".
+
+**Root cause:** The project's `vitest.config.js` sets `globals: true`. `describe`, `it`, `expect`, `vi` are injected as globals; attempting to `require('vitest')` is rejected.
+
+**Fix:** Drop the `const { describe, it, expect, vi } = require('vitest')` line from every test file in this plan. Use the globals directly.
+
+### 2. Plugin export shape must be `{ createPlugin }`, not a bare function
+
+**Symptom:** Plugin contract validation failed with "plugin must be an object".
+
+**Root cause:** The plan's Task 7 Step 7.3 ends with `module.exports = createPlugin;` (a bare function reference). `server/plugins/loader.js` does `createPluginInstance(mod)` which tests `typeof mod.createPlugin === 'function'` — a bare function fails this check.
+
+**Fix:** Use `module.exports = { createPlugin };` — matches the pattern in `server/plugins/remote-agents/index.js`. Update the Task 7.3 code block accordingly.
+
+### 3. Scheduler API is `createCronScheduledTask` in `cron-scheduling.js`
+
+**Symptom:** Task 10 Step 10.3's `require('../../db/scheduler')` failed — module not found.
+
+**Root cause:** The plan assumes `server/db/scheduler.js` with `scheduleTask({...})`. The real module is `server/db/cron-scheduling.js` and the exported function is `createCronScheduledTask({ name, cron_expression, payload_kind: 'task', task_config: { tool_name }, source })`.
+
+**Fix:** Rewrite Task 10's install()-extension block to use `createCronScheduledTask` against the `cron-scheduling` module. Update the test expectations to match the new shape.
+
+### 4. `vi.mock` of CJS didn't intercept the plugin's require chain
+
+**Symptom:** Task 10 test injected a fake scheduler via `vi.doMock` (absolute path) but the plugin's `require('../../db/cron-scheduling')` still resolved to the real module. `scheduleCalls` stayed empty.
+
+**Root cause:** In this repo's vitest/CJS harness, module-level `vi.doMock` doesn't always intercept nested `require()` inside factory functions.
+
+**Fix:** Refactor `install()` to accept an injected scheduler via `container.get('cronScheduling')`, falling back to `require()` only when the container doesn't provide one. The test injects the fake via the container; production path uses the real module. Landed in the executed plan.
+
+### 5. Tool annotations registry is rule-based, not a flat `TOOL_ANNOTATIONS` map
+
+**Symptom:** Task 9 Step 9.3 assumed `server/tool-annotations.js` exports a `TOOL_ANNOTATIONS` object keyed by tool name with `title`/`description` fields. The real file exports `getAnnotations(toolName)` with an internal `OVERRIDES`/`EXACT_MATCHES`/prefix/suffix system.
+
+**Fix:** Task 9 needs to add `OVERRIDES` entries for each of the 5 tools (READONLY-shape for list/events, IDEMPOTENT-shape for add/remove, DISPATCH-shape for scan_now) and update the test to validate via `getAnnotations()` calls rather than direct map lookups.
+
+### 6. `install()` must tolerate DB unavailability
+
+**Symptom:** Task 10's schedule-registration test instantiates the plugin with `{ get: () => null }` (no DB in container). Under the plan's code, `resolveRawDb()` threw before the scheduler-registration block could run.
+
+**Fix:** Wrap `resolveRawDb(dbService)` in a try/catch so the plugin can still register its scheduled scan even without a DB. Stores and scanner will be unusable without DB, but the contract-validation test and the schedule-registration test both need to pass. Landed in the executed plan.
+
+### 7. Vitest per-file filter unreliable on the remote workstation
+
+**Symptom:** Commands like `npx vitest run plugins/model-freshness/tests/watchlist-store.test.js` intermittently return "No test files found". What works consistently: broader substring filters (`npx vitest run plugins/model-freshness`) or clearing the vitest cache (`rm -rf node_modules/.vite node_modules/.vitest`).
+
+**Fix:** Update every per-task test command in this plan to use a broader filter pattern, or document the cache-clear workaround at the top of the plan.
+
+### 8. Provider tools vs plugin tools — differing tool-exposure paths
+
+**Process note, not a plan defect:** TORQUE exposes plugin tools via the MCP protocol (SSE `tools/list`) but **not** via the REST `/api/tools` route (which reads from `tools.routeMap`). Plugin tools don't populate routeMap. This means:
+- A Claude Code session connected to TORQUE's MCP sees the 5 freshness tools (after `unlock_all_tools`).
+- `curl /api/tools` does NOT list them; `curl -X POST /api/tools/model_freshness_scan_now` returns 404.
+
+Only relevant when writing verification scripts — stick to MCP-side testing.

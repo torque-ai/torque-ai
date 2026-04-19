@@ -1883,3 +1883,74 @@ git push origin feat/claude-ollama-provider
 ```
 
 (Do NOT cutover to main yet — benchmarking against `ollama-agentic` is a separate follow-on that should land before graduating this provider into smart routing defaults.)
+
+---
+
+## Post-implementation corrections (2026-04-19)
+
+This plan was executed end-to-end. Seven defects were discovered — four during task execution, three during cutover. Re-runs should incorporate the corrections below.
+
+### 1. Task 1 — `stream-parser` must unwrap `stream_event` envelope
+
+**Symptom:** Live smoke test returned empty output despite streaming succeeding.
+
+**Root cause:** claude-cli with `--verbose` wraps every real payload in `{type:'stream_event',event:{...real payload...}}`. The parser's `extractTextDelta` / `normalizeUsage` / `normalizeToolCall` saw the outer `type === 'stream_event'` and returned null/empty. `message_start` payloads also put usage at `event.message.usage` (not `record.usage`).
+
+**Fix:** Add `unwrapStreamEvent(record)` at the top of each extractor and in `normalizeUsage` check `record.message.usage` in addition to `record.usage`. Three new unit-test cases cover the envelope shape.
+
+Landed as commit `c91eb7a4` (`fix(stream-parser): unwrap claude-cli --verbose stream_event envelope`).
+
+### 2. Task 6 — `buildCommandArgs` must emit `--verbose`
+
+**Symptom:** Smoke test failed with `Error: When using --print, --output-format=stream-json requires --verbose`.
+
+**Root cause:** claude-cli rejects `--print` combined with `--output-format=stream-json` unless `--verbose` is also passed. Unit tests mocked spawn so never caught this.
+
+**Fix:** Add `'--verbose'` to the args.push after `'--output-format', 'stream-json'`. Add test assertion `expect(postDash).toContain('--verbose')`.
+
+Landed as commit `82531bdf` (`fix(claude-ollama): emit --verbose in buildCommandArgs`).
+
+### 3. Task 7a — read `messageCount` BEFORE appending user message
+
+**Symptom:** First call to a fresh session used `--resume` instead of `--session-id`, causing claude-cli to fail because the session didn't exist yet.
+
+**Root cause:** Plan ordered the user-message append inside `ensureSession()` and then computed `messageCount = this.sessionStore.readAll(localSessionId).length` after. That makes messageCount=1 on first call.
+
+**Fix:** Compute `messageCount` BEFORE any session append. The agent caught this in-flight.
+
+### 4. Task 9 — host-selection needs DB-unavailable guard
+
+**Symptom:** Three unit tests regressed on the mutex integration because `selectOllamaHostForModel` threw when the DB wasn't initialized.
+
+**Fix:** Wrap the call in try/catch and fall back to a `'default-host'` lock key. Landed as commit `4a6f83cf` (`fix(claude-ollama): guard host selection against DB unavailability`).
+
+### 5. Task 10 — `registerProviderClass` lives in `task-manager.js` + `container.js`, NOT `registry.js`
+
+**Symptom:** Task 10 Step 10.4 said "register constructor in `registry.js` at the bottom". Not only does `registry.js` not have a canonical registration block, but the live TORQUE bootstrap reads from `task-manager.js:44` and `server/container.js:242`.
+
+**Fix:** Add `providerRegistry.registerProviderClass('claude-ollama', require('./providers/claude-ollama'))` to **both** bootstrap paths. Keep the `PROVIDER_CATEGORIES.codex` update in `registry.js` as the plan said — that part was correct.
+
+### 6. Task 11 — `PROVIDER_DEFAULTS` shape + `optInProviders` gap
+
+**Symptom:** The plan assumed `PROVIDER_DEFAULTS` is a per-provider config map (`{'claude-ollama': {enabled: false}}`). In reality it's a flat constants map with UPPERCASE keys (`STARTUP_TIMEOUT_MS` etc.). The plan's test passed because the entry was added as a string key alongside the constants — but that alone does NOT disable the provider at runtime.
+
+**Root cause:** Runtime enablement check is `isProviderEnabled('claude-ollama')` in `server/providers/config.js`, which defaults to enabled (opt-out) unless the provider name appears in the `optInProviders` list inside that function.
+
+**Fix:** Add `'claude_ollama'` (underscore form) to `optInProviders` in `providers/config.js:isProviderEnabled` in addition to the constants entry. Without this, the "disabled by default" requirement from the spec isn't actually enforced.
+
+### 7. Schema seeds must include a `claude-ollama` row (missing from plan entirely)
+
+**Symptom:** After merge + restart, `list_providers` did not show `claude-ollama`, and `configure_provider` couldn't toggle it because no row existed in `provider_config`.
+
+**Root cause:** The plan covered `constants.js` (for defaults) and registry (for category/class). But `server/db/schema-seeds.js` is the source of truth for what rows get INSERTed into `provider_config` on first DB init. The plan never touched schema-seeds.
+
+**Fix:** Add a new task between Tasks 10 and 11 (or fold into 11) that edits `server/db/schema-seeds.js`:
+- Add `insertProvider.run('claude-ollama', 0, 5, 'ollama', 'cli', null, JSON.stringify([...quota-patterns]), 1, now);` (disabled by default, priority 5, max_concurrent 1 for VRAM)
+- Add `'claude-ollama': 'local-cli'` to the `providerTypes` map
+- Add `'claude-ollama': { capabilities: ['file_edit', 'reasoning', 'code_review'], band: 'C' }` to `PROVIDER_CAPABILITIES`
+
+Landed as commit `8d8de03b` (`fix(schema-seeds): seed claude-ollama provider row`).
+
+### 8. Vitest filter flakiness (process note, not code)
+
+Per-file filter `npx vitest run tests/claude-ollama-smoke.test.js` intermittently returns "No test files found". Clearing the vitest cache (`rm -rf node_modules/.vite node_modules/.vitest`) or using a broader substring filter (`claude-ollama-smoke`) works reliably. Suggest updating the plan's test commands to use substring filters everywhere.
