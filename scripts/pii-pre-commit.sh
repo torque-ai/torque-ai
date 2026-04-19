@@ -55,6 +55,15 @@ torque_available() {
 }
 
 torque_scan() {
+  # Report-only scan. Returns 0 for clean/infra-failure (fail-open — fallback
+  # scanner is the safety net), 1 when findings are present so the outer loop
+  # can fail the commit.
+  #
+  # The previous implementation auto-sanitized by writing the API's `sanitized`
+  # response back to the file. That silently rewrote source code on commit —
+  # which corrupted provider registrations when the git user collided with a
+  # technical token (e.g. `Codex` → `'codex'` → `'<git-user>'`). Removed. The
+  # documented escape hatch is `git commit --no-verify`.
   local file="$1"
 
   [ -f "$file" ] || return 0
@@ -84,19 +93,17 @@ torque_scan() {
 
   local clean
   clean=$(echo "$response" | jq -r '.clean' 2>/dev/null) || return 0
+  [ "$clean" = "true" ] && return 0
 
-  if [ "$clean" = "false" ]; then
-    local sanitized
-    sanitized=$(echo "$response" | jq -r '.sanitized' 2>/dev/null) || return 1
-    local finding_count
-    finding_count=$(echo "$response" | jq '.findings | length' 2>/dev/null) || finding_count="?"
-
-    printf '%s' "$sanitized" > "$file"
-    git add "$file"
-    echo "PII-GUARD: Auto-fixed $finding_count finding(s) in $file"
-  fi
-
-  return 0
+  # Findings present — emit a per-file report to stderr and return non-zero.
+  local finding_count
+  finding_count=$(echo "$response" | jq '.findings | length' 2>/dev/null) || finding_count="?"
+  {
+    echo ""
+    echo "  $file — $finding_count PII finding(s):"
+    echo "$response" | jq -r '.findings[] | "    - [\(.category)] \"\(.match)\" on line \(.line)"' 2>/dev/null || true
+  } >&2
+  return 1
 }
 
 staged_files=$(git diff --cached --name-only --diff-filter=ACM)
@@ -110,10 +117,10 @@ if torque_available; then
     if echo "$ext" | grep -qiE "^($BINARY_EXTS)$"; then continue; fi
     [ -f "$file" ] || continue
     if should_skip "$file"; then continue; fi
-    torque_scan "$file" || { echo "PII-GUARD: Failed to scan $file"; has_errors=1; }
+    torque_scan "$file" || has_errors=1
   done <<< "$staged_files"
 else
-  echo "PII-GUARD: TORQUE unavailable — running fallback regex scan"
+  echo "PII-GUARD: TORQUE unavailable — running fallback regex scan" >&2
   while IFS= read -r file; do
     ext="${file##*.}"
     if echo "$ext" | grep -qiE "^($BINARY_EXTS)$"; then continue; fi
@@ -121,6 +128,17 @@ else
     if should_skip "$file"; then continue; fi
     fallback_scan "$file" || has_errors=1
   done <<< "$staged_files"
+fi
+
+if [ "$has_errors" -ne 0 ]; then
+  {
+    echo ""
+    echo "PII-GUARD: Commit blocked — staged content contains PII findings."
+    echo ""
+    echo "  Fix each finding, re-stage (git add), and commit again."
+    echo "  To bypass (at your own risk): git commit --no-verify"
+    echo ""
+  } >&2
 fi
 
 exit $has_errors
