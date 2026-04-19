@@ -116,6 +116,14 @@ const PROVIDER_DEFAULTS = {
   OLLAMA_CONTEXT_LINE_LIMIT: 1500, // EXP2: files >1500 lines exceed 32K token context window
   SMTP_SECURE_PORT: 465,
   HTTP_SUCCESS_STATUS: 200,
+
+  // Per-provider default config stanzas (opt-in providers that ship disabled)
+  'claude-ollama': {
+    enabled: false,
+    maxConcurrent: 1,
+    description: 'Local Ollama models via Claude Code harness (ollama launch claude bridge)',
+    requires: ['ollama binary on PATH', 'claude binary on PATH', 'at least one healthy Ollama host'],
+  },
 };
 
 const MODEL_TIER_THRESHOLDS = {

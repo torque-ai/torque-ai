@@ -21,7 +21,7 @@ const serverConfig = require('../config');
  */
 const PROVIDER_CATEGORIES = {
   ollama: ['ollama'],
-  codex:  ['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk'],
+  codex:  ['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk', 'claude-ollama'],
   api:    ['anthropic', 'groq', 'hyperbolic', 'deepinfra',
            'ollama-cloud', 'cerebras', 'google-ai', 'openrouter'],
   system: ['system'],

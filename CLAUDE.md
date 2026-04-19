@@ -110,6 +110,12 @@ Run on your local Ollama instance or registered LAN hosts. Free, private, no API
 | **codex-spark** | Codex CLI installed + authenticated | Fast single-file edits (gpt-5.3-codex-spark model) |
 | **claude-cli** | Claude Code CLI installed + authenticated | Architectural decisions, complex debugging |
 
+### Local (CLI-harness)
+
+| Provider | Requirement | Best For |
+|----------|------------|----------|
+| **claude-ollama** | `ollama` + `claude` CLIs, local Ollama host | Local models with Claude Code tool loop |
+
 ### Cloud (API — Bring Your Own Key)
 
 Call cloud LLM APIs directly using your API keys. Start disabled — set your key and enable with `configure_provider`.
