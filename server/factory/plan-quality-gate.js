@@ -16,6 +16,18 @@ const RULES = {
   plan_size_upper_bound:       { severity: 'hard', scope: 'plan', maxBytes: 100 * 1024 },
 };
 
+const FILE_PATH_RE = /[a-z_][a-z_0-9/-]*\.(js|ts|tsx|jsx|py|cs|md|json|yml|yaml)/i;
+const GREP_TARGET_RE = /\bsearch_files\b|\bgrep\b/i;
+const ACCEPTANCE_RE = /\b(npx vitest|dotnet test|pytest|npm test|assert|expect|should produce|should exist)\b/i;
+const VAGUE_PHRASES = [
+  'appropriately',
+  'as needed',
+  'refactor accordingly',
+  'clean up',
+  'improve',
+  'fix issues',
+];
+
 function parseTasks(planMarkdown) {
   // Returns [{ number, title, body }] splitting the plan at each ## Task N: heading.
   if (typeof planMarkdown !== 'string' || !planMarkdown) return [];
@@ -71,6 +83,38 @@ function runDeterministicRules(planMarkdown) {
         rule: 'task_body_min_length',
         taskNumber: task.number,
         detail: `Task ${task.number} body is ${task.body.length} chars (min ${RULES.task_body_min_length.min}).`,
+      });
+    }
+
+    // Rule 5
+    if (!FILE_PATH_RE.test(task.body) && !GREP_TARGET_RE.test(task.body)) {
+      hardFails.push({
+        rule: 'task_has_file_reference',
+        taskNumber: task.number,
+        detail: `Task ${task.number} references no concrete file path or grep target.`,
+      });
+    }
+
+    // Rule 6
+    if (!ACCEPTANCE_RE.test(task.body)) {
+      hardFails.push({
+        rule: 'task_has_acceptance_criterion',
+        taskNumber: task.number,
+        detail: `Task ${task.number} has no test command, assertion, or verifiable outcome.`,
+      });
+    }
+
+    // Rule 7: ≥ 2 forbidden phrases in the same task
+    const hits = VAGUE_PHRASES.reduce((acc, phrase) => {
+      const re = new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+      const count = (task.body.match(re) || []).length;
+      return acc + count;
+    }, 0);
+    if (hits >= RULES.task_avoids_vague_phrases.minHits) {
+      hardFails.push({
+        rule: 'task_avoids_vague_phrases',
+        taskNumber: task.number,
+        detail: `Task ${task.number} contains ${hits} vague phrases (threshold ${RULES.task_avoids_vague_phrases.minHits}).`,
       });
     }
   }
