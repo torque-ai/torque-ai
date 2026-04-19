@@ -342,6 +342,15 @@ TORQUE pushes notifications through the MCP SSE transport when tasks complete or
 - **Workflow:** Submit → `await_workflow` with heartbeats → review each
 - **Restart recovery:** `await_task({ ..., auto_resubmit_on_restart: true })`
 
+### Restart — Barrier Task Primitive
+
+Restart is a first-class queue primitive, not an external process kill. `restart_server` creates a `provider: 'system'` barrier task; while that task is `queued` or `running`, the queue scheduler (`server/execution/queue-scheduler.js` and `slot-pull-scheduler.js`, via `server/execution/restart-barrier.js`) refuses to promote any other queued task. A drain watcher subscribes to terminal task events and triggers `eventBus.emitShutdown` once the non-barrier running count hits zero.
+
+- `await_restart` is `restart_server` + `await_task` on the returned `task_id`, with heartbeats.
+- The barrier is cancellable — `cancel_task` on its id lifts the gate; the queue resumes immediately.
+- `cleanupStaleRestartBarriers()` runs on startup and cancels any barrier left over from a prior instance.
+- **Prefer this over `stop-torque.sh` / `taskkill` / PID-file kills.** The barrier path is race-free (the queue can't admit new work between "drain cleared" and "shutdown"), auditable (restart is a row in the tasks table), and cancellable. External kills are reserved for the `worktree-cutover.sh` path and for diagnosing TORQUE itself when the MCP layer is unresponsive.
+
 ### Heartbeat check-ins
 
 `await_task` and `await_workflow` return periodic **heartbeat** responses (default: every 5 minutes) with progress snapshots. Notable events (task started, stall warning, retry, provider fallback) trigger an immediate heartbeat.
