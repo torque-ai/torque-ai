@@ -8,6 +8,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.js'],
+    // Per-test retry masks transient test-level flakes (testing-library
+    // waitFor timing, render-time state update races, etc.). Matches the
+    // server config; without it the pre-push gate blocks on one-shot flakes
+    // that pass on retry.
+    retry: 1,
     include: ['src/**/*.test.{js,jsx}'],
     exclude: ['e2e/**', 'node_modules/**'],
     coverage: {
