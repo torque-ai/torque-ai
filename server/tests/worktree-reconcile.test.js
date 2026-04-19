@@ -50,6 +50,15 @@ function ensureFactoryWorktreesSchema(db) {
       merged_at TEXT,
       abandoned_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS vc_worktrees (
+      id TEXT PRIMARY KEY,
+      repo_path TEXT NOT NULL,
+      worktree_path TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -58,6 +67,13 @@ function insertRow(db, { project_id, branch, worktree_path, status = 'active', w
     INSERT INTO factory_worktrees (project_id, work_item_id, batch_id, vc_worktree_id, branch, worktree_path, status)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(project_id, work_item_id, batch_id, vc_worktree_id, branch, worktree_path, status);
+}
+
+function insertVcRow(db, { id, repo_path, worktree_path, branch, status = 'active' }) {
+  db.prepare(`
+    INSERT INTO vc_worktrees (id, repo_path, worktree_path, branch, status)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(id, repo_path, worktree_path, branch, status);
 }
 
 function makeProject(name = 'proj') {
@@ -93,6 +109,7 @@ beforeEach(() => {
   runDdl(dbHandle, 'PRAGMA foreign_keys = OFF');
   ensureFactoryWorktreesSchema(dbHandle);
   runDdl(dbHandle, 'DELETE FROM factory_worktrees');
+  runDdl(dbHandle, 'DELETE FROM vc_worktrees');
 });
 
 afterAll(() => {
@@ -135,6 +152,36 @@ describe('classifyDir', () => {
     const result = classifyDir(dir, new Map());
     expect(result.action).toBe('skip');
     expect(result.reason).toContain('non-factory');
+  });
+
+  it('skips a factory-named dir when a vc_worktrees row is present but factory_worktrees row is not', () => {
+    // Reproduces the TOCTOU race: worktree-manager inserts the vc_worktrees
+    // row atomically with the physical dir creation, but the factory_worktrees
+    // row is inserted one step later by the loop-controller. A reconcile
+    // during that gap would otherwise reclaim the dir as an orphan, killing
+    // the worktree out from under a live EXECUTE stage.
+    const dir = 'C:/proj/.worktrees/feat-factory-1-mid-create';
+    const norm = (p) => path.resolve(p).replace(/\\/g, '/').toLowerCase();
+    const factoryRows = new Map();
+    const vcRows = new Map([[norm(dir), { status: 'active', branch: 'feat/factory-1-mid-create' }]]);
+
+    const result = classifyDir(dir, factoryRows, vcRows);
+    expect(result.action).toBe('skip');
+    expect(result.reason).toContain('vc_worktrees');
+  });
+
+  it('prefers the factory_worktrees classification when both tables have rows', () => {
+    // If the factory row says abandoned but a vc row also exists, reclaim
+    // still wins — the factory row is authoritative for the factory's own
+    // lifecycle. (Reconcile + cleanupWorktree will tear down both.)
+    const dir = 'C:/proj/.worktrees/feat-factory-2-both';
+    const norm = (p) => path.resolve(p).replace(/\\/g, '/').toLowerCase();
+    const factoryRows = new Map([[norm(dir), { status: 'abandoned', branch: 'feat/factory-2-both' }]]);
+    const vcRows = new Map([[norm(dir), { status: 'active', branch: 'feat/factory-2-both' }]]);
+
+    const result = classifyDir(dir, factoryRows, vcRows);
+    expect(result.action).toBe('reclaim');
+    expect(result.reason).toContain('abandoned');
   });
 });
 
@@ -311,6 +358,34 @@ describe('reconcileProject', () => {
 
     // restore for other tests
     ensureFactoryWorktreesSchema(dbHandle);
+  });
+
+  it('skips a factory-named dir mid-create: vc_worktrees row present, factory_worktrees row pending', () => {
+    // This is the integration-level repro of the TOCTOU race. The
+    // factory's createForBatch inserts the vc_worktrees row atomically with
+    // the worktree dir, but the factory_worktrees row is inserted by the
+    // caller one step later. A reconcile pass in that gap must leave the
+    // dir alone so the caller can finish recording and hand off to EXECUTE.
+    const project = makeProject();
+    const midCreateDir = makeWorktreeDir(project.path, 'feat-factory-404-mid-create');
+    insertVcRow(dbHandle, {
+      id: 'vc-mid-create',
+      repo_path: project.path,
+      worktree_path: midCreateDir,
+      branch: 'feat/factory-404-mid-create',
+      status: 'active',
+    });
+    // deliberately: no factory_worktrees row
+
+    const result = reconcileProject({
+      db: dbHandle,
+      project_id: project.id,
+      project_path: project.path,
+    });
+
+    expect(result.cleaned).toHaveLength(0);
+    expect(result.skipped.map((s) => s.worktreePath)).toContain(midCreateDir);
+    expect(fs.existsSync(midCreateDir)).toBe(true);
   });
 
   it('scopes by project_id: row from project A does not classify project B dirs', () => {
