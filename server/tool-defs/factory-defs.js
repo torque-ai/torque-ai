@@ -495,6 +495,17 @@ const tools = [
     },
   },
   {
+    name: 'resume_project_baseline_fixed',
+    description: 'Resume a factory project that was paused by verify-review due to a broken baseline. Runs the project\'s verify_command on a clean checkout of main as a probe; only resumes if the probe passes. Use after fixing pre-existing broken tests that caused the baseline pause.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+      },
+      required: ['project'],
+    },
+  },
+  {
     name: 'factory_loop_status',
     description: 'Get current factory loop state for a project — which stage it is in, whether paused, pending approvals, and trust-level gates.',
     inputSchema: {

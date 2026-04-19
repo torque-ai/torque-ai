@@ -129,3 +129,69 @@ describe('factory-tick baseline probe phase', () => {
     expect(cfg.baseline_broken_since).toBeTruthy();
   });
 });
+
+describe('handleResumeProjectBaselineFixed', () => {
+  let db;
+  beforeEach(() => {
+    setupTestDb('baseline-resume');
+    db = rawDb();
+  });
+  afterEach(() => { teardownTestDb(); vi.restoreAllMocks(); });
+
+  it('returns error when project is not baseline-flagged', async () => {
+    const projectId = 'proj-not-flagged';
+    db.prepare(
+      `INSERT INTO factory_projects (id, name, path, trust_level, status, config_json, created_at, updated_at)
+       VALUES (?, 'T', '/tmp/t', 'dark', 'running', '{}', datetime('now'), datetime('now'))`
+    ).run(projectId);
+    const { handleResumeProjectBaselineFixed } = require('../handlers/factory-handlers');
+    const r = await handleResumeProjectBaselineFixed({ project: projectId });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toContain('not flagged');
+  });
+
+  it('returns error when verify_command is missing', async () => {
+    const projectId = seedPausedBaselineProject(db, { probeAttempts: 0 });
+    const projectConfigCore = require('../db/project-config-core');
+    vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue(null);
+    const { handleResumeProjectBaselineFixed } = require('../handlers/factory-handlers');
+    const r = await handleResumeProjectBaselineFixed({ project: projectId });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toContain('verify_command');
+  });
+
+  it('clears flag and resumes when probe passes', async () => {
+    const projectId = seedPausedBaselineProject(db, { probeAttempts: 0 });
+    const projectConfigCore = require('../db/project-config-core');
+    vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue({ verify_command: 'npm test' });
+    const baselineProbe = require('../factory/baseline-probe');
+    vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
+      passed: true, exitCode: 0, output: 'all green', durationMs: 4321, error: null,
+    });
+    const { handleResumeProjectBaselineFixed } = require('../handlers/factory-handlers');
+    const r = await handleResumeProjectBaselineFixed({ project: projectId });
+    expect(r.isError).toBeFalsy();
+    expect(r.content[0].text).toContain('resumed');
+    const updated = db.prepare('SELECT status, config_json FROM factory_projects WHERE id = ?').get(projectId);
+    expect(updated.status).toBe('running');
+    const cfg = JSON.parse(updated.config_json);
+    expect(cfg.baseline_broken_since).toBeNull();
+  });
+
+  it('returns error + preserves flag when probe still fails', async () => {
+    const projectId = seedPausedBaselineProject(db, { probeAttempts: 0 });
+    const projectConfigCore = require('../db/project-config-core');
+    vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue({ verify_command: 'npm test' });
+    const baselineProbe = require('../factory/baseline-probe');
+    vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
+      passed: false, exitCode: 1, output: 'FAILED tests/foo.py', durationMs: 100, error: null,
+    });
+    const { handleResumeProjectBaselineFixed } = require('../handlers/factory-handlers');
+    const r = await handleResumeProjectBaselineFixed({ project: projectId });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toContain('Baseline still failing');
+    expect(r.content[0].text).toContain('FAILED tests/foo.py');
+    const updated = db.prepare('SELECT status FROM factory_projects WHERE id = ?').get(projectId);
+    expect(updated.status).toBe('paused');
+  });
+});
