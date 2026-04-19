@@ -130,3 +130,98 @@ describe('ClaudeOllamaProvider.listModels', () => {
     fetchSpy.mockRestore();
   });
 });
+
+describe('ClaudeOllamaProvider.buildCommandArgs', () => {
+  it('includes launch/claude/model and the -- passthrough boundary', () => {
+    const p = new ClaudeOllamaProvider();
+    const args = p.buildCommandArgs({
+      model: 'qwen3-coder:30b',
+      workingDirectory: '/tmp/wd',
+      permissionMode: 'auto',
+      allowedTools: [],
+      disallowedTools: [],
+      claudeSessionId: 'cs1',
+      messageCount: 0,
+    });
+    expect(args[0]).toBe('launch');
+    expect(args[1]).toBe('claude');
+    expect(args).toContain('--model');
+    expect(args[args.indexOf('--model') + 1]).toBe('qwen3-coder:30b');
+    expect(args).toContain('--');
+    const postDash = args.slice(args.indexOf('--') + 1);
+    expect(postDash).toContain('--output-format');
+    expect(postDash[postDash.indexOf('--output-format') + 1]).toBe('stream-json');
+    expect(postDash).toContain('-p');
+  });
+
+  it('emits --add-dir with the working directory', () => {
+    const p = new ClaudeOllamaProvider();
+    const args = p.buildCommandArgs({
+      model: 'qwen3-coder:30b',
+      workingDirectory: '/tmp/wd',
+      permissionMode: 'auto',
+      allowedTools: [], disallowedTools: [],
+      claudeSessionId: 'cs1', messageCount: 0,
+    });
+    const idx = args.indexOf('--add-dir');
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx + 1]).toBe('/tmp/wd');
+  });
+
+  it('emits --allowed-tools / --disallowed-tools when non-empty', () => {
+    const p = new ClaudeOllamaProvider();
+    const args = p.buildCommandArgs({
+      model: 'qwen3-coder:30b',
+      workingDirectory: '/tmp/wd',
+      permissionMode: 'auto',
+      allowedTools: ['Read', 'Edit'],
+      disallowedTools: ['Bash'],
+      claudeSessionId: 'cs1', messageCount: 0,
+    });
+    expect(args[args.indexOf('--allowed-tools') + 1]).toBe('Read,Edit');
+    expect(args[args.indexOf('--disallowed-tools') + 1]).toBe('Bash');
+  });
+
+  it('uses --session-id for a new session (messageCount=0)', () => {
+    const p = new ClaudeOllamaProvider();
+    const args = p.buildCommandArgs({
+      model: 'qwen3-coder:30b',
+      workingDirectory: '/tmp/wd',
+      permissionMode: 'auto',
+      allowedTools: [], disallowedTools: [],
+      claudeSessionId: 'cs-new', messageCount: 0,
+    });
+    expect(args).toContain('--session-id');
+    expect(args[args.indexOf('--session-id') + 1]).toBe('cs-new');
+    expect(args).not.toContain('--resume');
+  });
+
+  it('uses --resume when messageCount > 0', () => {
+    const p = new ClaudeOllamaProvider();
+    const args = p.buildCommandArgs({
+      model: 'qwen3-coder:30b',
+      workingDirectory: '/tmp/wd',
+      permissionMode: 'auto',
+      allowedTools: [], disallowedTools: [],
+      claudeSessionId: 'cs-existing', messageCount: 3,
+    });
+    expect(args).toContain('--resume');
+    expect(args[args.indexOf('--resume') + 1]).toBe('cs-existing');
+    expect(args).not.toContain('--session-id');
+  });
+
+  it('includes --append-system-prompt when skillPrompt is provided', () => {
+    const p = new ClaudeOllamaProvider();
+    const args = p.buildCommandArgs({
+      model: 'qwen3-coder:30b',
+      workingDirectory: '/tmp/wd',
+      permissionMode: 'auto',
+      allowedTools: [], disallowedTools: [],
+      claudeSessionId: 'cs1', messageCount: 0,
+      skillPrompt: 'Follow the docstring style guide.',
+    });
+    const idx = args.indexOf('--append-system-prompt');
+    expect(idx).toBeGreaterThan(-1);
+    expect(args[idx + 1]).toBe('Follow the docstring style guide.');
+  });
+});

@@ -120,6 +120,52 @@ class ClaudeOllamaProvider extends BaseProvider {
     }
     return Array.from(union).sort();
   }
+
+  buildCommandArgs({
+    model,
+    workingDirectory,
+    permissionMode,
+    allowedTools,
+    disallowedTools,
+    skillPrompt,
+    claudeSessionId,
+    messageCount,
+  }) {
+    const args = ['launch', 'claude', '--model', cleanText(model), '--'];
+
+    // claude-cli flags follow the -- boundary
+    args.push(
+      '-p',
+      '--output-format', 'stream-json',
+      '--include-partial-messages',
+      '--strict-mcp-config',
+    );
+
+    if (cleanText(permissionMode) && SUPPORTED_PERMISSION_MODES.has(permissionMode)) {
+      args.push('--permission-mode', permissionMode);
+    }
+    if (allowedTools && allowedTools.length > 0) {
+      args.push('--allowed-tools', allowedTools.join(','));
+    }
+    if (disallowedTools && disallowedTools.length > 0) {
+      args.push('--disallowed-tools', disallowedTools.join(','));
+    }
+    if (cleanText(skillPrompt)) {
+      args.push('--append-system-prompt', skillPrompt);
+    }
+    if (cleanText(workingDirectory)) {
+      args.push('--add-dir', workingDirectory);
+    }
+
+    const sid = cleanText(claudeSessionId);
+    if (messageCount > 0) {
+      args.push('--resume', sid);
+    } else {
+      args.push('--session-id', sid);
+    }
+
+    return args;
+  }
 }
 
 module.exports = ClaudeOllamaProvider;
