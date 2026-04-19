@@ -1,32 +1,34 @@
 'use strict';
 
 const os = require('os');
+const childProcess = require('child_process');
 
-// Mutable git config — updated per-test, read by the child_process mock.
-// Mirrors the pattern already used and working in governance-hooks.test.js.
+// DIRECT MODULE MUTATION pattern for intercepting execFileSync.
+//
+// vi.mock('child_process', ...) does NOT intercept require('child_process')
+// for built-in modules in CJS test files under vitest 4.1.4 — confirmed
+// with a minimal repro. The factory is registered but the module returned
+// from require() is the real one, so pii-guard's top-level call to
+// execFileSync('git', ['config', 'user.name']) reads the real git user
+// regardless of the mock. (Earlier runs also showed the 3rd auto_identity
+// test was silently dropped from discovery when using vi.mock here — same
+// root cause; the dropped test was the one whose assertion required the
+// mock to actually fire.)
+//
+// Workaround: mutate childProcess.execFileSync directly. require() of a
+// built-in returns the same module object every time, so overwriting the
+// property is seen by every subsequent require. beforeEach saves and
+// restores around each test.
+const _realExecFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
 let _gitConfig = { name: '', email: '' };
 
-// Mock child_process BEFORE pii-guard loads — it calls execFileSync at
-// module-load time to read git user.name / user.email. SYNC factory —
-// pii-guard uses execFileSync synchronously, so an async factory would
-// return an unresolved promise on require() and the mock would silently
-// miss (observed: test discovery went from 24 down to 22 between runs).
-// pii-guard only needs execFileSync; the other exports are shims that
-// throw so test code accidentally using them fails loudly.
-vi.mock('child_process', () => ({
-  execFileSync: (cmd, args) => {
-    if (cmd === 'git' && Array.isArray(args) && args[0] === 'config') {
-      if (args[1] === 'user.name') return _gitConfig.name + '\n';
-      if (args[1] === 'user.email') return _gitConfig.email + '\n';
-    }
-    return '';
-  },
-  execFile: () => { throw new Error('execFile not mocked in pii-guard tests'); },
-  exec: () => { throw new Error('exec not mocked in pii-guard tests'); },
-  spawn: () => { throw new Error('spawn not mocked in pii-guard tests'); },
-  spawnSync: () => { throw new Error('spawnSync not mocked in pii-guard tests'); },
-  fork: () => { throw new Error('fork not mocked in pii-guard tests'); },
-}));
+function mockedExecFileSync(cmd, args, opts) {
+  if (cmd === 'git' && Array.isArray(args) && args[0] === 'config') {
+    if (args[1] === 'user.name') return _gitConfig.name + '\n';
+    if (args[1] === 'user.email') return _gitConfig.email + '\n';
+  }
+  return _realExecFileSync(cmd, args, opts);
+}
 
 function loadPiiGuard() {
   const resolved = require.resolve('../utils/pii-guard');
@@ -40,7 +42,12 @@ describe('pii-guard', () => {
   beforeEach(() => {
     // Neutral defaults; individual tests override before reloading.
     _gitConfig = { name: '', email: '' };
+    childProcess.execFileSync = mockedExecFileSync;
     piiGuard = loadPiiGuard();
+  });
+
+  afterEach(() => {
+    childProcess.execFileSync = _realExecFileSync;
   });
 
   describe('scanAndReplace', () => {
@@ -198,16 +205,13 @@ describe('pii-guard', () => {
       expect(result.sanitized).toBe(src);
     });
 
-    // Intentional coverage gap: a "replaces Zorgax attribution when git user
-    // is Zorgax" test would prove the pattern is actually added (not just
-    // that it's skipped/word-boundary-stopped as tests 1 and 2 prove). But
-    // vitest 4.0's test discovery has been observed to silently drop that
-    // third it() block in this describe — runs here report 22 tests while
-    // the file contains 23 it() blocks; the behavior flips depending on
-    // unrelated edits. Rather than carry a flaky test, we prove the fix
-    // via tests 1 (allowlist skip) and 2 (word-boundary stops compound
-    // matches) and the runtime smoke test at server/api/pii-scan (see
-    // earlier session: `curl /api/pii-scan` with a codex+CodexCliProvider
-    // payload returns clean:true after this commit lands).
+    it('replaces a non-allowlisted git user when it appears as a standalone word', () => {
+      const guard = loadWithGitUser('Zorgax');
+      const src = 'Author attribution mentioning Zorgax here.';
+      const result = guard.scanAndReplace(src);
+      expect(result.clean).toBe(false);
+      expect(result.sanitized).toContain('<git-user>');
+      expect(result.sanitized).not.toContain('Zorgax');
+    });
   });
 });
