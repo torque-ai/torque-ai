@@ -55,7 +55,7 @@ const CODEX_DIR_NAME = '.codex';
 const CODEX_CONFIG_FILENAME = 'config.toml';
 const DEFAULT_MCP_HOST = '127.0.0.1';
 const DEFAULT_MCP_SSE_PORT = 3458;
-const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope', 'version-control', 'remote-agents']);
+const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope', 'version-control', 'remote-agents', 'model-freshness']);
 const LOCAL_MCP_DESCRIPTION = 'TORQUE - Task Orchestration System with local LLM routing';
 
 let testRunnerRegistry = null;
