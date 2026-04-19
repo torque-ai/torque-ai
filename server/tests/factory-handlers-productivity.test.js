@@ -3,7 +3,6 @@ const fs = require('fs');
 const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
 const childProcess = require('child_process');
-const { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } = require('vitest');
 
 const factoryHandlers = require('../handlers/factory-handlers');
 const { rawDb, resetTables, safeTool, setupTestDb, teardownTestDb } = require('./vitest-setup');
@@ -71,6 +70,37 @@ function insertProject(db, {
   );
 }
 
+function insertActiveLoopInstance(db, {
+  projectId,
+  loopState,
+  pausedAtStage = null,
+  lastActionAt = null,
+  batchId = null,
+}) {
+  const createdAt = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO factory_loop_instances (
+      id,
+      project_id,
+      batch_id,
+      loop_state,
+      paused_at_stage,
+      last_action_at,
+      created_at,
+      terminated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+  `).run(
+    `${projectId}-instance`,
+    projectId,
+    batchId,
+    loopState,
+    pausedAtStage,
+    lastActionAt,
+    createdAt,
+  );
+}
+
 describe('factory_status productivity', () => {
   let testDir;
 
@@ -79,7 +109,7 @@ describe('factory_status productivity', () => {
   });
 
   beforeEach(() => {
-    resetTables(['factory_projects']);
+    resetTables(['factory_loop_instances', 'factory_projects']);
     factoryHandlers.__test.clearCommitsTodayCache();
   });
 
@@ -104,6 +134,9 @@ describe('factory_status productivity', () => {
     insertProject(db, { id: 'alpha', name: 'Alpha', projectPath: alphaPath, status: 'running', loopState: 'PLAN' });
     insertProject(db, { id: 'beta', name: 'Beta', projectPath: betaPath, status: 'running', loopState: 'EXECUTE' });
     insertProject(db, { id: 'gamma', name: 'Gamma', projectPath: gammaPath, status: 'paused', loopState: 'PAUSED', loopPausedAtStage: 'VERIFY_FAIL' });
+    insertActiveLoopInstance(db, { projectId: 'alpha', loopState: 'PLAN' });
+    insertActiveLoopInstance(db, { projectId: 'beta', loopState: 'EXECUTE' });
+    insertActiveLoopInstance(db, { projectId: 'gamma', loopState: 'PAUSED', pausedAtStage: 'VERIFY_FAIL' });
 
     const outputsByPath = new Map([
       [alphaPath, '1111111 alpha\n2222222 beta\n'],
@@ -120,9 +153,14 @@ describe('factory_status productivity', () => {
     const payload = result.structuredData;
     const projectsById = Object.fromEntries(payload.projects.map(project => [project.id, project]));
 
-    expect(projectsById.alpha).toMatchObject({ commits_today: 2, status: 'running' });
-    expect(projectsById.beta).toMatchObject({ commits_today: 0, status: 'running' });
-    expect(projectsById.gamma).toMatchObject({ commits_today: 0, status: 'paused' });
+    expect(projectsById.alpha).toMatchObject({ commits_today: 2, status: 'running', loop_state: 'PLAN' });
+    expect(projectsById.beta).toMatchObject({ commits_today: 0, status: 'running', loop_state: 'EXECUTE' });
+    expect(projectsById.gamma).toMatchObject({
+      commits_today: 0,
+      status: 'paused',
+      loop_state: 'PAUSED',
+      loop_paused_at_stage: 'VERIFY_FAIL',
+    });
     expect(payload.summary).toMatchObject({
       total: 3,
       running: 2,

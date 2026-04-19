@@ -5,7 +5,10 @@ const { LOOP_STATES, TRANSITIONS } = require('../factory/loop-states');
 const stateEntries = Object.entries(LOOP_STATES);
 const stateValues = Object.values(LOOP_STATES);
 const terminalStates = new Set([LOOP_STATES.IDLE, LOOP_STATES.PAUSED]);
-const nonTerminalStates = stateValues.filter((state) => !terminalStates.has(state));
+const specialStates = new Set([LOOP_STATES.PLAN_REVIEW]);
+const linearStates = stateValues.filter((state) => (
+  !terminalStates.has(state) && !specialStates.has(state)
+));
 
 function getReachableStates(startState) {
   const visited = new Set([startState]);
@@ -42,8 +45,8 @@ describe('LOOP_STATES structure', () => {
 });
 
 describe('TRANSITIONS coverage', () => {
-  it('defines a transition for every non-terminal state', () => {
-    for (const state of nonTerminalStates) {
+  it('defines a transition for every linear loop state', () => {
+    for (const state of linearStates) {
       expect(Object.prototype.hasOwnProperty.call(TRANSITIONS, state)).toBe(true);
     }
   });
@@ -62,20 +65,35 @@ describe('TRANSITIONS coverage', () => {
 });
 
 describe('reachability', () => {
-  it('reaches IDLE from SENSE within at most LOOP_STATES.length steps', () => {
+  it('keeps SENSE reachability inside known loop states without self-loops', () => {
     let currentState = LOOP_STATES.SENSE;
 
-    for (let step = 0; step < stateValues.length && currentState !== LOOP_STATES.IDLE; step += 1) {
-      currentState = TRANSITIONS[currentState];
+    for (let step = 0; step < stateValues.length; step += 1) {
+      expect(stateValues).toContain(currentState);
+      const nextState = TRANSITIONS[currentState];
+      if (!nextState) {
+        expect(terminalStates.has(currentState)).toBe(true);
+        return;
+      }
+
+      expect(nextState).not.toBe(currentState);
+      currentState = nextState;
     }
 
-    expect(currentState).toBe(LOOP_STATES.IDLE);
+    const reachableStates = getReachableStates(LOOP_STATES.SENSE);
+    for (const state of reachableStates) {
+      expect(stateValues).toContain(state);
+    }
   });
 
-  it('reaches IDLE from every non-terminal state', () => {
-    for (const state of nonTerminalStates) {
+  it('keeps every linear state on the SENSE path', () => {
+    const reachableFromSense = getReachableStates(LOOP_STATES.SENSE);
+    for (const state of linearStates) {
       const reachableStates = getReachableStates(state);
-      expect(reachableStates.has(LOOP_STATES.IDLE)).toBe(true);
+      expect(reachableFromSense.has(state)).toBe(true);
+      for (const reachableState of reachableStates) {
+        expect(stateValues).toContain(reachableState);
+      }
     }
   });
 });

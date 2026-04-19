@@ -164,11 +164,11 @@ describe('updateTemplate', () => {
     const created = mod.createTemplate({
       name: 'Partial Update',
       description: 'Original',
-      rules: validRules({ default: 'codex' }),
+      rules: validRules({ default: '<git-user>' }),
     });
     const updated = mod.updateTemplate(created.id, { description: 'Changed' });
     expect(updated.description).toBe('Changed');
-    expect(updated.rules.default).toBe('codex');
+    expect(updated.rules.default).toBe('<git-user>');
   });
 });
 
@@ -245,14 +245,14 @@ describe('getActiveTemplate / setActiveTemplate', () => {
 describe('resolveProvider', () => {
   it('returns base rule for category', () => {
     const tmpl = mod.getTemplateByName('System Default');
-    expect(mod.resolveProvider(tmpl, 'security', 'normal').provider).toBe('codex');
-    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'normal').provider).toBe('codex');
+    expect(mod.resolveProvider(tmpl, 'security', 'normal').provider).toBe('<git-user>');
+    expect(mod.resolveProvider(tmpl, 'large_code_gen', 'normal').provider).toBe('<git-user>');
   });
 
   it('applies complexity override when present', () => {
     const tmpl = mod.getTemplateByName('System Default');
-    // System Default has complexity override for targeted_file_edit → complex → codex
-    expect(mod.resolveProvider(tmpl, 'targeted_file_edit', 'complex').provider).toBe('codex');
+    // System Default has complexity override for targeted_file_edit → complex → <git-user>
+    expect(mod.resolveProvider(tmpl, 'targeted_file_edit', 'complex').provider).toBe('<git-user>');
   });
 
   it('falls back to base rule when complexity has no override', () => {
@@ -329,7 +329,7 @@ describe('validateTemplate', () => {
       name: 'Bad Complexity',
       rules: validRules(),
       complexity_overrides: {
-        security: { extreme: 'codex' },
+        security: { extreme: '<git-user>' },
       },
     });
     expect(result.valid).toBe(false);
@@ -341,7 +341,7 @@ describe('validateTemplate', () => {
       name: 'Good Complexity',
       rules: validRules(),
       complexity_overrides: {
-        security: { simple: 'ollama', normal: 'deepinfra', complex: 'codex' },
+        security: { simple: 'ollama', normal: 'deepinfra', complex: '<git-user>' },
       },
     });
     expect(result.valid).toBe(true);

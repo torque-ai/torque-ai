@@ -1,29 +1,48 @@
 'use strict';
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const {
-  getTaskMock,
-  submitFactoryInternalTaskMock,
-} = vi.hoisted(() => ({
-  getTaskMock: vi.fn(),
-  submitFactoryInternalTaskMock: vi.fn(),
-}));
-
-vi.mock('../task-manager', () => ({
-  startTask: vi.fn(),
-}));
-
-vi.mock('../db/task-core', () => ({
-  getTask: getTaskMock,
-}));
-
-vi.mock('../factory/internal-task-submit', () => ({
-  submitFactoryInternalTask: submitFactoryInternalTaskMock,
-}));
-
 const fs = require('fs');
 const path = require('path');
+
+const getTaskMock = vi.fn();
+const submitFactoryInternalTaskMock = vi.fn();
+const taskManagerMock = { startTask: vi.fn() };
+const mockedModulePaths = [
+  '../task-manager',
+  '../db/task-core',
+  '../factory/internal-task-submit',
+];
+const originalModules = new Map();
+
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  if (!originalModules.has(resolved)) {
+    originalModules.set(resolved, require.cache[resolved] || null);
+  }
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
+function restoreCjsModuleMocks() {
+  for (const modulePath of mockedModulePaths) {
+    const resolved = require.resolve(modulePath);
+    const originalModule = originalModules.get(resolved);
+    if (originalModule) {
+      require.cache[resolved] = originalModule;
+    } else {
+      delete require.cache[resolved];
+    }
+  }
+  originalModules.clear();
+}
+
+installCjsModuleMock('../task-manager', taskManagerMock);
+installCjsModuleMock('../factory/internal-task-submit', {
+  submitFactoryInternalTask: submitFactoryInternalTaskMock,
+});
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const factoryArchitect = require('../db/factory-architect');
@@ -157,6 +176,7 @@ beforeEach(() => {
   ensureFactoryTables(dbHandle);
   resetFactoryTables(dbHandle);
   wireFactoryDbModules(dbHandle);
+  installCjsModuleMock('../db/task-core', { getTask: getTaskMock });
   vi.clearAllMocks();
 });
 
@@ -168,6 +188,7 @@ afterAll(() => {
   factoryArchitect.setDb(null);
   factoryHealth.setDb(null);
   factoryIntake.setDb(null);
+  restoreCjsModuleMocks();
   teardownTestDb();
 });
 

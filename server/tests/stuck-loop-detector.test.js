@@ -1,7 +1,6 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } = require('vitest');
 
 const { detectStuckLoops, STALL_THRESHOLD_MS } = require('../factory/stuck-loop-detector');
 const { rawDb, resetTables, setupTestDbOnly, teardownTestDb } = require('./vitest-setup');

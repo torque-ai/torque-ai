@@ -1,12 +1,45 @@
 const path = require('path');
-const { afterAll, beforeAll, describe, expect, it } = require('vitest');
-const { rawDb, safeTool, setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { rawDb, resetTables, safeTool, setupTestDb, teardownTestDb } = require('./vitest-setup');
+
+function insertActiveLoopInstance(db, {
+  projectId,
+  loopState,
+  pausedAtStage = null,
+  lastActionAt = null,
+  batchId = null,
+}) {
+  db.prepare(`
+    INSERT INTO factory_loop_instances (
+      id,
+      project_id,
+      batch_id,
+      loop_state,
+      paused_at_stage,
+      last_action_at,
+      created_at,
+      terminated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+  `).run(
+    `${projectId}-instance`,
+    projectId,
+    batchId,
+    loopState,
+    pausedAtStage,
+    lastActionAt,
+    new Date().toISOString(),
+  );
+}
 
 describe('factory_status', () => {
   let testDir;
 
   beforeAll(() => {
     ({ testDir } = setupTestDb('factory-handlers-status'));
+  });
+
+  beforeEach(() => {
+    resetTables(['factory_loop_instances', 'factory_projects']);
   });
 
   afterAll(() => {
@@ -53,6 +86,12 @@ describe('factory_status', () => {
       createdAt,
       createdAt,
     );
+    insertActiveLoopInstance(db, {
+      projectId: 'project-plan-stalled',
+      loopState: 'PLAN',
+      lastActionAt: oldActionAt,
+      batchId: 'batch-plan',
+    });
     insertProject.run(
       'project-paused-recent',
       'Paused Recent',
@@ -68,6 +107,13 @@ describe('factory_status', () => {
       createdAt,
       createdAt,
     );
+    insertActiveLoopInstance(db, {
+      projectId: 'project-paused-recent',
+      loopState: 'PAUSED',
+      pausedAtStage: 'VERIFY_FAIL',
+      lastActionAt: recentActionAt,
+      batchId: 'batch-paused',
+    });
     insertProject.run(
       'project-idle-old',
       'Idle Old',

@@ -201,7 +201,7 @@ afterEach(() => {
 });
 
 describe('loop-controller decision logging', () => {
-  it('logs each transition through SENSE -> PRIORITIZE -> PLAN -> EXECUTE and records gate approvals', async () => {
+  it('logs SENSE -> PRIORITIZE -> PLAN decisions, gate approvals, and plan-generation rejection', async () => {
     const { project, workItem } = registerProjectWithWorkItem('guided');
 
     loopController.startLoopForProject(project.id);
@@ -271,16 +271,25 @@ describe('loop-controller decision logging', () => {
     });
 
     const planAdvance = await loopController.advanceLoopForProject(project.id);
-    expect(planAdvance.new_state).toBe(LOOP_STATES.EXECUTE);
+    expect(planAdvance.new_state).toBe(LOOP_STATES.IDLE);
+    expect(planAdvance.reason).toBeTruthy();
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'rejected',
+      reject_reason: expect.stringMatching(/^cannot_generate_plan: /),
+    });
     decisions = listDecisionRows(db, project.id);
-    // Non-plan-file EXECUTE adds an extra plan-generation decision before started_execution.
+    // Non-plan-file EXECUTE attempts production plan generation. This minimal
+    // fixture has no task pipeline, so the hardened path rejects the item
+    // instead of looping forever.
     expect(decisions.length).toBeGreaterThanOrEqual(9);
-    expect(decisions.find(d => d.stage === 'execute' && d.action === 'started_execution')).toBeTruthy();
-    expect(decisions.at(-1).outcome).toMatchObject({
-      from_state: 'PLAN',
-      to_state: 'EXECUTE',
+    expect(decisions.find(d => d.stage === 'execute' && d.action === 'started_execution')).toBeUndefined();
+    const rejected = decisions.find(d => d.stage === 'execute' && d.action === 'cannot_generate_plan');
+    expect(rejected).toBeTruthy();
+    expect(rejected.outcome).toMatchObject({
       work_item_id: workItem.id,
     });
+    expect(rejected.outcome.reason).toBeTruthy();
   });
 
   it('refreshes the decision DB dependency when handleDecisionLog is called', async () => {

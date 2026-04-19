@@ -4,6 +4,9 @@ vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 
 const Database = require('better-sqlite3');
 const database = require('../database');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryFeedback = require('../db/factory-feedback');
 const guardrailDb = require('../db/factory-guardrails');
@@ -180,6 +183,16 @@ function listDecisionRows(db, projectId) {
   }));
 }
 
+let tempWorktreeDirs = [];
+
+function createExistingWorktreePath(branch) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-worktree-'));
+  const worktreePath = path.join(root, branch.replace(/[\\/]/g, '-'));
+  fs.mkdirSync(worktreePath, { recursive: true });
+  tempWorktreeDirs.push(root);
+  return worktreePath;
+}
+
 function registerPausedVerifyProject({ workItemStatus, batchId }) {
   const project = factoryHealth.registerProject({
     name: `Factory Loop Shipping ${Date.now()}`,
@@ -284,6 +297,7 @@ describe('factory loop work-item shipping', () => {
   let originalGetDbInstance;
 
   beforeEach(() => {
+    tempWorktreeDirs = [];
     db = new Database(':memory:');
     createFactoryTables(db);
     loopController.setWorktreeRunnerForTests(null);
@@ -306,6 +320,10 @@ describe('factory loop work-item shipping', () => {
     guardrailDb.setDb(null);
     factoryWorktrees.setDb(null);
     loopController.setWorktreeRunnerForTests(null);
+    for (const dir of tempWorktreeDirs) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    tempWorktreeDirs = [];
     db.close();
     db = null;
   });
@@ -567,13 +585,14 @@ describe('factory loop work-item shipping', () => {
     seedLearnDependencies(project.id, batchId);
 
     const branch = 'feat/factory-merge-me';
+    const worktreePath = createExistingWorktreePath(branch);
     factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
       batch_id: batchId,
       vc_worktree_id: 'vc-worktree-ship-1',
       branch,
-      worktree_path: `/tmp/${branch}`,
+      worktree_path: worktreePath,
     });
 
     loopController.setWorktreeRunnerForTests({
@@ -649,13 +668,14 @@ describe('factory loop work-item shipping', () => {
     seedLearnDependencies(project.id, batchId);
 
     const branch = 'feat/factory-merge-cleanup-fail';
+    const worktreePath = createExistingWorktreePath(branch);
     factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
       batch_id: batchId,
       vc_worktree_id: 'vc-worktree-ship-2',
       branch,
-      worktree_path: `/tmp/${branch}`,
+      worktree_path: worktreePath,
     });
 
     loopController.setWorktreeRunnerForTests({
@@ -727,7 +747,7 @@ describe('factory loop work-item shipping', () => {
     expect(decisions.find((row) => row.stage === 'learn' && row.action === 'worktree_merged_cleanup_failed')).toMatchObject({
       outcome: expect.objectContaining({
         branch,
-        worktree_path: `/tmp/${branch}`,
+        worktree_path: worktreePath,
         cleanup_failed: true,
         cleanup_error: 'Permission denied',
       }),
@@ -809,23 +829,28 @@ describe('factory loop work-item shipping', () => {
     const { learnAdvance } = await advanceVerifyThenLearn(project.id);
 
     // Item must NOT be shipped — without a merge, nothing landed on main.
+    // LEARN now rejects it so PRIORITIZE will not keep selecting the same
+    // batch forever.
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
       id: workItem.id,
-      status: 'verifying',
+      status: 'rejected',
+      reject_reason: 'no_worktree_for_batch_prior_status=abandoned',
     });
 
-    // Decision log should show skipped_shipping with the abandoned reason.
+    // Decision log should show the hardening reject with the abandoned reason.
     const decisions = listDecisionRows(db, project.id);
-    const skipped = decisions.find((row) => row.stage === 'learn' && row.action === 'skipped_shipping');
-    expect(skipped).toBeTruthy();
-    expect(skipped.outcome).toMatchObject({
+    const rejected = decisions.find((row) => row.stage === 'learn' && row.action === 'auto_rejected_no_worktree');
+    expect(rejected).toBeTruthy();
+    expect(rejected.outcome).toMatchObject({
       work_item_id: workItem.id,
+      reason: 'no_worktree_for_batch_prior_status=abandoned',
       prior_worktree_status: 'abandoned',
     });
+    expect(decisions.find((row) => row.stage === 'learn' && row.action === 'skipped_shipping')).toBeUndefined();
     // Must not also log a shipped_work_item decision.
     expect(decisions.find((row) => row.stage === 'learn' && row.action === 'shipped_work_item')).toBeUndefined();
     // learnAdvance.stage_result is executeLearnStage's feedback output,
-    // which doesn't surface the shipping-skipped status. The decision
+    // which doesn't surface the shipping reject status. The decision
     // log above is the source of truth for shipping outcomes; the
     // feedback summary still runs because analyzeBatch runs before
     // shipping and doesn't depend on merge success.

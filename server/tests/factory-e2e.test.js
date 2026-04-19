@@ -2,6 +2,7 @@
 
 const Database = require('better-sqlite3');
 const factoryHealth = require('../db/factory-health');
+const factoryLoopInstances = require('../db/factory-loop-instances');
 const handlers = require('../handlers/factory-handlers');
 
 // Create factory tables directly — runMigrations requires the full base schema
@@ -45,6 +46,29 @@ function createFactoryTables(db) {
     )
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_fhf_snapshot ON factory_health_findings(snapshot_id)');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS factory_loop_instances (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER,
+      batch_id TEXT,
+      loop_state TEXT NOT NULL DEFAULT 'IDLE',
+      paused_at_stage TEXT,
+      last_action_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      terminated_at TEXT
+    )
+  `);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_factory_loop_instances_stage_occupancy
+      ON factory_loop_instances(project_id, loop_state)
+      WHERE terminated_at IS NULL AND loop_state NOT IN ('IDLE')
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_factory_loop_instances_project_active
+      ON factory_loop_instances(project_id)
+      WHERE terminated_at IS NULL
+  `);
 }
 
 describe('factory end-to-end flow', () => {
@@ -55,9 +79,11 @@ describe('factory end-to-end flow', () => {
     db.pragma('journal_mode = WAL');
     createFactoryTables(db);
     factoryHealth.setDb(db);
+    factoryLoopInstances.setDb(db);
   });
 
   afterEach(() => {
+    factoryLoopInstances.setDb(null);
     db.close();
   });
 
