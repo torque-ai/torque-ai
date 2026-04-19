@@ -24,16 +24,20 @@ const INTERNAL_ONLY_ROUTE_NAMES = new Set([
 function getExposedToolNames() {
   const { TOOLS, routeMap } = require('../tools');
   const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
+  const modelFreshnessToolDefs = require('../plugins/model-freshness/tool-defs');
   const coreToolNames = TOOLS.map((tool) => tool.name);
   const routeOnlyToolNames = [...routeMap.keys()].filter(
     (name) => !coreToolNames.includes(name) && !INTERNAL_ONLY_ROUTE_NAMES.has(name),
   );
 
+  const pluginToolNames = (defs) => (Array.isArray(defs) ? defs : [])
+    .filter((tool) => tool && typeof tool.name === 'string')
+    .map((tool) => tool.name);
+
   return [...new Set([
     ...coreToolNames,
-    ...remoteAgentToolDefs
-      .filter((tool) => tool && typeof tool.name === 'string')
-      .map((tool) => tool.name),
+    ...pluginToolNames(remoteAgentToolDefs),
+    ...pluginToolNames(modelFreshnessToolDefs),
     ...INLINE_TOOL_NAMES,
     ...routeOnlyToolNames,
   ])];
