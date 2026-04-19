@@ -1954,3 +1954,19 @@ Landed as commit `8d8de03b` (`fix(schema-seeds): seed claude-ollama provider row
 ### 8. Vitest filter flakiness (process note, not code)
 
 Per-file filter `npx vitest run tests/claude-ollama-smoke.test.js` intermittently returns "No test files found". Clearing the vitest cache (`rm -rf node_modules/.vite node_modules/.vitest`) or using a broader substring filter (`claude-ollama-smoke`) works reliably. Suggest updating the plan's test commands to use substring filters everywhere.
+
+### 9. `schema-seeds.test.js` has a `VALID_PROVIDER_NAMES` allowlist
+
+**Symptom:** After the cutover, `server/tests/schema-seeds.test.js` failed on main because the seeded row for `claude-ollama` wasn't in the test's hardcoded `VALID_PROVIDER_NAMES` set. Fixed in a follow-up commit by another session.
+
+**Fix:** When the plan adds a new provider to `schema-seeds.js`, it must ALSO extend the `VALID_PROVIDER_NAMES` set in the test (or refactor it to read from `registry.PROVIDER_CATEGORIES`). Treat these as paired edits.
+
+Landed as commit `29bc4811` (`fix(tests): extend schema-seeds VALID_PROVIDER_NAMES with new providers`), by a different session's factory loop picking up the regression.
+
+### 10. `tool-annotations.test.js` `getExposedToolNames()` helper is plugin-aware but not extensible
+
+**Symptom:** After merging the freshness plugin with its 5 `OVERRIDES` entries in `tool-annotations.js`, the annotations test failed: `validateCoverage` flagged the 5 `model_watchlist_*` / `model_freshness_*` entries as "stale" because the helper's tool-name collector only pulled remote-agents plugin tool-defs, not freshness.
+
+**Chain of events:** Another session saw the failure, deleted the OVERRIDES entries thinking they were for a non-merged plugin (commit `44a34d67`), realized they WERE for a merged plugin, reverted (`e5e3f434`), and then fixed the underlying helper (`ce27b1fc`).
+
+**Fix:** The helper at the top of `server/tests/tool-annotations.test.js` now uses a `pluginToolNames()` factory that extends cleanly. When this plan adds a new plugin's annotations, it must also register that plugin's tool-defs in the helper's list. Or refactor the helper to auto-discover from `server/plugins/*/tool-defs.js`.

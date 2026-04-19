@@ -1734,3 +1734,21 @@ This plan was executed end-to-end. Seven defects were discovered during executio
 - `curl /api/tools` does NOT list them; `curl -X POST /api/tools/model_freshness_scan_now` returns 404.
 
 Only relevant when writing verification scripts — stick to MCP-side testing.
+
+### 9. `tool-annotations.test.js` `getExposedToolNames()` helper needs the new plugin registered
+
+**Symptom:** After merge + restart, the 5 `model_watchlist_*` / `model_freshness_*` `OVERRIDES` entries added in Task 9 triggered "stale override" failures in `server/tests/tool-annotations.test.js`. The helper that builds the set of "currently exposed tool names" only collected remote-agents plugin tool-defs — not freshness — so validateCoverage didn't see the tools the OVERRIDES targeted.
+
+**Chain of events on main:** another session observed the failure, initially removed the freshness OVERRIDES thinking the plugin wasn't merged yet (commit `44a34d67`), realized the plugin WAS merged, reverted (`e5e3f434`), and then fixed the helper (`ce27b1fc`, `fix(tests): include model-freshness plugin tool-defs in getExposedToolNames`).
+
+**Fix for re-runs:** Task 9 must include an edit to `server/tests/tool-annotations.test.js`'s `getExposedToolNames()` helper to register the plugin's tool-defs. The current fix uses a small `pluginToolNames()` factory that's extensible — follow that pattern. Or refactor the helper to auto-discover from `server/plugins/*/tool-defs.js`.
+
+### 10. Client-side tool discovery gap (environmental, not a plan defect)
+
+A subagent running a fresh MCP session verified all 5 freshness tools work via raw JSON-RPC `tools/list` → the plugin's server-side registration is correct. But Claude Code's `ToolSearch` deferred-tool index didn't surface them even after `unlock_all_tools`. The gap is on the MCP client/SDK side. Not blocking, but worth noting: test reproducibility may be affected if a reviewer relies on ToolSearch alone.
+
+### 11. `add` returns `added: false` for tags that match a soft-deleted row
+
+**Symptom noted by the verification subagent:** calling `model_watchlist_add { family, tag }` where a row with `active: 0` already exists returns `added: false` — doesn't reactivate the row, doesn't treat the call as a fresh insert.
+
+**Not a defect per the spec** (soft-delete preserves history), but the behavior is surprising: users expect `add` after `remove` to re-enable tracking. Worth either (a) changing `add` to reactivate inactive rows, or (b) documenting the tombstone behavior in `model_watchlist_list` output (e.g., include inactive rows with a `tombstoned` flag). Leaving this as a follow-on decision.
