@@ -34,6 +34,82 @@ function normalizePathKey(p) {
   return path.resolve(String(p || '')).replace(/\\/g, '/').toLowerCase();
 }
 
+// Recursively clear read-only attributes so a subsequent rmSync can succeed.
+// On Windows, git internals and some build tools mark files read-only; fs.rmSync
+// with force:true tolerates missing files but not permission-denied.
+function clearReadOnlyRecursive(dir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    try { fs.chmodSync(full, 0o666); } catch { /* best effort */ }
+    if (entry.isDirectory()) {
+      clearReadOnlyRecursive(full);
+    }
+  }
+}
+
+// Layered force-delete that handles Windows quirks. Order:
+//   1. fs.rmSync recursive+force (works for the common case)
+//   2. chmod-recursive to clear read-only, then rmSync again (handles git
+//      internals and files marked read-only by build tools)
+//   3. shell fallback via platform-native recursive delete (handles the
+//      "Directory not empty" error from files rmSync cannot unlink —
+//      e.g. symlinks, files open in another process that released the
+//      lock between attempts).
+// Returns {ok, attempts: [{step, ok, err?}]}. `ok` reflects whether the
+// directory is actually gone, not whether every step succeeded.
+function forceRmDir(dir) {
+  const attempts = [];
+  if (!fs.existsSync(dir)) {
+    return { ok: true, attempts };
+  }
+
+  // Attempt 1: plain recursive rm
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    attempts.push({ step: 'rm_plain', ok: true });
+    if (!fs.existsSync(dir)) return { ok: true, attempts };
+  } catch (err) {
+    attempts.push({ step: 'rm_plain', ok: false, err: err.message });
+  }
+
+  // Attempt 2: clear read-only, retry rm
+  try {
+    clearReadOnlyRecursive(dir);
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    attempts.push({ step: 'rm_after_chmod', ok: true });
+    if (!fs.existsSync(dir)) return { ok: true, attempts };
+  } catch (err) {
+    attempts.push({ step: 'rm_after_chmod', ok: false, err: err.message });
+  }
+
+  // Attempt 3: shell fallback. On Windows (no POSIX rm), use cmd.exe's
+  // rmdir /s /q. Everywhere else, rm -rf. Both recursive + force.
+  try {
+    if (process.platform === 'win32') {
+      childProcess.execFileSync('cmd', ['/c', 'rmdir', '/s', '/q', dir], {
+        windowsHide: true,
+        timeout: 30000,
+      });
+    } else {
+      childProcess.execFileSync('rm', ['-rf', dir], {
+        windowsHide: true,
+        timeout: 30000,
+      });
+    }
+    attempts.push({ step: 'rm_shell', ok: true });
+  } catch (err) {
+    attempts.push({ step: 'rm_shell', ok: false, err: err.message });
+  }
+
+  return { ok: !fs.existsSync(dir), attempts };
+}
+
 // Reclaim a stale worktree directory and its git metadata. Safe to call on
 // entries that may be fully gone, partially gone, or still registered.
 // Uses `git worktree remove --force` first (handles both metadata + dir),
@@ -51,16 +127,22 @@ function reclaimDir({ repoPath, worktreePath, branch }) {
   const pruneRes = tryGit(repoPath, ['worktree', 'prune']);
   attempts.push({ step: 'worktree_prune', ok: pruneRes.ok, err: pruneRes.ok ? null : pruneRes.err.message });
 
-  // Attempt 3: fs-level cleanup. In case the git command didn't delete the
-  // dir (e.g. it was an orphan git didn't know about, or remove refused
-  // because of locked files that rmSync can force).
+  // Attempt 3: fs-level cleanup via forceRmDir. Layered: plain rmSync →
+  // chmod-recursive + rmSync → shell fallback. Handles Windows "Directory
+  // not empty" and read-only git internals that defeat a plain fs.rmSync.
   if (fs.existsSync(worktreePath)) {
-    try {
-      fs.rmSync(worktreePath, { recursive: true, force: true });
-      attempts.push({ step: 'fs_rm', ok: true });
-    } catch (err) {
-      attempts.push({ step: 'fs_rm', ok: false, err: err.message });
-    }
+    const rmResult = forceRmDir(worktreePath);
+    attempts.push({
+      step: 'fs_rm',
+      ok: rmResult.ok,
+      err: rmResult.ok
+        ? null
+        : rmResult.attempts
+            .filter((a) => !a.ok)
+            .map((a) => `${a.step}: ${a.err || 'failed'}`)
+            .join(' | '),
+      sub_attempts: rmResult.attempts,
+    });
   }
 
   // Attempt 4: branch delete. Orphan branch may linger even when the worktree
@@ -210,6 +292,8 @@ module.exports = {
   reclaimDir,
   classifyDir,
   listProjectFactoryWorktrees,
+  forceRmDir,
+  clearReadOnlyRecursive,
   RECLAIMABLE_STATUSES,
   FACTORY_LEAF_PREFIX,
 };
