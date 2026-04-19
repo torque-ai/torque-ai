@@ -44,6 +44,14 @@ function createEventBus() {
     onFactoryVerifyUnrecoverable: (fn) => emitter.on('factory:verify_unrecoverable', fn),
     emitFactoryVerifyUnrecoverable: (data) => emitter.emit('factory:verify_unrecoverable', data),
 
+    // Factory plan-quality-gate events
+    emitFactoryPlanRejectedQuality: (data) => emitter.emit('factory:plan_rejected_quality', data),
+    onFactoryPlanRejectedQuality: (fn) => emitter.on('factory:plan_rejected_quality', fn),
+    emitFactoryPlanRejectedFinal: (data) => emitter.emit('factory:plan_rejected_final', data),
+    onFactoryPlanRejectedFinal: (fn) => emitter.on('factory:plan_rejected_final', fn),
+    emitFactoryPlanGateSkipped: (data) => emitter.emit('factory:plan_gate_skipped', data),
+    onFactoryPlanGateSkipped: (fn) => emitter.on('factory:plan_gate_skipped', fn),
+
     // Model discovery events
     onModelDiscovered: (fn) => emitter.on('model-discovered', fn),
     emitModelDiscovered: (data) => emitter.emit('model-discovered', data),
