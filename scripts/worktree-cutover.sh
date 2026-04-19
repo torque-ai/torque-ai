@@ -80,14 +80,28 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
   # Timeout: 30 minutes. Plan tasks can be long; the cutover is itself a
   # controlled operation, so waiting is the right default.
   DRAIN_DEADLINE=$(( $(date +%s) + 30 * 60 ))
+  # Require 3 consecutive zero-observations, 2s apart, before declaring drain
+  # complete. Factory auto-advance can submit a new task in the microsecond
+  # window between a single zero-check and stop-torque — observed live during
+  # the 2026-04-19 verify-review-hybrid cutover (drain reported clean, then
+  # stop-torque saw 2 running and they got SIGKILL'd). The settling window
+  # gives the factory tick chain time to go quiet.
+  ZERO_STREAK=0
+  REQUIRED_ZERO_STREAK=3
   while true; do
     RUNNING=$(curl -s --max-time 3 "${TORQUE_API}/api/v2/tasks?status=running&limit=1000" 2>/dev/null \
       | (grep -oE '"id"' || true) | wc -l | tr -d '[:space:]')
     if [ -z "$RUNNING" ]; then RUNNING=0; fi
     if [ "$RUNNING" = "0" ]; then
-      echo "[ok] Pipeline drained."
-      break
+      ZERO_STREAK=$((ZERO_STREAK + 1))
+      if [ "$ZERO_STREAK" -ge "$REQUIRED_ZERO_STREAK" ]; then
+        echo "[ok] Pipeline drained (stable for ${REQUIRED_ZERO_STREAK} checks)."
+        break
+      fi
+      sleep 2
+      continue
     fi
+    ZERO_STREAK=0
     if [ "$(date +%s)" -gt "$DRAIN_DEADLINE" ]; then
       echo "[warn] Drain timed out after 30 minutes with $RUNNING task(s) still running."
       echo "       Aborting cutover so running work is not trampled. Merge landed,"
