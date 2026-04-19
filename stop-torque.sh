@@ -53,6 +53,7 @@ resolve_command() {
 WMIC_BIN="$(resolve_command wmic.exe wmic || true)"
 TASKKILL_BIN="$(resolve_command taskkill.exe taskkill || true)"
 TASKLIST_BIN="$(resolve_command tasklist.exe tasklist || true)"
+POWERSHELL_BIN="$(resolve_command powershell.exe powershell pwsh.exe pwsh || true)"
 
 parse_args() {
   local arg
@@ -138,8 +139,23 @@ load_torque_node_pids() {
   local cmdline
 
   if is_windows; then
+    # Prefer PowerShell — wmic's `CommandLine like '%...%'` is broken on
+    # Windows 11 (returns "Invalid query" even with valid syntax).
+    # Get-CimInstance Win32_Process is reliable across Windows 10/11.
+    if [ -n "$POWERSHELL_BIN" ]; then
+      while IFS= read -r line; do
+        pid="${line%$'\r'}"
+        pid="$(printf '%s' "$pid" | tr -d '[:space:]')"
+        if [ -n "$pid" ] && printf '%s' "$pid" | grep -Eq '^[0-9]+$'; then
+          append_unique_pid "$pid"
+        fi
+      done < <("$POWERSHELL_BIN" -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { \$_.CommandLine -like '*server*index.js*' } | Select-Object -ExpandProperty ProcessId" 2>/dev/null || true)
+
+      return 0
+    fi
+
     if [ -z "$WMIC_BIN" ]; then
-      log "wmic is not available; skipping command-line verification."
+      log "Neither powershell nor wmic are available; skipping command-line verification."
       return 1
     fi
 
