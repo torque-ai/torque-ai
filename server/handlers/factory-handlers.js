@@ -1196,6 +1196,115 @@ async function handleRetryFactoryVerify(args) {
   return jsonResponse(result);
 }
 
+async function handleResumeProjectBaselineFixed(args) {
+  try {
+    const projectRef = args?.project;
+    if (!projectRef) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'project is required');
+    }
+
+    let projectRow;
+    try {
+      projectRow = resolveProject(projectRef);
+    } catch (_e) {
+      void _e;
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Project not found: ${projectRef}`);
+    }
+
+    const cfg = projectRow.config_json
+      ? (() => { try { return JSON.parse(projectRow.config_json); } catch { return {}; } })()
+      : {};
+    if (!cfg.baseline_broken_since) {
+      return makeError(
+        ErrorCodes.CONFLICT,
+        `Project "${projectRow.name}" is not flagged baseline_broken; nothing to resume.`,
+      );
+    }
+
+    let verifyCommand = cfg.verify_command || null;
+    if (!verifyCommand) {
+      try {
+        const projectConfigCore = require('../db/project-config-core');
+        const defaults = projectConfigCore.getProjectDefaults(projectRow.path || projectRow.id);
+        if (defaults && defaults.verify_command) {
+          verifyCommand = defaults.verify_command;
+        }
+      } catch (_e) { void _e; }
+    }
+    if (!verifyCommand) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `Project "${projectRow.name}" has no verify_command configured; cannot probe. Set one via set_project_defaults and try again.`,
+      );
+    }
+
+    const baselineProbe = require('../factory/baseline-probe');
+    const runnerRegistry = require('../test-runner-registry').createTestRunnerRegistry();
+    const runner = async ({ command, cwd, timeoutMs }) => {
+      const r = await runnerRegistry.runVerifyCommand(command, cwd, { timeout: timeoutMs });
+      return {
+        exitCode: r.exitCode,
+        stdout: r.output || '',
+        stderr: r.error || '',
+        durationMs: r.durationMs,
+        timedOut: !!r.timedOut,
+      };
+    };
+
+    const probe = await baselineProbe.probeProjectBaseline({
+      project: projectRow,
+      verifyCommand,
+      runner,
+      timeoutMs: 5 * 60 * 1000,
+    });
+
+    if (!probe.passed) {
+      const preview = String(probe.output || '').slice(-1500);
+      return makeError(
+        ErrorCodes.CONFLICT,
+        `Baseline still failing (exit ${probe.exitCode}). Fix the failing tests, then try again.\n\nProbe output (last 1500 chars):\n${preview}`,
+      );
+    }
+
+    const pausedSince = Date.parse(cfg.baseline_broken_since) || Date.now();
+    cfg.baseline_broken_since = null;
+    cfg.baseline_broken_reason = null;
+    cfg.baseline_broken_evidence = null;
+    cfg.baseline_broken_probe_attempts = 0;
+    cfg.baseline_broken_tick_count = 0;
+    factoryHealth.updateProject(projectRow.id, {
+      status: 'running',
+      config_json: JSON.stringify(cfg),
+    });
+    // Re-start factory tick timer on resume. The pause path stops the tick
+    // for trust_level != autonomous/dark or non-auto_continue projects, so
+    // without startTick here the project would sit in status='running' with
+    // no active tick, and nothing would advance. Mirror handleResumeProject.
+    try {
+      const updated = factoryHealth.getProject(projectRow.id);
+      const factoryTick = require('../factory/factory-tick');
+      factoryTick.startTick(updated);
+    } catch (_e) { void _e; /* factory-tick not loaded */ }
+    try {
+      const eventBus = require('../event-bus');
+      eventBus.emitFactoryProjectBaselineCleared({
+        project_id: projectRow.id,
+        cleared_after_ms: Date.now() - pausedSince,
+      });
+    } catch (_e) { void _e; }
+
+    return jsonResponse({
+      status: 'resumed',
+      message: `Project "${projectRow.name}" resumed — baseline probe passed in ${probe.durationMs}ms.`,
+      project_id: projectRow.id,
+      probe_duration_ms: probe.durationMs,
+    });
+  } catch (err) {
+    logger.warn('handleResumeProjectBaselineFixed failed', { err: err.message });
+    return makeError(ErrorCodes.INTERNAL_ERROR, `Failed to resume project baseline: ${err.message}`);
+  }
+}
+
 async function handleFactoryLoopStatus(args) {
   const project = resolveProject(args.project);
   const result = loopController.getLoopStateForProject(project.id);
@@ -1586,6 +1695,7 @@ module.exports = {
   handleAdvanceFactoryLoopAsync,
   handleApproveFactoryGate,
   handleRetryFactoryVerify,
+  handleResumeProjectBaselineFixed,
   handleFactoryLoopStatus,
   handleListFactoryLoopInstances,
   handleFactoryCycleHistory,

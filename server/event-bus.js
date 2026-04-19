@@ -51,6 +51,12 @@ function createEventBus() {
     onFactoryPlanRejectedFinal: (fn) => emitter.on('factory:plan_rejected_final', fn),
     emitFactoryPlanGateSkipped: (data) => emitter.emit('factory:plan_gate_skipped', data),
     onFactoryPlanGateSkipped: (fn) => emitter.on('factory:plan_gate_skipped', fn),
+    emitFactoryProjectBaselineBroken: (data) => emitter.emit('factory:project_baseline_broken', data),
+    onFactoryProjectBaselineBroken: (fn) => emitter.on('factory:project_baseline_broken', fn),
+    emitFactoryProjectBaselineCleared: (data) => emitter.emit('factory:project_baseline_cleared', data),
+    onFactoryProjectBaselineCleared: (fn) => emitter.on('factory:project_baseline_cleared', fn),
+    emitFactoryProjectEnvironmentFailure: (data) => emitter.emit('factory:project_environment_failure', data),
+    onFactoryProjectEnvironmentFailure: (fn) => emitter.on('factory:project_environment_failure', fn),
 
     // Model discovery events
     onModelDiscovered: (fn) => emitter.on('model-discovered', fn),
