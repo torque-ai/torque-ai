@@ -85,8 +85,9 @@ async function countCommitsToday(projectPath) {
     const timeoutId = setTimeout(() => {
       try {
         child.kill();
-      } catch {
+      } catch (_e) {
         // Best effort only — the helper still resolves to 0 on timeout.
+        void _e;
       }
       finish(0);
     }, COMMITS_TODAY_TIMEOUT_MS);

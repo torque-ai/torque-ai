@@ -28,6 +28,7 @@ function validRules(overrides = {}) {
     documentation: 'ollama',
     simple_generation: 'ollama',
     targeted_file_edit: 'ollama',
+    plan_generation: 'ollama',
     default: 'ollama',
     ...overrides,
   };
