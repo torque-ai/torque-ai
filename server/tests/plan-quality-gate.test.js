@@ -206,3 +206,80 @@ describe('buildFeedbackPrompt', () => {
     expect(out).toContain('detail on zero-indexed task');
   });
 });
+
+describe('runLlmSemanticCheck', () => {
+  beforeEach(() => { vi.resetModules(); });
+
+  it('returns null when the submission helper throws', async () => {
+    vi.doMock('../factory/internal-task-submit', () => ({
+      submitFactoryInternalTask: vi.fn().mockRejectedValue(new Error('provider down')),
+    }));
+    const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
+    const result = await runLlmSemanticCheck({
+      plan: '## Task 1: Example\n\nSome body.',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns null when the awaited task does not complete', async () => {
+    vi.doMock('../factory/internal-task-submit', () => ({
+      submitFactoryInternalTask: vi.fn().mockResolvedValue({ task_id: 'tid-1' }),
+    }));
+    vi.doMock('../handlers/workflow/await', () => ({
+      handleAwaitTask: vi.fn().mockResolvedValue({ status: 'timeout' }),
+    }));
+    vi.doMock('../db/task-core', () => ({
+      getTask: vi.fn().mockReturnValue({ status: 'running', output: null }),
+    }));
+    const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
+    const result = await runLlmSemanticCheck({
+      plan: '## Task 1: Example\n\nSome body.',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(result).toBeNull();
+  });
+
+  it('returns the critique when the task completes with a go verdict and one-sentence critique', async () => {
+    vi.doMock('../factory/internal-task-submit', () => ({
+      submitFactoryInternalTask: vi.fn().mockResolvedValue({ task_id: 'tid-2' }),
+    }));
+    vi.doMock('../handlers/workflow/await', () => ({
+      handleAwaitTask: vi.fn().mockResolvedValue({ status: 'completed' }),
+    }));
+    vi.doMock('../db/task-core', () => ({
+      getTask: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"Plan covers the stated goal."}',
+      }),
+    }));
+    const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
+    const result = await runLlmSemanticCheck({
+      plan: '## Task 1: Example\n\nSome body.',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(result).toBe('Plan covers the stated goal.');
+  });
+
+  it('returns the raw string when the task output is unparseable (treated as go)', async () => {
+    vi.doMock('../factory/internal-task-submit', () => ({
+      submitFactoryInternalTask: vi.fn().mockResolvedValue({ task_id: 'tid-3' }),
+    }));
+    vi.doMock('../handlers/workflow/await', () => ({
+      handleAwaitTask: vi.fn().mockResolvedValue({ status: 'completed' }),
+    }));
+    vi.doMock('../db/task-core', () => ({
+      getTask: vi.fn().mockReturnValue({ status: 'completed', output: 'not json at all' }),
+    }));
+    const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
+    const result = await runLlmSemanticCheck({
+      plan: '## Task 1: Example\n\nSome body.',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(result).toBe('not json at all');
+  });
+});
