@@ -108,8 +108,77 @@ async function getModifiedFiles(workingDirectory, worktreeBranch, mergeBase) {
   });
 }
 
-async function runLlmTiebreak(_opts) {
-  return { verdict: null, critique: null };
+async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, timeoutMs = LLM_TIMEOUT_MS }) {
+  const { submitFactoryInternalTask } = require('./internal-task-submit');
+  const { handleAwaitTask } = require('../handlers/workflow/await');
+  const taskCore = require('../db/task-core');
+
+  const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem });
+  let taskId;
+  try {
+    const submitResult = await submitFactoryInternalTask({
+      task: prompt,
+      working_directory: project?.path || process.cwd(),
+      kind: 'plan_generation',
+      project_id: project?.id,
+      work_item_id: workItem?.id,
+      timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)),
+    });
+    taskId = submitResult?.task_id || null;
+  } catch (_e) {
+    return { verdict: null, critique: null };
+  }
+  if (!taskId) return { verdict: null, critique: null };
+
+  try {
+    await handleAwaitTask({
+      task_id: taskId,
+      timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)),
+      heartbeat_minutes: 0,
+    });
+  } catch (_e) {
+    return { verdict: null, critique: null };
+  }
+  const task = taskCore.getTask(taskId);
+  if (!task || task.status !== 'completed') return { verdict: null, critique: null };
+
+  const raw = String(task.output || '').trim();
+  if (!raw) return { verdict: null, critique: null };
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(raw);
+    const verdict = parsed && parsed.verdict === 'no-go' ? 'no-go'
+                  : parsed && parsed.verdict === 'go' ? 'go'
+                  : null;
+    if (verdict === null) return { verdict: null, critique: null };
+    const critique = typeof parsed.critique === 'string' ? parsed.critique.trim() : null;
+    return { verdict, critique };
+  } catch (_e) {
+    void _e;
+    return { verdict: null, critique: null };
+  }
+}
+
+function buildTiebreakPrompt({ failingTests, modifiedFiles, workItem }) {
+  return `You are a quality reviewer for a software factory's verify step.
+
+The factory ran a work item's task on a feature branch. The verify command (test runner) exited non-zero. Before burning another retry cycle, I need to know whether the failing tests were caused by this task's diff or by a pre-existing broken baseline.
+
+Work item title: ${workItem?.title || '(none)'}
+Work item description: ${workItem?.description || '(none)'}
+
+Failing test file paths:
+${failingTests.map((p) => `  - ${p}`).join('\n') || '  (none parsed)'}
+
+Files modified by the diff:
+${modifiedFiles.map((p) => `  - ${p}`).join('\n') || '  (none)'}
+
+Return ONLY valid JSON in this exact shape:
+{"verdict":"go"|"no-go","critique":"one sentence explaining the verdict"}
+
+- "go" means: the failures ARE attributable to this diff. Retry makes sense.
+- "no-go" means: the failures are NOT attributable. The project's baseline is broken; retrying will not help.
+`;
 }
 
 async function reviewVerifyFailure(_opts) {

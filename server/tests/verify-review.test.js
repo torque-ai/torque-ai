@@ -191,3 +191,119 @@ describe('getModifiedFiles', () => {
     expect(r).toEqual(['src/a.ts', 'src/b.ts']);
   });
 });
+
+const path = require('node:path');
+const modulePath = path.resolve(__dirname, '../factory/verify-review.js');
+
+describe('runLlmTiebreak', () => {
+  const savedCache = new Map();
+
+  function installMocks({ submit, await: awaitFn, task }) {
+    [
+      { path: require.resolve('../factory/internal-task-submit'), exports: { submitFactoryInternalTask: submit } },
+      { path: require.resolve('../handlers/workflow/await'), exports: { handleAwaitTask: awaitFn } },
+      { path: require.resolve('../db/task-core'), exports: { getTask: task } },
+    ].forEach(({ path, exports }) => {
+      savedCache.set(path, require.cache[path]);
+      require.cache[path] = { id: path, filename: path, loaded: true, exports, children: [], paths: [] };
+    });
+    delete require.cache[modulePath];
+  }
+
+  afterEach(() => {
+    for (const [path, cached] of savedCache) {
+      if (cached) require.cache[path] = cached;
+      else delete require.cache[path];
+    }
+    savedCache.clear();
+    delete require.cache[modulePath];
+  });
+
+  it('returns {verdict: null, critique: null} when submit throws', async () => {
+    installMocks({
+      submit: vi.fn().mockRejectedValue(new Error('provider down')),
+      await: vi.fn(),
+      task: vi.fn(),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    const r = await runLlmTiebreak({
+      failingTests: ['tests/foo.py'],
+      modifiedFiles: ['src/bar.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r).toEqual({ verdict: null, critique: null });
+  });
+
+  it('returns {verdict: null, critique: null} when task does not complete', async () => {
+    installMocks({
+      submit: vi.fn().mockResolvedValue({ task_id: 't1' }),
+      await: vi.fn().mockResolvedValue({ status: 'timeout' }),
+      task: vi.fn().mockReturnValue({ status: 'running', output: null }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    const r = await runLlmTiebreak({
+      failingTests: ['tests/foo.py'],
+      modifiedFiles: ['src/bar.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r).toEqual({ verdict: null, critique: null });
+  });
+
+  it('returns {verdict: "no-go", critique} when task output is JSON no-go', async () => {
+    installMocks({
+      submit: vi.fn().mockResolvedValue({ task_id: 't2' }),
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"no-go","critique":"Failures reference legacy reconciler not touched by this diff."}',
+      }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    const r = await runLlmTiebreak({
+      failingTests: ['tests/legacy_reconciler_test.py'],
+      modifiedFiles: ['src/feature_x.py'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.verdict).toBe('no-go');
+    expect(r.critique).toContain('legacy reconciler');
+  });
+
+  it('returns {verdict: "go", critique} when task output is JSON go', async () => {
+    installMocks({
+      submit: vi.fn().mockResolvedValue({ task_id: 't3' }),
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"Test file imports the modified util and asserts on its return value."}',
+      }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    const r = await runLlmTiebreak({
+      failingTests: ['tests/helper.test.ts'],
+      modifiedFiles: ['src/helper.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.verdict).toBe('go');
+    expect(r.critique).toContain('modified util');
+  });
+
+  it('returns {verdict: null, critique: null} when output is unparseable', async () => {
+    installMocks({
+      submit: vi.fn().mockResolvedValue({ task_id: 't4' }),
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({ status: 'completed', output: 'not json' }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    const r = await runLlmTiebreak({
+      failingTests: ['tests/foo.py'],
+      modifiedFiles: ['src/bar.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r).toEqual({ verdict: null, critique: null });
+  });
+});
