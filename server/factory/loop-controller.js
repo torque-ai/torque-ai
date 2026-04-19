@@ -4978,6 +4978,20 @@ async function runAdvanceLoop(instance_id) {
         };
       }
 
+      // Defense-in-depth: any stage that asks to PAUSE must actually pause
+      // the instance, even if the stage forgot to set stop_execution: true.
+      // Without this, a bare `next_state: PAUSED` silently falls through
+      // the default break, the instance stays in EXECUTE, and the next
+      // tick re-runs the same failure (seen with execution_failed_no_tasks
+      // at 14:21 today before the companion handler fix landed).
+      if (executeNextState === LOOP_STATES.PAUSED) {
+        instance = updateInstanceAndSync(instance.id, {
+          paused_at_stage: executeStage?.paused_at_stage || LOOP_STATES.EXECUTE,
+          last_action_at: nowIso(),
+        });
+        break;
+      }
+
       if (executeNextState === LOOP_STATES.VERIFY) {
         const moveToVerify = tryMoveInstanceToStage(instance, LOOP_STATES.VERIFY, {
           batch_id: executeStage?.work_item?.batch_id || instance.batch_id,
