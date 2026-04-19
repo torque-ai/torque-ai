@@ -152,3 +152,47 @@ describe('runDeterministicRules — shape and budget', () => {
     expect(hardFails.find(f => f.rule === 'plan_size_upper_bound')).toBeUndefined();
   });
 });
+
+const { buildFeedbackPrompt } = require('../factory/plan-quality-gate');
+
+describe('buildFeedbackPrompt', () => {
+  it('returns null when there are no hard fails and no llm critique', () => {
+    expect(buildFeedbackPrompt([], [{ rule: 'plan_task_count_lower_bound', detail: 'one task' }], null)).toBeNull();
+    expect(buildFeedbackPrompt([], [], null)).toBeNull();
+  });
+
+  it('returns a structured block with hard-fail violations', () => {
+    const out = buildFeedbackPrompt(
+      [
+        { rule: 'task_has_file_reference', taskNumber: 2, detail: 'Task 2 references no file.' },
+        { rule: 'task_has_acceptance_criterion', taskNumber: 3, detail: 'Task 3 has no test command.' },
+      ],
+      [],
+      null,
+    );
+    expect(out).toContain('## Prior plan rejected');
+    expect(out).toContain('task_has_file_reference');
+    expect(out).toContain('Task 2 references no file.');
+    expect(out).toContain('task_has_acceptance_criterion');
+  });
+
+  it('appends llm critique under a distinct section', () => {
+    const out = buildFeedbackPrompt(
+      [{ rule: 'task_has_file_reference', taskNumber: 1, detail: 'no file.' }],
+      [],
+      'The plan does not address the stated goal of the work item.',
+    );
+    expect(out).toContain('Semantic concern');
+    expect(out).toContain('does not address the stated goal');
+  });
+
+  it('includes warnings as a soft section when hard fails also exist', () => {
+    const out = buildFeedbackPrompt(
+      [{ rule: 'task_has_file_reference', taskNumber: 1, detail: 'no file.' }],
+      [{ rule: 'plan_task_count_lower_bound', detail: 'Only one task.' }],
+      null,
+    );
+    expect(out).toContain('plan_task_count_lower_bound');
+    expect(out).toContain('Only one task');
+  });
+});
