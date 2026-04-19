@@ -73,41 +73,77 @@ function createPlugin() {
     if (!dbService) {
       try { dbService = require('../../database'); } catch { /* no db */ }
     }
-    const rawDb = resolveRawDb(dbService);
-    ensureSchema(rawDb);
-
-    const watchlist = createWatchlistStore(rawDb);
-    const events = createEventsStore(rawDb);
-
-    let listHosts;
+    let rawDb = null;
     try {
-      const hostMgmt = require('../../db/host-management');
-      listHosts = () => hostMgmt.listOllamaHosts({ enabled: true }) || [];
+      rawDb = resolveRawDb(dbService);
+      ensureSchema(rawDb);
     } catch {
-      listHosts = () => [];
+      // No DB available — stores and scanner will be unusable, but the
+      // plugin can still satisfy the contract and register schedules.
+      rawDb = null;
     }
 
-    const notifier = getContainerService(container, 'notifier');
-    const notify = notifier && typeof notifier.push === 'function'
-      ? (evt) => notifier.push(evt)
-      : () => {};
+    if (rawDb) {
+      const watchlist = createWatchlistStore(rawDb);
+      const events = createEventsStore(rawDb);
 
-    const scanner = createScanner({
-      watchlist, events,
-      fetchLocalDigest: fetchLocalDigestFromHost,
-      fetchRemoteDigest,
-      listHosts,
-      notify,
-    });
+      let listHosts;
+      try {
+        const hostMgmt = require('../../db/host-management');
+        listHosts = () => hostMgmt.listOllamaHosts({ enabled: true }) || [];
+      } catch {
+        listHosts = () => [];
+      }
 
-    const autoSeed = createAutoSeed({
-      watchlist, listHosts, fetchTags: fetchTagsFromHost,
-    });
+      const notifier = getContainerService(container, 'notifier');
+      const notify = notifier && typeof notifier.push === 'function'
+        ? (evt) => notifier.push(evt)
+        : () => {};
 
-    // Best-effort initial seed
-    autoSeed.seedFromHosts().catch(() => {});
+      const scanner = createScanner({
+        watchlist, events,
+        fetchLocalDigest: fetchLocalDigestFromHost,
+        fetchRemoteDigest,
+        listHosts,
+        notify,
+      });
 
-    handlers = createHandlers({ watchlist, events, scanner });
+      const autoSeed = createAutoSeed({
+        watchlist, listHosts, fetchTags: fetchTagsFromHost,
+      });
+
+      // Best-effort initial seed
+      autoSeed.seedFromHosts().catch(() => {});
+
+      handlers = createHandlers({ watchlist, events, scanner });
+    }
+
+    // Register the daily scan via TORQUE's cron scheduling infrastructure.
+    // Prefer an injected scheduler from the container (for tests); fall back to
+    // the real cron-scheduling module at runtime. Wrapped in try/catch so
+    // scheduling failures don't block plugin load.
+    try {
+      let cronScheduling = getContainerService(container, 'cronScheduling');
+      if (!cronScheduling) {
+        cronScheduling = require('../../db/cron-scheduling');
+      }
+      if (cronScheduling && typeof cronScheduling.createCronScheduledTask === 'function') {
+        const hour = (container && container.config && container.config.scan_hour_local) || 3;
+        cronScheduling.createCronScheduledTask({
+          name: 'model-freshness-daily-scan',
+          cron_expression: `0 ${hour} * * *`,
+          payload_kind: 'task',
+          task_config: {
+            task: 'Daily drift scan: model_freshness_scan_now',
+            tool_name: 'model_freshness_scan_now',
+          },
+          source: 'plugin:model-freshness',
+        });
+      }
+    } catch {
+      // scheduler not available or schedule already exists — manual scans still work
+    }
+
     installed = true;
   }
 
