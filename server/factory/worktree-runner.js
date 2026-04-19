@@ -240,6 +240,33 @@ function defaultCountCommitsAhead({ cwd, baseBranch, branch }) {
   }
 }
 
+// Detect the repo's default branch (main/master/custom) from origin/HEAD or
+// fallback to whichever of master/main actually exists locally. Returns 'main'
+// if nothing resolves so callers still get a sensible default.
+function detectDefaultBranch(cwd) {
+  if (!cwd) return 'main';
+  try {
+    const fs = require('fs');
+    if (!fs.existsSync(cwd)) return 'main';
+  } catch { return 'main'; }
+  const { execFileSync } = require('child_process');
+  try {
+    const headRef = execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
+      cwd, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim().replace(/^refs\/remotes\/origin\//, '');
+    if (headRef) return headRef;
+  } catch { /* fall through */ }
+  for (const candidate of ['master', 'main']) {
+    try {
+      execFileSync('git', ['rev-parse', '--verify', candidate], {
+        cwd, windowsHide: true, timeout: 5000, stdio: 'ignore',
+      });
+      return candidate;
+    } catch { /* try next */ }
+  }
+  return 'main';
+}
+
 function createWorktreeRunner({
   worktreeManager,
   runRemoteVerify = defaultRunRemoteVerify,
@@ -257,34 +284,7 @@ function createWorktreeRunner({
     const slug = sanitizeSlug(workItem.title || `item-${workItem.id}`);
     const featureName = `factory-${workItem.id}-${slug}`;
 
-    // Detect the default branch — some projects use 'master' not 'main'.
-    let baseBranch = 'main';
-    try {
-      const { execFileSync } = require('child_process');
-      const headRef = execFileSync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
-        cwd: project.path,
-        encoding: 'utf8',
-        windowsHide: true,
-        timeout: 5000,
-        stdio: ['pipe', 'pipe', 'ignore'],
-      }).trim().replace(/^refs\/remotes\/origin\//, '');
-      if (headRef) {
-        baseBranch = headRef;
-      }
-    } catch (_e) {
-      void _e;
-      // Fallback: check if 'master' branch exists locally
-      try {
-        const { execFileSync } = require('child_process');
-        execFileSync('git', ['rev-parse', '--verify', 'master'], {
-          cwd: project.path,
-          windowsHide: true,
-          timeout: 5000,
-          stdio: 'ignore',
-        });
-        baseBranch = 'master';
-      } catch (_e2) { void _e2; }
-    }
+    const baseBranch = detectDefaultBranch(project.path);
 
     const record = worktreeManager.createWorktree(project.path, featureName, {
       baseBranch,
@@ -305,27 +305,28 @@ function createWorktreeRunner({
     };
   }
 
-  async function verify({ worktreePath, branch, verifyCommand, workingDirectory, baseBranch = 'main' }) {
+  async function verify({ worktreePath, branch, verifyCommand, workingDirectory, baseBranch }) {
     if (!branch) throw new Error('verify requires branch');
     const command = String(verifyCommand || 'cd server && npx vitest run').trim();
     const cwd = workingDirectory || worktreePath;
+    const resolvedBaseBranch = baseBranch || detectDefaultBranch(cwd);
     const start = Date.now();
 
     // Fix 3: pre-flight empty-branch check. If the branch has no commits
     // ahead of base, skip remote/local verify entirely and report the
     // accurate state (failed + reason=empty_branch) instead of false-passing.
-    const aheadCount = countCommitsAhead({ cwd, baseBranch, branch });
+    const aheadCount = countCommitsAhead({ cwd, baseBranch: resolvedBaseBranch, branch });
     if (aheadCount === 0) {
       if (logger) {
         logger.warn('factory worktree verify: skipped (empty branch)', {
           branch,
-          base_branch: baseBranch,
+          base_branch: resolvedBaseBranch,
           worktree_path: worktreePath,
         });
       }
       return {
         passed: false,
-        output: `[empty-branch] Branch ${branch} has no commits ahead of ${baseBranch}; nothing to verify.`,
+        output: `[empty-branch] Branch ${branch} has no commits ahead of ${resolvedBaseBranch}; nothing to verify.`,
         durationMs: Date.now() - start,
         reason: 'empty_branch',
       };
