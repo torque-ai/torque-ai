@@ -57,13 +57,44 @@ if [ "$TRANSPORT" = "local" ]; then
 fi
 
 # --- Tokenize command ---
+#
+# Use python shlex to respect quoting. bash's `read -ra` splits naively on
+# whitespace, which causes false positives: `git commit -m "message with
+# vitest word"` tokenizes to ...,`vitest`,... and matches the `vitest`
+# intercept. shlex treats the quoted string as one token so the word inside
+# isn't exposed. Fall back to naive bash splitting if python isn't available.
+TOKENS_RAW=""
+# tr -d '\r' — Git Bash on Windows tacks CR onto python's stdout when piped
+# through heredoc. Without the strip, each token carries a trailing \r and
+# pattern comparisons like `vitest != vitest\r` spuriously pass.
+if command -v python3 &>/dev/null; then
+  TOKENS_RAW=$(python3 -c 'import sys, shlex; sys.stdout.write("\n".join(shlex.split(sys.stdin.read())))' <<<"$COMMAND" 2>/dev/null | tr -d '\r' || true)
+elif command -v python &>/dev/null; then
+  TOKENS_RAW=$(python -c 'import sys, shlex; sys.stdout.write("\n".join(shlex.split(sys.stdin.read())))' <<<"$COMMAND" 2>/dev/null | tr -d '\r' || true)
+fi
 
-# Split command into tokens (respects shell word splitting)
-read -ra TOKENS <<< "$COMMAND"
+if [ -n "$TOKENS_RAW" ]; then
+  mapfile -t TOKENS <<<"$TOKENS_RAW"
+else
+  # shlex unavailable or failed — fall back to bash split (known false-positive prone)
+  read -ra TOKENS <<< "$COMMAND"
+fi
 
 # Empty command — allow
 if [ ${#TOKENS[@]} -eq 0 ]; then
   exit 0
+fi
+
+# Skip git subcommands that legitimately carry free-form text (commit
+# messages, log search patterns, etc.). Pattern-matching inside a commit
+# message produces false positives like the literal word "vitest" in
+# "fix: rewrite vitest mock pattern".
+if [ "${TOKENS[0]}" = "git" ] && [ "${#TOKENS[@]}" -ge 2 ]; then
+  case "${TOKENS[1]}" in
+    commit|log|show|tag|blame|notes|grep|rebase|bisect|cherry-pick)
+      exit 0
+      ;;
+  esac
 fi
 
 # Recursion guard: if first token ends with "torque-remote", allow
