@@ -553,6 +553,15 @@ function createWorktreeManager({ db } = {}) {
       }
     }
 
+    // Post-create verification: assert the worktree is actually usable.
+    // `git worktree add` has been observed to exit 0 on Windows while
+    // leaving a broken state — populated dir with missing metadata, or an
+    // empty dir with metadata pointing elsewhere — typically when the
+    // target path had lingering file handles. Catching this here turns a
+    // phantom success into a loud failure before the row is persisted and
+    // downstream stages consume it.
+    verifyCreatedWorktree({ worktreePath, repositoryPath });
+
     const record = {
       id: randomUUID(),
       repo_path: repositoryPath,
@@ -568,6 +577,61 @@ function createWorktreeManager({ db } = {}) {
 
     insertWorktree(record);
     return withDerivedFields(record);
+  }
+
+  function verifyCreatedWorktree({ worktreePath, repositoryPath }) {
+    if (!fs.existsSync(worktreePath)) {
+      throw new Error(`post-create verify: worktree path missing: ${worktreePath}`);
+    }
+    let entries;
+    try {
+      entries = fs.readdirSync(worktreePath);
+    } catch (readErr) {
+      throw new Error(`post-create verify: cannot read worktree dir ${worktreePath}: ${readErr.message}`);
+    }
+    if (entries.length === 0) {
+      throw new Error(`post-create verify: worktree path is empty: ${worktreePath}`);
+    }
+    const dotGitPath = path.join(worktreePath, '.git');
+    if (!fs.existsSync(dotGitPath)) {
+      throw new Error(`post-create verify: .git link missing at ${dotGitPath}`);
+    }
+    let dotGitStat;
+    try {
+      dotGitStat = fs.statSync(dotGitPath);
+    } catch (statErr) {
+      throw new Error(`post-create verify: .git stat failed at ${dotGitPath}: ${statErr.message}`);
+    }
+    if (!dotGitStat.isFile()) {
+      throw new Error(`post-create verify: .git at ${dotGitPath} is not a worktree redirect file`);
+    }
+    let redirect;
+    try {
+      redirect = fs.readFileSync(dotGitPath, 'utf8');
+    } catch (readErr) {
+      throw new Error(`post-create verify: .git redirect read failed at ${dotGitPath}: ${readErr.message}`);
+    }
+    const match = redirect.match(/^gitdir:\s*(.+)\s*$/m);
+    if (!match) {
+      throw new Error(`post-create verify: .git at ${dotGitPath} has no gitdir: line`);
+    }
+    const linked = match[1].trim();
+    const resolvedGitDir = path.isAbsolute(linked) ? linked : path.resolve(worktreePath, linked);
+    const headFile = path.join(resolvedGitDir, 'HEAD');
+    if (!fs.existsSync(headFile)) {
+      throw new Error(`post-create verify: per-worktree metadata HEAD missing at ${headFile}`);
+    }
+    // Smoke-check the metadata is reachable from repositoryPath — if
+    // git lost track of it, `git worktree list` would omit this branch
+    // and later operations would mis-behave.
+    try {
+      const listed = String(runGit(repositoryPath, ['worktree', 'list', '--porcelain'])).trim();
+      if (!listed.includes(worktreePath.replace(/\\/g, '/')) && !listed.includes(worktreePath)) {
+        throw new Error(`post-create verify: git worktree list does not include ${worktreePath}`);
+      }
+    } catch (listErr) {
+      throw new Error(`post-create verify: git worktree list failed: ${listErr.message}`);
+    }
   }
 
   function listWorktrees(repoPath = null) {
