@@ -184,6 +184,7 @@ describe('executeVerifyStage + verify-review integration', () => {
     const routingModule = require('../handlers/integration/routing');
     const awaitModule = require('../handlers/workflow/await');
     const taskCore = require('../db/task-core');
+    const guardrailRunner = require('../factory/guardrail-runner');
 
     const { projectId, workItemId, batchId } = seedProjectItemAndWorktree(dbHandle);
 
@@ -211,6 +212,16 @@ describe('executeVerifyStage + verify-review integration', () => {
       status: 'completed',
       output: '',
       error_output: null,
+    });
+
+    // After verify passes, the function falls through to guardrail checks.
+    // Stub them to a clean passed result so we can assert on the canonical
+    // verify-passed path without noise from the guardrail engine.
+    vi.spyOn(guardrailRunner, 'runPostBatchChecks').mockReturnValue({
+      status: 'passed',
+      passed: true,
+      results: [],
+      batch_id: batchId,
     });
 
     const instance = { id: 'inst-1', project_id: projectId, batch_id: batchId, work_item_id: workItemId };
@@ -287,6 +298,7 @@ describe('executeVerifyStage + verify-review integration', () => {
     const routingModule = require('../handlers/integration/routing');
     const awaitModule = require('../handlers/workflow/await');
     const taskCore = require('../db/task-core');
+    const guardrailRunner = require('../factory/guardrail-runner');
 
     const { projectId, workItemId, batchId } = seedProjectItemAndWorktree(dbHandle);
 
@@ -303,6 +315,12 @@ describe('executeVerifyStage + verify-review integration', () => {
       status: 'completed',
       output: '',
       error_output: null,
+    });
+    vi.spyOn(guardrailRunner, 'runPostBatchChecks').mockReturnValue({
+      status: 'passed',
+      passed: true,
+      results: [],
+      batch_id: batchId,
     });
 
     const instance = { id: 'inst-6', project_id: projectId, batch_id: batchId, work_item_id: workItemId };
