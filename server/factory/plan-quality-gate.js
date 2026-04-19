@@ -16,8 +16,66 @@ const RULES = {
   plan_size_upper_bound:       { severity: 'hard', scope: 'plan', maxBytes: 100 * 1024 },
 };
 
-function runDeterministicRules(_planMarkdown) {
-  return { hardFails: [], warnings: [] };
+function parseTasks(planMarkdown) {
+  // Returns [{ number, title, body }] splitting the plan at each ## Task N: heading.
+  if (typeof planMarkdown !== 'string' || !planMarkdown) return [];
+  const headingRe = /^## Task (\d+):\s*(.*)$/gm;
+  const matches = Array.from(planMarkdown.matchAll(headingRe)).map((m) => ({
+    number: Number(m[1]),
+    title: (m[2] || '').trim(),
+    start: m.index,
+    headerLen: m[0].length,
+  }));
+  return matches.map((match, idx) => {
+    const bodyStart = match.start + match.headerLen;
+    const bodyEnd = idx + 1 < matches.length ? matches[idx + 1].start : planMarkdown.length;
+    return {
+      number: match.number,
+      title: match.title,
+      body: planMarkdown.slice(bodyStart, bodyEnd).trim(),
+    };
+  });
+}
+
+function runDeterministicRules(planMarkdown) {
+  const hardFails = [];
+  const warnings = [];
+  const tasks = parseTasks(planMarkdown);
+
+  // Rule 1
+  if (tasks.length === 0) {
+    hardFails.push({ rule: 'plan_has_task_heading', detail: 'Plan contains no "## Task N:" heading.' });
+    return { hardFails, warnings };
+  }
+
+  // Rule 2
+  if (tasks.length > RULES.plan_task_count_upper_bound.max) {
+    hardFails.push({
+      rule: 'plan_task_count_upper_bound',
+      detail: `Plan has ${tasks.length} tasks; upper bound is ${RULES.plan_task_count_upper_bound.max}. Decompose.`,
+    });
+  }
+
+  // Rule 3 (warning)
+  if (tasks.length < RULES.plan_task_count_lower_bound.min) {
+    warnings.push({
+      rule: 'plan_task_count_lower_bound',
+      detail: `Plan has only ${tasks.length} task; single-task plans often indicate insufficient decomposition.`,
+    });
+  }
+
+  // Rule 4
+  for (const task of tasks) {
+    if (task.body.length < RULES.task_body_min_length.min) {
+      hardFails.push({
+        rule: 'task_body_min_length',
+        taskNumber: task.number,
+        detail: `Task ${task.number} body is ${task.body.length} chars (min ${RULES.task_body_min_length.min}).`,
+      });
+    }
+  }
+
+  return { hardFails, warnings };
 }
 
 async function runLlmSemanticCheck(_opts) {
