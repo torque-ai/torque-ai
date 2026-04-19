@@ -582,8 +582,22 @@ describe('version-control worktree manager', () => {
 
   it('does not insert a record when git worktree creation fails', () => {
     const repoPath = makeRepoRoot();
-    execFileSyncMock.mockImplementationOnce(() => {
-      throw new Error('git worktree add failed');
+    // Target the mock at the actual `git worktree add` call rather than "first
+    // call" — createWorktree now invokes resolveStartPoint first, which calls
+    // `git rev-parse` with a try/catch that swallows errors. A first-call-only
+    // throw lands inside resolveStartPoint, gets swallowed, and `worktree add`
+    // proceeds unimpeded — test flakes ~50% of runs depending on whether
+    // resolveStartPoint's rev-parse call happens before the mocked throw.
+    execFileSyncMock.mockImplementation((command, args) => {
+      if (
+        command === 'git'
+        && Array.isArray(args)
+        && args[0] === 'worktree'
+        && args[1] === 'add'
+      ) {
+        throw new Error('git worktree add failed');
+      }
+      return '';
     });
 
     expect(() => manager.createWorktree(repoPath, 'broken')).toThrow('git worktree add failed');
