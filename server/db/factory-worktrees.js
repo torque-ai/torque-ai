@@ -66,6 +66,7 @@ function parseWorktree(row) {
     vcWorktreeId: row.vc_worktree_id,
     workItemId: row.work_item_id,
     worktreePath: row.worktree_path,
+    owningTaskId: row.owning_task_id || null,
   };
 }
 
@@ -234,6 +235,32 @@ function markAbandoned(id, reason) {
   }
 }
 
+function setOwningTask(id, task_id) {
+  try {
+    const result = getDb().prepare(`
+      UPDATE factory_worktrees
+      SET owning_task_id = ?
+      WHERE id = ?
+    `).run(
+      task_id ? requireText(task_id, 'task_id') : null,
+      requireInteger(id, 'id'),
+    );
+    if (result.changes === 0) {
+      return null;
+    }
+    return getWorktree(id);
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function clearOwningTask(id) {
+  return setOwningTask(id, null);
+}
+
 function getLatestWorktreeForWorkItem(project_id, work_item_id) {
   try {
     const row = getDb().prepare(`
@@ -283,4 +310,6 @@ module.exports = {
   markMerged,
   markAbandoned,
   listActiveWorktrees,
+  setOwningTask,
+  clearOwningTask,
 };

@@ -690,6 +690,25 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS factory_scout_findings_intake;',
     ].join('\n'),
   },
+  },
+  {
+    version: 29,
+    name: 'add_factory_worktrees_owning_task_id',
+    up: [
+      // Track the in-flight task that currently holds this worktree as its
+      // cwd. Used by the pre-reclaim flow: before abandoning a worktree we
+      // cancel any active owning task so its process releases file locks
+      // (otherwise Windows blocks rm/git worktree remove and the reclaim
+      // produces phantom state).
+      'ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT',
+      'CREATE INDEX IF NOT EXISTS idx_factory_worktrees_owning_task ON factory_worktrees(owning_task_id) WHERE owning_task_id IS NOT NULL',
+    ].join('; '),
+    down: [
+      'DROP INDEX IF EXISTS idx_factory_worktrees_owning_task',
+      // SQLite lacks DROP COLUMN on older versions; leave the column on
+      // downgrade since it's nullable and unused by earlier code paths.
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
