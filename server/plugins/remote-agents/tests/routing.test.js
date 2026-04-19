@@ -84,6 +84,7 @@ function makeClient({
 }
 
 describe('remote-test-routing', () => {
+  let routingModule;
   let createRemoteTestRouter;
   let filterSensitiveEnv;
 
@@ -95,13 +96,36 @@ describe('remote-test-routing', () => {
     });
     mockSpawn.mockReset();
 
-    const routing = loadRoutingModule();
-    createRemoteTestRouter = routing.createRemoteTestRouter;
-    filterSensitiveEnv = routing.filterSensitiveEnv;
+    routingModule = loadRoutingModule();
+    createRemoteTestRouter = routingModule.createRemoteTestRouter;
+    filterSensitiveEnv = routingModule.filterSensitiveEnv;
   });
 
   afterAll(() => {
     childProcess.spawnSync = originalSpawnSync;
+  });
+
+  describe('exported API', () => {
+    it('createRemoteTestRouter returns the expected public API', () => {
+      const router = createRemoteTestRouter({
+        agentRegistry: null,
+        db: {},
+        logger: makeLogger(),
+      });
+
+      expect(router).toEqual({
+        runRemoteOrLocal: expect.any(Function),
+        runVerifyCommand: expect.any(Function),
+        getRemoteConfig: expect.any(Function),
+        getCurrentBranch: expect.any(Function),
+      });
+    });
+
+    it("CODEX_PROVIDERS contains 'codex' and 'codex-spark'", () => {
+      expect(routingModule.CODEX_PROVIDERS).toBeInstanceOf(Set);
+      expect(routingModule.CODEX_PROVIDERS.has('codex')).toBe(true);
+      expect(routingModule.CODEX_PROVIDERS.has('codex-spark')).toBe(true);
+    });
   });
 
   describe('filterSensitiveEnv', () => {
@@ -118,6 +142,66 @@ describe('remote-test-routing', () => {
         NODE_ENV: 'test',
         SAFE_FLAG: '1',
       });
+    });
+  });
+
+  describe('remote failure helpers', () => {
+    it('isRemoteAuthError returns true for auth and authorization failures', () => {
+      const messages = [
+        'remote health check failed with 401',
+        '403 forbidden from workstation',
+        'unauthorized command not allowed by remote agent',
+      ];
+
+      for (const message of messages) {
+        expect(routingModule.isRemoteAuthError(new Error(message))).toBe(true);
+      }
+    });
+
+    it('isRemoteAuthError returns false for non-auth failures', () => {
+      const messages = [
+        'stream closed unexpectedly',
+        '500 internal server error',
+        'connection reset by peer',
+      ];
+
+      for (const message of messages) {
+        expect(routingModule.isRemoteAuthError(new Error(message))).toBe(false);
+      }
+    });
+
+    it('isRemoteExecutionTimeout returns true for run stream timeout messages', () => {
+      expect(
+        routingModule.isRemoteExecutionTimeout(
+          new Error('streaming request to /run timed out after 120s')
+        )
+      ).toBe(true);
+    });
+
+    it('findTestRunnerWorkstation returns null when workstation lookup fails', () => {
+      const wsModelPath = require.resolve('../../../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath,
+        filename: wsModelPath,
+        loaded: true,
+        exports: {
+          listWorkstations: vi.fn(() => {
+            throw new Error('module not found');
+          }),
+          hasCapability: vi.fn(),
+        },
+      };
+
+      try {
+        expect(routingModule.findTestRunnerWorkstation()).toBeNull();
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
     });
   });
 
