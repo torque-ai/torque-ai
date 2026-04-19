@@ -312,3 +312,63 @@ describe('runLlmSemanticCheck', () => {
     expect(result).toBe('not json at all');
   });
 });
+
+const planQualityGate = require('../factory/plan-quality-gate');
+
+describe('evaluatePlan orchestration', () => {
+  it('deterministic hard fail: does NOT invoke the LLM pass; returns passed=false with feedbackPrompt', async () => {
+    const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('should-not-be-called');
+    const plan = '## Task 1: Too short\n\ntiny.'; // rule 4 hard fail
+    const result = await planQualityGate.evaluatePlan({
+      plan,
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(result.passed).toBe(false);
+    expect(llmSpy).not.toHaveBeenCalled();
+    expect(result.hardFails.length).toBeGreaterThan(0);
+    expect(result.feedbackPrompt).toContain('## Prior plan rejected');
+    llmSpy.mockRestore();
+  });
+
+  it('deterministic pass + LLM go: returns passed=true with critique populated', async () => {
+    const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('Plan covers the goal.');
+    const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
+    const result = await planQualityGate.evaluatePlan({
+      plan,
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(result.passed).toBe(true);
+    expect(llmSpy).toHaveBeenCalledTimes(1);
+    expect(result.llmCritique).toBe('Plan covers the goal.');
+    expect(result.feedbackPrompt).toBeNull();
+    llmSpy.mockRestore();
+  });
+
+  it('deterministic pass + LLM no-go: returns passed=false with critique in feedbackPrompt', async () => {
+    const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('[no-go] Plan rewrites the wrong subsystem.');
+    const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
+    const result = await planQualityGate.evaluatePlan({
+      plan,
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(result.passed).toBe(false);
+    expect(result.feedbackPrompt).toContain('wrong subsystem');
+    llmSpy.mockRestore();
+  });
+
+  it('deterministic pass + LLM returns null (timeout/error): treats as pass', async () => {
+    const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue(null);
+    const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
+    const result = await planQualityGate.evaluatePlan({
+      plan,
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(result.passed).toBe(true);
+    expect(result.llmCritique).toBeNull();
+    llmSpy.mockRestore();
+  });
+});
