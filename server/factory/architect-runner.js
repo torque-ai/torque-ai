@@ -8,6 +8,7 @@ const factoryIntake = require('../db/factory-intake');
 const factoryArchitect = require('../db/factory-architect');
 const { buildArchitectPrompt } = require('./architect-prompt');
 const { lintPlanContent } = require('./plan-lint');
+const { createScoutFindingsIntake } = require('./scout-findings-intake');
 const logger = require('../logger').child({ component: 'architect-runner' });
 const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'rejected', 'shipped']);
 const PRIORITIZABLE_WORK_ITEM_STATUSES = new Set([
@@ -514,6 +515,28 @@ function updateBacklogWorkItemStatuses(backlog) {
   }
 }
 
+function ingestScoutFindings(project) {
+  if (!project || !project.path) return;
+  try {
+    const database = require('../database');
+    const db = typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
+    if (!db) return;
+    const findings_dir = path.join(project.path, 'docs', 'findings');
+    const intake = createScoutFindingsIntake({ db, factoryIntake });
+    const result = intake.scan({ project_id: project.id, findings_dir });
+    if (result.created.length > 0 || result.skipped.length > 0) {
+      logger.info('scout_findings_ingested', {
+        project_id: project.id,
+        created: result.created.length,
+        skipped: result.skipped.length,
+        scanned: result.scanned,
+      });
+    }
+  } catch (err) {
+    logger.warn({ err, project_id: project.id }, 'scout findings ingestion failed; continuing cycle');
+  }
+}
+
 async function runArchitectCycle(project_id, trigger = 'manual') {
   if (!project_id) {
     throw new Error('project_id is required');
@@ -523,6 +546,10 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   if (!project) {
     throw new Error(`Project not found: ${project_id}`);
   }
+
+  // Scan docs/findings/ for scout output and promote each finding to intake.
+  // Fail soft: a broken scan must not stall the architect cycle.
+  ingestScoutFindings(project);
 
   const healthScores = normalizeHealthScores(factoryHealth.getLatestScores(project_id));
   const openItems = factoryIntake.listOpenWorkItems({ project_id });
