@@ -36,8 +36,99 @@ async function tickProject(project) {
     // also calls stopTick — so if the tick IS running, the pause wasn't
     // intentional.
     const freshProject = factoryHealth.getProject(project.id);
+
+    // Baseline probe phase — for projects paused by the verify-review
+    // classifier when a baseline (main) was already broken. Task 9 sets
+    // baseline_broken_since + baseline_broken_probe_attempts=0 +
+    // baseline_broken_tick_count=0. We re-run verify_command on an
+    // exponential-backoff schedule (gaps: 1, 2, 4, 8, 12, 12, 12 ticks).
+    // Green probe → clear flag and resume. Red probe → increment attempts
+    // and wait the next backoff slot.
     if (freshProject && freshProject.status === 'paused') {
       const cfg = getProjectConfig(freshProject);
+      if (cfg.baseline_broken_since) {
+        const prevTickCount = Number.isFinite(cfg.baseline_broken_tick_count) ? cfg.baseline_broken_tick_count : 0;
+        const nextTickCount = prevTickCount + 1;
+        const attempts = Number.isFinite(cfg.baseline_broken_probe_attempts) ? cfg.baseline_broken_probe_attempts : 0;
+        // targetTick = cumulative ticks needed to hit probe N+1 where N = attempts.
+        // gaps: gap[0]=1 (first probe), gap[i]=min(2^i, 12) for i>=1.
+        let targetTick = 0;
+        for (let i = 0; i <= attempts; i += 1) {
+          targetTick += i === 0 ? 1 : Math.min(Math.pow(2, i), 12);
+        }
+        const shouldProbe = nextTickCount > targetTick;
+
+        if (shouldProbe) {
+          const baselineProbe = require('./baseline-probe');
+          let verifyCommand = cfg.verify_command || null;
+          if (!verifyCommand) {
+            try {
+              const projectConfigCore = require('../db/project-config-core');
+              const defaults = projectConfigCore.getProjectDefaults(project.path || project.id);
+              if (defaults && defaults.verify_command) verifyCommand = defaults.verify_command;
+            } catch (_e) { void _e; }
+          }
+          const runnerRegistry = require('../test-runner-registry').createTestRunnerRegistry();
+          const runner = async ({ command, cwd, timeoutMs }) => {
+            const r = await runnerRegistry.runVerifyCommand(command, cwd, { timeout: timeoutMs });
+            return {
+              exitCode: r.exitCode,
+              stdout: r.output || '',
+              stderr: r.error || '',
+              durationMs: r.durationMs,
+              timedOut: !!r.timedOut,
+            };
+          };
+
+          let probe;
+          try {
+            probe = await baselineProbe.probeProjectBaseline({
+              project: freshProject,
+              verifyCommand,
+              runner,
+              timeoutMs: 5 * 60 * 1000,
+            });
+          } catch (err) {
+            probe = { passed: false, error: 'runner_threw', exitCode: null, output: err.message, durationMs: 0 };
+          }
+
+          if (probe.passed) {
+            const pausedSince = Date.parse(cfg.baseline_broken_since) || Date.now();
+            cfg.baseline_broken_since = null;
+            cfg.baseline_broken_reason = null;
+            cfg.baseline_broken_evidence = null;
+            cfg.baseline_broken_probe_attempts = 0;
+            cfg.baseline_broken_tick_count = 0;
+            factoryHealth.updateProject(project.id, {
+              status: 'running',
+              config_json: JSON.stringify(cfg),
+            });
+            try {
+              eventBus.emitFactoryProjectBaselineCleared({
+                project_id: project.id,
+                cleared_after_ms: Date.now() - pausedSince,
+              });
+            } catch (_e) { void _e; }
+            logger.info('Factory tick: baseline cleared by probe', {
+              project_id: project.id,
+              attempts_before_clear: attempts + 1,
+            });
+          } else {
+            cfg.baseline_broken_probe_attempts = attempts + 1;
+            cfg.baseline_broken_tick_count = nextTickCount;
+            factoryHealth.updateProject(project.id, { config_json: JSON.stringify(cfg) });
+            logger.info('Factory tick: baseline probe still red', {
+              project_id: project.id,
+              attempts: cfg.baseline_broken_probe_attempts,
+              reason: probe.error || 'non_zero_exit',
+            });
+          }
+        } else {
+          cfg.baseline_broken_tick_count = nextTickCount;
+          factoryHealth.updateProject(project.id, { config_json: JSON.stringify(cfg) });
+        }
+        return;
+      }
       if (cfg?.loop?.auto_continue) {
         factoryHealth.updateProject(project.id, { status: 'running' });
         logger.info('Factory tick: auto-resumed paused auto_continue project', {
