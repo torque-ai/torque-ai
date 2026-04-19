@@ -226,6 +226,33 @@ describe('ClaudeOllamaProvider.buildCommandArgs', () => {
   });
 });
 
+describe('ClaudeOllamaProvider.runPrompt — tool permission', () => {
+  it('rejects with an error when a disallowed tool is requested', async () => {
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    const events = [
+      { type: 'tool_call', tool_call_id: 't1', name: 'Bash', args: { cmd: 'rm -rf /' } },
+    ].map(JSON.stringify).join('\n') + '\n';
+
+    const spawnSpy = vi.spyOn(child_process, 'spawn').mockImplementation(() => {
+      const { EventEmitter } = require('events');
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stdin = { end: vi.fn() };
+      child.kill = vi.fn(() => setImmediate(() => child.emit('close', 137, 'SIGKILL')));
+      setImmediate(() => child.stdout.emit('data', Buffer.from(events)));
+      return child;
+    });
+
+    await expect(p.runPrompt('test', 'qwen3-coder:30b', {
+      working_directory: '/tmp/wd',
+      disallowed_tools: ['Bash'],
+    })).rejects.toThrow(/Bash.*denied/);
+
+    spawnSpy.mockRestore();
+  });
+});
+
 describe('ClaudeOllamaProvider.runPrompt — simple text', () => {
   it('spawns with correct binary+args and returns collected output', async () => {
     const p = new ClaudeOllamaProvider({ enabled: true });

@@ -241,6 +241,8 @@ class ClaudeOllamaProvider extends BaseProvider {
       let usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
       let settled = false;
       let timeoutHandle = null;
+      let permissionDeniedError = null;
+      let processing = Promise.resolve();
 
       const finish = (fn, v) => {
         if (settled) return;
@@ -249,39 +251,91 @@ class ClaudeOllamaProvider extends BaseProvider {
         fn(v);
       };
 
-      const handleRecord = (rec) => {
+      const handleRecord = async (rec) => {
         const u = normalizeUsage(rec);
         if (u) usage = { ...usage, ...u };
+
+        const toolCall = normalizeToolCall(rec);
+        if (toolCall) {
+          const permission = await evaluatePermission({
+            toolName: toolCall.name,
+            args: toolCall.args,
+            settings: { allowed_tools: allowedTools, disallowed_tools: disallowedTools },
+            mode: permissionMode,
+            hooks: Array.isArray(options.hooks) ? options.hooks : [],
+            canUseTool: typeof options.canUseTool === 'function' ? options.canUseTool : null,
+          });
+          if (permission.decision !== 'allow') {
+            permissionDeniedError = new Error(
+              `Claude tool "${toolCall.name}" denied by ${permission.source}: ${permission.reason}`,
+            );
+            try { child.kill(); } catch { /* ignore */ }
+            return;
+          }
+          if (typeof options.onEvent === 'function') {
+            await options.onEvent({
+              type: EventType.TOOL_CALL,
+              tool_call_id: toolCall.tool_call_id,
+              name: toolCall.name,
+              args: toolCall.args,
+              permission,
+            });
+          }
+        }
+
         const delta = extractTextDelta(rec);
-        if (delta) aggregatedText += delta;
+        if (delta) {
+          aggregatedText += delta;
+          if (typeof options.onChunk === 'function') await options.onChunk(delta);
+        }
+
+        const toolResult = normalizeToolResult(rec);
+        if (toolResult && typeof options.onEvent === 'function') {
+          await options.onEvent({
+            type: EventType.TOOL_RESULT,
+            tool_call_id: toolResult.tool_call_id,
+            ...(toolResult.error ? { error: toolResult.error } : { result: toolResult.content }),
+          });
+        }
       };
 
       child.stdout.on('data', (chunk) => {
-        stdoutRemainder += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-        const lines = stdoutRemainder.split(/\r?\n/);
-        stdoutRemainder = lines.pop() || '';
-        for (const line of lines) {
-          const trimmed = cleanText(line);
-          if (!trimmed || trimmed === '[DONE]') continue;
-          const parsed = safeJsonParse(trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed);
-          if (parsed) handleRecord(parsed);
-        }
+        const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+        processing = processing.then(async () => {
+          stdoutRemainder += text;
+          const lines = stdoutRemainder.split(/\r?\n/);
+          stdoutRemainder = lines.pop() || '';
+          for (const line of lines) {
+            const trimmed = cleanText(line);
+            if (!trimmed || trimmed === '[DONE]') continue;
+            const parsed = safeJsonParse(trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed);
+            if (parsed) await handleRecord(parsed);
+            if (permissionDeniedError) return;
+          }
+        });
       });
 
       child.stderr.on('data', (c) => stderrChunks.push(Buffer.isBuffer(c) ? c.toString('utf8') : String(c)));
 
       child.once('error', (err) => finish(reject, err));
       child.once('close', (code, signal) => {
-        if (stdoutRemainder) {
-          const parsed = safeJsonParse(stdoutRemainder);
-          if (parsed) handleRecord(parsed);
-        }
-        if (code !== 0) {
-          const stderrText = stderrChunks.join('');
-          finish(reject, new Error(`claude-ollama exited with status ${code}${signal ? ` (${signal})` : ''}: ${stderrText || aggregatedText || 'unknown error'}`));
-          return;
-        }
-        finish(resolve, { output: aggregatedText, usage, stderr: stderrChunks.join('') });
+        processing = processing.then(async () => {
+          if (stdoutRemainder) {
+            const parsed = safeJsonParse(stdoutRemainder);
+            if (parsed) await handleRecord(parsed);
+            stdoutRemainder = '';
+          }
+          if (permissionDeniedError) {
+            finish(reject, permissionDeniedError);
+            return;
+          }
+          if (code !== 0) {
+            const stderrText = stderrChunks.join('');
+            finish(reject, new Error(`claude-ollama exited with status ${code}${signal ? ` (${signal})` : ''}: ${stderrText || aggregatedText || 'unknown error'}`));
+            return;
+          }
+          finish(resolve, { output: aggregatedText, usage, stderr: stderrChunks.join('') });
+        });
       });
 
       timeoutHandle = setTimeout(() => {
