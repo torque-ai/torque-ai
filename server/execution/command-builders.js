@@ -8,12 +8,13 @@ const fs = require('fs');
 const logger = require('../logger').child({ component: 'command-builders' });
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 
-// Git worktrees store per-worktree state (index.lock, HEAD, refs) at
-// <main-repo>/.git/worktrees/<name>/, which is outside the worktree's cwd.
-// The --full-auto workspace-write sandbox only permits writes inside cwd, so
-// `git add`/`git commit` fail with "Permission denied" trying to create
-// index.lock. Resolve the linked gitdir from the worktree's .git file so the
-// caller can pass it via --add-dir to make git operations work.
+// Git worktrees store per-worktree state at <main>/.git/worktrees/<name>/ and
+// the shared object database + refs at <main>/.git/, both outside the
+// worktree's cwd. The --full-auto workspace-write sandbox only permits writes
+// inside cwd, so `git add`/`git commit` fail with "Permission denied" trying
+// to create index.lock or write new objects. Resolve the common gitdir
+// (parent of worktrees/<name>/) so the caller can pass it via --add-dir,
+// covering both per-worktree and shared state in one writable root.
 function resolveWorktreeGitDir(workingDirectory) {
   try {
     const gitPath = path.join(workingDirectory, '.git');
@@ -23,7 +24,21 @@ function resolveWorktreeGitDir(workingDirectory) {
     const match = content.match(/^gitdir:\s*(.+)\s*$/m);
     if (!match) return null;
     const linked = match[1].trim();
-    return path.isAbsolute(linked) ? linked : path.resolve(workingDirectory, linked);
+    const perWorktreeGitDir = path.isAbsolute(linked)
+      ? linked
+      : path.resolve(workingDirectory, linked);
+    // commondir file inside the per-worktree gitdir points to the shared .git
+    // (relative or absolute). Falls back to <perWorktreeGitDir>/../.. which is
+    // git's standard layout when commondir is missing or unreadable.
+    let commonGitDir;
+    try {
+      const commondirFile = path.join(perWorktreeGitDir, 'commondir');
+      const raw = fs.readFileSync(commondirFile, 'utf8').trim();
+      commonGitDir = path.isAbsolute(raw) ? raw : path.resolve(perWorktreeGitDir, raw);
+    } catch {
+      commonGitDir = path.resolve(perWorktreeGitDir, '..', '..');
+    }
+    return commonGitDir;
   } catch {
     return null;
   }
