@@ -8,6 +8,7 @@ const {
   reconcileProject,
   reclaimDir,
   classifyDir,
+  forceRmDir,
   RECLAIMABLE_STATUSES,
   FACTORY_LEAF_PREFIX,
 } = require('../factory/worktree-reconcile');
@@ -158,6 +159,25 @@ describe('reclaimDir', () => {
     expect(stepNames).toContain('branch_delete');
   });
 
+  it('removes a directory containing read-only files (simulates git internals)', () => {
+    const project = makeProject();
+    const dir = makeWorktreeDir(project.path, 'feat-factory-2-readonly');
+    const nested = path.join(dir, 'nested');
+    fs.mkdirSync(nested, { recursive: true });
+    const readOnlyFile = path.join(nested, 'locked.txt');
+    fs.writeFileSync(readOnlyFile, 'x', 'utf8');
+    try { fs.chmodSync(readOnlyFile, 0o444); } catch { /* platform-dependent */ }
+
+    const result = reclaimDir({
+      repoPath: project.path,
+      worktreePath: dir,
+      branch: 'feat/factory-2-readonly',
+    });
+
+    expect(result.success).toBe(true);
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
   it('reports success when the directory is already gone', () => {
     const project = makeProject();
     const dir = path.join(project.path, '.worktrees', 'feat-factory-1-foo');
@@ -168,6 +188,37 @@ describe('reclaimDir', () => {
       branch: 'feat/factory-1-foo',
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe('forceRmDir', () => {
+  it('returns ok immediately when the directory does not exist', () => {
+    const result = forceRmDir(path.join(testDir, 'nope-does-not-exist'));
+    expect(result.ok).toBe(true);
+    expect(result.attempts).toEqual([]);
+  });
+
+  it('removes a plain directory in a single rm_plain step', () => {
+    const dir = path.join(testDir, `rm-plain-${Date.now()}`);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'x', 'utf8');
+
+    const result = forceRmDir(dir);
+    expect(result.ok).toBe(true);
+    expect(result.attempts[0]).toMatchObject({ step: 'rm_plain', ok: true });
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it('removes a directory whose files are marked read-only', () => {
+    const dir = path.join(testDir, `rm-readonly-${Date.now()}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'locked.txt');
+    fs.writeFileSync(file, 'x', 'utf8');
+    try { fs.chmodSync(file, 0o444); } catch { /* platform-dependent */ }
+
+    const result = forceRmDir(dir);
+    expect(result.ok).toBe(true);
+    expect(fs.existsSync(dir)).toBe(false);
   });
 });
 
