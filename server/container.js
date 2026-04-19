@@ -198,17 +198,22 @@ const _defaultContainer = createContainer();
 // ── DI-factory registrations ─────────────────────────────────────────────────
 // Register services that use the proper DI factory pattern (createXxx(deps)).
 // These are resolved at boot() time, after all values (e.g. 'db') are registered.
-_defaultContainer.register('familyTemplates', ['db'], createFamilyTemplates);
+// index.js registers the database MODULE (not the raw better-sqlite3 handle)
+// under the 'db' key. Factories that need prepared statements must unwrap via
+// getDbInstance. unwrapDb normalizes both shapes so either registration works.
+function unwrapDb(db) {
+  return db && typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+}
+_defaultContainer.register('familyTemplates', ['db'], ({ db }) => createFamilyTemplates({ db: unwrapDb(db) }));
 _defaultContainer.register('actionRegistry', [], () => createActionRegistry());
-_defaultContainer.register('constructionCache', ['db'], ({ db }) => createConstructionCache({ db }));
+_defaultContainer.register('constructionCache', ['db'], ({ db }) => createConstructionCache({ db: unwrapDb(db) }));
 _defaultContainer.register('executor', ['actionRegistry'], ({ actionRegistry }) => createExecutor({ registry: actionRegistry }));
 _defaultContainer.register('runDirManager', ['db'], ({ db }) => {
   const dataDir = typeof db.getDataDir === 'function'
     ? db.getDataDir()
     : require('./data-dir').getDataDir();
-  const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
   return createRunDirManager({
-    db: rawDb,
+    db: unwrapDb(db),
     rootDir: path.join(dataDir, 'runs'),
     promotedDir: path.join(dataDir, 'promoted'),
   });
