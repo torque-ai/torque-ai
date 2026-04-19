@@ -3675,6 +3675,53 @@ async function executePlanFileStage(project, instance, workItem) {
   if (worktreeRunner) {
     let createdWorktree = null;
     try {
+      // Pre-reclaim: sweep any stale factory_worktrees row for the target
+      // branch BEFORE calling createForBatch. The previous ordering did the
+      // reclaim AFTER create, which let the stale cleanup destroy the
+      // just-created worktree whenever the stale vc row pointed at the same
+      // branch/path (which it always does — path is deterministic from the
+      // branch). Resolve the branch deterministically, clean the slot, then
+      // create into a guaranteed-empty target.
+      const { resolveBranchName } = require('./worktree-runner');
+      const targetBranch = resolveBranchName({ workItem: targetItem });
+      const stale = factoryWorktrees.getActiveWorktreeByBranch(targetBranch);
+      if (stale) {
+        logger.warn('factory worktree: pre-reclaiming stale active row before create', {
+          project_id: project.id,
+          work_item_id: targetItem.id,
+          branch: targetBranch,
+          stale_factory_worktree_id: stale.id,
+          stale_batch_id: stale.batch_id,
+          owning_task_id: stale.owningTaskId || null,
+        });
+        factoryWorktrees.markAbandoned(stale.id, 'pre_reclaim_before_create');
+        if (typeof worktreeRunner.abandon === 'function' && stale.vcWorktreeId) {
+          // Let errors propagate — if cleanup fails (e.g. a process still
+          // holds a file lock), the outer catch will pause EXECUTE with a
+          // real diagnostic instead of silently proceeding into a broken
+          // worktree state.
+          await worktreeRunner.abandon({
+            id: stale.vcWorktreeId,
+            branch: stale.branch,
+            reason: 'pre_reclaim_before_create',
+          });
+        }
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.EXECUTE,
+          action: 'worktree_reclaimed',
+          reasoning: 'Pre-reclaimed stale active factory_worktrees row before creating fresh worktree.',
+          inputs: { ...getWorkItemDecisionContext(targetItem) },
+          outcome: {
+            stale_factory_worktree_id: stale.id,
+            stale_batch_id: stale.batch_id,
+            branch: targetBranch,
+          },
+          confidence: 1,
+          batch_id: executeLogBatchId,
+        });
+      }
+
       try {
         createdWorktree = await worktreeRunner.createForBatch({
           project,
@@ -3723,52 +3770,6 @@ async function executePlanFileStage(project, instance, workItem) {
         } else {
           throw firstErr;
         }
-      }
-      // Reclaim any stale 'active' factory_worktrees row that would block
-      // the UNIQUE(branch, status='active') index. This happens when a
-      // previous EXECUTE failed mid-flight (or its instance got terminated)
-      // and the row was never marked merged/abandoned. Without this, the
-      // retry deterministically fails with UNIQUE constraint failed —
-      // blocking the same work item forever.
-      const stale = factoryWorktrees.getActiveWorktreeByBranch(createdWorktree.branch);
-      if (stale) {
-        logger.warn('factory worktree: reclaiming stale active row before retry', {
-          project_id: project.id,
-          work_item_id: targetItem.id,
-          branch: createdWorktree.branch,
-          stale_factory_worktree_id: stale.id,
-          stale_batch_id: stale.batch_id,
-        });
-        factoryWorktrees.markAbandoned(stale.id, 'reclaim_before_retry');
-        if (typeof worktreeRunner.abandon === 'function' && stale.vcWorktreeId) {
-          try {
-            await worktreeRunner.abandon({
-              id: stale.vcWorktreeId,
-              branch: stale.branch,
-              reason: 'reclaim_before_retry',
-            });
-          } catch (cleanupErr) {
-            logger.warn('factory worktree: stale vc cleanup best-effort failed', {
-              project_id: project.id,
-              stale_vc_worktree_id: stale.vcWorktreeId,
-              err: cleanupErr.message,
-            });
-          }
-        }
-        safeLogDecision({
-          project_id: project.id,
-          stage: LOOP_STATES.EXECUTE,
-          action: 'worktree_reclaimed',
-          reasoning: 'Abandoned stale active factory_worktrees row so new EXECUTE can proceed.',
-          inputs: { ...getWorkItemDecisionContext(targetItem) },
-          outcome: {
-            stale_factory_worktree_id: stale.id,
-            stale_batch_id: stale.batch_id,
-            branch: stale.branch,
-          },
-          confidence: 1,
-          batch_id: executeLogBatchId,
-        });
       }
       worktreeRecord = factoryWorktrees.recordWorktree({
         project_id: project.id,

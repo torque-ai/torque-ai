@@ -98,6 +98,27 @@ function sanitizeSlug(title = '', maxLen = 40) {
   return slug || 'work-item';
 }
 
+
+// Pure resolver: deterministic branch name for a factory work item. Callers
+// (loop-controller) need this BEFORE createForBatch so stale state can be
+// cleaned up against the target branch prior to creation. Must match the
+// branch pipeline in worktree-manager.createWorktree exactly: sanitizeSlug
+// on the title, then the same slugify+buildBranchName the manager uses.
+function resolveBranchName({ workItem } = {}) {
+  if (!workItem || !workItem.id) {
+    throw new Error('resolveBranchName requires workItem.id');
+  }
+  const slug = sanitizeSlug(workItem.title || `item-${workItem.id}`);
+  const featureName = `factory-${workItem.id}-${slug}`;
+  const branchSlug = String(featureName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'worktree';
+  return `feat/${branchSlug}`;
+}
+
 function resolveBashOnWindows() {
   const candidates = [
     process.env.GIT_BASH,
@@ -428,5 +449,6 @@ function createWorktreeRunner({
 module.exports = {
   createWorktreeRunner,
   sanitizeSlug,
+  resolveBranchName,
   resolveSystemShellCommand,
 };
