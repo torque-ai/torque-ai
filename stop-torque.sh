@@ -154,7 +154,10 @@ load_torque_node_pids() {
           fi
           ;;
       esac
-    done < <("$WMIC_BIN" process where "CommandLine like '%server/index.js%'" get ProcessId /value 2>/dev/null || true)
+    # wmic LIKE '%server/index.js%' misses backslash paths on Windows where
+    # command lines render as 'server\index.js'. '%server%index.js%' matches
+    # either separator; is_node_pid above still filters to node.exe only.
+    done < <("$WMIC_BIN" process where "CommandLine like '%server%index.js%'" get ProcessId /value 2>/dev/null || true)
 
     return 0
   fi
