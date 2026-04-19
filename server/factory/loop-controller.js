@@ -3514,6 +3514,77 @@ async function executePlanFileStage(project, instance, workItem) {
     batch_id: executeLogBatchId,
   });
 
+  // Spin detector: if this batch has re-entered EXECUTE many times in a
+  // short window without making forward progress, the loop is thrashing —
+  // something is causing the stage to re-enter (stage-handler bug, stale
+  // worktree state, provider stuck, etc.) without surfacing a terminal
+  // result. Rather than burn CPU + decision-log volume indefinitely,
+  // auto-reject the work item and terminate the instance. The operator
+  // can reopen after investigation; the loop moves on to other work.
+  //
+  // Threshold: >=5 `starting` events for this batch within 5 minutes.
+  // Tuned to avoid false positives on legitimately-long EXECUTE cycles
+  // (one task per minute under load) while catching the 34-second spin
+  // pattern seen on torque-public item 100 and bitsy item 479 today.
+  try {
+    const windowSince = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const recentExecute = factoryDecisions.listDecisions(project.id, {
+      stage: LOOP_STATES.EXECUTE.toLowerCase(),
+      since: windowSince,
+      limit: 200,
+    });
+    const startingEntries = recentExecute.filter((d) => (
+      d.action === 'starting' && d.batch_id === executeLogBatchId
+    ));
+    const SPIN_THRESHOLD = 5;
+    if (startingEntries.length >= SPIN_THRESHOLD) {
+      factoryIntake.updateWorkItem(targetItem.id, {
+        status: 'rejected',
+        reject_reason: `execute_spin_loop_${startingEntries.length}_starts_in_5min`,
+      });
+      logger.warn('EXECUTE stage: spin-loop detected — auto-rejecting work item', {
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        batch_id: executeLogBatchId,
+        starts_in_window: startingEntries.length,
+        window_since: windowSince,
+      });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.EXECUTE,
+        action: 'auto_rejected_spin_loop',
+        reasoning: `EXECUTE stage re-entered ${startingEntries.length} times in 5 minutes for the same batch without making forward progress. Auto-rejecting the work item to break the spin and let the loop move on. Operator can reopen after investigation.`,
+        inputs: { ...getWorkItemDecisionContext(targetItem) },
+        outcome: {
+          starts_in_window: startingEntries.length,
+          threshold: SPIN_THRESHOLD,
+          window_since: windowSince,
+          next_state: LOOP_STATES.IDLE,
+        },
+        confidence: 1,
+        batch_id: executeLogBatchId,
+      });
+      return {
+        next_state: LOOP_STATES.IDLE,
+        stop_execution: true,
+        reason: 'auto_rejected_spin_loop',
+        stage_result: {
+          status: 'rejected',
+          reason: 'spin_loop',
+          starts_in_window: startingEntries.length,
+        },
+        work_item: targetItem,
+      };
+    }
+  } catch (spinErr) {
+    // Detector failure must not block the stage — worst case we miss a
+    // spin (which will eventually self-resolve or hit another guard).
+    logger.debug('spin-detector check failed', {
+      project_id: project.id,
+      err: spinErr.message,
+    });
+  }
+
   // Create an isolated worktree for this batch so <git-user> edits never touch the
   // live project.path. Falls back to project.path only when the worktree
   // runner is unavailable (e.g. db not wired in a test environment) — the
