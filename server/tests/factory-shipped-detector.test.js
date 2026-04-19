@@ -133,4 +133,45 @@ describe('factory shipped detector', () => {
     expect(result.signals.title_tokens).toEqual(['queue', 'scheduler']);
     expect(result.shipped).toBe(false);
   });
+
+  // Regression: before the acronym pass, titles like "PII Guard Implementation Plan"
+  // only produced one token ('guard' — since 'pii' is 3 chars and 'implementation'/'plan'
+  // are stopwords). canScoreGitMatches required >=2 tokens → git matching was skipped
+  // entirely → items shipped in prior sessions never got auto-shipped and the loop
+  // got stuck at LEARN's empty-branch refusal.
+  it('promotes 3-4 letter ALL-CAPS acronyms from the title into the token set', () => {
+    writeRepoFiles(repoRoot, FILE_REFERENCES.slice(0, 9));
+    const runGitLog = vi.fn().mockReturnValue([
+      'chore(pii): apply public-repo provider-identity scrub',
+      'fix(factory): repair PII-GUARD fallback + targeted per-task staging',
+    ]);
+    const detector = createShippedDetector({ repoRoot, runGitLog });
+
+    const result = detector.detectShipped({
+      title: 'PII Guard Implementation Plan',
+      content: createPlanContent('PII Guard Implementation Plan', FILE_REFERENCES.slice(0, 9)),
+    });
+
+    expect(result.signals.title_tokens).toEqual(['guard', 'pii']);
+    expect(runGitLog).toHaveBeenCalledWith({ grep: 'guard|pii', limit: 50 });
+    expect(result.shipped).toBe(true);
+    expect(result.confidence).toBe('high');
+  });
+
+  it('does not promote lowercased short words like "and" or "for" into tokens', () => {
+    writeRepoFiles(repoRoot, FILE_REFERENCES.slice(0, 1));
+    const runGitLog = vi.fn().mockReturnValue([]);
+    const detector = createShippedDetector({ repoRoot, runGitLog });
+
+    const result = detector.detectShipped({
+      title: 'Wire logging and metrics for dashboard',
+      content: createPlanContent('Wire logging and metrics for dashboard', FILE_REFERENCES.slice(0, 1)),
+    });
+
+    // 'and' is 3 chars lowercased — must NOT slip in via the acronym pass
+    // ('and' is not ALL-CAPS in the original title). 'logging', 'metrics',
+    // 'dashboard' all >= 4 chars, 'wire' too. 'for' is in stopwords.
+    expect(result.signals.title_tokens).toEqual(expect.arrayContaining(['logging', 'metrics', 'dashboard', 'wire']));
+    expect(result.signals.title_tokens).not.toContain('and');
+  });
 });

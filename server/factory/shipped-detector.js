@@ -23,16 +23,30 @@ function escapeForRegExp(value) {
 }
 
 function normalizeTitleTokens(title) {
-  const tokens = String(title || '').toLowerCase().match(/[a-z0-9]+/g) || [];
+  const original = String(title || '');
   const unique = [];
   const seen = new Set();
 
-  for (const token of tokens) {
+  // Primary pass: alphanumeric tokens of length >= 4, stopwords excluded.
+  for (const token of original.toLowerCase().match(/[a-z0-9]+/g) || []) {
     if (token.length < 4 || TITLE_STOPWORDS.has(token) || seen.has(token)) {
       continue;
     }
     seen.add(token);
     unique.push(token);
+  }
+
+  // Acronym pass: 3-4 letter ALL-CAPS tokens from the ORIGINAL (pre-lowercase)
+  // title catch domain acronyms like PII, API, MCP, XML, SQL, XSS that the
+  // min-4-char filter otherwise strips. Matches only standalone caps tokens,
+  // so Title-Case words ("Guard") and lowercased words don't leak in.
+  for (const acronym of original.match(/\b[A-Z]{3,4}\b/g) || []) {
+    const lower = acronym.toLowerCase();
+    if (TITLE_STOPWORDS.has(lower) || seen.has(lower)) {
+      continue;
+    }
+    seen.add(lower);
+    unique.push(lower);
   }
 
   return unique;
