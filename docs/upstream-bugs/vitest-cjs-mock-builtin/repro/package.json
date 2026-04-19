@@ -1,0 +1,12 @@
+{
+  "name": "vitest-cjs-mock-builtin-repro",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "devDependencies": {
+    "vitest": "^4.0.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  }
+}
