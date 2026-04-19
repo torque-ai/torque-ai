@@ -80,11 +80,16 @@ function makeWorktreeDir(projectPath, leaf) {
 beforeAll(() => {
   ({ db: dbModule, testDir } = setupTestDbOnly('worktree-reconcile'));
   dbHandle = dbModule.getDbInstance();
+  // Template DB enforces FKs from factory_worktrees into factory_projects /
+  // factory_work_items. We don't need to exercise those relationships —
+  // just the reconciler's own logic against varying row shapes.
+  runDdl(dbHandle, 'PRAGMA foreign_keys = OFF');
   ensureFactoryWorktreesSchema(dbHandle);
 });
 
 beforeEach(() => {
   dbHandle = dbModule.getDbInstance();
+  runDdl(dbHandle, 'PRAGMA foreign_keys = OFF');
   ensureFactoryWorktreesSchema(dbHandle);
   runDdl(dbHandle, 'DELETE FROM factory_worktrees');
 });
