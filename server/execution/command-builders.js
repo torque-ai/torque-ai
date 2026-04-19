@@ -4,8 +4,30 @@
  */
 
 const path = require('path');
+const fs = require('fs');
 const logger = require('../logger').child({ component: 'command-builders' });
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
+
+// Git worktrees store per-worktree state (index.lock, HEAD, refs) at
+// <main-repo>/.git/worktrees/<name>/, which is outside the worktree's cwd.
+// The --full-auto workspace-write sandbox only permits writes inside cwd, so
+// `git add`/`git commit` fail with "Permission denied" trying to create
+// index.lock. Resolve the linked gitdir from the worktree's .git file so the
+// caller can pass it via --add-dir to make git operations work.
+function resolveWorktreeGitDir(workingDirectory) {
+  try {
+    const gitPath = path.join(workingDirectory, '.git');
+    const st = fs.statSync(gitPath);
+    if (!st.isFile()) return null;
+    const content = fs.readFileSync(gitPath, 'utf8');
+    const match = content.match(/^gitdir:\s*(.+)\s*$/m);
+    if (!match) return null;
+    const linked = match[1].trim();
+    return path.isAbsolute(linked) ? linked : path.resolve(workingDirectory, linked);
+  } catch {
+    return null;
+  }
+}
 
 let _wrapWithInstructions = null;
 let _providerCfg = null;
@@ -135,6 +157,10 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
 
   if (task.working_directory) {
     codexArgs.push('-C', task.working_directory);
+    const linkedGitDir = resolveWorktreeGitDir(task.working_directory);
+    if (linkedGitDir) {
+      codexArgs.push('--add-dir', linkedGitDir);
+    }
   }
 
   // Read prompt from stdin (use '-' as prompt arg)
