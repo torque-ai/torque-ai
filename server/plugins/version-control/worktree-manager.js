@@ -561,7 +561,33 @@ function createWorktreeManager({ db } = {}) {
     return count;
   }
 
-  function createWorktree(repoPath, featureName, options = {}) {
+  // Resolve the start point for `git worktree add -b <branch> <path> <start>`.
+// Prefer origin/<branch> when it exists and is ahead of the base: Codex
+// pushes every retry cycle's commits to origin/<branch>, and the
+// pre-reclaim + recreate flow would otherwise wipe them every loop by
+// starting each new worktree from base (master/main). With this helper,
+// retries accumulate commits instead of losing them, and LEARN's merge
+// step sees a non-empty feat branch to merge into main.
+function resolveStartPoint(repoPath, branch, baseBranch) {
+  try {
+    const ref = `refs/remotes/origin/${branch}`;
+    runGit(repoPath, ['rev-parse', '--verify', ref], { stdio: ['pipe', 'pipe', 'ignore'] });
+  } catch {
+    return baseBranch;
+  }
+  try {
+    const output = String(runGit(repoPath, ['rev-list', '--count', `${baseBranch}..origin/${branch}`])).trim();
+    const count = Number.parseInt(output, 10);
+    if (Number.isFinite(count) && count > 0) {
+      return `origin/${branch}`;
+    }
+  } catch {
+    // Fall through to base.
+  }
+  return baseBranch;
+}
+
+function createWorktree(repoPath, featureName, options = {}) {
     const repositoryPath = requireString(repoPath, 'repoPath');
     const requestedFeatureName = requireString(featureName, 'featureName');
     const baseBranch = normalizeOptionalString(options.baseBranch || options.base_branch) || DEFAULT_BASE_BRANCH;
@@ -592,8 +618,16 @@ function createWorktreeManager({ db } = {}) {
         });
       }
     }
+    const initialStartPoint = resolveStartPoint(repositoryPath, branch, baseBranch);
+    if (initialStartPoint !== baseBranch) {
+      logger.info('createWorktree: starting from existing origin branch to preserve prior work', {
+        branch,
+        start_point: initialStartPoint,
+        base_branch: baseBranch,
+      });
+    }
     try {
-      runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, baseBranch]);
+      runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, initialStartPoint]);
     } catch (addErr) {
       // Stale branch from a prior run that wasn't fully cleaned up.
       // Force-delete the orphan branch and retry once. The fs.rmSync here
@@ -623,7 +657,8 @@ function createWorktreeManager({ db } = {}) {
         if (fs.existsSync(worktreePath)) {
           forceRmSync(worktreePath);
         }
-        runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, baseBranch]);
+        const retryStartPoint = resolveStartPoint(repositoryPath, branch, baseBranch);
+        runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, retryStartPoint]);
       } else {
         throw addErr;
       }
