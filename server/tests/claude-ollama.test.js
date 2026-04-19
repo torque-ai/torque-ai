@@ -152,6 +152,8 @@ describe('ClaudeOllamaProvider.buildCommandArgs', () => {
     expect(postDash).toContain('--output-format');
     expect(postDash[postDash.indexOf('--output-format') + 1]).toBe('stream-json');
     expect(postDash).toContain('-p');
+    // --verbose is mandatory when combining --print with stream-json
+    expect(postDash).toContain('--verbose');
   });
 
   it('emits --add-dir with the working directory', () => {

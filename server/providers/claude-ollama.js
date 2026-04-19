@@ -134,9 +134,11 @@ class ClaudeOllamaProvider extends BaseProvider {
     const args = ['launch', 'claude', '--model', cleanText(model), '--'];
 
     // claude-cli flags follow the -- boundary
+    // --verbose is required when combining --print with --output-format=stream-json
     args.push(
       '-p',
       '--output-format', 'stream-json',
+      '--verbose',
       '--include-partial-messages',
       '--strict-mcp-config',
     );
