@@ -170,7 +170,8 @@ function buildFeedbackPrompt(hardFails, warnings, llmCritique) {
   if (hasHardFails) {
     lines.push('### Violations (must fix):');
     for (const v of hardFails) {
-      const prefix = v.taskNumber ? `- [${v.rule}] Task ${v.taskNumber}:` : `- [${v.rule}]`;
+      const hasTaskNum = typeof v.taskNumber === 'number' && Number.isFinite(v.taskNumber);
+      const prefix = hasTaskNum ? `- [${v.rule}] Task ${v.taskNumber}:` : `- [${v.rule}]`;
       lines.push(`${prefix} ${v.detail}`);
     }
     lines.push('');
@@ -179,7 +180,8 @@ function buildFeedbackPrompt(hardFails, warnings, llmCritique) {
   if (Array.isArray(warnings) && warnings.length > 0) {
     lines.push('### Warnings (consider fixing):');
     for (const w of warnings) {
-      const prefix = w.taskNumber ? `- [${w.rule}] Task ${w.taskNumber}:` : `- [${w.rule}]`;
+      const hasTaskNum = typeof w.taskNumber === 'number' && Number.isFinite(w.taskNumber);
+      const prefix = hasTaskNum ? `- [${w.rule}] Task ${w.taskNumber}:` : `- [${w.rule}]`;
       lines.push(`${prefix} ${w.detail}`);
     }
     lines.push('');

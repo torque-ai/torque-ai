@@ -195,4 +195,14 @@ describe('buildFeedbackPrompt', () => {
     expect(out).toContain('plan_task_count_lower_bound');
     expect(out).toContain('Only one task');
   });
+
+  it('renders taskNumber 0 with the Task 0 prefix (does not drop on falsy check)', () => {
+    const out = buildFeedbackPrompt(
+      [{ rule: 'some_rule', taskNumber: 0, detail: 'detail on zero-indexed task' }],
+      [],
+      null,
+    );
+    expect(out).toContain('Task 0:');
+    expect(out).toContain('detail on zero-indexed task');
+  });
 });
