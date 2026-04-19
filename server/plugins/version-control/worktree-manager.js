@@ -49,6 +49,59 @@ function normalizeOptionalNumber(value, fieldName) {
   return numeric;
 }
 
+// Windows-safe recursive delete. Plain fs.rmSync throws EPERM on read-only
+// files (git internals, tool-marked files) and "Directory not empty" on
+// paths where Codex or pytest leaves wheel-check dirs with restrictive
+// DACLs. Layered fallback — plain rmSync, chmod-recursive + rmSync, then
+// platform shell rmdir/rm -rf — clears each of those stuck cases.
+function clearReadOnlyRecursive(dir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    try { fs.chmodSync(full, 0o666); } catch { /* best effort */ }
+    if (entry.isDirectory()) {
+      clearReadOnlyRecursive(full);
+    }
+  }
+}
+
+function forceRmSync(target) {
+  if (!fs.existsSync(target)) return;
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    if (!fs.existsSync(target)) return;
+  } catch { /* fall through */ }
+  try {
+    fs.chmodSync(target, 0o666);
+  } catch { /* best effort */ }
+  clearReadOnlyRecursive(target);
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    if (!fs.existsSync(target)) return;
+  } catch { /* fall through to shell */ }
+  const { execFileSync } = childProcess;
+  try {
+    if (process.platform === 'win32') {
+      execFileSync('cmd', ['/c', 'rmdir', '/s', '/q', target], { stdio: 'ignore', windowsHide: true, timeout: 20000 });
+    } else {
+      execFileSync('rm', ['-rf', target], { stdio: 'ignore', timeout: 20000 });
+    }
+  } catch (shellErr) {
+    // Final failure — propagate so the caller surfaces a real diagnostic.
+    if (fs.existsSync(target)) {
+      throw new Error(`forceRmSync: unable to remove ${target}: ${shellErr && shellErr.message}`);
+    }
+  }
+  if (fs.existsSync(target)) {
+    throw new Error(`forceRmSync: path still exists after layered cleanup: ${target}`);
+  }
+}
+
 function runGit(cwd, args, options = {}) {
   return childProcess.execFileSync('git', args, {
     cwd,
@@ -506,7 +559,7 @@ function createWorktreeManager({ db } = {}) {
         worktreePath,
         branch,
       });
-      fs.rmSync(worktreePath, { recursive: true, force: true });
+      forceRmSync(worktreePath);
       try {
         runGit(repositoryPath, ['worktree', 'prune']);
       } catch (pruneErr) {
@@ -545,7 +598,7 @@ function createWorktreeManager({ db } = {}) {
           });
         }
         if (fs.existsSync(worktreePath)) {
-          fs.rmSync(worktreePath, { recursive: true, force: true });
+          forceRmSync(worktreePath);
         }
         runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, baseBranch]);
       } else {
