@@ -251,8 +251,20 @@ function buildFeedbackPrompt(hardFails, warnings, llmCritique) {
   return lines.join('\n');
 }
 
-async function evaluatePlan(_opts) {
-  return { passed: true, hardFails: [], warnings: [], llmCritique: null, feedbackPrompt: null };
+async function evaluatePlan({ plan, workItem, project }) {
+  const { hardFails, warnings } = runDeterministicRules(plan);
+  if (hardFails.length > 0) {
+    const feedbackPrompt = buildFeedbackPrompt(hardFails, warnings, null);
+    return { passed: false, hardFails, warnings, llmCritique: null, feedbackPrompt };
+  }
+  const critique = await module.exports.runLlmSemanticCheck({ plan, workItem, project });
+  const isNoGo = typeof critique === 'string' && critique.startsWith('[no-go]');
+  if (isNoGo) {
+    const cleanCritique = critique.replace(/^\[no-go\]\s*/, '');
+    const feedbackPrompt = buildFeedbackPrompt([], warnings, cleanCritique);
+    return { passed: false, hardFails: [], warnings, llmCritique: cleanCritique, feedbackPrompt };
+  }
+  return { passed: true, hardFails: [], warnings, llmCritique: critique, feedbackPrompt: null };
 }
 
 module.exports = {
