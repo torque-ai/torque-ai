@@ -497,30 +497,55 @@ function createWorktreeManager({ db } = {}) {
     fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
     // Clean up stale worktree directory if it exists from a prior run
     // that wasn't fully removed (git worktree remove succeeded but
-    // the physical directory persisted due to file locks).
+    // the physical directory persisted due to file locks). If we can't
+    // clear it, propagate — proceeding into `git worktree add` against a
+    // locked/non-empty path produces phantom state (empty dir, no
+    // metadata) that cascades silently through downstream stages.
     if (fs.existsSync(worktreePath)) {
       logger.warn('createWorktree: removing stale worktree directory', {
         worktreePath,
         branch,
       });
-      try { fs.rmSync(worktreePath, { recursive: true, force: true }); } catch (_e) { void _e; }
-      try { runGit(repositoryPath, ['worktree', 'prune']); } catch (_e) { void _e; }
+      fs.rmSync(worktreePath, { recursive: true, force: true });
+      try {
+        runGit(repositoryPath, ['worktree', 'prune']);
+      } catch (pruneErr) {
+        logger.warn('createWorktree: worktree prune after stale-dir removal failed', {
+          worktreePath,
+          err: pruneErr && pruneErr.message,
+        });
+      }
     }
     try {
       runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, baseBranch]);
     } catch (addErr) {
       // Stale branch from a prior run that wasn't fully cleaned up.
-      // Force-delete the orphan branch and retry once.
+      // Force-delete the orphan branch and retry once. The fs.rmSync here
+      // also propagates on failure — a locked directory must fail the
+      // EXECUTE cycle loudly instead of producing phantom state.
       const errMsg = addErr && typeof addErr.stderr === 'string' ? addErr.stderr : String(addErr?.message || '');
       if (/branch named .* already exists/i.test(errMsg) || /already exists/i.test(errMsg)) {
         logger.warn('createWorktree: stale branch detected, force-deleting and retrying', {
           branch,
           repoPath: repositoryPath,
         });
-        try { runGit(repositoryPath, ['branch', '-D', branch]); } catch (_e) { void _e; }
-        try { runGit(repositoryPath, ['worktree', 'prune']); } catch (_e) { void _e; }
+        try {
+          runGit(repositoryPath, ['branch', '-D', branch]);
+        } catch (branchDelErr) {
+          logger.warn('createWorktree: stale branch delete failed (may not exist)', {
+            branch,
+            err: branchDelErr && branchDelErr.message,
+          });
+        }
+        try {
+          runGit(repositoryPath, ['worktree', 'prune']);
+        } catch (pruneErr) {
+          logger.warn('createWorktree: worktree prune during retry failed', {
+            err: pruneErr && pruneErr.message,
+          });
+        }
         if (fs.existsSync(worktreePath)) {
-          try { fs.rmSync(worktreePath, { recursive: true, force: true }); } catch (_e) { void _e; }
+          fs.rmSync(worktreePath, { recursive: true, force: true });
         }
         runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, baseBranch]);
       } else {
