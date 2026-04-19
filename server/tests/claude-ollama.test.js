@@ -253,6 +253,31 @@ describe('ClaudeOllamaProvider.runPrompt — tool permission', () => {
   });
 });
 
+describe('ClaudeOllamaProvider — host mutex', () => {
+  it('acquires and releases a host lock around runPrompt', async () => {
+    const hostMutex = require('../providers/host-mutex');
+    const acquireSpy = vi.spyOn(hostMutex, 'acquireHostLock');
+    const p = new ClaudeOllamaProvider({ enabled: true });
+
+    // Stub target host resolution
+    vi.spyOn(hostManagement, 'selectOllamaHostForModel').mockReturnValue({ id: 'h1' });
+
+    // Stub spawn to complete immediately
+    vi.spyOn(child_process, 'spawn').mockImplementation(() => {
+      const { EventEmitter } = require('events');
+      const c = new EventEmitter();
+      c.stdout = new EventEmitter(); c.stderr = new EventEmitter();
+      c.stdin = { end: vi.fn() }; c.kill = vi.fn();
+      setImmediate(() => c.emit('close', 0, null));
+      return c;
+    });
+
+    await p.runPrompt('x', 'qwen3-coder:30b', { working_directory: '/tmp' });
+    expect(acquireSpy).toHaveBeenCalledWith('h1');
+    vi.restoreAllMocks();
+  });
+});
+
 describe('ClaudeOllamaProvider — public API', () => {
   it('submit delegates to runPrompt', async () => {
     const p = new ClaudeOllamaProvider({ enabled: true });

@@ -11,7 +11,7 @@ const { EventType } = require('../streaming/event-types');
 const { buildSafeEnv } = require('../utils/safe-env');
 const { createSessionStore } = require('./claude-code/session-store');
 const { evaluatePermission } = require('./claude-code/permission-chain');
-const { acquireHostLock } = require('./host-mutex');
+const hostMutex = require('./host-mutex');
 const {
   cleanText,
   normalizeToolCall,
@@ -228,7 +228,15 @@ class ClaudeOllamaProvider extends BaseProvider {
     const timeoutMs = Number(options.timeout_ms) > 0 ? Number(options.timeout_ms) : DEFAULT_TIMEOUT_MS;
     const startTime = Date.now();
 
-    const result = await new Promise((resolve, reject) => {
+    const selectedHost = hostManagement.selectOllamaHostForModel
+      ? hostManagement.selectOllamaHostForModel(cleanText(model))
+      : null;
+    const hostId = selectedHost?.id || selectedHost?.host_id || 'default-host';
+    const release = await hostMutex.acquireHostLock(hostId);
+
+    let result;
+    try {
+      result = await new Promise((resolve, reject) => {
       const child = child_process.spawn(this.resolveOllamaBinary(), commandArgs, {
         cwd: workingDirectory,
         env: buildSafeEnv(this.providerId, {
@@ -349,7 +357,10 @@ class ClaudeOllamaProvider extends BaseProvider {
       }, timeoutMs);
 
       child.stdin.end(rawPromptText, 'utf8');
-    });
+      });
+    } finally {
+      release();
+    }
 
     this.sessionStore.append(localSessionId, {
       role: 'assistant',
