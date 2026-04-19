@@ -4379,6 +4379,7 @@ async function submitVerifyFixTask({
 
     // Probe whether the branch still exists locally.
     let branchExists = false;
+    let recoveredFromOrigin = false;
     if (repoPath && branch) {
       try {
         const { execFileSync } = require('child_process');
@@ -4389,6 +4390,39 @@ async function submitVerifyFixTask({
           timeout: 5000,
         });
         branchExists = true;
+      } catch (_probeErr) { void _probeErr; }
+    }
+
+    // Fallback: local branch gone, but origin may still have the commits
+    // (e.g. verify pushed them and a later cleanup pass deleted the local
+    // branch). Recreate the local branch from origin/<branch> before we
+    // give up as "worktree_lost".
+    if (!branchExists && repoPath && branch) {
+      try {
+        const { execFileSync } = require('child_process');
+        execFileSync('git', ['show-ref', '--verify', `refs/remotes/origin/${branch}`], {
+          cwd: repoPath,
+          stdio: 'ignore',
+          windowsHide: true,
+          timeout: 5000,
+        });
+        execFileSync('git', ['branch', branch, `origin/${branch}`], {
+          cwd: repoPath,
+          stdio: 'ignore',
+          windowsHide: true,
+          timeout: 10000,
+        });
+        branchExists = true;
+        recoveredFromOrigin = true;
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.VERIFY,
+          action: 'verify_retry_branch_recreated_from_origin',
+          reasoning: `Local branch ${branch} was missing but origin had it. Recreated local branch from origin/${branch} to preserve pushed work.`,
+          outcome: { attempt, branch, worktree_path: worktreePath },
+          confidence: 1,
+          batch_id,
+        });
       } catch (_probeErr) { void _probeErr; }
     }
 
