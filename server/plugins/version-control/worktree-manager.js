@@ -578,6 +578,37 @@ function createWorktreeManager({ db } = {}) {
       return null;
     }
 
+    // If another vc_worktrees row claims the same path, this `id` is a stale
+    // DB record that a newer active row has superseded (common in the factory
+    // reclaim flow: createWorktree wipes + recreates the dir, registers a new
+    // row, then the caller tries to abandon the old row by its previous id).
+    // Running `git worktree remove --force` on the shared path would wipe the
+    // active sibling's directory — so drop only the stale DB row here.
+    const sibling = dbHandle.prepare(
+      'SELECT id FROM vc_worktrees WHERE worktree_path = ? AND id != ?'
+    ).get(existing.worktree_path, existing.id);
+    if (sibling) {
+      dbHandle.prepare('DELETE FROM vc_worktrees WHERE id = ?').run(existing.id);
+      if (logger) {
+        logger.warn('cleanupWorktree: dropped stale row superseded by sibling (same path)', {
+          stale_id: existing.id,
+          sibling_id: sibling.id,
+          worktree_path: existing.worktree_path,
+          branch: existing.branch,
+        });
+      }
+      return {
+        id: existing.id,
+        repo_path: existing.repo_path,
+        worktree_path: existing.worktree_path,
+        branch: existing.branch,
+        removed: false,
+        superseded: true,
+        branchDeleted: false,
+        warnings: [],
+      };
+    }
+
     const warnings = [];
     const deleteBranch = options.deleteAfter !== false
       && options.delete_after !== false
