@@ -225,3 +225,37 @@ describe('ClaudeOllamaProvider.buildCommandArgs', () => {
     expect(args[idx + 1]).toBe('Follow the docstring style guide.');
   });
 });
+
+describe('ClaudeOllamaProvider.runPrompt — simple text', () => {
+  it('spawns with correct binary+args and returns collected output', async () => {
+    const p = new ClaudeOllamaProvider({ enabled: true });
+    const fakeStdout = [
+      { type: 'text_delta', delta: 'Hello ' },
+      { type: 'text_delta', delta: 'world' },
+      { usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } },
+    ].map(JSON.stringify).join('\n') + '\n';
+
+    const spawnSpy = vi.spyOn(child_process, 'spawn').mockImplementation(() => {
+      const { EventEmitter } = require('events');
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stdin = { end: vi.fn() };
+      child.kill = vi.fn();
+      setImmediate(() => {
+        child.stdout.emit('data', Buffer.from(fakeStdout));
+        child.emit('close', 0, null);
+      });
+      return child;
+    });
+
+    const result = await p.runPrompt('say hello', 'qwen3-coder:30b', {
+      working_directory: '/tmp/wd',
+    });
+    expect(result.output).toBe('Hello world');
+    expect(result.status).toBe('completed');
+    expect(result.usage.total_tokens).toBe(7);
+    expect(result.usage.model).toBe('qwen3-coder:30b');
+    spawnSpy.mockRestore();
+  });
+});

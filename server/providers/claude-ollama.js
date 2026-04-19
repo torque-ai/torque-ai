@@ -166,6 +166,149 @@ class ClaudeOllamaProvider extends BaseProvider {
 
     return args;
   }
+
+  ensureSession({ sessionId = null, workingDirectory = process.cwd() } = {}) {
+    let localSessionId = cleanText(sessionId);
+    if (!localSessionId) {
+      localSessionId = this.sessionStore.create({
+        name: 'claude-ollama',
+        metadata: {
+          claude_session_id: randomUUID(),
+          working_directory: workingDirectory,
+        },
+      });
+    }
+    if (!this.sessionStore.exists(localSessionId)) {
+      throw new Error(`Unknown Claude-Ollama session: ${localSessionId}`);
+    }
+    this.activeSessionId = localSessionId;
+    return localSessionId;
+  }
+
+  readSessionMeta(sessionId) {
+    const metaPath = path.join(this.sessionsRoot, sessionId, 'meta.json');
+    try {
+      const parsed = JSON.parse(require('fs').readFileSync(metaPath, 'utf8'));
+      return parsed && typeof parsed === 'object' ? parsed : { metadata: {} };
+    } catch {
+      return { metadata: {} };
+    }
+  }
+
+  async runPrompt(prompt, model, options = {}) {
+    const workingDirectory = cleanText(options.working_directory) || process.cwd();
+    const rawPromptText = cleanText(prompt);
+    if (!rawPromptText) throw new Error('prompt must be a non-empty string');
+
+    const localSessionId = this.ensureSession({
+      sessionId: options.session_id,
+      workingDirectory,
+    });
+    const sessionMeta = this.readSessionMeta(localSessionId);
+    const claudeSessionId = cleanText(sessionMeta.metadata?.claude_session_id) || randomUUID();
+    const messageCount = this.sessionStore.readAll(localSessionId).length;
+
+    const permissionMode = SUPPORTED_PERMISSION_MODES.has(cleanText(options.mode))
+      ? cleanText(options.mode) : DEFAULT_MODE;
+    const allowedTools = Array.isArray(options.allowed_tools) ? options.allowed_tools : [];
+    const disallowedTools = Array.isArray(options.disallowed_tools) ? options.disallowed_tools : [];
+
+    const commandArgs = this.buildCommandArgs({
+      model, workingDirectory, permissionMode,
+      allowedTools, disallowedTools,
+      skillPrompt: cleanText(options.skill_prompt),
+      claudeSessionId, messageCount,
+    });
+
+    const timeoutMs = Number(options.timeout_ms) > 0 ? Number(options.timeout_ms) : DEFAULT_TIMEOUT_MS;
+    const startTime = Date.now();
+
+    const result = await new Promise((resolve, reject) => {
+      const child = child_process.spawn(this.resolveOllamaBinary(), commandArgs, {
+        cwd: workingDirectory,
+        env: buildSafeEnv(this.providerId, {
+          FORCE_COLOR: '0', NO_COLOR: '1', TERM: 'dumb', CI: '1',
+          CLAUDE_NON_INTERACTIVE: '1', PYTHONIOENCODING: 'utf-8',
+        }),
+        shell: false,
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stdoutRemainder = '';
+      let aggregatedText = '';
+      const stderrChunks = [];
+      let usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+      let settled = false;
+      let timeoutHandle = null;
+
+      const finish = (fn, v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutHandle);
+        fn(v);
+      };
+
+      const handleRecord = (rec) => {
+        const u = normalizeUsage(rec);
+        if (u) usage = { ...usage, ...u };
+        const delta = extractTextDelta(rec);
+        if (delta) aggregatedText += delta;
+      };
+
+      child.stdout.on('data', (chunk) => {
+        stdoutRemainder += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+        const lines = stdoutRemainder.split(/\r?\n/);
+        stdoutRemainder = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = cleanText(line);
+          if (!trimmed || trimmed === '[DONE]') continue;
+          const parsed = safeJsonParse(trimmed.startsWith('data:') ? trimmed.slice(5).trim() : trimmed);
+          if (parsed) handleRecord(parsed);
+        }
+      });
+
+      child.stderr.on('data', (c) => stderrChunks.push(Buffer.isBuffer(c) ? c.toString('utf8') : String(c)));
+
+      child.once('error', (err) => finish(reject, err));
+      child.once('close', (code, signal) => {
+        if (stdoutRemainder) {
+          const parsed = safeJsonParse(stdoutRemainder);
+          if (parsed) handleRecord(parsed);
+        }
+        if (code !== 0) {
+          const stderrText = stderrChunks.join('');
+          finish(reject, new Error(`claude-ollama exited with status ${code}${signal ? ` (${signal})` : ''}: ${stderrText || aggregatedText || 'unknown error'}`));
+          return;
+        }
+        finish(resolve, { output: aggregatedText, usage, stderr: stderrChunks.join('') });
+      });
+
+      timeoutHandle = setTimeout(() => {
+        try { child.kill(); } catch { /* ignore */ }
+        finish(reject, new Error(`claude-ollama timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      child.stdin.end(rawPromptText, 'utf8');
+    });
+
+    const durationMs = Date.now() - startTime;
+    return {
+      output: result.output,
+      status: 'completed',
+      session_id: localSessionId,
+      claude_session_id: claudeSessionId,
+      usage: {
+        input_tokens: result.usage.prompt_tokens || 0,
+        output_tokens: result.usage.completion_tokens || 0,
+        total_tokens: result.usage.total_tokens || 0,
+        tokens: result.usage.total_tokens || 0,
+        cost: 0,
+        duration_ms: durationMs,
+        model: cleanText(model),
+      },
+    };
+  }
 }
 
 module.exports = ClaudeOllamaProvider;
