@@ -1230,6 +1230,104 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
           });
         }
       } catch (err) {
+        // Empty-branch case: EXECUTE produced zero commits. Either the work
+        // was already shipped in a prior session (→ mark shipped) or the
+        // provider gave up (→ reject, not skip — skip causes PRIORITIZE to
+        // re-select the same item and loop forever).
+        const isEmptyBranch = /no commits ahead/i.test(err.message || '');
+        if (isEmptyBranch) {
+          const resolveEmptyBranch = () => {
+            let detection = null;
+            try {
+              const planPath = workItem?.origin?.plan_path || null;
+              const planContent = planPath && fs.existsSync(planPath)
+                ? fs.readFileSync(planPath, 'utf8')
+                : '';
+              const { createShippedDetector } = require('./shipped-detector');
+              const detector = createShippedDetector({ repoRoot: project.path });
+              detection = detector.detectShipped({ content: planContent, title: workItem.title });
+            } catch (detErr) {
+              logger.debug('empty-branch shipped-detector error', { err: detErr.message });
+            }
+
+            const sharedOutcome = {
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+              worktree_id: worktreeRecord.vcWorktreeId,
+              factory_worktree_id: worktreeRecord.id,
+              error: err.message,
+              detection: detection ? {
+                shipped: detection.shipped,
+                confidence: detection.confidence,
+                signals: detection.signals,
+              } : null,
+            };
+
+            if (detection && detection.shipped) {
+              factoryIntake.updateWorkItem(workItem.id, { status: 'shipped' });
+              rememberSelectedWorkItem(
+                instance.id,
+                factoryIntake.getWorkItemForProject(project_id, workItem.id, { includeClosed: true })
+              );
+              factoryIntake.releaseClaimForInstance(instance.id);
+              safeLogDecision({
+                project_id,
+                stage: LOOP_STATES.LEARN,
+                action: 'auto_shipped_empty_branch',
+                reasoning: `Merge failed (no commits ahead) but shipped-detector found matching evidence on main (${detection.confidence} confidence). Marking shipped instead of leaving the loop stuck.`,
+                inputs: {
+                  batch_id: batch_id || null,
+                  resolution_source: resolutionSource,
+                },
+                outcome: { ...sharedOutcome, work_item_id: workItem.id },
+                confidence: 1,
+                batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+              });
+              return {
+                status: 'passed',
+                reason: 'auto_shipped_empty_branch',
+                work_item_id: workItem.id,
+              };
+            }
+
+            // No ship evidence → reject so PRIORITIZE doesn't re-select the
+            // same item and loop forever. Operator can reopen if needed.
+            factoryIntake.updateWorkItem(workItem.id, {
+              status: 'rejected',
+              reject_reason: 'empty_branch_after_execute',
+            });
+            factoryIntake.releaseClaimForInstance(instance.id);
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.LEARN,
+              action: 'auto_rejected_empty_branch',
+              reasoning: 'Merge failed (no commits ahead) and shipped-detector did not find matching evidence on main. Rejecting to prevent infinite re-entry.',
+              inputs: {
+                batch_id: batch_id || null,
+                resolution_source: resolutionSource,
+              },
+              outcome: { ...sharedOutcome, work_item_id: workItem.id },
+              confidence: 1,
+              batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+            });
+            return {
+              status: 'rejected',
+              reason: 'empty_branch_after_execute',
+              work_item_id: workItem.id,
+            };
+          };
+
+          try {
+            return resolveEmptyBranch();
+          } catch (resolveErr) {
+            logger.warn('empty-branch resolution failed; falling back to skipped', {
+              project_id,
+              err: resolveErr.message,
+            });
+            // fall through to the original leave-open path below
+          }
+        }
+
         logger.warn('worktree merge failed; leaving work item open', {
           project_id,
           branch: worktreeRecord.branch,
