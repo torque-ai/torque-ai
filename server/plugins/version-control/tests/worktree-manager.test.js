@@ -106,7 +106,43 @@ describe('version-control worktree manager', () => {
     vi.useRealTimers();
     tempDirs = [];
     db = createDb();
-    execFileSyncMock = vi.fn().mockReturnValue('');
+    // Mock simulates enough of git's worktree machinery to satisfy the
+    // post-create verify (worktree-manager.js ~580-634) which walks:
+    //   - worktreePath exists and is non-empty
+    //   - worktreePath/.git is a REDIRECT FILE of the form
+    //     "gitdir: <resolved>" (not a directory)
+    //   - the resolved gitdir contains a HEAD file
+    //   - `git worktree list --porcelain` includes the worktreePath
+    // A plain mockReturnValue('') lies about git success without producing
+    // any of that, so the verify throws and the test fails. We track paths
+    // added during this test and echo them back for `worktree list`.
+    const addedWorktrees = [];
+    execFileSyncMock = vi.fn((cmd, args) => {
+      if (cmd === 'git' && Array.isArray(args) && args[0] === 'worktree' && args[1] === 'add') {
+        let worktreePath = null;
+        for (let i = 2; i < args.length; i++) {
+          const arg = args[i];
+          if (arg === '-b' || arg === '-B') { i += 1; continue; }
+          if (typeof arg !== 'string' || arg.startsWith('-')) continue;
+          if (arg.includes('/') || arg.includes('\\')) { worktreePath = arg; break; }
+        }
+        if (worktreePath) {
+          const fakeGitDir = path.join(worktreePath, '..', `.gitdir-${path.basename(worktreePath)}`);
+          try {
+            fs.mkdirSync(worktreePath, { recursive: true });
+            fs.mkdirSync(fakeGitDir, { recursive: true });
+            fs.writeFileSync(path.join(fakeGitDir, 'HEAD'), 'ref: refs/heads/main\n');
+            fs.writeFileSync(path.join(worktreePath, '.git'), `gitdir: ${fakeGitDir}\n`);
+            addedWorktrees.push(worktreePath);
+          } catch { /* best effort */ }
+        }
+        return '';
+      }
+      if (cmd === 'git' && Array.isArray(args) && args[0] === 'worktree' && args[1] === 'list') {
+        return addedWorktrees.map((wt) => `worktree ${wt}\n`).join('') || '';
+      }
+      return '';
+    });
     childProcess.execFileSync = execFileSyncMock;
     manager = loadManager(db);
   });
