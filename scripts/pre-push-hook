@@ -67,9 +67,14 @@ echo "[pre-push] Running dashboard tests on remote..."
 # waitFor-timeout flakes (seen on ErrorBoundary.test under factory load).
 # Remote has consistent headroom and already runs the server suite — match
 # that path so both test runs share an env.
-cd "$REPO_ROOT/dashboard"
+#
+# IMPORTANT: torque-remote runs commands from the remote's project root,
+# not the local cwd. Embed `cd dashboard &&` inside the quoted command
+# so the remote shell changes dir before running the test runner;
+# otherwise vitest picks up the server suite too.
+cd "$REPO_ROOT"
 set +e
-dash_output=$(torque-remote npx vitest run --config vitest.config.js --reporter=dot 2>&1)
+dash_output=$(torque-remote "cd dashboard && npx vitest run --reporter=dot" 2>&1)
 dash_exit=$?
 set -e
 echo "$dash_output" | tail -5
