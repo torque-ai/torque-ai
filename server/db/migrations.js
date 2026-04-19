@@ -671,6 +671,25 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS registered_repos',
     ].join('; '),
   },
+  {
+    version: 28,
+    name: 'add_factory_scout_findings_intake',
+    up: [
+      'CREATE TABLE IF NOT EXISTS factory_scout_findings_intake (',
+      '  project_id TEXT NOT NULL,',
+      '  scan_path TEXT NOT NULL,',
+      '  finding_hash TEXT NOT NULL,',
+      '  work_item_id INTEGER NOT NULL REFERENCES factory_work_items(id) ON DELETE CASCADE,',
+      '  created_at TEXT NOT NULL,',
+      '  PRIMARY KEY (project_id, scan_path, finding_hash)',
+      ');',
+      'CREATE INDEX IF NOT EXISTS idx_factory_scout_findings_project ON factory_scout_findings_intake(project_id);',
+    ].join('\n'),
+    down: [
+      'DROP INDEX IF EXISTS idx_factory_scout_findings_project;',
+      'DROP TABLE IF EXISTS factory_scout_findings_intake;',
+    ].join('\n'),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
