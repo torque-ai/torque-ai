@@ -324,6 +324,13 @@ for (const mod of HANDLER_MODULES) {
   }
 }
 
+if (routeMap.has('set_api_key')) {
+  routeMap.set('set_provider_api_key', routeMap.get('set_api_key'));
+}
+if (routeMap.has('clear_api_key')) {
+  routeMap.set('clear_provider_api_key', routeMap.get('clear_api_key'));
+}
+
 routeMap.set('get_adversarial_reviews', evidenceRiskHandlers.handleGetAdversarialReviews);
 routeMap.set('request_adversarial_review', evidenceRiskHandlers.handleRequestAdversarialReview);
 routeMap.set('compare_providers', comparisonHandlers.handleCompareProviders);

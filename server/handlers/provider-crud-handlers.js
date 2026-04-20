@@ -619,7 +619,10 @@ function getApiKeyStatus(provider) {
         const decrypted = decryptApiKey(row.api_key_encrypted);
         if (decrypted) return 'stored';
       }
-    } catch { /* table may not exist */ }
+    } catch (_error) {
+      void _error;
+      // Table may not exist in small fixtures.
+    }
   }
 
   return 'not_set';
@@ -653,11 +656,17 @@ function handleSetApiKey(args) {
   try {
     const { invalidateAdapterCache } = require('../providers/adapter-registry');
     if (typeof invalidateAdapterCache === 'function') invalidateAdapterCache(providerName);
-  } catch { /* best effort */ }
+  } catch (_error) {
+    void _error;
+    // Best-effort cache invalidation.
+  }
   try {
     const providerRegistry = require('../providers/registry');
     if (typeof providerRegistry.resetInstances === 'function') providerRegistry.resetInstances();
-  } catch { /* best effort */ }
+  } catch (_error) {
+    void _error;
+    // Best-effort cache invalidation.
+  }
 
   // Mark as validating and trigger async health check
   validatingProviders.set(providerName, Date.now());
@@ -678,7 +687,10 @@ function handleSetApiKey(args) {
   try {
     const { redactValue } = require('../utils/sensitive-keys');
     if (typeof redactValue === 'function') masked = redactValue(apiKey);
-  } catch { /* best effort */ }
+  } catch (_error) {
+    void _error;
+    // Best-effort redaction helper.
+  }
 
   const logger = require('../logger');
   logger.info(`API key set for provider ${providerName}`);
@@ -707,11 +719,17 @@ function handleClearApiKey(args) {
   try {
     const { invalidateAdapterCache } = require('../providers/adapter-registry');
     if (typeof invalidateAdapterCache === 'function') invalidateAdapterCache(providerName);
-  } catch { /* best effort */ }
+  } catch (_error) {
+    void _error;
+    // Best-effort cache invalidation.
+  }
   try {
     const providerRegistry = require('../providers/registry');
     if (typeof providerRegistry.resetInstances === 'function') providerRegistry.resetInstances();
-  } catch { /* best effort */ }
+  } catch (_error) {
+    void _error;
+    // Best-effort cache invalidation.
+  }
 
   const logger = require('../logger');
   logger.info(`API key cleared for provider ${providerName}`);

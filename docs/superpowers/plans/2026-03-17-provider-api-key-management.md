@@ -833,21 +833,21 @@ git commit -m "test: add provider API key management integration tests"
 
 ### Task 9: Final Verification
 
-- [ ] **Step 1: Run full server test suite**
+- [x] **Step 1: Run full server test suite**
 
 Run: `cd server && npx vitest run`
 Expected: All tests pass, no regressions
 
-- [ ] **Step 2: Run full dashboard test suite**
+- [x] **Step 2: Run full dashboard test suite**
 
 Run: `cd dashboard && npx vitest run`
 Expected: All tests pass
 
-- [ ] **Step 3: Build dashboard**
+- [x] **Step 3: Build dashboard**
 
 Run: `cd dashboard && npm run build`
 
-- [ ] **Step 4: Restart TORQUE and smoke test**
+- [x] **Step 4: Restart TORQUE and smoke test**
 
 1. Restart TORQUE
 2. Open dashboard Providers page
@@ -858,7 +858,7 @@ Run: `cd dashboard && npm run build`
 7. Click "Remove" — key cleared
 8. Verify via MCP: `set_provider_api_key { provider: "groq", api_key: "test" }`
 
-- [ ] **Step 5: Final commit**
+- [x] **Step 5: Final commit**
 
 ```bash
 git add -A
