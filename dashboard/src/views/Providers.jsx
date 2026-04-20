@@ -282,14 +282,14 @@ function ProviderRow({ provider, quota, sparkData, onToggle, onUpdateConcurrency
             </div>
           )}
           {isCloudProvider && (
-            <div className="pt-1">
+            <div className="mt-3 pt-3 border-t border-slate-700/50">
               {provider.api_key_status === 'env' && (
                 <div className="flex items-center gap-2">
                   <svg className="w-3 h-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                   </svg>
-                  <span className="text-xs text-green-400">Set via env</span>
-                  <code className="text-[10px] text-slate-500">{envVarName}</code>
+                  <span className="text-xs text-green-400">Set via environment</span>
+                  <code className="text-[10px] text-slate-500 ml-1">{envVarName}</code>
                 </div>
               )}
               {provider.api_key_status === 'stored' && !showKeyInput && (
@@ -297,7 +297,7 @@ function ProviderRow({ provider, quota, sparkData, onToggle, onUpdateConcurrency
                   <svg className="w-3 h-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                   </svg>
-                  <span className="text-xs text-slate-400 font-mono">{provider.api_key_masked || '\u2022\u2022\u2022\u2022\u2022\u2022'}</span>
+                  <span className="text-xs text-slate-400 font-mono">{provider.api_key_masked || '<redacted>'}</span>
                   <button onClick={(e) => { e.stopPropagation(); setShowKeyInput(true); }} className="text-xs text-blue-400 hover:text-blue-300 ml-auto">Change</button>
                   <button onClick={async (e) => { e.stopPropagation(); await onClearApiKey?.(provider.provider); }} className="text-xs text-red-400 hover:text-red-300">Remove</button>
                 </div>
@@ -307,7 +307,7 @@ function ProviderRow({ provider, quota, sparkData, onToggle, onUpdateConcurrency
                   <svg className="w-3 h-3 text-amber-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
-                  <span className="text-xs text-amber-400">Validating...</span>
+                  <span className="text-xs text-amber-400">Validating key...</span>
                 </div>
               )}
               {(provider.api_key_status === 'not_set' && !showKeyInput) && (
@@ -526,8 +526,8 @@ export default function Providers({ statsVersion, tasksTick }) {
 
   const handleSetApiKey = async (providerName, apiKey) => {
     try {
-      await providersApi.setApiKey(providerName, apiKey);
-      addToast.success('API key saved — validating...');
+      await providerCrud.setApiKey(providerName, apiKey);
+      addToast.success('API key saved');
       loadData();
       // Re-fetch after health check has time to complete
       setTimeout(() => { if (mountedRef.current) loadData(); }, 5000);
@@ -539,7 +539,7 @@ export default function Providers({ statsVersion, tasksTick }) {
 
   const handleClearApiKey = async (providerName) => {
     try {
-      await providersApi.clearApiKey(providerName);
+      await providerCrud.clearApiKey(providerName);
       addToast.success('API key cleared');
       loadData();
     } catch (err) {

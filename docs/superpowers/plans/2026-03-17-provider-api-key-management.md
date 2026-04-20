@@ -36,7 +36,7 @@
 - Modify: `server/handlers/provider-crud-handlers.js`
 - Create: `server/tests/provider-api-key.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `server/tests/provider-api-key.test.js`:
 
@@ -99,12 +99,12 @@ describe('provider API key encryption helpers', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd server && npx vitest run tests/provider-api-key.test.js`
 Expected: Failures — `encryptApiKey` and `decryptApiKey` not yet exported
 
-- [ ] **Step 3: Add encrypt/decrypt helpers to provider-crud-handlers.js**
+- [x] **Step 3: Add encrypt/decrypt helpers to provider-crud-handlers.js**
 
 At the top of `server/handlers/provider-crud-handlers.js`, add the require (after existing requires):
 
@@ -148,12 +148,12 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd server && npx vitest run tests/provider-api-key.test.js`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/handlers/provider-crud-handlers.js server/tests/provider-api-key.test.js
@@ -168,7 +168,7 @@ git commit -m "feat: add encryptApiKey/decryptApiKey helpers with tests"
 - Modify: `server/config.js`
 - Modify: `server/tests/provider-api-key.test.js`
 
-- [ ] **Step 1: Add tests for getApiKey resolution**
+- [x] **Step 1: Add tests for getApiKey resolution**
 
 Append to `server/tests/provider-api-key.test.js`:
 
@@ -231,7 +231,7 @@ describe('config.js getApiKey() with encrypted keys', () => {
 });
 ```
 
-- [ ] **Step 2: Update config.js getApiKey()**
+- [x] **Step 2: Update config.js getApiKey()**
 
 In `server/config.js`, modify `getApiKey()` to add encrypted key resolution between env var and config table:
 
@@ -272,12 +272,12 @@ function getApiKey(provider) {
 
 Note: `db.getProvider` may not exist in `config.js`'s scope. Check how `db` is initialized — it's set via `config.init({ db })`. Read the file to see if `db.getProvider` is available or if you need to query the DB directly. If `db` is the database module, use `db.getProvider(provider)`. If it's a raw SQLite instance, use `db.prepare('SELECT api_key_encrypted FROM provider_config WHERE provider = ?').get(provider)`.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `cd server && npx vitest run tests/provider-api-key.test.js`
 Expected: All tests PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/config.js server/tests/provider-api-key.test.js
@@ -292,7 +292,7 @@ git commit -m "feat: getApiKey resolves encrypted keys from provider_config"
 - Modify: `server/handlers/provider-crud-handlers.js`
 - Modify: `server/tool-defs/provider-crud-defs.js`
 
-- [ ] **Step 1: Add handleSetApiKey and handleClearApiKey**
+- [x] **Step 1: Add handleSetApiKey and handleClearApiKey**
 
 In `server/handlers/provider-crud-handlers.js`, add two new handler functions before `module.exports`:
 
@@ -441,7 +441,7 @@ Also update `handleAddProvider` to encrypt the `api_key` parameter. Find line 34
         apiKey ? encryptApiKey(apiKey) : null,
 ```
 
-- [ ] **Step 2: Add MCP tool definitions**
+- [x] **Step 2: Add MCP tool definitions**
 
 Append to the array in `server/tool-defs/provider-crud-defs.js`:
 
@@ -471,7 +471,7 @@ Append to the array in `server/tool-defs/provider-crud-defs.js`:
   },
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/handlers/provider-crud-handlers.js server/tool-defs/provider-crud-defs.js
@@ -486,7 +486,7 @@ git commit -m "feat: add set/clear API key handlers with encryption and async va
 - Modify: `server/api/routes.js`
 - Modify: `server/api/v2-dispatch.js`
 
-- [ ] **Step 1: Add routes**
+- [x] **Step 1: Add routes**
 
 In `server/api/routes.js`, near the existing provider CRUD routes (around the `handleV2CpAddProvider` and `handleV2CpRemoveProvider` routes), add:
 
@@ -497,7 +497,7 @@ In `server/api/routes.js`, near the existing provider CRUD routes (around the `h
 
 Use the regex pattern + `mapParams` convention that existing routes use (check nearby routes for the exact pattern — look at how `handleV2CpGetRoutingTemplate` is registered for reference).
 
-- [ ] **Step 2: Add dispatch handlers**
+- [x] **Step 2: Add dispatch handlers**
 
 In `server/api/v2-dispatch.js`, add to `V2_CP_HANDLER_LOOKUP` (after the existing provider CRUD handlers around line 131):
 
@@ -529,7 +529,7 @@ Follow the existing `handleV2CpAddProvider`/`handleV2CpRemoveProvider` pattern e
 
 `throwToolResultError` and `unwrapToolResult` are already defined in `v2-dispatch.js`. The outer error handler catches thrown errors and sends the proper HTTP error response with status codes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/api/routes.js server/api/v2-dispatch.js
@@ -543,7 +543,7 @@ git commit -m "feat: add REST routes for provider API key set/clear"
 **Files:**
 - Modify: `server/api/v2-governance-handlers.js`
 
-- [ ] **Step 1: Enrich handleListProviders response**
+- [x] **Step 1: Enrich handleListProviders response**
 
 In `server/api/v2-governance-handlers.js`, find `handleListProviders` (line 639). In the `providers.map(p => { ... })` block, after the stats enrichment, add key status fields:
 
@@ -580,7 +580,7 @@ Add `api_key_status` and `api_key_masked` to the returned object:
       };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add server/api/v2-governance-handlers.js
@@ -594,7 +594,7 @@ git commit -m "feat: enrich provider list with api_key_status and api_key_masked
 **Files:**
 - Modify: `dashboard/src/api.js`
 
-- [ ] **Step 1: Add API functions**
+- [x] **Step 1: Add API functions**
 
 Read `dashboard/src/api.js` and find the existing `providers` export (or `providerCrud` export). Add two new methods. Use the existing `requestV2` helper (same pattern as routing templates API):
 
@@ -607,7 +607,7 @@ Read `dashboard/src/api.js` and find the existing `providers` export (or `provid
 
 Check how the existing provider API is structured — the methods might be on `providers` or `providerCrud`. Add to whichever object the Providers.jsx page imports.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add dashboard/src/api.js
@@ -621,7 +621,7 @@ git commit -m "feat: add provider API key management client functions"
 **Files:**
 - Modify: `dashboard/src/views/Providers.jsx`
 
-- [ ] **Step 1: Add key management to ProviderCard**
+- [x] **Step 1: Add key management to ProviderCard**
 
 This is the largest UI change. Read `dashboard/src/views/Providers.jsx` and modify the `ProviderCard` component.
 
@@ -734,11 +734,11 @@ const handleClearApiKey = async (providerName) => {
 
 Pass `onSetApiKey={handleSetApiKey}` and `onClearApiKey={handleClearApiKey}` to each `ProviderCard`.
 
-- [ ] **Step 2: Build dashboard**
+- [x] **Step 2: Build dashboard**
 
 Run: `cd dashboard && npm run build`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add dashboard/src/views/Providers.jsx dashboard/src/api.js
@@ -752,7 +752,7 @@ git commit -m "feat: add inline API key management to provider cards"
 **Files:**
 - Create: `server/tests/provider-api-key-integration.test.js`
 
-- [ ] **Step 1: Write integration tests**
+- [x] **Step 1: Write integration tests**
 
 Create `server/tests/provider-api-key-integration.test.js` using `setupTestDb`:
 
@@ -817,12 +817,12 @@ describe('provider API key management integration', () => {
 });
 ```
 
-- [ ] **Step 2: Run all tests**
+- [x] **Step 2: Run all tests**
 
 Run: `cd server && npx vitest run tests/provider-api-key.test.js tests/provider-api-key-integration.test.js`
 Expected: All tests PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/tests/provider-api-key-integration.test.js
@@ -833,21 +833,21 @@ git commit -m "test: add provider API key management integration tests"
 
 ### Task 9: Final Verification
 
-- [ ] **Step 1: Run full server test suite**
+- [x] **Step 1: Run full server test suite**
 
 Run: `cd server && npx vitest run`
 Expected: All tests pass, no regressions
 
-- [ ] **Step 2: Run full dashboard test suite**
+- [x] **Step 2: Run full dashboard test suite**
 
 Run: `cd dashboard && npx vitest run`
 Expected: All tests pass
 
-- [ ] **Step 3: Build dashboard**
+- [x] **Step 3: Build dashboard**
 
 Run: `cd dashboard && npm run build`
 
-- [ ] **Step 4: Restart TORQUE and smoke test**
+- [x] **Step 4: Restart TORQUE and smoke test**
 
 1. Restart TORQUE
 2. Open dashboard Providers page
@@ -858,7 +858,7 @@ Run: `cd dashboard && npm run build`
 7. Click "Remove" — key cleared
 8. Verify via MCP: `set_provider_api_key { provider: "groq", api_key: "test" }`
 
-- [ ] **Step 5: Final commit**
+- [x] **Step 5: Final commit**
 
 ```bash
 git add -A

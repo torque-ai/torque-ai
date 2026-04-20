@@ -202,6 +202,19 @@ export const tasks = {
 
 // ─── Provider endpoints (v2 for list/stats/trends/toggle) ───────────────────
 
+const setProviderApiKey = (provider, apiKey, opts = {}) =>
+  requestV2(`/providers/${encodeURIComponent(provider)}/api-key`, {
+    method: 'PUT',
+    body: JSON.stringify({ api_key: apiKey }),
+    ...opts,
+  });
+
+const clearProviderApiKey = (provider, opts = {}) =>
+  requestV2(`/providers/${encodeURIComponent(provider)}/api-key`, {
+    method: 'DELETE',
+    ...opts,
+  });
+
 export const providers = {
   list: () => requestV2('/providers').then(d => d.items || d.providers || d),
   stats: (id, days = 7) => requestV2(`/providers/${id}/stats?days=${days}`),
@@ -211,10 +224,8 @@ export const providers = {
     method: 'POST',
     body: JSON.stringify({ enabled }),
   }),
-  setApiKey: (provider, apiKey, opts = {}) =>
-    requestV2(`/providers/${encodeURIComponent(provider)}/api-key`, { method: 'PUT', body: JSON.stringify({ api_key: apiKey }), ...opts }),
-  clearApiKey: (provider, opts = {}) =>
-    requestV2(`/providers/${encodeURIComponent(provider)}/api-key`, { method: 'DELETE', ...opts }),
+  setApiKey: setProviderApiKey,
+  clearApiKey: clearProviderApiKey,
 };
 
 // ─── Stats endpoints (all v2) ───────────────────────────────────────────────
@@ -327,6 +338,8 @@ export const providerCrud = {
   remove: (provider, confirm) => requestV2('/providers/remove', {
     method: 'POST', body: JSON.stringify({ provider, confirm }),
   }),
+  setApiKey: setProviderApiKey,
+  clearApiKey: clearProviderApiKey,
 };
 
 // ─── Peek host endpoints (v2 for list/create/delete/toggle) ─────────────────

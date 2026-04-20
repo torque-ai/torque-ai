@@ -596,7 +596,9 @@ const API_KEY_ENV_VARS = {
   hyperbolic: 'HYPERBOLIC_API_KEY', codex: 'OPENAI_API_KEY',
 };
 
-function getApiKeyStatus(providerName) {
+function getApiKeyStatus(provider) {
+  const providerName = typeof provider === 'object' && provider !== null ? provider.provider : provider;
+
   // Check validation timeout
   const validatingTs = validatingProviders.get(providerName);
   if (validatingTs && (Date.now() - validatingTs) < VALIDATION_TIMEOUT_MS) {
@@ -617,7 +619,10 @@ function getApiKeyStatus(providerName) {
         const decrypted = decryptApiKey(row.api_key_encrypted);
         if (decrypted) return 'stored';
       }
-    } catch { /* table may not exist */ }
+    } catch (_error) {
+      void _error;
+      // Table may not exist in small fixtures.
+    }
   }
 
   return 'not_set';
@@ -651,11 +656,17 @@ function handleSetApiKey(args) {
   try {
     const { invalidateAdapterCache } = require('../providers/adapter-registry');
     if (typeof invalidateAdapterCache === 'function') invalidateAdapterCache(providerName);
-  } catch { /* best effort */ }
+  } catch (_error) {
+    void _error;
+    // Best-effort cache invalidation.
+  }
   try {
     const providerRegistry = require('../providers/registry');
     if (typeof providerRegistry.resetInstances === 'function') providerRegistry.resetInstances();
-  } catch { /* best effort */ }
+  } catch (_error) {
+    void _error;
+    // Best-effort cache invalidation.
+  }
 
   // Mark as validating and trigger async health check
   validatingProviders.set(providerName, Date.now());
@@ -676,7 +687,10 @@ function handleSetApiKey(args) {
   try {
     const { redactValue } = require('../utils/sensitive-keys');
     if (typeof redactValue === 'function') masked = redactValue(apiKey);
-  } catch { /* best effort */ }
+  } catch (_error) {
+    void _error;
+    // Best-effort redaction helper.
+  }
 
   const logger = require('../logger');
   logger.info(`API key set for provider ${providerName}`);
@@ -684,6 +698,10 @@ function handleSetApiKey(args) {
   return {
     content: [{ type: 'text', text: JSON.stringify({ status: 'saved', masked, validating: true }) }],
   };
+}
+
+function handleSetProviderApiKey(args) {
+  return handleSetApiKey(args);
 }
 
 function handleClearApiKey(args) {
@@ -705,11 +723,17 @@ function handleClearApiKey(args) {
   try {
     const { invalidateAdapterCache } = require('../providers/adapter-registry');
     if (typeof invalidateAdapterCache === 'function') invalidateAdapterCache(providerName);
-  } catch { /* best effort */ }
+  } catch (_error) {
+    void _error;
+    // Best-effort cache invalidation.
+  }
   try {
     const providerRegistry = require('../providers/registry');
     if (typeof providerRegistry.resetInstances === 'function') providerRegistry.resetInstances();
-  } catch { /* best effort */ }
+  } catch (_error) {
+    void _error;
+    // Best-effort cache invalidation.
+  }
 
   const logger = require('../logger');
   logger.info(`API key cleared for provider ${providerName}`);
@@ -719,12 +743,18 @@ function handleClearApiKey(args) {
   };
 }
 
+function handleClearProviderApiKey(args) {
+  return handleClearApiKey(args);
+}
+
 function createProviderCrudHandlers() {
   return {
     handleAddProvider,
     handleRemoveProvider,
     handleSetApiKey,
+    handleSetProviderApiKey,
     handleClearApiKey,
+    handleClearProviderApiKey,
     encryptApiKey,
     decryptApiKey,
     getApiKeyStatus,
@@ -736,7 +766,9 @@ module.exports = {
   handleAddProvider,
   handleRemoveProvider,
   handleSetApiKey,
+  handleSetProviderApiKey,
   handleClearApiKey,
+  handleClearProviderApiKey,
   encryptApiKey,
   decryptApiKey,
   getApiKeyStatus,
