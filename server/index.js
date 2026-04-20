@@ -1065,6 +1065,17 @@ function init() {
     logger.warn(`[startup] provider-scoring wiring failed: ${err.message}`);
   }
 
+  // Config → registry migration. Previously sat inside container.js's dead
+  // `initModules()` helper (removed alongside its sibling registrations). The
+  // migration is idempotent per its own doc — safe to call on every startup.
+  try {
+    const { migrateConfigToRegistry } = require('./discovery/config-migrator');
+    migrateConfigToRegistry(db);
+    logger.info('[startup] config-to-registry migration complete');
+  } catch (err) {
+    logger.warn(`[startup] config-to-registry migration failed (non-fatal): ${err.message}`);
+  }
+
   // Backfill artifact index for pre-existing run dirs. The run-scoped-artifacts
   // feature was shipped with its container registration buried in a legacy init
   // path that never ran, so nothing was indexed on finalization. indexFiles is
@@ -1245,7 +1256,11 @@ function init() {
       const cloneWithResumeContext = shouldCloneStartupOrphan(task);
       const startedAt = task.started_at ? new Date(task.started_at).getTime() : 0;
       const runningTime = now - startedAt;
-      const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
+      // `??` preserves timeout_minutes === 0 ("no timeout" opt-in). With 0,
+      // timeoutMs is 0 and the Math.max below falls back to GRACE_PERIOD_MS —
+      // so unbounded tasks still get requeued after the grace period but are
+      // not force-reaped at an implicit 30-minute mark.
+      const timeoutMs = (task.timeout_minutes ?? 30) * 60 * 1000;
 
       if (!task.mcp_instance_id) {
         if (cloneWithResumeContext) {
