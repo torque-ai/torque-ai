@@ -486,7 +486,7 @@ git commit -m "feat: add set/clear API key handlers with encryption and async va
 - Modify: `server/api/routes.js`
 - Modify: `server/api/v2-dispatch.js`
 
-- [ ] **Step 1: Add routes**
+- [x] **Step 1: Add routes**
 
 In `server/api/routes.js`, near the existing provider CRUD routes (around the `handleV2CpAddProvider` and `handleV2CpRemoveProvider` routes), add:
 
@@ -497,7 +497,7 @@ In `server/api/routes.js`, near the existing provider CRUD routes (around the `h
 
 Use the regex pattern + `mapParams` convention that existing routes use (check nearby routes for the exact pattern — look at how `handleV2CpGetRoutingTemplate` is registered for reference).
 
-- [ ] **Step 2: Add dispatch handlers**
+- [x] **Step 2: Add dispatch handlers**
 
 In `server/api/v2-dispatch.js`, add to `V2_CP_HANDLER_LOOKUP` (after the existing provider CRUD handlers around line 131):
 
@@ -529,7 +529,7 @@ Follow the existing `handleV2CpAddProvider`/`handleV2CpRemoveProvider` pattern e
 
 `throwToolResultError` and `unwrapToolResult` are already defined in `v2-dispatch.js`. The outer error handler catches thrown errors and sends the proper HTTP error response with status codes.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/api/routes.js server/api/v2-dispatch.js
