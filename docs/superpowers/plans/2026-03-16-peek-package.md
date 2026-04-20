@@ -139,9 +139,9 @@ git commit -m "feat(peek): HTTP server, router with 501 stubs, health endpoint, 
 **Files:**
 - Create: `packages/peek/src/platform/base.js`
 
-- [ ] **Step 1: Write base adapter** — abstract class with all interface methods throwing "Not implemented on this platform". Include shared helpers: `execTool(command, args, opts)` wrapping `execFileSync` safely (no shell), `openUrl(url)` using platform-specific commands via `execFile`, `launchProcess(opts)` using `child_process.spawn`. All child_process calls use `execFile`/`execFileSync` with argument arrays, never `exec` with string interpolation.
+- [x] **Step 1: Write base adapter** — abstract class with all interface methods throwing "Not implemented on this platform". Include shared helpers: `execTool(command, args, opts)` wrapping `execFileSync` safely (no shell), `openUrl(url)` using platform-specific commands via `execFile`, `launchProcess(opts)` using `child_process.spawn`. All child_process calls use `execFile`/`execFileSync` with argument arrays, never `exec` with string interpolation.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add packages/peek/src/platform/base.js
