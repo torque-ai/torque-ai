@@ -5,6 +5,7 @@ import {
   LOOP_STAGES,
   STATUS_DOT_STYLES,
   TRUST_BADGE_STYLES,
+  BADGE_FALLBACK_STYLE,
   formatBalance,
   formatImpactValue,
   formatLabel,
@@ -12,6 +13,37 @@ import {
   getScoreBarClass,
   truncateText,
 } from './utils';
+
+const FACTORY_ALERT_BADGE_LABELS = {
+  VERIFY_FAIL_STREAK: 'Verify failures',
+  FACTORY_STALLED: 'Factory stalled',
+  FACTORY_IDLE: 'Factory idle',
+};
+
+const FACTORY_ALERT_BADGE_STYLES = {
+  VERIFY_FAIL_STREAK: 'border-rose-500/40 bg-rose-500/10 text-rose-200',
+  FACTORY_STALLED: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
+  FACTORY_IDLE: 'border-sky-500/40 bg-sky-500/10 text-sky-200',
+};
+
+function getFactoryAlertBadge(alertBadge) {
+  if (!alertBadge || typeof alertBadge !== 'object' || alertBadge.active === false) {
+    return null;
+  }
+
+  const alertKey = String(alertBadge.alert_key || '').trim();
+  const alertType = String(alertBadge.alert_type || '').trim().toUpperCase();
+  if (!alertKey || !alertType) {
+    return null;
+  }
+
+  return {
+    alertKey,
+    alertType,
+    label: FACTORY_ALERT_BADGE_LABELS[alertType] || alertBadge.label || formatLabel(alertType),
+    style: FACTORY_ALERT_BADGE_STYLES[alertType] || BADGE_FALLBACK_STYLE,
+  };
+}
 
 export function StatusDot({ status }) {
   return (
@@ -55,6 +87,7 @@ export function DimensionBar({ dimension, score }) {
 export function ProjectCard({ project, selected, busy, onSelect, onToggle, activity }) {
   const actionLabel = project.status === 'running' ? 'Pause' : 'Resume';
   const weakest = project.weakest_dimension;
+  const alertBadge = getFactoryAlertBadge(project.alert_badge);
 
   return (
     <div
@@ -82,6 +115,15 @@ export function ProjectCard({ project, selected, busy, onSelect, onToggle, activ
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <TrustBadge level={project.trust_level} />
+            {alertBadge && (
+              <span
+                className={`inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${alertBadge.style}`}
+                title={alertBadge.alertKey}
+                aria-label={`Factory alert: ${alertBadge.label}`}
+              >
+                {alertBadge.label}
+              </span>
+            )}
             {activity?.recentCount > 0 && (
               <span className="inline-flex items-center rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 text-xs font-medium text-indigo-200">
                 {activity.recentCount} recent

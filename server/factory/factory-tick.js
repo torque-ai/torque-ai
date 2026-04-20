@@ -17,6 +17,7 @@ const loopController = require('./loop-controller');
 const { detectStuckLoops } = require('./stuck-loop-detector');
 const { recoverStalledVerifyLoops } = require('./verify-stall-recovery');
 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
+const factoryNotifications = require('./notifications');
 const logger = require('../logger').child({ component: 'factory-tick' });
 
 const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -176,6 +177,38 @@ async function tickProject(project) {
       // Skip terminated or idle instances
       if (state === 'IDLE') continue;
 
+      // Skip paused-at-gate instances (need operator approval, not a tick).
+      // READY_FOR_* and paused EXECUTE still participate because the tick can
+      // either advance or recover those states.
+      const pausedAtGate = paused && !paused.startsWith('READY_FOR_') && paused !== 'EXECUTE';
+      if (pausedAtGate) continue;
+
+      try {
+        const stallAlert = factoryNotifications.recordFactoryTickState({
+          project_id: project.id,
+          project_status: latestProject.status,
+          stage: state,
+          paused_at_stage: paused,
+          instance_id: instance.id,
+          batch_id: instance.batch_id,
+          last_action_at: instance.last_action_at,
+        });
+        if (stallAlert.alerted) {
+          logger.warn('Factory tick emitted stalled alert', {
+            project_id: project.id,
+            instance_id: instance.id,
+            loop_state: state,
+            stalled_minutes: stallAlert.alert?.stalled_minutes,
+          });
+        }
+      } catch (alertErr) {
+        logger.debug('Factory tick stalled alert check failed', {
+          project_id: project.id,
+          instance_id: instance.id,
+          err: alertErr.message,
+        });
+      }
+
       // Recover stuck PAUSED-at-EXECUTE with empty batch: if the EXECUTE
       // stage paused (worktree failure, empty plan, etc.) but there are no
       // running or queued tasks for the batch, terminate and let the tick's
@@ -204,9 +237,6 @@ async function tickProject(project) {
           logger.debug('Factory tick: batch check failed', { err: checkErr.message });
         }
       }
-
-      // Skip paused-at-gate instances (need operator approval, not a tick)
-      if (paused && !paused.startsWith('READY_FOR_') && paused !== 'EXECUTE') continue;
 
       try {
         loopController.advanceLoopAsync(instance.id, { autoAdvance: true });

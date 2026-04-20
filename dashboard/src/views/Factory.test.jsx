@@ -181,4 +181,74 @@ describe('Factory overview', () => {
     });
     expect(screen.getAllByRole('button', { name: 'Pause' }).length).toBeGreaterThanOrEqual(1);
   });
+
+  it('renders keyed factory alert badges and ignores unkeyed alert payloads', () => {
+    const baseShell = useFactoryShell();
+    const alertProjects = [
+      {
+        ...factoryProject,
+        id: 'verify-alert',
+        name: 'Verify Alert',
+        alert_badge: {
+          alert_type: 'VERIFY_FAIL_STREAK',
+          alert_key: 'VERIFY_FAIL_STREAK|project:verify-alert',
+          active: true,
+        },
+      },
+      {
+        ...factoryProject,
+        id: 'stalled-alert',
+        name: 'Stalled Alert',
+        alert_badge: {
+          alert_type: 'FACTORY_STALLED',
+          alert_key: 'FACTORY_STALLED|project:stalled-alert',
+          active: true,
+        },
+      },
+      {
+        ...factoryProject,
+        id: 'idle-alert',
+        name: 'Idle Alert',
+        alert_badge: {
+          alert_type: 'FACTORY_IDLE',
+          alert_key: 'FACTORY_IDLE|project:idle-alert',
+          active: true,
+        },
+      },
+      {
+        ...factoryProject,
+        id: 'unkeyed-alert',
+        name: 'Unkeyed Alert',
+        alert_badge: {
+          alert_type: 'FACTORY_IDLE',
+          active: true,
+        },
+      },
+    ];
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      outletContext: {
+        ...baseShell.outletContext,
+        detail: {
+          ...baseShell.outletContext.detail,
+          project: alertProjects[0],
+        },
+        projects: alertProjects,
+        selectedProject: alertProjects[0],
+        selectedProjectId: alertProjects[0].id,
+      },
+      projects: alertProjects,
+      runningProjects: alertProjects.length,
+      totalProjects: alertProjects.length,
+    });
+
+    renderFactory();
+
+    expect(screen.getByLabelText('Factory alert: Verify failures')).toBeInTheDocument();
+    expect(screen.getByLabelText('Factory alert: Factory stalled')).toBeInTheDocument();
+    expect(screen.getByLabelText('Factory alert: Factory idle')).toBeInTheDocument();
+    expect(screen.getByText('Unkeyed Alert')).toBeInTheDocument();
+    expect(screen.getAllByText('Factory idle')).toHaveLength(1);
+  });
 });

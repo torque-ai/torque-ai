@@ -19,6 +19,7 @@ const factoryWorktrees = require('../db/factory-worktrees');
 const architectRunner = require('../factory/architect-runner');
 const guardrailRunner = require('../factory/guardrail-runner');
 const { logDecision } = require('./decision-log');
+const factoryNotifications = require('./notifications');
 const { createPlanFileIntake } = require('./plan-file-intake');
 const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
@@ -1538,11 +1539,22 @@ function safeLogDecision(entry) {
       factoryDecisions.setDb(db);
     }
 
-    return logDecision({
+    const decision = logDecision({
       ...entry,
       stage: normalizedStage,
       actor,
     });
+    try {
+      recordVerifyFailAlertDecision({ ...entry, stage: normalizedStage });
+    } catch (alertError) {
+      logger.warn('Failed to update factory VERIFY_FAIL alert state', {
+        err: alertError.message,
+        project_id: entry?.project_id,
+        stage: normalizedStage,
+        action: entry?.action,
+      });
+    }
+    return decision;
   } catch (error) {
     logger.warn(
       {
@@ -1554,6 +1566,64 @@ function safeLogDecision(entry) {
       'Failed to log factory decision'
     );
     return null;
+  }
+}
+
+function getDecisionInstanceId(entry) {
+  return entry?.outcome?.instance_id
+    || entry?.inputs?.instance_id
+    || entry?.instance_id
+    || null;
+}
+
+function isNonVerifyFailTerminalDecision(action) {
+  if (!action || action === 'auto_rejected_verify_fail') {
+    return false;
+  }
+  return action === 'worktree_verify_passed'
+    || action === 'verified_batch'
+    || action === 'shipped_work_item'
+    || action === 'cannot_generate_plan'
+    || action === 'dep_resolver_cascade_exhausted'
+    || action === 'dep_resolver_escalation_pause'
+    || action === 'verify_reviewed_baseline_broken'
+    || action === 'verify_reviewed_environment_failure'
+    || action.startsWith('auto_rejected_')
+    || action.startsWith('auto_quarantined_')
+    || action.startsWith('auto_shipped_');
+}
+
+function recordVerifyFailAlertDecision(entry) {
+  const action = typeof entry?.action === 'string' ? entry.action : '';
+  if (!entry?.project_id || !action) {
+    return;
+  }
+
+  if (action === 'auto_rejected_verify_fail') {
+    factoryNotifications.recordVerifyFailTerminalResult({
+      project_id: entry.project_id,
+      terminal_result: 'VERIFY_FAIL',
+      action,
+      auto_rejected: true,
+      work_item_id: entry?.outcome?.work_item_id ?? entry?.inputs?.work_item_id ?? null,
+      batch_id: entry?.batch_id || null,
+      instance_id: getDecisionInstanceId(entry),
+      reason: action,
+    });
+    return;
+  }
+
+  if (isNonVerifyFailTerminalDecision(action)) {
+    factoryNotifications.recordVerifyFailTerminalResult({
+      project_id: entry.project_id,
+      terminal_result: action,
+      action,
+      auto_rejected: false,
+      work_item_id: entry?.outcome?.work_item_id ?? entry?.inputs?.work_item_id ?? null,
+      batch_id: entry?.batch_id || null,
+      instance_id: getDecisionInstanceId(entry),
+      reason: action,
+    });
   }
 }
 
@@ -1743,6 +1813,67 @@ function tryGetLoopWorkItem(project_id, options = {}) {
   return null;
 }
 
+function countOpenWorkItems(project_id) {
+  try {
+    return factoryIntake.listOpenWorkItems({ project_id, limit: 1000 }).length;
+  } catch (error) {
+    logger.debug({ err: error.message, project_id }, 'Unable to count open work items for idle alert');
+    return 0;
+  }
+}
+
+function countRunningLoopItems(project_id) {
+  try {
+    return getActiveInstances(project_id)
+      .filter((activeInstance) => activeInstance && !activeInstance.terminated_at)
+      .filter((activeInstance) => {
+        try {
+          return getCurrentLoopState(activeInstance) !== LOOP_STATES.IDLE;
+        } catch {
+          return true;
+        }
+      }).length;
+  } catch (error) {
+    logger.debug({ err: error.message, project_id }, 'Unable to count active loop items for idle alert');
+    return 0;
+  }
+}
+
+function recordFactoryIdleIfExhausted(project_id, { last_action_at, reason } = {}) {
+  const pendingCount = countOpenWorkItems(project_id);
+  const runningCount = countRunningLoopItems(project_id);
+  const result = factoryNotifications.recordFactoryIdleState({
+    project_id,
+    pending_count: pendingCount,
+    running_count: runningCount,
+    has_pending_work: pendingCount > 0,
+    has_running_item: runningCount > 0,
+    last_action_at,
+    reason,
+  });
+
+  if (result.alerted) {
+    logger.warn('Factory idle alert emitted', {
+      project_id,
+      pending_count: pendingCount,
+      running_count: runningCount,
+      reason,
+    });
+  }
+
+  return result;
+}
+
+function clearFactoryIdleForPendingWork(project_id, pending_count = 1) {
+  factoryNotifications.recordFactoryIdleState({
+    project_id,
+    pending_count,
+    running_count: countRunningLoopItems(project_id),
+    has_pending_work: pending_count > 0,
+    has_running_item: true,
+  });
+}
+
 function healAlreadyShippedWorkItem(project_id, item) {
   // Self-heal: if an open work item already has a merged factory_worktrees
   // row, its EXECUTE batch shipped but the work-item status update didn't
@@ -1791,6 +1922,7 @@ function claimNextWorkItemForInstance(project_id, instance_id) {
   if (!Array.isArray(openItems) || openItems.length === 0) {
     return { openItems: [], workItem: null };
   }
+  clearFactoryIdleForPendingWork(project_id, openItems.length);
 
   // Pre-pass: heal any items whose worktrees already merged. These must not
   // be considered for PRIORITIZE — they already shipped; the EXECUTE was
@@ -5231,7 +5363,11 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             stage: LOOP_STATES.VERIFY,
             action: 'auto_rejected_verify_fail',
             reasoning: `Auto-rejected work item after ${retryAttempt} verify retries. Advancing to LEARN to process next item.`,
-            outcome: { work_item_id: instance?.work_item_id || null, retry_attempts: retryAttempt },
+            outcome: {
+              work_item_id: instance?.work_item_id || null,
+              instance_id: instance?.id || null,
+              retry_attempts: retryAttempt,
+            },
             confidence: 1,
             batch_id,
           });
@@ -5845,7 +5981,12 @@ async function runAdvanceLoop(instance_id) {
       // executeNextState defaults back to EXECUTE. The next tick will
       // re-enter SENSE and pick up new work if any exists.
       if (!targetItem) {
+        const lastActionAt = instance.last_action_at || null;
         terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: 'no_work_item_selected',
+        });
         return {
           project_id: project.id,
           instance_id: instance.id,
@@ -5872,7 +6013,12 @@ async function runAdvanceLoop(instance_id) {
           // If the stage asked to go to IDLE (e.g. cannot_generate_plan
           // auto-rejected the item), terminate and exit instead of pausing.
           if (generated.next_state === LOOP_STATES.IDLE) {
+            const lastActionAt = instance.last_action_at || null;
             terminateInstanceAndSync(instance.id);
+            recordFactoryIdleIfExhausted(project.id, {
+              last_action_at: lastActionAt,
+              reason: generated.reason || 'stop_execution_idle',
+            });
             return {
               project_id: project.id,
               instance_id: instance.id,
@@ -5919,7 +6065,12 @@ async function runAdvanceLoop(instance_id) {
 
       const executeNextState = executeStage?.next_state || LOOP_STATES.EXECUTE;
       if (executeNextState === LOOP_STATES.IDLE) {
+        const lastActionAt = instance.last_action_at || null;
         terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: transitionReason || 'execute_completed_idle',
+        });
         return {
           project_id: project.id,
           instance_id,
@@ -6006,7 +6157,12 @@ async function runAdvanceLoop(instance_id) {
           transitionReason = 'stage_occupied';
         }
       } else {
+        const lastActionAt = instance.last_action_at || null;
         terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: 'learn_completed',
+        });
         return {
           project_id: project.id,
           instance_id,
@@ -6724,6 +6880,8 @@ module.exports = {
   _internalForTests: {
     claimNextWorkItemForInstance,
     healAlreadyShippedWorkItem,
+    recordFactoryIdleIfExhausted,
+    clearFactoryIdleForPendingWork,
     awaitTaskToStructuredResult,
     lintAutoGeneratedPlan,
     parseAutoGeneratedPlanTasks,
