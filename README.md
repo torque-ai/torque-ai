@@ -36,6 +36,23 @@ Claude analyzes the task, calls TORQUE's `smart_submit_task` tool, and TORQUE se
 
 Claude creates a TORQUE workflow with two tasks, routes each to the appropriate provider, and monitors both simultaneously.
 
+## Optional: Visual Verification (Peek)
+
+TORQUE can inspect rendered UI through the optional `@torque-ai/peek` companion. Install it on the workstation whose display TORQUE should capture, then start the local Peek server:
+
+    npm install -g @torque-ai/peek
+    torque-peek check
+    torque-peek start
+
+By default, Peek binds to `127.0.0.1:9876`. When TORQUE can reach that host, tools such as `peek_ui`, `peek_diagnose`, and `peek_interact` can capture screenshots, read UI element trees, and send basic input events for visual verification.
+
+For a separate display host, expose Peek with a shared token and register the host in TORQUE:
+
+    torque-peek start --host 0.0.0.0 --token <shared-secret>
+    register_peek_host { name: "remote-display", url: "http://display-host:9876" }
+
+Use `--host 0.0.0.0` only for trusted remote display hosts, and pair it with `--token` so requests must include the matching Peek token.
+
 ## How It Works
 
 Claude Code talks to TORQUE through MCP (Model Context Protocol). The factory operates as an autonomous pipeline:
