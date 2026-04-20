@@ -121,10 +121,7 @@ describe('executeVerifyStage + dep-resolver integration', () => {
 
     const verify = vi.fn();
     for (const out of verifyOutputs) verify.mockResolvedValueOnce(out);
-    vi.spyOn(loopController, 'setWorktreeRunnerForTests').mockImplementation(() => {});
-    if (typeof loopController.setWorktreeRunnerForTests === 'function') {
-      loopController.setWorktreeRunnerForTests({ verify });
-    }
+    loopController.setWorktreeRunnerForTests({ verify });
 
     const reviewSpy = vi.spyOn(verifyReview, 'reviewVerifyFailure');
     for (const r of reviewOutputs) reviewSpy.mockResolvedValueOnce(r);
