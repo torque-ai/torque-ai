@@ -114,15 +114,15 @@ git commit -m "feat(peek): platform detection + dependency checking"
 - Create: `packages/peek/src/health.js`
 - Test: `packages/peek/tests/server.test.js`
 
-- [ ] **Step 1: Write test** — verify GET `/health` returns 200 with platform/capabilities/version, unimplemented Phase 2 endpoints return 501 with `{ success: false, error: "Not implemented" }`, unknown routes return 404, token auth rejects missing token with 401.
+- [x] **Step 1: Write test** — verify GET `/health` returns 200 with platform/capabilities/version, unimplemented Phase 2 endpoints return 501 with `{ success: false, error: "Not implemented" }`, unknown routes return 404, token auth rejects missing token with 401.
 
-- [ ] **Step 2: Write health.js** — builds health response from platform detection (cached). Returns `{ success, platform, capabilities, version, dependencies }`.
+- [x] **Step 2: Write health.js** — builds health response from platform detection (cached). Returns `{ success, platform, capabilities, version, dependencies }`.
 
-- [ ] **Step 3: Write router.js** — maps `METHOD /path` to handler functions. Phase 1 routes map to capability handlers. Phase 2 endpoints (`/elements`, `/wait`, `/ocr`, `/assert`, `/hit-test`, `/color`, `/table`, `/summary`, `/cdp`, `/diagnose`, `/semantic-diff`, `/action-sequence`) and Phase 3 endpoints (`/recovery/*`) return 501. Unknown routes return 404.
+- [x] **Step 3: Write router.js** — maps `METHOD /path` to handler functions. Phase 1 routes map to capability handlers. Phase 2 endpoints (`/elements`, `/wait`, `/ocr`, `/assert`, `/hit-test`, `/color`, `/table`, `/summary`, `/cdp`, `/diagnose`, `/semantic-diff`, `/action-sequence`) and Phase 3 endpoints (`/recovery/*`) return 501. Unknown routes return 404.
 
-- [ ] **Step 4: Write server.js** — HTTP server with: JSON body parsing, query string parsing, token auth check (`X-Peek-Token` header vs `--token` flag), PID file lifecycle (`~/.torque-peek/peek.pid`), graceful shutdown on SIGTERM/SIGINT (remove PID file, close server), `POST /shutdown` restricted to localhost.
+- [x] **Step 4: Write server.js** — HTTP server with: JSON body parsing, query string parsing, token auth check (`X-Peek-Token` header vs `--token` flag), PID file lifecycle (`~/.torque-peek/peek.pid`), graceful shutdown on SIGTERM/SIGINT (remove PID file, close server), `POST /shutdown` restricted to localhost.
 
-- [ ] **Step 5: Run tests, commit**
+- [x] **Step 5: Run tests, commit**
 
 ```bash
 cd packages/peek && npx vitest run tests/server.test.js
