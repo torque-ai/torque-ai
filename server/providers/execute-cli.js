@@ -172,7 +172,12 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
       effectiveTaskDescription,
       'codex',
       null,
-      { files: task.files, project: task.project, fileContext: resolvedFileContext }
+      {
+        files: task.files,
+        project: task.project,
+        fileContext: resolvedFileContext,
+        workingDirectory: opts.workingDirectoryOverride || task.working_directory,
+      }
     );
     const codexArgs = ['exec'];
 

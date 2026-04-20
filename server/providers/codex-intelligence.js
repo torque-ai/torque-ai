@@ -294,12 +294,18 @@ function buildCodexEnrichedPrompt(task, resolvedFiles, workingDir, enrichment) {
         taskTypeInstructions += _promptsModule.TASK_TYPE_INSTRUCTIONS[type];
       }
     }
-    // Always inject test-verification-lite for Codex — the orchestrator handles
-    // full suite verification post-task via torque-remote. Codex should only run
-    // targeted tests on specific files it created/modified to avoid hammering
-    // the local machine with 6+ parallel full suite runs.
-    if (_promptsModule.TASK_TYPE_INSTRUCTIONS['test-verification-lite']) {
-      taskTypeInstructions += _promptsModule.TASK_TYPE_INSTRUCTIONS['test-verification-lite'];
+    // Inject test-verification-lite for Codex ONLY when the working_directory
+    // looks like a JS project with a known test framework. The snippet mentions
+    // `npx vitest` / `npx tsc --noEmit` specifically; on non-JS projects (.NET,
+    // Rust, Go, Python) Codex can take it literally and scaffold a stray
+    // `server/vitest.config.mjs` + contract test, which then blocks the
+    // factory's worktree cleanup and stalls the loop.
+    const liteSnippet = _promptsModule.TASK_TYPE_INSTRUCTIONS['test-verification-lite'];
+    const shouldInjectLite = typeof _promptsModule.shouldInjectTestVerificationLite === 'function'
+      ? _promptsModule.shouldInjectTestVerificationLite(workingDir)
+      : true;
+    if (liteSnippet && shouldInjectLite) {
+      taskTypeInstructions += liteSnippet;
     }
 
     if (taskTypeInstructions) {

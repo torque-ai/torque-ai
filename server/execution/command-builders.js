@@ -167,7 +167,12 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
       effectiveTaskDescription,
       'codex',
       null,
-      { files: task.files, project: task.project, fileContext: resolvedFileContext }
+      {
+        files: task.files,
+        project: task.project,
+        fileContext: resolvedFileContext,
+        workingDirectory: task.working_directory,
+      }
     );
   }
 

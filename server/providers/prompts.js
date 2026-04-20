@@ -9,10 +9,66 @@
  * Uses init() dependency injection for database config access.
  */
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const logger = require('../logger').child({ component: 'prompts' });
 const serverConfig = require('../config');
 const { BASE_LLM_RULES } = require('../constants');
 const { getModelSizeCategory, isSmallModel } = require('../utils/model');
+
+const JS_TEST_FRAMEWORKS = new Set(['vitest', 'jest', 'mocha', 'ava', '@playwright/test']);
+
+/**
+ * Decide whether `test-verification-lite` is safe to inject.
+ *
+ * The snippet tells Codex to "run npx vitest ... / npx tsc --noEmit" to verify.
+ * When that is injected into a .NET / Rust / Go / plain Python task, Codex can
+ * take the instruction literally and scaffold a `server/vitest.config.mjs` + a
+ * `server/*.test.mjs` contract test inside a target repo that has never used
+ * vitest. Those stray files then block the factory's worktree cleanup ("has
+ * uncommitted changes — refusing to cleanup"), which stalls the loop.
+ *
+ * Rules:
+ *  - No workingDirectory provided → conservative default (true). Callers that
+ *    have no project context can't produce CWD-based contamination anyway.
+ *  - workingDirectory with a package.json that declares a JS test framework
+ *    (vitest/jest/mocha/ava) → true.
+ *  - workingDirectory that looks like a non-JS project (.csproj / Cargo.toml /
+ *    go.mod / pyproject.toml / requirements.txt) → false.
+ *  - Any unexpected I/O failure → conservative default (true).
+ *
+ * @param {string} [workingDir]
+ * @returns {boolean}
+ */
+function shouldInjectTestVerificationLite(workingDir) {
+  if (!workingDir) return true;
+  try {
+    const pkgPath = path.join(workingDir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+      return Object.keys(deps).some((name) => JS_TEST_FRAMEWORKS.has(name));
+    }
+    const nonJsMarkers = [
+      'Cargo.toml',
+      'go.mod',
+      'pyproject.toml',
+      'requirements.txt',
+    ];
+    for (const marker of nonJsMarkers) {
+      if (fs.existsSync(path.join(workingDir, marker))) return false;
+    }
+    if (fs.existsSync(path.join(workingDir, 'Directory.Build.props'))) return false;
+    const entries = fs.readdirSync(workingDir);
+    if (entries.some((name) => name.endsWith('.sln') || name.endsWith('.csproj'))) {
+      return false;
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
 
 const TIER_CONTEXT_CAPS = {
   small: 2048, // ~500 tokens — single file only
@@ -303,11 +359,18 @@ function wrapWithInstructions(taskDescription, provider, model, context = {}) {
     logger.info(`[Prompt] Adding cloud-model guidance for provider ${provider}`);
   }
 
-  // Codex/Codex-Spark: inject test-verification-lite when a remote workstation is configured
-  // or always (Codex shouldn't run full test suites — the orchestrator handles that post-task)
+  // Codex/Codex-Spark: inject test-verification-lite ONLY when the working_directory
+  // looks like a JS project with a known test framework. Injecting the vitest/tsc
+  // examples into .NET/Rust/Go/Python projects causes Codex to scaffold stray
+  // `server/vitest.config.mjs` + contract tests in the target repo, which then
+  // blocks the factory's worktree cleanup and stalls the loop.
   if (provider === 'codex' || provider === 'codex-spark') {
-    taskTypeInstructions += TASK_TYPE_INSTRUCTIONS['test-verification-lite'] || '';
-    logger.info(`[Prompt] Adding test-verification-lite for ${provider}`);
+    if (shouldInjectTestVerificationLite(context.workingDirectory)) {
+      taskTypeInstructions += TASK_TYPE_INSTRUCTIONS['test-verification-lite'] || '';
+      logger.info(`[Prompt] Adding test-verification-lite for ${provider}`);
+    } else {
+      logger.info(`[Prompt] Skipping test-verification-lite for ${provider} — non-JS project at ${context.workingDirectory}`);
+    }
   }
 
   // Tier-aware file context capping
@@ -347,5 +410,6 @@ module.exports = {
   DEFAULT_INSTRUCTION_TEMPLATES,
   detectTaskTypes,
   getInstructionTemplate,
+  shouldInjectTestVerificationLite,
   wrapWithInstructions,
 };
