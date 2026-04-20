@@ -545,6 +545,31 @@ describe('integration/infra handlers', () => {
       expectError(result, ErrorCodes.INVALID_PARAM.code, 'Destructive operation requires confirm: true');
     });
 
+    it('rejects restore paths that traverse outside the backups directory', async () => {
+      for (const srcPath of ['../outside.db', 'nested/../../outside.db']) {
+        const result = await handlers.handleRestoreDatabase({
+          src_path: srcPath,
+          confirm: true,
+        });
+
+        expectError(result, ErrorCodes.INVALID_PARAM.code, 'src_path must resolve to a path inside the backups directory');
+      }
+
+      expect(mocks.db.restoreDatabase).not.toHaveBeenCalled();
+    });
+
+    it('rejects absolute restore paths outside the backups directory', async () => {
+      const outsidePath = path.resolve(os.tmpdir(), 'torque-restore-outside.db');
+
+      const result = await handlers.handleRestoreDatabase({
+        src_path: outsidePath,
+        confirm: true,
+      });
+
+      expectError(result, ErrorCodes.INVALID_PARAM.code, 'src_path must resolve to a path inside the backups directory');
+      expect(mocks.db.restoreDatabase).not.toHaveBeenCalled();
+    });
+
     it('restores the database and reports the restore metadata', async () => {
       mocks.db.restoreDatabase.mockResolvedValue({
         restored_from: 'backup.db',

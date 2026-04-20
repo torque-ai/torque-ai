@@ -194,35 +194,35 @@ function handleBackupDatabase(args) {
 
 async function handleRestoreDatabase(args) {
   try {
-  
-  if (!args.src_path) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Source path is required');
-  }
+    if (!args.src_path) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'Source path is required');
+    }
 
-  if (args.confirm !== true) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'Destructive operation requires confirm: true (boolean)');
-  }
+    if (args.confirm !== true) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'Destructive operation requires confirm: true (boolean)');
+    }
 
-  const backupsDir = backupCore.getBackupsDir();
-  const resolvedSrc = path.resolve(backupsDir, args.src_path);
-  const rel = path.relative(backupsDir, resolvedSrc);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'src_path must resolve to a path inside the backups directory');
-  }
+    const backupsDir = path.resolve(backupCore.getBackupsDir());
+    const resolvedSrc = path.resolve(backupsDir, args.src_path);
+    const rel = path.relative(backupsDir, resolvedSrc);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'src_path must resolve to a path inside the backups directory');
+    }
 
-  try {
-    const result = await backupCore.restoreDatabase(resolvedSrc, args.confirm, { force: args.force === true });
-    let output = `## Database Restored\n\n`;
-    output += `**From:** ${result.restored_from}\n`;
-    output += `**At:** ${result.restored_at}\n`;
-    output += `\n> **Warning:** Server restart recommended after restore.\n`;
-    return { content: [{ type: 'text', text: output }] };
-  } catch (err) {
-    return makeError(ErrorCodes.OPERATION_FAILED, `Restore failed: ${err.message}`);
-  }
+    try {
+      const result = await backupCore.restoreDatabase(resolvedSrc, args.confirm, { force: args.force === true });
+      let output = `## Database Restored\n\n`;
+      output += `**From:** ${result.restored_from}\n`;
+      output += `**At:** ${result.restored_at}\n`;
+      output += `\n> **Warning:** Server restart recommended after restore.\n`;
+      return { content: [{ type: 'text', text: output }] };
+    } catch (err) {
+      return makeError(ErrorCodes.OPERATION_FAILED, `Restore failed: ${err.message}`);
+    }
   } catch (err) {
     return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
-  }}
+  }
+}
 
 function handleListDatabaseBackups(args) {
   try {
