@@ -3136,6 +3136,92 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
   };
 }
 
+async function handlePrioritizeTransition({ project, instance, currentState }) {
+  let transitionWorkItem = tryGetSelectedWorkItem(instance, project.id) || null;
+  let stageResult = null;
+  let transitionReason = null;
+
+  const prioritizeStage = executePrioritizeStage(project, instance, transitionWorkItem);
+  if (!prioritizeStage?.work_item) {
+    const idleInstance = updateInstanceAndSync(instance.id, {
+      loop_state: LOOP_STATES.IDLE,
+      paused_at_stage: null,
+      last_action_at: nowIso(),
+    });
+    safeLogDecision({
+      project_id: project.id,
+      stage: LOOP_STATES.PRIORITIZE,
+      action: 'short_circuit_to_idle',
+      reasoning: 'PRIORITIZE returned no work item; skipping PLAN and architect cycle',
+      outcome: { reason: 'no_open_work_item', from_state: currentState, to_state: LOOP_STATES.IDLE },
+      confidence: 1,
+      batch_id: getDecisionBatchId(project, null, null, idleInstance),
+    });
+    return {
+      instance: idleInstance,
+      transitionWorkItem: null,
+      stageResult: prioritizeStage?.stage_result || null,
+      transitionReason: 'no_open_work_item',
+      nextState: LOOP_STATES.IDLE,
+    };
+  }
+
+  transitionWorkItem = prioritizeStage.work_item || transitionWorkItem;
+  stageResult = prioritizeStage?.stage_result || null;
+  transitionReason = prioritizeStage?.reason || null;
+  instance = getInstanceOrThrow(instance.id);
+
+  const enterPlan = tryMoveInstanceToStage(instance, LOOP_STATES.PLAN, {
+    work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
+  });
+  if (enterPlan.blocked) {
+    instance = enterPlan.instance;
+    return {
+      instance,
+      transitionWorkItem,
+      stageResult,
+      transitionReason: 'stage_occupied',
+      nextState: getCurrentLoopState(instance),
+    };
+  }
+
+  instance = enterPlan.instance;
+  const planStage = await executePlanStage(project, instance, transitionWorkItem);
+  if (planStage?.stage_result) {
+    stageResult = planStage.stage_result;
+  }
+  if (planStage?.reason) {
+    transitionReason = planStage.reason;
+  }
+  if (planStage?.work_item) {
+    transitionWorkItem = planStage.work_item;
+  }
+  instance = getInstanceOrThrow(instance.id);
+
+  if (planStage?.skip_to_execute) {
+    const moveToExecute = tryMoveInstanceToStage(instance, LOOP_STATES.EXECUTE, {
+      work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
+    });
+    instance = moveToExecute.instance;
+    if (moveToExecute.blocked) {
+      transitionReason = 'stage_occupied';
+    }
+  } else if (getPendingGateStage(currentState, project.trust_level) === LOOP_STATES.PLAN) {
+    instance = updateInstanceAndSync(instance.id, {
+      paused_at_stage: LOOP_STATES.PLAN,
+      last_action_at: nowIso(),
+    });
+  }
+
+  return {
+    instance,
+    transitionWorkItem,
+    stageResult,
+    transitionReason,
+    nextState: getCurrentLoopState(instance),
+  };
+}
+
 async function executeNonPlanFileStage(project, instance, workItem) {
   const targetItem = workItem || getSelectedWorkItem(instance, project.id, {
     fallbackToLoopSelection: true,
@@ -5913,48 +5999,11 @@ async function runAdvanceLoop(instance_id) {
     }
 
     case LOOP_STATES.PRIORITIZE: {
-      const prioritizeStage = executePrioritizeStage(project, instance, transitionWorkItem);
-      transitionWorkItem = prioritizeStage?.work_item || transitionWorkItem;
-      stageResult = prioritizeStage?.stage_result || null;
-      transitionReason = prioritizeStage?.reason || null;
-      instance = getInstanceOrThrow(instance.id);
-
-      const enterPlan = tryMoveInstanceToStage(instance, LOOP_STATES.PLAN, {
-        work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
-      });
-      if (enterPlan.blocked) {
-        instance = enterPlan.instance;
-        transitionReason = 'stage_occupied';
-        break;
-      }
-
-      instance = enterPlan.instance;
-      const planStage = await executePlanStage(project, instance, transitionWorkItem);
-      if (planStage?.stage_result) {
-        stageResult = planStage.stage_result;
-      }
-      if (planStage?.reason) {
-        transitionReason = planStage.reason;
-      }
-      if (planStage?.work_item) {
-        transitionWorkItem = planStage.work_item;
-      }
-      instance = getInstanceOrThrow(instance.id);
-
-      if (planStage?.skip_to_execute) {
-        const moveToExecute = tryMoveInstanceToStage(instance, LOOP_STATES.EXECUTE, {
-          work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
-        });
-        instance = moveToExecute.instance;
-        if (moveToExecute.blocked) {
-          transitionReason = 'stage_occupied';
-        }
-      } else if (getPendingGateStage(currentState, project.trust_level) === LOOP_STATES.PLAN) {
-        instance = updateInstanceAndSync(instance.id, {
-          paused_at_stage: LOOP_STATES.PLAN,
-          last_action_at: nowIso(),
-        });
-      }
+      const outcome = await handlePrioritizeTransition({ project, instance, currentState });
+      instance = outcome.instance;
+      transitionWorkItem = outcome.transitionWorkItem ?? transitionWorkItem;
+      stageResult = outcome.stageResult ?? stageResult;
+      transitionReason = outcome.transitionReason ?? transitionReason;
       break;
     }
 
@@ -6897,5 +6946,7 @@ module.exports = {
     getAdvanceJobSnapshotForTests: (instance_id, job_id) => {
       return loopAdvanceJobs.get(getLoopAdvanceJobKey(instance_id, job_id)) || null;
     },
+    executePlanStage,
+    handlePrioritizeTransition,
   },
 };
