@@ -131,7 +131,11 @@ describe('attemptTaskStart preflight fail-fast — extended coverage', () => {
 
   test('error_output includes the preflight error code', () => {
     const id = randomUUID();
-    const missing = path.join(os.tmpdir(), 'pf-missing-' + Date.now());
+    // Use the sched-missing- prefix so the beforeEach statSync spy reports
+    // the directory as present for createTask's upfront validation but then
+    // ENOENT for attemptTaskStart's preflight — mirrors a WD that vanished
+    // between submission and scheduling.
+    const missing = path.join(os.tmpdir(), 'sched-missing-err-' + Date.now());
     taskCore.createTask({
       id,
       status: 'queued',
