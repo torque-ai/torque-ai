@@ -389,7 +389,7 @@ git commit -m "security: make TLS default for agent connections, warn on plainte
 - Modify: `server/db/backup-core.js`
 - Create: `server/tests/backup-integrity.test.js`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 ```js
 describe('backup integrity', () => {
@@ -412,7 +412,7 @@ describe('backup integrity', () => {
 });
 ```
 
-- [ ] **Step 2: Add hash generation to backupDatabase**
+- [x] **Step 2: Add hash generation to backupDatabase**
 
 After `fs.writeFileSync(backupPath, buffer)`:
 ```js
@@ -420,7 +420,7 @@ const hash = crypto.createHash('sha256').update(buffer).digest('hex');
 fs.writeFileSync(backupPath + '.sha256', hash, 'utf-8');
 ```
 
-- [ ] **Step 3: Add hash verification to restoreDatabase**
+- [x] **Step 3: Add hash verification to restoreDatabase**
 
 Before restoring:
 ```js
@@ -438,9 +438,9 @@ if (!force) {
 }
 ```
 
-- [ ] **Step 4: Verify on Omen**
+- [x] **Step 4: Verify on Omen**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: add SHA-256 integrity verification to backup/restore"
