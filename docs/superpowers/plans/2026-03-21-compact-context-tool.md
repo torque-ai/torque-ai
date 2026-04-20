@@ -20,7 +20,7 @@
 - Modify: `server/handlers/task/core.js:1296-1309` (add to module.exports)
 - Create: `server/tool-defs/context-defs.js`
 
-- [ ] **Step 1: Export getTaskInfoPressureLevel from task/core.js**
+- [x] **Step 1: Export getTaskInfoPressureLevel from task/core.js**
 
 In `server/handlers/task/core.js`, add `getTaskInfoPressureLevel` to the module.exports at line 1296:
 
@@ -42,7 +42,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Create tool definition**
+- [x] **Step 2: Create tool definition**
 
 Create `server/tool-defs/context-defs.js`:
 
@@ -73,7 +73,7 @@ module.exports = [
 ];
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/handlers/task/core.js server/tool-defs/context-defs.js
