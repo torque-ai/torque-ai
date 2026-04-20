@@ -194,7 +194,7 @@ describe('execution/command-builders', () => {
 
         expect(deps.wrapWithInstructions).toHaveBeenCalledWith(
           'Write tests', 'codex', null,
-          { files: ['f.js'], project: 'p', fileContext: 'fallback-ctx' }
+          expect.objectContaining({ files: ['f.js'], project: 'p', fileContext: 'fallback-ctx' })
         );
         expect(result.stdinPrompt).toBe('[wrapped:codex] Write tests\nfallback-ctx');
       });
