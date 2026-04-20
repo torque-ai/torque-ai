@@ -783,7 +783,7 @@ git push origin main
 **Files:**
 - Modify: `server/tests/context-handler.test.js` (add integration tests)
 
-- [ ] **Step 1: Add integration tests**
+- [x] **Step 1: Add integration tests**
 
 Add inside the outer describe block:
 
@@ -831,7 +831,7 @@ Add inside the outer describe block:
   });
 ```
 
-- [ ] **Step 2: Run all context-handler tests**
+- [x] **Step 2: Run all context-handler tests**
 
 ```bash
 git push origin main
@@ -839,14 +839,14 @@ torque-remote "cd server && npx vitest run tests/context-handler.test.js --repor
 ```
 Expected: All tests PASS
 
-- [ ] **Step 3: Run annotation + output schema tests for regressions**
+- [x] **Step 3: Run annotation + output schema tests for regressions**
 
 ```bash
 torque-remote "cd server && npx vitest run tests/tool-annotations.test.js tests/tool-output-schemas.test.js tests/context-handler.test.js --reporter verbose"
 ```
 Expected: All pass, no regressions
 
-- [ ] **Step 4: Verify tool appears in tools list**
+- [x] **Step 4: Verify tool appears in tools list**
 
 ```bash
 cd server && node -e "
@@ -859,7 +859,7 @@ console.log('  inputSchema properties:', Object.keys(tool.inputSchema?.propertie
 "
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/tests/context-handler.test.js

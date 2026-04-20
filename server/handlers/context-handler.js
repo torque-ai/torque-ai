@@ -377,7 +377,9 @@ function buildWorkflowContext(args) {
       if (meta._provider_switch_reason) {
         alerts.push(`Task ${nodeId} fell back: ${meta._provider_switch_reason}`);
       }
-    } catch { /* ignore parse errors */ }
+    } catch {
+      alerts.push(`Task ${nodeId} metadata parse failed`);
+    }
   }
 
   const ctx = {
