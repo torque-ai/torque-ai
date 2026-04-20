@@ -94,11 +94,11 @@ git commit -m "feat(peek): initialize @torque-ai/peek package scaffold"
 - Create: `packages/peek/src/platform/detect.js`
 - Test: `packages/peek/tests/platform-detect.test.js`
 
-- [ ] **Step 1: Write test** — verify `detectPlatform()` returns platform + adapter name, `checkDependencies()` returns ok/available/missing arrays, `getCapabilities()` maps available tools to capability names.
+- [x] **Step 1: Write test** — verify `detectPlatform()` returns platform + adapter name, `checkDependencies()` returns ok/available/missing arrays, `getCapabilities()` maps available tools to capability names.
 
-- [ ] **Step 2: Implement detect.js** — detect OS via `os.platform()`, define per-platform tool requirements (win32: powershell, darwin: screencapture + osascript, linux: xdotool + maim/import), check availability via `execFileSync('which', [tool])` (Unix) or `execFileSync('where', [tool])` (Windows). Report capabilities based on what's available.
+- [x] **Step 2: Implement detect.js** — detect OS via `os.platform()`, define per-platform tool requirements (win32: powershell, darwin: screencapture + osascript, linux: xdotool + maim/import), check availability via `execFileSync('which', [tool])` (Unix) or `execFileSync('where', [tool])` (Windows). Report capabilities based on what's available.
 
-- [ ] **Step 3: Run test, verify passes, commit**
+- [x] **Step 3: Run test, verify passes, commit**
 
 ```bash
 cd packages/peek && npx vitest run tests/platform-detect.test.js
