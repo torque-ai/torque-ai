@@ -495,7 +495,7 @@ git commit -m "feat(diffusion): add compute→apply pipeline selection to planne
 - Modify: `server/handlers/diffusion-handlers.js`
 - Modify: `server/tests/diffusion-handlers.test.js`
 
-- [ ] **Step 1: Add compute_provider and apply_provider to tool schema**
+- [x] **Step 1: Add compute_provider and apply_provider to tool schema**
 
 In `server/tool-defs/diffusion-defs.js`, add to `create_diffusion_plan` inputSchema properties:
 
@@ -504,7 +504,7 @@ In `server/tool-defs/diffusion-defs.js`, add to `create_diffusion_plan` inputSch
         apply_provider: { type: 'string', description: 'Provider for apply stage (filesystem access). E.g., "ollama", "codex". Default: smart routing.' },
 ```
 
-- [ ] **Step 2: Write failing handler test**
+- [x] **Step 2: Write failing handler test**
 
 Add to `server/tests/diffusion-handlers.test.js`:
 
@@ -530,16 +530,16 @@ describe('compute→apply pipeline', () => {
 });
 ```
 
-- [ ] **Step 3: Update handleCreateDiffusionPlan**
+- [x] **Step 3: Update handleCreateDiffusionPlan**
 
 Read `server/handlers/diffusion-handlers.js`. Add `compute_provider` and `apply_provider` to destructured args. Pass them to `buildWorkflowTasks` as `computeProvider` and `applyProvider`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npx vitest run server/tests/diffusion-handlers.test.js`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/tool-defs/diffusion-defs.js server/handlers/diffusion-handlers.js server/tests/diffusion-handlers.test.js
