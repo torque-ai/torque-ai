@@ -13,6 +13,8 @@ const providerRoutingCore = require('../../db/provider-routing-core');
 const providerScoring = require('../../db/provider-scoring');
 const { sendJson, sendError, parseBody, safeDecodeParam, formatUptime } = require('../utils');
 
+const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
+
 // ── Hosts ──────────────────────────────────────────────────────────────────────
 
 // (from hosts.js) Valid credential types for host credential endpoints
@@ -927,6 +929,12 @@ function handleSystemStatus(req, res, query, context) {
   // Instance identity
   const taskManager = require('../../task-manager');
   const instanceId = taskManager.getMcpInstanceId();
+  let authConfigured = false;
+  try {
+    authConfigured = Boolean(database.getConfig('api_key'));
+  } catch {
+    authConfigured = false;
+  }
 
   sendJson(res, {
     instance: {
@@ -954,6 +962,11 @@ function handleSystemStatus(req, res, query, context) {
       running: runningTasks,
       queued: queuedTasks,
     },
+    security: {
+      auth_configured: authConfigured,
+      warning: authConfigured ? null : SECURITY_WARNING_MESSAGE,
+    },
+    security_warning: authConfigured ? null : SECURITY_WARNING_MESSAGE,
     version: require('../../package.json').version || 'unknown',
     nodeVersion: process.version,
     platform: process.platform,

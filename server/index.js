@@ -853,6 +853,9 @@ function init() {
 
   // Initialize database
   db.init();
+  if (!db.getConfig('api_key')) {
+    logger.warn('⚠ TORQUE is running without authentication. Set an API key via configure tool.');
+  }
 
   const runtimeMode = process.env.TORQUE_AUTH_MODE || db.getConfig('auth_mode') || 'local';
   const isLocalMode = runtimeMode === 'local';
@@ -1556,6 +1559,7 @@ function init() {
       }
       return callTool(name, args);
     },
+    isAuthConfigured: () => Boolean(db.getConfig('api_key')),
   });
 
   // Listen for shutdown event from tools.js (e.g., restart_server)

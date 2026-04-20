@@ -50,6 +50,7 @@ let _taskManager = null;
 let _db = null;
 const VALID_ACTIONS = new Set(['pause', 'resume', 'retry']);
 const STUDY_TOOL_NAME = 'run_codebase_study';
+const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
 
 function init(depsOrTaskManager = {}) {
   const isDepsObject = depsOrTaskManager
@@ -1288,6 +1289,10 @@ async function handleSystemStatus(req, res) {
   if (_taskManager && _taskManager.getMcpInstanceId) {
     instanceId = _taskManager.getMcpInstanceId();
   }
+  let authConfigured = false;
+  try {
+    authConfigured = Boolean(configCore.getConfig('api_key'));
+  } catch (err) { logger.debug("task handler error", { err: err.message }); /* ignore — best effort */ }
 
   // TDA-14: Surface resource gating state so callers see pressure and gating status
   let resourceGating = { enabled: false, pressure_level: 'unknown' };
@@ -1318,6 +1323,11 @@ async function handleSystemStatus(req, res) {
       rss_mb: Math.round(memUsage.rss / 1024 / 1024),
       status: memoryStatus,
     },
+    security: {
+      auth_configured: authConfigured,
+      warning: authConfigured ? null : SECURITY_WARNING_MESSAGE,
+    },
+    security_warning: authConfigured ? null : SECURITY_WARNING_MESSAGE,
     resource_gating: resourceGating,
     uptime_seconds: Math.round(uptime),
     tasks: { running: runningTasks, queued: queuedTasks },
