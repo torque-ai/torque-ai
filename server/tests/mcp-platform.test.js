@@ -27,7 +27,6 @@ vi.mock('../providers/adapter-registry', () => currentIndexModules.adapterRegist
 vi.mock('../validation/auto-verify-retry', () => currentIndexModules.autoVerifyRetry);
 vi.mock('../validation/post-task', () => currentIndexModules.postTask);
 vi.mock('../validation/build-verification', () => currentIndexModules.buildVerification);
-vi.mock('../remote/agent-registry', () => currentIndexModules.remoteAgentRegistry);
 
 function createIndexMocks(tempDir) {
   const mockLoggerChild = {
@@ -148,9 +147,6 @@ function createIndexMocks(tempDir) {
     buildVerification: {
       init: vi.fn(),
     },
-    remoteAgentRegistry: {
-      RemoteAgentRegistry: vi.fn(() => ({})),
-    },
   };
 
   vi.doMock('../logger', () => currentIndexModules.logger);
@@ -173,7 +169,6 @@ function createIndexMocks(tempDir) {
   vi.doMock('../validation/auto-verify-retry', () => currentIndexModules.autoVerifyRetry);
   vi.doMock('../validation/post-task', () => currentIndexModules.postTask);
   vi.doMock('../validation/build-verification', () => currentIndexModules.buildVerification);
-  vi.doMock('../remote/agent-registry', () => currentIndexModules.remoteAgentRegistry);
 
   return {
     mockDb,

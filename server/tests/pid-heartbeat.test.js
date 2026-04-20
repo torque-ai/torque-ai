@@ -93,14 +93,6 @@ const mockAutoVerifyRetry = {
   init: vi.fn(),
 };
 
-const mockRemoteAgentRegistryInstance = {
-  runHealthChecks: vi.fn(async () => []),
-};
-
-const mockRemoteAgentRegistry = {
-  RemoteAgentRegistry: vi.fn(() => mockRemoteAgentRegistryInstance),
-};
-
 function registerStartupDependencyMocks() {
   vi.doMock('../logger', () => mockLogger);
   vi.doMock('../database', () => mockDb);
@@ -113,7 +105,6 @@ function registerStartupDependencyMocks() {
   vi.doMock('../mcp', () => mockMcp);
   vi.doMock('../validation/auto-verify-retry', () => mockAutoVerifyRetry);
   vi.doMock('../execution/workflow-runtime', () => mockWorkflowRuntime);
-  vi.doMock('../remote/agent-registry', () => mockRemoteAgentRegistry);
 }
 
 vi.mock('../logger', () => mockLogger);
@@ -127,7 +118,6 @@ vi.mock('../mcp-sse', () => mockMcpSse);
 vi.mock('../mcp', () => mockMcp);
 vi.mock('../validation/auto-verify-retry', () => mockAutoVerifyRetry);
 vi.mock('../execution/workflow-runtime', () => mockWorkflowRuntime);
-vi.mock('../remote/agent-registry', () => mockRemoteAgentRegistry);
 
 function loadIndex(tempDir) {
   testDataDir = tempDir;
