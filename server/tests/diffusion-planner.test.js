@@ -233,6 +233,7 @@ describe('expandApplyTaskDescription', () => {
     };
     const desc = expandApplyTaskDescription(computeOutput, '/proj');
     expect(desc).toContain('DELETE');
+    expect(desc).not.toContain('Replace with:');
   });
 });
 
