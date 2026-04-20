@@ -116,7 +116,7 @@ describe('Approval gate enforcement in processQueue', () => {
     scheduler.processQueueInternal();
 
     expect(safeStartTask).toHaveBeenCalledTimes(1);
-    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'fallback');
+    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'ollama');
   });
 
   it('starts queued task with null approval_status', () => {
@@ -125,7 +125,7 @@ describe('Approval gate enforcement in processQueue', () => {
     scheduler.processQueueInternal();
 
     expect(safeStartTask).toHaveBeenCalledTimes(1);
-    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'fallback');
+    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'ollama');
   });
 
   it('does NOT start queued task with rejected approval_status', () => {
@@ -142,7 +142,7 @@ describe('Approval gate enforcement in processQueue', () => {
     scheduler.processQueueInternal();
 
     expect(safeStartTask).toHaveBeenCalledTimes(1);
-    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'fallback');
+    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'ollama');
   });
 
   it('does NOT start queued task when matching approval rule is pending', () => {
@@ -187,7 +187,7 @@ describe('Approval gate enforcement in processQueue', () => {
     scheduler.processQueueInternal();
 
     expect(safeStartTask).toHaveBeenCalledTimes(1);
-    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'fallback');
+    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'ollama');
   });
 
   it('starts queued task with no matching approval rule', () => {
@@ -199,7 +199,7 @@ describe('Approval gate enforcement in processQueue', () => {
     scheduler.processQueueInternal();
 
     expect(safeStartTask).toHaveBeenCalledTimes(1);
-    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'fallback');
+    expect(safeStartTask).toHaveBeenCalledWith(task.id, 'ollama');
   });
 });
 
