@@ -85,3 +85,50 @@ describe('process-lifecycle timeout_minutes=0 gating', () => {
     expect(src).toMatch(/Math\.max\(MIN_TIMEOUT_MINUTES/);
   });
 });
+
+describe('secondary execution-path timeout gating', () => {
+  // The main setTimeout sits in process-lifecycle.js; these secondary abort
+  // timers run inside each provider's execute function and would kick in at
+  // 30 minutes even when the task opted out of the primary timeout. Gate
+  // each on `timeoutMinutes === 0` so an explicit 0 gets the unbounded
+  // behaviour end-to-end, not just at the primary level.
+  const SECONDARY_SITES = [
+    'server/providers/execute-ollama.js',
+    'server/providers/execution.js',
+  ];
+  for (const rel of SECONDARY_SITES) {
+    it(`${rel} gates its abort setTimeout on timeoutMinutes === 0`, () => {
+      const src = readSource(rel);
+      // Old pattern must be gone from every site.
+      expect(src).not.toMatch(/\(task\.timeout_minutes\s*\|\|\s*30\)\s*\*\s*60\s*\*\s*1000/);
+      // New pattern: ternary or conditional that skips setTimeout when 0.
+      expect(src).toMatch(/timeoutMinutes\s*===\s*0/);
+    });
+  }
+
+  it('server/index.js orphan-reconciler preserves timeout_minutes=0 via ??', () => {
+    // index.js has a background orphan-requeue loop that uses timeout_minutes
+    // to decide whether to reap stuck tasks. The `|| 30` variant would kick
+    // in at 30 min for unbounded tasks; `??` lets 0 propagate into the
+    // Math.max(GRACE_PERIOD_MS, 0) fallback.
+    const src = readSource('server/index.js');
+    expect(src).toMatch(/task\.timeout_minutes\s*\?\?\s*30/);
+  });
+});
+
+describe('container.js initModules dead-code removal', () => {
+  // `initModules` was defined in container.js but never called from anywhere.
+  // Registering new services inside it was a silent trap — they never reached
+  // the container. Keep the dead function out of the module exports so nobody
+  // accidentally relies on it.
+  it('does not export an initModules function', () => {
+    const src = readSource('server/container.js');
+    // Export block shouldn't list initModules as a key.
+    expect(src).not.toMatch(/^\s*initModules,\s*$/m);
+  });
+
+  it('does not define a top-level initModules function', () => {
+    const src = readSource('server/container.js');
+    expect(src).not.toMatch(/^function\s+initModules\s*\(/m);
+  });
+});

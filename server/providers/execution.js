@@ -1661,12 +1661,19 @@ async function executeOllamaTaskWithAgentic(task) {
   dashboard.notifyTaskUpdated(taskId);
 
   const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
-  const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
+  // timeout_minutes === 0 → no enforced timeout (opt-in unbounded). Preserve
+  // 0, skip the setTimeout; downstream HTTP client receives timeoutMs=0 which
+  // also means "no timeout" for node http.
+  const parsedTimeout = parseInt(task.timeout_minutes, 10);
+  const timeoutMinutes = Number.isFinite(parsedTimeout) ? parsedTimeout : 30;
+  const timeoutMs = timeoutMinutes * 60 * 1000;
   const abortController = new AbortController();
   // Register abort controller so cancelTask() can find and abort agentic tasks
   const apiAbortControllers = _agenticDeps.apiAbortControllers;
   if (apiAbortControllers) apiAbortControllers.set(taskId, abortController);
-  const timeoutHandle = setTimeout(() => abortController.abort(), timeoutMs);
+  const timeoutHandle = timeoutMinutes === 0
+    ? null
+    : setTimeout(() => abortController.abort(), timeoutMs);
   const cancelCheckInterval = setInterval(() => {
     try {
       const t = db.getTask(taskId);
@@ -2004,12 +2011,19 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   dashboard.notifyTaskUpdated(taskId);
 
   const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
-  const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
+  // timeout_minutes === 0 → no enforced timeout (opt-in unbounded). Preserve
+  // 0, skip the setTimeout; downstream receives timeoutMs=0 which also means
+  // "no timeout" for node http.
+  const parsedTimeout = parseInt(task.timeout_minutes, 10);
+  const timeoutMinutes = Number.isFinite(parsedTimeout) ? parsedTimeout : 30;
+  const timeoutMs = timeoutMinutes * 60 * 1000;
   const abortController = new AbortController();
   // Register abort controller for cancellation support
   const apiAbortControllers2 = _agenticDeps.apiAbortControllers || (_executeApiModule && _executeApiModule._apiAbortControllers);
   if (apiAbortControllers2) apiAbortControllers2.set(taskId, abortController);
-  const timeoutHandle = setTimeout(() => abortController.abort(), timeoutMs);
+  const timeoutHandle = timeoutMinutes === 0
+    ? null
+    : setTimeout(() => abortController.abort(), timeoutMs);
   const cancelCheckInterval = setInterval(() => {
     try {
       const t = db.getTask(taskId);
