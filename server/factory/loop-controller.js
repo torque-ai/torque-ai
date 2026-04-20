@@ -363,6 +363,9 @@ function backfillLegacyProjectLoopInstance(project_id) {
     last_action_at: project.loop_last_action_at || instance.last_action_at,
     batch_id: project.loop_batch_id || null,
   });
+  if (project.status !== 'running') {
+    factoryHealth.updateProject(project.id, { status: 'running' });
+  }
 
   logger.info('Backfilled legacy project loop state into factory loop instance', {
     project_id: project.id,
@@ -5576,6 +5579,9 @@ function startLoop(project_id) {
 
   clearSelectedWorkItem(instance.id);
   syncLegacyProjectLoopState(project.id);
+  if (project.status !== 'running') {
+    factoryHealth.updateProject(project.id, { status: 'running' });
+  }
 
   safeLogDecision({
     project_id: project.id,
