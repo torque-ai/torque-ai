@@ -88,36 +88,20 @@ function clearAllTrackedIntervals() {
 // CORS / origin helpers
 // ──────────────────────────────────────────────────────────────
 
-let _allowedOriginsCache = null;
-
-function getAllowedOrigins() {
-  if (_allowedOriginsCache) return _allowedOriginsCache;
-  if (process.env.MCP_ALLOWED_ORIGINS) {
-    _allowedOriginsCache = parseAllowedOrigins(process.env.MCP_ALLOWED_ORIGINS);
-    return _allowedOriginsCache;
-  }
-  const dashboardPort = serverConfig ? serverConfig.getInt('dashboard_port', 3456) : 3456;
-  _allowedOriginsCache = new Set([
-    `http://127.0.0.1:${dashboardPort}`,
-    `http://localhost:${dashboardPort}`,
-  ]);
-  return _allowedOriginsCache;
-}
+const dashboardPort = serverConfig.getInt('dashboard_port', 3456);
+const ALLOWED_ORIGINS = new Set([
+  `http://127.0.0.1:${dashboardPort}`,
+  `http://localhost:${dashboardPort}`,
+]);
 
 function invalidateAllowedOriginsCache() {
-  _allowedOriginsCache = null;
-}
-
-function parseAllowedOrigins(rawOrigins) {
-  if (typeof rawOrigins !== 'string') return new Set();
-  const parsed = rawOrigins.split(',').map((item) => item.trim()).filter(Boolean);
-  return new Set(parsed);
+  // Retained for backward-compatible tests/imports; CORS is now strict-by-default.
 }
 
 function resolveMcpAllowedOrigin(requestOrigin) {
   if (typeof requestOrigin !== 'string') return null;
   const normalized = requestOrigin.trim();
-  return getAllowedOrigins().has(normalized) ? normalized : null;
+  return ALLOWED_ORIGINS.has(normalized) ? normalized : null;
 }
 
 // ──────────────────────────────────────────────────────────────

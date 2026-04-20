@@ -58,6 +58,7 @@ const clients = new Set();
 // Per-IP WebSocket connection tracking
 const _perIpWsCount = new Map();
 const MAX_WS_PER_IP = 10;
+const BODY_PARSE_TIMEOUT_MS = 30000;
 
 // WebSocket topic subscriptions (topic -> Set of clients)
 const topicSubscriptions = new Map();
@@ -749,6 +750,15 @@ async function start(options = {}) {
         const chunks = [];
         let bodySize = 0;
         let bodyRejected = false;
+        const bodyTimeout = setTimeout(() => {
+          if (bodyRejected || res.writableEnded) {
+            return;
+          }
+          bodyRejected = true;
+          sendError(res, 'Body parse timeout', 408);
+          req.destroy(new Error('Body parse timeout'));
+        }, BODY_PARSE_TIMEOUT_MS);
+
         req.on('data', chunk => {
           if (bodyRejected || res.writableEnded) {
             return;
@@ -757,12 +767,14 @@ async function start(options = {}) {
           bodySize += bufferChunk.length;
           if (bodySize > MAX_V2_BODY_SIZE) {
             bodyRejected = true;
+            clearTimeout(bodyTimeout);
             sendError(res, 'Request body too large', 413);
             return;
           }
           chunks.push(bufferChunk);
         });
         req.on('end', () => {
+          clearTimeout(bodyTimeout);
           if (bodyRejected || res.writableEnded) {
             return;
           }
@@ -792,6 +804,9 @@ async function start(options = {}) {
               sendError(res, 'Internal server error', 500);
             }
           });
+        });
+        req.on('error', () => {
+          clearTimeout(bodyTimeout);
         });
         return;
       }

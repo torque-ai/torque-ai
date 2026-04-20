@@ -6,6 +6,7 @@ const { handleToolCall } = require('../tools');
 const { sendJson } = require('./middleware');
 
 const RAW_WEBHOOK_BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10MB
+const BODY_PARSE_TIMEOUT_MS = 30000;
 
 // Dependency-injected getter for FreeQuotaTracker (set by api-server.core.js)
 let _quotaTrackerGetter = null;
@@ -69,12 +70,29 @@ function parseRawWebhookBody(req) {
     const chunks = [];
     let totalSize = 0;
     let settled = false;
+    const finishResolve = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bodyTimeout);
+      resolve(value);
+    };
+    const finishReject = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bodyTimeout);
+      reject(err);
+    };
+    const bodyTimeout = setTimeout(() => {
+      const err = new Error('Body parse timeout');
+      finishReject(err);
+      req.destroy(err);
+    }, BODY_PARSE_TIMEOUT_MS);
 
     req.on('data', chunk => {
       const chunkBuffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       totalSize += chunkBuffer.length;
       if (totalSize > RAW_WEBHOOK_BODY_LIMIT_BYTES) {
-        if (!settled) { settled = true; reject(new Error('Request body too large')); }
+        finishReject(new Error('Request body too large'));
         req.destroy();
         return;
       }
@@ -83,11 +101,10 @@ function parseRawWebhookBody(req) {
     req.on('end', () => {
       if (settled) return;
       const body = Buffer.concat(chunks).toString('utf8');
-      settled = true;
-      resolve(body);
+      finishResolve(body);
     });
     req.on('error', (err) => {
-      if (!settled) { settled = true; reject(err); }
+      finishReject(err);
     });
   });
 }

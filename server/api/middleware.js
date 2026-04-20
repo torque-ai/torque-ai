@@ -17,6 +17,7 @@ const rateLimitMaps = new Set();
 
 const DEFAULT_RATE_LIMIT = 200;
 const DEFAULT_RATE_WINDOW_MS = RATE_LIMIT_WINDOW_MS;
+const BODY_PARSE_TIMEOUT_MS = 30000;
 
 /**
  * Extract an API key from the request headers.
@@ -199,11 +200,29 @@ function parseBody(req) {
     let totalSize = 0;
     let settled = false;
     const MAX_BODY = 10 * 1024 * 1024; // 10MB
+    const finishResolve = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bodyTimeout);
+      resolve(value);
+    };
+    const finishReject = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bodyTimeout);
+      reject(err);
+    };
+    const bodyTimeout = setTimeout(() => {
+      const err = new Error('Body parse timeout');
+      finishReject(err);
+      req.destroy(err);
+    }, BODY_PARSE_TIMEOUT_MS);
+
     req.on('data', chunk => {
       const chunkBuffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       totalSize += chunkBuffer.length;
       if (totalSize > MAX_BODY) {
-        if (!settled) { settled = true; reject(new Error('Request body too large')); }
+        finishReject(new Error('Request body too large'));
         req.destroy();
         return;
       }
@@ -212,19 +231,17 @@ function parseBody(req) {
     req.on('end', () => {
       if (settled) return;
       const body = Buffer.concat(chunks).toString('utf8');
-      if (!body) { settled = true; return resolve({}); }
+      if (!body) { finishResolve({}); return; }
       try {
         const parsed = JSON.parse(body);
         validateJsonDepth(parsed);
-        settled = true;
-        resolve(parsed);
+        finishResolve(parsed);
       } catch (err) {
-        settled = true;
-        reject(new Error(err.message === 'JSON nesting too deep' ? err.message : 'Invalid JSON'));
+        finishReject(new Error(err.message === 'JSON nesting too deep' ? err.message : 'Invalid JSON'));
       }
     });
     req.on('error', (err) => {
-      if (!settled) { settled = true; reject(err); }
+      finishReject(err);
     });
   });
 }

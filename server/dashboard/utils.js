@@ -16,6 +16,8 @@ const SECURITY_HEADERS = {
   'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
 };
 
+const BODY_PARSE_TIMEOUT_MS = 30000;
+
 /**
  * Parse URL query parameters
  * @param {string} url - The full URL string to extract query parameters from
@@ -67,24 +69,41 @@ function parseBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
     let rejected = false;
+    const finishResolve = (value) => {
+      if (rejected) return;
+      rejected = true;
+      clearTimeout(bodyTimeout);
+      resolve(value);
+    };
+    const finishReject = (err) => {
+      if (rejected) return;
+      rejected = true;
+      clearTimeout(bodyTimeout);
+      reject(err);
+    };
+    const bodyTimeout = setTimeout(() => {
+      const err = new Error('Body parse timeout');
+      finishReject(err);
+      req.destroy(err);
+    }, BODY_PARSE_TIMEOUT_MS);
+
     req.on('data', chunk => {
       body += chunk.toString();
       // Use Buffer.byteLength for accurate byte count (multi-byte chars inflate string length)
       if (Buffer.byteLength(body, 'utf8') > 10 * 1024 * 1024 && !rejected) {
-        rejected = true;
         req.destroy();
-        reject(new Error('Request body too large'));
+        finishReject(new Error('Request body too large'));
       }
     });
     req.on('end', () => {
       if (rejected) return;
       try {
-        resolve(body ? JSON.parse(body) : {});
+        finishResolve(body ? JSON.parse(body) : {});
       } catch (err) {
-        reject(new Error('Invalid JSON body'));
+        finishReject(new Error('Invalid JSON body'));
       }
     });
-    req.on('error', reject);
+    req.on('error', finishReject);
   });
 }
 

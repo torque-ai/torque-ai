@@ -26,6 +26,13 @@ const MAX_SUBSCRIPTIONS_PER_SESSION = 200;
 const EVENT_AGGREGATION_WINDOW_MS = 10000;
 const ALL_TASKS_SUBSCRIPTION_KEY = '__all_tasks__';
 
+function subscriptionLimitReachedResult() {
+  return {
+    content: [{ type: 'text', text: `Subscription limit reached (${MAX_SUBSCRIPTIONS_PER_SESSION})` }],
+    isError: true,
+  };
+}
+
 // Event priority for eviction — higher number = higher priority (kept longer under MAX_PENDING_EVENTS)
 const EVENT_PRIORITY = {
   failed: 10,
@@ -635,16 +642,23 @@ function handleSubscribeTaskEvents(session, args) {
   }
 
   if (Array.isArray(args.task_ids)) {
-    if (args.task_ids.length > MAX_SUBSCRIPTIONS_PER_SESSION) {
-      return {
-        content: [{ type: 'text', text: `Subscription limit: max ${MAX_SUBSCRIPTIONS_PER_SESSION} task IDs per session. Requested: ${args.task_ids.length}` }],
-        isError: true,
-      };
-    }
-    session.taskFilter.clear();
+    const normalizedTaskIds = [];
+    const seenTaskIds = new Set();
     for (const id of args.task_ids) {
       const normalized = normalizeTaskId(id);
-      if (normalized) session.taskFilter.add(normalized);
+      if (!normalized || seenTaskIds.has(normalized)) continue;
+      if (normalizedTaskIds.length >= MAX_SUBSCRIPTIONS_PER_SESSION) {
+        return subscriptionLimitReachedResult();
+      }
+      seenTaskIds.add(normalized);
+      normalizedTaskIds.push(normalized);
+    }
+    session.taskFilter.clear();
+    for (const normalized of normalizedTaskIds) {
+      if (session.taskFilter && session.taskFilter.size >= MAX_SUBSCRIPTIONS_PER_SESSION) {
+        return subscriptionLimitReachedResult();
+      }
+      session.taskFilter.add(normalized);
     }
   }
   if (args.task_ids && args.task_ids.length === 0) {
