@@ -80,9 +80,9 @@ describe('seedPresets', () => {
       : [tmpl.rules.plan_generation];
     const providers = chain.map((r) => (typeof r === 'string' ? r : r.provider));
     expect(providers[0]).toBe('codex');
-    expect(providers).not.toEqual(expect.arrayContaining([]));
     // ollama may remain as a last-resort fallback but must not be first.
     expect(providers[0]).not.toBe('ollama');
+    expect(providers.length).toBeGreaterThanOrEqual(2);
   });
 
   it('preset IDs follow preset-<filename> convention', () => {
