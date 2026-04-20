@@ -914,14 +914,27 @@ function markPreflightFailed(taskId, err) {
     failed: true,
     reason: 'preflight_failed',
     code: err.code || 'PREFLIGHT_FAILED',
+    deterministic: true,
     error: err.message,
   };
 }
 
 function handleTaskStartFailure(taskId, label, err) {
   logger.error(`processQueue: failed to start ${label} task ${taskId}`, { error: err.message });
-  if (isPreflightError(err) && err.deterministic) {
-    return markPreflightFailed(taskId, err);
+  if (isPreflightError(err)) {
+    if (err.deterministic) {
+      return markPreflightFailed(taskId, err);
+    }
+    return {
+      started: false,
+      queued: false,
+      pendingAsync: false,
+      failed: true,
+      reason: 'preflight_failed',
+      code: err.code || 'PREFLIGHT_FAILED',
+      deterministic: false,
+      error: err.message,
+    };
   }
   try {
     const t = db.getTask(taskId);
