@@ -72,9 +72,11 @@ describe('isRestartBarrierActive (helper)', () => {
   beforeEach(() => {
     ctx = setupE2eDb('restart-barrier-helper');
     db = ctx.db;
+    delete process._torqueRestartPending;
   });
 
   afterEach(async () => {
+    delete process._torqueRestartPending;
     if (ctx) await teardownE2eDb(ctx);
     ctx = null;
     db = null;
@@ -109,6 +111,34 @@ describe('isRestartBarrierActive (helper)', () => {
     expect(isRestartBarrierActive({})).toBeNull();
     expect(isRestartBarrierActive(null)).toBeNull();
   });
+
+  it('returns a synthetic row when process._torqueRestartPending is set (no DB barrier)', () => {
+    process._torqueRestartPending = true;
+    const row = isRestartBarrierActive(db);
+    expect(row).toBeTruthy();
+    expect(row.provider).toBe('system');
+    expect(row.status).toBe('pending-shutdown');
+    expect(typeof row.id).toBe('string');
+  });
+
+  it('gates via the flag even when the DB barrier row is already completed', () => {
+    // Simulate the race: barrier marked completed but shutdown not yet fired.
+    // Without the flag, isRestartBarrierActive would return null here and
+    // the queue scheduler would promote queued tasks — exactly the 6:02 bug.
+    createBarrierTask({ status: 'completed' });
+    expect(isRestartBarrierActive(db)).toBeNull();
+    process._torqueRestartPending = true;
+    const row = isRestartBarrierActive(db);
+    expect(row).toBeTruthy();
+    expect(row.provider).toBe('system');
+  });
+
+  it('stops gating once the flag is cleared', () => {
+    process._torqueRestartPending = true;
+    expect(isRestartBarrierActive(db)).toBeTruthy();
+    delete process._torqueRestartPending;
+    expect(isRestartBarrierActive(db)).toBeNull();
+  });
 });
 
 describe('slot-pull runSlotPullPass honors restart barrier', () => {
@@ -119,6 +149,7 @@ describe('slot-pull runSlotPullPass honors restart barrier', () => {
     ctx = setupE2eDb('restart-barrier-slotpull');
     db = ctx.db;
     db.setConfig('scheduling_mode', 'slot-pull');
+    delete process._torqueRestartPending;
 
     delete require.cache[SLOT_PULL_PATH];
     scheduler = require('../execution/slot-pull-scheduler');
@@ -127,6 +158,7 @@ describe('slot-pull runSlotPullPass honors restart barrier', () => {
   });
 
   afterEach(async () => {
+    delete process._torqueRestartPending;
     if (scheduler) scheduler.stopHeartbeat();
     if (ctx) await teardownE2eDb(ctx);
     ctx = null;
@@ -176,5 +208,33 @@ describe('slot-pull runSlotPullPass honors restart barrier', () => {
 
     scheduler.runSlotPullPass();
     expect(startTask).toHaveBeenCalledWith('q-after');
+  });
+
+  it('does NOT promote queued tasks while process._torqueRestartPending is set, even without a DB barrier row', () => {
+    // Simulates the window between "barrier marked completed" and
+    // "emitShutdown fires + subprocesses actually die" — no DB row gates
+    // the scheduler during that window, but the in-memory flag does.
+    createUnassignedQueuedTask({ id: 'q-racewindow' });
+    process._torqueRestartPending = true;
+
+    const result = scheduler.runSlotPullPass();
+
+    expect(result).toEqual({ assigned: 0, skipped: 0 });
+    expect(startTask).not.toHaveBeenCalled();
+  });
+
+  it('does NOT promote queued tasks when the flag is set AND the barrier row is already completed', () => {
+    // This is the exact 6:02 repro: drain watcher marked the barrier
+    // completed and set the flag, then setTimeout is waiting to emitShutdown.
+    const barrierId = createBarrierTask({ status: 'running' });
+    createUnassignedQueuedTask({ id: 'q-bug' });
+
+    rawDb().prepare("UPDATE tasks SET status = 'completed' WHERE id = ?").run(barrierId);
+    process._torqueRestartPending = true;
+
+    const result = scheduler.runSlotPullPass();
+
+    expect(result).toEqual({ assigned: 0, skipped: 0 });
+    expect(startTask).not.toHaveBeenCalled();
   });
 });

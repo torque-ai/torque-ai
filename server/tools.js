@@ -691,12 +691,15 @@ async function handleRestartServerBarrier(args) {
 
   // If pipeline is already empty, complete immediately and trigger restart
   if (activeTasks === 0) {
+    // Set the in-memory flag BEFORE marking the barrier completed so
+    // isRestartBarrierActive keeps gating the scheduler across the grace
+    // period (status change → setTimeout → emitShutdown).
+    process._torqueRestartPending = true;
     taskCore.updateTaskStatus(barrierId, 'running', { started_at: new Date().toISOString() });
     taskCore.updateTaskStatus(barrierId, 'completed', {
       output: 'Pipeline was already empty',
       completed_at: new Date().toISOString(),
     });
-    process._torqueRestartPending = true;
     logger.info('[Restart] Pipeline empty — triggering immediate restart');
     setTimeout(() => {
       eventBus.emitShutdown(`restart: ${reason}`);
@@ -722,6 +725,13 @@ async function handleRestartServerBarrier(args) {
     if (running === 0) {
       clearInterval(drainPoll);
       logger.info('[Restart] Drain complete — completing barrier and restarting...');
+      // Set the in-memory flag BEFORE flipping the barrier to completed so
+      // isRestartBarrierActive keeps gating the scheduler during the
+      // RESTART_RESPONSE_GRACE_MS window and any async shutdown-handler
+      // draining. Without this, the 2–3 s between "barrier completed" and
+      // "subprocesses killed" is a racy window where the scheduler can
+      // promote queued tasks that then die with the process.
+      process._torqueRestartPending = true;
       taskCore.updateTaskStatus(barrierId, 'completed', {
         output: `Drain complete after ${Math.round((Date.now() - drainStarted) / 1000)}s`,
         completed_at: new Date().toISOString(),
@@ -730,7 +740,6 @@ async function handleRestartServerBarrier(args) {
         const { dispatchTaskEvent } = require('./hooks/event-dispatch');
         dispatchTaskEvent('completed', taskCore.getTask(barrierId));
       } catch { /* non-fatal */ }
-      process._torqueRestartPending = true;
       // Match the empty-pipeline path: give awaiters time to see the
       // completed barrier event and flush their response before shutdown.
       setTimeout(() => {
