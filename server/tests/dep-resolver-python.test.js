@@ -170,3 +170,79 @@ describe('python adapter mapModuleToPackage()', () => {
     expect(r.confidence).toBe('low');
   });
 });
+
+const fs = require('node:fs');
+const os = require('node:os');
+const { execFileSync } = require('node:child_process');
+
+describe('python adapter buildResolverPrompt()', () => {
+  it('includes package name, manager, worktree path, and install/commit instructions', () => {
+    const adapter = createPythonAdapter();
+    const prompt = adapter.buildResolverPrompt({
+      package_name: 'opencv-python',
+      project: { id: 'p', path: '/tmp/p', name: 'bitsy' },
+      worktree: { path: '/tmp/p/.worktrees/feat-factory-79' },
+      workItem: { id: 79, title: 'Add scoring' },
+      error_output: 'ModuleNotFoundError: No module named cv2',
+    });
+    expect(prompt).toContain('opencv-python');
+    expect(prompt).toContain('/tmp/p/.worktrees/feat-factory-79');
+    expect(prompt).toContain('pyproject.toml');
+    expect(prompt).toContain('requirements.txt');
+    expect(prompt).toContain('lock');
+    expect(prompt).toContain('Commit');
+  });
+});
+
+describe('python adapter validateManifestUpdate()', () => {
+  let tmpRepo;
+  beforeEach(() => {
+    tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-resolver-validate-'));
+    execFileSync('git', ['init', '-q'], { cwd: tmpRepo });
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tmpRepo });
+    execFileSync('git', ['config', 'user.name', 'test'], { cwd: tmpRepo });
+    fs.writeFileSync(path.join(tmpRepo, 'README.md'), 'x\n');
+    execFileSync('git', ['add', 'README.md'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'init', '-q'], { cwd: tmpRepo });
+  });
+
+  afterEach(() => {
+    try { fs.rmSync(tmpRepo, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  it('returns valid=true when last commit adds expected package to pyproject.toml', () => {
+    fs.writeFileSync(path.join(tmpRepo, 'pyproject.toml'),
+      '[project]\nname = "demo"\ndependencies = ["opencv-python"]\n');
+    execFileSync('git', ['add', 'pyproject.toml'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'deps: add opencv-python', '-q'], { cwd: tmpRepo });
+
+    const adapter = createPythonAdapter();
+    const r = adapter.validateManifestUpdate(tmpRepo, 'opencv-python');
+    expect(r.valid).toBe(true);
+  });
+
+  it('returns valid=true when package appears in requirements.txt', () => {
+    fs.writeFileSync(path.join(tmpRepo, 'requirements.txt'), 'opencv-python==4.9.0\n');
+    execFileSync('git', ['add', 'requirements.txt'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'deps: add opencv-python', '-q'], { cwd: tmpRepo });
+
+    const r = createPythonAdapter().validateManifestUpdate(tmpRepo, 'opencv-python');
+    expect(r.valid).toBe(true);
+  });
+
+  it('returns valid=false when package is not in any known manifest', () => {
+    fs.writeFileSync(path.join(tmpRepo, 'pyproject.toml'), '[project]\nname = "demo"\n');
+    execFileSync('git', ['add', 'pyproject.toml'], { cwd: tmpRepo });
+    execFileSync('git', ['commit', '-m', 'chore: init pyproject', '-q'], { cwd: tmpRepo });
+
+    const r = createPythonAdapter().validateManifestUpdate(tmpRepo, 'opencv-python');
+    expect(r.valid).toBe(false);
+    expect(r.reason).toMatch(/not found/i);
+  });
+
+  it('returns valid=false when worktree path does not exist', () => {
+    const r = createPythonAdapter().validateManifestUpdate('/nonexistent-path', 'opencv-python');
+    expect(r.valid).toBe(false);
+    expect(r.reason).toMatch(/(does not exist|enoent)/i);
+  });
+});

@@ -1,5 +1,9 @@
 'use strict';
 
+const fsPromises = require('node:fs').promises;
+const fsSync = require('node:fs');
+const nodePath = require('node:path');
+
 const PYTHON_MISS_PATTERNS = [
   { re: /ModuleNotFoundError: No module named ['"]([\w.]+)['"]/, signal: 'ModuleNotFoundError' },
   { re: /ImportError: cannot import name ['"]([\w.]+)['"] from ['"]([\w.]+)['"]/, signal: 'ImportError', groupIndex: 2 },
@@ -94,14 +98,60 @@ Return ONLY valid JSON matching this shape:
 `;
 }
 
+function buildResolverPrompt({ package_name, project, worktree, workItem, error_output }) {
+  const worktreePath = worktree?.path || project?.path || '';
+  return `The verify step failed with a missing Python dependency.
+
+Detected missing package: \`${package_name}\` (manager: python).
+
+Error output:
+${(error_output || '').slice(0, 2000)}
+
+Your job:
+1. Identify the project's Python dependency manifest at ${worktreePath}. Check in order: pyproject.toml, requirements.txt, requirements-dev.txt, setup.py, setup.cfg.
+2. Add \`${package_name}\` to the appropriate section — runtime deps if imported by non-test code, dev/test deps if only tests use it. Respect existing version-pinning conventions.
+3. Run the project's install command (pip install / poetry add / uv pip install / whichever matches the project's toolchain).
+4. If a lock file exists (poetry.lock / uv.lock / Pipfile.lock), regenerate it.
+5. Commit with a conventional message like \`deps: add ${package_name}\` on the current branch.
+6. Do NOT modify application code. Do NOT run the test suite.
+
+Context: worktree at ${worktreePath}, work item ${workItem?.id || '?'}: "${workItem?.title || ''}".
+After making the edits, stop.
+`;
+}
+
+const MANIFEST_CANDIDATES = ['pyproject.toml', 'requirements.txt', 'requirements-dev.txt', 'setup.py', 'setup.cfg'];
+
+function validateManifestUpdate(worktreePath, expectedPackage) {
+  if (!worktreePath || !fsSync.existsSync(worktreePath)) {
+    return { valid: false, reason: `worktree path does not exist: ${worktreePath}` };
+  }
+  const needle = String(expectedPackage || '').trim();
+  if (!needle) return { valid: false, reason: 'empty expected package name' };
+  const normalized = needle.toLowerCase();
+  for (const candidate of MANIFEST_CANDIDATES) {
+    const p = nodePath.join(worktreePath, candidate);
+    if (!fsSync.existsSync(p)) continue;
+    try {
+      const content = fsSync.readFileSync(p, 'utf8').toLowerCase();
+      if (content.includes(normalized)) {
+        return { valid: true, manifest: candidate };
+      }
+    } catch (_e) {
+      void _e;
+    }
+  }
+  return { valid: false, reason: `package ${needle} not found in any known manifest` };
+}
+
 function createPythonAdapter() {
   return {
     manager: 'python',
     detect,
     mapModuleToPackage,
-    buildResolverPrompt(_opts) { return ''; },
-    validateManifestUpdate(_worktreePath, _expectedPackage) { return { valid: false, reason: 'stub' }; },
+    buildResolverPrompt,
+    validateManifestUpdate,
   };
 }
 
-module.exports = { createPythonAdapter, PYTHON_MISS_PATTERNS, MAP_LLM_TIMEOUT_MS };
+module.exports = { createPythonAdapter, PYTHON_MISS_PATTERNS, MAP_LLM_TIMEOUT_MS, MANIFEST_CANDIDATES };
