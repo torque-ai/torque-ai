@@ -407,7 +407,7 @@ Remove any remaining references to Deluge, Headwaters, GameScene, NotificationBr
 - Modify: `server/tests/workflow-runtime.test.js`
 - Modify: `server/tests/policy-active-effects.test.js`
 
-- [ ] **Step 1: automation-ts-tools.test.js**
+- [x] **Step 1: automation-ts-tools.test.js**
 
 Remove:
 - `handleWireSystemToGamescene` describe block (line ~799+)
@@ -415,7 +415,7 @@ Remove:
 - `handleValidateEventConsistency` and `handleAuditClassCompleteness` test sections
 - Any imports of removed handler functions
 
-- [ ] **Step 2: automation-handlers-batch.test.js**
+- [x] **Step 2: automation-handlers-batch.test.js**
 
 Remove:
 - `wire_system_to_gamescene` describe block (line ~563+)
@@ -425,7 +425,7 @@ Remove:
 - `audit_class_completeness` tests (lines referencing `GameScene.ts`)
 - The `// Headwaters Convenience Wrappers (validation)` section header
 
-- [ ] **Step 3: automation-batch-orchestration.test.js**
+- [x] **Step 3: automation-batch-orchestration.test.js**
 
 Remove:
 - All `cache_feature_gaps` tests (those using `headwaters_path`)
@@ -438,44 +438,44 @@ Update remaining `generate_feature_tasks` tests to not expect a `wire` task key.
 
 Update remaining `run_batch` tests to expect 5 feature tasks instead of 6.
 
-- [ ] **Step 4: tool-annotations.test.js**
+- [x] **Step 4: tool-annotations.test.js**
 
 Remove line testing `wire_system_to_gamescene`:
 ```js
 ['wire_system_to_gamescene', IDEMPOTENT],
 ```
 
-- [ ] **Step 5: tools-aggregator.test.js**
+- [x] **Step 5: tools-aggregator.test.js**
 
 Remove:
 - `wire_events_to_eventsystem` path resolution tests (lines ~329-338)
 - `wire_notifications_to_bridge` tool call test (lines ~592-598)
 
-- [ ] **Step 6: p0-path-traversal.test.js**
+- [x] **Step 6: p0-path-traversal.test.js**
 
 Remove:
 - `handleWireSystemToGamescene` traversal test (line ~134-142)
 
-- [ ] **Step 7: preflight-types.test.js**
+- [x] **Step 7: preflight-types.test.js**
 
 Replace `GameScene` class examples with generic class names (e.g., `UserService`). Lines ~128-148, ~297-315.
 
-- [ ] **Step 8: workflow-runtime.test.js**
+- [x] **Step 8: workflow-runtime.test.js**
 
 Remove the 3 `handleContinuousBatchSubmission` tests (lines ~698-749):
 - Test that calls `initRuntime({ handleContinuousBatchSubmission })` and verifies it was called on workflow completion
 - Test for error handling when batch handler rejects
 - Test for batch handler returning null
 
-- [ ] **Step 9: continuous-batch-submission.test.js**
+- [x] **Step 9: continuous-batch-submission.test.js**
 
 Delete the entire file or remove all tests — the `handleContinuousBatchSubmission` function no longer exists. All tests in this file mock `continuous_batch_deluge_path` and call the deleted handler.
 
-- [ ] **Step 10: policy-active-effects.test.js**
+- [x] **Step 10: policy-active-effects.test.js**
 
 Line 119: Replace `validate_event_consistency` with a generic tool name (e.g., `scan_project`) in the test fixture. This is just a string used as test data for policy evaluation.
 
-- [ ] **Step 11: Other test files**
+- [x] **Step 11: Other test files**
 
 For each of these, grep for and remove any Headwaters/wiring references:
 - `workflow-handlers-analysis.test.js` (line ~830: `wire_task`)
