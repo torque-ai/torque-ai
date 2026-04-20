@@ -752,7 +752,7 @@ git commit -m "feat: add inline API key management to provider cards"
 **Files:**
 - Create: `server/tests/provider-api-key-integration.test.js`
 
-- [ ] **Step 1: Write integration tests**
+- [x] **Step 1: Write integration tests**
 
 Create `server/tests/provider-api-key-integration.test.js` using `setupTestDb`:
 
@@ -817,12 +817,12 @@ describe('provider API key management integration', () => {
 });
 ```
 
-- [ ] **Step 2: Run all tests**
+- [x] **Step 2: Run all tests**
 
 Run: `cd server && npx vitest run tests/provider-api-key.test.js tests/provider-api-key-integration.test.js`
 Expected: All tests PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/tests/provider-api-key-integration.test.js
