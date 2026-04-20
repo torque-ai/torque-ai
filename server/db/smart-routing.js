@@ -5,6 +5,7 @@ const logger = require('../logger').child({ component: 'smart-routing' });
 const serverConfig = require('../config');
 const { safeJsonParse } = require('../utils/json');
 const { isSafeRegex } = require('../utils/safe-regex');
+const { prependResumeContextToPrompt } = require('../utils/resume-context');
 const capabilities = require('./provider-capabilities');
 const perfTracker = require('./provider-performance');
 const eventBus = require('../event-bus');
@@ -964,6 +965,9 @@ function approveProviderSwitch(taskId, newProvider = 'claude-cli') {
   delete currentMetadata.user_provider_override;
   delete currentMetadata.quota_overflow;
   delete currentMetadata.original_provider;
+  const taskDescription = task.resume_context
+    ? prependResumeContextToPrompt(task.task_description, task.resume_context)
+    : task.task_description;
 
   const stmt = db.prepare(`
     UPDATE tasks
@@ -979,10 +983,11 @@ function approveProviderSwitch(taskId, newProvider = 'claude-cli') {
         progress_percent = 0,
         model = NULL,
         ollama_host_id = NULL,
-        metadata = ?
+        metadata = ?,
+        task_description = ?
     WHERE id = ?
   `);
-  const result = stmt.run(new Date().toISOString(), JSON.stringify(currentMetadata), taskId);
+  const result = stmt.run(new Date().toISOString(), JSON.stringify(currentMetadata), taskDescription, taskId);
   if (result && result.changes > 0) {
     eventBus.emitQueueChanged();
   }

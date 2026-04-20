@@ -17,6 +17,7 @@ const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'v2-task-handlers' });
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../constants');
 const { CONTEXT_STUFFING_PROVIDERS } = require('../utils/context-stuffing');
+const { prependResumeContextToPrompt } = require('../utils/resume-context');
 const { resolveContextFiles } = require('../utils/smart-scan');
 const { buildTaskStudyContextEnvelope } = require('../integrations/codebase-study-engine');
 const { recordStudyTaskSubmitted } = require('../db/study-telemetry');
@@ -697,10 +698,14 @@ async function handleRetryTask(req, res) {
     }
     const retryMetadata = buildRetryMetadata(task, taskId);
     retryMetadata.intended_provider = retryProvider;
+    const retryDescription = prependResumeContextToPrompt(
+      task.task_description || task.description,
+      task.resume_context,
+    );
     const retryPolicyResult = typeof _taskManager?.evaluateTaskSubmissionPolicy === 'function'
       ? _taskManager.evaluateTaskSubmissionPolicy({
           id: newTaskId,
-          task_description: task.task_description || task.description,
+          task_description: retryDescription,
           working_directory: task.working_directory,
           timeout_minutes: task.timeout_minutes,
           auto_approve: task.auto_approve,
@@ -717,7 +722,7 @@ async function handleRetryTask(req, res) {
     taskCore.createTask({
       id: newTaskId,
       status: 'pending',
-      task_description: task.task_description || task.description,
+      task_description: retryDescription,
       working_directory: task.working_directory,
       timeout_minutes: task.timeout_minutes,
       auto_approve: task.auto_approve,
@@ -725,6 +730,7 @@ async function handleRetryTask(req, res) {
       provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
       model: task.model,
       metadata: JSON.stringify(retryMetadata),
+      resume_context: task.resume_context || null,
     });
     try {
       recordStudyTaskSubmitted({
@@ -1230,6 +1236,10 @@ async function handleApproveSwitch(req, res) {
     if (familyChanged || !providerRegistry.isOllamaProvider(targetProvider)) {
       requeueFields.ollama_host_id = null;
     }
+    if (task.resume_context) {
+      requeueFields.resume_context = task.resume_context;
+      requeueFields.task_description = prependResumeContextToPrompt(task.task_description, task.resume_context);
+    }
 
     let updatedTask;
     try {
@@ -1322,6 +1332,10 @@ async function handleRejectSwitch(req, res) {
     }
     if (familyChanged || !providerRegistry.isOllamaProvider(restoreProvider)) {
       requeueFields.ollama_host_id = null;
+    }
+    if (task.resume_context) {
+      requeueFields.resume_context = task.resume_context;
+      requeueFields.task_description = prependResumeContextToPrompt(task.task_description, task.resume_context);
     }
 
     let updatedTask;

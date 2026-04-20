@@ -19,6 +19,7 @@ const { resolveOllamaModel } = require('./ollama-shared');
 const providerConfig = require('./config');
 const serverConfig = require('../config');
 const { safeJsonParse } = require('../utils/json');
+const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 // Agentic tool-calling is now handled exclusively by execution.js wrapper
 
@@ -927,8 +928,18 @@ async function executeOllamaTask(task) {
 
         if (fallbackProvider) {
           logger.info(`[Ollama] Failing over to ${fallbackProvider} for task ${taskId}`);
+          const failoverErrorOutput = errorOutput + `\n[Auto-Failover] Ollama unavailable, switching to ${fallbackProvider}`;
+          const taskDescription = currentTask?.task_description || task.task_description;
+          const resumeContext = buildResumeContext(currentTask?.output || task.output || '', failoverErrorOutput, {
+            task_description: taskDescription,
+            provider: currentProvider,
+            started_at: currentTask?.started_at || task.started_at,
+            completed_at: new Date().toISOString(),
+          });
           safeUpdateTaskStatus(taskId, 'pending_provider_switch', {
-            error_output: errorOutput + `\n[Auto-Failover] Ollama unavailable, switching to ${fallbackProvider}`
+            error_output: failoverErrorOutput,
+            resume_context: resumeContext,
+            task_description: prependResumeContextToPrompt(taskDescription, resumeContext),
           });
           db.approveProviderSwitch(taskId, fallbackProvider);
           db.recordFailoverEvent({

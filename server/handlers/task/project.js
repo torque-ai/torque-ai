@@ -20,6 +20,7 @@ const projectConfigCore = require('../../db/project-config-core');
 const taskMetadata = require('../../db/task-metadata');
 const serverConfig = require('../../config');
 const taskManager = require('../../task-manager');
+const { prependResumeContextToPrompt } = require('../../utils/resume-context');
 const { safeLimit, safeDate, isPathTraversalSafe, MAX_BATCH_SIZE, ErrorCodes, makeError } = require('../shared');
 const { formatTime } = require('./utils');
 const logger = require('../../logger').child({ component: 'task-project' });
@@ -787,16 +788,18 @@ function handleGroupAction(args) {
         if (task.status === 'failed') {
           // Create new task with same description
           const newTaskId = uuidv4();
+          const retryDescription = prependResumeContextToPrompt(task.task_description, task.resume_context);
           taskCore.createTask({
             id: newTaskId,
             status: 'pending',
-            task_description: task.task_description,
+            task_description: retryDescription,
             working_directory: task.working_directory,
             timeout_minutes: task.timeout_minutes,
             auto_approve: task.auto_approve,
             priority: task.priority,
             tags: task.tags,
-            group_id: args.group_id
+            group_id: args.group_id,
+            resume_context: task.resume_context || null
           });
           taskManager.startTask(newTaskId);
           affected++;

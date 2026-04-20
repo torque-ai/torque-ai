@@ -24,6 +24,7 @@ const providerRoutingCore = require('../../db/provider-routing-core');
 const taskMetadata = require('../../db/task-metadata');
 const taskManager = require('../../task-manager');
 const { TASK_TIMEOUTS } = require('../../constants');
+const { prependResumeContextToPrompt } = require('../../utils/resume-context');
 const { safeLimit, safeOffset, safeDate, isPathTraversalSafe, MAX_BATCH_SIZE, ErrorCodes, makeError, requireTask } = require('../shared');
 const { formatTime } = require('./utils');
 const logger = require('../../logger').child({ component: 'task-operations' });
@@ -828,16 +829,18 @@ function handleBatchRetry(args) {
   const affectedIds = [];
   for (const task of toRetry.slice(0, safeLimit(args.limit, 10))) {
     const newId = uuidv4();
+    const retryDescription = prependResumeContextToPrompt(task.task_description, task.resume_context);
     taskCore.createTask({
       id: newId,
       status: 'pending',
-      task_description: task.task_description,
+      task_description: retryDescription,
       working_directory: task.working_directory,
       timeout_minutes: task.timeout_minutes,
       auto_approve: task.auto_approve,
       priority: (task.priority || 0) + 1,
       tags: task.tags,
-      context: { retry_of: task.id }
+      context: { retry_of: task.id },
+      resume_context: task.resume_context || null
     });
 
     taskManager.startTask(newId);

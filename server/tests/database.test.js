@@ -208,6 +208,39 @@ describe('Database Module', () => {
       expect(task.completed_at).not.toBeNull();
     });
 
+    it('createTask persists resume_context JSON', () => {
+      const id = uuidv4();
+      const resumeContext = { goal: 'retry safely', filesModified: ['server/foo.js'] };
+
+      taskCore.createTask({
+        id,
+        task_description: 'Resume context create test',
+        status: 'queued',
+        working_directory: testDir,
+        resume_context: resumeContext,
+      });
+
+      const task = taskCore.getTask(id);
+      expect(JSON.parse(task.resume_context)).toEqual(resumeContext);
+    });
+
+    it('updateTaskStatus persists resume_context JSON on failed tasks', () => {
+      const id = uuidv4();
+      const resumeContext = { goal: 'fix failure', errorDetails: 'boom' };
+
+      taskCore.createTask({ id, task_description: 'Resume context failed test', status: 'queued', working_directory: testDir });
+      taskCore.updateTaskStatus(id, 'running');
+      taskCore.updateTaskStatus(id, 'failed', {
+        exit_code: 1,
+        output: 'error',
+        resume_context: resumeContext,
+      });
+
+      const task = taskCore.getTask(id);
+      expect(task.status).toBe('failed');
+      expect(JSON.parse(task.resume_context)).toEqual(resumeContext);
+    });
+
     it('updateTaskStatus running -> cancelled sets completed_at', () => {
       const id = uuidv4();
       taskCore.createTask({ id, task_description: 'Cancelled running test', status: 'queued', working_directory: testDir });

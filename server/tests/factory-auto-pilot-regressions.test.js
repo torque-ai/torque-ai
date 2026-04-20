@@ -298,6 +298,7 @@ describe('runArchitectLLM', () => {
 describe('runAdvanceLoop EXECUTE', () => {
   it('terminates when no targetItem selected', async () => {
     const project = createProject('execute-no-target-item');
+    factoryHealth.updateProject(project.id, { status: 'running' });
     const instance = factoryLoopInstances.createInstance({ project_id: project.id });
     factoryLoopInstances.updateInstance(instance.id, {
       loop_state: LOOP_STATES.EXECUTE,

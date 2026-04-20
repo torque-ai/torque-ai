@@ -13,6 +13,7 @@
  */
 
 const logger = require('../logger').child({ component: 'safeguard-gates' });
+const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 
 let deps = {};
 
@@ -86,6 +87,12 @@ function handleSafeguardChecks(ctx) {
     ctx.errorOutput = (ctx.errorOutput || '') +
       '\n\n[LLM SAFEGUARD FAILED - AUTO-RETRY]\n' +
       safeguardResult.issues.join('\n');
+    const resumeContext = buildResumeContext(ctx.output || proc?.output || task.output || '', ctx.errorOutput, {
+      task_description: task.task_description,
+      provider: task.provider,
+      started_at: task.started_at,
+      completed_at: new Date().toISOString(),
+    });
 
     deps.taskCleanupGuard?.delete(taskId);
 
@@ -94,7 +101,9 @@ function handleSafeguardChecks(ctx) {
       retry_count: retryCount + 1,
       started_at: null,
       pid: null,
-      progress_percent: 0
+      progress_percent: 0,
+      resume_context: resumeContext,
+      task_description: prependResumeContextToPrompt(task.task_description, resumeContext),
     });
     if (deps.dashboard) deps.dashboard.notifyTaskUpdated(taskId);
     deps.processQueue();

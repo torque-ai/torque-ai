@@ -9,6 +9,7 @@ const fileTracking = require('../../db/file-tracking');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const webhooksStreaming = require('../../db/webhooks-streaming');
 const { sendJson, sendError, parseBody, enrichTaskWithHostName } = require('../utils');
+const { prependResumeContextToPrompt } = require('../../utils/resume-context');
 
 /**
  * GET /api/tasks - List tasks with filtering and pagination
@@ -87,13 +88,18 @@ async function handleTaskAction(req, res, query, taskId, action, context) {
         sendError(res, 'Can only retry failed tasks');
         return;
       }
-      taskCore.updateTaskStatus(taskId, 'queued', {
+      const retryFields = {
         retry_count: (task.retry_count || 0) + 1,
         error_output: null,
         started_at: null,
         completed_at: null,
         provider: null, // Clear for fresh routing
-      });
+      };
+      if (task.resume_context) {
+        retryFields.resume_context = task.resume_context;
+        retryFields.task_description = prependResumeContextToPrompt(task.task_description, task.resume_context);
+      }
+      taskCore.updateTaskStatus(taskId, 'queued', retryFields);
       broadcastTaskUpdate(taskId);
       sendJson(res, { success: true, message: 'Task requeued' });
       break;

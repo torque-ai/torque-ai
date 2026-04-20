@@ -271,9 +271,9 @@ function createDbHarness(overrides = {}) {
       if (normalizedSql.startsWith("UPDATE tasks SET status = 'queued'")) {
         return {
           run(...args) {
-            const [switchedAt, metadataJson, taskId] = args.length === 4
-              ? [args[1], args[2], args[3]]
-              : args;
+            const [switchedAt, metadataJson, taskDescription, taskId] = args.length === 4
+              ? args
+              : [args[0], args[1], undefined, args[2]];
             const task = state.tasks.get(taskId);
             if (!task) return { changes: 0 };
 
@@ -290,6 +290,9 @@ function createDbHarness(overrides = {}) {
             task.model = null;
             task.ollama_host_id = null;
             task.metadata = JSON.parse(metadataJson);
+            if (taskDescription !== undefined) {
+              task.task_description = taskDescription;
+            }
             return { changes: 1 };
           },
         };

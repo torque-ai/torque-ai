@@ -19,6 +19,7 @@ const serverConfig = require('../config');
 const { TASK_TIMEOUTS } = require('../constants');
 const perfTracker = require('../db/provider-performance');
 const { failoverBackoffMs } = require('../utils/backoff');
+const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 
 // Dependency injection
 let db = null;
@@ -242,7 +243,11 @@ function handleProviderFailover(ctx) {
 
   if (ctx.status === 'failed' && task && schedulingMode === 'slot-pull' && task.provider) {
     const slotPull = require('../execution/slot-pull-scheduler');
-    const outcome = slotPull.requeueAfterFailure(taskId, task.provider, { deferTerminalWrite: true });
+    const outcome = slotPull.requeueAfterFailure(taskId, task.provider, {
+      deferTerminalWrite: true,
+      errorOutput: ctx.errorOutput || proc?.errorOutput || '',
+      output: ctx.output || proc?.output || '',
+    });
 
     if (outcome?.requeued) {
       try {
@@ -298,13 +303,23 @@ function handleProviderFailover(ctx) {
 
     if (fallbackProvider) {
       logger.info(`[Provider Failover] ${currentProvider} quota exceeded, switching to ${fallbackProvider} for task ${taskId}`);
+      const sanitizedOutput = _sanitizeTaskOutput(proc.output);
+      const failoverErrorOutput = errorOutput + `\n[Auto-Failover] Switching from ${currentProvider} to ${fallbackProvider}`;
+      const resumeContext = buildResumeContext(sanitizedOutput, failoverErrorOutput, {
+        task_description: task.task_description,
+        provider: currentProvider,
+        started_at: task.started_at,
+        completed_at: new Date().toISOString(),
+      });
 
       db.updateTaskStatus(taskId, 'pending_provider_switch', {
         exit_code: code,
-        output: _sanitizeTaskOutput(proc.output),
-        error_output: errorOutput + `\n[Auto-Failover] Switching from ${currentProvider} to ${fallbackProvider}`,
+        output: sanitizedOutput,
+        error_output: failoverErrorOutput,
         files_modified: filesModified,
-        progress_percent: 0
+        progress_percent: 0,
+        resume_context: resumeContext,
+        task_description: prependResumeContextToPrompt(task.task_description, resumeContext),
       });
 
       try {

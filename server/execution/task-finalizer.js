@@ -19,6 +19,7 @@ const { createAdversarialReviewStage } = require('./adversarial-review-stage');
 const { parseDiffusionSignal } = require('../diffusion/signal-parser');
 const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
 const { expandApplyTaskDescription } = require('../diffusion/planner');
+const resumeContextUtils = require('../utils/resume-context');
 const { v4: uuidv4 } = require('uuid');
 
 let deps = {};
@@ -173,6 +174,23 @@ function getDurationMsForScoring(task) {
 
   const completedAt = parseTimestampMs(task?.completed_at) || Date.now();
   return Math.max(0, completedAt - startedAt);
+}
+
+function buildFailedTaskResumeContext(task, taskOutput, errorOutput, durationMs) {
+  try {
+    return resumeContextUtils.buildResumeContext(
+      taskOutput || task?.output || '',
+      errorOutput || task?.error_output || '',
+      {
+        task_description: task?.task_description,
+        durationMs,
+        provider: task?.provider,
+      }
+    );
+  } catch (err) {
+    logger.info(`[finalizer] Resume context build failed: ${err.message}`);
+    return null;
+  }
 }
 
 function getCostUsdForScoring(task, metadata) {
@@ -744,15 +762,23 @@ async function finalizeTask(taskId, options = {}) {
     const sanitizedOutput = typeof deps.sanitizeTaskOutput === 'function'
       ? deps.sanitizeTaskOutput(ctx.output)
       : ctx.output;
-    const updateTaskStatus = deps.safeUpdateTaskStatus || deps.db.updateTaskStatus;
-    updateTaskStatus(taskId, ctx.status, {
+    const resumeDurationMs = getDurationMsForScoring(task);
+    const resumeContext = ctx.status === 'failed'
+      ? buildFailedTaskResumeContext(task, sanitizedOutput, ctx.errorOutput, resumeDurationMs)
+      : null;
+    const statusFields = {
       exit_code: ctx.code,
       output: sanitizedOutput,
       error_output: ctx.errorOutput,
       files_modified: ctx.filesModified,
       progress_percent: ctx.status === 'completed' ? 100 : 0,
       metadata,
-    });
+    };
+    if (resumeContext) {
+      statusFields.resume_context = resumeContext;
+    }
+    const updateTaskStatus = deps.safeUpdateTaskStatus || deps.db.updateTaskStatus;
+    updateTaskStatus(taskId, ctx.status, statusFields);
 
     ctx.task = deps.db.getTask(taskId) || task;
     await indexRunArtifacts(taskId, ctx.task?.workflow_id || task?.workflow_id || null);
@@ -761,11 +787,6 @@ async function finalizeTask(taskId, options = {}) {
     } catch (studyTelemetryErr) {
       logger.info(`[finalizer] Study telemetry recording failed: ${studyTelemetryErr.message}`);
     }
-
-    // Compute duration for resume hooks (ctx.durationMs is not populated by the pipeline)
-    const _hookDurationMs = task.started_at
-      ? Math.max(0, Date.now() - new Date(task.started_at).getTime())
-      : 0;
 
     recordProviderScoring(ctx);
 
@@ -785,19 +806,6 @@ async function finalizeTask(taskId, options = {}) {
             }
           } catch { /* routing template activation is best-effort */ }
         }
-      }
-    } catch (_e) { /* non-critical */ }
-
-    try {
-      if (ctx.status === 'failed') {
-        const { buildResumeContext } = require('../utils/resume-context');
-        const resumeCtx = buildResumeContext(
-          ctx.output || task.output || '',
-          ctx.errorOutput || task.error_output || '',
-          { description: task.task_description, durationMs: _hookDurationMs, provider: task.provider }
-        );
-        const db = require('../database');
-        try { db.getDbInstance().prepare('UPDATE tasks SET resume_context = ? WHERE id = ?').run(JSON.stringify(resumeCtx), task.id); } catch {}
       }
     } catch (_e) { /* non-critical */ }
 
@@ -864,17 +872,28 @@ async function finalizeTask(taskId, options = {}) {
       early_exit: false,
     };
 
-    const updateTaskStatus = deps.safeUpdateTaskStatus || deps.db.updateTaskStatus;
-    updateTaskStatus(taskId, 'failed', {
+    const fallbackOutput = typeof deps.sanitizeTaskOutput === 'function'
+      ? deps.sanitizeTaskOutput(fallbackCtx.output)
+      : fallbackCtx.output;
+    const fallbackResumeContext = buildFailedTaskResumeContext(
+      currentTask,
+      fallbackOutput,
+      fallbackCtx.errorOutput,
+      getDurationMsForScoring(currentTask)
+    );
+    const fallbackFields = {
       exit_code: fallbackCtx.code,
-      output: typeof deps.sanitizeTaskOutput === 'function'
-        ? deps.sanitizeTaskOutput(fallbackCtx.output)
-        : fallbackCtx.output,
+      output: fallbackOutput,
       error_output: fallbackCtx.errorOutput,
       files_modified: fallbackCtx.filesModified || [],
       progress_percent: 0,
       metadata: buildValidationMetadata(currentTask, fallbackCtx, rawExitCode),
-    });
+    };
+    if (fallbackResumeContext) {
+      fallbackFields.resume_context = fallbackResumeContext;
+    }
+    const updateTaskStatus = deps.safeUpdateTaskStatus || deps.db.updateTaskStatus;
+    updateTaskStatus(taskId, 'failed', fallbackFields);
 
     fallbackCtx.task = deps.db.getTask(taskId) || currentTask;
     await indexRunArtifacts(taskId, fallbackCtx.task?.workflow_id || currentTask?.workflow_id || null);
