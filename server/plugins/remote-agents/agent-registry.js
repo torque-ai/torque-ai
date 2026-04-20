@@ -66,11 +66,11 @@ class RemoteAgentRegistry {
    * @param {number} [opts.port=3460] - Agent port
    * @param {string} opts.secret - Shared secret for authentication
    * @param {number} [opts.max_concurrent=3] - Max concurrent tasks on this agent
-   * @param {boolean} [opts.tls=false] - Whether to use HTTPS transport
+   * @param {boolean} [opts.tls=true] - Whether to use HTTPS transport
    * @param {boolean} [opts.rejectUnauthorized=true] - Whether TLS certs must be trusted
    * @returns {{ id: string, name: string, host: string, port: number }}
    */
-  register({ id, name, host, port = 3460, secret, max_concurrent = 3, tls = false, rejectUnauthorized = true }) {
+  register({ id, name, host, port = 3460, secret, max_concurrent = 3, tls = true, rejectUnauthorized = true }) {
     this.db.prepare(`INSERT OR REPLACE INTO remote_agents
       (id, name, host, port, secret, max_concurrent, tls, rejectUnauthorized, status, consecutive_failures, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unknown', 0, datetime('now'))
@@ -147,7 +147,7 @@ class RemoteAgentRegistry {
         host: agent.host,
         port: agent.port,
         secret: agent.secret,
-        tls: !!agent.tls,
+        tls: agent.tls === undefined || agent.tls === null ? true : !!agent.tls,
         rejectUnauthorized: agent.rejectUnauthorized === undefined ? true : !!agent.rejectUnauthorized,
       });
       // Seed cached health from DB so isAvailable() works before first health check

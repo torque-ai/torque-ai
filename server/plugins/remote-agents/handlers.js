@@ -32,8 +32,8 @@ function _coerceBoolean(value, defaultValue) {
 function _resolveTlsSettings(args, existingAgent) {
   return {
     tls: _hasOwn(args, 'tls')
-      ? _coerceBoolean(args.tls, false)
-      : _coerceBoolean(existingAgent && existingAgent.tls, false),
+      ? _coerceBoolean(args.tls, true)
+      : _coerceBoolean(existingAgent && existingAgent.tls, true),
     rejectUnauthorized: _hasOwn(args, 'rejectUnauthorized')
       ? _coerceBoolean(args.rejectUnauthorized, true)
       : _coerceBoolean(existingAgent && existingAgent.rejectUnauthorized, true),
@@ -41,12 +41,12 @@ function _resolveTlsSettings(args, existingAgent) {
 }
 
 function _formatAgentEndpoint(agent) {
-  const protocol = _coerceBoolean(agent && agent.tls, false) ? 'https' : 'http';
+  const protocol = _coerceBoolean(agent && agent.tls, true) ? 'https' : 'http';
   return `${protocol}://${agent.host}:${agent.port}`;
 }
 
 function _formatAgentTls(agent) {
-  const tls = _coerceBoolean(agent && agent.tls, false);
+  const tls = _coerceBoolean(agent && agent.tls, true);
   const rejectUnauthorized = _coerceBoolean(agent && agent.rejectUnauthorized, true);
   return `tls: ${tls ? 'enabled' : 'disabled'} (rejectUnauthorized: ${rejectUnauthorized})`;
 }

@@ -41,7 +41,10 @@ class RemoteAgentClient {
     this.healthCheckTimeout = healthCheckTimeout;
     this.tls = tls;
     this.rejectUnauthorized = rejectUnauthorized;
-    if (tls && !rejectUnauthorized) {
+    if (!this.tls) {
+      logger.warn(`Agent ${this.host}:${this.port} connected without TLS — credentials transmitted in plaintext`);
+    }
+    if (this.tls && !this.rejectUnauthorized) {
       logger.warn(`[AgentClient] WARNING: TLS certificate verification is disabled for agent at ${host}:${port}. This connection is vulnerable to man-in-the-middle attacks.`);
     }
     this._cachedHealth = null;

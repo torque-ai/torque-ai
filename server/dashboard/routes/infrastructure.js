@@ -695,7 +695,7 @@ function _sanitizeAgent(agent) {
   const { secret, ...safeAgent } = agent;
   return {
     ...safeAgent,
-    tls: _parseBoolean(agent.tls, false),
+    tls: _parseBoolean(agent.tls, true),
     rejectUnauthorized: _parseBoolean(agent.rejectUnauthorized, true),
   };
 }
@@ -806,7 +806,7 @@ async function handleCreateAgent(req, res) {
       port,
       secret,
       max_concurrent: _parsePort(payload?.max_concurrent || 3),
-      tls: hasTls ? _parseBoolean(payload?.tls, false) : _parseBoolean(existing && existing.tls, false),
+      tls: hasTls ? _parseBoolean(payload?.tls, true) : _parseBoolean(existing && existing.tls, true),
       rejectUnauthorized: hasRejectUnauthorized
         ? _parseBoolean(payload?.rejectUnauthorized, true)
         : _parseBoolean(existing && existing.rejectUnauthorized, true),

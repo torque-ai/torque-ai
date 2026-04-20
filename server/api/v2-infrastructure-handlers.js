@@ -481,7 +481,7 @@ function _sanitizeAgent(agent) {
   const { secret: _secret, ...safe } = agent;
   return {
     ...safe,
-    tls: Boolean(agent.tls),
+    tls: agent.tls === undefined || agent.tls === null ? true : Boolean(agent.tls),
     rejectUnauthorized: agent.rejectUnauthorized === undefined ? true : Boolean(agent.rejectUnauthorized),
   };
 }
@@ -536,10 +536,11 @@ async function handleCreateAgent(req, res) {
 
   try {
     const port = parseInt(body.port, 10) || 3460;
+    const hasTls = Object.prototype.hasOwnProperty.call(body || {}, 'tls');
     registry.register({
       id, name, host, port, secret,
       max_concurrent: parseInt(body.max_concurrent, 10) || 3,
-      tls: Boolean(body.tls),
+      tls: hasTls ? Boolean(body.tls) : true,
       rejectUnauthorized: body.rejectUnauthorized !== false,
     });
 

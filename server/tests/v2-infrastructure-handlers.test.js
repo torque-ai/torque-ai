@@ -1450,7 +1450,7 @@ describe('api/v2-infrastructure-handlers', () => {
       const data = expectList(res, {
         items: expect.arrayContaining([
           expect.objectContaining({ id: 'agent-a', name: 'Agent A', tls: true, rejectUnauthorized: false }),
-          expect.objectContaining({ id: 'agent-b', name: 'Agent B', tls: false, rejectUnauthorized: true }),
+          expect.objectContaining({ id: 'agent-b', name: 'Agent B', tls: true, rejectUnauthorized: true }),
         ]),
         total: 2,
       });
@@ -1533,7 +1533,7 @@ describe('api/v2-infrastructure-handlers', () => {
         port: 3460,
         secret: 'secret-a',
         max_concurrent: 3,
-        tls: false,
+        tls: true,
         rejectUnauthorized: true,
       });
       expect(expectSuccess(res, { status: 201 })).toEqual({
@@ -1542,7 +1542,7 @@ describe('api/v2-infrastructure-handlers', () => {
         host: 'agent-a.internal',
         port: 3460,
         max_concurrent: 3,
-        tls: false,
+        tls: true,
         rejectUnauthorized: true,
         created_at: '2026-03-01T00:00:00.000Z',
         status: 'unknown',
