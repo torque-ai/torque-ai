@@ -238,6 +238,14 @@ function mapTaskToolCall(toolName, args) {
         },
       };
 
+    case 'torque.workflow.reopen':
+      return {
+        tool: 'reopen_workflow',
+        args: {
+          workflow_id: payload.workflow_id,
+        },
+      };
+
     case 'torque.provider.list':
       return {
         tool: 'list_providers',

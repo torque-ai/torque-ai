@@ -566,6 +566,7 @@ const routes = [
   { method: 'POST', path: '/api/v2/workflows/what-if', tool: 'what_if', mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/workflows\/blocked-tasks\/([^/]+)$/, tool: 'blocked_tasks', mapQuery: true, mapParams: ['workflow_id'] },
   { method: 'POST', path: '/api/v2/workflows/retry-workflow-from', tool: 'retry_workflow_from', mapBody: true },
+  { method: 'POST', path: '/api/v2/workflows/reopen-workflow', tool: 'reopen_workflow', mapBody: true },
   { method: 'POST', path: '/api/v2/workflows/skip-task', tool: 'skip_task', mapBody: true },
   { method: 'POST', path: '/api/v2/workflows/create-conditional-template', tool: 'create_conditional_template', mapBody: true },
   { method: 'POST', path: '/api/v2/workflows/template-loop', tool: 'template_loop', mapBody: true },

@@ -522,6 +522,147 @@ describe('workflow-advanced handlers', () => {
     });
   });
 
+  describe('handleReopenWorkflow', () => {
+    it('returns WORKFLOW_NOT_FOUND when workflow is missing', () => {
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue(null);
+
+      const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-missing' });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('WORKFLOW_NOT_FOUND');
+    });
+
+    it('returns INVALID_STATUS_TRANSITION when workflow is running', () => {
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1', name: 'Live WF', status: 'running'
+      });
+
+      const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_STATUS_TRANSITION');
+      expect(textOf(result)).toContain("status 'running'");
+    });
+
+    it('returns INVALID_STATUS_TRANSITION when workflow is completed', () => {
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1', name: 'Done WF', status: 'completed'
+      });
+
+      const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_STATUS_TRANSITION');
+    });
+
+    it('returns INVALID_PARAM when workflow has no tasks', () => {
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1', name: 'Empty', status: 'failed'
+      });
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([]);
+
+      const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_PARAM');
+      expect(textOf(result)).toContain('no tasks');
+    });
+
+    it('returns INVALID_STATUS_TRANSITION when nothing is resettable', () => {
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1', name: 'AllDone', status: 'failed'
+      });
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
+        { id: 'task-a', status: 'completed', workflow_node_id: 'A' },
+        { id: 'task-b', status: 'completed', workflow_node_id: 'B' },
+      ]);
+      vi.spyOn(workflowEngine, 'getWorkflowDependencies').mockReturnValue([]);
+
+      const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_STATUS_TRANSITION');
+      expect(textOf(result)).toContain('No failed, cancelled, or skipped');
+    });
+
+    it('resets failed + cancelled + skipped tasks while preserving completed ones', () => {
+      const tasks = [
+        { id: 'task-a', status: 'completed', workflow_node_id: 'A' },
+        { id: 'task-b', status: 'failed', workflow_node_id: 'B' },
+        { id: 'task-c', status: 'cancelled', workflow_node_id: 'C' },
+        { id: 'task-d', status: 'skipped', workflow_node_id: 'D' },
+      ];
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1', name: 'Mixed', status: 'failed', context: {}
+      });
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue(tasks);
+      vi.spyOn(workflowEngine, 'getWorkflowDependencies').mockReturnValue([]);
+
+      const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => {});
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(taskManager, 'startTask').mockImplementation(() => {});
+
+      const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBeFalsy();
+      // Completed task must NOT be reset.
+      expect(updateStatusSpy).not.toHaveBeenCalledWith('task-a', expect.anything());
+      // Failed/cancelled/skipped → pending (no deps).
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-b', 'pending');
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-c', 'pending');
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-d', 'pending');
+      expect(updateWorkflowSpy).toHaveBeenCalledWith('wf-1', expect.objectContaining({
+        status: 'running',
+        completed_at: null,
+      }));
+      expect(textOf(result)).toContain('Workflow Reopened');
+      expect(textOf(result)).toContain('**Tasks Reset:** 3');
+    });
+
+    it('restores blocked status when a prerequisite is still non-completed', () => {
+      const tasks = [
+        { id: 'task-a', status: 'failed', workflow_node_id: 'A' },
+        { id: 'task-b', status: 'failed', workflow_node_id: 'B' },
+      ];
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1', name: 'Chain', status: 'failed', context: {}
+      });
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue(tasks);
+      vi.spyOn(workflowEngine, 'getWorkflowDependencies').mockReturnValue([
+        { task_id: 'task-b', depends_on_task_id: 'task-a' },
+      ]);
+
+      const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => {});
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(taskManager, 'startTask').mockImplementation(() => {});
+
+      const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBeFalsy();
+      // task-a has no deps → pending. task-b depends on task-a which is not completed → blocked.
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-a', 'pending');
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-b', 'blocked');
+    });
+
+    it('works for cancelled workflows too', () => {
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1', name: 'Cancelled', status: 'cancelled', context: {}
+      });
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue([
+        { id: 'task-a', status: 'cancelled', workflow_node_id: 'A' },
+      ]);
+      vi.spyOn(workflowEngine, 'getWorkflowDependencies').mockReturnValue([]);
+      vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => {});
+      vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(taskManager, 'startTask').mockImplementation(() => {});
+
+      const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toContain('Workflow Reopened');
+    });
+  });
+
   describe('handleSkipTask', () => {
     it('returns TASK_NOT_FOUND for unknown task', () => {
       vi.spyOn(taskCore, 'getTask').mockReturnValue(null);

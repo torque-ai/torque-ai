@@ -466,6 +466,129 @@ function handleRetryWorkflowFrom(args) {
 
 
 /**
+ * Reopen a failed or cancelled workflow by resetting ALL non-completed tasks
+ * (failed + cancelled + skipped) and restarting execution.
+ *
+ * Unlike retry_workflow_from (which targets one task and its downstream
+ * dependents), this is bulk: it fans across every non-completed task in the
+ * workflow. Useful when a workflow had multiple parallel failures and per-task
+ * retry would require calling retry_workflow_from once per failure.
+ *
+ * Guards:
+ * - Only allows workflows in `failed` or `cancelled` state (not `running` or
+ *   `completed`). Running workflows go through the restart guard path.
+ * - Preserves `completed` tasks (does not reset them).
+ * - Restores `blocked` vs `pending` per each task's live dependency state —
+ *   if a prerequisite is still non-completed the task stays blocked.
+ */
+function handleReopenWorkflow(args) {
+  const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
+  if (wfErr) return wfErr;
+
+  if (!['failed', 'cancelled'].includes(workflow.status)) {
+    return makeError(
+      ErrorCodes.INVALID_STATUS_TRANSITION,
+      `Cannot reopen workflow with status '${workflow.status}'. Only failed or cancelled workflows can be reopened.`
+    );
+  }
+
+  const tasks = workflowEngine.getWorkflowTasks(args.workflow_id);
+  if (!tasks || tasks.length === 0) {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `Workflow '${workflow.name}' (${args.workflow_id}) has no tasks to reopen.`
+    );
+  }
+
+  const deps = workflowEngine.getWorkflowDependencies(args.workflow_id);
+  const resettableStatuses = new Set(['failed', 'cancelled', 'skipped']);
+  const resetTasks = [];
+
+  for (const task of tasks) {
+    if (!resettableStatuses.has(task.status)) continue;
+
+    const taskDeps = deps.filter(d => d.task_id === task.id);
+    const hasUnmetDeps = taskDeps.some(dep => {
+      const prereq = tasks.find(t => t.id === dep.depends_on_task_id);
+      return prereq && prereq.status !== 'completed';
+    });
+
+    const newStatus = (taskDeps.length > 0 && hasUnmetDeps) ? 'blocked' : 'pending';
+    const resumeFields = task.resume_context
+      ? {
+          resume_context: task.resume_context,
+          task_description: prependResumeContextToPrompt(task.task_description, task.resume_context),
+        }
+      : undefined;
+    if (resumeFields) {
+      taskCore.updateTaskStatus(task.id, newStatus, resumeFields);
+    } else {
+      taskCore.updateTaskStatus(task.id, newStatus);
+    }
+    resetTasks.push({
+      id: task.id,
+      node_id: task.workflow_node_id || task.id.substring(0, 8),
+      old_status: task.status,
+      new_status: newStatus,
+    });
+  }
+
+  if (resetTasks.length === 0) {
+    return makeError(
+      ErrorCodes.INVALID_STATUS_TRANSITION,
+      `No failed, cancelled, or skipped tasks found in workflow '${workflow.name}' to reset.`
+    );
+  }
+
+  // Clear acknowledged_tasks so await_workflow yields the reset tasks again,
+  // matching retry_workflow_from's semantics.
+  const currentCtx = (workflow.context && typeof workflow.context === 'object') ? workflow.context : {};
+  workflowEngine.updateWorkflow(args.workflow_id, {
+    status: 'running',
+    completed_at: null,
+    context: { ...currentCtx, acknowledged_tasks: [] },
+  });
+
+  // Start tasks that are now pending.
+  const freshTasks = workflowEngine.getWorkflowTasks(args.workflow_id);
+  let started = 0;
+  for (const t of freshTasks) {
+    if (t.status === 'pending') {
+      try {
+        const startPromise = taskManager.startTask(t.id);
+        if (startPromise && typeof startPromise.catch === 'function') {
+          startPromise.catch(err => logger.debug('[workflow-handlers] async error restarting reopened workflow task:', err.message || err));
+        }
+        started++;
+      } catch (err) {
+        logger.debug('[workflow-handlers] non-critical error restarting reopened workflow task:', err.message || err);
+      }
+    }
+  }
+
+  let output = `## Workflow Reopened\n\n`;
+  output += `**Workflow:** ${workflow.name}\n`;
+  output += `**ID:** ${args.workflow_id}\n`;
+  output += `**Tasks Reset:** ${resetTasks.length}\n`;
+  output += `**Tasks Started:** ${started}\n`;
+  output += `**Workflow Status:** running\n`;
+
+  if (resetTasks.length <= 20) {
+    output += `\n### Reset Tasks\n\n`;
+    output += `| Node | Old Status | New Status |\n`;
+    output += `|------|------------|------------|\n`;
+    for (const rt of resetTasks) {
+      output += `| ${rt.node_id} | ${rt.old_status} | ${rt.new_status} |\n`;
+    }
+  }
+
+  return {
+    content: [{ type: 'text', text: output }]
+  };
+}
+
+
+/**
  * Manually skip a blocked task
  */
 function handleSkipTask(args) {
@@ -507,6 +630,7 @@ function createWorkflowAdvancedHandlers(_deps) {
     handleDuplicatePipeline,
     handleExportReport,
     handleRetryWorkflowFrom,
+    handleReopenWorkflow,
     handleSkipTask,
   };
 }
@@ -519,6 +643,7 @@ module.exports = {
   handleDuplicatePipeline,
   handleExportReport,
   handleRetryWorkflowFrom,
+  handleReopenWorkflow,
   handleSkipTask,
   createWorkflowAdvancedHandlers,
 };
