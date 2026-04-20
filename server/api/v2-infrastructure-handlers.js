@@ -4,7 +4,7 @@
  * V2 Control-Plane Infrastructure Handlers
  *
  * Structured JSON REST handlers for hosts, peek hosts, credentials,
- * and remote agents.
+ * and coordination infrastructure.
  * These return { data, meta } envelopes via v2-control-plane helpers.
  */
 const logger = require('../logger').child({ component: 'v2-infrastructure-handlers' });
