@@ -66,21 +66,21 @@
 - Create: `packages/peek/LICENSE`
 - Create: `packages/peek/README.md`
 
-- [ ] **Step 1: Create package directory structure**
+- [x] **Step 1: Create package directory structure**
 
 ```bash
 mkdir -p packages/peek/bin packages/peek/src/platform packages/peek/src/capabilities packages/peek/tests
 ```
 
-- [ ] **Step 2: Write package.json**
+- [x] **Step 2: Write package.json**
 
 Create `packages/peek/package.json` with name `@torque-ai/peek`, version `1.0.0`, bin pointing to `./bin/torque-peek.js`, dependencies on `sharp` and `pixelmatch`, engines `>=18`.
 
-- [ ] **Step 3: Copy LICENSE (BSL-1.1) and write README**
+- [x] **Step 3: Copy LICENSE (BSL-1.1) and write README**
 
 Copy LICENSE from repo root. Write README with install instructions, usage commands, platform requirements table, and Superpowers companion recommendation.
 
-- [ ] **Step 4: Install dependencies and commit**
+- [x] **Step 4: Install dependencies and commit**
 
 ```bash
 cd packages/peek && npm install
