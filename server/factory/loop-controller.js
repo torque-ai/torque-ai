@@ -4684,6 +4684,18 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
     // the work item so the loop can advance to the next item.
     const verifyReview = require('./verify-review');
     let review = null;
+    // Reset the cascade counter when EXECUTE transitions into VERIFY for a
+    // fresh batch. Persisting the counter across stages lets consecutive
+    // missing_dep cycles within ONE verify stage add up, without leaking
+    // into the next batch.
+    try {
+      const freshProject = factoryHealth.getProject(project_id);
+      const freshCfg = freshProject?.config_json ? JSON.parse(freshProject.config_json) : {};
+      if (freshCfg.dep_resolve_cycle_count) {
+        freshCfg.dep_resolve_cycle_count = 0;
+        factoryHealth.updateProject(project_id, { config_json: JSON.stringify(freshCfg) });
+      }
+    } catch (_e) { void _e; }
     let res = null;
     // Seed the retry counter from prior verify-retry tasks for this batch.
     // Without this, any re-entry to executeVerifyStage (stall-recovery,
@@ -4776,6 +4788,225 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               batch_id,
             });
             review = null;
+          }
+
+          // missing_dep branch: submit a Codex resolver task, await, re-verify.
+          // Cap cascade at 3 per batch. On resolver failure, escalate once; on
+          // escalation pause, treat as baseline_broken and pause the project.
+          if (review && review.classification === 'missing_dep') {
+            const depResolver = require('./dep-resolver/index');
+            const escalationHelper = require('./dep-resolver/escalation');
+            const registry = require('./dep-resolver/registry');
+            const adapter = registry.getAdapter(review.manager);
+            if (!adapter) {
+              // Manager disappeared between classify and resolve; fall through
+              // as ambiguous so the normal retry path can try.
+              safeLogDecision({
+                project_id,
+                stage: LOOP_STATES.VERIFY,
+                action: 'dep_resolver_no_adapter',
+                reasoning: `Missing dep detected (manager=${review.manager}) but no adapter is registered; falling through to retry.`,
+                outcome: { work_item_id: instance?.work_item_id || null, manager: review.manager },
+                confidence: 1,
+                batch_id,
+              });
+            } else {
+            const gatedTrust = project.trust_level === 'supervised' || project.trust_level === 'guided';
+            if (gatedTrust) {
+              safeLogDecision({
+                project_id,
+                stage: LOOP_STATES.VERIFY,
+                action: 'dep_resolver_pending_approval',
+                reasoning: `Missing dep ${review.package_name} (${review.manager}) detected. Trust level ${project.trust_level} requires operator approval before installing.`,
+                outcome: {
+                  work_item_id: instance?.work_item_id || null,
+                  manager: review.manager,
+                  package: review.package_name,
+                  proposed_action: 'dep_resolve',
+                },
+                confidence: 1,
+                batch_id,
+              });
+              return {
+                status: 'paused',
+                reason: 'dep_resolver_pending_approval',
+                next_state: LOOP_STATES.PAUSED,
+                paused_at_stage: LOOP_STATES.VERIFY,
+              };
+            }
+              // Check cascade cap + kill switch.
+              const currentProject = factoryHealth.getProject(project_id);
+              const cfg = currentProject?.config_json ? JSON.parse(currentProject.config_json) : {};
+              const enabled = cfg?.dep_resolver?.enabled !== false; // default on
+              const cap = Number.isFinite(cfg?.dep_resolver?.cascade_cap) ? cfg.dep_resolver.cascade_cap : 3;
+              const count = Number.isFinite(cfg?.dep_resolve_cycle_count) ? cfg.dep_resolve_cycle_count : 0;
+
+              if (!enabled) {
+                safeLogDecision({
+                  project_id,
+                  stage: LOOP_STATES.VERIFY,
+                  action: 'dep_resolver_disabled',
+                  reasoning: 'Missing dep detected but dep_resolver.enabled=false; falling through to existing retry.',
+                  outcome: { work_item_id: instance?.work_item_id || null, package: review.package_name },
+                  confidence: 1,
+                  batch_id,
+                });
+              } else if (count >= cap) {
+                // Cascade exhausted — pause as baseline_broken.
+                factoryIntake.updateWorkItem(instance.work_item_id, {
+                  status: 'rejected',
+                  reject_reason: `dep_cascade_exhausted: ${count} resolutions attempted, next missing dep is ${review.package_name}`,
+                });
+                cfg.baseline_broken_since = new Date().toISOString();
+                cfg.baseline_broken_reason = 'dep_cascade_exhausted';
+                cfg.baseline_broken_evidence = { last_package: review.package_name, cycle_count: count };
+                cfg.baseline_broken_probe_attempts = 0;
+                cfg.baseline_broken_tick_count = 0;
+                factoryHealth.updateProject(project_id, { status: 'paused', config_json: JSON.stringify(cfg) });
+                safeLogDecision({
+                  project_id,
+                  stage: LOOP_STATES.VERIFY,
+                  action: 'dep_resolver_cascade_exhausted',
+                  reasoning: `Reached ${count} dep resolutions this batch; pausing project.`,
+                  outcome: { work_item_id: instance?.work_item_id || null, package: review.package_name, cycle_count: count },
+                  confidence: 1,
+                  batch_id,
+                });
+                return { status: 'rejected', reason: 'dep_cascade_exhausted' };
+              } else {
+                // Run the resolver.
+                safeLogDecision({
+                  project_id,
+                  stage: LOOP_STATES.VERIFY,
+                  action: 'dep_resolver_detected',
+                  reasoning: `Missing dep detected: ${review.package_name} (manager=${review.manager})`,
+                  outcome: { work_item_id: instance?.work_item_id || null, manager: review.manager, package: review.package_name, module: review.module_name },
+                  confidence: 1,
+                  batch_id,
+                });
+
+                let resolveResult = await depResolver.resolve({
+                  classification: review,
+                  project,
+                  worktree: worktreeRecord,
+                  workItem: instance?.work_item_id ? factoryIntake.getWorkItem(instance.work_item_id) : null,
+                  instance,
+                  adapter,
+                  options: {},
+                });
+
+                safeLogDecision({
+                  project_id,
+                  stage: LOOP_STATES.VERIFY,
+                  action: resolveResult.outcome === 'resolved' ? 'dep_resolver_task_completed' : 'dep_resolver_validation_failed',
+                  reasoning: `Resolver outcome: ${resolveResult.outcome} (${resolveResult.reason || 'ok'})`,
+                  outcome: { work_item_id: instance?.work_item_id || null, ...resolveResult },
+                  confidence: 1,
+                  batch_id,
+                });
+
+                // On resolver failure, escalate once.
+                if (resolveResult.outcome !== 'resolved') {
+                  const escalationResult = await escalationHelper.escalate({
+                    project,
+                    workItem: instance?.work_item_id ? factoryIntake.getWorkItem(instance.work_item_id) : null,
+                    originalError: review.error_output || '',
+                    resolverError: resolveResult.resolverError || resolveResult.reason || '',
+                    resolverPrompt: adapter.buildResolverPrompt({
+                      package_name: review.package_name,
+                      project,
+                      worktree: worktreeRecord,
+                      workItem: instance?.work_item_id ? factoryIntake.getWorkItem(instance.work_item_id) : null,
+                      error_output: review.error_output || '',
+                    }),
+                    manifestExcerpt: '',
+                  });
+                  safeLogDecision({
+                    project_id,
+                    stage: LOOP_STATES.VERIFY,
+                    action: 'dep_resolver_escalated',
+                    reasoning: `Escalation verdict: ${escalationResult.action} (${escalationResult.reason})`,
+                    outcome: { work_item_id: instance?.work_item_id || null, ...escalationResult },
+                    confidence: 1,
+                    batch_id,
+                  });
+                  if (escalationResult.action === 'retry') {
+                    resolveResult = await depResolver.resolve({
+                      classification: review,
+                      project,
+                      worktree: worktreeRecord,
+                      workItem: instance?.work_item_id ? factoryIntake.getWorkItem(instance.work_item_id) : null,
+                      instance,
+                      adapter,
+                      options: { revisedPrompt: escalationResult.revisedPrompt },
+                    });
+                    safeLogDecision({
+                      project_id,
+                      stage: LOOP_STATES.VERIFY,
+                      action: 'dep_resolver_escalation_retry',
+                      reasoning: `Retry resolver outcome: ${resolveResult.outcome} (${resolveResult.reason || 'ok'})`,
+                      outcome: { work_item_id: instance?.work_item_id || null, ...resolveResult },
+                      confidence: 1,
+                      batch_id,
+                    });
+                  }
+                  // If still not resolved (either escalation pause or retry failed), pause project.
+                  if (resolveResult.outcome !== 'resolved') {
+                    factoryIntake.updateWorkItem(instance.work_item_id, {
+                      status: 'rejected',
+                      reject_reason: `dep_resolver_unresolvable: ${escalationResult.reason || resolveResult.reason || 'unknown'}`,
+                    });
+                    cfg.baseline_broken_since = new Date().toISOString();
+                    cfg.baseline_broken_reason = 'dep_resolver_unresolvable';
+                    cfg.baseline_broken_evidence = { package: review.package_name, escalation_reason: escalationResult.reason, resolver_reason: resolveResult.reason };
+                    cfg.baseline_broken_probe_attempts = 0;
+                    cfg.baseline_broken_tick_count = 0;
+                    factoryHealth.updateProject(project_id, { status: 'paused', config_json: JSON.stringify(cfg) });
+                    safeLogDecision({
+                      project_id,
+                      stage: LOOP_STATES.VERIFY,
+                      action: 'dep_resolver_escalation_pause',
+                      reasoning: `Pausing project: ${escalationResult.reason || resolveResult.reason}`,
+                      outcome: { work_item_id: instance?.work_item_id || null, package: review.package_name, escalation: escalationResult, resolver: resolveResult },
+                      confidence: 1,
+                      batch_id,
+                    });
+                    return { status: 'rejected', reason: 'dep_resolver_unresolvable' };
+                  }
+                }
+
+                // Success path: bump counter, mark for re-verify. Continue
+                // the outer verify while-loop.
+                cfg.dep_resolve_cycle_count = count + 1;
+                if (!Array.isArray(cfg.dep_resolve_history)) cfg.dep_resolve_history = [];
+                cfg.dep_resolve_history.push({
+                  ts: new Date().toISOString(),
+                  batch_id,
+                  package: review.package_name,
+                  manager: review.manager,
+                  outcome: 'resolved',
+                  task_id: resolveResult.taskId || null,
+                });
+                // Cap history at 20 entries
+                if (cfg.dep_resolve_history.length > 20) cfg.dep_resolve_history = cfg.dep_resolve_history.slice(-20);
+                factoryHealth.updateProject(project_id, { config_json: JSON.stringify(cfg) });
+
+                safeLogDecision({
+                  project_id,
+                  stage: LOOP_STATES.VERIFY,
+                  action: 'dep_resolver_reverify_passed',
+                  reasoning: `Dep ${review.package_name} resolved; re-running verify (cycle ${count + 1}/${cap}).`,
+                  outcome: { work_item_id: instance?.work_item_id || null, package: review.package_name, cycle_count: count + 1 },
+                  confidence: 1,
+                  batch_id,
+                });
+
+                // Clear `review` so the next loop iteration re-enters the
+                // classifier on the fresh verify output.
+                review = null;
+                continue;
+              }
+            }
           }
 
           if (review && (review.classification === 'baseline_broken'
