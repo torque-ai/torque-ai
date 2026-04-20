@@ -75,7 +75,7 @@ function addPipelineStep(step) {
     step.name,
     step.task_template,
     step.condition || null,
-    step.timeout_minutes || 30
+    step.timeout_minutes ?? 30
   );
 
   return getPipelineSteps(step.pipeline_id);
@@ -283,7 +283,7 @@ function addParallelPipelineStep(step) {
     step.name,
     step.task_template,
     step.condition || 'on_success',
-    step.timeout_minutes || 30,
+    step.timeout_minutes ?? 30,
     step.parallel_group || null
   );
 

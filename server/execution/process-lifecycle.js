@@ -659,26 +659,31 @@ function spawnAndTrackProcess(taskId, task, {
     }
   }, startupTimeoutMs);
 
-  // Set up main timeout with configurable value, default 30 minutes
-  // Bound timeout between 1 minute and 480 minutes (8 hours) to prevent resource exhaustion
+  // Set up main timeout with configurable value, default 30 minutes.
+  // timeout_minutes === 0 means "no timeout enforcement" — use Number.isFinite
+  // + explicit > 0 check so the 0 value survives past `|| 30` coercion.
+  // cancel_task and stall detection still apply.
   const MIN_TIMEOUT_MINUTES = 1;
   const MAX_TIMEOUT_MINUTES = 480;
-  const rawTimeout = parseInt(task.timeout_minutes, 10) || 30;
-  const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
-  const timeoutMs = boundedTimeout * 60 * 1000;
-  procRef.timeoutHandle = setTimeout(() => {
-    try {
-      if (deps.runningProcesses.has(taskId)) {
-        deps.cancelTask(taskId, 'Timeout exceeded');
+  const parsedTimeout = parseInt(task.timeout_minutes, 10);
+  const rawTimeout = Number.isFinite(parsedTimeout) ? parsedTimeout : 30;
+  if (rawTimeout > 0) {
+    const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
+    const timeoutMs = boundedTimeout * 60 * 1000;
+    procRef.timeoutHandle = setTimeout(() => {
+      try {
+        if (deps.runningProcesses.has(taskId)) {
+          deps.cancelTask(taskId, 'Timeout exceeded');
+        }
+      } catch (err) {
+        logger.info(`[TaskManager] Error in timeout callback for ${taskId}: ${err.message}`);
+        deps.safeUpdateTaskStatus(taskId, 'failed', {
+          error_output: `Timeout cancellation error: ${err.message}`,
+          exit_code: -1
+        });
       }
-    } catch (err) {
-      logger.info(`[TaskManager] Error in timeout callback for ${taskId}: ${err.message}`);
-      deps.safeUpdateTaskStatus(taskId, 'failed', {
-        error_output: `Timeout cancellation error: ${err.message}`,
-        exit_code: -1
-      });
-    }
-  }, timeoutMs);
+    }, timeoutMs);
+  }
 
   return { queued: false, task: taskCoreDb.getTask(taskId) };
 }

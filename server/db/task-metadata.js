@@ -251,7 +251,7 @@ function createTaskGroup(group) {
     group.project || null,
     group.description || null,
     group.default_priority || 0,
-    group.default_timeout || 30,
+    group.default_timeout ?? 30,
     new Date().toISOString()
   );
 
