@@ -1016,7 +1016,7 @@ plugin is loaded."
 - Modify: Update `require()` paths in each moved test.
 - Modify: Any remaining tests in `server/tests/` that mock `remote-test-routing` — update to mock `test-runner-registry` instead.
 
-- [ ] **Step 1: Move test files to plugin**
+- [x] **Step 1: Move test files to plugin**
 
 ```bash
 # Copy tests into plugin
@@ -1036,7 +1036,7 @@ cp server/tests/remote/remote-routing.test.js server/plugins/remote-agents/tests
 cp server/tests/remote/integration.test.js server/plugins/remote-agents/tests/remote-integration.test.js
 ```
 
-- [ ] **Step 2: Update require paths in each moved test file**
+- [x] **Step 2: Update require paths in each moved test file**
 
 Each test file will need path updates. The pattern is:
 - `require('../remote/agent-registry')` → `require('../agent-registry')`
@@ -1049,7 +1049,7 @@ Each test file will need path updates. The pattern is:
 
 Go file by file. Read the imports, update the relative paths.
 
-- [ ] **Step 3: Delete old test files from server/tests/**
+- [x] **Step 3: Delete old test files from server/tests/**
 
 ```bash
 rm server/tests/remote-agent-handlers.test.js
@@ -1064,7 +1064,7 @@ rm server/tests/agent-registry-security.test.js
 rm -rf server/tests/remote/
 ```
 
-- [ ] **Step 4: Update validation tests that mock remote-test-routing**
+- [x] **Step 4: Update validation tests that mock remote-test-routing**
 
 Search `server/tests/` for any test that mocks `../remote/remote-test-routing`. These tests need to mock `../test-runner-registry` instead, or inject a mock `testRunnerRegistry` via the module's `init()`.
 
@@ -1072,19 +1072,19 @@ Run: `grep -r "remote-test-routing\|remote/remote" server/tests/ --include="*.te
 
 For each hit, update the mock to target the new path.
 
-- [ ] **Step 5: Run the full test suite**
+- [x] **Step 5: Run the full test suite**
 
 Run: `cd server && npx vitest run 2>&1 | tail -30`
 
 Expected: All tests pass. Fix any remaining broken imports.
 
-- [ ] **Step 6: Run the plugin tests specifically**
+- [x] **Step 6: Run the plugin tests specifically**
 
 Run: `cd server && npx vitest run plugins/remote-agents/tests/ --reporter=verbose`
 
 Expected: All plugin tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A server/tests/ server/plugins/remote-agents/tests/
