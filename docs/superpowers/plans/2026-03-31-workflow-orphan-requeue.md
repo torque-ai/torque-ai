@@ -233,7 +233,7 @@ The await_task restart recovery currently detects `cancelled` + `cancel_reason: 
 
 However, the epoch-check in `handleAwaitTask` currently marks stale-epoch running tasks as cancelled. It should requeue them instead:
 
-- [ ] **Step 1: Change epoch-check to requeue instead of cancel**
+- [x] **Step 1: Change epoch-check to requeue instead of cancel**
 
 In `server/handlers/workflow/await.js`, find the epoch check in `handleAwaitTask` (the block that does `taskCore.updateTaskStatus(taskId, 'cancelled', { ... cancel_reason: 'orphan_cleanup' ...})`).
 
@@ -270,7 +270,7 @@ Change it to requeue:
 
 Apply the same change to the epoch check inside the poll loop (search for the same pattern further down in `handleAwaitTask`).
 
-- [ ] **Step 2: Apply same change in handleAwaitWorkflow**
+- [x] **Step 2: Apply same change in handleAwaitWorkflow**
 
 In `handleAwaitWorkflow`, the epoch check loop (around the `for (const task of tasks)` block that marks running+stale-epoch tasks as cancelled) should also requeue:
 
@@ -302,7 +302,7 @@ In `handleAwaitWorkflow`, the epoch check loop (around the `for (const task of t
       }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/handlers/workflow/await.js
