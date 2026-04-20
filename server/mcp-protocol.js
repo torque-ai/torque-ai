@@ -41,6 +41,11 @@ async function handleRequest(request, session) {
   }
   const { method, params } = request;
 
+  // Allow connection setup before authentication is attached to the session.
+  if (method !== 'initialize' && method !== 'notifications/initialized' && !session?.authenticated) {
+    throw { code: -32600, message: 'Authentication required. Provide API key via X-Torque-Key header.' };
+  }
+
   switch (method) {
     case 'initialize': {
       // Capture client capabilities for elicitation/sampling support
