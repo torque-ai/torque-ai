@@ -30,6 +30,7 @@ const logger = require('../logger').child({ component: 'loop-controller' });
 
 const PLAN_GENERATOR_PROVIDER = 'codex';
 const PLAN_GENERATOR_LABEL = 'Codex';
+const STARVATION_THRESHOLD = 3;
 
 const WORK_ITEM_STATUS_ORDER = Object.freeze([
   'executing',
@@ -325,6 +326,59 @@ function mapInstanceToLegacyLoopView(instance) {
 function syncLegacyProjectLoopState(project_id) {
   const oldestActiveInstance = getOldestActiveInstance(project_id);
   return factoryHealth.updateProject(project_id, mapInstanceToLegacyLoopView(oldestActiveInstance));
+}
+
+function normalizeConsecutiveEmptyCycles(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return 0;
+  }
+  return Math.floor(numeric);
+}
+
+function getProjectConsecutiveEmptyCycles(project) {
+  if (project && Object.prototype.hasOwnProperty.call(project, 'consecutive_empty_cycles')) {
+    return normalizeConsecutiveEmptyCycles(project.consecutive_empty_cycles);
+  }
+
+  if (!project?.id) {
+    return 0;
+  }
+
+  try {
+    const freshProject = factoryHealth.getProject(project.id);
+    return normalizeConsecutiveEmptyCycles(freshProject?.consecutive_empty_cycles);
+  } catch (err) {
+    logger.debug('Unable to read factory consecutive empty cycles', {
+      project_id: project.id,
+      err: err.message,
+    });
+    return 0;
+  }
+}
+
+function setProjectConsecutiveEmptyCycles(project_id, value) {
+  if (!project_id) {
+    return;
+  }
+
+  try {
+    const db = database.getDbInstance();
+    if (!db || typeof db.prepare !== 'function') {
+      return;
+    }
+    db.prepare(`
+      UPDATE factory_projects
+      SET consecutive_empty_cycles = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(normalizeConsecutiveEmptyCycles(value), project_id);
+  } catch (err) {
+    logger.debug('Unable to update factory consecutive empty cycles', {
+      project_id,
+      err: err.message,
+    });
+  }
 }
 
 function deriveInstanceStateFromLegacyProject(project) {
@@ -3143,6 +3197,38 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
 
   const prioritizeStage = executePrioritizeStage(project, instance, transitionWorkItem);
   if (!prioritizeStage?.work_item) {
+    const consecutiveEmpty = getProjectConsecutiveEmptyCycles(project) + 1;
+    setProjectConsecutiveEmptyCycles(project.id, consecutiveEmpty);
+
+    if (consecutiveEmpty >= STARVATION_THRESHOLD) {
+      const starvedInstance = updateInstanceAndSync(instance.id, {
+        loop_state: LOOP_STATES.STARVED,
+        paused_at_stage: null,
+        last_action_at: nowIso(),
+      });
+      safeLogDecision({
+        project_id: project.id,
+        stage: LOOP_STATES.PRIORITIZE,
+        action: 'entered_starved',
+        reasoning: `No work item found for ${consecutiveEmpty} consecutive cycles; entering STARVED state. Operator action required (re-scout, create_work_item, or configure plans_dir).`,
+        outcome: {
+          consecutive_empty_cycles: consecutiveEmpty,
+          from_state: currentState,
+          to_state: LOOP_STATES.STARVED,
+          suggested_actions: ['re-run scouts', 'create_work_item', 'set plans_dir'],
+        },
+        confidence: 1,
+        batch_id: getDecisionBatchId(project, null, null, starvedInstance),
+      });
+      return {
+        instance: starvedInstance,
+        transitionWorkItem: null,
+        stageResult: prioritizeStage?.stage_result || null,
+        transitionReason: 'starved',
+        nextState: LOOP_STATES.STARVED,
+      };
+    }
+
     const idleInstance = updateInstanceAndSync(instance.id, {
       loop_state: LOOP_STATES.IDLE,
       paused_at_stage: null,
@@ -3153,7 +3239,12 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
       stage: LOOP_STATES.PRIORITIZE,
       action: 'short_circuit_to_idle',
       reasoning: 'PRIORITIZE returned no work item; skipping PLAN and architect cycle',
-      outcome: { reason: 'no_open_work_item', from_state: currentState, to_state: LOOP_STATES.IDLE },
+      outcome: {
+        reason: 'no_open_work_item',
+        consecutive_empty_cycles: consecutiveEmpty,
+        from_state: currentState,
+        to_state: LOOP_STATES.IDLE,
+      },
       confidence: 1,
       batch_id: getDecisionBatchId(project, null, null, idleInstance),
     });
@@ -3166,6 +3257,8 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
     };
   }
 
+  setProjectConsecutiveEmptyCycles(project.id, 0);
+  project.consecutive_empty_cycles = 0;
   transitionWorkItem = prioritizeStage.work_item || transitionWorkItem;
   stageResult = prioritizeStage?.stage_result || null;
   transitionReason = prioritizeStage?.reason || null;

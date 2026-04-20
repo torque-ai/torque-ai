@@ -10,6 +10,7 @@ const LOOP_STATES = Object.freeze({
   LEARN: 'LEARN',
   IDLE: 'IDLE',
   PAUSED: 'PAUSED',
+  STARVED: 'STARVED',
 });
 
 const TRANSITIONS = Object.freeze({
@@ -129,6 +130,10 @@ function getNextState(currentState, trustLevel, approvalStatus) {
   assertValidState(currentState);
   assertValidTrustLevel(trustLevel);
   assertValidApprovalStatus(approvalStatus);
+
+  if (currentState === LOOP_STATES.STARVED) {
+    return LOOP_STATES.STARVED;
+  }
 
   if (currentState === LOOP_STATES.IDLE || currentState === LOOP_STATES.PAUSED) {
     return currentState;
