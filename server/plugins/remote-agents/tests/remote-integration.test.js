@@ -394,6 +394,7 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
         port: testPort,
         secret: TEST_SECRET,
         max_concurrent: 1,
+        tls: false,
       });
 
       // Before health check: status should be 'unknown'
@@ -434,6 +435,7 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
         port: testPort,
         secret: TEST_SECRET,
         max_concurrent: 1,
+        tls: false,
       });
 
       // Before health check: getAvailable should return empty
@@ -458,6 +460,7 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
         host: '127.0.0.1',
         port: testPort,
         secret: TEST_SECRET,
+        tls: false,
       });
 
       // getClient returns a real RemoteAgentClient
@@ -505,6 +508,7 @@ describe('Remote Agent Integration', { timeout: 30000 }, () => {
         port: testPort,
         secret: 'wrong-secret',
         max_concurrent: 1,
+        tls: false,
       });
 
       // Health check runs against real agent with wrong secret.

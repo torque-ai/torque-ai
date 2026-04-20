@@ -558,7 +558,7 @@ describe('integration/infra handlers', () => {
       const text = getText(result);
 
       const expectedPath = path.resolve(mocks.db.getBackupsDir(), 'backup.db');
-      expect(mocks.db.restoreDatabase).toHaveBeenCalledWith(expectedPath, true);
+      expect(mocks.db.restoreDatabase).toHaveBeenCalledWith(expectedPath, true, { force: false });
       expect(text).toContain('## Database Restored');
       expect(text).toContain('**From:**');
       expect(text).toContain('**At:** 2026-03-12T11:00:00.000Z');

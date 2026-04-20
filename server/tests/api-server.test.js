@@ -1734,7 +1734,7 @@ describe('API Server endpoints', () => {
 
   it('POST /api/v2/inference supports streaming and emits SSE chunk/completion events', async () => {
     const previousDashboardPort = process.env.TORQUE_DASHBOARD_PORT;
-    process.env.TORQUE_DASHBOARD_PORT = '4567';
+    process.env.TORQUE_DASHBOARD_PORT = '3456';
     const streamSpy = vi.fn(async (_prompt, _model, options = {}) => {
       options.onChunk?.('first');
       options.onChunk?.('second');
@@ -1771,13 +1771,13 @@ describe('API Server endpoints', () => {
       const response = await dispatchRequest(requestHandler, {
         method: 'POST',
         url: '/api/v2/inference',
-        headers: { origin: 'http://127.0.0.1:4567' },
+        headers: { origin: 'http://127.0.0.1:3456' },
         body: { prompt: 'stream this', stream: true },
       });
 
       expect(response.statusCode).toBe(200);
       expect(response.headers['Content-Type']).toContain('text/event-stream');
-      expect(response.headers['Access-Control-Allow-Origin']).toBe('http://127.0.0.1:4567');
+      expect(response.headers['Access-Control-Allow-Origin']).toBe('http://127.0.0.1:3456');
       expect(response.body).toContain('event: status');
       expect(response.body).toContain('event: chunk');
       expect(response.body).toContain('event: completion');

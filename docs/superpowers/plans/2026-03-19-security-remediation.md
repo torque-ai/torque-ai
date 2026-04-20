@@ -607,13 +607,13 @@ git commit -m "security: strict CORS, subscription cap, body parser timeout"
 **Files:**
 - Create: `docs/enterprise-security-roadmap.md`
 
-- [ ] **Step 1: Write the document**
+- [x] **Step 1: Write the document**
 
 Cover: mTLS, HMAC signing, OAuth2/OIDC, JWT sessions, granular key scoping, RBAC, project isolation, multi-tenancy, audit logging, immutable trails, data retention, secret rotation, TLS everywhere, interface binding, API gateway integration.
 
 Structure as a feature matrix with effort estimates and dependency ordering.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git commit -m "docs: add enterprise security roadmap for future multi-user deployment"
