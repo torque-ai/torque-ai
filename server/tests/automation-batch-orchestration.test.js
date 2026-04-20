@@ -76,8 +76,8 @@ function createFeatureFixture(workingDir) {
   });
 
   fs.writeFileSync(
-    path.join(systemsDir, 'EventSystem.ts'),
-    `export interface AppEvents {
+    path.join(systemsDir, 'IntegrationContracts.ts'),
+    `export interface AppMessages {
   app_started: {
     userId: string;
   };
@@ -204,7 +204,7 @@ describe('automation-batch-orchestration handlers', () => {
       const text = result.content[0].text;
 
       expect(result._tasks).toBeDefined();
-      expect(text).toContain('Generated Task Descriptions: OrderFlowSystem');
+      expect(text).toContain('Generated Task Descriptions: OrderFlow');
       expect(text).toContain('#### types');
       expect(text).toContain('#### events');
       expect(text).toContain('#### data');
@@ -227,8 +227,9 @@ describe('automation-batch-orchestration handlers', () => {
       }
 
       expect(result._tasks.types).toContain('Track and score customer orders');
-      expect(result._tasks.system).toContain('OrderFlowSystem');
-      expect(result._tasks.events).toContain('EventSystem.ts');
+      expect(result._tasks.system).toContain('Implement the runtime behavior for the OrderFlow feature');
+      expect(result._tasks.events).toContain('Define or update integration events');
+      expect(result._tasks.events).toContain('contracts needed for this feature');
     });
 
     it('generates non-empty task descriptions with no optional reference files', () => {
@@ -245,11 +246,11 @@ describe('automation-batch-orchestration handlers', () => {
       expect(result.isError).toBeFalsy();
       const text = result.content[0].text;
 
-      expect(text).toContain('Generated Task Descriptions: QuickShipSystem');
+      expect(text).toContain('Generated Task Descriptions: QuickShip');
       expect(result._tasks.types).toContain('QuickShip');
-      expect(result._tasks.events).toContain('Edit src/systems/EventSystem.ts');
-      expect(result._tasks.system).toContain('Create src/systems/QuickShipSystem.ts implementing the QuickShip feature.');
-      expect(result._tasks.tests).toContain('Create src/systems/__tests__/QuickShipSystem.test.ts');
+      expect(result._tasks.events).toContain('closest equivalent integration point');
+      expect(result._tasks.system).toContain('Implement the runtime behavior for the QuickShip feature');
+      expect(result._tasks.tests).toContain('Add or update tests for the QuickShip feature');
     });
   });
 
