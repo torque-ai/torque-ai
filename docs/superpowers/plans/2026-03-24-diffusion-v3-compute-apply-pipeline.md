@@ -702,16 +702,16 @@ git commit -m "feat(diffusion): add compute→apply close-handler hook for dynam
 
 ## Task 6: Final Verification
 
-- [ ] **Step 1: Run all diffusion tests**
+- [x] **Step 1: Run all diffusion tests**
 
 Run: `npx vitest run server/tests/diffusion-*.test.js`
 Expected: All test files pass
 
-- [ ] **Step 2: Verify module loading**
+- [x] **Step 2: Verify module loading**
 
 Run: `node -e "require('./server/tools'); require('./server/execution/process-streams'); require('./server/execution/task-finalizer'); require('./server/diffusion/compute-output-parser'); console.log('All OK')"`
 
-- [ ] **Step 3: Commit any cleanup**
+- [x] **Step 3: Commit any cleanup**
 
 ```bash
 git add -A && git commit -m "chore(diffusion): v3 compute→apply pipeline final verification"
