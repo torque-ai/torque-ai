@@ -5,6 +5,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const { createCaptureHandler } = require('./capabilities/capture');
+const { createCompareHandler } = require('./capabilities/compare');
 const { createInteractionHandlers } = require('./capabilities/interact');
 const { createLaunchHandlers } = require('./capabilities/launch');
 const { createWindowHandlers } = require('./capabilities/windows');
@@ -187,6 +188,10 @@ function createCapabilityHandlers(options = {}) {
     const captureHandler = createCaptureHandler(adapter, options.captureOptions || {});
     if (typeof handlers.peek !== 'function') handlers.peek = captureHandler;
     if (typeof handlers.capture !== 'function') handlers.capture = captureHandler;
+  }
+
+  if (typeof handlers.compare !== 'function') {
+    handlers.compare = createCompareHandler(options.compareOptions || {});
   }
 
   for (const [name, handler] of Object.entries(createInteractionHandlers(adapter))) {
