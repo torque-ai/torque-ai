@@ -67,7 +67,7 @@ const tools = [
         adversarial_review_chain: { type: 'array', items: { type: 'string' }, description: 'Provider chain for adversarial reviews' },
         adversarial_review_mode: { type: 'string', enum: ['async', 'blocking'], description: 'Whether review runs async or blocks task completion (default: async)' },
         adversarial_review_timeout_seconds: { type: 'number', description: 'Timeout for blocking mode reviews in seconds (default: 300)' },
-        step_providers: { type: 'object', description: 'Default per-step provider routing for feature workflows. Keys: types, events, data, system, tests, wire. Values: provider names. Persists across sessions and auto-merges with per-call overrides.' },
+        step_providers: { type: 'object', description: 'Default per-step provider routing for feature workflows. Keys: types, events, data, system, tests. Values: provider names. Persists across sessions and auto-merges with per-call overrides.' },
         pii_guard: {
           type: 'object',
           description: 'PII guard configuration. Auto-replaces personal data (user paths, private IPs, emails, hostnames) in all outputs.',
@@ -130,7 +130,7 @@ const tools = [
   },
   {
     name: 'generate_feature_tasks',
-    description: 'Auto-generate all 6 task descriptions (types, events, data, system, tests, wire) for a new feature by reading existing project files as templates. Eliminates manually writing 200+ words per step. Pass output to create_feature_workflow. GLOBAL: works with any project following the types→data→system pattern.',
+    description: 'Auto-generate all 5 task descriptions (types, events, data, system, tests) for a new feature by reading existing project files as templates. Eliminates manually writing 200+ words per step. Pass output to create_feature_workflow. GLOBAL: works with any project following the types→data→system pattern.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -154,15 +154,15 @@ const tools = [
         working_directory: { type: 'string', description: 'Project root directory' },
         feature_name: { type: 'string', description: 'PascalCase feature name (e.g., "Referral")' },
         feature_description: { type: 'string', description: 'Brief description of the feature' },
-        batch_name: { type: 'string', description: 'Custom workflow name (default: "Batch — {feature}System")' },
+        batch_name: { type: 'string', description: 'Custom workflow name (default: "Batch - {feature}")' },
         parallel_test_count: { type: 'number', description: 'Number of parallel test tasks to add (default: 3, max: 5)' },
         provider: { type: 'string', description: 'Provider for all tasks (default: codex). Overridden by step_providers for individual steps.' },
         step_providers: {
           type: 'object',
-          description: 'Per-step provider overrides. Keys: types, events, data, system, tests, wire, parallel. Unset steps fall back to provider param.',
+          description: 'Per-step provider overrides. Keys: types, events, data, system, tests, parallel. Unset steps fall back to provider param.',
           properties: {
             types: { type: 'string' }, events: { type: 'string' }, data: { type: 'string' },
-            system: { type: 'string' }, tests: { type: 'string' }, wire: { type: 'string' },
+            system: { type: 'string' }, tests: { type: 'string' },
             parallel: { type: 'string' }
           }
         },
@@ -241,7 +241,7 @@ const tools = [
       type: 'object',
       properties: {
         file_path: { type: 'string', description: 'Absolute path to the .ts file containing the interface' },
-        interface_name: { type: 'string', description: 'Name of the interface to modify (e.g., "GameEvents", "UserConfig")' },
+        interface_name: { type: 'string', description: 'Name of the interface to modify (e.g., "UserConfig", "TaskState")' },
         members: {
           type: 'array', description: 'Members to add',
           items: {

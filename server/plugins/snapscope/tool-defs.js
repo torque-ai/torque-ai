@@ -180,7 +180,7 @@ const tools = [
       properties: {
         process: {
           type: 'string',
-          description: 'Capture window by process name (e.g. "example-project", "deluge", "notepad"). Matches substring, case-insensitive.'
+          description: 'Capture window by process name (e.g. "example-project", "calculator", "notepad"). Matches substring, case-insensitive.'
         },
         title: {
           type: 'string',

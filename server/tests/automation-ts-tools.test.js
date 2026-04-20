@@ -101,14 +101,14 @@ describe('handleAddTsInterfaceMembers', () => {
 
   it('supports payload format members', () => {
     const fp = tmpFile('iface-payload.ts', [
-      'export interface GameEvents {',
+      'export interface AppEvents {',
       '  click: { x: number; y: number };',
       '}',
     ].join('\n'));
 
     const result = handlers.handleAddTsInterfaceMembers({
       file_path: fp,
-      interface_name: 'GameEvents',
+      interface_name: 'AppEvents',
       members: [{ name: 'hover', payload: { x: 'number', y: 'number' } }],
     });
 
@@ -123,13 +123,13 @@ describe('handleAddTsInterfaceMembers', () => {
 // ════════════════════════════════════════════════════════════════════════════════
 describe('handleInjectClassDependency', () => {
   const classContent = [
-    'import { EventSystem } from "./EventSystem";',
+    'import { EventBus } from "./EventBus";',
     '',
     'export class AppService {',
-    '  private eventSystem!: EventSystem;',
+    '  private eventBus!: EventBus;',
     '',
     '  constructor() {',
-    '    this.eventSystem = new EventSystem();',
+    '    this.eventBus = new EventBus();',
     '  }',
     '',
     '  private doStuff() {',
@@ -139,7 +139,7 @@ describe('handleInjectClassDependency', () => {
   ].join('\n');
 
   it('injects import, field, init, and getter', () => {
-    const fp = tmpFile('scene.ts', classContent);
+    const fp = tmpFile('app-service.ts', classContent);
 
     const result = handlers.handleInjectClassDependency({
       file_path: fp,
@@ -169,13 +169,13 @@ describe('handleInjectClassDependency', () => {
   });
 
   it('skips duplicate import (skip_if_exists default)', () => {
-    const fp = tmpFile('scene-dup.ts', classContent);
+    const fp = tmpFile('service-dup.ts', classContent);
 
     const result = handlers.handleInjectClassDependency({
       file_path: fp,
-      import_statement: 'import { EventSystem } from "./EventSystem";',
-      field_declaration: 'private eventSystem2!: EventSystem;',
-      initialization: 'this.eventSystem2 = new EventSystem();',
+      import_statement: 'import { EventBus } from "./EventBus";',
+      field_declaration: 'private eventBus2!: EventBus;',
+      initialization: 'this.eventBus2 = new EventBus();',
     });
 
     expect(result.isError).toBeFalsy();
@@ -351,7 +351,7 @@ describe('handleAddTsEnumMembers', () => {
 describe('handleNormalizeInterfaceFormatting', () => {
   it('fixes inconsistent indentation', () => {
     const fp = tmpFile('drifted.ts', [
-      'export interface GameEvents {',
+      'export interface AppEvents {',
       '    name: string;',
       '      age: number;',
       '  active: boolean;',
@@ -360,7 +360,7 @@ describe('handleNormalizeInterfaceFormatting', () => {
 
     const result = handlers.handleNormalizeInterfaceFormatting({
       file_path: fp,
-      interface_name: 'GameEvents',
+      interface_name: 'AppEvents',
       indent: '  ',
     });
 
@@ -601,4 +601,3 @@ describe('handleAddImportStatement', () => {
     expect(result.error_code).toBe('RESOURCE_NOT_FOUND');
   });
 });
-

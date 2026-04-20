@@ -34,7 +34,7 @@ function resetDb() {
 const mockTasks = [
   {
     id: 'task-001-aabbccdd',
-    description: 'Write tests for EventSystem',
+    description: 'Write tests for BillingService',
     provider: 'codex',
     model: 'gpt-5.3-codex-spark',
     complexity: 'complex',

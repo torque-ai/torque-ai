@@ -1,17 +1,16 @@
 /**
  * Automation handlers for TORQUE
  *
- * Implements 6 features to reduce manual orchestration overhead:
+ * Implements 5 features to reduce manual orchestration overhead:
  * 1. configure_stall_detection — per-provider stall thresholds + auto-resubmit
  * 2. auto_verify_and_fix — post-task type-check + auto-submit fix tasks
  * 3. generate_test_tasks — scan for untested files, generate test task prompts
  * 4. set_project_defaults / get_project_defaults — per-project provider/model/verify config
  * 5. get_batch_summary — workflow completion summary (files, lines, tests)
- * 6. update_project_stats — count tests/features/coverage, update memory file
  *
  * Additional handlers are re-exported from sub-modules:
  * - automation-ts-tools.js — TypeScript structural tools, semantic tools
- * - automation-batch-orchestration.js — batch orchestration, feature gaps, commit, spec extraction
+ * - automation-batch-orchestration.js — batch orchestration, commit, spec extraction
  */
 
 const path = require('path');
@@ -83,7 +82,9 @@ async function evaluatePreVerifyGovernance(task, verifyCommand, context = {}) {
       if (defaultContainer && typeof defaultContainer.get === 'function') {
         governance = defaultContainer.get('governanceHooks');
       }
-    } catch { /* container not ready */ }
+    } catch (err) {
+      logger.debug('[automation-handlers] governance container unavailable:', err.message || err);
+    }
 
     // Direct construction fallback if container doesn't have it
     if (!governance) {
@@ -96,7 +97,9 @@ async function evaluatePreVerifyGovernance(task, verifyCommand, context = {}) {
           const gr = createGovernanceRules({ db });
           governance = createGovernanceHooks({ governanceRules: gr });
         }
-      } catch { /* governance unavailable */ }
+      } catch (err) {
+        logger.debug('[automation-handlers] direct governance construction unavailable:', err.message || err);
+      }
     }
 
     if (!governance) return null;
