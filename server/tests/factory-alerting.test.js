@@ -436,4 +436,64 @@ describe('factory alert notification primitives', () => {
     });
     expect(eventBus.emitTaskEvent).toHaveBeenCalledTimes(1);
   });
+
+  it('emits FACTORY_STALLED at the threshold and ignores gate-paused loops', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-20T13:00:00.000Z'));
+
+    const atThreshold = notifications.recordFactoryTickState({
+      project_id: PROJECT_ID,
+      project_status: 'running',
+      stage: 'VERIFY',
+      instance_id: 'loop-threshold',
+      batch_id: 'batch-threshold',
+      last_action_at: '2026-04-20T12:30:00.000Z',
+    });
+    const expectedKey = notifications.dedupeAlertKey(
+      notifications.ALERT_TYPES.FACTORY_STALLED,
+      {
+        project_id: PROJECT_ID,
+        stage: 'VERIFY',
+        instance_id: 'loop-threshold',
+        batch_id: 'batch-threshold',
+      }
+    );
+
+    expect(atThreshold).toMatchObject({
+      alerted: true,
+      stalled: true,
+      stalled_ms: 30 * 60 * 1000,
+      threshold_ms: 30 * 60 * 1000,
+    });
+    expect(atThreshold.alert).toMatchObject({
+      alert_type: notifications.ALERT_TYPES.FACTORY_STALLED,
+      stalled_minutes: 30,
+      threshold_minutes: 30,
+    });
+    expectAlertDelivery({
+      alert_type: notifications.ALERT_TYPES.FACTORY_STALLED,
+      payload: atThreshold.alert,
+      expected_key: expectedKey,
+    });
+
+    notifications._testing.resetAlertRuntimeState();
+    vi.clearAllMocks();
+
+    const gatePaused = notifications.recordFactoryTickState({
+      project_id: PROJECT_ID,
+      project_status: 'running',
+      stage: 'VERIFY',
+      paused_at_stage: 'PLAN_REVIEW',
+      instance_id: 'loop-gate-paused',
+      batch_id: 'batch-gate-paused',
+      last_action_at: '2026-04-20T12:00:00.000Z',
+    });
+
+    expect(gatePaused).toMatchObject({
+      alerted: false,
+      stalled: false,
+    });
+    expect(eventBus.emitTaskEvent).not.toHaveBeenCalled();
+    expect(notifications.getFactoryAlertBadge({ project_id: PROJECT_ID })).toBeNull();
+  });
 });

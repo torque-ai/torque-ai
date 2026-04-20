@@ -227,6 +227,7 @@ function recordFactoryTickState({
   status,
   stage,
   loop_state,
+  paused_at_stage,
   instance_id,
   batch_id,
   last_action_at,
@@ -236,6 +237,7 @@ function recordFactoryTickState({
 } = {}) {
   const projectStatus = normalizeAlertKeyPart(project_status || status)?.toLowerCase();
   const currentStage = normalizeAlertKeyPart(stage || loop_state)?.toUpperCase();
+  const pausedStage = normalizeAlertKeyPart(paused_at_stage)?.toUpperCase();
   const lastActionMs = Date.parse(last_action_at || '');
   const alertKey = dedupeAlertKey(ALERT_TYPES.FACTORY_STALLED, {
     project_id,
@@ -243,12 +245,16 @@ function recordFactoryTickState({
     instance_id,
     batch_id,
   });
+  const pausedAtGate = pausedStage
+    && !pausedStage.startsWith('READY_FOR_')
+    && pausedStage !== 'EXECUTE';
 
   if (
     projectStatus !== 'running'
     || !currentStage
     || currentStage === 'IDLE'
     || currentStage === 'PAUSED'
+    || pausedAtGate
     || !Number.isFinite(lastActionMs)
   ) {
     factoryStallAlerts.delete(alertKey);
@@ -263,7 +269,7 @@ function recordFactoryTickState({
   }
 
   const stalledMs = now_ms - lastActionMs;
-  if (stalledMs <= threshold_ms) {
+  if (stalledMs < threshold_ms) {
     factoryStallAlerts.delete(alertKey);
     clearFactoryAlertBadge({ project_id, alert_type: ALERT_TYPES.FACTORY_STALLED });
     return {

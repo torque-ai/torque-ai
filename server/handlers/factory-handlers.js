@@ -179,7 +179,10 @@ function countOpenFactoryWorkItems(projectId) {
       return sum + (Number.isFinite(numeric) ? numeric : 0);
     }, 0);
   } catch (error) {
-    logger.debug({ err: error.message, project_id: projectId }, 'Failed to count open factory work items');
+    logger.debug('Failed to count open factory work items', {
+      err: error.message,
+      project_id: projectId,
+    });
     return 0;
   }
 }
@@ -737,7 +740,7 @@ async function handleFactoryStatus() {
       return false;
     }
     const lastActionMs = Date.parse(summary.loop_last_action_at);
-    return Number.isFinite(lastActionMs) && (nowMs - lastActionMs) > STALL_THRESHOLD_MS;
+    return Number.isFinite(lastActionMs) && (nowMs - lastActionMs) >= STALL_THRESHOLD_MS;
   }).length;
 
   logger.debug('Loaded factory_status productivity snapshot', {

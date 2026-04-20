@@ -1547,15 +1547,12 @@ function safeLogDecision(entry) {
     try {
       recordVerifyFailAlertDecision({ ...entry, stage: normalizedStage });
     } catch (alertError) {
-      logger.warn(
-        {
-          err: alertError.message,
-          project_id: entry?.project_id,
-          stage: normalizedStage,
-          action: entry?.action,
-        },
-        'Failed to update factory VERIFY_FAIL alert state'
-      );
+      logger.warn('Failed to update factory VERIFY_FAIL alert state', {
+        err: alertError.message,
+        project_id: entry?.project_id,
+        stage: normalizedStage,
+        action: entry?.action,
+      });
     }
     return decision;
   } catch (error) {
@@ -6016,7 +6013,12 @@ async function runAdvanceLoop(instance_id) {
           // If the stage asked to go to IDLE (e.g. cannot_generate_plan
           // auto-rejected the item), terminate and exit instead of pausing.
           if (generated.next_state === LOOP_STATES.IDLE) {
+            const lastActionAt = instance.last_action_at || null;
             terminateInstanceAndSync(instance.id);
+            recordFactoryIdleIfExhausted(project.id, {
+              last_action_at: lastActionAt,
+              reason: generated.reason || 'stop_execution_idle',
+            });
             return {
               project_id: project.id,
               instance_id: instance.id,
@@ -6063,7 +6065,12 @@ async function runAdvanceLoop(instance_id) {
 
       const executeNextState = executeStage?.next_state || LOOP_STATES.EXECUTE;
       if (executeNextState === LOOP_STATES.IDLE) {
+        const lastActionAt = instance.last_action_at || null;
         terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: transitionReason || 'execute_completed_idle',
+        });
         return {
           project_id: project.id,
           instance_id,
@@ -6150,7 +6157,12 @@ async function runAdvanceLoop(instance_id) {
           transitionReason = 'stage_occupied';
         }
       } else {
+        const lastActionAt = instance.last_action_at || null;
         terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: 'learn_completed',
+        });
         return {
           project_id: project.id,
           instance_id,
