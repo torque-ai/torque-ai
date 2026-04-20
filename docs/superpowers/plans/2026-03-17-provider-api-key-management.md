@@ -292,7 +292,7 @@ git commit -m "feat: getApiKey resolves encrypted keys from provider_config"
 - Modify: `server/handlers/provider-crud-handlers.js`
 - Modify: `server/tool-defs/provider-crud-defs.js`
 
-- [ ] **Step 1: Add handleSetApiKey and handleClearApiKey**
+- [x] **Step 1: Add handleSetApiKey and handleClearApiKey**
 
 In `server/handlers/provider-crud-handlers.js`, add two new handler functions before `module.exports`:
 
@@ -441,7 +441,7 @@ Also update `handleAddProvider` to encrypt the `api_key` parameter. Find line 34
         apiKey ? encryptApiKey(apiKey) : null,
 ```
 
-- [ ] **Step 2: Add MCP tool definitions**
+- [x] **Step 2: Add MCP tool definitions**
 
 Append to the array in `server/tool-defs/provider-crud-defs.js`:
 
@@ -471,7 +471,7 @@ Append to the array in `server/tool-defs/provider-crud-defs.js`:
   },
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/handlers/provider-crud-handlers.js server/tool-defs/provider-crud-defs.js
