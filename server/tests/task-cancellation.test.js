@@ -115,7 +115,7 @@ describe('task-cancellation', () => {
       expect(deps.killProcessGraceful).toHaveBeenCalledWith(fakeProc, fullId, 5000);
       expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
         output: 'sanitized output',
-        error_output: 'some error\nCancelled by user',
+        error_output: 'some error\n[cancelled] Cancelled by user',
         cancel_reason: 'user',
       });
       expect(deps.cleanupChildProcessListeners).toHaveBeenCalledWith(fakeProc.process);

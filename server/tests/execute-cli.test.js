@@ -657,10 +657,12 @@ describe('execute-cli.js', () => {
 
         await vi.advanceTimersByTimeAsync(50);
 
+        // EXIT_SPAWN_ERROR (-103) is the dedicated sentinel for child 'error'
+        // events (ENOENT / EACCES / etc.), distinct from the generic -1.
         expect(finalizeTaskSpy).toHaveBeenCalledWith(
           taskId,
           expect.objectContaining({
-            exitCode: -1,
+            exitCode: -103,
             errorOutput: expect.stringContaining('ENOENT: command not found'),
           })
         );

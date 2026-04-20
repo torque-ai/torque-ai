@@ -33,6 +33,20 @@ function createCancellationHandler({
     }
   }
 
+  /**
+   * Combine prior error_output with the cancel reason so diagnostic signal
+   * (e.g. a retry-scheduled provider failure message) survives cancellation.
+   * Centralizing avoids drift between the running / retry_scheduled / orphan
+   * branches, which historically used three different append conventions.
+   */
+  function combineErrorForCancel(priorErrorOutput, reason, extraNote = null) {
+    const prior = typeof priorErrorOutput === 'string' ? priorErrorOutput : '';
+    const suffix = extraNote ? `${reason}\n${extraNote}` : reason;
+    return prior
+      ? `${prior}\n[cancelled] ${suffix}`
+      : suffix;
+  }
+
   function cancelTask(taskId, reason = 'Cancelled by user', options = {}) {
     const cancelReason = options.cancel_reason || 'user';
     const fullId = db.resolveTaskId(taskId);
@@ -57,7 +71,7 @@ function createCancellationHandler({
       try {
         db.updateTaskStatus(fullId, 'cancelled', {
           output: sanitizeTaskOutput(proc.output),
-          error_output: proc.errorOutput + `\n${reason}`,
+          error_output: combineErrorForCancel(proc.errorOutput, reason),
           cancel_reason: cancelReason
         });
       } catch (dbErr) {
@@ -91,7 +105,7 @@ function createCancellationHandler({
     if (task && task.status === 'queued') {
       stallRecoveryAttempts.delete(fullId);
       db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: reason,
+        error_output: combineErrorForCancel(task.error_output, reason),
         cancel_reason: cancelReason
       });
 
@@ -105,7 +119,7 @@ function createCancellationHandler({
     if (task && (task.status === 'blocked' || task.status === 'pending')) {
       stallRecoveryAttempts.delete(fullId);
       db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: reason,
+        error_output: combineErrorForCancel(task.error_output, reason),
         cancel_reason: cancelReason
       });
       triggerCancellationWebhook(fullId, webhookEvent);
@@ -116,17 +130,11 @@ function createCancellationHandler({
 
     if (task && task.status === 'retry_scheduled') {
       stallRecoveryAttempts.delete(fullId);
-      // pendingRetryTimeouts already cleared above (lines 46-51)
-      // Preserve the original error_output (which carries the provider's
-      // failure message from the attempt that triggered retry_scheduled) —
-      // overwriting it strips the diagnostic signal we need to understand
-      // why the task failed in the first place.
-      const priorError = task.error_output || '';
-      const combinedError = priorError
-        ? `${priorError}\n[cancelled] ${reason}`
-        : reason;
+      // pendingRetryTimeouts already cleared above. Preserving task.error_output
+      // here keeps the provider's original failure message (which triggered
+      // retry_scheduled) visible after cancellation.
       db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: combinedError,
+        error_output: combineErrorForCancel(task.error_output, reason),
         cancel_reason: cancelReason
       });
       triggerCancellationWebhook(fullId, webhookEvent);
@@ -139,7 +147,11 @@ function createCancellationHandler({
       stallRecoveryAttempts.delete(fullId);
       safeDecrementHostSlot({ ollamaHostId: task.ollama_host_id });
       db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: `${reason}\nNote: Process was not found in memory (likely exited without cleanup)`,
+        error_output: combineErrorForCancel(
+          task.error_output,
+          reason,
+          'Note: Process was not found in memory (likely exited without cleanup)',
+        ),
         cancel_reason: cancelReason
       });
       triggerCancellationWebhook(fullId, webhookEvent);
