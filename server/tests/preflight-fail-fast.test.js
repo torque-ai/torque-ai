@@ -97,3 +97,77 @@ describe('scheduler does not silently re-try deterministic preflight failures', 
     expect(after.status).toBe('failed');
   });
 });
+
+describe('attemptTaskStart preflight fail-fast — extended coverage', () => {
+  test('keeps queued task queued when preflight error is non-deterministic', () => {
+    const id = randomUUID();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-trans-'));
+    taskCore.createTask({
+      id,
+      status: 'queued',
+      task_description: 'do something',
+      working_directory: tmpDir,
+      provider: 'codex',
+      metadata: {},
+    });
+
+    const origStat = fs.statSync;
+    fs.statSync = () => { const e = new Error('busy'); e.code = 'EBUSY'; throw e; };
+    let outcome;
+    try {
+      outcome = taskStartup.attemptTaskStart(id, 'codex');
+    } finally {
+      fs.statSync = origStat;
+      fs.rmdirSync(tmpDir);
+    }
+
+    expect(outcome.failed).toBe(true);
+    expect(outcome.reason).toBe('preflight_failed');
+    expect(outcome.deterministic).toBe(false);
+
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('queued');
+  });
+
+  test('error_output includes the preflight error code', () => {
+    const id = randomUUID();
+    const missing = path.join(os.tmpdir(), 'pf-missing-' + Date.now());
+    taskCore.createTask({
+      id,
+      status: 'queued',
+      task_description: 'do something',
+      working_directory: missing,
+      provider: 'codex',
+      metadata: {},
+    });
+
+    taskStartup.attemptTaskStart(id, 'codex');
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('failed');
+    expect(after.error_output).toMatch(/working directory does not exist/i);
+  });
+
+  test('empty task_description is treated as deterministic preflight failure', () => {
+    const id = randomUUID();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-empty-desc-'));
+    taskCore.createTask({
+      id,
+      status: 'queued',
+      task_description: '   ',
+      working_directory: tmpDir,
+      provider: 'codex',
+      metadata: {},
+    });
+
+    try {
+      const outcome = taskStartup.attemptTaskStart(id, 'codex');
+      expect(outcome.failed).toBe(true);
+      expect(outcome.reason).toBe('preflight_failed');
+      expect(outcome.deterministic).toBe(true);
+      const after = taskCore.getTask(id);
+      expect(after.status).toBe('failed');
+    } finally {
+      fs.rmdirSync(tmpDir);
+    }
+  });
+});

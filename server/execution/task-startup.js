@@ -323,6 +323,7 @@ function runPreflightChecks(task) {
         });
       }
     } catch (err) {
+      if (err instanceof PreflightError) throw err;
       if (err.code === 'ENOENT') {
         throw new PreflightError(`Working directory does not exist: ${task.working_directory}`, {
           code: 'WORKING_DIR_MISSING',
@@ -330,7 +331,10 @@ function runPreflightChecks(task) {
           cause: err,
         });
       }
-      throw err;
+      throw new PreflightError(
+        `Failed to stat working directory (${err.code || 'UNKNOWN'}): ${task.working_directory}`,
+        { code: 'WORKING_DIR_STAT_FAILED', deterministic: false, cause: err },
+      );
     }
   }
   if (!task.task_description || task.task_description.trim().length === 0) {
