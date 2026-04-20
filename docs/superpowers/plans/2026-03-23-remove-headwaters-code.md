@@ -70,27 +70,27 @@ Expected: No errors
 **Files:**
 - Modify: `server/handlers/automation-batch-orchestration.js`
 
-- [ ] **Step 1: Delete handleCacheFeatureGaps**
+- [x] **Step 1: Delete handleCacheFeatureGaps**
 
 Remove lines 377-629 (the `CACHE_DIR` constant, `GAP_CACHE_TTL_MS` constant, and the entire `handleCacheFeatureGaps` function).
 
-- [ ] **Step 2: Delete handleExtractFeatureSpec**
+- [x] **Step 2: Delete handleExtractFeatureSpec**
 
 Remove lines 946-1112 (the entire `handleExtractFeatureSpec` function).
 
-- [ ] **Step 3: Delete handlePlanNextBatch**
+- [x] **Step 3: Delete handlePlanNextBatch**
 
 Remove lines 1114-1241 (the entire `handlePlanNextBatch` function).
 
-- [ ] **Step 4: Delete handleRunFullBatch**
+- [x] **Step 4: Delete handleRunFullBatch**
 
 Remove lines 1243-1392 (the entire `handleRunFullBatch` function).
 
-- [ ] **Step 4b: Delete handleContinuousBatchSubmission**
+- [x] **Step 4b: Delete handleContinuousBatchSubmission**
 
 Remove lines 1394-1457 (the entire `handleContinuousBatchSubmission` function). This is an internal callback (not a user-facing MCP tool) that auto-chains batch workflows. It depends on `handlePlanNextBatch` and reads `continuous_batch_deluge_path` from config — both Headwaters-specific.
 
-- [ ] **Step 5: Strip Headwaters-specific defaults from handleGenerateFeatureTasks**
+- [x] **Step 5: Strip Headwaters-specific defaults from handleGenerateFeatureTasks**
 
 In `handleGenerateFeatureTasks` (line 181), remove:
 - Lines 208-217: The `EventSystem.ts` event name scanning block
@@ -99,7 +99,7 @@ In `handleGenerateFeatureTasks` (line 181), remove:
 
 The wire task should be removed entirely from the generated tasks since it's Headwaters-specific. Update the output to say "Generated 5 task descriptions" and update the structured JSON output to not include `wire_task`.
 
-- [ ] **Step 6: Strip Headwaters wire references from handleRunBatch**
+- [x] **Step 6: Strip Headwaters wire references from handleRunBatch**
 
 In `handleRunBatch` (line 631):
 - Line 648: Change error message from `'feature_name is required. Use cache_feature_gaps to identify the next feature.'` to `'feature_name is required'`
@@ -107,11 +107,11 @@ In `handleRunBatch` (line 631):
 - Lines 755: Change `6 + parallelTasks.length` to `5 + parallelTasks.length` and `6 feature` to `5 feature`
 - Line 765: Change commit message from `` `feat: add ${featureName}System + batch tests` `` to `` `feat: add ${featureName} + batch tests` ``
 
-- [ ] **Step 7: Update module header comment**
+- [x] **Step 7: Update module header comment**
 
 Remove lines 7, 11, 12, 13 from the header comment (references to `cache_feature_gaps`, `extract_feature_spec`, `plan_next_batch`, `run_full_batch`).
 
-- [ ] **Step 8: Update exports and factory**
+- [x] **Step 8: Update exports and factory**
 
 Remove from `createAutomationBatchOrchestration()` and `module.exports`:
 ```js
@@ -122,7 +122,7 @@ Remove from `createAutomationBatchOrchestration()` and `module.exports`:
   handleContinuousBatchSubmission,
 ```
 
-- [ ] **Step 9: Verify the file parses**
+- [x] **Step 9: Verify the file parses**
 
 Run: `node -e "require('./server/handlers/automation-batch-orchestration.js')"`
 Expected: No errors
