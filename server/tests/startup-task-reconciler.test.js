@@ -550,3 +550,121 @@ describe('startup-task-reconciler — drain-cancelled tasks', () => {
     expect(result.actions.skipped).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('startup-task-reconciler — retry_scheduled orphans', () => {
+  let db;
+  let testDir;
+  let taskCore;
+  let reconciler;
+
+  beforeEach(() => {
+    ({ db, testDir } = setupTestDbOnly('startup-task-reconciler-retry'));
+    taskCore = require('../db/task-core');
+    reconciler = require('../execution/startup-task-reconciler');
+  });
+
+  afterEach(() => {
+    teardownTestDb();
+    vi.restoreAllMocks();
+  });
+
+  test('promotes retry_scheduled task back to queued when retry budget remains', () => {
+    const id = randomUUID();
+    taskCore.createTask({
+      id,
+      task_description: 'needs retry',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      status: 'retry_scheduled',
+      retry_count: 1,
+      max_retries: 3,
+    });
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.retry_requeued).toBeGreaterThanOrEqual(1);
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('queued');
+  });
+
+  test('fails retry_scheduled task when retry budget is exhausted', () => {
+    const id = randomUUID();
+    taskCore.createTask({
+      id,
+      task_description: 'exhausted',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      status: 'retry_scheduled',
+      retry_count: 3,
+      max_retries: 3,
+    });
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.retry_exhausted_failed).toBeGreaterThanOrEqual(1);
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('failed');
+    expect(after.error_output).toMatch(/retry.*budget.*exhausted|startup-reconciler/i);
+  });
+
+  test('conservatively promotes retry_scheduled task with null retry fields to queued', () => {
+    const id = randomUUID();
+    taskCore.createTask({
+      id,
+      task_description: 'null retry fields',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      status: 'retry_scheduled',
+    });
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.retry_requeued).toBeGreaterThanOrEqual(1);
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('queued');
+  });
+
+  test('does NOT touch retry_scheduled tasks owned by the current live instance', () => {
+    const id = randomUUID();
+    taskCore.createTask({
+      id,
+      task_description: 'owned by live instance',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      status: 'retry_scheduled',
+      retry_count: 0,
+      max_retries: 3,
+      mcp_instance_id: 'live-instance',
+    });
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'live-instance',
+      isInstanceAlive: (id) => id === 'live-instance',
+    });
+
+    expect(result.actions.retry_requeued).toBe(0);
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('retry_scheduled');
+  });
+});
