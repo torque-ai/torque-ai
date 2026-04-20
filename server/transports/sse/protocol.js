@@ -10,6 +10,7 @@
 const mcpProtocol = require('../../mcp-protocol');
 const { TOOLS, handleToolCall } = require('../../tools');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../../core-tools');
+const db = require('../../database');
 const session = require('./session');
 
 // ──────────────────────────────────────────────────────────────
@@ -77,6 +78,12 @@ const SSE_TOOLS = [
 
 const SSE_TOOL_NAMES = new Set(SSE_TOOLS.map(t => t.name));
 
+function requireAuthenticatedSession(method, sess) {
+  if (method !== 'initialize' && method !== 'notifications/initialized' && !sess?.authenticated) {
+    throw { code: -32600, message: 'Authentication required. Provide API key via X-Torque-Key header.' };
+  }
+}
+
 // ──────────────────────────────────────────────────────────────
 // Body parsing
 // ──────────────────────────────────────────────────────────────
@@ -88,35 +95,47 @@ function parseBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let totalSize = 0;
+    let settled = false;
     const MAX_BODY = 10 * 1024 * 1024;
-
+    const finishResolve = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bodyTimeout);
+      resolve(value);
+    };
+    const finishReject = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bodyTimeout);
+      reject(err);
+    };
     const bodyTimeout = setTimeout(() => {
-      req.destroy(new Error('Body parse timeout (30s)'));
+      const err = new Error('Body parse timeout');
+      finishReject(err);
+      req.destroy(err);
     }, 30000);
 
     req.on('data', chunk => {
       totalSize += chunk.length;
       if (totalSize > MAX_BODY) {
-        clearTimeout(bodyTimeout);
-        reject(new Error('Request body too large'));
+        finishReject(new Error('Request body too large'));
         req.destroy();
         return;
       }
       chunks.push(chunk);
     });
     req.on('end', () => {
-      clearTimeout(bodyTimeout);
+      if (settled) return;
       const body = Buffer.concat(chunks).toString('utf-8');
-      if (!body) return resolve(null);
+      if (!body) return finishResolve(null);
       try {
-        resolve(JSON.parse(body));
+        finishResolve(JSON.parse(body));
       } catch {
-        reject(new Error('Invalid JSON'));
+        finishReject(new Error('Invalid JSON'));
       }
     });
     req.on('error', (err) => {
-      clearTimeout(bodyTimeout);
-      reject(err);
+      finishReject(err);
     });
   });
 }
@@ -139,6 +158,8 @@ function injectNotificationSender(fn) {
  */
 async function handleMcpRequest(request, sess) {
   const { method, params } = request;
+
+  requireAuthenticatedSession(method, sess);
 
   // SSE-only tools need the full session context — intercept before delegation
   if (method === 'tools/call' && params != null && typeof params === 'object' && !Array.isArray(params)) {
@@ -211,6 +232,7 @@ function initProtocol(shutdownAbort) {
     onInitialize: (_sess) => {
       // Economy mode removed — routing templates handle cost-aware provider selection
     },
+    isAuthConfigured: () => Boolean(db.getConfig('api_key')),
   });
 }
 

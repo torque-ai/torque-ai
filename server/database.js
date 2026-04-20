@@ -495,7 +495,7 @@ function init() {
         const { execFileSync } = require('child_process');
         execFileSync('icacls', [DB_PATH, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:(F)`], { stdio: 'pipe', windowsHide: true });
       } catch (err) {
-        logger.warn('Could not restrict DB file permissions: ' + err.message);
+        logger.warn('Could not set DB file permissions: ' + err.message);
       }
     }
 
@@ -528,6 +528,7 @@ function init() {
     // Schema definitions (extracted to db/schema.js)
     const { applySchema } = require('./db/schema');
     applySchema(db, { safeAddColumn, getConfig, setConfig, setConfigDefault, DATA_DIR });
+    configCore.ensureApiKey();
 
     // Inject DB into host-management early (before migrateToMultiHost needs it)
     hostManagement.setDb(db);

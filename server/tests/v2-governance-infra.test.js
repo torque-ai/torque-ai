@@ -40,6 +40,8 @@ const mockTaskManager = {
   getMcpInstanceId: vi.fn(),
 };
 
+const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
+
 vi.mock('../database', () => mockDb);
 vi.mock('../api/middleware', () => mockMiddleware);
 
@@ -1011,6 +1013,11 @@ describe('api/v2-governance-handlers infrastructure routes', () => {
           status: 'healthy',
         },
         resource_gating: expect.objectContaining({ enabled: expect.any(Boolean) }),
+        security: {
+          auth_configured: false,
+          warning: SECURITY_WARNING_MESSAGE,
+        },
+        security_warning: SECURITY_WARNING_MESSAGE,
         uptime_seconds: 123,
         tasks: { running: 3, queued: 7 },
         node_version: process.version,
@@ -1047,6 +1054,11 @@ describe('api/v2-governance-handlers infrastructure routes', () => {
           status: 'healthy',
         },
         resource_gating: expect.objectContaining({ enabled: expect.any(Boolean) }),
+        security: {
+          auth_configured: false,
+          warning: SECURITY_WARNING_MESSAGE,
+        },
+        security_warning: SECURITY_WARNING_MESSAGE,
         uptime_seconds: 45,
         tasks: { running: 0, queued: 0 },
         node_version: process.version,

@@ -73,7 +73,31 @@ describe('initialize', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. tools/list — full mode
+// 2. authentication
+// ---------------------------------------------------------------------------
+
+describe('authentication', () => {
+  it('rejects unauthenticated sessions', async () => {
+    const session = { toolMode: 'core', authenticated: false };
+    await expect(handleRequest({ method: 'tools/list' }, session))
+      .rejects.toMatchObject({ code: -32600 });
+  });
+
+  it('allows authenticated sessions', async () => {
+    const session = { toolMode: 'core', authenticated: true };
+    const result = await handleRequest({ method: 'tools/list' }, session);
+    expect(result.tools).toBeDefined();
+  });
+
+  it('allows initialize without auth (needed to establish connection)', async () => {
+    const session = { toolMode: 'core', authenticated: false };
+    const result = await handleRequest({ method: 'initialize' }, session);
+    expect(result.protocolVersion).toBe('2024-11-05');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. tools/list — full mode
 // ---------------------------------------------------------------------------
 
 describe('tools/list full mode', () => {
@@ -94,7 +118,7 @@ describe('tools/list full mode', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. tools/list — core mode
+// 4. tools/list — core mode
 // ---------------------------------------------------------------------------
 
 describe('tools/list core mode', () => {
@@ -118,7 +142,7 @@ describe('tools/list core mode', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. tools/list — extended mode
+// 5. tools/list — extended mode
 // ---------------------------------------------------------------------------
 
 describe('tools/list extended mode', () => {
@@ -141,7 +165,7 @@ describe('tools/list extended mode', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. unknown method
+// 6. unknown method
 // ---------------------------------------------------------------------------
 
 describe('unknown method', () => {
@@ -161,7 +185,7 @@ describe('unknown method', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. tools/call — success
+// 7. tools/call — success
 // ---------------------------------------------------------------------------
 
 describe('tools/call success', () => {
@@ -204,7 +228,7 @@ describe('tools/call success', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. tools/call — mode enforcement
+// 8. tools/call — mode enforcement
 // ---------------------------------------------------------------------------
 
 describe('tools/call mode enforcement', () => {
@@ -285,7 +309,7 @@ describe('tools/call mode enforcement', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 8. tools/call — unlock (__unlock_all_tools)
+// 9. tools/call — unlock (__unlock_all_tools)
 // ---------------------------------------------------------------------------
 
 describe('tools/call unlock all tools', () => {
@@ -325,7 +349,7 @@ describe('tools/call unlock all tools', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 9. tools/call — unlock_tier
+// 10. tools/call — unlock_tier
 // ---------------------------------------------------------------------------
 
 describe('tools/call unlock_tier', () => {
@@ -382,7 +406,7 @@ describe('tools/call unlock_tier', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 10. tools/call — error handling
+// 11. tools/call — error handling
 // ---------------------------------------------------------------------------
 
 describe('tools/call error handling', () => {
@@ -418,7 +442,7 @@ describe('tools/call error handling', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 11. tools/call — missing name
+// 12. tools/call — missing name
 // ---------------------------------------------------------------------------
 
 describe('tools/call missing name', () => {
@@ -445,7 +469,7 @@ describe('tools/call missing name', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 12. notifications
+// 13. notifications
 // ---------------------------------------------------------------------------
 
 describe('notifications', () => {
@@ -463,7 +487,7 @@ describe('notifications', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 13. uninitialized — _handleToolCall is null
+// 14. uninitialized — _handleToolCall is null
 // ---------------------------------------------------------------------------
 
 describe('uninitialized handler', () => {
@@ -483,7 +507,7 @@ describe('uninitialized handler', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 14. invalid request object
+// 15. invalid request object
 // ---------------------------------------------------------------------------
 
 describe('invalid request', () => {

@@ -2,12 +2,14 @@
 
 const SERVER_INFO = { name: 'torque', version: '1.0.0' };
 const DEFAULT_PROTOCOL_VERSION = '2024-11-05';
+const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
 
 let _tools = [];
 let _coreToolNames = [];
 let _extendedToolNames = [];
 let _handleToolCall = null;
 let _onInitialize = null;
+let _isAuthConfigured = null;
 
 /**
  * Initialize the protocol handler with tool registry and dispatch function.
@@ -18,13 +20,24 @@ let _onInitialize = null;
  * @param {string[]} opts.extendedToolNames- Names visible in 'extended' mode.
  * @param {Function} opts.handleToolCall   - async (name, args, session) => result
  * @param {Function} [opts.onInitialize]   - Optional callback invoked on 'initialize' with (session, params).
+ * @param {Function} [opts.isAuthConfigured] - Optional callback that returns true when server auth is configured.
  */
-function init({ tools, coreToolNames, extendedToolNames, handleToolCall, onInitialize }) {
+function init({ tools, coreToolNames, extendedToolNames, handleToolCall, onInitialize, isAuthConfigured }) {
   _tools = tools || [];
   _coreToolNames = coreToolNames || [];
   _extendedToolNames = extendedToolNames || [];
   _handleToolCall = handleToolCall;
   _onInitialize = onInitialize || null;
+  _isAuthConfigured = typeof isAuthConfigured === 'function' ? isAuthConfigured : null;
+}
+
+function isAuthConfiguredForWarning() {
+  if (!_isAuthConfigured) return false;
+  try {
+    return Boolean(_isAuthConfigured());
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -41,6 +54,11 @@ async function handleRequest(request, session) {
   }
   const { method, params } = request;
 
+  // Allow connection setup before authentication is attached to the session.
+  if (method !== 'initialize' && method !== 'notifications/initialized' && !session?.authenticated) {
+    throw { code: -32600, message: 'Authentication required. Provide API key via X-Torque-Key header.' };
+  }
+
   switch (method) {
     case 'initialize': {
       // Capture client capabilities for elicitation/sampling support
@@ -53,6 +71,9 @@ async function handleRequest(request, session) {
         capabilities: { tools: {} },
         serverInfo: SERVER_INFO,
       };
+      if (!isAuthConfiguredForWarning()) {
+        response._meta = { security_warning: SECURITY_WARNING_MESSAGE };
+      }
       if (_onInitialize) _onInitialize(session, params);
       return response;
     }
@@ -146,4 +167,4 @@ async function _handleToolCallInternal(params, session) {
   }
 }
 
-module.exports = { init, handleRequest, SERVER_INFO, DEFAULT_PROTOCOL_VERSION };
+module.exports = { init, handleRequest, SERVER_INFO, DEFAULT_PROTOCOL_VERSION, SECURITY_WARNING_MESSAGE };

@@ -2,6 +2,7 @@
 /* global describe, it, expect, afterEach, vi */
 
 const path = require('path');
+const crypto = require('crypto');
 const { installMock } = require('./cjs-mock');
 
 const SUBJECT_MODULE = '../db/backup-core';
@@ -79,6 +80,20 @@ function createDbHandle(overrides = {}) {
     backup: vi.fn(() => Promise.resolve()),
     ...overrides,
   };
+}
+
+function sha256(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+function mockBackupIntegrity(fs, backupPath, backupBuffer, expectedHash = sha256(backupBuffer)) {
+  const hashPath = backupPath + '.sha256';
+  fs.existsSync.mockImplementation((fullPath) => fullPath === backupPath || fullPath === hashPath);
+  fs.readFileSync.mockImplementation((fullPath) => {
+    if (fullPath === hashPath) return expectedHash;
+    if (fullPath === backupPath) return backupBuffer;
+    throw new Error(`Unexpected readFileSync path: ${fullPath}`);
+  });
 }
 
 function createRestoredDbHandle(options = {}) {
@@ -212,6 +227,7 @@ describe('db/backup-core', () => {
     expect(fs.mkdirSync).toHaveBeenCalledWith(path.dirname(destPath), { recursive: true });
     expect(db.serialize).toHaveBeenCalledOnce();
     expect(fs.writeFileSync).toHaveBeenCalledWith(destPath, buffer);
+    expect(fs.writeFileSync).toHaveBeenCalledWith(destPath + '.sha256', sha256(buffer), 'utf-8');
     expect(result.path).toBe(destPath);
     expect(result.size).toBe(buffer.length);
     expect(new Date(result.created_at).toISOString()).toBe(result.created_at);
@@ -285,11 +301,17 @@ describe('db/backup-core', () => {
     intervalCallback();
 
     expect(fs.mkdirSync).toHaveBeenCalledWith(backupDir, { recursive: true });
-    expect(fs.writeFileSync).toHaveBeenCalledTimes(1);
+    expect(fs.writeFileSync).toHaveBeenCalledTimes(2);
     expect(fs.writeFileSync.mock.calls[0][0]).toMatch(/torque-.*\.db$/);
     expect(fs.writeFileSync.mock.calls[0][0].startsWith(backupDir)).toBe(true);
     expect(fs.writeFileSync.mock.calls[0][1]).toBe(buffer);
+    expect(fs.writeFileSync.mock.calls[1]).toEqual([
+      fs.writeFileSync.mock.calls[0][0] + '.sha256',
+      sha256(buffer),
+      'utf-8',
+    ]);
     expect(fs.unlinkSync).toHaveBeenCalledWith(path.join(backupDir, 'torque-2026-01-01T12-00-00-000Z.db'));
+    expect(fs.unlinkSync).toHaveBeenCalledWith(path.join(backupDir, 'torque-2026-01-01T12-00-00-000Z.db.sha256'));
     expect(backupLogger.info).toHaveBeenCalledWith(expect.stringContaining('Database backed up to'));
     expect(backupLogger.info).toHaveBeenCalledWith('[backup] Removed old backup: torque-2026-01-01T12-00-00-000Z.db');
   });
@@ -369,6 +391,98 @@ describe('db/backup-core', () => {
     await expect(subject.restoreDatabase('C:\\backups\\restore.db', true, { force: true }))
       .rejects
       .toThrow('Database not initialized');
+  });
+
+  describe('backup integrity', () => {
+    it('creates SHA-256 hash file alongside backup', () => {
+      const { subject, fs } = loadSubject();
+      const backupBuffer = Buffer.from('integrity-backup-bytes');
+      const backupPath = path.join('C:\\tmp', 'integrity.db');
+      const db = createDbHandle({
+        serialize: vi.fn(() => backupBuffer),
+      });
+
+      subject.setDb(db);
+      fs.existsSync.mockReturnValue(true);
+      fs.statSync.mockReturnValue({
+        size: backupBuffer.length,
+        mtime: new Date('2026-03-02T00:00:00.000Z'),
+      });
+
+      subject.backupDatabase(backupPath);
+
+      expect(fs.writeFileSync).toHaveBeenCalledWith(backupPath, backupBuffer);
+      expect(fs.writeFileSync).toHaveBeenCalledWith(backupPath + '.sha256', sha256(backupBuffer), 'utf-8');
+    });
+
+    it('rejects restore of tampered backup', async () => {
+      const backupPath = 'C:\\backups\\tampered.db';
+      const originalBuffer = Buffer.from('original-backup');
+      const tamperedBuffer = Buffer.from('tampered-backup');
+      const { subject, fs, Database } = loadSubject();
+
+      subject.setDb(createDbHandle());
+      setCommonInternals(subject);
+      mockBackupIntegrity(fs, backupPath, tamperedBuffer, sha256(originalBuffer));
+
+      await expect(subject.restoreDatabase(backupPath, true))
+        .rejects
+        .toThrow('Backup integrity check failed');
+
+      expect(Database).not.toHaveBeenCalled();
+    });
+
+    it('allows restore with valid hash', async () => {
+      const backupPath = 'C:\\backups\\valid-hash.db';
+      const livePath = 'C:\\data\\torque.db';
+      const backupBuffer = Buffer.from('valid-backup');
+      const liveDb = createDbHandle();
+      const backupDb = createDbHandle({
+        backup: vi.fn(() => Promise.resolve()),
+      });
+      const restoredDb = createRestoredDbHandle();
+      const Database = createDatabaseMock([backupDb, restoredDb]);
+      const { subject, fs } = loadSubject({ Database });
+      const internals = setCommonInternals(subject, {
+        getDbPath: vi.fn(() => livePath),
+      });
+
+      subject.setDb(liveDb);
+      mockBackupIntegrity(fs, backupPath, backupBuffer);
+
+      const result = await subject.restoreDatabase(backupPath, true);
+
+      expect(fs.readFileSync).toHaveBeenCalledWith(backupPath + '.sha256', 'utf-8');
+      expect(fs.readFileSync).toHaveBeenCalledWith(backupPath);
+      expect(backupDb.backup).toHaveBeenCalledWith(livePath);
+      expect(internals.setDbRef).toHaveBeenCalledWith(restoredDb);
+      expect(result.restored_from).toBe(backupPath);
+      expect(result.integrity_check).toBe('ok');
+    });
+
+    it('allows force restore without hash', async () => {
+      const backupPath = 'C:\\backups\\missing-hash.db';
+      const livePath = 'C:\\data\\torque.db';
+      const liveDb = createDbHandle();
+      const backupDb = createDbHandle({
+        backup: vi.fn(() => Promise.resolve()),
+      });
+      const restoredDb = createRestoredDbHandle();
+      const Database = createDatabaseMock([backupDb, restoredDb]);
+      const { subject, fs } = loadSubject({ Database });
+
+      subject.setDb(liveDb);
+      setCommonInternals(subject, {
+        getDbPath: vi.fn(() => livePath),
+      });
+      fs.existsSync.mockImplementation((fullPath) => fullPath === backupPath);
+
+      const result = await subject.restoreDatabase(backupPath, true, { force: true });
+
+      expect(fs.readFileSync).not.toHaveBeenCalled();
+      expect(backupDb.backup).toHaveBeenCalledWith(livePath);
+      expect(result.restored_from).toBe(backupPath);
+    });
   });
 
   it('restores a backup, reopens the live database, and reapplies schema setup', async () => {

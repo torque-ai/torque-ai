@@ -13,6 +13,8 @@ const providerRoutingCore = require('../../db/provider-routing-core');
 const providerScoring = require('../../db/provider-scoring');
 const { sendJson, sendError, parseBody, safeDecodeParam, formatUptime } = require('../utils');
 
+const SECURITY_WARNING_MESSAGE = 'TORQUE is running without authentication. Run configure to set an API key.';
+
 // ── Hosts ──────────────────────────────────────────────────────────────────────
 
 // (from hosts.js) Valid credential types for host credential endpoints
@@ -693,7 +695,7 @@ function _sanitizeAgent(agent) {
   const { secret, ...safeAgent } = agent;
   return {
     ...safeAgent,
-    tls: _parseBoolean(agent.tls, false),
+    tls: _parseBoolean(agent.tls, true),
     rejectUnauthorized: _parseBoolean(agent.rejectUnauthorized, true),
   };
 }
@@ -804,7 +806,7 @@ async function handleCreateAgent(req, res) {
       port,
       secret,
       max_concurrent: _parsePort(payload?.max_concurrent || 3),
-      tls: hasTls ? _parseBoolean(payload?.tls, false) : _parseBoolean(existing && existing.tls, false),
+      tls: hasTls ? _parseBoolean(payload?.tls, true) : _parseBoolean(existing && existing.tls, true),
       rejectUnauthorized: hasRejectUnauthorized
         ? _parseBoolean(payload?.rejectUnauthorized, true)
         : _parseBoolean(existing && existing.rejectUnauthorized, true),
@@ -927,6 +929,12 @@ function handleSystemStatus(req, res, query, context) {
   // Instance identity
   const taskManager = require('../../task-manager');
   const instanceId = taskManager.getMcpInstanceId();
+  let authConfigured = false;
+  try {
+    authConfigured = Boolean(database.getConfig('api_key'));
+  } catch {
+    authConfigured = false;
+  }
 
   sendJson(res, {
     instance: {
@@ -954,6 +962,11 @@ function handleSystemStatus(req, res, query, context) {
       running: runningTasks,
       queued: queuedTasks,
     },
+    security: {
+      auth_configured: authConfigured,
+      warning: authConfigured ? null : SECURITY_WARNING_MESSAGE,
+    },
+    security_warning: authConfigured ? null : SECURITY_WARNING_MESSAGE,
     version: require('../../package.json').version || 'unknown',
     nodeVersion: process.version,
     platform: process.platform,

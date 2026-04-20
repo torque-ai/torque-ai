@@ -83,6 +83,8 @@ describe('RemoteAgentRegistry', () => {
       const agent = registry.get('agent-2');
       expect(agent.port).toBe(3460);
       expect(agent.max_concurrent).toBe(3);
+      expect(agent.tls).toBe(1);
+      expect(agent.rejectUnauthorized).toBe(1);
     });
 
     it('should replace an existing agent on re-register', () => {

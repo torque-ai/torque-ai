@@ -13,7 +13,7 @@ const db = require('../database');
 const { getTask, updateTaskStatus } = require('../db/task-core');
 const { getDefaultProvider, getProvider, listProviders } = require('../db/provider-routing-core');
 const { recordTaskEvent, getTaskEvents } = require('../db/webhooks-streaming');
-const { isLocalhostOrigin } = require('../dashboard/utils');
+const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'api-server' });
 const v2Inference = require('./v2-inference');
 
@@ -218,6 +218,11 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
   'X-XSS-Protection': '1; mode=block',
 };
+const dashboardPort = serverConfig.getInt('dashboard_port', 3456);
+const ALLOWED_ORIGINS = new Set([
+  `http://127.0.0.1:${dashboardPort}`,
+  `http://localhost:${dashboardPort}`,
+]);
 
 function sendV2SseHeaders(res, req = null) {
   const headers = {
@@ -229,7 +234,7 @@ function sendV2SseHeaders(res, req = null) {
 
   if (req) {
     const origin = req.headers?.origin;
-    if (origin && isLocalhostOrigin(origin)) {
+    if (origin && ALLOWED_ORIGINS.has(origin)) {
       headers['Access-Control-Allow-Origin'] = origin;
       headers['Access-Control-Allow-Credentials'] = 'true';
     }

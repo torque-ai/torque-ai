@@ -132,12 +132,15 @@ const BLOCKED_ENV_VARS = new Set([
   'NODE_OPTIONS', 'ELECTRON_RUN_AS_NODE', 'PYTHONSTARTUP', 'RUBYOPT',
 ]);
 const ALLOWED_ENV_VARS = new Set([
-  'NODE_ENV', 'DEBUG', 'HOME', 'USERPROFILE', 'TEMP', 'TMP', 'PATH',
+  'NODE_ENV', 'DEBUG', 'HOME', 'USERPROFILE', 'TEMP', 'TMP',
 ]);
 const ALLOWED_PREFIXES = ['TORQUE_', 'OLLAMA_'];
 
 function normalizeEnv(extraEnv = {}) {
   const merged = { ...process.env };
+  for (const key of BLOCKED_ENV_VARS) {
+    delete merged[key];
+  }
   for (const [key, value] of Object.entries(extraEnv || {})) {
     if (BLOCKED_ENV_VARS.has(key)) continue;
     if (!ALLOWED_ENV_VARS.has(key) && !ALLOWED_PREFIXES.some(p => key.startsWith(p))) continue;
@@ -148,9 +151,39 @@ function normalizeEnv(extraEnv = {}) {
 }
 
 const DEFAULT_ALLOWED_COMMANDS = new Set([
-  'node', 'npm', 'npx', 'git', 'dotnet', 'cargo', 'python', 'python3', 'pip', 'pip3',
-  'vitest', 'jest', 'mocha', 'tsc', 'eslint',
+  'node', 'npm', 'npx', 'git', 'dotnet', 'cargo', 'python', 'pip', 'python3',
 ]);
+
+function normalizeCommandName(command) {
+  const commandText = String(command || '').trim();
+  const baseName = commandText.split(/[\\/]/).pop();
+  return baseName.replace(/\.(cmd|exe|bat)$/i, '').toLowerCase();
+}
+
+function addAllowedCommands(target, commands) {
+  if (!commands) {
+    return;
+  }
+
+  const values = typeof commands === 'string'
+    ? [commands]
+    : Array.from(commands);
+
+  for (const command of values) {
+    const normalized = normalizeCommandName(command);
+    if (normalized) {
+      target.add(normalized);
+    }
+  }
+}
+
+function getAllowedCommands(state = {}) {
+  const allowedCommands = new Set(DEFAULT_ALLOWED_COMMANDS);
+  addAllowedCommands(allowedCommands, state && state.allowedCommands);
+  addAllowedCommands(allowedCommands, state && state.config && state.config.allowed_commands);
+  addAllowedCommands(allowedCommands, state && state.config && state.config.allowedCommands);
+  return allowedCommands;
+}
 
 // Only block characters that enable command chaining/injection.
 // With shell: false, parentheses/braces/redirects are harmless literal characters.
@@ -435,18 +468,20 @@ async function syncProject({ baseDir, project, branch = 'main', repoUrl }) {
 }
 
 function validateRunRequest(body, state) {
-  const command = body && typeof body.command === 'string'
+  const bodyCommand = body && typeof body.command === 'string'
     ? body.command.trim()
     : '';
+  const argsCommand = !bodyCommand && Array.isArray(body && body.args)
+    ? String(body.args[0] || '').trim()
+    : '';
+  const command = bodyCommand || argsCommand;
 
   if (!command) {
     throw createHttpError('Missing required field: command', 400);
   }
 
-  const executable = path.basename(command).replace(/\.(cmd|exe|bat)$/i, '');
-  const allowedCommands = state && state.config && state.config.allowed_commands
-    ? new Set(state.config.allowed_commands)
-    : DEFAULT_ALLOWED_COMMANDS;
+  const executable = normalizeCommandName(command);
+  const allowedCommands = getAllowedCommands(state);
   if (!allowedCommands.has(executable)) {
     throw createHttpError(`Command not allowed: ${executable}. Allowed: ${[...allowedCommands].join(', ')}`, 403);
   }
@@ -488,9 +523,11 @@ function validateRunRequest(body, state) {
     throw createHttpError('timeout must be a positive number', 400);
   }
 
+  const requestArgs = bodyCommand ? (body.args || []) : (body.args || []).slice(1);
+
   return {
     command,
-    args: prepareShellArgs(body.args || []),
+    args: prepareShellArgs(requestArgs),
     cwd,
     env: body.env || {},
     timeout,
@@ -629,6 +666,11 @@ function createServer(options = {}) {
     secret,
     projectsDir,
     startedAt: Date.now(),
+    config: options.config || {},
+    allowedCommands: getAllowedCommands({
+      allowedCommands: options.allowedCommands ?? options.allowed_commands,
+      config: options.config || {},
+    }),
   };
 
   const handler = async (req, res) => {
@@ -767,6 +809,7 @@ module.exports = {
   getProjectsBaseDir,
   isAuthorized,
   normalizeEnv,
+  normalizeCommandName,
   prepareShellArgs,
   readJsonBody,
   resolveProjectDir,

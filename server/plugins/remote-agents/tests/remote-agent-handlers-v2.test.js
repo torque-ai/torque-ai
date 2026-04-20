@@ -87,7 +87,7 @@ describe('remote agent handlers', () => {
 
       expect(result.isError).toBeFalsy();
       expect(getText(result)).toContain('Registered agent "BuildServer-01"');
-      expect(getText(result)).toContain('http://192.0.2.50:3461');
+      expect(getText(result)).toContain('https://192.0.2.50:3461');
       expect(mockRegistry.register).toHaveBeenCalledWith({
         id: 'buildserver-01',
         name: 'BuildServer-01',
@@ -95,7 +95,7 @@ describe('remote agent handlers', () => {
         port: 3461,
         secret: 'test-secret',
         max_concurrent: 8,
-        tls: false,
+        tls: true,
         rejectUnauthorized: true,
       });
     });
@@ -141,7 +141,7 @@ describe('remote agent handlers', () => {
         port: 3460,
         secret: 'secret',
         max_concurrent: 3,
-        tls: false,
+        tls: true,
         rejectUnauthorized: true,
       });
     });

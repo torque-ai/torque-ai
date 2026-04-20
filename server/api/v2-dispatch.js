@@ -31,6 +31,7 @@ const providerCrudHandlers = require('../handlers/provider-crud-handlers');
 const modelHandlers = require('../handlers/model-handlers');
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
+const BODY_PARSE_TIMEOUT_MS = 30000;
 
 // NOTE: Three separate JSON body parsers exist in this codebase:
 //   1. middleware.js parseBody       — canonical parser; used by v2-middleware validateRequest
@@ -39,8 +40,8 @@ const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
 //                                     schema-validation middleware (e.g., concurrency, economy,
 //                                     routing templates). Should call validateJsonDepth (see below).
 //   3. mcp-sse.js body accumulator  — SSE-specific inline parser for the POST /messages endpoint.
-// All three enforce the 10 MB size cap. Consolidation is tracked but deferred because the three
-// call sites have divergent error-handling requirements and control-flow shapes.
+// All three enforce the 10 MB size cap and a 30-second parse timeout. Consolidation is tracked but
+// deferred because the three call sites have divergent error-handling requirements and control-flow shapes.
 async function readJsonBody(req) {
   if (req?.body && typeof req.body === 'object' && !Array.isArray(req.body)) {
     return req.body;
@@ -50,11 +51,29 @@ async function readJsonBody(req) {
     const chunks = [];
     let bodySize = 0;
     let settled = false;
+    const finishResolve = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bodyTimeout);
+      resolve(value);
+    };
+    const finishReject = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(bodyTimeout);
+      reject(err);
+    };
+    const bodyTimeout = setTimeout(() => {
+      const err = new Error('Body parse timeout');
+      finishReject(err);
+      req.destroy(err);
+    }, BODY_PARSE_TIMEOUT_MS);
+
     req.on('data', chunk => {
       const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       bodySize += bufferChunk.length;
       if (bodySize > MAX_BODY_SIZE) {
-        if (!settled) { settled = true; reject(new Error('Request body too large')); }
+        finishReject(new Error('Request body too large'));
         req.destroy();
         return;
       }
@@ -64,23 +83,20 @@ async function readJsonBody(req) {
       if (settled) return;
       const data = Buffer.concat(chunks).toString('utf8');
       if (!data.trim()) {
-        settled = true;
-        resolve({});
+        finishResolve({});
         return;
       }
       try {
         const parsed = JSON.parse(data);
         validateJsonDepth(parsed); // Guard against deeply nested DoS payloads
-        settled = true;
-        resolve(parsed);
+        finishResolve(parsed);
       } catch (err) {
         logger.debug("task handler error", { err: err.message });
-        settled = true;
-        reject(new Error(err.message === 'JSON nesting too deep' ? err.message : 'Invalid JSON'));
+        finishReject(new Error(err.message === 'JSON nesting too deep' ? err.message : 'Invalid JSON'));
       }
     });
     req.on('error', (err) => {
-      if (!settled) { settled = true; reject(err); }
+      finishReject(err);
     });
   });
 }

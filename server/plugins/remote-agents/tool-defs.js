@@ -34,8 +34,8 @@ const tools = [
         },
         tls: {
           type: 'boolean',
-          description: 'Use HTTPS when contacting the remote agent (default: false)',
-          default: false
+          description: 'Use HTTPS when contacting the remote agent (default: true)',
+          default: true
         },
         rejectUnauthorized: {
           type: 'boolean',

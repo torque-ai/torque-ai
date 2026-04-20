@@ -7,6 +7,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const logger = require('../logger').child({ component: 'backup-core' });
 const { getDataDir } = require('../data-dir');
 const { runMigrations } = require('./migrations');
@@ -58,6 +59,13 @@ function setInternals({ getConfig, setConfig, setConfigDefault, safeAddColumn, i
   _isDbClosed = isDbClosed;
 }
 
+function writeBackupFileWithHash(backupPath, buffer) {
+  fs.writeFileSync(backupPath, buffer);
+  const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+  fs.writeFileSync(backupPath + '.sha256', hash, 'utf-8');
+  return hash;
+}
+
 function backupDatabase(destPath) {
   if (!_db) throw new Error('Database not initialized');
 
@@ -67,11 +75,7 @@ function backupDatabase(destPath) {
   }
 
   const buffer = _db.serialize();
-  fs.writeFileSync(destPath, buffer);
-
-  const crypto = require('crypto');
-  const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-  fs.writeFileSync(destPath + '.sha256', hash, 'utf-8');
+  writeBackupFileWithHash(destPath, buffer);
 
   const stats = fs.statSync(destPath);
   return {
@@ -105,7 +109,7 @@ function startBackupScheduler(intervalMs = 3600000) {
         return;
       }
 
-      fs.writeFileSync(backupPath, buffer);
+      writeBackupFileWithHash(backupPath, buffer);
 
       logger.info(`[backup] Database backed up to ${backupPath} (${buffer.length} bytes)`);
 
@@ -120,6 +124,7 @@ function startBackupScheduler(intervalMs = 3600000) {
 
       for (let i = maxBackups; i < files.length; i++) {
         fs.unlinkSync(path.join(backupDir, files[i]));
+        try { fs.unlinkSync(path.join(backupDir, files[i] + '.sha256')); } catch {}
         logger.info(`[backup] Removed old backup: ${files[i]}`);
       }
     } catch (err) {
@@ -140,7 +145,6 @@ async function restoreDatabase(srcPath, confirm, { force = false } = {}) {
   if (!fs.existsSync(srcPath)) throw new Error(`Backup file not found: ${srcPath}`);
 
   if (!force) {
-    const crypto = require('crypto');
     const hashPath = srcPath + '.sha256';
     if (!fs.existsSync(hashPath)) {
       throw new Error('Backup integrity file (.sha256) missing. Use force option to restore without verification.');
@@ -307,11 +311,7 @@ function takePreShutdownBackup() {
       return null;
     }
 
-    fs.writeFileSync(backupPath, buffer);
-
-    const crypto = require('crypto');
-    const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-    fs.writeFileSync(backupPath + '.sha256', hash, 'utf-8');
+    writeBackupFileWithHash(backupPath, buffer);
 
     logger.info(`[backup] Pre-shutdown backup saved: ${backupPath} (${buffer.length} bytes)`);
 

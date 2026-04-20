@@ -26,7 +26,7 @@ ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vites
 - Modify: `server/db/config-core.js` (add key generation helper)
 - Create: `server/tests/auth-key-generation.test.js`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 ```js
 'use strict';
@@ -53,7 +53,7 @@ describe('API key auto-generation', () => {
 });
 ```
 
-- [ ] **Step 2: Add `ensureApiKey()` to config-core.js**
+- [x] **Step 2: Add `ensureApiKey()` to config-core.js**
 
 ```js
 function ensureApiKey() {
@@ -71,16 +71,16 @@ function ensureApiKey() {
 
 Export from config-core.js and wire through database.js exports.
 
-- [ ] **Step 3: Call `ensureApiKey()` during database init**
+- [x] **Step 3: Call `ensureApiKey()` during database init**
 
 In `database.js:init()`, after schema setup and `_injectDbAll()`, add:
 ```js
 configCore.ensureApiKey();
 ```
 
-- [ ] **Step 4: Verify syntax** — `node --check server/database.js && node --check server/db/config-core.js`
+- [x] **Step 4: Verify syntax** — `node --check server/database.js && node --check server/db/config-core.js`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: auto-generate API key on first startup"
@@ -94,7 +94,7 @@ git commit -m "security: auto-generate API key on first startup"
 - Modify: `server/mcp-protocol.js`
 - Modify: `server/tests/mcp-protocol.test.js`
 
-- [ ] **Step 1: Add auth tests**
+- [x] **Step 1: Add auth tests**
 
 ```js
 describe('authentication', () => {
@@ -118,7 +118,7 @@ describe('authentication', () => {
 });
 ```
 
-- [ ] **Step 2: Add auth check to handleRequest**
+- [x] **Step 2: Add auth check to handleRequest**
 
 In `mcp-protocol.js`, at the top of `handleRequest()`, after the request validation:
 ```js
@@ -128,11 +128,11 @@ if (method !== 'initialize' && method !== 'notifications/initialized' && !sessio
 }
 ```
 
-- [ ] **Step 3: Update existing tests** — add `authenticated: true` to all existing test sessions
+- [x] **Step 3: Update existing tests** — add `authenticated: true` to all existing test sessions
 
-- [ ] **Step 4: Verify syntax** — `node --check server/mcp-protocol.js`
+- [x] **Step 4: Verify syntax** — `node --check server/mcp-protocol.js`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: enforce auth in mcp-protocol.js — reject unauthenticated sessions"
@@ -146,7 +146,7 @@ git commit -m "security: enforce auth in mcp-protocol.js — reject unauthentica
 - Modify: `server/mcp-sse.js` (SSE session creation)
 - Modify: `server/index.js` (stdio session)
 
-- [ ] **Step 1: SSE — authenticate on connection**
+- [x] **Step 1: SSE — authenticate on connection**
 
 In `mcp-sse.js`, find the SSE connection handler (where sessions are created on `GET /sse`). Add auth check:
 ```js
@@ -171,11 +171,11 @@ function verifyApiKey(provided, expected) {
 }
 ```
 
-- [ ] **Step 2: SSE — require auth on reconnect**
+- [x] **Step 2: SSE — require auth on reconnect**
 
 When a client reconnects with `?sessionId=...`, also check the API key. Don't allow session hijacking via known session ID.
 
-- [ ] **Step 3: Stdio — auto-authenticate**
+- [x] **Step 3: Stdio — auto-authenticate**
 
 In `index.js`, the `stdioSession` object:
 ```js
@@ -184,9 +184,9 @@ const stdioSession = { toolMode: 'core', authenticated: true };
 
 Stdio is a trusted pipe — always authenticated.
 
-- [ ] **Step 4: Verify syntax** — `node --check server/mcp-sse.js && node --check server/index.js`
+- [x] **Step 4: Verify syntax** — `node --check server/mcp-sse.js && node --check server/index.js`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: wire auth into SSE (key required) and stdio (auto-authenticated)"
@@ -201,7 +201,7 @@ git commit -m "security: wire auth into SSE (key required) and stdio (auto-authe
 - Modify: `dashboard/src/components/Layout.jsx` (banner)
 - Modify: `server/api-server.core.js` (startup warning)
 
-- [ ] **Step 1: Add security_warning to initialize response**
+- [x] **Step 1: Add security_warning to initialize response**
 
 In `mcp-protocol.js`, in the `initialize` case, check if auth is configured:
 ```js
@@ -221,11 +221,11 @@ case 'initialize': {
 
 Add `isAuthConfigured` to the init options.
 
-- [ ] **Step 2: Add dashboard security banner**
+- [x] **Step 2: Add dashboard security banner**
 
 In `Layout.jsx`, fetch auth status from `/api/v2/health` and show a yellow banner if `security_warning` is present.
 
-- [ ] **Step 3: Add startup log warning**
+- [x] **Step 3: Add startup log warning**
 
 In `index.js` init, after database init:
 ```js
@@ -234,9 +234,9 @@ if (!db.getConfig('api_key')) {
 }
 ```
 
-- [ ] **Step 4: Verify syntax**
+- [x] **Step 4: Verify syntax**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: add security banner for unconfigured auth installations"
@@ -252,7 +252,7 @@ git commit -m "security: add security banner for unconfigured auth installations
 - Modify: `server/remote/agent-server.js`
 - Modify: `server/tests/agent-server-security.test.js`
 
-- [ ] **Step 1: Add env whitelist tests**
+- [x] **Step 1: Add env whitelist tests**
 
 ```js
 describe('normalizeEnv — env var whitelist', () => {
@@ -283,7 +283,7 @@ describe('command whitelist', () => {
 });
 ```
 
-- [ ] **Step 2: Add env whitelist to normalizeEnv**
+- [x] **Step 2: Add env whitelist to normalizeEnv**
 
 ```js
 const BLOCKED_ENV_VARS = new Set([
@@ -307,7 +307,7 @@ function normalizeEnv(extraEnv = {}) {
 }
 ```
 
-- [ ] **Step 3: Add command whitelist**
+- [x] **Step 3: Add command whitelist**
 
 ```js
 const DEFAULT_ALLOWED_COMMANDS = new Set([
@@ -322,7 +322,7 @@ if (!state.allowedCommands.has(executable) && !DEFAULT_ALLOWED_COMMANDS.has(exec
 }
 ```
 
-- [ ] **Step 4: Add output cap to spawnAndCapture**
+- [x] **Step 4: Add output cap to spawnAndCapture**
 
 ```js
 const MAX_CAPTURE_BYTES = 10 * 1024 * 1024;
@@ -332,13 +332,13 @@ if (stdout.length > MAX_CAPTURE_BYTES) {
 }
 ```
 
-- [ ] **Step 5: Verify on Omen**
+- [x] **Step 5: Verify on Omen**
 
 ```bash
 ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run tests/agent-server-security.test.js 2>&1\""
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git commit -m "security: add env whitelist, command whitelist, and output cap to server-side agent"
@@ -352,7 +352,7 @@ git commit -m "security: add env whitelist, command whitelist, and output cap to
 - Modify: `server/remote/agent-registry.js`
 - Modify: `server/remote/agent-client.js`
 
-- [ ] **Step 1: Change TLS default**
+- [x] **Step 1: Change TLS default**
 
 In `agent-registry.js:register()`:
 ```js
@@ -362,7 +362,7 @@ register({ ..., tls = false, rejectUnauthorized = true }) {
 register({ ..., tls = true, rejectUnauthorized = true }) {
 ```
 
-- [ ] **Step 2: Add deprecation warning for plaintext agents**
+- [x] **Step 2: Add deprecation warning for plaintext agents**
 
 In `agent-client.js`, when `tls` is false:
 ```js
@@ -371,9 +371,9 @@ if (!this.tls) {
 }
 ```
 
-- [ ] **Step 3: Verify syntax** — `node --check server/remote/agent-registry.js`
+- [x] **Step 3: Verify syntax** — `node --check server/remote/agent-registry.js`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "security: make TLS default for agent connections, warn on plaintext"
@@ -389,7 +389,7 @@ git commit -m "security: make TLS default for agent connections, warn on plainte
 - Modify: `server/db/backup-core.js`
 - Create: `server/tests/backup-integrity.test.js`
 
-- [ ] **Step 1: Write tests**
+- [x] **Step 1: Write tests**
 
 ```js
 describe('backup integrity', () => {
@@ -412,7 +412,7 @@ describe('backup integrity', () => {
 });
 ```
 
-- [ ] **Step 2: Add hash generation to backupDatabase**
+- [x] **Step 2: Add hash generation to backupDatabase**
 
 After `fs.writeFileSync(backupPath, buffer)`:
 ```js
@@ -420,7 +420,7 @@ const hash = crypto.createHash('sha256').update(buffer).digest('hex');
 fs.writeFileSync(backupPath + '.sha256', hash, 'utf-8');
 ```
 
-- [ ] **Step 3: Add hash verification to restoreDatabase**
+- [x] **Step 3: Add hash verification to restoreDatabase**
 
 Before restoring:
 ```js
@@ -438,9 +438,9 @@ if (!force) {
 }
 ```
 
-- [ ] **Step 4: Verify on Omen**
+- [x] **Step 4: Verify on Omen**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: add SHA-256 integrity verification to backup/restore"
@@ -455,7 +455,7 @@ git commit -m "security: add SHA-256 integrity verification to backup/restore"
 - Modify: `server/utils/sanitize.js` (extend redaction)
 - Modify: `server/db/config-core.js` (protected keys)
 
-- [ ] **Step 1: Fix Windows DB permissions**
+- [x] **Step 1: Fix Windows DB permissions**
 
 In `database.js:init()`, after opening the DB:
 ```js
@@ -469,7 +469,7 @@ if (process.platform === 'win32') {
 }
 ```
 
-- [ ] **Step 2: Extend secret redaction**
+- [x] **Step 2: Extend secret redaction**
 
 In `server/utils/sanitize.js`, add patterns:
 ```js
@@ -481,7 +481,7 @@ In `server/utils/sanitize.js`, add patterns:
 /Authorization:\s*Bearer\s+\S+/gi,
 ```
 
-- [ ] **Step 3: Add protected config keys**
+- [x] **Step 3: Add protected config keys**
 
 In `config-core.js`:
 ```js
@@ -495,9 +495,9 @@ if (PROTECTED_CONFIG_KEYS.has(key)) {
 }
 ```
 
-- [ ] **Step 4: Verify syntax**
+- [x] **Step 4: Verify syntax**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: Windows DB permissions, extended secret redaction, protected config keys"
@@ -513,7 +513,7 @@ git commit -m "security: Windows DB permissions, extended secret redaction, prot
 - Modify: `server/mcp-sse.js`
 - Modify: `server/dashboard-server.js` (WebSocket per-IP)
 
-- [ ] **Step 1: Add per-IP tracking to SSE**
+- [x] **Step 1: Add per-IP tracking to SSE**
 
 ```js
 const perIpSessionCount = new Map();
@@ -534,17 +534,17 @@ const count = perIpSessionCount.get(session.ip) || 1;
 perIpSessionCount.set(session.ip, count - 1);
 ```
 
-- [ ] **Step 2: Add per-IP tracking to WebSocket**
+- [x] **Step 2: Add per-IP tracking to WebSocket**
 
 Same pattern in `dashboard-server.js` with `MAX_WS_PER_IP = 20`.
 
-- [ ] **Step 3: Require auth on SSE reconnect**
+- [x] **Step 3: Require auth on SSE reconnect**
 
 In the reconnection handler (where `?sessionId=` is checked), also verify the API key matches.
 
-- [ ] **Step 4: Verify syntax**
+- [x] **Step 4: Verify syntax**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: per-IP connection limits for SSE and WebSocket, auth on SSE reconnect"
@@ -558,7 +558,7 @@ git commit -m "security: per-IP connection limits for SSE and WebSocket, auth on
 - Modify: `server/mcp-sse.js` (CORS)
 - Modify: `server/api-server.core.js` (CORS)
 
-- [ ] **Step 1: Tighten SSE CORS**
+- [x] **Step 1: Tighten SSE CORS**
 
 In `mcp-sse.js`, update `DEFAULT_MCP_ALLOWED_ORIGINS` to only include the dashboard:
 ```js
@@ -569,7 +569,7 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 ```
 
-- [ ] **Step 2: Cap total subscriptions per session**
+- [x] **Step 2: Cap total subscriptions per session**
 
 ```js
 const MAX_SUBSCRIPTIONS_PER_SESSION = 200;
@@ -579,7 +579,7 @@ if (session.taskFilter && session.taskFilter.size >= MAX_SUBSCRIPTIONS_PER_SESSI
 }
 ```
 
-- [ ] **Step 3: Add body parser timeout**
+- [x] **Step 3: Add body parser timeout**
 
 In SSE `parseBody`, add a 30-second timeout:
 ```js
@@ -590,9 +590,9 @@ const bodyTimeout = setTimeout(() => {
 clearTimeout(bodyTimeout);
 ```
 
-- [ ] **Step 4: Verify syntax**
+- [x] **Step 4: Verify syntax**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: strict CORS, subscription cap, body parser timeout"
@@ -607,13 +607,13 @@ git commit -m "security: strict CORS, subscription cap, body parser timeout"
 **Files:**
 - Create: `docs/enterprise-security-roadmap.md`
 
-- [ ] **Step 1: Write the document**
+- [x] **Step 1: Write the document**
 
 Cover: mTLS, HMAC signing, OAuth2/OIDC, JWT sessions, granular key scoping, RBAC, project isolation, multi-tenancy, audit logging, immutable trails, data retention, secret rotation, TLS everywhere, interface binding, API gateway integration.
 
 Structure as a feature matrix with effort estimates and dependency ordering.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git commit -m "docs: add enterprise security roadmap for future multi-user deployment"

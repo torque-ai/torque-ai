@@ -57,7 +57,8 @@ const clients = new Set();
 
 // Per-IP WebSocket connection tracking
 const _perIpWsCount = new Map();
-const MAX_WS_PER_IP = 20;
+const MAX_WS_PER_IP = 10;
+const BODY_PARSE_TIMEOUT_MS = 30000;
 
 // WebSocket topic subscriptions (topic -> Set of clients)
 const topicSubscriptions = new Map();
@@ -458,19 +459,34 @@ function broadcastStatsUpdate() {
  */
 const MAX_WS_CONNECTIONS = 100;
 
-function handleWebSocket(ws) {
+function resolveWebSocketIp(ws, req) {
+  return req?.socket?.remoteAddress
+    || req?.connection?.remoteAddress
+    || ws?._socket?.remoteAddress
+    || 'unknown';
+}
+
+function decrementWebSocketIpCount(ip) {
+  if (!ip) return;
+  const ipWsCount = _perIpWsCount.get(ip) || 1;
+  if (ipWsCount <= 1) _perIpWsCount.delete(ip);
+  else _perIpWsCount.set(ip, ipWsCount - 1);
+}
+
+function handleWebSocket(ws, req) {
   if (clients.size >= MAX_WS_CONNECTIONS) {
     ws.close(1013, 'Too many connections');
     return;
   }
 
-  const wsIp = ws._socket?.remoteAddress || 'unknown';
+  const wsIp = resolveWebSocketIp(ws, req);
   const currentIpWsCount = _perIpWsCount.get(wsIp) || 0;
   if (currentIpWsCount >= MAX_WS_PER_IP) {
     ws.close(1013, 'Too many connections from this IP');
     return;
   }
   _perIpWsCount.set(wsIp, currentIpWsCount + 1);
+  ws._torqueRemoteAddress = wsIp;
 
   clients.add(ws);
 
@@ -559,13 +575,13 @@ function handleWebSocket(ws) {
     }
   });
 
+  let clientRemoved = false;
   function removeClient(ws) {
+    if (clientRemoved) return;
+    clientRemoved = true;
+
     clients.delete(ws);
-    // Decrement per-IP WebSocket counter
-    const closedIp = ws._socket?.remoteAddress || wsIp;
-    const ipWsCount = _perIpWsCount.get(closedIp) || 1;
-    if (ipWsCount <= 1) _perIpWsCount.delete(closedIp);
-    else _perIpWsCount.set(closedIp, ipWsCount - 1);
+    decrementWebSocketIpCount(ws._torqueRemoteAddress || wsIp);
     // Remove from all topic subscriptions and prune empty sets
     const clientTopics = clientTopicSubscriptions.get(ws);
     if (clientTopics) {
@@ -734,6 +750,15 @@ async function start(options = {}) {
         const chunks = [];
         let bodySize = 0;
         let bodyRejected = false;
+        const bodyTimeout = setTimeout(() => {
+          if (bodyRejected || res.writableEnded) {
+            return;
+          }
+          bodyRejected = true;
+          sendError(res, 'Body parse timeout', 408);
+          req.destroy(new Error('Body parse timeout'));
+        }, BODY_PARSE_TIMEOUT_MS);
+
         req.on('data', chunk => {
           if (bodyRejected || res.writableEnded) {
             return;
@@ -742,12 +767,14 @@ async function start(options = {}) {
           bodySize += bufferChunk.length;
           if (bodySize > MAX_V2_BODY_SIZE) {
             bodyRejected = true;
+            clearTimeout(bodyTimeout);
             sendError(res, 'Request body too large', 413);
             return;
           }
           chunks.push(bufferChunk);
         });
         req.on('end', () => {
+          clearTimeout(bodyTimeout);
           if (bodyRejected || res.writableEnded) {
             return;
           }
@@ -777,6 +804,9 @@ async function start(options = {}) {
               sendError(res, 'Internal server error', 500);
             }
           });
+        });
+        req.on('error', () => {
+          clearTimeout(bodyTimeout);
         });
         return;
       }
@@ -869,6 +899,7 @@ function stop() {
     client.close();
   }
   clients.clear();
+  _perIpWsCount.clear();
   topicSubscriptions.clear();
   clientTopicSubscriptions.clear();
   staticFileCache.clear();

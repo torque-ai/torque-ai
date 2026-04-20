@@ -272,6 +272,47 @@ function PausedFactoryBanner() {
   );
 }
 
+function getSecurityWarningFromStatus(payload) {
+  const status = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+  const warning = status?.security_warning || status?.security?.warning;
+  return typeof warning === 'string' && warning.trim() ? warning.trim() : null;
+}
+
+function SecurityWarningBanner() {
+  const [warning, setWarning] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadSecurityStatus() {
+      try {
+        const response = await fetch('/api/v2/system/status', { credentials: 'same-origin' });
+        if (!response.ok) throw new Error('Failed to load system status');
+        const data = await response.json();
+        if (active) setWarning(getSecurityWarningFromStatus(data));
+      } catch {
+        if (active) setWarning(null);
+      }
+    }
+
+    loadSecurityStatus();
+    const intervalId = setInterval(loadSecurityStatus, 60000);
+
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, []);
+
+  if (!warning) return null;
+
+  return (
+    <div className="bg-red-500/10 border-b border-red-500/30 text-red-100 text-xs px-4 md:px-6 py-2" role="status">
+      {warning}
+    </div>
+  );
+}
+
 
 export default function Layout({ isConnected, isReconnecting, failedCount = 0, stuckCount = 0, pendingApprovalCount = 0 }) {
   const [collapsed, setCollapsed] = useState(getInitialCollapsed);
@@ -412,6 +453,7 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
 
       {/* Main content */}
       <main className="flex-1 bg-slate-900 overflow-auto flex flex-col min-w-0">
+        <SecurityWarningBanner />
         <PausedFactoryBanner />
         {/* Top bar with breadcrumb and notification bell */}
         <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b border-slate-800/50">

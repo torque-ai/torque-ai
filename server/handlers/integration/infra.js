@@ -211,7 +211,7 @@ async function handleRestoreDatabase(args) {
   }
 
   try {
-    const result = await backupCore.restoreDatabase(resolvedSrc, args.confirm);
+    const result = await backupCore.restoreDatabase(resolvedSrc, args.confirm, { force: args.force === true });
     let output = `## Database Restored\n\n`;
     output += `**From:** ${result.restored_from}\n`;
     output += `**At:** ${result.restored_at}\n`;
