@@ -358,18 +358,18 @@ git commit -m "feat(peek): CLI — start, stop, status, check commands"
 **Files:**
 - Modify: `server/handlers/peek/shared.js`
 
-- [ ] **Step 1: Read `resolvePeekHost()` in shared.js** — find where it returns null/error when no host is found.
+- [x] **Step 1: Read `resolvePeekHost()` in shared.js** — find where it returns null/error when no host is found.
 
-- [ ] **Step 2: Add auto-start logic** — after all host resolution fails:
+- [x] **Step 2: Add auto-start logic** — after all host resolution fails:
   1. Check if `torque-peek` binary is installed via `execFileSync('which', ['torque-peek'])` (Unix) or `execFileSync('where', ['torque-peek'])` (Windows) — wrapped in try/catch.
   2. If found: `spawn(peekBin, ['start'], { detached: true, stdio: 'ignore' })` + `child.unref()`
   3. Poll `http://127.0.0.1:9876/health` up to 6 times at 500ms intervals
   4. If responds: `db.registerPeekHost('local-auto', 'http://127.0.0.1:9876', null, true, process.platform)` and return the host
   5. If not: log warning, fall through to error
 
-- [ ] **Step 3: Update "no host" error message** — change to: `"No peek server available. Install with: npm install -g @torque-ai/peek\nThen run: torque-peek start"`
+- [x] **Step 3: Update "no host" error message** — change to: `"No peek server available. Install with: npm install -g @torque-ai/peek\nThen run: torque-peek start"`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/handlers/peek/shared.js
