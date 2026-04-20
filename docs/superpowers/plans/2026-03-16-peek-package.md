@@ -267,11 +267,11 @@ git commit -m "feat(peek): windows capability — /list and /windows endpoints"
 - Create: `packages/peek/src/capabilities/launch.js`
 - Test: `packages/peek/tests/launch.test.js`
 
-- [ ] **Step 1: Write test** — mock adapter, verify `/process` calls `adapter.launchProcess()`, `/projects` calls `adapter.discoverProjects()`, `/open-url` calls `adapter.openUrl()`.
+- [x] **Step 1: Write test** — mock adapter, verify `/process` calls `adapter.launchProcess()`, `/projects` calls `adapter.discoverProjects()`, `/open-url` calls `adapter.openUrl()`.
 
-- [ ] **Step 2: Implement** — factory function returns object with `.process(req, res)`, `.discover(req, res)`, `.openUrl(req, res)`.
+- [x] **Step 2: Implement** — factory function returns object with `.process(req, res)`, `.discover(req, res)`, `.openUrl(req, res)`.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ```bash
 git commit -m "feat(peek): launch capability — /process, /projects, /open-url"
