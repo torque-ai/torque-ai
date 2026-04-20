@@ -554,7 +554,7 @@ git commit -m "feat(diffusion): add compute_provider/apply_provider to create_di
 - Modify: `server/execution/task-finalizer.js`
 - Test: `server/tests/diffusion-compute-apply-hook.test.js`
 
-- [ ] **Step 1: Write tests for the close-handler hook**
+- [x] **Step 1: Write tests for the close-handler hook**
 
 ```js
 // server/tests/diffusion-compute-apply-hook.test.js
@@ -601,12 +601,12 @@ describe('compute→apply close-handler hook (unit)', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `npx vitest run server/tests/diffusion-compute-apply-hook.test.js`
 Expected: PASS (these test the existing parser + planner functions)
 
-- [ ] **Step 3: Add the close-handler hook to task-finalizer.js**
+- [x] **Step 3: Add the close-handler hook to task-finalizer.js**
 
 Read `server/execution/task-finalizer.js`. Find the `handleDiffusionSignalDetection` function (added in v1). After it, add a new function:
 
@@ -687,11 +687,11 @@ Then add the `runStage` call in the pipeline — after `diffusion_signal_detecti
     await runStage(ctx, 'compute_apply_creation', handleComputeApplyCreation, ctx.code === 0);
 ```
 
-- [ ] **Step 4: Verify server loads**
+- [x] **Step 4: Verify server loads**
 
 Run: `node -e "require('./server/execution/task-finalizer'); console.log('OK')"`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/execution/task-finalizer.js server/tests/diffusion-compute-apply-hook.test.js
