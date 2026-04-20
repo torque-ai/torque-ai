@@ -352,7 +352,7 @@ git commit -m "security: add env whitelist, command whitelist, and output cap to
 - Modify: `server/remote/agent-registry.js`
 - Modify: `server/remote/agent-client.js`
 
-- [ ] **Step 1: Change TLS default**
+- [x] **Step 1: Change TLS default**
 
 In `agent-registry.js:register()`:
 ```js
@@ -362,7 +362,7 @@ register({ ..., tls = false, rejectUnauthorized = true }) {
 register({ ..., tls = true, rejectUnauthorized = true }) {
 ```
 
-- [ ] **Step 2: Add deprecation warning for plaintext agents**
+- [x] **Step 2: Add deprecation warning for plaintext agents**
 
 In `agent-client.js`, when `tls` is false:
 ```js
@@ -371,9 +371,9 @@ if (!this.tls) {
 }
 ```
 
-- [ ] **Step 3: Verify syntax** — `node --check server/remote/agent-registry.js`
+- [x] **Step 3: Verify syntax** — `node --check server/remote/agent-registry.js`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit -m "security: make TLS default for agent connections, warn on plaintext"
