@@ -176,15 +176,15 @@ git commit -m "feat(peek): Windows platform adapter — PowerShell capture + int
 - Create: `packages/peek/src/platform/darwin.js`
 - Test: `packages/peek/tests/darwin.test.js`
 
-- [ ] **Step 1: Write conditional test** — loads on all platforms, functional tests only on macOS.
+- [x] **Step 1: Write conditional test** — loads on all platforms, functional tests only on macOS.
 
-- [ ] **Step 2: Implement darwin.js** — extends BasePlatformAdapter:
+- [x] **Step 2: Implement darwin.js** — extends BasePlatformAdapter:
   - `listWindows()` — `execFileSync('osascript', ['-e', applescript])` to list windows via System Events
   - `capture()` — tries `execFileSync('screencapture', ['-l', windowId, '-x', tmpFile])` for by-ID capture. Falls back to region-based: `execFileSync('screencapture', ['-R', `${x},${y},${w},${h}`, '-x', tmpFile])` using geometry from osascript.
   - Window ID resolution: osascript to get CGWindowID via Quartz bridge. If unavailable, falls back to region-based capture.
   - Interaction — `execFileSync('osascript', ['-e', applescript])` for click/keystroke. Consider `cliclick` for coordinate-based interaction if available.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ```bash
 git commit -m "feat(peek): macOS platform adapter — screencapture + osascript"
