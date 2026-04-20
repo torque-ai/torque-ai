@@ -1,9 +1,37 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 
-vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
-vi.mock('../handlers/webhook-handlers', () => ({
+const originalModuleCache = new Map();
+
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  if (!originalModuleCache.has(resolved)) {
+    originalModuleCache.set(resolved, require.cache[resolved]);
+  }
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
+function restoreCjsModuleMocks() {
+  for (const [resolved, cached] of originalModuleCache.entries()) {
+    if (cached) {
+      require.cache[resolved] = cached;
+    } else {
+      delete require.cache[resolved];
+    }
+  }
+  originalModuleCache.clear();
+  delete require.cache[require.resolve('../factory/notifications')];
+}
+
+installCjsModuleMock('../event-bus', { emitTaskEvent: vi.fn() });
+installCjsModuleMock('../handlers/webhook-handlers', {
   triggerWebhooks: vi.fn().mockResolvedValue(undefined),
-}));
+});
+delete require.cache[require.resolve('../factory/notifications')];
 
 const notifications = require('../factory/notifications');
 const eventBus = require('../event-bus');
@@ -23,6 +51,10 @@ afterEach(() => {
   notifications.flushAllDigests();
   notifications._testing.resetAlertRuntimeState();
   vi.useRealTimers();
+});
+
+afterAll(() => {
+  restoreCjsModuleMocks();
 });
 
 function expectAlertDelivery({ alert_type, payload, expected_key }) {
