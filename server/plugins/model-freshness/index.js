@@ -122,26 +122,36 @@ function createPlugin() {
     // Prefer an injected scheduler from the container (for tests); fall back to
     // the real cron-scheduling module at runtime. Wrapped in try/catch so
     // scheduling failures don't block plugin load.
+    //
+    // Idempotency: install() runs on every plugin load, which includes every
+    // server restart. The schedule is keyed by name; skip creation when a row
+    // with that name already exists to avoid accumulating duplicate rows.
     try {
       let cronScheduling = getContainerService(container, 'cronScheduling');
       if (!cronScheduling) {
         cronScheduling = require('../../db/cron-scheduling');
       }
       if (cronScheduling && typeof cronScheduling.createCronScheduledTask === 'function') {
-        const hour = (container && container.config && container.config.scan_hour_local) || 3;
-        cronScheduling.createCronScheduledTask({
-          name: 'model-freshness-daily-scan',
-          cron_expression: `0 ${hour} * * *`,
-          payload_kind: 'task',
-          task_config: {
-            task: 'Daily drift scan: model_freshness_scan_now',
-            tool_name: 'model_freshness_scan_now',
-          },
-          source: 'plugin:model-freshness',
-        });
+        const scheduleName = 'model-freshness-daily-scan';
+        const existing = typeof cronScheduling.getScheduledTask === 'function'
+          ? cronScheduling.getScheduledTask(scheduleName)
+          : null;
+        if (!existing) {
+          const hour = (container && container.config && container.config.scan_hour_local) || 3;
+          cronScheduling.createCronScheduledTask({
+            name: scheduleName,
+            cron_expression: `0 ${hour} * * *`,
+            payload_kind: 'task',
+            task_config: {
+              task: 'Daily drift scan: model_freshness_scan_now',
+              tool_name: 'model_freshness_scan_now',
+            },
+            source: 'plugin:model-freshness',
+          });
+        }
       }
     } catch {
-      // scheduler not available or schedule already exists — manual scans still work
+      // scheduler not available — manual scans still work
     }
 
     installed = true;
