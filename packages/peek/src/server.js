@@ -4,6 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const { createCaptureHandler } = require('./capabilities/capture');
 const { createHealthHandler } = require('./health');
 const { createRouter } = require('./router');
 
@@ -175,6 +176,19 @@ function createRequestContext(req, res, parsedUrl, body) {
   };
 }
 
+function createCapabilityHandlers(options = {}) {
+  const handlers = { ...(options.handlers || {}) };
+  const adapter = options.adapter || options.platformAdapter || null;
+
+  if (adapter && typeof adapter.capture === 'function') {
+    const captureHandler = createCaptureHandler(adapter, options.captureOptions || {});
+    if (typeof handlers.peek !== 'function') handlers.peek = captureHandler;
+    if (typeof handlers.capture !== 'function') handlers.capture = captureHandler;
+  }
+
+  return handlers;
+}
+
 function createServer(options = {}) {
   const host = options.host || DEFAULT_HOST;
   const port = normalizePort(options.port);
@@ -212,7 +226,7 @@ function createServer(options = {}) {
   };
 
   const router = createRouter({
-    handlers: options.handlers,
+    handlers: createCapabilityHandlers(options),
     healthHandler,
     shutdownHandler,
   });
@@ -329,6 +343,7 @@ module.exports = {
   DEFAULT_PORT,
   TOKEN_HEADER,
   createServer,
+  createCapabilityHandlers,
   getDefaultPidFile,
   isLocalAddress,
   normalizePort,
