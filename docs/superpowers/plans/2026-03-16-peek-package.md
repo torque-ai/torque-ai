@@ -381,9 +381,9 @@ git commit -m "feat: auto-start @torque-ai/peek when installed + better error me
 **Files:**
 - Modify: `README.md`
 
-- [ ] **Step 1: Add "Optional: Visual Verification (Peek)" section** after the Superpowers companion section. Include install command, auto-detection note, remote host registration example, and Tier 2 requirement note.
+- [x] **Step 1: Add "Optional: Visual Verification (Peek)" section** after the Superpowers companion section. Include install command, auto-detection note, remote host registration example, and Tier 2 requirement note.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add README.md
