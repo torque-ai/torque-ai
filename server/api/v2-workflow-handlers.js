@@ -201,7 +201,7 @@ async function handleRunWorkflow(req, res) {
 
   try {
     const workflowHandler = require('../handlers/workflow/index');
-    const result = workflowHandler.handleRunWorkflow({ workflow_id: workflowId });
+    const result = await workflowHandler.handleRunWorkflow({ workflow_id: workflowId });
 
     if (result.isError || result.error_code) {
       const msg = result.content?.[0]?.text || 'Failed to run workflow';

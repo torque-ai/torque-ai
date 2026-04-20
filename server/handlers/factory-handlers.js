@@ -462,11 +462,16 @@ async function handleRegisterFactoryProject(args) {
 
 async function handleListFactoryProjects(args) {
   const projects = factoryHealth.listProjects(args.status ? { status: args.status } : undefined);
-  const summaries = projects.map(p => {
+  // Include commits_today so REST consumers see the same shape as the
+  // factory_status MCP tool. countCommitsToday is cached per-path with a
+  // TTL, so this isn't a git-log spawn per poll — the first call within
+  // the TTL pays, subsequent reads hit the cache.
+  const summaries = await Promise.all(projects.map(async (p) => {
     const scores = factoryHealth.getLatestScores(p.id);
     const balance = factoryHealth.getBalanceScore(p.id, scores);
-    return { ...p, scores, balance };
-  });
+    const commitsToday = await countCommitsToday(p.path);
+    return { ...p, scores, balance, commits_today: commitsToday };
+  }));
   return jsonResponse({ projects: summaries });
 }
 

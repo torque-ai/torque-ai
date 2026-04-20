@@ -880,7 +880,7 @@ function handleCloneWorkflow(args) {
   };
 }
 
-function startWorkflowExecution(workflow) {
+async function startWorkflowExecution(workflow) {
   const tasks = workflowEngine.getWorkflowTasks(workflow.id);
   if (tasks.length === 0) {
     return { error: buildEmptyWorkflowStartError(workflow) };
@@ -903,10 +903,21 @@ function startWorkflowExecution(workflow) {
     if (currentTask.status === 'pending') {
       try {
         attemptedToStart += 1;
-        const startResult = taskManager.startTask(task.id);
-        // startTask is async — catch unhandled rejections from the returned Promise
-        if (startResult && typeof startResult.catch === 'function') {
-          startResult.catch(() => {});
+        // taskManager.startTask is async. Await its resolution so the
+        // subsequent classifyWorkflowStartOutcome (which reads task status
+        // back from the DB) sees the post-start state rather than racing
+        // against a still-pending write. Unawaited, full-suite runs under
+        // load would occasionally see the DB row still at `pending` before
+        // the async close-handler chain had flipped it to running/queued,
+        // and the task would be erroneously counted as "failed to start"
+        // even when the underlying call succeeded.
+        let startResult;
+        try {
+          startResult = await taskManager.startTask(task.id);
+        } catch (innerErr) {
+          failedStarts.push(buildWorkflowStartFailure(task, innerErr));
+          logger.debug('[workflow-handlers] startTask rejected for workflow task:', innerErr.message || innerErr);
+          continue;
         }
         const startOutcome = classifyWorkflowStartOutcome(task.id, startResult);
         if (startOutcome === 'queued') {
@@ -1409,7 +1420,7 @@ function handleAddWorkflowTask(args) {
 /**
  * Start workflow execution
  */
-function handleRunWorkflow(args) {
+async function handleRunWorkflow(args) {
   const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
   if (wfErr) return wfErr;
 
@@ -1444,7 +1455,7 @@ function handleRunWorkflow(args) {
   }
 
   // No concurrent workflow limit — tasks queue naturally via the task scheduler
-  const startResult = startWorkflowExecution(workflow);
+  const startResult = await startWorkflowExecution(workflow);
   if (startResult.error) {
     return startResult.error;
   }

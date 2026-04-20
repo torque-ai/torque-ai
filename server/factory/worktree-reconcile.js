@@ -237,6 +237,28 @@ function listWorktreeDirs(projectPath, worktreeDir = DEFAULT_WORKTREE_DIR) {
 // this window and get reclaimed on the next tick.
 const ORPHAN_DIR_MIN_AGE_MS = 60 * 1000;
 
+// An `active` factory_worktrees row is assumed to be owned by a live loop.
+// Trust that ownership for up to STALE_ACTIVE_ROW_MAX_AGE_MS; past that,
+// the loop instance has almost certainly died (server crash, terminated
+// instance, orphaned batch) without flipping the row to abandoned/merged.
+// The pre-fix reconciler refused to reclaim these forever, so dirs sat
+// indefinitely — observed 2026-04-20 with `feat-factory-85` + `-99` at
+// 24+ hours old. 12h is generous vs. the factory's single-digit-minute
+// stage cadence, so anything older is near-certainly stranded.
+const STALE_ACTIVE_ROW_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+// Parse a sqlite `created_at` TEXT column (datetime('now') format, i.e.
+// `YYYY-MM-DD HH:MM:SS` in UTC) into epoch ms. Returns null on parse
+// failure so callers can fall back to "treat as fresh" rather than
+// crashing the reconcile loop on unexpected data.
+function parseSqliteUtcTimestamp(s) {
+  if (!s || typeof s !== 'string') return null;
+  // Accept both `YYYY-MM-DD HH:MM:SS` and `YYYY-MM-DDTHH:MM:SSZ`.
+  const normalized = s.includes('T') ? s : s.replace(' ', 'T') + 'Z';
+  const t = Date.parse(normalized);
+  return Number.isFinite(t) ? t : null;
+}
+
 // Read the .git redirect file inside a worktree dir and return its mtime.
 // Null on any read failure — the caller treats null as "don't use freshness
 // to skip", preserving pre-fix reclaim behavior for truly broken dirs.
@@ -271,6 +293,21 @@ function classifyDir(dirPath, rowsByPath, vcRowsByPath = new Map(), nowMs = Date
   if (row) {
     if (RECLAIMABLE_STATUSES.has(row.status)) {
       return { action: 'reclaim', reason: `db row status=${row.status}`, row };
+    }
+    // Stale-active override: if the row claims `active` but has been sitting
+    // for longer than STALE_ACTIVE_ROW_MAX_AGE_MS, the owning loop is gone
+    // and the row is stranded. Reclaim the dir and let a subsequent factory
+    // run delete or re-activate the row.
+    if (row.status === 'active' && row.created_at) {
+      const createdMs = parseSqliteUtcTimestamp(row.created_at);
+      if (createdMs !== null && (nowMs - createdMs) > STALE_ACTIVE_ROW_MAX_AGE_MS) {
+        const ageH = Math.round((nowMs - createdMs) / 3600000);
+        return {
+          action: 'reclaim',
+          reason: `stale active row (age ${ageH}h > ${STALE_ACTIVE_ROW_MAX_AGE_MS / 3600000}h)`,
+          row,
+        };
+      }
     }
     return { action: 'skip', reason: `db row status=${row.status}`, row };
   }

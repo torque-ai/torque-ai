@@ -125,11 +125,19 @@ function startMaintenanceScheduler(opts = {}) {
         const dueSchedules = db.getDueScheduledTasks();
         for (const schedule of dueSchedules) {
           try {
-            executeScheduledTask(schedule, {
+            // executeScheduledTask is now async (awaits handleRunWorkflow
+            // which awaits taskManager.startTask). Fire-and-forget is fine
+            // here — the maintenance tick doesn't need the result, just
+            // needs unhandled rejections caught so a single bad schedule
+            // doesn't crash the loop.
+            Promise.resolve(executeScheduledTask(schedule, {
               db,
               debugLog,
               logger,
               runWorkflow: opts?.runWorkflow,
+            })).catch((schedErr) => {
+              logger.error(`Scheduled task execution failed: ${schedErr.message}`);
+              debugLog(`Failed to execute scheduled task "${schedule.name}": ${schedErr.message}`);
             });
           } catch (schedErr) {
             logger.error(`Scheduled task execution failed: ${schedErr.message}`);

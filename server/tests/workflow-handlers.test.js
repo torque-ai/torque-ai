@@ -459,7 +459,7 @@ describe('server/handlers/workflow-handlers', () => {
   });
 
   describe('handleCreateWorkflow', () => {
-    it('rejects workflows without a name', () => {
+    it('rejects workflows without a name', async () => {
       const result = ctx.handlers.handleCreateWorkflow({ name: '   ' });
 
       expect(result.isError).toBe(true);
@@ -467,7 +467,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('name must be a non-empty string');
     });
 
-    it('rejects empty workflows when no tasks are provided', () => {
+    it('rejects empty workflows when no tasks are provided', async () => {
       const result = ctx.handlers.handleCreateWorkflow({ name: 'Release Flow' });
 
       expect(ctx.db.findEmptyWorkflowPlaceholder).toHaveBeenCalledWith('Release Flow', 'pending');
@@ -476,7 +476,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('must include at least one task');
     });
 
-    it('returns a conflict when a matching empty placeholder already exists', () => {
+    it('returns a conflict when a matching empty placeholder already exists', async () => {
       ctx.db.__setPlaceholder({
         id: 'wf-placeholder',
         status: 'pending',
@@ -490,7 +490,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('empty pending placeholder');
     });
 
-    it('rejects non-object task definitions', () => {
+    it('rejects non-object task definitions', async () => {
       const result = ctx.handlers.handleCreateWorkflow({
         name: 'Release Flow',
         tasks: [null],
@@ -501,7 +501,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('tasks[0] must be an object');
     });
 
-    it('rejects duplicate node ids in the initial DAG', () => {
+    it('rejects duplicate node ids in the initial DAG', async () => {
       const result = ctx.handlers.handleCreateWorkflow({
         name: 'Release Flow',
         tasks: [
@@ -515,7 +515,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain("Duplicate workflow node_id 'build'");
     });
 
-    it('rejects missing dependency nodes in the initial DAG', () => {
+    it('rejects missing dependency nodes in the initial DAG', async () => {
       const result = ctx.handlers.handleCreateWorkflow({
         name: 'Release Flow',
         tasks: [
@@ -532,7 +532,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('Dependency not found: build');
     });
 
-    it('rejects circular dependencies in the initial DAG', () => {
+    it('rejects circular dependencies in the initial DAG', async () => {
       const result = ctx.handlers.handleCreateWorkflow({
         name: 'Release Flow',
         tasks: [
@@ -554,7 +554,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('Circular dependency detected');
     });
 
-    it('creates a seeded workflow with dependency metadata, timeouts, and alternate mappings', () => {
+    it('creates a seeded workflow with dependency metadata, timeouts, and alternate mappings', async () => {
       ctx.uuid.__setIds('wf-1', 'task-build', 'task-review', 'task-deploy');
       ctx.db.__setConfig('default_timeout', '15');
 
@@ -621,7 +621,7 @@ describe('server/handlers/workflow-handlers', () => {
   });
 
   describe('handleAddWorkflowTask', () => {
-    it('returns WORKFLOW_NOT_FOUND when the parent workflow is missing', () => {
+    it('returns WORKFLOW_NOT_FOUND when the parent workflow is missing', async () => {
       const result = ctx.handlers.handleAddWorkflowTask({
         workflow_id: 'wf-missing',
         node_id: 'build',
@@ -633,7 +633,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('Workflow not found');
     });
 
-    it('rejects dependency lists that contain non-string node ids', () => {
+    it('rejects dependency lists that contain non-string node ids', async () => {
       const result = ctx.handlers.handleAddWorkflowTask({
         workflow_id: 'wf-1',
         node_id: 'build',
@@ -646,7 +646,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('depends_on elements must be strings');
     });
 
-    it('wraps task creation failures as OPERATION_FAILED', () => {
+    it('wraps task creation failures as OPERATION_FAILED', async () => {
       seedWorkflow(ctx.db, { id: 'wf-1' });
       ctx.db.__setCreateTaskError(new Error('disk full'));
 
@@ -661,7 +661,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('Failed to create task: disk full');
     });
 
-    it('returns RESOURCE_NOT_FOUND when a dependency node is missing', () => {
+    it('returns RESOURCE_NOT_FOUND when a dependency node is missing', async () => {
       seedWorkflow(ctx.db, { id: 'wf-1' });
       ctx.uuid.__setIds('task-new');
 
@@ -678,7 +678,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(ctx.db.addTaskDependency).not.toHaveBeenCalled();
     });
 
-    it('rejects tasks that would create a circular dependency', () => {
+    it('rejects tasks that would create a circular dependency', async () => {
       seedWorkflow(ctx.db, { id: 'wf-1' });
       seedTask(ctx.db, {
         id: 'task-a',
@@ -710,7 +710,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(ctx.db.addTaskDependency).toHaveBeenCalledTimes(1);
     });
 
-    it('creates dependency metadata and alternate mappings using the full task prompt', () => {
+    it('creates dependency metadata and alternate mappings using the full task prompt', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         status: 'pending',
@@ -763,7 +763,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('Context From');
     });
 
-    it('starts dependency-free tasks immediately in a running workflow', () => {
+    it('starts dependency-free tasks immediately in a running workflow', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         status: 'running',
@@ -783,7 +783,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('**Status:** running');
     });
 
-    it('records start failures when immediate task start throws', () => {
+    it('records start failures when immediate task start throws', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         status: 'running',
@@ -812,7 +812,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('Start Failures');
     });
 
-    it('reopens failed workflows and unblocks tasks when dependencies are terminal', () => {
+    it('reopens failed workflows and unblocks tasks when dependencies are terminal', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         status: 'failed',
@@ -846,7 +846,7 @@ describe('server/handlers/workflow-handlers', () => {
   });
 
   describe('handleCloneWorkflow', () => {
-    it('clones workflow tasks and dependency edges into a fresh workflow instance', () => {
+    it('clones workflow tasks and dependency edges into a fresh workflow instance', async () => {
       const sourceWorkflow = seedWorkflow(ctx.db, {
         id: 'wf-source',
         name: 'example-project Ollama Autodev Loop',
@@ -996,28 +996,28 @@ describe('server/handlers/workflow-handlers', () => {
   });
 
   describe('handleRunWorkflow', () => {
-    it('returns WORKFLOW_NOT_FOUND when the workflow does not exist', () => {
-      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-missing' });
+    it('returns WORKFLOW_NOT_FOUND when the workflow does not exist', async () => {
+      const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-missing' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('WORKFLOW_NOT_FOUND');
       expect(textOf(result)).toContain('Workflow not found');
     });
 
-    it('prevents starting an already-running workflow', () => {
+    it('prevents starting an already-running workflow', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         status: 'running',
       });
 
-      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+      const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('TASK_ALREADY_RUNNING');
       expect(textOf(result)).toContain('Workflow already running');
     });
 
-    it('returns restart guard errors before starting tasks', () => {
+    it('returns restart guard errors before starting tasks', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         status: 'paused',
@@ -1027,7 +1027,7 @@ describe('server/handlers/workflow-handlers', () => {
         'restart blocked'
       );
 
-      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+      const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('INVALID_STATUS_TRANSITION');
@@ -1035,20 +1035,20 @@ describe('server/handlers/workflow-handlers', () => {
       expect(ctx.taskManager.startTask).not.toHaveBeenCalled();
     });
 
-    it('rejects workflows that have no tasks', () => {
+    it('rejects workflows that have no tasks', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         status: 'pending',
       });
 
-      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+      const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('INVALID_PARAM');
       expect(textOf(result)).toContain('has no tasks');
     });
 
-    it('attempts every runnable pending task and lets startTask queue exact-provider overflow', () => {
+    it('attempts every runnable pending task and lets startTask queue exact-provider overflow', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         name: 'Concurrency Flow',
@@ -1100,7 +1100,7 @@ describe('server/handlers/workflow-handlers', () => {
           });
         });
 
-      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+      const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
 
       expect(result.isError).toBeFalsy();
       expect(ctx.db.updateWorkflow).toHaveBeenCalledWith('wf-1', expect.objectContaining({
@@ -1116,7 +1116,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('**Blocked Tasks:** 1');
     });
 
-    it('returns OPERATION_FAILED when every task start attempt fails', () => {
+    it('returns OPERATION_FAILED when every task start attempt fails', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         name: 'Broken Flow',
@@ -1138,7 +1138,7 @@ describe('server/handlers/workflow-handlers', () => {
         throw new Error('capacity');
       });
 
-      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+      const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('OPERATION_FAILED');
@@ -1147,7 +1147,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(ctx.logger.debug).toHaveBeenCalledTimes(2);
     });
 
-    it('returns OPERATION_FAILED when a start attempt leaves the task pending', () => {
+    it('returns OPERATION_FAILED when a start attempt leaves the task pending', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         name: 'Stuck Flow',
@@ -1161,7 +1161,7 @@ describe('server/handlers/workflow-handlers', () => {
       });
       ctx.taskManager.startTask.mockImplementation(() => Promise.resolve());
 
-      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+      const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('OPERATION_FAILED');
@@ -1175,7 +1175,7 @@ describe('server/handlers/workflow-handlers', () => {
       ]);
     });
 
-    it('treats instantly completed tasks as started for workflow launch accounting', () => {
+    it('treats instantly completed tasks as started for workflow launch accounting', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         name: 'Noop Plan Flow',
@@ -1197,7 +1197,7 @@ describe('server/handlers/workflow-handlers', () => {
         ctx.db.updateTaskStatus(taskId, 'completed');
       });
 
-      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+      const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
 
       expect(result.isError).toBeFalsy();
       expect(textOf(result)).toContain('**Tasks Started:** 1');
@@ -1205,7 +1205,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(ctx.db.__tasks.get('t1').status).toBe('completed');
     });
 
-    it('reports partial start failures and continues starting later tasks', () => {
+    it('reports partial start failures and continues starting later tasks', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         name: 'Partial Flow',
@@ -1233,7 +1233,7 @@ describe('server/handlers/workflow-handlers', () => {
           ctx.db.updateTaskStatus(taskId, 'running');
         });
 
-      const result = ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+      const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
 
       expect(result.isError).toBeFalsy();
       expect(result.start_failures).toEqual([
@@ -1250,7 +1250,7 @@ describe('server/handlers/workflow-handlers', () => {
   });
 
   describe('handleWorkflowStatus', () => {
-    it('returns WORKFLOW_NOT_FOUND when the workflow status payload is missing', () => {
+    it('returns WORKFLOW_NOT_FOUND when the workflow status payload is missing', async () => {
       const result = ctx.handlers.handleWorkflowStatus({ workflow_id: 'wf-missing' });
 
       expect(ctx.db.reconcileStaleWorkflows).toHaveBeenCalledWith('wf-missing');
@@ -1258,7 +1258,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(result.error_code).toBe('WORKFLOW_NOT_FOUND');
     });
 
-    it('renders workflow visibility, counts, and task rows', () => {
+    it('renders workflow visibility, counts, and task rows', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         name: 'Release Flow',
@@ -1313,14 +1313,14 @@ describe('server/handlers/workflow-handlers', () => {
   });
 
   describe('handlePauseWorkflow', () => {
-    it('returns WORKFLOW_NOT_FOUND when the workflow does not exist', () => {
+    it('returns WORKFLOW_NOT_FOUND when the workflow does not exist', async () => {
       const result = ctx.handlers.handlePauseWorkflow({ workflow_id: 'wf-missing' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('WORKFLOW_NOT_FOUND');
     });
 
-    it('rejects pausing workflows that are not running', () => {
+    it('rejects pausing workflows that are not running', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         status: 'pending',
@@ -1333,7 +1333,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(textOf(result)).toContain('Workflow is not running');
     });
 
-    it('pauses running workflows', () => {
+    it('pauses running workflows', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         name: 'Pause Flow',
@@ -1351,14 +1351,14 @@ describe('server/handlers/workflow-handlers', () => {
   });
 
   describe('handleCancelWorkflow', () => {
-    it('returns WORKFLOW_NOT_FOUND when the workflow does not exist', () => {
+    it('returns WORKFLOW_NOT_FOUND when the workflow does not exist', async () => {
       const result = ctx.handlers.handleCancelWorkflow({ workflow_id: 'wf-missing' });
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe('WORKFLOW_NOT_FOUND');
     });
 
-    it('cancels running and queued work while leaving completed tasks untouched', () => {
+    it('cancels running and queued work while leaving completed tasks untouched', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         name: 'Cancel Flow',
