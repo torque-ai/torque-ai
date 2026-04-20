@@ -121,7 +121,9 @@ describe('auto-generated plan description quality scoring', () => {
     // The carve-out only relaxes scope+validation for doc-only paths; the
     // other three signals (explicit_file_paths, success_criteria,
     // concrete_language) still have to pass on their own so vague
-    // "update docs" one-liners are still rejected.
+    // "update docs" one-liners are still rejected. The vague phrase is
+    // placed far enough from the file path that the 200-char
+    // hasObjectLevelDetail window doesn't rescue it.
     const loopController = require('../factory/loop-controller');
 
     const VAGUE_DOC_PLAN = [
@@ -130,11 +132,11 @@ describe('auto-generated plan description quality scoring', () => {
       '**Source:** auto-generated from work_item #1',
       '**Tech Stack:** Python',
       '',
-      '## Task 1: Update docs',
+      '## Task 1: Update the PixelLab-era plan docs to tidy them up',
       '',
-      '- [ ] **Step 1: Improve docs**',
+      '    Improve and clean up the PixelLab-era plan documents so readers have a gentler onboarding experience across the supersession notice, the historical framing, and the residual narrative framing that is no longer relevant to active work in the current package layout that ships today.',
       '',
-      '    Improve docs/plans/2026-02-24-pixellab-integration-design.md and clean up the wording.',
+      '    Touches docs/plans/historical/legacy.md only.',
       '',
     ].join('\n');
 

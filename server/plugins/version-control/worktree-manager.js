@@ -478,6 +478,10 @@ function createWorktreeManager({ db } = {}) {
     if (!fs.existsSync(worktreePath)) {
       return;
     }
+    const status = getWorktreeStatusPorcelain(worktreePath);
+    if (!status) {
+      return;
+    }
 
     // Short-circuit on in-progress git operations. If the repo is mid-merge,
     // mid-rebase, mid-cherry-pick, or mid-revert, the pre-merge cleanup path
@@ -485,7 +489,9 @@ function createWorktreeManager({ db } = {}) {
     // iteration because `git commit` refuses to commit while conflict
     // markers are unresolved. The factory retried this ~1/min against bitsy
     // master on 2026-04-20 until the operator noticed. Distinct error +
-    // code lets LEARN pause the project immediately.
+    // code lets LEARN pause the project immediately. This check runs after
+    // the porcelain check (cheap short-circuit when the repo is clean) but
+    // before renormalize/auto-commit (which would no-op on UU anyway).
     const inProgressOp = detectInProgressGitOperation(worktreePath);
     if (inProgressOp) {
       const err = new Error(
@@ -497,11 +503,6 @@ function createWorktreeManager({ db } = {}) {
       err.op = inProgressOp;
       err.path = worktreePath;
       throw err;
-    }
-
-    const status = getWorktreeStatusPorcelain(worktreePath);
-    if (!status) {
-      return;
     }
 
     // First attempt: renormalize line endings and commit the bookkeeping
