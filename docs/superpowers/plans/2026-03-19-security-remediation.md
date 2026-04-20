@@ -252,7 +252,7 @@ git commit -m "security: add security banner for unconfigured auth installations
 - Modify: `server/remote/agent-server.js`
 - Modify: `server/tests/agent-server-security.test.js`
 
-- [ ] **Step 1: Add env whitelist tests**
+- [x] **Step 1: Add env whitelist tests**
 
 ```js
 describe('normalizeEnv — env var whitelist', () => {
@@ -283,7 +283,7 @@ describe('command whitelist', () => {
 });
 ```
 
-- [ ] **Step 2: Add env whitelist to normalizeEnv**
+- [x] **Step 2: Add env whitelist to normalizeEnv**
 
 ```js
 const BLOCKED_ENV_VARS = new Set([
@@ -307,7 +307,7 @@ function normalizeEnv(extraEnv = {}) {
 }
 ```
 
-- [ ] **Step 3: Add command whitelist**
+- [x] **Step 3: Add command whitelist**
 
 ```js
 const DEFAULT_ALLOWED_COMMANDS = new Set([
@@ -322,7 +322,7 @@ if (!state.allowedCommands.has(executable) && !DEFAULT_ALLOWED_COMMANDS.has(exec
 }
 ```
 
-- [ ] **Step 4: Add output cap to spawnAndCapture**
+- [x] **Step 4: Add output cap to spawnAndCapture**
 
 ```js
 const MAX_CAPTURE_BYTES = 10 * 1024 * 1024;
@@ -332,13 +332,13 @@ if (stdout.length > MAX_CAPTURE_BYTES) {
 }
 ```
 
-- [ ] **Step 5: Verify on Omen**
+- [x] **Step 5: Verify on Omen**
 
 ```bash
 ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vitest run tests/agent-server-security.test.js 2>&1\""
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git commit -m "security: add env whitelist, command whitelist, and output cap to server-side agent"
