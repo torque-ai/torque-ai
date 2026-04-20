@@ -134,19 +134,19 @@ Expected: No errors
 **Files:**
 - Modify: `server/handlers/automation-handlers.js`
 
-- [ ] **Step 1: Delete handleUpdateProjectStats**
+- [x] **Step 1: Delete handleUpdateProjectStats**
 
 Remove the entire `handleUpdateProjectStats` function (starts at line 878) and its section comment.
 
-- [ ] **Step 2: Remove from exports**
+- [x] **Step 2: Remove from exports**
 
 Remove `handleUpdateProjectStats` from both the factory return and `module.exports`.
 
-- [ ] **Step 3: Remove Headwaters reference in file header comment**
+- [x] **Step 3: Remove Headwaters reference in file header comment**
 
 Line 13 references "Headwaters wrappers" — remove or update to remove the reference.
 
-- [ ] **Step 4: Verify the file parses**
+- [x] **Step 4: Verify the file parses**
 
 Run: `node -e "require('./server/handlers/automation-handlers.js')"`
 Expected: No errors
