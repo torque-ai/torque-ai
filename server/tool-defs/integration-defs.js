@@ -849,7 +849,8 @@ const tools = [
       type: 'object',
       properties: {
         src_path: { type: 'string', description: 'Path to the backup file to restore from' },
-        confirm: { type: 'boolean', description: 'Must be true to confirm the restore operation' }
+        confirm: { type: 'boolean', description: 'Must be true to confirm the restore operation' },
+        force: { type: 'boolean', description: 'Allow restore without a .sha256 integrity file. Tampered backups are still rejected when a hash file is present and force is false.' }
       },
       required: ['src_path', 'confirm']
     }

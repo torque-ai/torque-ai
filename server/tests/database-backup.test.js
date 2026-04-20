@@ -2,6 +2,7 @@ const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-set
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const backupCore = require('../db/backup-core');
 
 describe('Database Backup/Restore', () => {
@@ -61,6 +62,19 @@ describe('Database Backup/Restore', () => {
       fs.readSync(fd, header, 0, 16, 0);
       fs.closeSync(fd);
       expect(header.toString('utf8', 0, 15)).toBe('SQLite format 3');
+    });
+
+    it('creates a SHA-256 hash file alongside the backup', async () => {
+      const dest = path.join(testDir, 'integrity-check.db');
+      const result = await safeTool('backup_database', { dest_path: dest });
+      const hashPath = dest + '.sha256';
+
+      expect(result.isError).toBeFalsy();
+      expect(fs.existsSync(dest)).toBe(true);
+      expect(fs.existsSync(hashPath)).toBe(true);
+
+      const expectedHash = crypto.createHash('sha256').update(fs.readFileSync(dest)).digest('hex');
+      expect(fs.readFileSync(hashPath, 'utf-8').trim()).toBe(expectedHash);
     });
   });
 
@@ -140,6 +154,32 @@ describe('Database Backup/Restore', () => {
       const backupPath = path.join(bkDir, 'restore-test.db');
       await safeTool('backup_database', { dest_path: backupPath });
       const result = await safeTool('restore_database', { src_path: backupPath, confirm: true });
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Restored');
+    });
+
+    it('rejects restore of a tampered backup', async () => {
+      const bkDir = path.join(testDir, 'backups');
+      fs.mkdirSync(bkDir, { recursive: true });
+      const backupPath = path.join(bkDir, 'tampered-restore-test.db');
+      await safeTool('backup_database', { dest_path: backupPath });
+      fs.appendFileSync(backupPath, Buffer.from('tampered'));
+
+      const result = await safeTool('restore_database', { src_path: backupPath, confirm: true });
+
+      expect(result.isError).toBe(true);
+      expect(getText(result)).toContain('Backup integrity check failed');
+    });
+
+    it('allows force restore without hash', async () => {
+      const bkDir = path.join(testDir, 'backups');
+      fs.mkdirSync(bkDir, { recursive: true });
+      const backupPath = path.join(bkDir, 'force-restore-test.db');
+      await safeTool('backup_database', { dest_path: backupPath });
+      fs.unlinkSync(backupPath + '.sha256');
+
+      const result = await safeTool('restore_database', { src_path: backupPath, confirm: true, force: true });
+
       expect(result.isError).toBeFalsy();
       expect(getText(result)).toContain('Restored');
     });

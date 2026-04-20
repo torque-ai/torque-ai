@@ -74,11 +74,15 @@ describe('Database backup scheduler', () => {
       .filter((name) => PERIODIC_BACKUP_PATTERN.test(name));
   };
 
-  it('creates backup files on a schedule', async () => {
+  it('creates backup files and hash files on a schedule', async () => {
     db.startBackupScheduler(5);
     await advance(15);
 
-    expect(listBackups().length).toBeGreaterThanOrEqual(1);
+    const backups = listBackups();
+    expect(backups.length).toBeGreaterThanOrEqual(1);
+
+    const backupPath = path.join(backupDataDir, 'backups', backups[0]);
+    expect(fs.existsSync(backupPath + '.sha256')).toBe(true);
   });
 
   it('cleans up backups beyond the configured maximum', async () => {
