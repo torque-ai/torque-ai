@@ -316,20 +316,20 @@ git commit -m "feat(peek): snapshot capability stub — accessibility API planne
 - Create: `packages/peek/bin/torque-peek.js`
 - Test: `packages/peek/tests/cli.test.js`
 
-- [ ] **Step 1: Write torque-peek.js** — `#!/usr/bin/env node` entry point with commands:
+- [x] **Step 1: Write torque-peek.js** — `#!/usr/bin/env node` entry point with commands:
   - `start [--port N] [--host H] [--token T]` — check dependencies, print status, call `createServer()`, keep process running
   - `stop` — read PID file, send SIGTERM, remove PID file
   - `status` — read PID file, check process alive, call `/health`, display info
   - `check` — run `checkDependencies()`, display results
   - Default — print usage help
 
-- [ ] **Step 2: Make executable**
+- [x] **Step 2: Make executable**
 
 ```bash
 chmod +x packages/peek/bin/torque-peek.js
 ```
 
-- [ ] **Step 3: Test CLI manually**
+- [x] **Step 3: Test CLI manually**
 
 ```bash
 cd packages/peek
@@ -342,7 +342,7 @@ curl http://127.0.0.1:9876/list
 node bin/torque-peek.js stop
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add packages/peek/bin/torque-peek.js packages/peek/tests/cli.test.js
