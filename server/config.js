@@ -21,6 +21,13 @@ const configCore = require('./db/config-core');
 let db = null; // facade for provider/config access in getApiKey()
 let _serverEpoch = 0;
 
+function supportsProviderKeyLookup(dbHandle) {
+  return !!dbHandle && (
+    typeof dbHandle.getProvider === 'function' ||
+    typeof dbHandle.prepare === 'function'
+  );
+}
+
 // ── Config Registry ──────────────────────────────────────────────────────
 // Maps config keys to { default, type, envVar, description }
 // Not exhaustive — unregistered keys still work via get() with explicit defaults.
@@ -195,9 +202,11 @@ function getApiKey(provider) {
   }
 
   // 2. provider_config.api_key_encrypted (decrypt)
-  if (db && typeof db.getProvider === 'function') {
+  if (db) {
     try {
-      const providerRow = db.getProvider(provider);
+      const providerRow = typeof db.getProvider === 'function'
+        ? db.getProvider(provider)
+        : db.prepare('SELECT api_key_encrypted FROM provider_config WHERE provider = ?').get(provider);
       if (providerRow && providerRow.api_key_encrypted) {
         const { decryptApiKey } = require('./handlers/provider-crud-handlers');
         const decrypted = decryptApiKey(providerRow.api_key_encrypted);
@@ -250,7 +259,19 @@ function getPort(service) {
 // ── Lifecycle ────────────────────────────────────────────────────────────
 
 function init(deps) {
-  if (deps.db !== undefined) db = deps.db;
+  if (!deps || !Object.prototype.hasOwnProperty.call(deps, 'db')) return;
+
+  const nextDb = deps.db;
+  if (nextDb === null) {
+    db = null;
+    return;
+  }
+
+  if (supportsProviderKeyLookup(db) && nextDb && !supportsProviderKeyLookup(nextDb)) {
+    return;
+  }
+
+  db = nextDb;
 }
 
 function setEpoch(epoch) {

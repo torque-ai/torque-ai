@@ -23,6 +23,8 @@ let templateBuffer = null; // Loaded once per worker process
 let db;
 let handleToolCall;
 let toolsModule;
+let realHandleToolCall;
+let realHandleToolCallModule;
 let testDir;
 let origDataDir;
 const TOOLS_MODULE_PATH = require.resolve('../tools');
@@ -34,8 +36,21 @@ function getToolsModule() {
   return toolsModule;
 }
 
+function getRealHandleToolCall() {
+  const mod = getToolsModule();
+  if (realHandleToolCall && realHandleToolCallModule === mod) {
+    return realHandleToolCall;
+  }
+
+  realHandleToolCallModule = mod;
+  realHandleToolCall = typeof mod.createTools === 'function'
+    ? mod.createTools().handleToolCall
+    : mod.handleToolCall;
+  return realHandleToolCall;
+}
+
 async function lazyHandleToolCall(...args) {
-  return getToolsModule().handleToolCall(...args);
+  return getRealHandleToolCall()(...args);
 }
 
 function ensureFactoryWorkItemsSchema(dbHandle) {
