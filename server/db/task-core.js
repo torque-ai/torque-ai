@@ -38,11 +38,20 @@ const ALLOWED_TASK_COLUMNS = new Set([
   'workflow_node_id', 'claimed_by_agent', 'required_capabilities', 'ollama_host_id',
   'provider', 'model', 'original_provider', 'provider_switched_at',
   'mcp_instance_id', 'complexity', 'metadata', 'task_metadata',
-  'partial_output'
+  'partial_output', 'resume_context'
 ]);
 
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 const ACTIVE_TASK_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running']);
+const JSON_TASK_COLUMNS = new Set([
+  'files_modified',
+  'context',
+  'tags',
+  'metadata',
+  'depends_on',
+  'required_capabilities',
+  'resume_context',
+]);
 
 const TRANSACTION_RESULT_SENTINEL = 'TORQUE_TRANSACTION_RESULT';
 
@@ -51,6 +60,12 @@ function createTransactionResultError(result) {
   error.code = TRANSACTION_RESULT_SENTINEL;
   error.result = result;
   return error;
+}
+
+function serializeTaskJsonColumnValue(value) {
+  return value === undefined || value === null
+    ? null
+    : (typeof value === 'string' ? value : JSON.stringify(value));
 }
 
 // ============================================================
@@ -300,6 +315,7 @@ function createTask(task) {
   if (metadataStr && typeof metadataStr === 'string' && metadataStr.length > MAX_METADATA_SIZE) {
     throw new Error(`metadata exceeds maximum size (${metadataStr.length} > ${MAX_METADATA_SIZE} bytes)`);
   }
+  const resumeContextStr = serializeTaskJsonColumnValue(task.resume_context);
   const status = task.status || 'pending';
 
   const stmt = db.prepare(`
@@ -307,8 +323,8 @@ function createTask(task) {
       id, status, task_description, working_directory,
       timeout_minutes, auto_approve, priority, context, created_at,
       max_retries, depends_on, template_name, isolated_workspace, approval_status, tags, project, provider, model,
-      complexity, review_status, ollama_host_id, original_provider, provider_switched_at, metadata, workflow_id, workflow_node_id, stall_timeout_seconds, server_epoch
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      complexity, review_status, ollama_host_id, original_provider, provider_switched_at, metadata, workflow_id, workflow_node_id, stall_timeout_seconds, server_epoch, resume_context
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   try {
@@ -341,7 +357,8 @@ function createTask(task) {
         task.workflow_id || null,
         task.workflow_node_id || null,
         task.stall_timeout_seconds ?? null,
-        currentEpoch
+        currentEpoch,
+        resumeContextStr
       );
 
       if (project) {
@@ -476,20 +493,13 @@ function updateTask(id, additionalFields = {}) {
   // JSON column list — MUST be kept in sync with the equivalent list in updateTaskStatus().
   // Any column that stores serialized JSON must appear in BOTH lists so callers that
   // pass object values get them stringified regardless of which update path is used.
-  // Currently: files_modified, context, tags, metadata, depends_on, required_capabilities.
+  // Currently: see JSON_TASK_COLUMNS.
   // If you add a new JSON column to the tasks table, add it to both lists.
   for (const [key, value] of Object.entries(additionalFields)) {
     validateColumnName(key, ALLOWED_TASK_COLUMNS);
     updates.push(`${key} = ?`);
-    if (
-      key === 'files_modified'
-      || key === 'context'
-      || key === 'tags'
-      || key === 'metadata'
-      || key === 'depends_on'
-      || key === 'required_capabilities'
-    ) {
-      values.push(value === undefined || value === null ? null : (typeof value === 'string' ? value : JSON.stringify(value)));
+    if (JSON_TASK_COLUMNS.has(key)) {
+      values.push(serializeTaskJsonColumnValue(value));
     } else {
       values.push(value);
     }
@@ -578,8 +588,8 @@ function updateTaskStatus(id, status, additionalFields = {}) {
     // Validate column name to prevent SQL injection
     validateColumnName(key, ALLOWED_TASK_COLUMNS);
     updates.push(`${key} = ?`);
-    if (key === 'files_modified' || key === 'context' || key === 'tags' || key === 'metadata') {
-      values.push(value === undefined || value === null ? null : (typeof value === 'string' ? value : JSON.stringify(value)));
+    if (JSON_TASK_COLUMNS.has(key)) {
+      values.push(serializeTaskJsonColumnValue(value));
     } else {
       values.push(value);
     }

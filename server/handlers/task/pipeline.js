@@ -125,7 +125,7 @@ function checkBudgetThresholdsForCompletedTask(task) {
 
 function storeResumeContextForFailedTask(task, ctx = null) {
   if (!task || task.status !== 'failed') {
-    return;
+    return task;
   }
 
   try {
@@ -142,8 +142,9 @@ function storeResumeContextForFailedTask(task, ctx = null) {
       }
     );
     if (!resumeContext) {
-      return;
+      return task;
     }
+    const resumeContextJson = JSON.stringify(resumeContext);
 
     let resolvedTaskCore = taskCore;
     try {
@@ -159,54 +160,14 @@ function storeResumeContextForFailedTask(task, ctx = null) {
     }
 
     if (resolvedTaskCore && typeof resolvedTaskCore.updateTask === 'function') {
-      resolvedTaskCore.updateTask(task.id, { resume_context: JSON.stringify(resumeContext) });
+      return resolvedTaskCore.updateTask(task.id, { resume_context: resumeContextJson })
+        || { ...task, resume_context: resumeContextJson };
     }
   } catch (_e) {
     // Non-critical
   }
-}
 
-function storeResumeContextForFailedTask(task, ctx = null) {
-  if (!task || task.status !== 'failed') {
-    return;
-  }
-
-  try {
-    const { buildResumeContext } = require('../../utils/resume-context');
-    const resumeContext = buildResumeContext(
-      task.output || '',
-      task.error_output || ctx?.errorOutput || '',
-      {
-        task_description: task.task_description,
-        duration_ms: task.completed_at && task.started_at
-          ? new Date(task.completed_at).getTime() - new Date(task.started_at).getTime()
-          : 0,
-        provider: task.provider,
-      }
-    );
-    if (!resumeContext) {
-      return;
-    }
-
-    let resolvedTaskCore = taskCore;
-    try {
-      const { defaultContainer } = require('../../container');
-      const containerTaskCore = defaultContainer && defaultContainer.get
-        ? defaultContainer.get('taskCore')
-        : null;
-      if (containerTaskCore) {
-        resolvedTaskCore = containerTaskCore;
-      }
-    } catch (_e) {
-      resolvedTaskCore = taskCore;
-    }
-
-    if (resolvedTaskCore && typeof resolvedTaskCore.updateTask === 'function') {
-      resolvedTaskCore.updateTask(task.id, { resume_context: JSON.stringify(resumeContext) });
-    }
-  } catch (_e) {
-    // Non-critical
-  }
+  return task;
 }
 
 // ── Git utilities ──────────────────────────────────────────
@@ -493,14 +454,14 @@ function handleRetryTask(args) {
     return makeError(ErrorCodes.INVALID_STATUS_TRANSITION, `Can only retry failed or cancelled tasks. Current status: ${originalTask.status}`);
   }
 
-  storeResumeContextForFailedTask(originalTask);
+  const originalTaskWithContext = storeResumeContextForFailedTask(originalTask) || originalTask;
 
   const taskId = uuidv4();
   let taskDescription = args.modified_task || originalTask.task_description;
 
   // Inject resume context from the failed original task
   try {
-    const resumeJson = originalTask.resume_context;
+    const resumeJson = originalTaskWithContext.resume_context || originalTask.resume_context;
     if (resumeJson && !args.modified_task) { // Don't override user-provided modified_task
       const { formatResumeContextForPrompt } = require('../../utils/resume-context');
       const parsed = typeof resumeJson === 'string' ? JSON.parse(resumeJson) : resumeJson;

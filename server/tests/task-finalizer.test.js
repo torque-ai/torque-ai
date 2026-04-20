@@ -420,14 +420,9 @@ describe('task-finalizer', () => {
     }
   });
 
-  it('stores resume context for failed tasks after the terminal DB write', async () => {
+  it('stores resume context for failed tasks in the terminal DB write', async () => {
     const dbBundle = createTaskDb();
     const resumeCtx = { summary: 'resume me' };
-    const runSpy = vi.fn();
-    const scoringDb = {
-      prepare: vi.fn(() => ({ run: runSpy })),
-    };
-    const getDbInstanceSpy = vi.spyOn(database, 'getDbInstance').mockReturnValue(scoringDb);
     vi.spyOn(providerScoring, 'init').mockImplementation(() => {});
     vi.spyOn(providerScoring, 'recordTaskCompletion').mockImplementation(() => {});
     vi.spyOn(budgetWatcher, 'init').mockImplementation(() => {});
@@ -444,18 +439,20 @@ describe('task-finalizer', () => {
       });
 
       expect(result.finalized).toBe(true);
-      expect(getDbInstanceSpy).toHaveBeenCalled();
       expect(buildResumeContextSpy).toHaveBeenCalledWith(
         'stdout text',
         'stderr text',
-        expect.objectContaining({ description: 'Finalize task', provider: 'codex' })
+        expect.objectContaining({ task_description: 'Finalize task', provider: 'codex' })
       );
       // durationMs is computed from started_at — verify it's a positive number
       const callArgs = buildResumeContextSpy.mock.calls[0][2];
       expect(callArgs.durationMs).toBeGreaterThanOrEqual(0);
-      expect(scoringDb.prepare).toHaveBeenCalledWith('UPDATE tasks SET resume_context = ? WHERE id = ?');
-      expect(runSpy).toHaveBeenCalledWith(JSON.stringify(resumeCtx), dbBundle.taskId);
-      expect(safeUpdateTaskStatus.mock.invocationCallOrder[0]).toBeLessThan(buildResumeContextSpy.mock.invocationCallOrder[0]);
+      expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+        dbBundle.taskId,
+        'failed',
+        expect.objectContaining({ resume_context: resumeCtx })
+      );
+      expect(buildResumeContextSpy.mock.invocationCallOrder[0]).toBeLessThan(safeUpdateTaskStatus.mock.invocationCallOrder[0]);
     } finally {
       vi.restoreAllMocks();
     }
