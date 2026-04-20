@@ -171,7 +171,7 @@ git push origin main
 - Create: `server/handlers/context-handler.js`
 - Create: `server/tests/context-handler.test.js`
 
-- [ ] **Step 1: Write failing tests for queue scope**
+- [x] **Step 1: Write failing tests for queue scope**
 
 Create `server/tests/context-handler.test.js`:
 
@@ -249,7 +249,7 @@ describe('context-handler', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 git push origin main
@@ -257,7 +257,7 @@ torque-remote "cd server && npx vitest run tests/context-handler.test.js --repor
 ```
 Expected: FAIL — `Cannot find module '../handlers/context-handler'`
 
-- [ ] **Step 3: Create server/handlers/context-handler.js with queue scope**
+- [x] **Step 3: Create server/handlers/context-handler.js with queue scope**
 
 ```js
 'use strict';
@@ -454,7 +454,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 git push origin main
@@ -462,7 +462,7 @@ torque-remote "cd server && npx vitest run tests/context-handler.test.js --repor
 ```
 Expected: All queue scope tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/handlers/context-handler.js server/tests/context-handler.test.js
