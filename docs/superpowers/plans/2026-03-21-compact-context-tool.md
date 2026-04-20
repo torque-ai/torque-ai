@@ -91,7 +91,7 @@ git push origin main
 - Modify: `server/tool-annotations.js` (add explicit override)
 - Modify: `server/tool-output-schemas.js` (add outputSchema)
 
-- [ ] **Step 1: Add context-defs to TOOLS array**
+- [x] **Step 1: Add context-defs to TOOLS array**
 
 In `server/tools.js`, add before the closing `];` of TOOLS (after line 46):
 
@@ -99,7 +99,7 @@ In `server/tools.js`, add before the closing `];` of TOOLS (after line 46):
   ...require('./tool-defs/context-defs'),
 ```
 
-- [ ] **Step 2: Add context-handler to HANDLER_MODULES**
+- [x] **Step 2: Add context-handler to HANDLER_MODULES**
 
 In `server/tools.js`, add to HANDLER_MODULES (after line 112, before `];`):
 
@@ -109,7 +109,7 @@ In `server/tools.js`, add to HANDLER_MODULES (after line 112, before `];`):
 
 Note: The handler file doesn't exist yet — this will cause a startup error until Task 3 creates it. That's expected in TDD.
 
-- [ ] **Step 3: Add get_context to TIER_1**
+- [x] **Step 3: Add get_context to TIER_1**
 
 In `server/core-tools.js`, add `'get_context'` to the TIER_1 array. Add after the Task lifecycle section (line 20):
 
@@ -118,7 +118,7 @@ In `server/core-tools.js`, add `'get_context'` to the TIER_1 array. Add after th
   'get_context',
 ```
 
-- [ ] **Step 4: Add annotation override**
+- [x] **Step 4: Add annotation override**
 
 In `server/tool-annotations.js`, add to the OVERRIDES object (the `get_` prefix convention already produces `readOnlyHint: true, idempotentHint: true`, but an explicit override documents intent):
 
@@ -126,7 +126,7 @@ In `server/tool-annotations.js`, add to the OVERRIDES object (the `get_` prefix 
   get_context:                     Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
 ```
 
-- [ ] **Step 5: Add outputSchema**
+- [x] **Step 5: Add outputSchema**
 
 In `server/tool-output-schemas.js`, add to the OUTPUT_SCHEMAS object:
 
@@ -155,7 +155,7 @@ In `server/tool-output-schemas.js`, add to the OUTPUT_SCHEMAS object:
   },
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/tools.js server/core-tools.js server/tool-annotations.js server/tool-output-schemas.js
