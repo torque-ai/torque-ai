@@ -235,11 +235,11 @@ git commit -m "feat(peek): capture capability — /peek endpoint"
 - Create: `packages/peek/src/capabilities/interact.js`
 - Test: `packages/peek/tests/interact.test.js`
 
-- [ ] **Step 1: Write test** — mock adapter, verify each action type (click, drag, type, scroll, hotkey, focus, resize, move, maximize, minimize, clipboard) delegates to correct adapter method with parsed body.
+- [x] **Step 1: Write test** — mock adapter, verify each action type (click, drag, type, scroll, hotkey, focus, resize, move, maximize, minimize, clipboard) delegates to correct adapter method with parsed body.
 
-- [ ] **Step 2: Implement interact.js** — factory function takes adapter, returns `(req, res, action)` handler. Parses JSON body, calls `adapter[action](body)`, returns `{ success: true, action, ... }`.
+- [x] **Step 2: Implement interact.js** — factory function takes adapter, returns `(req, res, action)` handler. Parses JSON body, calls `adapter[action](body)`, returns `{ success: true, action, ... }`.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ```bash
 git commit -m "feat(peek): interaction capability — 12 action endpoints"
