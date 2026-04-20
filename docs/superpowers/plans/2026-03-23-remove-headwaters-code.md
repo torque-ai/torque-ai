@@ -329,7 +329,7 @@ Expected: No errors
 **Files:**
 - Modify: `server/orchestrator/benchmark-suite.js`
 
-- [ ] **Step 1: Replace Headwaters project structures in benchmark cases**
+- [x] **Step 1: Replace Headwaters project structures in benchmark cases**
 
 Change line 10:
 ```js
@@ -347,7 +347,7 @@ project_structure: 'src/systems/, src/types/, src/data/, src/scenes/GameScene.ts
 project_structure: 'src/services/, src/types/, src/models/, src/services/UserService.ts, src/services/AuthService.ts',
 ```
 
-- [ ] **Step 2: Verify the file parses**
+- [x] **Step 2: Verify the file parses**
 
 Run: `node -e "require('./server/orchestrator/benchmark-suite.js')"`
 Expected: No errors

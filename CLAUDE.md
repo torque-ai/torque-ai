@@ -35,9 +35,7 @@ All feature work MUST use a git worktree. TORQUE runs from main — never develo
 
 ### Creating a Feature Worktree
 
-```bash
-scripts/worktree-create.sh <feature-name>
-```
+    scripts/worktree-create.sh <feature-name>
 
 This creates a worktree at `.worktrees/feat-<name>/` on branch `feat/<name>`. Open that directory in Claude Code to develop the feature.
 
@@ -50,18 +48,16 @@ This creates a worktree at `.worktrees/feat-<name>/` on branch `feat/<name>`. Op
 
 ### Cutting Over to New Code
 
-```bash
-scripts/worktree-cutover.sh <feature-name>
-```
+    scripts/worktree-cutover.sh <feature-name>
 
 This merges the feature branch to main, triggers TORQUE queue drain (waits for running tasks to complete), restarts TORQUE on the new code, and cleans up the worktree.
 
 ### Emergency Hotfixes
 
 For critical fixes that can't wait for the worktree workflow:
-```bash
-git commit --no-verify  # bypasses the worktree guard
-```
+
+    git commit --no-verify  # bypasses the worktree guard
+
 Document the bypass in the commit message.
 
 ## Quick Start
@@ -447,16 +443,14 @@ TORQUE uses a dependency injection container (`server/container.js`) as its comp
 
 Use the container to access services instead of `require('./database')`:
 
-```js
-// OLD (legacy — do not use in new code):
-const db = require('./database');
-db.getTask(id);
+    // OLD (legacy — do not use in new code):
+    const db = require('./database');
+    db.getTask(id);
 
-// NEW (preferred):
-const { defaultContainer } = require('./container');
-const taskCore = defaultContainer.get('taskCore');
-taskCore.getTask(id);
-```
+    // NEW (preferred):
+    const { defaultContainer } = require('./container');
+    const taskCore = defaultContainer.get('taskCore');
+    taskCore.getTask(id);
 
 **DI lint rule:** `npm run lint:di` (in server/) reports files still importing database.js directly.
 
@@ -641,25 +635,22 @@ The software factory runs autonomously when configured. One API call starts a se
 
 ### Starting the Factory
 
-```bash
-# Start with auto-advance (zero operator calls needed)
-start_factory_loop { project: "torque-public", auto_advance: true }
+    # Start with auto-advance (zero operator calls needed)
+    start_factory_loop { project: "torque-public", auto_advance: true }
 
-# Or via REST
-curl -X POST http://127.0.0.1:3457/api/v2/factory/projects/<id>/loop/start \
-  -H "Content-Type: application/json" -d '{"auto_advance":true}'
-```
+    # Or via REST
+    curl -X POST http://127.0.0.1:3457/api/v2/factory/projects/<id>/loop/start \
+      -H "Content-Type: application/json" -d '{"auto_advance":true}'
 
 ### Configuration
 
 Enable continuous cycling and dark trust (no gates) via `set_factory_trust_level`:
-```
-set_factory_trust_level {
-  project: "torque-public",
-  trust_level: "dark",
-  config: { loop: { auto_continue: true } }
-}
-```
+
+    set_factory_trust_level {
+      project: "torque-public",
+      trust_level: "dark",
+      config: { loop: { auto_continue: true } }
+    }
 
 - **auto_advance** — server chains stage transitions automatically via setTimeout. Fires instantly on stage completion. Retries after 30s on transient failures.
 - **auto_continue** — LEARN wraps back to SENSE instead of terminating, picking the next backlog item.
