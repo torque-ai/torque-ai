@@ -558,7 +558,7 @@ git commit -m "security: per-IP connection limits for SSE and WebSocket, auth on
 - Modify: `server/mcp-sse.js` (CORS)
 - Modify: `server/api-server.core.js` (CORS)
 
-- [ ] **Step 1: Tighten SSE CORS**
+- [x] **Step 1: Tighten SSE CORS**
 
 In `mcp-sse.js`, update `DEFAULT_MCP_ALLOWED_ORIGINS` to only include the dashboard:
 ```js
@@ -569,7 +569,7 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 ```
 
-- [ ] **Step 2: Cap total subscriptions per session**
+- [x] **Step 2: Cap total subscriptions per session**
 
 ```js
 const MAX_SUBSCRIPTIONS_PER_SESSION = 200;
@@ -579,7 +579,7 @@ if (session.taskFilter && session.taskFilter.size >= MAX_SUBSCRIPTIONS_PER_SESSI
 }
 ```
 
-- [ ] **Step 3: Add body parser timeout**
+- [x] **Step 3: Add body parser timeout**
 
 In SSE `parseBody`, add a 30-second timeout:
 ```js
@@ -590,9 +590,9 @@ const bodyTimeout = setTimeout(() => {
 clearTimeout(bodyTimeout);
 ```
 
-- [ ] **Step 4: Verify syntax**
+- [x] **Step 4: Verify syntax**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: strict CORS, subscription cap, body parser timeout"
