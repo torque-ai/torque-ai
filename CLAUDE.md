@@ -4,7 +4,7 @@
 
 TORQUE requires two things to work in Claude Code:
 
-1. **MCP server** — auto-configured on first startup (provides ~600 tools, ~30 core + progressive unlock)
+1. **MCP server** — auto-configured on first startup (~30 core tools unlocked by default; ~600 total via progressive unlock)
 2. **Slash commands** — located in `.claude/commands/` (provides the `/torque-*` commands)
 
 Slash commands are auto-discovered from `.claude/commands/`. In local mode, the TORQUE server auto-injects the keyless MCP SSE connection `http://127.0.0.1:3458/sse` into your global `~/.claude/.mcp.json` when it starts — no manual configuration needed.
@@ -88,7 +88,7 @@ For advanced/direct MCP tool access, use the raw tool names (e.g., `smart_submit
 
 ## Providers
 
-TORQUE routes between **12 execution providers**. Smart routing picks the best one automatically - you rarely need to choose manually.
+TORQUE routes between **13 execution providers**. Smart routing picks the best one automatically - you rarely need to choose manually.
 
 ### Local (Ollama)
 
@@ -256,29 +256,13 @@ Built into `/torque-submit` and `/torque-review`:
 
 ### Default Plugins
 
-TORQUE loads three plugins by default (configured in `DEFAULT_PLUGIN_NAMES` in `server/index.js`):
+TORQUE loads three plugins by default (configured in `DEFAULT_PLUGIN_NAMES` in `server/index.js`). To disable any, remove it from that list and restart.
 
-| Plugin | Location | Tools |
-|--------|----------|-------|
-| **snapscope** | `server/plugins/snapscope/` | `capture_screenshots`, `capture_view`, `capture_views`, `validate_manifest`, `peek_ui`, `peek_interact`, `peek_elements`, `peek_hit_test`, `peek_regression`, `peek_launch`, `peek_discover`, `peek_open_url`, `peek_cdp`, `peek_refresh`, `peek_health_all`, `peek_build_and_open`, `register_peek_host`, `unregister_peek_host`, `list_peek_hosts`, `peek_diagnose`, `peek_semantic_diff`, `peek_wait`, `peek_action_sequence`, `peek_ocr`, `peek_color`, `peek_snapshot`, `peek_table`, `peek_summary`, `peek_assert`, `peek_recovery`, `peek_recovery_status`, `peek_onboard`, `peek_onboard_detect`, `peek_verify`, `peek_verify_run`, `peek_verify_specs`, `peek_baselines`, `peek_history` |
-| **version-control** | `server/plugins/version-control/` | `vc_create_worktree`, `vc_list_worktrees`, `vc_switch_worktree`, `vc_merge_worktree`, `vc_cleanup_stale`, `vc_generate_commit`, `vc_commit_status`, `vc_get_policy`, `vc_prepare_pr`, `vc_create_pr`, `vc_generate_changelog`, `vc_update_changelog_file`, `vc_create_release` |
-| **remote-agents** | `server/plugins/remote-agents/` | `register_remote_agent`, `list_remote_agents`, `get_remote_agent`, `remove_remote_agent`, `check_remote_agent_health`, `run_remote_command`, `run_tests` |
-
-To disable a plugin, remove it from `DEFAULT_PLUGIN_NAMES` in `server/index.js` and restart.
-
-### Remote Agent Federation (Plugin)
-
-Remote agent registration, health checks, and distributed test routing are provided
-by the `remote-agents` plugin (`server/plugins/remote-agents/`). The plugin is loaded
-by default via `DEFAULT_PLUGIN_NAMES` in `server/index.js`.
-
-**Architecture:** The core defines a `TestRunnerRegistry` (`server/test-runner-registry.js`)
-that validation modules call for running verify commands and tests. By default, commands
-run locally. When the remote-agents plugin loads, it registers remote-or-local routing
-that checks for configured remote agents and falls back to local execution.
-
-**To disable:** Remove `'remote-agents'` from `DEFAULT_PLUGIN_NAMES` in `server/index.js`.
-The validation pipeline will fall back to local-only command execution.
+| Plugin | Location | Provides |
+|--------|----------|----------|
+| **snapscope** | `server/plugins/snapscope/` | ~35 `peek_*` and `capture_*` tools for visual verification, window capture, manifest validation, semantic diff, OCR, baselines |
+| **version-control** | `server/plugins/version-control/` | ~13 `vc_*` tools for worktree lifecycle, commit/PR generation, changelog, release cutting |
+| **remote-agents** | `server/plugins/remote-agents/` | `register_remote_agent`, `run_remote_command`, `run_tests`, plus health checks. Registers a `TestRunnerRegistry` route so `verify_command` / tests run on the configured remote with automatic local fallback; without it the validation pipeline is local-only |
 
 ## Remote Workstation
 
@@ -366,12 +350,10 @@ Built-in rules: `block-visible-providers`, `inspect-before-cancel`,
 
 These policies require Claude's judgment and cannot be reduced to rules:
 
-- **Never manually implement what TORQUE should produce** -- types, data, events,
-  systems, tests, and wiring are TORQUE's job. Claude should plan, submit, verify.
-- **Investigate before deleting unknown files** -- untracked files may be work
-  products from other sessions. Never run `git clean`.
-- **Prefer hashline tools over Read/Edit** -- use `hashline_read` + `hashline_edit`
-  when TORQUE is available for higher edit precision.
+- **Claude is architect + orchestrator, not batch worker** — never manually implement what TORQUE should produce (types, data, events, systems, tests, wiring). Plan, submit, verify, integrate.
+- **On TORQUE failure: diagnose → fix root cause → resubmit.** Do not bypass by writing the feature work by hand. Direct manual edits are reserved for TORQUE config fixes, integration glue outside the batch, or debugging TORQUE itself.
+- **Investigate before deleting unknown files** — untracked files may be work products from other sessions. Never run `git clean`.
+- **Prefer hashline tools over Read/Edit** — use `hashline_read` + `hashline_edit` when available for higher edit precision.
 
 ## Project Versioning
 
@@ -404,7 +386,7 @@ When editing versioned projects outside TORQUE, **always use conventional commit
 
 ## MCP Tool Reference
 
-TORQUE tools are progressively unlocked. Start with the core set, use `get_tool_schema` for signatures, and call `unlock_all_tools` to see all ~488 tools.
+TORQUE tools are progressively unlocked. Start with the core set, use `get_tool_schema` for signatures, and call `unlock_all_tools` to see all ~600 tools.
 
 | Category | Tools |
 |----------|-------|
@@ -457,14 +439,6 @@ Use the container to access services instead of `require('./database')`:
 ## File Safety
 
 Unknown untracked files in `server/docs/`, `server/docs/investigations/`, or other `docs/` directories may be generated reports, audit results, or work products from other sessions. Investigate provenance before deleting them; enforceable cleanup rules are managed by the governance engine and summarized in `Operational Governance`.
-
-## TORQUE Workflow Discipline
-
-In addition to the judgment policies above:
-
-- **Claude's role is architect + orchestrator** — plan, submit, verify, integrate, and resolve conflicts instead of manually producing TORQUE-owned batch work.
-- **On TORQUE failure: diagnose, fix the root cause, and resubmit** — do not bypass the workflow by writing the requested feature work by hand.
-- **Direct manual edits are reserved for TORQUE config fixes, integration glue outside the batch scope, or debugging TORQUE itself.**
 
 ## Harness Problem — Edit Discipline
 
@@ -631,90 +605,13 @@ Use `/torque-sweep` when you want the full scout set, automatic triage, and imme
 
 ## Factory Auto-Pilot
 
-The software factory runs autonomously when configured. One API call starts a self-driving cycle.
+The software factory runs autonomously when configured. Start with `start_factory_loop { project: "<name>", auto_advance: true }`. Enable continuous cycling with `set_factory_trust_level { trust_level: "dark", config: { loop: { auto_continue: true } } }`.
 
-### Starting the Factory
+Operator tools: `reset_factory_loop`, `terminate_factory_loop_instance`, `retry_factory_verify`, `approve_factory_gate` / `reject_factory_gate`.
 
-    # Start with auto-advance (zero operator calls needed)
-    start_factory_loop { project: "torque-public", auto_advance: true }
+When a loop is stuck, query decisions first: `GET /api/v2/factory/projects/<id>/decisions?limit=50`. The action name identifies which safety net fired.
 
-    # Or via REST
-    curl -X POST http://127.0.0.1:3457/api/v2/factory/projects/<id>/loop/start \
-      -H "Content-Type: application/json" -d '{"auto_advance":true}'
-
-### Configuration
-
-Enable continuous cycling and dark trust (no gates) via `set_factory_trust_level`:
-
-    set_factory_trust_level {
-      project: "torque-public",
-      trust_level: "dark",
-      config: { loop: { auto_continue: true } }
-    }
-
-- **auto_advance** — server chains stage transitions automatically via setTimeout. Fires instantly on stage completion. Retries after 30s on transient failures.
-- **auto_continue** — LEARN wraps back to SENSE instead of terminating, picking the next backlog item.
-- **factory tick** — 5-min setInterval safety net (`server/factory/factory-tick.js`). Catches anything auto_advance missed. Starts/stops with `pause_project`/`resume_project`. Auto-starts new loops for auto_continue projects with no active instances.
-- **startup resume** — on server restart, scans for active auto_continue instances and re-kicks auto_advance.
-
-### Operator Tools
-
-| Tool | Purpose |
-|------|---------|
-| `reset_factory_loop` | Clear stuck loop state, terminate instances, free stage occupancy |
-| `terminate_factory_loop_instance` | Force-terminate any instance (frees stage claims + worktree cleanup) |
-| `retry_factory_verify` | Resume from VERIFY_FAIL after operator fixes the issue |
-| `approve_factory_gate` / `reject_factory_gate` | Gate approval for supervised/guided trust levels |
-
-### Auto-Ship Detection
-
-At PRIORITIZE, the shipped-detector checks if git commit subjects already match the work item's title. Items that were fixed manually in a prior session are auto-marked shipped and skipped — no wasted execution cycles.
-
-At VERIFY_FAIL (after exhausting retries), the same check runs as a recovery path: if the work is already on main, ship it instead of stalling.
-
-### Worktree Lifecycle
-
-- **Creation:** auto-detects default branch (master vs main) per project
-- **Stale branch:** force-deletes orphan git branches on collision (`git branch -D` + retry)
-- **Stale DB rows:** reclaims active `factory_worktrees` rows from prior failed runs
-- **Merge:** cleans both source worktree AND target repo before merge (handles CRLF drift)
-- **Internal commits:** use `--no-verify` (the pre-commit PII hook reports-and-blocks findings since 571bb53c; without the bypass, factory commits that legitimately contain PII-adjacent strings would be rejected)
-- **Termination:** only abandons worktrees on failure/operator-kill, not on clean LEARN completion
-
-### Plan File Intake Dedup
-
-Plan intake skips re-ingest when the prior work item for the same plan_path is still active (pending, in_progress, verifying). This prevents duplicate work items from factory's own checkbox ticking changing the content hash.
-
-### Auto-Recovery Decision Actions
-
-The factory emits named decisions for each auto-recovery path so stuck loops are diagnosable from the decision log alone. When debugging a stalled project, query the decisions endpoint first:
-
-| Action | Stage | Triggered by | What it means |
-|---|---|---|---|
-| `auto_shipped_at_prioritize` | prioritize | Shipped-detector finds matching commits on main before EXECUTE starts | Item was shipped manually; loop skipped it |
-| `auto_shipped_at_verify_fail` | verify | Verify fails after N retries AND shipped-detector matches on main | Loop treats it as already shipped instead of stalling |
-| `auto_shipped_empty_branch` | learn | Merge fails with "no commits ahead" AND shipped-detector matches | LEARN ships instead of looping on an empty branch |
-| `auto_rejected_empty_branch` | learn | Merge fails with "no commits ahead" AND shipped-detector does NOT match | LEARN rejects to prevent infinite re-entry |
-| `auto_rejected_unparseable_plan` | execute | Plan parses to zero tasks (deterministic failure) | EXECUTE auto-rejects; retrying would fail the same way |
-| `auto_rejected_verify_fail` | verify | Worktree remote verify FAILED after all auto-retries | Operator-visible rejection path |
-| `auto_rejected_spin_loop` | execute | `>= 5` `starting` decisions for the same batch in 5 min | Safety-net detector caught an EXECUTE re-entry loop |
-| `auto_rejected_plan_quality_exhausted` | plan | Plan-quality gate rejected the auto-generated plan `>= 5` times in a row | Caps the Shape-3 re-plan starvation pattern |
-| `execute_exception` | execute | `executor.execute(...)` threw (submit failure, await timeout, fs ENOENT, etc.) | Pauses at EXECUTE instead of silent-retrying every 30s |
-| `execution_failed_no_tasks` | execute | Live executor produced no completed and no failed tasks (and the no-tasks reason is not deterministic) | Pauses for operator; distinct from the unparseable-plan auto-reject |
-| `dep_resolver_detected` | verify | `reviewVerifyFailure` returned `missing_dep` with high/medium confidence | Missing-package classification; resolver about to fire |
-| `dep_resolver_task_submitted` | verify | Factory submitted Codex resolver task | Resolver in flight |
-| `dep_resolver_task_completed` | verify | Codex resolver task completed + manifest validated | Ready to re-verify |
-| `dep_resolver_validation_failed` | verify | Codex claimed done but `validateManifestUpdate` disagreed | Treated as resolver failure; escalation may fire |
-| `dep_resolver_escalated` | verify | Resolver failed; escalation LLM called | One-shot fallback in flight |
-| `dep_resolver_escalation_retry` | verify | Escalation LLM returned `retry`; new resolver task with revised prompt | Last-chance resolution |
-| `dep_resolver_escalation_pause` | verify | Escalation LLM returned `pause`, or escalation itself failed | Project pausing; baseline_broken_reason = dep_resolver_unresolvable |
-| `dep_resolver_reverify_passed` | verify | Resolution succeeded; verify command re-ran and passed (or cascade continuing) | Factory advancing to LEARN (or next dep resolution) |
-| `dep_resolver_cascade_exhausted` | verify | 3 dep resolutions done, 4th missing_dep detected | Pausing project with baseline_broken_reason = dep_cascade_exhausted |
-| `dep_resolver_disabled` | verify | Missing dep detected but `config_json.dep_resolver.enabled === false` | Falling through to existing classifier; no resolver involvement |
-| `dep_resolver_pending_approval` | verify | Missing dep detected on supervised/guided trust project | Operator must approve before install |
-| `dep_resolver_no_adapter` | verify | Manager field unknown to registry (should not happen in v1) | Falling through to existing retry |
-
-When a project's loop is stuck, start with: `GET /api/v2/factory/projects/<id>/decisions?limit=50`. The action name tells you which safety net fired (or didn't).
+Full factory runbook — auto-advance/tick/startup-resume, auto-ship detection, worktree lifecycle, plan intake dedup, and the complete auto-recovery decision action table — lives in `docs/factory.md`.
 
 ---
 *Full safeguard documentation: see `docs/safeguards.md`*
