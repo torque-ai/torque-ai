@@ -100,6 +100,31 @@ run_with_flake_retry() {
   fi
 }
 
+# Push HEAD to origin/main FIRST so both remote test passes run against the
+# proposed state. Previously dashboard tests ran before the push, which meant
+# torque-remote synced to the OLD origin/main and any fix living only in HEAD
+# was invisible — creating a chicken-and-egg block when a fix shipped alongside
+# the work that needed it (observed 2026-04-20, Layout.test.jsx fix blocked
+# behind its own hook). On any test failure we roll origin/main back to the
+# previous sha, matching the server-test rollback behavior.
+echo "[pre-push] Refreshing origin/main..."
+git fetch origin refs/heads/main:refs/remotes/origin/main >/dev/null
+previous_sha="$(git rev-parse refs/remotes/origin/main)"
+
+echo "[pre-push] Pushing HEAD to origin/main for remote gate..."
+git push --no-verify origin HEAD:refs/heads/main
+
+rollback_origin_main() {
+  local label="$1"
+  echo "[pre-push] $label; rolling origin/main back to $previous_sha..."
+  if ! git push --no-verify --force origin "$previous_sha":refs/heads/main; then
+    echo "[pre-push] BLOCKED: $label and rollback push failed"
+    exit 1
+  fi
+  echo "[pre-push] BLOCKED: $label"
+  exit 1
+}
+
 echo "[pre-push] Running dashboard tests on remote..."
 # Dashboard tests used to run locally, but local CPU contention with the
 # live TORQUE server (factory loops, stall watchers, event bus) caused
@@ -117,19 +142,10 @@ dash_output="$RETRIED_OUTPUT"
 dash_exit="$RETRIED_EXIT"
 echo "$dash_output" | tail -5
 if [ "$dash_exit" -ne 0 ] || tests_have_failures "$dash_output"; then
-  echo "[pre-push] BLOCKED: Dashboard tests failed (exit $dash_exit)"
-  exit 1
+  rollback_origin_main "Dashboard tests failed (exit $dash_exit)"
 fi
 
 echo "[pre-push] Running server tests on remote..."
-# Refresh origin/main locally so the rollback target matches the current remote
-# ref and is guaranteed to exist in the local object database.
-git fetch origin refs/heads/main:refs/remotes/origin/main >/dev/null
-previous_sha="$(git rev-parse refs/remotes/origin/main)"
-
-echo "[pre-push] Pushing HEAD to origin/main for remote server tests..."
-git push --no-verify origin HEAD:refs/heads/main
-
 cd "$REPO_ROOT"
 # IMPORTANT: cd into server/ before invoking vitest so the tuned
 # server/vitest.config.js is picked up instead of the (stale) root
@@ -142,13 +158,7 @@ server_output="$RETRIED_OUTPUT"
 server_exit="$RETRIED_EXIT"
 echo "$server_output" | tail -5
 if [ "$server_exit" -ne 0 ] || tests_have_failures "$server_output"; then
-  echo "[pre-push] Server tests failed; rolling origin/main back to $previous_sha..."
-  if ! git push --no-verify --force origin "$previous_sha":refs/heads/main; then
-    echo "[pre-push] BLOCKED: Server tests failed and rollback push failed"
-    exit 1
-  fi
-  echo "[pre-push] BLOCKED: Server tests failed"
-  exit 1
+  rollback_origin_main "Server tests failed (exit $server_exit)"
 fi
 
 echo "[pre-push] All tests passed — push allowed"
