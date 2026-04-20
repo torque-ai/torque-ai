@@ -171,3 +171,34 @@ describe('attemptTaskStart preflight fail-fast — extended coverage', () => {
     }
   });
 });
+
+describe('runPreflightChecks is only invoked once per attemptTaskStart', () => {
+  test('preflight runs exactly once on the happy path', () => {
+    const id = randomUUID();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-once-'));
+    taskCore.createTask({
+      id,
+      status: 'queued',
+      task_description: 'do something',
+      working_directory: tmpDir,
+      provider: 'codex',
+      metadata: {},
+    });
+
+    const origStat = fs.statSync;
+    let callCount = 0;
+    fs.statSync = (target) => {
+      if (String(target) === tmpDir) callCount++;
+      return origStat.call(fs, target);
+    };
+
+    try {
+      taskStartup.attemptTaskStart(id, 'codex');
+    } finally {
+      fs.statSync = origStat;
+      fs.rmdirSync(tmpDir);
+    }
+
+    expect(callCount).toBe(1);
+  });
+});

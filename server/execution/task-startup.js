@@ -438,9 +438,6 @@ async function startTask(taskId) {
   }
   const usedEditFormat = null;
 
-  // === PRE-FLIGHT CHECKS ===
-  runPreflightChecks(task);
-
   // === PROVIDER ROUTING ===
   // Resolve the final execution provider before provider-aware safeguards so
   // budget and rate-limit checks apply to the provider that will actually run.
