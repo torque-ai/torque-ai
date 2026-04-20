@@ -1551,6 +1551,25 @@ describe('classifyError', () => {
     const result = classifyError('COMMAND NOT FOUND');
     expect(result).toEqual({ retryable: false, reason: 'Command not found' });
   });
+
+  it('classifies signal-terminated subprocess output via the process-exit tag', () => {
+    const result = classifyError('some stderr noise\n[process-exit] terminated by signal SIGKILL', -1);
+    expect(result).toEqual({ retryable: true, reason: 'Process killed by signal SIGKILL' });
+  });
+
+  it('classifies empty output with exit=-1 as premature exit (distinct from unknown)', () => {
+    const result = classifyError('', -1);
+    expect(result).toEqual({
+      retryable: true,
+      reason: 'Premature exit with no output - subprocess died before producing diagnostics',
+    });
+  });
+
+  it('still treats exit=-1 with meaningful output as unknown (not premature)', () => {
+    const longEnoughError = 'x'.repeat(80) + ' arbitrary failure message';
+    const result = classifyError(longEnoughError, -1);
+    expect(result.reason).not.toBe('Premature exit with no output - subprocess died before producing diagnostics');
+  });
 });
 
 describe('scheduleProcessQueue debouncing', () => {

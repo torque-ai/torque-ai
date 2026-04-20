@@ -117,8 +117,16 @@ function createCancellationHandler({
     if (task && task.status === 'retry_scheduled') {
       stallRecoveryAttempts.delete(fullId);
       // pendingRetryTimeouts already cleared above (lines 46-51)
+      // Preserve the original error_output (which carries the provider's
+      // failure message from the attempt that triggered retry_scheduled) —
+      // overwriting it strips the diagnostic signal we need to understand
+      // why the task failed in the first place.
+      const priorError = task.error_output || '';
+      const combinedError = priorError
+        ? `${priorError}\n[cancelled] ${reason}`
+        : reason;
       db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: reason,
+        error_output: combinedError,
         cancel_reason: cancelReason
       });
       triggerCancellationWebhook(fullId, webhookEvent);

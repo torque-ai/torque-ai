@@ -974,6 +974,21 @@ function classifyError(errorOutput, exitCode) {
     return makeResult(true, 'Unknown short error - may be transient');
   }
 
+  // Signal-terminated subprocess (captured by the 'close' handler as
+  // "[process-exit] terminated by signal X") — distinct from a normal
+  // non-zero exit so ops can tell killed-by-OS from app-level failures.
+  const signalMatch = errorText.match(/\[process-exit\] terminated by signal (SIG[A-Z]+|\d+)/);
+  if (signalMatch) {
+    return makeResult(true, `Process killed by signal ${signalMatch[1]}`);
+  }
+
+  // Premature exit: exit code -1 with little-to-no captured output indicates
+  // the subprocess died before producing diagnostic output (spawn failure,
+  // OS-level kill, resource pressure). The absence of output is the signal.
+  if (exitCode === -1 && errorText.trim().length < 50) {
+    return makeResult(true, 'Premature exit with no output - subprocess died before producing diagnostics');
+  }
+
   let retryUnknown = false;
   try { retryUnknown = serverConfig.isOptIn('unknown_error_retryable'); } catch { /* config not initialized */ }
   if (errorText.length > 500 && !retryUnknown) {

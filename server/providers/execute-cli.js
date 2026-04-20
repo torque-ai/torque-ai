@@ -645,17 +645,22 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
 
   // Handle process completion
   let closeEventFired = false;
-  child.on('exit', (exitCode) => {
+  let exitSignal = null;
+  child.on('exit', (exitCode, signal) => {
+    // Capture signal so subprocesses killed by SIGKILL/SIGTERM/etc. are
+    // distinguishable from normal non-zero exits in the classifier.
+    if (signal) exitSignal = signal;
     setTimeout(() => {
       if (!closeEventFired) {
-        logger.info(`[Completion] Task ${taskId}: 'exit' fired (code ${exitCode}) but 'close' did not — forcing completion`);
-        child.emit('close', exitCode);
+        logger.info(`[Completion] Task ${taskId}: 'exit' fired (code ${exitCode}${signal ? `, signal ${signal}` : ''}) but 'close' did not — forcing completion`);
+        child.emit('close', exitCode, signal);
       }
     }, 5000);
   });
 
-  child.on('close', async (code) => {
+  child.on('close', async (code, signal) => {
     closeEventFired = true;
+    const effectiveSignal = signal || exitSignal;
     if (!markTaskCleanedUp(taskId)) {
       return;
     }
@@ -825,10 +830,17 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
       const rawErrorOutput = proc
           ? proc.errorOutput
           : (currentTask?.error_output || 'Process tracking lost - task completed without captured output');
+      // Annotate the error output with the signal name when the subprocess
+      // was killed by signal (SIGKILL/SIGTERM/etc.) so diagnostics can tell a
+      // signal-killed process apart from a genuine non-zero exit.
+      const signalSuffix = effectiveSignal
+        ? `\n[process-exit] terminated by signal ${effectiveSignal}`
+        : '';
+      const annotatedErrorOutput = rawErrorOutput + signalSuffix;
       const result = await finalizeTask(taskId, {
         exitCode: code,
         output: proc?.output ?? currentTask?.output ?? '',
-        errorOutput: redactSecrets(rawErrorOutput),
+        errorOutput: redactSecrets(annotatedErrorOutput),
         procState: proc
           ? {
               output: proc.output,
