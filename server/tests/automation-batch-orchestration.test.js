@@ -70,15 +70,14 @@ function createFeatureFixture(workingDir) {
   const systemsDir = path.join(srcDir, 'systems');
   const dataDir = path.join(srcDir, 'data');
   const testsDir = path.join(systemsDir, '__tests__');
-  const scenesDir = path.join(srcDir, 'scenes');
 
-  [typesDir, systemsDir, dataDir, testsDir, scenesDir].forEach((dir) => {
+  [typesDir, systemsDir, dataDir, testsDir].forEach((dir) => {
     fs.mkdirSync(dir, { recursive: true });
   });
 
   fs.writeFileSync(
     path.join(systemsDir, 'EventSystem.ts'),
-    `export interface GameEvents {
+    `export interface AppEvents {
   app_started: {
     userId: string;
   };
@@ -112,19 +111,6 @@ function createFeatureFixture(workingDir) {
   fs.writeFileSync(
     path.join(testsDir, 'sample-system.test.ts'),
     `import { describe, it, expect } from 'vitest';`
-  );
-
-  fs.writeFileSync(
-    path.join(scenesDir, 'AppScene.ts'),
-    `import { SampleSystem } from "../systems/SampleSystem";
-
-export class AppScene {
-  private sampleSystem!: SampleSystem;
-
-  create() {
-    this.sampleSystem = new SampleSystem();
-  }
-}`
   );
 }
 

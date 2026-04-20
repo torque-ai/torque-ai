@@ -20,14 +20,14 @@ describe('parseTypeSignatures', () => {
   it('parses enum with string values', () => {
     const input = `
 // src/types.ts
-export enum GivingFrequency {
+export enum BillingCadence {
   Weekly = 'weekly',
   Biweekly = 'biweekly',
   Monthly = 'monthly',
 }`;
     const result = parseTypeSignatures(input);
     expect(result.enums).toHaveLength(1);
-    expect(result.enums[0].name).toBe('GivingFrequency');
+    expect(result.enums[0].name).toBe('BillingCadence');
     expect(result.enums[0].file).toBe('src/types.ts');
     expect(result.enums[0].members).toEqual(['Weekly', 'Biweekly', 'Monthly']);
   });
@@ -62,17 +62,17 @@ export enum Direction {
   it('parses interface with typed fields', () => {
     const input = `
 // src/types.ts
-export interface RecurringContributionDefinition {
+export interface SubscriptionPlanDefinition {
   id: string;
   name: string;
-  suggestedAmount: number;
-  frequency: GivingFrequency;
+  renewalAmount: number;
+  cadence: BillingCadence;
   description: string;
 }`;
     const result = parseTypeSignatures(input);
     expect(result.interfaces).toHaveLength(1);
-    expect(result.interfaces[0].name).toBe('RecurringContributionDefinition');
-    expect(result.interfaces[0].fields).toEqual(['id', 'name', 'suggestedAmount', 'frequency', 'description']);
+    expect(result.interfaces[0].name).toBe('SubscriptionPlanDefinition');
+    expect(result.interfaces[0].fields).toEqual(['id', 'name', 'renewalAmount', 'cadence', 'description']);
   });
 
   it('parses interface with optional fields', () => {
@@ -125,19 +125,19 @@ export enum Size {
 
   it('parses class with methods and fields', () => {
     const input = `
-// src/systems/UserService.ts
-export class UserService {
-  private score: number;
+// src/services/AccountService.ts
+export class AccountService {
+  private requestCount: number;
   protected name: string;
-  public getPlayer(): Player;
-  async loadLevel(id: number): Promise<void>;
+  public getUser(): User;
+  async loadProfile(id: number): Promise<void>;
   private resetState(): void;
 }`;
     const result = parseTypeSignatures(input);
     expect(result.classes).toHaveLength(1);
-    expect(result.classes[0].name).toBe('UserService');
-    expect(result.classes[0].fields).toEqual(['score', 'name']);
-    expect(result.classes[0].methods).toEqual(['getPlayer', 'loadLevel', 'resetState']);
+    expect(result.classes[0].name).toBe('AccountService');
+    expect(result.classes[0].fields).toEqual(['requestCount', 'name']);
+    expect(result.classes[0].methods).toEqual(['getUser', 'loadProfile', 'resetState']);
   });
 
   it('parses abstract class methods', () => {
@@ -208,12 +208,12 @@ export enum Status {
 describe('validateTaskAgainstTypes', () => {
   const parsedTypes = {
     enums: [
-      { name: 'GivingFrequency', file: 'src/types.ts', members: ['Weekly', 'Biweekly', 'Monthly'] },
+      { name: 'BillingCadence', file: 'src/types.ts', members: ['Weekly', 'Biweekly', 'Monthly'] },
     ],
     interfaces: [
       {
-        name: 'RecurringContributionDefinition', file: 'src/types.ts',
-        fields: ['id', 'name', 'suggestedAmount', 'frequency', 'description'],
+        name: 'SubscriptionPlanDefinition', file: 'src/types.ts',
+        fields: ['id', 'name', 'renewalAmount', 'cadence', 'description'],
       },
     ],
     types: [
@@ -222,7 +222,7 @@ describe('validateTaskAgainstTypes', () => {
   };
 
   it('detects wrong enum value', () => {
-    const task = 'Add a template with GivingFrequency.Quarterly and amount 75';
+    const task = 'Add a template with BillingCadence.Quarterly and amount 75';
     const result = validateTaskAgainstTypes(task, parsedTypes);
     expect(result.hints.length).toBeGreaterThan(0);
     expect(result.hints[0]).toContain('Quarterly');
@@ -231,26 +231,26 @@ describe('validateTaskAgainstTypes', () => {
   });
 
   it('does not flag valid enum value', () => {
-    const task = 'Add a template with GivingFrequency.Monthly and amount 50';
+    const task = 'Add a template with BillingCadence.Monthly and amount 50';
     const result = validateTaskAgainstTypes(task, parsedTypes);
     // No enum mismatch hints
-    const enumHints = result.hints.filter(h => h.includes('GivingFrequency'));
+    const enumHints = result.hints.filter(h => h.includes('BillingCadence'));
     expect(enumHints).toHaveLength(0);
   });
 
   it('detects wrong field name with suggestion', () => {
-    const task = 'Set the RecurringContributionDefinition baseAmount to 100';
+    const task = 'Set the SubscriptionPlanDefinition billingAmount to 100';
     const result = validateTaskAgainstTypes(task, parsedTypes);
     expect(result.hints.length).toBeGreaterThan(0);
-    const fieldHint = result.hints.find(h => h.includes('baseAmount'));
+    const fieldHint = result.hints.find(h => h.includes('billingAmount'));
     expect(fieldHint).toBeDefined();
-    expect(fieldHint).toContain('suggestedAmount');
+    expect(fieldHint).toContain('renewalAmount');
   });
 
   it('does not flag valid field name', () => {
-    const task = 'Update the RecurringContributionDefinition suggestedAmount to 100';
+    const task = 'Update the SubscriptionPlanDefinition renewalAmount to 100';
     const result = validateTaskAgainstTypes(task, parsedTypes);
-    const fieldHints = result.hints.filter(h => h.includes('suggestedAmount') && h.includes('No'));
+    const fieldHints = result.hints.filter(h => h.includes('renewalAmount') && h.includes('No'));
     expect(fieldHints).toHaveLength(0);
   });
 
@@ -262,10 +262,10 @@ describe('validateTaskAgainstTypes', () => {
   });
 
   it('handles case-insensitive enum value check', () => {
-    const task = 'Use GivingFrequency.monthly for the default';
+    const task = 'Use BillingCadence.monthly for the default';
     const result = validateTaskAgainstTypes(task, parsedTypes);
     // 'monthly' matches 'Monthly' case-insensitively — no hint
-    const enumHints = result.hints.filter(h => h.includes('GivingFrequency') && h.includes('no'));
+    const enumHints = result.hints.filter(h => h.includes('BillingCadence') && h.includes('no'));
     expect(enumHints).toHaveLength(0);
   });
 
@@ -283,7 +283,7 @@ describe('validateTaskAgainstTypes', () => {
   });
 
   it('detects multiple wrong enum values', () => {
-    const task = 'Support GivingFrequency.Quarterly and GivingFrequency.Annually';
+    const task = 'Support BillingCadence.Quarterly and BillingCadence.Annually';
     const result = validateTaskAgainstTypes(task, parsedTypes);
     expect(result.hints.length).toBe(2);
     expect(result.hints[0]).toContain('Quarterly');
@@ -294,28 +294,28 @@ describe('validateTaskAgainstTypes', () => {
     const typesWithClass = {
       ...parsedTypes,
       classes: [
-        { name: 'UserService', file: 'src/services/UserService.ts', methods: ['getPlayer', 'loadLevel', 'resetState'], fields: ['score'] },
+        { name: 'AccountService', file: 'src/services/AccountService.ts', methods: ['getUser', 'loadProfile', 'resetState'], fields: ['requestCount'] },
       ],
     };
-    const task = 'Call the UserService getUser method to fetch the player';
+    const task = 'Call the AccountService getUsr method to fetch account details';
     const result = validateTaskAgainstTypes(task, typesWithClass);
-    const classHint = result.hints.find(h => h.includes('getUser'));
+    const classHint = result.hints.find(h => h.includes('getUsr'));
     expect(classHint).toBeDefined();
-    expect(classHint).toContain('getPlayer');
+    expect(classHint).toContain('getUser');
   });
 
   it('does not flag valid class method', () => {
     const typesWithClass = {
       enums: [], interfaces: [], types: [],
       classes: [
-        { name: 'UserService', file: 'src/services/UserService.ts', methods: ['getPlayer', 'loadLevel'], fields: [] },
+        { name: 'AccountService', file: 'src/services/AccountService.ts', methods: ['getUser', 'loadProfile'], fields: [] },
       ],
     };
     // Only use the class name + valid method — no extra tokens to trigger false positives
-    const task = 'In UserService, call loadLevel';
+    const task = 'In AccountService, call loadProfile';
     const result = validateTaskAgainstTypes(task, typesWithClass);
-    // loadLevel is a valid method — should not produce a hint about it
-    const methodHints = result.hints.filter(h => h.includes('loadLevel') && h.includes('No'));
+    // loadProfile is a valid method — should not produce a hint about it
+    const methodHints = result.hints.filter(h => h.includes('loadProfile') && h.includes('No'));
     expect(methodHints).toHaveLength(0);
   });
 
@@ -323,10 +323,10 @@ describe('validateTaskAgainstTypes', () => {
     const typesWithClass = {
       ...parsedTypes,
       classes: [
-        { name: 'PlayerSystem', file: 'src/systems/PlayerSystem.ts', methods: ['update'], fields: [] },
+        { name: 'AccountManager', file: 'src/services/AccountManager.ts', methods: ['update'], fields: [] },
       ],
     };
-    const task = 'Add a new PlayerSystem class for handling players';
+    const task = 'Add a new AccountManager class for handling accounts';
     const result = validateTaskAgainstTypes(task, typesWithClass);
     expect(result.hints.some(h => h.includes('already exists') && h.includes('class'))).toBe(true);
   });
@@ -336,11 +336,11 @@ describe('validateTaskAgainstTypes', () => {
 
 describe('_fuzzyMatch', () => {
   it('returns exact substring match', () => {
-    expect(_fuzzyMatch('amount', ['suggestedAmount', 'frequency'])).toBe('suggestedAmount');
+    expect(_fuzzyMatch('amount', ['renewalAmount', 'cadence'])).toBe('renewalAmount');
   });
 
   it('returns closest match above threshold', () => {
-    expect(_fuzzyMatch('baseAmount', ['suggestedAmount', 'id', 'name'])).toBe('suggestedAmount');
+    expect(_fuzzyMatch('billingAmount', ['renewalAmount', 'id', 'name'])).toBe('renewalAmount');
   });
 
   it('returns null for no candidates', () => {
@@ -358,13 +358,13 @@ describe('_fuzzyMatch', () => {
 describe('buildPreflightHints', () => {
   it('formats hint array into prompt block', () => {
     const hints = [
-      'GivingFrequency has values: Weekly, Biweekly, Monthly. There is no "Quarterly" value.',
-      'RecurringContributionDefinition fields: id, name. No "baseAmount" field.',
+      'BillingCadence has values: Weekly, Biweekly, Monthly. There is no "Quarterly" value.',
+      'SubscriptionPlanDefinition fields: id, name. No "billingAmount" field.',
     ];
     const result = buildPreflightHints(hints);
     expect(result).toContain('### TYPE VALIDATION NOTES');
-    expect(result).toContain('- GivingFrequency');
-    expect(result).toContain('- RecurringContributionDefinition');
+    expect(result).toContain('- BillingCadence');
+    expect(result).toContain('- SubscriptionPlanDefinition');
     expect(result).toContain('IMPORTANT: Use only the types and fields listed above.');
   });
 

@@ -359,14 +359,14 @@ Expected: No errors
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Remove Headwaters Convenience Wrappers section**
+- [x] **Step 1: Remove Headwaters Convenience Wrappers section**
 
 Remove the entire section documenting:
 - `wire_system_to_gamescene`
 - `wire_events_to_eventsystem`
 - `wire_notifications_to_bridge`
 
-- [ ] **Step 2: Remove batch lifecycle tools that were deleted**
+- [x] **Step 2: Remove batch lifecycle tools that were deleted**
 
 Remove documentation for:
 - `cache_feature_gaps`
@@ -375,13 +375,13 @@ Remove documentation for:
 - `extract_feature_spec`
 - `update_project_stats`
 
-- [ ] **Step 3: Remove validation tools that were deleted**
+- [x] **Step 3: Remove validation tools that were deleted**
 
 Remove documentation for:
 - `validate_event_consistency`
 - `audit_class_completeness`
 
-- [ ] **Step 4: Remove Headwaters/Deluge references**
+- [x] **Step 4: Remove Headwaters/Deluge references**
 
 Line 284: Change `When TORQUE is the execution engine for a project (e.g., Headwaters):` to `When TORQUE is the execution engine for a project:`
 
