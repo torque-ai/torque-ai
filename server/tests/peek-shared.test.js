@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const http = require('http');
 const https = require('https');
+const childProcess = require('child_process');
 const { EventEmitter } = require('events');
 const { createConfigMock } = require('./test-helpers');
 const TASK_CORE_MODULE = '../db/task-core';
@@ -20,6 +21,7 @@ const mockDb = {
   getPeekHost: vi.fn(),
   listPeekHosts: vi.fn(),
   getDefaultPeekHost: vi.fn(),
+  registerPeekHost: vi.fn(),
   getConfig: vi.fn().mockImplementation(createConfigMock()),
 };
 
@@ -64,6 +66,7 @@ function resetMockDefaults() {
   mockDb.getPeekHost.mockReset().mockReturnValue(null);
   mockDb.listPeekHosts.mockReset().mockReturnValue([]);
   mockDb.getDefaultPeekHost.mockReset().mockReturnValue(null);
+  mockDb.registerPeekHost.mockReset().mockImplementation(() => undefined);
   mockDb.getConfig.mockReset().mockImplementation(createConfigMock());
   mockHandlerShared.makeError.mockReset().mockImplementation((code, message) => ({ code, message }));
 }
@@ -154,6 +157,12 @@ describe('peek shared utilities', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     resetMockDefaults();
+    vi.spyOn(childProcess, 'execFileSync').mockImplementation(() => {
+      throw new Error('torque-peek not installed');
+    });
+    vi.spyOn(childProcess, 'spawn').mockImplementation(() => {
+      throw new Error('unexpected spawn');
+    });
     peekShared = loadPeekShared();
   });
 
@@ -309,10 +318,48 @@ describe('peek shared utilities', () => {
     expect(peekShared.resolvePeekHost({})).toEqual({
       error: {
         code: 'RESOURCE_NOT_FOUND',
-        message: 'No peek host configured. Connect Peek from a workstation card in the dashboard or use the register_peek_host tool.',
+        message: 'No peek server available. Install with: npm install -g @torque-ai/peek\nThen run: torque-peek start',
       },
     });
     expect(mockHandlerShared.makeError).toHaveBeenCalledTimes(3);
+  });
+
+  it('auto-starts local @torque-ai/peek when no host is configured and the CLI is installed', () => {
+    const child = { once: vi.fn(), unref: vi.fn() };
+    childProcess.execFileSync
+      .mockReset()
+      .mockImplementation((command, args) => {
+        if (command === (process.platform === 'win32' ? 'where' : 'which') && args[0] === 'torque-peek') {
+          return '/usr/local/bin/torque-peek\n';
+        }
+        if (command === process.execPath && args[0] === '-e') {
+          return '';
+        }
+        throw new Error(`unexpected command: ${command}`);
+      });
+    childProcess.spawn.mockReset().mockReturnValue(child);
+
+    const result = peekShared.resolvePeekHost({});
+
+    expect(childProcess.spawn).toHaveBeenCalledWith('/usr/local/bin/torque-peek', ['start'], expect.objectContaining({
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    }));
+    expect(child.unref).toHaveBeenCalledOnce();
+    expect(mockDb.registerPeekHost).toHaveBeenCalledWith(
+      'local-auto',
+      'http://127.0.0.1:9876',
+      null,
+      true,
+      process.platform,
+    );
+    expect(result).toEqual({
+      hostName: 'local-auto',
+      hostUrl: 'http://127.0.0.1:9876',
+      ssh: null,
+      platform: process.platform,
+    });
   });
 
   it('detects local targets, selects the matching HTTP module, and escapes XML', () => {
