@@ -600,9 +600,15 @@ async function executeOllamaTask(task) {
     // execution.js wrapper (executeOllamaTaskWithAgentic) before this function
     // is called. If we reach here, the task is non-agentic.
     const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
-    const timeoutMs = (task.timeout_minutes || 30) * 60 * 1000;
+    // timeout_minutes === 0 means "no timeout enforcement" (opt-in). Use `??`
+    // to preserve the explicit 0, and gate the setTimeout on parsedTimeout !== 0.
+    // Other abort paths (cancelCheckInterval, cancelled-task sweep) still apply.
+    const parsedTimeout = parseInt(task.timeout_minutes, 10);
+    const timeoutMinutes = Number.isFinite(parsedTimeout) ? parsedTimeout : 30;
     const abortController = new AbortController();
-    const timeoutHandle = setTimeout(() => abortController.abort(), timeoutMs);
+    const timeoutHandle = timeoutMinutes === 0
+      ? null
+      : setTimeout(() => abortController.abort(), timeoutMinutes * 60 * 1000);
     const cancelCheckInterval = setInterval(() => {
       try {
         const currentTask = db.getTask(taskId);
