@@ -1046,6 +1046,25 @@ function init() {
     // Non-fatal during migration — existing require() paths still work
   }
 
+  // Wire provider scoring into provider-routing-core. The scoring module is
+  // registered in the DI factory block (see container.js) but provider-routing-core
+  // keeps its own module-scoped `providerScoring` reference, so we inject the
+  // container-built instance here. Without this, score-based provider fallback
+  // is a silent no-op in production — templates resolve but any scoring-aware
+  // path (e.g. budget-based rerouting) sees a null and skips scoring.
+  // The live registration inside the defunct initModules() never ran.
+  try {
+    if (defaultContainer.has('providerScoring')) {
+      const providerRoutingCore = require('./db/provider-routing-core');
+      if (typeof providerRoutingCore.setProviderScoring === 'function') {
+        providerRoutingCore.setProviderScoring(defaultContainer.get('providerScoring'));
+        logger.info('[startup] provider-scoring wired into provider-routing-core');
+      }
+    }
+  } catch (err) {
+    logger.warn(`[startup] provider-scoring wiring failed: ${err.message}`);
+  }
+
   // Backfill artifact index for pre-existing run dirs. The run-scoped-artifacts
   // feature was shipped with its container registration buried in a legacy init
   // path that never ran, so nothing was indexed on finalization. indexFiles is

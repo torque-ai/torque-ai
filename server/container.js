@@ -218,6 +218,10 @@ _defaultContainer.register('runDirManager', ['db'], ({ db }) => {
     promotedDir: path.join(dataDir, 'promoted'),
   });
 });
+_defaultContainer.register('providerScoring', ['db'], ({ db }) => {
+  const { createProviderScoring } = require('./db/provider-scoring');
+  return createProviderScoring({ db: unwrapDb(db) });
+});
 
 function initModules(db, serverConfig) {
   if (!_defaultContainer.has('db')) {
