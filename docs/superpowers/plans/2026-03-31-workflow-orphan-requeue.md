@@ -316,7 +316,7 @@ git commit -m "feat: await epoch-check requeues orphaned tasks instead of cancel
 **Files:**
 - Modify: `server/tests/orphan-requeue.test.js`
 
-- [ ] **Step 1: Add integration-level tests**
+- [x] **Step 1: Add integration-level tests**
 
 Append to `server/tests/orphan-requeue.test.js`:
 
@@ -369,12 +369,12 @@ describe('orphan requeue — workflow integration', () => {
 });
 ```
 
-- [ ] **Step 2: Run all orphan and workflow tests**
+- [x] **Step 2: Run all orphan and workflow tests**
 
 Run: `torque-remote "cd $TORQUE_PROJECT_DIR/server && npx vitest run tests/orphan-requeue.test.js tests/workflow-runtime.test.js tests/orphan-cleanup.test.js tests/await-restart-recovery.test.js"`
 Expected: ALL PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/tests/orphan-requeue.test.js
