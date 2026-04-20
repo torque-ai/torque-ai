@@ -158,7 +158,7 @@ Expected: No errors
 **Files:**
 - Modify: `server/tool-defs/automation-defs.js`
 
-- [ ] **Step 1: Delete 10 tool definition objects**
+- [x] **Step 1: Delete 10 tool definition objects**
 
 Remove the complete tool definition objects for:
 1. `cache_feature_gaps` (lines 112-124)
@@ -172,13 +172,13 @@ Remove the complete tool definition objects for:
 9. `validate_event_consistency` (lines 406-419)
 10. `audit_class_completeness` (lines 433-447)
 
-- [ ] **Step 2: Clean up Headwaters defaults in remaining defs**
+- [x] **Step 2: Clean up Headwaters defaults in remaining defs**
 
 In `generate_feature_tasks` definition: remove `GameEvents` from the `interface_name` description example.
 
 In `run_batch` definition: remove `cache_feature_gaps` reference from description if present.
 
-- [ ] **Step 3: Verify the file parses**
+- [x] **Step 3: Verify the file parses**
 
 Run: `node -e "require('./server/tool-defs/automation-defs.js')"`
 Expected: No errors, returns array of tool definitions
