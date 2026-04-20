@@ -16,7 +16,7 @@
  */
 
 const http = require('http');
-const { randomUUID } = require('crypto');
+const { createHash, randomUUID, timingSafeEqual } = require('crypto');
 const serverConfig = require('./config');
 const logger = require('./logger').child({ component: 'mcp-sse' });
 const { validateJsonRpcRequest } = require('./utils/jsonrpc-validation');
@@ -130,6 +130,40 @@ function debugLog(message, data = {}) {
 
 function generateSessionId() {
   return randomUUID();
+}
+
+function getHeaderValue(req, headerName) {
+  const value = req.headers?.[headerName.toLowerCase()];
+  if (Array.isArray(value)) {
+    const first = value.find(item => typeof item === 'string' && item.trim());
+    return first ? first.trim() : null;
+  }
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function extractApiKey(req) {
+  const torqueKey = getHeaderValue(req, 'x-torque-key');
+  if (torqueKey) return torqueKey;
+
+  const authorization = getHeaderValue(req, 'authorization');
+  if (authorization && /^Bearer\s+/i.test(authorization)) {
+    const bearer = authorization.replace(/^Bearer\s+/i, '').trim();
+    return bearer || null;
+  }
+
+  return null;
+}
+
+function verifyApiKey(provided, expected) {
+  const a = createHash('sha256').update(String(provided)).digest();
+  const b = createHash('sha256').update(String(expected)).digest();
+  return timingSafeEqual(a, b);
+}
+
+function isSseRequestAuthenticated(req) {
+  const expectedKey = serverConfig.get('api_key');
+  const apiKey = extractApiKey(req);
+  return !expectedKey || (apiKey && verifyApiKey(apiKey, expectedKey));
 }
 
 function isSessionOwner(session, req) {
@@ -281,7 +315,7 @@ async function handleHttpRequest(req, res) {
   if (allowedOrigin) {
     res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
   }
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Request-ID, Mcp-Session-Id, Mcp-Protocol-Version');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Torque-Key, X-Request-ID, Authorization, Mcp-Session-Id, Mcp-Protocol-Version');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
 
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
@@ -321,9 +355,7 @@ async function handleSseConnection(req, res, url, requestId) {
   const requestedSessionId = url.searchParams.get('sessionId');
   const existingSession = requestedSessionId ? sessions.get(requestedSessionId) : null;
   const sessionId = existingSession ? requestedSessionId : generateSessionId();
-
-  // Local mode: accept all connections unconditionally
-  const identity = { id: 'local', name: 'Local User', role: 'admin', type: 'local' };
+  const isAuthenticated = Boolean(isSseRequestAuthenticated(req));
 
   if (!existingSession && sessions.size >= MAX_SSE_SESSIONS) {
     logger.warn('[SSE] Session cap reached');
@@ -413,7 +445,7 @@ async function handleSseConnection(req, res, url, requestId) {
     keepaliveTimer,
     res,
     toolMode: 'core',
-    authenticated: true,
+    authenticated: isAuthenticated,
     pendingEvents: [],
     eventFilter: restored ? restored.eventFilter : new Set(['completed', 'failed']),
     taskFilter: restored ? restored.taskFilter : new Set(),
@@ -429,9 +461,7 @@ async function handleSseConnection(req, res, url, requestId) {
   session.keepaliveTimer = keepaliveTimer;
   session._remoteAddress = remoteAddress;
   session._origin = req.headers.origin || null;
-  if (existingSession) {
-    session.authenticated = true;
-  }
+  session.authenticated = isAuthenticated;
 
   if (!existingSession) {
     sessions.set(sessionId, session);

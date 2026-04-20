@@ -77,6 +77,12 @@ const SSE_TOOLS = [
 
 const SSE_TOOL_NAMES = new Set(SSE_TOOLS.map(t => t.name));
 
+function requireAuthenticatedSession(method, sess) {
+  if (method !== 'initialize' && method !== 'notifications/initialized' && !sess?.authenticated) {
+    throw { code: -32600, message: 'Authentication required. Provide API key via X-Torque-Key header.' };
+  }
+}
+
 // ──────────────────────────────────────────────────────────────
 // Body parsing
 // ──────────────────────────────────────────────────────────────
@@ -139,6 +145,8 @@ function injectNotificationSender(fn) {
  */
 async function handleMcpRequest(request, sess) {
   const { method, params } = request;
+
+  requireAuthenticatedSession(method, sess);
 
   // SSE-only tools need the full session context — intercept before delegation
   if (method === 'tools/call' && params != null && typeof params === 'object' && !Array.isArray(params)) {
