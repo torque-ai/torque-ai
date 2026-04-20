@@ -18,8 +18,7 @@ const logger = typeof _baseLogger.child === 'function'
   : _baseLogger;
 const configCore = require('./db/config-core');
 
-let db = null; // facade: getDbInstance for raw DB access in getApiKey()
-let _decryptWarnedProviders = null;
+let db = null; // facade for provider/config access in getApiKey()
 let _serverEpoch = 0;
 
 // ── Config Registry ──────────────────────────────────────────────────────
@@ -180,7 +179,7 @@ function getJson(key, fallback) {
 // ── API Key Resolution ───────────────────────────────────────────────────
 
 /**
- * Resolve API key for a provider: env var → DB config → null.
+ * Resolve API key for a provider: env var → encrypted provider config → DB config → null.
  * Centralizes the scattered `process.env.X_API_KEY || db.getConfig('x_api_key')` pattern.
  *
  * @param {string} provider - Provider name (e.g., 'anthropic', 'deepinfra')
@@ -196,25 +195,16 @@ function getApiKey(provider) {
   }
 
   // 2. provider_config.api_key_encrypted (decrypt)
-  try {
-    const dbModule = db || require('./database');
-    const rawDb = typeof dbModule.getDbInstance === 'function'
-      ? dbModule.getDbInstance()
-      : null;
-    if (rawDb && typeof rawDb.prepare === 'function') {
-      const row = rawDb.prepare('SELECT api_key_encrypted FROM provider_config WHERE provider = ?').get(provider);
-      if (row && row.api_key_encrypted) {
+  if (db && typeof db.getProvider === 'function') {
+    try {
+      const providerRow = db.getProvider(provider);
+      if (providerRow && providerRow.api_key_encrypted) {
         const { decryptApiKey } = require('./handlers/provider-crud-handlers');
-        const decrypted = decryptApiKey(row.api_key_encrypted);
+        const decrypted = decryptApiKey(providerRow.api_key_encrypted);
         if (decrypted) return decrypted;
       }
-    }
-  } catch (err) {
-    // Only warn once per provider to avoid log spam
-    if (!_decryptWarnedProviders) _decryptWarnedProviders = new Set();
-    if (!_decryptWarnedProviders.has(provider)) {
-      _decryptWarnedProviders.add(provider);
-      try { require('./logger').warn(`[config] Failed to load decryption for provider ${provider}: ${err?.message || 'unknown'}`); } catch {}
+    } catch {
+      // Decryption failed or module not ready; fall through to legacy config.
     }
   }
 
