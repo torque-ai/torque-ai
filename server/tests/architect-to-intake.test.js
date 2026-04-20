@@ -4,23 +4,39 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 const {
   getTaskMock,
+  installCjsModuleMock,
+  restoreCjsModuleMocks,
   submitFactoryInternalTaskMock,
-} = vi.hoisted(() => ({
-  getTaskMock: vi.fn(),
-  submitFactoryInternalTaskMock: vi.fn(),
-}));
+} = vi.hoisted(() => {
+  const originalCacheEntries = new Map();
 
-vi.mock('../task-manager', () => ({
-  startTask: vi.fn(),
-}));
-
-vi.mock('../db/task-core', () => ({
-  getTask: getTaskMock,
-}));
-
-vi.mock('../factory/internal-task-submit', () => ({
-  submitFactoryInternalTask: submitFactoryInternalTaskMock,
-}));
+  return {
+    getTaskMock: vi.fn(),
+    installCjsModuleMock(modulePath, exportsValue) {
+      const resolved = require.resolve(modulePath);
+      if (!originalCacheEntries.has(resolved)) {
+        originalCacheEntries.set(resolved, require.cache[resolved] || null);
+      }
+      require.cache[resolved] = {
+        id: resolved,
+        filename: resolved,
+        loaded: true,
+        exports: exportsValue,
+      };
+    },
+    restoreCjsModuleMocks() {
+      for (const [resolved, entry] of originalCacheEntries.entries()) {
+        if (entry) {
+          require.cache[resolved] = entry;
+        } else {
+          delete require.cache[resolved];
+        }
+      }
+      originalCacheEntries.clear();
+    },
+    submitFactoryInternalTaskMock: vi.fn(),
+  };
+});
 
 const fs = require('fs');
 const path = require('path');
@@ -150,6 +166,11 @@ beforeAll(() => {
   dbHandle = dbModule.getDbInstance();
   ensureFactoryTables(dbHandle);
   wireFactoryDbModules(dbHandle);
+  installCjsModuleMock('../task-manager', { startTask: vi.fn() });
+  installCjsModuleMock('../db/task-core', { getTask: getTaskMock });
+  installCjsModuleMock('../factory/internal-task-submit', {
+    submitFactoryInternalTask: submitFactoryInternalTaskMock,
+  });
 });
 
 beforeEach(() => {
@@ -168,6 +189,7 @@ afterAll(() => {
   factoryArchitect.setDb(null);
   factoryHealth.setDb(null);
   factoryIntake.setDb(null);
+  restoreCjsModuleMocks();
   teardownTestDb();
 });
 

@@ -3,7 +3,6 @@ const fs = require('fs');
 const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
 const childProcess = require('child_process');
-const { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } = require('vitest');
 
 const factoryHandlers = require('../handlers/factory-handlers');
 const { rawDb, resetTables, safeTool, setupTestDb, teardownTestDb } = require('./vitest-setup');

@@ -1,5 +1,4 @@
 const path = require('path');
-const { afterAll, beforeAll, describe, expect, it } = require('vitest');
 const { rawDb, safeTool, setupTestDb, teardownTestDb } = require('./vitest-setup');
 
 describe('factory_status', () => {

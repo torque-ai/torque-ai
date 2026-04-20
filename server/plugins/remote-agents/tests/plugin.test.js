@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, vi, beforeEach, afterEach } = require('vitest');
 const { validatePlugin } = require('../../plugin-contract');
 
 vi.mock('../../../logger', () => ({

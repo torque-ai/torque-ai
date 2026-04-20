@@ -1,7 +1,6 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } = require('vitest');
 
 const { createEventBus } = require('../event-bus');
 const {

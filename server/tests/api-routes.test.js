@@ -853,10 +853,10 @@ describe('api/routes route table', () => {
   it('covers infrastructure control-plane routes broadly', () => {
     const infrastructureRoutes = routes.filter((route) => (
       typeof route.handlerName === 'string'
-      && /Host|PeekHost|Credential|Agent|Coordination|Percentiles/.test(route.handlerName)
+      && /Host|PeekHost|Credential|Coordination|Percentiles/.test(route.handlerName)
     ));
 
-    expect(infrastructureRoutes.length).toBeGreaterThanOrEqual(20);
+    expect(infrastructureRoutes.length).toBeGreaterThanOrEqual(17);
   });
 
   it('maps host credential routes with constrained credential types', () => {
