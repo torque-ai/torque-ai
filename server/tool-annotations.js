@@ -39,7 +39,7 @@ const PREFIX_RULES = [
     'learn_', 'save_', 'setup_', 'record_', 'resolve_',
   ], annotation: IDEMPOTENT },
   { prefixes: [
-    'retry_', 'resume_', 'restore_', 'start_', 'pause_', 'skip_', 'stop_',
+    'retry_', 'resume_', 'restore_', 'reopen_', 'start_', 'pause_', 'skip_', 'stop_',
     'release_', 'claim_', 'steal_', 'recover_', 'refresh_',
   ], annotation: LIFECYCLE },
   { prefixes: [

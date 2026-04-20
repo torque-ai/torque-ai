@@ -659,26 +659,42 @@ function spawnAndTrackProcess(taskId, task, {
     }
   }, startupTimeoutMs);
 
-  // Set up main timeout with configurable value, default 30 minutes
-  // Bound timeout between 1 minute and 480 minutes (8 hours) to prevent resource exhaustion
+  // Set up main timeout with configurable value, default 30 minutes.
+  //
+  // Semantics:
+  //   - timeout_minutes === 0   → explicit opt-in "no timeout enforcement".
+  //                               cancel_task + stall detection still apply.
+  //   - timeout_minutes > 0     → clamped to [1, 480] minutes.
+  //   - negative / NaN / null   → default to 30 (then clamped, same as before).
+  //
+  // The `?? 30 // ← 0 preserved` pattern at the DB persistence sites
+  // (project-config-core.js, task-metadata.js, etc.) is what keeps the 0
+  // alive long enough to reach this check.
   const MIN_TIMEOUT_MINUTES = 1;
   const MAX_TIMEOUT_MINUTES = 480;
-  const rawTimeout = parseInt(task.timeout_minutes, 10) || 30;
-  const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
-  const timeoutMs = boundedTimeout * 60 * 1000;
-  procRef.timeoutHandle = setTimeout(() => {
-    try {
-      if (deps.runningProcesses.has(taskId)) {
-        deps.cancelTask(taskId, 'Timeout exceeded');
+  const parsedTimeout = parseInt(task.timeout_minutes, 10);
+  const explicitZero = parsedTimeout === 0;
+  // NaN/undefined → default 30. Negatives are passed through to Math.max so
+  // they clamp up to MIN (preserves the long-standing "malformed = 1 min"
+  // behaviour). Only `parsedTimeout === 0` opts out of enforcement entirely.
+  const rawTimeout = Number.isFinite(parsedTimeout) ? parsedTimeout : 30;
+  if (!explicitZero) {
+    const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
+    const timeoutMs = boundedTimeout * 60 * 1000;
+    procRef.timeoutHandle = setTimeout(() => {
+      try {
+        if (deps.runningProcesses.has(taskId)) {
+          deps.cancelTask(taskId, 'Timeout exceeded');
+        }
+      } catch (err) {
+        logger.info(`[TaskManager] Error in timeout callback for ${taskId}: ${err.message}`);
+        deps.safeUpdateTaskStatus(taskId, 'failed', {
+          error_output: `Timeout cancellation error: ${err.message}`,
+          exit_code: -1
+        });
       }
-    } catch (err) {
-      logger.info(`[TaskManager] Error in timeout callback for ${taskId}: ${err.message}`);
-      deps.safeUpdateTaskStatus(taskId, 'failed', {
-        error_output: `Timeout cancellation error: ${err.message}`,
-        exit_code: -1
-      });
-    }
-  }, timeoutMs);
+    }, timeoutMs);
+  }
 
   return { queued: false, task: taskCoreDb.getTask(taskId) };
 }

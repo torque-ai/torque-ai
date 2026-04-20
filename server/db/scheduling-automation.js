@@ -119,7 +119,7 @@ function saveTemplate(template) {
     template.name,
     template.description || null,
     template.task_template,
-    template.default_timeout || 30,
+    template.default_timeout ?? 30,
     template.default_priority || 0,
     template.auto_approve ? 1 : 0,
     new Date().toISOString()

@@ -720,6 +720,20 @@ const tools = [
     }
   },
   {
+    name: 'reopen_workflow',
+    description: 'Reopen a failed/cancelled workflow by resetting ALL failed/cancelled/skipped tasks at once and restarting execution. Broader than retry_workflow_from (which targets one task + its downstream).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow_id: {
+          type: 'string',
+          description: 'Workflow ID to reopen (must be in failed or cancelled state)'
+        }
+      },
+      required: ['workflow_id']
+    }
+  },
+  {
     name: 'skip_task',
     description: 'Manually skip a blocked task',
     inputSchema: {
