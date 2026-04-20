@@ -1,5 +1,7 @@
 const path = require('path');
 const { rawDb, resetTables, safeTool, setupTestDb, teardownTestDb } = require('./vitest-setup');
+const factoryIntake = require('../db/factory-intake');
+const notifications = require('../factory/notifications');
 
 function insertActiveLoopInstance(db, {
   projectId,
@@ -39,7 +41,14 @@ describe('factory_status', () => {
   });
 
   beforeEach(() => {
-    resetTables(['factory_loop_instances', 'factory_projects']);
+    resetTables(['factory_loop_instances', 'factory_work_items', 'factory_projects']);
+    notifications.flushAllDigests();
+    notifications._testing.resetAlertRuntimeState();
+  });
+
+  afterEach(() => {
+    notifications.flushAllDigests();
+    notifications._testing.resetAlertRuntimeState();
   });
 
   afterAll(() => {
@@ -162,5 +171,92 @@ describe('factory_status', () => {
       paused: 1,
       stalled: 1,
     });
+  });
+
+  it('exposes alert_badge and clears stale idle badges when pending work exists', async () => {
+    const db = rawDb();
+    const createdAt = new Date().toISOString();
+    const insertProject = db.prepare(`
+      INSERT INTO factory_projects (
+        id,
+        name,
+        path,
+        brief,
+        trust_level,
+        status,
+        config_json,
+        loop_state,
+        loop_batch_id,
+        loop_last_action_at,
+        loop_paused_at_stage,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    insertProject.run(
+      'project-idle-alert',
+      'Idle Alert',
+      path.join(testDir, 'project-idle-alert'),
+      'idle project',
+      'autonomous',
+      'running',
+      null,
+      'IDLE',
+      null,
+      null,
+      null,
+      createdAt,
+      createdAt,
+    );
+    insertProject.run(
+      'project-pending-clears-idle',
+      'Pending Clears Idle',
+      path.join(testDir, 'project-pending-clears-idle'),
+      'pending work clears idle badge',
+      'autonomous',
+      'running',
+      null,
+      'IDLE',
+      null,
+      null,
+      null,
+      createdAt,
+      createdAt,
+    );
+
+    notifications.recordFactoryIdleState({
+      project_id: 'project-idle-alert',
+      pending_count: 0,
+      running_count: 0,
+      reason: 'no_work_item_selected',
+    });
+    notifications.recordFactoryIdleState({
+      project_id: 'project-pending-clears-idle',
+      pending_count: 0,
+      running_count: 0,
+      reason: 'no_work_item_selected',
+    });
+    factoryIntake.createWorkItem({
+      project_id: 'project-pending-clears-idle',
+      source: 'manual',
+      title: 'Queued follow-up',
+      description: 'New work arrived after idle.',
+    });
+
+    const result = await safeTool('factory_status', {});
+
+    expect(result.isError).toBeFalsy();
+    const payload = result.structuredData;
+    const projectsById = Object.fromEntries(payload.projects.map(project => [project.id, project]));
+
+    expect(projectsById['project-idle-alert'].alert_badge).toMatchObject({
+      alert_type: notifications.ALERT_TYPES.FACTORY_IDLE,
+      label: 'Factory idle',
+      active: true,
+    });
+    expect(projectsById['project-pending-clears-idle'].alert_badge).toBeNull();
+    expect(notifications.getFactoryAlertBadge({ project_id: 'project-pending-clears-idle' })).toBeNull();
   });
 });

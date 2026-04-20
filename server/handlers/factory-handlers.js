@@ -168,6 +168,38 @@ function normalizeProjectLoopState(loopState) {
   return normalized || 'IDLE';
 }
 
+function countOpenFactoryWorkItems(projectId) {
+  try {
+    const stats = factoryIntake.getIntakeStats(projectId);
+    return Object.entries(stats).reduce((sum, [status, count]) => {
+      if (factoryIntake.CLOSED_STATUSES.has(status)) {
+        return sum;
+      }
+      const numeric = Number(count);
+      return sum + (Number.isFinite(numeric) ? numeric : 0);
+    }, 0);
+  } catch (error) {
+    logger.debug({ err: error.message, project_id: projectId }, 'Failed to count open factory work items');
+    return 0;
+  }
+}
+
+function getFactoryStatusAlertBadge(projectId, { openWorkItemCount, loopState } = {}) {
+  const hasPendingWork = openWorkItemCount > 0;
+  const hasRunningLoop = normalizeProjectLoopState(loopState) !== 'IDLE';
+  if (hasPendingWork || hasRunningLoop) {
+    notifications.recordFactoryIdleState({
+      project_id: projectId,
+      pending_count: openWorkItemCount,
+      running_count: hasRunningLoop ? 1 : 0,
+      has_pending_work: hasPendingWork,
+      has_running_item: hasRunningLoop,
+    });
+  }
+
+  return notifications.getFactoryAlertBadge({ project_id: projectId });
+}
+
 function normalizeFactoryLoopInstance(instance) {
   if (!instance) {
     return null;
@@ -666,6 +698,11 @@ async function handleFactoryStatus() {
     const lastActionAt = activeInstance
       ? (activeInstance.last_action_at || null)
       : (p.loop_last_action_at || null);
+    const openWorkItemCount = countOpenFactoryWorkItems(p.id);
+    const alertBadge = getFactoryStatusAlertBadge(p.id, {
+      openWorkItemCount,
+      loopState,
+    });
 
     if (getCachedCommitsToday(p.path, nowMs) !== null) {
       cacheHitCount += 1;
@@ -681,6 +718,7 @@ async function handleFactoryStatus() {
       loop_state: loopState,
       loop_paused_at_stage: pausedAtStage,
       loop_last_action_at: lastActionAt,
+      alert_badge: alertBadge,
       balance,
       weakest_dimension: weakest ? weakest[0] : null,
       dimension_count: Object.keys(scores).length,

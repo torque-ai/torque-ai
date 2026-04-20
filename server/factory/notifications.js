@@ -8,6 +8,8 @@ let digestBuffer = new Map(); // project_id -> [events]
 let digestInterval = null;
 let verifyFailStreaks = new Map(); // project_id|instance_id -> runtime streak state
 let factoryStallAlerts = new Map(); // alert_key -> last progress signature
+let factoryIdleAlerts = new Map(); // alert_key -> transition signature
+let factoryAlertBadges = new Map(); // project_id -> Map(alert_type -> badge)
 
 const ALERT_TYPES = Object.freeze({
   VERIFY_FAIL_STREAK: 'VERIFY_FAIL_STREAK',
@@ -16,6 +18,16 @@ const ALERT_TYPES = Object.freeze({
 });
 const VERIFY_FAIL_STREAK_THRESHOLD = 3;
 const FACTORY_STALL_THRESHOLD_MS = 30 * 60 * 1000;
+const ALERT_BADGE_PRIORITY = Object.freeze({
+  [ALERT_TYPES.VERIFY_FAIL_STREAK]: 30,
+  [ALERT_TYPES.FACTORY_STALLED]: 20,
+  [ALERT_TYPES.FACTORY_IDLE]: 10,
+});
+const ALERT_BADGE_LABELS = Object.freeze({
+  [ALERT_TYPES.VERIFY_FAIL_STREAK]: 'Verify failures',
+  [ALERT_TYPES.FACTORY_STALLED]: 'Factory stalled',
+  [ALERT_TYPES.FACTORY_IDLE]: 'Factory idle',
+});
 
 function normalizeAlertKeyPart(value) {
   if (value === undefined || value === null) {
@@ -46,15 +58,91 @@ function verifyFailStreakKey({ project_id, instance_id } = {}) {
   return `${projectId}|${instanceId}`;
 }
 
+function alertProjectKey(project_id) {
+  return normalizeAlertKeyPart(project_id) || 'unknown-project';
+}
+
+function cloneJsonSafe(value) {
+  return value && typeof value === 'object'
+    ? JSON.parse(JSON.stringify(value))
+    : value;
+}
+
+function buildAlertBadge(project_id, payload = {}) {
+  const alertType = payload.alert_type || ALERT_TYPES.FACTORY_IDLE;
+  return {
+    project_id: alertProjectKey(project_id),
+    alert_type: alertType,
+    alert_key: payload.alert_key || dedupeAlertKey(alertType, { project_id }),
+    dedupe_key: payload.dedupe_key || payload.alert_key || dedupeAlertKey(alertType, { project_id }),
+    label: ALERT_BADGE_LABELS[alertType] || alertType,
+    priority: ALERT_BADGE_PRIORITY[alertType] || 0,
+    active: true,
+    details: cloneJsonSafe(payload) || {},
+  };
+}
+
+function setFactoryAlertBadge(project_id, payload = {}) {
+  const projectKey = alertProjectKey(project_id);
+  const alertType = payload.alert_type || ALERT_TYPES.FACTORY_IDLE;
+  const badges = factoryAlertBadges.get(projectKey) || new Map();
+  badges.set(alertType, buildAlertBadge(projectKey, payload));
+  factoryAlertBadges.set(projectKey, badges);
+}
+
+function clearFactoryAlertBadge({ project_id, alert_type } = {}) {
+  const projectKey = normalizeAlertKeyPart(project_id);
+  if (!projectKey) {
+    if (!alert_type) {
+      factoryAlertBadges.clear();
+      return;
+    }
+    for (const [key, badges] of factoryAlertBadges.entries()) {
+      badges.delete(alert_type);
+      if (badges.size === 0) {
+        factoryAlertBadges.delete(key);
+      }
+    }
+    return;
+  }
+
+  if (!alert_type) {
+    factoryAlertBadges.delete(projectKey);
+    return;
+  }
+
+  const badges = factoryAlertBadges.get(projectKey);
+  if (!badges) return;
+  badges.delete(alert_type);
+  if (badges.size === 0) {
+    factoryAlertBadges.delete(projectKey);
+  }
+}
+
+function getFactoryAlertBadge({ project_id } = {}) {
+  const badges = factoryAlertBadges.get(alertProjectKey(project_id));
+  if (!badges || badges.size === 0) return null;
+
+  const ordered = [...badges.values()].sort((left, right) => {
+    if (right.priority !== left.priority) {
+      return right.priority - left.priority;
+    }
+    return String(left.alert_type).localeCompare(String(right.alert_type));
+  });
+  return cloneJsonSafe(ordered[0]);
+}
+
 function clearVerifyFailStreak({ project_id, instance_id } = {}) {
   const projectId = normalizeAlertKeyPart(project_id);
   const instanceId = normalizeAlertKeyPart(instance_id);
   if (!projectId) {
     verifyFailStreaks.clear();
+    clearFactoryAlertBadge({ alert_type: ALERT_TYPES.VERIFY_FAIL_STREAK });
     return;
   }
   if (instanceId) {
     verifyFailStreaks.delete(verifyFailStreakKey({ project_id: projectId, instance_id: instanceId }));
+    clearFactoryAlertBadge({ project_id: projectId, alert_type: ALERT_TYPES.VERIFY_FAIL_STREAK });
     return;
   }
   const prefix = `${projectId}|`;
@@ -63,6 +151,7 @@ function clearVerifyFailStreak({ project_id, instance_id } = {}) {
       verifyFailStreaks.delete(key);
     }
   }
+  clearFactoryAlertBadge({ project_id: projectId, alert_type: ALERT_TYPES.VERIFY_FAIL_STREAK });
 }
 
 function isVerifyFailTerminalResult({ terminal_result, action, reason, auto_rejected } = {}) {
@@ -163,6 +252,7 @@ function recordFactoryTickState({
     || !Number.isFinite(lastActionMs)
   ) {
     factoryStallAlerts.delete(alertKey);
+    clearFactoryAlertBadge({ project_id, alert_type: ALERT_TYPES.FACTORY_STALLED });
     return {
       alert: null,
       alerted: false,
@@ -175,6 +265,7 @@ function recordFactoryTickState({
   const stalledMs = now_ms - lastActionMs;
   if (stalledMs <= threshold_ms) {
     factoryStallAlerts.delete(alertKey);
+    clearFactoryAlertBadge({ project_id, alert_type: ALERT_TYPES.FACTORY_STALLED });
     return {
       alert: null,
       alerted: false,
@@ -220,6 +311,77 @@ function recordFactoryTickState({
   };
 }
 
+function recordFactoryIdleState({
+  project_id,
+  has_pending_work,
+  has_running_item,
+  pending_count,
+  running_count,
+  last_action_at,
+  now_ms = Date.now(),
+  reason = 'pending work exhausted',
+} = {}) {
+  const normalizedPendingCount = Number.isFinite(Number(pending_count))
+    ? Math.max(0, Number(pending_count))
+    : (has_pending_work ? 1 : 0);
+  const normalizedRunningCount = Number.isFinite(Number(running_count))
+    ? Math.max(0, Number(running_count))
+    : (has_running_item ? 1 : 0);
+  const hasPending = has_pending_work === true || normalizedPendingCount > 0;
+  const hasRunning = has_running_item === true || normalizedRunningCount > 0;
+  const alertKey = dedupeAlertKey(ALERT_TYPES.FACTORY_IDLE, { project_id });
+
+  if (hasPending || hasRunning) {
+    factoryIdleAlerts.delete(alertKey);
+    clearFactoryAlertBadge({ project_id, alert_type: ALERT_TYPES.FACTORY_IDLE });
+    return {
+      alert: null,
+      alerted: false,
+      idle: false,
+      pending_count: normalizedPendingCount,
+      running_count: normalizedRunningCount,
+    };
+  }
+
+  if (factoryIdleAlerts.has(alertKey)) {
+    return {
+      alert: null,
+      alerted: false,
+      idle: true,
+      pending_count: 0,
+      running_count: 0,
+      badge: getFactoryAlertBadge({ project_id }),
+    };
+  }
+
+  const lastActionMs = Date.parse(last_action_at || '');
+  const idleMinutes = Number.isFinite(lastActionMs)
+    ? Math.max(0, Math.floor((now_ms - lastActionMs) / (60 * 1000)))
+    : 0;
+  const alert = notifyFactoryIdle({
+    project_id,
+    idle_minutes: idleMinutes,
+    threshold_minutes: 0,
+    last_action_at,
+    reason,
+  });
+
+  factoryIdleAlerts.set(alertKey, [
+    alertProjectKey(project_id),
+    normalizeAlertKeyPart(last_action_at) || '',
+    reason,
+  ].join('|'));
+
+  return {
+    alert,
+    alerted: true,
+    idle: true,
+    pending_count: 0,
+    running_count: 0,
+    badge: getFactoryAlertBadge({ project_id }),
+  };
+}
+
 function notifyFactoryAlert(alert_type, { project_id, data = {}, key_scope = {} } = {}) {
   const alert_key = dedupeAlertKey(alert_type, { project_id, ...key_scope });
   const payload = {
@@ -228,6 +390,7 @@ function notifyFactoryAlert(alert_type, { project_id, data = {}, key_scope = {} 
     alert_key,
     dedupe_key: alert_key,
   };
+  setFactoryAlertBadge(project_id, payload);
 
   notify({
     project_id,
@@ -381,6 +544,8 @@ function stopDigestTimer() {
 function resetAlertRuntimeState() {
   verifyFailStreaks = new Map();
   factoryStallAlerts = new Map();
+  factoryIdleAlerts = new Map();
+  factoryAlertBadges = new Map();
 }
 
 function listChannels() {
@@ -400,6 +565,9 @@ module.exports = {
   notifyFactoryIdle,
   recordVerifyFailTerminalResult,
   recordFactoryTickState,
+  recordFactoryIdleState,
+  getFactoryAlertBadge,
+  clearFactoryAlertBadge,
   getDigest,
   flushAllDigests,
   startDigestTimer,
@@ -409,5 +577,12 @@ module.exports = {
     resetAlertRuntimeState,
     getVerifyFailStreaks: () => new Map(verifyFailStreaks),
     getFactoryStallAlerts: () => new Map(factoryStallAlerts),
+    getFactoryIdleAlerts: () => new Map(factoryIdleAlerts),
+    getFactoryAlertBadges: () => new Map(
+      [...factoryAlertBadges.entries()].map(([projectId, badges]) => [
+        projectId,
+        new Map([...badges.entries()].map(([alertType, badge]) => [alertType, cloneJsonSafe(badge)])),
+      ])
+    ),
   },
 };

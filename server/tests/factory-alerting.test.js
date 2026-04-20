@@ -166,6 +166,81 @@ describe('factory alert notification primitives', () => {
     });
   });
 
+  it('records FACTORY_IDLE once per exhausted queue transition and clears when pending work arrives', () => {
+    const first = notifications.recordFactoryIdleState({
+      project_id: PROJECT_ID,
+      pending_count: 0,
+      running_count: 0,
+      last_action_at: '2026-04-20T12:00:00.000Z',
+      now_ms: Date.parse('2026-04-20T12:08:00.000Z'),
+      reason: 'no_work_item_selected',
+    });
+    const expectedKey = notifications.dedupeAlertKey(
+      notifications.ALERT_TYPES.FACTORY_IDLE,
+      { project_id: PROJECT_ID }
+    );
+
+    expect(first).toMatchObject({
+      alerted: true,
+      idle: true,
+      pending_count: 0,
+      running_count: 0,
+    });
+    expect(first.alert).toMatchObject({
+      alert_type: notifications.ALERT_TYPES.FACTORY_IDLE,
+      idle_minutes: 8,
+      threshold_minutes: 0,
+      reason: 'no_work_item_selected',
+    });
+    expect(notifications.getFactoryAlertBadge({ project_id: PROJECT_ID })).toMatchObject({
+      alert_type: notifications.ALERT_TYPES.FACTORY_IDLE,
+      alert_key: expectedKey,
+      label: 'Factory idle',
+      active: true,
+    });
+    expectAlertDelivery({
+      alert_type: notifications.ALERT_TYPES.FACTORY_IDLE,
+      payload: first.alert,
+      expected_key: expectedKey,
+    });
+
+    const duplicate = notifications.recordFactoryIdleState({
+      project_id: PROJECT_ID,
+      pending_count: 0,
+      running_count: 0,
+      reason: 'no_work_item_selected',
+    });
+    expect(duplicate).toMatchObject({
+      alerted: false,
+      idle: true,
+    });
+    expect(eventBus.emitTaskEvent).toHaveBeenCalledTimes(1);
+
+    const cleared = notifications.recordFactoryIdleState({
+      project_id: PROJECT_ID,
+      pending_count: 1,
+      running_count: 0,
+    });
+    expect(cleared).toMatchObject({
+      alerted: false,
+      idle: false,
+      pending_count: 1,
+    });
+    expect(notifications.getFactoryAlertBadge({ project_id: PROJECT_ID })).toBeNull();
+
+    const afterWorkExhausted = notifications.recordFactoryIdleState({
+      project_id: PROJECT_ID,
+      pending_count: 0,
+      running_count: 0,
+      reason: 'no_work_item_selected',
+    });
+    expect(afterWorkExhausted).toMatchObject({
+      alerted: true,
+      idle: true,
+    });
+    expect(eventBus.emitTaskEvent).toHaveBeenCalledTimes(2);
+  });
+
   it('emits VERIFY_FAIL_STREAK after three consecutive auto-rejected VERIFY_FAIL results and resets on success', () => {
     for (let i = 1; i <= 2; i += 1) {
       const result = notifications.recordVerifyFailTerminalResult({
