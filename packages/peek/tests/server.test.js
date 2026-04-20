@@ -205,6 +205,22 @@ describe('@torque-ai/peek HTTP server', () => {
     expect(phaseThree.status).toBe(501);
   });
 
+  it('returns the planned accessibility API response for POST /snapshot', async () => {
+    const { instance } = await startServer();
+
+    const res = await request(instance, '/snapshot', {
+      method: 'POST',
+      body: { action: 'list' },
+    });
+
+    expect(res.status).toBe(501);
+    expect(res.body).toEqual({
+      success: false,
+      error: 'Snapshot requires platform accessibility API — coming in a future release',
+      phase: 'planned',
+    });
+  });
+
   it('returns 404 for unknown routes', async () => {
     const { instance } = await startServer();
 

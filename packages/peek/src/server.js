@@ -8,6 +8,7 @@ const { createCaptureHandler } = require('./capabilities/capture');
 const { createCompareHandler } = require('./capabilities/compare');
 const { createInteractionHandlers } = require('./capabilities/interact');
 const { createLaunchHandlers } = require('./capabilities/launch');
+const { createSnapshotHandler } = require('./capabilities/snapshot');
 const { createWindowHandlers } = require('./capabilities/windows');
 const { createHealthHandler } = require('./health');
 const { createRouter } = require('./router');
@@ -192,6 +193,10 @@ function createCapabilityHandlers(options = {}) {
 
   if (typeof handlers.compare !== 'function') {
     handlers.compare = createCompareHandler(options.compareOptions || {});
+  }
+
+  if (typeof handlers.snapshot !== 'function') {
+    handlers.snapshot = createSnapshotHandler(options.snapshotOptions || {});
   }
 
   for (const [name, handler] of Object.entries(createInteractionHandlers(adapter))) {
