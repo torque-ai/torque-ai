@@ -15,6 +15,7 @@ function addAwaitRestartRecoveryColumns(db) {
 
   safeAddColumn('tasks', 'cancel_reason TEXT');
   safeAddColumn('tasks', 'server_epoch INTEGER');
+  safeAddColumn('tasks', 'resume_context TEXT');
 }
 
 beforeEach(() => {

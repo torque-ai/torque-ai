@@ -106,6 +106,12 @@ function ensureTestSchema(dbHandle) {
     // Column already exists in this test database variant.
   }
 
+  try {
+    dbHandle.exec(`ALTER TABLE tasks ADD COLUMN resume_context TEXT`);
+  } catch {
+    // Column already exists in this test database variant.
+  }
+
   dbHandle.exec(`
     CREATE TABLE IF NOT EXISTS host_credentials (
       id TEXT PRIMARY KEY,

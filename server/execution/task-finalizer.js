@@ -19,7 +19,7 @@ const { createAdversarialReviewStage } = require('./adversarial-review-stage');
 const { parseDiffusionSignal } = require('../diffusion/signal-parser');
 const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
 const { expandApplyTaskDescription } = require('../diffusion/planner');
-const { buildResumeContext } = require('../utils/resume-context');
+const resumeContextUtils = require('../utils/resume-context');
 const { v4: uuidv4 } = require('uuid');
 
 let deps = {};
@@ -178,7 +178,7 @@ function getDurationMsForScoring(task) {
 
 function buildFailedTaskResumeContext(task, taskOutput, errorOutput, durationMs) {
   try {
-    return buildResumeContext(
+    return resumeContextUtils.buildResumeContext(
       taskOutput || task?.output || '',
       errorOutput || task?.error_output || '',
       {
