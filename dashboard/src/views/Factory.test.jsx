@@ -248,7 +248,14 @@ describe('Factory overview', () => {
     expect(screen.getByLabelText('Factory alert: Verify failures')).toBeInTheDocument();
     expect(screen.getByLabelText('Factory alert: Factory stalled')).toBeInTheDocument();
     expect(screen.getByLabelText('Factory alert: Factory idle')).toBeInTheDocument();
-    expect(screen.getByText('Unkeyed Alert')).toBeInTheDocument();
+    // Each project name renders twice — once in the ProjectCard title, once
+    // in the Active-loops summary list (Overview.jsx:269). Assert the project
+    // card exists without caring which list rendered it.
+    expect(screen.getAllByText('Unkeyed Alert').length).toBeGreaterThan(0);
+    // 'Factory idle' should only appear once: as the badge label on the
+    // keyed idle-alert project. The unkeyed-alert project (alert_type
+    // 'FACTORY_IDLE' with no alert_key) must render no badge, so its
+    // FACTORY_IDLE label does not leak into the document.
     expect(screen.getAllByText('Factory idle')).toHaveLength(1);
   });
 });
