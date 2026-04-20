@@ -15,6 +15,7 @@ const { installProxyAgent } = require('../utils/proxy-agent');
 const providerRegistry = require('./registry');
 const { FREE_PROVIDERS } = require('../execution/queue-scheduler');
 const { safeJsonParse } = require('../utils/json');
+const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 
 // Phase 2: Proxy support for enterprise environments.
@@ -211,6 +212,26 @@ function requeueTaskAfterAttemptedStart(taskId, patch = {}) {
     ollama_host_id: null,
     ...patch,
   });
+}
+
+function buildApiRetryResumeFields(task, providerName, error) {
+  const taskDescription = task?.task_description || '';
+  const errorOutput = `Provider ${providerName} error: ${redactSecrets(error?.message || error || '')}`;
+  const resumeContext = task?.resume_context || buildResumeContext(
+    task?.output || '',
+    errorOutput,
+    {
+      task_description: taskDescription,
+      provider: providerName,
+      started_at: task?.started_at,
+      completed_at: new Date().toISOString(),
+    },
+  );
+  const retryDescription = prependResumeContextToPrompt(taskDescription, resumeContext);
+  return {
+    resume_context: resumeContext,
+    ...(retryDescription && retryDescription !== taskDescription ? { task_description: retryDescription } : {}),
+  };
 }
 
 function getQuotaFallback(task) {
@@ -591,12 +612,14 @@ async function executeApiProvider(task, provider) {
 
     const quotaFallback = getQuotaFallback(currentTask || taskClone);
     if (quotaFallback) {
+      const resumeFields = buildApiRetryResumeFields(currentTask || taskClone, provider.name, err);
       requeueTaskAfterAttemptedStart(taskId, {
         provider: quotaFallback.originalProvider,
         model: null,
         metadata: quotaFallback.metadata,
         output: null,
         error_output: null,
+        ...resumeFields,
       });
       logger.info(`API provider task ${taskId} quota overflow failed, requeued to original provider ${quotaFallback.originalProvider}`, {
         taskId,
@@ -610,12 +633,14 @@ async function executeApiProvider(task, provider) {
 
     const freeProviderRetryFallback = getFreeProviderRetryFallback(currentTask || taskClone);
     if (freeProviderRetryFallback) {
+      const resumeFields = buildApiRetryResumeFields(currentTask || taskClone, provider.name, err);
       requeueTaskAfterAttemptedStart(taskId, {
         provider: freeProviderRetryFallback.targetProvider,
         model: null,
         metadata: freeProviderRetryFallback.metadata,
         output: null,
         error_output: null,
+        ...resumeFields,
       });
       logger.info(`API provider task ${taskId} free-provider failure requeued to ${freeProviderRetryFallback.targetProvider}`, {
         taskId,

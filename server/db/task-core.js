@@ -17,6 +17,7 @@ const fs = require('fs');
 const logger = require('../logger').child({ component: 'task-core' });
 const { safeJsonParse } = require('../utils/json');
 const { normalizeMetadata: normalizeMetadataObject } = require('../utils/normalize-metadata');
+const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { buildTaskFilterConditions, appendWhereClause } = require('./query-filters');
 const { MAX_METADATA_SIZE } = require('../constants');
 const { ErrorCodes } = require('../handlers/error-codes');
@@ -1434,7 +1435,7 @@ function getTaskStatus(taskId) {
  */
 function requeueAfterSlotFailure(taskId, failedProvider, options = {}, getMaxRetriesFn, parseTaskMetaFn) {
   if (!db) return { requeued: false, exhausted: false };
-  const { deferTerminalWrite = false } = options;
+  const { deferTerminalWrite = false, errorOutput = null, output = null } = options;
   const txn = db.transaction(() => {
     const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
     if (!task) {
@@ -1446,6 +1447,18 @@ function requeueAfterSlotFailure(taskId, failedProvider, options = {}, getMaxRet
     meta._provider_retry_counts = retryCounts;
     const maxRetries = getMaxRetriesFn(failedProvider);
     const providerExhausted = retryCounts[failedProvider] >= maxRetries;
+    const resumeContext = task.resume_context || buildResumeContext(
+      output || task.partial_output || task.output || '',
+      errorOutput || task.error_output || `Provider ${failedProvider} failed before slot-pull retry`,
+      {
+        task_description: task.task_description,
+        provider: failedProvider || task.provider,
+        started_at: task.started_at,
+        completed_at: new Date().toISOString(),
+      },
+    );
+    const resumeContextJson = serializeTaskJsonColumnValue(resumeContext);
+    const retryDescription = prependResumeContextToPrompt(task.task_description, resumeContext);
 
     if (providerExhausted) {
       const eligible = (meta.eligible_providers || []).filter(p => p !== failedProvider);
@@ -1461,13 +1474,13 @@ function requeueAfterSlotFailure(taskId, failedProvider, options = {}, getMaxRet
         return { requeued: false, exhausted: true };
       }
       meta.eligible_providers = eligible;
-      db.prepare("UPDATE tasks SET status = 'queued', provider = NULL, metadata = ? WHERE id = ?")
-        .run(JSON.stringify(meta), taskId);
+      db.prepare("UPDATE tasks SET status = 'queued', provider = NULL, metadata = ?, resume_context = ?, task_description = ? WHERE id = ?")
+        .run(JSON.stringify(meta), resumeContextJson, retryDescription, taskId);
       return { requeued: true, exhausted: false, providerExhausted: true };
     }
 
-    db.prepare("UPDATE tasks SET status = 'queued', provider = NULL, metadata = ? WHERE id = ?")
-      .run(JSON.stringify(meta), taskId);
+    db.prepare("UPDATE tasks SET status = 'queued', provider = NULL, metadata = ?, resume_context = ?, task_description = ? WHERE id = ?")
+      .run(JSON.stringify(meta), resumeContextJson, retryDescription, taskId);
     return { requeued: true, exhausted: false, providerExhausted: false };
   });
   return txn();

@@ -14,6 +14,7 @@ const { getFailurePatterns } = require('../../db/validation-rules');
 const taskManager = require('../../task-manager');
 const serverConfig = require('../../config');
 const { safeLimit, ErrorCodes, makeError, requireTask } = require('../shared');
+const { prependResumeContextToPrompt } = require('../../utils/resume-context');
 
 
 // ----- Phase 1: Caching Handlers -----
@@ -788,11 +789,16 @@ function handleRetryWithAdaptation(args) {
   const adaptations = recommendation.adaptations || {};
 
   // Reset task and update
-  taskCore.updateTaskStatus(task_id, 'pending', {
+  const retryFields = {
     output: null,
     error_output: null,
     exit_code: null
-  });
+  };
+  if (task.resume_context) {
+    retryFields.resume_context = task.resume_context;
+    retryFields.task_description = prependResumeContextToPrompt(task.task_description, task.resume_context);
+  }
+  taskCore.updateTaskStatus(task_id, 'pending', retryFields);
 
   // Start task
   const startResult = taskManager.startTask(task_id);

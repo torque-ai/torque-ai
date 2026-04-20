@@ -5,6 +5,8 @@ const MAX_ERROR_LENGTH = 1000;
 const MAX_APPROACH_LENGTH = 500;
 const MAX_COMMANDS = 20;
 const MAX_FILES = 50;
+const RESUME_CONTEXT_HEADING = '## Previous Attempt (failed)';
+const RESUME_CONTEXT_INSTRUCTION = 'Do not repeat the same approach. Fix the error and complete the task.';
 
 const FILE_ACTION_PATTERN = /\b(?:Wrote|Created|Modified|Updated|Edited)\b(?:\s+(?:file|path))?\s*[:\-]?\s*(.+)$/i;
 const MARKDOWN_LINK_PATTERN = /\[([^\]\r\n]+\.[A-Za-z0-9]{1,16})\](?:\([^)]+\))?/g;
@@ -204,11 +206,72 @@ function formatResumeContextForPrompt(resumeContext) {
     `**Error:** ${toText(resumeContext.errorDetails)}`,
     `**Approach taken:** ${toText(resumeContext.approachTaken)}`,
     '',
-    'Do not repeat the same approach. Fix the error and complete the task.',
+    RESUME_CONTEXT_INSTRUCTION,
   ].join('\n');
+}
+
+function parseResumeContextValue(value) {
+  if (!value) return null;
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return null;
+
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function stripExistingResumeContextPreamble(prompt) {
+  const normalized = toText(prompt);
+  const leadingWhitespaceMatch = normalized.match(/^\s*/);
+  const leadingLength = leadingWhitespaceMatch ? leadingWhitespaceMatch[0].length : 0;
+  const body = normalized.slice(leadingLength);
+
+  if (!body.startsWith(RESUME_CONTEXT_HEADING)) {
+    return normalized;
+  }
+
+  const delimiterMatch = /\r?\n\r?\n---\r?\n\r?\n/.exec(body);
+  if (delimiterMatch) {
+    return body.slice(delimiterMatch.index + delimiterMatch[0].length);
+  }
+
+  const instructionIndex = body.indexOf(RESUME_CONTEXT_INSTRUCTION);
+  if (instructionIndex < 0) {
+    return normalized;
+  }
+
+  return body
+    .slice(instructionIndex + RESUME_CONTEXT_INSTRUCTION.length)
+    .replace(/^\s+/, '');
+}
+
+function prependResumeContextToPrompt(prompt, resumeContext, options = {}) {
+  const parsed = parseResumeContextValue(resumeContext);
+  const preamble = formatResumeContextForPrompt(parsed);
+  if (!preamble) {
+    return toText(prompt);
+  }
+
+  const description = options.replaceExisting === false
+    ? toText(prompt)
+    : stripExistingResumeContextPreamble(prompt);
+
+  if (!description.trim()) {
+    return description;
+  }
+
+  const separator = options.separator === false ? '' : (options.separator || '---');
+  const separatorBlock = separator ? `\n\n${separator}\n\n` : '\n\n';
+  return `${preamble}${separatorBlock}${description}`;
 }
 
 module.exports = {
   buildResumeContext,
   formatResumeContextForPrompt,
+  prependResumeContextToPrompt,
 };

@@ -28,6 +28,23 @@ function getCommitMutex() {
 const { handlePeekUi } = require('../../plugins/snapscope/handlers/capture');
 const logger = require('../../logger').child({ component: 'workflow-await' });
 const { safeJsonParse } = require('../../utils/json');
+const { buildResumeContext, prependResumeContextToPrompt } = require('../../utils/resume-context');
+
+function buildRestartResumeContext(task, errorOutputOverride = null) {
+  if (task?.resume_context) return task.resume_context;
+
+  return buildResumeContext(
+    task?.partial_output || task?.output || '',
+    errorOutputOverride || task?.error_output || '',
+    {
+      task_description: task?.task_description,
+      provider: task?.provider,
+      duration_ms: task?.started_at && task?.completed_at
+        ? new Date(task.completed_at).getTime() - new Date(task.started_at).getTime()
+        : 0,
+    },
+  );
+}
 
 /**
  * Determine whether verify commands should route through torque-remote.
@@ -694,12 +711,16 @@ async function handleAwaitWorkflow(args) {
         const maxRetries = task.max_retries != null ? task.max_retries : 2;
 
         if (retryCount < maxRetries) {
+          const orphanErrorOutput = `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch}. Requeued.`;
+          const resumeContext = buildRestartResumeContext(task, orphanErrorOutput);
           taskCore.updateTaskStatus(task.id, 'queued', {
-            error_output: `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch}. Requeued.`,
+            error_output: orphanErrorOutput,
             retry_count: retryCount + 1,
             mcp_instance_id: null,
             provider: null,
             ollama_host_id: null,
+            resume_context: resumeContext,
+            task_description: prependResumeContextToPrompt(task.task_description, resumeContext),
           });
           task.status = 'queued';
         } else {
@@ -743,11 +764,12 @@ async function handleAwaitWorkflow(args) {
           restart_resubmit_count: restartCount + 1,
           resubmitted_from: taskId,
         };
+        const resumeContext = buildRestartResumeContext(task);
 
         taskCore.createTask({
           id: newTaskId,
           status: 'pending',
-          task_description: task.task_description,
+          task_description: prependResumeContextToPrompt(task.task_description, resumeContext),
           provider: task.provider,
           model: task.model,
           working_directory: task.working_directory,
@@ -756,6 +778,7 @@ async function handleAwaitWorkflow(args) {
           workflow_id: task.workflow_id,
           workflow_node_id: task.workflow_node_id,
           original_provider: task.original_provider,
+          resume_context: resumeContext,
           metadata: newMeta,
         });
 
@@ -1478,11 +1501,12 @@ async function handleRestartRecovery(task, args, awaitStartTime, currentEpoch) {
       restart_resubmit_count: restartResubmitCount + 1,
       resubmitted_from: taskId,
     };
+    const resumeContext = buildRestartResumeContext(task);
 
     taskCore.createTask({
       id: newTaskId,
       status: 'pending',
-      task_description: task.task_description,
+      task_description: prependResumeContextToPrompt(task.task_description, resumeContext),
       provider: task.provider,
       model: task.model,
       working_directory: task.working_directory,
@@ -1491,6 +1515,7 @@ async function handleRestartRecovery(task, args, awaitStartTime, currentEpoch) {
       workflow_id: task.workflow_id,
       workflow_node_id: task.workflow_node_id,
       original_provider: task.original_provider,
+      resume_context: resumeContext,
       metadata: newMeta,
     });
 
@@ -1606,12 +1631,16 @@ async function handleAwaitTask(args) {
       const maxRetries = initialTask.max_retries != null ? initialTask.max_retries : 2;
 
       if (retryCount < maxRetries) {
+        const orphanErrorOutput = `Task orphaned — server epoch ${initialTask.server_epoch} < current ${currentEpoch}. Requeued (attempt ${retryCount + 1}/${maxRetries}).`;
+        const resumeContext = buildRestartResumeContext(initialTask, orphanErrorOutput);
         taskCore.updateTaskStatus(taskId, 'queued', {
-          error_output: `Task orphaned — server epoch ${initialTask.server_epoch} < current ${currentEpoch}. Requeued (attempt ${retryCount + 1}/${maxRetries}).`,
+          error_output: orphanErrorOutput,
           retry_count: retryCount + 1,
           mcp_instance_id: null,
           provider: null,
           ollama_host_id: null,
+          resume_context: resumeContext,
+          task_description: prependResumeContextToPrompt(initialTask.task_description, resumeContext),
         });
         // Continue polling — the requeued task will transition to running then completed
       } else {
@@ -1646,12 +1675,16 @@ async function handleAwaitTask(args) {
         const maxRetries = task.max_retries != null ? task.max_retries : 2;
 
         if (retryCount < maxRetries) {
+          const orphanErrorOutput = `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch}. Requeued (attempt ${retryCount + 1}/${maxRetries}).`;
+          const resumeContext = buildRestartResumeContext(task, orphanErrorOutput);
           taskCore.updateTaskStatus(taskId, 'queued', {
-            error_output: `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch}. Requeued (attempt ${retryCount + 1}/${maxRetries}).`,
+            error_output: orphanErrorOutput,
             retry_count: retryCount + 1,
             mcp_instance_id: null,
             provider: null,
             ollama_host_id: null,
+            resume_context: resumeContext,
+            task_description: prependResumeContextToPrompt(task.task_description, resumeContext),
           });
           // Continue polling — the requeued task will transition to running then completed
         } else {

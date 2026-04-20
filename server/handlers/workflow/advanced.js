@@ -12,6 +12,7 @@ const taskManager = require('../../task-manager');
 const logger = require('../../logger').child({ component: 'workflow-advanced' });
 const { ErrorCodes, getWorkflowRestartGuardError, makeError, requireWorkflow, requireTask } = require('../shared');
 const { handleWorkflowTermination } = require('../../execution/workflow-runtime');
+const { prependResumeContextToPrompt } = require('../../utils/resume-context');
 
 /**
  * Fork a workflow into parallel branches
@@ -413,7 +414,17 @@ function handleRetryWorkflowFrom(args) {
     }
     if (taskToReset) {
       const hasDeps = deps.some(d => d.task_id === taskId);
-      taskCore.updateTaskStatus(taskId, hasDeps ? 'blocked' : 'pending');
+      const resumeFields = taskToReset.resume_context
+        ? {
+            resume_context: taskToReset.resume_context,
+            task_description: prependResumeContextToPrompt(taskToReset.task_description, taskToReset.resume_context),
+          }
+        : undefined;
+      if (resumeFields) {
+        taskCore.updateTaskStatus(taskId, hasDeps ? 'blocked' : 'pending', resumeFields);
+      } else {
+        taskCore.updateTaskStatus(taskId, hasDeps ? 'blocked' : 'pending');
+      }
       resetCount++;
     }
   }

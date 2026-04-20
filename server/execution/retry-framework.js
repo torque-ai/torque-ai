@@ -14,11 +14,51 @@
  */
 
 const logger = require('../logger').child({ component: 'retry-framework' });
+const {
+  buildResumeContext,
+  prependResumeContextToPrompt,
+} = require('../utils/resume-context');
 
 let deps = {};
 
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
+}
+
+function getRetryAttemptDurationMs(task) {
+  const startedAt = task?.started_at ? new Date(task.started_at).getTime() : NaN;
+  if (Number.isFinite(startedAt)) {
+    return Math.max(0, Date.now() - startedAt);
+  }
+  return 0;
+}
+
+function sanitizeOutput(text) {
+  return typeof deps.sanitizeTaskOutput === 'function'
+    ? deps.sanitizeTaskOutput(text || '')
+    : (text || '');
+}
+
+function buildRetryResumeFields(task, proc, sanitizedOutput) {
+  try {
+    const resumeContext = buildResumeContext(
+      sanitizedOutput,
+      proc.errorOutput || '',
+      {
+        task_description: task.task_description,
+        durationMs: getRetryAttemptDurationMs(task),
+        provider: task.provider,
+      },
+    );
+    const taskDescription = prependResumeContextToPrompt(task.task_description, resumeContext);
+    return {
+      resume_context: resumeContext,
+      ...(taskDescription !== task.task_description ? { task_description: taskDescription } : {}),
+    };
+  } catch (err) {
+    logger.info(`Failed to build retry resume context for task ${task.id}:`, err.message);
+    return {};
+  }
 }
 
 /**
@@ -52,6 +92,7 @@ function handleRetryLogic(ctx) {
   const delayMs = deps.db.calculateRetryDelay(task) * 1000;
 
   logger.info(`Task ${taskId} will retry in ${delayMs/1000}s (attempt ${retryInfo.retryCount}/${retryInfo.maxRetries}): ${errorClassification.reason}`);
+  const sanitizedOutput = sanitizeOutput(proc.output);
 
   // Record retry attempt
   try {
@@ -69,8 +110,9 @@ function handleRetryLogic(ctx) {
   if (deps.taskCleanupGuard) deps.taskCleanupGuard.delete(taskId);
   deps.db.updateTaskStatus(taskId, 'retry_scheduled', {
     exit_code: code,
-    output: deps.sanitizeTaskOutput(proc.output),
-    error_output: `[Retry ${retryInfo.retryCount}/${retryInfo.maxRetries} - ${errorClassification.reason}] ${proc.errorOutput}`
+    output: sanitizedOutput,
+    error_output: `[Retry ${retryInfo.retryCount}/${retryInfo.maxRetries} - ${errorClassification.reason}] ${proc.errorOutput}`,
+    ...buildRetryResumeFields(task, proc, sanitizedOutput),
   });
 
   // Push MCP SSE notification for retry event

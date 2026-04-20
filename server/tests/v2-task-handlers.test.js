@@ -868,6 +868,7 @@ describe('api/v2-task-handlers.handleRetryTask', () => {
         // Smart-routed tasks (no user_provider_override) get intended_provider: null
         // so routing re-evaluates on retry
         metadata: '{"retry_of":"failed-task","intended_provider":null}',
+        resume_context: null,
       });
       expect(mockTaskManager.startTask).toHaveBeenCalledWith('retry-task-1');
       expect(emitTaskUpdatedSpy).toHaveBeenCalledWith({

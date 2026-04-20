@@ -435,7 +435,10 @@ describe('Close Phases', () => {
 
         closePhases.handleProviderFailover(ctx);
 
-        expect(requeueAfterFailure).toHaveBeenCalledWith('task-001', 'codex', { deferTerminalWrite: true });
+        expect(requeueAfterFailure).toHaveBeenCalledWith('task-001', 'codex', expect.objectContaining({
+          deferTerminalWrite: true,
+          errorOutput: 'Rate limit exceeded',
+        }));
         expect(mockDb.isProviderQuotaError).not.toHaveBeenCalled();
         expect(mocks.tryLocalFirstFallback).not.toHaveBeenCalled();
         expect(mocks.tryHashlineTieredFallback).not.toHaveBeenCalled();

@@ -438,7 +438,8 @@ describe('startup-task-reconciler — drain-cancelled tasks', () => {
     expect(clone.status).toBe('queued');
     expect(clone.workflow_id).toBe(wfId);
     expect(clone.workflow_node_id).toBe('feature_x');
-    expect(clone.task_description).toBe('Implement feature X');
+    expect(clone.task_description.startsWith('## Previous Attempt (failed)')).toBe(true);
+    expect(clone.task_description).toContain('Implement feature X');
   });
 
   test('does NOT clone a drain-cancelled task whose workflow is already terminal', () => {

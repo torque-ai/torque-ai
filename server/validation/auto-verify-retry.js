@@ -18,7 +18,7 @@ const logger = require('../logger').child({ component: 'auto-verify-retry' });
 const serverConfig = require('../config');
 const { createTestRunnerRegistry } = require('../test-runner-registry');
 const { buildErrorFeedbackPrompt } = require('../utils/context-enrichment');
-const { buildResumeContext, formatResumeContextForPrompt } = require('../utils/resume-context');
+const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { extractBuildErrorFiles } = require('./post-task');
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { checkResourceGate } = require('../utils/resource-gate');
@@ -551,25 +551,23 @@ async function handleAutoVerifyRetry(ctx) {
   }
 
   // Inject resume context from failed task (if available)
-  let resumePreamble = '';
+  let resumeContextForPrompt = null;
   try {
     const failedTask = typeof _db?.getTask === 'function' ? _db.getTask(taskId) : task;
     if (failedTask && failedTask.resume_context) {
-      const parsed = typeof failedTask.resume_context === 'string'
+      resumeContextForPrompt = typeof failedTask.resume_context === 'string'
         ? JSON.parse(failedTask.resume_context)
         : failedTask.resume_context;
-      resumePreamble = formatResumeContextForPrompt(parsed);
     } else if (failedTask) {
-      const resumeContext = buildResumeContext(
+      resumeContextForPrompt = buildResumeContext(
         failedTask.output || '',
         errorOutput || '',
         { task_description: failedTask.task_description, provider: failedTask.provider },
       );
-      resumePreamble = formatResumeContextForPrompt(resumeContext);
     }
   } catch (_) { /* resume context injection is best-effort */ }
-  if (resumePreamble) {
-    fixDescription = `${resumePreamble}\n\n---\n\n${fixDescription}`;
+  if (resumeContextForPrompt) {
+    fixDescription = prependResumeContextToPrompt(fixDescription, resumeContextForPrompt);
   }
 
   // Create fix task
@@ -587,6 +585,7 @@ async function handleAutoVerifyRetry(ctx) {
       timeout_minutes: task.timeout_minutes || 30,
       status: 'queued',
       project: project,
+      resume_context: resumeContextForPrompt || null,
       metadata: JSON.stringify({ auto_verify_fix_for: taskId, intended_provider: task.provider }),
     });
 

@@ -5,6 +5,7 @@
 const projectConfigCore = require('../../db/project-config-core');
 const taskCore = require('../../db/task-core');
 const { isPathTraversalSafe, makeError, ErrorCodes } = require('../shared');
+const { prependResumeContextToPrompt } = require('../../utils/resume-context');
 
 // ============================================
 // Plan Project Handlers
@@ -304,10 +305,20 @@ function handleRetryPlanProject(args) {
   // First, retry failed tasks
   for (const task of tasks) {
     if (task.status === 'failed') {
+      const failedTask = typeof taskCore.getTask === 'function'
+        ? taskCore.getTask(task.task_id)
+        : null;
+      const resumeFields = failedTask?.resume_context
+        ? {
+            resume_context: failedTask.resume_context,
+            task_description: prependResumeContextToPrompt(failedTask.task_description, failedTask.resume_context),
+          }
+        : {};
       taskCore.updateTaskStatus(task.task_id, 'queued', {
         error_output: null,
         started_at: null,
-        completed_at: null
+        completed_at: null,
+        ...resumeFields,
       });
       retried++;
     }

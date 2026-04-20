@@ -1,7 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { buildResumeContext } = require('../utils/resume-context');
+const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const defaultLogger = require('../logger').child({ component: 'startup-task-reconciler' });
 
 function getDbHandle(db) {
@@ -160,7 +160,7 @@ function createClone({ original, metadata, resumeContext, taskCore, rawDb }) {
   taskCore.createTask({
     id: newId,
     status: 'queued',
-    task_description: original.task_description,
+    task_description: prependResumeContextToPrompt(original.task_description, resumeContext),
     provider: original.original_provider || original.provider,
     model: original.model,
     working_directory: original.working_directory,

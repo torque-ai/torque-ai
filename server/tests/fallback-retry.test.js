@@ -102,6 +102,7 @@ function createTask(overrides = {}) {
     working_directory: overrides.working_directory || testDir,
     ollama_host_id: overrides.ollama_host_id || null,
     metadata: overrides.metadata || null,
+    resume_context: overrides.resume_context || null,
   });
 
   const postCreateUpdates = {};
@@ -481,6 +482,32 @@ describe('fallback-retry module', () => {
       expect(ok).toBe(true);
       expect(taskCore.getTask(task.id).retry_count).toBe(8);
       expect(taskCore.getTask(task.id).error_output).toContain('[Ollama→Cloud]');
+    });
+
+    it('prepends resume context when cloud fallback requeues a retry prompt', () => {
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
+
+      const task = createTask({
+        provider: 'ollama',
+        task_description: 'Complete the original task',
+        resume_context: {
+          provider: 'ollama',
+          durationMs: 1200,
+          filesModified: ['server/retry-target.js'],
+          progressSummary: 'updated retry target',
+          errorDetails: 'OOM',
+          approachTaken: 'tried local model',
+        },
+      });
+      const ok = mod.tryOllamaCloudFallback(task.id, task, 'OOM error');
+
+      expect(ok).toBe(true);
+      const updated = taskCore.getTask(task.id);
+      expect(updated.task_description.startsWith('## Previous Attempt (failed)')).toBe(true);
+      expect(updated.task_description).toContain('**Files modified:** server/retry-target.js');
+      expect(updated.task_description).toContain('Complete the original task');
     });
 
     it('skips quota-exhausted cloud providers and selects the next available candidate', () => {

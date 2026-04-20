@@ -272,10 +272,11 @@ describe('workflow-await handlers with DB-backed state', () => {
 
       expect(replacementId).toBeTruthy();
       expect(replacementTask).toMatchObject({
-        task_description: originalTask.task_description,
         workflow_id: null,
         workflow_node_id: null,
       });
+      expect(replacementTask.task_description.startsWith('## Previous Attempt (failed)')).toBe(true);
+      expect(replacementTask.task_description).toContain(originalTask.task_description);
       expect(replacementTask.metadata.resubmitted_from).toBe(taskId);
       expect(replacementTask.metadata.restart_resubmit_count).toBe(1);
 

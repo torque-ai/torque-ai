@@ -369,6 +369,7 @@ describe('handlers/task/pipeline', () => {
         priority: 7,
         template_name: 'verify-template',
         context: { retry_of: failedTaskId },
+        resume_context: null,
       });
       expect(mocks.db.recordEvent).toHaveBeenCalledWith('task_retried', retryTaskId, {
         original_task: failedTaskId,
@@ -376,6 +377,40 @@ describe('handlers/task/pipeline', () => {
       expect(mocks.taskManager.startTask).toHaveBeenCalledWith(retryTaskId);
       expect(textOf(result)).toContain(`Retry task started (ID: ${retryTaskId})`);
       expect(textOf(result)).toContain('Original: 11111111...');
+    });
+
+    it('prepends resume context when cloning failed tasks for retry', () => {
+      const failedTaskId = '55555555-5555-5555-5555-555555555555';
+      const retryTaskId = '66666666-6666-6666-6666-666666666666';
+      const resumeContext = {
+        provider: 'codex',
+        durationMs: 4200,
+        filesModified: ['server/retry-target.js'],
+        progressSummary: 'patched retry target',
+        errorDetails: 'verify failed',
+        approachTaken: 'edited target',
+      };
+      const { handlers, mocks } = loadHandlers({
+        uuidValues: [retryTaskId],
+        dbOptions: {
+          tasks: {
+            [failedTaskId]: makeTask({
+              id: failedTaskId,
+              status: 'failed',
+              task_description: 'npm run verify',
+              resume_context: JSON.stringify(resumeContext),
+            }),
+          },
+        },
+      });
+
+      handlers.handleRetryTask({ task_id: failedTaskId });
+
+      const createdTask = mocks.db.createTask.mock.calls[0][0];
+      expect(createdTask.task_description.startsWith('## Previous Attempt (failed)')).toBe(true);
+      expect(createdTask.task_description).toContain('**Files modified:** server/retry-target.js');
+      expect(createdTask.task_description).toContain('\n\n---\n\nnpm run verify');
+      expect(createdTask.resume_context).toBe(JSON.stringify(resumeContext));
     });
 
     it('uses modified_task text and queued messaging when retrying cancelled tasks', () => {

@@ -1,7 +1,11 @@
 'use strict';
 /* global describe, it, expect */
 
-const { buildResumeContext, formatResumeContextForPrompt } = require('../utils/resume-context');
+const {
+  buildResumeContext,
+  formatResumeContextForPrompt,
+  prependResumeContextToPrompt,
+} = require('../utils/resume-context');
 
 describe('resume-context', () => {
   it('extracts files from Wrote output', () => {
@@ -143,5 +147,45 @@ describe('resume-context', () => {
     expect(context.commandsRun.length).toBe(20);
     expect(context.commandsRun[0]).toBe('npx vitest run test-0.test.js');
     expect(context.commandsRun[19]).toBe('npx vitest run test-19.test.js');
+  });
+
+  it('prepends formatted resume context to retry prompts', () => {
+    const prompt = prependResumeContextToPrompt('Retry the task', {
+      provider: 'codex',
+      durationMs: 2500,
+      filesModified: ['server/foo.js'],
+      progressSummary: 'made progress',
+      errorDetails: 'failed at lint',
+      approachTaken: 'edited foo',
+    });
+
+    expect(prompt.startsWith('## Previous Attempt (failed)')).toBe(true);
+    expect(prompt).toContain('**Provider:** codex | **Duration:** 2.5s');
+    expect(prompt).toContain('\n\n---\n\nRetry the task');
+  });
+
+  it('replaces an existing resume preamble instead of duplicating it', () => {
+    const first = prependResumeContextToPrompt('Retry the task', {
+      provider: 'codex',
+      durationMs: 1000,
+      filesModified: [],
+      progressSummary: 'old progress',
+      errorDetails: 'old error',
+      approachTaken: 'old approach',
+    });
+    const second = prependResumeContextToPrompt(first, {
+      provider: 'deepinfra',
+      durationMs: 2000,
+      filesModified: ['server/bar.js'],
+      progressSummary: 'new progress',
+      errorDetails: 'new error',
+      approachTaken: 'new approach',
+    });
+
+    expect(second.match(/## Previous Attempt \(failed\)/g)).toHaveLength(1);
+    expect(second).toContain('**Provider:** deepinfra | **Duration:** 2s');
+    expect(second).toContain('new error');
+    expect(second).not.toContain('old error');
+    expect(second).toContain('\n\n---\n\nRetry the task');
   });
 });

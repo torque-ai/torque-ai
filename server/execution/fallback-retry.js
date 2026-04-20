@@ -18,7 +18,7 @@ const serverConfig = require('../config');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
 const { safeJsonParse } = require('../utils/json');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
-const { formatResumeContextForPrompt } = require('../utils/resume-context');
+const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 
 const BASE_RETRY_DELAY_MS = 5000;   // 5 seconds for first retry
 const MAX_RETRY_DELAY_MS = 120000;  // 2 minutes max
@@ -55,6 +55,41 @@ function scheduleProcessQueue(task = null) {
     _pendingProcessQueueTimer = null;
     if (_processQueue) _processQueue();
   }, getRetryDelayMs(task));
+}
+
+function getResumeContextForFallback(task, fields = {}) {
+  if (task?.resume_context) {
+    return task.resume_context;
+  }
+
+  const output = fields.output ?? task?.output ?? task?.partial_output ?? '';
+  const errorOutput = fields.error_output ?? task?.error_output ?? '';
+  if (!output && !errorOutput) {
+    return null;
+  }
+
+  return buildResumeContext(output, errorOutput, {
+    task_description: task?.task_description,
+    provider: task?.provider,
+    started_at: task?.started_at,
+    completed_at: new Date().toISOString(),
+  });
+}
+
+function withResumeContextPrompt(task, fields = {}) {
+  try {
+    const resumeContext = getResumeContextForFallback(task, fields);
+    const taskDescription = prependResumeContextToPrompt(task?.task_description, resumeContext);
+    if (taskDescription && taskDescription !== task?.task_description) {
+      return { ...fields, resume_context: resumeContext, task_description: taskDescription };
+    }
+    if (resumeContext) {
+      return { ...fields, resume_context: resumeContext };
+    }
+  } catch (err) {
+    logger.info(`[FallbackRetry] Resume context prompt injection skipped for task ${task?.id || 'unknown'}: ${err.message}`);
+  }
+  return fields;
 }
 
 /**
@@ -151,7 +186,7 @@ function tryOllamaCloudFallback(taskId, task, errorMsg) {
 
   logger.info(`[Ollama→Cloud] Falling back to ${fallbackProvider} for task ${taskId}`);
   db.recordFailoverEvent({ task_id: taskId, from_provider: task.provider, to_provider: fallbackProvider, reason: errorMsg, failover_type: 'provider' });
-  db.updateTaskStatus(taskId, 'queued', {
+  db.updateTaskStatus(taskId, 'queued', withResumeContextPrompt(task, {
     provider: fallbackProvider,
     model: null,
     started_at: null,
@@ -160,7 +195,7 @@ function tryOllamaCloudFallback(taskId, task, errorMsg) {
     ollama_host_id: null,
     retry_count: (task.retry_count || 0) + 1,
     error_output: `[Ollama→Cloud] ${errorMsg}\nFalling back to ${fallbackProvider}`
-  });
+  }));
   try {
     const { dispatchTaskEvent } = require('../hooks/event-dispatch');
     const updatedTask = db.getTask(taskId);
@@ -238,7 +273,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
       if (otherHost) {
         logger.info(`[Local-First] Task ${taskId}: trying same model ${currentModel} on different host ${otherHost.name || otherHost.id}`);
         db.recordFailoverEvent({ task_id: taskId, from_host: currentHost, to_host: otherHost.name || otherHost.id, from_model: currentModel, to_model: currentModel, reason: errorMsg, failover_type: 'host', attempt_num: localAttempts + 1 });
-        db.updateTaskStatus(taskId, 'queued', {
+        db.updateTaskStatus(taskId, 'queued', withResumeContextPrompt(task, {
           provider: currentProvider,
           model: currentModel,
           ollama_host_id: otherHost.id,
@@ -247,7 +282,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
           progress_percent: 0,
           metadata: JSON.stringify(metadata),
           error_output: priorErrors + `\n[Local-First] Trying ${currentModel} on host ${otherHost.name || otherHost.id}\n`
-        });
+        }));
         if (dashboard) dashboard.notifyTaskUpdated(taskId);
         _processQueue();
         return true;
@@ -285,7 +320,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
         const hostId = nextModel.hostId;
         logger.info(`[Local-First] Task ${taskId}: trying different model ${nextModel.name} on host ${nextModel.hosts[0]?.name || 'any'}`);
         db.recordFailoverEvent({ task_id: taskId, from_model: currentModel, to_model: nextModel.name, reason: errorMsg, failover_type: 'model', attempt_num: localAttempts + 1 });
-        db.updateTaskStatus(taskId, 'queued', {
+        db.updateTaskStatus(taskId, 'queued', withResumeContextPrompt(task, {
           provider: currentProvider,
           model: nextModel.name,
           ollama_host_id: hostId,
@@ -294,7 +329,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
           progress_percent: 0,
           metadata: JSON.stringify(metadata),
           error_output: priorErrors + `\n[Local-First] Trying model ${nextModel.name}\n`
-        });
+        }));
         if (dashboard) dashboard.notifyTaskUpdated(taskId);
         _processQueue();
         return true;
@@ -322,7 +357,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
     const nextProvider = untriedProviders[0];
     logger.info(`[Local-First] Task ${taskId}: trying different local provider ${nextProvider}`);
     db.recordFailoverEvent({ task_id: taskId, from_provider: currentProvider, to_provider: nextProvider, reason: errorMsg, failover_type: 'provider', attempt_num: localAttempts + 1 });
-    db.updateTaskStatus(taskId, 'queued', {
+    db.updateTaskStatus(taskId, 'queued', withResumeContextPrompt(task, {
       provider: nextProvider,
       model: currentModel,
       ollama_host_id: null,
@@ -331,7 +366,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
       progress_percent: 0,
       metadata: JSON.stringify(metadata),
       error_output: priorErrors + `\n[Local-First] Trying provider ${nextProvider}\n`
-    });
+    }));
     try {
       const { dispatchTaskEvent } = require('../hooks/event-dispatch');
       const updatedTask = db.getTask(taskId);
@@ -470,17 +505,7 @@ function tryStallRecovery(taskId, activity) {
     updateFields.metadata = JSON.stringify(metadata);
   }
 
-  // Inject resume context from previous attempt into task description
-  try {
-    const resumeJson = task.resume_context;
-    if (resumeJson) {
-      const parsed = typeof resumeJson === 'string' ? JSON.parse(resumeJson) : resumeJson;
-      const preamble = formatResumeContextForPrompt(parsed);
-      if (preamble && task.task_description) {
-        updateFields.task_description = preamble + '\n\n---\n\n' + task.task_description;
-      }
-    }
-  } catch { /* resume context injection is best-effort */ }
+  Object.assign(updateFields, withResumeContextPrompt(task));
 
   try {
     db.updateTaskStatus(taskId, 'queued', updateFields);
@@ -675,13 +700,13 @@ function tryHashlineTieredFallback(taskId, task, reason) {
           if (otherHost) {
             logger.info(`[Hashline-Local] Task ${taskId.slice(0,8)}: trying ${currentModel} on different host ${otherHost.name || otherHost.id}`);
             db.recordFailoverEvent({ task_id: taskId, from_host: currentHost, to_host: otherHost.name || otherHost.id, from_model: currentModel, to_model: currentModel, reason, failover_type: 'host', attempt_num: localAttempts + 1 });
-            db.updateTaskStatus(taskId, 'queued', {
+            db.updateTaskStatus(taskId, 'queued', withResumeContextPrompt(task, {
               provider: 'ollama',
               model: currentModel,
               ollama_host_id: otherHost.id,
               pid: null, started_at: null,
               error_output: priorErrors + `\n[Hashline-Local] Trying ${currentModel} on host ${otherHost.name || otherHost.id}`
-            });
+            }));
             if (dashboard) dashboard.notifyTaskUpdated(taskId);
             scheduleProcessQueue(task);
             return true;
@@ -696,13 +721,13 @@ function tryHashlineTieredFallback(taskId, task, reason) {
       if (nextModel) {
         logger.info(`[Hashline-Local] Task ${taskId.slice(0,8)}: upgrading from ${currentModel} to ${nextModel.name}`);
         db.recordFailoverEvent({ task_id: taskId, from_model: currentModel, to_model: nextModel.name, reason, failover_type: 'model', attempt_num: localAttempts + 1 });
-        db.updateTaskStatus(taskId, 'queued', {
+        db.updateTaskStatus(taskId, 'queued', withResumeContextPrompt(task, {
           provider: 'ollama',
           model: nextModel.name,
           ollama_host_id: nextModel.hostId,
           pid: null, started_at: null,
           error_output: priorErrors + `\n[Hashline-Local] Trying model ${nextModel.name}`
-        });
+        }));
         if (dashboard) dashboard.notifyTaskUpdated(taskId);
         scheduleProcessQueue(task);
         return true;
@@ -734,12 +759,12 @@ function tryHashlineTieredFallback(taskId, task, reason) {
   }
   logger.info(`[HashlineFallback] Escalating task ${taskId.slice(0,8)} to codex: ${reason}`);
   db.recordFailoverEvent({ task_id: taskId, from_provider: currentProvider, to_provider: 'codex', reason, failover_type: 'provider' });
-  db.updateTaskStatus(taskId, 'queued', {
+  db.updateTaskStatus(taskId, 'queued', withResumeContextPrompt(task, {
     provider: 'codex',
     _provider_switch_reason: reason,
     pid: null, started_at: null, ollama_host_id: null, model: null,
     error_output: (task.error_output || '') + `\nEscalated from ${currentProvider}: ${reason}`
-  });
+  }));
   try {
     const { dispatchTaskEvent } = require('../hooks/event-dispatch');
     const updatedTask = db.getTask(taskId);

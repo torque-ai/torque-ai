@@ -20,6 +20,7 @@ const taskMetadata = require('../../db/task-metadata');
 const taskManager = require('../../task-manager');
 const logger = require('../../logger').child({ component: 'task-handlers' });
 const { TASK_TIMEOUTS } = require('../../constants');
+const { prependResumeContextToPrompt } = require('../../utils/resume-context');
 const { escapeRegExp, safeLimit,
         MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_TASK_LENGTH, MAX_BATCH_SIZE, ErrorCodes, makeError, requireTask } = require('../shared');
 const { formatTime } = require('./utils');
@@ -458,15 +459,12 @@ function handleRetryTask(args) {
 
   const taskId = uuidv4();
   let taskDescription = args.modified_task || originalTask.task_description;
+  const resumeJson = originalTaskWithContext.resume_context || originalTask.resume_context;
 
   // Inject resume context from the failed original task
   try {
-    const resumeJson = originalTaskWithContext.resume_context || originalTask.resume_context;
     if (resumeJson && !args.modified_task) { // Don't override user-provided modified_task
-      const { formatResumeContextForPrompt } = require('../../utils/resume-context');
-      const parsed = typeof resumeJson === 'string' ? JSON.parse(resumeJson) : resumeJson;
-      const preamble = formatResumeContextForPrompt(parsed);
-      if (preamble) taskDescription = preamble + '\n\n' + taskDescription;
+      taskDescription = prependResumeContextToPrompt(taskDescription, resumeJson);
     }
   } catch { /* resume context injection is best-effort */ }
 
@@ -480,6 +478,7 @@ function handleRetryTask(args) {
     priority: (originalTask.priority ?? 0) + 1, // Slightly higher priority for retries
     template_name: originalTask.template_name,
     context: { retry_of: args.task_id },
+    resume_context: resumeJson || null,
   };
   const governanceTask = {
     ...retryTask,

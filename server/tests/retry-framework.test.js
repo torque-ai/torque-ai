@@ -203,6 +203,37 @@ describe('retry-framework', () => {
     timeoutSpy.mockRestore();
   });
 
+  it('stores resume context and prepends it to the next retry prompt', () => {
+    scenario = createScenario({
+      task: {
+        task_description: 'Fix retry prompt handling',
+        started_at: new Date(Date.now() - 3000).toISOString(),
+      },
+      proc: {
+        output: 'Wrote server/retry-target.js\n$ npm run lint\nError: failed',
+        errorOutput: 'TypeError: retry failed',
+      },
+    });
+
+    retryFramework.handleRetryLogic(scenario.ctx);
+
+    const retryScheduledCall = scenario.deps.db.updateTaskStatus.mock.calls.find(
+      (call) => call[1] === 'retry_scheduled',
+    );
+    const retryFields = retryScheduledCall[2];
+
+    expect(retryFields.resume_context).toMatchObject({
+      goal: 'Fix retry prompt handling',
+      provider: 'ollama',
+      filesModified: ['server/retry-target.js'],
+      commandsRun: ['npm run lint'],
+      errorDetails: 'TypeError: retry failed',
+    });
+    expect(retryFields.task_description.startsWith('## Previous Attempt (failed)')).toBe(true);
+    expect(retryFields.task_description).toContain('Fix retry prompt handling');
+    expect(scenario.state.task.task_description).toBe(retryFields.task_description);
+  });
+
   it('preserves fallback-provider state in retry notifications and webhooks', () => {
     scenario = createScenario({
       task: {
