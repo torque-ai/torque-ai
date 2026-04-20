@@ -94,7 +94,7 @@ git commit -m "security: auto-generate API key on first startup"
 - Modify: `server/mcp-protocol.js`
 - Modify: `server/tests/mcp-protocol.test.js`
 
-- [ ] **Step 1: Add auth tests**
+- [x] **Step 1: Add auth tests**
 
 ```js
 describe('authentication', () => {
@@ -118,7 +118,7 @@ describe('authentication', () => {
 });
 ```
 
-- [ ] **Step 2: Add auth check to handleRequest**
+- [x] **Step 2: Add auth check to handleRequest**
 
 In `mcp-protocol.js`, at the top of `handleRequest()`, after the request validation:
 ```js
@@ -128,11 +128,11 @@ if (method !== 'initialize' && method !== 'notifications/initialized' && !sessio
 }
 ```
 
-- [ ] **Step 3: Update existing tests** — add `authenticated: true` to all existing test sessions
+- [x] **Step 3: Update existing tests** — add `authenticated: true` to all existing test sessions
 
-- [ ] **Step 4: Verify syntax** — `node --check server/mcp-protocol.js`
+- [x] **Step 4: Verify syntax** — `node --check server/mcp-protocol.js`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: enforce auth in mcp-protocol.js — reject unauthenticated sessions"
