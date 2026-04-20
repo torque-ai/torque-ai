@@ -13,6 +13,23 @@ BRANCH="feat/${SAFE_NAME}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 WORKTREE_DIR="${REPO_ROOT}/.worktrees/feat-${SAFE_NAME}"
 
+# Refuse names whose worktree leaf would match FACTORY_LEAF_PREFIX
+# ('feat-factory-') in server/factory/worktree-reconcile.js. The factory
+# tick treats any .worktrees/feat-factory-* dir it doesn't own as a
+# reclaimable orphan and force-deletes it every ~5 minutes — observed
+# 2026-04-20 when a manual worktree named feat-factory-* vanished
+# twice in a row before this guard existed.
+case "$SAFE_NAME" in
+  factory-*)
+    echo "ERROR: feature name '${SAFE_NAME}' starts with 'factory-'." >&2
+    echo "  The resulting worktree dir (.worktrees/feat-factory-*) matches" >&2
+    echo "  FACTORY_LEAF_PREFIX in server/factory/worktree-reconcile.js." >&2
+    echo "  The factory-tick reconciler would treat it as an orphan and" >&2
+    echo "  force-delete it every ~5 minutes. Pick a different name." >&2
+    exit 1
+    ;;
+esac
+
 if [ -d "$WORKTREE_DIR" ]; then
   echo "ERROR: Worktree already exists at ${WORKTREE_DIR}"
   echo "To remove: git worktree remove ${WORKTREE_DIR}"
