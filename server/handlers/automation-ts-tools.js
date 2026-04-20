@@ -1,11 +1,11 @@
 /**
- * TypeScript structural tools.
- * Extracted from automation-handlers.js — Part 2 decomposition.
+ * Project-agnostic TypeScript structural automation tools.
+ * Extracted from automation-handlers.js during handler decomposition.
  *
  * Contains:
  * - Universal TS tools: add_ts_interface_members, inject_class_dependency, etc.
  * - Semantic TS tools: add_ts_method_to_class, replace_ts_method_body, add_import_statement
- * - Validation/audit: normalize_interface_formatting
+ * - Formatting tools: normalize_interface_formatting
  */
 
 const path = require('path');
