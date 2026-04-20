@@ -7,12 +7,25 @@
  * promoted from queued to running, so the currently-running set can drain and
  * the server can restart cleanly.
  *
+ * Also honors `process._torqueRestartPending`. Restart handlers flip that
+ * flag right before calling `eventBus.emitShutdown` (and often with a
+ * `RESTART_RESPONSE_GRACE_MS` delay before the shutdown actually fires).
+ * Without the flag check, the scheduler could tick between "barrier marked
+ * completed" and "shutdown actually kills subprocesses" — promoting queued
+ * tasks that then get cancelled mid-spawn. The flag closes that window at
+ * every call site, regardless of DB state.
+ *
  * Returns the barrier task row ({ id, ... }) if one is active, or null.
+ * When only the in-memory flag is set (no DB row), returns a synthetic
+ * row so callers that log `barrier.id` still have something to log.
  *
  * Prefers `db.prepare(sql).get()` for speed (one indexed query) and falls back
  * to `db.listTasks(...)` for db facades that don't expose raw prepare.
  */
 function isRestartBarrierActive(db) {
+  if (typeof process !== 'undefined' && process._torqueRestartPending) {
+    return { id: 'restart-pending-flag', provider: 'system', status: 'pending-shutdown' };
+  }
   if (!db) return null;
   if (typeof db.prepare === 'function') {
     try {
