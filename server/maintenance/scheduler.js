@@ -381,7 +381,7 @@ function runMaintenanceTask(taskType) {
         // Clean up tasks stuck in running/queued state
         // Runs every 5 minutes by default, catches orphaned tasks from crashes/restarts
         const staleRunningMin = serverConfig.getInt('stale_running_minutes', 60);
-        const staleQueuedMin = serverConfig.getInt('stale_queued_minutes', 1440);
+        const staleQueuedMin = serverConfig.getInt('stale_queued_minutes', 120);
         const result = db.cleanupStaleTasks(staleRunningMin, staleQueuedMin);
         if (result.total > 0) {
           debugLog(`Stale task cleanup: ${result.running_cleaned} running, ${result.queued_cleaned} queued`);

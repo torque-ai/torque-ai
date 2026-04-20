@@ -62,7 +62,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertConfig.run('default_project_max_concurrent', '3');
   insertConfig.run('default_timeout', '30');
   insertConfig.run('stale_running_minutes', '60');
-  insertConfig.run('stale_queued_minutes', '1440');
+  insertConfig.run('stale_queued_minutes', '120');
   insertConfig.run('api_rate_limit', '200');
   insertConfig.run('task_retention_count', '5000');
   insertConfig.run('default_provider', 'ollama');
