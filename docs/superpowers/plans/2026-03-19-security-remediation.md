@@ -26,7 +26,7 @@ ssh user@remote-gpu-host "cmd /c \"cd /path/to\torque-public\server && npx vites
 - Modify: `server/db/config-core.js` (add key generation helper)
 - Create: `server/tests/auth-key-generation.test.js`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 ```js
 'use strict';
@@ -53,7 +53,7 @@ describe('API key auto-generation', () => {
 });
 ```
 
-- [ ] **Step 2: Add `ensureApiKey()` to config-core.js**
+- [x] **Step 2: Add `ensureApiKey()` to config-core.js**
 
 ```js
 function ensureApiKey() {
@@ -71,16 +71,16 @@ function ensureApiKey() {
 
 Export from config-core.js and wire through database.js exports.
 
-- [ ] **Step 3: Call `ensureApiKey()` during database init**
+- [x] **Step 3: Call `ensureApiKey()` during database init**
 
 In `database.js:init()`, after schema setup and `_injectDbAll()`, add:
 ```js
 configCore.ensureApiKey();
 ```
 
-- [ ] **Step 4: Verify syntax** — `node --check server/database.js && node --check server/db/config-core.js`
+- [x] **Step 4: Verify syntax** — `node --check server/database.js && node --check server/db/config-core.js`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: auto-generate API key on first startup"
