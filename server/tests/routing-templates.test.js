@@ -68,6 +68,23 @@ describe('seedPresets', () => {
     expect(tmpl.rules.default).toBeDefined();
   });
 
+  it('Codex Primary routes plan_generation to codex first, not ollama', () => {
+    // Template name and `description` both promise codex primary. Previously the
+    // plan_generation rule put ollama first, so factory plans were written by a
+    // small local model and then rejected by the plan-quality gate — SpudgetBooks
+    // stalled because no plan ever passed and no execute task ever ran.
+    const tmpl = mod.getTemplateByName('Codex Primary');
+    expect(tmpl).not.toBeNull();
+    const chain = Array.isArray(tmpl.rules.plan_generation)
+      ? tmpl.rules.plan_generation
+      : [tmpl.rules.plan_generation];
+    const providers = chain.map((r) => (typeof r === 'string' ? r : r.provider));
+    expect(providers[0]).toBe('codex');
+    expect(providers).not.toEqual(expect.arrayContaining([]));
+    // ollama may remain as a last-resort fallback but must not be first.
+    expect(providers[0]).not.toBe('ollama');
+  });
+
   it('preset IDs follow preset-<filename> convention', () => {
     const tmpl = mod.getTemplate('preset-system-default');
     expect(tmpl).not.toBeNull();
