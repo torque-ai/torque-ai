@@ -16,7 +16,19 @@ function listManagers() {
   return Array.from(adapters.keys());
 }
 
-function detect(_errorOutput) {
+function detect(errorOutput) {
+  if (typeof errorOutput !== 'string' || errorOutput.length === 0) return null;
+  for (const adapter of adapters.values()) {
+    let result;
+    try {
+      result = adapter.detect(errorOutput);
+    } catch (_e) {
+      continue;
+    }
+    if (result && result.detected === true) {
+      return { adapter, ...result };
+    }
+  }
   return null;
 }
 
