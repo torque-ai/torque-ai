@@ -839,6 +839,45 @@ describe('version-control worktree manager (real git integration)', () => {
     expect(manager.getWorktree(created.id)).toBeNull();
   });
 
+  it('mergeWorktree short-circuits with IN_PROGRESS_GIT_OPERATION when the target repo is mid-merge', () => {
+    // Guards the bitsy 2026-04-20 incident: target repo left in UU / mid-
+    // merge state → pre-merge cleanup retries `git commit` forever → 13
+    // "uncommitted changes" errors in 75 minutes. The detector must
+    // short-circuit with a distinct code so LEARN can pause the project
+    // instead of retrying once per minute.
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'conflict branch');
+
+    // Branch ahead of main so we pass the empty-branch guard and actually
+    // reach the merge-target clean check.
+    fs.writeFileSync(path.join(created.worktree_path, 'feature.txt'), 'feature\n');
+    runRealGit(created.worktree_path, ['add', 'feature.txt']);
+    runRealGit(created.worktree_path, ['commit', '-m', 'add feature']);
+
+    // Simulate a mid-merge state on the target repo by writing the
+    // MERGE_HEAD marker git uses when a merge is in progress. No need to
+    // construct a real conflict — the factory's detector checks for the
+    // marker files, which is how `git merge --abort` knows it has something
+    // to abort.
+    const mergeHead = path.join(repoPath, '.git', 'MERGE_HEAD');
+    const headSha = runRealGit(repoPath, ['rev-parse', 'HEAD']).trim();
+    fs.writeFileSync(mergeHead, `${headSha}\n`);
+
+    let caught;
+    try {
+      manager.mergeWorktree(created.id, { deleteAfter: false });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeDefined();
+    expect(caught.code).toBe('IN_PROGRESS_GIT_OPERATION');
+    expect(caught.op).toBe('merge');
+    expect(caught.message).toMatch(/middle of a merge/);
+    // Worktree + branch preserved — operator still has a path to recover.
+    expect(fs.existsSync(created.worktree_path)).toBe(true);
+    expect(branchExists(repoPath, created.branch)).toBe(true);
+  });
+
   it('cleanupWorktree succeeds when the worktree directory is already gone (stale DB row)', () => {
     // Guards the factory's abandon→cleanupWorktree→assertWorktreeIsClean
     // path: when another process or a partial prior cleanup has already

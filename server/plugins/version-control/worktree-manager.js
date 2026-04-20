@@ -434,6 +434,40 @@ function createWorktreeManager({ db } = {}) {
     return output.length > 0;
   }
 
+  function detectInProgressGitOperation(worktreePath) {
+    // Detect mid-merge / mid-rebase / mid-cherry-pick / mid-revert state by
+    // looking for the marker files git writes into the gitdir. When one of
+    // these is active, the pre-merge cleanup path below cannot recover by
+    // committing — the repo is in a half-applied state where `git commit`
+    // refuses until the operator resolves conflicts or aborts. Returns one
+    // of 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null.
+    let gitDir;
+    try {
+      gitDir = String(runGit(worktreePath, ['rev-parse', '--git-dir'])).trim();
+    } catch {
+      return null;
+    }
+    if (!gitDir) return null;
+    if (!path.isAbsolute(gitDir)) {
+      gitDir = path.resolve(worktreePath, gitDir);
+    }
+    const markers = [
+      { op: 'merge', file: 'MERGE_HEAD' },
+      { op: 'cherry-pick', file: 'CHERRY_PICK_HEAD' },
+      { op: 'revert', file: 'REVERT_HEAD' },
+      { op: 'rebase', file: 'rebase-merge' },
+      { op: 'rebase', file: 'rebase-apply' },
+    ];
+    for (const { op, file } of markers) {
+      try {
+        if (fs.existsSync(path.join(gitDir, file))) return op;
+      } catch {
+        // fall through to next marker
+      }
+    }
+    return null;
+  }
+
   function assertWorktreeIsClean(worktreePath, action) {
     // If the worktree path no longer exists on disk, there's nothing to
     // preserve — the cleanup is trivially safe. Without this guard, the
@@ -447,6 +481,28 @@ function createWorktreeManager({ db } = {}) {
     const status = getWorktreeStatusPorcelain(worktreePath);
     if (!status) {
       return;
+    }
+
+    // Short-circuit on in-progress git operations. If the repo is mid-merge,
+    // mid-rebase, mid-cherry-pick, or mid-revert, the pre-merge cleanup path
+    // below will keep throwing generic "uncommitted changes" every loop
+    // iteration because `git commit` refuses to commit while conflict
+    // markers are unresolved. The factory retried this ~1/min against bitsy
+    // master on 2026-04-20 until the operator noticed. Distinct error +
+    // code lets LEARN pause the project immediately. This check runs after
+    // the porcelain check (cheap short-circuit when the repo is clean) but
+    // before renormalize/auto-commit (which would no-op on UU anyway).
+    const inProgressOp = detectInProgressGitOperation(worktreePath);
+    if (inProgressOp) {
+      const err = new Error(
+        `${worktreePath} is in the middle of a ${inProgressOp} (check .git/) `
+        + `— refusing to ${action}. Operator must resolve or abort `
+        + `(git ${inProgressOp} --abort) before the factory can proceed.`
+      );
+      err.code = 'IN_PROGRESS_GIT_OPERATION';
+      err.op = inProgressOp;
+      err.path = worktreePath;
+      throw err;
     }
 
     // First attempt: renormalize line endings and commit the bookkeeping
