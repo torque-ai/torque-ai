@@ -16,6 +16,13 @@ const REDACT_PATTERNS = [
   /(?:api[_-]?key|apikey|authorization|bearer|token|secret|password|credential)[\s]*[=:]\s*["']?([a-zA-Z0-9_.-]{8,})["']?/gi,
   // Environment variable assignments with secret-looking values
   /(?:ANTHROPIC_API_KEY|OPENAI_API_KEY|DEEPINFRA_API_KEY|HYPERBOLIC_API_KEY|GROQ_API_KEY|TORQUE_API_KEY|API_KEY|SECRET_KEY|AUTH_TOKEN)=([^\s&"']+)/gi,
+  // Agent secrets and auth headers in logged output/objects
+  { regex: /scrypt:[0-9a-f]{32}:[0-9a-f]{64}/g, replacement: '[REDACTED]' },
+  { regex: /X-Torque-Key:\s*[^,\s"'}]+/gi, replacement: 'X-Torque-Key: [REDACTED]' },
+  { regex: /X-Torque-Secret:\s*[^,\s"'}]+/gi, replacement: 'X-Torque-Secret: [REDACTED]' },
+  { regex: /Authorization:\s*Bearer\s+[^,\s"'}]+/gi, replacement: 'Authorization: Bearer [REDACTED]' },
+  { regex: /"(X-Torque-Key|X-Torque-Secret)"\s*:\s*"[^"]+"/gi, replacement: '"$1":"[REDACTED]"' },
+  { regex: /"Authorization"\s*:\s*"Bearer\s+[^"]+"/gi, replacement: '"Authorization":"Bearer [REDACTED]"' },
   // Bearer tokens in headers
   /Bearer\s+([a-zA-Z0-9_.-]{20,})/g,
   // sk- prefixed keys (OpenAI style)

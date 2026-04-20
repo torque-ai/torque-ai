@@ -96,7 +96,7 @@ function setConfig(key, value) {
   }
 
   if (PROTECTED_CONFIG_KEYS.has(key)) {
-    logger.info(`Protected config key changed: ${key}`);
+    logger.info(`Protected config changed: ${key} (value redacted)`);
   }
 
   let storedValue = String(value);
