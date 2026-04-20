@@ -171,12 +171,14 @@ describe('worktree-cutover.sh barrier integration', () => {
     });
 
     it('sends reason string in restart request body', () => {
-      expect(scriptSource).toContain('"reason"');
+      // The POST body is a bash-double-quoted JSON literal, so quotes are
+      // backslash-escaped: `\"reason\"` in the source.
+      expect(scriptSource).toMatch(/\\"reason\\"/);
       expect(scriptSource).toContain('Cutover to');
     });
 
     it('sends timeout_minutes in restart request body', () => {
-      expect(scriptSource).toContain('"timeout_minutes"');
+      expect(scriptSource).toMatch(/\\"timeout_minutes\\"/);
       expect(scriptSource).toContain('BARRIER_TIMEOUT_MIN');
     });
 
