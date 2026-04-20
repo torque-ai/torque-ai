@@ -1,13 +1,84 @@
 'use strict';
 
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 
+const factoryArchitect = require('../db/factory-architect');
+const factoryDecisions = require('../db/factory-decisions');
+const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory-intake');
+const factoryLoopInstances = require('../db/factory-loop-instances');
+const factoryWorktrees = require('../db/factory-worktrees');
+
+function ensureFactoryTables(dbHandle) {
+  const stmts = [
+    `CREATE TABLE IF NOT EXISTS factory_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      brief TEXT,
+      trust_level TEXT NOT NULL DEFAULT 'supervised',
+      status TEXT NOT NULL DEFAULT 'paused',
+      config_json TEXT,
+      loop_state TEXT DEFAULT 'IDLE',
+      loop_batch_id TEXT,
+      loop_last_action_at TEXT,
+      loop_paused_at_stage TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS factory_decisions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      stage TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      action TEXT NOT NULL,
+      reasoning TEXT,
+      inputs_json TEXT,
+      outcome_json TEXT,
+      confidence REAL,
+      batch_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS factory_worktrees (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id TEXT NOT NULL REFERENCES factory_projects(id),
+      work_item_id INTEGER NOT NULL REFERENCES factory_work_items(id),
+      batch_id TEXT NOT NULL,
+      vc_worktree_id TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      base_branch TEXT,
+      worktree_path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT,
+      merged_at TEXT,
+      abandoned_at TEXT
+    )`,
+  ];
+  for (const sql of stmts) dbHandle.prepare(sql).run();
+  try { dbHandle.prepare('ALTER TABLE factory_worktrees ADD COLUMN base_branch TEXT').run(); } catch { /* exists */ }
+  try { dbHandle.prepare('ALTER TABLE factory_worktrees ADD COLUMN updated_at TEXT').run(); } catch { /* exists */ }
+}
+
+function wireFactoryDbModules(dbHandle) {
+  factoryArchitect.setDb(dbHandle);
+  factoryDecisions.setDb(dbHandle);
+  factoryHealth.setDb(dbHandle);
+  factoryIntake.setDb(dbHandle);
+  factoryLoopInstances.setDb(dbHandle);
+  factoryWorktrees.setDb(dbHandle);
+}
+
 function seedProjectItemAndWorktree(db, { trust = 'autonomous', cfgOverrides = {} } = {}) {
   const tempPath = fs.mkdtempSync(path.join(os.tmpdir(), 'dep-e2e-'));
-  const projectId = 'proj-dep-e2e';
+  const worktreeAbsPath = path.join(tempPath, '.worktrees', 'feat-dep');
+  fs.mkdirSync(worktreeAbsPath, { recursive: true });
+  const projectId = `proj-dep-e2e-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const cfg = { verify_command: 'python -m pytest tests/', ...cfgOverrides };
   db.prepare(`INSERT INTO factory_projects (id, name, path, trust_level, status, config_json, created_at, updated_at)
               VALUES (?, 'DepE2E', ?, ?, 'running', ?, datetime('now'), datetime('now'))`)
@@ -20,14 +91,27 @@ function seedProjectItemAndWorktree(db, { trust = 'autonomous', cfgOverrides = {
   db.prepare(
     `INSERT INTO factory_worktrees (project_id, work_item_id, batch_id, branch, base_branch, worktree_path, vc_worktree_id, status, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'main', ?, 'vcid1', 'active', datetime('now'), datetime('now'))`
-  ).run(projectId, workItemId, batchId, `feat/factory-${workItemId}`, path.join(tempPath, '.worktrees', 'feat-dep'));
-  return { projectId, workItemId, batchId, tempPath };
+  ).run(projectId, workItemId, batchId, `feat/factory-${workItemId}`, worktreeAbsPath);
+  return { projectId, workItemId, batchId, tempPath, worktreeAbsPath };
 }
 
 describe('executeVerifyStage + dep-resolver integration', () => {
+  let dbModule;
   let db;
-  beforeEach(() => { ({ db } = setupTestDb('dep-resolver-e2e')); });
-  afterEach(() => { teardownTestDb(); vi.restoreAllMocks(); });
+  beforeEach(() => {
+    ({ db: dbModule } = setupTestDb('dep-resolver-e2e'));
+    db = dbModule.getDbInstance();
+    ensureFactoryTables(db);
+    wireFactoryDbModules(db);
+  });
+  afterEach(() => {
+    try {
+      const loopController = require('../factory/loop-controller');
+      loopController.setWorktreeRunnerForTests(null);
+    } catch { /* ok */ }
+    vi.restoreAllMocks();
+    teardownTestDb();
+  });
 
   function mockResolverAndVerify({ verifyOutputs, resolveOutputs = [], escalateOutput = null, reviewOutputs }) {
     const loopController = require('../factory/loop-controller');
