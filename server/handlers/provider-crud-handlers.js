@@ -700,6 +700,10 @@ function handleSetApiKey(args) {
   };
 }
 
+function handleSetProviderApiKey(args) {
+  return handleSetApiKey(args);
+}
+
 function handleClearApiKey(args) {
   const providerName = normalizeRequiredString(args.provider, 'provider');
   const database = getDatabaseHandle();
@@ -739,12 +743,18 @@ function handleClearApiKey(args) {
   };
 }
 
+function handleClearProviderApiKey(args) {
+  return handleClearApiKey(args);
+}
+
 function createProviderCrudHandlers() {
   return {
     handleAddProvider,
     handleRemoveProvider,
     handleSetApiKey,
+    handleSetProviderApiKey,
     handleClearApiKey,
+    handleClearProviderApiKey,
     encryptApiKey,
     decryptApiKey,
     getApiKeyStatus,
@@ -756,7 +766,9 @@ module.exports = {
   handleAddProvider,
   handleRemoveProvider,
   handleSetApiKey,
+  handleSetProviderApiKey,
   handleClearApiKey,
+  handleClearProviderApiKey,
   encryptApiKey,
   decryptApiKey,
   getApiKeyStatus,
