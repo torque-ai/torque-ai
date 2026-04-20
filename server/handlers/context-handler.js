@@ -195,6 +195,51 @@ function parseDeps(depsRaw) {
   return [];
 }
 
+function getTaskNodeId(task) {
+  return task?.node_id || task?.workflow_node_id || task?.id?.substring(0, 8) || '?';
+}
+
+function getTaskElapsedSeconds(task) {
+  if (!task?.started_at) return null;
+  const endTime = task.completed_at ? new Date(task.completed_at) : new Date();
+  return Math.round((endTime - new Date(task.started_at)) / 1000);
+}
+
+function getWorkflowDependencyEndpoints(dep) {
+  return {
+    from: dep.from || dep.depends_on_task_id,
+    to: dep.to || dep.task_id,
+  };
+}
+
+function getWorkflowTaskList(status) {
+  const statusTasks = Object.values(status.tasks || {});
+  if (typeof workflowEngine.getWorkflowTasks !== 'function' || !status.id) {
+    return statusTasks;
+  }
+
+  try {
+    const rawTasks = workflowEngine.getWorkflowTasks(status.id) || [];
+    const rawById = new Map(rawTasks.map(task => [task.id, task]));
+    if (statusTasks.length === 0) {
+      return rawTasks;
+    }
+    return statusTasks.map(task => {
+      const raw = rawById.get(task.id);
+      if (!raw) return task;
+      return {
+        ...raw,
+        ...task,
+        workflow_node_id: task.workflow_node_id || raw.workflow_node_id,
+        node_id: task.node_id || raw.workflow_node_id || raw.node_id,
+        depends_on: task.depends_on || raw.depends_on,
+      };
+    });
+  } catch {
+    return statusTasks;
+  }
+}
+
 /**
  * Build compact workflow-scope context digest.
  */
@@ -206,9 +251,10 @@ function buildWorkflowContext(args) {
     return makeError(ErrorCodes.WORKFLOW_NOT_FOUND, `Workflow not found: ${args.workflow_id}`);
   }
 
-  const visibility = evaluateWorkflowVisibility(status);
-  const counts = getWorkflowTaskCounts(status);
-  const taskList = Object.values(status.tasks || {});
+  const taskList = getWorkflowTaskList(status);
+  const enrichedStatus = { ...status, tasks: taskList };
+  const visibility = evaluateWorkflowVisibility(enrichedStatus);
+  const counts = getWorkflowTaskCounts(enrichedStatus);
 
   // Build dependency map: task_id -> array of dependency node_ids
   // status.dependencies has { from: depends_on_task_id, to: task_id }
@@ -216,14 +262,16 @@ function buildWorkflowContext(args) {
   // "from" is the dependency (upstream), "to" is the dependent (downstream)
   const taskIdToNodeId = {};
   for (const task of taskList) {
-    taskIdToNodeId[task.id] = task.node_id || task.id;
+    taskIdToNodeId[task.id] = getTaskNodeId(task);
   }
   const depsByTaskId = {};
   for (const dep of (status.dependencies || [])) {
-    if (!depsByTaskId[dep.to]) depsByTaskId[dep.to] = [];
+    const endpoints = getWorkflowDependencyEndpoints(dep);
+    if (!endpoints.to || !endpoints.from) continue;
+    if (!depsByTaskId[endpoints.to]) depsByTaskId[endpoints.to] = [];
     // Store the node_id of the upstream task
-    const upstreamNodeId = taskIdToNodeId[dep.from] || dep.from;
-    depsByTaskId[dep.to].push(upstreamNodeId);
+    const upstreamNodeId = taskIdToNodeId[endpoints.from] || endpoints.from;
+    depsByTaskId[endpoints.to].push(upstreamNodeId);
   }
 
   // Elapsed time from workflow start
@@ -244,17 +292,17 @@ function buildWorkflowContext(args) {
   // Track completed node_ids for blocked_by and next_actionable computation
   const completedNodeIds = new Set();
   for (const task of taskList) {
-    if (task.status === 'completed') completedNodeIds.add(task.node_id || task.id);
+    if (task.status === 'completed') completedNodeIds.add(getTaskNodeId(task));
   }
 
   // Track failed node_ids for blocked vs next_actionable distinction
   const failedNodeIds = new Set();
   for (const task of taskList) {
-    if (task.status === 'failed') failedNodeIds.add(task.node_id || task.id);
+    if (task.status === 'failed') failedNodeIds.add(getTaskNodeId(task));
   }
 
   for (const task of taskList) {
-    const nodeId = task.node_id || task.id?.substring(0, 8) || '?';
+    const nodeId = getTaskNodeId(task);
     const deps = depsByTaskId[task.id] || parseDeps(task.depends_on);
 
     switch (task.status) {
@@ -262,9 +310,7 @@ function buildWorkflowContext(args) {
         const entry = {
           node_id: nodeId,
           exit_code: task.exit_code != null ? task.exit_code : null,
-          duration_seconds: (task.started_at && task.completed_at)
-            ? Math.round((new Date(task.completed_at) - new Date(task.started_at)) / 1000)
-            : null,
+          duration_seconds: task.started_at && task.completed_at ? getTaskElapsedSeconds(task) : null,
         };
         if (includeOutput && task.output) {
           entry.output_tail = task.output.slice(-OUTPUT_TAIL_LENGTH);
@@ -278,8 +324,8 @@ function buildWorkflowContext(args) {
         runningTasks.push({
           node_id: nodeId,
           provider: task.provider || null,
-          elapsed_seconds: progress?.elapsedSeconds || null,
-          progress: progress?.progress || 0,
+          elapsed_seconds: progress?.elapsedSeconds ?? getTaskElapsedSeconds(task),
+          progress: progress?.progress ?? task.progress ?? task.progress_percent ?? 0,
         });
         // Stall alerts
         if (activity?.isStalled) {
@@ -331,7 +377,9 @@ function buildWorkflowContext(args) {
       if (meta._provider_switch_reason) {
         alerts.push(`Task ${nodeId} fell back: ${meta._provider_switch_reason}`);
       }
-    } catch { /* ignore parse errors */ }
+    } catch {
+      alerts.push(`Task ${nodeId} metadata parse failed`);
+    }
   }
 
   const ctx = {
@@ -422,6 +470,11 @@ function createContextHandler() {
 }
 
 module.exports = {
+  buildQueueContext,
+  formatQueueMarkdown,
   handleGetContext,
+  parseDeps,
+  buildWorkflowContext,
+  formatWorkflowMarkdown,
   createContextHandler,
 };

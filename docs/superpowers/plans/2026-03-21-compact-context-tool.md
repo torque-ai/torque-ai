@@ -20,7 +20,7 @@
 - Modify: `server/handlers/task/core.js:1296-1309` (add to module.exports)
 - Create: `server/tool-defs/context-defs.js`
 
-- [ ] **Step 1: Export getTaskInfoPressureLevel from task/core.js**
+- [x] **Step 1: Export getTaskInfoPressureLevel from task/core.js**
 
 In `server/handlers/task/core.js`, add `getTaskInfoPressureLevel` to the module.exports at line 1296:
 
@@ -42,7 +42,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Create tool definition**
+- [x] **Step 2: Create tool definition**
 
 Create `server/tool-defs/context-defs.js`:
 
@@ -73,7 +73,7 @@ module.exports = [
 ];
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/handlers/task/core.js server/tool-defs/context-defs.js
@@ -91,7 +91,7 @@ git push origin main
 - Modify: `server/tool-annotations.js` (add explicit override)
 - Modify: `server/tool-output-schemas.js` (add outputSchema)
 
-- [ ] **Step 1: Add context-defs to TOOLS array**
+- [x] **Step 1: Add context-defs to TOOLS array**
 
 In `server/tools.js`, add before the closing `];` of TOOLS (after line 46):
 
@@ -99,7 +99,7 @@ In `server/tools.js`, add before the closing `];` of TOOLS (after line 46):
   ...require('./tool-defs/context-defs'),
 ```
 
-- [ ] **Step 2: Add context-handler to HANDLER_MODULES**
+- [x] **Step 2: Add context-handler to HANDLER_MODULES**
 
 In `server/tools.js`, add to HANDLER_MODULES (after line 112, before `];`):
 
@@ -109,7 +109,7 @@ In `server/tools.js`, add to HANDLER_MODULES (after line 112, before `];`):
 
 Note: The handler file doesn't exist yet — this will cause a startup error until Task 3 creates it. That's expected in TDD.
 
-- [ ] **Step 3: Add get_context to TIER_1**
+- [x] **Step 3: Add get_context to TIER_1**
 
 In `server/core-tools.js`, add `'get_context'` to the TIER_1 array. Add after the Task lifecycle section (line 20):
 
@@ -118,7 +118,7 @@ In `server/core-tools.js`, add `'get_context'` to the TIER_1 array. Add after th
   'get_context',
 ```
 
-- [ ] **Step 4: Add annotation override**
+- [x] **Step 4: Add annotation override**
 
 In `server/tool-annotations.js`, add to the OVERRIDES object (the `get_` prefix convention already produces `readOnlyHint: true, idempotentHint: true`, but an explicit override documents intent):
 
@@ -126,7 +126,7 @@ In `server/tool-annotations.js`, add to the OVERRIDES object (the `get_` prefix 
   get_context:                     Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
 ```
 
-- [ ] **Step 5: Add outputSchema**
+- [x] **Step 5: Add outputSchema**
 
 In `server/tool-output-schemas.js`, add to the OUTPUT_SCHEMAS object:
 
@@ -155,7 +155,7 @@ In `server/tool-output-schemas.js`, add to the OUTPUT_SCHEMAS object:
   },
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/tools.js server/core-tools.js server/tool-annotations.js server/tool-output-schemas.js
@@ -171,7 +171,7 @@ git push origin main
 - Create: `server/handlers/context-handler.js`
 - Create: `server/tests/context-handler.test.js`
 
-- [ ] **Step 1: Write failing tests for queue scope**
+- [x] **Step 1: Write failing tests for queue scope**
 
 Create `server/tests/context-handler.test.js`:
 
@@ -249,7 +249,7 @@ describe('context-handler', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 git push origin main
@@ -257,7 +257,7 @@ torque-remote "cd server && npx vitest run tests/context-handler.test.js --repor
 ```
 Expected: FAIL — `Cannot find module '../handlers/context-handler'`
 
-- [ ] **Step 3: Create server/handlers/context-handler.js with queue scope**
+- [x] **Step 3: Create server/handlers/context-handler.js with queue scope**
 
 ```js
 'use strict';
@@ -454,7 +454,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 git push origin main
@@ -462,7 +462,7 @@ torque-remote "cd server && npx vitest run tests/context-handler.test.js --repor
 ```
 Expected: All queue scope tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/handlers/context-handler.js server/tests/context-handler.test.js
@@ -478,7 +478,7 @@ git push origin main
 - Modify: `server/handlers/context-handler.js` (replace `buildWorkflowContext` placeholder)
 - Modify: `server/tests/context-handler.test.js` (add workflow scope tests)
 
-- [ ] **Step 1: Write failing tests for workflow scope**
+- [x] **Step 1: Write failing tests for workflow scope**
 
 Add inside the outer `describe('context-handler', ...)` block in the test file:
 
@@ -535,7 +535,7 @@ Add inside the outer `describe('context-handler', ...)` block in the test file:
   });
 ```
 
-- [ ] **Step 2: Run tests to verify workflow tests fail**
+- [x] **Step 2: Run tests to verify workflow tests fail**
 
 ```bash
 git push origin main
@@ -543,7 +543,7 @@ torque-remote "cd server && npx vitest run tests/context-handler.test.js --repor
 ```
 Expected: Workflow scope tests FAIL (placeholder returns error)
 
-- [ ] **Step 3: Implement buildWorkflowContext**
+- [x] **Step 3: Implement buildWorkflowContext**
 
 Replace the placeholder `buildWorkflowContext` function in `server/handlers/context-handler.js`:
 
@@ -760,7 +760,7 @@ function formatWorkflowMarkdown(ctx) {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify all pass**
+- [x] **Step 4: Run tests to verify all pass**
 
 ```bash
 git push origin main
@@ -768,7 +768,7 @@ torque-remote "cd server && npx vitest run tests/context-handler.test.js --repor
 ```
 Expected: All tests PASS (queue scope + workflow scope)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/handlers/context-handler.js server/tests/context-handler.test.js
@@ -783,7 +783,7 @@ git push origin main
 **Files:**
 - Modify: `server/tests/context-handler.test.js` (add integration tests)
 
-- [ ] **Step 1: Add integration tests**
+- [x] **Step 1: Add integration tests**
 
 Add inside the outer describe block:
 
@@ -831,7 +831,7 @@ Add inside the outer describe block:
   });
 ```
 
-- [ ] **Step 2: Run all context-handler tests**
+- [x] **Step 2: Run all context-handler tests**
 
 ```bash
 git push origin main
@@ -839,14 +839,14 @@ torque-remote "cd server && npx vitest run tests/context-handler.test.js --repor
 ```
 Expected: All tests PASS
 
-- [ ] **Step 3: Run annotation + output schema tests for regressions**
+- [x] **Step 3: Run annotation + output schema tests for regressions**
 
 ```bash
 torque-remote "cd server && npx vitest run tests/tool-annotations.test.js tests/tool-output-schemas.test.js tests/context-handler.test.js --reporter verbose"
 ```
 Expected: All pass, no regressions
 
-- [ ] **Step 4: Verify tool appears in tools list**
+- [x] **Step 4: Verify tool appears in tools list**
 
 ```bash
 cd server && node -e "
@@ -859,7 +859,7 @@ console.log('  inputSchema properties:', Object.keys(tool.inputSchema?.propertie
 "
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/tests/context-handler.test.js
