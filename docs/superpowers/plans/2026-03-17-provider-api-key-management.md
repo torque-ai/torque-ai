@@ -543,7 +543,7 @@ git commit -m "feat: add REST routes for provider API key set/clear"
 **Files:**
 - Modify: `server/api/v2-governance-handlers.js`
 
-- [ ] **Step 1: Enrich handleListProviders response**
+- [x] **Step 1: Enrich handleListProviders response**
 
 In `server/api/v2-governance-handlers.js`, find `handleListProviders` (line 639). In the `providers.map(p => { ... })` block, after the stats enrichment, add key status fields:
 
@@ -580,7 +580,7 @@ Add `api_key_status` and `api_key_masked` to the returned object:
       };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add server/api/v2-governance-handlers.js
