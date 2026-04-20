@@ -455,7 +455,7 @@ git commit -m "security: add SHA-256 integrity verification to backup/restore"
 - Modify: `server/utils/sanitize.js` (extend redaction)
 - Modify: `server/db/config-core.js` (protected keys)
 
-- [ ] **Step 1: Fix Windows DB permissions**
+- [x] **Step 1: Fix Windows DB permissions**
 
 In `database.js:init()`, after opening the DB:
 ```js
@@ -469,7 +469,7 @@ if (process.platform === 'win32') {
 }
 ```
 
-- [ ] **Step 2: Extend secret redaction**
+- [x] **Step 2: Extend secret redaction**
 
 In `server/utils/sanitize.js`, add patterns:
 ```js
@@ -481,7 +481,7 @@ In `server/utils/sanitize.js`, add patterns:
 /Authorization:\s*Bearer\s+\S+/gi,
 ```
 
-- [ ] **Step 3: Add protected config keys**
+- [x] **Step 3: Add protected config keys**
 
 In `config-core.js`:
 ```js
@@ -495,9 +495,9 @@ if (PROTECTED_CONFIG_KEYS.has(key)) {
 }
 ```
 
-- [ ] **Step 4: Verify syntax**
+- [x] **Step 4: Verify syntax**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: Windows DB permissions, extended secret redaction, protected config keys"
