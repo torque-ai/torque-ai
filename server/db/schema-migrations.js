@@ -184,6 +184,12 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
       // Column already exists
     }
   try {
+    db.exec(`ALTER TABLE factory_projects ADD COLUMN verify_recovery_attempts INTEGER DEFAULT 0`);
+  } catch (_e) {
+    void _e;
+    // Column already exists
+  }
+  try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks(workflow_id)`);
   } catch (e) {
     logger.debug(`Schema migration (tasks workflow index): ${e.message}`);

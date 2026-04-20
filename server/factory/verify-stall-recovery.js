@@ -180,5 +180,6 @@ async function recoverStalledVerifyLoops({
 module.exports = {
   VERIFY_STALL_THRESHOLD_MS,
   MAX_RECOVERY_ATTEMPTS,
+  listStalledVerifyLoops,
   recoverStalledVerifyLoops,
 };
