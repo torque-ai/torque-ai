@@ -2228,6 +2228,7 @@ function createTables(db, logger) {
         total_successes INTEGER DEFAULT 0,
         total_failures INTEGER DEFAULT 0,
         avg_duration_ms REAL DEFAULT 0,
+        p95_duration_ms REAL DEFAULT 0,
         avg_cost_usd REAL DEFAULT 0,
         last_updated TEXT,
         trusted INTEGER DEFAULT 0

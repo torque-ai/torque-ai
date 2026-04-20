@@ -49,6 +49,75 @@ describe('db/provider-scoring', () => {
     }
   });
 
+  it('init creates provider_scores table with required schema columns', () => {
+    const columns = db.prepare('PRAGMA table_info(provider_scores)').all();
+    const columnNames = columns.map((column) => column.name);
+
+    expect(columnNames).toEqual([
+      'provider',
+      'cost_efficiency',
+      'speed_score',
+      'reliability_score',
+      'quality_score',
+      'composite_score',
+      'sample_count',
+      'total_tasks',
+      'total_successes',
+      'total_failures',
+      'avg_duration_ms',
+      'p95_duration_ms',
+      'avg_cost_usd',
+      'last_updated',
+      'trusted',
+    ]);
+    expect(columns.find((column) => column.name === 'provider')).toMatchObject({ type: 'TEXT', pk: 1 });
+    expect(columns.find((column) => column.name === 'p95_duration_ms')).toMatchObject({
+      type: 'REAL',
+      dflt_value: '0',
+    });
+    expect(columns.find((column) => column.name === 'trusted')).toMatchObject({
+      type: 'INTEGER',
+      dflt_value: '0',
+    });
+  });
+
+  it('init adds p95_duration_ms to an existing provider_scores table', () => {
+    db.close();
+    db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE provider_scores (
+        provider TEXT PRIMARY KEY,
+        cost_efficiency REAL DEFAULT 0,
+        speed_score REAL DEFAULT 0,
+        reliability_score REAL DEFAULT 0,
+        quality_score REAL DEFAULT 0,
+        composite_score REAL DEFAULT 0,
+        sample_count INTEGER DEFAULT 0,
+        total_tasks INTEGER DEFAULT 0,
+        total_successes INTEGER DEFAULT 0,
+        total_failures INTEGER DEFAULT 0,
+        avg_duration_ms REAL DEFAULT 0,
+        avg_cost_usd REAL DEFAULT 0,
+        last_updated TEXT,
+        trusted INTEGER DEFAULT 0
+      )
+    `);
+
+    providerScoring.init(db);
+
+    const p95Column = db.prepare('PRAGMA table_info(provider_scores)').all()
+      .find((column) => column.name === 'p95_duration_ms');
+
+    expect(p95Column).toMatchObject({
+      type: 'REAL',
+      dflt_value: '0',
+    });
+  });
+
   it('recordTaskCompletion creates new provider entry', () => {
     record('codex', { success: true, durationMs: 120, costUsd: 0.25, qualityScore: 0.8 });
 
