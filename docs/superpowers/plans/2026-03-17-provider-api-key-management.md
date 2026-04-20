@@ -36,7 +36,7 @@
 - Modify: `server/handlers/provider-crud-handlers.js`
 - Create: `server/tests/provider-api-key.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `server/tests/provider-api-key.test.js`:
 
@@ -99,12 +99,12 @@ describe('provider API key encryption helpers', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd server && npx vitest run tests/provider-api-key.test.js`
 Expected: Failures — `encryptApiKey` and `decryptApiKey` not yet exported
 
-- [ ] **Step 3: Add encrypt/decrypt helpers to provider-crud-handlers.js**
+- [x] **Step 3: Add encrypt/decrypt helpers to provider-crud-handlers.js**
 
 At the top of `server/handlers/provider-crud-handlers.js`, add the require (after existing requires):
 
@@ -148,12 +148,12 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd server && npx vitest run tests/provider-api-key.test.js`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/handlers/provider-crud-handlers.js server/tests/provider-api-key.test.js
