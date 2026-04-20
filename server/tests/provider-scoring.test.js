@@ -237,4 +237,84 @@ describe('db/provider-scoring', () => {
 
     expect(row.cost_efficiency).toBeCloseTo(1, 10);
   });
+
+  it('computes speed and cost axes relative to observed provider maxima', () => {
+    for (let i = 0; i < 5; i += 1) {
+      record('codex', { durationMs: 100, costUsd: 0, qualityScore: 0.8 });
+      record('deepinfra', { durationMs: 400, costUsd: 0.5, qualityScore: 0.8 });
+    }
+
+    const codex = providerScoring.getProviderScore('codex');
+    const deepinfra = providerScoring.getProviderScore('deepinfra');
+
+    expect(codex.speed_score).toBeCloseTo(0.75, 10);
+    expect(deepinfra.speed_score).toBeCloseTo(0, 10);
+    expect(codex.cost_efficiency).toBeCloseTo(1, 10);
+    expect(deepinfra.cost_efficiency).toBeCloseTo(0, 10);
+  });
+
+  it('recomputes existing relative scores when later providers change maxima', () => {
+    for (let i = 0; i < 5; i += 1) {
+      record('codex', { durationMs: 100, costUsd: 0.1, qualityScore: 0.7 });
+    }
+
+    expect(providerScoring.getProviderScore('codex').speed_score).toBeCloseTo(0, 10);
+    expect(providerScoring.getProviderScore('codex').cost_efficiency).toBeCloseTo(0, 10);
+
+    for (let i = 0; i < 5; i += 1) {
+      record('slower-expensive', { durationMs: 500, costUsd: 0.5, qualityScore: 0.7 });
+    }
+
+    const codex = providerScoring.getProviderScore('codex');
+    const slowerExpensive = providerScoring.getProviderScore('slower-expensive');
+
+    expect(codex.speed_score).toBeCloseTo(0.8, 10);
+    expect(codex.cost_efficiency).toBeCloseTo(0.8, 10);
+    expect(slowerExpensive.speed_score).toBeCloseTo(0, 10);
+    expect(slowerExpensive.cost_efficiency).toBeCloseTo(0, 10);
+  });
+
+  it('persists composite weights and recomputes composites from new weights', () => {
+    for (let i = 0; i < 5; i += 1) {
+      record('codex', { success: i < 4, durationMs: 100, costUsd: 0.1, qualityScore: 0.7 });
+    }
+
+    const reliabilityOnlyWeights = {
+      cost: 0,
+      speed: 0,
+      reliability: 1,
+      quality: 0,
+    };
+
+    providerScoring.setCompositeWeights(reliabilityOnlyWeights);
+
+    const score = providerScoring.getProviderScore('codex');
+    const persisted = db.prepare('SELECT value FROM config WHERE key = ?')
+      .get('provider_scoring_composite_weights');
+
+    expect(providerScoring.getCompositeWeights()).toEqual(reliabilityOnlyWeights);
+    expect(score.reliability_score).toBeCloseTo(0.8, 10);
+    expect(score.composite_score).toBeCloseTo(0.8, 10);
+    expect(JSON.parse(persisted.value)).toEqual(reliabilityOnlyWeights);
+
+    providerScoring.init(db);
+    expect(providerScoring.getCompositeWeights()).toEqual(reliabilityOnlyWeights);
+  });
+
+  it('rejects invalid composite weight updates', () => {
+    expect(() => providerScoring.setCompositeWeights({
+      cost: 1,
+      speed: 1,
+      reliability: 0,
+      quality: 0,
+    })).toThrow(/sum to 1\.0/);
+
+    expect(() => providerScoring.setCompositeWeights({
+      cost: 0.1,
+      speed: 0.2,
+      reliability: 0.3,
+      quality: 0.4,
+      latency: 0,
+    })).toThrow(/Unknown composite weight/);
+  });
 });

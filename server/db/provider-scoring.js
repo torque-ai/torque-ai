@@ -22,8 +22,6 @@ const TABLE_SQL = `
 
 const MIN_SAMPLES = 5;
 const QUALITY_EMA_ALPHA = 0.3;
-const MAX_DURATION_MS = 600000;
-const SPEED_DAMPENER = 1.0 / MAX_DURATION_MS;
 const DEFAULT_WEIGHTS = Object.freeze({
   cost: 0.15,
   speed: 0.25,
@@ -85,30 +83,45 @@ function normalizeNonNegative(value) {
   return numeric;
 }
 
+function normalizeCount(value) {
+  return Math.floor(normalizeNonNegative(value));
+}
+
 function normalizeQuality(value) {
   return clamp01(normalizeNonNegative(value));
 }
 
 function qualityEma(newSample, currentQuality) {
-  if (!Number.isFinite(currentQuality)) {
+  const current = Number(currentQuality);
+  if (!Number.isFinite(current)) {
     return normalizeQuality(newSample);
   }
 
-  return (QUALITY_EMA_ALPHA * normalizeQuality(newSample)) + ((1 - QUALITY_EMA_ALPHA) * currentQuality);
+  return (QUALITY_EMA_ALPHA * normalizeQuality(newSample)) + ((1 - QUALITY_EMA_ALPHA) * current);
 }
 
-function computeSpeedScore(avgDurationMs) {
+function computeReliability(totalSuccesses, totalTasks) {
+  const tasks = normalizeCount(totalTasks);
+  if (tasks <= 0) return 0;
+  return clamp01(normalizeCount(totalSuccesses) / tasks);
+}
+
+function computeSpeedScore(avgDurationMs, maxDurationMs) {
   const avg = normalizeNonNegative(avgDurationMs);
-  return clamp01(1 - (avg * SPEED_DAMPENER));
+  const max = normalizeNonNegative(maxDurationMs);
+  if (avg === 0 || max === 0) return 1;
+  return clamp01(1 - (avg / max));
 }
 
-function computeCostEfficiency(avgCostUsd) {
+function computeCostEfficiency(avgCostUsd, maxCostUsd) {
   const avgCost = normalizeNonNegative(avgCostUsd);
-  return clamp01(1 / (1 + avgCost * 10));
+  const maxCost = normalizeNonNegative(maxCostUsd);
+  if (avgCost === 0 || maxCost === 0) return 1;
+  return clamp01(1 - (avgCost / maxCost));
 }
 
 function computeCompositeScore(row) {
-  if (!row || row.sample_count < MIN_SAMPLES) return 0;
+  if (!row || normalizeCount(row.sample_count) < MIN_SAMPLES) return 0;
 
   return clamp01(
     (clamp01(row.cost_efficiency) * compositeWeights.cost)
@@ -124,6 +137,10 @@ function getNow() {
 
 function getProviderRow(provider) {
   return currentDb.prepare('SELECT * FROM provider_scores WHERE provider = ?').get(provider) || null;
+}
+
+function getProviderRows() {
+  return currentDb.prepare('SELECT * FROM provider_scores ORDER BY provider ASC').all();
 }
 
 function validateWeights(weights) {
@@ -162,6 +179,7 @@ function persistCompositeWeights(weights) {
 }
 
 function loadCompositeWeights() {
+  compositeWeights = { ...DEFAULT_WEIGHTS };
   try {
     const row = currentDb.prepare('SELECT value FROM config WHERE key = ?').get(WEIGHTS_CONFIG_KEY);
     if (!row || !row.value) return;
@@ -169,9 +187,7 @@ function loadCompositeWeights() {
     if (parsed && typeof parsed === 'object') {
       compositeWeights = validateWeights(parsed);
     }
-  } catch (_e) {
-    compositeWeights = { ...DEFAULT_WEIGHTS };
-  }
+  } catch (_e) {}
 }
 
 function init(db) {
@@ -181,86 +197,117 @@ function init(db) {
   ensureInitialized();
 }
 
-function updateAxisAndComposite({
+function refreshRelativeScores() {
+  const rows = getProviderRows();
+  if (rows.length === 0) return [];
+
+  const maxDurationMs = rows.reduce(
+    (max, row) => Math.max(max, normalizeNonNegative(row.avg_duration_ms)),
+    0,
+  );
+  const maxCostUsd = rows.reduce(
+    (max, row) => Math.max(max, normalizeNonNegative(row.avg_cost_usd)),
+    0,
+  );
+  const now = getNow();
+
+  const updateScoreStmt = currentDb.prepare(`
+    UPDATE provider_scores
+    SET reliability_score = ?,
+        speed_score = ?,
+        cost_efficiency = ?,
+        composite_score = ?,
+        trusted = ?,
+        last_updated = ?
+    WHERE provider = ?
+  `);
+
+  const refreshed = [];
+  for (const row of rows) {
+    const persistedSampleCount = normalizeCount(row.sample_count);
+    const sampleCount = persistedSampleCount > 0 ? persistedSampleCount : normalizeCount(row.total_tasks);
+    const reliability = computeReliability(row.total_successes, row.total_tasks);
+    const speed = computeSpeedScore(row.avg_duration_ms, maxDurationMs);
+    const cost = computeCostEfficiency(row.avg_cost_usd, maxCostUsd);
+    const trusted = sampleCount >= MIN_SAMPLES ? 1 : 0;
+    const composite = computeCompositeScore({
+      sample_count: sampleCount,
+      cost_efficiency: cost,
+      speed_score: speed,
+      reliability_score: reliability,
+      quality_score: row.quality_score,
+    });
+
+    updateScoreStmt.run(
+      reliability,
+      speed,
+      cost,
+      composite,
+      trusted,
+      now,
+      row.provider,
+    );
+
+    refreshed.push({
+      ...row,
+      reliability_score: reliability,
+      speed_score: speed,
+      cost_efficiency: cost,
+      composite_score: composite,
+      trusted,
+      last_updated: now,
+    });
+  }
+
+  return refreshed;
+}
+
+function updateProviderAggregate({
   providerName,
   totalTasks,
   totalSuccesses,
   totalFailures,
   avgDurationMs,
+  p95DurationMs,
   avgCostUsd,
   qualityScore,
 }) {
-  const reliability = totalTasks > 0 ? totalSuccesses / totalTasks : 0;
-  const speed = computeSpeedScore(avgDurationMs);
-  const cost = computeCostEfficiency(avgCostUsd);
-  const sampleCount = totalTasks;
-  const trusted = sampleCount >= MIN_SAMPLES ? 1 : 0;
-
-  const composite = computeCompositeScore({
-    sample_count: sampleCount,
-    cost_efficiency: cost,
-    speed_score: speed,
-    reliability_score: reliability,
-    quality_score: qualityScore,
-  });
-
   currentDb.prepare(`
     UPDATE provider_scores
-    SET reliability_score = ?,
-        quality_score = ?,
-        speed_score = ?,
-        cost_efficiency = ?,
-        composite_score = ?,
+    SET quality_score = ?,
         sample_count = ?,
         total_tasks = ?,
         total_successes = ?,
         total_failures = ?,
         avg_duration_ms = ?,
+        p95_duration_ms = ?,
         avg_cost_usd = ?,
-        trusted = ?,
         last_updated = ?
     WHERE provider = ?
   `).run(
-    reliability,
     qualityScore,
-    speed,
-    cost,
-    composite,
-    sampleCount,
+    totalTasks,
     totalTasks,
     totalSuccesses,
     totalFailures,
     avgDurationMs,
+    p95DurationMs,
     avgCostUsd,
-    trusted,
     getNow(),
     providerName,
   );
 }
 
-function insertAxisAndComposite({
+function insertProviderAggregate({
   providerName,
   totalTasks,
   totalSuccesses,
   totalFailures,
   avgDurationMs,
+  p95DurationMs,
   avgCostUsd,
   qualityScore,
 }) {
-  const reliability = totalTasks > 0 ? totalSuccesses / totalTasks : 0;
-  const speed = computeSpeedScore(avgDurationMs);
-  const cost = computeCostEfficiency(avgCostUsd);
-  const sampleCount = totalTasks;
-  const trusted = sampleCount >= MIN_SAMPLES ? 1 : 0;
-
-  const composite = computeCompositeScore({
-    sample_count: sampleCount,
-    cost_efficiency: cost,
-    speed_score: speed,
-    reliability_score: reliability,
-    quality_score: qualityScore,
-  });
-
   currentDb.prepare(`
     INSERT INTO provider_scores (
       provider,
@@ -274,25 +321,27 @@ function insertAxisAndComposite({
       total_successes,
       total_failures,
       avg_duration_ms,
+      p95_duration_ms,
       avg_cost_usd,
       last_updated,
       trusted
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     providerName,
-    cost,
-    speed,
-    reliability,
+    0,
+    0,
+    0,
     qualityScore,
-    composite,
-    sampleCount,
+    0,
+    totalTasks,
     totalTasks,
     totalSuccesses,
     totalFailures,
     avgDurationMs,
+    p95DurationMs,
     avgCostUsd,
     getNow(),
-    trusted,
+    0,
   );
 }
 
@@ -300,46 +349,15 @@ function recomputeComposite(provider) {
   const providerName = normalizeProvider(provider);
   ensureInitialized();
 
-  const row = getProviderRow(providerName);
-  if (!row) return null;
-
-  const composite = computeCompositeScore({
-    ...row,
-    sample_count: row.sample_count,
-    reliability_score: row.reliability_score,
-    speed_score: row.speed_score,
-    quality_score: row.quality_score,
-    cost_efficiency: row.cost_efficiency,
-  });
-
-  currentDb.prepare(`
-    UPDATE provider_scores
-    SET composite_score = ?,
-        trusted = ?,
-        last_updated = ?
-    WHERE provider = ?
-  `).run(
-    composite,
-    row.sample_count >= MIN_SAMPLES ? 1 : 0,
-    getNow(),
-    providerName,
-  );
-
+  if (!getProviderRow(providerName)) return null;
+  refreshRelativeScores();
   return getProviderRow(providerName);
 }
 
 function recomputeAllComposites() {
-  const rows = currentDb.prepare('SELECT provider FROM provider_scores').all();
-  if (rows.length === 0) return [];
+  ensureInitialized();
   const txn = currentDb.transaction(() => {
-    const updated = [];
-    for (const row of rows) {
-      const refreshed = recomputeComposite(row.provider);
-      if (refreshed) {
-        updated.push(refreshed);
-      }
-    }
-    return updated;
+    return refreshRelativeScores();
   });
   return txn();
 }
@@ -369,35 +387,46 @@ function recordTaskCompletion({
       const totalSuccesses = successIncrement;
       const totalFailures = failureIncrement;
       const avgDurationMs = duration;
+      const p95DurationMs = duration;
       const avgCostUsd = cost;
       const qualityScoreNext = quality;
-      insertAxisAndComposite({
+      insertProviderAggregate({
         providerName,
         totalTasks,
         totalSuccesses,
         totalFailures,
         avgDurationMs,
+        p95DurationMs,
         avgCostUsd,
         qualityScore: qualityScoreNext,
       });
+      refreshRelativeScores();
       return;
     }
 
-    const totalTasks = existing.total_tasks + 1;
-    const totalSuccesses = existing.total_successes + successIncrement;
-    const totalFailures = existing.total_failures + failureIncrement;
-    const avgDurationMs = ((existing.avg_duration_ms * existing.total_tasks) + duration) / totalTasks;
-    const avgCostUsd = ((existing.avg_cost_usd * existing.total_tasks) + cost) / totalTasks;
+    const existingTotalTasks = normalizeCount(existing.total_tasks);
+    const totalTasks = existingTotalTasks + 1;
+    const totalSuccesses = normalizeCount(existing.total_successes) + successIncrement;
+    const totalFailures = normalizeCount(existing.total_failures) + failureIncrement;
+    const avgDurationMs = (
+      (normalizeNonNegative(existing.avg_duration_ms) * existingTotalTasks) + duration
+    ) / totalTasks;
+    const p95DurationMs = Math.max(normalizeNonNegative(existing.p95_duration_ms), duration);
+    const avgCostUsd = (
+      (normalizeNonNegative(existing.avg_cost_usd) * existingTotalTasks) + cost
+    ) / totalTasks;
     const qualityScoreNext = qualityEma(quality, existing.quality_score);
-    updateAxisAndComposite({
+    updateProviderAggregate({
       providerName,
       totalTasks,
       totalSuccesses,
       totalFailures,
       avgDurationMs,
+      p95DurationMs,
       avgCostUsd,
       qualityScore: qualityScoreNext,
     });
+    refreshRelativeScores();
   });
 
   recordTransaction();
@@ -416,8 +445,8 @@ function getProviderScore(provider) {
 function getAllProviderScores({ trustedOnly } = {}) {
   ensureInitialized();
   const sql = trustedOnly
-    ? 'SELECT * FROM provider_scores WHERE trusted = 1 ORDER BY composite_score DESC'
-    : 'SELECT * FROM provider_scores ORDER BY composite_score DESC';
+    ? 'SELECT * FROM provider_scores WHERE trusted = 1 ORDER BY composite_score DESC, provider ASC'
+    : 'SELECT * FROM provider_scores ORDER BY trusted DESC, composite_score DESC, provider ASC';
   return currentDb.prepare(sql).all();
 }
 
