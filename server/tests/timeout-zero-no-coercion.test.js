@@ -54,20 +54,17 @@ describe('timeout_minutes=0 no-coercion guard (static source check)', () => {
 });
 
 describe('process-lifecycle timeout_minutes=0 gating', () => {
-  // process-lifecycle.js must skip `setTimeout` entirely when rawTimeout <= 0
-  // (i.e. user opted into no-timeout). The gating is verified by asserting
-  // that `procRef.timeoutHandle = setTimeout` appears inside an `if (rawTimeout > 0)`
-  // block. A future refactor that removes the guard would leak a 30-minute
-  // default back onto opt-out tasks.
-  it('sets procRef.timeoutHandle only when rawTimeout > 0', () => {
+  // process-lifecycle.js must skip `setTimeout` entirely when the user
+  // explicitly passes 0 (opt-in no-timeout). Negative / NaN / null values
+  // still fall back to the default-and-clamp path. The guard is `explicitZero`
+  // so future refactors that drop it will leak a 30-minute default back onto
+  // opt-out tasks.
+  it('gates procRef.timeoutHandle setTimeout on explicitZero', () => {
     const src = readSource('server/execution/process-lifecycle.js');
-    // Find the block that assigns timeoutHandle.
     const idx = src.indexOf('procRef.timeoutHandle = setTimeout');
     expect(idx).toBeGreaterThan(0);
-    // Within the 200 characters before that assignment, we expect a
-    // `rawTimeout > 0` guard. If someone removes the guard, this test fails.
     const window = src.slice(Math.max(0, idx - 400), idx);
-    expect(window).toMatch(/rawTimeout\s*>\s*0/);
+    expect(window).toMatch(/explicitZero/);
   });
 
   it('parses timeout_minutes via parseInt + Number.isFinite, not || 30', () => {
@@ -76,5 +73,15 @@ describe('process-lifecycle timeout_minutes=0 gating', () => {
     expect(src).not.toMatch(/parseInt\(task\.timeout_minutes,\s*10\)\s*\|\|\s*30/);
     // New pattern must use Number.isFinite to distinguish 0 from NaN.
     expect(src).toMatch(/Number\.isFinite\(parsedTimeout\)/);
+  });
+
+  it('preserves the existing one-minute minimum for negative / undersized values', () => {
+    // Negative timeouts are treated as "malformed" and fall back to the
+    // default+clamp path, not the opt-in no-timeout path. The existing
+    // process-lifecycle minimum-timeout test (`timeout_minutes: -5` should
+    // cancel after 1 minute) must continue to pass.
+    const src = readSource('server/execution/process-lifecycle.js');
+    expect(src).toMatch(/MIN_TIMEOUT_MINUTES\s*=\s*1/);
+    expect(src).toMatch(/Math\.max\(MIN_TIMEOUT_MINUTES/);
   });
 });

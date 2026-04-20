@@ -660,15 +660,23 @@ function spawnAndTrackProcess(taskId, task, {
   }, startupTimeoutMs);
 
   // Set up main timeout with configurable value, default 30 minutes.
-  // timeout_minutes === 0 means "no timeout enforcement" — use Number.isFinite
-  // + explicit > 0 check so the 0 value survives past `|| 30` coercion.
-  // cancel_task and stall detection still apply.
+  //
+  // Semantics:
+  //   - timeout_minutes === 0   → explicit opt-in "no timeout enforcement".
+  //                               cancel_task + stall detection still apply.
+  //   - timeout_minutes > 0     → clamped to [1, 480] minutes.
+  //   - negative / NaN / null   → default to 30 (then clamped, same as before).
+  //
+  // The `?? 30 // ← 0 preserved` pattern at the DB persistence sites
+  // (project-config-core.js, task-metadata.js, etc.) is what keeps the 0
+  // alive long enough to reach this check.
   const MIN_TIMEOUT_MINUTES = 1;
   const MAX_TIMEOUT_MINUTES = 480;
   const parsedTimeout = parseInt(task.timeout_minutes, 10);
-  const rawTimeout = Number.isFinite(parsedTimeout) ? parsedTimeout : 30;
-  if (rawTimeout > 0) {
-    const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
+  const explicitZero = parsedTimeout === 0;
+  const rawTimeout = Number.isFinite(parsedTimeout) && parsedTimeout >= 0 ? parsedTimeout : 30;
+  if (!explicitZero) {
+    const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout || 30, MAX_TIMEOUT_MINUTES));
     const timeoutMs = boundedTimeout * 60 * 1000;
     procRef.timeoutHandle = setTimeout(() => {
       try {
