@@ -19,6 +19,14 @@ function buildTasks(bodies) {
   return bodies.map((body, i) => `## Task ${i + 1}: Title ${i + 1}\n\n${body}`).join('\n\n');
 }
 
+function buildSingleTask(title, body) {
+  return `## Task 1: ${title}\n\n${body}`;
+}
+
+function validBody() {
+  return 'In src/foo.ts, adjust the focused behavior and run npx vitest server/tests/plan-quality-gate.test.js to verify the expected result.';
+}
+
 describe('runDeterministicRules — structural', () => {
   it('rule 1: empty plan hard-fails on plan_has_task_heading', () => {
     const { hardFails } = runDeterministicRules('');
@@ -102,14 +110,47 @@ describe('runDeterministicRules — per-task content', () => {
     expect(hardFails.some(f => f.rule === 'task_has_acceptance_criterion' && f.taskNumber === 1)).toBe(true);
   });
 
-  it('rule 7: task with a single "appropriately" does NOT hard-fail (below 2-hit threshold)', () => {
+  it('rule 7: task with a single "appropriately" near a concrete object does NOT hard-fail', () => {
     const plan = `## Task 1: Wire src/bar.ts\n\nUpdate src/bar.ts to call the new helper appropriately. Run npx vitest tests/bar.test.ts to verify.`;
     const { hardFails } = runDeterministicRules(plan);
     expect(hardFails.find(f => f.rule === 'task_avoids_vague_phrases')).toBeUndefined();
   });
 
-  it('rule 7: task with two forbidden phrases hard-fails task_avoids_vague_phrases', () => {
-    const plan = `## Task 1: Wire src/bar.ts\n\nUpdate src/bar.ts appropriately and clean up any call sites as needed. Run npx vitest to verify.`;
+  it('rule 7: task with unqualified forbidden phrases hard-fails task_avoids_vague_phrases', () => {
+    const filler = 'This neutral planning context intentionally avoids naming a target object. '.repeat(3);
+    const plan = `## Task 1: Rewrite behavior\n\nClean up the code as needed. ${filler} In src/bar.ts, update the call site and run npx vitest to verify.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.some(f => f.rule === 'task_avoids_vague_phrases' && f.taskNumber === 1)).toBe(true);
+  });
+
+  it('rule 7: title "Update src/foo.ts to add X" passes concrete language', () => {
+    const plan = buildSingleTask('Update src/foo.ts to add X', validBody());
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_avoids_vague_phrases')).toBeUndefined();
+  });
+
+  it('rule 7: title "Update `scripts/validate.ps1`" passes concrete language', () => {
+    const plan = buildSingleTask('Update `scripts/validate.ps1`', validBody());
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_avoids_vague_phrases')).toBeUndefined();
+  });
+
+  it('rule 7: title "Modify GetAnnotationsAsync to filter by tenant" passes concrete language', () => {
+    const plan = buildSingleTask('Modify GetAnnotationsAsync to filter by tenant', validBody());
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_avoids_vague_phrases')).toBeUndefined();
+  });
+
+  it('rule 7: title "Update the code" flags missing concrete language', () => {
+    const filler = 'This neutral planning context intentionally avoids naming a target object. '.repeat(3);
+    const plan = buildSingleTask('Update the code', `${filler}${validBody()}`);
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.some(f => f.rule === 'task_avoids_vague_phrases' && f.taskNumber === 1)).toBe(true);
+  });
+
+  it('rule 7: title "Improve the implementation" flags missing concrete language', () => {
+    const filler = 'This neutral planning context intentionally avoids naming a target object. '.repeat(3);
+    const plan = buildSingleTask('Improve the implementation', `${filler}${validBody()}`);
     const { hardFails } = runDeterministicRules(plan);
     expect(hardFails.some(f => f.rule === 'task_avoids_vague_phrases' && f.taskNumber === 1)).toBe(true);
   });
