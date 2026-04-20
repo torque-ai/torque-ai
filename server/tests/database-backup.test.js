@@ -12,8 +12,9 @@ describe('Database Backup/Restore', () => {
   beforeAll(() => {
     const ctx = setupTestDb('db-backup');
     testDir = ctx.testDir;
-    // Mock getBackupsDir so listBackups accepts test temp directories
-    backupsDirSpy = vi.spyOn(backupCore, 'getBackupsDir').mockReturnValue(testDir);
+    const backupsDir = path.join(testDir, 'backups');
+    fs.mkdirSync(backupsDir, { recursive: true });
+    backupsDirSpy = vi.spyOn(backupCore, 'getBackupsDir').mockReturnValue(backupsDir);
   });
   afterAll(() => {
     backupsDirSpy?.mockRestore();
@@ -141,11 +142,58 @@ describe('Database Backup/Restore', () => {
       expect(getText(result)).toContain('confirm');
     });
 
+    it('rejects relative traversal restore paths before calling restoreDatabase', async () => {
+      const restoreSpy = vi.spyOn(backupCore, 'restoreDatabase');
+      try {
+        const result = await safeTool('restore_database', { src_path: '../outside.db', confirm: true });
+
+        expect(result.isError).toBe(true);
+        expect(result.error_code).toBe('INVALID_PARAM');
+        expect(getText(result)).toContain('inside the backups directory');
+        expect(restoreSpy).not.toHaveBeenCalled();
+      } finally {
+        restoreSpy.mockRestore();
+      }
+    });
+
+    it('rejects absolute restore paths outside the backups directory before calling restoreDatabase', async () => {
+      const restoreSpy = vi.spyOn(backupCore, 'restoreDatabase');
+      try {
+        const outsidePath = path.resolve(testDir, '..', 'outside.db');
+
+        const result = await safeTool('restore_database', { src_path: outsidePath, confirm: true });
+
+        expect(result.isError).toBe(true);
+        expect(result.error_code).toBe('INVALID_PARAM');
+        expect(getText(result)).toContain('inside the backups directory');
+        expect(restoreSpy).not.toHaveBeenCalled();
+      } finally {
+        restoreSpy.mockRestore();
+      }
+    });
+
     it('rejects nonexistent backup file', async () => {
       const bkDir = path.join(testDir, 'backups');
       fs.mkdirSync(bkDir, { recursive: true });
       const result = await safeTool('restore_database', { src_path: path.join(bkDir, 'nonexistent-backup.db'), confirm: true });
       expect(result.isError).toBe(true);
+    });
+
+    it('restores from a valid backup filename inside the backups directory', async () => {
+      const bkDir = backupCore.getBackupsDir();
+      const backupPath = path.join(bkDir, 'restore-filename-test.db');
+      const backupResult = await safeTool('backup_database', { dest_path: backupPath });
+      expect(backupResult.isError).toBeFalsy();
+
+      const restoreSpy = vi.spyOn(backupCore, 'restoreDatabase');
+      try {
+        const result = await safeTool('restore_database', { src_path: 'restore-filename-test.db', confirm: true });
+
+        expect(result.isError).toBeFalsy();
+        expect(restoreSpy).toHaveBeenCalledWith(path.resolve(bkDir, 'restore-filename-test.db'), true, { force: false });
+      } finally {
+        restoreSpy.mockRestore();
+      }
     });
 
     it('restores from a valid backup', async () => {
