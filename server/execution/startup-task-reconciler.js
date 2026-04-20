@@ -201,12 +201,16 @@ function reconcileOrphanedTasksOnStartup({
     errors: 0,
   };
 
-  const runningOrClaimed = rawDb
-    .prepare("SELECT * FROM tasks WHERE status IN ('running','claimed')")
+  const orphanedOrDrainCancelled = rawDb
+    .prepare(`
+      SELECT * FROM tasks
+      WHERE status IN ('running','claimed')
+         OR (status = 'cancelled' AND cancel_reason = 'server_restart')
+    `)
     .all();
-  actions.scanned = runningOrClaimed.length;
+  actions.scanned = orphanedOrDrainCancelled.length;
 
-  const candidates = runningOrClaimed.filter(task => (
+  const candidates = orphanedOrDrainCancelled.filter(task => (
     isCandidateOwnedByDeadOrRestartedInstance(task, currentInstanceId, isInstanceAlive)
   ));
   actions.candidates = candidates.length;
@@ -228,12 +232,14 @@ function reconcileOrphanedTasksOnStartup({
         continue;
       }
 
-      taskCore.updateTaskStatus(original.id, 'cancelled', {
-        cancel_reason: 'server_restart',
-        error_output: `${original.error_output || ''}\n[startup-reconciler] task cancelled by server restart`,
-        completed_at: new Date().toISOString(),
-      });
-      actions.cancelled++;
+      if (original.status !== 'cancelled') {
+        taskCore.updateTaskStatus(original.id, 'cancelled', {
+          cancel_reason: 'server_restart',
+          error_output: `${original.error_output || ''}\n[startup-reconciler] task cancelled by server restart`,
+          completed_at: new Date().toISOString(),
+        });
+        actions.cancelled++;
+      }
 
       if (!eligible) {
         continue;
