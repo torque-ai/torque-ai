@@ -66,9 +66,9 @@ describe('category-classifier', () => {
   });
 
   describe('getCategories()', () => {
-    it('returns all 9 categories with metadata', () => {
+    it('returns all categories with metadata', () => {
       const cats = getCategories();
-      expect(cats).toHaveLength(9);
+      expect(cats).toHaveLength(CATEGORIES.length);
       expect(cats.map(c => c.key)).toEqual(CATEGORIES);
       for (const cat of cats) {
         expect(cat).toHaveProperty('key');

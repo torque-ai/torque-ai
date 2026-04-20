@@ -3,6 +3,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 
 const Database = require('better-sqlite3');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryFeedback = require('../db/factory-feedback');
@@ -282,8 +285,16 @@ async function advanceVerifyThenLearn(projectId) {
 describe('factory loop work-item shipping', () => {
   let db;
   let originalGetDbInstance;
+  let tempDirs;
+
+  function makeExistingWorktreePath(prefix) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    tempDirs.push(dir);
+    return dir;
+  }
 
   beforeEach(() => {
+    tempDirs = [];
     db = new Database(':memory:');
     createFactoryTables(db);
     loopController.setWorktreeRunnerForTests(null);
@@ -306,6 +317,9 @@ describe('factory loop work-item shipping', () => {
     guardrailDb.setDb(null);
     factoryWorktrees.setDb(null);
     loopController.setWorktreeRunnerForTests(null);
+    for (const dir of tempDirs) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
     db.close();
     db = null;
   });
@@ -567,13 +581,14 @@ describe('factory loop work-item shipping', () => {
     seedLearnDependencies(project.id, batchId);
 
     const branch = 'feat/factory-merge-me';
+    const worktreePath = makeExistingWorktreePath('factory-merge-me-');
     factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
       batch_id: batchId,
       vc_worktree_id: 'vc-worktree-ship-1',
       branch,
-      worktree_path: `/tmp/${branch}`,
+      worktree_path: worktreePath,
     });
 
     loopController.setWorktreeRunnerForTests({
@@ -649,13 +664,14 @@ describe('factory loop work-item shipping', () => {
     seedLearnDependencies(project.id, batchId);
 
     const branch = 'feat/factory-merge-cleanup-fail';
+    const worktreePath = makeExistingWorktreePath('factory-merge-cleanup-fail-');
     factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
       batch_id: batchId,
       vc_worktree_id: 'vc-worktree-ship-2',
       branch,
-      worktree_path: `/tmp/${branch}`,
+      worktree_path: worktreePath,
     });
 
     loopController.setWorktreeRunnerForTests({
@@ -727,7 +743,7 @@ describe('factory loop work-item shipping', () => {
     expect(decisions.find((row) => row.stage === 'learn' && row.action === 'worktree_merged_cleanup_failed')).toMatchObject({
       outcome: expect.objectContaining({
         branch,
-        worktree_path: `/tmp/${branch}`,
+        worktree_path: worktreePath,
         cleanup_failed: true,
         cleanup_error: 'Permission denied',
       }),
@@ -809,17 +825,20 @@ describe('factory loop work-item shipping', () => {
     const { learnAdvance } = await advanceVerifyThenLearn(project.id);
 
     // Item must NOT be shipped — without a merge, nothing landed on main.
+    // The current recovery path rejects it so PRIORITIZE cannot reselect it forever.
     expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
       id: workItem.id,
-      status: 'verifying',
+      status: 'rejected',
+      reject_reason: 'no_worktree_for_batch_prior_status=abandoned',
     });
 
-    // Decision log should show skipped_shipping with the abandoned reason.
+    // Decision log should show the explicit rejection with the abandoned reason.
     const decisions = listDecisionRows(db, project.id);
-    const skipped = decisions.find((row) => row.stage === 'learn' && row.action === 'skipped_shipping');
-    expect(skipped).toBeTruthy();
-    expect(skipped.outcome).toMatchObject({
+    const rejected = decisions.find((row) => row.stage === 'learn' && row.action === 'auto_rejected_no_worktree');
+    expect(rejected).toBeTruthy();
+    expect(rejected.outcome).toMatchObject({
       work_item_id: workItem.id,
+      reason: 'no_worktree_for_batch_prior_status=abandoned',
       prior_worktree_status: 'abandoned',
     });
     // Must not also log a shipped_work_item decision.

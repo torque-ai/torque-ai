@@ -27,8 +27,8 @@ const { copyWorkspaceToSandbox } = require('../sandbox/workspace-sync');
 
 // Providers that get auto-verify by default
 const AUTO_VERIFY_PROVIDERS = new Set([
-  '<git-user>',
-  '<git-user>-spark',
+  'codex',
+  'codex-spark',
   'ollama',
 ]);
 
@@ -235,7 +235,7 @@ async function runVerifyCommandInSandbox(task, verifyCommand, sandboxConfig) {
  *
  * Guards:
  * - Only runs for completed tasks (ctx.status === 'completed')
- * - Only runs for <git-user>/<git-user>-Spark providers (unless auto_verify_on_completion explicitly set)
+ * - Only runs for codex/codex-spark/ollama providers (unless auto_verify_on_completion explicitly set)
  * - Only runs when verify_command is configured for the project
  *
  * On verify failure with retries available:
