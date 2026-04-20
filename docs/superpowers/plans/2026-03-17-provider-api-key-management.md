@@ -168,7 +168,7 @@ git commit -m "feat: add encryptApiKey/decryptApiKey helpers with tests"
 - Modify: `server/config.js`
 - Modify: `server/tests/provider-api-key.test.js`
 
-- [ ] **Step 1: Add tests for getApiKey resolution**
+- [x] **Step 1: Add tests for getApiKey resolution**
 
 Append to `server/tests/provider-api-key.test.js`:
 
@@ -231,7 +231,7 @@ describe('config.js getApiKey() with encrypted keys', () => {
 });
 ```
 
-- [ ] **Step 2: Update config.js getApiKey()**
+- [x] **Step 2: Update config.js getApiKey()**
 
 In `server/config.js`, modify `getApiKey()` to add encrypted key resolution between env var and config table:
 
@@ -272,12 +272,12 @@ function getApiKey(provider) {
 
 Note: `db.getProvider` may not exist in `config.js`'s scope. Check how `db` is initialized — it's set via `config.init({ db })`. Read the file to see if `db.getProvider` is available or if you need to query the DB directly. If `db` is the database module, use `db.getProvider(provider)`. If it's a raw SQLite instance, use `db.prepare('SELECT api_key_encrypted FROM provider_config WHERE provider = ?').get(provider)`.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 Run: `cd server && npx vitest run tests/provider-api-key.test.js`
 Expected: All tests PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/config.js server/tests/provider-api-key.test.js
