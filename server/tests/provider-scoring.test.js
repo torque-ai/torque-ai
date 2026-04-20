@@ -430,7 +430,7 @@ describe('db/provider-scoring', () => {
     );
   });
 
-  it('routes template chains by trusted composite score', () => {
+  it('honors task template chain order over trusted composite score', () => {
     configureRoutingCoreForScoring();
     insertRoutingTemplate('Score Chain', {
       default: [
@@ -451,11 +451,8 @@ describe('db/provider-scoring', () => {
       { taskMetadata: { _routing_template: 'Score Chain' } },
     );
 
-    expect(result.provider).toBe('codex');
-    expect(result.reason).toContain('score-ranked -> codex');
-    expect(result.routing_score).toMatchObject({
-      provider: 'codex',
-      source: 'provider_scores',
-    });
+    expect(result.provider).toBe('claude-cli');
+    expect(result.reason).not.toContain('score-ranked');
+    expect(result.routing_score).toBeUndefined();
   });
 });
