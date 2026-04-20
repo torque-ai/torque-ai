@@ -16,7 +16,7 @@
 - Modify: `server/tests/workflow-runtime.test.js` (extend checkWorkflowCompletion tests)
 - Create: `server/tests/orphan-requeue.test.js`
 
-- [ ] **Step 1: Write tests for orphan re-queue**
+- [x] **Step 1: Write tests for orphan re-queue**
 
 Create `server/tests/orphan-requeue.test.js`:
 
@@ -94,12 +94,12 @@ describe('orphan requeue logic', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `torque-remote "cd $TORQUE_PROJECT_DIR/server && npx vitest run tests/orphan-requeue.test.js"`
 Expected: PASS (these are logic-level tests)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/tests/orphan-requeue.test.js
@@ -113,7 +113,7 @@ git commit -m "test: orphan requeue logic tests"
 **Files:**
 - Modify: `server/index.js:829-900` (startup orphan cleanup block)
 
-- [ ] **Step 1: Add a requeue helper alongside the cancel helper**
+- [x] **Step 1: Add a requeue helper alongside the cancel helper**
 
 In `server/index.js`, after the `markStartupOrphanCancelled` function (around line 835-848), add a re-queue helper:
 
@@ -148,7 +148,7 @@ In `server/index.js`, after the `markStartupOrphanCancelled` function (around li
     };
 ```
 
-- [ ] **Step 2: Replace cancel calls with requeue for our-own-instance orphans**
+- [x] **Step 2: Replace cancel calls with requeue for our-own-instance orphans**
 
 In the block starting around line 863 (`task.mcp_instance_id === taskManager.getMcpInstanceId()`), change:
 
@@ -173,7 +173,7 @@ to:
         }
 ```
 
-- [ ] **Step 3: Replace cancel calls with requeue for legacy (no owner) orphans**
+- [x] **Step 3: Replace cancel calls with requeue for legacy (no owner) orphans**
 
 In the block starting around line 856 (`!task.mcp_instance_id`), change:
 
@@ -197,11 +197,11 @@ to:
         }
 ```
 
-- [ ] **Step 4: Keep the dead-instance requeue path as-is**
+- [x] **Step 4: Keep the dead-instance requeue path as-is**
 
 The block at lines 871-896 (dead instance detection) already requeues via `db.updateTaskStatus(task.id, 'queued', ...)`. Leave it unchanged — it already does the right thing.
 
-- [ ] **Step 5: Process the queue after orphan cleanup**
+- [x] **Step 5: Process the queue after orphan cleanup**
 
 After the orphan cleanup loop (around line 903, after the `debugLog` for orphansCleaned), add a deferred queue processing call so requeued tasks get picked up:
 
@@ -215,7 +215,7 @@ After the orphan cleanup loop (around line 903, after the `debugLog` for orphans
     }
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/index.js
@@ -233,7 +233,7 @@ The await_task restart recovery currently detects `cancelled` + `cancel_reason: 
 
 However, the epoch-check in `handleAwaitTask` currently marks stale-epoch running tasks as cancelled. It should requeue them instead:
 
-- [ ] **Step 1: Change epoch-check to requeue instead of cancel**
+- [x] **Step 1: Change epoch-check to requeue instead of cancel**
 
 In `server/handlers/workflow/await.js`, find the epoch check in `handleAwaitTask` (the block that does `taskCore.updateTaskStatus(taskId, 'cancelled', { ... cancel_reason: 'orphan_cleanup' ...})`).
 
@@ -270,7 +270,7 @@ Change it to requeue:
 
 Apply the same change to the epoch check inside the poll loop (search for the same pattern further down in `handleAwaitTask`).
 
-- [ ] **Step 2: Apply same change in handleAwaitWorkflow**
+- [x] **Step 2: Apply same change in handleAwaitWorkflow**
 
 In `handleAwaitWorkflow`, the epoch check loop (around the `for (const task of tasks)` block that marks running+stale-epoch tasks as cancelled) should also requeue:
 
@@ -302,7 +302,7 @@ In `handleAwaitWorkflow`, the epoch check loop (around the `for (const task of t
       }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/handlers/workflow/await.js
@@ -316,7 +316,7 @@ git commit -m "feat: await epoch-check requeues orphaned tasks instead of cancel
 **Files:**
 - Modify: `server/tests/orphan-requeue.test.js`
 
-- [ ] **Step 1: Add integration-level tests**
+- [x] **Step 1: Add integration-level tests**
 
 Append to `server/tests/orphan-requeue.test.js`:
 
@@ -369,12 +369,12 @@ describe('orphan requeue — workflow integration', () => {
 });
 ```
 
-- [ ] **Step 2: Run all orphan and workflow tests**
+- [x] **Step 2: Run all orphan and workflow tests**
 
 Run: `torque-remote "cd $TORQUE_PROJECT_DIR/server && npx vitest run tests/orphan-requeue.test.js tests/workflow-runtime.test.js tests/orphan-cleanup.test.js tests/await-restart-recovery.test.js"`
 Expected: ALL PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/tests/orphan-requeue.test.js
