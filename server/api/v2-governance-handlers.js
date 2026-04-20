@@ -1135,15 +1135,17 @@ async function handleListProviders(req, res) {
         const { redactValue } = require('../utils/sensitive-keys');
         const serverConfig = require('../config');
 
-        api_key_status = typeof getApiKeyStatus === 'function' ? getApiKeyStatus(p.provider) : 'not_set';
+        api_key_status = getApiKeyStatus(p.provider);
         if (api_key_status === 'env') {
           const envKey = serverConfig.getApiKey(p.provider);
-          if (envKey) api_key_masked = typeof redactValue === 'function' ? redactValue(envKey) : '••••••';
-        } else if ((api_key_status === 'stored' || api_key_status === 'validating') && p.api_key_encrypted) {
-          const decrypted = typeof decryptApiKey === 'function' ? decryptApiKey(p.api_key_encrypted) : null;
-          if (decrypted) api_key_masked = typeof redactValue === 'function' ? redactValue(decrypted) : '••••••';
+          if (envKey) api_key_masked = redactValue(envKey);
+        } else if (api_key_status === 'stored' || api_key_status === 'validating') {
+          if (p.api_key_encrypted) {
+            const decrypted = decryptApiKey(p.api_key_encrypted);
+            if (decrypted) api_key_masked = redactValue(decrypted);
+          }
         }
-      } catch (err) { logger.debug("task handler error", { err: err.message }); /* key enrichment is best-effort */ }
+      } catch { /* key enrichment is best-effort */ }
 
       // Compute provider health status (mirrors getV2ProviderStatus in v2-router.js)
       let status = 'healthy';
