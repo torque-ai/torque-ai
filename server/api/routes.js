@@ -101,6 +101,8 @@ const routes = [
   // Providers
   { method: 'GET', path: '/api/providers', tool: 'list_providers' },
   { method: 'GET', path: '/api/provider-quotas', handlerName: 'handleGetProviderQuotas' },
+  { method: 'GET', path: '/api/provider-scores', tool: 'get_provider_scores', mapQuery: true },
+  { method: 'GET', path: '/api/v2/provider-scores', tool: 'get_provider_scores', mapQuery: true },
   { method: 'GET', path: '/api/bootstrap/workstation', handlerName: 'handleBootstrapWorkstation', skipAuth: true },
   { method: 'POST', path: '/api/providers/configure', tool: 'configure_provider', mapBody: true },
   { method: 'POST', path: '/api/providers/default', tool: 'set_default_provider', mapBody: true },

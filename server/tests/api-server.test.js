@@ -2017,6 +2017,19 @@ describe('API Server endpoints', () => {
     expect(response.statusCode).toBe(200);
   });
 
+  it('GET /api/provider-scores forwards query params to get_provider_scores tool', async () => {
+    const response = await dispatchRequest(requestHandler, {
+      method: 'GET',
+      url: '/api/provider-scores?provider=codex&trusted_only=true',
+    });
+
+    expect(handleToolCallSpy).toHaveBeenCalledWith('get_provider_scores', {
+      provider: 'codex',
+      trusted_only: true,
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
   it('POST /api/providers/configure forwards to configure_provider tool', async () => {
     const response = await dispatchRequest(requestHandler, {
       method: 'POST',

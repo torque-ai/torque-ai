@@ -10,6 +10,7 @@ const coordination = require('../../db/coordination');
 const fileTracking = require('../../db/file-tracking');
 const hostManagement = require('../../db/host-management');
 const providerRoutingCore = require('../../db/provider-routing-core');
+const providerScoring = require('../../db/provider-scoring');
 const { sendJson, sendError, parseBody, safeDecodeParam, formatUptime } = require('../utils');
 
 // ── Hosts ──────────────────────────────────────────────────────────────────────
@@ -509,6 +510,68 @@ function handleProviderQuotas(req, res) {
   }
 }
 
+function normalizeBooleanQuery(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value !== 'string') return false;
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1'
+    || normalized === 'true'
+    || normalized === 'yes'
+    || normalized === 'on';
+}
+
+function getProviderScoringMetadata() {
+  return {
+    weights: typeof providerScoring.getCompositeWeights === 'function'
+      ? providerScoring.getCompositeWeights()
+      : null,
+    min_samples: Number.isFinite(providerScoring.MIN_SAMPLES)
+      ? providerScoring.MIN_SAMPLES
+      : 5,
+  };
+}
+
+/**
+ * GET /api/provider-scores - Multi-dimensional provider scores for dashboard cards.
+ */
+function handleProviderScores(_req, res, query = {}) {
+  const provider = typeof query.provider === 'string' && query.provider.trim()
+    ? query.provider.trim()
+    : null;
+  const trustedOnly = normalizeBooleanQuery(
+    Object.prototype.hasOwnProperty.call(query, 'trusted_only')
+      ? query.trusted_only
+      : query.trustedOnly,
+  );
+
+  try {
+    const metadata = getProviderScoringMetadata();
+
+    if (provider) {
+      const score = providerScoring.getProviderScore(provider);
+      return sendJson(res, {
+        ...metadata,
+        provider,
+        found: Boolean(score),
+        score: score || null,
+      });
+    }
+
+    const scores = providerScoring.getAllProviderScores({ trustedOnly });
+    return sendJson(res, {
+      ...metadata,
+      trusted_only: trustedOnly,
+      count: scores.length,
+      providers: scores,
+    });
+  } catch (err) {
+    const status = /not been initialized/i.test(err.message) ? 503 : 500;
+    return sendError(res, `Provider scoring unavailable: ${err.message}`, status);
+  }
+}
+
 /**
  * GET /api/providers/:id/stats - Provider statistics
  */
@@ -958,6 +1021,7 @@ function createDashboardInfraRoutes() {
     handleDeleteHost,
     handleListProviders,
     handleProviderQuotas,
+    handleProviderScores,
     handleProviderStats,
     handleProviderPercentiles,
     handleProviderTrends,
@@ -995,6 +1059,7 @@ module.exports = {
   // Providers
   handleListProviders,
   handleProviderQuotas,
+  handleProviderScores,
   handleProviderStats,
   handleProviderPercentiles,
   handleProviderTrends,
