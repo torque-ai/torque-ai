@@ -33,7 +33,7 @@
 - Create: `server/diffusion/compute-output-parser.js`
 - Test: `server/tests/diffusion-compute-output-parser.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```js
 // server/tests/diffusion-compute-output-parser.test.js
@@ -117,12 +117,12 @@ describe('validateComputeSchema', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run server/tests/diffusion-compute-output-parser.test.js`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Implement compute-output-parser.js**
+- [x] **Step 3: Implement compute-output-parser.js**
 
 ```js
 // server/diffusion/compute-output-parser.js
@@ -237,12 +237,12 @@ function validateComputeSchema(data) {
 module.exports = { parseComputeOutput, validateComputeSchema };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run server/tests/diffusion-compute-output-parser.test.js`
 Expected: PASS — all 9 tests green
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/diffusion/compute-output-parser.js server/tests/diffusion-compute-output-parser.test.js
@@ -257,7 +257,7 @@ git commit -m "feat(diffusion): add compute output parser with JSON extraction a
 - Modify: `server/diffusion/planner.js`
 - Modify: `server/tests/diffusion-planner.test.js`
 
-- [ ] **Step 1: Write failing tests for compute/apply descriptions**
+- [x] **Step 1: Write failing tests for compute/apply descriptions**
 
 Add to `server/tests/diffusion-planner.test.js`:
 
@@ -319,12 +319,12 @@ describe('expandApplyTaskDescription', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run server/tests/diffusion-planner.test.js`
 Expected: FAIL — functions not exported
 
-- [ ] **Step 3: Add expandComputeTaskDescription to planner.js**
+- [x] **Step 3: Add expandComputeTaskDescription to planner.js**
 
 Add after the existing `expandTaskDescription` function:
 
@@ -404,12 +404,12 @@ Working directory: ${workingDirectory}`;
 
 Add both to the `module.exports`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run server/tests/diffusion-planner.test.js`
 Expected: PASS — all tests green
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/diffusion/planner.js server/tests/diffusion-planner.test.js
@@ -424,7 +424,7 @@ git commit -m "feat(diffusion): add compute and apply task description generator
 - Modify: `server/diffusion/planner.js`
 - Modify: `server/tests/diffusion-planner.test.js`
 
-- [ ] **Step 1: Write failing test for compute→apply pipeline**
+- [x] **Step 1: Write failing test for compute→apply pipeline**
 
 Add to `server/tests/diffusion-planner.test.js`:
 
@@ -469,17 +469,17 @@ describe('buildWorkflowTasks with compute→apply pipeline', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
-- [ ] **Step 3: Add pipeline selection to buildWorkflowTasks**
+- [x] **Step 3: Add pipeline selection to buildWorkflowTasks**
 
 In `buildWorkflowTasks`, add `computeProvider` and `applyProvider` to destructured options. After the existing fan-out loop, add a conditional: if `computeProvider` is set, replace the fan-out tasks with compute tasks that have `diffusion_role: 'compute'`, `provider: computeProvider`, and `metadata.apply_provider = applyProvider`. The compute task descriptions use `expandComputeTaskDescription`. The apply tasks will be created dynamically by the close-handler (not by the planner).
 
 Read the file first, then modify the `buildWorkflowTasks` function to check for `computeProvider` and branch accordingly.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/diffusion/planner.js server/tests/diffusion-planner.test.js
@@ -495,7 +495,7 @@ git commit -m "feat(diffusion): add compute→apply pipeline selection to planne
 - Modify: `server/handlers/diffusion-handlers.js`
 - Modify: `server/tests/diffusion-handlers.test.js`
 
-- [ ] **Step 1: Add compute_provider and apply_provider to tool schema**
+- [x] **Step 1: Add compute_provider and apply_provider to tool schema**
 
 In `server/tool-defs/diffusion-defs.js`, add to `create_diffusion_plan` inputSchema properties:
 
@@ -504,7 +504,7 @@ In `server/tool-defs/diffusion-defs.js`, add to `create_diffusion_plan` inputSch
         apply_provider: { type: 'string', description: 'Provider for apply stage (filesystem access). E.g., "ollama", "codex". Default: smart routing.' },
 ```
 
-- [ ] **Step 2: Write failing handler test**
+- [x] **Step 2: Write failing handler test**
 
 Add to `server/tests/diffusion-handlers.test.js`:
 
@@ -530,16 +530,16 @@ describe('compute→apply pipeline', () => {
 });
 ```
 
-- [ ] **Step 3: Update handleCreateDiffusionPlan**
+- [x] **Step 3: Update handleCreateDiffusionPlan**
 
 Read `server/handlers/diffusion-handlers.js`. Add `compute_provider` and `apply_provider` to destructured args. Pass them to `buildWorkflowTasks` as `computeProvider` and `applyProvider`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `npx vitest run server/tests/diffusion-handlers.test.js`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/tool-defs/diffusion-defs.js server/handlers/diffusion-handlers.js server/tests/diffusion-handlers.test.js
@@ -554,7 +554,7 @@ git commit -m "feat(diffusion): add compute_provider/apply_provider to create_di
 - Modify: `server/execution/task-finalizer.js`
 - Test: `server/tests/diffusion-compute-apply-hook.test.js`
 
-- [ ] **Step 1: Write tests for the close-handler hook**
+- [x] **Step 1: Write tests for the close-handler hook**
 
 ```js
 // server/tests/diffusion-compute-apply-hook.test.js
@@ -601,12 +601,12 @@ describe('compute→apply close-handler hook (unit)', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `npx vitest run server/tests/diffusion-compute-apply-hook.test.js`
 Expected: PASS (these test the existing parser + planner functions)
 
-- [ ] **Step 3: Add the close-handler hook to task-finalizer.js**
+- [x] **Step 3: Add the close-handler hook to task-finalizer.js**
 
 Read `server/execution/task-finalizer.js`. Find the `handleDiffusionSignalDetection` function (added in v1). After it, add a new function:
 
@@ -687,11 +687,11 @@ Then add the `runStage` call in the pipeline — after `diffusion_signal_detecti
     await runStage(ctx, 'compute_apply_creation', handleComputeApplyCreation, ctx.code === 0);
 ```
 
-- [ ] **Step 4: Verify server loads**
+- [x] **Step 4: Verify server loads**
 
 Run: `node -e "require('./server/execution/task-finalizer'); console.log('OK')"`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/execution/task-finalizer.js server/tests/diffusion-compute-apply-hook.test.js
@@ -702,16 +702,16 @@ git commit -m "feat(diffusion): add compute→apply close-handler hook for dynam
 
 ## Task 6: Final Verification
 
-- [ ] **Step 1: Run all diffusion tests**
+- [x] **Step 1: Run all diffusion tests**
 
 Run: `npx vitest run server/tests/diffusion-*.test.js`
 Expected: All test files pass
 
-- [ ] **Step 2: Verify module loading**
+- [x] **Step 2: Verify module loading**
 
 Run: `node -e "require('./server/tools'); require('./server/execution/process-streams'); require('./server/execution/task-finalizer'); require('./server/diffusion/compute-output-parser'); console.log('All OK')"`
 
-- [ ] **Step 3: Commit any cleanup**
+- [x] **Step 3: Commit any cleanup**
 
 ```bash
 git add -A && git commit -m "chore(diffusion): v3 compute→apply pipeline final verification"

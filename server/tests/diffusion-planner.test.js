@@ -165,9 +165,10 @@ describe('buildWorkflowTasks with compute→apply pipeline', () => {
     expect(computeTasks.length).toBeGreaterThan(0);
     expect(computeTasks[0].provider).toBe('cerebras');
     expect(computeTasks[0].metadata.apply_provider).toBe('ollama');
+    expect(computeTasks[0].metadata.apply_providers).toEqual(['ollama']);
   });
 
-  it('falls back to single-stage fanout when no computeProvider', () => {
+  it('falls back to single-stage when no computeProvider', () => {
     const result = buildWorkflowTasks(basePlan, { workingDirectory: '/proj' });
     const computeTasks = result.tasks.filter(t => t.metadata.diffusion_role === 'compute');
     expect(computeTasks).toHaveLength(0);
@@ -233,6 +234,7 @@ describe('expandApplyTaskDescription', () => {
     };
     const desc = expandApplyTaskDescription(computeOutput, '/proj');
     expect(desc).toContain('DELETE');
+    expect(desc).not.toContain('Replace with:');
   });
 });
 

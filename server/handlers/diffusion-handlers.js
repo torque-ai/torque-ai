@@ -359,7 +359,7 @@ function handleCreateDiffusionPlan(args) {
 | Fan-out tasks | ${fanoutCount} |
 | Total tasks | ${workflowPlan.tasks.length} |
 | Depth | ${currentDepth} |
-| Auto-started | ${shouldRun} |${isComputePipeline ? `\n| Pipeline mode | compute→apply (compute: ${compute_provider}, apply: ${apply_provider || 'ollama'}) |` : ''}
+| Auto-started | ${shouldRun} |${isComputePipeline ? `\n| Pipeline mode | compute→apply (compute: ${resolvedComputeProvider}, apply: ${resolvedApplyProviders.join(', ')}) |` : ''}
 
 ${workflowPlan.strategy === 'dag' ? '**DAG mode:** anchor tasks run first, fan-out tasks start after anchors complete.' : '**Optimistic parallel:** all tasks run simultaneously.'}
 
