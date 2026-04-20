@@ -554,7 +554,7 @@ git commit -m "refactor: wire TestRunnerRegistry into validation pipeline — ba
 - Move: `server/api/bootstrap.js` → `server/plugins/remote-agents/bootstrap.js`
 - Test: `server/plugins/remote-agents/tests/plugin.test.js`
 
-- [ ] **Step 1: Write the plugin integration test**
+- [x] **Step 1: Write the plugin integration test**
 
 ```js
 // server/plugins/remote-agents/tests/plugin.test.js
@@ -677,12 +677,12 @@ describe('remote-agents plugin', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd server && npx vitest run plugins/remote-agents/tests/plugin.test.js`
 Expected: FAIL — module `../index` not found.
 
-- [ ] **Step 3: Copy source files into plugin directory**
+- [x] **Step 3: Copy source files into plugin directory**
 
 ```bash
 mkdir -p server/plugins/remote-agents/tests
@@ -693,7 +693,7 @@ cp server/remote/remote-test-routing.js server/plugins/remote-agents/remote-test
 cp server/api/bootstrap.js server/plugins/remote-agents/bootstrap.js
 ```
 
-- [ ] **Step 4: Fix internal require paths in copied files**
+- [x] **Step 4: Fix internal require paths in copied files**
 
 In each copied file, update `require('../logger')` to `require('../../logger')`, `require('../workstation/model')` to `require('../../workstation/model')`, etc. The files moved one directory deeper.
 
@@ -704,11 +704,11 @@ Specifically:
 - `agent-server.js`: No TORQUE-internal requires (standalone), no changes needed.
 - `bootstrap.js`: Check for any internal requires and update.
 
-- [ ] **Step 5: Create plugin tool-defs.js**
+- [x] **Step 5: Create plugin tool-defs.js**
 
 Copy `server/tool-defs/remote-agent-defs.js` into `server/plugins/remote-agents/tool-defs.js`. Add `run_remote_command` and `run_tests` tool defs from `remote-agent-handlers.js` if they aren't already in the defs file. The existing `remote-agent-defs.js` has 5 tools: `register_remote_agent`, `list_remote_agents`, `get_remote_agent`, `remove_remote_agent`, `check_remote_agent_health`. Check `remote-agent-handlers.js` for any additional tool names (like `run_remote_command`) and include those definitions.
 
-- [ ] **Step 6: Create plugin handlers.js**
+- [x] **Step 6: Create plugin handlers.js**
 
 Move the content of `server/handlers/remote-agent-handlers.js` into `server/plugins/remote-agents/handlers.js`. Update the require paths:
 - `require('./error-codes')` → `require('../../handlers/error-codes')`
@@ -729,7 +729,7 @@ function createHandlers({ agentRegistry }) {
 module.exports = { createHandlers };
 ```
 
-- [ ] **Step 7: Create plugin index.js**
+- [x] **Step 7: Create plugin index.js**
 
 ```js
 // server/plugins/remote-agents/index.js
@@ -854,12 +854,12 @@ module.exports = { createPlugin };
 module.exports.createPlugin = createPlugin;
 ```
 
-- [ ] **Step 8: Run plugin test to verify it passes**
+- [x] **Step 8: Run plugin test to verify it passes**
 
 Run: `cd server && npx vitest run plugins/remote-agents/tests/plugin.test.js`
 Expected: All tests PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add server/plugins/remote-agents/
