@@ -1380,6 +1380,44 @@ async function maybeShipWorkItemAfterLearn(project_id, batch_id, instance) {
           batch_id: shippingDecision.decision_batch_id || decisionBatchId,
         });
 
+        // If the target repo is mid-merge / mid-rebase / mid-cherry-pick /
+        // mid-revert, retrying every ~60s is pointless — `git commit` will
+        // keep refusing until the operator resolves or aborts. Pause the
+        // project so the operator gets a single clear signal instead of a
+        // retry storm (observed against bitsy on 2026-04-20: 13 failed
+        // merges in 75 minutes, all identical "uncommitted changes" errors).
+        if (err && err.code === 'IN_PROGRESS_GIT_OPERATION') {
+          try {
+            factoryHealth.updateProject(project_id, { status: 'paused' });
+          } catch (_pauseErr) {
+            void _pauseErr;
+          }
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.LEARN,
+            action: 'merge_target_in_conflict_state',
+            reasoning: `Merge target ${err.path || worktreeRecord.worktreePath} is mid-${err.op || 'merge'}; pausing project. `
+              + `Operator must resolve the conflict or run \`git ${err.op || 'merge'} --abort\` before resuming.`,
+            outcome: {
+              work_item_id: workItem.id,
+              branch: worktreeRecord.branch,
+              op: err.op || null,
+              path: err.path || null,
+              next_state: LOOP_STATES.PAUSED,
+              paused_at_stage: LOOP_STATES.LEARN,
+            },
+            confidence: 1,
+            batch_id: shippingDecision.decision_batch_id || decisionBatchId,
+          });
+          return {
+            status: 'paused',
+            reason: 'merge_target_in_conflict_state',
+            work_item_id: workItem.id,
+            error: err.message,
+            op: err.op || null,
+          };
+        }
+
         // Fix 2: if this is the second consecutive empty-branch merge failure
         // for the same work item, auto-quarantine it. Otherwise the LEARN
         // stage bounces straight back to SENSE which re-picks the same item
