@@ -90,7 +90,7 @@
 
 This is the seam between core and plugin. A tiny service that holds two functions: `runVerifyCommand` and `runRemoteOrLocal`. Default implementations run locally. The plugin overrides them.
 
-- [ ] **Step 1: Write the test for the default local-only behavior**
+- [x] **Step 1: Write the test for the default local-only behavior**
 
 ```js
 // server/tests/test-runner-registry.test.js
@@ -183,12 +183,12 @@ describe('TestRunnerRegistry', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd server && npx vitest run tests/test-runner-registry.test.js`
 Expected: FAIL — module `../test-runner-registry` not found.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```js
 // server/test-runner-registry.js
@@ -331,12 +331,12 @@ function createTestRunnerRegistry() {
 module.exports = { createTestRunnerRegistry };
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd server && npx vitest run tests/test-runner-registry.test.js`
 Expected: All 6 tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/test-runner-registry.js server/tests/test-runner-registry.test.js
