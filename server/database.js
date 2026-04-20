@@ -528,6 +528,7 @@ function init() {
     // Schema definitions (extracted to db/schema.js)
     const { applySchema } = require('./db/schema');
     applySchema(db, { safeAddColumn, getConfig, setConfig, setConfigDefault, DATA_DIR });
+    configCore.ensureApiKey();
 
     // Inject DB into host-management early (before migrateToMultiHost needs it)
     hostManagement.setDb(db);

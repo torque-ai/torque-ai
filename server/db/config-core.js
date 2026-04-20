@@ -134,6 +134,22 @@ function setConfigDefault(key, value) {
 }
 
 /**
+ * Ensure a TORQUE API key exists, generating one on first startup.
+ * @returns {string}
+ */
+function ensureApiKey() {
+  const existing = getConfig('api_key');
+  if (existing) return existing;
+
+  const crypto = require('crypto');
+  const key = crypto.randomUUID();
+  setConfig('api_key', key);
+  logger.info(`Generated API key: ${key}`);
+  logger.info('Add to .mcp.json headers or set TORQUE_API_KEY env var');
+  return key;
+}
+
+/**
  * Get all configuration entries as a plain object.
  * @returns {object}
  */
@@ -170,6 +186,7 @@ function createConfigCore({ db: dbInstance }) {
     getConfig,
     setConfig,
     setConfigDefault,
+    ensureApiKey,
     getAllConfig,
     getProviderRateLimits,
   };
@@ -181,6 +198,7 @@ module.exports = {
   getConfig,
   setConfig,
   setConfigDefault,
+  ensureApiKey,
   getAllConfig,
   getProviderRateLimits,
   createConfigCore,
