@@ -37,6 +37,7 @@ function createConfigInjector({ logger } = {}) {
     }
 
     const expectedUrl = `http://${host}:${ssePort}/sse?apiKey=${key}`;
+    const keylessSseUrl = `http://${host}:${ssePort}/sse`;
 
     try {
       fs.mkdirSync(claudeDir, { recursive: true });
@@ -59,6 +60,11 @@ function createConfigInjector({ logger } = {}) {
           safeLogger.info(`[MCP Config] Cannot read/parse ${configPath}: ${err.message} — skipping injection`);
           return { injected: false, path: configPath, reason: 'parse_error' };
         }
+      }
+
+      const legacy = data.mcpServers['torque-sse'];
+      if (legacy && legacy.type === 'sse' && legacy.url === keylessSseUrl) {
+        return { injected: false, path: configPath, reason: 'keyless_sse_present' };
       }
 
       const existing = data.mcpServers.torque;

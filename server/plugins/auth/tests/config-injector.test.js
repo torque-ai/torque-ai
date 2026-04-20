@@ -168,6 +168,55 @@ describe('ensureGlobalMcpConfig', () => {
     expect(data.mcpServers.torque.url).toContain(':9999/sse');
   });
 
+  it('skips injection when a keyless torque-sse entry is already present', () => {
+    fs.mkdirSync(claudeDir(), { recursive: true });
+    const existing = {
+      mcpServers: {
+        'torque-sse': {
+          type: 'sse',
+          url: 'http://127.0.0.1:3458/sse',
+          description: 'TORQUE keyless fallback',
+        },
+      },
+    };
+    fs.writeFileSync(mcpPath(), JSON.stringify(existing, null, 2));
+    const mtimeBefore = fs.statSync(mcpPath()).mtimeMs;
+
+    const result = injector.ensureGlobalMcpConfig('torque_sk_test-key-1234', {
+      homeDir: tmpHome,
+      ssePort: 3458,
+    });
+
+    expect(result.injected).toBe(false);
+    expect(result.reason).toBe('keyless_sse_present');
+    expect(fs.statSync(mcpPath()).mtimeMs).toBe(mtimeBefore);
+
+    const data = JSON.parse(fs.readFileSync(mcpPath(), 'utf-8'));
+    expect(data.mcpServers.torque).toBeUndefined();
+    expect(data.mcpServers['torque-sse'].url).toBe('http://127.0.0.1:3458/sse');
+  });
+
+  it('still injects when torque-sse points at a non-matching URL', () => {
+    fs.mkdirSync(claudeDir(), { recursive: true });
+    fs.writeFileSync(mcpPath(), JSON.stringify({
+      mcpServers: {
+        'torque-sse': {
+          type: 'sse',
+          url: 'http://127.0.0.1:9999/sse',
+        },
+      },
+    }, null, 2));
+
+    const result = injector.ensureGlobalMcpConfig('torque_sk_test-key-1234', {
+      homeDir: tmpHome,
+      ssePort: 3458,
+    });
+
+    expect(result.injected).toBe(true);
+    const data = JSON.parse(fs.readFileSync(mcpPath(), 'utf-8'));
+    expect(data.mcpServers.torque.url).toContain('torque_sk_test-key-1234');
+  });
+
   it('preserves user-added fields on torque entry', () => {
     fs.mkdirSync(claudeDir(), { recursive: true });
     fs.writeFileSync(mcpPath(), JSON.stringify({
