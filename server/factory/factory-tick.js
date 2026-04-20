@@ -17,6 +17,7 @@ const loopController = require('./loop-controller');
 const { detectStuckLoops } = require('./stuck-loop-detector');
 const { recoverStalledVerifyLoops } = require('./verify-stall-recovery');
 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
+const factoryNotifications = require('./notifications');
 const logger = require('../logger').child({ component: 'factory-tick' });
 
 const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -175,6 +176,31 @@ async function tickProject(project) {
 
       // Skip terminated or idle instances
       if (state === 'IDLE') continue;
+
+      try {
+        const stallAlert = factoryNotifications.recordFactoryTickState({
+          project_id: project.id,
+          project_status: latestProject.status,
+          stage: state,
+          instance_id: instance.id,
+          batch_id: instance.batch_id,
+          last_action_at: instance.last_action_at,
+        });
+        if (stallAlert.alerted) {
+          logger.warn('Factory tick emitted stalled alert', {
+            project_id: project.id,
+            instance_id: instance.id,
+            loop_state: state,
+            stalled_minutes: stallAlert.alert?.stalled_minutes,
+          });
+        }
+      } catch (alertErr) {
+        logger.debug('Factory tick stalled alert check failed', {
+          project_id: project.id,
+          instance_id: instance.id,
+          err: alertErr.message,
+        });
+      }
 
       // Recover stuck PAUSED-at-EXECUTE with empty batch: if the EXECUTE
       // stage paused (worktree failure, empty plan, etc.) but there are no

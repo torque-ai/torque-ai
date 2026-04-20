@@ -19,6 +19,7 @@ const factoryWorktrees = require('../db/factory-worktrees');
 const architectRunner = require('../factory/architect-runner');
 const guardrailRunner = require('../factory/guardrail-runner');
 const { logDecision } = require('./decision-log');
+const factoryNotifications = require('./notifications');
 const { createPlanFileIntake } = require('./plan-file-intake');
 const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
@@ -1538,11 +1539,25 @@ function safeLogDecision(entry) {
       factoryDecisions.setDb(db);
     }
 
-    return logDecision({
+    const decision = logDecision({
       ...entry,
       stage: normalizedStage,
       actor,
     });
+    try {
+      recordVerifyFailAlertDecision({ ...entry, stage: normalizedStage });
+    } catch (alertError) {
+      logger.warn(
+        {
+          err: alertError.message,
+          project_id: entry?.project_id,
+          stage: normalizedStage,
+          action: entry?.action,
+        },
+        'Failed to update factory VERIFY_FAIL alert state'
+      );
+    }
+    return decision;
   } catch (error) {
     logger.warn(
       {
@@ -1554,6 +1569,64 @@ function safeLogDecision(entry) {
       'Failed to log factory decision'
     );
     return null;
+  }
+}
+
+function getDecisionInstanceId(entry) {
+  return entry?.outcome?.instance_id
+    || entry?.inputs?.instance_id
+    || entry?.instance_id
+    || null;
+}
+
+function isNonVerifyFailTerminalDecision(action) {
+  if (!action || action === 'auto_rejected_verify_fail') {
+    return false;
+  }
+  return action === 'worktree_verify_passed'
+    || action === 'verified_batch'
+    || action === 'shipped_work_item'
+    || action === 'cannot_generate_plan'
+    || action === 'dep_resolver_cascade_exhausted'
+    || action === 'dep_resolver_escalation_pause'
+    || action === 'verify_reviewed_baseline_broken'
+    || action === 'verify_reviewed_environment_failure'
+    || action.startsWith('auto_rejected_')
+    || action.startsWith('auto_quarantined_')
+    || action.startsWith('auto_shipped_');
+}
+
+function recordVerifyFailAlertDecision(entry) {
+  const action = typeof entry?.action === 'string' ? entry.action : '';
+  if (!entry?.project_id || !action) {
+    return;
+  }
+
+  if (action === 'auto_rejected_verify_fail') {
+    factoryNotifications.recordVerifyFailTerminalResult({
+      project_id: entry.project_id,
+      terminal_result: 'VERIFY_FAIL',
+      action,
+      auto_rejected: true,
+      work_item_id: entry?.outcome?.work_item_id ?? entry?.inputs?.work_item_id ?? null,
+      batch_id: entry?.batch_id || null,
+      instance_id: getDecisionInstanceId(entry),
+      reason: action,
+    });
+    return;
+  }
+
+  if (isNonVerifyFailTerminalDecision(action)) {
+    factoryNotifications.recordVerifyFailTerminalResult({
+      project_id: entry.project_id,
+      terminal_result: action,
+      action,
+      auto_rejected: false,
+      work_item_id: entry?.outcome?.work_item_id ?? entry?.inputs?.work_item_id ?? null,
+      batch_id: entry?.batch_id || null,
+      instance_id: getDecisionInstanceId(entry),
+      reason: action,
+    });
   }
 }
 
@@ -5231,7 +5304,11 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             stage: LOOP_STATES.VERIFY,
             action: 'auto_rejected_verify_fail',
             reasoning: `Auto-rejected work item after ${retryAttempt} verify retries. Advancing to LEARN to process next item.`,
-            outcome: { work_item_id: instance?.work_item_id || null, retry_attempts: retryAttempt },
+            outcome: {
+              work_item_id: instance?.work_item_id || null,
+              instance_id: instance?.id || null,
+              retry_attempts: retryAttempt,
+            },
             confidence: 1,
             batch_id,
           });
