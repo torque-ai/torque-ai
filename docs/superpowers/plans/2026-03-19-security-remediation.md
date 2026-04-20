@@ -513,7 +513,7 @@ git commit -m "security: Windows DB permissions, extended secret redaction, prot
 - Modify: `server/mcp-sse.js`
 - Modify: `server/dashboard-server.js` (WebSocket per-IP)
 
-- [ ] **Step 1: Add per-IP tracking to SSE**
+- [x] **Step 1: Add per-IP tracking to SSE**
 
 ```js
 const perIpSessionCount = new Map();
@@ -534,17 +534,17 @@ const count = perIpSessionCount.get(session.ip) || 1;
 perIpSessionCount.set(session.ip, count - 1);
 ```
 
-- [ ] **Step 2: Add per-IP tracking to WebSocket**
+- [x] **Step 2: Add per-IP tracking to WebSocket**
 
 Same pattern in `dashboard-server.js` with `MAX_WS_PER_IP = 20`.
 
-- [ ] **Step 3: Require auth on SSE reconnect**
+- [x] **Step 3: Require auth on SSE reconnect**
 
 In the reconnection handler (where `?sessionId=` is checked), also verify the API key matches.
 
-- [ ] **Step 4: Verify syntax**
+- [x] **Step 4: Verify syntax**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: per-IP connection limits for SSE and WebSocket, auth on SSE reconnect"
