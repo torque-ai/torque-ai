@@ -144,9 +144,20 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
         exit 2
       fi
 
-      # Extract task_id from response JSON
-      BARRIER_TASK_ID=$(echo "$RESTART_RESP" | grep -oP '"task_id"\s*:\s*"\K[^"]+' || true)
-      BARRIER_STATUS=$(echo "$RESTART_RESP" | grep -oP '"status"\s*:\s*"\K[^"]+' || true)
+      # Extract task_id from response. TORQUE's restart endpoint returns
+      # either a plain JSON body ({"task_id":"...","status":"..."}) or the
+      # MCP-tool-wrapped shape where the id is inside a `result` string
+      # with backslash-escaped quotes. Prefer the JSON key; fall back to
+      # the first UUID in the body so both shapes work.
+      # Uses sed -E + grep -oE (POSIX), not grep -oP — gitbash on Windows
+      # ships with a grep that errors "-P supports only unibyte and UTF-8
+      # locales" under the default locale, which silently broke the id
+      # extraction and left cutovers without an auto-restart (2026-04-20).
+      BARRIER_TASK_ID=$(echo "$RESTART_RESP" | sed -nE 's/.*"task_id"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
+      if [ -z "$BARRIER_TASK_ID" ]; then
+        BARRIER_TASK_ID=$(echo "$RESTART_RESP" | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1 || true)
+      fi
+      BARRIER_STATUS=$(echo "$RESTART_RESP" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
 
       if [ -z "$BARRIER_TASK_ID" ]; then
         echo "[error] Restart barrier response missing task_id."
