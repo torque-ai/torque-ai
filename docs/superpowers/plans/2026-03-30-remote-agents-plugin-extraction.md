@@ -358,7 +358,7 @@ git commit -m "feat: add TestRunnerRegistry — core seam for remote-agents plug
 
 This task introduces the registry to the existing code **without removing remote-agents yet**. Both paths work — the remote-agents code still exists and the plugin hasn't been created. This is the safe intermediate step.
 
-- [ ] **Step 1: Register TestRunnerRegistry in container.js**
+- [x] **Step 1: Register TestRunnerRegistry in container.js**
 
 In `server/container.js`, in the `registerValue` block (around line 334-338), add:
 
@@ -367,7 +367,7 @@ const { createTestRunnerRegistry } = require('./test-runner-registry');
 _defaultContainer.registerValue('testRunnerRegistry', createTestRunnerRegistry());
 ```
 
-- [ ] **Step 2: Create the registry in index.js and pass to validation modules**
+- [x] **Step 2: Create the registry in index.js and pass to validation modules**
 
 In `server/index.js`, at the top imports (after line 25), add:
 
@@ -419,7 +419,7 @@ function getTestRunnerRegistry() {
 
 Add to module.exports.
 
-- [ ] **Step 3: Update post-task.js to consume testRunnerRegistry**
+- [x] **Step 3: Update post-task.js to consume testRunnerRegistry**
 
 In `server/validation/post-task.js`:
 
@@ -459,7 +459,7 @@ function getRouter() {
 
 All existing calls to `router.runVerifyCommand(...)` continue to work unchanged.
 
-- [ ] **Step 4: Update build-verification.js similarly**
+- [x] **Step 4: Update build-verification.js similarly**
 
 In `server/validation/build-verification.js`:
 
@@ -491,7 +491,7 @@ function getRouter() {
 }
 ```
 
-- [ ] **Step 5: Update auto-verify-retry.js similarly**
+- [x] **Step 5: Update auto-verify-retry.js similarly**
 
 In `server/validation/auto-verify-retry.js`:
 
@@ -503,7 +503,7 @@ In the `init()` function (if one exists) or in the function that creates the rou
 
 The key call at line ~163 (`router.runVerifyCommand(...)`) stays unchanged — just the source of `router` changes.
 
-- [ ] **Step 6: Update automation-handlers.js**
+- [x] **Step 6: Update automation-handlers.js**
 
 In `server/handlers/automation-handlers.js`:
 
@@ -523,7 +523,7 @@ function _getTestRunnerRegistry() {
 
 Replace the router creation at line ~68 to use `_getTestRunnerRegistry()`.
 
-- [ ] **Step 7: Run existing tests to verify no regressions**
+- [x] **Step 7: Run existing tests to verify no regressions**
 
 Run: `cd server && npx vitest run tests/remote-test-routing.test.js tests/remote-agent-handlers.test.js tests/remote-test-integration.test.js`
 
@@ -532,7 +532,7 @@ Run: `cd server && npx vitest run --reporter=verbose 2>&1 | head -100`
 
 Expected: All existing tests pass. The remote routing still works because index.js still creates the RemoteAgentRegistry and registers it.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add server/container.js server/index.js server/validation/post-task.js server/validation/build-verification.js server/validation/auto-verify-retry.js server/handlers/automation-handlers.js
