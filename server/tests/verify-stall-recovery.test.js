@@ -57,7 +57,10 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  resetTables('factory_projects');
+  // factory_decisions has FKs to factory_projects; reset children first to
+  // avoid FOREIGN KEY constraint failures. Recovery now writes decision log
+  // entries on auto-retry / unrecoverable branches.
+  resetTables(['factory_decisions', 'factory_projects']);
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-04-18T18:00:00.000Z'));
 });

@@ -1,6 +1,7 @@
 'use strict';
 
-// FOLLOW-UP: persist verify_recovery_attempts to factory_projects via new migration.
+const factoryDecisions = require('../db/factory-decisions');
+const decisionLog = require('./decision-log');
 
 const VERIFY_STALL_THRESHOLD_MS = 45 * 60 * 1000;
 const MAX_RECOVERY_ATTEMPTS = 2;
@@ -117,6 +118,7 @@ async function recoverStalledVerifyLoops({
 
   const hasColumn = hasVerifyRecoveryAttemptsColumn(db);
   const actions = [];
+  factoryDecisions.setDb(db);
 
   for (const stalledLoop of listStalledVerifyLoops(db)) {
     if (stalledLoop.attempts >= MAX_RECOVERY_ATTEMPTS) {
@@ -130,6 +132,23 @@ async function recoverStalledVerifyLoops({
         ...payload,
       });
       eventBus?.emitFactoryVerifyUnrecoverable?.(payload);
+      try {
+        decisionLog.logDecision({
+          project_id: stalledLoop.project_id,
+          stage: 'verify',
+          actor: 'verifier',
+          action: 'factory_verify_unrecoverable',
+          reasoning: `VERIFY stall reached max auto-recovery attempts (${stalledLoop.attempts}/${MAX_RECOVERY_ATTEMPTS}); operator must intervene.`,
+          outcome: payload,
+          confidence: 1,
+        });
+      } catch (logErr) {
+        // Decision-log write is best-effort — keep recovery flow alive
+        logger.warn('Failed to record factory_verify_unrecoverable decision', {
+          project_id: stalledLoop.project_id,
+          err: logErr.message,
+        });
+      }
       actions.push({
         project_id: stalledLoop.project_id,
         action: 'skipped_maxed',
@@ -153,6 +172,25 @@ async function recoverStalledVerifyLoops({
         attempts: nextAttempts,
         last_action_at: stalledLoop.last_action_at,
       });
+      try {
+        decisionLog.logDecision({
+          project_id: stalledLoop.project_id,
+          stage: 'verify',
+          actor: 'verifier',
+          action: 'factory_verify_auto_retry',
+          reasoning: `VERIFY stall detected (last action ${stalledLoop.last_action_at}); auto-retry attempt ${nextAttempts}/${MAX_RECOVERY_ATTEMPTS}.`,
+          outcome: {
+            attempts: nextAttempts,
+            last_action_at: stalledLoop.last_action_at,
+          },
+          confidence: 1,
+        });
+      } catch (logErr) {
+        logger.warn('Failed to record factory_verify_auto_retry decision', {
+          project_id: stalledLoop.project_id,
+          err: logErr.message,
+        });
+      }
       actions.push({
         project_id: stalledLoop.project_id,
         action: 'retry',
@@ -180,5 +218,6 @@ async function recoverStalledVerifyLoops({
 module.exports = {
   VERIFY_STALL_THRESHOLD_MS,
   MAX_RECOVERY_ATTEMPTS,
+  listStalledVerifyLoops,
   recoverStalledVerifyLoops,
 };
