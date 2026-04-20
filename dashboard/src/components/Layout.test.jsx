@@ -21,9 +21,28 @@ function renderLayout(props = {}, route = '/') {
   );
 }
 
+// Layout has two banners that each fire a fetch on mount:
+//   - SecurityWarningBanner → /api/v2/system/status
+//   - PausedFactoryBanner   → /api/v2/factory/projects
+// Default both to harmless responses; paused-banner tests override only
+// the factory-projects branch via mockFactoryProjects().
+function mockFactoryProjects(projects) {
+  fetch.mockImplementation((url) => {
+    if (typeof url === 'string' && url.includes('/api/v2/factory/projects')) {
+      return Promise.resolve({ ok: true, json: async () => ({ projects }) });
+    }
+    return Promise.resolve({ ok: true, json: async () => ({}) });
+  });
+}
+
 describe('Layout', () => {
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
+    vi.stubGlobal('fetch', vi.fn((url) => {
+      if (typeof url === 'string' && url.includes('/api/v2/factory/projects')) {
+        return Promise.resolve({ ok: true, json: async () => ({ projects: [] }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    }));
   });
 
   it('renders TORQUE branding in sidebar', () => {
@@ -144,26 +163,23 @@ describe('Layout', () => {
 
   describe('PausedFactoryBanner', () => {
     it('does not render paused banner when no projects are paused', async () => {
-      fetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          projects: [{ id: 'p1', name: 'Alpha', status: 'running' }],
-        }),
-      });
+      mockFactoryProjects([{ id: 'p1', name: 'Alpha', status: 'running' }]);
 
       renderLayout();
 
-      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      // Wait for the factory-projects fetch to be called (among all fetches
+      // fired on mount — there are multiple banners, so don't count).
+      await waitFor(() => {
+        const factoryCalls = fetch.mock.calls.filter((c) =>
+          typeof c[0] === 'string' && c[0].includes('/api/v2/factory/projects')
+        );
+        expect(factoryCalls.length).toBeGreaterThanOrEqual(1);
+      });
       expect(screen.queryByText(/Factory paused/i)).toBeNull();
     });
 
     it('renders paused banner with project name when one project is paused', async () => {
-      fetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          projects: [{ id: 'p1', name: 'Alpha', status: 'paused' }],
-        }),
-      });
+      mockFactoryProjects([{ id: 'p1', name: 'Alpha', status: 'paused' }]);
 
       renderLayout();
 
@@ -171,15 +187,10 @@ describe('Layout', () => {
     });
 
     it('lists multiple paused project names', async () => {
-      fetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          projects: [
-            { id: 'p1', name: 'Alpha', status: 'paused' },
-            { id: 'p2', name: 'Beta', status: 'paused' },
-          ],
-        }),
-      });
+      mockFactoryProjects([
+        { id: 'p1', name: 'Alpha', status: 'paused' },
+        { id: 'p2', name: 'Beta', status: 'paused' },
+      ]);
 
       renderLayout();
 
