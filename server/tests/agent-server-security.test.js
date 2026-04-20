@@ -3,7 +3,13 @@
 const crypto = require('node:crypto');
 const os = require('node:os');
 const path = require('node:path');
-const { prepareShellArgs, validateRunRequest, spawnAndCapture, isAuthorized } = require('../plugins/remote-agents/agent-server');
+const {
+  isAuthorized,
+  normalizeEnv,
+  prepareShellArgs,
+  spawnAndCapture,
+  validateRunRequest,
+} = require('../plugins/remote-agents/agent-server');
 
 describe('isAuthorized — timing-safe auth', () => {
   it('uses timing-safe comparison (crypto.timingSafeEqual is called)', () => {
@@ -20,6 +26,34 @@ describe('isAuthorized — timing-safe auth', () => {
 
   it('rejects missing header', () => {
     expect(isAuthorized({ headers: {} }, 'secret')).toBe(false);
+  });
+});
+
+describe('normalizeEnv - env var whitelist', () => {
+  it('blocks LD_PRELOAD', () => {
+    const env = normalizeEnv({ LD_PRELOAD: '/tmp/evil.so', NODE_ENV: 'test' });
+
+    expect(env.LD_PRELOAD).toBeUndefined();
+    expect(env.NODE_ENV).toBe('test');
+  });
+
+  it('blocks NODE_OPTIONS', () => {
+    const env = normalizeEnv({ NODE_OPTIONS: '--require=/tmp/evil.js' });
+
+    expect(env.NODE_OPTIONS).toBeUndefined();
+  });
+
+  it('allows TORQUE_ prefixed vars', () => {
+    const env = normalizeEnv({ TORQUE_DATA_DIR: '/tmp/data' });
+
+    expect(env.TORQUE_DATA_DIR).toBe('/tmp/data');
+  });
+
+  it('blocks PATH overrides from request env', () => {
+    const originalPath = process.env.PATH;
+    const env = normalizeEnv({ PATH: '/tmp/evil-bin' });
+
+    expect(env.PATH).toBe(originalPath);
   });
 });
 
@@ -88,6 +122,55 @@ describe('prepareShellArgs — shell metacharacter rejection', () => {
     expect(err).toBeDefined();
     // The error message should only include the first 50 chars of the arg
     expect(err.message.length).toBeLessThan(longArg.length + 60);
+  });
+});
+
+describe('validateRunRequest - command whitelist', () => {
+  const tmpDir = os.tmpdir();
+  const stateWithProjectsDir = { projectsDir: tmpDir };
+
+  it('allows commands on the default allowlist', () => {
+    const result = validateRunRequest(
+      { command: 'node', cwd: tmpDir, timeout: 5000 },
+      stateWithProjectsDir,
+    );
+
+    expect(result.command).toBe('node');
+  });
+
+  it('allows commands from state.allowedCommands', () => {
+    const result = validateRunRequest(
+      { command: 'cmd.exe', cwd: tmpDir, timeout: 5000 },
+      { projectsDir: tmpDir, allowedCommands: new Set(['cmd']) },
+    );
+
+    expect(result.command).toBe('cmd.exe');
+  });
+
+  it('validates command supplied as first arg', () => {
+    const result = validateRunRequest(
+      { args: ['node', '--version'], cwd: tmpDir, timeout: 5000 },
+      stateWithProjectsDir,
+    );
+
+    expect(result.command).toBe('node');
+    expect(result.args).toEqual(['--version']);
+  });
+
+  it('rejects commands not on allowlist', () => {
+    let err;
+    try {
+      validateRunRequest(
+        { command: 'curl', cwd: tmpDir, timeout: 5000 },
+        stateWithProjectsDir,
+      );
+    } catch (e) {
+      err = e;
+    }
+
+    expect(err).toBeDefined();
+    expect(err.statusCode).toBe(403);
+    expect(err.message).toMatch(/Command not allowed: curl/);
   });
 });
 

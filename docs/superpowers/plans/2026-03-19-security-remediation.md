@@ -201,7 +201,7 @@ git commit -m "security: wire auth into SSE (key required) and stdio (auto-authe
 - Modify: `dashboard/src/components/Layout.jsx` (banner)
 - Modify: `server/api-server.core.js` (startup warning)
 
-- [ ] **Step 1: Add security_warning to initialize response**
+- [x] **Step 1: Add security_warning to initialize response**
 
 In `mcp-protocol.js`, in the `initialize` case, check if auth is configured:
 ```js
@@ -221,11 +221,11 @@ case 'initialize': {
 
 Add `isAuthConfigured` to the init options.
 
-- [ ] **Step 2: Add dashboard security banner**
+- [x] **Step 2: Add dashboard security banner**
 
 In `Layout.jsx`, fetch auth status from `/api/v2/health` and show a yellow banner if `security_warning` is present.
 
-- [ ] **Step 3: Add startup log warning**
+- [x] **Step 3: Add startup log warning**
 
 In `index.js` init, after database init:
 ```js
@@ -234,9 +234,9 @@ if (!db.getConfig('api_key')) {
 }
 ```
 
-- [ ] **Step 4: Verify syntax**
+- [x] **Step 4: Verify syntax**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: add security banner for unconfigured auth installations"
