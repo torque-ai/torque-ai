@@ -602,9 +602,12 @@ describe('startup-task-reconciler — retry_scheduled orphans', () => {
       provider: 'codex',
       metadata: {},
       status: 'retry_scheduled',
-      retry_count: 3,
       max_retries: 3,
     });
+    // createTask does not set retry_count on insert (it's updated via retry
+    // framework during runtime). Patch it directly so the exhaustion test
+    // exercises the real "count >= max" state.
+    db.getDbInstance().prepare('UPDATE tasks SET retry_count = ? WHERE id = ?').run(3, id);
 
     const result = reconciler.reconcileOrphanedTasksOnStartup({
       db,
@@ -642,25 +645,27 @@ describe('startup-task-reconciler — retry_scheduled orphans', () => {
     expect(after.status).toBe('queued');
   });
 
-  test('does NOT touch retry_scheduled tasks owned by the current live instance', () => {
+  test('does NOT touch retry_scheduled tasks whose owner instance is still alive', () => {
     const id = randomUUID();
     taskCore.createTask({
       id,
-      task_description: 'owned by live instance',
+      task_description: 'owned by a peer instance that is still alive',
       working_directory: testDir,
       provider: 'codex',
       metadata: {},
       status: 'retry_scheduled',
-      retry_count: 0,
       max_retries: 3,
-      mcp_instance_id: 'live-instance',
     });
+    // Simulate a task owned by a *different* instance that is still alive —
+    // e.g. a peer server in a multi-instance deployment whose retry timer
+    // hasn't died. The current instance must not poach it.
+    db.getDbInstance().prepare('UPDATE tasks SET mcp_instance_id = ? WHERE id = ?').run('peer-live-instance', id);
 
     const result = reconciler.reconcileOrphanedTasksOnStartup({
       db,
       taskCore,
-      getMcpInstanceId: () => 'live-instance',
-      isInstanceAlive: (id) => id === 'live-instance',
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: (instanceId) => instanceId === 'peer-live-instance',
     });
 
     expect(result.actions.retry_requeued).toBe(0);
