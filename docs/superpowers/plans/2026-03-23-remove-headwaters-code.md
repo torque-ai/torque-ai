@@ -191,7 +191,7 @@ Expected: No errors, returns array of tool definitions
 - Modify: `server/core-tools.js`
 - Modify: `server/tools.js`
 
-- [ ] **Step 1: Remove from TIER_2 in core-tools.js**
+- [x] **Step 1: Remove from TIER_2 in core-tools.js**
 
 Remove these lines from the `TIER_2` array:
 ```js
@@ -219,7 +219,7 @@ Remove the `// Headwaters wiring wrappers` comment and its line entirely.
 
 Change `// Validation & maintenance` to only contain `'normalize_interface_formatting',`.
 
-- [ ] **Step 2: Remove from tools.js FILE_WRITE_TOOL_NAMES and DEFAULT_FILE_WRITE_PATHS**
+- [x] **Step 2: Remove from tools.js FILE_WRITE_TOOL_NAMES and DEFAULT_FILE_WRITE_PATHS**
 
 In `FILE_WRITE_TOOL_NAMES` (line 243), remove:
 ```js
@@ -248,7 +248,7 @@ function resolveWrittenFilePaths(toolName, args) {
 }
 ```
 
-- [ ] **Step 3: Verify both files parse**
+- [x] **Step 3: Verify both files parse**
 
 Run: `node -e "require('./server/core-tools.js')" && node -e "require('./server/tools.js')"`
 Expected: No errors
@@ -260,18 +260,18 @@ Expected: No errors
 **Files:**
 - Modify: `server/execution/workflow-runtime.js`
 
-- [ ] **Step 1: Remove continuous batch handler wiring**
+- [x] **Step 1: Remove continuous batch handler wiring**
 
 Remove:
 - Line 30: `let _continuousBatchHandler = null;`
 - Line 50-51: `_continuousBatchHandler = null;` and `if (deps.handleContinuousBatchSubmission) _continuousBatchHandler = deps.handleContinuousBatchSubmission;`
 - Lines 1078-1084: The `if (finalStatus === 'completed' && _continuousBatchHandler)` block that calls the handler
 
-- [ ] **Step 2: Remove continuous_batch_deluge_path config key**
+- [x] **Step 2: Remove continuous_batch_deluge_path config key**
 
 In `server/db/config-keys.js` line 53, remove `'continuous_batch_deluge_path',` from the config keys list.
 
-- [ ] **Step 3: Verify both files parse**
+- [x] **Step 3: Verify both files parse**
 
 Run: `node -e "require('./server/execution/workflow-runtime.js')" && node -e "require('./server/db/config-keys.js')"`
 Expected: No errors
