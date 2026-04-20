@@ -33,7 +33,7 @@
 - Create: `server/diffusion/compute-output-parser.js`
 - Test: `server/tests/diffusion-compute-output-parser.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```js
 // server/tests/diffusion-compute-output-parser.test.js
@@ -117,12 +117,12 @@ describe('validateComputeSchema', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run server/tests/diffusion-compute-output-parser.test.js`
 Expected: FAIL — module not found
 
-- [ ] **Step 3: Implement compute-output-parser.js**
+- [x] **Step 3: Implement compute-output-parser.js**
 
 ```js
 // server/diffusion/compute-output-parser.js
@@ -237,12 +237,12 @@ function validateComputeSchema(data) {
 module.exports = { parseComputeOutput, validateComputeSchema };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run server/tests/diffusion-compute-output-parser.test.js`
 Expected: PASS — all 9 tests green
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/diffusion/compute-output-parser.js server/tests/diffusion-compute-output-parser.test.js
