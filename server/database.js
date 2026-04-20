@@ -29,43 +29,125 @@ const fs = require('fs');
 const { getDataDir: _resolveDataDir, ensureWritableDir: ensureWritableDataDir } = require('./data-dir');
 const logger = require('./logger').child({ component: 'database' });
 const { safeJsonParse } = require('./utils/json');
-const { runMigrations } = require('./db/migrations');
-const codeAnalysis = require('./db/code-analysis');
-const costTracking = require('./db/cost-tracking');
-const hostManagement = require('./db/host-management');
-const workflowEngine = require('./db/workflow-engine');
-const fileTracking = require('./db/file-tracking');
-const schedulingAutomation = require('./db/scheduling-automation');
-const taskMetadata = require('./db/task-metadata');
-const coordination = require('./db/coordination');
-const providerRoutingCore = require('./db/provider-routing-core');
-const eventTracking = require('./db/event-tracking');
-const analytics = require('./db/analytics');
-const webhooksStreaming = require('./db/webhooks-streaming');
-const inboundWebhooks = require('./db/inbound-webhooks');
-const projectConfigCore = require('./db/project-config-core');
-const validationRules = require('./db/validation-rules');
-const backupCore = require('./db/backup-core');
-const emailPeek = require('./db/email-peek');
-const peekFixtureCatalog = require('./db/peek-fixture-catalog');
-const packRegistry = require('./db/pack-registry');
-const peekPolicyAudit = require('./db/peek-policy-audit');
-const peekRecoveryApprovals = require('./db/peek-recovery-approvals');
-const recoveryMetrics = require('./db/recovery-metrics');
-const policyProfileStore = require('./policy-engine/profile-store');
-const policyEvaluationStore = require('./policy-engine/evaluation-store');
-const auditStore = require('./db/audit-store');
-const ciCache = require('./db/ci-cache');
-const modelRoles = require('./db/model-roles');
-const taskCore = require('./db/task-core');
-const configCore = require('./db/config-core');
-const factoryHealth = require('./db/factory-health');
-const factoryIntake = require('./db/factory-intake');
-const factoryArchitect = require('./db/factory-architect');
-const factoryFeedback = require('./db/factory-feedback');
-const factoryAudit = require('./db/factory-audit');
-const factoryLoopInstances = require('./db/factory-loop-instances');
-const factoryWorktrees = require('./db/factory-worktrees');
+
+const _LAZY_MODULE_DEFINITIONS = [
+  { name: 'migrations', path: './db/migrations' },
+  { name: 'codeAnalysis', path: './db/code-analysis' },
+  { name: 'costTracking', path: './db/cost-tracking' },
+  { name: 'hostManagement', path: './db/host-management' },
+  { name: 'workflowEngine', path: './db/workflow-engine' },
+  { name: 'fileTracking', path: './db/file-tracking' },
+  { name: 'schedulingAutomation', path: './db/scheduling-automation' },
+  { name: 'taskMetadata', path: './db/task-metadata' },
+  { name: 'coordination', path: './db/coordination' },
+  { name: 'providerRoutingCore', path: './db/provider-routing-core' },
+  { name: 'eventTracking', path: './db/event-tracking' },
+  { name: 'analytics', path: './db/analytics' },
+  { name: 'webhooksStreaming', path: './db/webhooks-streaming' },
+  { name: 'inboundWebhooks', path: './db/inbound-webhooks' },
+  { name: 'projectConfigCore', path: './db/project-config-core' },
+  { name: 'validationRules', path: './db/validation-rules' },
+  { name: 'backupCore', path: './db/backup-core' },
+  { name: 'emailPeek', path: './db/email-peek' },
+  { name: 'peekFixtureCatalog', path: './db/peek-fixture-catalog' },
+  { name: 'packRegistry', path: './db/pack-registry' },
+  { name: 'peekPolicyAudit', path: './db/peek-policy-audit' },
+  { name: 'peekRecoveryApprovals', path: './db/peek-recovery-approvals' },
+  { name: 'recoveryMetrics', path: './db/recovery-metrics' },
+  { name: 'policyProfileStore', path: './policy-engine/profile-store' },
+  { name: 'policyEvaluationStore', path: './policy-engine/evaluation-store' },
+  { name: 'auditStore', path: './db/audit-store' },
+  { name: 'ciCache', path: './db/ci-cache' },
+  { name: 'modelRoles', path: './db/model-roles' },
+  { name: 'taskCore', path: './db/task-core' },
+  { name: 'configCore', path: './db/config-core' },
+  { name: 'factoryHealth', path: './db/factory-health' },
+  { name: 'factoryIntake', path: './db/factory-intake' },
+  { name: 'factoryArchitect', path: './db/factory-architect' },
+  { name: 'factoryFeedback', path: './db/factory-feedback' },
+  { name: 'factoryAudit', path: './db/factory-audit' },
+  { name: 'factoryLoopInstances', path: './db/factory-loop-instances' },
+  { name: 'factoryWorktrees', path: './db/factory-worktrees' },
+];
+
+const _LAZY_MODULES_BY_NAME = new Map(_LAZY_MODULE_DEFINITIONS.map((definition) => [definition.name, definition]));
+const _loadedModules = new Map();
+const _lazyModuleRefs = new Map();
+
+function _loadModule(name) {
+  if (_loadedModules.has(name)) {
+    return _loadedModules.get(name);
+  }
+  const definition = _LAZY_MODULES_BY_NAME.get(name);
+  if (!definition) {
+    throw new Error(`Unknown database sub-module: ${name}`);
+  }
+  const loaded = require(definition.path);
+  _loadedModules.set(name, loaded);
+  return loaded;
+}
+
+function _lazyModule(name) {
+  if (_lazyModuleRefs.has(name)) {
+    return _lazyModuleRefs.get(name);
+  }
+  const ref = new Proxy({}, {
+    get(_target, property) {
+      if (property === Symbol.toStringTag) return `LazyDatabaseModule:${name}`;
+      return _loadModule(name)[property];
+    },
+    has(_target, property) {
+      return property in _loadModule(name);
+    },
+    ownKeys() {
+      return Reflect.ownKeys(_loadModule(name));
+    },
+    getOwnPropertyDescriptor(_target, property) {
+      const descriptor = Object.getOwnPropertyDescriptor(_loadModule(name), property);
+      if (!descriptor) return undefined;
+      return { ...descriptor, configurable: true };
+    },
+  });
+  _lazyModuleRefs.set(name, ref);
+  return ref;
+}
+
+const codeAnalysis = _lazyModule('codeAnalysis');
+const costTracking = _lazyModule('costTracking');
+const hostManagement = _lazyModule('hostManagement');
+const workflowEngine = _lazyModule('workflowEngine');
+const fileTracking = _lazyModule('fileTracking');
+const schedulingAutomation = _lazyModule('schedulingAutomation');
+const taskMetadata = _lazyModule('taskMetadata');
+const coordination = _lazyModule('coordination');
+const providerRoutingCore = _lazyModule('providerRoutingCore');
+const eventTracking = _lazyModule('eventTracking');
+const analytics = _lazyModule('analytics');
+const webhooksStreaming = _lazyModule('webhooksStreaming');
+const inboundWebhooks = _lazyModule('inboundWebhooks');
+const projectConfigCore = _lazyModule('projectConfigCore');
+const validationRules = _lazyModule('validationRules');
+const backupCore = _lazyModule('backupCore');
+const emailPeek = _lazyModule('emailPeek');
+const peekFixtureCatalog = _lazyModule('peekFixtureCatalog');
+const packRegistry = _lazyModule('packRegistry');
+const peekPolicyAudit = _lazyModule('peekPolicyAudit');
+const peekRecoveryApprovals = _lazyModule('peekRecoveryApprovals');
+const recoveryMetrics = _lazyModule('recoveryMetrics');
+const policyProfileStore = _lazyModule('policyProfileStore');
+const policyEvaluationStore = _lazyModule('policyEvaluationStore');
+const auditStore = _lazyModule('auditStore');
+const ciCache = _lazyModule('ciCache');
+const modelRoles = _lazyModule('modelRoles');
+const taskCore = _lazyModule('taskCore');
+const configCore = _lazyModule('configCore');
+const factoryHealth = _lazyModule('factoryHealth');
+const factoryIntake = _lazyModule('factoryIntake');
+const factoryArchitect = _lazyModule('factoryArchitect');
+const factoryFeedback = _lazyModule('factoryFeedback');
+const factoryAudit = _lazyModule('factoryAudit');
+const factoryLoopInstances = _lazyModule('factoryLoopInstances');
+const factoryWorktrees = _lazyModule('factoryWorktrees');
 
 
 
@@ -545,7 +627,7 @@ function init() {
     }
 
     // Run schema migrations (fail fast - don't operate on partially migrated schema)
-    const migrationCount = runMigrations(db);
+    const migrationCount = _loadModule('migrations').runMigrations(db);
     if (migrationCount > 0) {
       logger.info('Applied ' + migrationCount + ' database migration(s)');
     }
@@ -697,103 +779,284 @@ function resetForTest(buffer) {
 // are now in db/backup-core.js and db/email-peek.js (Phase 5.2 / D1)
 
 // ============================================================
-// Exports: Connection lifecycle + core utilities ONLY
+// Exports: lazy legacy facade + connection lifecycle utilities
 // ============================================================
 //
-// The facade merge loop that re-exported 800+ functions from 47 sub-modules
-// has been REMOVED. All consumers now import sub-modules directly:
-//
-//   const taskCore = require('./db/task-core');
-//   const configCore = require('./db/config-core');
-//   const workflowEngine = require('./db/workflow-engine');
-//
-// This module re-exports sub-module functions as a flat namespace for backward
-// compatibility. The execution/ layer passes this facade as `db` via init({ db }).
-// New code should use the DI container: container.get('taskCore')
-//
-// Sub-module spreads are ordered to match import order at top of file.
-// Later spreads win on name collisions (same behavior as the original merge loop).
+// This module still exposes the historical flat database namespace for backward
+// compatibility. The legacy export manifest below preserves the previous
+// collision behavior: each function is assigned to the module that won the old
+// eager spread order. Each wrapper defers require() until the function is called.
 
-const _SUB_MODULES = [
-  codeAnalysis,
-  costTracking,
-  hostManagement,
-  workflowEngine,
-  fileTracking,
-  schedulingAutomation,
-  taskMetadata,
-  coordination,
-  providerRoutingCore,
-  eventTracking,
-  analytics,
-  webhooksStreaming,
-  inboundWebhooks,
-  projectConfigCore,
-  validationRules,
-  backupCore,
-  emailPeek,
-  peekFixtureCatalog,
-  packRegistry,
-  peekPolicyAudit,
-  peekRecoveryApprovals,
-  recoveryMetrics,
-  policyProfileStore,
-  policyEvaluationStore,
-  auditStore,
-  ciCache,
-  modelRoles,
-  taskCore,
-  configCore,
-  factoryHealth,
-  factoryIntake,
-  factoryArchitect,
-  factoryLoopInstances,
-  factoryWorktrees,
+const _LEGACY_EXPORT_MODULES = [
+  { name: 'costTracking', exports: [
+    'deleteBudget', 'estimateCost', 'getCostByPeriod', 'getCostForecast', 'getModelPricing', 'getProviderHistory',
+    'getTaskTokenUsage', 'getTokenUsageSummary', 'getUsageHistory', 'getWorkflowCostSummary', 'recordDailySnapshot', 'recordTokenUsage',
+    'resetExpiredBudgets',
+  ] },
+  { name: 'hostManagement', exports: [
+    'addOllamaHost', 'addRoutingRule', 'applyBenchmarkResults', 'cleanupNullIdHosts', 'computeAdaptiveScores', 'decomposeTask',
+    'decrementHostTasks', 'deleteAllHostCredentials', 'deleteCredential', 'deleteProjectTuning', 'detectTaskLanguage', 'determineTaskComplexity',
+    'disableOllamaHost', 'disableStaleHosts', 'enableOllamaHost', 'ensureLocalHostEnabled', 'ensureModelsLoaded', 'fetchHostModelsSync',
+    'getAggregatedModels', 'getBenchmarkResults', 'getBenchmarkStats', 'getCredential', 'getHostSettings', 'getMergedProjectTuning',
+    'getModelCapabilities', 'getModelFormatFailures', 'getModelLeaderboard', 'getModelTierForComplexity', 'getOllamaHost', 'getOllamaHostByUrl',
+    'getOptimalSettingsFromBenchmarks', 'getProjectTuning', 'getRunningTasksForHost', 'getSplitAdvisory', 'getTasksNeedingCorrection', 'getTasksPendingReview',
+    'getVramOverheadFactor', 'incrementHostTasks', 'isHostModelWarm', 'listCredentials', 'listModelCapabilities', 'listOllamaHosts',
+    'listProjectTuning', 'migrateToMultiHost', 'reconcileHostTaskCounts', 'recordBenchmarkResult', 'recordHostHealthCheck', 'recordHostModelUsage',
+    'recordModelOutcome', 'recordTaskOutcome', 'recoverOllamaHost', 'releaseHostSlot', 'removeOllamaHost', 'routeTask',
+    'saveCredential', 'selectBestModel', 'selectHostWithModelVariant', 'selectOllamaHostForModel', 'setHostPriority', 'setHostSettings',
+    'setHostTierHint', 'setProjectTuning', 'setTaskReviewStatus', 'tryReserveHostSlot', 'updateOllamaHost', 'upsertModelCapabilities',
+  ] },
+  { name: 'workflowEngine', exports: [
+    'addTaskDependency', 'areTaskDependenciesSatisfied', 'cleanupOldWorkflows', 'createWorkflow', 'createWorkflowTemplate', 'deleteTaskDependency',
+    'deleteWorkflow', 'deleteWorkflowTemplate', 'evaluateAST', 'evaluateCondition', 'findEmptyWorkflowPlaceholder', 'getBlockedTasks',
+    'getTaskDependencies', 'getTaskDependents', 'getWorkflow', 'getWorkflowDependencies', 'getWorkflowHistory', 'getWorkflowStatus',
+    'getWorkflowTaskCount', 'getWorkflowTasks', 'getWorkflowTemplate', 'getWorkflowTemplateByName', 'injectReviewDependency', 'listWorkflowTemplates',
+    'listWorkflows', 'parseExpression', 'reconcileStaleWorkflows', 'tokenizeExpression', 'transitionWorkflowStatus', 'updateWorkflow',
+    'updateWorkflowCounts', 'wouldCreateCycle',
+  ] },
+  { name: 'fileTracking', exports: [
+    'acquireFileLock', 'analyzeBuildOutput', 'analyzeChangeImpact', 'analyzeCodeComplexity', 'calculateTaskComplexityScore', 'captureConfigBaselines',
+    'captureDirectoryBaselines', 'captureFileBaseline', 'captureTestBaseline', 'checkAccessibility', 'checkBudgetBeforeSubmission', 'checkDocCoverage',
+    'checkDuplicateFiles', 'checkDuplicateTask', 'checkFileLocationAnomalies', 'checkI18n', 'checkOutputSizeLimits', 'checkTaskTimeout',
+    'checkTestCoverage', 'checkXamlCodeBehindConsistency', 'classifyTaskType', 'compareFileToBaseline', 'completeRollback', 'createDiffPreview',
+    'createFileBackup', 'createRollback', 'detectConfigDrift', 'detectDeadCode', 'detectProviderDegradation', 'detectRegressions',
+    'estimateResourceUsage', 'generateTaskFingerprint', 'getAccessibilityResults', 'getActiveFileLocks', 'getAllFileLocationIssues', 'getApiContractResults',
+    'getAuditTrail', 'getAutoRollbackHistory', 'getBestProviderForTaskType', 'getBudgetStatus', 'getBuildCheck', 'getBuildErrorAnalysis',
+    'getChangeImpacts', 'getComplexityMetrics', 'getConfigDriftResults', 'getConflictedFiles', 'getCostSummary', 'getDeadCodeResults',
+    'getDiffPreview', 'getDocCoverageResults', 'getDuplicateFileDetections', 'getExpectedOutputPaths', 'getFileBaseline', 'getFileLocationAnomalies',
+    'getI18nResults', 'getOutputViolations', 'getOverallQualityStats', 'getProviderQualityStats', 'getQualityScore', 'getQualityStatsByProvider',
+    'getRateLimits', 'getRegressionResults', 'getResourceEstimates', 'getRollback', 'getSafeguardToolConfigs', 'getSecurityRules',
+    'getSecurityScanResults', 'getSimilarFileSearchResults', 'getSmokeTestResults', 'getStyleCheckResults', 'getSyntaxValidators', 'getTaskBackups',
+    'getTaskComplexityScore', 'getTaskFileSnapshot', 'getTestCoverageResults', 'getTimeoutAlerts', 'getTypeVerificationResults', 'getValidationFailureRate',
+    'getVulnerabilityScanResults', 'getWorkflowFileWrites', 'getXamlConsistencyResults', 'getXamlValidationResults', 'isBudgetExceeded', 'isDiffReviewRequired',
+    'listAllSyntaxValidators', 'listRollbacks', 'markDiffReviewed', 'markTimeoutAlertNotified', 'performAutoRollback', 'recordAuditEvent',
+    'recordAutoRollback', 'recordCost', 'recordDuplicateFile', 'recordFileLocationAnomaly', 'recordQualityScore', 'recordRateLimitEvent',
+    'recordTaskFileWrite', 'recordTaskFingerprint', 'releaseAllFileLocks', 'releaseFileLock', 'resolveDuplicateFile', 'resolveFileLocationAnomaly',
+    'restoreFileBackup', 'runAppSmokeTest', 'runAppSmokeTestSync', 'runBuildCheck', 'runSecurityScan', 'runStyleCheck',
+    'runSyntaxValidation', 'runVulnerabilityScan', 'saveBuildResult', 'searchSimilarFiles', 'setBudget', 'setExpectedOutputPath',
+    'setOutputLimit', 'updateBudgetSpend', 'updateProviderStats', 'validateApiContract', 'validateXamlSemantics', 'verifyTypeReferences',
+  ] },
+  { name: 'schedulingAutomation', exports: [
+    'approveTask', 'calculateNextMaintenanceRun', 'calculateNextRun', 'checkApprovalRequired', 'cleanupAuditLog', 'createApprovalRequest',
+    'createApprovalRule', 'createCronScheduledTask', 'createOneTimeSchedule', 'deleteApprovalRule', 'deleteMaintenanceSchedule', 'deleteResourceLimits',
+    'deleteScheduledTask', 'deleteTemplate', 'detectScheduleOverlaps', 'duplicatePipeline', 'exportAuditLog', 'exportTasksReport',
+    'getAllAuditConfig', 'getAllResourceLimits', 'getApprovalHistory', 'getApprovalRequest', 'getApprovalRequestById', 'getAuditConfig',
+    'getAuditLog', 'getAuditLogCount', 'getAuditStats', 'getDueMaintenanceTasks', 'getDueScheduledTasks', 'getMaintenanceSchedule',
+    'getResourceLimits', 'getResourceReport', 'getResourceUsage', 'getResourceUsageByProject', 'getScheduledTask', 'getScheduledTaskRun',
+    'getTemplate', 'incrementTemplateUsage', 'listApprovalHistory', 'listApprovalRules', 'listMaintenanceSchedules', 'listPendingApprovals',
+    'listScheduledTaskRuns', 'listScheduledTasks', 'listTemplates', 'markMaintenanceRun', 'markScheduledTaskRun', 'matchesApprovalRule',
+    'matchesCronField', 'parseCronExpression', 'parseDelay', 'processAutoApprovals', 'recordAuditLog', 'recordResourceUsage',
+    'rejectApproval', 'runScheduledTaskNow', 'saveTemplate', 'setAuditConfig', 'setMaintenanceSchedule', 'setResourceLimits',
+    'toggleScheduledTask', 'updateApprovalRule', 'updateScheduledTask', 'validateCronField', 'validateCronFieldValue',
+  ] },
+  { name: 'taskMetadata', exports: [
+    'addTaskComment', 'addTaskSuggestion', 'addTaskTags', 'addTaskToGroup', 'archiveTask', 'archiveTasks',
+    'batchAddTags', 'batchAddTagsByFilter', 'batchCancelTasks', 'calculateTextSimilarity', 'checkBreakpoints', 'cleanupExpiredArtifacts',
+    'createBreakpoint', 'createBulkOperation', 'createDebugSession', 'createTaskGroup', 'deleteArchivedTask', 'deleteArtifact',
+    'deleteBreakpoint', 'deleteTaskComment', 'deleteTaskGroup', 'dryRunBulkOperation', 'findSimilarTasks', 'generateTaskSuggestions',
+    'getAllTags', 'getArchiveStats', 'getArchivedTask', 'getArtifact', 'getArtifactConfig', 'getBreakpoint',
+    'getBulkOperation', 'getCachedSimilarTasks', 'getDebugCaptures', 'getDebugSession', 'getDebugSessionByTask', 'getDebugState',
+    'getExpiredArtifacts', 'getGroupStats', 'getGroupTasks', 'getRetryableTasks', 'getRollbackPoints', 'getSmartDefaults',
+    'getTagStats', 'getTaskComments', 'getTaskFileChanges', 'getTaskGroup', 'getTaskPatterns', 'getTaskSuggestions',
+    'getTaskTimeline', 'getTasksMatchingFilter', 'getTasksWithCommits', 'learnFromRecentTasks', 'learnFromTask', 'listArchivedTasks',
+    'listArtifacts', 'listBreakpoints', 'listBulkOperations', 'listTaskGroups', 'markSuggestionApplied', 'recordDebugCapture',
+    'recordFileChange', 'removeTaskTags', 'restoreTask', 'setArtifactConfig', 'storeArtifact', 'transitionDebugSessionStatus',
+    'updateBreakpoint', 'updateBulkOperation', 'updateDebugSession', 'updateTaskGitState',
+  ] },
+  { name: 'coordination', exports: [
+    'acquireLock', 'addAgentToGroup', 'checkLock', 'checkOfflineAgents', 'claimTask', 'cleanupExpiredLocks',
+    'createAgentGroup', 'expireStaleLeases', 'forceReleaseStaleLock', 'getActiveInstances', 'getAgent', 'getAgentGroup',
+    'getAgentsByTarget', 'getAgentsWithCapabilities', 'getClaim', 'getClaimableTasksForAgent', 'getCoordinationDashboard', 'getFailoverConfig',
+    'getStealingHistory', 'isLockHeartbeatStale', 'listAgentGroups', 'listAgents', 'listClaims', 'listRoutingRules',
+    'matchRoutingRule', 'recordAgentMetric', 'recordCoordinationEvent', 'registerAgent', 'releaseLock', 'releaseTaskClaim',
+    'removeAgentFromGroup', 'renewLease', 'routeTaskToAgent', 'selectAgentByStrategy', 'stealTask', 'triggerFailover',
+    'unregisterAgent', 'updateAgent', 'updateAgentHeartbeat', 'updateFailoverConfig', 'updateLockHeartbeat',
+  ] },
+  { name: 'providerRoutingCore', exports: [
+    'analyzeTaskForRouting', 'approveProviderSwitch', 'attemptOllamaStart', 'autoConfigureWSL2Host', 'checkOllamaHealth', 'checkRateLimit',
+    'checkTaskQuota', 'cleanupStaleTasks', 'createRoutingRule', 'createTaskReplay', 'createTemplateCondition', 'createWorkflowFork',
+    'deleteIntegrationConfig', 'deleteRateLimit', 'deleteRoutingRule', 'deleteTaskQuota', 'deleteTemplateCondition', 'detectWSL2HostIP',
+    'enrichProviderRow', 'findOllamaBinary', 'getDefaultProvider', 'getEffectiveMaxConcurrent', 'getEnabledIntegration', 'getEnabledProviderMaxConcurrentSum',
+    'getHealthTrend', 'getIntegrationConfig', 'getNextFallbackProvider', 'getProjectQuotas', 'getProjectRateLimits', 'getPrometheusMetrics',
+    'getProvider', 'getProviderFallbackChain', 'getProviderHealth', 'getProviderHealthScore', 'getProviderStats', 'getRateLimit',
+    'getRoutingRule', 'getRoutingRules', 'getTaskQuota', 'getTaskReplay', 'getTemplateCondition', 'getWorkflowFork',
+    'hasHealthyOllamaHost', 'invalidateOllamaHealth', 'isCodexExhausted', 'isOllamaHealthy', 'isProviderHealthy', 'isProviderQuotaError',
+    'listIntegrationConfigs', 'listProviders', 'listTaskReplays', 'listTemplateConditions', 'listWorkflowForks', 'markTaskPendingProviderSwitch',
+    'normalizeProviderTransport', 'persistHealthWindow', 'pruneHealthHistory', 'pruneOldTasks', 'recordProviderOutcome', 'recordProviderUsage',
+    'rejectProviderSwitch', 'resetProviderHealth', 'saveIntegrationConfig', 'setCircuitBreaker', 'setCodexExhausted', 'setDefaultProvider',
+    'setOllamaHealthy', 'setProviderFallbackChain', 'setProviderScoring', 'setRateLimit', 'setTaskQuota', 'updateProvider',
+    'updateRoutingRule', 'updateWorkflowForkStatus', 'waitForOllamaReady',
+  ] },
+  { name: 'eventTracking', exports: [
+    'aggregateSuccessMetrics', 'comparePerformance', 'escapeLikePattern', 'escapeRegex', 'exportData', 'getAnalytics',
+    'getBestFormatForModel', 'getFormatSuccessRate', 'getFormatSuccessRatesSummary', 'getOutputStats', 'getSuccessRates', 'importData',
+    'recordEvent', 'recordFormatSuccess', 'recordSuccessMetrics', 'searchTaskOutputs',
+  ] },
+  { name: 'analytics', exports: [
+    'analyzeRetryPatterns', 'assignExperimentVariant', 'boostPriority', 'calibratePredictionModels', 'computeDependencyScore', 'computeExperimentSignificance',
+    'computePriorityScore', 'computeResourceScore', 'computeSuccessScore', 'concludeExperiment', 'createAdaptiveRetryRule', 'createExperiment',
+    'deleteFailurePattern', 'estimateFromKeywords', 'extractKeywords', 'extractPatternKey', 'getAdaptiveRetryRules', 'getDurationInsights',
+    'getExperiment', 'getHighestPriorityQueuedTask', 'getIntelligenceDashboard', 'getPatternCondition', 'getPredictionModel', 'getPriorityQueue',
+    'getPriorityWeights', 'getRetryRecommendation', 'learnFailurePattern', 'listExperiments', 'listFailurePatterns', 'logIntelligenceAction',
+    'matchPatterns', 'predictDuration', 'predictFailureForTask', 'purgeOldAnalytics', 'recordDurationPrediction', 'recordExperimentOutcome',
+    'setFindSimilarTasks', 'setPriorityWeights', 'setSetPriorityWeights', 'suggestIntervention', 'updateIntelligenceOutcome', 'updatePredictionActual',
+    'updatePredictionModel', 'updateRetryRuleStats',
+  ] },
+  { name: 'webhooksStreaming', exports: [
+    'addStreamChunk', 'cleanupAnalytics', 'cleanupCoordinationEvents', 'cleanupEventData', 'cleanupStaleWebhookRetries', 'cleanupStreamData',
+    'cleanupWebhookLogs', 'clearPartialOutputBuffer', 'clearPauseState', 'createEventSubscription', 'createTaskStream', 'createWebhook',
+    'deleteEventSubscription', 'deleteTaskCheckpoints', 'deleteWebhook', 'enforceEventTableLimits', 'enforceWebhookLogLimits', 'getLatestStreamChunks',
+    'getOrCreateTaskStream', 'getPartialOutputBuffer', 'getStreamChunks', 'getStreamTaskId', 'getTaskCheckpoint', 'getTaskCheckpoints',
+    'getTaskEvents', 'getTaskLogs', 'getWebhook', 'getWebhookLogs', 'getWebhookStats', 'getWebhooksForEvent',
+    'listPausedTasks', 'listWebhooks', 'logWebhookDelivery', 'pauseTask', 'pollSubscription', 'pollSubscriptionAfterCursor',
+    'recordTaskEvent', 'saveTaskCheckpoint', 'setWebhookDeliveryExecutor', 'updateWebhook',
+  ] },
+  { name: 'inboundWebhooks', exports: [
+    'checkDeliveryExists', 'cleanupOldDeliveries', 'createInboundWebhook', 'deleteInboundWebhook', 'getInboundWebhook', 'listInboundWebhooks',
+    'recordDelivery', 'recordWebhookTrigger',
+  ] },
+  { name: 'projectConfigCore', exports: [
+    'acknowledgePerformanceAlert', 'addParallelPipelineStep', 'addPipelineStep', 'addTaskToPlanProject', 'analyzeDatabase', 'areAllPlanDependenciesComplete',
+    'cacheTaskResult', 'calculateRetryDelay', 'canProjectStartTask', 'checkBudgetAlerts', 'checkDependencies', 'checkMemoryPressure',
+    'cleanupHealthHistory', 'clearCacheStats', 'clearQueryStats', 'computeContentHash', 'computeEmbedding', 'configureTaskRetry',
+    'cosineSimilarity', 'createBudgetAlert', 'createGitHubIssue', 'createPerformanceAlert', 'createPipeline', 'createPlanProject',
+    'createProjectCache', 'createReportExport', 'createScheduledTask', 'deleteBudgetAlert', 'deletePlanProject', 'deleteProjectConfig',
+    'explainQueryPlan', 'exportTasksToCSV', 'exportTasksToJSON', 'findProjectRoot', 'getAllProjectMetadata', 'getBudgetAlert',
+    'getCacheConfig', 'getCacheStats', 'getCurrentProject', 'getDatabaseHealth', 'getDatabaseSize', 'getDatabaseStats',
+    'getDependentPlanTasks', 'getDependentTasks', 'getEffectiveProjectConfig', 'getFrequentQueries', 'getGitHubIssuesForTask', 'getHealthHistory',
+    'getHealthSummary', 'getIndexStats', 'getIntegrationHealthHistory', 'getIntegrationTests', 'getLatestHealthCheck', 'getLatestIntegrationHealth',
+    'getNextPipelineStep', 'getNextPipelineSteps', 'getOptimizationHistory', 'getParallelGroupSteps', 'getPerformanceAlerts', 'getPipeline',
+    'getPipelineSteps', 'getPlanProject', 'getPlanProjectTask', 'getPlanProjectTasks', 'getProjectConfig', 'getProjectDailyUsage',
+    'getProjectDefaults', 'getProjectFromPath', 'getProjectMetadata', 'getProjectRoot', 'getProjectRunningCount', 'getProjectStats',
+    'getReportExport', 'getResourceMetrics', 'getRetryHistory', 'getSlowQueries', 'hasFailedPlanDependency', 'incrementRetry',
+    'init', 'integrityCheck', 'invalidateCache', 'isParallelGroupComplete', 'listBudgetAlerts', 'listGitHubIssues',
+    'listPipelines', 'listPlanProjects', 'listProjectConfigs', 'listReportExports', 'lookupCache', 'purgeGrowthTables',
+    'reconcilePipelineStepStatus', 'recordHealthCheck', 'recordIntegrationHealth', 'recordIntegrationTest', 'recordOptimization', 'recordQueryStat',
+    'recordRetryAttempt', 'runEmergencyCleanup', 'setCacheConfig', 'setProjectConfig', 'setProjectMetadata', 'timedQuery',
+    'transitionPipelineStepStatus', 'updateBudgetAlert', 'updateCacheEntryCount', 'updateCacheStats', 'updatePipelineStatus', 'updatePipelineStep',
+    'updatePlanProject', 'updateReportExport', 'vacuum', 'vacuumDatabase', 'warmCache',
+  ] },
+  { name: 'validationRules', exports: [
+    'decideApproval', 'getApprovalRule', 'getApprovalRules', 'getFailureMatches', 'getFailurePatterns', 'getPendingApprovals',
+    'getRetryAttempts', 'getRetryRules', 'getValidationResults', 'getValidationRule', 'getValidationRules', 'hasAllApprovals',
+    'hasValidationFailures', 'matchFailurePatterns', 'recordValidationResult', 'saveApprovalRule', 'saveFailurePattern', 'saveRetryRule',
+    'saveValidationRule', 'shouldRetryWithCloud', 'updateRetryOutcome', 'validateTaskOutput',
+  ] },
+  { name: 'backupCore', exports: [
+    'backupDatabase', 'cleanupOldBackups', 'getBackupsDir', 'getDbInstance', 'listBackups', 'restoreDatabase',
+    'startBackupScheduler', 'stopBackupScheduler', 'takePreShutdownBackup',
+  ] },
+  { name: 'emailPeek', exports: [
+    'getDefaultPeekHost', 'getEmailNotification', 'getFailoverEvents', 'getPeekHost', 'listEmailNotifications', 'listPeekHosts',
+    'recordEmailNotification', 'recordFailoverEvent', 'registerPeekHost', 'unregisterPeekHost', 'updateEmailNotificationStatus', 'updatePeekHost',
+  ] },
+  { name: 'peekFixtureCatalog', exports: [
+    'cloneValue', 'computeChecksum', 'createNewVersion', 'deepMerge', 'deleteFixture', 'freezeFixture',
+    'getFixture', 'getFixtureByName', 'hasCatalogTable', 'isPlainObject', 'listFixtures', 'mapFixtureRow',
+    'registerFixture', 'resolveFixtureWithInheritance', 'seedDefaultFixtures', 'updateFixture',
+  ] },
+  { name: 'packRegistry', exports: [
+    'deletePack', 'deprecatePack', 'getPack', 'getPackByName', 'getPackVersionHistory', 'listDeprecatedPacks',
+    'listPacks', 'mapPackRow', 'queryByAppType', 'recordVersionHistory', 'registerPack', 'safeJsonParse',
+    'setMaintainer', 'setSuccessorPack', 'setSunsetDate', 'transferOwnership',
+  ] },
+  { name: 'peekPolicyAudit', exports: [
+    'formatPolicyProof', 'getPolicyProofAudit', 'listPolicyProofAudits', 'recordPolicyProofAudit',
+  ] },
+  { name: 'peekRecoveryApprovals', exports: [
+    'denyApproval', 'getApprovalForAction', 'getApprovalStatus', 'grantApproval', 'requestApproval',
+  ] },
+  { name: 'recoveryMetrics', exports: [
+    'getActionStats', 'getExecutionCount', 'getOverallStats', 'getRecentMetrics', 'getStatsByRiskLevel', 'isReadyForClosedLoop',
+    'recordRecoveryMetric',
+  ] },
+  { name: 'policyProfileStore', exports: [
+    'buildEffectiveRule', 'getPolicyBinding', 'getPolicyProfile', 'getPolicyRule', 'listPolicyBindings', 'listPolicyProfiles',
+    'listPolicyRules', 'resolveApplicableProfiles', 'resolvePoliciesForStage', 'resolvePolicyProfile', 'savePolicyBinding', 'savePolicyProfile',
+    'savePolicyRule',
+  ] },
+  { name: 'policyEvaluationStore', exports: [
+    'createPolicyEvaluation', 'createPolicyOverride', 'getLatestPolicyEvaluationForScope', 'getOverrideRate', 'getPolicyEvaluation', 'getPolicyOverride',
+    'listPolicyEvaluations', 'listPolicyOverrides', 'recordOverride', 'updatePolicyEvaluation',
+  ] },
+  { name: 'auditStore', exports: [
+    'createAuditRun', 'getAuditRun', 'getAuditSummary', 'getFalsePositives', 'incrementAuditRunCounters', 'insertFindings',
+    'listAuditRuns', 'updateAuditRun', 'updateFinding',
+  ] },
+  { name: 'ciCache', exports: [
+    'deactivateCiWatch', 'getCiRunCache', 'getCiWatch', 'hasRunBeenDiagnosed', 'listActiveCiWatches', 'listCiRunCache',
+    'pruneCiRunCache', 'updateWatchLastCheckedAt', 'upsertCiRunCache', 'upsertCiWatch',
+  ] },
+  { name: 'modelRoles', exports: [
+    'clearModelRole', 'getModelForRole', 'listModelRoles', 'setModelRole',
+  ] },
+  { name: 'taskCore', exports: [
+    'archiveOldTasks', 'claimSlotAtomic', 'clearProviderIfNotRunning', 'countTasks', 'countTasksByStatus', 'createTask',
+    'deleteTask', 'deleteTasks', 'ensureProjectRegistered', 'getExpiredQueuedTasks', 'getNextQueuedTask', 'getRecentSuccessfulTasks',
+    'getRunningCount', 'getRunningCountByProvider', 'getRunningTasksLightweight', 'getTask', 'getTaskStatus', 'listKnownProjects',
+    'listQueuedTasksLightweight', 'listTasks', 'normalizeProviderValue', 'patchTaskMetadata', 'patchTaskSlotBinding', 'purgeOldTaskOutput',
+    'requeueAfterSlotFailure', 'requeueTaskAfterAttemptedStart', 'resolveTaskId', 'tryClaimTaskSlot', 'updateTask', 'updateTaskProgress',
+    'updateTaskStatus', 'validateColumnName',
+  ] },
+  { name: 'configCore', exports: [
+    'clearConfigCache', 'ensureApiKey', 'getAllConfig', 'getConfig', 'getProviderRateLimits', 'setConfig',
+    'setConfigDefault',
+  ] },
+  { name: 'factoryHealth', exports: [
+    'getBalanceScore', 'getFindings', 'getFindingsForSnapshots', 'getLatestScores', 'getLatestSnapshotIds', 'getProject',
+    'getProjectByPath', 'getProjectHealthSummary', 'getProjectPolicy', 'getScoreHistory', 'listProjects', 'recordFindings',
+    'recordSnapshot', 'registerProject', 'setProjectPolicy', 'updateProject',
+  ] },
+  { name: 'factoryIntake', exports: [
+    'claimWorkItem', 'createFromFindings', 'createWorkItem', 'findDuplicates', 'getIntakeStats', 'getWorkItem',
+    'getWorkItemForProject', 'linkItems', 'listOpenWorkItems', 'listWorkItems', 'normalizePriority', 'parseWorkItem',
+    'rejectWorkItem', 'releaseClaimForInstance', 'updateWorkItem',
+  ] },
+  { name: 'factoryArchitect', exports: [
+    'createCycle', 'getBacklog', 'getCycle', 'getLatestCycle', 'getReasoningLog', 'listCycles',
+    'updateCycle',
+  ] },
+  { name: 'factoryLoopInstances', exports: [
+    'claimStageForInstance', 'createFactoryLoopInstances', 'createInstance', 'getDb', 'getInstance', 'getStageOccupant',
+    'isStageOccupancyConflict', 'listByStage', 'listInstances', 'parseInstance', 'resolveDbHandle', 'terminateInstance',
+    'updateInstance',
+  ] },
+  { name: 'factoryWorktrees', exports: [
+    'clearOwningTask', 'getActiveWorktree', 'getActiveWorktreeByBatch', 'getActiveWorktreeByBranch', 'getLatestWorktreeForWorkItem', 'getWorktreeByBranch',
+    'listActiveWorktrees', 'markAbandoned', 'markMerged', 'recordWorktree', 'setOwningTask',
+  ] },
 ];
 
-// DI wiring internals and factory functions — excluded from the facade
-const _DI_INTERNALS = new Set([
-  'setDb', 'setGetTask', 'setDbFunctions', 'setRecordEvent',
-  'setRecordTaskEvent', 'setGetPipeline', 'setCreatePipeline',
-  'setGetTaskEvents', 'setGetRetryHistory', 'setRecordAuditLog',
-  'setGetApprovalHistory', 'setCreateTask', 'setHostManagement',
-  'setGetProjectRoot', 'setDataDir', 'setInternals', 'setGetProjectMetadata',
-  'setExternalFns', 'setDbClosed',
-]);
+function _makeLazyLegacyExport(moduleName, key) {
+  return function lazyLegacyFacadeExport(...args) {
+    const fn = _loadModule(moduleName)[key];
+    if (typeof fn !== 'function') {
+      throw new TypeError(`Legacy database export ${key} is not a function on ${moduleName}`);
+    }
+    return Reflect.apply(fn, this, args);
+  };
+}
 
-// IMPORTANT: Do NOT replace _DI_FACTORIES with a pattern like `key.startsWith('create')`.
-// Runtime functions (createTask, createWorkflow, createWebhook, etc.) MUST be exported.
-// Only DI factory functions (createTaskCore, createConfigCore, etc.) are excluded.
-// DI factory functions — return module instances, not data. Excluded from facade.
-const _DI_FACTORIES = new Set([
-  'createTaskCore', 'createConfigCore', 'createWorkflowEngine', 'createCostTracking',
-  'createWebhooksStreaming', 'createCoordination', 'createEventTracking', 'createAnalytics',
-  'createHostManagement', 'createSchedulingAutomation', 'createTaskMetadata',
-  'createProviderRoutingCore', 'createFileTracking', 'createProjectConfigCore',
-  'createBackupCore', 'createValidationRules', 'createCodeAnalysis',
-  'createAuditStore', 'createEmailPeek', 'createPeekFixtureCatalog',
-  'createPackRegistry', 'createPeekPolicyAudit', 'createPeekRecoveryApprovals',
-  'createRecoveryMetrics', 'createInboundWebhooks', 'createCiCache',
-  'createPolicyProfileStore', 'createPolicyEvaluationStore', 'createModelRoles',
-]);
+function _defineFacadeValue(target, key, value) {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
 
-// Merge all sub-module exports into a flat namespace, skipping DI internals
-// and DI factory functions. Runtime createXxx (createTask, createWorkflow, etc.) included.
-const merged = {};
-for (const mod of _SUB_MODULES) {
-  for (const [key, value] of Object.entries(mod)) {
-    if (typeof value !== 'function') continue;
-    if (_DI_INTERNALS.has(key)) continue;
-    if (_DI_FACTORIES.has(key)) continue;
-    merged[key] = value;
+const facade = {};
+
+for (const definition of _LEGACY_EXPORT_MODULES) {
+  for (const key of definition.exports) {
+    const name = definition.name;
+    _defineFacadeValue(facade, key, _makeLazyLegacyExport(name, key));
   }
 }
 
-module.exports = {
-  // Sub-module functions (flat namespace for backward compat)
-  ...merged,
-
-  // Connection lifecycle (override any sub-module collisions)
+for (const [key, value] of Object.entries({
+  // Connection lifecycle and local facade overrides.
   init,
   close,
   onClose,
@@ -804,15 +1067,28 @@ module.exports = {
   getDataDir: () => DATA_DIR,
   getDbPath: () => DB_PATH,
 
-  // Core utilities (no sub-module equivalent)
+  // Core facade wrappers.
+  getConfig,
+  setConfig,
+  setConfigDefault,
+  getAllConfig,
+  createTask,
+  getTask,
+  getRunningCount,
+
+  // Core utilities.
   safeJsonParse,
   safeAddColumn,
   validateColumnName,
 
-  // DI wiring (internal)
+  // DI wiring (internal).
   _wireAllModules,
 
-  // Listeners
+  // Listeners.
   addTaskStatusTransitionListener,
   removeTaskStatusTransitionListener,
-};
+})) {
+  _defineFacadeValue(facade, key, value);
+}
+
+module.exports = facade;
