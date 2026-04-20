@@ -674,9 +674,12 @@ function spawnAndTrackProcess(taskId, task, {
   const MAX_TIMEOUT_MINUTES = 480;
   const parsedTimeout = parseInt(task.timeout_minutes, 10);
   const explicitZero = parsedTimeout === 0;
-  const rawTimeout = Number.isFinite(parsedTimeout) && parsedTimeout >= 0 ? parsedTimeout : 30;
+  // NaN/undefined → default 30. Negatives are passed through to Math.max so
+  // they clamp up to MIN (preserves the long-standing "malformed = 1 min"
+  // behaviour). Only `parsedTimeout === 0` opts out of enforcement entirely.
+  const rawTimeout = Number.isFinite(parsedTimeout) ? parsedTimeout : 30;
   if (!explicitZero) {
-    const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout || 30, MAX_TIMEOUT_MINUTES));
+    const boundedTimeout = Math.max(MIN_TIMEOUT_MINUTES, Math.min(rawTimeout, MAX_TIMEOUT_MINUTES));
     const timeoutMs = boundedTimeout * 60 * 1000;
     procRef.timeoutHandle = setTimeout(() => {
       try {
