@@ -5,6 +5,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const { createCaptureHandler } = require('./capabilities/capture');
+const { createInteractionHandlers } = require('./capabilities/interact');
 const { createHealthHandler } = require('./health');
 const { createRouter } = require('./router');
 
@@ -184,6 +185,10 @@ function createCapabilityHandlers(options = {}) {
     const captureHandler = createCaptureHandler(adapter, options.captureOptions || {});
     if (typeof handlers.peek !== 'function') handlers.peek = captureHandler;
     if (typeof handlers.capture !== 'function') handlers.capture = captureHandler;
+  }
+
+  for (const [name, handler] of Object.entries(createInteractionHandlers(adapter))) {
+    if (typeof handlers[name] !== 'function') handlers[name] = handler;
   }
 
   return handlers;

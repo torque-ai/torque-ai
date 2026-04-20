@@ -219,11 +219,11 @@ git commit -m "feat(peek): Linux platform adapter — xdotool + maim/import"
 - Create: `packages/peek/src/capabilities/capture.js`
 - Test: `packages/peek/tests/capture.test.js`
 
-- [ ] **Step 1: Write test** — mock adapter, verify query params (mode, name, format, quality, max_width, crop, annotate) are parsed from `req.query` and forwarded to `adapter.capture()`. Verify response matches spec format (`{ image, mode, title, process, width, height, size_bytes, format, mime_type }`).
+- [x] **Step 1: Write test** — mock adapter, verify query params (mode, name, format, quality, max_width, crop, annotate) are parsed from `req.query` and forwarded to `adapter.capture()`. Verify response matches spec format (`{ image, mode, title, process, width, height, size_bytes, format, mime_type }`).
 
-- [ ] **Step 2: Implement capture.js** — factory function that takes adapter, returns handler. Parses GET query params, calls adapter, returns JSON. Uses sharp for format conversion and resizing when `max_width` or `format` differs from native capture.
+- [x] **Step 2: Implement capture.js** — factory function that takes adapter, returns handler. Parses GET query params, calls adapter, returns JSON. Uses sharp for format conversion and resizing when `max_width` or `format` differs from native capture.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ```bash
 git commit -m "feat(peek): capture capability — /peek endpoint"
