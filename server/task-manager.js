@@ -16,6 +16,33 @@ function getDashboard() {
   if (!_dashboard) _dashboard = require('./dashboard-server');
   return _dashboard;
 }
+let _dashboardBroadcaster = null;
+const DASHBOARD_BROADCAST_METHODS = [
+  'broadcastUpdate',
+  'broadcastTaskUpdate',
+  'broadcastTaskOutput',
+  'broadcastStatsUpdate',
+  'notifyTaskCreated',
+  'notifyTaskUpdated',
+  'notifyTaskOutput',
+  'notifyTaskDeleted',
+  'notifyHostActivityUpdated',
+  'notifyTaskEvent',
+];
+function getDashboardBroadcaster() {
+  if (_dashboardBroadcaster) return _dashboardBroadcaster;
+
+  _dashboardBroadcaster = {};
+  for (const methodName of DASHBOARD_BROADCAST_METHODS) {
+    _dashboardBroadcaster[methodName] = (...args) => {
+      const dashboard = getDashboard();
+      const method = dashboard && dashboard[methodName];
+      if (typeof method !== 'function') return undefined;
+      return method.apply(dashboard, args);
+    };
+  }
+  return _dashboardBroadcaster;
+}
 const logger = require('./logger').child({ component: 'task-manager' });
 const providerRegistry = require('./providers/registry');
 const providerCfg = require('./providers/config');
@@ -734,7 +761,7 @@ function stepExecution(taskId, stepMode = 'continue', count = 1) { return debugL
 // Initialize host monitoring with dependencies and start timers
 hostMonitoring.init({
   db,
-  dashboard: getDashboard(),
+  dashboard: getDashboardBroadcaster(),
   cleanupOrphanedHostTasks,
   queueLockHolderId: QUEUE_LOCK_HOLDER_ID
 });
@@ -780,7 +807,7 @@ function initSubModules() {
 
 _taskExecutionHooks.init({ db });
 
-_planProjectResolver.init({ db, dashboard: getDashboard() });
+_planProjectResolver.init({ db, dashboard: getDashboardBroadcaster() });
 
 _fileContextBuilder.init({
   db,
@@ -800,7 +827,7 @@ _providerRouter.init({
 
 _taskStartup.init({
   db,
-  dashboard: getDashboard(),
+  dashboard: getDashboardBroadcaster(),
   serverConfig,
   providerRegistry,
   providerCfg,
@@ -836,7 +863,7 @@ _taskStartup.init({
 });
 
 _executionModule.init({
-  db, dashboard: getDashboard(), runningProcesses, apiAbortControllers,
+  db, dashboard: getDashboardBroadcaster(), runningProcesses, apiAbortControllers,
   safeUpdateTaskStatus,
   recordTaskStartedAuditEvent,
   tryReserveHostSlotWithFallback,
@@ -894,7 +921,7 @@ tsserverClient.init({ db, logger });
 
 _fallbackRetryModule.init({
   db,
-  dashboard: getDashboard(),
+  dashboard: getDashboardBroadcaster(),
   processQueue,
   cancelTask,
   stopTaskForRestart,
@@ -908,7 +935,7 @@ _workflowRuntimeModule.init({
   startTask,
   cancelTask,
   processQueue,
-  dashboard: getDashboard(),
+  dashboard: getDashboardBroadcaster(),
 });
 registerTaskStatusTransitionListener();
 
@@ -922,7 +949,7 @@ _outputSafeguards.init({
 
 _orphanCleanup.init({
   db,
-  dashboard: getDashboard(),
+  dashboard: getDashboardBroadcaster(),
   logger,
   runningProcesses,
   finalizingTasks,
@@ -966,7 +993,7 @@ _commandBuilders.init({
 });
 _closePhases.init({
   db,
-  dashboard: getDashboard(),
+  dashboard: getDashboardBroadcaster(),
   checkFileQuality,
   scopedRollback,
   runBuildVerification,
@@ -998,7 +1025,7 @@ _safeguardGates.init({
   scopedRollback,
   safeUpdateTaskStatus,
   taskCleanupGuard,
-  dashboard: getDashboard(),
+  dashboard: getDashboardBroadcaster(),
   processQueue,
 });
 _autoVerifyRetry.init({
@@ -1054,7 +1081,7 @@ if (typeof db.onClose === 'function') {
 try { _queueScheduler.resolveCodexPendingTasks(); } catch { /* ignore */ }
 _processStreams.init({
   db,
-  dashboard: getDashboard(),
+  dashboard: getDashboardBroadcaster(),
   runningProcesses,
   stallRecoveryAttempts,
   estimateProgress,
@@ -1070,7 +1097,7 @@ _processStreams.init({
 });
 
 _processLifecycle.init({
-  dashboard: getDashboard(),
+  dashboard: getDashboardBroadcaster(),
   runningProcesses,
   finalizingTasks,
   finalizeTask,
@@ -1228,6 +1255,7 @@ Object.assign(module.exports, {
       _taskStartup.setSkipGitInCloseHandler(false);
     },
     waitForPendingHandlers,
+    getDashboardBroadcaster,
     set skipGitInCloseHandler(v) { skipGitInCloseHandler = v; _taskStartup.setSkipGitInCloseHandler(v); },
     get skipGitInCloseHandler() { return skipGitInCloseHandler; },
   },
