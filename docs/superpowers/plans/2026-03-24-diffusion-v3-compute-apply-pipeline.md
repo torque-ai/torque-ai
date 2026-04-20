@@ -257,7 +257,7 @@ git commit -m "feat(diffusion): add compute output parser with JSON extraction a
 - Modify: `server/diffusion/planner.js`
 - Modify: `server/tests/diffusion-planner.test.js`
 
-- [ ] **Step 1: Write failing tests for compute/apply descriptions**
+- [x] **Step 1: Write failing tests for compute/apply descriptions**
 
 Add to `server/tests/diffusion-planner.test.js`:
 
@@ -319,12 +319,12 @@ describe('expandApplyTaskDescription', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run server/tests/diffusion-planner.test.js`
 Expected: FAIL — functions not exported
 
-- [ ] **Step 3: Add expandComputeTaskDescription to planner.js**
+- [x] **Step 3: Add expandComputeTaskDescription to planner.js**
 
 Add after the existing `expandTaskDescription` function:
 
@@ -404,12 +404,12 @@ Working directory: ${workingDirectory}`;
 
 Add both to the `module.exports`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run server/tests/diffusion-planner.test.js`
 Expected: PASS — all tests green
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/diffusion/planner.js server/tests/diffusion-planner.test.js
