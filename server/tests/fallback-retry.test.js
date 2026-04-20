@@ -1580,7 +1580,10 @@ describe('classifyError', () => {
   });
 
   it('classifies EXIT_CLOSE_HANDLER_EXCEPTION (-102) as close-handler exception', () => {
-    const result = classifyError('Internal error: TypeError: Cannot read property foo of undefined', -102);
+    // Error text must not match any earlier NON_RETRYABLE_PATTERNS (e.g. TypeError,
+    // ENOENT) — those run first by design so code bugs and missing files always
+    // short-circuit to non-retryable regardless of the exit sentinel.
+    const result = classifyError('Internal error: post-close accounting failed', -102);
     expect(result).toEqual({
       retryable: true,
       reason: 'Close-handler internal exception — subprocess exit was observed but post-processing threw',
@@ -1588,7 +1591,9 @@ describe('classifyError', () => {
   });
 
   it('classifies EXIT_SPAWN_ERROR (-103) as spawn error', () => {
-    const result = classifyError('Process error: spawn claude.cmd ENOENT', -103);
+    // Avoid ENOENT / "no such file" strings which match earlier non-retryable
+    // patterns; the sentinel path is what we're testing here.
+    const result = classifyError('Process error: child exited with spawn failure', -103);
     expect(result).toEqual({
       retryable: true,
       reason: 'Subprocess spawn error (likely ENOENT / EACCES / path or permissions)',
