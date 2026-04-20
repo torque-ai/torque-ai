@@ -4,7 +4,7 @@
  * without filesystem I/O or module cache clearing.
  *
  * Two setup modes:
- * - setupTestDb(suiteName)     — full tools.handleToolCall context (for handler tests)
+ * - setupTestDb(suiteName)     — DB setup with lazy tools.handleToolCall wrapper
  * - setupTestDbModule(modulePath, suiteName) — direct db module testing (for db/ tests)
  *
  * Still creates a temp directory for tests that need filesystem paths
@@ -22,8 +22,21 @@ const TEMPLATE_BUF = path.join(TEMPLATE_DIR, 'template.db.buf');
 let templateBuffer = null; // Loaded once per worker process
 let db;
 let handleToolCall;
+let toolsModule;
 let testDir;
 let origDataDir;
+const TOOLS_MODULE_PATH = require.resolve('../tools');
+
+function getToolsModule() {
+  if (!toolsModule || !require.cache[TOOLS_MODULE_PATH]) {
+    toolsModule = require('../tools');
+  }
+  return toolsModule;
+}
+
+async function lazyHandleToolCall(...args) {
+  return getToolsModule().handleToolCall(...args);
+}
 
 function ensureFactoryWorkItemsSchema(dbHandle) {
   dbHandle.exec(`
@@ -288,12 +301,11 @@ function _initDb(suiteName) {
 }
 
 /**
- * Full setup with tools.handleToolCall — for handler/MCP tool tests.
+ * Full setup with a lazy tools.handleToolCall wrapper — for handler/MCP tool tests.
  */
 function setupTestDb(suiteName) {
   const result = _initDb(suiteName);
-  const tools = require('../tools');
-  handleToolCall = tools.handleToolCall;
+  handleToolCall = lazyHandleToolCall;
   return { ...result, handleToolCall };
 }
 
