@@ -2,6 +2,18 @@
 
 const childProcess = require('node:child_process');
 
+// Register built-in dep-resolver adapters on module load. Idempotent —
+// the registry holds a Map keyed by manager name.
+(function registerBuiltinDepAdapters() {
+  try {
+    const registry = require('./dep-resolver/registry');
+    const { createPythonAdapter } = require('./dep-resolver/adapters/python');
+    if (!registry.getAdapter('python')) {
+      registry.registerAdapter('python', createPythonAdapter());
+    }
+  } catch (_e) { void _e; }
+})();
+
 const LLM_TIMEOUT_MS = 60_000;
 const ENVIRONMENT_EXIT_CODES = new Set([127, 126, 124]);
 const ENVIRONMENT_STDERR_PATTERNS = [
@@ -203,6 +215,43 @@ async function reviewVerifyFailure({
       llmCritique: null,
       suggestedRejectReason: 'verify_failed_environment',
     };
+  }
+
+  // Missing-dependency classification: adapters detect common patterns
+  // (ModuleNotFoundError, Cannot find module, etc.), LLM maps module→package.
+  try {
+    const combined = String(verifyOutput?.stdout || '') + '\n' + String(verifyOutput?.stderr || '');
+    const registry = require('./dep-resolver/registry');
+    const hit = registry.detect(combined);
+    if (hit && hit.adapter && typeof hit.adapter.mapModuleToPackage === 'function') {
+      const mapping = await hit.adapter.mapModuleToPackage({
+        module_name: hit.module_name,
+        error_output: combined,
+        manifest_excerpt: '',
+        project,
+        workItem,
+      });
+      if (mapping && mapping.package_name && (mapping.confidence === 'high' || mapping.confidence === 'medium')) {
+        return {
+          classification: 'missing_dep',
+          confidence: mapping.confidence,
+          manager: hit.manager,
+          module_name: hit.module_name,
+          package_name: mapping.package_name,
+          error_output: combined,
+          modifiedFiles: [],
+          failingTests: [],
+          intersection: [],
+          environmentSignals: [],
+          llmVerdict: null,
+          llmCritique: null,
+          suggestedRejectReason: null,
+        };
+      }
+    }
+  } catch (_depErr) {
+    // dep-resolver failures must not block the existing classifier path
+    void _depErr;
   }
 
   const failingTests = parseFailingTests(verifyOutput);

@@ -14,6 +14,102 @@ describe('verify-review module exports', () => {
   });
 });
 
+const depRegistryPath = require.resolve('../factory/dep-resolver/registry');
+const pythonAdapterPath = require.resolve('../factory/dep-resolver/adapters/python');
+
+describe('reviewVerifyFailure — missing_dep classification', () => {
+  const savedCache = new Map();
+
+  function installAdapterMocks({ detectResult, mapResult }) {
+    const stubRegistry = {
+      detect: vi.fn().mockReturnValue(detectResult),
+      clearAdaptersForTests: vi.fn(),
+      registerAdapter: vi.fn(),
+      getAdapter: vi.fn(),
+      listManagers: vi.fn().mockReturnValue([]),
+    };
+    const stubAdapter = {
+      manager: detectResult?.manager || 'python',
+      mapModuleToPackage: vi.fn().mockResolvedValue(mapResult),
+    };
+    if (detectResult?.detected) {
+      stubRegistry.detect.mockReturnValue({ adapter: stubAdapter, ...detectResult });
+    }
+    [
+      { path: depRegistryPath, exports: stubRegistry },
+      { path: pythonAdapterPath, exports: { createPythonAdapter: () => stubAdapter } },
+    ].forEach(({ path, exports }) => {
+      savedCache.set(path, require.cache[path]);
+      require.cache[path] = { id: path, filename: path, loaded: true, exports, children: [], paths: [] };
+    });
+    delete require.cache[require.resolve('../factory/verify-review')];
+    return { stubRegistry, stubAdapter };
+  }
+
+  afterEach(() => {
+    for (const [p, cached] of savedCache) {
+      if (cached) require.cache[p] = cached;
+      else delete require.cache[p];
+    }
+    savedCache.clear();
+    delete require.cache[require.resolve('../factory/verify-review')];
+  });
+
+  it('returns missing_dep when adapter detects + LLM maps with high confidence', async () => {
+    installAdapterMocks({
+      detectResult: { detected: true, manager: 'python', module_name: 'cv2', signals: ['ModuleNotFoundError'] },
+      mapResult: { package_name: 'opencv-python', confidence: 'high' },
+    });
+    const { reviewVerifyFailure } = require('../factory/verify-review');
+    const r = await reviewVerifyFailure({
+      verifyOutput: { exitCode: 1, stdout: "ModuleNotFoundError: No module named 'cv2'", stderr: '', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/x',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('missing_dep');
+    expect(r.manager).toBe('python');
+    expect(r.package_name).toBe('opencv-python');
+    expect(r.module_name).toBe('cv2');
+  });
+
+  it('falls through to existing classification when detection fires but LLM confidence is low', async () => {
+    installAdapterMocks({
+      detectResult: { detected: true, manager: 'python', module_name: 'weird', signals: ['ModuleNotFoundError'] },
+      mapResult: { package_name: null, confidence: 'low' },
+    });
+    const { reviewVerifyFailure } = require('../factory/verify-review');
+    const r = await reviewVerifyFailure({
+      verifyOutput: { exitCode: 1, stdout: "ModuleNotFoundError: No module named 'weird'", stderr: '', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/x',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).not.toBe('missing_dep');
+  });
+
+  it('falls through to existing classification when no adapter detects', async () => {
+    installAdapterMocks({
+      detectResult: null,
+      mapResult: null,
+    });
+    const { reviewVerifyFailure } = require('../factory/verify-review');
+    const r = await reviewVerifyFailure({
+      verifyOutput: { exitCode: 1, stdout: 'FAILED tests/foo.py::test_bar', stderr: '', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/x',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).not.toBe('missing_dep');
+  });
+});
+
 const { detectEnvironmentFailure } = require('../factory/verify-review');
 
 describe('detectEnvironmentFailure', () => {
