@@ -15,6 +15,7 @@ const { parseGitStatusLine } = require('../utils/git');
 const { parseMentions } = require('../repo-graph/mention-parser');
 const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
 const { validateTranscript } = require('../transcripts/transcript-validator');
+const { PreflightError, isPreflightError } = require('./preflight-error');
 
 // ── Injected Dependencies ──────────────────────────────────────────────────
 let db;
@@ -316,17 +317,27 @@ function runPreflightChecks(task) {
     try {
       const stats = fs.statSync(task.working_directory);
       if (!stats.isDirectory()) {
-        throw new Error(`Working directory is not a directory: ${task.working_directory}`);
+        throw new PreflightError(`Working directory is not a directory: ${task.working_directory}`, {
+          code: 'WORKING_DIR_NOT_DIRECTORY',
+          deterministic: true,
+        });
       }
     } catch (err) {
       if (err.code === 'ENOENT') {
-        throw new Error(`Working directory does not exist: ${task.working_directory}`);
+        throw new PreflightError(`Working directory does not exist: ${task.working_directory}`, {
+          code: 'WORKING_DIR_MISSING',
+          deterministic: true,
+          cause: err,
+        });
       }
       throw err;
     }
   }
   if (!task.task_description || task.task_description.trim().length === 0) {
-    throw new Error('Task description cannot be empty');
+    throw new PreflightError('Task description cannot be empty', {
+      code: 'TASK_DESCRIPTION_EMPTY',
+      deterministic: true,
+    });
   }
   if (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
     logger.info(`Warning: Neither OPENAI_API_KEY nor ANTHROPIC_API_KEY is set - Codex may fail`);
@@ -881,14 +892,70 @@ async function startTask(taskId) {
  *
  * @param {string} taskId - Task ID to start
  * @param {string} label - Logging label (e.g., 'ollama', 'codex', 'API', 'fallback')
- * @returns {{ started: boolean, queued: boolean, pendingAsync: boolean, failed?: boolean, error?: string }}
+ * @returns {{ started: boolean, queued: boolean, pendingAsync: boolean, failed?: boolean, reason?: string, code?: string, error?: string }}
  */
+function markPreflightFailed(taskId, err) {
+  const fields = {
+    error_output: err.message,
+    pid: null,
+    mcp_instance_id: null,
+    ollama_host_id: null,
+  };
+  const update = typeof safeUpdateTaskStatus === 'function'
+    ? safeUpdateTaskStatus
+    : db.updateTaskStatus.bind(db);
+  update(taskId, 'failed', fields);
+  try { dashboard.notifyTaskUpdated(taskId); } catch { /* ignore */ }
+  return {
+    started: false,
+    queued: false,
+    pendingAsync: false,
+    failed: true,
+    reason: 'preflight_failed',
+    code: err.code || 'PREFLIGHT_FAILED',
+    error: err.message,
+  };
+}
+
+function handleTaskStartFailure(taskId, label, err) {
+  logger.error(`processQueue: failed to start ${label} task ${taskId}`, { error: err.message });
+  if (isPreflightError(err) && err.deterministic) {
+    return markPreflightFailed(taskId, err);
+  }
+  try {
+    const t = db.getTask(taskId);
+    if (t && t.status === 'running' && !t.pid) {
+      db.updateTaskStatus(taskId, 'failed', { error_output: err.message });
+      logger.info(`processQueue: reverted stuck task ${taskId.slice(0, 8)} to failed`);
+    }
+  } catch { /* ignore revert errors */ }
+  return {
+    started: false,
+    queued: false,
+    pendingAsync: false,
+    failed: true,
+    error: err.message,
+  };
+}
+
 function attemptTaskStart(taskId, label) {
   try {
+    const task = db.getTask(taskId);
+    if (task) {
+      runPreflightChecks(task);
+    }
     const maybePromise = startTask(taskId);
     if (maybePromise && typeof maybePromise.catch === 'function') {
       maybePromise.catch((asyncErr) => {
         logger.error(`processQueue: async failure for ${label} task ${taskId}`, { error: asyncErr.message });
+        if (isPreflightError(asyncErr) && asyncErr.deterministic) {
+          try {
+            markPreflightFailed(taskId, asyncErr);
+            return;
+          } catch (preflightErr) {
+            logger.info(`processQueue: failed to mark preflight failure for ${taskId.slice(0, 8)}: ${preflightErr.message}`);
+          }
+        }
         try {
           const t = db.getTask(taskId);
           if (t && t.status === 'running' && !t.pid) {
@@ -912,21 +979,7 @@ function attemptTaskStart(taskId, label) {
     }
     return { started: true, queued: false, pendingAsync: false };
   } catch (err) {
-    logger.error(`processQueue: failed to start ${label} task ${taskId}`, { error: err.message });
-    try {
-      const t = db.getTask(taskId);
-      if (t && t.status === 'running' && !t.pid) {
-        db.updateTaskStatus(taskId, 'failed', { error_output: err.message });
-        logger.info(`processQueue: reverted stuck task ${taskId.slice(0, 8)} to failed`);
-      }
-    } catch { /* ignore revert errors */ }
-    return {
-      started: false,
-      queued: false,
-      pendingAsync: false,
-      failed: true,
-      error: err.message,
-    };
+    return handleTaskStartFailure(taskId, label, err);
   }
 }
 
