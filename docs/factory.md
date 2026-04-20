@@ -64,6 +64,7 @@ The factory emits named decisions for each auto-recovery path so stuck loops are
 | `auto_shipped_at_verify_fail` | verify | Verify fails after N retries AND shipped-detector matches on main | Loop treats it as already shipped instead of stalling |
 | `auto_shipped_empty_branch` | learn | Merge fails with "no commits ahead" AND shipped-detector matches | LEARN ships instead of looping on an empty branch |
 | `auto_rejected_empty_branch` | learn | Merge fails with "no commits ahead" AND shipped-detector does NOT match | LEARN rejects to prevent infinite re-entry |
+| `merge_target_in_conflict_state` | learn | `assertWorktreeIsClean` detected `MERGE_HEAD` / `CHERRY_PICK_HEAD` / `REVERT_HEAD` / `rebase-merge` / `rebase-apply` on the target repo (err.code `IN_PROGRESS_GIT_OPERATION`) | Pauses the project (`status=paused`) so the operator aborts or resolves the in-progress op; prevents the one-retry-per-minute loop against unrecoverable UU state |
 | `auto_rejected_unparseable_plan` | execute | Plan parses to zero tasks (deterministic failure) | EXECUTE auto-rejects; retrying would fail the same way |
 | `auto_rejected_verify_fail` | verify | Worktree remote verify FAILED after all auto-retries | Operator-visible rejection path |
 | `auto_rejected_spin_loop` | execute | `>= 5` `starting` decisions for the same batch in 5 min | Safety-net detector caught an EXECUTE re-entry loop |
