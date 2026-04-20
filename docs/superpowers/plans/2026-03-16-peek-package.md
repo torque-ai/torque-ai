@@ -283,11 +283,11 @@ git commit -m "feat(peek): launch capability — /process, /projects, /open-url"
 - Create: `packages/peek/src/capabilities/compare.js`
 - Test: `packages/peek/tests/compare.test.js`
 
-- [ ] **Step 1: Write test** — create two identical 2x2 images with sharp, verify comparison returns `{ match: true, diff_percent: 0 }`. Create two different images, verify `{ match: false, diff_percent: >0, diff_image: <base64> }`.
+- [x] **Step 1: Write test** — create two identical 2x2 images with sharp, verify comparison returns `{ match: true, diff_percent: 0 }`. Create two different images, verify `{ match: false, diff_percent: >0, diff_image: <base64> }`.
 
-- [ ] **Step 2: Implement** — decodes base64 images with sharp to raw pixel buffers, runs pixelmatch, returns diff stats. Generates diff image overlay as base64 PNG.
+- [x] **Step 2: Implement** — decodes base64 images with sharp to raw pixel buffers, runs pixelmatch, returns diff stats. Generates diff image overlay as base64 PNG.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ```bash
 git commit -m "feat(peek): compare capability — /compare with pixelmatch"
