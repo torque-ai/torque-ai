@@ -907,6 +907,32 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   safeAddColumn('tasks', 'cancel_reason TEXT');
   safeAddColumn('tasks', 'server_epoch INTEGER');
   ensureFactoryLoopInstancesSchema();
+
+  // scheduled_tasks.name uniqueness: createCronScheduledTask and friends had
+  // no dedup, so callers that re-ran on startup (notably the model-freshness
+  // plugin) accumulated one identical row per restart. Collapse to
+  // oldest-per-name, then install a UNIQUE index so future duplicates raise
+  // instead of silently inserting.
+  try {
+    const dupes = db.prepare(
+      "SELECT name, COUNT(*) AS n FROM scheduled_tasks GROUP BY name HAVING n > 1"
+    ).all();
+    if (dupes.length > 0) {
+      const info = db.prepare(
+        "DELETE FROM scheduled_tasks WHERE rowid NOT IN (SELECT MIN(rowid) FROM scheduled_tasks GROUP BY name)"
+      ).run();
+      if (logger) {
+        const names = dupes.map(d => `${d.name} x${d.n}`).join(', ');
+        logger.info(`[DB] Deduped scheduled_tasks: removed ${info.changes} duplicate row(s) (${names})`);
+      }
+    }
+    db.prepare(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_tasks_name_unique ON scheduled_tasks(name)"
+    ).run();
+  } catch (e) {
+    if (logger) logger.debug(`Schema migration (scheduled_tasks name unique): ${e.message}`);
+  }
+
   db.exec("RELEASE SAVEPOINT migration_batch");
   } catch (err) {
     try { db.exec("ROLLBACK TO SAVEPOINT migration_batch"); } catch (_e) { void _e; }

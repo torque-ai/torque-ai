@@ -832,24 +832,31 @@ function createCronScheduledTask(dataOrName, cronExpression, taskDescription, le
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  stmt.run(
-    scheduleId,
-    data.name,
-    taskConfig.task || 'Scheduled task',
-    data.payload_kind || 'task',
-    data.spec_path || null,
-    taskConfig.working_directory || null,
-    taskConfig.timeout_minutes || 30,
-    taskConfig.auto_approve ? 1 : 0,
-    'cron',
-    data.cron_expression,
-    nextRun ? nextRun.toISOString() : null,
-    data.enabled !== false ? 1 : 0,
-    now,
-    JSON.stringify(taskConfig),
-    now,
-    timezone
-  );
+  try {
+    stmt.run(
+      scheduleId,
+      data.name,
+      taskConfig.task || 'Scheduled task',
+      data.payload_kind || 'task',
+      data.spec_path || null,
+      taskConfig.working_directory || null,
+      taskConfig.timeout_minutes || 30,
+      taskConfig.auto_approve ? 1 : 0,
+      'cron',
+      data.cron_expression,
+      nextRun ? nextRun.toISOString() : null,
+      data.enabled !== false ? 1 : 0,
+      now,
+      JSON.stringify(taskConfig),
+      now,
+      timezone
+    );
+  } catch (err) {
+    if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      throw new Error(`SCHEDULE_NAME_CONFLICT: a scheduled task named "${data.name}" already exists`);
+    }
+    throw err;
+  }
 
   return getScheduledTask(scheduleId);
 }
