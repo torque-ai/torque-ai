@@ -596,7 +596,9 @@ const API_KEY_ENV_VARS = {
   hyperbolic: 'HYPERBOLIC_API_KEY', codex: 'OPENAI_API_KEY',
 };
 
-function getApiKeyStatus(providerName) {
+function getApiKeyStatus(provider) {
+  const providerName = typeof provider === 'object' && provider !== null ? provider.provider : provider;
+
   // Check validation timeout
   const validatingTs = validatingProviders.get(providerName);
   if (validatingTs && (Date.now() - validatingTs) < VALIDATION_TIMEOUT_MS) {
