@@ -32,15 +32,15 @@
 **Files:**
 - Modify: `server/handlers/automation-ts-tools.js:1094-1275`
 
-- [ ] **Step 1: Delete the Headwaters Convenience Wrappers section**
+- [x] **Step 1: Delete the Headwaters Convenience Wrappers section**
 
 Remove lines 1094-1254 (the comment header + `handleWireSystemToGamescene`, `handleWireEventsToEventsystem`, `handleWireNotificationsToBridge` functions).
 
-- [ ] **Step 2: Remove validate_event_consistency and audit_class_completeness handlers**
+- [x] **Step 2: Remove validate_event_consistency and audit_class_completeness handlers**
 
 Delete `handleValidateEventConsistency` (lines 456-655) and `handleAuditClassCompleteness` (lines 743-834).
 
-- [ ] **Step 3: Update module.exports**
+- [x] **Step 3: Update module.exports**
 
 Remove from exports:
 ```js
@@ -54,11 +54,11 @@ Remove from exports:
 
 Also remove the `// Validation & audit` and `// Headwaters convenience wrappers` comment groups.
 
-- [ ] **Step 4: Update the file header comment**
+- [x] **Step 4: Update the file header comment**
 
 Remove line 9: `* - Headwaters wrappers: wire_system_to_gamescene, wire_events_to_eventsystem, wire_notifications_to_bridge`
 
-- [ ] **Step 5: Verify the file parses**
+- [x] **Step 5: Verify the file parses**
 
 Run: `node -e "require('./server/handlers/automation-ts-tools.js')"`
 Expected: No errors

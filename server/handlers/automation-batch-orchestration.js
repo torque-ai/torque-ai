@@ -1,16 +1,15 @@
 /**
  * Batch orchestration handlers for TORQUE.
- * Extracted from automation-handlers.js — Part 2 decomposition.
+ * Extracted from automation-handlers.js - Part 2 decomposition.
  *
  * Contains:
- * - generate_feature_tasks — generate 5 task descriptions for a feature workflow
- * - run_batch — full one-shot orchestration (generate + workflow + execute)
- * - detect_file_conflicts — post-workflow file conflict detection
- * - auto_commit_batch — verify + commit + push in one call
+ * - generate_feature_tasks - generate project-agnostic feature workflow tasks
+ * - run_batch - generate tasks, create a workflow, and start it
+ * - detect_file_conflicts - post-workflow file conflict detection
+ * - auto_commit_batch - verify + commit + push in one call
  */
 
 const path = require('path');
-const fs = require('fs');
 const { TASK_TIMEOUTS } = require('../constants');
 const { executeValidatedCommandSync } = require('../execution/command-policy');
 const { ErrorCodes, makeError, isPathTraversalSafe } = require('./shared');
@@ -168,7 +167,30 @@ function getFallbackCommitFiles(workingDir) {
   }
 }
 
-// ─── Feature 7: Generate Feature Task Descriptions ───────────────────────────
+function toFeatureSlug(featureName) {
+  return featureName
+    .trim()
+    .replace(/([a-z])([A-Z])/g, '$1-$2')
+    .replace(/[\s_]+/g, '-')
+    .toLowerCase();
+}
+
+function getOptionalSpec(args, key) {
+  return typeof args[key] === 'string' ? args[key].trim() : '';
+}
+
+function buildFeatureContext(featureName, featureSlug, description) {
+  const lines = [
+    `Feature: ${featureName}`,
+    `Feature slug: ${featureSlug}`,
+  ];
+  if (description) {
+    lines.push(`Description: ${description}`);
+  }
+  return lines.join('\n');
+}
+
+// Feature task prompt generation
 
 function handleGenerateFeatureTasks(args) {
   const workingDir = args.working_directory;
@@ -181,84 +203,79 @@ function handleGenerateFeatureTasks(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'feature_name is required');
   }
 
-  const description = args.feature_description || '';
-  const kebab = featureName.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
-  const pascal = featureName.charAt(0).toUpperCase() + featureName.slice(1);
-
-  // Read project structure to find template files
-  const typesDir = path.join(workingDir, 'src', 'types');
-  const systemsDir = path.join(workingDir, 'src', 'systems');
-  const dataDir = path.join(workingDir, 'src', 'data');
-  const testsDir = path.join(workingDir, 'src', 'systems', '__tests__');
-
-  // Find a reference type file, system file, data file, test file
-  const refType = findLargestFile(typesDir, '.ts', ['index.ts']);
-  const refSystem = findLargestFile(systemsDir, '.ts', ['EventSystem.ts', 'index.ts'], true);
-  const refData = findLargestFile(dataDir, '.ts', ['index.ts']);
-  const refTest = findLargestFile(testsDir, '.test.ts', []);
-
-  // Extract user-provided specs
-  const typesSpec = args.types_spec || '';
-  const eventsSpec = args.events_spec || '';
-  const dataSpec = args.data_spec || '';
-  const systemSpec = args.system_spec || '';
-
-  // Build the 5 task descriptions
+  const name = featureName.trim();
+  const description = getOptionalSpec(args, 'feature_description');
+  const kebab = toFeatureSlug(name);
+  const context = buildFeatureContext(name, kebab, description);
+  const typesSpec = getOptionalSpec(args, 'types_spec');
+  const eventsSpec = getOptionalSpec(args, 'events_spec');
+  const dataSpec = getOptionalSpec(args, 'data_spec');
+  const systemSpec = getOptionalSpec(args, 'system_spec');
   const tasks = {};
 
-  // 1. Types task
-  tasks.types = `Create src/types/${kebab}.ts with type definitions for the ${pascal} feature.${refType ? `\n\nFollow the exact pattern used in ${refType.relative} as a reference.` : ''}
+  tasks.types = `Define or update the data contracts for the ${name} feature.
 
-${description ? `Feature description: ${description}\n` : ''}${typesSpec ? `\nTypes to define:\n${typesSpec}` : `\nDefine the following:\n- Status enum (string enum with relevant states)\n- Core entity interface (the main data type for this feature)\n- Definition interface (static config for creating entities)\n- SystemState interface (for serialization: arrays of entities + aggregate stats)\n\nExport all types. Use readonly where sensible. Keep the file clean — no logic, no imports from other systems.`}`;
+${context}
 
-  // 2. Events task
-  tasks.events = `Edit src/systems/EventSystem.ts to add event types for the ${pascal} feature.
+${typesSpec ? `Required contracts:\n${typesSpec}` : `Infer the necessary interfaces, schemas, enums, request/response shapes, or configuration contracts from the feature description and existing project conventions.`}
 
-Add new event types to the events interface (before the closing brace).
+Acceptance criteria:
+- Follow the repository's current file layout, naming, and export style.
+- Use the feature slug "${kebab}" where a new path or identifier needs a stable slug.
+- Avoid placeholder fields, unused abstractions, or project-specific assumptions.`;
 
-${eventsSpec ? `Events to add:\n${eventsSpec}` : `Add 3-4 events with typed payloads for the key actions in this feature (e.g., creation, completion, milestone).`}
+  tasks.events = `Define or update integration events, messages, API payloads, callbacks, or command contracts for the ${name} feature.
 
-Use 2-space indentation matching the style of existing events. Do NOT modify any existing events.`;
+${context}
 
-  // 3. Data task
-  tasks.data = `Create src/data/${kebab}s.ts with static definitions for the ${pascal} feature.${refData ? `\n\nFollow the pattern in ${refData.relative} as a reference.` : ''}\n\nImport types from ../types/${kebab}.
+${eventsSpec ? `Required integration surface:\n${eventsSpec}` : `Inspect the existing integration surface and add only the contracts needed for this feature. If this project does not use events or messages, update the closest equivalent integration point.`}
 
-${dataSpec ? `Data to define:\n${dataSpec}` : `Export a definitions array with 8-12 entries covering the feature's main categories. Each entry should have an id, name, description, and category-specific fields matching the Definition interface from the types file.`}`;
+Acceptance criteria:
+- Preserve existing public contracts unless the feature explicitly requires a compatible extension.
+- Keep payloads typed or validated using the project's existing mechanism.
+- Include enough context for downstream implementation and tests.`;
 
-  // 4. System task
-  tasks.system = `Create src/systems/${pascal}System.ts implementing the ${pascal} feature.${refSystem ? `\n\nFollow the EXACT pattern of ${refSystem.relative} (constructor-based, no scene dependency, event-driven).` : ''}
+  tasks.data = `Add or update the persisted data, configuration, fixtures, seeds, migrations, or static resources required by the ${name} feature.
 
-Import types from ../types/${kebab}, data from ../data/${kebab}s, and EventSystem from ./EventSystem.
+${context}
 
-${systemSpec || `The system should:
-- Initialize from definitions in constructor (index into Map, create entities)
-- Have public methods for the core CRUD operations
-- Emit events via EventSystem.instance.emit() on key state changes
-- Track aggregate stats (totals, counts)
-- Include toJSON(): SystemState for serialization
-- Include loadState(state): void with defensive deserialization (validate types, sanitize numbers, reconstruct from definitions)
-- Use private clone helpers for defensive copies in getters
-- Include a private sanitizeNumber(value, fallback) helper`}`;
+${dataSpec ? `Required data work:\n${dataSpec}` : `Inspect existing data and configuration patterns before deciding whether this step needs new files, updated fixtures, migrations, or documentation-backed defaults.`}
 
-  // 5. Tests task
-  tasks.tests = `Create src/systems/__tests__/${pascal}System.test.ts with ~16 tests using vitest.${refTest ? `\n\nFollow the pattern from ${refTest.relative}.` : ''}
+Acceptance criteria:
+- Keep generated or seed data deterministic and reviewable.
+- Validate migrations, fixture shapes, or configuration defaults with existing project tooling where applicable.
+- Do not add sample data that is unrelated to the requested feature.`;
 
-Import { describe, it, expect, beforeEach, vi } from 'vitest'.
+  tasks.system = `Implement the runtime behavior for the ${name} feature in the appropriate project layer.
 
-Setup: beforeEach creates a fresh ${pascal}System instance and resets EventSystem.instance with clear().
+${context}
+
+${systemSpec ? `Required behavior:\n${systemSpec}` : `Implement the feature using the repository's established service, handler, UI, worker, or domain-module patterns. Keep the change scoped to the requested behavior.`}
+
+Acceptance criteria:
+- Reuse existing helpers and boundaries before adding new abstractions.
+- Add defensive input handling and clear error paths consistent with adjacent code.
+- Keep public behavior traceable to the feature description and contracts.`;
+
+  tasks.tests = `Add or update tests for the ${name} feature.
+
+${context}
 
 Test the following areas:
-1. Initialization (correct entity count from definitions, initial state)
-2. Core operations (each public method — success and failure cases)
-3. Event emission (subscribe to events, verify payloads)
-4. State queries (filtering, counting, aggregation)
-5. Serialization round-trip (toJSON → new instance → loadState → verify stats match)
-6. Edge cases (invalid IDs, duplicate operations, boundary conditions)
+1. Contract or schema behavior introduced by the feature.
+2. Main success paths and failure paths.
+3. Data, configuration, or migration behavior when applicable.
+4. Integration behavior across the touched project boundaries.
+5. Regression coverage for edge cases identified during implementation.
 
-Use EventSystem.instance.subscribe to listen for events. Use Date.now = vi.fn(() => 1000) to control timestamps.`;
+Acceptance criteria:
+- Use the repository's existing test framework and fixture style.
+- Keep tests deterministic and isolated from external services unless the project already provides a controlled harness.
+- Cover behavior rather than implementation details where practical.`;
 
-  let output = `## Generated Task Descriptions: ${pascal}System\n\n`;
-  output += `**Feature:** ${featureName}\n`;
+  let output = `## Generated Task Descriptions: ${name}\n\n`;
+  output += `**Feature:** ${name}\n`;
+  output += `**Feature slug:** ${kebab}\n`;
   output += `**Description:** ${description || '(none provided)'}\n\n`;
 
   output += '### Tasks\n\n';
@@ -286,189 +303,171 @@ Use EventSystem.instance.subscribe to listen for events. Use Date.now = vi.fn(()
   };
 }
 
-// Helper: find largest file in a directory matching extension
-function findLargestFile(dirPath, ext, exclude, skipTests) {
-  if (!fs.existsSync(dirPath)) return null;
-
-  let best = null;
-  let bestSize = 0;
-
-  try {
-    const entries = fs.readdirSync(dirPath);
-    for (const entry of entries) {
-      if (!entry.endsWith(ext)) continue;
-      if (exclude.includes(entry)) continue;
-      if (skipTests && entry.includes('__tests__')) continue;
-      if (entry.startsWith('.')) continue;
-
-      const fullPath = path.join(dirPath, entry);
-      try {
-        const stat = fs.statSync(fullPath);
-        if (stat.isFile() && stat.size > bestSize) {
-          bestSize = stat.size;
-          best = { name: entry, relative: path.relative(path.join(dirPath, '..', '..'), fullPath).replace(/\\/g, '/') };
-        }
-      } catch (err) {
-        logger.debug('[automation-batch-orchestration] non-critical error reading feature file entry:', err.message || err);
-      }
-    }
-  } catch (err) {
-    logger.debug('[automation-batch-orchestration] non-critical error resolving feature directories:', err.message || err);
-  }
-
-  return best;
-}
-
-// ─── Feature 9: Run Batch (Full Orchestration) ──────────────────────────────
+// Batch workflow orchestration
 
 async function handleRunBatch(args) {
   try {
-  
-  const workingDir = args.working_directory;
-  if (!workingDir) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
-  }
-  
-  if (!isPathTraversalSafe(workingDir)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'working_directory contains path traversal');
-  }
-  if (hasShellMetacharacters(workingDir)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'working_directory contains unsupported shell metacharacters');
-  }
-
-  const featureName = args.feature_name;
-  if (!featureName) {
-    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'feature_name is required');
-  }
-  if (typeof featureName !== 'string') {
-    return makeError(ErrorCodes.INVALID_PARAM, 'feature_name must be a string');
-  }
-  if (hasShellMetacharacters(featureName)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'feature_name contains unsupported shell metacharacters');
-  }
-
-  const featureDescription = args.feature_description || '';
-  let rawParallelTestCount = args.parallel_test_count;
-  if (rawParallelTestCount !== undefined) {
-    const parsedParallelTestCount = parseInt(rawParallelTestCount, 10);
-    if (Number.isNaN(parsedParallelTestCount)) {
-      return makeError(ErrorCodes.INVALID_PARAM, 'parallel_test_count must be an integer');
+    const workingDir = args.working_directory;
+    if (!workingDir) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'working_directory is required');
     }
-    rawParallelTestCount = parsedParallelTestCount;
-  }
-  const parallelTestCount = Math.min(Math.max(rawParallelTestCount || 3, 0), 5);
-  const _provider = args.provider || 'codex';
-  const batchName = args.batch_name || `Batch — ${featureName}System`;
 
-  // Merge saved step_providers with per-call overrides (per-call wins)
-  const project = projectConfigCore().getProjectFromPath(workingDir);
-  const savedStepProviders = (() => {
-    try { return JSON.parse(projectConfigCore().getProjectMetadata(project, 'step_providers') || '{}'); }
-    catch { return {}; }
-  })();
-  const stepProviders = { ...savedStepProviders, ...(args.step_providers || {}) };
+    if (!isPathTraversalSafe(workingDir)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'working_directory contains path traversal');
+    }
+    if (hasShellMetacharacters(workingDir)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'working_directory contains unsupported shell metacharacters');
+    }
 
-  let output = `## Run Batch: ${featureName}\n\n`;
+    const featureName = args.feature_name;
+    if (!featureName) {
+      return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'feature_name is required');
+    }
+    if (typeof featureName !== 'string') {
+      return makeError(ErrorCodes.INVALID_PARAM, 'feature_name must be a string');
+    }
+    if (hasShellMetacharacters(featureName)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'feature_name contains unsupported shell metacharacters');
+    }
 
-  // Step 1: Generate feature task descriptions
-  output += '### Step 1: Generating task descriptions...\n\n';
-  const featureTaskResult = handleGenerateFeatureTasks({
-    working_directory: workingDir,
-    feature_name: featureName,
-    feature_description: featureDescription,
-    types_spec: args.types_spec || '',
-    events_spec: args.events_spec || '',
-    data_spec: args.data_spec || '',
-    system_spec: args.system_spec || '',
-  });
+    const featureDescription = args.feature_description || '';
+    let rawParallelTestCount = args.parallel_test_count;
+    if (rawParallelTestCount !== undefined) {
+      const parsedParallelTestCount = parseInt(rawParallelTestCount, 10);
+      if (Number.isNaN(parsedParallelTestCount)) {
+        return makeError(ErrorCodes.INVALID_PARAM, 'parallel_test_count must be an integer');
+      }
+      rawParallelTestCount = parsedParallelTestCount;
+    }
+    const parallelTestCount = Math.min(Math.max(rawParallelTestCount || 3, 0), 5);
+    const defaultProvider = typeof args.provider === 'string' && args.provider.trim()
+      ? args.provider.trim()
+      : undefined;
+    const batchName = args.batch_name || `Batch - ${featureName}`;
 
-  const tasks = featureTaskResult._tasks;
-  if (!tasks) {
-    return makeError(ErrorCodes.OPERATION_FAILED, output + 'Failed to generate task descriptions.');
-  }
-  output += `Generated 5 task descriptions.\n\n`;
+    // Merge saved step_providers with per-call overrides (per-call wins)
+    const project = projectConfigCore().getProjectFromPath(workingDir);
+    const savedStepProviders = (() => {
+      try { return JSON.parse(projectConfigCore().getProjectMetadata(project, 'step_providers') || '{}'); }
+      catch { return {}; }
+    })();
+    const supportedStepProviderKeys = new Set(['types', 'events', 'data', 'system', 'tests', 'parallel']);
+    const stepProviders = {};
+    for (const [step, provider] of Object.entries({ ...savedStepProviders, ...(args.step_providers || {}) })) {
+      if (supportedStepProviderKeys.has(step) && typeof provider === 'string' && provider.trim()) {
+        stepProviders[step] = provider.trim();
+      }
+    }
+    if (defaultProvider) {
+      for (const step of supportedStepProviderKeys) {
+        if (!stepProviders[step]) {
+          stepProviders[step] = defaultProvider;
+        }
+      }
+    }
 
-  // Step 2: Generate parallel test tasks
-  // Note: handleGenerateTestTasks is imported from the main automation-handlers module
-  let parallelTasks = [];
-  if (parallelTestCount > 0) {
-    output += '### Step 2: Scanning for test gaps...\n\n';
-    const automationHandlers = require('./automation-handlers');
-    const testGapResult = automationHandlers.handleGenerateTestTasks({
+    let output = `## Run Batch: ${featureName}\n\n`;
+
+    // Step 1: Generate feature task descriptions
+    output += '### Step 1: Generating task descriptions...\n\n';
+    const featureTaskResult = handleGenerateFeatureTasks({
       working_directory: workingDir,
-      count: parallelTestCount,
+      feature_name: featureName,
+      feature_description: featureDescription,
+      types_spec: args.types_spec || '',
+      events_spec: args.events_spec || '',
+      data_spec: args.data_spec || '',
+      system_spec: args.system_spec || '',
     });
 
-    // Extract generated tasks from the output (they're in the JSON block)
-    try {
-      const jsonMatch = testGapResult.content[0].text.match(/```json\n([\s\S]+?)\n```/);
-      if (jsonMatch) {
-        parallelTasks = JSON.parse(jsonMatch[1]);
-        output += `Found ${parallelTasks.length} untested files for parallel tasks.\n\n`;
-      }
-    } catch (err) {
-      logger.debug('[automation-batch-orchestration] non-critical error parsing feature generation response:', err.message || err);
+    const tasks = featureTaskResult._tasks;
+    if (!tasks) {
+      return makeError(ErrorCodes.OPERATION_FAILED, output + 'Failed to generate task descriptions.');
     }
-  }
+    output += `Generated 5 task descriptions.\n\n`;
 
-  // Step 3: Create workflow
-  output += '### Step 3: Creating workflow...\n\n';
-  const workflowHandlers = require('./workflow');
+    // Step 2: Generate parallel test tasks
+    // Note: handleGenerateTestTasks is imported from the main automation-handlers module
+    let parallelTasks = [];
+    if (parallelTestCount > 0) {
+      output += '### Step 2: Scanning for test gaps...\n\n';
+      const automationHandlers = require('./automation-handlers');
+      const testGapResult = automationHandlers.handleGenerateTestTasks({
+        working_directory: workingDir,
+        count: parallelTestCount,
+      });
 
-  const kebab = featureName.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
-  const workflowResult = workflowHandlers.handleCreateFeatureWorkflow({
-    feature_name: kebab,
-    working_directory: workingDir,
-    workflow_name: batchName,
-    types_task: tasks.types,
-    events_task: tasks.events,
-    data_task: tasks.data,
-    system_task: tasks.system,
-    tests_task: tasks.tests,
-    parallel_tasks: parallelTasks.map(t => ({
-      node_id: t.node_id,
-      task: t.task,
-    })),
-    auto_run: true,
-    step_providers: stepProviders,
-  });
+      // Extract generated tasks from the output (they're in the JSON block)
+      try {
+        const jsonMatch = testGapResult.content[0].text.match(/```json\n([\s\S]+?)\n```/);
+        if (jsonMatch) {
+          parallelTasks = JSON.parse(jsonMatch[1]);
+          output += `Found ${parallelTasks.length} untested files for parallel tasks.\n\n`;
+        }
+      } catch (err) {
+        logger.debug('[automation-batch-orchestration] non-critical error parsing feature generation response:', err.message || err);
+      }
+    }
 
-  // Extract workflow ID from result
-  const workflowIdMatch = workflowResult.content[0].text.match(/\*\*ID:\*\*\s*([a-f0-9-]+)/);
-  const workflowId = workflowIdMatch ? workflowIdMatch[1] : null;
+    // Step 3: Create workflow
+    output += '### Step 3: Creating workflow...\n\n';
+    const workflowHandlers = require('./workflow');
 
-  if (!workflowId) {
-    output += 'Failed to create workflow.\n';
-    output += workflowResult.content[0].text;
-    return makeError(ErrorCodes.OPERATION_FAILED, output);
-  }
+    const kebab = toFeatureSlug(featureName);
+    const workflowResult = workflowHandlers.handleCreateFeatureWorkflow({
+      feature_name: kebab,
+      working_directory: workingDir,
+      workflow_name: batchName,
+      types_task: tasks.types,
+      events_task: tasks.events,
+      data_task: tasks.data,
+      system_task: tasks.system,
+      tests_task: tasks.tests,
+      parallel_tasks: parallelTasks.map(t => ({
+        node_id: t.node_id,
+        task: t.task,
+      })),
+      auto_run: true,
+      step_providers: stepProviders,
+    });
 
-  output += `Workflow created and running: \`${workflowId}\`\n`;
-  output += `**Total tasks:** ${5 + parallelTasks.length} (5 feature + ${parallelTasks.length} parallel tests)\n\n`;
+    // Extract workflow ID from result
+    const workflowIdMatch = workflowResult.content[0].text.match(/\*\*ID:\*\*\s*([a-f0-9-]+)/);
+    const workflowId = workflowIdMatch ? workflowIdMatch[1] : null;
 
-  // Step 4: Return workflow ID for monitoring
-  output += '### Next Steps\n\n';
-  output += `Use \`await_workflow\` to wait for completion:\n`;
-  output += '```json\n';
-  output += JSON.stringify({
-    workflow_id: workflowId,
-    verify_command: 'npx tsc --noEmit && npx vitest run',
-    auto_commit: true,
-    commit_message: `feat: add ${featureName} + batch tests`,
-    auto_push: false,
-  }, null, 2);
-  output += '\n```\n';
-  output += `\nOr use \`workflow_status\` to check progress: \`workflow_status({ workflow_id: "${workflowId}" })\`\n`;
+    if (!workflowId) {
+      output += 'Failed to create workflow.\n';
+      output += workflowResult.content[0].text;
+      return makeError(ErrorCodes.OPERATION_FAILED, output);
+    }
 
-  return {
-    content: [{ type: 'text', text: output }],
-    _workflow_id: workflowId,
-  };
+    output += `Workflow created and running: \`${workflowId}\`\n`;
+    output += `**Total tasks:** ${5 + parallelTasks.length} (5 feature + ${parallelTasks.length} parallel tests)\n\n`;
+
+    // Step 4: Return workflow ID for monitoring
+    output += '### Next Steps\n\n';
+    output += `Use \`await_workflow\` to wait for completion:\n`;
+    output += '```json\n';
+    output += JSON.stringify({
+      workflow_id: workflowId,
+      verify_command: 'npx tsc --noEmit && npx vitest run',
+      auto_commit: true,
+      commit_message: `feat: add ${featureName} + batch tests`,
+      auto_push: false,
+    }, null, 2);
+    output += '\n```\n';
+    output += `\nOr use \`workflow_status\` to check progress: \`workflow_status({ workflow_id: "${workflowId}" })\`\n`;
+
+    return {
+      content: [{ type: 'text', text: output }],
+      _workflow_id: workflowId,
+    };
   } catch (err) {
     return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
-  }}
+  }
+}
 
-// ─── Feature 10: Detect File Conflicts ───────────────────────────────────────
+// File conflict detection
 
 function handleDetectFileConflicts(args) {
   const workflowId = args.workflow_id;
@@ -624,7 +623,7 @@ function handleDetectFileConflicts(args) {
   return { content: [{ type: 'text', text: output }] };
 }
 
-// ─── Feature 11: Auto Commit Batch ───────────────────────────────────────────
+// Auto commit batch
 // Extracted to ./auto-commit-batch.js
 
 autoCommitBatch.init({
