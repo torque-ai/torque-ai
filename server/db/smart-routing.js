@@ -80,7 +80,7 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
     ? hostManagementFns.determineTaskComplexity(taskDescription, files)
     : 'normal');
 
-  const tryResolvedTemplate = (template, reasonPrefix, includeDefaultFallback, chainFallbackLabel) => {
+  const tryResolvedTemplate = (template, reasonPrefix, includeDefaultFallback, chainFallbackLabel, honorChainOrder = false) => {
     if (!template) {
       return null;
     }
@@ -118,7 +118,7 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
     }
 
     if (availableChain.length > 0) {
-      const ranked = typeof rankProviderCandidatesByScore === 'function'
+      const ranked = !honorChainOrder && typeof rankProviderCandidatesByScore === 'function'
         ? rankProviderCandidatesByScore(availableChain, {
             taskMetadata: options?.taskMetadata || {},
             extractProvider: (entry) => (typeof entry === 'string' ? entry : entry?.provider),
@@ -191,7 +191,8 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
       taskTemplate,
       `Task template '${taskTemplate?.name}'`,
       false,
-      'chain to'
+      'chain to',
+      true
     );
     if (taskTemplateResult) {
       return taskTemplateResult;
@@ -200,7 +201,7 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
 
   const explicitTemplateId = templateStore.getExplicitActiveTemplateId();
   const activeTemplate = explicitTemplateId ? templateStore.getTemplate(explicitTemplateId) : null;
-  return tryResolvedTemplate(activeTemplate, `Template '${activeTemplate?.name}'`, true, 'chain fallback ->');
+  return tryResolvedTemplate(activeTemplate, `Template '${activeTemplate?.name}'`, true, 'chain fallback ->', true);
 }
 
 function matchProviderByPattern(taskDescription, files, deps) {

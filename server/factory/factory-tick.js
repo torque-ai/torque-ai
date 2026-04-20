@@ -29,12 +29,6 @@ function getProjectConfig(project) {
 
 async function tickProject(project) {
   try {
-    // Auto-resume: if the project is paused but has auto_continue, the
-    // operator didn't explicitly pause it — it drifted (restart, reset,
-    // instance termination set status=paused). Resume it so the tick
-    // can do its job. Explicit operator pauses use pause_project which
-    // also calls stopTick — so if the tick IS running, the pause wasn't
-    // intentional.
     const freshProject = factoryHealth.getProject(project.id);
 
     // Baseline probe phase — for projects paused by the verify-review
@@ -129,15 +123,7 @@ async function tickProject(project) {
         }
         return;
       }
-      if (cfg?.loop?.auto_continue) {
-        factoryHealth.updateProject(project.id, { status: 'running' });
-        logger.info('Factory tick: auto-resumed paused auto_continue project', {
-          project_id: project.id,
-          project_name: freshProject.name,
-        });
-      } else {
-        return; // genuinely paused, no auto_continue — skip
-      }
+      return; // paused projects stay paused until explicitly resumed
     }
 
     // Reconcile orphan worktrees left behind by prior crashed/restarted
@@ -181,6 +167,11 @@ async function tickProject(project) {
       if (instance.terminated_at) continue;
       const state = instance.loop_state;
       const paused = instance.paused_at_stage;
+
+      const latestProject = factoryHealth.getProject(project.id);
+      if (!latestProject || latestProject.status !== 'running') {
+        return;
+      }
 
       // Skip terminated or idle instances
       if (state === 'IDLE') continue;
@@ -237,7 +228,11 @@ async function tickProject(project) {
 
     // If no active instances exist for a running + auto_continue project,
     // start a new loop automatically.
-    const cfg = getProjectConfig(project);
+    const projectBeforeAutoStart = factoryHealth.getProject(project.id);
+    if (!projectBeforeAutoStart || projectBeforeAutoStart.status !== 'running') {
+      return;
+    }
+    const cfg = getProjectConfig(projectBeforeAutoStart);
     if (cfg?.loop?.auto_continue && instances.filter(i => !i.terminated_at).length === 0) {
       try {
         loopController.startLoopAutoAdvance(project.id);
@@ -337,8 +332,8 @@ function stopAll() {
 }
 
 // Called on server startup — scan for projects that should be ticking.
-// Includes running projects AND paused projects with auto_continue
-// (the tick's auto-resume logic will set them back to running).
+// Running projects tick normally. Paused baseline-probe projects keep ticking
+// only to check whether the broken baseline has recovered.
 function initFactoryTicks() {
   let started = 0;
   try {
@@ -346,7 +341,7 @@ function initFactoryTicks() {
     for (const project of projects) {
       const cfg = getProjectConfig(project);
       const shouldTick = project.status === 'running'
-        || (project.status === 'paused' && cfg?.loop?.auto_continue);
+        || (project.status === 'paused' && cfg?.baseline_broken_since);
       if (!shouldTick) continue;
       const intervalMs = cfg?.loop?.tick_interval_ms || DEFAULT_TICK_INTERVAL_MS;
       startTick(project, intervalMs);

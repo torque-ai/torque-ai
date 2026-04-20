@@ -5426,6 +5426,18 @@ async function runAdvanceLoop(instance_id) {
   let currentState = previousState;
   let pausedAtStage = getPausedAtStage(instance);
 
+  if (isProjectStatusPaused(project.id)) {
+    return {
+      project_id: project.id,
+      instance_id: instance.id,
+      previous_state: previousState,
+      new_state: currentState,
+      paused_at_stage: pausedAtStage,
+      stage_result: null,
+      reason: 'project_paused',
+    };
+  }
+
   if (instance.terminated_at || currentState === LOOP_STATES.IDLE) {
     throw new Error('Loop not started for this project');
   }

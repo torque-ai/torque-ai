@@ -10,7 +10,7 @@ const RULES = {
   task_body_min_length:        { severity: 'hard', scope: 'task', min: 100 },
   task_has_file_reference:     { severity: 'hard', scope: 'task' },
   task_has_acceptance_criterion: { severity: 'hard', scope: 'task' },
-  task_avoids_vague_phrases:   { severity: 'hard', scope: 'task', minHits: 2 },
+  task_avoids_vague_phrases:   { severity: 'hard', scope: 'task', minHits: 1 },
   no_duplicate_task_titles:    { severity: 'hard', scope: 'plan' },
   task_heading_grammar:        { severity: 'hard', scope: 'plan' },
   plan_size_upper_bound:       { severity: 'hard', scope: 'plan', maxBytes: 100 * 1024 },
@@ -19,14 +19,50 @@ const RULES = {
 const FILE_PATH_RE = /[a-z_][a-z_0-9/-]*\.(js|ts|tsx|jsx|py|cs|md|json|yml|yaml)/i;
 const GREP_TARGET_RE = /\bsearch_files\b|\bgrep\b/i;
 const ACCEPTANCE_RE = /\b(npx vitest|dotnet test|pytest|npm test|assert|expect|should produce|should exist)\b/i;
+const CONCRETE_FILE_PATH_RE = /(?:^|[\s`'"([])(?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.(?:cjs|cs|css|go|html|java|js|json|jsx|md|mjs|ps1|py|rb|rs|sh|sql|ts|tsx|txt|xml|ya?ml)\b/i;
+const CONCRETE_BACKTICK_RE = /`[^`\n]+`/;
+const CONCRETE_QUOTED_RE = /"[^"\n]+"|'[^'\n]+'/;
+const CONCRETE_IDENTIFIER_RE = /\b(?:[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|[a-z]+(?:[A-Z][A-Za-z0-9]*)+|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\b/g;
 const VAGUE_PHRASES = [
-  'appropriately',
-  'as needed',
-  'refactor accordingly',
-  'clean up',
-  'improve',
-  'fix issues',
+  { label: 'appropriately', re: /\bappropriately\b/gi },
+  { label: 'as needed', re: /\bas\s+needed\b/gi },
+  { label: 'refactor accordingly', re: /\brefactor\s+accordingly\b/gi },
+  { label: 'clean up', re: /\bclean\s+up\b/gi },
+  { label: 'improve', re: /\bimprov(?:e|es|ed|ing)\b/gi },
+  { label: 'update', re: /\bupdat(?:e|es|ed|ing)\b/gi },
+  { label: 'modify', re: /\bmodif(?:y|ies|ied|ying)\b/gi },
+  { label: 'fix issues', re: /\bfix\s+issues\b/gi },
 ];
+
+function hasConcreteObject(text) {
+  const value = String(text || '');
+  if (CONCRETE_FILE_PATH_RE.test(value)
+    || CONCRETE_BACKTICK_RE.test(value)
+    || CONCRETE_QUOTED_RE.test(value)) {
+    return true;
+  }
+
+  CONCRETE_IDENTIFIER_RE.lastIndex = 0;
+  return Array.from(value.matchAll(CONCRETE_IDENTIFIER_RE)).some((match) => match[0].length >= 4);
+}
+
+function findUnqualifiedVaguePhrases(text) {
+  const value = String(text || '');
+  const hits = [];
+
+  for (const phrase of VAGUE_PHRASES) {
+    phrase.re.lastIndex = 0;
+    for (const match of value.matchAll(phrase.re)) {
+      const start = Math.max(0, match.index - 80);
+      const end = Math.min(value.length, match.index + match[0].length + 120);
+      if (!hasConcreteObject(value.slice(start, end))) {
+        hits.push(phrase.label);
+      }
+    }
+  }
+
+  return hits;
+}
 
 function parseTasks(planMarkdown) {
   // Returns [{ number, title, body }] splitting the plan at each ## Task N: heading.
@@ -121,17 +157,14 @@ function runDeterministicRules(planMarkdown) {
       });
     }
 
-    // Rule 7: ≥ 2 forbidden phrases in the same task
-    const hits = VAGUE_PHRASES.reduce((acc, phrase) => {
-      const re = new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
-      const count = (task.body.match(re) || []).length;
-      return acc + count;
-    }, 0);
-    if (hits >= RULES.task_avoids_vague_phrases.minHits) {
+    // Rule 7: vague verbs must be paired with nearby object-level detail.
+    const unqualifiedVaguePhrases = findUnqualifiedVaguePhrases(`${task.title || ''}\n${task.body || ''}`);
+    if (unqualifiedVaguePhrases.length >= RULES.task_avoids_vague_phrases.minHits) {
+      const labels = [...new Set(unqualifiedVaguePhrases)];
       hardFails.push({
         rule: 'task_avoids_vague_phrases',
         taskNumber: task.number,
-        detail: `Task ${task.number} contains ${hits} vague phrases (threshold ${RULES.task_avoids_vague_phrases.minHits}).`,
+        detail: `Task ${task.number} contains vague phrase(s) without object-level detail: ${labels.join(', ')}.`,
       });
     }
   }

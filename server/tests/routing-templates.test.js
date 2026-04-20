@@ -85,6 +85,18 @@ describe('seedPresets', () => {
     expect(providers.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('Quality First routes plan_generation to codex first, not ollama-cloud', () => {
+    const tmpl = mod.getTemplateByName('Quality First');
+    expect(tmpl).not.toBeNull();
+    const chain = Array.isArray(tmpl.rules.plan_generation)
+      ? tmpl.rules.plan_generation
+      : [tmpl.rules.plan_generation];
+    const providers = chain.map((r) => (typeof r === 'string' ? r : r.provider));
+    expect(providers[0]).toBe('codex');
+    expect(providers[0]).not.toBe('ollama-cloud');
+    expect(providers.length).toBeGreaterThanOrEqual(2);
+  });
+
   it('preset IDs follow preset-<filename> convention', () => {
     const tmpl = mod.getTemplate('preset-system-default');
     expect(tmpl).not.toBeNull();

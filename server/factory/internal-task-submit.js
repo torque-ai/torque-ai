@@ -19,6 +19,40 @@ function requireKnownKind(kind) {
   return kind;
 }
 
+function readProjectStatusFromDb(project_id) {
+  if (!project_id) return null;
+
+  try {
+    const database = require('../database');
+    const db = database.getDbInstance?.();
+    if (db && typeof db.prepare === 'function') {
+      const row = db.prepare('SELECT status FROM factory_projects WHERE id = ?').get(project_id);
+      if (row && typeof row.status === 'string') {
+        return row.status;
+      }
+    }
+  } catch (error) {
+    if (!String(error?.message || '').includes('no such table')) {
+      throw error;
+    }
+  }
+
+  try {
+    const factoryHealth = require('../db/factory-health');
+    const project = factoryHealth.getProject(project_id);
+    return project?.status || null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function assertProjectAcceptsInternalTasks(project_id) {
+  const status = readProjectStatusFromDb(project_id);
+  if (status === 'paused') {
+    throw new Error(`Factory project is paused: ${project_id}; internal task submission blocked`);
+  }
+}
+
 async function submitFactoryInternalTask({
   task,
   working_directory,
@@ -31,6 +65,7 @@ async function submitFactoryInternalTask({
 }) {
   const resolvedWorkingDirectory = requireWorkingDirectory(working_directory);
   const resolvedKind = requireKnownKind(kind);
+  assertProjectAcceptsInternalTasks(project_id);
   const project = PROJECT_BY_KIND[resolvedKind];
   const tags = [
     'factory:internal',
