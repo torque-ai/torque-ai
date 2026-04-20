@@ -146,7 +146,7 @@ git commit -m "security: enforce auth in mcp-protocol.js — reject unauthentica
 - Modify: `server/mcp-sse.js` (SSE session creation)
 - Modify: `server/index.js` (stdio session)
 
-- [ ] **Step 1: SSE — authenticate on connection**
+- [x] **Step 1: SSE — authenticate on connection**
 
 In `mcp-sse.js`, find the SSE connection handler (where sessions are created on `GET /sse`). Add auth check:
 ```js
@@ -171,11 +171,11 @@ function verifyApiKey(provided, expected) {
 }
 ```
 
-- [ ] **Step 2: SSE — require auth on reconnect**
+- [x] **Step 2: SSE — require auth on reconnect**
 
 When a client reconnects with `?sessionId=...`, also check the API key. Don't allow session hijacking via known session ID.
 
-- [ ] **Step 3: Stdio — auto-authenticate**
+- [x] **Step 3: Stdio — auto-authenticate**
 
 In `index.js`, the `stdioSession` object:
 ```js
@@ -184,9 +184,9 @@ const stdioSession = { toolMode: 'core', authenticated: true };
 
 Stdio is a trusted pipe — always authenticated.
 
-- [ ] **Step 4: Verify syntax** — `node --check server/mcp-sse.js && node --check server/index.js`
+- [x] **Step 4: Verify syntax** — `node --check server/mcp-sse.js && node --check server/index.js`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -m "security: wire auth into SSE (key required) and stdio (auto-authenticated)"
