@@ -82,7 +82,9 @@ async function evaluatePreVerifyGovernance(task, verifyCommand, context = {}) {
       if (defaultContainer && typeof defaultContainer.get === 'function') {
         governance = defaultContainer.get('governanceHooks');
       }
-    } catch { /* container not ready */ }
+    } catch (err) {
+      logger.debug('[automation-handlers] governance container unavailable:', err.message || err);
+    }
 
     // Direct construction fallback if container doesn't have it
     if (!governance) {
@@ -95,7 +97,9 @@ async function evaluatePreVerifyGovernance(task, verifyCommand, context = {}) {
           const gr = createGovernanceRules({ db });
           governance = createGovernanceHooks({ governanceRules: gr });
         }
-      } catch { /* governance unavailable */ }
+      } catch (err) {
+        logger.debug('[automation-handlers] direct governance construction unavailable:', err.message || err);
+      }
     }
 
     if (!governance) return null;

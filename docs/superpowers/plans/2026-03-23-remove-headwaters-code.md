@@ -487,23 +487,23 @@ For each of these, grep for and remove any Headwaters/wiring references:
 
 ### Task 10: Full verification
 
-- [ ] **Step 1: Verify all source files parse**
+- [x] **Step 1: Verify all source files parse**
 
 Run: `node -e "require('./server/index.js')" 2>&1 | head -5`
 Expected: Server starts or fails on port binding (not on require errors)
 
-- [ ] **Step 2: Grep for remaining Headwaters references**
+- [x] **Step 2: Grep for remaining Headwaters references**
 
 Run: `grep -r "Headwaters\|GameScene\|NotificationBridge\|wire_system_to_gamescene\|wire_events_to_eventsystem\|wire_notifications_to_bridge\|headwaters_path\|deluge_path\|Deluge" server/ --include="*.js" -l`
 
 Expected: No matches (or only in docs/critique files)
 
-- [ ] **Step 3: Run test suite**
+- [x] **Step 3: Run test suite**
 
 Run: `npx vitest run` (from server/)
 Expected: All tests pass. Some tests removed, remaining tests still green.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/ CLAUDE.md
