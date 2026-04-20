@@ -285,7 +285,7 @@ Expected: No errors
 - Modify: `server/api/routes.js`
 - Modify: `server/tool-annotations.js`
 
-- [ ] **Step 1: Remove REST routes from routes-passthrough.js**
+- [x] **Step 1: Remove REST routes from routes-passthrough.js**
 
 Remove these lines (around 101-115):
 ```js
@@ -300,14 +300,14 @@ Remove these lines (around 101-115):
   { method: 'POST', path: '/api/v2/automation/audit-class-completeness', tool: 'audit_class_completeness', mapBody: true },
 ```
 
-- [ ] **Step 1b: Remove run_full_batch route from routes.js**
+- [x] **Step 1b: Remove run_full_batch route from routes.js**
 
 In `server/api/routes.js` line 1176, remove:
 ```js
   { method: 'POST', path: '/api/batch/full', tool: 'run_full_batch', mapBody: true },
 ```
 
-- [ ] **Step 2: Remove annotation overrides from tool-annotations.js**
+- [x] **Step 2: Remove annotation overrides from tool-annotations.js**
 
 Remove these lines (around 105-108):
 ```js
@@ -317,7 +317,7 @@ Remove these lines (around 105-108):
   audit_class_completeness:        Object.freeze({ ... }),
 ```
 
-- [ ] **Step 3: Verify both files parse**
+- [x] **Step 3: Verify both files parse**
 
 Run: `node -e "require('./server/api/routes-passthrough.js')" && node -e "require('./server/tool-annotations.js')"`
 Expected: No errors
