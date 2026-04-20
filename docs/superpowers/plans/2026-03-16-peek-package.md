@@ -196,14 +196,14 @@ git commit -m "feat(peek): macOS platform adapter — screencapture + osascript"
 - Create: `packages/peek/src/platform/linux.js`
 - Test: `packages/peek/tests/linux.test.js`
 
-- [ ] **Step 1: Write conditional test** — loads on all platforms, functional tests only on Linux.
+- [x] **Step 1: Write conditional test** — loads on all platforms, functional tests only on Linux.
 
-- [ ] **Step 2: Implement linux.js** — extends BasePlatformAdapter:
+- [x] **Step 2: Implement linux.js** — extends BasePlatformAdapter:
   - `listWindows()` — `execFileSync('xdotool', ['search', '--name', ''])` for window IDs, then `execFileSync('xdotool', ['getwindowname', id])` + `execFileSync('xprop', ['-id', id])` for details.
   - `capture()` — find window ID with `execFileSync('xdotool', ['search', '--name', name])`, then capture with `execFileSync('maim', ['-i', windowId, tmpFile])` (preferred) or `execFileSync('import', ['-window', windowId, tmpFile])` (ImageMagick fallback).
   - Interaction — `execFileSync('xdotool', ['mousemove', '--', x, y])`, `execFileSync('xdotool', ['click', button])`, `execFileSync('xdotool', ['type', '--', text])`, `execFileSync('xdotool', ['key', keys])`.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ```bash
 git commit -m "feat(peek): Linux platform adapter — xdotool + maim/import"
