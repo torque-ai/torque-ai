@@ -112,6 +112,150 @@ function parseMetadata(rawMetadata) {
   }
 }
 
+function mergeTaskMetadata(task, ctx) {
+  return {
+    ...parseMetadata(task?.metadata),
+    ...parseMetadata(ctx?.task?.metadata),
+  };
+}
+
+function parseFiniteNumber(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function firstFiniteNumber(candidates) {
+  for (const candidate of candidates) {
+    const numeric = parseFiniteNumber(candidate);
+    if (numeric !== null) return numeric;
+  }
+  return null;
+}
+
+function normalizeQualityScore(value) {
+  const numeric = parseFiniteNumber(value);
+  if (numeric === null) return null;
+  const normalized = numeric > 1 ? numeric / 100 : numeric;
+  if (normalized <= 0) return 0;
+  if (normalized >= 1) return 1;
+  return normalized;
+}
+
+function parseTimestampMs(value) {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function getProviderScoringService() {
+  if (deps.providerScoring && typeof deps.providerScoring.recordTaskCompletion === 'function') {
+    return deps.providerScoring;
+  }
+  return require('../db/provider-scoring');
+}
+
+function getRawDbInstance() {
+  if (deps.rawDb && typeof deps.rawDb.prepare === 'function') return deps.rawDb;
+  if (deps.db && typeof deps.db.getDbInstance === 'function') return deps.db.getDbInstance();
+
+  try {
+    const database = require('../database');
+    return database.getDbInstance ? database.getDbInstance() : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function getDurationMsForScoring(task) {
+  const startedAt = parseTimestampMs(task?.started_at);
+  if (!startedAt) return 0;
+
+  const completedAt = parseTimestampMs(task?.completed_at) || Date.now();
+  return Math.max(0, completedAt - startedAt);
+}
+
+function getCostUsdForScoring(task, metadata) {
+  const cost = firstFiniteNumber([
+    task?.cost_usd,
+    task?.estimated_cost_usd,
+    task?.estimated_cost,
+    task?.cost_estimate,
+    metadata?.cost_usd,
+    metadata?.estimated_cost_usd,
+    metadata?.estimated_cost,
+    metadata?.cost_estimate,
+    metadata?.provider_usage?.cost_estimate,
+    metadata?.token_usage?.estimated_cost_usd,
+    metadata?.token_usage?.cost_usd,
+    metadata?.agentic_token_usage?.estimated_cost_usd,
+    metadata?.agentic_token_usage?.cost_usd,
+  ]);
+
+  return cost !== null && cost > 0 ? cost : 0;
+}
+
+function getQualityScoreForScoring(task, success, metadata) {
+  const explicitQuality = firstFiniteNumber([
+    task?.quality_score,
+    task?.qualityScore,
+    metadata?.provider_scoring?.quality_score,
+    metadata?.provider_scoring?.qualityScore,
+    metadata?.quality_score,
+    metadata?.qualityScore,
+    metadata?.finalization?.quality_score,
+    metadata?.finalization?.qualityScore,
+    metadata?.finalization?.verify_command_result?.quality_score,
+    metadata?.finalization?.verify_command_result?.qualityScore,
+    metadata?.verify_command_result?.quality_score,
+    metadata?.verify_command_result?.qualityScore,
+    metadata?.verification?.quality_score,
+    metadata?.verification?.qualityScore,
+    metadata?.strategic_review?.quality_score,
+    metadata?.strategic_review?.qualityScore,
+  ]);
+  const normalizedExplicit = normalizeQualityScore(explicitQuality);
+  if (normalizedExplicit !== null) return normalizedExplicit;
+
+  try {
+    if (deps.db && typeof deps.db.getQualityScore === 'function' && task?.id) {
+      const row = deps.db.getQualityScore(task.id);
+      const persisted = normalizeQualityScore(row?.overall_score);
+      if (persisted !== null) return persisted;
+    }
+  } catch (err) {
+    logger.info(`[finalizer] Provider quality score lookup failed: ${err.message}`);
+  }
+
+  return success ? 0.7 : 0.0;
+}
+
+function recordProviderScoring(ctx) {
+  try {
+    const task = ctx?.task || {};
+    const provider = String(task.provider || ctx?.proc?.provider || '').trim();
+    if (!provider) return;
+
+    const scoring = getProviderScoringService();
+    const rawDb = getRawDbInstance();
+    if (rawDb && typeof scoring.init === 'function') {
+      scoring.init(rawDb);
+    }
+
+    const metadata = parseMetadata(task.metadata);
+    const success = ctx.status === 'completed';
+    scoring.recordTaskCompletion({
+      provider,
+      success,
+      durationMs: getDurationMsForScoring(task),
+      costUsd: getCostUsdForScoring(task, metadata),
+      qualityScore: getQualityScoreForScoring(task, success, metadata),
+    });
+  } catch (err) {
+    logger.info(`[finalizer] Provider scoring recording failed: ${err.message}`);
+  }
+}
+
 async function indexRunArtifacts(taskId, workflowId = null) {
   try {
     const { defaultContainer } = require('../container');
@@ -147,7 +291,7 @@ function describeStageOutcome(before, after) {
 }
 
 function buildValidationMetadata(task, ctx, rawExitCode) {
-  const metadata = parseMetadata(task?.metadata);
+  const metadata = mergeTaskMetadata(task, ctx);
   const priorFinalization = (metadata.finalization && typeof metadata.finalization === 'object')
     ? metadata.finalization
     : {};
@@ -618,28 +762,12 @@ async function finalizeTask(taskId, options = {}) {
       logger.info(`[finalizer] Study telemetry recording failed: ${studyTelemetryErr.message}`);
     }
 
-    // Compute duration for scoring/resume hooks (ctx.durationMs is not populated by the pipeline)
+    // Compute duration for resume hooks (ctx.durationMs is not populated by the pipeline)
     const _hookDurationMs = task.started_at
       ? Math.max(0, Date.now() - new Date(task.started_at).getTime())
       : 0;
 
-    try {
-      const scoring = require('../db/provider-scoring');
-      const db = require('../database');
-      const inst = db.getDbInstance ? db.getDbInstance() : null;
-      if (inst) {
-        scoring.init(inst);
-        scoring.recordTaskCompletion({
-          provider: task.provider || 'unknown',
-          success: ctx.status === 'completed',
-          durationMs: _hookDurationMs,
-          costUsd: parseFloat(task.cost_usd) || 0,
-          qualityScore: ctx.status === 'completed' ? 0.7 : 0.0,
-        });
-      }
-    } catch (_e) {
-      try { require('../logger').info('[scoring] ' + _e.message); } catch {}
-    }
+    recordProviderScoring(ctx);
 
     try {
       const budgetWatcher = require('../db/budget-watcher');
@@ -750,6 +878,7 @@ async function finalizeTask(taskId, options = {}) {
 
     fallbackCtx.task = deps.db.getTask(taskId) || currentTask;
     await indexRunArtifacts(taskId, fallbackCtx.task?.workflow_id || currentTask?.workflow_id || null);
+    recordProviderScoring(fallbackCtx);
 
     if (typeof deps.handlePostCompletion === 'function') {
       try {

@@ -381,6 +381,45 @@ describe('task-finalizer', () => {
     }
   });
 
+  it('uses provider scoring cost and quality overrides from task metadata', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'deepinfra',
+      metadata: JSON.stringify({
+        estimated_cost_usd: 0.42,
+        provider_scoring: { quality_score: 82 },
+      }),
+    });
+    const scoringDb = { prepare: vi.fn() };
+    vi.spyOn(database, 'getDbInstance').mockReturnValue(scoringDb);
+    vi.spyOn(providerScoring, 'init').mockImplementation(() => {});
+    const scoringRecordSpy = vi.spyOn(providerScoring, 'recordTaskCompletion').mockImplementation(() => {});
+    vi.spyOn(budgetWatcher, 'init').mockImplementation(() => {});
+    vi.spyOn(budgetWatcher, 'checkBudgetThresholds').mockReturnValue(null);
+
+    try {
+      const { safeUpdateTaskStatus } = initFinalizer({ dbBundle });
+
+      const result = await finalizer.finalizeTask(dbBundle.taskId, {
+        exitCode: 0,
+        output: 'all good',
+        errorOutput: '',
+      });
+
+      expect(result.finalized).toBe(true);
+      expect(scoringRecordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'deepinfra',
+          success: true,
+          costUsd: 0.42,
+          qualityScore: 0.82,
+        })
+      );
+      expect(safeUpdateTaskStatus.mock.invocationCallOrder[0]).toBeLessThan(scoringRecordSpy.mock.invocationCallOrder[0]);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('stores resume context for failed tasks after the terminal DB write', async () => {
     const dbBundle = createTaskDb();
     const resumeCtx = { summary: 'resume me' };
