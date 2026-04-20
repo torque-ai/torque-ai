@@ -118,6 +118,10 @@ describe('executeVerifyStage + dep-resolver integration', () => {
     const verifyReview = require('../factory/verify-review');
     const depResolver = require('../factory/dep-resolver/index');
     const escalation = require('../factory/dep-resolver/escalation');
+    const guardrailRunner = require('../factory/guardrail-runner');
+    const routingModule = require('../handlers/integration/routing');
+    const awaitModule = require('../handlers/workflow/await');
+    const taskCore = require('../db/task-core');
 
     const verify = vi.fn();
     for (const out of verifyOutputs) verify.mockResolvedValueOnce(out);
@@ -133,6 +137,21 @@ describe('executeVerifyStage + dep-resolver integration', () => {
     if (escalateOutput) {
       escalateSpy = vi.spyOn(escalation, 'escalate').mockResolvedValue(escalateOutput);
     }
+
+    // After verify finally passes, the function falls through to
+    // runPostBatchChecks. Stub to a clean passed result so scenarios that
+    // reach the happy path return status:'passed'.
+    vi.spyOn(guardrailRunner, 'runPostBatchChecks').mockReturnValue({
+      status: 'passed',
+      passed: true,
+      results: [],
+    });
+
+    // For the kill-switch scenario (dep_resolver disabled), the existing
+    // retry path submits fix tasks. Stub those so we don't hit the network.
+    vi.spyOn(routingModule, 'handleSmartSubmitTask').mockResolvedValue({ task_id: 't-retry' });
+    vi.spyOn(awaitModule, 'handleAwaitTask').mockResolvedValue({ status: 'completed' });
+    vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 't-retry', status: 'completed', output: '', error_output: null });
 
     return { verify, reviewSpy, resolveSpy, escalateSpy };
   }
