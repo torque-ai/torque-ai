@@ -154,15 +154,15 @@ git commit -m "feat(peek): base platform adapter class with safe exec utilities"
 - Create: `packages/peek/src/platform/win32.js`
 - Test: `packages/peek/tests/win32.test.js`
 
-- [ ] **Step 1: Write conditional test** — instantiation test on all platforms, functional tests (listWindows, capture) only on Windows (`process.platform === 'win32'`).
+- [x] **Step 1: Write conditional test** — instantiation test on all platforms, functional tests (listWindows, capture) only on Windows (`process.platform === 'win32'`).
 
-- [ ] **Step 2: Implement win32.js** — extends BasePlatformAdapter. Key methods:
+- [x] **Step 2: Implement win32.js** — extends BasePlatformAdapter. Key methods:
   - `listWindows()` — runs PowerShell script via `execFileSync('powershell', ['-NoProfile', '-Command', script])` that calls `Get-Process | Where MainWindowTitle` + `GetWindowRect` for geometry.
   - `capture({ mode, name, format, quality, max_width })` — PowerShell script using `Add-Type` to call Win32 `PrintWindow` API, outputs base64 PNG. Supports capture by process name, window title, or full screen.
   - Interaction methods — PowerShell scripts using `Add-Type` for `SendInput`, `SetCursorPos`, `SetForegroundWindow`, `ShowWindow`.
   - All PowerShell invocations use `execFileSync('powershell', ['-NoProfile', '-Command', scriptContent])` — no string interpolation of user input into commands.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ```bash
 cd packages/peek && npx vitest run tests/win32.test.js
