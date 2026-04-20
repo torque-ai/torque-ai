@@ -777,6 +777,14 @@ describe('api/routes route table', () => {
   it('registers provider and ollama host routes', () => {
     expect(findStringRoute('GET', '/api/providers').tool).toBe('list_providers');
     expect(findStringRoute('GET', '/api/provider-quotas').handlerName).toBe('handleGetProviderQuotas');
+    expect(findStringRoute('GET', '/api/provider-scores')).toEqual(expect.objectContaining({
+      tool: 'get_provider_scores',
+      mapQuery: true,
+    }));
+    expect(findStringRoute('GET', '/api/v2/provider-scores')).toEqual(expect.objectContaining({
+      tool: 'get_provider_scores',
+      mapQuery: true,
+    }));
     expect(findStringRoute('POST', '/api/providers/configure').tool).toBe('configure_provider');
     expect(findStringRoute('POST', '/api/providers/default').tool).toBe('set_default_provider');
     expect(findStringRoute('GET', '/api/ollama/hosts').tool).toBe('list_ollama_hosts');

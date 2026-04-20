@@ -121,28 +121,6 @@ function checkBudgetThresholdsForCompletedTask(task) {
       logger.debug('Budget threshold check failed: ' + e.message);
     }
   }
-
-  // Provider scoring
-  try {
-    const providerScoring = defaultContainer.get('providerScoring');
-    if (providerScoring && task.provider) {
-      const success = task.status === 'completed' && (task.exit_code === 0 || task.exit_code === null);
-      const durationMs = task.completed_at && task.started_at
-        ? new Date(task.completed_at).getTime() - new Date(task.started_at).getTime()
-        : 0;
-      const costUsd = task.estimated_cost || 0;
-      providerScoring.recordTaskCompletion({
-        provider: task.provider,
-        success,
-        durationMs,
-        costUsd,
-        qualityScore: success ? 0.7 : 0.0,
-      });
-    }
-  } catch (e) {
-    // Non-critical
-    if (typeof logger !== 'undefined') logger.debug('Provider scoring failed: ' + e.message);
-  }
 }
 
 function storeResumeContextForFailedTask(task, ctx = null) {

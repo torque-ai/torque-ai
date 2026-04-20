@@ -914,6 +914,7 @@ const routes = [
   // --- Providers --- (compat: v2 equivalents at /api/v2/providers)
   { method: 'GET',  pattern: /^\/api\/providers$/,                        handler: infrastructure.handleListProviders, compat: true },
   { method: 'GET',  pattern: /^\/api\/provider-quotas$/,                  handler: infrastructure.handleProviderQuotas },
+  { method: 'GET',  pattern: /^\/api\/provider-scores$/,                  handler: infrastructure.handleProviderScores, compat: true },
   { method: 'GET',  pattern: /^\/api\/providers\/trends$/,                handler: infrastructure.handleProviderTrends, compat: true },
   { method: 'GET',  pattern: /^\/api\/providers\/([^/]+)\/percentiles$/,  handler: infrastructure.handleProviderPercentiles },
   { method: 'GET',  pattern: /^\/api\/v2\/providers\/([^/]+)\/percentiles$/, handler: infrastructure.handleProviderPercentiles },

@@ -1,7 +1,6 @@
-const { defineConfig } = require('vitest/config');
 const os = require('os');
 
-module.exports = defineConfig({
+module.exports = {
   test: {
     globals: true,
     testTimeout: 15000,
@@ -71,4 +70,4 @@ module.exports = defineConfig({
       },
     },
   },
-});
+};

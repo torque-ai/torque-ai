@@ -854,6 +854,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
         total_successes INTEGER DEFAULT 0,
         total_failures INTEGER DEFAULT 0,
         avg_duration_ms REAL DEFAULT 0,
+        p95_duration_ms REAL DEFAULT 0,
         avg_cost_usd REAL DEFAULT 0,
         last_updated TEXT,
         trusted INTEGER DEFAULT 0
@@ -861,6 +862,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
       CREATE INDEX IF NOT EXISTS idx_provider_scores_composite ON provider_scores(composite_score DESC);
       CREATE INDEX IF NOT EXISTS idx_provider_scores_trusted ON provider_scores(trusted, composite_score DESC);
     `);
+    safeAddColumn('provider_scores', 'p95_duration_ms REAL DEFAULT 0');
   } catch (e) {
     logger.debug(`Schema migration (provider_scores): ${e.message}`);
   }

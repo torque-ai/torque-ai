@@ -14,9 +14,9 @@ const path = require('path');
 
 // Resolve server's config without going through `vitest/config`. The repo root
 // has no node_modules — vitest is installed under server/, so requiring
-// `vitest/config` from this file fails MODULE_NOT_FOUND. Server's config does
-// use defineConfig, but the result is a plain object that vitest also accepts
-// when re-exported as-is, so we don't need defineConfig here.
+// `vitest/config` from this file fails MODULE_NOT_FOUND. Server's config exports
+// the plain object shape that Vitest accepts directly, so we don't need
+// defineConfig here.
 const serverConfig = require('./server/vitest.config.js');
 const inner = serverConfig.test || (serverConfig.default && serverConfig.default.test) || {};
 

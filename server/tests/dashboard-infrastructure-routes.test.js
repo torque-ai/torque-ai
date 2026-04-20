@@ -13,6 +13,7 @@ const MODULE_PATHS = [
   '../db/file-tracking',
   '../db/host-management',
   '../db/provider-routing-core',
+  '../db/provider-scoring',
   '../dashboard/utils',
   '../task-manager',
   '../discovery',
@@ -70,6 +71,7 @@ function createState() {
     hostSettings: new Map(),
     tasks: [],
     providers: new Map(),
+    providerScores: new Map(),
     providerStats: new Map(),
     hostActivity: {},
   };
@@ -179,6 +181,10 @@ function seedProvider(provider) {
     enabled: true,
     ...clone(provider),
   });
+}
+
+function seedProviderScore(score) {
+  state.providerScores.set(score.provider, clone(score));
 }
 
 function setProviderStats(providerId, days, stats) {
@@ -423,6 +429,20 @@ function createModules() {
     updateProvider: db.updateProvider,
   };
 
+  const providerScoring = {
+    MIN_SAMPLES: 5,
+    getCompositeWeights: vi.fn(() => ({ cost: 0.15, speed: 0.25, reliability: 0.35, quality: 0.25 })),
+    getProviderScore: vi.fn((providerId) => clone(state.providerScores.get(providerId)) || null),
+    getAllProviderScores: vi.fn(({ trustedOnly } = {}) => Array.from(state.providerScores.values())
+      .filter((row) => !trustedOnly || row.trusted === 1)
+      .sort((left, right) => (
+        (right.trusted || 0) - (left.trusted || 0)
+        || (right.composite_score || 0) - (left.composite_score || 0)
+        || String(left.provider).localeCompare(String(right.provider))
+      ))
+      .map(clone)),
+  };
+
   const coordination = {
     getActiveInstances: vi.fn(() => []),
   };
@@ -434,6 +454,7 @@ function createModules() {
     fileTracking,
     hostManagement,
     providerRoutingCore,
+    providerScoring,
     utils,
     taskManager,
     discovery,
@@ -450,6 +471,7 @@ function loadHandlers() {
   installCjsModuleMock('../db/file-tracking', currentModules.fileTracking);
   installCjsModuleMock('../db/host-management', currentModules.hostManagement);
   installCjsModuleMock('../db/provider-routing-core', currentModules.providerRoutingCore);
+  installCjsModuleMock('../db/provider-scoring', currentModules.providerScoring);
   installCjsModuleMock('../dashboard/utils', currentModules.utils);
   installCjsModuleMock('../task-manager', currentModules.taskManager);
   installCjsModuleMock('../discovery', currentModules.discovery);
@@ -1785,6 +1807,84 @@ describe('dashboard/routes/infrastructure', () => {
           stats: { total: 4, completed: 3, failed: 1 },
         },
       ]);
+    });
+  });
+
+  describe('handleProviderScores', () => {
+    it('returns all provider scores with scoring metadata', () => {
+      seedProviderScore({
+        provider: 'codex',
+        trusted: 1,
+        composite_score: 0.91,
+        cost_efficiency: 0.8,
+        speed_score: 0.7,
+        reliability_score: 0.95,
+        quality_score: 0.9,
+      });
+      seedProviderScore({
+        provider: 'ollama',
+        trusted: 0,
+        composite_score: 0,
+        cost_efficiency: 1,
+        speed_score: 0.4,
+        reliability_score: 0.75,
+        quality_score: 0.6,
+      });
+      const res = createRes();
+
+      handlers.handleProviderScores(createReq(), res, {});
+
+      expect(currentModules.providerScoring.getAllProviderScores).toHaveBeenCalledWith({ trustedOnly: false });
+      expectSuccess(res, {
+        weights: { cost: 0.15, speed: 0.25, reliability: 0.35, quality: 0.25 },
+        min_samples: 5,
+        trusted_only: false,
+        count: 2,
+        providers: [
+          expect.objectContaining({ provider: 'codex', trusted: 1, composite_score: 0.91 }),
+          expect.objectContaining({ provider: 'ollama', trusted: 0, composite_score: 0 }),
+        ],
+      });
+    });
+
+    it('filters trusted provider scores from query params', () => {
+      seedProviderScore({ provider: 'codex', trusted: 1, composite_score: 0.91 });
+      seedProviderScore({ provider: 'ollama', trusted: 0, composite_score: 0 });
+      const res = createRes();
+
+      handlers.handleProviderScores(createReq(), res, { trusted_only: 'true' });
+
+      expect(currentModules.providerScoring.getAllProviderScores).toHaveBeenCalledWith({ trustedOnly: true });
+      expectSuccess(res, expect.objectContaining({
+        trusted_only: true,
+        count: 1,
+        providers: [expect.objectContaining({ provider: 'codex' })],
+      }));
+    });
+
+    it('returns a single provider score when provider is supplied', () => {
+      seedProviderScore({ provider: 'codex', trusted: 1, composite_score: 0.91 });
+      const res = createRes();
+
+      handlers.handleProviderScores(createReq(), res, { provider: ' codex ' });
+
+      expect(currentModules.providerScoring.getProviderScore).toHaveBeenCalledWith('codex');
+      expectSuccess(res, expect.objectContaining({
+        provider: 'codex',
+        found: true,
+        score: expect.objectContaining({ provider: 'codex', composite_score: 0.91 }),
+      }));
+    });
+
+    it('returns 503 when provider scoring has not been initialized', () => {
+      currentModules.providerScoring.getAllProviderScores.mockImplementation(() => {
+        throw new Error('provider-scoring has not been initialized');
+      });
+      const res = createRes();
+
+      handlers.handleProviderScores(createReq(), res, {});
+
+      expectFailure(res, 'Provider scoring unavailable: provider-scoring has not been initialized', 503);
     });
   });
 
