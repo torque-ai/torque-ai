@@ -478,7 +478,7 @@ git push origin main
 - Modify: `server/handlers/context-handler.js` (replace `buildWorkflowContext` placeholder)
 - Modify: `server/tests/context-handler.test.js` (add workflow scope tests)
 
-- [ ] **Step 1: Write failing tests for workflow scope**
+- [x] **Step 1: Write failing tests for workflow scope**
 
 Add inside the outer `describe('context-handler', ...)` block in the test file:
 
@@ -535,7 +535,7 @@ Add inside the outer `describe('context-handler', ...)` block in the test file:
   });
 ```
 
-- [ ] **Step 2: Run tests to verify workflow tests fail**
+- [x] **Step 2: Run tests to verify workflow tests fail**
 
 ```bash
 git push origin main
@@ -543,7 +543,7 @@ torque-remote "cd server && npx vitest run tests/context-handler.test.js --repor
 ```
 Expected: Workflow scope tests FAIL (placeholder returns error)
 
-- [ ] **Step 3: Implement buildWorkflowContext**
+- [x] **Step 3: Implement buildWorkflowContext**
 
 Replace the placeholder `buildWorkflowContext` function in `server/handlers/context-handler.js`:
 
@@ -760,7 +760,7 @@ function formatWorkflowMarkdown(ctx) {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify all pass**
+- [x] **Step 4: Run tests to verify all pass**
 
 ```bash
 git push origin main
@@ -768,7 +768,7 @@ torque-remote "cd server && npx vitest run tests/context-handler.test.js --repor
 ```
 Expected: All tests PASS (queue scope + workflow scope)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/handlers/context-handler.js server/tests/context-handler.test.js
