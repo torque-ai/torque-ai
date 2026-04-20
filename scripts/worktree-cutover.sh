@@ -36,6 +36,24 @@ if (cd "$WORKTREE_DIR" && ! git diff --quiet HEAD 2>/dev/null); then
   exit 1
 fi
 
+# Guard main's working tree too — another Claude session may be editing on main
+# right now. If we merge + restart-barrier into main with dirty tracked files,
+# the merge can "succeed" cleanly (non-overlapping paths) while the concurrent
+# session's uncommitted edits get clobbered by later git ops. Fail fast so the
+# other session can commit or stash first. (Untracked files are left alone.)
+if ! git -C "${REPO_ROOT}" diff --quiet 2>/dev/null || \
+   ! git -C "${REPO_ROOT}" diff --cached --quiet 2>/dev/null; then
+  echo "ERROR: Main working tree has uncommitted tracked changes. Commit or stash them first."
+  echo "       A concurrent Claude session may be editing on main — check before proceeding."
+  echo "       Offending files:"
+  git -C "${REPO_ROOT}" status --short | grep -vE '^\?\?' | sed 's/^/         /'
+  echo "       Override (if you've verified this is safe): CUTOVER_ALLOW_DIRTY_MAIN=1 $0 $1"
+  if [ "${CUTOVER_ALLOW_DIRTY_MAIN:-0}" != "1" ]; then
+    exit 1
+  fi
+  echo "[warn] CUTOVER_ALLOW_DIRTY_MAIN=1 set — proceeding with dirty main."
+fi
+
 echo "  Merging ${BRANCH} into main..."
 git merge "$BRANCH" --no-edit
 echo "[ok] Merged"
