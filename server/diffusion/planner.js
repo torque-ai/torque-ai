@@ -200,6 +200,11 @@ function buildWorkflowTasks(plan, options = {}) {
     plan.isolation_confidence,
     plan.shared_dependencies,
   );
+  const useComputeApplyPipeline = Boolean(computeProvider);
+  const resolvedApplyProvider = applyProvider || 'ollama';
+  const resolvedApplyProviders = Array.isArray(applyProviders) && applyProviders.length > 0
+    ? applyProviders
+    : [resolvedApplyProvider];
 
   const patternMap = new Map();
   for (const p of plan.patterns) {
@@ -235,16 +240,15 @@ function buildWorkflowTasks(plan, options = {}) {
       continue;
     }
 
-    const isComputePipeline = !!computeProvider;
     const batches = createBatches(entries, batchSize);
     for (const batch of batches) {
       const files = batch.map(e => e.file);
-      const role = isComputePipeline ? 'compute' : 'fanout';
-      const taskProvider = isComputePipeline ? computeProvider : (provider || null);
+      const role = useComputeApplyPipeline ? 'compute' : 'fanout';
+      const taskProvider = useComputeApplyPipeline ? computeProvider : (provider || null);
       const taskId = `${role}-${tasks.length}`;
       tasks.push({
         id: taskId,
-        description: isComputePipeline
+        description: useComputeApplyPipeline
           ? expandComputeTaskDescription(
               pattern,
               readFileContents(files, workingDirectory),
@@ -260,9 +264,9 @@ function buildWorkflowTasks(plan, options = {}) {
           pattern_id: patternId,
           files,
           depth,
-          ...(isComputePipeline ? {
-            apply_provider: applyProvider || 'ollama',
-            apply_providers: applyProviders || [applyProvider || 'ollama'],
+          ...(useComputeApplyPipeline ? {
+            apply_provider: resolvedApplyProvider,
+            apply_providers: resolvedApplyProviders,
             verify_command: verifyCommand || null,
           } : {}),
           // NOTE: auto_verify_on_completion is intentionally NOT set on individual tasks.
