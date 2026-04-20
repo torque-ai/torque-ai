@@ -298,9 +298,9 @@ git commit -m "feat(peek): compare capability — /compare with pixelmatch"
 **Files:**
 - Create: `packages/peek/src/capabilities/snapshot.js`
 
-- [ ] **Step 1: Implement stub** — returns 501 with `{ success: false, error: "Snapshot requires platform accessibility API — coming in a future release", phase: "planned" }`. Accessibility tree access (Windows UI Automation, macOS Accessibility API, Linux AT-SPI) is complex and will be implemented after launch.
+- [x] **Step 1: Implement stub** — returns 501 with `{ success: false, error: "Snapshot requires platform accessibility API — coming in a future release", phase: "planned" }`. Accessibility tree access (Windows UI Automation, macOS Accessibility API, Linux AT-SPI) is complex and will be implemented after launch.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git commit -m "feat(peek): snapshot capability stub — accessibility API planned"
