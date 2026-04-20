@@ -46,6 +46,7 @@ function _buildDeps() {
     getFallbackChain: smartRouting.getProviderFallbackChain,
     getDb: () => db,
     getCircuitBreaker: () => circuitBreakerInstance,
+    rankProviderCandidatesByScore: _rankProviderCandidatesByScore,
   };
 }
 
@@ -76,8 +77,143 @@ function _extractChainProvider(entry) {
   return entry.provider || null;
 }
 
+function _getProviderScoringService() {
+  if (providerScoring && typeof providerScoring.getAllProviderScores === 'function') {
+    return providerScoring;
+  }
+
+  try {
+    // Lazy fallback covers legacy database bootstrap paths that do not use the
+    // DI container but still initialize provider-routing-core directly.
+    const scoring = require('./provider-scoring');
+    if (db && typeof scoring.init === 'function') {
+      scoring.init(db);
+    }
+    return scoring;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function _getTrustedProviderScoreMap() {
+  const scoring = _getProviderScoringService();
+  if (!scoring || typeof scoring.getAllProviderScores !== 'function') {
+    return new Map();
+  }
+
+  try {
+    if (db && typeof scoring.init === 'function') {
+      scoring.init(db);
+    }
+    const rows = scoring.getAllProviderScores({ trustedOnly: true });
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return new Map();
+    }
+    return new Map(
+      rows
+        .filter((row) => row && row.provider && Number(row.trusted) === 1)
+        .map((row) => [row.provider, Number(row.composite_score) || 0]),
+    );
+  } catch (_err) {
+    return new Map();
+  }
+}
+
+function _rankProviderCandidatesByScore(candidates, options = {}) {
+  if (!Array.isArray(candidates) || candidates.length <= 1) {
+    return { candidates: Array.isArray(candidates) ? [...candidates] : [], applied: false };
+  }
+  if (options?.taskMetadata?.user_provider_override || options?.isUserOverride) {
+    return { candidates: [...candidates], applied: false };
+  }
+
+  const extractProvider = typeof options.extractProvider === 'function'
+    ? options.extractProvider
+    : _extractChainProvider;
+  const scoreMap = _getTrustedProviderScoreMap();
+  if (scoreMap.size === 0) {
+    return { candidates: [...candidates], applied: false };
+  }
+
+  const decorated = candidates.map((candidate, index) => {
+    const provider = extractProvider(candidate);
+    const hasTrustedScore = provider ? scoreMap.has(provider) : false;
+    return {
+      candidate,
+      index,
+      provider,
+      hasTrustedScore,
+      score: hasTrustedScore ? (scoreMap.get(provider) || 0) : 0,
+    };
+  });
+
+  if (!decorated.some((entry) => entry.hasTrustedScore)) {
+    return { candidates: [...candidates], applied: false };
+  }
+
+  decorated.sort((a, b) => {
+    if (a.hasTrustedScore !== b.hasTrustedScore) {
+      return a.hasTrustedScore ? -1 : 1;
+    }
+    if (a.hasTrustedScore && b.hasTrustedScore && a.score !== b.score) {
+      return b.score - a.score;
+    }
+    return a.index - b.index;
+  });
+
+  const selected = decorated[0];
+  return {
+    candidates: decorated.map((entry) => entry.candidate),
+    applied: true,
+    selectedProvider: selected.provider,
+    selectedScore: selected.hasTrustedScore ? selected.score : null,
+    scoreMap,
+  };
+}
+
+function _isProviderEnabled(providerName) {
+  if (!providerName) return false;
+  try {
+    const provider = getProvider(providerName);
+    return Boolean(provider && provider.enabled);
+  } catch (_err) {
+    return false;
+  }
+}
+
+function _applyScoredEligibleProviders(result, taskMetadata = {}) {
+  if (!result || !Array.isArray(result.eligible_providers) || result.eligible_providers.length <= 1) {
+    return result;
+  }
+
+  const availableProviders = result.eligible_providers.filter((providerName) => _isProviderEnabled(providerName));
+  if (availableProviders.length <= 1) {
+    return result;
+  }
+
+  const ranked = _rankProviderCandidatesByScore(availableProviders, {
+    taskMetadata,
+    extractProvider: (providerName) => providerName,
+  });
+  if (!ranked.applied || ranked.candidates.length === 0) {
+    return result;
+  }
+
+  const selectedProvider = ranked.candidates[0];
+  result.eligible_providers = ranked.candidates;
+  result.provider = selectedProvider;
+  result.routing_score_applied = true;
+  result.routing_score = {
+    provider: selectedProvider,
+    composite_score: ranked.selectedScore,
+    source: 'provider_scores',
+  };
+  result.reason = `${result.reason} [score-ranked: ${selectedProvider} composite=${Number(ranked.selectedScore || 0).toFixed(3)}]`;
+  return result;
+}
+
 function _applyScoredFallbackChain(result, taskMetadata = {}) {
-  if (!providerScoring || !result || !Array.isArray(result.chain) || result.chain.length <= 1) {
+  if (!result || !Array.isArray(result.chain) || result.chain.length <= 1) {
     return result;
   }
   if (taskMetadata?.user_provider_override) {
@@ -85,52 +221,29 @@ function _applyScoredFallbackChain(result, taskMetadata = {}) {
   }
 
   try {
-    const scores = providerScoring.getAllProviderScores({ trustedOnly: true });
-    if (!Array.isArray(scores) || scores.length === 0) {
-      return result;
-    }
-
-    const scoreMap = new Map(scores.map((s) => [s.provider, s.composite_score]));
-    if (scoreMap.size <= 1) {
-      return result;
-    }
-
     const chain = [...result.chain];
-    const recommended = chain[0];
-    const recommendedProvider = _extractChainProvider(recommended);
-    if (!recommendedProvider || !scoreMap.has(recommendedProvider)) {
+    const selectedProvider = result.provider || _extractChainProvider(chain[0]);
+    const selectedIndex = chain.findIndex((candidate) => _extractChainProvider(candidate) === selectedProvider);
+    if (selectedIndex <= -1) {
       return result;
     }
 
-    const recommendedScore = scoreMap.get(recommendedProvider) || 0;
-    const fallbackCandidates = chain.slice(1);
+    const selected = chain[selectedIndex];
+    const fallbackCandidates = chain.filter((_, index) => index !== selectedIndex);
+    const rankedFallbacks = _rankProviderCandidatesByScore(fallbackCandidates, { taskMetadata });
+    if (!rankedFallbacks.applied) return result;
 
-    const hasBetterScoredFallback = fallbackCandidates.some((candidate) => {
-      const candidateProvider = _extractChainProvider(candidate);
-      const candidateScore = candidateProvider ? (scoreMap.get(candidateProvider) || 0) : 0;
-      return candidateScore > recommendedScore;
-    });
-    if (!hasBetterScoredFallback) {
-      return result;
-    }
-
-    fallbackCandidates.sort((a, b) => {
-      const scoreA = _extractChainProvider(a) ? (scoreMap.get(_extractChainProvider(a)) || 0) : 0;
-      const scoreB = _extractChainProvider(b) ? (scoreMap.get(_extractChainProvider(b)) || 0) : 0;
-      return scoreB - scoreA;
-    });
-
-    const fallbackChain = [recommended, ...fallbackCandidates];
+    const fallbackChain = [selected, ...rankedFallbacks.candidates];
     if (!result.fallbackChain) {
       result.fallbackChain = fallbackChain;
     } else if (Array.isArray(result.fallbackChain) && result.fallbackChain.length > 0) {
-      result.fallbackChain = [result.fallbackChain[0], ...fallbackCandidates];
+      result.fallbackChain = [result.fallbackChain[0], ...rankedFallbacks.candidates];
     } else {
       result.fallbackChain = fallbackChain;
     }
     result.chain = fallbackChain;
     logger.debug(
-      `[SmartRouting] Applied trusted provider score ordering to fallback chain for ${recommendedProvider}`
+      `[SmartRouting] Applied trusted provider score ordering to fallback chain for ${selectedProvider}`
     );
   } catch (_e) {
     // Scoring is advisory; do not alter routing on failure.
@@ -142,7 +255,9 @@ function _applyScoredFallbackChain(result, taskMetadata = {}) {
 const _smartRoutingAnalyzeTaskForRouting = smartRouting.analyzeTaskForRouting;
 function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], options = {}) {
   const result = _smartRoutingAnalyzeTaskForRouting(taskDescription, workingDirectory, files, options);
-  return _applyScoredFallbackChain(result, options?.taskMetadata || {});
+  const taskMetadata = options?.taskMetadata || {};
+  _applyScoredEligibleProviders(result, taskMetadata);
+  return _applyScoredFallbackChain(result, taskMetadata);
 }
 
 // Escape a string for use as a Prometheus label value (inside double quotes)

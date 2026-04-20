@@ -1211,6 +1211,16 @@ async function handleSmartSubmitTask(args) {
     }
   }
 
+  const buildRoutingScoreMetadata = (sourceResult, providerName) => {
+    if (!sourceResult || !sourceResult.routing_score_applied || sourceResult.provider !== providerName) {
+      return {};
+    }
+    return {
+      routing_score_applied: true,
+      routing_score: sourceResult.routing_score || null,
+    };
+  };
+
   const schedulingMode = configCore.getConfig ? (configCore.getConfig('scheduling_mode') || 'legacy') : 'legacy';
   const useTierList = schedulingMode === 'slot-pull';
   const tierRoutingResult = useTierList
@@ -1262,6 +1272,7 @@ async function handleSmartSubmitTask(args) {
     _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
     _routing_template: routing_template || undefined,
     mcp_session_id: __sessionId || undefined,
+    ...buildRoutingScoreMetadata(tierRoutingResult, slotPullIntendedProvider),
   };
   const initialTaskStatus = normalizeInitialTaskStatus(args.initial_status);
 
@@ -1314,6 +1325,7 @@ async function handleSmartSubmitTask(args) {
         _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
         _routing_template: routing_template || undefined,
         mcp_session_id: __sessionId || undefined,
+        ...buildRoutingScoreMetadata(routingResult, selectedProvider),
         ...(userTaskMetadata || {}),
       })
     });

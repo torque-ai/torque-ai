@@ -2,6 +2,7 @@
 
 const Database = require('better-sqlite3');
 const providerScoring = require('../db/provider-scoring');
+const providerRoutingCore = require('../db/provider-routing-core');
 
 const DEFAULT_WEIGHTS = {
   cost: 0.15,
@@ -29,6 +30,89 @@ function ensureMinSamplesFor(provider, count = 5) {
   }
 }
 
+function configureRoutingCoreForScoring() {
+  db.getConfig = (key) => {
+    const row = db.prepare('SELECT value FROM config WHERE key = ?').get(key);
+    return row ? row.value : null;
+  };
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS provider_config (
+      provider TEXT PRIMARY KEY,
+      enabled INTEGER DEFAULT 1,
+      priority INTEGER DEFAULT 50,
+      transport TEXT,
+      quota_error_patterns TEXT DEFAULT '[]'
+    );
+    CREATE TABLE IF NOT EXISTS routing_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
+      description TEXT,
+      rule_type TEXT,
+      pattern TEXT,
+      target_provider TEXT,
+      priority INTEGER DEFAULT 50,
+      enabled INTEGER DEFAULT 1,
+      complexity TEXT
+    );
+    CREATE TABLE IF NOT EXISTS routing_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      rules_json TEXT NOT NULL,
+      complexity_overrides_json TEXT,
+      preset INTEGER DEFAULT 0,
+      created_at TEXT,
+      updated_at TEXT
+    );
+    INSERT OR REPLACE INTO config (key, value) VALUES
+      ('smart_routing_enabled', '1'),
+      ('smart_routing_default_provider', 'ollama'),
+      ('default_provider', 'ollama'),
+      ('ollama_fallback_provider', 'codex');
+  `);
+
+  const insertProvider = db.prepare(`
+    INSERT OR REPLACE INTO provider_config (provider, enabled, priority, transport, quota_error_patterns)
+    VALUES (?, 1, ?, ?, '[]')
+  `);
+  insertProvider.run('ollama', 10, 'api');
+  insertProvider.run('codex', 20, 'hybrid');
+  insertProvider.run('claude-cli', 30, 'cli');
+  insertProvider.run('claude-code-sdk', 40, 'cli');
+
+  providerRoutingCore.createProviderRoutingCore({
+    db,
+    taskCore: () => null,
+    hostManagement: {
+      determineTaskComplexity: () => 'normal',
+      routeTask: () => null,
+    },
+  });
+  providerRoutingCore.setOllamaHealthy(true);
+  providerRoutingCore.setProviderScoring(providerScoring);
+}
+
+function insertRoutingTemplate(name, rules) {
+  db.prepare(`
+    INSERT OR REPLACE INTO routing_templates (
+      id,
+      name,
+      description,
+      rules_json,
+      complexity_overrides_json,
+      preset,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, '', ?, '{}', 0, ?, ?)
+  `).run(
+    `test-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+    name,
+    JSON.stringify(rules),
+    new Date().toISOString(),
+    new Date().toISOString(),
+  );
+}
+
 describe('db/provider-scoring', () => {
   beforeEach(() => {
     db = new Database(':memory:');
@@ -43,6 +127,7 @@ describe('db/provider-scoring', () => {
   });
 
   afterEach(() => {
+    providerRoutingCore.setProviderScoring(null);
     if (db) {
       db.close();
       db = null;
@@ -316,5 +401,61 @@ describe('db/provider-scoring', () => {
       quality: 0.4,
       latency: 0,
     })).toThrow(/Unknown composite weight/);
+  });
+
+  it('routes capability-filtered candidates by trusted composite score', () => {
+    configureRoutingCoreForScoring();
+
+    for (let i = 0; i < 5; i += 1) {
+      record('codex', { success: true, durationMs: 100, costUsd: 0, qualityScore: 0.95 });
+      record('claude-cli', { success: true, durationMs: 400, costUsd: 1, qualityScore: 0.2 });
+    }
+
+    const result = providerRoutingCore.analyzeTaskForRouting(
+      'Create a new API handler',
+      process.cwd(),
+      [],
+      { tierList: true },
+    );
+
+    expect(result.provider).toBe('codex');
+    expect(result.eligible_providers[0]).toBe('codex');
+    expect(result.routing_score_applied).toBe(true);
+    expect(result.routing_score).toMatchObject({
+      provider: 'codex',
+      source: 'provider_scores',
+    });
+    expect(result.routing_score.composite_score).toBeGreaterThan(
+      providerScoring.getProviderScore('claude-cli').composite_score,
+    );
+  });
+
+  it('routes template chains by trusted composite score', () => {
+    configureRoutingCoreForScoring();
+    insertRoutingTemplate('Score Chain', {
+      default: [
+        { provider: 'claude-cli' },
+        { provider: 'codex' },
+      ],
+    });
+
+    for (let i = 0; i < 5; i += 1) {
+      record('codex', { success: true, durationMs: 100, costUsd: 0, qualityScore: 0.95 });
+      record('claude-cli', { success: true, durationMs: 400, costUsd: 1, qualityScore: 0.2 });
+    }
+
+    const result = providerRoutingCore.analyzeTaskForRouting(
+      'Coordinate task execution',
+      process.cwd(),
+      [],
+      { taskMetadata: { _routing_template: 'Score Chain' } },
+    );
+
+    expect(result.provider).toBe('codex');
+    expect(result.reason).toContain('score-ranked -> codex');
+    expect(result.routing_score).toMatchObject({
+      provider: 'codex',
+      source: 'provider_scores',
+    });
   });
 });

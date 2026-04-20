@@ -68,6 +68,7 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
     getQuotaStoreIfAvailable,
     hostManagementFns,
     maybeApplyFallback,
+    rankProviderCandidatesByScore,
   } = deps;
 
   if (!categoryClassifier || !templateStore) {
@@ -91,42 +92,73 @@ function resolveRoutingTemplate(taskDescription, files, options, deps) {
       return null;
     }
 
-    const providerConfig = getProvider(resolved.provider);
-    if (providerConfig && providerConfig.enabled) {
-      const qs = getQuotaStoreIfAvailable();
-      if (!(qs && qs.isExhausted(resolved.provider))) {
-        return maybeApplyFallback({
-          provider: resolved.provider,
-          model: resolved.model || null,
-          chain: resolved.chain,
-          rule: null,
-          complexity,
-          reason: `${reasonPrefix}: ${category} -> ${resolved.provider}`,
-        });
+    const originalChain = Array.isArray(resolved.chain) && resolved.chain.length > 0
+      ? resolved.chain
+      : [{ provider: resolved.provider, model: resolved.model || null }];
+    const availableChain = [];
+    const quotaStore = getQuotaStoreIfAvailable();
+
+    for (const entry of originalChain) {
+      const providerName = typeof entry === 'string' ? entry : entry?.provider;
+      if (!providerName) {
+        continue;
       }
-      logger.info('[SmartRouting] Skipping primary ' + resolved.provider + ' — quota exhausted');
+
+      const providerConfig = getProvider(providerName);
+      if (!providerConfig || !providerConfig.enabled) {
+        continue;
+      }
+      if (quotaStore && quotaStore.isExhausted(providerName)) {
+        const label = providerName === resolved.provider ? 'primary ' : '';
+        logger.info('[SmartRouting] Skipping ' + label + providerName + ' — quota exhausted');
+        continue;
+      }
+
+      availableChain.push(typeof entry === 'string' ? { provider: providerName, model: null } : entry);
     }
 
-    if (resolved.chain && resolved.chain.length > 1) {
-      for (let i = 1; i < resolved.chain.length; i++) {
-        const entry = resolved.chain[i];
-        const entryConfig = getProvider(entry.provider);
-        if (entryConfig && entryConfig.enabled) {
-          const qs = getQuotaStoreIfAvailable();
-          if (qs && qs.isExhausted(entry.provider)) {
-            logger.info('[SmartRouting] Skipping ' + entry.provider + ' — quota exhausted');
-            continue;
-          }
-          return maybeApplyFallback({
-            provider: entry.provider,
-            model: entry.model || null,
-            chain: resolved.chain,
-            rule: null,
-            complexity,
-            reason: `${reasonPrefix}: ${category} -> ${resolved.provider} (unavailable), ${chainFallbackLabel} ${entry.provider}`,
-          });
-        }
+    if (availableChain.length > 0) {
+      const ranked = typeof rankProviderCandidatesByScore === 'function'
+        ? rankProviderCandidatesByScore(availableChain, {
+            taskMetadata: options?.taskMetadata || {},
+            extractProvider: (entry) => (typeof entry === 'string' ? entry : entry?.provider),
+          })
+        : { candidates: availableChain, applied: false };
+      const rankedChain = Array.isArray(ranked.candidates) && ranked.candidates.length > 0
+        ? ranked.candidates
+        : availableChain;
+      const selected = rankedChain[0];
+      const selectedProvider = typeof selected === 'string' ? selected : selected.provider;
+      const selectedModel = typeof selected === 'string' ? null : (selected.model || null);
+      const primaryAvailable = availableChain.some((entry) => {
+        const providerName = typeof entry === 'string' ? entry : entry?.provider;
+        return providerName === resolved.provider;
+      });
+      const selectedIsPrimary = selectedProvider === resolved.provider;
+      const scoreApplied = ranked.applied && !selectedIsPrimary;
+      let reason = `${reasonPrefix}: ${category} -> ${resolved.provider}`;
+      if (scoreApplied) {
+        reason += `, score-ranked -> ${selectedProvider}`;
+      } else if (!selectedIsPrimary) {
+        reason += ` (unavailable), ${chainFallbackLabel} ${selectedProvider}`;
+      } else if (!primaryAvailable) {
+        reason += ` (recovered by availability filter)`;
       }
+
+      return maybeApplyFallback({
+        provider: selectedProvider,
+        model: selectedModel,
+        chain: rankedChain,
+        rule: null,
+        complexity,
+        reason,
+        routing_score_applied: ranked.applied || undefined,
+        routing_score: ranked.applied ? {
+          provider: selectedProvider,
+          composite_score: ranked.selectedScore,
+          source: 'provider_scores',
+        } : undefined,
+      });
     }
 
     if (!includeDefaultFallback) {
@@ -520,7 +552,8 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     getProvider,
     getQuotaStoreIfAvailable: getQuotaStoreIfAvailable,
     hostManagementFns,
-    maybeApplyFallback
+    maybeApplyFallback,
+    rankProviderCandidatesByScore: _deps.rankProviderCandidatesByScore,
   });
   if (templateResult) return templateResult;
 
