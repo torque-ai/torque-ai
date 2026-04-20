@@ -130,12 +130,16 @@ function normalizeTaskStartOutcome(result) {
     Object.prototype.hasOwnProperty.call(result, 'started')
     || Object.prototype.hasOwnProperty.call(result, 'queued')
     || Object.prototype.hasOwnProperty.call(result, 'pendingAsync')
+    || Object.prototype.hasOwnProperty.call(result, 'failed')
   )) {
     return {
       started: result.started === true,
       queued: result.queued === true,
       pendingAsync: result.pendingAsync === true,
       failed: result.failed === true,
+      reason: result.reason,
+      code: result.code,
+      error: result.error,
     };
   }
 
@@ -854,6 +858,9 @@ function processQueueInternal(options = {}) {
           providerRuntimeState.recordStart(effectiveOllamaProvider);
           started = true;
           logger.debug(`processQueue: started ollama task ${task.id.slice(0,8)}, ollamaStarted=${ollamaStarted}`);
+        } else if (startOutcome.failed && startOutcome.reason === 'preflight_failed') {
+          logger.warn(`processQueue: ollama task ${task.id.slice(0,8)} marked failed by preflight (${startOutcome.code || 'PREFLIGHT_FAILED'}) — not retrying`);
+          started = true; // Treat as "handled" so P71/P92 fallback doesn't also fire on it
         }
       }
     } else {
@@ -901,6 +908,10 @@ function processQueueInternal(options = {}) {
       if (startOutcome.pendingAsync) {
         continue;
       }
+      if (startOutcome.failed && startOutcome.reason === 'preflight_failed') {
+        logger.warn(`processQueue: codex task ${codexTask.id.slice(0,8)} marked failed by preflight (${startOutcome.code || 'PREFLIGHT_FAILED'}) — not retrying`);
+        continue;
+      }
 
       if (startOutcome.reason === 'capacity' || startOutcome.reason === 'no_slot') {
         pendingFreeProviderOverflow.push(codexTask);
@@ -943,6 +954,10 @@ function processQueueInternal(options = {}) {
       continue;
     }
     if (startOutcome.pendingAsync) {
+      continue;
+    }
+    if (startOutcome.failed && startOutcome.reason === 'preflight_failed') {
+      logger.warn(`processQueue: api task ${task.id.slice(0,8)} marked failed by preflight (${startOutcome.code || 'PREFLIGHT_FAILED'}) — not retrying`);
       continue;
     }
   }
@@ -1000,6 +1015,10 @@ function processQueueInternal(options = {}) {
         const startOutcome = attemptTaskStart(nextTask.id, 'fallback');
         if (startOutcome.started || startOutcome.pendingAsync) {
           break;
+        }
+        if (startOutcome.failed && startOutcome.reason === 'preflight_failed') {
+          logger.warn(`processQueue: fallback task ${nextTask.id.slice(0,8)} marked failed by preflight (${startOutcome.code || 'PREFLIGHT_FAILED'}) — not retrying`);
+          continue;
         }
       }
     }
@@ -1085,6 +1104,8 @@ function createQueueScheduler(_deps) {
     FREE_PROVIDERS,
     COST_FREE_PROVIDERS,
     init,
+    normalizeTaskStartOutcome,
+    attemptTaskStart,
     stop,
     resolveEffectiveProvider,
     categorizeQueuedTasks,
@@ -1100,6 +1121,8 @@ module.exports = {
   FREE_PROVIDERS,
   COST_FREE_PROVIDERS,
   init,
+  normalizeTaskStartOutcome,
+  attemptTaskStart,
   stop,
   resolveEffectiveProvider,
   categorizeQueuedTasks,
