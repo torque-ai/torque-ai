@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
+const { randomUUID } = require('crypto');
 const Database = require('better-sqlite3');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const taskCore = require('../db/task-core');
 const serverConfig = require('../config');
 const { reconcileOrphanedTasksOnStartup } = require('../execution/startup-task-reconciler');
@@ -363,5 +365,187 @@ describe('startup task reconciler', () => {
       expect.stringContaining('skipped duplicate resubmit'),
       expect.objectContaining({ task_id: 'task-race' }),
     );
+  });
+});
+
+describe('startup-task-reconciler — drain-cancelled tasks', () => {
+  let db;
+  let testDir;
+  let taskCore;
+  let workflowEngine;
+  let reconciler;
+
+  beforeEach(() => {
+    ({ db, testDir } = setupTestDbOnly('startup-task-reconciler-drain'));
+    taskCore = require('../db/task-core');
+    workflowEngine = require('../db/workflow-engine');
+    reconciler = require('../execution/startup-task-reconciler');
+    const createTask = taskCore.createTask;
+    vi.spyOn(taskCore, 'createTask').mockImplementation((task) => {
+      const created = createTask(task);
+      if (task && task.cancel_reason) {
+        db.getDbInstance()
+          .prepare('UPDATE tasks SET cancel_reason = ? WHERE id = ?')
+          .run(task.cancel_reason, task.id);
+      }
+      return created;
+    });
+  });
+
+  afterEach(() => {
+    teardownTestDb();
+    vi.restoreAllMocks();
+  });
+
+  test('clones a task cancelled with reason=server_restart when its workflow is still running', () => {
+    const wfId = randomUUID();
+    workflowEngine.createWorkflow({
+      id: wfId,
+      name: 'drain-running-wf',
+      status: 'running',
+      description: null,
+    });
+
+    const origId = randomUUID();
+    taskCore.createTask({
+      id: origId,
+      task_description: 'Implement feature X',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      workflow_id: wfId,
+      workflow_node_id: 'feature_x',
+      status: 'cancelled',
+      cancel_reason: 'server_restart',
+    });
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.cloned).toBeGreaterThanOrEqual(1);
+
+    const original = taskCore.getTask(origId);
+    expect(original.metadata).toBeTruthy();
+    const meta = typeof original.metadata === 'string' ? JSON.parse(original.metadata) : original.metadata;
+    expect(meta.resubmitted_as).toBeTruthy();
+
+    const clone = taskCore.getTask(meta.resubmitted_as);
+    expect(clone).toBeTruthy();
+    expect(clone.status).toBe('queued');
+    expect(clone.workflow_id).toBe(wfId);
+    expect(clone.workflow_node_id).toBe('feature_x');
+    expect(clone.task_description).toBe('Implement feature X');
+  });
+
+  test('does NOT clone a drain-cancelled task whose workflow is already terminal', () => {
+    const wfId = randomUUID();
+    workflowEngine.createWorkflow({
+      id: wfId,
+      name: 'drain-terminal-wf',
+      status: 'cancelled',
+      description: null,
+    });
+
+    const origId = randomUUID();
+    taskCore.createTask({
+      id: origId,
+      task_description: 'Implement feature Y',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      workflow_id: wfId,
+      status: 'cancelled',
+      cancel_reason: 'server_restart',
+    });
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.cloned).toBe(0);
+    const original = taskCore.getTask(origId);
+    const meta = typeof original.metadata === 'string' ? JSON.parse(original.metadata || '{}') : (original.metadata || {});
+    expect(meta.resubmitted_as).toBeUndefined();
+  });
+
+  test('does NOT clone a task cancelled for reasons other than server_restart', () => {
+    const wfId = randomUUID();
+    workflowEngine.createWorkflow({
+      id: wfId,
+      name: 'user-cancelled-wf',
+      status: 'running',
+      description: null,
+    });
+
+    const origId = randomUUID();
+    taskCore.createTask({
+      id: origId,
+      task_description: 'Implement feature Z',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      workflow_id: wfId,
+      status: 'cancelled',
+      cancel_reason: 'user_requested',
+    });
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.cloned).toBe(0);
+  });
+
+  test('skips drain-cancelled tasks that already have a live resubmitted_as clone', () => {
+    const wfId = randomUUID();
+    workflowEngine.createWorkflow({
+      id: wfId,
+      name: 'already-resubmitted-wf',
+      status: 'running',
+      description: null,
+    });
+
+    const cloneId = randomUUID();
+    taskCore.createTask({
+      id: cloneId,
+      task_description: 'clone',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      workflow_id: wfId,
+      status: 'queued',
+    });
+
+    const origId = randomUUID();
+    taskCore.createTask({
+      id: origId,
+      task_description: 'Implement feature W',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: { resubmitted_as: cloneId },
+      workflow_id: wfId,
+      status: 'cancelled',
+      cancel_reason: 'server_restart',
+    });
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.cloned).toBe(0);
+    expect(result.actions.skipped).toBeGreaterThanOrEqual(1);
   });
 });
