@@ -198,13 +198,15 @@ function reconcileOrphanedTasksOnStartup({
     skipped: 0,
     capped: 0,
     constraint_skipped: 0,
+    retry_requeued: 0,
+    retry_exhausted_failed: 0,
     errors: 0,
   };
 
   const orphanedOrDrainCancelled = rawDb
     .prepare(`
       SELECT * FROM tasks
-      WHERE status IN ('running','claimed')
+      WHERE status IN ('running','claimed','retry_scheduled')
          OR (status = 'cancelled' AND cancel_reason = 'server_restart')
     `)
     .all();
@@ -217,6 +219,35 @@ function reconcileOrphanedTasksOnStartup({
 
   for (const original of candidates) {
     try {
+      if (original.status === 'retry_scheduled') {
+        const retryCount = (typeof original.retry_count === 'number') ? original.retry_count : 0;
+        const maxRetries = (typeof original.max_retries === 'number') ? original.max_retries : null;
+        const exhausted = maxRetries !== null && retryCount >= maxRetries;
+        if (exhausted) {
+          taskCore.updateTaskStatus(original.id, 'failed', {
+            error_output: `${original.error_output || ''}\n[startup-reconciler] retry budget exhausted (${retryCount}/${maxRetries}); retry_scheduled timer was lost to server restart`,
+            completed_at: new Date().toISOString(),
+          });
+          actions.retry_exhausted_failed++;
+          safeLog(logger, 'warn', `Startup task reconciler failed retry_scheduled task ${original.id} — budget exhausted`, {
+            task_id: original.id,
+            retry_count: retryCount,
+            max_retries: maxRetries,
+          });
+        } else {
+          taskCore.updateTaskStatus(original.id, 'queued', {
+            error_output: `${original.error_output || ''}\n[startup-reconciler] re-queued after retry_scheduled timer was lost to server restart`,
+          });
+          actions.retry_requeued++;
+          safeLog(logger, 'info', `Startup task reconciler re-queued retry_scheduled task ${original.id}`, {
+            task_id: original.id,
+            retry_count: retryCount,
+            max_retries: maxRetries,
+          });
+        }
+        continue;
+      }
+
       const metadata = parseMetadata(original.metadata);
       const pointedTask = metadata.resubmitted_as
         ? getTask(taskCore, rawDb, metadata.resubmitted_as)

@@ -550,3 +550,126 @@ describe('startup-task-reconciler — drain-cancelled tasks', () => {
     expect(result.actions.skipped).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('startup-task-reconciler — retry_scheduled orphans', () => {
+  let db;
+  let testDir;
+  let taskCore;
+  let reconciler;
+
+  beforeEach(() => {
+    ({ db, testDir } = setupTestDbOnly('startup-task-reconciler-retry'));
+    taskCore = require('../db/task-core');
+    reconciler = require('../execution/startup-task-reconciler');
+  });
+
+  afterEach(() => {
+    teardownTestDb();
+    vi.restoreAllMocks();
+  });
+
+  test('promotes retry_scheduled task back to queued when retry budget remains', () => {
+    const id = randomUUID();
+    taskCore.createTask({
+      id,
+      task_description: 'needs retry',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      status: 'retry_scheduled',
+      retry_count: 1,
+      max_retries: 3,
+    });
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.retry_requeued).toBeGreaterThanOrEqual(1);
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('queued');
+  });
+
+  test('fails retry_scheduled task when retry budget is exhausted', () => {
+    const id = randomUUID();
+    taskCore.createTask({
+      id,
+      task_description: 'exhausted',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      status: 'retry_scheduled',
+      max_retries: 3,
+    });
+    // createTask does not set retry_count on insert (it's updated via retry
+    // framework during runtime). Patch it directly so the exhaustion test
+    // exercises the real "count >= max" state.
+    db.getDbInstance().prepare('UPDATE tasks SET retry_count = ? WHERE id = ?').run(3, id);
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.retry_exhausted_failed).toBeGreaterThanOrEqual(1);
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('failed');
+    expect(after.error_output).toMatch(/retry.*budget.*exhausted|startup-reconciler/i);
+  });
+
+  test('conservatively promotes retry_scheduled task with null retry fields to queued', () => {
+    const id = randomUUID();
+    taskCore.createTask({
+      id,
+      task_description: 'null retry fields',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      status: 'retry_scheduled',
+    });
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: () => false,
+    });
+
+    expect(result.actions.retry_requeued).toBeGreaterThanOrEqual(1);
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('queued');
+  });
+
+  test('does NOT touch retry_scheduled tasks whose owner instance is still alive', () => {
+    const id = randomUUID();
+    taskCore.createTask({
+      id,
+      task_description: 'owned by a peer instance that is still alive',
+      working_directory: testDir,
+      provider: 'codex',
+      metadata: {},
+      status: 'retry_scheduled',
+      max_retries: 3,
+    });
+    // Simulate a task owned by a *different* instance that is still alive —
+    // e.g. a peer server in a multi-instance deployment whose retry timer
+    // hasn't died. The current instance must not poach it.
+    db.getDbInstance().prepare('UPDATE tasks SET mcp_instance_id = ? WHERE id = ?').run('peer-live-instance', id);
+
+    const result = reconciler.reconcileOrphanedTasksOnStartup({
+      db,
+      taskCore,
+      getMcpInstanceId: () => 'current-instance',
+      isInstanceAlive: (instanceId) => instanceId === 'peer-live-instance',
+    });
+
+    expect(result.actions.retry_requeued).toBe(0);
+    const after = taskCore.getTask(id);
+    expect(after.status).toBe('retry_scheduled');
+  });
+});
