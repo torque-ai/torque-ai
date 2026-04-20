@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { createCaptureHandler } = require('./capabilities/capture');
 const { createInteractionHandlers } = require('./capabilities/interact');
+const { createWindowHandlers } = require('./capabilities/windows');
 const { createHealthHandler } = require('./health');
 const { createRouter } = require('./router');
 
@@ -188,6 +189,10 @@ function createCapabilityHandlers(options = {}) {
   }
 
   for (const [name, handler] of Object.entries(createInteractionHandlers(adapter))) {
+    if (typeof handlers[name] !== 'function') handlers[name] = handler;
+  }
+
+  for (const [name, handler] of Object.entries(createWindowHandlers(adapter))) {
     if (typeof handlers[name] !== 'function') handlers[name] = handler;
   }
 
