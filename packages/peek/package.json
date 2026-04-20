@@ -1,0 +1,46 @@
+{
+  "name": "@torque-ai/peek",
+  "version": "1.0.0",
+  "description": "Cross-platform visual UI capture and interaction server for TORQUE.",
+  "bin": {
+    "torque-peek": "./bin/torque-peek.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node ./bin/torque-peek.js start",
+    "check": "node ./bin/torque-peek.js check"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "torque",
+    "peek",
+    "visual-testing",
+    "ui-capture",
+    "screenshot",
+    "automation"
+  ],
+  "license": "BSL-1.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/torque-ai/torque-ai.git",
+    "directory": "packages/peek"
+  },
+  "homepage": "https://torque-ai.dev",
+  "bugs": {
+    "url": "https://github.com/torque-ai/torque-ai/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "pixelmatch": "^6.0.0",
+    "sharp": "^0.33.0"
+  }
+}

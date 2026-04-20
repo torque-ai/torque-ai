@@ -4,11 +4,13 @@ const os = require('os');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
+const childProcess = require('child_process');
 const taskCore = require('../../../db/task-core');
 const emailPeek = require('../../../db/email-peek');
 const { getWorkflow } = require('../../../db/workflow-engine');
 const { getArtifactConfig } = require('../../../db/task-metadata');
 const { ErrorCodes, makeError } = require('../../../handlers/shared');
+const logger = require('../../../logger').child({ component: 'peek-shared' });
 
 const BYTES_PER_KIB = 1024;
 const LARGE_ARTIFACT_THRESHOLD = 1024 * 1024;
@@ -20,6 +22,12 @@ const PEEK_ARTIFACT_STORAGE_ROOT = ['.local', 'share', 'torque', 'artifacts'];
 const PEEK_DIAGNOSE_DIRNAME = 'peek-diagnose';
 const LOCALHOST_HOST_PATTERN = /127\.0\.0\.1|localhost/i;
 const LOCAL_TARGET_URL_PATTERN = /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i;
+const LOCAL_AUTO_PEEK_NAME = 'local-auto';
+const LOCAL_AUTO_PEEK_URL = 'http://127.0.0.1:9876';
+const LOCAL_AUTO_PEEK_HEALTH_URL = `${LOCAL_AUTO_PEEK_URL}/health`;
+const LOCAL_AUTO_PEEK_ATTEMPTS = 6;
+const LOCAL_AUTO_PEEK_POLL_MS = 500;
+const NO_PEEK_SERVER_MESSAGE = 'No peek server available. Install with: npm install -g @torque-ai/peek\nThen run: torque-peek start';
 const PEEK_HOSTS = new Map();
 
 function formatBytes(bytes) {
@@ -100,6 +108,125 @@ function sanitizePeekTargetKey(value, fallback) {
   return normalized || fallback;
 }
 
+function sleepSync(ms) {
+  globalThis.Atomics.wait(new globalThis.Int32Array(new globalThis.SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function resolveTorquePeekBinary() {
+  const command = process.platform === 'win32' ? 'where' : 'which';
+  try {
+    const output = childProcess.execFileSync(command, ['torque-peek'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 3000,
+      windowsHide: true,
+    });
+    return String(output)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) || null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function isLocalPeekHealthy(timeoutMs = LOCAL_AUTO_PEEK_POLL_MS) {
+  const probeScript = `
+const http = require('http');
+const req = http.get('${LOCAL_AUTO_PEEK_HEALTH_URL}', { timeout: ${timeoutMs} }, (res) => {
+  res.resume();
+  res.on('end', () => process.exit(res.statusCode >= 200 && res.statusCode < 300 ? 0 : 1));
+});
+req.on('error', () => process.exit(1));
+req.on('timeout', () => {
+  req.destroy();
+  process.exit(1);
+});
+`;
+
+  try {
+    childProcess.execFileSync(process.execPath, ['-e', probeScript], {
+      stdio: 'ignore',
+      timeout: timeoutMs + 1000,
+      windowsHide: true,
+    });
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
+function waitForLocalPeekHealth() {
+  for (let attempt = 0; attempt < LOCAL_AUTO_PEEK_ATTEMPTS; attempt += 1) {
+    if (isLocalPeekHealthy()) {
+      return true;
+    }
+    if (attempt < LOCAL_AUTO_PEEK_ATTEMPTS - 1) {
+      sleepSync(LOCAL_AUTO_PEEK_POLL_MS);
+    }
+  }
+  return false;
+}
+
+function buildLocalAutoPeekHost() {
+  return {
+    name: LOCAL_AUTO_PEEK_NAME,
+    url: LOCAL_AUTO_PEEK_URL,
+    enabled: 1,
+    is_default: 1,
+    ssh: null,
+    platform: process.platform,
+  };
+}
+
+function normalizePeekHost(host) {
+  if (host?.name) {
+    PEEK_HOSTS.set(host.name, host);
+  }
+  return {
+    hostName: host.name,
+    hostUrl: String(host.url).replace(/\/+$/, ''),
+    ssh: host.ssh || null,
+    platform: host.platform || null,
+  };
+}
+
+function autoStartLocalPeekHost() {
+  const peekBin = resolveTorquePeekBinary();
+  if (!peekBin) {
+    return null;
+  }
+
+  try {
+    const child = childProcess.spawn(peekBin, ['start'], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.once?.('error', (err) => {
+      logger.warn(`Failed to auto-start @torque-ai/peek: ${err.message}`);
+    });
+    child.unref?.();
+  } catch (err) {
+    logger.warn(`Failed to auto-start @torque-ai/peek: ${err.message}`);
+    return null;
+  }
+
+  if (!waitForLocalPeekHealth()) {
+    logger.warn(`Auto-started @torque-ai/peek but ${LOCAL_AUTO_PEEK_HEALTH_URL} did not become healthy.`);
+    return null;
+  }
+
+  const host = buildLocalAutoPeekHost();
+  try {
+    emailPeek.registerPeekHost(LOCAL_AUTO_PEEK_NAME, LOCAL_AUTO_PEEK_URL, null, true, process.platform);
+  } catch (err) {
+    logger.warn(`Failed to register auto-started peek host: ${err.message}`);
+  }
+
+  return normalizePeekHost(host);
+}
+
 function resolvePeekHost(args) {
   // Phase 3: Use workstation adapter for peek host resolution
   try {
@@ -127,13 +254,7 @@ function resolvePeekHost(args) {
         error: makeError(ErrorCodes.INVALID_PARAM, `Peek host "${args.host}" is disabled. Enable it via the dashboard.`),
       };
     }
-    PEEK_HOSTS.set(host.name, host);
-    return {
-      hostName: host.name,
-      hostUrl: String(host.url).replace(/\/+$/, ''),
-      ssh: host.ssh || null,
-      platform: host.platform || null,
-    };
+    return normalizePeekHost(host);
   }
 
   let hosts = [];
@@ -154,12 +275,7 @@ function resolvePeekHost(args) {
   if (args._prefer_local || isLocalTarget(args)) {
     const localHost = hosts.find((host) => host.enabled !== 0 && LOCALHOST_HOST_PATTERN.test(host.url));
     if (localHost) {
-      return {
-        hostName: localHost.name,
-        hostUrl: String(localHost.url).replace(/\/+$/, ''),
-        ssh: localHost.ssh || null,
-        platform: localHost.platform || null,
-      };
+      return normalizePeekHost(localHost);
     }
   }
 
@@ -172,21 +288,18 @@ function resolvePeekHost(args) {
     }
   }
   if (defaultHost && defaultHost.url && defaultHost.enabled !== 0) {
-    if (defaultHost.name) {
-      PEEK_HOSTS.set(defaultHost.name, defaultHost);
-    }
-    return {
-      hostName: defaultHost.name,
-      hostUrl: String(defaultHost.url).replace(/\/+$/, ''),
-      ssh: defaultHost.ssh || null,
-      platform: defaultHost.platform || null,
-    };
+    return normalizePeekHost(defaultHost);
+  }
+
+  const autoStartedHost = autoStartLocalPeekHost();
+  if (autoStartedHost) {
+    return autoStartedHost;
   }
 
   return {
     error: makeError(
       ErrorCodes.RESOURCE_NOT_FOUND,
-      'No peek host configured. Connect Peek from a workstation card in the dashboard or use the register_peek_host tool.',
+      NO_PEEK_SERVER_MESSAGE,
     ),
   };
 }
