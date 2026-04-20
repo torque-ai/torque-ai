@@ -16,7 +16,7 @@
 - Modify: `server/tests/workflow-runtime.test.js` (extend checkWorkflowCompletion tests)
 - Create: `server/tests/orphan-requeue.test.js`
 
-- [ ] **Step 1: Write tests for orphan re-queue**
+- [x] **Step 1: Write tests for orphan re-queue**
 
 Create `server/tests/orphan-requeue.test.js`:
 
@@ -94,12 +94,12 @@ describe('orphan requeue logic', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run: `torque-remote "cd $TORQUE_PROJECT_DIR/server && npx vitest run tests/orphan-requeue.test.js"`
 Expected: PASS (these are logic-level tests)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/tests/orphan-requeue.test.js
