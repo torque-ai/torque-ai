@@ -141,15 +141,21 @@ function getHeaderValue(req, headerName) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function extractApiKey(req) {
+function extractApiKey(req, url = null) {
   const torqueKey = getHeaderValue(req, 'x-torque-key');
   if (torqueKey) return torqueKey;
+
+  const apiKey = getHeaderValue(req, 'x-api-key');
+  if (apiKey) return apiKey;
 
   const authorization = getHeaderValue(req, 'authorization');
   if (authorization && /^Bearer\s+/i.test(authorization)) {
     const bearer = authorization.replace(/^Bearer\s+/i, '').trim();
     return bearer || null;
   }
+
+  const queryApiKey = url?.searchParams?.get('apiKey') || url?.searchParams?.get('api_key');
+  if (queryApiKey && queryApiKey.trim()) return queryApiKey.trim();
 
   return null;
 }
@@ -160,9 +166,9 @@ function verifyApiKey(provided, expected) {
   return timingSafeEqual(a, b);
 }
 
-function isSseRequestAuthenticated(req) {
+function isSseRequestAuthenticated(req, url = null) {
   const expectedKey = serverConfig.get('api_key');
-  const apiKey = extractApiKey(req);
+  const apiKey = extractApiKey(req, url);
   return !expectedKey || (apiKey && verifyApiKey(apiKey, expectedKey));
 }
 
@@ -355,7 +361,20 @@ async function handleSseConnection(req, res, url, requestId) {
   const requestedSessionId = url.searchParams.get('sessionId');
   const existingSession = requestedSessionId ? sessions.get(requestedSessionId) : null;
   const sessionId = existingSession ? requestedSessionId : generateSessionId();
-  const isAuthenticated = Boolean(isSseRequestAuthenticated(req));
+  const isAuthenticated = Boolean(isSseRequestAuthenticated(req, url));
+
+  if (existingSession && !isAuthenticated) {
+    logger.warn('[SSE] Reconnect rejected: authentication required', {
+      requestId,
+      sessionId,
+    });
+    res.writeHead(401, {
+      'Content-Type': 'application/json',
+      'WWW-Authenticate': 'Bearer realm="Torque MCP SSE"',
+    });
+    res.end(JSON.stringify({ error: 'Authentication required for SSE reconnect' }));
+    return;
+  }
 
   if (!existingSession && sessions.size >= MAX_SSE_SESSIONS) {
     logger.warn('[SSE] Session cap reached');
