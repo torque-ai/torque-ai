@@ -1082,6 +1082,69 @@ function safeStartupWorkflowLog(level, message, meta) {
   }
 }
 
+const NON_TERMINAL_TASK_STATUSES = ['queued', 'running', 'blocked', 'waiting', 'pending'];
+
+function workingDirExists(dir) {
+  if (!dir || typeof dir !== 'string') return false;
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function validateWorkflowWorkingDirs(workflow, tasks) {
+  const out = { failed: 0, repointed: 0 };
+  const workflowDir = workflow && workflow.working_directory ? workflow.working_directory : null;
+  const workflowDirOk = workflowDirExists(workflowDir);
+
+  for (const task of tasks) {
+    if (!NON_TERMINAL_TASK_STATUSES.includes(task.status)) continue;
+    if (!task.working_directory) continue;
+    if (workingDirExists(task.working_directory)) continue;
+
+    if (workflowDirOk && workflow.working_directory !== task.working_directory) {
+      try {
+        const rawDb = getRawDbHandle();
+        rawDb.prepare('UPDATE tasks SET working_directory = ? WHERE id = ?').run(workflow.working_directory, task.id);
+        safeStartupWorkflowLog('info', `Startup reconciler re-pointed task ${task.id} to workflow working_directory`, {
+          task_id: task.id,
+          old_working_directory: task.working_directory,
+          new_working_directory: workflow.working_directory,
+        });
+        out.repointed++;
+        continue;
+      } catch (err) {
+        safeStartupWorkflowLog('warn', `Startup reconciler failed to re-point task ${task.id}: ${err.message}`, {
+          task_id: task.id,
+          error: err.message,
+        });
+      }
+    }
+
+    try {
+      db.updateTaskStatus(task.id, 'failed', {
+        error_output: `[WORKING_DIR_MISSING] Working directory does not exist: ${task.working_directory}${workflowDir ? ` (workflow working_directory ${workflowDirOk ? 'exists but was not re-pointed' : 'is also missing'}: ${workflowDir})` : ''}`,
+      });
+      safeStartupWorkflowLog('warn', `Startup reconciler failed task ${task.id} — working_directory missing`, {
+        task_id: task.id,
+        working_directory: task.working_directory,
+        workflow_id: workflow.id,
+      });
+      out.failed++;
+    } catch (err) {
+      safeStartupWorkflowLog('warn', `Startup reconciler failed to transition task ${task.id}: ${err.message}`, {
+        task_id: task.id,
+        error: err.message,
+      });
+    }
+  }
+
+  return out;
+}
+
+function workflowDirExists(dir) { return workingDirExists(dir); }
+
 /**
  * Reconcile active workflow DAG state after server startup.
  *
@@ -1107,6 +1170,8 @@ function reconcileWorkflowsOnStartup(options = {}) {
     dependencies_rewired: 0,
     tasks_rereadied: 0,
     terminations_replayed: 0,
+    working_dir_failures: 0,
+    working_dir_repointed: 0,
     completion_checks: 0,
     errors: 0,
   };
@@ -1151,6 +1216,10 @@ function reconcileWorkflowsOnStartup(options = {}) {
         terminationsReplayed++;
       }
       actions.terminations_replayed += terminationsReplayed;
+
+      const wdResult = validateWorkflowWorkingDirs(workflow, tasks);
+      actions.working_dir_failures += wdResult.failed;
+      actions.working_dir_repointed += wdResult.repointed;
 
       checkWorkflowCompletion(workflowId);
       actions.completion_checks++;
