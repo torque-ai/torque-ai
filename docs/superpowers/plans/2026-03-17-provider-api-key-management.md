@@ -621,7 +621,7 @@ git commit -m "feat: add provider API key management client functions"
 **Files:**
 - Modify: `dashboard/src/views/Providers.jsx`
 
-- [ ] **Step 1: Add key management to ProviderCard**
+- [x] **Step 1: Add key management to ProviderCard**
 
 This is the largest UI change. Read `dashboard/src/views/Providers.jsx` and modify the `ProviderCard` component.
 
@@ -734,11 +734,11 @@ const handleClearApiKey = async (providerName) => {
 
 Pass `onSetApiKey={handleSetApiKey}` and `onClearApiKey={handleClearApiKey}` to each `ProviderCard`.
 
-- [ ] **Step 2: Build dashboard**
+- [x] **Step 2: Build dashboard**
 
 Run: `cd dashboard && npm run build`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add dashboard/src/views/Providers.jsx dashboard/src/api.js
