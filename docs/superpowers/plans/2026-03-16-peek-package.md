@@ -251,11 +251,11 @@ git commit -m "feat(peek): interaction capability — 12 action endpoints"
 - Create: `packages/peek/src/capabilities/windows.js`
 - Test: `packages/peek/tests/windows.test.js`
 
-- [ ] **Step 1: Write test** — mock adapter, verify `listWindows()` result wrapped as `{ windows: [...] }`.
+- [x] **Step 1: Write test** — mock adapter, verify `listWindows()` result wrapped as `{ windows: [...] }`.
 
-- [ ] **Step 2: Implement** — factory function takes adapter, returns object with `.list(req, res)`. `/list` and `/windows` both route here.
+- [x] **Step 2: Implement** — factory function takes adapter, returns object with `.list(req, res)`. `/list` and `/windows` both route here.
 
-- [ ] **Step 3: Run tests, commit**
+- [x] **Step 3: Run tests, commit**
 
 ```bash
 git commit -m "feat(peek): windows capability — /list and /windows endpoints"

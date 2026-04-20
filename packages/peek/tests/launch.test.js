@@ -140,8 +140,8 @@ describe('@torque-ai/peek launch capability', () => {
       async discoverProjects(payload) {
         calls.push(payload);
         return [
-          { name: 'DeskApp', path: '/home/user/DeskApp', type: 'electron', executable: '/home/user/DeskApp/dist/DeskApp' },
-          { name: 'Api', path: '/home/user/Api', type: 'dotnet' },
+          { name: 'DeskApp', path: '/home/<user>/DeskApp', type: 'electron', executable: '/home/<user>/DeskApp/dist/DeskApp' },
+          { name: 'Api', path: '/home/<user>/Api', type: 'dotnet' },
         ];
       },
     };
@@ -153,8 +153,8 @@ describe('@torque-ai/peek launch capability', () => {
     expect(res.body).toEqual({
       success: true,
       projects: [
-        { name: 'DeskApp', path: '/home/user/DeskApp', type: 'electron', executable: '/home/user/DeskApp/dist/DeskApp' },
-        { name: 'Api', path: '/home/user/Api', type: 'dotnet' },
+        { name: 'DeskApp', path: '/home/<user>/DeskApp', type: 'electron', executable: '/home/<user>/DeskApp/dist/DeskApp' },
+        { name: 'Api', path: '/home/<user>/Api', type: 'dotnet' },
       ],
     });
     expect(calls).toEqual([{ root: '/workspace', limit: '10' }]);
