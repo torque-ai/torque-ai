@@ -16,10 +16,42 @@ describe('resume-context', () => {
     expect(context.filesModified).toEqual(['server/foo.js']);
   });
 
+  it('extracts files from action lines with punctuation, code spans, and Windows paths', () => {
+    const context = buildResumeContext([
+      'Created file: `server/foo.js`',
+      'Updated C:\\work\\repo\\server\\bar.test.js',
+      'Modified path [server/baz.js](server/baz.js)',
+    ].join('\n'), '', {});
+
+    expect(context.filesModified).toEqual([
+      'server/foo.js',
+      'C:/work/repo/server/bar.test.js',
+      'server/baz.js',
+    ]);
+  });
+
+  it('merges file paths provided through metadata aliases', () => {
+    const context = buildResumeContext('Wrote server/foo.js', '', {
+      files_modified: ['server/bar.js', 'server/foo.js'],
+    });
+
+    expect(context.filesModified).toEqual(['server/foo.js', 'server/bar.js']);
+  });
+
   it('extracts commands from $ lines', () => {
     const context = buildResumeContext('$ npx vitest run tests/foo.test.js', '', {});
 
     expect(context.commandsRun).toEqual(['npx vitest run tests/foo.test.js']);
+  });
+
+  it('extracts raw command lines and npm prompt lines without duplicates', () => {
+    const context = buildResumeContext([
+      'git status --short',
+      '> npm run lint',
+      '$ git status --short',
+    ].join('\n'), '', {});
+
+    expect(context.commandsRun).toEqual(['git status --short', 'npm run lint']);
   });
 
   it('truncates progressSummary to 500 chars', () => {
@@ -51,6 +83,19 @@ describe('resume-context', () => {
       durationMs: 0,
       provider: 'unknown',
     });
+  });
+
+  it('accepts metadata aliases for goal and duration', () => {
+    const context = buildResumeContext('', '', {
+      description: 'Finish the retry builder',
+      started_at: '2026-04-19T10:00:00.000Z',
+      completed_at: '2026-04-19T10:00:45.000Z',
+      provider: 'codex',
+    });
+
+    expect(context.goal).toBe('Finish the retry builder');
+    expect(context.durationMs).toBe(45000);
+    expect(context.provider).toBe('codex');
   });
 
   it('formats markdown with all sections', () => {
