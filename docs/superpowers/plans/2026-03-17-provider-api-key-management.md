@@ -594,7 +594,7 @@ git commit -m "feat: enrich provider list with api_key_status and api_key_masked
 **Files:**
 - Modify: `dashboard/src/api.js`
 
-- [ ] **Step 1: Add API functions**
+- [x] **Step 1: Add API functions**
 
 Read `dashboard/src/api.js` and find the existing `providers` export (or `providerCrud` export). Add two new methods. Use the existing `requestV2` helper (same pattern as routing templates API):
 
@@ -607,7 +607,7 @@ Read `dashboard/src/api.js` and find the existing `providers` export (or `provid
 
 Check how the existing provider API is structured — the methods might be on `providers` or `providerCrud`. Add to whichever object the Providers.jsx page imports.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add dashboard/src/api.js
