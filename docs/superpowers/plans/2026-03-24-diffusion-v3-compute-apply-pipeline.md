@@ -424,7 +424,7 @@ git commit -m "feat(diffusion): add compute and apply task description generator
 - Modify: `server/diffusion/planner.js`
 - Modify: `server/tests/diffusion-planner.test.js`
 
-- [ ] **Step 1: Write failing test for compute→apply pipeline**
+- [x] **Step 1: Write failing test for compute→apply pipeline**
 
 Add to `server/tests/diffusion-planner.test.js`:
 
@@ -469,17 +469,17 @@ describe('buildWorkflowTasks with compute→apply pipeline', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
-- [ ] **Step 3: Add pipeline selection to buildWorkflowTasks**
+- [x] **Step 3: Add pipeline selection to buildWorkflowTasks**
 
 In `buildWorkflowTasks`, add `computeProvider` and `applyProvider` to destructured options. After the existing fan-out loop, add a conditional: if `computeProvider` is set, replace the fan-out tasks with compute tasks that have `diffusion_role: 'compute'`, `provider: computeProvider`, and `metadata.apply_provider = applyProvider`. The compute task descriptions use `expandComputeTaskDescription`. The apply tasks will be created dynamically by the close-handler (not by the planner).
 
 Read the file first, then modify the `buildWorkflowTasks` function to check for `computeProvider` and branch accordingly.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/diffusion/planner.js server/tests/diffusion-planner.test.js
