@@ -4811,6 +4811,29 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
                 batch_id,
               });
             } else {
+            const gatedTrust = project.trust_level === 'supervised' || project.trust_level === 'guided';
+            if (gatedTrust) {
+              safeLogDecision({
+                project_id,
+                stage: LOOP_STATES.VERIFY,
+                action: 'dep_resolver_pending_approval',
+                reasoning: `Missing dep ${review.package_name} (${review.manager}) detected. Trust level ${project.trust_level} requires operator approval before installing.`,
+                outcome: {
+                  work_item_id: instance?.work_item_id || null,
+                  manager: review.manager,
+                  package: review.package_name,
+                  proposed_action: 'dep_resolve',
+                },
+                confidence: 1,
+                batch_id,
+              });
+              return {
+                status: 'paused',
+                reason: 'dep_resolver_pending_approval',
+                next_state: LOOP_STATES.PAUSED,
+                paused_at_stage: LOOP_STATES.VERIFY,
+              };
+            }
               // Check cascade cap + kill switch.
               const currentProject = factoryHealth.getProject(project_id);
               const cfg = currentProject?.config_json ? JSON.parse(currentProject.config_json) : {};
