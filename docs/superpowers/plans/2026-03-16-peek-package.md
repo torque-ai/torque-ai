@@ -392,7 +392,7 @@ git commit -m "docs: add peek companion section to README"
 
 ### Task 17: End-to-end verification
 
-- [ ] **Step 1: Run peek package tests**
+- [x] **Step 1: Run peek package tests**
 
 ```bash
 cd packages/peek && npx vitest run
@@ -400,7 +400,7 @@ cd packages/peek && npx vitest run
 
 Expected: All tests pass.
 
-- [ ] **Step 2: Run TORQUE peek tests (verify no regressions)**
+- [x] **Step 2: Run TORQUE peek tests (verify no regressions)**
 
 ```bash
 cd server && npx vitest run tests/peek-capture.test.js tests/peek-analysis.test.js tests/peek-capture-handlers.test.js tests/peek-contract.test.js tests/contracts-peek.test.js
@@ -408,7 +408,7 @@ cd server && npx vitest run tests/peek-capture.test.js tests/peek-analysis.test.
 
 Expected: All existing peek tests pass.
 
-- [ ] **Step 3: Manual test — start peek and verify endpoints**
+- [x] **Step 3: Manual test — start peek and verify endpoints**
 
 ```bash
 cd packages/peek && node bin/torque-peek.js start &
@@ -417,7 +417,7 @@ curl http://127.0.0.1:9876/list
 node bin/torque-peek.js stop
 ```
 
-- [ ] **Step 4: Verify no personal data**
+- [x] **Step 4: Verify no personal data**
 
 ```bash
 grep -ri "192\.168\.1\.\|personal-data" packages/peek/
@@ -425,7 +425,7 @@ grep -ri "192\.168\.1\.\|personal-data" packages/peek/
 
 Expected: No matches.
 
-- [ ] **Step 5: Final commit**
+- [x] **Step 5: Final commit**
 
 ```bash
 git add -A
