@@ -982,6 +982,21 @@ function classifyError(errorOutput, exitCode) {
     return makeResult(true, `Process killed by signal ${signalMatch[1]}`);
   }
 
+  // Subprocess exit sentinels from execute-cli.js
+  // (EXIT_SPAWN_INSTANT_EXIT / EXIT_CLOSE_HANDLER_EXCEPTION / EXIT_SPAWN_ERROR).
+  // Each names a distinct failure mode so the error_output carries the precise
+  // shape instead of the generic "Unknown error" fallthrough. Kept as literals
+  // here to avoid a require cycle with execute-cli.
+  if (exitCode === -101) {
+    return makeResult(true, 'Subprocess spawned but exited before tracking could record it (instant exit)');
+  }
+  if (exitCode === -102) {
+    return makeResult(true, 'Close-handler internal exception — subprocess exit was observed but post-processing threw');
+  }
+  if (exitCode === -103) {
+    return makeResult(true, 'Subprocess spawn error (likely ENOENT / EACCES / path or permissions)');
+  }
+
   // Premature exit: exit code -1 with little-to-no captured output indicates
   // the subprocess died before producing diagnostic output (spawn failure,
   // OS-level kill, resource pressure). The absence of output is the signal.

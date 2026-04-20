@@ -1570,6 +1570,30 @@ describe('classifyError', () => {
     const result = classifyError(longEnoughError, -1);
     expect(result.reason).not.toBe('Premature exit with no output - subprocess died before producing diagnostics');
   });
+
+  it('classifies EXIT_SPAWN_INSTANT_EXIT (-101) as instant-exit', () => {
+    const result = classifyError('Process exited immediately with no output (possible spawn failure or crash)', -101);
+    expect(result).toEqual({
+      retryable: true,
+      reason: 'Subprocess spawned but exited before tracking could record it (instant exit)',
+    });
+  });
+
+  it('classifies EXIT_CLOSE_HANDLER_EXCEPTION (-102) as close-handler exception', () => {
+    const result = classifyError('Internal error: TypeError: Cannot read property foo of undefined', -102);
+    expect(result).toEqual({
+      retryable: true,
+      reason: 'Close-handler internal exception — subprocess exit was observed but post-processing threw',
+    });
+  });
+
+  it('classifies EXIT_SPAWN_ERROR (-103) as spawn error', () => {
+    const result = classifyError('Process error: spawn claude.cmd ENOENT', -103);
+    expect(result).toEqual({
+      retryable: true,
+      reason: 'Subprocess spawn error (likely ENOENT / EACCES / path or permissions)',
+    });
+  });
 });
 
 describe('scheduleProcessQueue debouncing', () => {

@@ -19,6 +19,16 @@ const { buildSafeEnv } = require('../utils/safe-env');
 const serverConfig = require('../config');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 
+// Subprocess exit-code sentinels for cases where there is no real exit code
+// (the subprocess either never ran, was torn down before tracking, or the
+// close handler itself threw). Distinct values let the classifier in
+// fallback-retry.js produce a specific reason instead of the generic
+// "Unknown error" fallthrough. Negative values don't collide with real exit
+// codes (0..255 on POSIX, up to ~4 billion on Windows).
+const EXIT_SPAWN_INSTANT_EXIT = -101;   // proc entry gone but task row still running
+const EXIT_CLOSE_HANDLER_EXCEPTION = -102; // close handler itself threw
+const EXIT_SPAWN_ERROR = -103;          // child.on('error') fired (ENOENT, EACCES, etc.)
+
 /**
  * Extract unified diffs from codex's stderr output.
  * Codex writes "file update:\ndiff --git a/... b/...\n..." blocks.
@@ -424,7 +434,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
       if (task && task.status === 'running') {
         logger.info(`[TaskManager] Task ${taskId} process exited instantly but status is still 'running' - marking failed`);
         void finalizeTask(taskId, {
-          exitCode: -1,
+          exitCode: EXIT_SPAWN_INSTANT_EXIT,
           output: task.output || '',
           errorOutput: 'Process exited immediately with no output (possible spawn failure or crash)',
           procState: {
@@ -860,7 +870,9 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
     } catch (err) {
       logger.info(`Critical error in close handler for task ${taskId}:`, err.message);
       const result = await finalizeTask(taskId, {
-        exitCode: code || -1,
+        // Preserve the real exit code when one was observed — only fall back
+        // to the close-handler-exception sentinel when there wasn't one.
+        exitCode: (typeof code === 'number' && code !== 0) ? code : EXIT_CLOSE_HANDLER_EXCEPTION,
         output: proc?.output || '',
         errorOutput: redactSecrets(proc?.errorOutput
           ? `${proc.errorOutput}\nInternal error: ${err.message}`
@@ -928,7 +940,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
 
     try {
       const result = await finalizeTask(taskId, {
-        exitCode: -1,
+        exitCode: EXIT_SPAWN_ERROR,
         output: proc?.output || '',
         errorOutput: redactSecrets(`Process error: ${err.message}`),
         procState: {
@@ -997,4 +1009,7 @@ module.exports = {
   buildClaudeCliCommand,
   buildCodexCommand,
   spawnAndTrackProcess,
+  EXIT_SPAWN_INSTANT_EXIT,
+  EXIT_CLOSE_HANDLER_EXCEPTION,
+  EXIT_SPAWN_ERROR,
 };
