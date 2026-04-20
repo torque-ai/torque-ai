@@ -43,7 +43,7 @@ describe('analyzeTaskForRouting with routing templates', () => {
     const allRules = {
       security: 'ollama', xaml_wpf: 'ollama', architectural: 'ollama',
       reasoning: 'ollama', large_code_gen: 'ollama', documentation: 'ollama',
-      simple_generation: 'ollama', targeted_file_edit: 'ollama', default: 'ollama',
+      simple_generation: 'ollama', plan_generation: 'ollama', targeted_file_edit: 'ollama', default: 'ollama',
     };
     const custom = templateStore.createTemplate({
       name: 'Integration Test Custom',
@@ -69,7 +69,7 @@ describe('analyzeTaskForRouting with routing templates', () => {
       rules: {
         security: 'ollama', xaml_wpf: 'ollama', architectural: 'ollama',
         reasoning: 'ollama', large_code_gen: 'ollama', documentation: 'ollama',
-        simple_generation: 'ollama', targeted_file_edit: 'ollama', default: 'ollama',
+        simple_generation: 'ollama', plan_generation: 'ollama', targeted_file_edit: 'ollama', default: 'ollama',
       },
       complexity_overrides: {
         reasoning: { complex: 'codex' },
@@ -104,7 +104,7 @@ describe('analyzeTaskForRouting with routing templates', () => {
       rules: {
         security: 'ollama', xaml_wpf: 'ollama', architectural: 'ollama',
         reasoning: 'ollama', large_code_gen: 'ollama', documentation: 'ollama',
-        simple_generation: 'ollama', targeted_file_edit: 'ollama', default: 'ollama',
+        simple_generation: 'ollama', plan_generation: 'ollama', targeted_file_edit: 'ollama', default: 'ollama',
       },
     });
     templateStore.setActiveTemplate(custom.id);

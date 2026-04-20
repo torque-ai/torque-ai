@@ -1100,7 +1100,7 @@ git commit -m "test: move remote-agent tests into plugin, update mock paths"
 - Modify: `server/plugins/remote-agents/index.js` — if any issues found during E2E.
 - Test: Manual startup + tool list verification.
 
-- [ ] **Step 1: Update CLAUDE.md**
+- [x] **Step 1: Update CLAUDE.md**
 
 In the Providers section, add a note that remote agent federation is now a plugin:
 
@@ -1112,7 +1112,7 @@ by the `remote-agents` plugin (loaded by default). To disable, remove `'remote-a
 from `DEFAULT_PLUGIN_NAMES` in `server/index.js`.
 ```
 
-- [ ] **Step 2: Start the server and verify tools are registered**
+- [x] **Step 2: Start the server and verify tools are registered**
 
 Start TORQUE and verify the remote-agent MCP tools appear:
 
@@ -1121,15 +1121,15 @@ Run: `curl -s http://127.0.0.1:3457/api/tools | grep -c remote`
 
 Expected: Health check returns OK. Remote agent tools are present (registered via plugin).
 
-- [ ] **Step 3: Verify the plugin loaded**
+- [x] **Step 3: Verify the plugin loaded**
 
 Check server logs for: `[plugin-loader] Loaded plugin: remote-agents v1.0.0`
 
-- [ ] **Step 4: Verify test routing still works**
+- [x] **Step 4: Verify test routing still works**
 
 Submit a task with a verify_command and confirm verification runs (locally or remotely depending on workstation config).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add CLAUDE.md

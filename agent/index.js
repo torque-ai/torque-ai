@@ -42,6 +42,8 @@ function getSystemMetrics() {
 
 const MAX_BODY_SIZE = 1024 * 1024; // 1MB
 const ALLOWED_ENV_VARS = new Set(['NODE_ENV', 'DEBUG', 'PATH', 'HOME', 'USERPROFILE', 'TEMP', 'TMP']);
+const PROBE_COMMAND_TIMEOUT_MS = 150;
+const PROBE_NETWORK_TIMEOUT_MS = 250;
 
 /**
  * Promise-based JSON body parser. Collects request body chunks and parses as JSON.
@@ -360,7 +362,7 @@ function createServer(overrideConfig = {}) {
 
     // Ollama
     try {
-      const tagsRaw = execFileSync('curl', ['-s', '--max-time', '2', 'http://127.0.0.1:11434/api/tags'], { timeout: 5000, encoding: 'utf8' });
+      const tagsRaw = execFileSync('curl', ['-s', '--max-time', '0.2', 'http://127.0.0.1:11434/api/tags'], { timeout: PROBE_NETWORK_TIMEOUT_MS, encoding: 'utf8' });
       const tags = JSON.parse(tagsRaw);
       caps.ollama = { detected: true, port: 11434, models: (tags.models || []).map(m => m.name) };
     } catch { /* no Ollama */ }
@@ -368,14 +370,14 @@ function createServer(overrideConfig = {}) {
     // GPU
     try {
       if (os.platform() === 'win32') {
-        const out = execFileSync('wmic', ['path', 'win32_videocontroller', 'get', 'name,adapterram', '/format:csv'], { timeout: 5000, encoding: 'utf8' });
+        const out = execFileSync('wmic', ['path', 'win32_videocontroller', 'get', 'name,adapterram', '/format:csv'], { timeout: PROBE_COMMAND_TIMEOUT_MS, encoding: 'utf8' });
         const lines = out.split('\n').filter(l => l.trim() && !l.startsWith('Node'));
         if (lines.length > 0) {
           const parts = lines[0].split(',');
           caps.gpu = { detected: true, name: (parts[2] || '').trim(), vram_mb: Math.round(parseInt(parts[1] || 0) / 1024 / 1024) };
         }
       } else {
-        const out = execFileSync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader'], { timeout: 5000, encoding: 'utf8' });
+        const out = execFileSync('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader'], { timeout: PROBE_COMMAND_TIMEOUT_MS, encoding: 'utf8' });
         const [name, mem] = out.trim().split(',').map(s => s.trim());
         caps.gpu = { detected: true, name, vram_mb: parseInt(mem) };
       }
@@ -383,7 +385,7 @@ function createServer(overrideConfig = {}) {
 
     // Peek server
     try {
-      execFileSync('curl', ['-s', '--max-time', '1', 'http://127.0.0.1:9876/'], { timeout: 3000 });
+      execFileSync('curl', ['-s', '--max-time', '0.2', 'http://127.0.0.1:9876/'], { timeout: PROBE_NETWORK_TIMEOUT_MS });
       caps.ui_capture = { detected: true, has_display: true, peek_server: 'running' };
     } catch { /* no peek */ }
 
@@ -404,7 +406,7 @@ function createServer(overrideConfig = {}) {
   function isCommandAvailable(cmd) {
     try {
       const whichCmd = os.platform() === 'win32' ? 'where' : 'which';
-      execFileSync(whichCmd, [cmd], { stdio: 'ignore', timeout: 3000 });
+      execFileSync(whichCmd, [cmd], { stdio: 'ignore', timeout: PROBE_COMMAND_TIMEOUT_MS });
       return true;
     } catch { return false; }
   }

@@ -194,9 +194,9 @@ describe('REST control-plane parity', () => {
     it('has infrastructure CP routes', () => {
       const count = v2CpRoutes.filter(r =>
         r.handlerName.includes('Host') || r.handlerName.includes('PeekHost') ||
-        r.handlerName.includes('Credential') || r.handlerName.includes('Agent')
+        r.handlerName.includes('Credential')
       ).length;
-      expect(count).toBeGreaterThanOrEqual(17);
+      expect(count).toBeGreaterThanOrEqual(15);
     });
   });
 

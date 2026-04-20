@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const HANDLER_PATH = path.resolve(__dirname, '../plugins/remote-agents/handlers.js');
 
-const INTENTIONAL_PUBLIC_API = new Set([]);
+const INTENTIONAL_PUBLIC_API = new Set(['createHandlers']);
 
 function listJsFiles(dir, files = []) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });

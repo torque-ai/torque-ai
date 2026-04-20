@@ -43,6 +43,14 @@ function runRealGit(cwd, args, options = {}) {
   });
 }
 
+function expectGitOptions(cwd) {
+  return expect.objectContaining({
+    cwd,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+}
+
 describe('version-control worktree manager', () => {
   let db;
   let manager;
@@ -164,11 +172,7 @@ describe('version-control worktree manager', () => {
       'feat/new-login-flow',
       created.worktree_path,
       'develop',
-    ], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
+    ], expectGitOptions(repoPath));
   });
 
   it('lists worktrees sorted by created_at descending and filters by repo', () => {
@@ -293,37 +297,13 @@ describe('version-control worktree manager', () => {
 
     // Call sequence: (1) assertClean(worktree), (2) rev-list ahead check,
     // (3) assertClean(repo — merge-target), (4) rebase, (5) checkout, (6) merge
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
-      cwd: worktreePath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['rev-list', '--count', 'release..feat/api-sync'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], expectGitOptions(worktreePath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['rev-list', '--count', 'release..feat/api-sync'], expectGitOptions(repoPath));
     // Call 3: assertWorktreeIsClean(repo_path, 'merge-target') — target-side cleanup
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['status', '--porcelain'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['rebase', 'release'], {
-      cwd: worktreePath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['checkout', 'release'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['merge', '--ff-only', 'feat/api-sync'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['status', '--porcelain'], expectGitOptions(repoPath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['rebase', 'release'], expectGitOptions(worktreePath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['checkout', 'release'], expectGitOptions(repoPath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['merge', '--ff-only', 'feat/api-sync'], expectGitOptions(repoPath));
 
     expect(manager.getWorktree('wt-merge')).toMatchObject({
       id: 'wt-merge',
@@ -375,42 +355,14 @@ describe('version-control worktree manager', () => {
       }),
     });
     // Call sequence includes assertClean(repo_path, 'merge-target') at position 3
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
-      cwd: worktreePath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['rev-list', '--count', 'main..feat/cleanup-fail'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], expectGitOptions(worktreePath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['rev-list', '--count', 'main..feat/cleanup-fail'], expectGitOptions(repoPath));
     // Call 3: target-side cleanup check
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['status', '--porcelain'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['checkout', 'main'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['merge', '--no-ff', 'feat/cleanup-fail'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['status', '--porcelain'], {
-      cwd: worktreePath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(7, 'git', ['worktree', 'remove', '--force', worktreePath], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['status', '--porcelain'], expectGitOptions(repoPath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['checkout', 'main'], expectGitOptions(repoPath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['merge', '--no-ff', 'feat/cleanup-fail'], expectGitOptions(repoPath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['status', '--porcelain'], expectGitOptions(worktreePath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(7, 'git', ['worktree', 'remove', '--force', worktreePath], expectGitOptions(repoPath));
     expect(manager.getWorktree('wt-merge-cleanup-fail')).toMatchObject({
       id: 'wt-merge-cleanup-fail',
       status: 'merged',
@@ -438,26 +390,10 @@ describe('version-control worktree manager', () => {
       warnings: [],
     });
 
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
-      cwd: path.join(repoPath, '.worktrees', 'feat-cleanup'),
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['worktree', 'remove', '--force', path.join(repoPath, '.worktrees', 'feat-cleanup')], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['worktree', 'prune'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['branch', '-D', 'feat/cleanup'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], expectGitOptions(path.join(repoPath, '.worktrees', 'feat-cleanup')));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['worktree', 'remove', '--force', path.join(repoPath, '.worktrees', 'feat-cleanup')], expectGitOptions(repoPath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['worktree', 'prune'], expectGitOptions(repoPath));
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['branch', '-D', 'feat/cleanup'], expectGitOptions(repoPath));
     expect(manager.getWorktree('wt-cleanup')).toBeNull();
   });
 

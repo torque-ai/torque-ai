@@ -113,9 +113,11 @@ const mockHandlers = {
     handleDeleteWorkstation: vi.fn(),
     handleListHosts: vi.fn(),
     handleGetHost: vi.fn(),
+    handleUpdateHost: vi.fn(),
     handleToggleHost: vi.fn(),
     handleDeleteHost: vi.fn(),
     handleHostScan: vi.fn(),
+    handleHostActivity: vi.fn(),
     handleListPeekHosts: vi.fn(),
     handleCreatePeekHost: vi.fn(),
     handleDeletePeekHost: vi.fn(),
@@ -123,6 +125,8 @@ const mockHandlers = {
     handleListCredentials: vi.fn(),
     handleSaveCredential: vi.fn(),
     handleDeleteCredential: vi.fn(),
+    handleAddHost: vi.fn(),
+    handleRefreshModels: vi.fn(),
     init: vi.fn(),
   },
 };
@@ -355,7 +359,7 @@ describe('v2-dispatch module', () => {
     it('includes infrastructure routes', () => {
       const infraRoutes = v2Dispatch.v2CpRoutes.filter(r =>
         r.handlerName.includes('Host') || r.handlerName.includes('PeekHost') ||
-        r.handlerName.includes('Agent') || r.handlerName.includes('Credential')
+        r.handlerName.includes('Credential')
       );
       expect(infraRoutes.length).toBeGreaterThanOrEqual(15);
     });

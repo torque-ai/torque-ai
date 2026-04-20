@@ -3775,6 +3775,24 @@ async function runAdvanceLoop(instance_id) {
           break;
         }
         instance = moveToExecute.instance;
+
+        transitionWorkItem = transitionWorkItem || tryGetSelectedWorkItem(instance, project.id, {
+          fallbackToLoopSelection: true,
+        });
+        if (!transitionWorkItem) {
+          terminateInstanceAndSync(instance.id);
+          return {
+            project_id: project.id,
+            instance_id: instance.id,
+            previous_state: previousState,
+            new_state: LOOP_STATES.IDLE,
+            paused_at_stage: null,
+            stage_result: null,
+            reason: 'no_work_item_selected',
+          };
+        }
+        transitionReason = transitionReason || 'plan_completed';
+        break;
       }
 
       let targetItem = transitionWorkItem || tryGetSelectedWorkItem(instance, project.id, {
