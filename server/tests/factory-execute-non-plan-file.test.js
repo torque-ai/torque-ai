@@ -391,7 +391,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       }),
       outcome: expect.objectContaining({
         reason: 'no description',
-        generator: '<git-user>',
+        generator: 'codex',
         generation_task_id: null,
         work_item_id: workItem.id,
         plan_path: null,
