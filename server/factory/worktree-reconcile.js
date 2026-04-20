@@ -113,7 +113,8 @@ function forceRmDir(dir) {
 // Reclaim a stale worktree directory and its git metadata. Safe to call on
 // entries that may be fully gone, partially gone, or still registered.
 // Uses `git worktree remove --force` first (handles both metadata + dir),
-// then falls back to fs.rmSync + prune + branch delete.
+// then falls back to node fs.rmSync (which handles Windows long paths via
+// \\?\ prefixing) + prune + branch delete.
 function reclaimDir({ repoPath, worktreePath, branch }) {
   const attempts = [];
 
@@ -122,14 +123,11 @@ function reclaimDir({ repoPath, worktreePath, branch }) {
   const removeRes = tryGit(repoPath, ['worktree', 'remove', '--force', worktreePath]);
   attempts.push({ step: 'worktree_remove', ok: removeRes.ok, err: removeRes.ok ? null : removeRes.err.message });
 
-  // Attempt 2: prune. Clears metadata for any worktree whose dir is missing.
-  // This is the one git-add will actually check. Always worth doing.
-  const pruneRes = tryGit(repoPath, ['worktree', 'prune']);
-  attempts.push({ step: 'worktree_prune', ok: pruneRes.ok, err: pruneRes.ok ? null : pruneRes.err.message });
-
-  // Attempt 3: fs-level cleanup via forceRmDir. Layered: plain rmSync →
-  // chmod-recursive + rmSync → shell fallback. Handles Windows "Directory
-  // not empty" and read-only git internals that defeat a plain fs.rmSync.
+  // Attempt 2: if the directory is still on disk after git worktree remove
+  // (git failed, partially deleted, or reported success without removing
+  // the dir — e.g. Windows long paths exceeding MAX_PATH 260 chars), fall
+  // back to node fs.rmSync which handles \\?\ prefixing automatically,
+  // then layered forceRmDir for stubborn cases.
   if (fs.existsSync(worktreePath)) {
     const rmResult = forceRmDir(worktreePath);
     attempts.push({
@@ -144,6 +142,12 @@ function reclaimDir({ repoPath, worktreePath, branch }) {
       sub_attempts: rmResult.attempts,
     });
   }
+
+  // Attempt 3: prune. Clears metadata for any worktree whose dir is missing.
+  // Run AFTER the fs-level cleanup so prune sees the directory is gone and
+  // properly removes the .git/worktrees/<name> registration entry.
+  const pruneRes = tryGit(repoPath, ['worktree', 'prune']);
+  attempts.push({ step: 'worktree_prune', ok: pruneRes.ok, err: pruneRes.ok ? null : pruneRes.err.message });
 
   // Attempt 4: branch delete. Orphan branch may linger even when the worktree
   // is gone; git worktree add -b will fail with "branch already exists".

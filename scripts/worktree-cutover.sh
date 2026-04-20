@@ -69,67 +69,154 @@ if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
   TORQUE_RUNNING=true
 fi
 
+# --- Restart via barrier primitive ---
+# Instead of cooperative drain + stop-torque.sh (which races with factory
+# auto_advance), we use the restart barrier: POST /api/v2/system/restart-server
+# submits a provider='system' barrier task that blocks the queue scheduler from
+# promoting any new work. Running tasks finish naturally, then the server
+# restarts itself. No external kill required.
+
 if [ "$TORQUE_RUNNING" = "true" ]; then
-  echo "  Draining the pipeline before shutdown..."
-  # Poll /api/v2/tasks?status=running until the queue empties. We do NOT
-  # submit a barrier task here — the drain is cooperative; queued work
-  # keeps scheduling while running tasks complete. If the operator needs
-  # a hard barrier, they run `await_restart` via the MCP tool before the
-  # cutover.
-  #
-  # Timeout: 30 minutes. Plan tasks can be long; the cutover is itself a
-  # controlled operation, so waiting is the right default.
-  DRAIN_DEADLINE=$(( $(date +%s) + 30 * 60 ))
-  # Require 3 consecutive zero-observations, 2s apart, before declaring drain
-  # complete. Factory auto-advance can submit a new task in the microsecond
-  # window between a single zero-check and stop-torque — observed live during
-  # the 2026-04-19 verify-review-hybrid cutover (drain reported clean, then
-  # stop-torque saw 2 running and they got SIGKILL'd). The settling window
-  # gives the factory tick chain time to go quiet.
-  ZERO_STREAK=0
-  REQUIRED_ZERO_STREAK=3
-  while true; do
-    RUNNING=$(curl -s --max-time 3 "${TORQUE_API}/api/v2/tasks?status=running&limit=1000" 2>/dev/null \
-      | (grep -oE '"id"' || true) | wc -l | tr -d '[:space:]')
-    if [ -z "$RUNNING" ]; then RUNNING=0; fi
-    if [ "$RUNNING" = "0" ]; then
-      ZERO_STREAK=$((ZERO_STREAK + 1))
-      if [ "$ZERO_STREAK" -ge "$REQUIRED_ZERO_STREAK" ]; then
-        echo "[ok] Pipeline drained (stable for ${REQUIRED_ZERO_STREAK} checks)."
+  BARRIER_TIMEOUT_MIN=30
+
+  # --- Dry-run support ---
+  # Set CUTOVER_DRY_RUN=1 to print the intended API calls without executing.
+  if [ "${CUTOVER_DRY_RUN:-0}" = "1" ]; then
+    echo "[dry-run] Would check for existing barrier:"
+    echo "  GET ${TORQUE_API}/api/v2/tasks?status=running&provider=system&limit=10"
+    echo "  GET ${TORQUE_API}/api/v2/tasks?status=queued&provider=system&limit=10"
+    echo "[dry-run] Would submit restart barrier:"
+    echo "  POST ${TORQUE_API}/api/v2/system/restart-server"
+    echo "  Body: {\"reason\":\"Cutover to ${FEATURE_NAME}\",\"timeout_minutes\":${BARRIER_TIMEOUT_MIN}}"
+    echo "[dry-run] Would poll barrier task:"
+    echo "  GET ${TORQUE_API}/api/v2/tasks/<task_id>"
+    echo "[dry-run] Would verify new server:"
+    echo "  curl http://127.0.0.1:3458/sse"
+  else
+    echo "  Submitting restart barrier (drain + restart)..."
+
+    # 1. Check for an existing barrier task — prevents concurrent cutovers
+    #    from racing. If one exists, attach to it instead of submitting a new one.
+    EXISTING_BARRIER=""
+    for CHECK_STATUS in running queued; do
+      RESP=$(curl -s --max-time 5 "${TORQUE_API}/api/v2/tasks?status=${CHECK_STATUS}&limit=100" 2>/dev/null || echo "")
+      # Extract tasks with provider='system' — look for the barrier pattern
+      FOUND=$(echo "$RESP" | grep -oP '"id"\s*:\s*"[^"]*".*?"provider"\s*:\s*"system"' | head -1 | grep -oP '"id"\s*:\s*"\K[^"]+' || true)
+      if [ -n "$FOUND" ]; then
+        EXISTING_BARRIER="$FOUND"
         break
       fi
-      sleep 2
-      continue
-    fi
-    ZERO_STREAK=0
-    if [ "$(date +%s)" -gt "$DRAIN_DEADLINE" ]; then
-      echo "[warn] Drain timed out after 30 minutes with $RUNNING task(s) still running."
-      echo "       Aborting cutover so running work is not trampled. Merge landed,"
-      echo "       but TORQUE was NOT restarted. Options:"
-      echo "       1. Wait for tasks to complete, then re-run: bash $0 $1"
-      echo "       2. Cancel in-flight tasks manually, then re-run"
-      echo "       3. Emergency override: bash stop-torque.sh --force && restart manually"
-      exit 2
-    fi
-    echo "    $RUNNING task(s) running — sleeping 15s..."
-    sleep 15
-  done
+    done
 
-  echo "  Restarting TORQUE on updated main..."
-  STOP_SCRIPT="${REPO_ROOT}/stop-torque.sh"
-  if [ -f "$STOP_SCRIPT" ]; then
-    bash "$STOP_SCRIPT" 2>&1 | sed 's/^/    /'
-    sleep 2
-    # Start fresh on updated main
-    nohup node "${REPO_ROOT}/server/index.js" > /dev/null 2>&1 &
-    sleep 4
-    if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
-      echo "[ok] TORQUE restarted on updated main"
+    if [ -n "$EXISTING_BARRIER" ]; then
+      echo "  Existing barrier found (${EXISTING_BARRIER:0:8}) — attaching..."
+      BARRIER_TASK_ID="$EXISTING_BARRIER"
     else
-      echo "[warn] TORQUE may not have started. Check manually."
+      # 2. Submit the restart barrier
+      RESTART_RESP=$(curl -s --max-time 10 \
+        -X POST "${TORQUE_API}/api/v2/system/restart-server" \
+        -H "Content-Type: application/json" \
+        -d "{\"reason\":\"Cutover to ${FEATURE_NAME}\",\"timeout_minutes\":${BARRIER_TIMEOUT_MIN}}" \
+        2>/dev/null || echo "")
+
+      if [ -z "$RESTART_RESP" ]; then
+        echo "[error] Failed to submit restart barrier — no response from TORQUE."
+        echo "        Merge landed but TORQUE was NOT restarted."
+        echo "        Fallback: bash stop-torque.sh && nohup node server/index.js > /dev/null 2>&1 &"
+        exit 2
+      fi
+
+      # Extract task_id from response JSON
+      BARRIER_TASK_ID=$(echo "$RESTART_RESP" | grep -oP '"task_id"\s*:\s*"\K[^"]+' || true)
+      BARRIER_STATUS=$(echo "$RESTART_RESP" | grep -oP '"status"\s*:\s*"\K[^"]+' || true)
+
+      if [ -z "$BARRIER_TASK_ID" ]; then
+        echo "[error] Restart barrier response missing task_id."
+        echo "        Response: ${RESTART_RESP}"
+        echo "        Merge landed but TORQUE was NOT restarted."
+        exit 2
+      fi
+
+      echo "  Barrier task: ${BARRIER_TASK_ID:0:8} (${BARRIER_STATUS})"
+
+      # If status is already restart_scheduled, the pipeline was empty and
+      # the server is about to restart — skip straight to the wait-for-new-server.
+      if [ "$BARRIER_STATUS" = "restart_scheduled" ]; then
+        echo "[ok] Pipeline was empty — server restart scheduled immediately."
+      fi
     fi
-  else
-    echo "[warn] stop-torque.sh not found. Restart TORQUE manually."
+
+    # 3. Poll the barrier task until completed or failed.
+    #    The server's drain watcher handles the actual drain; we just watch
+    #    the barrier task status. Timeout: same as the barrier's own timeout
+    #    plus a small buffer for the grace period and process restart.
+    POLL_DEADLINE=$(( $(date +%s) + (BARRIER_TIMEOUT_MIN + 1) * 60 ))
+
+    if [ "${BARRIER_STATUS:-}" != "restart_scheduled" ]; then
+      echo "  Waiting for pipeline drain..."
+      while true; do
+        TASK_RESP=$(curl -s --max-time 5 "${TORQUE_API}/api/v2/tasks/${BARRIER_TASK_ID}" 2>/dev/null || echo "")
+        TASK_STATUS=$(echo "$TASK_RESP" | grep -oP '"status"\s*:\s*"\K[^"]+' || true)
+
+        if [ "$TASK_STATUS" = "completed" ]; then
+          echo "[ok] Barrier completed — server restarting."
+          break
+        fi
+        if [ "$TASK_STATUS" = "failed" ]; then
+          TASK_ERROR=$(echo "$TASK_RESP" | grep -oP '"error_output"\s*:\s*"\K[^"]+' || true)
+          echo "[error] Barrier task failed: ${TASK_ERROR:-unknown}"
+          echo "        Merge landed but TORQUE was NOT restarted."
+          echo "        Options:"
+          echo "        1. Wait for tasks to complete, then re-run: bash $0 $1"
+          echo "        2. Cancel in-flight tasks manually, then re-run"
+          echo "        3. Emergency override: bash stop-torque.sh --force && restart manually"
+          exit 2
+        fi
+        if [ -z "$TASK_STATUS" ]; then
+          # Server may have already shut down mid-poll — this is expected
+          # during the restart grace period. Break and check for new server.
+          echo "  Server unreachable (expected during restart)."
+          break
+        fi
+
+        if [ "$(date +%s)" -gt "$POLL_DEADLINE" ]; then
+          echo "[error] Timed out waiting for barrier task ${BARRIER_TASK_ID:0:8}."
+          echo "        Merge landed but TORQUE was NOT restarted."
+          exit 2
+        fi
+
+        echo "    Barrier ${BARRIER_TASK_ID:0:8}: ${TASK_STATUS} — sleeping 10s..."
+        sleep 10
+      done
+    fi
+
+    # 4. Wait for the new server to come up. The barrier handler triggers
+    #    emitShutdown with a 1500ms grace period, then the process exits.
+    #    The server auto-restarts (or the OS restarts it) on the updated main.
+    #    We wait up to 30 seconds for the new process.
+    echo "  Waiting for TORQUE to restart on updated main..."
+    sleep 4
+    RESTART_ATTEMPTS=0
+    MAX_RESTART_WAIT=26  # 4s initial + up to 26 * 2s = 56s total
+    while [ "$RESTART_ATTEMPTS" -lt "$MAX_RESTART_WAIT" ]; do
+      if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
+        echo "[ok] TORQUE restarted on updated main"
+        break
+      fi
+      RESTART_ATTEMPTS=$((RESTART_ATTEMPTS + 1))
+      sleep 2
+    done
+
+    if [ "$RESTART_ATTEMPTS" -ge "$MAX_RESTART_WAIT" ]; then
+      echo "[warn] TORQUE did not come back up within 60s. Starting manually..."
+      nohup node "${REPO_ROOT}/server/index.js" > /dev/null 2>&1 &
+      sleep 4
+      if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
+        echo "[ok] TORQUE started manually on updated main"
+      else
+        echo "[warn] TORQUE may not have started. Check manually."
+      fi
+    fi
   fi
 else
   echo "  TORQUE not running — no restart needed. Start it when ready."
