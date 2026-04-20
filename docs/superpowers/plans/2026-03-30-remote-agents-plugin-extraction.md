@@ -886,7 +886,7 @@ git commit -m "feat: create remote-agents plugin with tool-defs, handlers, and r
 - Delete: `server/tool-defs/remote-agent-defs.js`
 - Delete: `server/api/bootstrap.js`
 
-- [ ] **Step 1: Add `remote-agents` to DEFAULT_PLUGIN_NAMES in index.js**
+- [x] **Step 1: Add `remote-agents` to DEFAULT_PLUGIN_NAMES in index.js**
 
 In `server/index.js` line 56, change:
 
@@ -900,7 +900,7 @@ to:
 const DEFAULT_PLUGIN_NAMES = Object.freeze(['snapscope', 'version-control', 'remote-agents']);
 ```
 
-- [ ] **Step 2: Remove RemoteAgentRegistry from index.js**
+- [x] **Step 2: Remove RemoteAgentRegistry from index.js**
 
 Remove line 36: `const { RemoteAgentRegistry } = require('./remote/agent-registry');`
 
@@ -912,13 +912,13 @@ Keep the `testRunnerRegistry` creation and the validation `.init({ testRunnerReg
 
 Remove the `getAgentRegistry` export and function (lines ~960, ~1373-1376). Any code that was calling `getAgentRegistry()` should now go through the plugin.
 
-- [ ] **Step 3: Remove remote-agent entries from tools.js**
+- [x] **Step 3: Remove remote-agent entries from tools.js**
 
 In `server/tools.js`, remove:
 - Line ~43: `...require('./tool-defs/remote-agent-defs'),`
 - Line ~125: `require('./handlers/remote-agent-handlers'),`
 
-- [ ] **Step 4: Remove /api/agents routes from api/routes.js**
+- [x] **Step 4: Remove /api/agents routes from api/routes.js**
 
 In `server/api/routes.js`, remove lines ~1193-1198:
 ```js
@@ -930,13 +930,13 @@ In `server/api/routes.js`, remove lines ~1193-1198:
   { method: 'GET', path: /^\/api\/agents\/([^/]+)$/, tool: 'get_remote_agent', mapParams: ['agent_id'] },
 ```
 
-- [ ] **Step 5: Remove remoteAgentHandlers from v2-core-handlers.js**
+- [x] **Step 5: Remove remoteAgentHandlers from v2-core-handlers.js**
 
 Remove line 17: `const remoteAgentHandlers = require('../handlers/remote-agent-handlers');`
 
 Remove the `runRemoteCommandCore` and `runTestsCore` handler functions that reference it (around lines ~1076-1097). Replace with stubs that return 404/not-available if the plugin isn't loaded, or remove the v2 route entries entirely (next step).
 
-- [ ] **Step 6: Remove remoteAgentHandlers from v2-dispatch.js**
+- [x] **Step 6: Remove remoteAgentHandlers from v2-dispatch.js**
 
 Remove line 25: `const remoteAgentHandlers = require('../handlers/remote-agent-handlers');`
 
@@ -946,11 +946,11 @@ Remove lines ~352-353:
   handleV2CpRunTests: remoteAgentHandlers.handleRunTests,
 ```
 
-- [ ] **Step 7: Remove remote-agent functions from v2-infrastructure-handlers.js**
+- [x] **Step 7: Remove remote-agent functions from v2-infrastructure-handlers.js**
 
 Remove `_listAgents`, `_getAgent`, `_healthCheckAgent` functions and associated raw SQL queries that reference `remote_agents` table. The plugin manages its own data access.
 
-- [ ] **Step 8: Remove getAgentRegistry from maintenance/scheduler.js**
+- [x] **Step 8: Remove getAgentRegistry from maintenance/scheduler.js**
 
 In `server/maintenance/scheduler.js`, remove the `getAgentRegistry` parameter from `init()` and remove the health check block (~lines 112-117):
 
@@ -966,11 +966,11 @@ In `server/maintenance/scheduler.js`, remove the `getAgentRegistry` parameter fr
 
 The plugin runs its own health check timer now.
 
-- [ ] **Step 9: Remove the maintenance scheduler's getAgentRegistry from index.js init call**
+- [x] **Step 9: Remove the maintenance scheduler's getAgentRegistry from index.js init call**
 
 In `server/index.js`, the `maintenanceScheduler.init()` call (~line 954) passes `getAgentRegistry`. Remove that property from the options object.
 
-- [ ] **Step 10: Delete old remote files**
+- [x] **Step 10: Delete old remote files**
 
 ```bash
 rm server/remote/agent-registry.js
@@ -987,7 +987,7 @@ Check if `server/remote/` is now empty. If so, remove the directory:
 rmdir server/remote/ 2>/dev/null || true
 ```
 
-- [ ] **Step 11: Run the full test suite to check for broken imports**
+- [x] **Step 11: Run the full test suite to check for broken imports**
 
 Run: `cd server && npx vitest run --reporter=verbose 2>&1 | tail -30`
 
@@ -995,7 +995,7 @@ Fix any broken `require()` paths. Common issues:
 - Tests that import from `../remote/...` need to be redirected to the plugin path or moved (Task 5).
 - Tests that mock `../remote/remote-test-routing` in validation tests need the mock path updated to `../test-runner-registry`.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add -A server/
