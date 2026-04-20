@@ -22,10 +22,15 @@ describe('verify_recovery_attempts column persistence', () => {
   test('listStalledVerifyLoops reads attempts from the DB column when present', () => {
     const rawDb = db.getDbInstance();
     const pid = 'proj-' + Date.now();
+    // Use ISO UTC with Z so Date.parse on the JS side agrees with SQLite.
+    // SQLite's datetime() default output omits the Z and Date.parse interprets
+    // it as local time — causing timezone-dependent skew that makes the stall
+    // threshold check flaky.
+    const ninetyMinAgo = new Date(Date.now() - 90 * 60 * 1000).toISOString();
     rawDb.prepare(`
       INSERT INTO factory_projects (id, name, path, status, trust_level, loop_state, loop_paused_at_stage, loop_last_action_at, verify_recovery_attempts)
-      VALUES (?, ?, ?, 'running', 'dark', 'VERIFY', 'VERIFY', datetime('now','-90 minutes'), 1)
-    `).run(pid, 'test-project', '/tmp/test-project');
+      VALUES (?, ?, ?, 'running', 'dark', 'VERIFY', 'VERIFY', ?, 1)
+    `).run(pid, 'test-project', '/tmp/test-project', ninetyMinAgo);
 
     const { listStalledVerifyLoops } = require('../factory/verify-stall-recovery');
     const stalled = listStalledVerifyLoops(rawDb);
