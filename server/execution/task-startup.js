@@ -488,14 +488,6 @@ function evaluateStartupSafeguards({
   parseMetadata,
   classifyTaskType,
   estimateContextTokens,
-  evaluatePolicy,
-  describePolicyBlock,
-  cancelBlockedTask,
-  updateTaskStatus,
-  notifyTaskUpdated,
-  drainQueue,
-  getTask,
-  log,
 }) {
   const safeguardResult = runSafeguards(task, taskId, provider);
   if (safeguardResult) {
@@ -505,38 +497,236 @@ function evaluateStartupSafeguards({
   const taskMetadata = parseMetadata(task.metadata);
   const taskType = classifyTaskType(task.task_description || '');
   const contextTokenEstimate = estimateContextTokens(taskMetadata, task.context);
+  return {
+    earlyResult: null,
+    taskMetadata,
+    taskType,
+    contextTokenEstimate,
+  };
+}
+
+const SANDBOXED_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
+
+function createTaskStartupResourceLifecycle({
+  taskId,
+  task,
+  provider,
+  maxConcurrent,
+}) {
+  let slotClaimed = false;
+  let providerConfig = null;
+  const acquiredFileLocks = [];
+  const releasedFileLocks = new Set();
+
+  function releaseAcquiredFileLocks() {
+    for (let index = acquiredFileLocks.length - 1; index >= 0; index--) {
+      const lock = acquiredFileLocks[index];
+      const lockKey = `${lock.workingDirectory}\0${lock.filePath}`;
+      if (releasedFileLocks.has(lockKey)) {
+        continue;
+      }
+      releasedFileLocks.add(lockKey);
+      try {
+        if (typeof db.releaseFileLock === 'function') {
+          db.releaseFileLock(lock.filePath, lock.workingDirectory, taskId);
+        }
+      } catch (err) {
+        logger.info(`[FileLock] Non-fatal release error for ${lock.filePath}: ${err.message}`);
+      }
+    }
+  }
+
+  function releaseClaimedSlot(status, fields) {
+    if (!slotClaimed) {
+      return;
+    }
+    const currentTask = db.getTask(taskId);
+    if (currentTask && currentTask.status === 'running' && !currentTask.pid) {
+      safeUpdateTaskStatus(taskId, status, {
+        ...fields,
+        pid: null,
+        mcp_instance_id: null,
+        ollama_host_id: null,
+      });
+    }
+  }
+
+  function releaseOnStartupFailure(err) {
+    releaseAcquiredFileLocks();
+    try {
+      releaseClaimedSlot('failed', { error_output: err.message });
+    } catch (releaseErr) {
+      logger.info(`[startTask] Failed to release claimed slot for ${taskId}: ${releaseErr.message}`);
+    }
+  }
+
+  function releaseForPolicyBlock(cancelReason) {
+    releaseAcquiredFileLocks();
+    try {
+      releaseClaimedSlot('cancelled', { error_output: cancelReason });
+    } catch (releaseErr) {
+      logger.info(`[Policy] Failed to release claimed slot for ${taskId}: ${releaseErr.message}`);
+    }
+  }
+
+  function claimSlot() {
+    providerConfig = db.getProvider(provider);
+    const {
+      providerLimit,
+      providerGroup,
+      categoryLimit,
+      categoryProviderGroup,
+    } = getProviderSlotLimits(provider, providerConfig);
+    const claimResult = db.tryClaimTaskSlot(
+      taskId,
+      maxConcurrent,
+      QUEUE_LOCK_HOLDER_ID,
+      provider,
+      providerLimit,
+      providerGroup,
+      categoryLimit,
+      categoryProviderGroup,
+    );
+
+    if (!claimResult.success) {
+      if (claimResult.reason === 'at_capacity' || claimResult.reason === 'provider_at_capacity') {
+        db.updateTaskStatus(taskId, 'queued');
+        return { earlyResult: { queued: true, task: db.getTask(taskId) } };
+      }
+      if (claimResult.reason === 'already_running') {
+        return { earlyResult: { queued: false, alreadyRunning: true } };
+      }
+      if (claimResult.reason === 'not_found') {
+        throw new Error(`Task not found: ${taskId}`);
+      }
+      if (claimResult.reason === 'invalid_status') {
+        throw new Error(`Task in invalid status for starting: ${claimResult.status}`);
+      }
+      throw new Error(`Failed to claim task slot: ${claimResult.reason}`);
+    }
+
+    slotClaimed = true;
+    return { earlyResult: null, claimResult, providerConfig };
+  }
+
+  async function resolveAndLockFiles(currentProvider) {
+    let resolvedFileContext = '';
+    let resolvedFilePaths = [];
+    let resolvedFiles = [];
+
+    if (task.working_directory) {
+      try {
+        const resolution = resolveFileReferences(task.task_description, task.working_directory);
+        const resolved = Array.isArray(resolution?.resolved) ? resolution.resolved : [];
+        if (resolved.length > 0) {
+          resolvedFilePaths = resolved.map(r => r.actual);
+          resolvedFiles = resolved;
+          if (currentProvider !== 'ollama' && currentProvider !== 'codex') {
+            resolvedFileContext = await buildFileContext(resolved, task.working_directory, 30000, task.task_description);
+          }
+          logger.info(`[FileResolve] Pre-resolved ${resolved.length} file(s) for task ${taskId}`);
+        }
+      } catch (err) {
+        logger.info(`[FileResolve] Non-fatal error for task ${taskId}: ${err.message}`);
+      }
+    }
+
+    const isSandboxed = SANDBOXED_PROVIDERS.has(currentProvider);
+    if (resolvedFilePaths.length > 0) {
+      const wd = task.working_directory || '';
+      for (const filePath of resolvedFilePaths) {
+        try {
+          const lockResult = db.acquireFileLock(filePath, wd, taskId);
+          if (lockResult.acquired) {
+            acquiredFileLocks.push({ filePath, workingDirectory: wd });
+            continue;
+          }
+
+          if (isSandboxed) {
+            logger.info(`[FileLock] Task ${taskId.slice(0,8)} (${currentProvider}): file '${filePath}' locked by task ${lockResult.lockedBy?.slice(0,8) || 'unknown'} - requeuing to prevent sandbox conflict`);
+            releaseAcquiredFileLocks();
+            db.requeueTaskAfterAttemptedStart(taskId, {
+              error_output: (task.error_output || '') + `\nRequeued: file '${filePath}' is being edited by task ${lockResult.lockedBy || 'unknown'}. Will retry when the lock is released.`,
+            });
+            dashboard.notifyTaskUpdated(taskId);
+            processQueue();
+            return {
+              earlyResult: {
+                queued: true,
+                fileLockConflict: true,
+                conflictFile: filePath,
+                conflictTask: lockResult.lockedBy,
+              },
+            };
+          }
+
+          logger.warn(`[FileLock] Task ${taskId.slice(0,8)}: file '${filePath}' already locked by task ${lockResult.lockedBy?.slice(0,8) || 'unknown'} - proceeding (non-sandboxed provider)`);
+        } catch (err) {
+          logger.info(`[FileLock] Non-fatal lock error for ${filePath}: ${err.message}`);
+        }
+      }
+    }
+
+    return {
+      earlyResult: null,
+      resolvedFileContext,
+      resolvedFilePaths,
+      resolvedFiles,
+    };
+  }
+
+  return {
+    claimSlot,
+    resolveAndLockFiles,
+    releaseAcquiredFileLocks,
+    releaseOnStartupFailure,
+    releaseForPolicyBlock,
+    get acquiredFileLocks() { return acquiredFileLocks.slice(); },
+  };
+}
+
+function evaluateClaimedStartupPolicy({
+  task,
+  taskId,
+  provider,
+  evaluatePolicy,
+  describePolicyBlock,
+  cancelBlockedTask,
+  updateTaskStatus,
+  notifyTaskUpdated,
+  drainQueue,
+  getTask,
+  resourceLifecycle,
+  log,
+}) {
   const preExecutePolicyResult = evaluatePolicy({
     ...task,
     id: taskId,
     provider,
   });
 
-  if (preExecutePolicyResult?.blocked === true) {
-    const cancelReason = `[Policy] ${describePolicyBlock(preExecutePolicyResult, 'pre-execute')}`;
-    try {
-      cancelBlockedTask(taskId, cancelReason);
-    } catch (cancelErr) {
-      log.info(`[Policy] Failed to cancel blocked task ${taskId}: ${cancelErr.message}`);
-      updateTaskStatus(taskId, 'cancelled', { error_output: cancelReason });
-    }
-    try { notifyTaskUpdated(taskId); } catch { /* non-critical */ }
-    try { drainQueue(); } catch (queueErr) { log.info('Failed to process queue:', queueErr.message); }
-    return {
-      earlyResult: {
-        queued: false,
-        blocked: true,
-        cancelled: true,
-        reason: cancelReason,
-        task: getTask(taskId),
-      },
-    };
+  if (preExecutePolicyResult?.blocked !== true) {
+    return { earlyResult: null };
   }
 
+  const cancelReason = `[Policy] ${describePolicyBlock(preExecutePolicyResult, 'pre-execute')}`;
+  try {
+    cancelBlockedTask(taskId, cancelReason);
+  } catch (cancelErr) {
+    log.info(`[Policy] Failed to cancel blocked task ${taskId}: ${cancelErr.message}`);
+    updateTaskStatus(taskId, 'cancelled', { error_output: cancelReason });
+  }
+  resourceLifecycle.releaseForPolicyBlock(cancelReason);
+  try { notifyTaskUpdated(taskId); } catch { /* non-critical */ }
+  try { drainQueue(); } catch (queueErr) { log.info('Failed to process queue:', queueErr.message); }
   return {
-    earlyResult: null,
-    taskMetadata,
-    taskType,
-    contextTokenEstimate,
+    earlyResult: {
+      queued: false,
+      blocked: true,
+      cancelled: true,
+      reason: cancelReason,
+      task: getTask(taskId),
+    },
   };
 }
 
@@ -600,57 +790,24 @@ async function startTask(taskId) {
     parseMetadata: parseTaskMetadata,
     classifyTaskType: description => db.classifyTaskType(description),
     estimateContextTokens: getTaskContextTokenEstimate,
-    evaluatePolicy: evaluateTaskPreExecutePolicy,
-    describePolicyBlock: getPolicyBlockReason,
-    cancelBlockedTask: cancelTask,
-    updateTaskStatus: safeUpdateTaskStatus,
-    notifyTaskUpdated: id => dashboard.notifyTaskUpdated(id),
-    drainQueue: processQueue,
-    getTask: id => db.getTask(id),
-    log: logger,
   });
   if (startupSafeguards.earlyResult) {
     return startupSafeguards.earlyResult;
   }
   let { taskMetadata, taskType, contextTokenEstimate } = startupSafeguards;
 
-  // === ATOMIC SLOT CLAIM ===
-  // Atomically check concurrency and claim the slot to prevent race conditions
-  // Stamp with our instance ID so sibling sessions can identify task ownership
-  let providerConfig = db.getProvider(provider);
-  const {
-    providerLimit,
-    providerGroup,
-    categoryLimit,
-    categoryProviderGroup,
-  } = getProviderSlotLimits(provider, providerConfig);
-  const claimResult = db.tryClaimTaskSlot(
+  const startupResources = createTaskStartupResourceLifecycle({
     taskId,
-    maxConcurrent,
-    QUEUE_LOCK_HOLDER_ID,
+    task,
     provider,
-    providerLimit,
-    providerGroup,
-    categoryLimit,
-    categoryProviderGroup,
-  );
-  if (!claimResult.success) {
-    if (claimResult.reason === 'at_capacity' || claimResult.reason === 'provider_at_capacity') {
-      // Queue the task instead - concurrency limit reached
-      db.updateTaskStatus(taskId, 'queued');
-      return { queued: true, task: db.getTask(taskId) };
-    }
-    if (claimResult.reason === 'already_running') {
-      return { queued: false, alreadyRunning: true };
-    }
-    if (claimResult.reason === 'not_found') {
-      throw new Error(`Task not found: ${taskId}`);
-    }
-    if (claimResult.reason === 'invalid_status') {
-      throw new Error(`Task in invalid status for starting: ${claimResult.status}`);
-    }
-    throw new Error(`Failed to claim task slot: ${claimResult.reason}`);
+    maxConcurrent,
+  });
+  const resourceClaim = startupResources.claimSlot();
+  if (resourceClaim.earlyResult) {
+    return resourceClaim.earlyResult;
   }
+  const { claimResult } = resourceClaim;
+  let { providerConfig } = resourceClaim;
   if (claimResult.task) {
     Object.assign(task, claimResult.task);
     if (Object.prototype.hasOwnProperty.call(claimResult.task, 'metadata')) {
@@ -724,62 +881,28 @@ async function startTask(taskId) {
     }
   }
 
-  // === PRE-EXECUTION FILE RESOLUTION ===
-  let resolvedFileContext = '';
-  let resolvedFilePaths = [];
-  let resolvedFiles = [];
-
-  if (task.working_directory) {
-    try {
-      const resolution = resolveFileReferences(task.task_description, task.working_directory);
-      if (resolution.resolved.length > 0) {
-        resolvedFilePaths = resolution.resolved.map(r => r.actual);
-        resolvedFiles = resolution.resolved;
-        // Build context for non-ollama, non-codex providers
-        // Codex reads files itself — buildCodexCommand uses lightweight context + enrichment
-        if (provider !== 'ollama' && provider !== 'codex') {
-          resolvedFileContext = await buildFileContext(resolution.resolved, task.working_directory, 30000, task.task_description);
-        }
-        logger.info(`[FileResolve] Pre-resolved ${resolution.resolved.length} file(s) for task ${taskId}`);
-
-
-      }
-    } catch (e) {
-      logger.info(`[FileResolve] Non-fatal error for task ${taskId}: ${e.message}`);
-    }
+  const fileResources = await startupResources.resolveAndLockFiles(provider);
+  if (fileResources.earlyResult) {
+    return fileResources.earlyResult;
   }
+  const { resolvedFileContext, resolvedFiles } = fileResources;
 
-  // === FILE LOCKING — sandbox-aware conflict prevention ===
-  // Sandboxed providers (codex, codex-spark, claude-cli) start from a repo snapshot.
-  // Concurrent tasks editing the same file silently overwrite each other's changes.
-  // For these providers: block and requeue when a file conflict is detected.
-  // For non-sandboxed providers (ollama, cloud APIs): warn only.
-  const SANDBOXED_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
-  const isSandboxed = SANDBOXED_PROVIDERS.has(provider);
-  if (resolvedFilePaths.length > 0) {
-    const wd = task.working_directory || '';
-    for (const filePath of resolvedFilePaths) {
-      try {
-        const lockResult = db.acquireFileLock(filePath, wd, taskId);
-        if (!lockResult.acquired) {
-          if (isSandboxed) {
-            // Sandboxed provider — requeue to prevent silent overwrites
-            logger.info(`[FileLock] Task ${taskId.slice(0,8)} (${provider}): file '${filePath}' locked by task ${lockResult.lockedBy?.slice(0,8) || 'unknown'} — requeuing to prevent sandbox conflict`);
-            db.requeueTaskAfterAttemptedStart(taskId, {
-              error_output: (task.error_output || '') + `\nRequeued: file '${filePath}' is being edited by task ${lockResult.lockedBy || 'unknown'}. Will retry when the lock is released.`,
-            });
-            dashboard.notifyTaskUpdated(taskId);
-            processQueue();
-            return { queued: true, fileLockConflict: true, conflictFile: filePath, conflictTask: lockResult.lockedBy };
-          } else {
-            // Non-sandboxed provider — warn only (they edit the real filesystem)
-            logger.warn(`[FileLock] Task ${taskId.slice(0,8)}: file '${filePath}' already locked by task ${lockResult.lockedBy?.slice(0,8) || 'unknown'} — proceeding (non-sandboxed provider)`);
-          }
-        }
-      } catch (e) {
-        logger.info(`[FileLock] Non-fatal lock error for ${filePath}: ${e.message}`);
-      }
-    }
+  const policyResult = evaluateClaimedStartupPolicy({
+    task,
+    taskId,
+    provider,
+    evaluatePolicy: evaluateTaskPreExecutePolicy,
+    describePolicyBlock: getPolicyBlockReason,
+    cancelBlockedTask: cancelTask,
+    updateTaskStatus: safeUpdateTaskStatus,
+    notifyTaskUpdated: id => dashboard.notifyTaskUpdated(id),
+    drainQueue: processQueue,
+    getTask: id => db.getTask(id),
+    resourceLifecycle: startupResources,
+    log: logger,
+  });
+  if (policyResult.earlyResult) {
+    return policyResult.earlyResult;
   }
 
   const executionDescription = await buildExecutionDescriptionWithMentions(task, taskId);
@@ -849,6 +972,7 @@ async function startTask(taskId) {
         // The original tryClaimTaskSlot set status='running' and provider=originalProvider;
         // without this, the original provider's concurrency counter stays inflated until the
         // task eventually completes or is cancelled (slot leak).
+        startupResources.releaseAcquiredFileLocks();
         db.requeueTaskAfterAttemptedStart(taskId, { provider: null });
         return { queued: true, task: db.getTask(taskId) };
       }
@@ -974,19 +1098,7 @@ async function startTask(taskId) {
     taskType, contextTokenEstimate, baselineCommit
   });
   } catch (err) {
-    try {
-      const currentTask = db.getTask(taskId);
-      if (currentTask && currentTask.status === 'running' && !currentTask.pid) {
-        safeUpdateTaskStatus(taskId, 'failed', {
-          error_output: err.message,
-          pid: null,
-          mcp_instance_id: null,
-          ollama_host_id: null,
-        });
-      }
-    } catch (releaseErr) {
-      logger.info(`[startTask] Failed to release claimed slot for ${taskId}: ${releaseErr.message}`);
-    }
+    startupResources.releaseOnStartupFailure(err);
     throw err;
   }
 }
@@ -1282,6 +1394,8 @@ module.exports = {
   runPreflightChecks,
   runSafeguardPreChecks,
   recordTaskStartedAuditEvent,
+  createTaskStartupResourceLifecycle,
+  evaluateClaimedStartupPolicy,
   // Queue helpers
   attemptTaskStart,
   safeStartTask,

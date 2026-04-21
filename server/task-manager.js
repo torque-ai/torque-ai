@@ -533,6 +533,8 @@ function buildCodexCommand(...args) { return _commandBuilders.buildCodexCommand(
 
 // === startTask phase helpers — delegated to execution/task-startup.js ===
 function recordTaskStartedAuditEvent(...args) { return _taskStartup.recordTaskStartedAuditEvent(...args); }
+function createTaskStartupResourceLifecycle(...args) { return _taskStartup.createTaskStartupResourceLifecycle(...args); }
+function evaluateClaimedStartupPolicy(...args) { return _taskStartup.evaluateClaimedStartupPolicy(...args); }
 
 // Provider routing — delegated to execution/provider-router.js
 function resolveProviderRouting(...args) { return _providerRouter.resolveProviderRouting(...args); }
@@ -1227,6 +1229,8 @@ Object.assign(module.exports, {
   CONVERSATIONAL_REFUSAL_PATTERN,
   recordModelOutcome,
   recordProviderHealth,
+  createTaskStartupResourceLifecycle,
+  evaluateClaimedStartupPolicy,
   // Internal state (exported for testing only)
   _testing: {
     get runningProcesses() { return runningProcesses; },
@@ -1358,6 +1362,8 @@ function createTaskManager(_deps) {
     CONVERSATIONAL_REFUSAL_PATTERN,
     recordModelOutcome,
     recordProviderHealth,
+    createTaskStartupResourceLifecycle,
+    evaluateClaimedStartupPolicy,
     initEarlyDeps,
     initSubModules,
     startQueuePoll,

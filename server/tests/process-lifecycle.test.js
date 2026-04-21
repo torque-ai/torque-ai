@@ -25,6 +25,7 @@ const SANITIZE_MODULE = '../utils/sanitize';
 const COMPLETION_MODULE = '../validation/completion-detection';
 const FILE_RESOLUTION_MODULE = '../utils/file-resolution';
 const WEBHOOK_MODULE = '../handlers/webhook-handlers';
+const TASK_STARTUP_MODULE = '../execution/task-startup';
 
 beforeAll(() => {
   const setup = setupTestDbOnly('process-lifecycle');
@@ -247,6 +248,104 @@ function createTaskRecord(taskId, overrides = {}) {
     timeout_minutes: 30,
     ...overrides,
   };
+}
+
+function createStartupResourceLifecycleHarness({
+  taskId = 'task-startup-resource-cleanup',
+  provider = 'codex',
+  files = ['src/a.js', 'src/b.js'],
+} = {}) {
+  const task = createTaskRecord(taskId, {
+    status: 'pending',
+    provider,
+    working_directory: 'C:/repo',
+    task_description: `edit ${files.join(' ')}`,
+  });
+  const tasks = new Map([[taskId, { ...task }]]);
+  const dbMock = {
+    getTask: vi.fn((id) => {
+      const current = tasks.get(id);
+      return current ? { ...current } : null;
+    }),
+    getProvider: vi.fn(() => ({ enabled: true, cli_path: 'codex' })),
+    updateTaskStatus: vi.fn((id, status, patch = {}) => {
+      const current = tasks.get(id) || { id };
+      const next = { ...current, ...patch, status };
+      tasks.set(id, next);
+      return { ...next };
+    }),
+    tryClaimTaskSlot: vi.fn((id, _maxConcurrent, holderId, nextProvider) => {
+      const current = tasks.get(id);
+      const claimed = {
+        ...current,
+        status: 'running',
+        provider: nextProvider,
+        pid: null,
+        mcp_instance_id: holderId,
+      };
+      tasks.set(id, claimed);
+      return { success: true, task: { ...claimed } };
+    }),
+    acquireFileLock: vi.fn(() => ({ acquired: true })),
+    releaseFileLock: vi.fn(),
+    requeueTaskAfterAttemptedStart: vi.fn((id, patch = {}) => {
+      const current = tasks.get(id) || { id };
+      const next = {
+        ...current,
+        ...patch,
+        status: 'queued',
+        pid: null,
+        mcp_instance_id: null,
+        ollama_host_id: null,
+      };
+      tasks.set(id, next);
+      return { ...next };
+    }),
+  };
+  const deps = {
+    db: dbMock,
+    dashboard: { notifyTaskUpdated: vi.fn() },
+    serverConfig: { get: vi.fn(() => '0'), getBool: vi.fn(() => false) },
+    providerRegistry: {
+      isKnownProvider: vi.fn(() => true),
+      isApiProvider: vi.fn(() => false),
+      getProviderInstance: vi.fn(() => null),
+    },
+    gpuMetrics: { getPressureLevel: vi.fn(() => 'normal') },
+    runningProcesses: new ProcessTracker(),
+    pendingRetryTimeouts: new Map(),
+    parseTaskMetadata: vi.fn((metadata) => (metadata && typeof metadata === 'object' ? { ...metadata } : {})),
+    getTaskContextTokenEstimate: vi.fn(() => 0),
+    safeUpdateTaskStatus: vi.fn((id, status, patch = {}) => dbMock.updateTaskStatus(id, status, patch)),
+    resolveProviderRouting: vi.fn((taskToRoute) => ({ provider: taskToRoute.provider || 'codex' })),
+    failTaskForInvalidProvider: vi.fn(() => 'Unknown provider'),
+    getProviderSlotLimits: vi.fn(() => ({
+      providerLimit: 1,
+      providerGroup: [],
+      categoryLimit: 10,
+      categoryProviderGroup: [],
+    })),
+    getEffectiveGlobalMaxConcurrent: vi.fn(() => 3),
+    spawnAndTrackProcess: vi.fn(),
+    buildClaudeCliCommand: vi.fn(),
+    buildCodexCommand: vi.fn(),
+    buildFileContext: vi.fn(async () => 'FILE_CONTEXT'),
+    resolveFileReferences: vi.fn(() => ({
+      resolved: files.map((actual) => ({ actual })),
+    })),
+    executeOllamaTask: vi.fn(),
+    executeApiProvider: vi.fn(),
+    evaluateTaskPreExecutePolicy: vi.fn(() => ({ blocked: false })),
+    getPolicyBlockReason: vi.fn(() => 'policy blocked'),
+    cancelTask: vi.fn(),
+    processQueue: vi.fn(),
+    sanitizeTaskOutput: vi.fn((value) => value),
+    detectOutputCompletion: vi.fn(() => false),
+    QUEUE_LOCK_HOLDER_ID: 'queue-holder',
+  };
+  const taskStartup = require(TASK_STARTUP_MODULE);
+  taskStartup.init(deps);
+  return { taskStartup, deps, tasks, task };
 }
 
 function createSpawnDeps({
@@ -1683,6 +1782,93 @@ describe('process-lifecycle', () => {
         procState: { provider: 'codex' },
       }));
       expect(deps.dashboard.notifyTaskUpdated).toHaveBeenCalledTimes(2);
+      expect(deps.processQueue).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('task startup resource lifecycle', () => {
+    it('releases claimed slots and file locks for command-build and spawn startup failures', async () => {
+      for (const [index, failureMessage] of ['command build failed', 'spawn failed'].entries()) {
+        const taskId = `task-resource-failure-${index}`;
+        const { taskStartup, deps, task, tasks } = createStartupResourceLifecycleHarness({ taskId });
+        const resources = taskStartup.createTaskStartupResourceLifecycle({
+          taskId,
+          task,
+          provider: 'codex',
+          maxConcurrent: 3,
+        });
+
+        const claim = resources.claimSlot();
+        const files = await resources.resolveAndLockFiles('codex');
+        resources.releaseOnStartupFailure(new Error(failureMessage));
+
+        expect(claim.earlyResult).toBeNull();
+        expect(files.earlyResult).toBeNull();
+        expect(deps.db.releaseFileLock).toHaveBeenCalledWith('src/b.js', 'C:/repo', taskId);
+        expect(deps.db.releaseFileLock).toHaveBeenCalledWith('src/a.js', 'C:/repo', taskId);
+        expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(taskId, 'failed', expect.objectContaining({
+          error_output: failureMessage,
+          pid: null,
+          mcp_instance_id: null,
+          ollama_host_id: null,
+        }));
+        expect(tasks.get(taskId)).toEqual(expect.objectContaining({
+          status: 'failed',
+          pid: null,
+          mcp_instance_id: null,
+          ollama_host_id: null,
+        }));
+      }
+    });
+
+    it('releases claimed resources when pre-execute policy blocks after claim', async () => {
+      const taskId = 'task-resource-policy-block';
+      const { taskStartup, deps, task, tasks } = createStartupResourceLifecycleHarness({ taskId });
+      const resources = taskStartup.createTaskStartupResourceLifecycle({
+        taskId,
+        task,
+        provider: 'codex',
+        maxConcurrent: 3,
+      });
+      resources.claimSlot();
+      await resources.resolveAndLockFiles('codex');
+
+      const result = taskStartup.evaluateClaimedStartupPolicy({
+        task,
+        taskId,
+        provider: 'codex',
+        evaluatePolicy: vi.fn(() => ({ blocked: true })),
+        describePolicyBlock: vi.fn(() => 'blocked by policy'),
+        cancelBlockedTask: deps.cancelTask,
+        updateTaskStatus: deps.safeUpdateTaskStatus,
+        notifyTaskUpdated: deps.dashboard.notifyTaskUpdated,
+        drainQueue: deps.processQueue,
+        getTask: deps.db.getTask,
+        resourceLifecycle: resources,
+        log: { info: vi.fn() },
+      });
+
+      expect(result.earlyResult).toEqual(expect.objectContaining({
+        blocked: true,
+        cancelled: true,
+        reason: '[Policy] blocked by policy',
+      }));
+      expect(deps.cancelTask).toHaveBeenCalledWith(taskId, '[Policy] blocked by policy');
+      expect(deps.db.releaseFileLock).toHaveBeenCalledWith('src/b.js', 'C:/repo', taskId);
+      expect(deps.db.releaseFileLock).toHaveBeenCalledWith('src/a.js', 'C:/repo', taskId);
+      expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(taskId, 'cancelled', expect.objectContaining({
+        error_output: '[Policy] blocked by policy',
+        pid: null,
+        mcp_instance_id: null,
+        ollama_host_id: null,
+      }));
+      expect(tasks.get(taskId)).toEqual(expect.objectContaining({
+        status: 'cancelled',
+        pid: null,
+        mcp_instance_id: null,
+        ollama_host_id: null,
+      }));
+      expect(deps.dashboard.notifyTaskUpdated).toHaveBeenCalledWith(taskId);
       expect(deps.processQueue).toHaveBeenCalledTimes(1);
     });
   });
