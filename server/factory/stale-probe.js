@@ -12,11 +12,20 @@ function defaultGitRunner(cwd, args) {
     // Use execFile rather than spawn. spawn('git', ...) on Windows can
     // emit spurious errors because it doesn't auto-resolve git.exe /
     // git.cmd in PATH the same way execFile does.
+    //
+    // Strip GIT_* env vars that may have leaked from the parent (TORQUE
+    // tests, vitest test-runner, etc.) — GIT_DIR / GIT_WORK_TREE override
+    // cwd-based repo discovery and make `git log` run against the wrong
+    // repo. Observed on the Omen remote.
+    const cleanEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
+    );
     childProcess.execFile('git', args, {
       cwd,
       windowsHide: true,
       maxBuffer: 1024 * 1024,
       encoding: 'utf8',
+      env: cleanEnv,
     }, (err, stdout, stderr) => {
       if (err) {
         if (err.code === 'ENOENT') {
@@ -105,9 +114,6 @@ async function probeStaleness(item, {
     );
     stdout = String(result?.stdout || '');
   } catch (err) {
-    // Temporary diagnostic — remove after the integration tests settle.
-    // eslint-disable-next-line no-console
-    console.error('[stale-probe debug]', { code: err?.code, msg: err?.message });
     if (err && err.message === 'probe_timeout') {
       return makeResult({ reason: 'probe_timeout' });
     }

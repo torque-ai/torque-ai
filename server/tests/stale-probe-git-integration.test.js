@@ -7,10 +7,16 @@ const childProcess = require('child_process');
 const { probeStaleness } = require('../factory/stale-probe');
 
 function git(cwd, args) {
+  // Strip any GIT_* env vars that vitest or TORQUE might leak into the
+  // child process — they override the cwd-based repo discovery and make
+  // `git init` silently bind to the outer repo instead of the tmpdir.
+  const cleanEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
+  );
   childProcess.execFileSync('git', args, {
     cwd,
     env: {
-      ...process.env,
+      ...cleanEnv,
       GIT_AUTHOR_NAME: 'Test',
       GIT_AUTHOR_EMAIL: 'test@example.com',
       GIT_COMMITTER_NAME: 'Test',
@@ -52,8 +58,6 @@ describe('stale-probe against a real git repo', () => {
       origin: { target_file: 'foo.js', severity: 'HIGH', variant: 'security' },
     };
 
-    // eslint-disable-next-line no-console
-    console.error('[probe-debug]', { tmpDir, gitExists: fs.existsSync(path.join(tmpDir, '.git')) });
     const result = await probeStaleness(item, { projectPath: tmpDir });
     expect(result.stale).toBe(false);
     expect(result.reason).toBe('no_commits_since_scan');
