@@ -131,10 +131,23 @@ function createAuthPlugin() {
       ? dbService.getDataDir()
       : null;
     const injectionKey = bootstrapKey || (configInjector ? configInjector.readKeyFromFile(dataDir) : null);
-    if (configInjector) {
+
+    // Only rewrite ~/.claude/.mcp.json when auth is actually the enforced mode.
+    // The loader already gates this plugin to enterprise mode in practice, but
+    // if the plugin is ever loaded otherwise (tests, diagnostics, future
+    // plugin-manager UI) we should not stomp the user's MCP config with a
+    // keyed URL that nothing on the HTTP layer will validate anyway.
+    const envAuthMode = process.env.TORQUE_AUTH_MODE;
+    const dbAuthMode = dbService && typeof dbService.getConfig === 'function'
+      ? dbService.getConfig('auth_mode')
+      : null;
+    const authMode = envAuthMode || dbAuthMode || 'local';
+    if (configInjector && authMode === 'enterprise') {
       configInjector.ensureGlobalMcpConfig(injectionKey, {
         ssePort: resolveSsePort(serverConfig),
       });
+    } else if (configInjector) {
+      logger.info(`[auth-plugin] Skipping MCP config injection (auth_mode=${authMode}).`);
     }
 
     installed = true;

@@ -147,6 +147,54 @@ describe('server/plugins/auth/index — install', () => {
     expect(fs.existsSync(keyPath)).toBe(true);
     expect(fs.readFileSync(keyPath, 'utf8')).toMatch(/^torque_sk_/);
   });
+
+  it('install() skips MCP config injection when auth_mode is not enterprise', () => {
+    const prevEnv = process.env.TORQUE_AUTH_MODE;
+    delete process.env.TORQUE_AUTH_MODE;
+    const messages = [];
+    try {
+      plugin.install(makeContainer({
+        logger: {
+          info(message) { messages.push(message); },
+          warn() {},
+        },
+      }));
+    } finally {
+      if (prevEnv !== undefined) process.env.TORQUE_AUTH_MODE = prevEnv;
+    }
+
+    expect(messages.some((m) => /Skipping MCP config injection \(auth_mode=local\)/.test(m))).toBe(true);
+  });
+
+  it('install() respects dbService.getConfig("auth_mode") when env is unset', () => {
+    const prevEnv = process.env.TORQUE_AUTH_MODE;
+    delete process.env.TORQUE_AUTH_MODE;
+    const messages = [];
+
+    const container = {
+      get(name) {
+        if (name === 'db') {
+          return {
+            getDbInstance: () => rawDb(),
+            getDataDir: () => tmpDir,
+            getConfig: (key) => (key === 'auth_mode' ? 'local' : null),
+          };
+        }
+        if (name === 'serverConfig') return { getInt: () => 3458 };
+        if (name === 'eventBus') return { on() {}, emit() {} };
+        if (name === 'logger') return { info: (m) => messages.push(m), warn() {} };
+        return null;
+      },
+    };
+
+    try {
+      plugin.install(container);
+    } finally {
+      if (prevEnv !== undefined) process.env.TORQUE_AUTH_MODE = prevEnv;
+    }
+
+    expect(messages.some((m) => /Skipping MCP config injection \(auth_mode=local\)/.test(m))).toBe(true);
+  });
 });
 
 describe('server/plugins/auth/index — middleware', () => {
