@@ -444,7 +444,7 @@ function getEffectiveGlobalMaxConcurrent() {
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
 function createProviderRouter(_deps) {
-  // _deps reserved for Phase 5 when database.js facade is removed
+  // _deps reserved for dependency-boundary follow-up
   return {
     init,
     safeConfigInt,

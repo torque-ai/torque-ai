@@ -634,6 +634,7 @@ function init() {
 
     // Wire all sub-modules via factory functions (hostManagement.setDb already called above for migrateToMultiHost)
     _wireAllModules();
+    registerFacadeWithContainer();
 
     const backupInterval = parseInt(getConfig('backup_interval_minutes') || '60', 10);
     if (backupInterval > 0) {
@@ -1044,6 +1045,22 @@ function _defineFacadeValue(target, key, value) {
     configurable: true,
     writable: true,
   });
+}
+
+function registerFacadeWithContainer() {
+  try {
+    const { defaultContainer } = require('./container');
+    if (
+      defaultContainer
+      && typeof defaultContainer.has === 'function'
+      && typeof defaultContainer.registerValue === 'function'
+      && !defaultContainer.has('db')
+    ) {
+      defaultContainer.registerValue('db', facade);
+    }
+  } catch {
+    // Container wiring is best-effort for legacy callers.
+  }
 }
 
 const facade = {};

@@ -2,7 +2,6 @@
 
 const StrategicBrain = require('../orchestrator/strategic-brain');
 const taskCore = require('../db/task-core');
-const database = require('../database'); // facade: getDbInstance
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'strategic-hooks' });
 
@@ -58,12 +57,25 @@ function getCurrentTask(taskId, fallbackTask) {
   return fallbackTask || null;
 }
 
+function getRawDbInstance() {
+  try {
+    const { getModule } = require('../container');
+    const injectedDb = getModule('db');
+    if (injectedDb && typeof injectedDb.getDbInstance === 'function') {
+      return injectedDb.getDbInstance();
+    }
+    return injectedDb && typeof injectedDb.prepare === 'function' ? injectedDb : null;
+  } catch {
+    return null;
+  }
+}
+
 function persistMetadata(taskId, metadata) {
   if (typeof taskCore.updateTask === 'function') {
     return taskCore.updateTask(taskId, { metadata });
   }
 
-  const dbInstance = typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
+  const dbInstance = getRawDbInstance();
   if (!dbInstance) return null;
 
   dbInstance.prepare('UPDATE tasks SET metadata = ? WHERE id = ?').run(JSON.stringify(metadata), taskId);
@@ -158,7 +170,7 @@ async function onTaskCompleted(ctx) {
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
 function createStrategicHooks(_deps) {
-  // _deps reserved for Phase 5 when database.js facade is removed
+  // _deps reserved for dependency-boundary follow-up
   return {
     onTaskFailed,
     onTaskCompleted,

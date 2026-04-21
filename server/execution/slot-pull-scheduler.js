@@ -258,7 +258,7 @@ function stopHeartbeat() {
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
 function createSlotPullScheduler(_deps) {
-  // _deps reserved for Phase 5 when database.js facade is removed
+  // _deps reserved for dependency-boundary follow-up
   return {
     init, findBestTaskForProvider, claimTask, runSlotPullPass,
     requeueAfterFailure, onSlotFreed, startHeartbeat, stopHeartbeat,

@@ -1099,7 +1099,7 @@ function resolveCodexPendingTasks() {
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
 function createQueueScheduler(_deps) {
-  // _deps reserved for Phase 5 when database.js facade is removed
+  // _deps reserved for dependency-boundary follow-up
   return {
     FREE_PROVIDERS,
     COST_FREE_PROVIDERS,

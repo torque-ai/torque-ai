@@ -175,6 +175,13 @@ function createContainer() {
     return [..._instances.keys()];
   }
 
+  function peek(name) {
+    if (_instances.has(name)) return _instances.get(name);
+    const entry = _registry.get(name);
+    if (!entry || entry.factory) return undefined;
+    return entry.value;
+  }
+
   function freeze() {
     if (!_booted) {
       throw new Error('Container: cannot freeze before boot() — call boot() first');
@@ -188,7 +195,7 @@ function createContainer() {
     _frozen = false;
   }
 
-  return { register, registerValue, boot, get, has, list, freeze, resetForTest };
+  return { register, registerValue, boot, get, has, list, peek, freeze, resetForTest };
 }
 
 // ── Legacy compatibility ────────────────────────────────────────────────────
@@ -227,7 +234,9 @@ function getModule(name) {
   try {
     return _defaultContainer.get(name);
   } catch {
-    return undefined;
+    return typeof _defaultContainer.peek === 'function'
+      ? _defaultContainer.peek(name)
+      : undefined;
   }
 }
 

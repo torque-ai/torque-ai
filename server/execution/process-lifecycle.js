@@ -702,7 +702,7 @@ function spawnAndTrackProcess(taskId, task, {
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
 function createProcessLifecycle(_deps) {
-  // _deps reserved for Phase 5 when database.js facade is removed
+  // _deps reserved for dependency-boundary follow-up
   return {
     init,
     clearProcTimeouts,
