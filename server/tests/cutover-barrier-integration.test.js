@@ -156,6 +156,23 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(failBlock).toBe(true);
     });
 
+    it('handles barrier task cancellation as a terminal state with exit 2', () => {
+      // Regression guard (2026-04-21): without an explicit cancelled case,
+      // the poll loop kept looping "Barrier XXX: cancelled — sleeping 10s..."
+      // until POLL_DEADLINE, wedging cutovers whenever an operator had to
+      // manually cancel a stuck barrier. The case mirrors 'failed' shape:
+      // merge landed, TORQUE unrestarted, exit 2 with recovery options.
+      expect(scriptSource).toContain('"cancelled"');
+      expect(scriptSource).toContain('Barrier task was cancelled mid-drain');
+      // The cancelled branch must live in the same poll loop as the failed
+      // branch and exit 2 so scripts can distinguish from success.
+      const idxCancelled = scriptSource.indexOf('"cancelled"');
+      const idxPollLoop = scriptSource.indexOf('Waiting for pipeline drain');
+      const idxRestart = scriptSource.indexOf('Waiting for TORQUE to restart');
+      expect(idxCancelled).toBeGreaterThan(idxPollLoop);
+      expect(idxCancelled).toBeLessThan(idxRestart);
+    });
+
     it('handles server unreachable during restart grace period', () => {
       expect(scriptSource).toContain('Server unreachable (expected during restart)');
     });

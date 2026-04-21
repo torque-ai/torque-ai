@@ -203,6 +203,22 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
           echo "        3. Emergency override: bash stop-torque.sh --force && restart manually"
           exit 2
         fi
+        # 'cancelled' is terminal — the barrier was aborted (operator ran
+        # cancel_task, or an orchestrator timed out). Without this case the
+        # poll loop kept looping silently until POLL_DEADLINE. Treat it as
+        # an explicit abort: merge landed, TORQUE not restarted; re-run or
+        # force-restart to recover. Observed 2026-04-21 when a phantom
+        # drain-counter wedge was cleared by manual cancel_task.
+        if [ "$TASK_STATUS" = "cancelled" ]; then
+          echo "[error] Barrier task was cancelled mid-drain."
+          echo "        Merge landed but TORQUE was NOT restarted."
+          echo "        The queue has resumed (cancelled is terminal) but the"
+          echo "        server is still running the old code."
+          echo "        Options:"
+          echo "        1. Re-run cutover to trigger a fresh barrier: bash $0 $1"
+          echo "        2. Emergency override: bash stop-torque.sh --force && restart manually"
+          exit 2
+        fi
         if [ -z "$TASK_STATUS" ]; then
           # Server may have already shut down mid-poll — this is expected
           # during the restart grace period. Break and check for new server.
