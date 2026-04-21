@@ -54,6 +54,26 @@ At VERIFY_FAIL (after exhausting retries), the same check runs as a recovery pat
 
 Plan intake skips re-ingest when the prior work item for the same plan_path is still active (pending, in_progress, verifying). This prevents duplicate work items from factory's own checkbox ticking changing the content hash.
 
+## Close-Handler Observability (2026-04)
+
+Every factory Codex task writes one row to `factory_attempt_history` on completion. The table captures: which plan task, files touched, last 1200 chars of Codex stdout, and (when no files changed) a classifier verdict — `already_in_place` / `blocked` / `precondition_missing` / `unknown`. Query the table to debug why a work item cycled through the loop without producing diffs.
+
+Two feature flags on `factory_projects.config_json.feature_flags` gate behavioral changes:
+
+- `auto_ship_noop_enabled` — classifier reason `already_in_place` with conf >= 0.8 → ship-noop, skip VERIFY.
+- `verify_silent_rerun_enabled` — on ambiguous verify classifier verdict, rerun verify once silently before spending a Codex retry slot. Budget: one per batch, tracked on `factory_loop_instances.verify_silent_reruns`.
+
+Decision-log actions to watch:
+- `auto_commit_skipped_clean` — now carries `zero_diff_reason`, `classifier_source`, `classifier_conf`.
+- `shipped_as_noop` — flag-gated auto-ship.
+- `paused_at_gate` with `paused_reason: 'blocked_by_codex' | 'precondition_missing'` — classifier-triggered pause at EXECUTE.
+- `verify_silent_rerun_started` / `verify_passed_on_silent_rerun` / `verify_rerun_same_failure` / `verify_rerun_different_failure` / `verify_silent_rerun_failed` — silent rerun lifecycle.
+
+Retry fix prompts now include a "Prior attempts on this work item:" block (last 3 attempts, file counts, Codex summaries) and a "Verify error progression:" diff between the prior and current verify runs. See `server/factory/loop-controller.js` (`buildVerifyFixPrompt`) for the budget + rendering rules.
+
+Design: `docs/superpowers/specs/2026-04-20-close-handler-retry-observability-design.md`
+Plan:   `docs/superpowers/plans/2026-04-20-close-handler-observability.md`
+
 ## Auto-Recovery Decision Actions
 
 The factory emits named decisions for each auto-recovery path so stuck loops are diagnosable from the decision log alone. When debugging a stalled project, query the decisions endpoint first:
