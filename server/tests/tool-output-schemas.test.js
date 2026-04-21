@@ -71,6 +71,31 @@ describe('tool-output-schemas', () => {
       }
     });
 
+    it('declares schemas for all expected tools', () => {
+      const expected = [
+        'check_status', 'task_info', 'list_tasks', 'get_result',
+        'get_progress', 'workflow_status', 'list_workflows', 'list_ollama_hosts',
+        'get_context',
+        // Phase 2
+        'provider_stats', 'success_rates', 'list_providers', 'check_ollama_health',
+        'get_cost_summary', 'get_budget_status', 'get_cost_forecast',
+        'get_concurrency_limits', 'check_stalled_tasks', 'check_task_progress',
+        // Phase 3
+        'workflow_history', 'list_models', 'list_pending_models', 'list_model_roles',
+        'list_archived', 'get_archive_stats', 'get_provider_health_trends',
+        'health_check', 'integration_health', 'list_tags',
+        // OAuth / tool hints / handoff / sessions
+        'start_oauth_flow', 'complete_oauth_flow', 'list_connected_accounts',
+        'disable_account', 'delete_account', 'list_tools_by_hints',
+        'create_handoff_agent', 'get_handoff_history', 'get_batch_summary',
+        'dispatch_subagent', 'resume_session', 'fork_session', 'list_sessions',
+      ];
+      for (const name of expected) {
+        expect(getOutputSchema(name)).toBeDefined();
+      }
+      expect(Object.keys(OUTPUT_SCHEMAS).length).toBe(expected.length);
+    });
+
     it('declares schemas only for registered tool definitions', () => {
       const toolDefNames = loadToolDefinitionNames();
       const schemaNames = Object.keys(OUTPUT_SCHEMAS);
