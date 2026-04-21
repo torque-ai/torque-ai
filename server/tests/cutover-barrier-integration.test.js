@@ -367,6 +367,16 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(routes).toContain("tool: 'await_restart'");
     });
 
+    it('restart-status endpoint exists in routes-passthrough', () => {
+      // restart_server's response text advertises restart_status as a
+      // non-blocking way to check drain state; the REST passthrough must
+      // actually expose it.
+      const routesPath = path.join(REPO_ROOT, 'server/api/routes-passthrough.js');
+      const routes = fs.readFileSync(routesPath, 'utf8');
+      expect(routes).toContain("'/api/v2/system/restart-status'");
+      expect(routes).toContain("tool: 'restart_status'");
+    });
+
     it('restart_server handler creates barrier with provider=system', () => {
       const tools = fs.readFileSync(path.join(REPO_ROOT, 'server/tools.js'), 'utf8');
       expect(tools).toContain("provider: 'system'");

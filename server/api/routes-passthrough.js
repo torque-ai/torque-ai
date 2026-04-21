@@ -334,10 +334,11 @@ const routes = [
   { method: 'POST', path: '/api/v2/study/reset', tool: 'reset_codebase_study', mapBody: true, v2StructuredResponse: true },
   { method: 'POST', path: '/api/v2/study/schedule', tool: 'configure_study_schedule', mapBody: true, v2StructuredResponse: true },
 
-  // ─── system (7 routes) ───────────────────────────────────────────────────────
+  // ─── system (8 routes) ───────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/system/ping', tool: 'ping', mapBody: true },
   { method: 'POST', path: '/api/v2/system/restart-server', tool: 'restart_server', mapBody: true },
   { method: 'POST', path: '/api/v2/system/await-restart', tool: 'await_restart', mapBody: true },
+  { method: 'GET', path: '/api/v2/system/restart-status', tool: 'restart_status', mapQuery: true },
   { method: 'POST', path: '/api/v2/system/get-tool-schema', tool: 'get_tool_schema', mapBody: true },
   { method: 'POST', path: '/api/v2/system/unlock-all-tools', tool: 'unlock_all_tools', mapBody: true },
   { method: 'POST', path: '/api/v2/system/unlock-tier', tool: 'unlock_tier', mapBody: true },
