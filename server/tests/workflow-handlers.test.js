@@ -391,6 +391,7 @@ function createTestContext() {
 
   delete require.cache[require.resolve(MODULE_PATH)];
   const handlers = require(MODULE_PATH);
+  handlers.init({ db });
 
   return {
     db,
