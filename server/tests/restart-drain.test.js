@@ -74,41 +74,26 @@ describe('restart_server barrier mode', () => {
   });
 });
 
-describe('restart_server drain watchdog (no-progress timeout)', () => {
-  // Regression guard (2026-04-21): a stale 'running' row whose subprocess
-  // already died wedged a cutover for 796s because the drain counter never
-  // decreased. The watchdog fails the barrier after NO_PROGRESS_TIMEOUT_MS
-  // of no decrement, so the queue auto-resumes instead of waiting for the
-  // full drainTimeoutMinutes (default 30+ min).
-  //
-  // These are source-level guards — the actual watchdog runs on a
-  // setInterval with a multi-minute window, which doesn't unit-test
-  // cleanly without wholesale timer mocking. The invariants here catch
-  // the common regression: someone deleting the watchdog or weakening
-  // the failure path.
+describe('restart_server drain watchdog reverted', () => {
+  // Regression guard (2026-04-21): a no-progress watchdog was shipped and
+  // immediately reverted. It failed the barrier after 3 min of drain-counter
+  // stagnation, which killed legitimate slow drains. Real drains can sit for
+  // 5–10+ min (or longer) between task completions — user reports full-hour
+  // waits in practice. Only the user-configurable `drainTimeoutMinutes`
+  // should bound the drain.
   const src = fs.readFileSync(path.join(__dirname, '..', 'tools.js'), 'utf8');
 
-  it('declares a NO_PROGRESS_TIMEOUT_MS window for the drain watchdog', () => {
-    expect(src).toMatch(/NO_PROGRESS_TIMEOUT_MS\s*=\s*\d+\s*\*/);
+  it('does not re-introduce a no-progress watchdog that fails the barrier', () => {
+    expect(src).not.toMatch(/NO_PROGRESS_TIMEOUT_MS/);
+    expect(src).not.toMatch(/lastProgressRunning/);
+    expect(src).not.toMatch(/lastProgressAt/);
+    expect(src).not.toMatch(/noProgressElapsed/);
   });
 
-  it('tracks lastProgressRunning and lastProgressAt across poll ticks', () => {
-    expect(src).toMatch(/lastProgressRunning\s*=/);
-    expect(src).toMatch(/lastProgressAt\s*=/);
-    // Progress is marked whenever running decreases; this is the load-bearing
-    // invariant — without it the counter never updates and the watchdog fires
-    // on a legitimate in-progress drain.
-    expect(src).toMatch(/running\s*<\s*lastProgressRunning[\s\S]{0,200}lastProgressAt\s*=\s*Date\.now\(\)/);
-  });
-
-  it('fails the barrier when no progress elapsed exceeds the timeout', () => {
-    expect(src).toMatch(/noProgressElapsed\s*>=\s*NO_PROGRESS_TIMEOUT_MS/);
-    // The watchdog must mark the barrier 'failed' (not 'cancelled'/'completed')
-    // so isRestartBarrierActive returns null and the queue resumes.
-    const watchdogBlock = src.match(/noProgressElapsed\s*>=\s*NO_PROGRESS_TIMEOUT_MS[\s\S]{0,800}/);
-    expect(watchdogBlock?.[0]).toMatch(/updateTaskStatus\([^)]+,\s*['"]failed['"]/);
-    // Diagnostic error must hint at the stale-row diagnosis so operators
-    // know where to look.
-    expect(watchdogBlock?.[0]).toMatch(/stale/i);
+  it('still honors the full drainTimeoutMinutes budget', () => {
+    // The only drain-failure path left should be the user-set timeout,
+    // bounded by drainTimeoutMinutes (default 30min, configurable).
+    expect(src).toMatch(/elapsed\s*>=\s*drainTimeoutMs/);
+    expect(src).toMatch(/drainTimeoutMs\s*=\s*drainTimeoutMinutes\s*\*\s*60\s*\*\s*1000/);
   });
 });

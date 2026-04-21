@@ -719,29 +719,8 @@ async function handleRestartServerBarrier(args) {
   const drainTimeoutMs = drainTimeoutMinutes * 60 * 1000;
   const drainStarted = Date.now();
 
-  // No-progress watchdog: if the running count stops decreasing for a few
-  // minutes, the drain is almost certainly stuck on a stale 'running' row
-  // whose subprocess died without updating the DB. Without this, the barrier
-  // sits until drainTimeoutMinutes (default 30+ min), which leaves cutovers
-  // wedged and the queue starved. Observed 2026-04-21 on a hook-retry cutover
-  // where the drain reported "1 running, 6 queued held" for 796s with zero
-  // tasks actually running anywhere the REST API could see them.
-  //
-  // When triggered, mark the barrier `failed` with a diagnostic error — the
-  // failed status is terminal, so isRestartBarrierActive returns null and the
-  // queue resumes immediately. The operator can then investigate which
-  // running-row is stale without TORQUE being frozen.
-  const NO_PROGRESS_TIMEOUT_MS = 3 * 60 * 1000;
-  let lastProgressRunning = runningTasks;
-  let lastProgressAt = Date.now();
-
   const drainPoll = setInterval(() => {
     const running = taskCore.listTasks({ status: 'running', limit: 1000 }).filter(t => t.provider !== 'system').length;
-
-    if (running < lastProgressRunning) {
-      lastProgressRunning = running;
-      lastProgressAt = Date.now();
-    }
 
     if (running === 0) {
       clearInterval(drainPoll);
@@ -770,23 +749,6 @@ async function handleRestartServerBarrier(args) {
     }
 
     const elapsed = Date.now() - drainStarted;
-    const noProgressElapsed = Date.now() - lastProgressAt;
-
-    if (noProgressElapsed >= NO_PROGRESS_TIMEOUT_MS) {
-      clearInterval(drainPoll);
-      const stuckMinutes = Math.round(noProgressElapsed / 60000);
-      logger.warn(`[Restart] Drain stuck — ${running} task(s) reported running with no progress for ${stuckMinutes}min. Likely stale DB rows. Failing barrier so queue resumes.`);
-      taskCore.updateTaskStatus(barrierId, 'failed', {
-        error_output: `Drain stuck: ${running} task(s) reported running but count did not decrease for ${stuckMinutes}min. Likely a stale 'running' row whose subprocess died without updating the DB. Inspect: curl /api/tasks?status=running&all_projects=true`,
-        completed_at: new Date().toISOString(),
-      });
-      try {
-        const { dispatchTaskEvent } = require('./hooks/event-dispatch');
-        dispatchTaskEvent('failed', taskCore.getTask(barrierId));
-      } catch { /* non-fatal */ }
-      return;
-    }
-
     if (elapsed >= drainTimeoutMs) {
       clearInterval(drainPoll);
       logger.info(`[Restart] Drain timeout — ${running} task(s) still running. Cancelling barrier.`);
