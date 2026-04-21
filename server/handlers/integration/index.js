@@ -614,7 +614,10 @@ function handleSuccessRates(args) {
   });
 
   if (rates.length === 0) {
-    return { content: [{ type: 'text', text: 'No metrics data available. Run `run_maintenance` to aggregate metrics.' }] };
+    return {
+      content: [{ type: 'text', text: 'No metrics data available. Run `run_maintenance` to aggregate metrics.' }],
+      structuredData: { count: 0, rates: [] },
+    };
   }
 
   let result = `## Success Rates by ${args.group_by || 'project'}\n\n`;

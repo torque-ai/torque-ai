@@ -138,7 +138,8 @@ async function handleCheckTaskProgress(args) {
   
   if (running1.length === 0) {
     return {
-      content: [{ type: 'text', text: '## Task Progress Check\n\nNo running tasks.' }]
+      content: [{ type: 'text', text: '## Task Progress Check\n\nNo running tasks.' }],
+      structuredData: { running_count: 0, tasks: [] },
     };
   }
 
@@ -412,7 +413,10 @@ function handleCheckStalledTasks(args) {
 
   if (activities.length === 0) {
     result += `No running tasks.\n`;
-    return { content: [{ type: 'text', text: result }] };
+    return {
+      content: [{ type: 'text', text: result }],
+      structuredData: { running_count: 0, stalled_count: 0, tasks: [] },
+    };
   }
 
   result += `### Running Tasks (${activities.length})\n\n`;

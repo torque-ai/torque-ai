@@ -925,19 +925,24 @@ function handleGetCostSummary(args) {
   const parsed = parseInt(args.days, 10);
   const days = Number.isFinite(parsed) && parsed > 0 ? parsed : 30;
   const summary = costTracking.getCostSummary(args.provider, days);
+  const costs = args.provider
+    ? { provider: args.provider, summary: summary || null }
+    : { providers: Array.isArray(summary) ? summary : [] };
   const data = { days, costs: summary };
+  const structuredData = { days, costs };
   return {
     content: [{
       type: 'text',
       text: JSON.stringify(data, null, 2)
     }],
-    structuredData: data,
+    structuredData,
   };
 }
 
 function handleGetBudgetStatus(args) {
   const status = costTracking.getBudgetStatus(args.budget_id);
-  const data = { count: status.length, budgets: status };
+  const budgets = Array.isArray(status) ? status : status ? [status] : [];
+  const data = { count: budgets.length, budgets };
   return {
     content: [{
       type: 'text',

@@ -20,7 +20,7 @@
 - Modify: `server/tool-output-schemas.js` — add 10 new schema entries
 - Modify: `server/tests/tool-output-schemas.test.js` — update expected count
 
-- [ ] **Step 1: Add all 10 schemas to OUTPUT_SCHEMAS in `server/tool-output-schemas.js`**
+- [x] **Step 1: Add all 10 schemas to OUTPUT_SCHEMAS in `server/tool-output-schemas.js`**
 
 Add the following entries to the OUTPUT_SCHEMAS object. Read the spec at `docs/superpowers/specs/2026-03-21-structured-outputs-phase2-design.md` for the exact JSON Schema definitions. The 10 tools are:
 
@@ -187,7 +187,7 @@ Add the following entries to the OUTPUT_SCHEMAS object. Read the spec at `docs/s
   },
 ```
 
-- [ ] **Step 2: Update the schema count test**
+- [x] **Step 2: Update the schema count test**
 
 In `server/tests/tool-output-schemas.test.js`, update the "declares schemas for all expected tools" test to include the 10 new tools and expect count 19:
 
@@ -209,7 +209,7 @@ In `server/tests/tool-output-schemas.test.js`, update the "declares schemas for 
     });
 ```
 
-- [ ] **Step 3: Commit and push**
+- [x] **Step 3: Commit and push**
 
 ```bash
 git add server/tool-output-schemas.js server/tests/tool-output-schemas.test.js
@@ -249,11 +249,11 @@ return {
 
 For the remaining handlers, build `structuredData` from existing variables following the schema field names. Use the spec's schema definitions to know which fields to include.
 
-- [ ] **Step 1: Modify all 8 handler files**
+- [x] **Step 1: Modify all 8 handler files**
 
 Read each handler, understand what variables are available, add `structuredData` to the return. Do NOT change the markdown `content` output.
 
-- [ ] **Step 2: Commit and push**
+- [x] **Step 2: Commit and push**
 
 ```bash
 git add server/handlers/provider-handlers.js server/handlers/provider-ollama-hosts.js server/handlers/validation/index.js server/handlers/integration/index.js server/handlers/concurrency-handlers.js
@@ -268,7 +268,7 @@ git push origin main
 **Files:**
 - Modify: `server/tests/tool-output-schemas.test.js` — add Phase 2 conformance tests
 
-- [ ] **Step 1: Add conformance tests**
+- [x] **Step 1: Add conformance tests**
 
 Add a new describe block `'handler conformance — Phase 2'` in the test file. For each of the 10 tools, add one test that:
 1. Calls the handler with representative args
@@ -280,7 +280,7 @@ The tests need the template DB buffer pattern (same as existing conformance test
 
 For handlers that require specific args (like `provider_stats` needing a provider name), use sensible defaults or check the handler for what it does when given empty/default args.
 
-- [ ] **Step 2: Commit and push**
+- [x] **Step 2: Commit and push**
 
 ```bash
 git add server/tests/tool-output-schemas.test.js
@@ -288,14 +288,14 @@ git commit -m "test: Phase 2 conformance tests for 10 provider/cost/monitoring t
 git push origin main
 ```
 
-- [ ] **Step 3: Run all tests on remote**
+- [x] **Step 3: Run all tests on remote**
 
 ```bash
 torque-remote "cd server && npx vitest run tests/tool-output-schemas.test.js tests/tool-annotations.test.js tests/context-handler.test.js --reporter verbose"
 ```
 Expected: All tests pass (annotations + Phase 1 + Phase 2 + context handler)
 
-- [ ] **Step 4: Verify schema count**
+- [x] **Step 4: Verify schema count**
 
 ```bash
 cd server && node -e "
