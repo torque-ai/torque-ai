@@ -897,28 +897,20 @@ function evaluateClaimedStartupPolicy({
   };
 }
 
-// ── startTask ──────────────────────────────────────────────────────────────
-
-/**
- * Start a task - spawns a Codex process
- * @param {string} taskId - Task ID to start
- * @returns {{ queued: boolean, task?: Object, rateLimited?: boolean, retryAfter?: number }}
- */
-async function startTask(taskId) {
-  let task = db.getTask(taskId);
-  if (!task) {
+function loadTaskForStartup(taskId) {
+  const currentTask = db.getTask(taskId);
+  if (!currentTask) {
     throw new Error(`Task not found: ${taskId}`);
   }
-  task = { ...task };
+
+  const task = { ...currentTask };
   if (task.metadata && typeof task.metadata === 'object') {
     task.metadata = { ...task.metadata };
   }
+  return task;
+}
 
-  if (task.status === 'running') {
-    logger.info(`Task already running: ${taskId}, skipping duplicate start`);
-    return { queued: false, alreadyRunning: true };
-  }
-
+function prepareStartupPreClaim(task, taskId) {
   const { maxConcurrent, usedEditFormat } = runStartupPreflight({
     task,
     taskId,
@@ -939,12 +931,11 @@ async function startTask(taskId) {
     patchMetadata: (id, metadata) => db.patchTaskMetadata(id, metadata),
     log: logger,
   });
-  let provider = startupProvider;
 
   propagateRoutingChain({
     task,
     taskId,
-    provider,
+    provider: startupProvider,
     parseMetadata: parseTaskMetadata,
     log: logger,
   });
@@ -952,17 +943,38 @@ async function startTask(taskId) {
   const startupSafeguards = evaluateStartupSafeguards({
     task,
     taskId,
-    provider,
+    provider: startupProvider,
     runSafeguards: runSafeguardPreChecks,
     parseMetadata: parseTaskMetadata,
     classifyTaskType: description => db.classifyTaskType(description),
     estimateContextTokens: getTaskContextTokenEstimate,
   });
-  if (startupSafeguards.earlyResult) {
-    return startupSafeguards.earlyResult;
-  }
-  let { taskMetadata, taskType, contextTokenEstimate } = startupSafeguards;
 
+  return {
+    ...startupSafeguards,
+    provider: startupProvider,
+    maxConcurrent,
+    usedEditFormat,
+  };
+}
+
+function applyClaimedTaskState(task, claimResult) {
+  if (!claimResult.task) {
+    return;
+  }
+
+  Object.assign(task, claimResult.task);
+  if (Object.prototype.hasOwnProperty.call(claimResult.task, 'metadata')) {
+    task.metadata = parseTaskMetadata(claimResult.task.metadata);
+  }
+}
+
+function claimStartupResourcesForTask({
+  task,
+  taskId,
+  provider,
+  maxConcurrent,
+}) {
   const startupResources = createTaskStartupResourceLifecycle({
     taskId,
     task,
@@ -971,89 +983,128 @@ async function startTask(taskId) {
   });
   const resourceClaim = startupResources.claimSlot();
   if (resourceClaim.earlyResult) {
-    return resourceClaim.earlyResult;
+    return { earlyResult: resourceClaim.earlyResult, startupResources };
   }
-  const { claimResult } = resourceClaim;
-  let { providerConfig } = resourceClaim;
-  if (claimResult.task) {
-    Object.assign(task, claimResult.task);
-    if (Object.prototype.hasOwnProperty.call(claimResult.task, 'metadata')) {
-      task.metadata = parseTaskMetadata(claimResult.task.metadata);
+
+  applyClaimedTaskState(task, resourceClaim.claimResult);
+  return {
+    earlyResult: null,
+    startupResources,
+    claimResult: resourceClaim.claimResult,
+    providerConfig: resourceClaim.providerConfig,
+  };
+}
+
+function requeueIfClaimedProviderDisabled(taskId, provider, providerConfig) {
+  if (!providerConfig || providerConfig.enabled) {
+    return null;
+  }
+
+  logger.info(`[startTask] Provider ${provider} is disabled, re-queuing task ${taskId}`);
+  db.requeueTaskAfterAttemptedStart(taskId);
+  return { queued: true, task: db.getTask(taskId) };
+}
+
+function seedStartupTranscript({
+  taskId,
+  taskMetadata,
+  transcriptLog,
+  runDirManager,
+}) {
+  const seedTaskId = typeof taskMetadata.transcript_seed_from_task_id === 'string'
+    ? taskMetadata.transcript_seed_from_task_id.trim()
+    : '';
+  const currentTranscriptMessages = transcriptLog.read();
+  if (!seedTaskId || currentTranscriptMessages.length !== 0) {
+    return;
+  }
+
+  const sourceTranscriptLog = createTaskTranscriptLog({ taskId: seedTaskId, runDirManager });
+  const seedMessages = sourceTranscriptLog.read();
+  const seedValidation = validateTranscript(seedMessages);
+  if (!seedValidation.ok) {
+    throw new Error(`Transcript seed for task ${seedTaskId} is invalid: ${seedValidation.errors.join('; ')}`);
+  }
+  if (seedMessages.length > 0) {
+    transcriptLog.replace(seedMessages);
+  }
+}
+
+function applyRunDirectoryState({
+  task,
+  taskId,
+  claimResult,
+  taskMetadata,
+  runDir,
+  transcriptLog,
+}) {
+  const previousMetadata = parseTaskMetadata(claimResult.task?.metadata);
+  const previousRunDir = previousMetadata.run_dir;
+  const rewrittenDescription = typeof task.task_description === 'string'
+    ? task.task_description.replace(/\$run_dir/g, runDir)
+    : task.task_description;
+  const nextMetadata = {
+    ...taskMetadata,
+    run_dir: runDir,
+    transcript_path: transcriptLog.filePath,
+  };
+
+  task.task_description = rewrittenDescription;
+  task.metadata = nextMetadata;
+  task.__transcript = transcriptLog;
+
+  if (
+    rewrittenDescription !== claimResult.task?.task_description
+    || previousRunDir !== runDir
+    || previousMetadata.transcript_path !== transcriptLog.filePath
+  ) {
+    const updatedTask = db.updateTask(taskId, {
+      task_description: rewrittenDescription,
+      metadata: nextMetadata,
+    });
+    if (updatedTask) {
+      Object.assign(task, updatedTask);
     }
-  }
-
-  try {
-  // === PROVIDER ROUTING ===
-  // (resolved pre-claim so provider-aware cap enforcement is atomic)
-  // === PROVIDER AVAILABILITY CHECK (post-routing) ===
-  // Check the final routed provider is still enabled
-  if (providerConfig && !providerConfig.enabled) {
-    logger.info(`[startTask] Provider ${provider} is disabled, re-queuing task ${taskId}`);
-    db.requeueTaskAfterAttemptedStart(taskId);
-    return { queued: true, task: db.getTask(taskId) };
-  }
-
-  // Provider-specific caps are enforced during claim with `tryClaimTaskSlot`.
-
-  const runDirManager = getRunDirManager();
-  let runDir = null;
-  if (runDirManager) {
-    runDir = runDirManager.openRunDir(taskId);
-    const previousMetadata = parseTaskMetadata(claimResult.task?.metadata);
-    const previousRunDir = previousMetadata.run_dir;
-    const rewrittenDescription = typeof task.task_description === 'string'
-      ? task.task_description.replace(/\$run_dir/g, runDir)
-      : task.task_description;
-    const transcriptLog = createTaskTranscriptLog({ taskId, runDir, runDirManager });
-    const seedTaskId = typeof taskMetadata.transcript_seed_from_task_id === 'string'
-      ? taskMetadata.transcript_seed_from_task_id.trim()
-      : '';
-    const currentTranscriptMessages = transcriptLog.read();
-
-    if (seedTaskId && currentTranscriptMessages.length === 0) {
-      const sourceTranscriptLog = createTaskTranscriptLog({ taskId: seedTaskId, runDirManager });
-      const seedMessages = sourceTranscriptLog.read();
-      const seedValidation = validateTranscript(seedMessages);
-      if (!seedValidation.ok) {
-        throw new Error(`Transcript seed for task ${seedTaskId} is invalid: ${seedValidation.errors.join('; ')}`);
-      }
-      if (seedMessages.length > 0) {
-        transcriptLog.replace(seedMessages);
-      }
-    }
-
-    taskMetadata = {
-      ...taskMetadata,
-      run_dir: runDir,
-      transcript_path: transcriptLog.filePath,
-    };
-    task.task_description = rewrittenDescription;
-    task.metadata = taskMetadata;
+    task.metadata = nextMetadata;
     task.__transcript = transcriptLog;
-
-    if (
-      rewrittenDescription !== claimResult.task?.task_description
-      || previousRunDir !== runDir
-      || previousMetadata.transcript_path !== transcriptLog.filePath
-    ) {
-      const updatedTask = db.updateTask(taskId, {
-        task_description: rewrittenDescription,
-        metadata: taskMetadata,
-      });
-      if (updatedTask) {
-        Object.assign(task, updatedTask);
-      }
-      task.metadata = taskMetadata;
-      task.__transcript = transcriptLog;
-    }
   }
 
-  const fileResources = await startupResources.resolveAndLockFiles(provider);
-  if (fileResources.earlyResult) {
-    return fileResources.earlyResult;
-  }
-  const { resolvedFileContext, resolvedFiles } = fileResources;
+  return nextMetadata;
+}
 
+function prepareStartupRunDirectory({
+  task,
+  taskId,
+  claimResult,
+  taskMetadata,
+}) {
+  const runDirManager = getRunDirManager();
+  if (!runDirManager) {
+    return { runDir: null, taskMetadata };
+  }
+
+  const runDir = runDirManager.openRunDir(taskId);
+  const transcriptLog = createTaskTranscriptLog({ taskId, runDir, runDirManager });
+  seedStartupTranscript({ taskId, taskMetadata, transcriptLog, runDirManager });
+  return {
+    runDir,
+    taskMetadata: applyRunDirectoryState({
+      task,
+      taskId,
+      claimResult,
+      taskMetadata,
+      runDir,
+      transcriptLog,
+    }),
+  };
+}
+
+function evaluateClaimedPolicyForStartup({
+  task,
+  taskId,
+  provider,
+  startupResources,
+}) {
   const policyResult = evaluateClaimedStartupPolicy({
     task,
     taskId,
@@ -1068,101 +1119,184 @@ async function startTask(taskId) {
     resourceLifecycle: startupResources,
     log: logger,
   });
-  if (policyResult.earlyResult) {
-    return policyResult.earlyResult;
-  }
+  return policyResult.earlyResult || null;
+}
 
+async function buildStartupExecutionTask(task, taskId) {
   const executionDescription = await buildExecutionDescriptionWithMentions(task, taskId);
-  const executionTask = executionDescription === task.task_description
+  return executionDescription === task.task_description
     ? task
     : { ...task, execution_description: executionDescription };
+}
 
-  if (provider === 'ollama') {
-    const resolvedOllamaModel = resolveRunnableOllamaModel(task);
-    if (resolvedOllamaModel && task.model !== resolvedOllamaModel) {
-      const updatedTask = db.updateTaskStatus(taskId, 'running', {
-        model: resolvedOllamaModel,
-      });
-      if (updatedTask) {
-        Object.assign(task, updatedTask);
-      } else {
-        task.model = resolvedOllamaModel;
-      }
-    }
-    if (executionTask !== task) {
-      executionTask.model = task.model;
-    }
-  } else if (providerRegistry.isApiProvider(provider)) {
-    // All cloud API providers use the same execution path via registry
-    const instance = providerRegistry.getProviderInstance(provider);
-    if (!instance) {
-      const originalProvider = provider;
-      const errorMessage = `Provider "${originalProvider}" has no registered instance`;
-      if (taskMetadata.user_provider_override) {
-        logger.error(`[startTask] ${errorMessage}`);
-        failTaskForInvalidProvider(taskId, originalProvider, errorMessage);
-        throw new Error(errorMessage);
-      }
-
-      const providerSwitchedAt = new Date().toISOString();
-      logger.warn(`[startTask] No provider instance for "${originalProvider}" — falling back to codex for task ${taskId}`);
-
-      // Verify codex is enabled before falling back
-      const codexConfig = db.getProvider('codex');
-      if (!codexConfig?.enabled) {
-        logger.error(`[startTask] Codex provider is not enabled — cannot fall back from "${originalProvider}" for task ${taskId}`);
-        failTaskForInvalidProvider(taskId, originalProvider, `${errorMessage} and codex fallback is disabled`);
-        throw new Error(`${errorMessage} and codex fallback is disabled`);
-      }
-
-      // Claim a slot for codex to respect concurrency limits
-      const codexSlotLimits = getProviderSlotLimits('codex', codexConfig);
-      const codexClaim = db.tryClaimTaskSlot(
-        taskId,
-        maxConcurrent,
-        QUEUE_LOCK_HOLDER_ID,
-        'codex',
-        codexSlotLimits.providerLimit,
-        codexSlotLimits.providerGroup,
-        codexSlotLimits.categoryLimit,
-        codexSlotLimits.categoryProviderGroup,
-      );
-      if (!codexClaim.success) {
-        logger.warn(`[startTask] Codex at capacity — re-queuing task ${taskId} (was falling back from "${originalProvider}")`);
-        // Release the original provider's slot by clearing provider + resetting start fields.
-        // The original tryClaimTaskSlot set status='running' and provider=originalProvider;
-        // without this, the original provider's concurrency counter stays inflated until the
-        // task eventually completes or is cancelled (slot leak).
-        startupResources.releaseAcquiredFileLocks();
-        db.requeueTaskAfterAttemptedStart(taskId, { provider: null });
-        return { queued: true, task: db.getTask(taskId) };
-      }
-
-      const updatedTask = db.updateTaskStatus(taskId, 'running', {
-        provider: 'codex',
-        model: null,
-        provider_switched_at: providerSwitchedAt,
-        _provider_switch_reason: `${originalProvider} -> codex (missing instance)`,
-      });
-
-      provider = 'codex';
-      providerConfig = codexConfig;
-      if (updatedTask) {
-        Object.assign(task, updatedTask);
-      } else {
-        task.provider = 'codex';
-        task.model = null;
-      }
-      if (executionTask !== task) {
-        executionTask.provider = task.provider;
-        executionTask.model = task.model;
-      }
+function prepareOllamaExecutionTask(task, taskId, executionTask) {
+  const resolvedOllamaModel = resolveRunnableOllamaModel(task);
+  if (resolvedOllamaModel && task.model !== resolvedOllamaModel) {
+    const updatedTask = db.updateTaskStatus(taskId, 'running', {
+      model: resolvedOllamaModel,
+    });
+    if (updatedTask) {
+      Object.assign(task, updatedTask);
     } else {
-      return executeApiProvider(executionTask, instance);
+      task.model = resolvedOllamaModel;
     }
   }
+  if (executionTask !== task) {
+    executionTask.model = task.model;
+  }
+}
 
-  const startupCommand = await buildProviderStartupCommand({
+function claimCodexFallbackSlot(taskId, maxConcurrent, codexConfig) {
+  const codexSlotLimits = getProviderSlotLimits('codex', codexConfig);
+  return db.tryClaimTaskSlot(
+    taskId,
+    maxConcurrent,
+    QUEUE_LOCK_HOLDER_ID,
+    'codex',
+    codexSlotLimits.providerLimit,
+    codexSlotLimits.providerGroup,
+    codexSlotLimits.categoryLimit,
+    codexSlotLimits.categoryProviderGroup,
+  );
+}
+
+function fallbackMissingApiProviderToCodex({
+  task,
+  taskId,
+  provider,
+  executionTask,
+  taskMetadata,
+  maxConcurrent,
+  startupResources,
+}) {
+  const originalProvider = provider;
+  const errorMessage = `Provider "${originalProvider}" has no registered instance`;
+  if (taskMetadata.user_provider_override) {
+    logger.error(`[startTask] ${errorMessage}`);
+    failTaskForInvalidProvider(taskId, originalProvider, errorMessage);
+    throw new Error(errorMessage);
+  }
+
+  const providerSwitchedAt = new Date().toISOString();
+  logger.warn(`[startTask] No provider instance for "${originalProvider}" — falling back to codex for task ${taskId}`);
+
+  const codexConfig = db.getProvider('codex');
+  if (!codexConfig?.enabled) {
+    logger.error(`[startTask] Codex provider is not enabled — cannot fall back from "${originalProvider}" for task ${taskId}`);
+    failTaskForInvalidProvider(taskId, originalProvider, `${errorMessage} and codex fallback is disabled`);
+    throw new Error(`${errorMessage} and codex fallback is disabled`);
+  }
+
+  const codexClaim = claimCodexFallbackSlot(taskId, maxConcurrent, codexConfig);
+  if (!codexClaim.success) {
+    logger.warn(`[startTask] Codex at capacity — re-queuing task ${taskId} (was falling back from "${originalProvider}")`);
+    startupResources.releaseAcquiredFileLocks();
+    db.requeueTaskAfterAttemptedStart(taskId, { provider: null });
+    return {
+      completed: true,
+      value: { queued: true, task: db.getTask(taskId) },
+    };
+  }
+
+  const updatedTask = db.updateTaskStatus(taskId, 'running', {
+    provider: 'codex',
+    model: null,
+    provider_switched_at: providerSwitchedAt,
+    _provider_switch_reason: `${originalProvider} -> codex (missing instance)`,
+  });
+
+  if (updatedTask) {
+    Object.assign(task, updatedTask);
+  } else {
+    task.provider = 'codex';
+    task.model = null;
+  }
+  if (executionTask !== task) {
+    executionTask.provider = task.provider;
+    executionTask.model = task.model;
+  }
+
+  return {
+    completed: false,
+    provider: 'codex',
+    providerConfig: codexConfig,
+    executionTask,
+  };
+}
+
+function prepareApiProviderExecution({
+  task,
+  taskId,
+  provider,
+  executionTask,
+  taskMetadata,
+  maxConcurrent,
+  startupResources,
+}) {
+  const instance = providerRegistry.getProviderInstance(provider);
+  if (instance) {
+    return {
+      completed: true,
+      value: executeApiProvider(executionTask, instance),
+    };
+  }
+
+  return fallbackMissingApiProviderToCodex({
+    task,
+    taskId,
+    provider,
+    executionTask,
+    taskMetadata,
+    maxConcurrent,
+    startupResources,
+  });
+}
+
+function prepareProviderExecution({
+  task,
+  taskId,
+  provider,
+  providerConfig,
+  executionTask,
+  taskMetadata,
+  maxConcurrent,
+  startupResources,
+}) {
+  if (provider === 'ollama') {
+    prepareOllamaExecutionTask(task, taskId, executionTask);
+    return { completed: false, provider, providerConfig, executionTask };
+  }
+
+  if (providerRegistry.isApiProvider(provider)) {
+    return prepareApiProviderExecution({
+      task,
+      taskId,
+      provider,
+      executionTask,
+      taskMetadata,
+      maxConcurrent,
+      startupResources,
+    });
+  }
+
+  return { completed: false, provider, providerConfig, executionTask };
+}
+
+async function constructStartupCommand({
+  taskId,
+  task,
+  provider,
+  providerConfig,
+  executionTask,
+  resolvedFileContext,
+  resolvedFiles,
+  runDir,
+  taskMetadata,
+  usedEditFormat,
+  taskType,
+  contextTokenEstimate,
+}) {
+  return buildProviderStartupCommand({
     taskId,
     task,
     provider,
@@ -1176,18 +1310,112 @@ async function startTask(taskId) {
     taskType,
     contextTokenEstimate,
   });
+}
 
+function spawnStartupProcess(taskId, task, startupCommand) {
+  const { mode: _mode, ...spawnConfig } = startupCommand;
+  return spawnAndTrackProcess(taskId, task, spawnConfig);
+}
+
+function executeStartupCommand(taskId, task, provider, startupCommand) {
   if (startupCommand.mode === 'ollama') {
     return executeOllamaTask(startupCommand.executionTask);
   }
 
   recordTaskStartedAuditEvent(task, taskId, provider);
+  return spawnStartupProcess(taskId, task, startupCommand);
+}
 
-  // === SPAWN AND TRACK ===
-  const { mode: _mode, ...spawnConfig } = startupCommand;
-  return spawnAndTrackProcess(taskId, task, spawnConfig);
+function cleanupFailedStartupResources(startupResources, err) {
+  startupResources.releaseOnStartupFailure(err);
+}
+
+// ── startTask ──────────────────────────────────────────────────────────────
+
+/**
+ * Start a task - spawns a Codex process
+ * @param {string} taskId - Task ID to start
+ * @returns {{ queued: boolean, task?: Object, rateLimited?: boolean, retryAfter?: number }}
+ */
+async function startTask(taskId) {
+  const task = loadTaskForStartup(taskId);
+  if (task.status === 'running') {
+    logger.info(`Task already running: ${taskId}, skipping duplicate start`);
+    return { queued: false, alreadyRunning: true };
+  }
+
+  const preClaim = prepareStartupPreClaim(task, taskId);
+  if (preClaim.earlyResult) return preClaim.earlyResult;
+
+  let { provider, taskMetadata } = preClaim;
+  const claimed = claimStartupResourcesForTask({
+    task,
+    taskId,
+    provider,
+    maxConcurrent: preClaim.maxConcurrent,
+  });
+  if (claimed.earlyResult) return claimed.earlyResult;
+
+  let { providerConfig } = claimed;
+
+  try {
+    const unavailable = requeueIfClaimedProviderDisabled(taskId, provider, providerConfig);
+    if (unavailable) return unavailable;
+
+    const runContext = prepareStartupRunDirectory({
+      task,
+      taskId,
+      claimResult: claimed.claimResult,
+      taskMetadata,
+    });
+    taskMetadata = runContext.taskMetadata;
+
+    const fileResources = await claimed.startupResources.resolveAndLockFiles(provider);
+    if (fileResources.earlyResult) return fileResources.earlyResult;
+
+    const blocked = evaluateClaimedPolicyForStartup({
+      task,
+      taskId,
+      provider,
+      startupResources: claimed.startupResources,
+    });
+    if (blocked) return blocked;
+
+    let executionTask = await buildStartupExecutionTask(task, taskId);
+    const providerExecution = prepareProviderExecution({
+      task,
+      taskId,
+      provider,
+      providerConfig,
+      executionTask,
+      taskMetadata,
+      maxConcurrent: preClaim.maxConcurrent,
+      startupResources: claimed.startupResources,
+    });
+    if (providerExecution.completed) return providerExecution.value;
+
+    provider = providerExecution.provider;
+    providerConfig = providerExecution.providerConfig;
+    executionTask = providerExecution.executionTask;
+
+    const startupCommand = await constructStartupCommand({
+      taskId,
+      task,
+      provider,
+      providerConfig,
+      executionTask,
+      resolvedFileContext: fileResources.resolvedFileContext,
+      resolvedFiles: fileResources.resolvedFiles,
+      runDir: runContext.runDir,
+      taskMetadata,
+      usedEditFormat: preClaim.usedEditFormat,
+      taskType: preClaim.taskType,
+      contextTokenEstimate: preClaim.contextTokenEstimate,
+    });
+
+    return executeStartupCommand(taskId, task, provider, startupCommand);
   } catch (err) {
-    startupResources.releaseOnStartupFailure(err);
+    cleanupFailedStartupResources(claimed.startupResources, err);
     throw err;
   }
 }
