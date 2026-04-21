@@ -147,7 +147,7 @@ git commit -m "feat(edit_file): add reindentNewText helper for fuzzy matching"
 - Modify: `server/providers/ollama-tools.js` (add `findWhitespaceNormalizedMatch` function, wire into `edit_file` case)
 - Modify: `server/tests/ollama-tools-edit-fuzzy.test.js`
 
-- [ ] **Step 1: Write failing tests for whitespace-normalized matching**
+- [x] **Step 1: Write failing tests for whitespace-normalized matching**
 
 Append to `server/tests/ollama-tools-edit-fuzzy.test.js`:
 
@@ -226,12 +226,12 @@ describe('edit_file whitespace-normalized fallback', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js -t "whitespace-normalized"`
 Expected: FAIL — edits return "old_text not found" errors
 
-- [ ] **Step 3: Implement `findWhitespaceNormalizedMatch` and wire into edit_file**
+- [x] **Step 3: Implement `findWhitespaceNormalizedMatch` and wire into edit_file**
 
 Add function near `reindentNewText`:
 
@@ -375,17 +375,17 @@ Also wire the whitespace fallback into the `replace_all` path. Replace the `if (
 
 Export `findWhitespaceNormalizedMatch` from `module.exports`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js -t "whitespace-normalized"`
 Expected: PASS (all 4 tests)
 
-- [ ] **Step 5: Run existing tests to verify no regressions**
+- [x] **Step 5: Run existing tests to verify no regressions**
 
 Run: `npx vitest run tests/ollama-tools-coverage.test.js tests/agentic-tools.test.js`
 Expected: PASS (all existing edit_file tests still pass — exact matching is unchanged)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```
 git add server/providers/ollama-tools.js server/tests/ollama-tools-edit-fuzzy.test.js
