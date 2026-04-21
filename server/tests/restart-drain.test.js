@@ -2,20 +2,31 @@
 
 const fs = require('fs');
 const path = require('path');
-const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, resetTables } = require('./vitest-setup');
 
 describe('restart_server barrier mode', () => {
   let tools;
   let taskCore;
+  let originalRestartCooldown;
 
   beforeAll(() => {
+    originalRestartCooldown = process.env.TORQUE_RESTART_COOLDOWN_MS;
     setupTestDbOnly('restart-drain');
   });
   afterAll(() => {
+    if (originalRestartCooldown === undefined) {
+      delete process.env.TORQUE_RESTART_COOLDOWN_MS;
+    } else {
+      process.env.TORQUE_RESTART_COOLDOWN_MS = originalRestartCooldown;
+    }
     teardownTestDb();
   });
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    resetTables('tasks');
+    delete process._torqueRestartPending;
+    process.env.TORQUE_RESTART_COOLDOWN_MS = '0';
     vi.resetModules();
     vi.doMock('../event-bus', () => ({
       emitShutdown: vi.fn(),
@@ -36,6 +47,9 @@ describe('restart_server barrier mode', () => {
   });
 
   afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    delete process._torqueRestartPending;
     vi.restoreAllMocks();
   });
 

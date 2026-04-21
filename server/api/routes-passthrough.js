@@ -10,7 +10,7 @@
  */
 
 const routes = [
-  // ═══ Generated REST routes for 505 MCP tools ═══
+  // ═══ Generated REST routes for 506 MCP tools ═══
   // Generated: 2026-03-13
   // Pattern: tool-passthrough via handleToolCall()
 
@@ -344,7 +344,7 @@ const routes = [
   { method: 'POST', path: '/api/v2/system/unlock-tier', tool: 'unlock_tier', mapBody: true },
   { method: 'GET', path: '/api/v2/system/check-workstation-health', tool: 'check_workstation_health', mapQuery: true },
 
-  // ─── tasks (86 routes) ────────────────────────────────────────────────────────
+  // ─── tasks (87 routes) ────────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/tasks/configure', tool: 'configure', mapBody: true },
   { method: 'POST', path: '/api/v2/tasks/share-context', tool: 'share_context', mapBody: true },
   { method: 'POST', path: '/api/v2/tasks/sync-files', tool: 'sync_files', mapBody: true },
@@ -428,6 +428,7 @@ const routes = [
   { method: 'GET', path: '/api/v2/tasks/list-paused-tasks', tool: 'list_paused_tasks', mapQuery: true },
   { method: 'POST', path: '/api/v2/tasks/find-similar-tasks', tool: 'find_similar_tasks', mapBody: true },
   { method: 'POST', path: '/api/v2/tasks/task-timeline', tool: 'task_timeline', mapBody: true },
+  { method: 'GET', path: '/api/v2/tasks/list-checkpoints', tool: 'list_checkpoints', mapQuery: true },
   { method: 'POST', path: '/api/v2/tasks/rollback-task', tool: 'rollback_task', mapBody: true },
   { method: 'POST', path: '/api/v2/tasks/start-pending-task', tool: 'start_pending_task', mapBody: true },
   { method: 'POST', path: '/api/v2/tasks/set-task-complexity', tool: 'set_task_complexity', mapBody: true },

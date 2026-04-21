@@ -88,7 +88,8 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 |------|-------------|
 | `preview_diff` | Preview file changes before committing |
 | `commit_task` | Commit changes to git |
-| `rollback_task` | Revert task commit |
+| `list_checkpoints` | List shadow-git task checkpoints |
+| `rollback_task` | Restore files from a shadow-git task checkpoint |
 | `list_commits` | List committed tasks |
 | `task_changes` | View all file changes |
 | `rollback_file` | Selectively rollback specific files |

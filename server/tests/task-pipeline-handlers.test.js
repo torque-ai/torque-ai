@@ -883,7 +883,7 @@ describe('task-pipeline handlers', () => {
       });
       expect(getText(result)).toContain('## Committed Tasks');
       expect(getText(result)).toContain('| aaaaaaaa... | 1234567 | Prepare release notes and vali... |');
-      expect(getText(result)).toContain('Rollback with: `rollback_task({task_id: "..."})`');
+      expect(getText(result)).toContain('Rollback with: `rollback_task({project_root: "...", task_id: "..."})`');
     });
   });
 

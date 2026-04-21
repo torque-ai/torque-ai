@@ -20,6 +20,11 @@ const OPTIONAL_METHODS = [
   { name: 'tierTools', type: 'function' },
 ];
 
+const OPTIONAL_ARRAY_FIELDS = [
+  'classifierRules',
+  'recoveryStrategies',
+];
+
 function validatePlugin(plugin) {
   const errors = [];
   if (!plugin || typeof plugin !== 'object') {
@@ -37,7 +42,12 @@ function validatePlugin(plugin) {
       errors.push(`optional method ${name} must be a ${type} when provided`);
     }
   }
+  for (const name of OPTIONAL_ARRAY_FIELDS) {
+    if (name in plugin && !Array.isArray(plugin[name])) {
+      errors.push(`${name} must be an array when provided`);
+    }
+  }
   return { valid: errors.length === 0, errors };
 }
 
-module.exports = { validatePlugin, REQUIRED_FIELDS, OPTIONAL_METHODS };
+module.exports = { validatePlugin, REQUIRED_FIELDS, OPTIONAL_METHODS, OPTIONAL_ARRAY_FIELDS };

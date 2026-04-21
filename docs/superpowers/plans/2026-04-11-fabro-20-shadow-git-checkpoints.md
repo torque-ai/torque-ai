@@ -25,7 +25,7 @@
 
 ## Task 1: Shadow repo init + snapshot
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/checkpoints.test.js`:
 
@@ -82,7 +82,7 @@ describe('shadow git checkpoints', () => {
 });
 ```
 
-- [ ] **Step 2: Implement snapshot**
+- [x] **Step 2: Implement snapshot**
 
 Create `server/checkpoints/snapshot.js`:
 
@@ -148,7 +148,7 @@ function snapshotTaskState({ project_root, task_id, task_label }) {
 module.exports = { ensureShadowRepo, snapshotTaskState, shadowDir, SHADOW_DIR_NAME };
 ```
 
-- [ ] **Step 3: Implement rollback**
+- [x] **Step 3: Implement rollback**
 
 Create `server/checkpoints/rollback.js`:
 
@@ -203,7 +203,7 @@ function listCheckpoints(project_root) {
 module.exports = { rollbackTask, listCheckpoints };
 ```
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 Run on remote: `npx vitest run tests/checkpoints.test.js --no-coverage` → PASS.
 
@@ -213,7 +213,7 @@ Commit: `feat(checkpoints): shadow-git snapshot + rollback`.
 
 ## Task 2: Wire snapshot into task finalization
 
-- [ ] **Step 1: Modify `task-finalizer.js`**
+- [x] **Step 1: Modify `task-finalizer.js`**
 
 After the final `updateTaskStatus` succeeds, fire snapshot asynchronously:
 
@@ -235,7 +235,7 @@ Commit: `feat(checkpoints): snapshot working tree on task finalization`.
 
 ## Task 3: MCP tools + docs + smoke
 
-- [ ] **Step 1: Tool defs**
+- [x] **Step 1: Tool defs**
 
 Create `server/tool-defs/checkpoint-defs.js`:
 
@@ -263,7 +263,7 @@ const CHECKPOINT_TOOLS = [
 module.exports = { CHECKPOINT_TOOLS };
 ```
 
-- [ ] **Step 2: Handler**
+- [x] **Step 2: Handler**
 
 Create `server/handlers/checkpoint-handlers.js`:
 
@@ -295,7 +295,7 @@ module.exports = { handleListCheckpoints, handleRollbackTask };
 
 Wire dispatch + REST.
 
-- [ ] **Step 3: Docs + restart + smoke**
+- [x] **Step 3: Docs + restart + smoke**
 
 Create `docs/checkpoints.md`:
 

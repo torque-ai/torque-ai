@@ -866,7 +866,7 @@ function handleCommitTask(args) {
   return {
     content: [{
       type: 'text',
-      text: `## Commit Created\n\n**SHA:** ${afterSha}\n**Message:** ${commitMessage}\n\nTo rollback: \`rollback_task({task_id: "${args.task_id}"})\``
+      text: `## Commit Created\n\n**SHA:** ${afterSha}\n**Message:** ${commitMessage}\n\nTo rollback: \`rollback_task({project_root: ${JSON.stringify(cwd)}, task_id: "${args.task_id}"})\``
     }]
   };
 }
@@ -926,7 +926,7 @@ function handleListCommits(args) {
     result += `| ${t.id.slice(0, 8)}... | ${(t.git_after_sha || '').slice(0, 7)} | ${(t.task_description || '').slice(0, 30)}... | ${formatTime(t.completed_at)} |\n`;
   }
 
-  result += `\nRollback with: \`rollback_task({task_id: "..."})\``;
+  result += `\nRollback with: \`rollback_task({project_root: "...", task_id: "..."})\``;
 
   return {
     content: [{ type: 'text', text: result }]

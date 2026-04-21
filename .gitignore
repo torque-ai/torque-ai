@@ -110,3 +110,4 @@ drafts/
 /policy_hook_refs.txt
 /tmp_google_ai_*.js
 /tmp_ollama_*.js
+.torque-checkpoints/
