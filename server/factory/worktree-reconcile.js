@@ -30,25 +30,6 @@ function tryGit(repoPath, args) {
   }
 }
 
-function parseGitWorktreeList(projectPath) {
-  const set = new Set();
-  try {
-    const output = runGit(projectPath, ['worktree', 'list', '--porcelain']);
-    for (const rawLine of output.split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (line.startsWith('worktree ')) {
-        const wtPath = line.slice('worktree '.length).trim();
-        if (wtPath) {
-          set.add(normalizePathKey(wtPath));
-        }
-      }
-    }
-  } catch (err) {
-    logger.warn({ projectPath, err: err.message }, 'parseGitWorktreeList failed');
-  }
-  return set;
-}
-
 function normalizePathKey(p) {
   return path.resolve(String(p || '')).replace(/\\/g, '/').toLowerCase();
 }
@@ -126,16 +107,7 @@ function forceRmDir(dir) {
     attempts.push({ step: 'rm_shell', ok: false, err: err.message });
   }
 
-  // Classify remaining failure:
-  const stillExists = fs.existsSync(dir);
-  if (stillExists) {
-    const BUSY_RE = /EBUSY|EPERM|resource busy|device or resource busy/i;
-    const allBusy = attempts.length > 0 && attempts.every(a => a.ok || (a.err && BUSY_RE.test(a.err)));
-    if (allBusy) {
-      return { ok: false, reason: 'busy', attempts };
-    }
-  }
-  return { ok: !stillExists, attempts };
+  return { ok: !fs.existsSync(dir), attempts };
 }
 
 // Reclaim a stale worktree directory and its git metadata. Safe to call on
@@ -361,148 +333,6 @@ function classifyDir(dirPath, rowsByPath, vcRowsByPath = new Map(), nowMs = Date
   return { action: 'skip', reason: 'non-factory dir with no db row', row: null };
 }
 
-function guardMainRepoHead({ db, project_id, project_path }) {
-  let currentBranch;
-  try {
-    currentBranch = runGit(project_path, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
-  } catch (err) {
-    logger.warn({ project_id, err: err.message }, 'guardMainRepoHead: rev-parse HEAD failed');
-    return { action: 'skip', reason: 'rev-parse failed' };
-  }
-
-  if (!currentBranch.startsWith(FACTORY_BRANCH_PREFIX) && !currentBranch.startsWith(FACTORY_LEAF_PREFIX)) {
-    return { action: 'skip', reason: 'non-factory branch', branch: currentBranch };
-  }
-
-  const matchingOpenRow = listProjectFactoryWorktrees(db, project_id)
-    .find((row) => row.branch === currentBranch && !RECLAIMABLE_STATUSES.has(row.status));
-  if (matchingOpenRow) {
-    return { action: 'skip', reason: 'matching open factory_worktrees row', branch: currentBranch };
-  }
-
-  let porcelain = '';
-  try {
-    porcelain = runGit(project_path, ['status', '--porcelain']);
-  } catch (err) {
-    logger.warn({ project_id, err: err.message }, 'guardMainRepoHead: status --porcelain failed');
-    return { action: 'skip', reason: 'status failed' };
-  }
-
-  const dirty = porcelain.trim().length > 0;
-  console.warn(JSON.stringify({
-    action: 'main_repo_on_stale_factory_branch',
-    project_id,
-    branch: currentBranch,
-    expected_main: 'main',
-    dirty,
-  }));
-
-  let outcome;
-  if (!dirty) {
-    try {
-      runGit(project_path, ['checkout', 'main']);
-      outcome = { resolved: 'reset_to_main' };
-    } catch (err) {
-      outcome = { resolved: 'checkout_failed', error: err.message };
-    }
-  } else {
-    try {
-      try {
-        db.prepare('UPDATE factory_projects SET paused = 1, pause_reason = ? WHERE id = ?')
-          .run('main_repo_on_stale_factory_branch_dirty_tree', project_id);
-      } catch (err) {
-        if (err && typeof err.message === 'string' && err.message.includes('pause_reason')) {
-          db.prepare('UPDATE factory_projects SET paused = 1 WHERE id = ?').run(project_id);
-        } else {
-          throw err;
-        }
-      }
-    } catch (err) {
-      if (err && typeof err.message === 'string' && err.message.includes('paused')) {
-        try {
-          db.prepare("UPDATE factory_projects SET status = 'paused' WHERE id = ?").run(project_id);
-        } catch (fallbackErr) {
-          logger.warn({ project_id, err: fallbackErr.message }, 'guardMainRepoHead: pause project status fallback failed');
-        }
-      } else {
-        logger.warn({ project_id, err: err.message }, 'guardMainRepoHead: pause project failed');
-      }
-    }
-    outcome = { resolved: 'paused_project', reason: 'dirty_working_tree' };
-  }
-
-  try {
-    const { logDecision } = require('./decision-log');
-    logDecision({
-      project_id,
-      stage: 'reconcile',
-      actor: 'worktree-reconcile',
-      action: 'main_repo_on_stale_factory_branch',
-      inputs: { branch: currentBranch },
-      outcome,
-    });
-  } catch (err) {
-    logger.warn({ project_id, err: err.message }, 'guardMainRepoHead: logDecision failed');
-  }
-
-  return { action: 'resolved', branch: currentBranch, outcome };
-}
-
-function sweepOrphanWorktreeDirs({ db, project_id, project_path, worktree_dir = DEFAULT_WORKTREE_DIR }) {
-  const counts = { swept: 0, deferred_busy: 0, errored: 0 };
-  const worktreesRoot = path.join(project_path, worktree_dir);
-  let onDisk;
-  try {
-    onDisk = fs.readdirSync(worktreesRoot, { withFileTypes: true })
-      .filter(e => e.isDirectory())
-      .map(e => path.join(worktreesRoot, e.name));
-  } catch {
-    return counts; // .worktrees dir does not exist - nothing to sweep
-  }
-  if (onDisk.length === 0) return counts;
-
-  const gitSet = parseGitWorktreeList(project_path);
-  const rowSet = new Set();
-  try {
-    for (const row of listProjectFactoryWorktrees(db, project_id)) {
-      if (row.worktree_path && !RECLAIMABLE_STATUSES.has(row.status)) {
-        rowSet.add(normalizePathKey(row.worktree_path));
-      }
-    }
-  } catch (err) {
-    logger.warn({ project_id, err: err.message }, 'sweepOrphanWorktreeDirs: listProjectFactoryWorktrees failed');
-  }
-
-  for (const dirPath of onDisk) {
-    const key = normalizePathKey(dirPath);
-    if (gitSet.has(key) || rowSet.has(key)) continue; // active - leave alone
-    const result = module.exports.forceRmDir(dirPath);
-    if (result.ok) {
-      counts.swept++;
-    } else if (result.reason === 'busy') {
-      counts.deferred_busy++;
-    } else {
-      counts.errored++;
-      logger.warn({ project_id, dirPath, attempts: result.attempts }, 'sweepOrphanWorktreeDirs: rm failed');
-    }
-  }
-
-  try {
-    const { logDecision } = require('./decision-log');
-    logDecision({
-      project_id,
-      stage: 'reconcile',
-      actor: 'worktree-reconcile',
-      action: 'swept_orphan_worktree_dirs',
-      outcome: counts,
-    });
-  } catch (err) {
-    logger.warn({ project_id, err: err.message }, 'sweepOrphanWorktreeDirs: logDecision failed');
-  }
-
-  return counts;
-}
-
 // Reconcile a project's .worktrees/ against factory_worktrees rows.
 // Removes stale directories whose DB state says they shouldn't be there,
 // leaving active rows and user-owned worktrees alone.
@@ -512,12 +342,6 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
   }
   if (!project_id) throw new Error('project_id is required');
   if (!project_path) throw new Error('project_path is required');
-
-  try {
-    guardMainRepoHead({ db, project_id, project_path });
-  } catch (err) {
-    logger.warn({ project_id, err: err.message }, 'guardMainRepoHead threw unexpectedly');
-  }
 
   const cleaned = [];
   const skipped = [];
@@ -588,24 +412,15 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
     }
   }
 
-  try {
-    const sweepCounts = sweepOrphanWorktreeDirs({ db, project_id, project_path, worktree_dir });
-    return { root, scanned: dirs.length, cleaned, skipped, failed, swept: sweepCounts };
-  } catch (err) {
-    logger.warn({ project_id, err: err.message }, 'sweepOrphanWorktreeDirs threw unexpectedly');
-    return { root, scanned: dirs.length, cleaned, skipped, failed };
-  }
+  return { root, scanned: dirs.length, cleaned, skipped, failed };
 }
 
 module.exports = {
   reconcileProject,
-  guardMainRepoHead,
-  sweepOrphanWorktreeDirs,
   reclaimDir,
   classifyDir,
   listProjectFactoryWorktrees,
   listRepoVcWorktrees,
-  parseGitWorktreeList,
   forceRmDir,
   clearReadOnlyRecursive,
   RECLAIMABLE_STATUSES,

@@ -1,7 +1,12 @@
 'use strict';
 
+const { ErrorCodes, makeError } = require('./shared');
+const logger = require('../logger').child({ component: 'auto-recovery-handlers' });
+
 function listRecoveryStrategies({ engine }) {
-  if (!engine || !engine._registry) throw new Error('engine not initialized');
+  if (!engine || !engine._registry) {
+    return makeError(ErrorCodes.INTERNAL_ERROR, 'engine not initialized');
+  }
   return {
     rules: engine._registry.getRules().map(r => ({
       name: r.name, category: r.category, priority: r.priority,
@@ -15,7 +20,9 @@ function listRecoveryStrategies({ engine }) {
 }
 
 function getRecoveryHistory({ db, project_id, limit = 100 }) {
-  if (!project_id) throw new Error('project_id is required');
+  if (!project_id) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'project_id is required');
+  }
   const rows = db.prepare(`
     SELECT id, project_id, stage, actor, action, reasoning,
            outcome_json, confidence, batch_id, created_at
@@ -26,14 +33,20 @@ function getRecoveryHistory({ db, project_id, limit = 100 }) {
   return {
     decisions: rows.map(r => {
       let outcome = null;
-      try { outcome = r.outcome_json ? JSON.parse(r.outcome_json) : null; } catch {}
+      try {
+        outcome = r.outcome_json ? JSON.parse(r.outcome_json) : null;
+      } catch (err) {
+        logger.warn({ decision_id: r.id, err: err.message }, 'outcome_json parse failed');
+      }
       return { ...r, outcome };
     }),
   };
 }
 
 function clearAutoRecovery({ db, project_id }) {
-  if (!project_id) throw new Error('project_id is required');
+  if (!project_id) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'project_id is required');
+  }
   db.prepare(`UPDATE factory_projects
               SET auto_recovery_attempts = 0,
                   auto_recovery_exhausted = 0,
@@ -49,10 +62,16 @@ function clearAutoRecovery({ db, project_id }) {
 }
 
 async function triggerAutoRecovery({ db, engine, project_id }) {
-  if (!project_id) throw new Error('project_id is required');
-  if (!engine || typeof engine.recoverOne !== 'function') throw new Error('engine not initialized');
+  if (!project_id) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'project_id is required');
+  }
+  if (!engine || typeof engine.recoverOne !== 'function') {
+    return makeError(ErrorCodes.INTERNAL_ERROR, 'engine not initialized');
+  }
   const project = db.prepare('SELECT * FROM factory_projects WHERE id = ?').get(project_id);
-  if (!project) throw new Error(`project not found: ${project_id}`);
+  if (!project) {
+    return makeError(ErrorCodes.NOT_FOUND, `project not found: ${project_id}`);
+  }
   return engine.recoverOne(project);
 }
 

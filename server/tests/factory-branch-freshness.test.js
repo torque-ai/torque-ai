@@ -1,6 +1,5 @@
-'use strict';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const { describe, it, expect, beforeEach, afterEach, vi } = require('vitest');
 const childProcess = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');

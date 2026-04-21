@@ -19,6 +19,10 @@ const EXPECTED_UNMAPPED_TOOLS = new Set([
   'strategic_config_get', 'strategic_config_set', 'strategic_config_templates', 'strategic_config_apply_template',
   // Handler auto-dispatch derives poll_git_hub_issues from handlePollGitHubIssues
   'poll_github_issues',
+  // Auto-recovery tools are wired via REST routes in server/api/routes/factory-routes.js
+  // and consume { db, engine } rather than the standard args shape, so they are not
+  // auto-dispatched via tools.js routeMap.
+  'list_recovery_strategies', 'get_recovery_history', 'clear_auto_recovery', 'trigger_auto_recovery',
 ]);
 const PLUGIN_PROVIDED_TOOLS = new Set(
   remoteAgentToolDefs

@@ -79,6 +79,20 @@ describe('restart_server barrier mode', () => {
   });
 
   it('rejects second restart when barrier already exists', async () => {
+    // Park a running task so the first barrier stays queued for drain instead
+    // of completing instantly. Without this, the beforeEach cooldown='0'
+    // override would let the second call create a fresh barrier, because the
+    // first barrier's empty-pipeline shortcut marks it terminal before the
+    // existing-barrier lookup can see it.
+    taskCore.createTask({
+      id: 'barrier-pin-running',
+      task_description: 'keeps first barrier in drain',
+      provider: 'codex',
+      working_directory: process.cwd(),
+    });
+    taskCore.updateTaskStatus('barrier-pin-running', 'queued', {});
+    taskCore.updateTaskStatus('barrier-pin-running', 'running', { started_at: new Date().toISOString() });
+
     const first = await tools.handleToolCall('restart_server', { reason: 'first' });
     expect(first.task_id).toBeTruthy();
 

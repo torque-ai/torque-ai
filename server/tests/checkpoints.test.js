@@ -21,9 +21,11 @@ describe('shadow git checkpoints', () => {
   });
 
   it('snapshot captures the current working tree as a tagged commit', () => {
-    snapshotTaskState({ project_root: projectRoot, task_id: 'task-1', task_label: 'first' });
+    const snap1 = snapshotTaskState({ project_root: projectRoot, task_id: 'task-1', task_label: 'first' });
+    expect(snap1.ok, `snap1 failed: ${snap1.error}`).toBe(true);
     fs.writeFileSync(path.join(projectRoot, 'a.txt'), 'modified\n');
-    snapshotTaskState({ project_root: projectRoot, task_id: 'task-2', task_label: 'second' });
+    const snap2 = snapshotTaskState({ project_root: projectRoot, task_id: 'task-2', task_label: 'second' });
+    expect(snap2.ok, `snap2 failed: ${snap2.error}`).toBe(true);
 
     const checkpoints = listCheckpoints(projectRoot);
     expect(checkpoints.length).toBeGreaterThanOrEqual(2);
