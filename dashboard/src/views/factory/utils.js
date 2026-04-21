@@ -158,6 +158,9 @@ export function normalizeProject(project = {}) {
 
   return {
     ...project,
+    auto_recovery_attempts: Number(project.auto_recovery_attempts) || 0,
+    auto_recovery_exhausted: Number(project.auto_recovery_exhausted) || 0,
+    auto_recovery_last_strategy: project.auto_recovery_last_strategy || null,
     scores,
     balance,
     weakest_dimension: resolveWeakestDimension(project.weakest_dimension, scores),
@@ -189,6 +192,9 @@ export function buildProjectDetail(project = {}) {
     loop_batch_id: project.loop_batch_id,
     loop_last_action_at: project.loop_last_action_at,
     loop_paused_at_stage: project.loop_paused_at_stage,
+    auto_recovery_attempts: Number(project.auto_recovery_attempts) || 0,
+    auto_recovery_exhausted: Number(project.auto_recovery_exhausted) || 0,
+    auto_recovery_last_strategy: project.auto_recovery_last_strategy || null,
   };
 }
 
