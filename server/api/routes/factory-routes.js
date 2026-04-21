@@ -382,6 +382,59 @@ const FACTORY_V2_ROUTES = [
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/corrections$/, tool: 'record_correction', mapParams: ['project'], mapBody: true },
   // Observability
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/decisions$/, tool: 'decision_log', mapParams: ['project'], mapQuery: true },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/recovery_history$/,
+    mapParams: ['project_id'],
+    handlerName: 'handleRecoveryHistory',
+    handler: async (req, res, context) => {
+      try {
+        const { getRecoveryHistory } = require('../../handlers/auto-recovery-handlers');
+        const { defaultContainer: container } = require('../../container');
+        const dbService = container.get('db');
+        const rawDb = typeof dbService.getDbInstance === 'function' ? dbService.getDbInstance() : dbService;
+        const limit = Number.parseInt(req.query.limit, 10) || 100;
+        const result = getRecoveryHistory({ db: rawDb, project_id: req.params.project_id, limit });
+        return sendSuccess(res, context.requestId, result, 200, req);
+      } catch (err) {
+        return sendError(
+          res,
+          context.requestId,
+          'invalid_request',
+          err instanceof Error ? err.message : String(err),
+          400,
+          {},
+          req,
+        );
+      }
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/auto-recovery\/clear$/,
+    mapParams: ['project_id'],
+    handlerName: 'handleClearAutoRecovery',
+    handler: async (req, res, context) => {
+      try {
+        const { clearAutoRecovery } = require('../../handlers/auto-recovery-handlers');
+        const { defaultContainer: container } = require('../../container');
+        const dbService = container.get('db');
+        const rawDb = typeof dbService.getDbInstance === 'function' ? dbService.getDbInstance() : dbService;
+        const result = clearAutoRecovery({ db: rawDb, project_id: req.params.project_id });
+        return sendSuccess(res, context.requestId, result, 200, req);
+      } catch (err) {
+        return sendError(
+          res,
+          context.requestId,
+          'invalid_request',
+          err instanceof Error ? err.message : String(err),
+          400,
+          {},
+          req,
+        );
+      }
+    },
+  },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/notifications$/, tool: 'factory_notifications', mapParams: ['project'], mapQuery: true },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/notifications\/test$/, tool: 'factory_notifications', mapParams: ['project'], mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/digest$/, tool: 'factory_digest', mapParams: ['project'] },

@@ -84,10 +84,22 @@ export function DimensionBar({ dimension, score }) {
   );
 }
 
-export function ProjectCard({ project, selected, busy, onSelect, onToggle, activity }) {
+export function ProjectCard({
+  project,
+  selected,
+  busy,
+  onSelect,
+  onToggle,
+  activity,
+  onClearAutoRecovery,
+  clearAutoRecoveryBusy = false,
+}) {
   const actionLabel = project.status === 'running' ? 'Pause' : 'Resume';
   const weakest = project.weakest_dimension;
   const alertBadge = getFactoryAlertBadge(project.alert_badge);
+  const recoveryAttempts = Number(project.auto_recovery_attempts) || 0;
+  const recoveryExhausted = Number(project.auto_recovery_exhausted) === 1;
+  const isAutoRecovering = recoveryAttempts > 0 && !recoveryExhausted;
 
   return (
     <div
@@ -124,6 +136,14 @@ export function ProjectCard({ project, selected, busy, onSelect, onToggle, activ
                 {alertBadge.label}
               </span>
             )}
+            {isAutoRecovering && (
+              <span
+                className="inline-flex max-w-full items-center rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-200"
+                title={`Last strategy: ${project.auto_recovery_last_strategy || '—'}`}
+              >
+                Auto-recovering: attempt {recoveryAttempts}/5
+              </span>
+            )}
             {activity?.recentCount > 0 && (
               <span className="inline-flex items-center rounded-full border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1 text-xs font-medium text-indigo-200">
                 {activity.recentCount} recent
@@ -147,6 +167,27 @@ export function ProjectCard({ project, selected, busy, onSelect, onToggle, activ
           {busy ? 'Working...' : actionLabel}
         </button>
       </div>
+
+      {recoveryExhausted && (
+        <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-rose-200">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-medium">Auto-recovery exhausted — operator action required</p>
+            <button
+              type="button"
+              disabled={clearAutoRecoveryBusy || !onClearAutoRecovery}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (onClearAutoRecovery) {
+                  void onClearAutoRecovery(project);
+                }
+              }}
+              className="inline-flex items-center justify-center rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-sm font-medium text-rose-100 transition-colors hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {clearAutoRecoveryBusy ? 'Clearing...' : 'Clear & retry'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <p className="mt-4 break-all font-mono text-xs text-slate-400">{project.path || 'No path configured'}</p>
 

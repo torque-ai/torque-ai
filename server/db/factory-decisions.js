@@ -3,7 +3,7 @@
 const logger = require('../logger').child({ component: 'factory-decisions' });
 
 const VALID_STAGES = new Set(['sense', 'prioritize', 'plan', 'execute', 'verify', 'learn', 'ship']);
-const VALID_ACTORS = new Set(['health_model', 'architect', 'planner', 'executor', 'verifier', 'human']);
+const VALID_ACTORS = new Set(['health_model', 'architect', 'planner', 'executor', 'verifier', 'human', 'auto-recovery']);
 
 let db = null;
 

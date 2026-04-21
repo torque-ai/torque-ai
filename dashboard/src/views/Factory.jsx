@@ -1,6 +1,9 @@
+import { useCallback, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
+import { factory as factoryApi } from '../api';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import StatCard from '../components/StatCard';
+import { useToast } from '../components/Toast';
 import { ProjectCard } from './factory/shared';
 import { useFactoryShell } from './factory/useFactoryShell';
 
@@ -14,6 +17,8 @@ const FACTORY_TABS = [
 ];
 
 export default function Factory() {
+  const [clearRecoveryProjectId, setClearRecoveryProjectId] = useState(null);
+  const toast = useToast();
   const {
     activeProjectAction,
     handlePauseAll,
@@ -30,6 +35,27 @@ export default function Factory() {
     setSelectedProjectId,
     totalProjects,
   } = useFactoryShell();
+  const { refreshSelectedProject, selectedProjectId } = outletContext;
+
+  const handleClearAutoRecovery = useCallback(async (project) => {
+    if (!project?.id || clearRecoveryProjectId) {
+      return;
+    }
+
+    setClearRecoveryProjectId(project.id);
+    try {
+      await factoryApi.clearAutoRecovery(project.id);
+      await loadProjects({ silent: true });
+      if (project.id === selectedProjectId) {
+        await refreshSelectedProject();
+      }
+      toast.success('Auto-recovery state cleared');
+    } catch (error) {
+      toast.error(`Failed to clear auto-recovery: ${error.message}`);
+    } finally {
+      setClearRecoveryProjectId(null);
+    }
+  }, [clearRecoveryProjectId, loadProjects, refreshSelectedProject, selectedProjectId, toast]);
 
   return (
     <div className="space-y-6 p-6">
@@ -111,6 +137,8 @@ export default function Factory() {
                 busy={activeProjectAction === project.id}
                 onSelect={setSelectedProjectId}
                 onToggle={handleToggleProject}
+                onClearAutoRecovery={handleClearAutoRecovery}
+                clearAutoRecoveryBusy={clearRecoveryProjectId === project.id}
               />
             ))}
           </div>

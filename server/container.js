@@ -229,6 +229,37 @@ _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
   return createProviderScoring({ db: unwrapDb(db) });
 });
 
+_defaultContainer.register('autoRecoveryServices', ['db', 'eventBus', 'logger'], ({ db, eventBus, logger: log }) => {
+  const { createAutoRecoveryServices } = require('./factory/auto-recovery/services');
+  let handleRetryFactoryVerify = null;
+  try {
+    ({ handleRetryFactoryVerify } = require('./handlers/factory-handlers'));
+  } catch (_e) { void _e; }
+  return createAutoRecoveryServices({
+    db: unwrapDb(db), eventBus, logger: log,
+    extras: {
+      retryFactoryVerify: async (args) =>
+        handleRetryFactoryVerify ? handleRetryFactoryVerify(args) : null,
+    },
+  });
+});
+
+_defaultContainer.register(
+  'autoRecoveryEngine',
+  ['db', 'eventBus', 'logger', 'autoRecoveryServices'],
+  ({ db, eventBus, logger: log, autoRecoveryServices }) => {
+    const { createAutoRecoveryEngine } = require('./factory/auto-recovery/engine');
+    const { createPlugin } = require('./plugins/auto-recovery-core');
+    const plugin = createPlugin();
+    return createAutoRecoveryEngine({
+      db: unwrapDb(db), logger: log, eventBus,
+      rules: plugin.classifierRules,
+      strategies: plugin.recoveryStrategies,
+      services: autoRecoveryServices,
+    });
+  }
+);
+
 
 function getModule(name) {
   try {

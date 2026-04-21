@@ -211,6 +211,8 @@ beforeEach(() => {
     defaultContainer.unregister && defaultContainer.unregister('db');
   }
   defaultContainer.registerValue('db', db);
+  defaultContainer.registerValue('eventBus', { emit: () => {}, on: () => {}, off: () => {} });
+  defaultContainer.registerValue('logger', { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} });
   defaultContainer.boot();
 
   resetFeedbackAnalysisModule();

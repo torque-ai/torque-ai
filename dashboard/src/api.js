@@ -606,6 +606,10 @@ export async function getDecisionLog(projectId, params = {}, opts = {}) {
   return requestV2(`/factory/projects/${projectId}/decisions${buildQuery(params)}`, opts);
 }
 
+export async function getRecoveryHistory(projectId, params = {}, opts = {}) {
+  return requestV2(`/factory/projects/${projectId}/recovery_history${buildQuery(params)}`, opts);
+}
+
 export async function getFactoryDigest(projectId, opts = {}) {
   return requestV2(`/factory/projects/${projectId}/digest`, opts);
 }
@@ -652,6 +656,14 @@ export const factory = {
   ).then((d) => unwrapListPayload(d, 'instances')),
   cycleHistory: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/cycles`, opts)
     .then((d) => unwrapListPayload(d, 'cycles')),
+  recoveryHistory: (projectId, params = {}, opts = {}) => requestV2(
+    `/factory/projects/${projectId}/recovery_history${buildQuery(params)}`,
+    opts,
+  ).then((d) => unwrapListPayload(d, 'decisions')),
+  clearAutoRecovery: (projectId, opts = {}) => requestV2(
+    `/factory/projects/${projectId}/auto-recovery/clear`,
+    { method: 'POST', ...opts },
+  ),
   startLoopInstance: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loops/start`, { method: 'POST', ...opts }),
   loopInstanceStatus: (instanceId, opts = {}) => requestV2(`/factory/loops/${instanceId}`, opts),
   advanceLoopInstance: (instanceId, opts = {}) => requestV2(`/factory/loops/${instanceId}/advance`, { method: 'POST', ...opts }),

@@ -150,6 +150,8 @@ beforeEach(() => {
 
   defaultContainer.resetForTest && defaultContainer.resetForTest();
   defaultContainer.registerValue('db', db);
+  defaultContainer.registerValue('eventBus', { emit: () => {}, on: () => {}, off: () => {} });
+  defaultContainer.registerValue('logger', { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} });
   defaultContainer.boot();
 
   factoryHealth.setDb(db);

@@ -266,6 +266,27 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
   }
 
   alreadyReconciled = true;
+
+  // Auto-recovery engine startup reconcile — resets stuck instances, clears
+  // exhausted flags for projects whose loop_state recovered externally, etc.
+  // Fire-and-forget because this function is synchronous; the engine reports
+  // via its own decision log.
+  try {
+    const container = require('../container').defaultContainer;
+    const autoRecoveryEngine = container.get('autoRecoveryEngine');
+    if (autoRecoveryEngine && typeof autoRecoveryEngine.reconcileOnStartup === 'function') {
+      Promise.resolve(autoRecoveryEngine.reconcileOnStartup())
+        .then((summary) => {
+          safeLog(logger, 'info', 'auto-recovery startup reconcile completed', summary || {});
+        })
+        .catch((err) => {
+          safeLog(logger, 'warn', 'auto-recovery startup reconcile failed', { err: err.message });
+        });
+    }
+  } catch (err) {
+    safeLog(logger, 'warn', 'auto-recovery startup reconcile dispatch failed', { err: err.message });
+  }
+
   return {
     reconciled: true,
     actions,

@@ -18,6 +18,8 @@ const REQUIRED_FIELDS = [
  */
 const OPTIONAL_METHODS = [
   { name: 'tierTools', type: 'function' },
+  { name: 'classifierRules', type: 'object' },
+  { name: 'recoveryStrategies', type: 'object' },
 ];
 
 const OPTIONAL_ARRAY_FIELDS = [
@@ -38,8 +40,13 @@ function validatePlugin(plugin) {
     }
   }
   for (const { name, type } of OPTIONAL_METHODS) {
-    if (name in plugin && typeof plugin[name] !== type) {
-      errors.push(`optional method ${name} must be a ${type} when provided`);
+    if (name in plugin) {
+      if (typeof plugin[name] !== type) {
+        errors.push(`optional method ${name} must be a ${type} when provided`);
+      } else if ((name === 'classifierRules' || name === 'recoveryStrategies')
+                 && !Array.isArray(plugin[name])) {
+        errors.push(`optional method ${name} must be an array when provided`);
+      }
     }
   }
   for (const name of OPTIONAL_ARRAY_FIELDS) {
