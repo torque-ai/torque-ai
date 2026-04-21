@@ -106,6 +106,12 @@ const mockShared = {
   makeError: vi.fn(),
   isPathTraversalSafe: vi.fn(),
   checkProviderAvailability: vi.fn(() => null),
+  resolveHandlerDatabase: vi.fn((deps = {}, options = {}) => {
+    if (options.raw && deps.rawDb) return deps.rawDb;
+    if (deps.db) return deps.db;
+    if (deps.rawDb) return deps.rawDb;
+    return mockDb;
+  }),
   requireTask: vi.fn((taskId) => {
     if (!taskId) return { error: mockShared.makeError(mockShared.ErrorCodes.MISSING_REQUIRED_PARAM, 'task_id is required') };
     const task = mockDb.getTask(taskId);
@@ -339,6 +345,14 @@ function resetMockDefaults() {
 
   mockShared.isPathTraversalSafe.mockReset();
   mockShared.isPathTraversalSafe.mockImplementation((value) => !String(value || '').includes('..'));
+
+  mockShared.resolveHandlerDatabase.mockReset();
+  mockShared.resolveHandlerDatabase.mockImplementation((deps = {}, options = {}) => {
+    if (options.raw && deps.rawDb) return deps.rawDb;
+    if (deps.db) return deps.db;
+    if (deps.rawDb) return deps.rawDb;
+    return mockDb;
+  });
 
   mockTaskUtils.formatTime.mockReset();
   mockTaskUtils.formatTime.mockImplementation((value) => `fmt(${value})`);

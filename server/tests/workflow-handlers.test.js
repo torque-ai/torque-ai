@@ -140,6 +140,12 @@ function createSharedMock(db) {
     }),
     getWorkflowRestartGuardError: vi.fn(() => shared.__restartGuard),
     getWorkflowTaskCounts: vi.fn((status) => buildTaskCounts(status)),
+    resolveHandlerDatabase: vi.fn((deps = {}, options = {}) => {
+      if (options.raw && deps.rawDb) return deps.rawDb;
+      if (deps.db) return deps.db;
+      if (deps.rawDb) return deps.rawDb;
+      return db;
+    }),
     ErrorCodes: {
       INVALID_PARAM: 'INVALID_PARAM',
       MISSING_REQUIRED_PARAM: 'MISSING_REQUIRED_PARAM',
