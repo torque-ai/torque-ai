@@ -2,6 +2,7 @@
 
 const path = require('path');
 const { FILE_SIZE_TRUNCATION_THRESHOLD } = require('../constants');
+const { REJECT_RECOVERY_CONFIG_DEFAULTS } = require('./config-core');
 const { seedBuiltinGovernanceRules } = require('./governance-rules');
 
 function seedDefaults(db, logger, safeAddColumn, extras = {}) {
@@ -301,6 +302,9 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     }));
   insertConfig.run('stall_recovery_enabled', '1');
   insertConfig.run('stall_recovery_max_attempts', '3');
+  for (const [key, value] of Object.entries(REJECT_RECOVERY_CONFIG_DEFAULTS)) {
+    insertConfig.run(key, value);
+  }
   insertConfig.run('max_local_retries', '3');
   const insertRule = db.prepare(`
       INSERT OR IGNORE INTO routing_rules (name, description, rule_type, pattern, target_provider, priority, enabled, created_at)

@@ -10,11 +10,13 @@
 
 const factoryHealth = require('../db/factory-health');
 const factoryLoopInstances = require('../db/factory-loop-instances');
+const { getRejectRecoveryConfig } = require('../db/config-core');
 const database = require('../database');
 const eventBus = require('../event-bus');
 const { handleRetryFactoryVerify } = require('../handlers/factory-handlers');
 const loopController = require('./loop-controller');
 const { detectStuckLoops } = require('./stuck-loop-detector');
+const { runRejectedRecoverySweep } = require('./rejected-recovery');
 const { recoverStalledVerifyLoops } = require('./verify-stall-recovery');
 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
 const factoryNotifications = require('./notifications');
@@ -356,6 +358,15 @@ async function tickProject(project) {
         eventBus,
         retryFactoryVerify: ({ project_id }) => handleRetryFactoryVerify({ project: project_id }),
       });
+
+      const rejectRecoveryConfig = getRejectRecoveryConfig();
+      if (rejectRecoveryConfig.enabled) {
+        await runRejectedRecoverySweep({
+          db,
+          logger,
+          config: rejectRecoveryConfig,
+        });
+      }
     }
   } catch (err) {
     logger.warn('Factory tick failed for project', {
