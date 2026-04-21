@@ -28,6 +28,14 @@ function git(cwd, args) {
 
 describe('stale-probe against a real git repo', () => {
   let tmpDir;
+  const savedGitEnv = {};
+
+  afterEach(() => {
+    for (const [k, v] of Object.entries(savedGitEnv)) {
+      process.env[k] = v;
+      delete savedGitEnv[k];
+    }
+  });
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stale-probe-git-'));
@@ -36,14 +44,17 @@ describe('stale-probe against a real git repo', () => {
     // later pass the un-resolved path to probeStaleness, and git log's
     // cwd can't find the repo.
     tmpDir = fs.realpathSync(tmpDir);
-    const cleanEnv = Object.fromEntries(
-      Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
-    );
-    // Pass tmpDir as an explicit argument to `git init` rather than relying
-    // on cwd — on the Omen remote, `git init` with cwd=tmpDir silently
-    // initialised the repo somewhere else (empty directory after success).
+    // Delete GIT_* env vars in-place on process.env (restored in afterEach)
+    // instead of passing a replacement env dict — on Windows the child git
+    // binary needs PATH + SYSTEMROOT + every other default env var to run
+    // correctly, and passing a partial env dict silently broke init.
+    for (const k of Object.keys(process.env)) {
+      if (k.startsWith('GIT_')) {
+        savedGitEnv[k] = process.env[k];
+        delete process.env[k];
+      }
+    }
     const initOut = childProcess.execFileSync('git', ['init', tmpDir], {
-      env: cleanEnv,
       encoding: 'utf8',
     });
     // eslint-disable-next-line no-console
