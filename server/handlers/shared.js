@@ -260,7 +260,7 @@ function isPathTraversalSafe(filePath, allowedBase = null) {
   const dangerousPaths = [
     '/etc', '/root', '/var/log', '/proc', '/sys', '/dev',
     '/windows/system32', '/program files', '/programdata',
-    '/users/administrator', '/boot', '/home/root'
+    '/users/administrator', '/boot', '/home/<user>
   ];
   for (const dangerous of dangerousPaths) {
     if (lowerNormalized.startsWith(dangerous) || lowerNormalized.includes(dangerous + '/')) {
