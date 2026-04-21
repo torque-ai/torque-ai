@@ -23,6 +23,7 @@ const {
   evaluateWorkflowVisibility,
   getWorkflowRestartGuardError,
   getWorkflowTaskCounts,
+  resolveHandlerDatabase,
   requireWorkflow,
   ErrorCodes,
   makeError,
@@ -71,18 +72,8 @@ function getContainerValue(name) {
   }
 }
 
-function unwrapDb(db) {
-  return db && typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
-}
-
 function getDbDependency() {
-  if (hasOwn(workflowHandlerDeps, 'rawDb')) {
-    return workflowHandlerDeps.rawDb;
-  }
-  if (hasOwn(workflowHandlerDeps, 'db')) {
-    return workflowHandlerDeps.db;
-  }
-  return getContainerValue('db');
+  return resolveHandlerDatabase(workflowHandlerDeps, { defaultContainer });
 }
 
 function getTaskCore() {
@@ -105,7 +96,7 @@ function getTaskCore() {
 }
 
 function getRawDb() {
-  return unwrapDb(getDbDependency());
+  return resolveHandlerDatabase(workflowHandlerDeps, { defaultContainer, raw: true });
 }
 
 function withWorkflowHandlerDeps(deps, handler) {

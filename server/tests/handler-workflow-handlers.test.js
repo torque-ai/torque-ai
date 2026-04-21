@@ -160,6 +160,66 @@ describe('handler:workflow-handlers', () => {
       expect(databaseCreateTaskSpy).not.toHaveBeenCalled();
     });
 
+    it('uses handler DI database resolution and never falls back to the database facade', async () => {
+      const originalLoad = Module._load;
+      const blockedRequests = [];
+      const rawDb = {
+        transaction: vi.fn((fn) => () => fn())
+      };
+      const fakeTaskCore = {
+        createTask: vi.fn()
+      };
+      const container = {
+        has: vi.fn((name) => name === 'dbInstance' || name === 'taskCore'),
+        get: vi.fn((name) => {
+          if (name === 'dbInstance') return rawDb;
+          if (name === 'taskCore') return fakeTaskCore;
+          throw new Error(`Unexpected service: ${name}`);
+        })
+      };
+      const injectedHandlers = handlers.createWorkflowHandlers({
+        container,
+        db: undefined,
+        rawDb: undefined,
+        taskCore: fakeTaskCore
+      });
+      const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
+      const updateWorkflowCountsSpy = vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
+
+      const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+        const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+        if (request === '../../database' && parentFile.endsWith('server/handlers/workflow/index.js')) {
+          blockedRequests.push(request);
+          throw new Error('workflow handler should not require database facade');
+        }
+        return originalLoad.call(this, request, parent, isMain);
+      });
+
+      try {
+        const result = injectedHandlers.handleCreateWorkflow({
+          name: 'Container Workflow',
+          tasks: [
+            { node_id: 'build', task_description: 'Build through container db' }
+          ]
+        });
+
+        expect(result.isError).toBeFalsy();
+        expect(createWorkflowSpy).toHaveBeenCalledTimes(1);
+        expect(container.get).toHaveBeenCalledWith('dbInstance');
+        expect(rawDb.transaction).toHaveBeenCalled();
+        expect(fakeTaskCore.createTask).toHaveBeenCalledWith(expect.objectContaining({
+          task_description: 'Build through container db',
+          workflow_node_id: 'build'
+        }));
+        expect(updateWorkflowCountsSpy).toHaveBeenCalledWith(expect.any(String));
+        expect(blockedRequests).toEqual([]);
+      } finally {
+        databaseLoadSpy.mockRestore();
+      }
+    });
+
     it('loads workflow handlers without requiring the database facade directly', () => {
       const originalLoad = Module._load;
       const blockedRequests = [];

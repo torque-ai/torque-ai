@@ -529,6 +529,97 @@ function validateObjectDepth(obj, maxDepth = MAX_OBJECT_DEPTH, maxKeys = MAX_OBJ
   return { valid: true };
 }
 
+function hasOwnKey(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function isDatabaseDependency(value) {
+  return value !== null && value !== undefined;
+}
+
+function unwrapHandlerDatabase(db) {
+  return db && typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+}
+
+function resolveContainerValue(container, name) {
+  if (!container || typeof container.get !== 'function') {
+    return null;
+  }
+  try {
+    if (typeof container.has === 'function' && !container.has(name)) {
+      return null;
+    }
+    return container.get(name);
+  } catch (_e) {
+    try {
+      if (typeof container.peek === 'function') {
+        const value = container.peek(name);
+        return value === undefined ? null : value;
+      }
+    } catch (_peekErr) {
+      return null;
+    }
+    return null;
+  }
+}
+
+function getDefaultHandlerContainer() {
+  try {
+    return require('../container').defaultContainer;
+  } catch (_e) {
+    return null;
+  }
+}
+
+function appendUniqueContainer(containers, container) {
+  if (container && !containers.includes(container)) {
+    containers.push(container);
+  }
+}
+
+function resolveHandlerDatabase(deps = {}, options = {}) {
+  const normalizedDeps = deps && typeof deps === 'object' ? deps : {};
+  const raw = options.raw === true;
+  const explicitCandidates = raw
+    ? [
+      hasOwnKey(normalizedDeps, 'rawDb') ? normalizedDeps.rawDb : undefined,
+      hasOwnKey(normalizedDeps, 'db') ? normalizedDeps.db : undefined,
+    ]
+    : [
+      hasOwnKey(normalizedDeps, 'db') ? normalizedDeps.db : undefined,
+      hasOwnKey(normalizedDeps, 'rawDb') ? normalizedDeps.rawDb : undefined,
+    ];
+
+  for (const candidate of explicitCandidates) {
+    if (isDatabaseDependency(candidate)) {
+      return raw ? unwrapHandlerDatabase(candidate) : candidate;
+    }
+  }
+
+  const containers = [];
+  appendUniqueContainer(containers, normalizedDeps.container);
+  appendUniqueContainer(containers, options.container);
+  if (hasOwnKey(options, 'defaultContainer')) {
+    appendUniqueContainer(containers, options.defaultContainer);
+  } else {
+    appendUniqueContainer(containers, getDefaultHandlerContainer());
+  }
+
+  const services = Array.isArray(options.services) && options.services.length > 0
+    ? options.services
+    : ['db', 'dbInstance'];
+  for (const container of containers) {
+    for (const serviceName of services) {
+      const candidate = resolveContainerValue(container, serviceName);
+      if (isDatabaseDependency(candidate)) {
+        return raw ? unwrapHandlerDatabase(candidate) : candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
 function validateArtifactMimeType(filename, detectedMimeType) {
   const ext = path.extname(filename).toLowerCase();
 
@@ -953,6 +1044,7 @@ module.exports = {
   getWorkflowTaskCounts,
   getWorkflowRestartGuardError,
   evaluateWorkflowVisibility,
+  resolveHandlerDatabase,
   validateObjectDepth,
   validateArtifactMimeType,
   validateEnvVarName,

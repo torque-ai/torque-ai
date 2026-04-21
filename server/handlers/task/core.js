@@ -25,7 +25,17 @@ const taskManager = require('../../task-manager');
 const {
   buildPeekArtifactReferencesFromTaskArtifacts,
 } = require('../../contracts/peek');
-const { safeLimit, MAX_BATCH_SIZE, MAX_TASK_LENGTH, ErrorCodes, makeError, isPathTraversalSafe, checkProviderAvailability, requireTask } = require('../shared');
+const {
+  safeLimit,
+  MAX_BATCH_SIZE,
+  MAX_TASK_LENGTH,
+  ErrorCodes,
+  makeError,
+  isPathTraversalSafe,
+  checkProviderAvailability,
+  requireTask,
+  resolveHandlerDatabase,
+} = require('../shared');
 const { formatTime, calculateDuration } = require('./utils');
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
@@ -33,6 +43,40 @@ const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-s
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../../constants');
 const { enforceVersionIntentForProject } = require('../../versioning/version-intent');
 const logger = require('../../logger');
+
+let taskCoreHandlerDeps = {};
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function normalizeTaskCoreHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
+  if (hasOwn(deps, 'container')) normalized.container = deps.container;
+  return normalized;
+}
+
+function withTaskCoreHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = taskCoreHandlerDeps;
+    taskCoreHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      if (result && typeof result.then === 'function') {
+        return result.finally(() => {
+          taskCoreHandlerDeps = previousDeps;
+        });
+      }
+      taskCoreHandlerDeps = previousDeps;
+      return result;
+    } catch (err) {
+      taskCoreHandlerDeps = previousDeps;
+      throw err;
+    }
+  };
+}
 
 /**
  * Validate that an object does not exceed a maximum nesting depth.
@@ -329,13 +373,7 @@ function handleSubmitTask(args) {
   const workDir = args.working_directory || null;
   if (workDir) {
     try {
-      let rawDb;
-      try {
-        const { defaultContainer } = require('../../container');
-        rawDb = defaultContainer.get('db');
-      } catch {
-        rawDb = require('../../database').getDbInstance();
-      }
+      const rawDb = resolveHandlerDatabase(taskCoreHandlerDeps, { raw: true });
       const versionIntentError = enforceVersionIntentForProject(
         rawDb,
         workDir,
@@ -1633,20 +1671,21 @@ function handleTaskInfo(args) {
   return result;
 }
 
-function createTaskCoreHandlers(_deps) {
+function createTaskCoreHandlers(deps = {}) {
+  const normalizedDeps = normalizeTaskCoreHandlerDeps(deps);
   return {
-    handleSubmitTask,
-    handleQueueTask,
-    handleCheckStatus,
-    handleGetResult,
-    handleWaitForTask,
-    handleListTasks,
-    handleCancelTask,
-    handleConfigure,
-    handleGetProgress,
-    handleShareContext,
-    handleSyncFiles,
-    handleTaskInfo,
+    handleSubmitTask: withTaskCoreHandlerDeps(normalizedDeps, handleSubmitTask),
+    handleQueueTask: withTaskCoreHandlerDeps(normalizedDeps, handleQueueTask),
+    handleCheckStatus: withTaskCoreHandlerDeps(normalizedDeps, handleCheckStatus),
+    handleGetResult: withTaskCoreHandlerDeps(normalizedDeps, handleGetResult),
+    handleWaitForTask: withTaskCoreHandlerDeps(normalizedDeps, handleWaitForTask),
+    handleListTasks: withTaskCoreHandlerDeps(normalizedDeps, handleListTasks),
+    handleCancelTask: withTaskCoreHandlerDeps(normalizedDeps, handleCancelTask),
+    handleConfigure: withTaskCoreHandlerDeps(normalizedDeps, handleConfigure),
+    handleGetProgress: withTaskCoreHandlerDeps(normalizedDeps, handleGetProgress),
+    handleShareContext: withTaskCoreHandlerDeps(normalizedDeps, handleShareContext),
+    handleSyncFiles: withTaskCoreHandlerDeps(normalizedDeps, handleSyncFiles),
+    handleTaskInfo: withTaskCoreHandlerDeps(normalizedDeps, handleTaskInfo),
     getTaskInfoPressureLevel,
   };
 }

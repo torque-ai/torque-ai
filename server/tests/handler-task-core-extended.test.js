@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const Module = require('module');
 const { createConfigMock } = require('./test-helpers');
 
 const configCore = require('../db/config-core');
@@ -161,6 +162,53 @@ describe('handler:task-core (extended)', () => {
       else delete require.cache[containerPath];
       if (originalDatabase) require.cache[databasePath] = originalDatabase;
       else delete require.cache[databasePath];
+    }
+  });
+
+  it('createTaskCoreHandlers uses injected database deps instead of the database facade fallback', () => {
+    mockSubmissionDefaults();
+    const originalLoad = Module._load;
+    const directDatabaseRequests = [];
+    const rawDb = {
+      prepare: vi.fn(() => ({
+        get: vi.fn(() => null),
+        all: vi.fn(() => []),
+      })),
+    };
+    const db = {
+      getDbInstance: vi.fn(() => rawDb),
+    };
+    const container = {
+      has: vi.fn((name) => name === 'db' || name === 'dbInstance'),
+      get: vi.fn((name) => {
+        if (name === 'db') return db;
+        if (name === 'dbInstance') return rawDb;
+        throw new Error(`Unexpected service: ${name}`);
+      }),
+    };
+    const injectedHandlers = handlers.createTaskCoreHandlers({ container, db, rawDb });
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../../database' && parentFile.endsWith('server/handlers/task/core.js')) {
+        directDatabaseRequests.push(request);
+        throw new Error('task core handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    });
+
+    try {
+      const result = injectedHandlers.handleSubmitTask({
+        project: 'test-project',
+        task: 'Use injected database deps',
+        auto_route: false,
+        working_directory: 'C:/repo',
+      });
+
+      expect(result.isError).not.toBe(true);
+      expect(rawDb.prepare).toHaveBeenCalled();
+      expect(directDatabaseRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
     }
   });
 
