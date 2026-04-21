@@ -857,9 +857,13 @@ function init() {
     logger.warn('⚠ TORQUE is running without authentication. Set an API key via configure tool.');
   }
 
-  const runtimeMode = process.env.TORQUE_AUTH_MODE || db.getConfig('auth_mode') || 'local';
+  const envAuthMode = process.env.TORQUE_AUTH_MODE;
+  const dbAuthMode = db.getConfig('auth_mode');
+  const runtimeMode = envAuthMode || dbAuthMode || 'local';
+  const authModeSource = envAuthMode ? 'env' : (dbAuthMode ? 'db' : 'default');
   const isLocalMode = runtimeMode === 'local';
 
+  logger.info(`[startup] auth_mode=${runtimeMode} source=${authModeSource}`);
   if (isLocalMode) {
     debugLog('Local mode active (127.0.0.1 only)');
   }
@@ -1113,6 +1117,7 @@ function init() {
         logger.error('[plugin-loader] Plugin install FAILED: ' + plugin.name + ' — ' + pluginErr.message);
       }
     }
+    logger.info(`[startup] plugins_loaded=${loadedPlugins.map((p) => p.name).join(',') || 'none'}`);
   } catch (err) {
     debugLog('Plugin loading failed: ' + err.message);
   }
