@@ -16,6 +16,7 @@ const { safeJsonParse } = require('../utils/json');
 
 let db;
 let _getTaskFn;
+const DIRECTORY_BASELINE_YIELD_BATCH_SIZE = 25;
 
 function setDb(dbInstance) {
   db = dbInstance;
@@ -81,6 +82,38 @@ function captureFileBaseline(filePath, workingDirectory, taskId = null) {
   try {
     const stats = fs.statSync(fullPath);
     const content = fs.readFileSync(fullPath, 'utf8');
+    const lineCount = content.split('\n').length;
+    const checksum = crypto.createHash('sha256').update(content).digest('hex');
+
+    const stmt = db.prepare(`
+      INSERT INTO file_baselines (file_path, working_directory, size_bytes, line_count, checksum, captured_at, task_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(file_path, working_directory) DO UPDATE SET
+        size_bytes = excluded.size_bytes,
+        line_count = excluded.line_count,
+        checksum = excluded.checksum,
+        captured_at = excluded.captured_at,
+        task_id = excluded.task_id
+    `);
+    stmt.run(filePath, workingDirectory, stats.size, lineCount, checksum, new Date().toISOString(), taskId);
+
+    return { size: stats.size, lines: lineCount, checksum };
+  } catch (_err) {
+    void _err;
+    return null;
+  }
+}
+
+async function captureFileBaselineAsync(filePath, workingDirectory, taskId = null) {
+  const fsPromises = require('fs').promises;
+  const path = require('path');
+  const crypto = require('crypto');
+
+  const fullPath = path.isAbsolute(filePath) ? filePath : path.join(workingDirectory, filePath);
+
+  try {
+    const stats = await fsPromises.stat(fullPath);
+    const content = await fsPromises.readFile(fullPath, 'utf8');
     const lineCount = content.split('\n').length;
     const checksum = crypto.createHash('sha256').update(content).digest('hex');
 
@@ -172,6 +205,15 @@ async function captureDirectoryBaselines(workingDirectory, extensions = BASELINE
   const path = require('path');
 
   const captured = [];
+  let capturedSinceYield = 0;
+
+  async function yieldAfterBatch() {
+    capturedSinceYield += 1;
+    if (capturedSinceYield >= DIRECTORY_BASELINE_YIELD_BATCH_SIZE) {
+      capturedSinceYield = 0;
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  }
 
   async function walkDir(dir) {
     try {
@@ -185,8 +227,9 @@ async function captureDirectoryBaselines(workingDirectory, extensions = BASELINE
           const ext = path.extname(entry.name).toLowerCase();
           if (extensions.includes(ext)) {
             const relativePath = path.relative(workingDirectory, fullPath);
-            captureFileBaseline(relativePath, workingDirectory);
+            await captureFileBaselineAsync(relativePath, workingDirectory);
             captured.push(relativePath);
+            await yieldAfterBatch();
           }
         }
       }
