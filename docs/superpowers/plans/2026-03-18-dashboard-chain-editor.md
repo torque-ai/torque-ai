@@ -119,7 +119,7 @@ git commit -m "feat(dashboard): add MODEL_SUGGESTIONS and ModelInput component f
 **Files:**
 - Modify: `dashboard/src/views/RoutingTemplates.jsx`
 
-- [ ] **Step 1: Add ChainSummary component**
+- [x] **Step 1: Add ChainSummary component**
 
 Add after ModelInput:
 
@@ -146,7 +146,7 @@ function ChainSummary({ chain }) {
 }
 ```
 
-- [ ] **Step 2: Add ChainEditor component**
+- [x] **Step 2: Add ChainEditor component**
 
 Add after ChainSummary:
 
@@ -234,12 +234,12 @@ function ChainEditor({ chain, onChange, readOnly = false }) {
 }
 ```
 
-- [ ] **Step 3: Verify build**
+- [x] **Step 3: Verify build**
 
 Run: `cd /path/to/torque/dashboard && npm run build`
 Expected: builds without errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /path/to/torque
