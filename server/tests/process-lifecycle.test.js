@@ -8,6 +8,7 @@ const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { createMockChild } = require('./mocks/process-mock');
 const { EventEmitter } = require('events');
 const { PassThrough } = require('stream');
+const Module = require('module');
 const ProcessTracker = require('../execution/process-tracker');
 import crypto from 'crypto';
 
@@ -26,6 +27,7 @@ const COMPLETION_MODULE = '../validation/completion-detection';
 const FILE_RESOLUTION_MODULE = '../utils/file-resolution';
 const WEBHOOK_MODULE = '../handlers/webhook-handlers';
 const TASK_STARTUP_MODULE = '../execution/task-startup';
+const DATABASE_MODULE_PATH = require.resolve('../database');
 
 beforeAll(() => {
   const setup = setupTestDbOnly('process-lifecycle');
@@ -147,6 +149,38 @@ function clearLifecycleModuleCache() {
     } catch {
       // Module was not loaded in this test.
     }
+  }
+}
+
+function withDatabaseModuleBlocked(callback) {
+  const originalLoad = Module._load;
+  const databaseLoads = [];
+
+  Module._load = function blockedDatabaseLoad(request, parent, isMain) {
+    let resolved;
+    try {
+      resolved = Module._resolveFilename(request, parent, isMain);
+    } catch {
+      return originalLoad.call(this, request, parent, isMain);
+    }
+
+    if (resolved === DATABASE_MODULE_PATH) {
+      databaseLoads.push({
+        request,
+        parent: parent?.filename || null,
+      });
+      throw new Error(`process-lifecycle must not load server/database.js via ${request}`);
+    }
+
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    const result = callback();
+    expect(databaseLoads).toEqual([]);
+    return result;
+  } finally {
+    Module._load = originalLoad;
   }
 }
 
@@ -907,6 +941,16 @@ describe('process-lifecycle', () => {
     afterEach(() => {
       vi.restoreAllMocks();
       clearLifecycleModuleCache();
+    });
+
+    it('loads with db-core mocks without touching the database facade', () => {
+      withDatabaseModuleBlocked(() => {
+        const { subject } = loadLifecycleSubject();
+
+        subject.init(createSpawnDeps());
+
+        expect(typeof subject.spawnAndTrackProcess).toBe('function');
+      });
     });
 
     it('cleanupChildProcessListeners removes process and stream listeners', () => {
