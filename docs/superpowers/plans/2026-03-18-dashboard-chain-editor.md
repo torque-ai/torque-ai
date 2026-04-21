@@ -27,7 +27,7 @@ Single file, following the existing pattern (ProviderSelect is already inline at
 **Files:**
 - Modify: `dashboard/src/views/RoutingTemplates.jsx`
 
-- [ ] **Step 1: Add MODEL_SUGGESTIONS constant**
+- [x] **Step 1: Add MODEL_SUGGESTIONS constant**
 
 Add after `KNOWN_PROVIDERS` (line 27), before the ProviderSelect component:
 
@@ -56,7 +56,7 @@ const PROVIDER_DEFAULT_MODELS = {
 };
 ```
 
-- [ ] **Step 2: Add ModelInput component**
+- [x] **Step 2: Add ModelInput component**
 
 Add after ProviderSelect (line 50):
 
@@ -99,12 +99,12 @@ function ModelInput({ provider, value, onChange }) {
 }
 ```
 
-- [ ] **Step 3: Verify build**
+- [x] **Step 3: Verify build**
 
 Run: `cd /path/to/torque/dashboard && npm run build`
 Expected: builds without errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /path/to/torque
