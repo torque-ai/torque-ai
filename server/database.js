@@ -772,6 +772,7 @@ function resetForTest(buffer) {
 
   // Wire all sub-modules via factory functions
   _wireAllModules();
+  registerFacadeWithContainer();
 
   return db;
 }
