@@ -1,32 +1,32 @@
 'use strict';
 
+const defaultModelRegistry = require('../models/registry');
+
 let _deps = {};
 
 function init(deps = {}) {
   _deps = { ...deps };
+  if (_deps.db && typeof defaultModelRegistry.setDb === 'function') {
+    defaultModelRegistry.setDb(_deps.db);
+  }
+}
+
+function getModelRegistry(deps = {}) {
+  if (deps?.modelRegistry) {
+    return deps.modelRegistry;
+  }
+  if (deps?.registry) {
+    return deps.registry;
+  }
+  if (deps?.db && typeof defaultModelRegistry.setDb === 'function') {
+    defaultModelRegistry.setDb(deps.db);
+  }
+  return defaultModelRegistry;
 }
 
 function handleListModels(args, deps) {
-  const db = deps?.db || require('../database').getDbInstance();
   const provider = args?.provider;
-
-  let query = `
-    SELECT r.model_name, r.provider, r.family, r.parameter_size_b, r.status,
-           r.last_seen_at, r.probe_status,
-           c.cap_hashline, c.cap_agentic, c.cap_file_creation, c.cap_multi_file,
-           mr.role
-    FROM model_registry r
-    LEFT JOIN model_capabilities c ON r.model_name = c.model_name
-    LEFT JOIN model_roles mr ON r.provider = mr.provider AND r.model_name = mr.model_name
-  `;
-  const params = [];
-  if (provider) {
-    query += ' WHERE r.provider = ?';
-    params.push(provider);
-  }
-  query += ' ORDER BY r.provider, r.parameter_size_b DESC';
-
-  const rows = db.prepare(query).all(...params);
+  const rows = getModelRegistry(deps).listModelSummaries({ provider });
 
   if (rows.length === 0) {
     return '## Models\n\nNo models registered. Run `discover_models` to scan providers.';
@@ -57,7 +57,6 @@ function handleListModels(args, deps) {
 }
 
 function handleAssignModelRole(args, deps) {
-  const db = deps?.db || require('../database').getDbInstance();
   const { provider, role, model_name } = args || {};
 
   if (!provider || !role || !model_name) {
@@ -69,10 +68,7 @@ function handleAssignModelRole(args, deps) {
     return `Invalid role "${role}". Valid roles: ${validRoles.join(', ')}`;
   }
 
-  db.prepare(`
-    INSERT OR REPLACE INTO model_roles (provider, role, model_name, updated_at)
-    VALUES (?, ?, ?, datetime('now'))
-  `).run(provider, role, model_name);
+  getModelRegistry(deps).assignModelRole(provider, role, model_name);
 
   return `Assigned ${provider}/${role} = ${model_name}`;
 }

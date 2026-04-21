@@ -7,14 +7,53 @@ const { classifyModel } = require('../discovery/family-classifier');
 let db = null;
 
 function setDb(dbInstance) {
-  db = dbInstance;
+  db = resolveDbHandle(dbInstance);
+}
+
+function resolveDbHandle(candidate) {
+  if (!candidate) {
+    return null;
+  }
+  if (typeof candidate.prepare === 'function') {
+    return candidate;
+  }
+  if (typeof candidate.getDbInstance === 'function') {
+    return candidate.getDbInstance();
+  }
+  if (typeof candidate.getDb === 'function') {
+    return candidate.getDb();
+  }
+  return null;
 }
 
 function getDb() {
-  if (!db || typeof db.prepare !== 'function') {
+  let instance = resolveDbHandle(db);
+  if (!instance) {
+    try {
+      const { defaultContainer } = require('../container');
+      if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('db')) {
+        instance = resolveDbHandle(defaultContainer.get('db'));
+      }
+    } catch {
+      // Fall through to the database.js fallback below.
+    }
+  }
+  if (!instance) {
+    try {
+      const database = require('../database');
+      instance = resolveDbHandle(database);
+    } catch {
+      // Let the explicit error below surface if no active DB is available.
+    }
+  }
+  if (instance) {
+    db = instance;
+  }
+
+  if (!instance || typeof instance.prepare !== 'function') {
     throw new Error('Model registry database handle not set');
   }
-  return db;
+  return instance;
 }
 
 function nowIso() {
@@ -288,6 +327,37 @@ function listModels(filters = {}) {
   return database.prepare(sql).all(...values);
 }
 
+function listModelSummaries(filters = {}) {
+  const provider = filters?.provider;
+  const params = [];
+
+  let sql = `
+    SELECT r.model_name, r.provider, r.family, r.parameter_size_b, r.status,
+           r.last_seen_at, r.probe_status,
+           c.cap_hashline, c.cap_agentic, c.cap_file_creation, c.cap_multi_file,
+           mr.role
+    FROM model_registry r
+    LEFT JOIN model_capabilities c ON r.model_name = c.model_name
+    LEFT JOIN model_roles mr ON r.provider = mr.provider AND r.model_name = mr.model_name
+  `;
+
+  if (provider) {
+    sql += ' WHERE r.provider = ?';
+    params.push(provider);
+  }
+
+  sql += ' ORDER BY r.provider, r.parameter_size_b DESC';
+
+  return getDb().prepare(sql).all(...params);
+}
+
+function assignModelRole(provider, role, modelName) {
+  getDb().prepare(`
+    INSERT OR REPLACE INTO model_roles (provider, role, model_name, updated_at)
+    VALUES (?, ?, ?, datetime('now'))
+  `).run(provider, role, modelName);
+}
+
 function listPendingModels() {
   return listModels({ status: 'pending' });
 }
@@ -526,8 +596,10 @@ module.exports = {
   bulkApproveByProvider,
   markModelRemoved,
   listModels,
+  listModelSummaries,
   listPendingModels,
   getApprovedModels,
+  assignModelRole,
   selectBestApprovedModel,
   syncModelsFromHealthCheck,
   getModelCount,
