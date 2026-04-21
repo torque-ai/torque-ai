@@ -333,6 +333,20 @@ function claimStageForInstance(id, stage) {
   return getInstance(id);
 }
 
+function bumpVerifySilentReruns(instance_id) {
+  const database = getDb();
+  const info = database.prepare(
+    'UPDATE factory_loop_instances SET verify_silent_reruns = verify_silent_reruns + 1 WHERE id = ?'
+  ).run(instance_id);
+  return info.changes > 0;
+}
+
+function getVerifySilentReruns(instance_id) {
+  const database = getDb();
+  const row = database.prepare('SELECT verify_silent_reruns FROM factory_loop_instances WHERE id = ?').get(instance_id);
+  return row ? row.verify_silent_reruns : 0;
+}
+
 module.exports = {
   createFactoryLoopInstances,
   setDb,
@@ -348,4 +362,6 @@ module.exports = {
   terminateInstance,
   getStageOccupant,
   claimStageForInstance,
+  bumpVerifySilentReruns,
+  getVerifySilentReruns,
 };

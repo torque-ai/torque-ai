@@ -4677,6 +4677,83 @@ async function maybeShipNoop({ project_id, batch_id, work_item_id }) {
   return { shipped_as_noop: false };
 }
 
+async function attemptSilentRerun({
+  project_id, batch_id, instance_id,
+  priorVerifyOutput, runVerify,
+}) {
+  const { verifySignature } = require('./verify-signature');
+  const instances = require('../db/factory-loop-instances');
+
+  if (!isFactoryFeatureEnabled(project_id, 'verify_silent_rerun_enabled')) {
+    return { kind: 'flag_off' };
+  }
+  if (instances.getVerifySilentReruns(instance_id) > 0) {
+    return { kind: 'budget_exhausted' };
+  }
+
+  instances.bumpVerifySilentReruns(instance_id);
+
+  safeLogDecision({
+    project_id, batch_id, stage: LOOP_STATES.VERIFY,
+    action: 'verify_silent_rerun_started',
+    reasoning: 'Classifier was ambiguous; rerunning verify silently before spending a Codex retry slot.',
+    outcome: { instance_id },
+    confidence: 1,
+  });
+
+  let verifyResult;
+  try {
+    verifyResult = await runVerify();
+  } catch (err) {
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.VERIFY,
+      action: 'verify_silent_rerun_failed',
+      reasoning: `Silent rerun error: ${err.message}`,
+      outcome: { instance_id, error: err.message },
+      confidence: 1,
+    });
+    return { kind: 'rerun_failed', error: err.message };
+  }
+
+  if (verifyResult.exitCode === 0) {
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.VERIFY,
+      action: 'verify_passed_on_silent_rerun',
+      reasoning: 'Silent rerun passed; advancing without spending a Codex retry.',
+      outcome: { instance_id },
+      confidence: 1,
+    });
+    return { kind: 'passed', output: verifyResult.output };
+  }
+
+  const prevSig = verifySignature(priorVerifyOutput);
+  const currSig = verifySignature(verifyResult.output);
+
+  if (prevSig && currSig && prevSig === currSig) {
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.VERIFY,
+      action: 'verify_rerun_same_failure',
+      reasoning: 'Silent rerun produced the same failure signature; falling through to fix-task retry.',
+      outcome: { instance_id, signature: currSig },
+      confidence: 1,
+    });
+    return { kind: 'same_failure', output: verifyResult.output };
+  }
+
+  safeLogDecision({
+    project_id, batch_id, stage: LOOP_STATES.VERIFY,
+    action: 'verify_rerun_different_failure',
+    reasoning: 'Silent rerun produced a different failure signature; passing both to the fix task.',
+    outcome: { instance_id, prev_sig: prevSig, curr_sig: currSig },
+    confidence: 1,
+  });
+  return {
+    kind: 'different_failure',
+    output: verifyResult.output,
+    combinedOutput: `${priorVerifyOutput}\n---\n${verifyResult.output}`,
+  };
+}
+
 function buildVerifyFixPrompt({
   planPath, planTitle, branch, verifyCommand, verifyOutput,
   priorAttempts, verifyOutputPrev,
@@ -5470,6 +5547,35 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             confidence: 1,
             batch_id,
           });
+          if (review && review.classification === 'ambiguous') {
+            let verifyOutput = res.output;
+            const silentResult = await attemptSilentRerun({
+              project_id,
+              batch_id,
+              instance_id: instance && instance.id,
+              priorVerifyOutput: verifyOutput,
+              runVerify: async () => {
+                const execResult = await worktreeRunner.verify({
+                  worktreePath: worktreeRecord.worktreePath,
+                  branch: worktreeRecord.branch,
+                  verifyCommand,
+                });
+                return {
+                  exitCode: typeof execResult.exitCode === 'number' ? execResult.exitCode : (execResult.passed ? 0 : 1),
+                  output: execResult.output,
+                };
+              },
+            });
+
+            if (silentResult.kind === 'passed') {
+              return { status: 'passed' };
+            }
+            if (silentResult.kind === 'different_failure') {
+              verifyOutput = silentResult.combinedOutput;
+              res.output = verifyOutput;
+            }
+            // same_failure, rerun_failed, flag_off, budget_exhausted → fall through to today's retry path
+          }
         }
 
         if (retryAttempt >= MAX_AUTO_VERIFY_RETRIES) {
@@ -7082,6 +7188,7 @@ module.exports = {
     buildPriorAttemptsBlock,
     renderProgression,
     maybeShipNoop,
+    attemptSilentRerun,
     isFactoryFeatureEnabled,
   },
   _internalForTests: {
