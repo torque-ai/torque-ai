@@ -20,7 +20,7 @@
 
 This function is used by both Tier 1 and Tier 2, so build it first.
 
-- [ ] **Step 1: Write failing tests for `reindentNewText`**
+- [x] **Step 1: Write failing tests for `reindentNewText`**
 
 Create `server/tests/ollama-tools-edit-fuzzy.test.js`:
 
@@ -85,12 +85,12 @@ describe('reindentNewText', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js -t "reindentNewText"`
 Expected: FAIL with `reindentNewText` is not exported
 
-- [ ] **Step 3: Implement `reindentNewText` in ollama-tools.js**
+- [x] **Step 3: Implement `reindentNewText` in ollama-tools.js**
 
 Add near the top of the file (after the `require` block, before `const TOOL_DEFINITIONS`):
 
@@ -127,12 +127,12 @@ function reindentNewText(newText, fileIndent) {
 
 Export it from `module.exports` at the bottom of the file.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js -t "reindentNewText"`
 Expected: PASS (all 7 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```
 git add server/providers/ollama-tools.js server/tests/ollama-tools-edit-fuzzy.test.js
