@@ -105,13 +105,15 @@ module.exports = async function setup() {
   // Delete stale template DB from prior runs — INSERT OR IGNORE seeds
   // won't overwrite existing rows, so stale data leaks across runs.
   fs.mkdirSync(TEMPLATE_DIR, { recursive: true });
-  const TEMPLATE_DB = path.join(TEMPLATE_DIR, 'torque.db');
+  const TEMPLATE_DB = path.join(TEMPLATE_DIR, 'tasks.db');
   try { fs.unlinkSync(TEMPLATE_DB); } catch { /* first run */ }
   try { fs.unlinkSync(TEMPLATE_DB + '-wal'); } catch { /* no WAL */ }
   try { fs.unlinkSync(TEMPLATE_DB + '-shm'); } catch { /* no SHM */ }
+  const seedDataDir = path.join(TEMPLATE_DIR, `seed-${process.pid}-${Date.now()}`);
+  fs.mkdirSync(seedDataDir, { recursive: true });
 
   const origDataDir = process.env.TORQUE_DATA_DIR;
-  process.env.TORQUE_DATA_DIR = TEMPLATE_DIR;
+  process.env.TORQUE_DATA_DIR = seedDataDir;
 
   // Clear module cache to ensure fresh init
   delete require.cache[require.resolve('../database')];
