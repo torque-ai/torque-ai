@@ -880,6 +880,14 @@ function init() {
   if (!defaultContainer.has('toolRouter')) {
     defaultContainer.registerValue('toolRouter', { callTool });
   }
+  try {
+    const workflowHandlers = require('./handlers/workflow');
+    if (workflowHandlers && typeof workflowHandlers.init === 'function') {
+      workflowHandlers.init({ db });
+    }
+  } catch (workflowHandlerErr) {
+    debugLog(`Workflow handler dependency wiring error: ${workflowHandlerErr.message}`);
+  }
   const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
   const { createRepoRegistry } = require('./repo-graph/repo-registry');
   let repoRegistry = null;

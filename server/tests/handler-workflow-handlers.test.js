@@ -10,11 +10,16 @@ const shadowEnforcer = require('../policy-engine/shadow-enforcer');
 const projectConfigCore = require('../db/project-config-core');
 const logger = require('../logger');
 const handlers = require('../handlers/workflow');
+const Module = require('module');
 
-function loadHandlers() {
+function loadHandlers(deps = { db: database }) {
   delete require.cache[require.resolve('../handlers/workflow')];
   delete require.cache[require.resolve('../handlers/workflow/feature-workflow')];
-  return require('../handlers/workflow');
+  const loadedHandlers = require('../handlers/workflow');
+  if (loadedHandlers && typeof loadedHandlers.init === 'function') {
+    loadedHandlers.init(deps);
+  }
+  return loadedHandlers;
 }
 
 function textOf(result) {
@@ -24,6 +29,7 @@ function textOf(result) {
 describe('handler:workflow-handlers', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    handlers.init({ db: database });
     // Prevent reconcileStaleWorkflows from hitting an uninitialised raw db handle
     vi.spyOn(workflowEngine, 'reconcileStaleWorkflows').mockReturnValue(0);
     // Prevent getProjectConfig from hitting an uninitialised db handle
@@ -118,6 +124,65 @@ describe('handler:workflow-handlers', () => {
       expect(textOf(result)).toContain('Workflow Created');
       expect(textOf(result)).toContain('**Tasks:** 2');
       expect(textOf(result)).toContain('ship it');
+    });
+
+    it('uses an injected database dependency when seeding workflow tasks', async () => {
+      const rawDb = {
+        transaction: vi.fn((fn) => () => fn())
+      };
+      const fakeDb = {
+        getDbInstance: vi.fn(() => rawDb),
+        createTask: vi.fn()
+      };
+      const injectedHandlers = handlers.createWorkflowHandlers({ db: fakeDb });
+      const databaseCreateTaskSpy = vi.spyOn(database, 'createTask').mockReturnValue(undefined);
+      const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
+      const updateWorkflowCountsSpy = vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
+
+      const result = injectedHandlers.handleCreateWorkflow({
+        name: 'Injected Workflow',
+        tasks: [
+          { node_id: 'build', task_description: 'Build with injected db' }
+        ]
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(createWorkflowSpy).toHaveBeenCalledTimes(1);
+      expect(fakeDb.getDbInstance).toHaveBeenCalled();
+      expect(rawDb.transaction).toHaveBeenCalled();
+      expect(fakeDb.createTask).toHaveBeenCalledWith(expect.objectContaining({
+        task_description: 'Build with injected db',
+        workflow_node_id: 'build'
+      }));
+      expect(updateWorkflowCountsSpy).toHaveBeenCalledWith(expect.any(String));
+      expect(databaseCreateTaskSpy).not.toHaveBeenCalled();
+    });
+
+    it('loads workflow handlers without requiring the database facade directly', () => {
+      const originalLoad = Module._load;
+      const blockedRequests = [];
+      delete require.cache[require.resolve('../handlers/workflow')];
+
+      Module._load = function patchedLoad(request, parent, isMain) {
+        const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+        if (request === '../../database' && parentFile.endsWith('server/handlers/workflow/index.js')) {
+          blockedRequests.push(request);
+          throw new Error('workflow handler should not require database facade');
+        }
+        return originalLoad.call(this, request, parent, isMain);
+      };
+
+      try {
+        const loadedHandlers = require('../handlers/workflow');
+        expect(typeof loadedHandlers.handleCreateWorkflow).toBe('function');
+        expect(blockedRequests).toEqual([]);
+      } finally {
+        Module._load = originalLoad;
+        delete require.cache[require.resolve('../handlers/workflow')];
+        loadHandlers();
+      }
     });
 
     it('skips policy-rejected initial tasks and reports them in the response', async () => {
