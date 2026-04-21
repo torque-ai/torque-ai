@@ -2,6 +2,7 @@
 
 const os = require('node:os');
 const fs = require('node:fs');
+const fsPromises = require('node:fs/promises');
 const path = require('node:path');
 
 const {
@@ -88,6 +89,47 @@ describe('audit inventory', () => {
     expect(byName.get('small.js')).toBe('small');
     expect(byName.get('medium.js')).toBe('medium');
     expect(byName.get('large.js')).toBe('large');
+  });
+
+  it('reports byte size separately from line count', async () => {
+    const content = [
+      "const message = 'alpha beta gamma';",
+      'const total = message.length;',
+      'module.exports = total;',
+    ].join('\n');
+    fs.writeFileSync(path.join(tempDir, 'src', 'byte-size.js'), content, 'utf8');
+
+    const entries = await inventoryFiles(tempDir, { sourceDirs: ['src'] });
+    const target = entries.find((entry) => entry.name === 'byte-size.js');
+
+    expect(target).toBeDefined();
+    expect(target.size).toBe(Buffer.byteLength(content, 'utf8'));
+    expect(target.lines).toBe(content.split('\n').length);
+    expect(target.size).not.toBe(target.lines);
+  });
+
+  it('reads each source file once while extracting imports', async () => {
+    const readFileSpy = vi.spyOn(fsPromises, 'readFile');
+
+    try {
+      const entries = await inventoryFiles(tempDir, { sourceDirs: ['src'] });
+      const sourceReadCounts = new Map();
+
+      for (const [filePath] of readFileSpy.mock.calls) {
+        if (typeof filePath !== 'string' || !filePath.startsWith(tempDir)) {
+          continue;
+        }
+
+        sourceReadCounts.set(filePath, (sourceReadCounts.get(filePath) || 0) + 1);
+      }
+
+      expect(sourceReadCounts.size).toBe(entries.length);
+      for (const entry of entries) {
+        expect(sourceReadCounts.get(entry.path)).toBe(1);
+      }
+    } finally {
+      readFileSpy.mockRestore();
+    }
   });
 
   it('extractImportPaths finds require and import paths', () => {

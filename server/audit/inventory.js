@@ -1,6 +1,5 @@
 'use strict';
 
-const fs = require('node:fs');
 const fsPromises = require('node:fs/promises');
 const path = require('node:path');
 
@@ -102,9 +101,14 @@ const extractImportPaths = (content) => {
   return paths;
 };
 
-const readFileWithStats = async (filePath) => {
-  const content = await fsPromises.readFile(filePath, 'utf8');
-  return { content, lineCount: content.split('\n').length };
+const readFileContent = async (filePath) => {
+  const buffer = await fsPromises.readFile(filePath);
+  const content = buffer.toString('utf8');
+  return {
+    content,
+    lines: content.split('\n').length,
+    size: buffer.byteLength,
+  };
 };
 
 const matchesPattern = (relativePath, patterns) => {
@@ -194,7 +198,7 @@ const inventoryFiles = async (projectPath, options = {}) => {
         continue;
       }
 
-      const { content, lineCount: lines } = await readFileWithStats(fullPath);
+      const { content, lines, size } = await readFileContent(fullPath);
       const importPaths = IMPORT_EXTENSIONS.has(ext) ? extractImportPaths(content) : [];
 
       results.push({
@@ -202,7 +206,7 @@ const inventoryFiles = async (projectPath, options = {}) => {
         relativePath,
         name: entry.name,
         ext,
-        size: lines,
+        size,
         lines,
         tier: classifyTier(lines),
         importPaths,
