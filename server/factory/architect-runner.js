@@ -9,6 +9,7 @@ const factoryArchitect = require('../db/factory-architect');
 const { buildArchitectPrompt } = require('./architect-prompt');
 const { lintPlanContent } = require('./plan-lint');
 const { createScoutFindingsIntake } = require('./scout-findings-intake');
+const { composeGuide } = require('./plan-authoring-guide');
 const logger = require('../logger').child({ component: 'architect-runner' });
 const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'rejected', 'shipped']);
 const PRIORITIZABLE_WORK_ITEM_STATUSES = new Set([
@@ -573,7 +574,19 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
     logger.debug(`Could not load corrections: ${err.message}`);
   }
 
-  const guide = loadPlanAuthoringGuide(project.path);
+  // Prefer the composed guide (RULES + examples) for first-pass plan-quality
+  // compliance. Fall back to the file-based guide if composition fails so the
+  // architect never stalls on a guide-authoring bug.
+  let guide;
+  try {
+    guide = composeGuide();
+  } catch (err) {
+    logger.warn('plan_authoring_guide_compose_failed', {
+      err: err && err.message,
+      project_id,
+    });
+    guide = loadPlanAuthoringGuide(project.path);
+  }
   const prompt = injectPlanAuthoringGuide(buildArchitectPrompt({
     project,
     healthScores,
