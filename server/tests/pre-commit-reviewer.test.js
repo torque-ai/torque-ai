@@ -25,6 +25,16 @@ describe('reviewDiff', () => {
     expect(result.issues).toHaveLength(1);
   });
 
+  it('passes reviewerProvider through to the LLM runner', async () => {
+    const runLLM = vi.fn().mockResolvedValue({ verdict: 'pass', issues: [], suggestions: [] });
+    await reviewDiff({
+      diff: 'diff --git a/x.js b/x.js\n+ const safe = 1;\n',
+      reviewerProvider: 'anthropic',
+      runLLM,
+    });
+    expect(runLLM).toHaveBeenCalledWith(expect.any(String), { reviewerProvider: 'anthropic' });
+  });
+
   it('falls back to "pass" with annotation when LLM throws', async () => {
     const runLLM = vi.fn().mockRejectedValue(new Error('llm down'));
     const result = await reviewDiff({ diff: '...', runLLM });

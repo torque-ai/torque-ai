@@ -24,10 +24,21 @@ function parseReviewOutput(output) {
   return output;
 }
 
-async function defaultRunLLM(prompt) {
+function getReviewerProviderOrder(reviewerProvider) {
+  const preferred = typeof reviewerProvider === 'string' ? reviewerProvider.trim() : '';
+  if (!preferred) {
+    return REVIEWER_PROVIDER_ORDER;
+  }
+  return [
+    preferred,
+    ...REVIEWER_PROVIDER_ORDER.filter(providerName => providerName !== preferred),
+  ];
+}
+
+async function defaultRunLLM(prompt, options = {}) {
   const providerRegistry = require('../providers/registry');
 
-  for (const providerName of REVIEWER_PROVIDER_ORDER) {
+  for (const providerName of getReviewerProviderOrder(options.reviewerProvider)) {
     const provider = providerRegistry.getProviderInstance(providerName);
     if (provider && typeof provider.runPrompt === 'function') {
       return provider.runPrompt({
@@ -53,14 +64,14 @@ function fallbackPass(note) {
   };
 }
 
-async function reviewDiff({ diff, contextFiles = [], runLLM = defaultRunLLM }) {
+async function reviewDiff({ diff, contextFiles = [], reviewerProvider = null, runLLM = defaultRunLLM }) {
   if (!diff || String(diff).trim() === '') {
     return { verdict: 'pass', issues: [], suggestions: [], note: 'empty diff' };
   }
 
   let rawOutput;
   try {
-    rawOutput = await runLLM(buildReviewPrompt(diff, contextFiles));
+    rawOutput = await runLLM(buildReviewPrompt(diff, contextFiles), { reviewerProvider });
   } catch (error) {
     const message = errorMessage(error);
     logger.info(`[pre-commit-review] reviewer unavailable: ${message}`);

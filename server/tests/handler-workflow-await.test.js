@@ -10,6 +10,7 @@ const taskCore = require('../db/task-core');
 const fileTracking = require('../db/file-tracking');
 const handlers = require('../handlers/workflow/await');
 const shellPolicy = require('../utils/shell-policy');
+const preCommitReviewer = require('../review/pre-commit-reviewer');
 const childProcess = require('child_process');
 const { taskEvents } = require('../hooks/event-dispatch');
 
@@ -359,6 +360,130 @@ describe('workflow-await handlers', () => {
         ['commit', '-m', 'feat: finish workflow', '--', 'src/allowed.js'],
         expect.objectContaining({ cwd: '/repo' })
       );
+    });
+
+    it('runs pre-commit review and commits with a verdict trailer when configured warn_only', async () => {
+      vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([
+        { relative_path: 'src/allowed.js', is_outside_workdir: 0 }
+      ]);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ files_modified: [] });
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1',
+        context: {
+          pre_commit_review: {
+            enabled: true,
+            on_block: 'warn_only',
+            reviewer_provider: 'anthropic'
+          }
+        }
+      });
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(preCommitReviewer, 'reviewDiff').mockResolvedValueOnce({
+        verdict: 'block',
+        issues: [{ severity: 'high', file: 'src/allowed.js', line: 7, note: 'missing guard' }],
+        suggestions: ['add a guard']
+      });
+      const execSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((bin, args) => {
+        if (bin !== 'git') throw new Error('unexpected binary');
+        if (args[0] === 'add') return '';
+        if (args[0] === 'diff' && args.includes('--name-only')) return 'src/allowed.js\n';
+        if (args[0] === 'diff' && args[1] === '--cached') return 'diff --git a/src/allowed.js b/src/allowed.js\n+bug\n';
+        if (args[0] === 'commit') return '';
+        if (args[0] === 'rev-parse') return 'abc123\n';
+        return '';
+      });
+
+      const output = await handlers.formatFinalSummary(
+        { auto_commit: true, commit_message: 'feat: finish workflow' },
+        {
+          id: 'wf-1',
+          name: 'Commit WF',
+          working_directory: '/repo',
+          context: {
+            pre_commit_review: {
+              enabled: true,
+              on_block: 'warn_only',
+              reviewer_provider: 'anthropic'
+            }
+          }
+        },
+        [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
+        null,
+        Date.now() - 5000
+      );
+
+      const commitCall = execSpy.mock.calls.find(([, args]) => args[0] === 'commit');
+      expect(output).toContain('Pre-Commit Review:** block');
+      expect(output).toContain('BLOCK verdict ignored');
+      expect(preCommitReviewer.reviewDiff).toHaveBeenCalledWith(expect.objectContaining({
+        diff: expect.stringContaining('diff --git'),
+        reviewerProvider: 'anthropic'
+      }));
+      expect(commitCall[1][2]).toContain('feat: finish workflow');
+      expect(commitCall[1][2]).toContain('Pre-Commit-Review: block');
+      expect(commitCall[1][2]).toContain('Pre-Commit-Review-Issues: 1');
+      expect(updateWorkflowSpy).toHaveBeenCalledWith('wf-1', expect.objectContaining({
+        context: expect.objectContaining({
+          pre_commit_review_result: expect.objectContaining({ verdict: 'block' })
+        })
+      }));
+    });
+
+    it('marks workflow failed and skips commit when pre-commit review blocks fail_workflow', async () => {
+      vi.spyOn(fileTracking, 'getTaskFileChanges').mockReturnValue([
+        { relative_path: 'src/blocked.js', is_outside_workdir: 0 }
+      ]);
+      vi.spyOn(taskCore, 'getTask').mockReturnValue({ files_modified: [] });
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1',
+        context: {
+          pre_commit_review: {
+            enabled: true,
+            on_block: 'fail_workflow'
+          }
+        }
+      });
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(preCommitReviewer, 'reviewDiff').mockResolvedValueOnce({
+        verdict: 'block',
+        issues: [{ severity: 'critical', file: 'src/blocked.js', note: 'security issue' }],
+        suggestions: []
+      });
+      const execSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((bin, args) => {
+        if (bin !== 'git') throw new Error('unexpected binary');
+        if (args[0] === 'add') return '';
+        if (args[0] === 'diff' && args.includes('--name-only')) return 'src/blocked.js\n';
+        if (args[0] === 'diff' && args[1] === '--cached') return 'diff --git a/src/blocked.js b/src/blocked.js\n+secret\n';
+        if (args[0] === 'commit') throw new Error('commit should not run');
+        return '';
+      });
+
+      const output = await handlers.formatFinalSummary(
+        { auto_commit: true },
+        {
+          id: 'wf-1',
+          name: 'Blocked WF',
+          working_directory: '/repo',
+          context: {
+            pre_commit_review: {
+              enabled: true,
+              on_block: 'fail_workflow'
+            }
+          }
+        },
+        [{ id: 'a', status: 'completed', workflow_node_id: 'A' }],
+        null,
+        Date.now() - 5000
+      );
+
+      expect(output).toContain('Auto-Commit blocked');
+      expect(execSpy.mock.calls.some(([, args]) => args[0] === 'commit')).toBe(false);
+      expect(updateWorkflowSpy).toHaveBeenCalledWith('wf-1', expect.objectContaining({
+        status: 'failed',
+        context: expect.objectContaining({
+          pre_commit_review_result: expect.objectContaining({ verdict: 'block' })
+        })
+      }));
     });
 
     it('blocks auto-push unless auto_push is explicitly true', async () => {
