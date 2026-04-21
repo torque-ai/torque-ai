@@ -268,7 +268,7 @@ git push origin main
 **Files:**
 - Modify: `server/tests/tool-output-schemas.test.js` — add Phase 2 conformance tests
 
-- [ ] **Step 1: Add conformance tests**
+- [x] **Step 1: Add conformance tests**
 
 Add a new describe block `'handler conformance — Phase 2'` in the test file. For each of the 10 tools, add one test that:
 1. Calls the handler with representative args
@@ -280,7 +280,7 @@ The tests need the template DB buffer pattern (same as existing conformance test
 
 For handlers that require specific args (like `provider_stats` needing a provider name), use sensible defaults or check the handler for what it does when given empty/default args.
 
-- [ ] **Step 2: Commit and push**
+- [x] **Step 2: Commit and push**
 
 ```bash
 git add server/tests/tool-output-schemas.test.js
@@ -288,14 +288,14 @@ git commit -m "test: Phase 2 conformance tests for 10 provider/cost/monitoring t
 git push origin main
 ```
 
-- [ ] **Step 3: Run all tests on remote**
+- [x] **Step 3: Run all tests on remote**
 
 ```bash
 torque-remote "cd server && npx vitest run tests/tool-output-schemas.test.js tests/tool-annotations.test.js tests/context-handler.test.js --reporter verbose"
 ```
 Expected: All tests pass (annotations + Phase 1 + Phase 2 + context handler)
 
-- [ ] **Step 4: Verify schema count**
+- [x] **Step 4: Verify schema count**
 
 ```bash
 cd server && node -e "
