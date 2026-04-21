@@ -7176,6 +7176,8 @@ module.exports = {
   resumeAutoAdvanceOnStartup,
   executeNonPlanFileStage,
   executeVerifyStage,
+  listTasksForFactoryBatch,
+  getLatestStageDecision,
   advanceLoop,
   advanceLoopForProject,
   advanceLoopAsync,
