@@ -64,7 +64,7 @@ function normalizeAutomationHandlerDeps(deps = {}) {
 function database(options = {}) {
   const db = resolveHandlerDatabase(automationHandlerDeps, { raw: options.raw === true });
   if (!db) {
-    throw new Error('automation-handlers database dependency is missing (expected db or dbInstance)');
+    throw Error('automation-handlers database dependency is missing (expected db or dbInstance)');
   }
   return db;
 }

@@ -44,7 +44,7 @@ function normalizeIntegrationRoutingHandlerDeps(deps = {}) {
 function getIntegrationRoutingDb(deps = integrationRoutingHandlerDeps) {
   const db = resolveHandlerDatabase(deps, { raw: true });
   if (!db) {
-    throw new Error('integration-routing handler database dependency is missing (expected db or dbInstance)');
+    throw Error('integration-routing handler database dependency is missing (expected db or dbInstance)');
   }
   return db;
 }

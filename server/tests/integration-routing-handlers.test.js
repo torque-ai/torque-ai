@@ -24,6 +24,7 @@ const MODULE_PATHS = [
   '../db/model-roles',
   '../db/model-capabilities',
   '../providers/ollama-shared',
+  '../container',
   'uuid',
 ];
 
@@ -160,6 +161,14 @@ const mockOllamaShared = {
   resolveOllamaModel: vi.fn((taskModel, requestedModel) => requestedModel || taskModel || 'mock-default-model'),
 };
 
+const mockContainer = {
+  defaultContainer: {
+    has: vi.fn(),
+    get: vi.fn(),
+    peek: vi.fn(),
+  },
+};
+
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = {
@@ -240,6 +249,7 @@ function loadHandler() {
   installCjsModuleMock('../db/model-roles', mockModelRoles);
   installCjsModuleMock('../db/model-capabilities', mockModelCaps);
   installCjsModuleMock('../providers/ollama-shared', mockOllamaShared);
+  installCjsModuleMock('../container', mockContainer);
   installCjsModuleMock('uuid', mockUuid);
   return require(HANDLER_MODULE);
 }
@@ -324,6 +334,17 @@ function resetMockState() {
 
   mockShared.checkProviderAvailability.mockReset();
   mockShared.checkProviderAvailability.mockReturnValue(null);
+  mockContainer.defaultContainer.has.mockReset();
+  mockContainer.defaultContainer.has.mockImplementation((name) => name === 'db');
+  mockContainer.defaultContainer.get.mockReset();
+  mockContainer.defaultContainer.get.mockImplementation((name) => {
+    if (name !== 'db') {
+      throw new Error(`Unexpected service lookup: ${name}`);
+    }
+    return mockDb;
+  });
+  mockContainer.defaultContainer.peek.mockReset();
+  mockContainer.defaultContainer.peek.mockImplementation((name) => (name === 'db' ? mockDb : undefined));
   mockShared.resolveHandlerDatabase.mockReset();
   mockShared.resolveHandlerDatabase.mockImplementation((deps = {}, options = {}) => {
     if (deps && Object.prototype.hasOwnProperty.call(deps, 'rawDb') && deps.rawDb) {

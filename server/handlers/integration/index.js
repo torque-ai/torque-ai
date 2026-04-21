@@ -35,7 +35,7 @@ function normalizeIntegrationHandlerDeps(deps = {}) {
 function getIntegrationDatabase() {
   const db = resolveHandlerDatabase(integrationHandlerDeps);
   if (!db) {
-    throw new Error('integration-handlers database dependency is missing (expected db or dbInstance)');
+    throw Error('integration-handlers database dependency is missing (expected db or dbInstance)');
   }
   return db;
 }

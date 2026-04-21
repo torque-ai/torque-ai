@@ -30,7 +30,7 @@ function normalizeExperimentHandlerDeps(deps = {}) {
 function getExperimentDb() {
   const db = resolveHandlerDatabase(experimentHandlerDeps, { raw: true });
   if (!db) {
-    throw new Error('experiment-handlers database dependency is missing (expected db or dbInstance)');
+    throw Error('experiment-handlers database dependency is missing (expected db or dbInstance)');
   }
   return db;
 }

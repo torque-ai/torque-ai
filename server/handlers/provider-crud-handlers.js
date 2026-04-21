@@ -36,7 +36,7 @@ function normalizeProviderCrudHandlerDeps(deps = {}) {
 function getDatabaseHandle() {
   const db = resolveHandlerDatabase(providerCrudHandlerDeps, { raw: true });
   if (!db) {
-    throw new Error('provider-crud-handlers database dependency is missing (expected db or dbInstance)');
+    throw Error('provider-crud-handlers database dependency is missing (expected db or dbInstance)');
   }
   return db;
 }

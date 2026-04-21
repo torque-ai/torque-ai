@@ -62,7 +62,7 @@ function getDb() {
     defaultContainer,
   });
   if (!db) {
-    throw new Error('concurrency-handlers database dependency is missing (expected db or dbInstance)');
+    throw Error('concurrency-handlers database dependency is missing (expected db or dbInstance)');
   }
   return db;
 }

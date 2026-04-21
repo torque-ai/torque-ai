@@ -257,6 +257,17 @@ function resetMocks(options = {}) {
         content: [{ type: 'text', text: `${code}: ${message}` }],
       };
     }),
+    resolveHandlerDatabase: vi.fn((deps = {}, options = {}) => {
+      if (deps && Object.prototype.hasOwnProperty.call(deps, 'rawDb') && deps.rawDb) {
+        return deps.rawDb;
+      }
+      if (deps && Object.prototype.hasOwnProperty.call(deps, 'db') && deps.db) {
+        return options.raw && deps.db && typeof deps.db.getDbInstance === 'function'
+          ? deps.db.getDbInstance()
+          : deps.db;
+      }
+      return mockDb;
+    }),
   };
 
   loggerChild = {
@@ -292,8 +303,12 @@ function resetMocks(options = {}) {
   mockGovernanceHooks = null;
   mockContainer = {
     defaultContainer: {
-      has: vi.fn((name) => name === 'governanceHooks' && Boolean(mockGovernanceHooks)),
-      get: vi.fn((name) => (name === 'governanceHooks' ? mockGovernanceHooks : undefined)),
+      has: vi.fn((name) => name === 'db' || (name === 'governanceHooks' && Boolean(mockGovernanceHooks))),
+      get: vi.fn((name) => {
+        if (name === 'db') return mockDb;
+        if (name === 'governanceHooks') return mockGovernanceHooks;
+        return undefined;
+      }),
     },
   };
   mockConstants = {

@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
 const database = require('../database');
+const { defaultContainer } = require('../container');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const { EXTENDED_TOOL_NAMES } = require('../core-tools');
@@ -83,6 +84,8 @@ describe('plan-file MCP tools', () => {
     factoryIntake.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    defaultContainer.resetForTest && defaultContainer.resetForTest();
+    defaultContainer.registerValue('db', db);
     plansDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-plan-tools-'));
     project = factoryHealth.registerProject({
       name: 'Plan Tool Project',
@@ -94,6 +97,8 @@ describe('plan-file MCP tools', () => {
   afterEach(() => {
     fs.rmSync(plansDir, { recursive: true, force: true });
     database.getDbInstance = originalGetDbInstance;
+    defaultContainer.resetForTest && defaultContainer.resetForTest();
+    defaultContainer.registerValue('db', database);
     db.close();
   });
 

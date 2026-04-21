@@ -33,7 +33,7 @@ function jsonResponse(data) {
 function getDbHandle() {
   const db = resolveHandlerDatabase(managedOauthHandlerDeps, { raw: true });
   if (!db) {
-    throw new Error('managed-oauth-handlers database dependency is missing (expected db or dbInstance)');
+    throw Error('managed-oauth-handlers database dependency is missing (expected db or dbInstance)');
   }
   return db;
 }

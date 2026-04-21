@@ -39,6 +39,17 @@ function createSharedMock() {
     safeLimit: vi.fn((value, fallback) => (value === undefined ? fallback : value)),
     safeDate: vi.fn((value) => value),
     isPathTraversalSafe: vi.fn(() => true),
+    resolveHandlerDatabase: vi.fn((deps = {}, options = {}) => {
+      if (deps && Object.prototype.hasOwnProperty.call(deps, 'rawDb') && deps.rawDb) {
+        return deps.rawDb;
+      }
+      if (deps && Object.prototype.hasOwnProperty.call(deps, 'db') && deps.db) {
+        return options.raw && deps.db && typeof deps.db.getDbInstance === 'function'
+          ? deps.db.getDbInstance()
+          : deps.db;
+      }
+      return null;
+    }),
   };
   shared.makeError = vi.fn((errorCode, message) => ({
     isError: true,
@@ -181,6 +192,17 @@ function loadTaskProject({ dbMock, sharedMock, loggerMock, formatTimeMock }) {
 
 function loadAutomationHandlers({ dbMock, sharedMock, loggerMock }) {
   clearModules(AUTOMATION_MODULES);
+  sharedMock.resolveHandlerDatabase.mockImplementation((deps = {}, options = {}) => {
+    if (deps && Object.prototype.hasOwnProperty.call(deps, 'rawDb') && deps.rawDb) {
+      return deps.rawDb;
+    }
+    if (deps && Object.prototype.hasOwnProperty.call(deps, 'db') && deps.db) {
+      return options.raw && deps.db && typeof deps.db.getDbInstance === 'function'
+        ? deps.db.getDbInstance()
+        : deps.db;
+    }
+    return dbMock;
+  });
   installCjsModuleMock('../database', dbMock);
   installCjsModuleMock('../db/config-core', {});
   installCjsModuleMock('../db/task-core', {});

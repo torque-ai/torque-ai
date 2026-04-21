@@ -19,7 +19,7 @@ function normalizeDiscoveryHandlerDeps(deps = {}) {
 function getDiscoveryDb() {
   const db = resolveHandlerDatabase(discoveryHandlerDeps, { raw: true });
   if (!db) {
-    throw new Error('discovery-handlers database dependency is missing (expected db or dbInstance)');
+    throw Error('discovery-handlers database dependency is missing (expected db or dbInstance)');
   }
   return db;
 }

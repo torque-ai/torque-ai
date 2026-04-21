@@ -11,6 +11,7 @@ vi.mock('../factory/architect-runner', () => ({
 
 const Database = require('better-sqlite3');
 const database = require('../database');
+const { defaultContainer } = require('../container');
 const factoryArchitect = require('../db/factory-architect');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
@@ -187,10 +188,14 @@ beforeEach(() => {
   factoryDecisions.setDb(db);
   originalGetDbInstance = database.getDbInstance;
   database.getDbInstance = () => db;
+  defaultContainer.resetForTest && defaultContainer.resetForTest();
+  defaultContainer.registerValue('db', db);
 });
 
 afterEach(() => {
   database.getDbInstance = originalGetDbInstance;
+  defaultContainer.resetForTest && defaultContainer.resetForTest();
+  defaultContainer.registerValue('db', database);
   factoryArchitect.setDb(null);
   factoryHealth.setDb(null);
   factoryIntake.setDb(null);

@@ -250,10 +250,25 @@ function loadAutomationModule(overrides = {}) {
   };
   const governanceHooks = overrides.governanceHooks || null;
   const defaultContainer = overrides.defaultContainer || {
-    has: vi.fn((name) => name === 'governanceHooks' && Boolean(governanceHooks)),
-    get: vi.fn((name) => (name === 'governanceHooks' ? governanceHooks : undefined)),
+    has: vi.fn((name) => name === 'db' || (name === 'governanceHooks' && Boolean(governanceHooks))),
+    get: vi.fn((name) => {
+      if (name === 'db') return mockDatabase;
+      if (name === 'governanceHooks') return governanceHooks;
+      return undefined;
+    }),
   };
   const containerModule = overrides.containerModule || { defaultContainer };
+  const resolveHandlerDatabase = overrides.resolveHandlerDatabase || vi.fn((deps = {}, options = {}) => {
+    if (deps && Object.prototype.hasOwnProperty.call(deps, 'rawDb') && deps.rawDb) {
+      return deps.rawDb;
+    }
+    if (deps && Object.prototype.hasOwnProperty.call(deps, 'db') && deps.db) {
+      return options.raw && deps.db && typeof deps.db.getDbInstance === 'function'
+        ? deps.db.getDbInstance()
+        : deps.db;
+    }
+    return mockDatabase;
+  });
 
   const throwRequests = new Map(Object.entries(overrides.throwRequests || {}));
   const requireCounts = {};
@@ -265,7 +280,7 @@ function loadAutomationModule(overrides = {}) {
     '../utils/context-enrichment': { buildErrorFeedbackPrompt },
     '../utils/safe-exec': { safeExecChain },
     '../execution/command-policy': { executeValidatedCommandSync },
-    './shared': { ErrorCodes, makeError },
+    './shared': { ErrorCodes, makeError, resolveHandlerDatabase },
     '../test-runner-registry': { createTestRunnerRegistry },
     '../logger': { child: vi.fn(() => mockLogger) },
     '../database': mockDatabase,
@@ -337,6 +352,7 @@ module.exports.__testHelpers = {
       indexModule,
       governanceHooks,
       defaultContainer,
+      resolveHandlerDatabase,
     },
     requireCounts,
   };
@@ -368,14 +384,15 @@ describe('automation-handlers main unit suite', () => {
       expect(helpers.sanitizeTemplateVariable(42)).toBe('42');
     });
 
-    it('lazy-loads database and task-manager only once', () => {
+    it('resolves database through shared DI and lazy-loads task-manager only once', () => {
       const { helpers, mocks, requireCounts } = loadAutomationModule();
 
       expect(helpers.db()).toBe(mocks.db);
       expect(helpers.db()).toBe(mocks.db);
       expect(helpers.taskManager()).toBe(mocks.taskManager);
       expect(helpers.taskManager()).toBe(mocks.taskManager);
-      expect(requireCounts['../database']).toBe(1);
+      expect(mocks.resolveHandlerDatabase).toHaveBeenCalledTimes(2);
+      expect(requireCounts['../database']).toBeUndefined();
       expect(requireCounts['../task-manager']).toBe(1);
     });
 
