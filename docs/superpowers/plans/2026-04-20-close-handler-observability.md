@@ -14,6 +14,16 @@
 
 **Verify command (remote):** `torque-remote npx vitest run server/tests/`
 
+## Sandbox-tolerant verify fallback
+
+Each task below has two "Run test" steps: one to confirm the failing test (red), one to confirm the fix (green). Execute them in this priority order:
+
+1. **Preferred:** `torque-remote npx vitest run <path/to/test>` — runs on the remote workstation.
+2. **Fallback 1:** `npx vitest run <path/to/test> --pool=threads --no-coverage` — avoids the vitest worker fork that sometimes hits `spawn EPERM` in restricted sandboxes.
+3. **Fallback 2:** If both fail with spawn / access errors, note in your final task output the exact error text, skip the run step, and proceed to the commit step. The host's post-task verification will run the suite remotely and surface regressions.
+
+Do **not** let a blocked vitest invocation prevent you from committing a correct code change. Your commit message and output should explicitly say "verify step skipped due to sandbox spawn restriction" when you take Fallback 2, so the reviewer knows.
+
 ---
 
 ## Task 1: Database migration — `factory_attempt_history` table + `verify_silent_reruns` column
@@ -127,16 +137,16 @@ Immediately after the closing `},` of the version-29 entry (at the end of the `M
       '  classifier_conf REAL,',
       '  verify_output_tail TEXT,',
       '  created_at TEXT NOT NULL',
-      ')',
-      'CREATE INDEX IF NOT EXISTS idx_factory_attempt_history_batch ON factory_attempt_history(batch_id, attempt)',
-      'CREATE INDEX IF NOT EXISTS idx_factory_attempt_history_work_item ON factory_attempt_history(work_item_id, created_at DESC)',
-      'ALTER TABLE factory_loop_instances ADD COLUMN verify_silent_reruns INTEGER NOT NULL DEFAULT 0',
-    ].join('; '),
+      ');',
+      'CREATE INDEX IF NOT EXISTS idx_factory_attempt_history_batch ON factory_attempt_history(batch_id, attempt);',
+      'CREATE INDEX IF NOT EXISTS idx_factory_attempt_history_work_item ON factory_attempt_history(work_item_id, created_at DESC);',
+      'ALTER TABLE factory_loop_instances ADD COLUMN verify_silent_reruns INTEGER NOT NULL DEFAULT 0;',
+    ].join('\n'),
     down: [
-      'DROP INDEX IF EXISTS idx_factory_attempt_history_work_item',
-      'DROP INDEX IF EXISTS idx_factory_attempt_history_batch',
-      'DROP TABLE IF EXISTS factory_attempt_history',
-    ].join('; '),
+      'DROP INDEX IF EXISTS idx_factory_attempt_history_work_item;',
+      'DROP INDEX IF EXISTS idx_factory_attempt_history_batch;',
+      'DROP TABLE IF EXISTS factory_attempt_history;',
+    ].join('\n'),
   },
 ```
 
