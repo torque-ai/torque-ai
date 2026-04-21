@@ -4627,8 +4627,20 @@ function isFactoryFeatureEnabled(project_id, flagKey) {
 }
 
 async function maybeShipNoop({ project_id, batch_id, work_item_id }) {
+  // Observability-only path: never let an error here propagate into the
+  // EXECUTE -> VERIFY transition. If attempt-history is unreachable
+  // (missing schema, closed db, etc.) treat it as "no prior row" and
+  // fall through to today's behavior.
   const attemptHistory = require('../db/factory-attempt-history');
-  const latest = attemptHistory.getLatestForBatch(batch_id);
+  let latest;
+  try {
+    latest = attemptHistory.getLatestForBatch(batch_id);
+  } catch (err) {
+    logger.debug('maybeShipNoop: getLatestForBatch threw; treating as no prior row', {
+      err: err && err.message, batch_id,
+    });
+    return { shipped_as_noop: false };
+  }
   if (!latest) return { shipped_as_noop: false };
 
   const reason = latest.zero_diff_reason;
@@ -4687,8 +4699,19 @@ async function attemptSilentRerun({
   if (!isFactoryFeatureEnabled(project_id, 'verify_silent_rerun_enabled')) {
     return { kind: 'flag_off' };
   }
-  if (instances.getVerifySilentReruns(instance_id) > 0) {
-    return { kind: 'budget_exhausted' };
+  // Same defensive posture as maybeShipNoop: never let observability
+  // infrastructure errors (closed db, missing column) stop the loop.
+  // Any read failure is treated as "budget exhausted" so we fall
+  // through to the existing fix-task retry path.
+  try {
+    if (instances.getVerifySilentReruns(instance_id) > 0) {
+      return { kind: 'budget_exhausted' };
+    }
+  } catch (err) {
+    logger.debug('attemptSilentRerun: getVerifySilentReruns threw; skipping silent rerun', {
+      err: err && err.message, instance_id,
+    });
+    return { kind: 'flag_off' };
   }
 
   instances.bumpVerifySilentReruns(instance_id);
@@ -4949,9 +4972,18 @@ async function submitVerifyFixTask({
 
   const attemptHistory = require('../db/factory-attempt-history');
   const workItemIdStr = String((workItem && workItem.id) || '');
-  const priorAttempts = workItemIdStr
-    ? attemptHistory.listByWorkItem(workItemIdStr, { limit: 3 }).reverse()
-    : [];
+  // Defensive read — if attempt-history is unreachable, the retry
+  // prompt just falls back to today's shape (no prior-attempts block).
+  let priorAttempts = [];
+  if (workItemIdStr) {
+    try {
+      priorAttempts = attemptHistory.listByWorkItem(workItemIdStr, { limit: 3 }).reverse();
+    } catch (err) {
+      logger.debug('submitVerifyFixTask: attempt-history read threw; omitting prior-attempts block', {
+        err: err && err.message, work_item_id: workItemIdStr,
+      });
+    }
+  }
   const latest = priorAttempts[priorAttempts.length - 1];
   const verifyOutputPrev = latest && latest.verify_output_tail ? latest.verify_output_tail : null;
 
