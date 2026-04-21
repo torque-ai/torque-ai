@@ -549,7 +549,7 @@ describe('provider startup command builder', () => {
       usedEditFormat: false,
       taskType: 'code',
       contextTokenEstimate: 321,
-      env: { PATH: 'C:/Windows/System32', USERPROFILE: 'C:/Users/Test' },
+      env: { PATH: 'C:/Windows/System32', USERPROFILE: 'C:/Users/<user> },
       nvmNodePath: 'C:/nvm/current/bin',
       platform: 'linux',
       captureBaselineCommit,
@@ -580,7 +580,7 @@ describe('provider startup command builder', () => {
     }));
     expect(result.options.env).toEqual(expect.objectContaining({
       PATH: `C:/nvm/current/bin${path.delimiter}C:/Windows/System32`,
-      HOME: 'C:/Users/Test',
+      HOME: 'C:/Users/<user>
       FORCE_COLOR: '0',
       NO_COLOR: '1',
       TERM: 'dumb',
@@ -631,7 +631,7 @@ describe('provider startup command builder', () => {
       resolvedFileContext: 'FILE_CONTEXT',
       resolvedFiles: [],
       taskMetadata: {},
-      env: { PATH: 'C:/Windows/System32', HOME: 'C:/Users/Test' },
+      env: { PATH: 'C:/Windows/System32', HOME: 'C:/Users/<user> },
       platform: 'win32',
       resolveCmdToNode,
       captureBaselineCommit: vi.fn(() => 'baseline-456'),
