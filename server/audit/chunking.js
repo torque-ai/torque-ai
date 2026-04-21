@@ -1,6 +1,6 @@
 'use strict';
 
-const fsPromises = require('node:fs/promises');
+const { readFile: readFileAsync } = require('node:fs/promises');
 
 const DEFAULT_MAX_CHUNK_LINES = 800;
 const OVERLAP_LINES = 50;
@@ -205,7 +205,7 @@ const createReviewUnits = async (files, options = {}) => {
   const maxChunkLines = toInt(options.maxChunkLines, DEFAULT_MAX_CHUNK_LINES);
   const readFile = typeof options.readFile === 'function'
     ? options.readFile
-    : (filePath) => fsPromises.readFile(filePath, 'utf8');
+    : (filePath) => readFileAsync(filePath, 'utf8');
 
   const units = [];
   const small = [];
