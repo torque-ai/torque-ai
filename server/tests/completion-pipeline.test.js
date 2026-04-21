@@ -84,6 +84,7 @@ function createMockDb(overrides = {}) {
 
 function createMockDeps(overrides = {}) {
   return {
+    rawDb: null,
     db: createMockDb(overrides.db),
     parseTaskMetadata: vi.fn().mockReturnValue({}),
     handleWorkflowTermination: vi.fn(),
@@ -663,7 +664,7 @@ describe('completion-pipeline', () => {
       const rawDb = createMockRawDb({
         lastCommit: { commit_hash: 'base123' },
       });
-      mockGetDbInstance.mockReturnValue(rawDb);
+      init({ rawDb });
       mockResolveVersionedProject.mockReturnValue(VERSIONED_PROJECT_PATH);
       mockInferIntentFromCommitMessage.mockImplementation((message) => (
         message.startsWith('fix') ? 'fix' : 'feature'
@@ -721,7 +722,7 @@ describe('completion-pipeline', () => {
 
     it('does not persist commits when git output is empty', async () => {
       const rawDb = createMockRawDb();
-      mockGetDbInstance.mockReturnValue(rawDb);
+      init({ rawDb });
       mockResolveVersionedProject.mockReturnValue(VERSIONED_PROJECT_PATH);
       mockAsyncGitOutput('\n');
 
@@ -745,7 +746,7 @@ describe('completion-pipeline', () => {
 
     it('logs git scan failures without failing post-completion cleanup', async () => {
       const rawDb = createMockRawDb();
-      mockGetDbInstance.mockReturnValue(rawDb);
+      init({ rawDb });
       mockResolveVersionedProject.mockReturnValue(VERSIONED_PROJECT_PATH);
       mockAsyncGitFailure(new Error('git exploded'));
 
