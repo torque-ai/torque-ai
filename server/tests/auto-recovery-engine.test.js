@@ -1,6 +1,5 @@
 'use strict';
 const Database = require('better-sqlite3');
-const { describe, it, expect, beforeEach } = require('vitest');
 const { createAutoRecoveryEngine } = require('../factory/auto-recovery');
 
 function seedSchema(db) {
