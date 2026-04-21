@@ -256,7 +256,7 @@ Replace the main category row to auto-detect string vs chain format.
 **Files:**
 - Modify: `dashboard/src/views/RoutingTemplates.jsx`
 
-- [ ] **Step 1: Add chain mutation functions**
+- [x] **Step 1: Add chain mutation functions**
 
 Add after the existing `toggleExpand` function (line 156):
 
@@ -295,7 +295,7 @@ function convertOverrideToChain(categoryKey, complexity) {
 }
 ```
 
-- [ ] **Step 2: Replace the category main row rendering**
+- [x] **Step 2: Replace the category main row rendering**
 
 Replace lines 385-388 (the `<ProviderSelect>` in the main row) with auto-detecting logic:
 
@@ -322,7 +322,7 @@ Replace lines 385-388 (the `<ProviderSelect>` in the main row) with auto-detecti
 )}
 ```
 
-- [ ] **Step 3: Replace the expanded panel rendering**
+- [x] **Step 3: Replace the expanded panel rendering**
 
 Replace lines 392-405 (the complexity overrides section) with a full expanded panel that includes chain editor when applicable:
 
@@ -390,12 +390,12 @@ Replace lines 392-405 (the complexity overrides section) with a full expanded pa
 )}
 ```
 
-- [ ] **Step 4: Build and verify**
+- [x] **Step 4: Build and verify**
 
 Run: `cd /path/to/torque/dashboard && npm run build`
 Expected: builds without errors.
 
-- [ ] **Step 5: Visual verification**
+- [x] **Step 5: Visual verification**
 
 Open `http://localhost:3456` in a browser. Navigate to Routing Templates:
 - Select "Free Agentic" preset — should show chain summaries (provider → provider → provider) for each category
@@ -403,7 +403,7 @@ Open `http://localhost:3456` in a browser. Navigate to Routing Templates:
 - Expand a category on Free Agentic — should show full chain editor with provider dropdowns, model inputs, reorder buttons
 - Select a non-preset template — verify [+ Chain] converts to chain editor
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /path/to/torque
