@@ -181,6 +181,82 @@ function resolveApiRoutes(deps = {}) {
   return v2Routes.concat(FACTORY_V2_ROUTES, resolvedRoutes, createHealthRoutes(deps));
 }
 
+// Routes that skip plugin-contributed middleware (e.g. auth). Health probes,
+// the version endpoint, and the OpenAPI spec must stay reachable without
+// credentials so monitoring/tooling works before a client is authenticated.
+// /api/shutdown is NOT on this list — it's rate-limited (5/window) but should
+// require auth in enterprise mode so an unauthenticated caller can't DoS the
+// server. Inbound webhooks (POST /api/webhooks/inbound/*) run their own HMAC
+// auth flow before this pipeline gets a chance.
+const PLUGIN_MIDDLEWARE_PUBLIC_ROUTES = new Set([
+  '/healthz',
+  '/readyz',
+  '/livez',
+  '/api/version',
+  '/api/openapi.json',
+]);
+
+function isPluginMiddlewarePublicRoute(url) {
+  if (PLUGIN_MIDDLEWARE_PUBLIC_ROUTES.has(url)) return true;
+  // CORS preflights are handled earlier; this is a belt-and-suspenders guard
+  // in case a new exempt pattern is added later.
+  return false;
+}
+
+/**
+ * Run the composed plugin middleware chain for a single request.
+ *
+ * Each middleware is the return value of `plugin.middleware()`. Today the
+ * auth plugin returns `authMiddleware.authenticate(req) => identity | throw`.
+ * The contract here intentionally accepts either:
+ *   - a bare function   → called with (req), identity (if any) attached to req
+ *   - an array of those → iterated in order
+ *
+ * On a thrown 401: respond 401 and signal the caller to stop. Any other
+ * thrown error propagates to the top-level handleRequest try/catch.
+ *
+ * Returns true if the chain completed successfully (continue to route
+ * dispatch), false if a response was already written and the caller should
+ * stop.
+ */
+async function runPluginMiddleware(req, res, middlewares) {
+  if (!middlewares || middlewares.length === 0) return true;
+
+  const chain = [];
+  for (const entry of middlewares) {
+    if (Array.isArray(entry)) {
+      for (const fn of entry) {
+        if (typeof fn === 'function') chain.push(fn);
+      }
+    } else if (typeof entry === 'function') {
+      chain.push(entry);
+    }
+  }
+  if (chain.length === 0) return true;
+
+  for (const mw of chain) {
+    try {
+      const result = mw(req);
+      const identity = result && typeof result.then === 'function' ? await result : result;
+      if (identity && typeof identity === 'object') {
+        req.identity = identity;
+      }
+    } catch (err) {
+      const status = err && typeof err.statusCode === 'number' ? err.statusCode : 500;
+      if (status === 401) {
+        sendJson(res, {
+          error: err.message || 'Unauthorized',
+          code: (err && err.code) || 'unauthorized',
+        }, 401, req);
+        return false;
+      }
+      // Non-auth error — let the top-level handler log + 500.
+      throw err;
+    }
+  }
+  return true;
+}
+
 function createApiServer(deps = {}) {
   const serverDeps = {
     db: deps.db || db,
@@ -188,6 +264,11 @@ function createApiServer(deps = {}) {
     tools: deps.tools || tools,
     logger: deps.logger || logger,
   };
+
+  // Plugin-contributed middleware (e.g. auth plugin's authenticate). Empty
+  // in local mode — no plugin contributes middleware and the pipeline is a
+  // no-op, preserving the zero-auth local default.
+  const pluginMiddleware = Array.isArray(deps.pluginMiddleware) ? deps.pluginMiddleware : [];
 
   // Initialize v2 control-plane handlers with task manager
   if (serverDeps.taskManager) {
@@ -208,9 +289,11 @@ function createApiServer(deps = {}) {
   return {
     routes: routeTable,
     middlewareContext,
+    pluginMiddleware,
     requestHandler: (req, res) => handleRequest(req, res, {
       routes: routeTable,
       middlewareContext,
+      pluginMiddleware,
       deps: serverDeps,
     }).catch((err) => {
       logger.error('Unhandled error in request handler', { error: err.message, stack: err.stack, url: req.url });
@@ -237,6 +320,7 @@ async function handleRequest(req, res, context = {}) {
   const {
     routes: routeTable,
     middlewareContext,
+    pluginMiddleware = [],
   } = activeContext;
 
   const requestId = resolveRequestId(req);
@@ -310,6 +394,15 @@ async function handleRequest(req, res, context = {}) {
     const pkg = require('./package.json');
     sendJson(res, { version: pkg.version, name: pkg.name || 'torque' }, 200, req);
     return;
+  }
+
+  // Plugin-contributed middleware (e.g. auth plugin's authenticate in
+  // enterprise mode). Empty in local mode — see createApiServer. Health
+  // probes / version / openapi bypass per PLUGIN_MIDDLEWARE_PUBLIC_ROUTES
+  // above so monitoring + API discovery stay reachable pre-auth.
+  if (pluginMiddleware.length > 0 && !isPluginMiddlewarePublicRoute(url)) {
+    const cont = await runPluginMiddleware(req, res, pluginMiddleware);
+    if (!cont) return;
   }
 
   // Find matching route
@@ -528,6 +621,7 @@ function start(options = {}) {
       taskManager: options.taskManager || null,
       tools,
       logger,
+      pluginMiddleware: Array.isArray(options.pluginMiddleware) ? options.pluginMiddleware : [],
     });
 
     apiPort = options.port || serverConfig.getPort('api');

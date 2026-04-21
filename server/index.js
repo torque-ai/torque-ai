@@ -1473,7 +1473,27 @@ function init() {
   }
 
   const apiPort = serverConfig.getInt('api_port', 3457);
-  const apiPromise = apiServer.start({ port: apiPort, taskManager }).then(apiResult => {
+
+  // Collect middleware from installed plugins (e.g. auth plugin's authenticate
+  // in enterprise mode). Empty in local mode — no plugin contributes
+  // middleware there, so the HTTP pipeline remains zero-auth as documented.
+  const pluginMiddleware = [];
+  for (const plugin of loadedPlugins) {
+    if (typeof plugin.middleware !== 'function') continue;
+    try {
+      const mw = plugin.middleware();
+      if (mw && (typeof mw === 'function' || (Array.isArray(mw) && mw.length > 0))) {
+        pluginMiddleware.push(mw);
+      }
+    } catch (err) {
+      logger.warn(`[plugin-loader] plugin.middleware() threw for ${plugin.name}: ${err.message}`);
+    }
+  }
+  if (pluginMiddleware.length > 0) {
+    logger.info(`[startup] http_middleware_from_plugins=${pluginMiddleware.length}`);
+  }
+
+  const apiPromise = apiServer.start({ port: apiPort, taskManager, pluginMiddleware }).then(apiResult => {
     if (apiResult.success) {
       apiStarted = true;
       debugLog(`REST API auto-started at http://127.0.0.1:${apiResult.port}`);

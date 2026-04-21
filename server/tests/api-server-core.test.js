@@ -920,3 +920,108 @@ describe('captured request handler dispatch', () => {
     });
   });
 });
+
+// Plugin middleware wiring — lets installed plugins (today: auth plugin in
+// enterprise mode) gate inbound requests. Local mode passes an empty array
+// and the pipeline is a no-op.
+describe('plugin middleware dispatch', () => {
+  let spyHttp;
+  let capturedHandler;
+  let mockServer;
+
+  beforeAll(() => {
+    mockServer = {
+      on: vi.fn(),
+      listen: vi.fn((port, host, callback) => { if (callback) callback(); }),
+      close: vi.fn(),
+    };
+    spyHttp = vi.spyOn(http, 'createServer').mockImplementation((handler) => {
+      capturedHandler = handler;
+      return mockServer;
+    });
+  });
+
+  afterAll(() => {
+    spyHttp.mockRestore();
+    try { api.stop(); } catch { /* ignore */ }
+  });
+
+  beforeEach(() => {
+    handleToolCallSpy.mockReset();
+    handleToolCallSpy.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+  });
+
+  async function startWithMiddleware(pluginMiddleware) {
+    try { api.stop(); } catch { /* ignore */ }
+    const startResult = await api.start({ port: 4411, pluginMiddleware });
+    expect(startResult.success).toBe(true);
+    return capturedHandler;
+  }
+
+  it('rejects unauthenticated requests with 401 when plugin middleware throws 401', async () => {
+    const middleware = (_req) => {
+      const err = new Error('Unauthorized');
+      err.statusCode = 401;
+      err.code = 'unauthorized';
+      throw err;
+    };
+    const handler = await startWithMiddleware([middleware]);
+
+    const response = await dispatchRequest(handler, { method: 'GET', url: '/api/tasks' });
+
+    expect(response.statusCode).toBe(401);
+    expect(parseJsonBody(response)).toMatchObject({ error: 'Unauthorized', code: 'unauthorized' });
+    expect(handleToolCallSpy).not.toHaveBeenCalled();
+  });
+
+  it('attaches identity to req and proceeds when plugin middleware returns one', async () => {
+    const identity = { id: 'user-1', role: 'admin', type: 'api_key' };
+    const seen = {};
+    const middleware = (req) => {
+      seen.url = req.url;
+      return identity;
+    };
+    const handler = await startWithMiddleware([middleware]);
+
+    const response = await dispatchRequest(handler, { method: 'GET', url: '/api/tasks?status=running' });
+
+    expect(seen.url).toBe('/api/tasks?status=running');
+    expect(response.statusCode).toBe(200);
+    expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', expect.objectContaining({ all_projects: true, status: 'running' }));
+  });
+
+  it('lets public routes bypass the middleware chain (health, version, openapi)', async () => {
+    let middlewareCalls = 0;
+    const middleware = (_req) => {
+      middlewareCalls++;
+      const err = new Error('Unauthorized');
+      err.statusCode = 401;
+      throw err;
+    };
+    const handler = await startWithMiddleware([middleware]);
+
+    // /api/version is exempt — must return 200 without invoking auth.
+    const versionRes = await dispatchRequest(handler, { method: 'GET', url: '/api/version' });
+    expect(versionRes.statusCode).toBe(200);
+    expect(middlewareCalls).toBe(0);
+
+    // /healthz is exempt too — auth must not gate monitoring endpoints.
+    const healthRes = await dispatchRequest(handler, { method: 'GET', url: '/healthz' });
+    expect([200, 503]).toContain(healthRes.statusCode);
+    expect(middlewareCalls).toBe(0);
+
+    // A non-public route, however, hits the middleware and 401s.
+    const tasksRes = await dispatchRequest(handler, { method: 'GET', url: '/api/tasks' });
+    expect(tasksRes.statusCode).toBe(401);
+    expect(middlewareCalls).toBe(1);
+  });
+
+  it('no-ops when pluginMiddleware is empty (local mode default)', async () => {
+    const handler = await startWithMiddleware([]);
+
+    const response = await dispatchRequest(handler, { method: 'GET', url: '/api/tasks' });
+
+    expect(response.statusCode).toBe(200);
+    expect(handleToolCallSpy).toHaveBeenCalled();
+  });
+});
