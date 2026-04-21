@@ -189,6 +189,15 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     void _e;
     // Column already exists
   }
+  const _arAlters = [
+    `ALTER TABLE factory_projects ADD COLUMN auto_recovery_attempts INTEGER DEFAULT 0`,
+    `ALTER TABLE factory_projects ADD COLUMN auto_recovery_last_action_at TEXT`,
+    `ALTER TABLE factory_projects ADD COLUMN auto_recovery_exhausted INTEGER DEFAULT 0`,
+    `ALTER TABLE factory_projects ADD COLUMN auto_recovery_last_strategy TEXT`,
+  ];
+  for (const _sql of _arAlters) {
+    try { db.exec(_sql); } catch (_e) { void _e; }
+  }
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks(workflow_id)`);
   } catch (e) {
