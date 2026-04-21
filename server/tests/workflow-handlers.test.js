@@ -1147,7 +1147,7 @@ describe('server/handlers/workflow-handlers', () => {
       expect(ctx.logger.debug).toHaveBeenCalledTimes(2);
     });
 
-    it('returns OPERATION_FAILED when a start attempt leaves the task pending', async () => {
+    it('returns OPERATION_FAILED when a synchronous start attempt leaves the task pending', async () => {
       seedWorkflow(ctx.db, {
         id: 'wf-1',
         name: 'Stuck Flow',
@@ -1159,7 +1159,11 @@ describe('server/handlers/workflow-handlers', () => {
         workflow_node_id: 'plan',
         status: 'pending',
       });
-      ctx.taskManager.startTask.mockImplementation(() => Promise.resolve());
+      // Sync return (not a Promise) — classifyWorkflowStartOutcome has no
+      // Promise/async escape hatch and reads task status back from the DB.
+      // A sync startTask that returns without updating status IS a real
+      // "stuck pending" bug; keep the failure assertion for that path.
+      ctx.taskManager.startTask.mockImplementation(() => undefined);
 
       const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
 
@@ -1173,6 +1177,31 @@ describe('server/handlers/workflow-handlers', () => {
           error: 'Task remained pending after start attempt',
         }),
       ]);
+    });
+
+    it('treats Promise-returning startTask as queued even if status has not flipped yet', async () => {
+      // When startTask is async (returns a Promise), the workflow launcher
+      // can't synchronously know the final status — the close-handler chain
+      // flips it later. Trust the Promise rather than reporting a spurious
+      // "Task remained pending" failure just because the DB read landed
+      // before the post-start update.
+      seedWorkflow(ctx.db, {
+        id: 'wf-1',
+        name: 'Async Flow',
+        status: 'pending',
+      });
+      seedTask(ctx.db, {
+        id: 't1',
+        workflow_id: 'wf-1',
+        workflow_node_id: 'plan',
+        status: 'pending',
+      });
+      ctx.taskManager.startTask.mockImplementation(() => Promise.resolve());
+
+      const result = await ctx.handlers.handleRunWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBeFalsy();
+      expect(ctx.taskManager.startTask).toHaveBeenCalledWith('t1');
     });
 
     it('treats instantly completed tasks as started for workflow launch accounting', async () => {
