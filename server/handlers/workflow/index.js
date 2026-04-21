@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const { defaultContainer } = require('../../container');
 const coordination = require('../../db/coordination');
 const providerRoutingCore = require('../../db/provider-routing-core');
+const taskCore = require('../../db/task-core');
 const workflowEngine = require('../../db/workflow-engine');
 const serverConfig = require('../../config');
 const taskManager = require('../../task-manager');
@@ -31,20 +32,100 @@ const logger = require('../../logger').child({ component: 'workflow' });
 const { safeJsonParse } = require('../../utils/json');
 const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
 
-function getTaskCore() {
+let workflowHandlerDeps = {};
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function normalizeWorkflowHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
+  if (hasOwn(deps, 'taskCore')) normalized.taskCore = deps.taskCore;
+  if (hasOwn(deps, 'container')) normalized.container = deps.container;
+  return normalized;
+}
+
+function init(deps = {}) {
+  workflowHandlerDeps = normalizeWorkflowHandlerDeps(deps);
+  return module.exports;
+}
+
+function getContainer() {
+  return workflowHandlerDeps.container || defaultContainer;
+}
+
+function getContainerValue(name) {
+  const container = getContainer();
+  if (!container || typeof container.has !== 'function' || typeof container.get !== 'function') {
+    return null;
+  }
   try {
-    return defaultContainer.get('taskCore');
+    if (!container.has(name)) {
+      return null;
+    }
+    return container.get(name);
   } catch (_e) {
-    return require('../../database');
+    return null;
   }
 }
 
-function getRawDb() {
-  try {
-    return defaultContainer.get('db');
-  } catch (_e) {
-    return require('../../database');
+function unwrapDb(db) {
+  return db && typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+}
+
+function getDbDependency() {
+  if (hasOwn(workflowHandlerDeps, 'rawDb')) {
+    return workflowHandlerDeps.rawDb;
   }
+  if (hasOwn(workflowHandlerDeps, 'db')) {
+    return workflowHandlerDeps.db;
+  }
+  return getContainerValue('db');
+}
+
+function getTaskCore() {
+  if (hasOwn(workflowHandlerDeps, 'taskCore') && workflowHandlerDeps.taskCore) {
+    return workflowHandlerDeps.taskCore;
+  }
+  const db = getDbDependency();
+  if (db && typeof db.createTask === 'function') {
+    return db;
+  }
+  try {
+    const containerTaskCore = getContainerValue('taskCore');
+    if (containerTaskCore) {
+      return containerTaskCore;
+    }
+  } catch (_e) {
+    // Fall through to the split task-core module for direct module consumers.
+  }
+  return taskCore;
+}
+
+function getRawDb() {
+  return unwrapDb(getDbDependency());
+}
+
+function withWorkflowHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = workflowHandlerDeps;
+    workflowHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      if (result && typeof result.then === 'function') {
+        return result.finally(() => {
+          workflowHandlerDeps = previousDeps;
+        });
+      }
+      workflowHandlerDeps = previousDeps;
+      return result;
+    } catch (err) {
+      workflowHandlerDeps = previousDeps;
+      throw err;
+    }
+  };
 }
 
 const workflowTemplates = require('./templates');
@@ -995,8 +1076,7 @@ function handleCreateWorkflow(args) {
   const workDir = args.working_directory || null;
   if (workDir) {
     try {
-      const { defaultContainer } = require('../../container');
-      const rawDb = defaultContainer.get('db');
+      const rawDb = getRawDb();
       if (rawDb && isProjectVersioned(rawDb, workDir)) {
         const workflowIntent = args.version_intent;
         if (!workflowIntent) {
@@ -1900,25 +1980,30 @@ function handleImportWorkflow(args) {
   return createResult;
 }
 
-function createWorkflowHandlers(_deps) {
+function buildWorkflowHandlerExports(deps = workflowHandlerDeps) {
   return {
     ...workflowTemplates,
     ...workflowDag,
     ...workflowAwait,
     ...workflowAdvanced,
-    handleCreateWorkflow,
-    handleCloneWorkflow,
-    handleAddWorkflowTask,
-    handleRunWorkflow,
-    handleWorkflowStatus,
-    handleCancelWorkflow,
-    handlePauseWorkflow,
-    handleListWorkflows,
-    handleWorkflowHistory,
-    handleCreateFeatureWorkflow,
-    handleExportWorkflow,
-    handleImportWorkflow,
+    handleCreateWorkflow: withWorkflowHandlerDeps(deps, handleCreateWorkflow),
+    handleCloneWorkflow: withWorkflowHandlerDeps(deps, handleCloneWorkflow),
+    handleAddWorkflowTask: withWorkflowHandlerDeps(deps, handleAddWorkflowTask),
+    handleRunWorkflow: withWorkflowHandlerDeps(deps, handleRunWorkflow),
+    handleWorkflowStatus: withWorkflowHandlerDeps(deps, handleWorkflowStatus),
+    handleCancelWorkflow: withWorkflowHandlerDeps(deps, handleCancelWorkflow),
+    handlePauseWorkflow: withWorkflowHandlerDeps(deps, handlePauseWorkflow),
+    handleListWorkflows: withWorkflowHandlerDeps(deps, handleListWorkflows),
+    handleWorkflowHistory: withWorkflowHandlerDeps(deps, handleWorkflowHistory),
+    handleCreateFeatureWorkflow: withWorkflowHandlerDeps(deps, handleCreateFeatureWorkflow),
+    handleExportWorkflow: withWorkflowHandlerDeps(deps, handleExportWorkflow),
+    handleImportWorkflow: withWorkflowHandlerDeps(deps, handleImportWorkflow),
   };
+}
+
+function createWorkflowHandlers(deps = {}) {
+  const hasDeps = deps && Object.keys(deps).length > 0;
+  return buildWorkflowHandlerExports(hasDeps ? normalizeWorkflowHandlerDeps(deps) : workflowHandlerDeps);
 }
 
 module.exports = {
@@ -1938,5 +2023,6 @@ module.exports = {
   handleCreateFeatureWorkflow,
   handleExportWorkflow,
   handleImportWorkflow,
+  init,
   createWorkflowHandlers,
 };
