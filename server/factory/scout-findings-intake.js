@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { guardIntakeItem } = require('./meta-intake-guard');
+const { isMetaTitle } = require('./meta-intake-guard');
 const logger = require('../logger').child({ component: 'scout-findings-intake' });
 
 const DEFAULT_FILE_FILTER = /-scan\.md$/i;
@@ -96,7 +96,7 @@ function createScoutFindingsIntake({ db, factoryIntake }) {
     `).run(project_id, scan_path, finding_hash, work_item_id, new Date().toISOString());
   }
 
-  async function scan({ project_id, findings_dir, filter = DEFAULT_FILE_FILTER }) {
+  function scan({ project_id, findings_dir, filter = DEFAULT_FILE_FILTER }) {
     if (!project_id) throw new Error('project_id required');
 
     const created = [];
@@ -164,8 +164,7 @@ function createScoutFindingsIntake({ db, factoryIntake }) {
           }
         }
 
-        const guard = await guardIntakeItem({ title: finding.title });
-        if (!guard.ok) {
+        if (isMetaTitle(finding.title)) {
           skipped.push({
             scan_path: filePath,
             reason: 'meta_task_no_code_output',
