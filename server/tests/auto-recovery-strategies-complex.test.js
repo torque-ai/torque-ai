@@ -1,5 +1,4 @@
 'use strict';
-const { describe, it, expect } = require('vitest');
 const freshSession = require('../plugins/auto-recovery-core/strategies/retry-with-fresh-session');
 const fallback = require('../plugins/auto-recovery-core/strategies/fallback-provider');
 const retryPlan = require('../plugins/auto-recovery-core/strategies/retry-plan-generation');
