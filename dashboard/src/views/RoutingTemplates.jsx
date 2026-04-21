@@ -22,6 +22,8 @@ const MODEL_SUGGESTIONS = {
                    'deepseek-v3.2', 'devstral-2:123b', 'gpt-oss:120b'],
   openrouter: ['nvidia/nemotron-3-nano-30b-a3b:free', 'google/gemma-3-27b-it:free'],
   ollama: ['qwen2.5-coder:32b', 'codestral:22b'],
+  'hashline-ollama': ['qwen2.5-coder:32b'],
+  'aider-ollama': ['qwen2.5-coder:32b'],
 };
 
 const PROVIDER_DEFAULT_MODELS = {

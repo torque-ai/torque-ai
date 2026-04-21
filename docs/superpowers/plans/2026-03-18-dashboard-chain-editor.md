@@ -27,7 +27,7 @@ Single file, following the existing pattern (ProviderSelect is already inline at
 **Files:**
 - Modify: `dashboard/src/views/RoutingTemplates.jsx`
 
-- [ ] **Step 1: Add MODEL_SUGGESTIONS constant**
+- [x] **Step 1: Add MODEL_SUGGESTIONS constant**
 
 Add after `KNOWN_PROVIDERS` (line 27), before the ProviderSelect component:
 
@@ -56,7 +56,7 @@ const PROVIDER_DEFAULT_MODELS = {
 };
 ```
 
-- [ ] **Step 2: Add ModelInput component**
+- [x] **Step 2: Add ModelInput component**
 
 Add after ProviderSelect (line 50):
 
@@ -99,12 +99,12 @@ function ModelInput({ provider, value, onChange }) {
 }
 ```
 
-- [ ] **Step 3: Verify build**
+- [x] **Step 3: Verify build**
 
 Run: `cd /path/to/torque/dashboard && npm run build`
 Expected: builds without errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /path/to/torque
@@ -119,7 +119,7 @@ git commit -m "feat(dashboard): add MODEL_SUGGESTIONS and ModelInput component f
 **Files:**
 - Modify: `dashboard/src/views/RoutingTemplates.jsx`
 
-- [ ] **Step 1: Add ChainSummary component**
+- [x] **Step 1: Add ChainSummary component**
 
 Add after ModelInput:
 
@@ -146,7 +146,7 @@ function ChainSummary({ chain }) {
 }
 ```
 
-- [ ] **Step 2: Add ChainEditor component**
+- [x] **Step 2: Add ChainEditor component**
 
 Add after ChainSummary:
 
@@ -234,12 +234,12 @@ function ChainEditor({ chain, onChange, readOnly = false }) {
 }
 ```
 
-- [ ] **Step 3: Verify build**
+- [x] **Step 3: Verify build**
 
 Run: `cd /path/to/torque/dashboard && npm run build`
 Expected: builds without errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /path/to/torque
@@ -256,7 +256,7 @@ Replace the main category row to auto-detect string vs chain format.
 **Files:**
 - Modify: `dashboard/src/views/RoutingTemplates.jsx`
 
-- [ ] **Step 1: Add chain mutation functions**
+- [x] **Step 1: Add chain mutation functions**
 
 Add after the existing `toggleExpand` function (line 156):
 
@@ -295,7 +295,7 @@ function convertOverrideToChain(categoryKey, complexity) {
 }
 ```
 
-- [ ] **Step 2: Replace the category main row rendering**
+- [x] **Step 2: Replace the category main row rendering**
 
 Replace lines 385-388 (the `<ProviderSelect>` in the main row) with auto-detecting logic:
 
@@ -322,7 +322,7 @@ Replace lines 385-388 (the `<ProviderSelect>` in the main row) with auto-detecti
 )}
 ```
 
-- [ ] **Step 3: Replace the expanded panel rendering**
+- [x] **Step 3: Replace the expanded panel rendering**
 
 Replace lines 392-405 (the complexity overrides section) with a full expanded panel that includes chain editor when applicable:
 
@@ -390,12 +390,12 @@ Replace lines 392-405 (the complexity overrides section) with a full expanded pa
 )}
 ```
 
-- [ ] **Step 4: Build and verify**
+- [x] **Step 4: Build and verify**
 
 Run: `cd /path/to/torque/dashboard && npm run build`
 Expected: builds without errors.
 
-- [ ] **Step 5: Visual verification**
+- [x] **Step 5: Visual verification**
 
 Open `http://localhost:3456` in a browser. Navigate to Routing Templates:
 - Select "Free Agentic" preset — should show chain summaries (provider → provider → provider) for each category
@@ -403,7 +403,7 @@ Open `http://localhost:3456` in a browser. Navigate to Routing Templates:
 - Expand a category on Free Agentic — should show full chain editor with provider dropdowns, model inputs, reorder buttons
 - Select a non-preset template — verify [+ Chain] converts to chain editor
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /path/to/torque
@@ -415,18 +415,18 @@ git commit -m "feat(dashboard): auto-detecting chain editor in routing templates
 
 ### Task 4: Build, Push, and Restart
 
-- [ ] **Step 1: Full dashboard build**
+- [x] **Step 1: Full dashboard build**
 
 Run: `cd /path/to/torque/dashboard && npm run build`
 
-- [ ] **Step 2: Push**
+- [x] **Step 2: Push**
 
 ```bash
 cd /path/to/torque
 git push
 ```
 
-- [ ] **Step 3: Restart TORQUE**
+- [x] **Step 3: Restart TORQUE**
 
 ```bash
 bash /path/to/torque/stop-torque.sh
