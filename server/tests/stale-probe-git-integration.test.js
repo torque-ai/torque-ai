@@ -52,6 +52,8 @@ describe('stale-probe against a real git repo', () => {
       origin: { target_file: 'foo.js', severity: 'HIGH', variant: 'security' },
     };
 
+    // eslint-disable-next-line no-console
+    console.error('[probe-debug]', { tmpDir, gitExists: fs.existsSync(path.join(tmpDir, '.git')) });
     const result = await probeStaleness(item, { projectPath: tmpDir });
     expect(result.stale).toBe(false);
     expect(result.reason).toBe('no_commits_since_scan');
