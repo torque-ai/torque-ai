@@ -154,6 +154,19 @@ describe('edit_file fuzzy fallback (Tier 2)', () => {
     expect(result.result).toContain('not found');
   });
 
+  it('rejects medium-similarity content below the fuzzy threshold', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'medium.js', 'abcdefghijkl');
+    const { execute: exec } = createToolExecutor(dir);
+    const result = exec('edit_file', {
+      path: 'medium.js',
+      old_text: 'abcdefghiXYZ',
+      new_text: 'replaced',
+    });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('not found');
+  });
+
   it('rejects ambiguous fuzzy matches (two similar regions)', () => {
     const dir = makeTempDir();
     writeFile(dir, 'amb.js', [
@@ -245,7 +258,7 @@ describe('edit_file cascade (exact > whitespace > fuzzy)', () => {
 
   it('replace_all with whitespace fallback but no fuzzy', () => {
     const dir = makeTempDir();
-    writeFile(dir, 'ra.js', '\tlog(x);');
+    writeFile(dir, 'ra.js', '    log(x);\n\n    log(x);');
     const { execute: exec } = createToolExecutor(dir);
     const result = exec('edit_file', {
       path: 'ra.js',
@@ -254,7 +267,7 @@ describe('edit_file cascade (exact > whitespace > fuzzy)', () => {
       replace_all: true,
     });
     expect(result.error).toBeFalsy();
-    expect(result.result).toContain('1 replacement');
+    expect(result.result).toContain('2 replacements');
     expect(result.result).toContain('normalized whitespace');
   });
 

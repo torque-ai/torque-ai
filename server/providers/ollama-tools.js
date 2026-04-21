@@ -139,7 +139,7 @@ function findFuzzyMatch(oldText, fileContent) {
     }
   }
 
-  if (bestStart === -1) return null;
+  if (bestStart === -1 || bestScore < 0.80) return null;
 
   // Ambiguity gap: second-best must be < 0.70
   if (secondBestScore >= 0.70) return null;
@@ -648,61 +648,87 @@ function createToolExecutor(workingDir, options = {}) {
 
           if (args.replace_all) {
             // Replace all occurrences, return metadata.replacements count
-            const occurrences = content.split(args.old_text).length - 1;
+            const oldTextStartsWithWhitespace = /^\s/.test(args.old_text);
+            let occurrences;
+            let exactMatchIndexes = null;
+            if (oldTextStartsWithWhitespace) {
+              exactMatchIndexes = [];
+              let searchFrom = 0;
+              while (searchFrom <= content.length - args.old_text.length) {
+                const found = content.indexOf(args.old_text, searchFrom);
+                if (found === -1) break;
+                if (found === 0 || content[found - 1] === '\n') {
+                  exactMatchIndexes.push(found);
+                  searchFrom = found + args.old_text.length;
+                } else {
+                  searchFrom = found + 1;
+                }
+              }
+              occurrences = exactMatchIndexes.length;
+            } else {
+              occurrences = content.split(args.old_text).length - 1;
+            }
             if (occurrences === 0) {
               // Whitespace-normalized fallback for replace_all
-              try {
-                const wsMatch = findWhitespaceNormalizedMatch(args.old_text, content);
-                if (wsMatch) {
-                  const oldLines = args.old_text.split('\n').map(l => l.trimStart());
-                  const fileLines = content.split('\n');
-                  const normalizedFileLines = fileLines.map(l => l.trimStart());
-                  let replacements = 0;
-                  const resultLines = [];
-                  let i = 0;
-                  while (i < fileLines.length) {
-                    let matched = true;
-                    if (i <= fileLines.length - oldLines.length) {
-                      for (let j = 0; j < oldLines.length; j++) {
-                        if (normalizedFileLines[i + j] !== oldLines[j]) {
-                          matched = false;
-                          break;
-                        }
-                      }
-                    } else {
+              const oldLines = args.old_text.split('\n').map(l => l.trimStart());
+              const fileLines = content.split('\n');
+              const normalizedFileLines = fileLines.map(l => l.trimStart());
+              let replacements = 0;
+              const resultLines = [];
+              let i = 0;
+              while (i < fileLines.length) {
+                let matched = true;
+                if (i <= fileLines.length - oldLines.length) {
+                  for (let j = 0; j < oldLines.length; j++) {
+                    if (normalizedFileLines[i + j] !== oldLines[j]) {
                       matched = false;
-                    }
-                    if (matched) {
-                      const firstNonBlank = fileLines.slice(i, i + oldLines.length).find(l => l.trim().length > 0);
-                      const indent = firstNonBlank ? firstNonBlank.match(/^(\s*)/)[1] : '';
-                      resultLines.push(...reindentNewText(args.new_text, indent).split('\n'));
-                      i += oldLines.length;
-                      replacements++;
-                    } else {
-                      resultLines.push(fileLines[i]);
-                      i++;
+                      break;
                     }
                   }
-                  if (replacements > 0) {
-                    fs.writeFileSync(resolvedPath, resultLines.join('\n'), 'utf-8');
-                    changedFiles.add(resolvedPath);
-                    clearFailedCommandRecoveryMode();
-                    return {
-                      result: `Edit applied to ${args.path} (${replacements} replacement${replacements !== 1 ? 's' : ''}, matched with normalized whitespace)`,
-                      metadata: { replacements },
-                    };
-                  }
+                } else {
+                  matched = false;
                 }
-              } catch { /* fall through to error */ }
+                if (matched) {
+                  const firstNonBlank = fileLines.slice(i, i + oldLines.length).find(l => l.trim().length > 0);
+                  const indent = firstNonBlank ? firstNonBlank.match(/^(\s*)/)[1] : '';
+                  resultLines.push(...reindentNewText(args.new_text, indent).split('\n'));
+                  i += oldLines.length;
+                  replacements++;
+                } else {
+                  resultLines.push(fileLines[i]);
+                  i++;
+                }
+              }
+              if (replacements > 0) {
+                fs.writeFileSync(resolvedPath, resultLines.join('\n'), 'utf-8');
+                changedFiles.add(resolvedPath);
+                clearFailedCommandRecoveryMode();
+                return {
+                  result: `Edit applied to ${args.path} (${replacements} replacement${replacements !== 1 ? 's' : ''}, matched with normalized whitespace)`,
+                  metadata: { replacements },
+                };
+              }
 
               const lines = content.split('\n');
               const preview = lines.slice(0, Math.min(30, lines.length)).join('\n');
               return {
-                result: `Error: old_text not found in ${args.path}. First 30 lines:\n${preview}`,
+                result: `Error: old_text not found in ${args.path}. Include more context or check indentation. First 30 lines:\n${preview}`,
                 error: true,
               };
             }
-            const newContent = content.split(args.old_text).join(args.new_text);
+            let newContent;
+            if (exactMatchIndexes) {
+              const chunks = [];
+              let lastIndex = 0;
+              for (const matchIndex of exactMatchIndexes) {
+                chunks.push(content.slice(lastIndex, matchIndex), args.new_text);
+                lastIndex = matchIndex + args.old_text.length;
+              }
+              chunks.push(content.slice(lastIndex));
+              newContent = chunks.join('');
+            } else {
+              newContent = content.split(args.old_text).join(args.new_text);
+            }
             fs.writeFileSync(resolvedPath, newContent, 'utf-8');
             changedFiles.add(resolvedPath);
             clearFailedCommandRecoveryMode();

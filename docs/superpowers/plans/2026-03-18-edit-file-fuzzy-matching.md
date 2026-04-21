@@ -20,7 +20,7 @@
 
 This function is used by both Tier 1 and Tier 2, so build it first.
 
-- [ ] **Step 1: Write failing tests for `reindentNewText`**
+- [x] **Step 1: Write failing tests for `reindentNewText`**
 
 Create `server/tests/ollama-tools-edit-fuzzy.test.js`:
 
@@ -85,12 +85,12 @@ describe('reindentNewText', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js -t "reindentNewText"`
 Expected: FAIL with `reindentNewText` is not exported
 
-- [ ] **Step 3: Implement `reindentNewText` in ollama-tools.js**
+- [x] **Step 3: Implement `reindentNewText` in ollama-tools.js**
 
 Add near the top of the file (after the `require` block, before `const TOOL_DEFINITIONS`):
 
@@ -127,12 +127,12 @@ function reindentNewText(newText, fileIndent) {
 
 Export it from `module.exports` at the bottom of the file.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js -t "reindentNewText"`
 Expected: PASS (all 7 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```
 git add server/providers/ollama-tools.js server/tests/ollama-tools-edit-fuzzy.test.js
@@ -147,7 +147,7 @@ git commit -m "feat(edit_file): add reindentNewText helper for fuzzy matching"
 - Modify: `server/providers/ollama-tools.js` (add `findWhitespaceNormalizedMatch` function, wire into `edit_file` case)
 - Modify: `server/tests/ollama-tools-edit-fuzzy.test.js`
 
-- [ ] **Step 1: Write failing tests for whitespace-normalized matching**
+- [x] **Step 1: Write failing tests for whitespace-normalized matching**
 
 Append to `server/tests/ollama-tools-edit-fuzzy.test.js`:
 
@@ -226,12 +226,12 @@ describe('edit_file whitespace-normalized fallback', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js -t "whitespace-normalized"`
 Expected: FAIL — edits return "old_text not found" errors
 
-- [ ] **Step 3: Implement `findWhitespaceNormalizedMatch` and wire into edit_file**
+- [x] **Step 3: Implement `findWhitespaceNormalizedMatch` and wire into edit_file**
 
 Add function near `reindentNewText`:
 
@@ -375,17 +375,17 @@ Also wire the whitespace fallback into the `replace_all` path. Replace the `if (
 
 Export `findWhitespaceNormalizedMatch` from `module.exports`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js -t "whitespace-normalized"`
 Expected: PASS (all 4 tests)
 
-- [ ] **Step 5: Run existing tests to verify no regressions**
+- [x] **Step 5: Run existing tests to verify no regressions**
 
 Run: `npx vitest run tests/ollama-tools-coverage.test.js tests/agentic-tools.test.js`
 Expected: PASS (all existing edit_file tests still pass — exact matching is unchanged)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```
 git add server/providers/ollama-tools.js server/tests/ollama-tools-edit-fuzzy.test.js
@@ -400,7 +400,7 @@ git commit -m "feat(edit_file): Tier 1 whitespace-normalized fallback matching"
 - Modify: `server/providers/ollama-tools.js` (add `findFuzzyMatch` function, wire into `edit_file` case)
 - Modify: `server/tests/ollama-tools-edit-fuzzy.test.js`
 
-- [ ] **Step 1: Write failing tests for fuzzy matching**
+- [x] **Step 1: Write failing tests for fuzzy matching**
 
 Append to test file:
 
@@ -500,12 +500,12 @@ describe('edit_file fuzzy fallback (Tier 2)', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js -t "fuzzy fallback"`
 Expected: FAIL — fuzzy matching not implemented, returns "not found" errors
 
-- [ ] **Step 3: Import `lineSimilarity` and implement `findFuzzyMatch`**
+- [x] **Step 3: Import `lineSimilarity` and implement `findFuzzyMatch`**
 
 At the top of `ollama-tools.js`, add:
 ```js
@@ -575,7 +575,7 @@ function findFuzzyMatch(oldText, fileContent) {
 }
 ```
 
-- [ ] **Step 4: Wire fuzzy matching into edit_file**
+- [x] **Step 4: Wire fuzzy matching into edit_file**
 
 Replace the `// TODO: Tier 2 fuzzy matching (Task 3)` comment added in Task 2 with:
 
@@ -598,17 +598,17 @@ Replace the `// TODO: Tier 2 fuzzy matching (Task 3)` comment added in Task 2 wi
 
 Export `findFuzzyMatch` from `module.exports`.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js`
 Expected: PASS (all tests — reindent + whitespace + fuzzy)
 
-- [ ] **Step 6: Run full regression suite**
+- [x] **Step 6: Run full regression suite**
 
 Run: `npx vitest run tests/ollama-tools-coverage.test.js tests/agentic-tools.test.js tests/ollama-tools-edit-fuzzy.test.js`
 Expected: PASS (all existing + new tests)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```
 git add server/providers/ollama-tools.js server/tests/ollama-tools-edit-fuzzy.test.js
@@ -623,7 +623,7 @@ git commit -m "feat(edit_file): Tier 2 fuzzy matching with lineSimilarity + ambi
 - Modify: `server/tests/ollama-tools-edit-fuzzy.test.js`
 - Modify: `server/providers/ollama-tools.js` (error message tweaks only)
 
-- [ ] **Step 1: Write cascade integration tests**
+- [x] **Step 1: Write cascade integration tests**
 
 Append to test file:
 
@@ -687,24 +687,28 @@ describe('edit_file cascade (exact > whitespace > fuzzy)', () => {
 });
 ```
 
-- [ ] **Step 2: Run all tests**
+- [x] **Step 2: Run all tests**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js`
 Expected: PASS
 
-- [ ] **Step 3: Commit**
+Skipped in this execution per host verification instruction.
+
+- [x] **Step 3: Commit**
 
 ```
 git add server/tests/ollama-tools-edit-fuzzy.test.js
 git commit -m "test(edit_file): cascade integration tests for fuzzy matching"
 ```
 
-- [ ] **Step 4: Run the full related test suite one final time**
+- [x] **Step 4: Run the full related test suite one final time**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js tests/ollama-tools-coverage.test.js tests/agentic-tools.test.js tests/harness-improvements.test.js`
 Expected: All PASS
 
-- [ ] **Step 5: Final commit with spec and plan docs**
+Skipped in this execution per host verification instruction.
+
+- [x] **Step 5: Final commit with spec and plan docs**
 
 ```
 git add docs/superpowers/specs/2026-03-18-edit-file-fuzzy-matching-design.md docs/superpowers/plans/2026-03-18-edit-file-fuzzy-matching.md
