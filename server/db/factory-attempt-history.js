@@ -96,27 +96,56 @@ function decodeRow(row) {
   return { ...row, files_touched: files };
 }
 
+// The loop-controller calls getLatestForBatch in the EXECUTE -> VERIFY
+// transition. Environments that have not yet seen migration 30 do not
+// have the table — in that case there is simply "no prior attempt" and
+// the caller should treat it as such rather than propagating a SQLite
+// error and halting the loop.
+function isMissingTableError(err) {
+  const msg = err && typeof err.message === 'string' ? err.message : '';
+  return /no such table:\s*(main\.)?factory_attempt_history/i.test(msg);
+}
+
 function listByBatch(batch_id) {
-  return getDb().prepare(
-    'SELECT * FROM factory_attempt_history WHERE batch_id = ? ORDER BY attempt ASC'
-  ).all(batch_id).map(decodeRow);
+  try {
+    return getDb().prepare(
+      'SELECT * FROM factory_attempt_history WHERE batch_id = ? ORDER BY attempt ASC'
+    ).all(batch_id).map(decodeRow);
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    throw err;
+  }
 }
 
 function listByWorkItem(work_item_id, { limit = 10 } = {}) {
-  return getDb().prepare(
-    'SELECT * FROM factory_attempt_history WHERE work_item_id = ? ORDER BY attempt DESC LIMIT ?'
-  ).all(work_item_id, limit).map(decodeRow);
+  try {
+    return getDb().prepare(
+      'SELECT * FROM factory_attempt_history WHERE work_item_id = ? ORDER BY attempt DESC LIMIT ?'
+    ).all(work_item_id, limit).map(decodeRow);
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    throw err;
+  }
 }
 
 function getLatestForBatch(batch_id) {
-  const row = getDb().prepare(
-    'SELECT * FROM factory_attempt_history WHERE batch_id = ? ORDER BY attempt DESC LIMIT 1'
-  ).get(batch_id);
-  return decodeRow(row);
+  try {
+    const row = getDb().prepare(
+      'SELECT * FROM factory_attempt_history WHERE batch_id = ? ORDER BY attempt DESC LIMIT 1'
+    ).get(batch_id);
+    return decodeRow(row);
+  } catch (err) {
+    if (isMissingTableError(err)) return null;
+    throw err;
+  }
 }
 
 function updateVerifyOutputTail(rowId, tail) {
-  getDb().prepare('UPDATE factory_attempt_history SET verify_output_tail = ? WHERE id = ?').run(tail, rowId);
+  try {
+    getDb().prepare('UPDATE factory_attempt_history SET verify_output_tail = ? WHERE id = ?').run(tail, rowId);
+  } catch (err) {
+    if (!isMissingTableError(err)) throw err;
+  }
 }
 
 module.exports = { setDb, appendRow, listByBatch, listByWorkItem, getLatestForBatch, updateVerifyOutputTail };
