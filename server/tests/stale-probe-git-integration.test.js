@@ -25,7 +25,12 @@ describe('stale-probe against a real git repo', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stale-probe-git-'));
-    git(tmpDir, ['init', '-b', 'main']);
+    // Resolve any symlinks (macOS /private, Windows short-path). Without
+    // this, `git init` creates .git at the resolved path but the tests
+    // later pass the un-resolved path to probeStaleness, and git log's
+    // cwd can't find the repo.
+    tmpDir = fs.realpathSync(tmpDir);
+    git(tmpDir, ['init']);
     git(tmpDir, ['config', 'user.email', 'test@example.com']);
     git(tmpDir, ['config', 'user.name', 'Test']);
   });
