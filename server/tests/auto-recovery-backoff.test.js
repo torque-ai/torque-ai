@@ -1,5 +1,4 @@
 'use strict';
-const { describe, it, expect } = require('vitest');
 const { nextBackoffMs, isWithinCooldown, BACKOFF_CAP_MS, BASE_BACKOFF_MS } =
   require('../factory/auto-recovery/backoff');
 

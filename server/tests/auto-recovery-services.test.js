@@ -2,7 +2,6 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
 const { createAutoRecoveryServices, detectTechStack, cleanupPaths } =
   require('../factory/auto-recovery/services');
 
