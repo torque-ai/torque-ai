@@ -36,7 +36,16 @@ describe('stale-probe against a real git repo', () => {
     // later pass the un-resolved path to probeStaleness, and git log's
     // cwd can't find the repo.
     tmpDir = fs.realpathSync(tmpDir);
-    git(tmpDir, ['init']);
+    const cleanEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
+    );
+    const initOut = childProcess.execFileSync('git', ['init'], {
+      cwd: tmpDir,
+      env: cleanEnv,
+      encoding: 'utf8',
+    });
+    // eslint-disable-next-line no-console
+    console.error('[init-debug]', { tmpDir, initOut: String(initOut).trim(), gitExists: fs.existsSync(path.join(tmpDir, '.git')) });
     git(tmpDir, ['config', 'user.email', 'test@example.com']);
     git(tmpDir, ['config', 'user.name', 'Test']);
   });
