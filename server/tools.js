@@ -499,6 +499,7 @@ async function maybeFireFileWriteHooks(toolName, args, result) {
 // ── Inline handlers (server-level, not delegated) ──
 
 const RESTART_RESPONSE_GRACE_MS = 1500;
+const RESTART_COOLDOWN_MS = Number.isFinite(Number(process.env.TORQUE_RESTART_COOLDOWN_MS)) ? Number(process.env.TORQUE_RESTART_COOLDOWN_MS) : 30000;
 
 async function handleRestartServer(args) {
   const reason = args.reason || 'Manual restart requested';
@@ -666,6 +667,34 @@ async function handleRestartServerBarrier(args) {
     };
   }
 
+  const recentTerminalTask = ['completed', 'failed', 'cancelled']
+    .flatMap(status => taskCore.listTasks({ status, limit: 1000 }))
+    .filter(t => t.provider === 'system')
+    .map(t => ({
+      task: t,
+      timestamp: t.completed_at || t.updated_at || t.created_at,
+    }))
+    .filter(entry => Number.isFinite(Date.parse(entry.timestamp)))
+    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))[0];
+
+  if (RESTART_COOLDOWN_MS > 0 && recentTerminalTask) {
+    const recentTime = Date.parse(recentTerminalTask.timestamp);
+    const elapsedMs = Date.now() - recentTime;
+    if (elapsedMs < RESTART_COOLDOWN_MS) {
+      logger.warn(`[Restart] Cooldown active - refusing new barrier (elapsed ${elapsedMs}ms < ${RESTART_COOLDOWN_MS}ms)`);
+      return {
+        success: false,
+        error: 'restart cooldown active',
+        elapsed_ms: elapsedMs,
+        cooldown_ms: RESTART_COOLDOWN_MS,
+        content: [{
+          type: 'text',
+          text: `Restart cooldown active. Last restart barrier finished ${elapsedMs}ms ago; wait ${RESTART_COOLDOWN_MS - elapsedMs}ms or set TORQUE_RESTART_COOLDOWN_MS=0 to disable.`,
+        }],
+      };
+    }
+  }
+
   // Count non-barrier tasks split by lifecycle phase. Only the *running* count
   // gates the drain — queued/pending tasks are held by the barrier and resume
   // after restart. Report them separately so the user sees what's draining
@@ -821,19 +850,31 @@ function handleRestartStatus() {
  * Clean up stale restart barrier tasks from a previous server instance.
  */
 function cleanupStaleRestartBarriers() {
+  const startedAt = Date.now();
+  let scannedCount = 0;
+  let cleanedCount = 0;
   try {
     const taskCore = require('./db/task-core');
-    const barriers = taskCore.listTasks({ status: 'running', limit: 100 })
-      .concat(taskCore.listTasks({ status: 'queued', limit: 100 }))
-      .filter(t => t.provider === 'system');
-    for (const b of barriers) {
+    const candidates = taskCore.listTasks({ status: 'running', limit: 100 })
+      .concat(taskCore.listTasks({ status: 'queued', limit: 100 }));
+    for (const b of candidates) {
+      scannedCount += 1;
+      if (b.provider !== 'system') {
+        continue;
+      }
       taskCore.updateTaskStatus(b.id, 'cancelled', {
         error_output: 'Stale restart barrier — server restarted before drain completed',
         completed_at: new Date().toISOString(),
         cancel_reason: 'stale_barrier',
       });
+      cleanedCount += 1;
     }
-    return barriers.length;
+    const elapsedMs = Date.now() - startedAt;
+    logger.info(`[startup-cleanup] startup cleanup: scanned ${scannedCount} tasks, cleaned ${cleanedCount} barriers, took ${elapsedMs}ms`);
+    if (elapsedMs > 5000) {
+      logger.warn(`[startup-cleanup] watchdog: scanned ${scannedCount} tasks, cleaned ${cleanedCount} barriers, took ${elapsedMs}ms`);
+    }
+    return cleanedCount;
   } catch {
     return 0;
   }
@@ -946,5 +987,7 @@ module.exports = {
   setRuntimeRegisteredToolDefs,
   getRuntimeRegisteredToolDefs,
   createTools,
+  RESTART_COOLDOWN_MS,
+  handleRestartServerBarrier,
   cleanupStaleRestartBarriers,
 };
