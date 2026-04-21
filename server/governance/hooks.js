@@ -12,6 +12,11 @@ const DEFAULT_VISIBLE_PROVIDERS = Object.freeze(['codex', 'claude-cli']);
 const DEFAULT_TEST_COMMANDS = Object.freeze(['vitest', 'jest', 'pytest', 'dotnet test']);
 const INSPECTION_TOOLS = new Set(['check_status', 'get_result']);
 const CODEX_PROVIDERS = new Set(['codex', 'codex-spark']);
+const GIT_PROBE_OPTIONS = Object.freeze({
+  encoding: 'utf8',
+  timeout: 5000,
+  windowsHide: true,
+});
 
 function createNoopLogger() {
   return {
@@ -81,6 +86,57 @@ function safeParseConfig(value, defaults = {}) {
 
 function getTaskId(task) {
   return task?.id || task?.task_id || task?.taskId || null;
+}
+
+function createGitProbeContext() {
+  return {
+    unpushedCommits: new Map(),
+    dirtyDiffStats: new Map(),
+    currentBranches: new Map(),
+    worktreeMetadata: new Map(),
+  };
+}
+
+function getGitProbeContext(context) {
+  if (context?.gitProbeCache) {
+    return context.gitProbeCache;
+  }
+
+  const gitProbeCache = createGitProbeContext();
+  if (context && typeof context === 'object') {
+    context.gitProbeCache = gitProbeCache;
+  }
+  return gitProbeCache;
+}
+
+function runCachedGitProbe(context, cacheName, cwd, args) {
+  const cache = getGitProbeContext(context)[cacheName];
+  if (!cache.has(cwd)) {
+    cache.set(
+      cwd,
+      execFileAsync('git', args, {
+        cwd,
+        ...GIT_PROBE_OPTIONS,
+      }).then(({ stdout }) => String(stdout || '').trim()),
+    );
+  }
+  return cache.get(cwd);
+}
+
+function getUnpushedCommits(cwd, context) {
+  return runCachedGitProbe(context, 'unpushedCommits', cwd, ['log', 'origin/main..HEAD', '--oneline']);
+}
+
+function getDirtyDiffStat(cwd, context) {
+  return runCachedGitProbe(context, 'dirtyDiffStats', cwd, ['diff', '--stat', 'HEAD']);
+}
+
+function getCurrentBranch(cwd, context) {
+  return runCachedGitProbe(context, 'currentBranches', cwd, ['branch', '--show-current']);
+}
+
+function getWorktreeMetadata(cwd, context) {
+  return runCachedGitProbe(context, 'worktreeMetadata', cwd, ['worktree', 'list', '--porcelain']);
 }
 
 function coerceBoolean(value) {
@@ -208,7 +264,7 @@ function checkInspectedBeforeCancel(task, rule, context) { // eslint-disable-lin
   };
 }
 
-async function checkPushedBeforeRemote(task) {
+async function checkPushedBeforeRemote(task, _rule, context) {
   const metadata = getTaskMetadata(task);
   if (!coerceBoolean(metadata.remote_execution)) {
     return { pass: true };
@@ -222,13 +278,7 @@ async function checkPushedBeforeRemote(task) {
   }
 
   try {
-    const { stdout } = await execFileAsync('git', ['log', 'origin/main..HEAD', '--oneline'], {
-      cwd: task.working_directory,
-      encoding: 'utf8',
-      timeout: 5000,
-      windowsHide: true,
-    });
-    const output = stdout.trim();
+    const output = await getUnpushedCommits(task.working_directory, context);
 
     if (!output) {
       return { pass: true };
@@ -267,7 +317,7 @@ function checkNoLocalTests(task, rule) {
   };
 }
 
-async function checkDiffAfterCodex(task) {
+async function checkDiffAfterCodex(task, _rule, context) {
   const metadata = getTaskMetadata(task);
   const provider = normalizeString(task?.provider || metadata.intended_provider);
   if (!CODEX_PROVIDERS.has(provider)) {
@@ -283,13 +333,7 @@ async function checkDiffAfterCodex(task) {
   }
 
   try {
-    const { stdout } = await execFileAsync('git', ['diff', '--stat', 'HEAD'], {
-      cwd: task.working_directory,
-      encoding: 'utf8',
-      timeout: 5000,
-      windowsHide: true,
-    });
-    const diffStat = stdout.trim();
+    const diffStat = await getDirtyDiffStat(task.working_directory, context);
 
     return {
       pass: true,
@@ -379,15 +423,10 @@ function checkNoForegroundBash(_task, _rule, context) {
 async function checkRequireWorktree(task, _rule, _context) {
   if (!task.working_directory) return { pass: true };
   try {
-    const { stdout: branchStdout } = await execFileAsync('git', ['branch', '--show-current'], {
-      cwd: task.working_directory, encoding: 'utf8', timeout: 5000, windowsHide: true,
-    });
-    const branch = branchStdout.trim();
+    const branch = await getCurrentBranch(task.working_directory, _context);
     if (branch === 'main' || branch === 'master') {
       // Check if worktrees exist
-      const { stdout: worktrees } = await execFileAsync('git', ['worktree', 'list', '--porcelain'], {
-        cwd: task.working_directory, encoding: 'utf8', timeout: 5000, windowsHide: true,
-      });
+      const worktrees = await getWorktreeMetadata(task.working_directory, _context);
       const worktreeCount = (worktrees.match(/^worktree /gm) || []).length;
       if (worktreeCount > 1) {
         return { pass: false, message: 'Feature work detected on main/master while worktrees exist. Develop in a worktree instead.' };
@@ -431,17 +470,14 @@ function checkRequireRemoteForBuilds(task, rule, _context) {
   return { pass: true };
 }
 
-async function checkPushBeforeSubagentTests(task, _rule, _context) {
+async function checkPushBeforeSubagentTests(task, _rule, context) {
   const meta = safeParseConfig(task.metadata, {});
   if (!meta.subagent && !meta.dispatched_by_agent) return { pass: true };
   const desc = (task.task_description || '').toLowerCase();
   if (desc.includes('test') || desc.includes('vitest') || desc.includes('jest')) {
     if (task.working_directory) {
       try {
-        const { stdout } = await execFileAsync('git', ['log', 'origin/main..HEAD', '--oneline'], {
-          cwd: task.working_directory, encoding: 'utf8', timeout: 5000, windowsHide: true,
-        });
-        const unpushed = stdout.trim();
+        const unpushed = await getUnpushedCommits(task.working_directory, context);
         if (unpushed.length > 0) {
           return { pass: false, message: 'Subagent test task dispatched with unpushed commits. Push to origin/main first.' };
         }
@@ -518,6 +554,10 @@ function createGovernanceHooks({ governanceRules, logger } = {}) {
     const shadowed = [];
     const rules = governanceRules.getActiveRulesForStage(stage);
     const activeRules = Array.isArray(rules) ? rules : [];
+    const evaluationContext = {
+      ...context,
+      gitProbeCache: createGitProbeContext(),
+    };
 
     for (const rule of activeRules) {
       if (!rule || !isRuleEnabled(rule)) {
@@ -536,7 +576,7 @@ function createGovernanceHooks({ governanceRules, logger } = {}) {
 
       let checkerResult;
       try {
-        checkerResult = normalizeCheckerResult(await checker(task, rule, context));
+        checkerResult = normalizeCheckerResult(await checker(task, rule, evaluationContext));
       } catch (error) {
         checkerResult = {
           pass: false,
