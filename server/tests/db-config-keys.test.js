@@ -12,6 +12,7 @@ describe('db/config-keys', () => {
     expect(VALID_CONFIG_KEYS.has('max_concurrent')).toBe(true);
     expect(VALID_CONFIG_KEYS.has('ollama_host')).toBe(true);
     expect(VALID_CONFIG_KEYS.has('scheduling_mode')).toBe(true);
+    expect(VALID_CONFIG_KEYS.has('reject_recovery_enabled')).toBe(true);
   });
 
   it('does not contain arbitrary invalid keys', () => {

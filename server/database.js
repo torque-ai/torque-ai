@@ -1002,7 +1002,7 @@ const _LEGACY_EXPORT_MODULES = [
   ] },
   { name: 'configCore', exports: [
     'clearConfigCache', 'ensureApiKey', 'getAllConfig', 'getConfig', 'getProviderRateLimits', 'setConfig',
-    'setConfigDefault',
+    'setConfigDefault', 'getRejectRecoveryConfig',
   ] },
   { name: 'factoryHealth', exports: [
     'getBalanceScore', 'getFindings', 'getFindingsForSnapshots', 'getLatestScores', 'getLatestSnapshotIds', 'getProject',

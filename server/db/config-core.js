@@ -39,6 +39,64 @@ function setDb(dbInstance) {
 const configCache = new Map();
 const CONFIG_CACHE_TTL = 30000;
 
+const REJECT_RECOVERY_CONFIG_DEFAULTS = Object.freeze({
+  reject_recovery_enabled: '0',
+  reject_recovery_sweep_interval_ms: String(60 * 60 * 1000),
+  reject_recovery_age_threshold_ms: String(24 * 60 * 60 * 1000),
+  reject_recovery_max_reopens: '1',
+});
+
+function parseBooleanConfigValue(value, fallback = false) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+}
+
+function parsePositiveIntegerConfigValue(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readConfigWithDefault(key) {
+  const value = getConfig(key);
+  if (value === undefined || value === null || value === '') {
+    return REJECT_RECOVERY_CONFIG_DEFAULTS[key] ?? null;
+  }
+  return value;
+}
+
+function getRejectRecoveryConfig() {
+  return {
+    enabled: parseBooleanConfigValue(
+      readConfigWithDefault('reject_recovery_enabled'),
+      parseBooleanConfigValue(REJECT_RECOVERY_CONFIG_DEFAULTS.reject_recovery_enabled),
+    ),
+    sweepIntervalMs: parsePositiveIntegerConfigValue(
+      readConfigWithDefault('reject_recovery_sweep_interval_ms'),
+      Number.parseInt(REJECT_RECOVERY_CONFIG_DEFAULTS.reject_recovery_sweep_interval_ms, 10),
+    ),
+    ageThresholdMs: parsePositiveIntegerConfigValue(
+      readConfigWithDefault('reject_recovery_age_threshold_ms'),
+      Number.parseInt(REJECT_RECOVERY_CONFIG_DEFAULTS.reject_recovery_age_threshold_ms, 10),
+    ),
+    maxReopens: parsePositiveIntegerConfigValue(
+      readConfigWithDefault('reject_recovery_max_reopens'),
+      Number.parseInt(REJECT_RECOVERY_CONFIG_DEFAULTS.reject_recovery_max_reopens, 10),
+    ),
+  };
+}
+
 /**
  * Clear all cached config entries.
  * Called by database.js init() and resetForTest().
@@ -189,6 +247,7 @@ function createConfigCore({ db: dbInstance }) {
     ensureApiKey,
     getAllConfig,
     getProviderRateLimits,
+    getRejectRecoveryConfig,
   };
 }
 
@@ -201,5 +260,9 @@ module.exports = {
   ensureApiKey,
   getAllConfig,
   getProviderRateLimits,
+  REJECT_RECOVERY_CONFIG_DEFAULTS,
+  parseBooleanConfigValue,
+  parsePositiveIntegerConfigValue,
+  getRejectRecoveryConfig,
   createConfigCore,
 };
