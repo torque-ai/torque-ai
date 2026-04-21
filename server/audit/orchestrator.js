@@ -6,7 +6,7 @@ const { createReviewUnits } = require('./chunking')
 const { buildReviewPrompt } = require('./prompt-builder')
 const { filterCategories, getRelevantCategories, AUDIT_CATEGORIES } = require('./categories')
 const logger = require('../logger').child({ component: 'audit-orchestrator' })
-const fsPromises = require('node:fs/promises')
+const { readFile } = require('node:fs/promises')
 const path = require('node:path')
 
 let _auditStore = null
@@ -98,7 +98,7 @@ const readFileContents = async (files) => {
       continue
     }
     try {
-      contentByRelativePath[file.relativePath] = await fsPromises.readFile(file.path, 'utf8')
+      contentByRelativePath[file.relativePath] = await readFile(file.path, 'utf8')
     } catch (error) {
       logger.info(`Failed to read file for review unit: ${file.path}`, error.message)
       throw new Error(`Failed to read file: ${file.path}`)
