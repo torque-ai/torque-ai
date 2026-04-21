@@ -89,7 +89,7 @@ function resolveGovernanceRules(deps = governanceHandlerDeps) {
     }
   }
 
-  const db = resolveHandlerDatabase(deps, { raw: true, defaultContainer });
+  const db = resolveHandlerDatabase(deps, { raw: true, defaultContainer, services: ['db'] });
   if (db && typeof db.prepare === 'function') {
     const rules = createGovernanceRules({ db });
     rules.seedBuiltinRules();

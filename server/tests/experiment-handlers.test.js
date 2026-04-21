@@ -31,7 +31,7 @@ function loadHandlers() {
   delete require.cache[require.resolve('../handlers/experiment-handlers')];
   installMock('../database', mockDb);
   installMock('../handlers/error-codes', require('../handlers/error-codes'));
-  return require('../handlers/experiment-handlers');
+  return require('../handlers/experiment-handlers').createExperimentHandlers({ db: mockDb });
 }
 
 describe('experiment-handlers (Experiment 6)', () => {
