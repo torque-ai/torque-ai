@@ -32,6 +32,8 @@ const logger = require('../../logger').child({ component: 'workflow' });
 const { safeJsonParse } = require('../../utils/json');
 const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
 
+const PRE_COMMIT_REVIEW_BLOCK_MODES = new Set(['fail_workflow', 'require_approval', 'warn_only']);
+
 let workflowHandlerDeps = {};
 
 function hasOwn(obj, key) {
@@ -45,6 +47,38 @@ function normalizeWorkflowHandlerDeps(deps = {}) {
   if (hasOwn(deps, 'taskCore')) normalized.taskCore = deps.taskCore;
   if (hasOwn(deps, 'container')) normalized.container = deps.container;
   return normalized;
+}
+
+function normalizePreCommitReviewConfig(value) {
+  if (value === undefined || value === null) {
+    return { ok: true, value: null };
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, error: 'pre_commit_review must be an object' };
+  }
+
+  const config = {
+    enabled: value.enabled === true,
+    on_block: value.on_block || 'warn_only',
+  };
+
+  if (typeof value.enabled !== 'undefined' && typeof value.enabled !== 'boolean') {
+    return { ok: false, error: 'pre_commit_review.enabled must be a boolean' };
+  }
+  if (!PRE_COMMIT_REVIEW_BLOCK_MODES.has(config.on_block)) {
+    return {
+      ok: false,
+      error: 'pre_commit_review.on_block must be one of: fail_workflow, require_approval, warn_only'
+    };
+  }
+  if (value.reviewer_provider !== undefined) {
+    if (typeof value.reviewer_provider !== 'string' || value.reviewer_provider.trim().length === 0) {
+      return { ok: false, error: 'pre_commit_review.reviewer_provider must be a non-empty string' };
+    }
+    config.reviewer_provider = value.reviewer_provider.trim();
+  }
+
+  return { ok: true, value: config };
 }
 
 function init(deps = {}) {
@@ -1061,6 +1095,10 @@ function handleCreateWorkflow(args) {
   if (args.priority !== undefined && typeof args.priority !== 'number') {
     return makeError(ErrorCodes.INVALID_PARAM, 'priority must be a number');
   }
+  const preCommitReviewConfig = normalizePreCommitReviewConfig(args.pre_commit_review);
+  if (!preCommitReviewConfig.ok) {
+    return makeError(ErrorCodes.INVALID_PARAM, preCommitReviewConfig.error);
+  }
 
   const trimmedName = args.name.trim();
   if (!Array.isArray(args.tasks) || args.tasks.length === 0) {
@@ -1141,6 +1179,9 @@ function handleCreateWorkflow(args) {
   }
   if (workflowProject) {
     workflowContext.project = workflowProject;
+  }
+  if (preCommitReviewConfig.value) {
+    workflowContext.pre_commit_review = preCommitReviewConfig.value;
   }
   workflowEngine.createWorkflow({
     id: workflowId,

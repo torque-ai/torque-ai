@@ -126,6 +126,48 @@ describe('handler:workflow-handlers', () => {
       expect(textOf(result)).toContain('ship it');
     });
 
+    it('persists pre_commit_review workflow config with defaults', async () => {
+      const createWorkflowSpy = vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
+      vi.spyOn(database, 'createTask').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+
+      const result = handlers.handleCreateWorkflow({
+        name: 'Review Workflow',
+        tasks: [{ node_id: 'build', task_description: 'Build release' }],
+        pre_commit_review: {
+          enabled: true,
+          reviewer_provider: 'anthropic'
+        }
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(createWorkflowSpy).toHaveBeenCalledWith(expect.objectContaining({
+        context: expect.objectContaining({
+          pre_commit_review: {
+            enabled: true,
+            on_block: 'warn_only',
+            reviewer_provider: 'anthropic'
+          }
+        })
+      }));
+    });
+
+    it('rejects invalid pre_commit_review on_block values', async () => {
+      const result = handlers.handleCreateWorkflow({
+        name: 'Review Workflow',
+        tasks: [{ node_id: 'build', task_description: 'Build release' }],
+        pre_commit_review: {
+          enabled: true,
+          on_block: 'pause_everything'
+        }
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_PARAM');
+      expect(textOf(result)).toContain('pre_commit_review.on_block');
+    });
+
     it('uses an injected database dependency when seeding workflow tasks', async () => {
       const rawDb = {
         transaction: vi.fn((fn) => () => fn())

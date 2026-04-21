@@ -95,6 +95,106 @@ function shouldUseTorqueRemote(cwd) {
   }
 }
 
+function normalizePreCommitReviewConfig(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || value.enabled !== true) {
+    return null;
+  }
+
+  const onBlock = ['fail_workflow', 'require_approval', 'warn_only'].includes(value.on_block)
+    ? value.on_block
+    : 'warn_only';
+  const reviewerProvider = typeof value.reviewer_provider === 'string' && value.reviewer_provider.trim()
+    ? value.reviewer_provider.trim()
+    : null;
+
+  return {
+    enabled: true,
+    on_block: onBlock,
+    reviewer_provider: reviewerProvider,
+  };
+}
+
+function getWorkflowContext(workflow) {
+  return workflow && typeof workflow.context === 'object' && workflow.context && !Array.isArray(workflow.context)
+    ? workflow.context
+    : {};
+}
+
+function getPreCommitReviewConfig(workflow) {
+  return normalizePreCommitReviewConfig(getWorkflowContext(workflow).pre_commit_review);
+}
+
+function normalizeReviewIssues(issues) {
+  return Array.isArray(issues)
+    ? issues
+      .filter(issue => issue && typeof issue === 'object' && !Array.isArray(issue))
+      .slice(0, 20)
+      .map(issue => ({
+        severity: typeof issue.severity === 'string' ? issue.severity : 'low',
+        file: typeof issue.file === 'string' ? issue.file : undefined,
+        line: Number.isInteger(issue.line) ? issue.line : undefined,
+        note: typeof issue.note === 'string' ? issue.note.slice(0, 500) : String(issue.note || '').slice(0, 500),
+      }))
+    : [];
+}
+
+function summarizeReviewIssues(issues) {
+  const normalized = normalizeReviewIssues(issues);
+  if (normalized.length === 0) {
+    return 'no issues';
+  }
+  return normalized
+    .map(issue => {
+      const location = issue.file ? `${issue.file}${issue.line ? `:${issue.line}` : ''}` : null;
+      return `${issue.severity}${location ? ` ${location}` : ''}: ${issue.note}`;
+    })
+    .join('; ');
+}
+
+function buildPreCommitReviewRecord(result, reviewConfig, stagedPaths) {
+  const issues = normalizeReviewIssues(result?.issues);
+  return {
+    verdict: ['pass', 'warn', 'block'].includes(result?.verdict) ? result.verdict : 'warn',
+    issues,
+    suggestions: Array.isArray(result?.suggestions) ? result.suggestions.slice(0, 20) : [],
+    reviewed_at: new Date().toISOString(),
+    on_block: reviewConfig.on_block,
+    reviewer_provider: reviewConfig.reviewer_provider || null,
+    staged_paths: Array.isArray(stagedPaths) ? stagedPaths.slice(0, 100) : [],
+    issue_count: issues.length,
+  };
+}
+
+function persistPreCommitReviewResult(workflow, reviewRecord, updates = {}) {
+  try {
+    const freshWorkflow = workflowEngine.getWorkflow(workflow.id) || workflow;
+    const currentContext = getWorkflowContext(freshWorkflow);
+    workflowEngine.updateWorkflow(workflow.id, {
+      ...updates,
+      context: {
+        ...currentContext,
+        pre_commit_review_result: reviewRecord,
+      },
+    });
+  } catch (err) {
+    logger.debug('[workflow-await] non-critical error persisting pre-commit review result: ' + (err.message || err));
+  }
+}
+
+function appendPreCommitReviewTrailer(commitMsg, reviewRecord) {
+  if (!reviewRecord || !reviewRecord.verdict) {
+    return commitMsg;
+  }
+
+  const trailerLines = [
+    `Pre-Commit-Review: ${reviewRecord.verdict}`,
+  ];
+  if (reviewRecord.issue_count > 0) {
+    trailerLines.push(`Pre-Commit-Review-Issues: ${reviewRecord.issue_count}`);
+  }
+  return `${commitMsg}\n\n${trailerLines.join('\n')}`;
+}
+
 function buildTaskPeekArtifactSection(taskId, options = {}) {
   if (!taskId || typeof taskMetadata.listArtifacts !== 'function') {
     return '';
@@ -1343,9 +1443,63 @@ async function formatFinalSummary(args, workflow, tasks, lastTask, startTime) {
             return output;
           }
 
+          let preCommitReviewRecord = null;
+          const preCommitReview = getPreCommitReviewConfig(workflow);
+          if (preCommitReview) {
+            let stagedDiff;
+            try {
+              stagedDiff = executeValidatedCommandSync('git', ['diff', '--cached', '--', ...finalCommitPaths], {
+                profile: 'safe_verify',
+                source: 'await_workflow',
+                caller: 'formatFinalSummary',
+                cwd,
+                timeout: TASK_TIMEOUTS.GIT_STATUS,
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'pipe']
+              });
+            } catch (diffErr) {
+              output += `**Auto-Commit failed (pre-commit review diff):** ${(diffErr.message || '').substring(0, 500)}\n`;
+              return output;
+            }
+
+            const { reviewDiff } = require('../../review/pre-commit-reviewer');
+            const reviewResult = await reviewDiff({
+              diff: stagedDiff,
+              reviewerProvider: preCommitReview.reviewer_provider,
+            });
+            const stagedPathList = stagedPaths.split(/\r?\n/).filter(Boolean);
+            preCommitReviewRecord = buildPreCommitReviewRecord(reviewResult, preCommitReview, stagedPathList);
+            persistPreCommitReviewResult(workflow, preCommitReviewRecord);
+
+            output += `**Pre-Commit Review:** ${preCommitReviewRecord.verdict}`;
+            if (preCommitReviewRecord.issue_count > 0) {
+              output += ` (${preCommitReviewRecord.issue_count} issue${preCommitReviewRecord.issue_count === 1 ? '' : 's'})`;
+            }
+            output += `\n`;
+
+            if (preCommitReviewRecord.verdict === 'block') {
+              const issueSummary = summarizeReviewIssues(preCommitReviewRecord.issues);
+              if (preCommitReview.on_block === 'fail_workflow') {
+                persistPreCommitReviewResult(workflow, preCommitReviewRecord, { status: 'failed' });
+                output += `**Auto-Commit blocked:** pre-commit review blocked the workflow: ${issueSummary}\n`;
+                return output;
+              }
+
+              if (preCommitReview.on_block === 'require_approval') {
+                persistPreCommitReviewResult(workflow, preCommitReviewRecord, { status: 'pending_approval' });
+                output += `**Auto-Commit held for approval:** pre-commit review requires approval: ${issueSummary}\n`;
+                return output;
+              }
+
+              logger.info(`[pre-commit-review] BLOCK verdict ignored (on_block=warn_only): ${JSON.stringify(preCommitReviewRecord.issues)}`);
+              output += `**Warning:** BLOCK verdict ignored because pre_commit_review.on_block=warn_only: ${issueSummary}\n`;
+            }
+          }
+
           // Wrap git commit separately.
+          const finalCommitMsg = appendPreCommitReviewTrailer(commitMsg, preCommitReviewRecord);
           try {
-            executeValidatedCommandSync('git', ['commit', '-m', commitMsg, '--', ...finalCommitPaths], {
+            executeValidatedCommandSync('git', ['commit', '-m', finalCommitMsg, '--', ...finalCommitPaths], {
               profile: 'advanced_shell',
               dangerous: true,
               source: 'await_workflow',

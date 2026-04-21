@@ -26,7 +26,7 @@
 
 ## Task 1: Reviewer module
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/pre-commit-reviewer.test.js`:
 
@@ -73,7 +73,7 @@ describe('reviewDiff', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/review/review-prompt.js`:
 
@@ -189,7 +189,7 @@ Run tests → PASS. Commit: `feat(pre-commit-review): reviewer module + prompt +
 
 ## Task 2: Wire into auto-commit + workflow config
 
-- [ ] **Step 1: Workflow tool def**
+- [x] **Step 1: Workflow tool def**
 
 In `server/tool-defs/workflow-defs.js` `create_workflow` top-level properties:
 
@@ -211,7 +211,7 @@ In `handleCreateWorkflow`, store in workflow context:
 if (args.pre_commit_review) workflowContext.pre_commit_review = args.pre_commit_review;
 ```
 
-- [ ] **Step 2: Invoke reviewer in auto-commit path**
+- [x] **Step 2: Invoke reviewer in auto-commit path**
 
 Find `server/db/auto-commit.js` (or wherever `auto_commit_batch` is implemented). Before the actual `git commit`, if `workflow.context.pre_commit_review.enabled`:
 
@@ -240,7 +240,7 @@ if (review?.enabled) {
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 `feat(pre-commit-review): hook into auto-commit batch path`.
 
@@ -248,7 +248,7 @@ if (review?.enabled) {
 
 ## Task 3: Docs + restart + smoke
 
-- [ ] **Step 1: Docs**
+- [x] **Step 1: Docs**
 
 Create `docs/pre-commit-review.md`:
 

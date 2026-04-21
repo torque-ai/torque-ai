@@ -298,6 +298,19 @@ const tools = [
         routing_template: {
           type: 'string',
           description: 'Default routing template for all tasks in this workflow.'
+        },
+        pre_commit_review: {
+          type: 'object',
+          description: 'Run an AI reviewer on staged changes before auto_commit fires.',
+          properties: {
+            enabled: { type: 'boolean', default: false },
+            on_block: {
+              type: 'string',
+              enum: ['fail_workflow', 'require_approval', 'warn_only'],
+              default: 'warn_only'
+            },
+            reviewer_provider: { type: 'string' }
+          }
         }
       },
       required: ['name', 'tasks']
