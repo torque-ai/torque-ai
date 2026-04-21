@@ -243,6 +243,48 @@ describe('fallback-retry module', () => {
       expect(processQueueCalls).toBe(1);
     });
 
+    it('preserves routing-chain metadata when cloud fallback requeues a task', () => {
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
+      const routingChain = [
+        { provider: 'codex', model: 'gpt-5.4' },
+        { provider: 'claude-cli', model: 'claude-sonnet' },
+      ];
+      const task = createTask({
+        provider: 'ollama',
+        metadata: {
+          _routing_chain: routingChain,
+          auto_routed: true,
+        },
+      });
+
+      const ok = mod.tryOllamaCloudFallback(task.id, task, 'provider unavailable');
+      const updated = taskCore.getTask(task.id);
+
+      expect(ok).toBe(true);
+      expect(updated.status).toBe('queued');
+      expect(updated.provider).toBe('codex');
+      expect(updated.model).toBeNull();
+      expect(updated.metadata).toEqual(expect.objectContaining({
+        _routing_chain: routingChain,
+        requested_provider: 'ollama',
+        auto_routed: true,
+        last_provider_switch: expect.objectContaining({
+          from: 'ollama',
+          to: 'codex',
+          reason: 'runtime_provider_fallback',
+        }),
+      }));
+      expect(updated.metadata.provider_switch_history).toEqual([
+        expect.objectContaining({
+          from: 'ollama',
+          to: 'codex',
+          reason: 'runtime_provider_fallback',
+        }),
+      ]);
+    });
+
     it('auto-selects claude-cli when codex is disabled and no explicit fallback is set', () => {
       configCore.setConfig('ollama_fallback_provider', '');
       configCore.setConfig('codex_enabled', '0');

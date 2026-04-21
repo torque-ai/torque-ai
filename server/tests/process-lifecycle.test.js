@@ -1519,6 +1519,51 @@ describe('process-lifecycle', () => {
       expect(deps.dashboard.notifyTaskUpdated).toHaveBeenCalledTimes(2);
     });
 
+    it('cleans tracking, stall state, and host slots after a spawn error event', async () => {
+      const taskId = 'task-spawn-error-cleanup';
+      const child = createLifecycleChild();
+      const dbMock = createLifecycleDbMock([
+        createTaskRecord(taskId, { provider: 'ollama' }),
+      ]);
+      const finalizeTask = vi.fn(async () => ({ queueManaged: false }));
+      const { subject, dbMock: loadedDb } = loadLifecycleSubject({
+        dbMock,
+        spawnImpl: () => child,
+      });
+      const runningProcesses = new ProcessTracker();
+      const deps = createSpawnDeps({ runningProcesses, finalizeTask });
+      subject.init(deps);
+
+      subject.spawnAndTrackProcess(taskId, createTaskRecord(taskId, { provider: 'ollama' }), {
+        cliPath: 'ollama',
+        finalArgs: [],
+        stdinPrompt: null,
+        options: { cwd: 'C:/repo/task', env: {}, shell: false, stdio: ['pipe', 'pipe', 'pipe'] },
+        provider: 'ollama',
+        selectedOllamaHostId: 'host-cleanup',
+        usedEditFormat: null,
+        taskMetadata: null,
+        taskType: 'code',
+        contextTokenEstimate: null,
+        baselineCommit: null,
+      });
+      runningProcesses.setStallAttempts(taskId, { attempts: 1, lastStrategy: 'switch_model' });
+
+      child.emit('error', new Error('spawn failed after launch'));
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(runningProcesses.has(taskId)).toBe(false);
+      expect(runningProcesses.getStallAttempts(taskId)).toBeUndefined();
+      expect(loadedDb.decrementHostTasks).toHaveBeenCalledWith('host-cleanup');
+      expect(finalizeTask).toHaveBeenCalledWith(taskId, expect.objectContaining({
+        exitCode: -1,
+        errorOutput: 'Process error: spawn failed after launch',
+        procState: expect.objectContaining({ provider: 'ollama' }),
+      }));
+      expect(deps.processQueue).toHaveBeenCalledTimes(1);
+    });
+
     it('prevents duplicate error finalization after close cleanup wins the race', async () => {
       const taskId = 'task-race-guard';
       const child = createLifecycleChild();
