@@ -154,6 +154,19 @@ describe('edit_file fuzzy fallback (Tier 2)', () => {
     expect(result.result).toContain('not found');
   });
 
+  it('rejects medium-similarity content below the fuzzy threshold', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'medium.js', 'abcdefghijkl');
+    const { execute: exec } = createToolExecutor(dir);
+    const result = exec('edit_file', {
+      path: 'medium.js',
+      old_text: 'abcdefghiXYZ',
+      new_text: 'replaced',
+    });
+    expect(result.error).toBe(true);
+    expect(result.result).toContain('not found');
+  });
+
   it('rejects ambiguous fuzzy matches (two similar regions)', () => {
     const dir = makeTempDir();
     writeFile(dir, 'amb.js', [

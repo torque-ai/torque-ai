@@ -139,7 +139,7 @@ function findFuzzyMatch(oldText, fileContent) {
     }
   }
 
-  if (bestStart === -1) return null;
+  if (bestStart === -1 || bestScore < 0.80) return null;
 
   // Ambiguity gap: second-best must be < 0.70
   if (secondBestScore >= 0.70) return null;
