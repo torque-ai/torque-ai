@@ -896,6 +896,14 @@ function init() {
   } catch (validationHandlerErr) {
     debugLog(`Validation handler dependency wiring error: ${validationHandlerErr.message}`);
   }
+  try {
+    const competitiveFeatureHandlers = require('./handlers/competitive-feature-handlers');
+    if (competitiveFeatureHandlers && typeof competitiveFeatureHandlers.init === 'function') {
+      competitiveFeatureHandlers.init({ db });
+    }
+  } catch (competitiveFeatureHandlerErr) {
+    debugLog(`Competitive feature handler dependency wiring error: ${competitiveFeatureHandlerErr.message}`);
+  }
   const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
   const { createRepoRegistry } = require('./repo-graph/repo-registry');
   let repoRegistry = null;
