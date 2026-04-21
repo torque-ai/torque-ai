@@ -1,20 +1,37 @@
 #!/usr/bin/env bash
 # Two-tier pre-push flow:
 # - Pushes targeting refs/heads/main run the full dashboard + remote server gate.
-# - The existing gate still pushes HEAD to origin/main, runs remote tests, and rolls back on failure.
+# - The gate stages HEAD on a disposable `pre-push-gate/<sha>` ref so the remote
+#   can sync and test *without* touching origin/main. On success, the outer
+#   `git push` proceeds normally (fast-forward, no ref drift). On failure, the
+#   staging ref is deleted and the push is blocked with exit 1.
 # - Pushes that only update non-main refs skip tests so feature-branch iteration stays fast.
 # - Delete-only pushes are always allowed and skipped from gating analysis.
 # - When a branch is later merged or pushed to main, the full gate runs again there.
 # - Use git push --no-verify as the escape hatch when bypassing the hook is intentional.
+#
+# Why staging-branch instead of pushing to origin/main up-front:
+# - Previously the hook pushed HEAD to origin/main before testing (so torque-remote
+#   could sync it), then rolled back on failure. That left the outer `git push`
+#   to send a pack whose expected_sha no longer matched origin, producing a
+#   confusing `[remote rejected] main -> main (cannot lock ref)` error and a
+#   non-zero exit code even when the gate passed. Scripts doing `git push && …`
+#   broke on the false failure. See project memory for the diagnosis.
+# - Staging keeps origin/main immutable until the user's push lands, so exit
+#   codes match reality: 0 means "gate passed AND origin/main is at HEAD", 1
+#   means "gate failed AND origin/main is unchanged".
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 ZERO_SHA="0000000000000000000000000000000000000000"
 remote_refs=()
+local_head_sha=""
 
+# Each line is: <local_ref> <local_sha> <remote_ref> <remote_sha>
 while read -r local_ref local_sha remote_ref remote_sha; do
   if [ "$local_sha" = "$ZERO_SHA" ]; then
+    # Delete-only line — ignore for gating analysis.
     continue
   fi
 
@@ -28,6 +45,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   if [ "$already_seen" -eq 0 ]; then
     remote_refs+=("$remote_ref")
+  fi
+
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    local_head_sha="$local_sha"
   fi
 done
 
@@ -47,6 +68,11 @@ done
 if [ "$main_push" -eq 0 ]; then
   echo "[pre-push] Skipping tests for feature-branch push (${remote_refs[*]}). Main merges will be gated."
   exit 0
+fi
+
+if [ -z "$local_head_sha" ]; then
+  echo "[pre-push] Main push detected but local sha not captured from stdin — aborting."
+  exit 1
 fi
 
 # vitest prints two summary lines:
@@ -100,32 +126,39 @@ run_with_flake_retry() {
   fi
 }
 
-# Push HEAD to origin/main FIRST so both remote test passes run against the
-# proposed state. Previously dashboard tests ran before the push, which meant
-# torque-remote synced to the OLD origin/main and any fix living only in HEAD
-# was invisible — creating a chicken-and-egg block when a fix shipped alongside
-# the work that needed it (observed 2026-04-20, Layout.test.jsx fix blocked
-# behind its own hook). On any test failure we roll origin/main back to the
-# previous sha, matching the server-test rollback behavior.
-echo "[pre-push] Refreshing origin/main..."
-git fetch origin refs/heads/main:refs/remotes/origin/main >/dev/null
-previous_sha="$(git rev-parse refs/remotes/origin/main)"
+# Disposable ref under refs/heads/pre-push-gate/. Includes the local sha so
+# concurrent pushes from different working trees don't collide, and so a
+# failed cleanup (rare) leaves a ref we can later GC by prefix.
+staging_branch="pre-push-gate/$(echo "$local_head_sha" | cut -c1-12)"
 
-echo "[pre-push] Pushing HEAD to origin/main for remote gate..."
-git push --no-verify origin HEAD:refs/heads/main
-
-rollback_origin_main() {
-  local label="$1"
-  echo "[pre-push] $label; rolling origin/main back to $previous_sha..."
-  if ! git push --no-verify --force origin "$previous_sha":refs/heads/main; then
-    echo "[pre-push] BLOCKED: $label and rollback push failed"
-    exit 1
+delete_staging_ref() {
+  # Best-effort cleanup — never block the hook on a failed cleanup, but log
+  # so noise is visible if it starts failing.
+  if ! git push --no-verify --quiet origin --delete "$staging_branch" 2>/dev/null; then
+    echo "[pre-push] warn: failed to delete staging ref $staging_branch (may not exist on origin)"
   fi
+}
+
+# Always cleanup the staging ref on exit, whether we succeeded or failed.
+trap 'delete_staging_ref' EXIT
+
+echo "[pre-push] Staging HEAD at origin/$staging_branch for remote gate..."
+# --force so repeated pushes of the same branch name (rare but possible on
+# force-push of main) overwrite the stale staging ref. The stale ref is still
+# cleaned up by the EXIT trap.
+if ! git push --no-verify --force origin "$local_head_sha:refs/heads/$staging_branch"; then
+  echo "[pre-push] BLOCKED: failed to stage HEAD at origin/$staging_branch — aborting before tests."
+  exit 1
+fi
+
+gate_failed() {
+  local label="$1"
   echo "[pre-push] BLOCKED: $label"
+  echo "[pre-push] origin/main is unchanged; your local commits are untouched."
   exit 1
 }
 
-echo "[pre-push] Running dashboard tests on remote..."
+echo "[pre-push] Running dashboard tests on remote (branch: $staging_branch)..."
 # Dashboard tests used to run locally, but local CPU contention with the
 # live TORQUE server (factory loops, stall watchers, event bus) caused
 # waitFor-timeout flakes (seen on ErrorBoundary.test under factory load).
@@ -137,15 +170,15 @@ echo "[pre-push] Running dashboard tests on remote..."
 # so the remote shell changes dir before running the test runner;
 # otherwise vitest picks up the server suite too.
 cd "$REPO_ROOT"
-run_with_flake_retry "Dashboard tests" 'torque-remote "cd dashboard && npx vitest run --reporter=dot"'
+run_with_flake_retry "Dashboard tests" "torque-remote --branch $staging_branch \"cd dashboard && npx vitest run --reporter=dot\""
 dash_output="$RETRIED_OUTPUT"
 dash_exit="$RETRIED_EXIT"
 echo "$dash_output" | tail -5
 if [ "$dash_exit" -ne 0 ] || tests_have_failures "$dash_output"; then
-  rollback_origin_main "Dashboard tests failed (exit $dash_exit)"
+  gate_failed "Dashboard tests failed (exit $dash_exit)"
 fi
 
-echo "[pre-push] Running server tests on remote..."
+echo "[pre-push] Running server tests on remote (branch: $staging_branch)..."
 cd "$REPO_ROOT"
 # IMPORTANT: cd into server/ before invoking vitest so the tuned
 # server/vitest.config.js is picked up instead of the (stale) root
@@ -153,12 +186,12 @@ cd "$REPO_ROOT"
 # the root config uses pool=forks with no retry, which reproducibly
 # causes ~30–50 cross-file flakes that don't happen from server/.
 # Matches the dashboard pattern above.
-run_with_flake_retry "Server tests" 'torque-remote "cd server && npx vitest run --reporter=dot"'
+run_with_flake_retry "Server tests" "torque-remote --branch $staging_branch \"cd server && npx vitest run --reporter=dot\""
 server_output="$RETRIED_OUTPUT"
 server_exit="$RETRIED_EXIT"
 echo "$server_output" | tail -5
 if [ "$server_exit" -ne 0 ] || tests_have_failures "$server_output"; then
-  rollback_origin_main "Server tests failed (exit $server_exit)"
+  gate_failed "Server tests failed (exit $server_exit)"
 fi
 
-echo "[pre-push] All tests passed — push allowed"
+echo "[pre-push] All tests passed — git will now push refs/heads/main."

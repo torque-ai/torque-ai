@@ -295,7 +295,7 @@ If the remote is unreachable or overloaded, `torque-remote` falls back to local 
 ## Testing workflow
 
 Pre-push checks are two-tier:
-- Pushes to `main` run the full dashboard + remote server test suite and roll back on failure.
+- Pushes to `main` run the full dashboard + remote server test suite. The gate stages HEAD on a disposable `pre-push-gate/<sha>` ref on origin so the remote workstation can sync and test the pending commits without touching `origin/main`. On success the outer `git push` proceeds normally (clean fast-forward, zero ref drift, exit 0). On failure the staging ref is deleted and the push is blocked (exit 1); `origin/main` is never modified by the gate.
 - Pushes to non-main branches skip tests for fast iteration. Merges to `main` still run the full gate.
 - Escape hatch: `git push --no-verify` bypasses the hook.
 
