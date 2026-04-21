@@ -888,6 +888,14 @@ function init() {
   } catch (workflowHandlerErr) {
     debugLog(`Workflow handler dependency wiring error: ${workflowHandlerErr.message}`);
   }
+  try {
+    const validationHandlers = require('./handlers/validation');
+    if (validationHandlers && typeof validationHandlers.init === 'function') {
+      validationHandlers.init({ db });
+    }
+  } catch (validationHandlerErr) {
+    debugLog(`Validation handler dependency wiring error: ${validationHandlerErr.message}`);
+  }
   const rawDb = typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
   const { createRepoRegistry } = require('./repo-graph/repo-registry');
   let repoRegistry = null;

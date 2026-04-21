@@ -9,10 +9,10 @@
  *   ./failure.js   — failure patterns, retry rules
  */
 
-const { defaultContainer } = require('../../container');
 const costTracking = require('../../db/cost-tracking');
 const fileTracking = require('../../db/file-tracking');
 const validationRules = require('../../db/validation-rules');
+const configCore = require('../../db/config-core');
 const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -32,6 +32,87 @@ const failureHandlers = require('./failure');
 
 const PRECOMMIT_CHECKS = new Set(['validation', 'syntax', 'build']);
 
+let validationHandlerDeps = {};
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function normalizeValidationHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'databaseFacade')) normalized.db = deps.databaseFacade;
+  if (hasOwn(deps, 'validationRules')) normalized.validationRules = deps.validationRules;
+  if (hasOwn(deps, 'config')) normalized.config = deps.config;
+  return normalized;
+}
+
+function init(deps = {}) {
+  validationHandlerDeps = normalizeValidationHandlerDeps(deps);
+  return module.exports;
+}
+
+function getDbDependency() {
+  return hasOwn(validationHandlerDeps, 'db') ? validationHandlerDeps.db : null;
+}
+
+function getValidationRuleStore(requiredMethods = []) {
+  if (hasOwn(validationHandlerDeps, 'validationRules') && validationHandlerDeps.validationRules) {
+    return validationHandlerDeps.validationRules;
+  }
+
+  const methods = Array.isArray(requiredMethods) ? requiredMethods : [requiredMethods];
+  const dbDependency = getDbDependency();
+  if (dbDependency && methods.every((method) => typeof dbDependency[method] === 'function')) {
+    return dbDependency;
+  }
+
+  return validationRules;
+}
+
+function getConfigStore() {
+  if (hasOwn(validationHandlerDeps, 'config') && validationHandlerDeps.config) {
+    return validationHandlerDeps.config;
+  }
+
+  const dbDependency = getDbDependency();
+  if (dbDependency && typeof dbDependency.setConfig === 'function') {
+    return dbDependency;
+  }
+
+  return configCore;
+}
+
+function setConfigValue(key, value) {
+  const configStore = getConfigStore();
+  if (!configStore || typeof configStore.setConfig !== 'function') {
+    return makeError(ErrorCodes.OPERATION_FAILED, 'Validation handler database dependency does not support setConfig');
+  }
+
+  configStore.setConfig(key, value);
+  return null;
+}
+
+function withValidationHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = validationHandlerDeps;
+    validationHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      if (result && typeof result.then === 'function') {
+        return result.finally(() => {
+          validationHandlerDeps = previousDeps;
+        });
+      }
+      validationHandlerDeps = previousDeps;
+      return result;
+    } catch (err) {
+      validationHandlerDeps = previousDeps;
+      throw err;
+    }
+  };
+}
+
 function normalizePrecommitChecks(checks) {
   if (!Array.isArray(checks)) return [];
   return [...new Set(
@@ -48,7 +129,7 @@ function normalizePrecommitChecks(checks) {
 
 function handleListValidationRules(args) {
   const { enabled_only = true, severity } = args;
-  const rules = validationRules.getValidationRules(enabled_only);
+  const rules = getValidationRuleStore('getValidationRules').getValidationRules(enabled_only);
   const severityOrder = ['info', 'warning', 'error', 'critical'];
   const normalizeSeverity = (value) => {
     const idx = severityOrder.indexOf(`${value || ''}`.trim().toLowerCase());
@@ -99,7 +180,7 @@ function handleAddValidationRule(args) {
   }
 
   const id = `val-${Date.now()}`;
-  validationRules.saveValidationRule({
+  getValidationRuleStore('saveValidationRule').saveValidationRule({
     id, name, description, rule_type,
     pattern: pattern || null,
     condition: condition || null,
@@ -121,7 +202,8 @@ function handleUpdateValidationRule(args) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'rule_id is required');
   }
 
-  const existingRule = validationRules.getValidationRule(rule_id);
+  const validationRuleStore = getValidationRuleStore(['getValidationRule', 'saveValidationRule']);
+  const existingRule = validationRuleStore.getValidationRule(rule_id);
   if (!existingRule) {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Validation rule not found: ${rule_id}`);
   }
@@ -131,7 +213,7 @@ function handleUpdateValidationRule(args) {
   if (severity !== undefined) updates.severity = severity;
   if (auto_fail !== undefined) updates.auto_fail = auto_fail;
 
-  validationRules.saveValidationRule({ ...existingRule, ...updates });
+  validationRuleStore.saveValidationRule({ ...existingRule, ...updates });
 
   return {
     content: [{
@@ -183,7 +265,7 @@ function handleValidateTaskOutput(args) {
     }
   }
 
-  const results = validationRules.validateTaskOutput(task.id, fileChanges);
+  const results = getValidationRuleStore('validateTaskOutput').validateTaskOutput(task.id, fileChanges);
 
   if (results.length === 0) {
     return {
@@ -235,7 +317,7 @@ function handleGetValidationResults(args) {
     return makeError(ErrorCodes.INVALID_PARAM, 'task_id is required and must be a non-empty string');
   }
 
-  const results = validationRules.getValidationResults(task_id.trim(), min_severity);
+  const results = getValidationRuleStore('getValidationResults').getValidationResults(task_id.trim(), min_severity);
 
   if (results.length === 0) {
     return {
@@ -261,7 +343,7 @@ function handleRejectTask(args) {
   const err = requireString(args, 'approval_id');
   if (err) return err;
 
-  validationRules.decideApproval(approval_id, false, 'user', notes || null);
+  getValidationRuleStore('decideApproval').decideApproval(approval_id, false, 'user', notes || null);
 
   return {
     content: [{
@@ -539,11 +621,8 @@ function handleApproveDiff(args) {
 function handleConfigureDiffPreview(args) {
   const { required } = args;
 
-  try {
-    defaultContainer.get('databaseFacade').setConfig('diff_preview_required', required ? '1' : '0');
-  } catch (_e) {
-    require('../../database').setConfig('diff_preview_required', required ? '1' : '0');
-  }
+  const configErr = setConfigValue('diff_preview_required', required ? '1' : '0');
+  if (configErr) return configErr;
 
   return {
     content: [{
@@ -751,11 +830,8 @@ function handleGetBuildResult(args) {
 function handleConfigureBuildCheck(args) {
   const { enabled } = args;
 
-  try {
-    defaultContainer.get('databaseFacade').setConfig('build_check_enabled', enabled ? '1' : '0');
-  } catch (_e) {
-    require('../../database').setConfig('build_check_enabled', enabled ? '1' : '0');
-  }
+  const configErr = setConfigValue('build_check_enabled', enabled ? '1' : '0');
+  if (configErr) return configErr;
 
   return {
     content: [{
@@ -908,7 +984,8 @@ function handleGetCostForecast(args) {
 // Exports — aggregate all sub-modules
 // ============================================
 
-function createValidationHandlers() {
+function buildValidationHandlerExports(deps = null) {
+  const bind = deps ? (handler) => withValidationHandlerDeps(deps, handler) : (handler) => handler;
   return {
     ...fileHandlers,
     ...xamlHandlers,
@@ -916,37 +993,42 @@ function createValidationHandlers() {
     ...analysisHandlers,
     ...safeguardHandlers,
     ...failureHandlers,
-    handleListValidationRules,
-    handleAddValidationRule,
-    handleUpdateValidationRule,
-    handleValidateTaskOutput,
-    handleGetValidationResults,
-    handleRejectTask,
-    handleCaptureFileBaselines,
-    handleCompareFileBaseline,
-    handleRunSyntaxCheck,
-    handleListSyntaxValidators,
-    handleRegisterHook,
-    handleListHooks,
-    handleRemoveHook,
-    handleCheckApprovalGate,
-    handlePreviewTaskDiff,
-    handleApproveDiff,
-    handleConfigureDiffPreview,
-    handleGetQualityScore,
-    handleGetProviderQuality,
-    handleGetProviderStats,
-    handleGetBestProvider,
-    handleListRollbacks,
-    handleRunBuildCheck,
-    handleGetBuildResult,
-    handleConfigureBuildCheck,
-    handleSetupPrecommitHook,
-    handleGetCostSummary,
-    handleGetBudgetStatus,
-    handleSetBudget,
-    handleGetCostForecast,
+    handleListValidationRules: bind(handleListValidationRules),
+    handleAddValidationRule: bind(handleAddValidationRule),
+    handleUpdateValidationRule: bind(handleUpdateValidationRule),
+    handleValidateTaskOutput: bind(handleValidateTaskOutput),
+    handleGetValidationResults: bind(handleGetValidationResults),
+    handleRejectTask: bind(handleRejectTask),
+    handleCaptureFileBaselines: bind(handleCaptureFileBaselines),
+    handleCompareFileBaseline: bind(handleCompareFileBaseline),
+    handleRunSyntaxCheck: bind(handleRunSyntaxCheck),
+    handleListSyntaxValidators: bind(handleListSyntaxValidators),
+    handleRegisterHook: bind(handleRegisterHook),
+    handleListHooks: bind(handleListHooks),
+    handleRemoveHook: bind(handleRemoveHook),
+    handleCheckApprovalGate: bind(handleCheckApprovalGate),
+    handlePreviewTaskDiff: bind(handlePreviewTaskDiff),
+    handleApproveDiff: bind(handleApproveDiff),
+    handleConfigureDiffPreview: bind(handleConfigureDiffPreview),
+    handleGetQualityScore: bind(handleGetQualityScore),
+    handleGetProviderQuality: bind(handleGetProviderQuality),
+    handleGetProviderStats: bind(handleGetProviderStats),
+    handleGetBestProvider: bind(handleGetBestProvider),
+    handleListRollbacks: bind(handleListRollbacks),
+    handleRunBuildCheck: bind(handleRunBuildCheck),
+    handleGetBuildResult: bind(handleGetBuildResult),
+    handleConfigureBuildCheck: bind(handleConfigureBuildCheck),
+    handleSetupPrecommitHook: bind(handleSetupPrecommitHook),
+    handleGetCostSummary: bind(handleGetCostSummary),
+    handleGetBudgetStatus: bind(handleGetBudgetStatus),
+    handleSetBudget: bind(handleSetBudget),
+    handleGetCostForecast: bind(handleGetCostForecast),
   };
+}
+
+function createValidationHandlers(deps = {}) {
+  const hasDeps = deps && Object.keys(deps).length > 0;
+  return buildValidationHandlerExports(hasDeps ? normalizeValidationHandlerDeps(deps) : null);
 }
 
 module.exports = {
@@ -986,5 +1068,6 @@ module.exports = {
   handleGetBudgetStatus,
   handleSetBudget,
   handleGetCostForecast,
+  init,
   createValidationHandlers,
 };
