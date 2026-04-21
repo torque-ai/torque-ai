@@ -15,6 +15,7 @@ function seed(db) {
   db.prepare(`CREATE TABLE factory_decisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id TEXT, stage TEXT, actor TEXT, action TEXT,
+    inputs_json TEXT,
     reasoning TEXT, outcome_json TEXT, confidence REAL,
     batch_id TEXT, created_at TEXT
   )`).run();
