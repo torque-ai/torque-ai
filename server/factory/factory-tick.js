@@ -367,6 +367,21 @@ async function tickProject(project) {
           config: rejectRecoveryConfig,
         });
       }
+
+      // Auto-recovery sweep — once per tick, across all eligible projects.
+      // Loaded from auto-recovery engine registered in DI container at startup.
+      try {
+        const container = require('../container').defaultContainer;
+        const autoRecoveryEngine = container.get('autoRecoveryEngine');
+        if (autoRecoveryEngine && typeof autoRecoveryEngine.tick === 'function') {
+          const summary = await autoRecoveryEngine.tick();
+          if (summary && summary.attempts > 0) {
+            logger.info('auto-recovery tick ran recovery attempts', summary);
+          }
+        }
+      } catch (err) {
+        logger.warn('auto-recovery tick failed', { err: err.message });
+      }
     }
   } catch (err) {
     logger.warn('Factory tick failed for project', {

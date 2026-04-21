@@ -2,6 +2,7 @@
 
 const factoryDecisions = require('../db/factory-decisions');
 const decisionLog = require('./decision-log');
+const { isWithinCooldown } = require('./auto-recovery/backoff');
 
 const VERIFY_STALL_THRESHOLD_MS = 45 * 60 * 1000;
 const MAX_RECOVERY_ATTEMPTS = 2;
@@ -52,6 +53,17 @@ function setRecoveryAttempts(db, projectId, attempts, hasColumn) {
   inMemoryVerifyRecoveryAttempts.set(projectId, attempts);
 }
 
+function hasAutoRecoveryColumns(db) {
+  try {
+    const columns = db.prepare('PRAGMA table_info(factory_projects)').all();
+    const names = new Set(columns.map((c) => c.name));
+    return names.has('auto_recovery_last_action_at') && names.has('auto_recovery_attempts');
+  } catch (_e) {
+    void _e;
+    return false;
+  }
+}
+
 function listStalledVerifyLoops(db, thresholdMs = VERIFY_STALL_THRESHOLD_MS) {
   if (!db || typeof db.prepare !== 'function') {
     throw new Error('recoverStalledVerifyLoops requires a database handle');
@@ -59,6 +71,10 @@ function listStalledVerifyLoops(db, thresholdMs = VERIFY_STALL_THRESHOLD_MS) {
 
   const hasColumn = hasVerifyRecoveryAttemptsColumn(db);
   const attemptsSelect = hasColumn ? ', verify_recovery_attempts' : '';
+  const hasArColumns = hasAutoRecoveryColumns(db);
+  const arSelect = hasArColumns
+    ? ', auto_recovery_last_action_at AS ar_last_action_at, auto_recovery_attempts AS ar_attempts'
+    : '';
   const nowMs = Date.now();
   const rows = db.prepare(`
     SELECT
@@ -67,6 +83,7 @@ function listStalledVerifyLoops(db, thresholdMs = VERIFY_STALL_THRESHOLD_MS) {
       loop_paused_at_stage AS paused_at_stage,
       loop_last_action_at AS last_action_at
       ${attemptsSelect}
+      ${arSelect}
     FROM factory_projects
     WHERE loop_last_action_at IS NOT NULL
       AND (
@@ -86,6 +103,13 @@ function listStalledVerifyLoops(db, thresholdMs = VERIFY_STALL_THRESHOLD_MS) {
     }
 
     if ((nowMs - lastActionMs) <= thresholdMs) {
+      return [];
+    }
+
+    // Cooldown skip — if the auto-recovery engine is actively handling this
+    // project (its own backoff window hasn't elapsed), stand down to avoid
+    // double-retry contention.
+    if (isWithinCooldown(row.ar_last_action_at, row.ar_attempts || 0, nowMs)) {
       return [];
     }
 
