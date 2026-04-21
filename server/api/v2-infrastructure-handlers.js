@@ -22,9 +22,43 @@ const {
 const { parseBody } = require('./middleware');
 
 let _taskManager = null;
+let _remoteAgentRegistry = null;
 
-function init(taskManager) {
-  _taskManager = taskManager;
+function normalizeInitDeps(depsOrTaskManager) {
+  if (!depsOrTaskManager) {
+    return {};
+  }
+
+  const isObject = typeof depsOrTaskManager === 'object' && !Array.isArray(depsOrTaskManager);
+  if (!isObject) {
+    return { taskManager: depsOrTaskManager };
+  }
+
+  const hasDependencyKeys = Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'taskManager')
+    || Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'remoteAgentRegistry');
+  if (hasDependencyKeys) {
+    return depsOrTaskManager;
+  }
+
+  return Object.keys(depsOrTaskManager).length === 0
+    ? {}
+    : { taskManager: depsOrTaskManager };
+}
+
+function init(depsOrTaskManager = {}) {
+  const deps = normalizeInitDeps(depsOrTaskManager);
+
+  if (Object.keys(deps).length > 0) {
+    if (Object.prototype.hasOwnProperty.call(deps, 'taskManager')) {
+      _taskManager = deps.taskManager;
+    }
+    if (Object.prototype.hasOwnProperty.call(deps, 'remoteAgentRegistry')) {
+      _remoteAgentRegistry = deps.remoteAgentRegistry || null;
+    }
+    return module.exports;
+  }
+
+  return module.exports;
 }
 
 const VALID_CREDENTIAL_TYPES = new Set(['ssh', 'http_auth', 'windows']);
@@ -470,10 +504,9 @@ async function handleDeleteCredential(req, res) {
 
 // ─── Remote Agents ──────────────────────────────────────────────────────────
 
-function _resetRegistryCache() { /* no-op — registry is managed by plugin singleton */ }
+function _resetRegistryCache() { _remoteAgentRegistry = null; }
 function _getRegistry() {
-  const { getInstalledRegistry } = require('../plugins/remote-agents');
-  return getInstalledRegistry();
+  return _remoteAgentRegistry;
 }
 
 function _sanitizeAgent(agent) {

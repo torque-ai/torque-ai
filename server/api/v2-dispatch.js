@@ -32,6 +32,63 @@ const modelHandlers = require('../handlers/model-handlers');
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
 const BODY_PARSE_TIMEOUT_MS = 30000;
+let _remoteAgentRegistry = null;
+let _remoteAgentRegistryResolved = false;
+
+function unwrapRemoteAgentDb(dbService) {
+  const rawDb = dbService && typeof dbService.getDbInstance === 'function'
+    ? dbService.getDbInstance()
+    : (dbService && typeof dbService.getDb === 'function' ? dbService.getDb() : dbService);
+  if (!rawDb || typeof rawDb.prepare !== 'function') {
+    throw new Error('remote agent registry requires db service with prepare()');
+  }
+  return rawDb;
+}
+
+function getOrCreateRemoteAgentRegistry(deps = {}) {
+  if (Object.prototype.hasOwnProperty.call(deps, 'remoteAgentRegistry')) {
+    _remoteAgentRegistry = deps.remoteAgentRegistry || null;
+    _remoteAgentRegistryResolved = true;
+    return _remoteAgentRegistry;
+  }
+
+  if (_remoteAgentRegistryResolved) {
+    return _remoteAgentRegistry;
+  }
+
+  try {
+    const dbService = deps.db || require('../database');
+    const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');
+    _remoteAgentRegistry = new RemoteAgentRegistry(unwrapRemoteAgentDb(dbService));
+  } catch (err) {
+    logger.warn('Remote agent registry unavailable for v2 dispatch', { error: err.message });
+    _remoteAgentRegistry = null;
+  }
+  _remoteAgentRegistryResolved = true;
+  return _remoteAgentRegistry;
+}
+
+function normalizeInitDeps(depsOrTaskManager) {
+  if (!depsOrTaskManager) {
+    return {};
+  }
+
+  const isObject = typeof depsOrTaskManager === 'object' && !Array.isArray(depsOrTaskManager);
+  if (!isObject) {
+    return { taskManager: depsOrTaskManager };
+  }
+
+  const hasDependencyKeys = Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'taskManager')
+    || Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'remoteAgentRegistry')
+    || Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'db');
+  if (hasDependencyKeys) {
+    return depsOrTaskManager;
+  }
+
+  return Object.keys(depsOrTaskManager).length === 0
+    ? {}
+    : { taskManager: depsOrTaskManager };
+}
 
 // NOTE: Three separate JSON body parsers exist in this codebase:
 //   1. middleware.js parseBody       — canonical parser; used by v2-middleware validateRequest
@@ -629,15 +686,27 @@ async function dispatchV2(req, res) {
 }
 
 /**
- * Initialize handler modules with the task manager.
+ * Initialize handler modules with shared v2 dependencies.
  * Only needed if the API server hasn't already initialized them.
  */
-function init(taskManager) {
+function init(depsOrTaskManager = {}) {
+  const deps = normalizeInitDeps(depsOrTaskManager);
+  const taskManager = deps.taskManager;
+
   if (taskManager) {
     v2TaskHandlers.init(taskManager);
     v2WorkflowHandlers.init(taskManager);
     v2GovernanceHandlers.init({ taskManager });
-    v2InfrastructureHandlers.init(taskManager);
+  }
+
+  const shouldInitInfrastructure = taskManager
+    || Object.prototype.hasOwnProperty.call(deps, 'remoteAgentRegistry')
+    || Object.prototype.hasOwnProperty.call(deps, 'db');
+  if (shouldInitInfrastructure) {
+    v2InfrastructureHandlers.init({
+      taskManager,
+      remoteAgentRegistry: getOrCreateRemoteAgentRegistry(deps),
+    });
   }
 }
 

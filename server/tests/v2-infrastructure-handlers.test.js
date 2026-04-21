@@ -4,11 +4,9 @@ const { EventEmitter } = require('events');
 
 const HANDLER_MODULE = '../api/v2-infrastructure-handlers';
 const CONTROL_PLANE_MODULE = '../api/v2-control-plane';
-const AGENT_REGISTRY_MODULE = '../plugins/remote-agents';
 const MODULE_PATHS = [
   HANDLER_MODULE,
   CONTROL_PLANE_MODULE,
-  AGENT_REGISTRY_MODULE,
   '../api/middleware',
   '../database',
   '../db/email-peek',
@@ -195,17 +193,6 @@ function seedAgent(agent) {
   });
 }
 
-function createAgentDb() {
-  return {
-    prepare: vi.fn(),
-  };
-}
-
-let _mockRegistryEnabled = true;
-const mockRemoteAgentsPlugin = {
-  getInstalledRegistry: () => _mockRegistryEnabled ? mockRegistry : null,
-};
-
 function createReq(overrides = {}) {
   return {
     params: {},
@@ -391,7 +378,7 @@ function resetMockDefaults() {
     state.peekHosts.set(hostName, { ...existing, ...clone(updates) });
     return { changes: 1 };
   });
-  mockDb.getDbInstance.mockReset().mockImplementation(() => createAgentDb());
+  mockDb.getDbInstance.mockReset();
 
   mockHostManagement.listCredentials.mockReset().mockImplementation((hostName, hostType) => {
     const bucket = state.credentials.get(credentialKey(hostName, hostType));
@@ -512,7 +499,6 @@ function loadHandlers() {
   installCjsModuleMock('../db/coordination', mockCoordination);
   installCjsModuleMock('../workstation/model', mockWorkstationModel);
   installCjsModuleMock('../handlers/workstation-handlers', mockWorkstationHandlers);
-  installCjsModuleMock(AGENT_REGISTRY_MODULE, mockRemoteAgentsPlugin);
   installCjsModuleMock('../api/middleware', mockMiddleware);
   installCjsModuleMock('../discovery', mockDiscovery);
   installCjsModuleMock('../utils/host-monitoring', mockHostMonitoring);
@@ -527,10 +513,9 @@ describe('api/v2-infrastructure-handlers', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-10T12:00:00.000Z'));
     vi.restoreAllMocks();
-    _mockRegistryEnabled = true;
     resetMockDefaults();
     handlers = loadHandlers();
-    handlers.init(mockTaskManager);
+    handlers.init({ taskManager: mockTaskManager, remoteAgentRegistry: mockRegistry });
   });
 
   afterEach(() => {
@@ -1458,13 +1443,29 @@ describe('api/v2-infrastructure-handlers', () => {
       expect(data.items[1]).not.toHaveProperty('secret');
     });
 
-    it('returns an empty list when the agent db is unavailable', async () => {
-      mockDb.getDbInstance.mockReturnValue(null);
+    it('uses the injected registry without touching the db singleton', async () => {
+      mockDb.getDbInstance.mockImplementation(() => {
+        throw new Error('db singleton should not be used');
+      });
+      seedAgent({
+        id: 'agent-a',
+        name: 'Agent A',
+        host: 'agent-a.internal',
+        port: 3460,
+        secret: 'top-secret',
+      });
       const res = createMockRes();
 
       await handlers.handleListAgents(createReq(), res);
 
-      expectList(res, { items: [], total: 0 });
+      expectList(res, {
+        items: [
+          expect.objectContaining({ id: 'agent-a', name: 'Agent A' }),
+        ],
+        total: 1,
+      });
+      expect(mockRegistry.getAll).toHaveBeenCalledOnce();
+      expect(mockDb.getDbInstance).not.toHaveBeenCalled();
     });
   });
 
@@ -1491,7 +1492,7 @@ describe('api/v2-infrastructure-handlers', () => {
     });
 
     it('returns 500 when the agent registry is not initialized', async () => {
-      _mockRegistryEnabled = false;
+      handlers.init({ taskManager: mockTaskManager, remoteAgentRegistry: null });
       const res = createMockRes();
 
       await handlers.handleCreateAgent(
@@ -1511,7 +1512,6 @@ describe('api/v2-infrastructure-handlers', () => {
         code: 'not_initialized',
         message: 'Agent registry not initialized',
       });
-      _mockRegistryEnabled = true;
     });
 
     it('parses the body, applies defaults, and returns 201', async () => {
@@ -1755,7 +1755,7 @@ describe('api/v2-infrastructure-handlers', () => {
     });
 
     it('returns 404 when registry is null (agent lookup fails first)', async () => {
-      _mockRegistryEnabled = false;
+      handlers.init({ taskManager: mockTaskManager, remoteAgentRegistry: null });
       const res = createMockRes();
 
       await handlers.handleAgentHealth(
@@ -1763,7 +1763,6 @@ describe('api/v2-infrastructure-handlers', () => {
         res,
       );
 
-      _mockRegistryEnabled = true;
       expectError(res, {
         status: 404,
         code: 'agent_not_found',
@@ -1811,7 +1810,7 @@ describe('api/v2-infrastructure-handlers', () => {
     });
 
     it('returns 404 when registry is null (agent lookup fails first)', async () => {
-      _mockRegistryEnabled = false;
+      handlers.init({ taskManager: mockTaskManager, remoteAgentRegistry: null });
       const res = createMockRes();
 
       await handlers.handleDeleteAgent(
@@ -1819,7 +1818,6 @@ describe('api/v2-infrastructure-handlers', () => {
         res,
       );
 
-      _mockRegistryEnabled = true;
       expectError(res, {
         status: 404,
         code: 'agent_not_found',
@@ -1882,7 +1880,7 @@ describe('api/v2-infrastructure-handlers', () => {
       installCjsModuleMock('../utils/host-monitoring', { getHostActivity: undefined });
       try {
         handlers = loadHandlers();
-        handlers.init(mockTaskManager);
+        handlers.init({ taskManager: mockTaskManager, remoteAgentRegistry: mockRegistry });
         await handlers.handleHostActivity(createReq(), res);
       } finally {
         installCjsModuleMock('../utils/host-monitoring', mockHostMonitoring);
