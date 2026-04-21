@@ -213,7 +213,7 @@ Commit: `feat(checkpoints): shadow-git snapshot + rollback`.
 
 ## Task 2: Wire snapshot into task finalization
 
-- [ ] **Step 1: Modify `task-finalizer.js`**
+- [x] **Step 1: Modify `task-finalizer.js`**
 
 After the final `updateTaskStatus` succeeds, fire snapshot asynchronously:
 

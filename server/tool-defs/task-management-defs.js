@@ -789,26 +789,6 @@ module.exports = [
     }
   },
   {
-    "name": "rollback_task",
-    "description": "Rollback changes made by a task.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "task_id": {
-          "type": "string",
-          "description": "Task ID to rollback"
-        },
-        "reason": {
-          "type": "string",
-          "description": "Reason for rollback"
-        }
-      },
-      "required": [
-        "task_id"
-      ]
-    }
-  },
-  {
     "name": "start_pending_task",
     "description": "Start a pending task by changing its status to queued. Used for aggregation tasks that wait for chunks to complete.",
     "inputSchema": {
