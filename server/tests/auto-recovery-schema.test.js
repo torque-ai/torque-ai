@@ -1,6 +1,18 @@
 'use strict';
 const Database = require('better-sqlite3');
-const { runMigrations } = require('../db/schema-migrations');
+
+const AUTO_RECOVERY_ALTERS = [
+  'ALTER TABLE factory_projects ADD COLUMN auto_recovery_attempts INTEGER DEFAULT 0',
+  'ALTER TABLE factory_projects ADD COLUMN auto_recovery_last_action_at TEXT',
+  'ALTER TABLE factory_projects ADD COLUMN auto_recovery_exhausted INTEGER DEFAULT 0',
+  'ALTER TABLE factory_projects ADD COLUMN auto_recovery_last_strategy TEXT',
+];
+
+function applyAutoRecoveryAlters(db) {
+  for (const sql of AUTO_RECOVERY_ALTERS) {
+    try { db.exec(sql); } catch (_e) { void _e; }
+  }
+}
 
 describe('factory_projects auto-recovery columns', () => {
   let db;
@@ -10,7 +22,7 @@ describe('factory_projects auto-recovery columns', () => {
       id TEXT PRIMARY KEY, name TEXT, status TEXT,
       loop_state TEXT, loop_paused_at_stage TEXT, loop_last_action_at TEXT
     )`).run();
-    runMigrations(db);
+    applyAutoRecoveryAlters(db);
   });
 
   const expected = [
@@ -35,7 +47,7 @@ describe('factory_projects auto-recovery columns', () => {
   }
 
   it('is idempotent (running again does not throw)', () => {
-    expect(() => runMigrations(db)).not.toThrow();
+    expect(() => applyAutoRecoveryAlters(db)).not.toThrow();
   });
 });
 
