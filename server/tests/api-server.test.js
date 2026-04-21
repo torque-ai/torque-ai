@@ -1966,7 +1966,15 @@ describe('API Server endpoints', () => {
       url: '/api/tasks?status=running&limit=10',
     });
 
-    expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', { status: 'running', limit: 10 });
+    // defaultArgs on the /api/tasks route injects all_projects: true so REST
+    // callers get the same "show everything" semantics as /api/v2/tasks by
+    // default (the MCP list_tasks tool's cwd-based project filter is not a
+    // useful default for a REST caller).
+    expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', {
+      all_projects: true,
+      status: 'running',
+      limit: 10,
+    });
     expect(response.statusCode).toBe(200);
   });
 
@@ -2179,7 +2187,11 @@ describe('API Server endpoints', () => {
       url: '/api/tasks?status=running&limit=10',
     });
 
-    expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', { status: 'running', limit: 10 });
+    expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', {
+      all_projects: true,
+      status: 'running',
+      limit: 10,
+    });
     expect(mcpTasksResponse.statusCode).toBe(200);
 
     const mcpStatusResponse = await dispatchRequest(requestHandler, {
