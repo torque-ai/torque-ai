@@ -687,7 +687,7 @@ describe('edit_file cascade (exact > whitespace > fuzzy)', () => {
 });
 ```
 
-- [ ] **Step 2: Run all tests**
+- [x] **Step 2: Run all tests**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js`
 Expected: PASS
@@ -701,7 +701,7 @@ git add server/tests/ollama-tools-edit-fuzzy.test.js
 git commit -m "test(edit_file): cascade integration tests for fuzzy matching"
 ```
 
-- [ ] **Step 4: Run the full related test suite one final time**
+- [x] **Step 4: Run the full related test suite one final time**
 
 Run: `npx vitest run tests/ollama-tools-edit-fuzzy.test.js tests/ollama-tools-coverage.test.js tests/agentic-tools.test.js tests/harness-improvements.test.js`
 Expected: All PASS

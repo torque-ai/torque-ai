@@ -648,7 +648,26 @@ function createToolExecutor(workingDir, options = {}) {
 
           if (args.replace_all) {
             // Replace all occurrences, return metadata.replacements count
-            const occurrences = content.split(args.old_text).length - 1;
+            const oldTextStartsWithWhitespace = /^\s/.test(args.old_text);
+            let occurrences;
+            let exactMatchIndexes = null;
+            if (oldTextStartsWithWhitespace) {
+              exactMatchIndexes = [];
+              let searchFrom = 0;
+              while (searchFrom <= content.length - args.old_text.length) {
+                const found = content.indexOf(args.old_text, searchFrom);
+                if (found === -1) break;
+                if (found === 0 || content[found - 1] === '\n') {
+                  exactMatchIndexes.push(found);
+                  searchFrom = found + args.old_text.length;
+                } else {
+                  searchFrom = found + 1;
+                }
+              }
+              occurrences = exactMatchIndexes.length;
+            } else {
+              occurrences = content.split(args.old_text).length - 1;
+            }
             if (occurrences === 0) {
               // Whitespace-normalized fallback for replace_all
               const oldLines = args.old_text.split('\n').map(l => l.trimStart());
@@ -697,7 +716,19 @@ function createToolExecutor(workingDir, options = {}) {
                 error: true,
               };
             }
-            const newContent = content.split(args.old_text).join(args.new_text);
+            let newContent;
+            if (exactMatchIndexes) {
+              const chunks = [];
+              let lastIndex = 0;
+              for (const matchIndex of exactMatchIndexes) {
+                chunks.push(content.slice(lastIndex, matchIndex), args.new_text);
+                lastIndex = matchIndex + args.old_text.length;
+              }
+              chunks.push(content.slice(lastIndex));
+              newContent = chunks.join('');
+            } else {
+              newContent = content.split(args.old_text).join(args.new_text);
+            }
             fs.writeFileSync(resolvedPath, newContent, 'utf-8');
             changedFiles.add(resolvedPath);
             clearFailedCommandRecoveryMode();
