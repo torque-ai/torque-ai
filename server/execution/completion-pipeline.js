@@ -20,6 +20,8 @@
 
 const logger = require('../logger').child({ component: 'completion-pipeline' });
 const { safeJsonParse } = require('../utils/json');
+const childProcess = require('child_process');
+const { randomUUID } = require('crypto');
 
 let deps = {};
 
@@ -118,6 +120,97 @@ function triggerAutoRelease(repoPath, opts) {
   } catch (err) {
     logger.info(`[auto-release] triggerAutoRelease failed: ${err.message}`);
   }
+}
+
+function execFileAsync(command, args, options) {
+  return new Promise((resolve, reject) => {
+    childProcess.execFile(command, args, options, (err, stdout, stderr) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      resolve({ stdout: stdout || '', stderr: stderr || '' });
+    });
+  });
+}
+
+async function scanDirectCommitLog(projectPath, lastCommitHash) {
+  const gitArgs = lastCommitHash && !lastCommitHash.startsWith('v')
+    ? ['log', `${lastCommitHash}..HEAD`, '--format=%H|%s', '--no-merges']
+    : ['log', '-20', '--format=%H|%s', '--no-merges'];
+
+  const { stdout } = await execFileAsync('git', gitArgs, {
+    cwd: projectPath,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+
+  return String(stdout || '').trim();
+}
+
+function parseDirectCommitLog(gitOutput, inferIntentFromCommitMessage) {
+  if (!gitOutput) return [];
+
+  return gitOutput
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [hash, ...msgParts] = line.split('|');
+      const message = msgParts.join('|');
+      const shortHash = hash ? hash.slice(0, 7) : null;
+      if (!shortHash) return null;
+      const typeMatch = message.match(/^([a-z]+)/i);
+
+      return {
+        id: randomUUID(),
+        commit_hash: shortHash,
+        message,
+        commit_type: typeMatch ? typeMatch[1].toLowerCase() : 'chore',
+        version_intent: inferIntentFromCommitMessage(message),
+      };
+    })
+    .filter(Boolean);
+}
+
+function persistDirectCommits(rawDb, projectPath, commits) {
+  if (!commits.length) return 0;
+
+  const existingStmt = rawDb.prepare(
+    'SELECT id FROM vc_commits WHERE repo_path = ? AND commit_hash = ?'
+  );
+  const insertStmt = rawDb.prepare(
+    'INSERT INTO vc_commits (id, repo_path, branch, commit_hash, message, commit_type, scope, version_intent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+  const now = new Date().toISOString();
+
+  const insertBatch = (records) => {
+    let inserted = 0;
+    for (const commit of records) {
+      const existing = existingStmt.get(projectPath, commit.commit_hash);
+      if (existing) continue;
+
+      insertStmt.run(
+        commit.id,
+        projectPath,
+        'main',
+        commit.commit_hash,
+        commit.message,
+        commit.commit_type,
+        null,
+        commit.version_intent,
+        now,
+      );
+      inserted += 1;
+    }
+    return inserted;
+  };
+
+  if (typeof rawDb.transaction === 'function') {
+    return rawDb.transaction(insertBatch)(commits);
+  }
+
+  return insertBatch(commits);
 }
 
 // ─── Main handler ────────────────────────────────────────────────────────
@@ -297,40 +390,14 @@ async function handlePostCompletion(ctx) {
         const projectPath = registeredProject;
         // Scan for untracked direct commits
         try {
-          const { execFile } = require('child_process');
-          const { promisify } = require('util');
-          const execFileAsync = promisify(execFile);
-          const { randomUUID } = require('crypto');
           const lastCommit = rawDb.prepare(
             'SELECT commit_hash FROM vc_commits WHERE repo_path = ? ORDER BY created_at DESC LIMIT 1'
           ).get(projectPath);
-          const gitArgs = lastCommit?.commit_hash && !lastCommit.commit_hash.startsWith('v')
-            ? ['log', `${lastCommit.commit_hash}..HEAD`, '--format=%H|%s', '--no-merges']
-            : ['log', '-20', '--format=%H|%s', '--no-merges'];
-          const { stdout: rawGitOutput } = await execFileAsync('git', gitArgs, {
-            cwd: projectPath, encoding: 'utf8', windowsHide: true,
-          });
-          const gitOutput = rawGitOutput.trim();
-          if (gitOutput) {
-            const now = new Date().toISOString();
-            for (const line of gitOutput.split('\n').filter(Boolean)) {
-              const [hash, ...msgParts] = line.split('|');
-              const message = msgParts.join('|');
-              const shortHash = hash ? hash.slice(0, 7) : null;
-              if (!shortHash) continue;
-              const existing = rawDb.prepare(
-                'SELECT id FROM vc_commits WHERE repo_path = ? AND commit_hash = ?'
-              ).get(projectPath, shortHash);
-              if (existing) continue;
-              const intent = inferIntentFromCommitMessage(message);
-              const typeMatch = message.match(/^([a-z]+)/i);
-              rawDb.prepare(
-                'INSERT INTO vc_commits (id, repo_path, branch, commit_hash, message, commit_type, scope, version_intent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-              ).run(randomUUID(), projectPath, 'main', shortHash, message, typeMatch ? typeMatch[1].toLowerCase() : 'chore', null, intent, now);
-            }
-          }
-        } catch (_scanErr) {
-          // Non-fatal — git scan may fail in non-git environments
+          const gitOutput = await scanDirectCommitLog(projectPath, lastCommit?.commit_hash);
+          const commits = parseDirectCommitLog(gitOutput, inferIntentFromCommitMessage);
+          persistDirectCommits(rawDb, projectPath, commits);
+        } catch (scanErr) {
+          logger.warn(`[Phase 9] Git commit scan failed for ${projectPath}: ${scanErr.message}`);
         }
         const isWorkflowTask = Boolean(task?.workflow_id);
 
