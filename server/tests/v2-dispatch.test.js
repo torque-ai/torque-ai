@@ -607,7 +607,10 @@ describe('v2-dispatch module', () => {
 
       expect(mockHandlers.tasks.init).toHaveBeenCalledWith(tm);
       expect(mockHandlers.workflows.init).toHaveBeenCalledWith(tm);
-      expect(mockHandlers.infrastructure.init).toHaveBeenCalledWith(tm);
+      expect(mockHandlers.infrastructure.init).toHaveBeenCalledWith({
+        taskManager: tm,
+        remoteAgentRegistry: null,
+      });
 
       const governanceInitArg = mockHandlers.governance.init.mock.calls[0]?.[0];
       if (governanceInitArg === tm) {
