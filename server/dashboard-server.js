@@ -204,10 +204,14 @@ const MIME_TYPES = {
  * @returns {void}
  */
 function serveStatic(req, res) {
-  // Try React build first, fall back to lightweight static dashboard
+  // Try React build first, fall back to lightweight static dashboard.
+  // Probe for dist/index.html rather than just the dist/ directory — an
+  // interrupted vite build leaves dist/ with assets/ but no entry file,
+  // which would otherwise commit us to serving a broken tree and 404ing
+  // instead of falling back to the legacy static dashboard.
   const reactDir = path.join(__dirname, '..', 'dashboard', 'dist');
   const staticDir = path.join(__dirname, 'dashboard');
-  const dashboardDir = fs.existsSync(reactDir) ? reactDir : staticDir;
+  const dashboardDir = fs.existsSync(path.join(reactDir, 'index.html')) ? reactDir : staticDir;
   let filePath = path.join(dashboardDir, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
 
   // Security: prevent directory traversal (use path.sep to avoid prefix bypass)
