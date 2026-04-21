@@ -1,5 +1,9 @@
 'use strict';
-/* global describe, it, expect, beforeEach, vi */
+/* global describe, it, expect, beforeEach, afterEach, vi */
+
+const childProcess = require('child_process');
+const originalExecFile = childProcess.execFile;
+const mockExecFile = vi.fn();
 
 // --- CJS module mocking utility ---
 function installMock(modulePath, exports) {
@@ -19,13 +23,40 @@ installMock('../handlers/webhook-handlers', { triggerWebhooks: mockTriggerWebhoo
 const mockDispatchTaskEvent = vi.fn();
 installMock('../hooks/event-dispatch', { dispatchTaskEvent: mockDispatchTaskEvent });
 
+const mockLogger = {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+};
 installMock('../logger', {
-  child: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  }),
+  child: () => mockLogger,
+});
+
+const mockGetDbInstance = vi.fn(() => null);
+installMock('../database', { getDbInstance: mockGetDbInstance });
+
+const mockResolveVersionedProject = vi.fn(() => null);
+const mockInferIntentFromCommitMessage = vi.fn(() => 'internal');
+installMock('../versioning/version-intent', {
+  resolveVersionedProject: mockResolveVersionedProject,
+  inferIntentFromCommitMessage: mockInferIntentFromCommitMessage,
+});
+
+const mockCreateReleaseManager = vi.fn(() => ({}));
+installMock('../plugins/version-control/release-manager', {
+  createReleaseManager: mockCreateReleaseManager,
+});
+
+const mockCreateChangelogGenerator = vi.fn(() => ({}));
+installMock('../plugins/version-control/changelog-generator', {
+  createChangelogGenerator: mockCreateChangelogGenerator,
+});
+
+const mockCutRelease = vi.fn();
+const mockCreateAutoReleaseService = vi.fn(() => ({ cutRelease: mockCutRelease }));
+installMock('../versioning/auto-release', {
+  createAutoReleaseService: mockCreateAutoReleaseService,
 });
 
 const { TEST_MODELS } = require('./test-helpers');
@@ -63,15 +94,80 @@ function createMockDeps(overrides = {}) {
   };
 }
 
+const VERSIONED_PROJECT_PATH = 'C:/repos/versioned-project';
+
+function mockAsyncGitOutput(stdout) {
+  childProcess.execFile = mockExecFile;
+  mockExecFile.mockImplementation((_command, _args, _options, callback) => {
+    setImmediate(() => callback(null, stdout, ''));
+    return { pid: 1234 };
+  });
+}
+
+function mockAsyncGitFailure(error) {
+  childProcess.execFile = mockExecFile;
+  mockExecFile.mockImplementation((_command, _args, _options, callback) => {
+    setImmediate(() => callback(error, '', 'fatal'));
+    return { pid: 1234 };
+  });
+}
+
+function createMockRawDb(options = {}) {
+  const existingHashes = new Set(options.existingHashes || []);
+  const statements = {
+    lastCommit: {
+      get: vi.fn().mockReturnValue(options.lastCommit || null),
+    },
+    existingCommit: {
+      get: vi.fn((_repoPath, commitHash) => (
+        existingHashes.has(commitHash) ? { id: `existing-${commitHash}` } : null
+      )),
+    },
+    insertCommit: {
+      run: vi.fn(),
+    },
+  };
+  const transactionWrappers = [];
+  const rawDb = {
+    prepare: vi.fn((sql) => {
+      if (sql.includes('ORDER BY created_at DESC LIMIT 1')) return statements.lastCommit;
+      if (sql.includes('SELECT id FROM vc_commits')) return statements.existingCommit;
+      if (sql.includes('INSERT INTO vc_commits')) return statements.insertCommit;
+      return { get: vi.fn(), run: vi.fn(), all: vi.fn(() => []) };
+    }),
+    transaction: vi.fn((fn) => {
+      const wrapper = vi.fn((records) => fn(records));
+      transactionWrappers.push(wrapper);
+      return wrapper;
+    }),
+  };
+
+  return {
+    ...rawDb,
+    statements,
+    transactionWrappers,
+  };
+}
+
 describe('completion-pipeline', () => {
   let mockDeps;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    childProcess.execFile = originalExecFile;
+    mockExecFile.mockReset();
+    mockGetDbInstance.mockReturnValue(null);
+    mockResolveVersionedProject.mockReturnValue(null);
+    mockInferIntentFromCommitMessage.mockReturnValue('internal');
+    mockCreateAutoReleaseService.mockReturnValue({ cutRelease: mockCutRelease });
     mockFireHook.mockResolvedValue(undefined);
     mockTriggerWebhooks.mockResolvedValue(undefined);
     mockDeps = createMockDeps();
     init(mockDeps);
+  });
+
+  afterEach(() => {
+    childProcess.execFile = originalExecFile;
   });
 
   // -------------------------------------------------------
@@ -561,6 +657,112 @@ describe('completion-pipeline', () => {
         error: 'proc-error',
         error_output: 'proc-error',
       }));
+    });
+
+    it('scans git once and persists direct commits in a transaction batch', async () => {
+      const rawDb = createMockRawDb({
+        lastCommit: { commit_hash: 'base123' },
+      });
+      mockGetDbInstance.mockReturnValue(rawDb);
+      mockResolveVersionedProject.mockReturnValue(VERSIONED_PROJECT_PATH);
+      mockInferIntentFromCommitMessage.mockImplementation((message) => (
+        message.startsWith('fix') ? 'fix' : 'feature'
+      ));
+      mockAsyncGitOutput(
+        'abcdef1234567890|feat: add tracked commit\n1234567890abcdef|fix: preserve pipes | in subject\n',
+      );
+
+      await handlePostCompletion({
+        taskId: 'task-100',
+        code: 0,
+        task: { ...baseTask, working_directory: 'C:/sandboxes/task-100' },
+        status: 'completed',
+      });
+
+      expect(mockExecFile).toHaveBeenCalledTimes(1);
+      expect(mockExecFile).toHaveBeenCalledWith(
+        'git',
+        ['log', 'base123..HEAD', '--format=%H|%s', '--no-merges'],
+        expect.objectContaining({
+          cwd: VERSIONED_PROJECT_PATH,
+          encoding: 'utf8',
+          windowsHide: true,
+        }),
+        expect.any(Function),
+      );
+      expect(rawDb.transaction).toHaveBeenCalledTimes(1);
+      expect(rawDb.transactionWrappers[0].mock.calls[0][0]).toHaveLength(2);
+      expect(rawDb.statements.insertCommit.run).toHaveBeenCalledTimes(2);
+      expect(rawDb.statements.insertCommit.run).toHaveBeenNthCalledWith(
+        1,
+        expect.any(String),
+        VERSIONED_PROJECT_PATH,
+        'main',
+        'abcdef1',
+        'feat: add tracked commit',
+        'feat',
+        null,
+        'feature',
+        expect.any(String),
+      );
+      expect(rawDb.statements.insertCommit.run).toHaveBeenNthCalledWith(
+        2,
+        expect.any(String),
+        VERSIONED_PROJECT_PATH,
+        'main',
+        '1234567',
+        'fix: preserve pipes | in subject',
+        'fix',
+        null,
+        'fix',
+        expect.any(String),
+      );
+    });
+
+    it('does not persist commits when git output is empty', async () => {
+      const rawDb = createMockRawDb();
+      mockGetDbInstance.mockReturnValue(rawDb);
+      mockResolveVersionedProject.mockReturnValue(VERSIONED_PROJECT_PATH);
+      mockAsyncGitOutput('\n');
+
+      await handlePostCompletion({
+        taskId: 'task-100',
+        code: 0,
+        task: { ...baseTask, working_directory: 'C:/sandboxes/task-100' },
+        status: 'completed',
+      });
+
+      expect(mockExecFile).toHaveBeenCalledTimes(1);
+      expect(mockExecFile).toHaveBeenCalledWith(
+        'git',
+        ['log', '-20', '--format=%H|%s', '--no-merges'],
+        expect.objectContaining({ cwd: VERSIONED_PROJECT_PATH }),
+        expect.any(Function),
+      );
+      expect(rawDb.transaction).not.toHaveBeenCalled();
+      expect(rawDb.statements.insertCommit.run).not.toHaveBeenCalled();
+    });
+
+    it('logs git scan failures without failing post-completion cleanup', async () => {
+      const rawDb = createMockRawDb();
+      mockGetDbInstance.mockReturnValue(rawDb);
+      mockResolveVersionedProject.mockReturnValue(VERSIONED_PROJECT_PATH);
+      mockAsyncGitFailure(new Error('git exploded'));
+
+      await expect(handlePostCompletion({
+        taskId: 'task-100',
+        code: 0,
+        task: { ...baseTask, working_directory: 'C:/sandboxes/task-100' },
+        status: 'completed',
+      })).resolves.toBeUndefined();
+
+      expect(mockExecFile).toHaveBeenCalledTimes(1);
+      expect(rawDb.transaction).not.toHaveBeenCalled();
+      expect(rawDb.statements.insertCommit.run).not.toHaveBeenCalled();
+      expect(mockLogger.warn.mock.calls.some(([message]) => (
+        String(message).includes('[Phase 9] Git commit scan failed')
+        && String(message).includes('git exploded')
+      ))).toBe(true);
     });
   });
 });
