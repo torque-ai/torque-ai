@@ -8,7 +8,6 @@ const childProcess = require('child_process');
 
 const finalizer = require('../execution/task-finalizer');
 const { createAdversarialReviewStage } = require('../execution/adversarial-review-stage');
-const database = require('../database');
 const providerScoring = require('../db/provider-scoring');
 const budgetWatcher = require('../db/budget-watcher');
 const modelCapabilities = require('../db/model-capabilities');
@@ -76,6 +75,7 @@ function initFinalizer(overrides = {}) {
     handleAutoValidation: overrides.handleAutoValidation || vi.fn(),
     handleBuildTestStyleCommit: overrides.handleBuildTestStyleCommit || vi.fn(),
     handleAutoVerifyRetry: overrides.handleAutoVerifyRetry || vi.fn(async () => {}),
+    rawDb: overrides.rawDb,
     handleAdversarialReview: overrides.handleAdversarialReview,
     handleProviderFailover: overrides.handleProviderFailover || vi.fn(),
     handlePostCompletion: overrides.handlePostCompletion || vi.fn(),
@@ -377,14 +377,13 @@ describe('task-finalizer', () => {
       cost_usd: '1.25',
     });
     const scoringDb = { prepare: vi.fn() };
-    const getDbInstanceSpy = vi.spyOn(database, 'getDbInstance').mockReturnValue(scoringDb);
     const scoringInitSpy = vi.spyOn(providerScoring, 'init').mockImplementation(() => {});
     const scoringRecordSpy = vi.spyOn(providerScoring, 'recordTaskCompletion').mockImplementation(() => {});
     const budgetInitSpy = vi.spyOn(budgetWatcher, 'init').mockImplementation(() => {});
     const budgetCheckSpy = vi.spyOn(budgetWatcher, 'checkBudgetThresholds').mockReturnValue(null);
 
     try {
-      const { safeUpdateTaskStatus } = initFinalizer({ dbBundle });
+      const { safeUpdateTaskStatus } = initFinalizer({ dbBundle, rawDb: scoringDb });
 
       const result = await finalizer.finalizeTask(dbBundle.taskId, {
         exitCode: 0,
@@ -393,7 +392,6 @@ describe('task-finalizer', () => {
       });
 
       expect(result.finalized).toBe(true);
-      expect(getDbInstanceSpy).toHaveBeenCalled();
       expect(scoringInitSpy).toHaveBeenCalledWith(scoringDb);
       expect(scoringRecordSpy).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -422,14 +420,13 @@ describe('task-finalizer', () => {
       }),
     });
     const scoringDb = { prepare: vi.fn() };
-    vi.spyOn(database, 'getDbInstance').mockReturnValue(scoringDb);
     vi.spyOn(providerScoring, 'init').mockImplementation(() => {});
     const scoringRecordSpy = vi.spyOn(providerScoring, 'recordTaskCompletion').mockImplementation(() => {});
     vi.spyOn(budgetWatcher, 'init').mockImplementation(() => {});
     vi.spyOn(budgetWatcher, 'checkBudgetThresholds').mockReturnValue(null);
 
     try {
-      const { safeUpdateTaskStatus } = initFinalizer({ dbBundle });
+      const { safeUpdateTaskStatus } = initFinalizer({ dbBundle, rawDb: scoringDb });
 
       const result = await finalizer.finalizeTask(dbBundle.taskId, {
         exitCode: 0,

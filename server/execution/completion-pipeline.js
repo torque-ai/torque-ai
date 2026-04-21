@@ -29,6 +29,23 @@ function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
 }
 
+function getRawDbInstance() {
+  if (deps.rawDb && typeof deps.rawDb.prepare === 'function') return deps.rawDb;
+  if (deps.db && typeof deps.db.getDbInstance === 'function') return deps.db.getDbInstance();
+  if (deps.db && typeof deps.db.prepare === 'function') return deps.db;
+
+  try {
+    const { getModule } = require('../container');
+    const injectedDb = getModule('db');
+    if (injectedDb && typeof injectedDb.getDbInstance === 'function') {
+      return injectedDb.getDbInstance();
+    }
+    return injectedDb && typeof injectedDb.prepare === 'function' ? injectedDb : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 /**
@@ -99,8 +116,7 @@ function recordProviderHealth(task, success) {
 
 function triggerAutoRelease(repoPath, opts) {
   try {
-    const database = require('../database');
-    const rawDb = database.getDbInstance();
+    const rawDb = getRawDbInstance();
     if (!rawDb || typeof rawDb.prepare !== 'function') return;
 
     const { createReleaseManager } = require('../plugins/version-control/release-manager');
@@ -380,8 +396,7 @@ async function handlePostCompletion(ctx) {
   if (ctx.status === 'completed') {
     try {
       const { resolveVersionedProject, inferIntentFromCommitMessage } = require('../versioning/version-intent');
-      const database = require('../database');
-      const rawDb = database.getDbInstance();
+      const rawDb = getRawDbInstance();
       const taskWorkDir = task?.working_directory || null;
       const registeredProject = rawDb && taskWorkDir ? resolveVersionedProject(rawDb, taskWorkDir) : null;
       if (registeredProject) {

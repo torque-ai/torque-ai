@@ -871,10 +871,20 @@ function init() {
   // Register core singletons with DI container
   if (!defaultContainer.has('db')) {
     defaultContainer.registerValue('db', db);
+  }
+  if (!defaultContainer.has('eventBus')) {
     defaultContainer.registerValue('eventBus', eventBus);
+  }
+  if (!defaultContainer.has('logger')) {
     defaultContainer.registerValue('logger', logger);
+  }
+  if (!defaultContainer.has('serverConfig')) {
     defaultContainer.registerValue('serverConfig', serverConfig);
+  }
+  if (!defaultContainer.has('taskManager')) {
     defaultContainer.registerValue('taskManager', taskManager);
+  }
+  if (!defaultContainer.has('dashboard')) {
     defaultContainer.registerValue('dashboard', dashboard);
   }
   if (!defaultContainer.has('toolRouter')) {

@@ -95,7 +95,7 @@ function withResumeContextPrompt(task, fields = {}) {
 /**
  * Initialize the module with required dependencies.
  * @param {Object} deps
- * @param {Object} deps.db - Database instance (database.js)
+ * @param {Object} deps.db - Database facade or raw SQLite instance
  * @param {Object} deps.dashboard - Dashboard server for notifyTaskUpdated()
  * @param {Function} deps.processQueue - Queue processing function
  * @param {Function} deps.cancelTask - Task cancellation function
@@ -118,6 +118,22 @@ function init(deps) {
   if (_pendingProcessQueueTimer) {
     clearTimeout(_pendingProcessQueueTimer);
     _pendingProcessQueueTimer = null;
+  }
+}
+
+function getRawDbInstance() {
+  if (db && typeof db.getDbInstance === 'function') return db.getDbInstance();
+  if (db && typeof db.prepare === 'function') return db;
+
+  try {
+    const { getModule } = require('../container');
+    const injectedDb = getModule('db');
+    if (injectedDb && typeof injectedDb.getDbInstance === 'function') {
+      return injectedDb.getDbInstance();
+    }
+    return injectedDb && typeof injectedDb.prepare === 'function' ? injectedDb : null;
+  } catch {
+    return null;
   }
 }
 
@@ -584,7 +600,7 @@ function findLargerAvailableModel(currentModel) {
 function isHashlineCapableModel(model) {
   // Try model_capabilities registry first (populated by discovery + heuristics)
   try {
-    const rawDb = require('../database').getDbInstance();
+    const rawDb = getRawDbInstance();
     if (rawDb) {
       const { isHashlineCapable } = require('../discovery/capability-lookup');
       if (isHashlineCapable(rawDb, model)) return true;
@@ -1017,7 +1033,7 @@ function classifyError(errorOutput, exitCode) {
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
 function createFallbackRetry(_deps) {
-  // deps reserved for Phase 5 when database.js facade is removed
+  // deps reserved for dependency-boundary follow-up
   return {
     init,
     setFreeQuotaTracker,

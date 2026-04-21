@@ -406,7 +406,7 @@ function stepExecution(taskId, stepMode = 'continue', count = 1) {
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
 function createDebugLifecycle(_deps) {
-  // _deps reserved for Phase 5 when database.js facade is removed
+  // _deps reserved for dependency-boundary follow-up
   return {
     init,
     pauseTask,

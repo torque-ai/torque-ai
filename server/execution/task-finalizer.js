@@ -166,10 +166,15 @@ function getProviderScoringService() {
 function getRawDbInstance() {
   if (deps.rawDb && typeof deps.rawDb.prepare === 'function') return deps.rawDb;
   if (deps.db && typeof deps.db.getDbInstance === 'function') return deps.db.getDbInstance();
+  if (deps.db && typeof deps.db.prepare === 'function') return deps.db;
 
   try {
-    const database = require('../database');
-    return database.getDbInstance ? database.getDbInstance() : null;
+    const { getModule } = require('../container');
+    const injectedDb = getModule('db');
+    if (injectedDb && typeof injectedDb.getDbInstance === 'function') {
+      return injectedDb.getDbInstance();
+    }
+    return injectedDb && typeof injectedDb.prepare === 'function' ? injectedDb : null;
   } catch (_err) {
     return null;
   }
@@ -799,8 +804,7 @@ async function finalizeTask(taskId, options = {}) {
 
     try {
       const budgetWatcher = require('../db/budget-watcher');
-      const db = require('../database');
-      const inst = db.getDbInstance ? db.getDbInstance() : null;
+      const inst = getRawDbInstance();
       if (inst && task.provider) {
         budgetWatcher.init(inst);
         const check = budgetWatcher.checkBudgetThresholds(task.provider);
@@ -933,7 +937,7 @@ async function finalizeTask(taskId, options = {}) {
 // ── Factory (DI Phase 3) ─────────────────────────────────────────────────
 
 function createTaskFinalizer(_deps) {
-  // _deps reserved for Phase 5 when database.js facade is removed
+  // _deps reserved for dependency-boundary follow-up
   return {
     init,
     finalizeTask,

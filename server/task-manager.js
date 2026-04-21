@@ -7,7 +7,7 @@
 
 // spawn moved to execution/process-lifecycle.js (D4.3)
 const crypto = require('crypto');
-const db = require('./database');
+const { getModule: getContainerModule } = require('./container');
 const taskCore = require('./db/task-core');
 const coordination = require('./db/coordination');
 const providerRoutingCore = require('./db/provider-routing-core');
@@ -50,6 +50,39 @@ const serverConfig = require('./config');
 const FreeQuotaTracker = require('./free-quota-tracker');
 const gpuMetrics = require('./scripts/gpu-metrics-server');
 const eventBus = require('./event-bus');
+
+function getDbDependency() {
+  return getContainerModule('db') || null;
+}
+
+function requireDbDependency() {
+  const database = getDbDependency();
+  if (!database) {
+    throw new Error('task-manager database dependency is not initialized');
+  }
+  return database;
+}
+
+const db = new Proxy({}, {
+  get(_target, prop) {
+    if (prop === '__isTaskManagerDbProxy') return true;
+    if (prop === 'toJSON') return () => '[task-manager db dependency]';
+
+    const database = getDbDependency();
+    if (!database) return undefined;
+
+    const value = database[prop];
+    return typeof value === 'function' ? value.bind(database) : value;
+  },
+  set(_target, prop, value) {
+    requireDbDependency()[prop] = value;
+    return true;
+  },
+  has(_target, prop) {
+    const database = getDbDependency();
+    return Boolean(database && prop in database);
+  },
+});
 
 // ── Early dependency initialization ───────────────────────────────────────
 // Called explicitly from index.js:init() before provider usage.
@@ -431,7 +464,7 @@ function buildFileContext(...args) { return _fileContextBuilder.buildFileContext
 const DEFAULT_INSTRUCTION_TEMPLATES = _promptsModule.DEFAULT_INSTRUCTION_TEMPLATES;
 
 // Dead code removed (Round 44): detectTaskComplexity() and selectModelForTaskComplexity()
-// were superseded by database.js determineTaskComplexity() + getModelTierForComplexity()
+// were superseded by the database facade determineTaskComplexity() + getModelTierForComplexity()
 // which are used by the smart submit flow in integration-handlers.js.
 
 // isSmallModel, isThinkingModel imported from ./utils/model.js
@@ -1269,7 +1302,7 @@ Object.assign(module.exports, {
   initEarlyDeps,
   initSubModules,
   startQueuePoll,
-  // DI factory (Phase 3) — deps reserved for Phase 5 when database.js facade is removed
+  // DI factory (Phase 3) - deps reserved for dependency-boundary follow-up
   createTaskManager,
 });
 
