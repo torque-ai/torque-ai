@@ -14,6 +14,7 @@ const VALID_SOURCES = new Set([
 const VALID_STATUSES = new Set([
   'pending', 'triaged', 'in_progress', 'completed', 'rejected',
   'intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped',
+  'shipped_stale',
 ]);
 const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped']);
 const PRIORITY_LEVELS = Object.freeze({
