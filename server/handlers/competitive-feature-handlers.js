@@ -6,6 +6,87 @@
  */
 
 // logger available if needed: require('../logger').child({ component: 'competitive-features' })
+const { defaultContainer } = require('../container');
+
+let competitiveFeatureHandlerDeps = {};
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function normalizeCompetitiveFeatureHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'database')) normalized.db = deps.database;
+  if (hasOwn(deps, 'databaseFacade')) normalized.db = deps.databaseFacade;
+  if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
+  if (hasOwn(deps, 'container')) normalized.container = deps.container;
+  return normalized;
+}
+
+function init(deps = {}) {
+  competitiveFeatureHandlerDeps = normalizeCompetitiveFeatureHandlerDeps(deps);
+  return module.exports;
+}
+
+function getContainer() {
+  return hasOwn(competitiveFeatureHandlerDeps, 'container')
+    ? competitiveFeatureHandlerDeps.container
+    : defaultContainer;
+}
+
+function getContainerValue(name) {
+  const container = getContainer();
+  if (!container || typeof container.get !== 'function') {
+    return null;
+  }
+  try {
+    if (typeof container.has === 'function' && !container.has(name)) {
+      return null;
+    }
+    return container.get(name);
+  } catch (_e) {
+    return null;
+  }
+}
+
+function unwrapDb(db) {
+  return db && typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+}
+
+function getDbDependency() {
+  if (hasOwn(competitiveFeatureHandlerDeps, 'rawDb')) {
+    return competitiveFeatureHandlerDeps.rawDb;
+  }
+  if (hasOwn(competitiveFeatureHandlerDeps, 'db')) {
+    return competitiveFeatureHandlerDeps.db;
+  }
+  return getContainerValue('db');
+}
+
+function getRawDbDependency() {
+  return unwrapDb(getDbDependency());
+}
+
+function withCompetitiveFeatureHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = competitiveFeatureHandlerDeps;
+    competitiveFeatureHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      if (result && typeof result.then === 'function') {
+        return result.finally(() => {
+          competitiveFeatureHandlerDeps = previousDeps;
+        });
+      }
+      competitiveFeatureHandlerDeps = previousDeps;
+      return result;
+    } catch (err) {
+      competitiveFeatureHandlerDeps = previousDeps;
+      throw err;
+    }
+  };
+}
 
 // ─── Provider Comparison ─────────────────────────────────────────────────
 
@@ -56,13 +137,7 @@ async function handleListProjectTemplates(_args) {
 
 async function handleGetProviderScores(args) {
   const scoring = require('../db/provider-scoring');
-  let inst;
-  try {
-    const { defaultContainer } = require('../container');
-    inst = defaultContainer.get('db');
-  } catch (_e) {
-    inst = require('../database');
-  }
+  const inst = getRawDbDependency();
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   scoring.init(inst);
   const trustedOnly = args.trusted_only !== false;
@@ -119,13 +194,7 @@ async function handlePolishTaskDescription(args) {
 
 async function handleIndexProject(args) {
   const indexer = require('../utils/symbol-indexer');
-  let inst;
-  try {
-    const { defaultContainer } = require('../container');
-    inst = defaultContainer.get('db');
-  } catch (_e) {
-    inst = require('../database');
-  }
+  const inst = getDbDependency();
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   const workingDir = args.working_directory;
   if (!workingDir) return { content: [{ type: 'text', text: 'working_directory is required' }], isError: true };
@@ -141,13 +210,7 @@ async function handleIndexProject(args) {
 
 async function handleSearchSymbols(args) {
   const indexer = require('../utils/symbol-indexer');
-  let inst;
-  try {
-    const { defaultContainer } = require('../container');
-    inst = defaultContainer.get('db');
-  } catch (_e) {
-    inst = require('../database');
-  }
+  const inst = getDbDependency();
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   indexer.init(inst);
   const results = indexer.searchSymbols(args.query || '', args.working_directory || '', {
@@ -169,13 +232,7 @@ async function handleSearchSymbols(args) {
 
 async function handleGetSymbolSource(args) {
   const indexer = require('../utils/symbol-indexer');
-  let inst;
-  try {
-    const { defaultContainer } = require('../container');
-    inst = defaultContainer.get('db');
-  } catch (_e) {
-    inst = require('../database');
-  }
+  const inst = getDbDependency();
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   indexer.init(inst);
   const result = indexer.getSymbolSource(args.symbol_id);
@@ -188,13 +245,7 @@ async function handleGetSymbolSource(args) {
 
 async function handleGetFileOutline(args) {
   const indexer = require('../utils/symbol-indexer');
-  let inst;
-  try {
-    const { defaultContainer } = require('../container');
-    inst = defaultContainer.get('db');
-  } catch (_e) {
-    inst = require('../database');
-  }
+  const inst = getDbDependency();
   if (!inst) return { content: [{ type: 'text', text: 'Database not available' }], isError: true };
   indexer.init(inst);
   const results = indexer.getFileOutline(args.file_path || '', args.working_directory || '');
@@ -209,20 +260,27 @@ async function handleGetFileOutline(args) {
   return { content: [{ type: 'text', text }], structuredData: results };
 }
 
-function createCompetitiveFeatureHandlers() {
+function buildCompetitiveFeatureHandlerExports(deps = competitiveFeatureHandlerDeps) {
   return {
-    handleCompareProviders,
-    handleReviewTaskOutput,
-    handleDetectProjectType,
-    handleListProjectTemplates,
-    handleGetProviderScores,
-    handleGetCircuitBreakerStatus,
-    handlePolishTaskDescription,
-    handleIndexProject,
-    handleSearchSymbols,
-    handleGetSymbolSource,
-    handleGetFileOutline,
+    handleCompareProviders: withCompetitiveFeatureHandlerDeps(deps, handleCompareProviders),
+    handleReviewTaskOutput: withCompetitiveFeatureHandlerDeps(deps, handleReviewTaskOutput),
+    handleDetectProjectType: withCompetitiveFeatureHandlerDeps(deps, handleDetectProjectType),
+    handleListProjectTemplates: withCompetitiveFeatureHandlerDeps(deps, handleListProjectTemplates),
+    handleGetProviderScores: withCompetitiveFeatureHandlerDeps(deps, handleGetProviderScores),
+    handleGetCircuitBreakerStatus: withCompetitiveFeatureHandlerDeps(deps, handleGetCircuitBreakerStatus),
+    handlePolishTaskDescription: withCompetitiveFeatureHandlerDeps(deps, handlePolishTaskDescription),
+    handleIndexProject: withCompetitiveFeatureHandlerDeps(deps, handleIndexProject),
+    handleSearchSymbols: withCompetitiveFeatureHandlerDeps(deps, handleSearchSymbols),
+    handleGetSymbolSource: withCompetitiveFeatureHandlerDeps(deps, handleGetSymbolSource),
+    handleGetFileOutline: withCompetitiveFeatureHandlerDeps(deps, handleGetFileOutline),
   };
+}
+
+function createCompetitiveFeatureHandlers(deps = {}) {
+  const hasDeps = deps && Object.keys(deps).length > 0;
+  return buildCompetitiveFeatureHandlerExports(
+    hasDeps ? normalizeCompetitiveFeatureHandlerDeps(deps) : competitiveFeatureHandlerDeps
+  );
 }
 
 module.exports = {
@@ -237,5 +295,6 @@ module.exports = {
   handleSearchSymbols,
   handleGetSymbolSource,
   handleGetFileOutline,
+  init,
   createCompetitiveFeatureHandlers,
 };
