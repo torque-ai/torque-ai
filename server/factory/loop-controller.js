@@ -4529,8 +4529,98 @@ function stripAnsi(text) {
 // blowing past reasonable prompt budgets.
 const VERIFY_FIX_PROMPT_TAIL_BUDGET = 16000;
 
-function buildVerifyFixPrompt({ planPath, planTitle, branch, verifyCommand, verifyOutput }) {
+const VERIFY_FIX_PROMPT_PRIOR_BUDGET = 1800;
+
+function renderFilesTouched(files, file_count) {
+  const arr = Array.isArray(files) ? files : [];
+  if (arr.length === 0) return 'none';
+  const head = arr.slice(0, 5).join(', ');
+  const extra = file_count > 5 ? ` (+${file_count - 5} more)` : '';
+  return `${head}${extra}`;
+}
+
+function renderAttempt(a, labelNumber) {
+  const verifyRetryIdx = labelNumber == null ? '' : ` (verify retry #${labelNumber})`;
+  const kindLabel = a.kind === 'verify_retry' ? `verify_retry${verifyRetryIdx}` : 'execute';
+  const head = `- Attempt ${a.attempt} (${kindLabel}): ${a.file_count} files touched`;
+  const filesPart = a.file_count > 0 ? ` — ${renderFilesTouched(a.files_touched, a.file_count)}.` : '';
+  const classified = a.file_count === 0 && a.zero_diff_reason
+    ? ` — classified as \`${a.zero_diff_reason}\`.`
+    : '.';
+  const summary = String(a.stdout_tail || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+  const summaryLine = summary ? `\n  Codex summary: "${summary}"` : '';
+  return `${head}${filesPart}${classified}${summaryLine}`;
+}
+
+function renderProgression(prevOutput, currOutput) {
+  try {
+    const { extractFailingTestNames } = require('./verify-signature');
+    const prev = extractFailingTestNames(prevOutput);
+    const curr = extractFailingTestNames(currOutput);
+    if (prev.length === 0 && curr.length === 0) return null;
+
+    const prevSet = new Set(prev);
+    const currSet = new Set(curr);
+    const newlyPassing = prev.filter((n) => !currSet.has(n));
+    const newlyFailing = curr.filter((n) => !prevSet.has(n));
+
+    const lines = ['Verify error progression:'];
+    lines.push(`- Previous run failed with: ${prev.length} failure${prev.length === 1 ? '' : 's'}${prev.length ? ` ("${prev.slice(0, 3).join('", "')}"${prev.length > 3 ? ', …' : ''})` : ''}`);
+    lines.push(`- This run is failing with: ${curr.length} failure${curr.length === 1 ? '' : 's'}${curr.length ? ` ("${curr.slice(0, 3).join('", "')}"${curr.length > 3 ? ', …' : ''})` : ''}`);
+    let verdict;
+    if (newlyPassing.length > 0 && newlyFailing.length === 0) {
+      verdict = `  → Partial progress. ${newlyPassing.length} test${newlyPassing.length === 1 ? '' : 's'} now passing. Keep current approach.`;
+    } else if (newlyFailing.length > 0 && newlyPassing.length === 0) {
+      verdict = `  → New failures introduced. Consider reverting part of last attempt.`;
+    } else if (newlyPassing.length === 0 && newlyFailing.length === 0 && prev.length > 0) {
+      verdict = `  → Same failures. Previous approach did not move the needle; try a different angle.`;
+    } else if (newlyPassing.length > 0 && newlyFailing.length > 0) {
+      verdict = `  → Mixed: ${newlyPassing.length} newly passing, ${newlyFailing.length} newly failing.`;
+    } else {
+      verdict = `  → No comparable change.`;
+    }
+    lines.push(verdict);
+    return lines.join('\n');
+  } catch {
+    return null;
+  }
+}
+
+function buildPriorAttemptsBlock(priorAttempts, verifyOutputPrev, verifyOutput) {
+  const attempts = Array.isArray(priorAttempts) ? [...priorAttempts] : [];
+  if (attempts.length === 0) return null;
+
+  attempts.sort((a, b) => a.attempt - b.attempt);
+
+  let verifyRetryIdx = 0;
+  const rendered = attempts.map((a) => {
+    if (a.kind === 'verify_retry') {
+      verifyRetryIdx += 1;
+      return renderAttempt(a, verifyRetryIdx);
+    }
+    return renderAttempt(a, null);
+  });
+
+  let elidedCount = 0;
+  let block = `Prior attempts on this work item:\n${rendered.join('\n')}`;
+  while (block.length > VERIFY_FIX_PROMPT_PRIOR_BUDGET && rendered.length > 1) {
+    rendered.shift();
+    elidedCount += 1;
+    block = `Prior attempts on this work item:\n(${elidedCount} earlier attempt${elidedCount === 1 ? '' : 's'} elided)\n${rendered.join('\n')}`;
+  }
+
+  const progression = renderProgression(verifyOutputPrev, verifyOutput);
+  if (progression) block += `\n\n${progression}`;
+
+  return block;
+}
+
+function buildVerifyFixPrompt({
+  planPath, planTitle, branch, verifyCommand, verifyOutput,
+  priorAttempts, verifyOutputPrev,
+}) {
   const tail = stripAnsi(String(verifyOutput || '')).slice(-VERIFY_FIX_PROMPT_TAIL_BUDGET);
+  const priorBlock = buildPriorAttemptsBlock(priorAttempts, verifyOutputPrev, verifyOutput);
   const lines = [
     `Plan: ${planTitle || '(unknown)'}`,
     planPath ? `Plan path: ${planPath}` : null,
@@ -4539,6 +4629,8 @@ function buildVerifyFixPrompt({ planPath, planTitle, branch, verifyCommand, veri
     '',
     'The plan tasks for this batch were implemented, but the verify step failed. Read the error output below and make the minimum changes needed to turn the failures green. Common issues: a test that references a module the plan forgot to update, an alignment/invariant test that needs the new entry registered, a stale snapshot, a missing import, a type mismatch, or a lint rule violation.',
     '',
+    priorBlock,
+    priorBlock ? '' : null,
     'Constraints:',
     '- Edit only files in this worktree.',
     '- Do NOT revert the plan\'s intended changes — fix forward.',
@@ -4551,7 +4643,7 @@ function buildVerifyFixPrompt({ planPath, planTitle, branch, verifyCommand, veri
     '```',
     '',
     'After making the edits, stop.',
-  ].filter((x) => x !== null);
+  ].filter((x) => x !== null && x !== undefined);
   return lines.join('\n');
 }
 
@@ -4716,12 +4808,30 @@ async function submitVerifyFixTask({
   const planPath = workItem?.origin?.plan_path || null;
   const planTitle = workItem?.title || workItem?.origin?.title || null;
 
+  const attemptHistory = require('../db/factory-attempt-history');
+  const workItemIdStr = String((workItem && workItem.id) || '');
+  const priorAttempts = workItemIdStr
+    ? attemptHistory.listByWorkItem(workItemIdStr, { limit: 3 }).reverse()
+    : [];
+  const latest = priorAttempts[priorAttempts.length - 1];
+  const verifyOutputPrev = latest && latest.verify_output_tail ? latest.verify_output_tail : null;
+
+  if (latest && latest.id) {
+    try {
+      attemptHistory.updateVerifyOutputTail(
+        latest.id,
+        stripAnsi(String(verifyOutput || '')).slice(-VERIFY_FIX_PROMPT_TAIL_BUDGET)
+      );
+    } catch (e) {
+      logger.warn('attempt_history_verify_tail_update_failed', { err: e.message });
+    }
+  }
+
   const prompt = buildVerifyFixPrompt({
-    planPath,
-    planTitle,
+    planPath, planTitle,
     branch: worktreeRecord.branch,
-    verifyCommand,
-    verifyOutput,
+    verifyCommand, verifyOutput,
+    priorAttempts, verifyOutputPrev,
   });
 
   // plan_task_number tag makes factory-worktree-auto-commit listener
@@ -6877,6 +6987,7 @@ module.exports = {
   shouldQuarantineForEmptyMerges,
   // Test hooks
   setWorktreeRunnerForTests,
+  __testing__: { VERIFY_FIX_PROMPT_PRIOR_BUDGET, buildPriorAttemptsBlock, renderProgression },
   _internalForTests: {
     claimNextWorkItemForInstance,
     healAlreadyShippedWorkItem,
