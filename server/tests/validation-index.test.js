@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const Module = require('module');
 const { randomUUID } = require('crypto');
 
 const { gitSync, cleanupRepo } = require('./git-test-utils');
@@ -341,10 +342,58 @@ describe('validation handler index', () => {
   });
 
   describe('createValidationHandlers', () => {
+    it('uses an injected database dependency for validation result reads', () => {
+      const fakeDb = {
+        getValidationResults: vi.fn(() => [{
+          severity: 'error',
+          rule_name: 'Injected validation rule',
+          details: 'read through fake db',
+        }]),
+      };
+
+      const handlers = validationModule.createValidationHandlers({ db: fakeDb });
+      const result = handlers.handleGetValidationResults({ task_id: 'task-from-fake-db' });
+      const text = getText(result);
+
+      expect(fakeDb.getValidationResults).toHaveBeenCalledWith('task-from-fake-db', 'warning');
+      expect(result.isError).toBeFalsy();
+      expect(text).toContain('Injected validation rule');
+      expect(text).toContain('read through fake db');
+    });
+
+    it('exercises validation handlers without requiring the database facade directly', () => {
+      const originalLoad = Module._load;
+      const blockedRequests = [];
+      delete require.cache[require.resolve('../handlers/validation')];
+
+      Module._load = function patchedLoad(request, parent, isMain) {
+        const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+        if (request === '../../database' && parentFile.endsWith('server/handlers/validation/index.js')) {
+          blockedRequests.push(request);
+          throw new Error('validation handler should not require database facade');
+        }
+        return originalLoad.call(this, request, parent, isMain);
+      };
+
+      try {
+        const loadedHandlers = require('../handlers/validation');
+        const result = loadedHandlers.handleConfigureDiffPreview({ required: true });
+
+        expect(typeof loadedHandlers.handleGetValidationResults).toBe('function');
+        expect(result.isError).toBeFalsy();
+        expect(getText(result)).toContain('Required:** Yes');
+        expect(blockedRequests).toEqual([]);
+      } finally {
+        Module._load = originalLoad;
+        delete require.cache[require.resolve('../handlers/validation')];
+        validationModule = require('../handlers/validation');
+      }
+    });
+
     it('returns the same public handler interface as the module exports', () => {
       const handlers = validationModule.createValidationHandlers();
       const expectedKeys = Object.keys(validationModule)
-        .filter((key) => key !== 'createValidationHandlers')
+        .filter((key) => key !== 'createValidationHandlers' && key !== 'init')
         .sort();
 
       expect(Object.keys(handlers).sort()).toEqual(expectedKeys);
