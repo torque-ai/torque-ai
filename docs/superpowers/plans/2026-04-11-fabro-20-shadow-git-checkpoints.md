@@ -235,7 +235,7 @@ Commit: `feat(checkpoints): snapshot working tree on task finalization`.
 
 ## Task 3: MCP tools + docs + smoke
 
-- [ ] **Step 1: Tool defs**
+- [x] **Step 1: Tool defs**
 
 Create `server/tool-defs/checkpoint-defs.js`:
 
@@ -263,7 +263,7 @@ const CHECKPOINT_TOOLS = [
 module.exports = { CHECKPOINT_TOOLS };
 ```
 
-- [ ] **Step 2: Handler**
+- [x] **Step 2: Handler**
 
 Create `server/handlers/checkpoint-handlers.js`:
 
@@ -295,7 +295,7 @@ module.exports = { handleListCheckpoints, handleRollbackTask };
 
 Wire dispatch + REST.
 
-- [ ] **Step 3: Docs + restart + smoke**
+- [x] **Step 3: Docs + restart + smoke**
 
 Create `docs/checkpoints.md`:
 
