@@ -7,10 +7,17 @@ const TEST_MARKERS = [
   /^\s*not ok\s+\d+\s+(.+?)$/,
 ];
 
+// Strip any absolute path (drive-letter or unix-style) in a token down to
+// its final file-name segment. Greedy match up to the LAST `/` or `\`.
+function stripPathsInToken(token) {
+  return token.replace(/(?:[A-Za-z]:)?[\\/][^\s>]*[\\/]([^\\/\s>]+)/g, '$1');
+}
+
 function normalizeTestName(name) {
   return name
-    .replace(/[A-Za-z]:[\\/][^\s>]*?([^\\/\s>]+)/g, '$1')
-    .replace(/(?:^|\s)\/[^\s>]*?([^\\/\s>]+)/g, ' $1')
+    .split(/(\s+)/) // keep whitespace delimiters for faithful re-join
+    .map((tok) => (/[\\/]/.test(tok) ? stripPathsInToken(tok) : tok))
+    .join('')
     .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?/g, '')
     .replace(/\b\d{2}:\d{2}:\d{2}(?:\.\d+)?\b/g, '')
     .replace(/\(\d+\s*ms\)/g, '')
@@ -37,8 +44,9 @@ function normalizeStderrTail(output) {
     .slice(-200)
     .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?/g, '')
     .replace(/\b\d{2}:\d{2}:\d{2}(?:\.\d+)?\b/g, '')
-    .replace(/[A-Za-z]:[\\/][^\s>]*?([^\\/\s>]+)/g, '$1')
-    .replace(/(?:^|\s)\/[^\s>]*?([^\\/\s>]+)/g, ' $1')
+    .split(/(\s+)/)
+    .map((tok) => (/[\\/]/.test(tok) ? stripPathsInToken(tok) : tok))
+    .join('')
     .replace(/\b\d{2,}\b/g, 'N')
     .replace(/\s+/g, ' ')
     .trim();
