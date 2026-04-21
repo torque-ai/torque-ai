@@ -179,6 +179,60 @@ describe('captureDirectoryBaselines', () => {
     expect(captured).toContain('b.ts');
   });
 
+  it('captures and persists directory baselines without synchronous file reads', async () => {
+    const subDir = path.join(testDir, 'dir-async-baseline-test');
+    const filePath = 'async-file.js';
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.writeFileSync(path.join(subDir, filePath), 'const asyncBaseline = true;\n', 'utf8');
+
+    const statSyncSpy = vi.spyOn(fs, 'statSync').mockImplementation(() => {
+      throw new Error('statSync should not be called');
+    });
+    const readFileSyncSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
+      throw new Error('readFileSync should not be called');
+    });
+
+    try {
+      const captured = await mod.captureDirectoryBaselines(subDir, ['.js']);
+
+      expect(captured).toEqual([filePath]);
+      expect(statSyncSpy).not.toHaveBeenCalled();
+      expect(readFileSyncSpy).not.toHaveBeenCalled();
+
+      const baseline = rawDb()
+        .prepare('SELECT * FROM file_baselines WHERE file_path = ? AND working_directory = ?')
+        .get(filePath, subDir);
+      expect(baseline).toBeDefined();
+      expect(baseline.size_bytes).toBeGreaterThan(0);
+      expect(baseline.checksum).toHaveLength(64);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('yields to the event loop between captured file batches', async () => {
+    const subDir = path.join(testDir, 'dir-yield-baseline-test');
+    const originalSetImmediate = globalThis.setImmediate;
+    fs.mkdirSync(subDir, { recursive: true });
+
+    for (let i = 0; i < 30; i += 1) {
+      fs.writeFileSync(path.join(subDir, `file-${i}.js`), `const value${i} = ${i};\n`, 'utf8');
+    }
+
+    const setImmediateSpy = vi.spyOn(globalThis, 'setImmediate').mockImplementation((callback, ...args) => {
+      return originalSetImmediate(callback, ...args);
+    });
+
+    try {
+      const captured = await mod.captureDirectoryBaselines(subDir, ['.js']);
+
+      expect(captured).toHaveLength(30);
+      expect(setImmediateSpy).toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('recurses into subdirectories (skipping node_modules)', async () => {
     const subDir = path.join(testDir, 'dir-recurse-test');
     const nested = path.join(subDir, 'src');
