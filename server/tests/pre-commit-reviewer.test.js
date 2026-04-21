@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, vi } = require('vitest');
 const { reviewDiff } = require('../review/pre-commit-reviewer');
 
 describe('reviewDiff', () => {

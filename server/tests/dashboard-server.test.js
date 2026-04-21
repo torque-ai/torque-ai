@@ -296,11 +296,12 @@ describe('dashboard-server', () => {
 
   it('serves static files from dashboard/dist', async () => {
     const distSuffix = path.join('dashboard', 'dist');
+    const indexFileSuffix = path.join('dashboard', 'dist', 'index.html');
     const jsFileSuffix = path.join('dashboard', 'dist', 'app.js');
 
     const existsSync = vi.fn((candidate) => {
       const value = String(candidate);
-      return value.endsWith(distSuffix) || value.endsWith(jsFileSuffix);
+      return value.endsWith(distSuffix) || value.endsWith(indexFileSuffix) || value.endsWith(jsFileSuffix);
     });
 
     const readFile = vi.fn((filePath, cb) => cb(null, Buffer.from('console.log("ok")')));
@@ -594,11 +595,12 @@ describe('dashboard-server', () => {
 
   it('creates static responses with security headers', async () => {
     const distSuffix = path.join('dashboard', 'dist');
+    const indexFileSuffix = path.join('dashboard', 'dist', 'index.html');
     const cssFileSuffix = path.join('dashboard', 'dist', 'style.css');
 
     const existsSync = vi.fn((candidate) => {
       const value = String(candidate);
-      return value.endsWith(distSuffix) || value.endsWith(cssFileSuffix);
+      return value.endsWith(distSuffix) || value.endsWith(indexFileSuffix) || value.endsWith(cssFileSuffix);
     });
 
     const readFile = vi.fn((filePath, cb) => cb(null, Buffer.from('body {}')));
