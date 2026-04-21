@@ -870,7 +870,7 @@ function cleanupStaleRestartBarriers() {
       cleanedCount += 1;
     }
     const elapsedMs = Date.now() - startedAt;
-    logger.info(`[startup-cleanup] startup cleanup: scanned ${scannedCount} tasks, cleaned ${cleanedCount} barriers, took ${elapsedMs}ms`);
+    logger.info(`[startup-cleanup] scanned ${scannedCount} tasks, cleaned ${cleanedCount} barriers, took ${elapsedMs}ms`);
     if (elapsedMs > 5000) {
       logger.warn(`[startup-cleanup] watchdog: scanned ${scannedCount} tasks, cleaned ${cleanedCount} barriers, took ${elapsedMs}ms`);
     }

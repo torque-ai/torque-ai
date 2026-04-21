@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { guardIntakeItem } = require('./meta-intake-guard');
 const logger = require('../logger').child({ component: 'scout-findings-intake' });
 
 const DEFAULT_FILE_FILTER = /-scan\.md$/i;
@@ -95,7 +96,7 @@ function createScoutFindingsIntake({ db, factoryIntake }) {
     `).run(project_id, scan_path, finding_hash, work_item_id, new Date().toISOString());
   }
 
-  function scan({ project_id, findings_dir, filter = DEFAULT_FILE_FILTER }) {
+  async function scan({ project_id, findings_dir, filter = DEFAULT_FILE_FILTER }) {
     if (!project_id) throw new Error('project_id required');
 
     const created = [];
@@ -163,6 +164,16 @@ function createScoutFindingsIntake({ db, factoryIntake }) {
           }
         }
 
+        const guard = await guardIntakeItem({ title: finding.title });
+        if (!guard.ok) {
+          skipped.push({
+            scan_path: filePath,
+            reason: 'meta_task_no_code_output',
+            finding_title: finding.title,
+          });
+          continue;
+        }
+
         let item;
         try {
           item = factoryIntake.createWorkItem({
@@ -183,9 +194,12 @@ function createScoutFindingsIntake({ db, factoryIntake }) {
           });
         } catch (err) {
           logger.warn({ err, scan_path: filePath, finding_title: finding.title }, 'createWorkItem failed');
+          const reason = err?.reason === 'meta_task_no_code_output'
+            ? 'meta_task_no_code_output'
+            : 'create_failed';
           skipped.push({
             scan_path: filePath,
-            reason: 'create_failed',
+            reason,
             error: err.message,
             finding_title: finding.title,
           });

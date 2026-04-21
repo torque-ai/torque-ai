@@ -200,6 +200,7 @@ async function reviewVerifyFailure({
   mergeBase,
   workItem,
   project,
+  batch_id,
   options = {},
 }) {
   const env = detectEnvironmentFailure(verifyOutput);
@@ -254,9 +255,32 @@ async function reviewVerifyFailure({
     void _depErr;
   }
 
-  const failingTests = parseFailingTests(verifyOutput);
+  const failingTests = module.exports.parseFailingTests(verifyOutput);
   const modifiedFiles = await module.exports.getModifiedFiles(workingDirectory, worktreeBranch, mergeBase);
   const intersection = failingTests.filter((t) => modifiedFiles.includes(t));
+
+  if (modifiedFiles.length === 0 && batch_id) {
+    try {
+      const factoryDecisions = require('../db/factory-decisions');
+      const priorDecisions = factoryDecisions.listDecisions(project?.id || null, { stage: 'execute', limit: 20 });
+      const priorSkippedClean = priorDecisions.filter((d) => d.batch_id === batch_id && d.action === 'auto_commit_skipped_clean');
+      if (priorSkippedClean.length >= 1) {
+        return {
+          classification: 'zero_diff_cascade',
+          confidence: 'high',
+          modifiedFiles,
+          failingTests,
+          intersection,
+          environmentSignals: [],
+          llmVerdict: null,
+          llmCritique: null,
+          suggestedRejectReason: 'zero_diff_across_retries',
+        };
+      }
+    } catch (_e) {
+      // factory-decisions lookup failed; fall through to existing logic
+    }
+  }
 
   if (intersection.length > 0) {
     return {

@@ -14,9 +14,15 @@ const VALID_SOURCES = new Set([
 const VALID_STATUSES = new Set([
   'pending', 'triaged', 'in_progress', 'completed', 'rejected',
   'intake', 'prioritized', 'planned', 'executing', 'verifying', 'shipped',
-  'shipped_stale',
+  'shipped_stale', 'unactionable',
 ]);
-const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped']);
+const REJECT_REASONS = Object.freeze(new Set([
+  'meta_task_no_code_output',
+  'zero_diff_across_retries',
+  'retry_off_scope',
+  'branch_stale_vs_master',
+]));
+const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'unactionable']);
 const PRIORITY_LEVELS = Object.freeze({
   low: 30,
   default: 50,
@@ -26,11 +32,29 @@ const PRIORITY_LEVELS = Object.freeze({
   user_override: 100,
 });
 const VALID_PRIORITIES = new Set(Object.keys(PRIORITY_LEVELS));
+const META_TASK_TITLE_PATTERNS = Object.freeze([
+  /\b(?:create|add|write|open)\s+(?:an?\s+)?intake\b.*\b(?:re-?enable|restore|recover)\b.*\b(?:verification|test)\s+coverage\b/i,
+  /\b(?:re-?enable|restore|recover)\b.*\b(?:verification|test)\s+coverage\b.*\bintake\b/i,
+]);
 
 let db = null;
 
 function setDb(dbInstance) {
   db = dbInstance;
+}
+
+function isMetaTaskTitle(title) {
+  if (typeof title !== 'string') return false;
+  const normalized = title.trim();
+  if (!normalized) return false;
+  return META_TASK_TITLE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function createMetaTaskError(title) {
+  const err = new Error(`Rejected meta intake item with no expected code output: ${title}`);
+  err.code = 'FACTORY_META_TASK_NO_CODE_OUTPUT';
+  err.reason = 'meta_task_no_code_output';
+  return err;
 }
 
 function normalizePriority(priority, fallback = PRIORITY_LEVELS.default) {
@@ -62,6 +86,7 @@ function createWorkItem({
   if (!title || typeof title !== 'string') throw new Error('title is required');
   if (source && !VALID_SOURCES.has(source)) throw new Error(`Invalid source: ${source}`);
   if (status && !VALID_STATUSES.has(status)) throw new Error(`Invalid status: ${status}`);
+  if (isMetaTaskTitle(title)) throw createMetaTaskError(title);
 
   // Table uses INTEGER AUTOINCREMENT id and INTEGER priority (from migration v14)
   const numericPriority = normalizePriority(priority);
@@ -139,7 +164,7 @@ function listOpenWorkItems({ project_id, limit } = {}) {
   let sql = `
     SELECT * FROM factory_work_items
     WHERE 1=1
-      AND status NOT IN ('completed', 'rejected', 'shipped')
+      AND status NOT IN ('completed', 'rejected', 'shipped', 'unactionable')
   `;
   const params = [];
 
@@ -214,10 +239,17 @@ function rejectWorkItem(id, reason) {
   return updateWorkItem(id, { status: 'rejected', reject_reason: reason || 'Rejected by user' });
 }
 
+function rejectWorkItemUnactionable(id, reason) {
+  if (!REJECT_REASONS.has(reason)) {
+    throw new Error('Invalid reject reason: ' + reason);
+  }
+  return updateWorkItem(id, { status: 'unactionable', reject_reason: reason });
+}
+
 function findDuplicates(project_id, title) {
   const rows = db.prepare(`
     SELECT * FROM factory_work_items
-    WHERE project_id = ? AND status NOT IN ('rejected', 'shipped', 'completed')
+    WHERE project_id = ? AND status NOT IN ('rejected', 'shipped', 'completed', 'unactionable')
     ORDER BY created_at DESC LIMIT 50
   `).all(project_id);
 
@@ -285,6 +317,7 @@ function createFromFindings(project_id, findings, source) {
 
 module.exports = {
   setDb,
+  isMetaTaskTitle,
   normalizePriority,
   createWorkItem,
   getWorkItem,
@@ -296,12 +329,14 @@ module.exports = {
   claimWorkItem,
   releaseClaimForInstance,
   rejectWorkItem,
+  rejectWorkItemUnactionable,
   findDuplicates,
   linkItems,
   getIntakeStats,
   createFromFindings,
   VALID_SOURCES,
   VALID_STATUSES,
+  REJECT_REASONS,
   VALID_PRIORITIES,
   CLOSED_STATUSES,
 };

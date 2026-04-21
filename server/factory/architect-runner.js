@@ -9,6 +9,7 @@ const factoryArchitect = require('../db/factory-architect');
 const { buildArchitectPrompt } = require('./architect-prompt');
 const { lintPlanContent } = require('./plan-lint');
 const { createScoutFindingsIntake } = require('./scout-findings-intake');
+const { guardIntakeItem } = require('./meta-intake-guard');
 const { composeGuide } = require('./plan-authoring-guide');
 const logger = require('../logger').child({ component: 'architect-runner' });
 const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'rejected', 'shipped']);
@@ -428,7 +429,7 @@ function getArchitectItemPriority(priorityRank) {
   return Math.max(0, Math.min(100, Math.round(100 - rank)));
 }
 
-function promoteBacklogToIntake(project, cycle, backlog) {
+async function promoteBacklogToIntake(project, cycle, backlog) {
   let promoted = 0;
   let skippedExisting = 0;
 
@@ -439,6 +440,25 @@ function promoteBacklogToIntake(project, cycle, backlog) {
 
     if (entry.work_item_id !== null && entry.work_item_id !== undefined) {
       skippedExisting += 1;
+      continue;
+    }
+
+    const guard = await guardIntakeItem({ title: entry.title });
+    if (!guard.ok) {
+      try {
+        const { logDecision } = require('./decision-log');
+        logDecision({
+          project_id: project.id,
+          stage: 'execute',
+          actor: 'architect',
+          action: 'intake_generation_meta_rejected',
+          reasoning: `Architect proposed meta title '${entry.title}'; skipped to avoid zero-diff retry storm`,
+          outcome: { title: entry.title, reason: guard.reason },
+          confidence: 1,
+        });
+      } catch (_err) {
+        // decision logging is best-effort
+      }
       continue;
     }
 
@@ -516,7 +536,7 @@ function updateBacklogWorkItemStatuses(backlog) {
   }
 }
 
-function ingestScoutFindings(project) {
+async function ingestScoutFindings(project) {
   if (!project || !project.path) return;
   try {
     const database = require('../database');
@@ -524,7 +544,7 @@ function ingestScoutFindings(project) {
     if (!db) return;
     const findings_dir = path.join(project.path, 'docs', 'findings');
     const intake = createScoutFindingsIntake({ db, factoryIntake });
-    const result = intake.scan({ project_id: project.id, findings_dir });
+    const result = await intake.scan({ project_id: project.id, findings_dir });
     if (result.created.length > 0 || result.skipped.length > 0) {
       logger.info('scout_findings_ingested', {
         project_id: project.id,
@@ -550,7 +570,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
 
   // Scan docs/findings/ for scout output and promote each finding to intake.
   // Fail soft: a broken scan must not stall the architect cycle.
-  ingestScoutFindings(project);
+  await ingestScoutFindings(project);
 
   const healthScores = normalizeHealthScores(factoryHealth.getLatestScores(project_id));
   const openItems = factoryIntake.listOpenWorkItems({ project_id });
@@ -656,7 +676,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   });
 
   updateBacklogWorkItemStatuses(backlog);
-  const storedCycle = promoteBacklogToIntake(project, cycle, backlog);
+  const storedCycle = await promoteBacklogToIntake(project, cycle, backlog);
 
   logger.info('Architect cycle completed', {
     project_id,

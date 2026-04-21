@@ -17,6 +17,7 @@ const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
 const { pollGitHubIssues } = require('../factory/github-intake');
 const { createPlanFileIntake } = require('../factory/plan-file-intake');
+const { guardIntakeItem } = require('../factory/meta-intake-guard');
 const { createShippedDetector } = require('../factory/shipped-detector');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
 const { buildProjectCostSummary, getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
@@ -770,6 +771,16 @@ async function handleFactoryStatus() {
 
 async function handleCreateWorkItem(args) {
   const project = resolveProject(args.project);
+  const guard = await guardIntakeItem({ title: args.title });
+  if (!guard.ok) {
+    return jsonResponse({
+      message: `Work item rejected: ${guard.reason}`,
+      rejected: true,
+      reason: guard.reason,
+      title: args.title,
+    });
+  }
+
   const item = factoryIntake.createWorkItem({
     project_id: project.id,
     source: args.source,
@@ -843,6 +854,28 @@ async function handleIntakeFromFindings(args) {
     throw new Error('intake_from_findings requires at least one of: findings (array), findings_file (path), or dimension (name)');
   }
 
+  const preGuardCount = findings.length;
+  const droppedMeta = [];
+  const guardedFindings = [];
+  for (const f of findings) {
+    const g = await guardIntakeItem({ title: f && f.title });
+    if (g.ok) {
+      guardedFindings.push(f);
+    } else {
+      droppedMeta.push({ title: (f && f.title) || null, reason: g.reason });
+    }
+  }
+  findings.length = 0;
+  findings.push(...guardedFindings);
+  if (droppedMeta.length > 0) {
+    logger.info('intake_from_findings_meta_rejected', {
+      project_id: project.id,
+      dropped: droppedMeta.length,
+      retained: findings.length,
+      total: preGuardCount,
+    });
+  }
+
   const created = factoryIntake.createFromFindings(project.id, findings, args.source);
   // createFromFindings returns an array with a non-enumerable `.skipped` side-channel.
   const skipped = Array.isArray(created.skipped) ? created.skipped : [];
@@ -851,6 +884,7 @@ async function handleIntakeFromFindings(args) {
     created,
     skipped,
     source_file: sourceFile || null,
+    dropped_meta: droppedMeta,
   });
 }
 

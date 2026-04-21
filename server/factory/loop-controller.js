@@ -1,6 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const childProcess = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -20,6 +21,7 @@ const architectRunner = require('../factory/architect-runner');
 const guardrailRunner = require('../factory/guardrail-runner');
 const { logDecision } = require('./decision-log');
 const factoryNotifications = require('./notifications');
+const branchFreshness = require('./branch-freshness');
 const { createPlanFileIntake } = require('./plan-file-intake');
 const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
@@ -4673,6 +4675,182 @@ const VERIFY_FIX_PROMPT_TAIL_BUDGET = 16000;
 
 const VERIFY_FIX_PROMPT_PRIOR_BUDGET = 1800;
 
+const VERIFY_RETRY_SCOPE_PATH_RE = /[A-Za-z0-9_./\\-]+\.(?:tsx|jsx|cjs|mjs|yaml|yml|json|sql|js|ts|py|cs|md)/g;
+
+function normalizeScopeEnvelopePath(filePath) {
+  return String(filePath || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '');
+}
+
+function extractScopeEnvelopeFiles(text) {
+  const files = new Set();
+  for (const match of String(text || '').matchAll(VERIFY_RETRY_SCOPE_PATH_RE)) {
+    const normalized = normalizeScopeEnvelopePath(match[0]);
+    if (normalized) {
+      files.add(normalized);
+    }
+  }
+  return Array.from(files);
+}
+
+function computeScopeEnvelope(planText, verifyOutput) {
+  return new Set([
+    ...extractScopeEnvelopeFiles(planText),
+    ...extractScopeEnvelopeFiles(verifyOutput),
+  ]);
+}
+
+function getScopeEnvelopeBasenames(scopeEnvelope) {
+  const suffixes = new Set();
+  for (const file of scopeEnvelope || []) {
+    const normalized = normalizeScopeEnvelopePath(file);
+    if (!normalized) continue;
+    suffixes.add(normalized);
+
+    const withoutRoot = normalized
+      .replace(/^[A-Za-z]:\//, '')
+      .replace(/^\/+/, '');
+    if (withoutRoot) {
+      suffixes.add(withoutRoot);
+    }
+
+    const basename = withoutRoot.split('/').filter(Boolean).pop();
+    if (basename) {
+      suffixes.add(basename);
+    }
+  }
+  return Array.from(suffixes);
+}
+
+function isOutOfScope(diffFiles, scopeEnvelope) {
+  const scopeEnvelopeBasenames = getScopeEnvelopeBasenames(scopeEnvelope);
+  return (Array.isArray(diffFiles) ? diffFiles : []).filter((file) => {
+    const normalized = normalizeScopeEnvelopePath(file);
+    return normalized && !scopeEnvelopeBasenames.some((sb) => normalized.endsWith(sb));
+  });
+}
+
+async function getVerifyRetryDiffFiles(workingDirectory) {
+  if (!workingDirectory) return [];
+  return new Promise((resolve) => {
+    let stdout = '';
+    let settled = false;
+    const finish = (files) => {
+      if (settled) return;
+      settled = true;
+      resolve(files);
+    };
+
+    let child;
+    try {
+      child = childProcess.spawn('git', ['diff', '--name-only', 'HEAD~1', 'HEAD'], {
+        cwd: workingDirectory,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      });
+    } catch (_e) {
+      finish([]);
+      return;
+    }
+
+    child.stdout.on('data', (c) => { stdout += c.toString('utf8'); });
+    child.on('error', () => finish([]));
+    child.on('close', (code) => {
+      if (code !== 0) return finish([]);
+      finish(stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0));
+    });
+  });
+}
+
+function readPlanTextForScopeEnvelope(planPath, scopedLogger = logger) {
+  if (!planPath) {
+    scopedLogger?.debug?.({ plan_path: null }, 'verify retry scope envelope: no plan path; plan envelope empty');
+    return '';
+  }
+
+  try {
+    return fs.readFileSync(planPath, 'utf8');
+  } catch (err) {
+    scopedLogger?.debug?.(
+      { err: err && err.message, plan_path: planPath },
+      'verify retry scope envelope: unable to read plan file; plan envelope empty'
+    );
+    return '';
+  }
+}
+
+async function enforceVerifyRetryScopeEnvelope({
+  project_id,
+  batch_id,
+  workItemId,
+  planPath,
+  verifyOutput,
+  worktreePath,
+  attempt,
+  branch,
+  getDiffFiles = getVerifyRetryDiffFiles,
+  logDecisionFn = safeLogDecision,
+  rejectWorkItemUnactionableFn = factoryIntake.rejectWorkItemUnactionable,
+  scopedLogger = logger,
+}) {
+  const planText = readPlanTextForScopeEnvelope(planPath, scopedLogger);
+  const scopeEnvelope = computeScopeEnvelope(planText, verifyOutput);
+  let diffFiles = [];
+
+  try {
+    diffFiles = await getDiffFiles(worktreePath);
+  } catch (err) {
+    scopedLogger?.debug?.(
+      { err: err && err.message, worktree_path: worktreePath },
+      'verify retry scope envelope: unable to inspect retry diff; treating as empty diff'
+    );
+    diffFiles = [];
+  }
+
+  const offScopeFiles = isOutOfScope(diffFiles, scopeEnvelope);
+  if (offScopeFiles.length === 0) {
+    return { ok: true, diffFiles, scopeEnvelope };
+  }
+
+  logDecisionFn({
+    project_id,
+    batch_id,
+    stage: LOOP_STATES.VERIFY,
+    action: 'retry_off_scope',
+    reasoning: 'Verify retry modified files outside the plan and verify stack-trace scope envelope.',
+    inputs: { attempt, branch },
+    outcome: {
+      off_scope_files: offScopeFiles,
+      envelope: Array.from(scopeEnvelope),
+    },
+    confidence: 1,
+  });
+
+  if (workItemId !== null && workItemId !== undefined && typeof rejectWorkItemUnactionableFn === 'function') {
+    try {
+      rejectWorkItemUnactionableFn(workItemId, 'retry_off_scope');
+    } catch (err) {
+      scopedLogger?.warn?.(
+        { err: err && err.message, work_item_id: workItemId },
+        'verify retry scope envelope: failed to mark work item unactionable'
+      );
+    }
+  }
+
+  return {
+    ok: false,
+    reason: 'retry_off_scope',
+    diffFiles,
+    offScopeFiles,
+    scopeEnvelope,
+  };
+}
+
 function renderFilesTouched(files, file_count) {
   const arr = Array.isArray(files) ? files : [];
   if (arr.length === 0) return 'none';
@@ -4831,6 +5009,71 @@ async function maybeShipNoop({ project_id, batch_id, work_item_id }) {
   return { shipped_as_noop: false };
 }
 
+const ZERO_DIFF_SHORT_CIRCUIT_THRESHOLD = 2;
+
+function countConsecutiveAutoCommitSkippedClean(project_id, batch_id, { limit = 20 } = {}) {
+  if (!project_id || !batch_id) return 0;
+  const recent = factoryDecisions.listDecisions(project_id, {
+    stage: LOOP_STATES.EXECUTE.toLowerCase(),
+    limit,
+  }) || [];
+  let consecutiveClean = 0;
+  for (const decision of recent.filter((d) => d.batch_id === batch_id)) {
+    if (decision.action !== 'auto_commit_skipped_clean') {
+      break;
+    }
+    consecutiveClean += 1;
+  }
+  return consecutiveClean;
+}
+
+function maybeShortCircuitZeroDiffExecute({ project, instance, workItem, batchId }) {
+  if (!project?.id || !workItem?.id || !batchId) return null;
+  const zeroDiffAttempts = countConsecutiveAutoCommitSkippedClean(project.id, batchId);
+  if (zeroDiffAttempts < ZERO_DIFF_SHORT_CIRCUIT_THRESHOLD) return null;
+
+  let updatedWorkItem = workItem;
+  try {
+    updatedWorkItem = factoryIntake.rejectWorkItemUnactionable(workItem.id, 'zero_diff_across_retries');
+  } catch (err) {
+    logger.warn('EXECUTE zero-diff short-circuit: failed to mark work item unactionable', {
+      project_id: project.id,
+      work_item_id: workItem.id,
+      error: err.message,
+    });
+  }
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'execute_zero_diff_short_circuit',
+    reasoning: `Work item produced ${zeroDiffAttempts} consecutive zero-diff executes; skipping VERIFY and marking it unactionable.`,
+    inputs: {
+      ...getWorkItemDecisionContext(workItem),
+      zero_diff_attempts: zeroDiffAttempts,
+    },
+    outcome: {
+      work_item_id: workItem.id,
+      instance_id: instance?.id || null,
+      reject_reason: 'zero_diff_across_retries',
+      zero_diff_attempts: zeroDiffAttempts,
+      next_state: LOOP_STATES.IDLE,
+    },
+    confidence: 1,
+    batch_id: batchId,
+  });
+
+  return {
+    reason: 'zero_diff_across_retries',
+    work_item: updatedWorkItem,
+    stage_result: {
+      status: 'unactionable',
+      reason: 'zero_diff_across_retries',
+      zero_diff_attempts: zeroDiffAttempts,
+    },
+  };
+}
+
 async function attemptSilentRerun({
   project_id, batch_id, instance_id,
   priorVerifyOutput, runVerify,
@@ -4945,6 +5188,13 @@ function buildVerifyFixPrompt({
     '```',
     tail,
     '```',
+    '',
+    'SCOPE ENVELOPE — you MUST obey these file rules:',
+    '- Modify ONLY files that appear in either:',
+    '    (a) the plan\'s task list (the \'plan file\' block above), OR',
+    '    (b) filenames that appear in the verify error stack trace (the \'verify output tail\' above).',
+    '- Do NOT create new files unless a new file is explicitly named in the plan.',
+    '- If you believe no code fix is warranted (the failing test is broken, the baseline is wrong, or the diff is unrelated), exit with no changes. Do NOT add unrelated refactors, cleanup, or new features.',
     '',
     'After making the edits, stop.',
   ].filter((x) => x !== null && x !== undefined);
@@ -5295,6 +5545,82 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
       workItemForRetry = null;
     }
 
+    let projectConfig = {};
+    try {
+      projectConfig = project?.config_json ? JSON.parse(project.config_json) : {};
+    } catch (_err) {
+      projectConfig = {};
+    }
+    const thresholdValue = Number(projectConfig.stale_branch_commit_threshold);
+    const staleBranchCommitThreshold = Number.isFinite(thresholdValue) ? thresholdValue : 5;
+    const baseRef = worktreeRecord.base_branch || 'master';
+    const freshness = await branchFreshness.checkBranchFreshness({
+      worktreePath: worktreeRecord.worktreePath,
+      branch: worktreeRecord.branch,
+      baseRef,
+      threshold: staleBranchCommitThreshold,
+    });
+
+    if (freshness.stale) {
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.VERIFY,
+        action: 'branch_stale_detected',
+        reasoning: `Branch ${worktreeRecord.branch} is stale versus ${baseRef}; attempting automatic rebase before VERIFY.`,
+        outcome: {
+          commits_behind: freshness.commitsBehind,
+          stale_files: freshness.staleFiles,
+          threshold: staleBranchCommitThreshold,
+        },
+        confidence: 1,
+        batch_id,
+      });
+
+      const rebaseResult = await branchFreshness.attemptRebase(
+        worktreeRecord.worktreePath,
+        worktreeRecord.branch,
+        baseRef,
+      );
+      if (rebaseResult.ok) {
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.VERIFY,
+          action: 'branch_auto_rebased',
+          reasoning: `Automatically rebased ${worktreeRecord.branch} onto ${baseRef}; proceeding to VERIFY.`,
+          outcome: {
+            branch: worktreeRecord.branch,
+            baseRef,
+          },
+          confidence: 1,
+          batch_id,
+        });
+      } else {
+        if (workItemForRetry && workItemForRetry.id) {
+          factoryIntake.rejectWorkItemUnactionable(workItemForRetry.id, 'branch_stale_vs_master');
+        }
+        safeLogDecision({
+          project_id,
+          stage: LOOP_STATES.VERIFY,
+          action: 'branch_stale_rebase_conflict',
+          reasoning: `Automatic rebase of ${worktreeRecord.branch} onto ${baseRef} failed; pausing VERIFY.`,
+          outcome: {
+            commits_behind: freshness.commitsBehind,
+            stale_files: freshness.staleFiles,
+            error: rebaseResult.error,
+          },
+          confidence: 1,
+          batch_id,
+        });
+        return {
+          status: 'failed',
+          reason: 'branch_stale_vs_master',
+          pause_at_stage: 'VERIFY',
+          branch: worktreeRecord.branch,
+          worktree_path: worktreeRecord.worktreePath,
+        };
+      }
+    }
+
     // Auto-retry: if verify fails, submit a fix task via the auto-router with
     // the error output as context, then re-run verify. Bounded at
     // MAX_AUTO_VERIFY_RETRIES. If still failing after that, auto-reject
@@ -5390,6 +5716,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               mergeBase: worktreeRecord.base_branch || 'main',
               workItem: wi,
               project: project || { id: project_id, path: null },
+              batch_id,
             });
           } catch (err) {
             logger.warn('verify-review classifier failed; falling through to existing retry path', {
@@ -5405,6 +5732,39 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               batch_id,
             });
             review = null;
+          }
+
+          if (review?.classification === 'zero_diff_cascade') {
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.VERIFY,
+              action: 'verify_retry_suppressed_zero_diff',
+              reasoning: 'Verify-retry suppressed: modifiedFiles empty AND prior auto_commit_skipped_clean in batch.',
+              outcome: {
+                reject_reason: 'zero_diff_across_retries',
+                work_item_id: instance?.work_item_id,
+              },
+              confidence: 1,
+              batch_id,
+            });
+            if (instance?.work_item_id) {
+              try {
+                factoryIntake.rejectWorkItemUnactionable(instance.work_item_id, 'zero_diff_across_retries');
+              } catch (err) {
+                logger.warn('verify zero-diff cascade: failed to mark work item unactionable', {
+                  project_id,
+                  work_item_id: instance.work_item_id,
+                  err: err.message,
+                });
+              }
+            }
+            return {
+              status: 'unactionable',
+              reason: 'zero_diff_across_retries',
+              pause_at_stage: null,
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+            };
           }
 
           // missing_dep branch: submit a Codex resolver task, await, re-verify.
@@ -5993,6 +6353,27 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
           confidence: 1,
           batch_id,
         });
+        const scopeEnvelopeResult = await enforceVerifyRetryScopeEnvelope({
+          project_id,
+          batch_id,
+          workItemId: instance?.work_item_id || workItemForRetry?.id || worktreeRecord.workItemId || null,
+          planPath: workItemForRetry?.origin?.plan_path || null,
+          verifyOutput: res.output,
+          worktreePath: worktreeRecord.worktreePath,
+          attempt: retryAttempt,
+          branch: worktreeRecord.branch,
+        });
+        if (!scopeEnvelopeResult.ok) {
+          return {
+            status: 'failed',
+            reason: 'retry_off_scope',
+            pause_at_stage: 'VERIFY_FAIL',
+            branch: worktreeRecord.branch,
+            worktree_path: worktreeRecord.worktreePath,
+            off_scope_files: scopeEnvelopeResult.offScopeFiles,
+            scope_envelope: Array.from(scopeEnvelopeResult.scopeEnvelope || []),
+          };
+        }
       }
     } catch (err) {
       logger.warn('worktree verify threw; treating as verify failure', {
@@ -6068,6 +6449,19 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
     });
     return { status: 'error', error: err.message };
   }
+}
+
+let executeVerifyStageForTests = null;
+
+function setExecuteVerifyStageForTests(fn) {
+  executeVerifyStageForTests = typeof fn === 'function' ? fn : null;
+}
+
+async function runExecuteVerifyStage(project_id, batch_id, instance = null) {
+  if (executeVerifyStageForTests) {
+    return executeVerifyStageForTests(project_id, batch_id, instance);
+  }
+  return executeVerifyStage(project_id, batch_id, instance);
 }
 
 async function executeLearnStage(project_id, batch_id, instance) {
@@ -6449,6 +6843,31 @@ async function runAdvanceLoop(instance_id) {
           reason: 'no_work_item_selected',
         };
       }
+
+      const preExecuteZeroDiff = maybeShortCircuitZeroDiffExecute({
+        project,
+        instance,
+        workItem: targetItem,
+        batchId: instance.batch_id || targetItem.batch_id || getFactorySubmissionBatchId(project, targetItem, instance),
+      });
+      if (preExecuteZeroDiff) {
+        const lastActionAt = instance.last_action_at || null;
+        terminateInstanceAndSync(instance.id);
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: 'execute_zero_diff_short_circuit',
+        });
+        return {
+          project_id: project.id,
+          instance_id,
+          previous_state: previousState,
+          new_state: LOOP_STATES.IDLE,
+          paused_at_stage: null,
+          stage_result: preExecuteZeroDiff.stage_result,
+          reason: preExecuteZeroDiff.reason,
+        };
+      }
+
       if (!targetItem.origin?.plan_path || !fs.existsSync(targetItem.origin.plan_path)) {
         const generated = await executeNonPlanFileStage(project, instance, targetItem);
         if (generated?.work_item) {
@@ -6548,6 +6967,43 @@ async function runAdvanceLoop(instance_id) {
         break;
       }
 
+      // Zero-diff short-circuit: if the last two+ executes for this batch
+      // ended with auto_commit_skipped_clean, the work item is not producing
+      // a diff and Codex is spinning. Reject it as unactionable so the loop
+      // can move on instead of burning more retries.
+      try {
+        const zdBatchId = executeStage?.work_item?.batch_id || instance.batch_id;
+        const workItemForZd = executeStage?.work_item || transitionWorkItem || targetItem || null;
+        const zeroDiff = maybeShortCircuitZeroDiffExecute({
+          project,
+          instance,
+          workItem: workItemForZd,
+          batchId: zdBatchId,
+        });
+        if (zeroDiff) {
+          const lastActionAtZd = instance.last_action_at || null;
+          terminateInstanceAndSync(instance.id);
+          recordFactoryIdleIfExhausted(project.id, {
+            last_action_at: lastActionAtZd,
+            reason: 'execute_zero_diff_short_circuit',
+          });
+          return {
+            project_id: project.id,
+            instance_id,
+            previous_state: previousState,
+            new_state: LOOP_STATES.IDLE,
+            paused_at_stage: null,
+            stage_result: zeroDiff.stage_result,
+            reason: zeroDiff.reason,
+          };
+        }
+      } catch (err) {
+        logger.warn('EXECUTE zero-diff short-circuit: detection failed', {
+          project_id: project.id,
+          error: err.message,
+        });
+      }
+
       if (executeNextState === LOOP_STATES.VERIFY) {
         const executeBatchId = executeStage?.work_item?.batch_id || instance.batch_id;
         const shipResult = await maybeShipNoop({
@@ -6587,7 +7043,7 @@ async function runAdvanceLoop(instance_id) {
           break;
         }
         instance = moveToVerify.instance;
-        stageResult = await executeVerifyStage(project.id, instance.batch_id, instance);
+        stageResult = await runExecuteVerifyStage(project.id, instance.batch_id, instance);
         if (stageResult && stageResult.pause_at_stage) {
           instance = updateInstanceAndSync(instance.id, {
             paused_at_stage: stageResult.pause_at_stage,
@@ -6602,7 +7058,7 @@ async function runAdvanceLoop(instance_id) {
     case LOOP_STATES.VERIFY: {
       const latestVerifyDecision = getLatestStageDecision(project.id, LOOP_STATES.VERIFY);
       const rerunApprovedVerify = ['gate_approved', 'retry_verify_requested'].includes(latestVerifyDecision?.action);
-      stageResult = await executeVerifyStage(project.id, instance.batch_id, instance);
+      stageResult = await runExecuteVerifyStage(project.id, instance.batch_id, instance);
       if (stageResult && stageResult.pause_at_stage) {
         instance = updateInstanceAndSync(instance.id, {
           paused_at_stage: stageResult.pause_at_stage,
@@ -7364,8 +7820,16 @@ module.exports = {
     buildPriorAttemptsBlock,
     renderProgression,
     maybeShipNoop,
+    countConsecutiveAutoCommitSkippedClean,
+    maybeShortCircuitZeroDiffExecute,
     attemptSilentRerun,
     isFactoryFeatureEnabled,
+    setExecuteVerifyStageForTests,
+    extractScopeEnvelopeFiles,
+    computeScopeEnvelope,
+    isOutOfScope,
+    getVerifyRetryDiffFiles,
+    enforceVerifyRetryScopeEnvelope,
   },
   _internalForTests: {
     claimNextWorkItemForInstance,
