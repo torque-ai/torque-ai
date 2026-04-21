@@ -4,7 +4,7 @@ const { LOOP_STATES, TRANSITIONS } = require('../factory/loop-states');
 
 const stateEntries = Object.entries(LOOP_STATES);
 const stateValues = Object.values(LOOP_STATES);
-const terminalStates = new Set([LOOP_STATES.IDLE, LOOP_STATES.PAUSED]);
+const terminalStates = new Set([LOOP_STATES.IDLE, LOOP_STATES.PAUSED, LOOP_STATES.STARVED]);
 const specialStates = new Set([LOOP_STATES.PLAN_REVIEW]);
 const linearStates = stateValues.filter((state) => (
   !terminalStates.has(state) && !specialStates.has(state)

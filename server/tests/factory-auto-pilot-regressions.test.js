@@ -278,7 +278,12 @@ describe('runArchitectLLM', () => {
       trust_level: 'supervised',
     });
     vi.spyOn(factoryHealth, 'getLatestScores').mockReturnValue({ build_ci: 12 });
-    vi.spyOn(factoryIntake, 'listOpenWorkItems').mockReturnValue([]);
+    // Architect runner short-circuits before the LLM submit when intake is
+    // empty (see architect-runner empty-intake guard); seed one item so this
+    // test can still assert the LLM submission's working_directory.
+    vi.spyOn(factoryIntake, 'listOpenWorkItems').mockReturnValue([
+      { id: 'mock-1', title: 'mock', status: 'open' },
+    ]);
     vi.spyOn(factoryArchitect, 'getLatestCycle').mockReturnValue(null);
     vi.spyOn(factoryArchitect, 'createCycle').mockImplementation((payload) => ({
       id: 1,
