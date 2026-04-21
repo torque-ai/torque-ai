@@ -2,34 +2,18 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 const Database = require('better-sqlite3');
 const { runMigrations } = require('../db/migrations');
+const { createTables } = require('../db/schema-tables');
 
 describe('migration 030 — factory_attempt_history + verify_silent_reruns', () => {
   let db;
 
   beforeEach(() => {
     db = new Database(':memory:');
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS factory_projects (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        trust_level TEXT
-      );
-      CREATE TABLE IF NOT EXISTS factory_work_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        project_id TEXT
-      );
-      CREATE TABLE IF NOT EXISTS factory_loop_instances (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        work_item_id INTEGER,
-        batch_id TEXT,
-        loop_state TEXT NOT NULL DEFAULT 'IDLE',
-        paused_at_stage TEXT,
-        last_action_at TEXT,
-        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-        terminated_at TEXT
-      );
-    `);
+    // Seed the full base schema first — runMigrations applies all numbered
+    // migrations in order (e.g. #2 adds an index on provider_task_stats),
+    // so every migration's target table must exist before runMigrations runs.
+    // This mirrors how the production server starts up.
+    createTables(db, { debug() {}, warn() {}, error() {}, info() {} });
   });
 
   afterEach(() => { db.close(); });
