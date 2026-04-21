@@ -76,6 +76,30 @@ function installMock(modulePath, exportsValue) {
   };
 }
 
+function clearModuleCache(modulePaths) {
+  for (const mod of modulePaths) {
+    try {
+      delete require.cache[require.resolve(mod)];
+    } catch { /* ignore */ }
+  }
+}
+
+const DASHBOARD_SERVER_TEST_MODULES = [
+  '../dashboard-server',
+  '../database',
+  '../db/task-core',
+  '../db/host-management',
+  '../dashboard/router',
+  '../dashboard/utils',
+  '../task-manager',
+  'ws',
+];
+
+function resetDashboardServerTestState() {
+  clearModuleCache(DASHBOARD_SERVER_TEST_MODULES);
+  wsInstances = [];
+}
+
 // Shared state for WebSocket mock instances
 let wsInstances = [];
 
@@ -105,22 +129,7 @@ function loadDashboardServer({
   instanceId = 'instance-abc123',
 } = {}) {
   // Clear all module caches for modules we need to re-mock
-  const modulesToClear = [
-    '../dashboard-server',
-    '../database',
-    '../db/task-core',
-    '../db/host-management',
-    '../dashboard/router',
-    '../dashboard/utils',
-    '../task-manager',
-    'ws',
-  ];
-  for (const mod of modulesToClear) {
-    try {
-      const resolved = require.resolve(mod);
-      delete require.cache[resolved];
-    } catch { /* ignore */ }
-  }
+  resetDashboardServerTestState();
 
   wsInstances = [];
 
@@ -232,7 +241,7 @@ function loadDashboardServer({
   if (fsOverrides) {
     const fs = require('fs');
     for (const [key, value] of Object.entries(fsOverrides)) {
-      fs[key] = value;
+      vi.spyOn(fs, key).mockImplementation(value);
     }
   }
 
@@ -270,6 +279,7 @@ describe('dashboard-server', () => {
       activeDashboardServer = null;
     }
     vi.restoreAllMocks();
+    resetDashboardServerTestState();
   });
 
   it('exports start/stop functions', async () => {
