@@ -113,7 +113,20 @@ describe('audit inventory', () => {
 
     try {
       const entries = await inventoryFiles(tempDir, { sourceDirs: ['src'] });
-      expect(readFileSpy).toHaveBeenCalledTimes(entries.length);
+      const sourceReadCounts = new Map();
+
+      for (const [filePath] of readFileSpy.mock.calls) {
+        if (typeof filePath !== 'string' || !filePath.startsWith(tempDir)) {
+          continue;
+        }
+
+        sourceReadCounts.set(filePath, (sourceReadCounts.get(filePath) || 0) + 1);
+      }
+
+      expect(sourceReadCounts.size).toBe(entries.length);
+      for (const entry of entries) {
+        expect(sourceReadCounts.get(entry.path)).toBe(1);
+      }
     } finally {
       readFileSpy.mockRestore();
     }
