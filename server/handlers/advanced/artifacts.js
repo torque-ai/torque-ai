@@ -67,6 +67,27 @@ function formatRunArtifactDetails(artifact, includeContent = false) {
   return output;
 }
 
+function resolveArtifactStoragePath(storagePath) {
+  if (typeof storagePath !== 'string' || storagePath.trim() === '') {
+    return { error: 'storage_path must be a non-empty string' };
+  }
+
+  if (storagePath.split(/[\\/]+/).includes('..')) {
+    return { error: 'storage_path must not contain ".." path traversal segments' };
+  }
+
+  const { getDataDir } = require('../../data-dir');
+  const allowedBase = path.resolve(getDataDir());
+  const resolvedPath = path.resolve(allowedBase, storagePath);
+  const relativePath = path.relative(allowedBase, resolvedPath);
+
+  if (relativePath === '..' || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+    return { error: 'storage_path must resolve within the TORQUE data directory' };
+  }
+
+  return { resolvedPath };
+}
+
 
 /**
  * Store an artifact
@@ -532,21 +553,13 @@ function handleConfigureArtifactStorage(args) {
   const updates = [];
 
   if (args.storage_path !== undefined) {
-    if (typeof args.storage_path !== 'string' || args.storage_path.trim() === '') {
-      return makeError(ErrorCodes.INVALID_PARAM, 'storage_path must be a non-empty string');
+    const validation = resolveArtifactStoragePath(args.storage_path);
+    if (validation.error) {
+      return makeError(ErrorCodes.INVALID_PARAM, validation.error);
     }
 
-    const path = require('path');
-    const { getDataDir } = require('../../data-dir');
-    const allowedBase = path.resolve(getDataDir());
-    const resolved = path.resolve(allowedBase, args.storage_path);
-    const relative = path.relative(allowedBase, resolved);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
-      return makeError(ErrorCodes.INVALID_PARAM, 'storage_path must resolve within the TORQUE data directory');
-    }
-
-    setArtifactConfig('storage_path', resolved);
-    updates.push(`storage_path = ${resolved}`);
+    setArtifactConfig('storage_path', validation.resolvedPath);
+    updates.push(`storage_path = ${validation.resolvedPath}`);
   }
 
   if (args.max_size_mb !== undefined) {
