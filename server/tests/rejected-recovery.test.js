@@ -13,17 +13,22 @@ const { rawDb, setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 let db;
 let testDir;
 
-function createRunningDarkProject() {
+function createDarkProject({ status = 'running' } = {}) {
+  const suffix = Math.random().toString(16).slice(2);
   const project = factoryHealth.registerProject({
-    name: `Rejected Recovery ${Math.random().toString(16).slice(2)}`,
-    path: testDir,
+    name: `Rejected Recovery ${suffix}`,
+    path: `${testDir}/${suffix}`,
     trust_level: 'dark',
     config: {
       loop: { auto_continue: false },
     },
   });
 
-  return factoryHealth.updateProject(project.id, { status: 'running' });
+  return factoryHealth.updateProject(project.id, { status });
+}
+
+function createRunningDarkProject() {
+  return createDarkProject({ status: 'running' });
 }
 
 function createRejectedWorkItem(projectId, {
@@ -46,6 +51,17 @@ function createRejectedWorkItem(projectId, {
   `).run(rejectReason, updatedAt, item.id);
 
   return factoryIntake.getWorkItem(item.id);
+}
+
+function enableRejectRecovery({
+  sweepIntervalMs = 60 * 1000,
+  ageThresholdMs = 60 * 1000,
+  maxReopens = 1,
+} = {}) {
+  configCore.setConfig('reject_recovery_enabled', '1');
+  configCore.setConfig('reject_recovery_sweep_interval_ms', String(sweepIntervalMs));
+  configCore.setConfig('reject_recovery_age_threshold_ms', String(ageThresholdMs));
+  configCore.setConfig('reject_recovery_max_reopens', String(maxReopens));
 }
 
 beforeEach(() => {
@@ -87,10 +103,7 @@ describe('rejected work item recovery sweep', () => {
   it('factory tick reopens eligible rejected items only when reject recovery is enabled', async () => {
     const project = createRunningDarkProject();
     const item = createRejectedWorkItem(project.id);
-    configCore.setConfig('reject_recovery_enabled', '1');
-    configCore.setConfig('reject_recovery_sweep_interval_ms', String(60 * 1000));
-    configCore.setConfig('reject_recovery_age_threshold_ms', String(60 * 1000));
-    configCore.setConfig('reject_recovery_max_reopens', '1');
+    enableRejectRecovery();
 
     await factoryTick.tickProject(project);
 
@@ -115,5 +128,72 @@ describe('rejected work item recovery sweep', () => {
       status: 'pending',
       reopens: 1,
     });
+  });
+
+  it('factory tick runs at most one rejected recovery sweep per configured interval', async () => {
+    const project = createRunningDarkProject();
+    const first = createRejectedWorkItem(project.id);
+    enableRejectRecovery({ sweepIntervalMs: 5 * 60 * 1000, maxReopens: 2 });
+
+    await factoryTick.tickProject(project);
+
+    const second = createRejectedWorkItem(project.id);
+    await factoryTick.tickProject(project);
+
+    expect(factoryIntake.getWorkItem(first.id).status).toBe('pending');
+    expect(factoryIntake.getWorkItem(second.id)).toMatchObject({
+      id: second.id,
+      status: 'rejected',
+      reject_reason: 'verify_failed_after_3_retries',
+    });
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM factory_decisions
+      WHERE action = ?
+    `).get(RECOVERY_DECISION_ACTION).count).toBe(1);
+
+    vi.setSystemTime(new Date('2026-04-18T18:05:01.000Z'));
+    await factoryTick.tickProject(project);
+
+    expect(factoryIntake.getWorkItem(second.id).status).toBe('pending');
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM factory_decisions
+      WHERE action = ?
+    `).get(RECOVERY_DECISION_ACTION).count).toBe(2);
+  });
+
+  it('factory tick skips inactive projects and caps reopened items per sweep', async () => {
+    const runningProject = createRunningDarkProject();
+    const inactiveProject = createDarkProject({ status: 'idle' });
+    const reopened = [
+      createRejectedWorkItem(runningProject.id),
+      createRejectedWorkItem(runningProject.id),
+    ];
+    const capped = createRejectedWorkItem(runningProject.id);
+    const inactive = createRejectedWorkItem(inactiveProject.id);
+    enableRejectRecovery({ maxReopens: 2 });
+
+    await factoryTick.tickProject(runningProject);
+
+    expect(reopened.map((item) => factoryIntake.getWorkItem(item.id).status)).toEqual([
+      'pending',
+      'pending',
+    ]);
+    expect(factoryIntake.getWorkItem(capped.id)).toMatchObject({
+      id: capped.id,
+      status: 'rejected',
+      reject_reason: 'verify_failed_after_3_retries',
+    });
+    expect(factoryIntake.getWorkItem(inactive.id)).toMatchObject({
+      id: inactive.id,
+      status: 'rejected',
+      reject_reason: 'verify_failed_after_3_retries',
+    });
+    expect(db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM factory_decisions
+      WHERE action = ?
+    `).get(RECOVERY_DECISION_ACTION).count).toBe(2);
   });
 });

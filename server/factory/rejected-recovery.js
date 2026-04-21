@@ -170,6 +170,7 @@ function recoverRejectedWorkItems({
   factoryDecisions.setDb(db);
 
   const actions = [];
+  let reopenedCount = 0;
   const items = listRecoverableRejectedWorkItems(db, {
     ageThresholdMs: recoveryConfig.ageThresholdMs,
     nowMs,
@@ -185,6 +186,10 @@ function recoverRejectedWorkItems({
         reopens: priorReopens,
       });
       continue;
+    }
+
+    if (reopenedCount >= recoveryConfig.maxReopens) {
+      break;
     }
 
     const nextReopens = priorReopens + 1;
@@ -231,6 +236,7 @@ function recoverRejectedWorkItems({
         action: 'reopened',
         reopens: nextReopens,
       });
+      reopenedCount++;
     } catch (err) {
       logger.error('Auto-reopen for rejected factory work item failed', {
         event: 'factory_rejected_item_auto_reopen_failed',
