@@ -45,7 +45,7 @@ describe('stale-probe against a real git repo', () => {
       encoding: 'utf8',
     });
     // eslint-disable-next-line no-console
-    console.error('[init-debug]', { tmpDir, initOut: String(initOut).trim(), gitExists: fs.existsSync(path.join(tmpDir, '.git')) });
+    console.error('[init-debug]', { tmpDir, initOut: String(initOut), gitExists: fs.existsSync(path.join(tmpDir, '.git')), listing: fs.readdirSync(tmpDir) });
     git(tmpDir, ['config', 'user.email', 'test@example.com']);
     git(tmpDir, ['config', 'user.name', 'Test']);
   });
