@@ -5,8 +5,22 @@ const path = require('node:path');
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { getOutputSchema, OUTPUT_SCHEMAS } = require('../tool-output-schemas');
+const { validateSchemaNode } = require('../mcp/tool-registry');
 const workflowEngine = require('../db/workflow-engine');
 const taskCore = require('../db/task-core');
+
+const PHASE2_PROVIDER_COST_MONITORING_TOOLS = Object.freeze([
+  'provider_stats',
+  'success_rates',
+  'list_providers',
+  'check_ollama_health',
+  'get_cost_summary',
+  'get_budget_status',
+  'get_cost_forecast',
+  'get_concurrency_limits',
+  'check_stalled_tasks',
+  'check_task_progress',
+]);
 
 function setupSchemaTestDb(suiteName) {
   setupTestDbOnly(suiteName);
@@ -33,6 +47,15 @@ function loadToolDefinitionNames() {
   }
 
   return toolNames;
+}
+
+function expectStructuredDataConformsToOutputSchema(name, structuredData) {
+  const schema = getOutputSchema(name);
+  expect(schema).toBeDefined();
+  expect(structuredData).toBeDefined();
+  const errors = validateSchemaNode(schema, structuredData, '$')
+    .map((error) => `${error.path}: ${error.message}`);
+  expect(errors).toEqual([]);
 }
 
 describe('tool-output-schemas', () => {
@@ -77,9 +100,7 @@ describe('tool-output-schemas', () => {
         'get_progress', 'workflow_status', 'list_workflows', 'list_ollama_hosts',
         'get_context',
         // Phase 2
-        'provider_stats', 'success_rates', 'list_providers', 'check_ollama_health',
-        'get_cost_summary', 'get_budget_status', 'get_cost_forecast',
-        'get_concurrency_limits', 'check_stalled_tasks', 'check_task_progress',
+        ...PHASE2_PROVIDER_COST_MONITORING_TOOLS,
         // Phase 3
         'workflow_history', 'list_models', 'list_pending_models', 'list_model_roles',
         'list_archived', 'get_archive_stats', 'get_provider_health_trends',
@@ -103,6 +124,13 @@ describe('tool-output-schemas', () => {
 
       expect(staleSchemas).toEqual([]);
       for (const name of schemaNames) {
+        expect(getOutputSchema(name)).toBeDefined();
+      }
+    });
+
+    it('declares all 10 Phase 2 provider/cost/monitoring schemas', () => {
+      expect(PHASE2_PROVIDER_COST_MONITORING_TOOLS).toHaveLength(10);
+      for (const name of PHASE2_PROVIDER_COST_MONITORING_TOOLS) {
         expect(getOutputSchema(name)).toBeDefined();
       }
     });
@@ -439,6 +467,7 @@ describe('tool-output-schemas', () => {
       const { handleProviderStats } = require('../handlers/provider-handlers');
       const result = handleProviderStats({ provider: 'ollama' });
 
+      expectStructuredDataConformsToOutputSchema('provider_stats', result.structuredData);
       expect(result.structuredData).toBeDefined();
       expect(result.structuredData.provider).toBe('ollama');
       expect(typeof result.structuredData.total_tasks).toBe('number');
@@ -461,25 +490,36 @@ describe('tool-output-schemas', () => {
       const { handleListProviders } = require('../handlers/provider-handlers');
       const result = handleListProviders();
 
+      expectStructuredDataConformsToOutputSchema('list_providers', result.structuredData);
       expect(result.structuredData).toBeDefined();
       expect(typeof result.structuredData.count).toBe('number');
       expect(Array.isArray(result.structuredData.providers)).toBe(true);
       expect(result.content).toBeDefined();
     });
 
-    // --- check_ollama_health (async, may fail due to no network) ---
+    // --- check_ollama_health ---
     it('check_ollama_health returns structuredData with health counts', async () => {
+      const { randomUUID } = require('crypto');
+      const hostManagement = require('../db/host-management');
       const { handleCheckOllamaHealth } = require('../handlers/provider-ollama-hosts');
-      let result;
-      try {
-        result = await handleCheckOllamaHealth({ force_check: false });
-      } catch {
-        // Network error in test env is expected — skip shape check
-        return;
-      }
+      const hostId = randomUUID();
 
-      if (result.isError) return; // Internal error (no network) — acceptable
+      hostManagement.addOllamaHost({
+        id: hostId,
+        name: 'Schema Test Host',
+        url: `http://127.0.0.1:11434/${hostId}`,
+        max_concurrent: 1,
+        memory_limit_mb: 8192,
+      });
+      hostManagement.updateOllamaHost(hostId, {
+        status: 'healthy',
+        running_tasks: 0,
+        models_cache: JSON.stringify(['schema-test-model']),
+      });
 
+      const result = await handleCheckOllamaHealth({ force_check: false });
+
+      expectStructuredDataConformsToOutputSchema('check_ollama_health', result.structuredData);
       expect(result.structuredData).toBeDefined();
       expect(typeof result.structuredData.healthy_count).toBe('number');
       expect(typeof result.structuredData.total_count).toBe('number');
@@ -492,6 +532,7 @@ describe('tool-output-schemas', () => {
       const { handleGetCostSummary } = require('../handlers/validation');
       const result = handleGetCostSummary({});
 
+      expectStructuredDataConformsToOutputSchema('get_cost_summary', result.structuredData);
       expect(result.structuredData).toBeDefined();
       expect(typeof result.structuredData.days).toBe('number');
       expect(result.content).toBeDefined();
@@ -501,6 +542,7 @@ describe('tool-output-schemas', () => {
       const { handleGetCostSummary } = require('../handlers/validation');
       const result = handleGetCostSummary({ days: 7 });
 
+      expectStructuredDataConformsToOutputSchema('get_cost_summary', result.structuredData);
       expect(result.structuredData).toBeDefined();
       expect(result.structuredData.days).toBe(7);
     });
@@ -510,6 +552,7 @@ describe('tool-output-schemas', () => {
       const { handleGetBudgetStatus } = require('../handlers/validation');
       const result = handleGetBudgetStatus({});
 
+      expectStructuredDataConformsToOutputSchema('get_budget_status', result.structuredData);
       expect(result.structuredData).toBeDefined();
       expect(typeof result.structuredData.count).toBe('number');
       expect(Array.isArray(result.structuredData.budgets)).toBe(true);
@@ -521,6 +564,7 @@ describe('tool-output-schemas', () => {
       const { handleGetCostForecast } = require('../handlers/validation');
       const result = handleGetCostForecast({});
 
+      expectStructuredDataConformsToOutputSchema('get_cost_forecast', result.structuredData);
       expect(result.structuredData).toBeDefined();
       expect(result.structuredData.forecast).toBeDefined();
       expect(result.content).toBeDefined();
@@ -531,13 +575,7 @@ describe('tool-output-schemas', () => {
       const { handleSuccessRates } = require('../handlers/integration');
       const result = handleSuccessRates({});
 
-      // When no metrics data exists, handler returns without structuredData
-      if (!result.structuredData) {
-        // No metrics aggregated yet — acceptable in test env
-        expect(result.content).toBeDefined();
-        return;
-      }
-
+      expectStructuredDataConformsToOutputSchema('success_rates', result.structuredData);
       expect(typeof result.structuredData.count).toBe('number');
       expect(Array.isArray(result.structuredData.rates)).toBe(true);
       expect(result.content).toBeDefined();
@@ -548,6 +586,7 @@ describe('tool-output-schemas', () => {
       const { handleGetConcurrencyLimits } = require('../handlers/concurrency-handlers');
       const result = handleGetConcurrencyLimits();
 
+      expectStructuredDataConformsToOutputSchema('get_concurrency_limits', result.structuredData);
       expect(result.structuredData).toBeDefined();
       expect(Array.isArray(result.structuredData.providers)).toBe(true);
       expect(result.content).toBeDefined();
@@ -556,44 +595,21 @@ describe('tool-output-schemas', () => {
     // --- check_stalled_tasks ---
     it('check_stalled_tasks returns structuredData with running/stalled counts', () => {
       const { handleCheckStalledTasks } = require('../handlers/task/operations');
-      let result;
-      try {
-        result = handleCheckStalledTasks({});
-      } catch {
-        // taskManager may not be fully initialized in test env
-        return;
-      }
+      const result = handleCheckStalledTasks({});
 
-      // When no running tasks, handler returns without structuredData
-      if (!result.structuredData) {
-        expect(result.content).toBeDefined();
-        return;
-      }
-
+      expectStructuredDataConformsToOutputSchema('check_stalled_tasks', result.structuredData);
       expect(typeof result.structuredData.running_count).toBe('number');
       expect(typeof result.structuredData.stalled_count).toBe('number');
       expect(Array.isArray(result.structuredData.tasks)).toBe(true);
       expect(result.content).toBeDefined();
     });
 
-    // --- check_task_progress (async, uses setTimeout) ---
+    // --- check_task_progress ---
     it('check_task_progress returns structuredData with running_count and tasks', async () => {
       const { handleCheckTaskProgress } = require('../handlers/task/operations');
-      let result;
-      try {
-        // Use wait_seconds=0 to minimize delay in tests
-        result = await handleCheckTaskProgress({ wait_seconds: 0 });
-      } catch {
-        // taskManager / timeout issues in test env
-        return;
-      }
+      const result = await handleCheckTaskProgress({ wait_seconds: 0 });
 
-      // When no running tasks, handler returns without structuredData
-      if (!result.structuredData) {
-        expect(result.content).toBeDefined();
-        return;
-      }
-
+      expectStructuredDataConformsToOutputSchema('check_task_progress', result.structuredData);
       expect(typeof result.structuredData.running_count).toBe('number');
       expect(Array.isArray(result.structuredData.tasks)).toBe(true);
       expect(result.content).toBeDefined();
