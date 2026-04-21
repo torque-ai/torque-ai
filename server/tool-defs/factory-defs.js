@@ -506,6 +506,41 @@ const tools = [
     },
   },
   {
+    name: 'list_recovery_strategies',
+    description: 'Lists registered auto-recovery classifier rules and strategies.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'get_recovery_history',
+    description: 'Returns auto-recovery decisions for a factory project.',
+    inputSchema: {
+      type: 'object', required: ['project_id'],
+      properties: {
+        project_id: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'clear_auto_recovery',
+    description: "Resets a project's auto-recovery counters and exhausted flag.",
+    inputSchema: {
+      type: 'object', required: ['project_id'],
+      properties: { project_id: { type: 'string' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'trigger_auto_recovery',
+    description: 'Manually kicks the auto-recovery engine on one project, bypassing cooldown.',
+    inputSchema: {
+      type: 'object', required: ['project_id'],
+      properties: { project_id: { type: 'string' } },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'factory_loop_status',
     description: 'Get current factory loop state for a project — which stage it is in, whether paused, pending approvals, and trust-level gates.',
     inputSchema: {
