@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 describe('ensureGlobalMcpConfig', () => {
-  it('creates config from scratch with key in URL', () => {
+  it('creates torque-auth entry from scratch with key in URL', () => {
     const result = injector.ensureGlobalMcpConfig('torque_sk_test-key-1234', {
       homeDir: tmpHome,
       ssePort: 3458,
@@ -49,9 +49,11 @@ describe('ensureGlobalMcpConfig', () => {
     expect(result.reason).toBe('created');
 
     const data = JSON.parse(fs.readFileSync(mcpPath(), 'utf-8'));
-    expect(data.mcpServers.torque.type).toBe('sse');
-    expect(data.mcpServers.torque.url).toContain('torque_sk_test-key-1234');
-    expect(data.mcpServers.torque.url).toContain('127.0.0.1:3458');
+    expect(data.mcpServers['torque-auth'].type).toBe('sse');
+    expect(data.mcpServers['torque-auth'].url).toContain('torque_sk_test-key-1234');
+    expect(data.mcpServers['torque-auth'].url).toContain('127.0.0.1:3458');
+    // Does not touch the `torque` entry — that belongs to index.js's injector.
+    expect(data.mcpServers.torque).toBeUndefined();
   });
 
   it('merges with existing servers and preserves other entries', () => {
@@ -71,17 +73,45 @@ describe('ensureGlobalMcpConfig', () => {
     expect(result.reason).toBe('created');
     const data = JSON.parse(fs.readFileSync(mcpPath(), 'utf-8'));
     expect(data.mcpServers['other-tool'].command).toBe('other');
-    expect(data.mcpServers.torque.url).toContain('torque_sk_test-key-1234');
+    expect(data.mcpServers['torque-auth'].url).toContain('torque_sk_test-key-1234');
+  });
+
+  it('leaves an existing streamable-http torque entry untouched', () => {
+    fs.mkdirSync(claudeDir(), { recursive: true });
+    const existing = {
+      mcpServers: {
+        torque: {
+          type: 'streamable-http',
+          url: 'http://127.0.0.1:3458/mcp',
+          description: 'TORQUE - Task Orchestration System with local LLM routing',
+        },
+      },
+    };
+    fs.writeFileSync(mcpPath(), JSON.stringify(existing, null, 2));
+
+    const result = injector.ensureGlobalMcpConfig('torque_sk_test-key-1234', {
+      homeDir: tmpHome,
+      ssePort: 3458,
+    });
+
+    expect(result.injected).toBe(true);
+    const data = JSON.parse(fs.readFileSync(mcpPath(), 'utf-8'));
+    // index.js's streamable-http entry is preserved verbatim.
+    expect(data.mcpServers.torque.type).toBe('streamable-http');
+    expect(data.mcpServers.torque.url).toBe('http://127.0.0.1:3458/mcp');
+    // Auth plugin's keyed entry lives under torque-auth.
+    expect(data.mcpServers['torque-auth'].type).toBe('sse');
+    expect(data.mcpServers['torque-auth'].url).toContain('torque_sk_test-key-1234');
   });
 
   it('is idempotent when URL already matches', () => {
     fs.mkdirSync(claudeDir(), { recursive: true });
     const existing = {
       mcpServers: {
-        torque: {
+        'torque-auth': {
           type: 'sse',
           url: 'http://127.0.0.1:3458/sse?apiKey=torque_sk_test-key-1234',
-          description: 'TORQUE - Task Orchestration System with local LLM routing',
+          description: 'TORQUE - Task Orchestration System (enterprise auth)',
         },
       },
     };
@@ -102,7 +132,7 @@ describe('ensureGlobalMcpConfig', () => {
     fs.mkdirSync(claudeDir(), { recursive: true });
     fs.writeFileSync(mcpPath(), JSON.stringify({
       mcpServers: {
-        torque: {
+        'torque-auth': {
           type: 'sse',
           url: 'http://127.0.0.1:3458/sse?apiKey=torque_sk_old-key',
         },
@@ -117,8 +147,8 @@ describe('ensureGlobalMcpConfig', () => {
     expect(result.injected).toBe(true);
     expect(result.reason).toBe('updated');
     const data = JSON.parse(fs.readFileSync(mcpPath(), 'utf-8'));
-    expect(data.mcpServers.torque.url).toContain('torque_sk_new-key');
-    expect(data.mcpServers.torque.url).not.toContain('torque_sk_old-key');
+    expect(data.mcpServers['torque-auth'].url).toContain('torque_sk_new-key');
+    expect(data.mcpServers['torque-auth'].url).not.toContain('torque_sk_old-key');
   });
 
   it('returns parse_error without corrupting file', () => {
@@ -165,7 +195,7 @@ describe('ensureGlobalMcpConfig', () => {
 
     expect(result.injected).toBe(true);
     const data = JSON.parse(fs.readFileSync(mcpPath(), 'utf-8'));
-    expect(data.mcpServers.torque.url).toContain(':9999/sse');
+    expect(data.mcpServers['torque-auth'].url).toContain(':9999/sse');
   });
 
   it('skips injection when a keyless torque-sse entry is already present', () => {
@@ -192,7 +222,7 @@ describe('ensureGlobalMcpConfig', () => {
     expect(fs.statSync(mcpPath()).mtimeMs).toBe(mtimeBefore);
 
     const data = JSON.parse(fs.readFileSync(mcpPath(), 'utf-8'));
-    expect(data.mcpServers.torque).toBeUndefined();
+    expect(data.mcpServers['torque-auth']).toBeUndefined();
     expect(data.mcpServers['torque-sse'].url).toBe('http://127.0.0.1:3458/sse');
   });
 
@@ -214,14 +244,14 @@ describe('ensureGlobalMcpConfig', () => {
 
     expect(result.injected).toBe(true);
     const data = JSON.parse(fs.readFileSync(mcpPath(), 'utf-8'));
-    expect(data.mcpServers.torque.url).toContain('torque_sk_test-key-1234');
+    expect(data.mcpServers['torque-auth'].url).toContain('torque_sk_test-key-1234');
   });
 
-  it('preserves user-added fields on torque entry', () => {
+  it('preserves user-added fields on torque-auth entry', () => {
     fs.mkdirSync(claudeDir(), { recursive: true });
     fs.writeFileSync(mcpPath(), JSON.stringify({
       mcpServers: {
-        torque: {
+        'torque-auth': {
           type: 'sse',
           url: 'http://127.0.0.1:3458/sse?apiKey=torque_sk_old-key',
           description: 'TORQUE',
@@ -237,9 +267,9 @@ describe('ensureGlobalMcpConfig', () => {
     });
 
     const data = JSON.parse(fs.readFileSync(mcpPath(), 'utf-8'));
-    expect(data.mcpServers.torque.url).toContain('torque_sk_new-key');
-    expect(data.mcpServers.torque.customField).toBe('user-value');
-    expect(data.mcpServers.torque.timeout).toBe(30000);
+    expect(data.mcpServers['torque-auth'].url).toContain('torque_sk_new-key');
+    expect(data.mcpServers['torque-auth'].customField).toBe('user-value');
+    expect(data.mcpServers['torque-auth'].timeout).toBe(30000);
   });
 });
 

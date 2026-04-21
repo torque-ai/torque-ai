@@ -10,7 +10,11 @@ const CLAUDE_DIR_NAME = '.claude';
 const KEY_FILENAME = '.torque-api-key';
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_SSE_PORT = 3458;
-const DESCRIPTION = 'TORQUE - Task Orchestration System with local LLM routing';
+const DESCRIPTION = 'TORQUE - Task Orchestration System (enterprise auth)';
+// server/index.js owns the `torque` MCP entry (streamable-http). The auth
+// plugin owns `torque-auth` (keyed SSE) so the two injectors never clobber
+// each other in the shared ~/.claude/.mcp.json file.
+const MCP_SERVER_KEY = 'torque-auth';
 
 function createConfigInjector({ logger } = {}) {
   const safeLogger = logger || { info() {} };
@@ -67,12 +71,12 @@ function createConfigInjector({ logger } = {}) {
         return { injected: false, path: configPath, reason: 'keyless_sse_present' };
       }
 
-      const existing = data.mcpServers.torque;
+      const existing = data.mcpServers[MCP_SERVER_KEY];
       if (existing && existing.url === expectedUrl) {
         return { injected: false, path: configPath, reason: 'already_current' };
       }
 
-      data.mcpServers.torque = {
+      data.mcpServers[MCP_SERVER_KEY] = {
         ...(existing || {}),
         type: 'sse',
         url: expectedUrl,
