@@ -25,7 +25,7 @@
 
 ## Task 1: Shadow repo init + snapshot
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/checkpoints.test.js`:
 
@@ -82,7 +82,7 @@ describe('shadow git checkpoints', () => {
 });
 ```
 
-- [ ] **Step 2: Implement snapshot**
+- [x] **Step 2: Implement snapshot**
 
 Create `server/checkpoints/snapshot.js`:
 
@@ -148,7 +148,7 @@ function snapshotTaskState({ project_root, task_id, task_label }) {
 module.exports = { ensureShadowRepo, snapshotTaskState, shadowDir, SHADOW_DIR_NAME };
 ```
 
-- [ ] **Step 3: Implement rollback**
+- [x] **Step 3: Implement rollback**
 
 Create `server/checkpoints/rollback.js`:
 
@@ -203,7 +203,7 @@ function listCheckpoints(project_root) {
 module.exports = { rollbackTask, listCheckpoints };
 ```
 
-- [ ] **Step 4: Run tests, commit**
+- [x] **Step 4: Run tests, commit**
 
 Run on remote: `npx vitest run tests/checkpoints.test.js --no-coverage` → PASS.
 

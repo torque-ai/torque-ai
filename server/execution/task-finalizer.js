@@ -793,6 +793,16 @@ async function finalizeTask(taskId, options = {}) {
     updateTaskStatus(taskId, ctx.status, statusFields);
 
     ctx.task = deps.db.getTask(taskId) || task;
+    try {
+      const { snapshotTaskState } = require('../checkpoints/snapshot');
+      // Fire-and-forget — checkpoint must not block finalization
+      Promise.resolve().then(() => snapshotTaskState({
+        project_root: ctx.task.working_directory,
+        task_id: taskId,
+        task_label: (ctx.task.task_description || '').slice(0, 80),
+      })).catch(err => logger.info(`[checkpoints] snapshot failed: ${err.message}`));
+    } catch { /* module unavailable */ }
+
     await indexRunArtifacts(taskId, ctx.task?.workflow_id || task?.workflow_id || null);
     try {
       recordStudyTaskCompleted(ctx.task);
