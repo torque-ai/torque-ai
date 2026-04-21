@@ -355,7 +355,7 @@ describe('maintenance/scheduler cron task execution', () => {
       },
     };
 
-    executeScheduledTask(schedule, {
+    await executeScheduledTask(schedule, {
       db,
       debugLog,
       logger,
@@ -373,7 +373,7 @@ describe('maintenance/scheduler cron task execution', () => {
     });
   });
 
-  it('skips a scheduled workflow when the target workflow is already running', () => {
+  it('skips a scheduled workflow when the target workflow is already running', async () => {
     const { executeScheduledTask } = loadFresh('../execution/schedule-runner');
     const schedule = {
       id: 'schedule-workflow-1',
@@ -386,7 +386,7 @@ describe('maintenance/scheduler cron task execution', () => {
       },
     };
 
-    const result = executeScheduledTask(schedule, {
+    const result = await executeScheduledTask(schedule, {
       db,
       debugLog,
       logger,
@@ -414,7 +414,7 @@ describe('maintenance/scheduler cron task execution', () => {
     expect(debugLog).toHaveBeenCalledWith('Skipped scheduled workflow "example-project autodev" because workflow wf-running is still active (running)');
   });
 
-  it('skips a scheduled workflow when another launcher already holds the workflow lock', () => {
+  it('skips a scheduled workflow when another launcher already holds the workflow lock', async () => {
     const { executeScheduledTask } = loadFresh('../execution/schedule-runner');
     db.acquireLock.mockReturnValue({
       acquired: false,
@@ -433,7 +433,7 @@ describe('maintenance/scheduler cron task execution', () => {
       },
     };
 
-    const result = executeScheduledTask(schedule, {
+    const result = await executeScheduledTask(schedule, {
       db,
       debugLog,
       logger,
@@ -460,7 +460,7 @@ describe('maintenance/scheduler cron task execution', () => {
     expect(debugLog).toHaveBeenCalledWith('Skipped scheduled workflow "example-project autodev" because workflow wf-locked launch lock is already held');
   });
 
-  it('skips a scheduled workflow when the target workflow still has open work', () => {
+  it('skips a scheduled workflow when the target workflow still has open work', async () => {
     const { executeScheduledTask } = loadFresh('../execution/schedule-runner');
     const schedule = {
       id: 'schedule-workflow-1b',
@@ -473,7 +473,7 @@ describe('maintenance/scheduler cron task execution', () => {
       },
     };
 
-    const result = executeScheduledTask(schedule, {
+    const result = await executeScheduledTask(schedule, {
       db,
       debugLog,
       logger,
@@ -515,7 +515,7 @@ describe('maintenance/scheduler cron task execution', () => {
     expect(debugLog).toHaveBeenCalledWith('Skipped scheduled workflow "example-project autodev" because workflow wf-pending is still active (pending)');
   });
 
-  it('records a completed schedule run when a scheduled workflow starts successfully', () => {
+  it('records a completed schedule run when a scheduled workflow starts successfully', async () => {
     workflowHandlerMock.handleRunWorkflow.mockReturnValue({
       content: [{ type: 'text', text: '## Workflow Started' }],
     });
@@ -532,7 +532,7 @@ describe('maintenance/scheduler cron task execution', () => {
       },
     };
 
-    const result = executeScheduledTask(schedule, {
+    const result = await executeScheduledTask(schedule, {
       db,
       debugLog,
       logger,
@@ -557,7 +557,7 @@ describe('maintenance/scheduler cron task execution', () => {
     expect(debugLog).toHaveBeenCalledWith('Executed scheduled workflow "example-project autodev" -> workflow wf-idle');
   });
 
-  it('skips a cloned scheduled workflow when the latest generated workflow is still active', () => {
+  it('skips a cloned scheduled workflow when the latest generated workflow is still active', async () => {
     const { executeScheduledTask } = loadFresh('../execution/schedule-runner');
     const schedule = {
       id: 'schedule-workflow-3',
@@ -582,7 +582,7 @@ describe('maintenance/scheduler cron task execution', () => {
       ],
     }));
 
-    const result = executeScheduledTask(schedule, {
+    const result = await executeScheduledTask(schedule, {
       db,
       debugLog,
       logger,
@@ -614,7 +614,7 @@ describe('maintenance/scheduler cron task execution', () => {
     }));
   });
 
-  it('clones and starts a fresh workflow for source-clone schedules', () => {
+  it('clones and starts a fresh workflow for source-clone schedules', async () => {
     workflowHandlerMock.handleCloneWorkflow.mockReturnValue({
       workflow_id: 'wf-generated-2',
       content: [{ type: 'text', text: '## Workflow Cloned' }],
@@ -641,7 +641,7 @@ describe('maintenance/scheduler cron task execution', () => {
       recent_runs: [],
     }));
 
-    const result = executeScheduledTask(schedule, {
+    const result = await executeScheduledTask(schedule, {
       db,
       debugLog,
       logger,

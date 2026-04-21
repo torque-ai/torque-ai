@@ -31,7 +31,7 @@ describe('schedule-runner workflow_spec payloads', () => {
     vi.restoreAllMocks();
   });
 
-  it('dispatches workflow_spec schedules through the workflow spec runner', () => {
+  it('dispatches workflow_spec schedules through the workflow spec runner', async () => {
     const runWorkflowSpec = vi.fn(() => ({
       workflow_id: 'wf-from-spec',
       structuredData: {
@@ -50,7 +50,7 @@ describe('schedule-runner workflow_spec payloads', () => {
       task_config: {},
     };
 
-    const result = executeScheduledTask(schedule, {
+    const result = await executeScheduledTask(schedule, {
       db,
       debugLog,
       logger,
@@ -83,7 +83,7 @@ describe('schedule-runner workflow_spec payloads', () => {
     });
   });
 
-  it('skips workflow_spec schedules that omit spec_path', () => {
+  it('skips workflow_spec schedules that omit spec_path', async () => {
     const runWorkflowSpec = vi.fn();
 
     const { executeScheduledTask } = loadFresh('../execution/schedule-runner');
@@ -96,7 +96,7 @@ describe('schedule-runner workflow_spec payloads', () => {
       task_config: {},
     };
 
-    const result = executeScheduledTask(schedule, {
+    const result = await executeScheduledTask(schedule, {
       db,
       debugLog,
       logger,

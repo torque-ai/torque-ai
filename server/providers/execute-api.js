@@ -174,8 +174,13 @@ function parseTaskMetadata(task) {
 
 function buildProviderExecutionOptions(task, controller, extra = {}) {
   const metadata = parseTaskMetadata(task);
+  // `??` preserves timeout_minutes === 0 ("no timeout" opt-in). Each cloud
+  // provider adapter still has its own `options.timeout || N` coercion at
+  // the moment (anthropic/cerebras/deepinfra/google-ai/groq/hyperbolic/
+  // openrouter/ollama-cloud) — those individual sites are an open follow-up,
+  // but at least the top-level value no longer gets clobbered here.
   const options = {
-    timeout: task.timeout_minutes || 30,
+    timeout: task.timeout_minutes ?? 30,
     maxTokens: 4096,
     signal: controller.signal,
     working_directory: task.working_directory || process.cwd(),

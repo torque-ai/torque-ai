@@ -425,6 +425,18 @@ function classifyWorkflowStartOutcome(taskId, startResult) {
     return 'not_started';
   }
 
+  // Task still reads `pending` — but if startResult is a Promise (i.e.
+  // startTask is async), its close-handler chain just hasn't committed
+  // the status flip yet. Treating this as `not_started` produces spurious
+  // "Task remained pending after start attempt" failures in full-suite
+  // test runs under load. Classify as `queued` optimistically: the Promise
+  // has already been attached a .catch by the caller so failures are still
+  // recorded; success/queue states will land on the next DB read by the
+  // queue scheduler or await_workflow consumer.
+  if (startResult && typeof startResult.then === 'function') {
+    return 'queued';
+  }
+
   return 'not_started';
 }
 
