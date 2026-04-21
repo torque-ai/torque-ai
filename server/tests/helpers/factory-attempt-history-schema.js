@@ -33,15 +33,24 @@ const STATEMENTS = [
     terminated_at TEXT,
     verify_silent_reruns INTEGER NOT NULL DEFAULT 0
   )`,
+  // Matches migration #13 (add_factory_decisions) column layout —
+  // actor and action are NOT NULL, and logDecision() in
+  // server/db/factory-decisions.js binds values for actor,
+  // inputs_json, and confidence on every insert. Omitting these
+  // columns makes the insert silently fail and the tests that
+  // assert on row existence see undefined.
   `CREATE TABLE IF NOT EXISTS factory_decisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id TEXT,
-    batch_id TEXT,
-    stage TEXT,
-    action TEXT,
+    project_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
     reasoning TEXT,
+    inputs_json TEXT,
     outcome_json TEXT,
-    created_at TEXT NOT NULL
+    confidence REAL,
+    batch_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS factory_attempt_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

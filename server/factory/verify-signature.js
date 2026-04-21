@@ -47,7 +47,12 @@ function normalizeStderrTail(output) {
     .split(/(\s+)/)
     .map((tok) => (/[\\/]/.test(tok) ? stripPathsInToken(tok) : tok))
     .join('')
-    .replace(/\b\d{2,}\b/g, 'N')
+    // Drop any 2+ digit run. Word boundaries don't help here because
+    // digit-adjacent letters (e.g. the `T` in `2026-04-20T12:00Z`) are
+    // also word characters, so `\b\d{2,}\b` would leave `20T` / `12`
+    // intact and two runs with different dates would produce
+    // different signatures.
+    .replace(/\d{2,}/g, 'N')
     .replace(/\s+/g, ' ')
     .trim();
 }
