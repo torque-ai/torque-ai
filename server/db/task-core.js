@@ -979,6 +979,53 @@ function countTasksByStatus() {
 }
 
 /**
+ * Get model usage statistics grouped by model and provider.
+ * @param {string} since ISO timestamp lower bound
+ * @returns {Array}
+ */
+function getModelUsageStats(since) {
+  if (!db || dbClosed) return [];
+
+  return db.prepare(`
+    SELECT model, provider,
+      COUNT(*) as total,
+      COUNT(*) as task_count,
+      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+      AVG(CASE WHEN completed_at IS NOT NULL AND started_at IS NOT NULL
+        THEN (julianday(completed_at) - julianday(started_at)) * 86400
+        ELSE NULL END) as avg_duration_seconds,
+      MAX(created_at) as last_used
+    FROM tasks WHERE created_at >= ? AND model IS NOT NULL AND model != ''
+    GROUP BY model, provider ORDER BY total DESC
+  `).all(since);
+}
+
+/**
+ * Get daily model usage series grouped by model and date.
+ * @param {string} since ISO timestamp lower bound
+ * @returns {Array}
+ */
+function getModelDailyUsageSeries(since) {
+  if (!db || dbClosed) return [];
+
+  return db.prepare(`
+    SELECT
+      model,
+      DATE(created_at) as date,
+      COUNT(*) as total,
+      SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+    FROM tasks
+    WHERE created_at >= ?
+      AND model IS NOT NULL
+      AND model != ''
+    GROUP BY model, DATE(created_at)
+    ORDER BY date ASC
+  `).all(since);
+}
+
+/**
  * List all known projects discovered from tasks and project_config.
  * @returns {Array<{name: string, task_count: number, last_active: string|null, has_config: boolean}>}
  */
@@ -1522,6 +1569,8 @@ module.exports = {
   deleteTasks,
   countTasks,
   countTasksByStatus,
+  getModelUsageStats,
+  getModelDailyUsageSeries,
   listKnownProjects,
   // Archive / purge
   archiveOldTasks,

@@ -28,6 +28,8 @@ const mockDb = {
   getValidationFailureRate: vi.fn(),
   listTasks: vi.fn(),
   getDbInstance: vi.fn(),
+  getModelUsageStats: vi.fn(),
+  getModelDailyUsageSeries: vi.fn(),
   getFormatSuccessRatesSummary: vi.fn(),
   getWebhookStats: vi.fn(),
   listWebhooks: vi.fn(),
@@ -220,6 +222,8 @@ function resetMockDefaults() {
   mockDb.getValidationFailureRate.mockReset().mockReturnValue({});
   mockDb.listTasks.mockReset().mockReturnValue([]);
   mockDb.getDbInstance.mockReset().mockReturnValue(null);
+  mockDb.getModelUsageStats.mockReset().mockReturnValue([]);
+  mockDb.getModelDailyUsageSeries.mockReset().mockReturnValue([]);
   mockDb.getFormatSuccessRatesSummary.mockReset().mockReturnValue([]);
   mockDb.getWebhookStats.mockReset().mockReturnValue({
     webhooks: { total: 0, active: 0 },
@@ -621,17 +625,18 @@ describe('api/v2-analytics-handlers', () => {
       const dailyRows = [
         { model: 'gpt-5', date: '2026-03-10', total: 6, completed: 5, failed: 1 },
       ];
-      const all = vi.fn()
-        .mockReturnValueOnce(modelRows)
-        .mockReturnValueOnce(dailyRows);
-      const prepare = vi.fn().mockReturnValue({ all });
 
-      mockDb.getDbInstance.mockReturnValue({ prepare });
+      mockDb.getDbInstance.mockImplementation(() => {
+        throw new Error('getDbInstance should not be called');
+      });
+      mockDb.getModelUsageStats.mockReturnValue(modelRows);
+      mockDb.getModelDailyUsageSeries.mockReturnValue(dailyRows);
 
       await handlers.handleModelStats(req, res);
 
-      expect(prepare).toHaveBeenCalledWith(expect.stringContaining('GROUP BY model, provider'));
-      expect(all).toHaveBeenCalledWith('2026-02-24T12:00:00.000Z');
+      expect(mockDb.getModelUsageStats).toHaveBeenCalledWith('2026-02-24T12:00:00.000Z');
+      expect(mockDb.getModelDailyUsageSeries).toHaveBeenCalledWith('2026-02-24T12:00:00.000Z');
+      expect(mockDb.getDbInstance).not.toHaveBeenCalled();
       const result = expectSuccess(res);
       expect(result.days).toBe(14);
       expect(result.models).toEqual([
@@ -663,39 +668,49 @@ describe('api/v2-analytics-handlers', () => {
       expect(result.dailySeries).toEqual(dailyRows);
     });
 
-    it('returns an empty model list when the sql db instance is missing', async () => {
+    it('returns an empty model list when task-core model stats methods are missing', async () => {
       const res = createMockRes();
 
-      mockDb.getDbInstance.mockReturnValue(null);
-
-      await handlers.handleModelStats(createReq(), res);
+      await withPatchedProperties(mockDb, {
+        getModelUsageStats: null,
+        getModelDailyUsageSeries: null,
+      }, async () => {
+        await handlers.handleModelStats(createReq(), res);
+      });
 
       expect(expectSuccess(res)).toEqual({
         models: [],
+        dailySeries: [],
         days: 7,
       });
+      expect(mockDb.getDbInstance).not.toHaveBeenCalled();
     });
 
-    it('returns an empty model list when the sql db has no prepare method', async () => {
+    it('returns an empty daily series when task-core daily series method is missing', async () => {
       const res = createMockRes();
 
-      mockDb.getDbInstance.mockReturnValue({});
+      mockDb.getModelUsageStats.mockReturnValue([]);
 
-      await handlers.handleModelStats(createReq({ query: { days: '2' } }), res);
+      await withPatchedProperties(mockDb, {
+        getModelDailyUsageSeries: null,
+      }, async () => {
+        await handlers.handleModelStats(createReq({ query: { days: '2' } }), res);
+      });
 
       expect(expectSuccess(res)).toEqual({
         models: [],
+        dailySeries: [],
         days: 2,
       });
+      expect(mockDb.getModelUsageStats).toHaveBeenCalledWith('2026-03-08T12:00:00.000Z');
+      expect(mockDb.getDbInstance).not.toHaveBeenCalled();
     });
 
     it('returns 500 when the model query throws', async () => {
       const res = createMockRes();
 
-      mockDb.getDbInstance.mockReturnValue({
-        prepare() {
-          throw new Error('model stats failed');
-        },
+      mockDb.getModelUsageStats.mockImplementation(() => {
+        throw new Error('model stats failed');
       });
 
       await handlers.handleModelStats(createReq(), res);
@@ -704,6 +719,22 @@ describe('api/v2-analytics-handlers', () => {
         status: 500,
         code: 'operation_failed',
         message: 'model stats failed',
+      });
+    });
+
+    it('returns 500 when the daily series query throws', async () => {
+      const res = createMockRes();
+
+      mockDb.getModelDailyUsageSeries.mockImplementation(() => {
+        throw new Error('daily model stats failed');
+      });
+
+      await handlers.handleModelStats(createReq(), res);
+
+      expectError(res, {
+        status: 500,
+        code: 'operation_failed',
+        message: 'daily model stats failed',
       });
     });
   });
