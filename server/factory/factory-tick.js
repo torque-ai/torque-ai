@@ -33,6 +33,29 @@ async function tickProject(project) {
   try {
     const freshProject = factoryHealth.getProject(project.id);
 
+    // STARVED recovery - re-scout after dwell, transition back to SENSE.
+    if (freshProject && freshProject.loop_state === LOOP_STATES.STARVED) {
+      try {
+        const container = require('../container');
+        const recovery = container.defaultContainer && container.defaultContainer.get
+          ? container.defaultContainer.get('starvationRecovery')
+          : null;
+        if (recovery && typeof recovery.maybeRecover === 'function') {
+          const outcome = await recovery.maybeRecover(freshProject);
+          if (outcome.recovered) {
+            logger.info('Starvation recovery dispatched scouts', { project_id: freshProject.id });
+          } else {
+            logger.debug('Starvation recovery skipped', { project_id: freshProject.id, reason: outcome.reason });
+          }
+        }
+      } catch (err) {
+        logger.warn('Starvation recovery failed', { project_id: freshProject.id, error: err.message });
+      }
+      // STARVED projects do not get reactivated by the rest of tickProject
+      // (Task 3 already excludes them from reactivation), so we can return.
+      return;
+    }
+
     // Baseline probe phase — for projects paused by the verify-review
     // classifier when a baseline (main) was already broken. Task 9 sets
     // baseline_broken_since + baseline_broken_probe_attempts=0 +

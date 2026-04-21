@@ -221,6 +221,72 @@ _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
   const { createProviderScoring } = require('./db/provider-scoring');
   return createProviderScoring({ db: unwrapDb(db) });
 });
+_defaultContainer.register('starvationRecovery', [], () => {
+  const { createStarvationRecovery } = require('./factory/starvation-recovery');
+  const diffusionHandlers = require('./handlers/diffusion-handlers');
+  const loopController = require('./factory/loop-controller');
+
+  // Scout dispatcher: handleSubmitScout takes ONE scope per call, so we fan out
+  // the variant set in parallel. Each variant becomes one scout task.
+  const VARIANT_SCOPES = {
+    quality: 'scan the project for code quality issues, dead code, missing tests, and refactoring opportunities; write findings to docs/findings/',
+    security: 'scan the project for security issues (auth, input validation, secret handling, injection); write findings to docs/findings/',
+    performance: 'scan the project for performance issues (slow queries, N+1, sync I/O, hot paths); write findings to docs/findings/',
+    documentation: 'scan the project for documentation gaps and stale docs; write findings to docs/findings/',
+    'test-coverage': 'scan the project for files lacking test coverage; write findings to docs/findings/',
+    dependency: 'scan the project for outdated, unused, or risky dependencies; write findings to docs/findings/',
+  };
+
+  async function submitScout({ project_id, project_path, variants, reason }) {
+    const list = Array.isArray(variants) && variants.length ? variants : Object.keys(VARIANT_SCOPES);
+    const tasks = await Promise.all(list.map((variant) => {
+      const scope = VARIANT_SCOPES[variant] || `scan the project for ${variant} issues; write findings to docs/findings/`;
+      return Promise.resolve(diffusionHandlers.handleSubmitScout({
+        scope: `${scope} (variant: ${variant}, reason: ${reason || 'starvation_recovery'}, project: ${project_id})`,
+        working_directory: project_path,
+        provider: 'codex',
+      }));
+    }));
+    return { task_count: tasks.length };
+  }
+
+  function updateLoopState(project_id, updates) {
+    const factoryHealth = require('./db/factory-health');
+    const project = factoryHealth.getProject(project_id);
+    if (!project) return;
+    const factoryLoopInstances = require('./db/factory-loop-instances');
+    const instances = factoryLoopInstances.getActiveInstancesForProject
+      ? factoryLoopInstances.getActiveInstancesForProject(project_id)
+      : (loopController.getActiveInstances ? loopController.getActiveInstances(project_id) : []);
+    if (Array.isArray(instances) && instances.length > 0) {
+      const target = instances[0];
+      if (typeof loopController.updateInstanceAndSync === 'function') {
+        loopController.updateInstanceAndSync(target.id, {
+          loop_state: updates.loop_state,
+          last_action_at: updates.last_action_at,
+        });
+      } else if (typeof factoryLoopInstances.updateInstance === 'function') {
+        factoryLoopInstances.updateInstance(target.id, {
+          loop_state: updates.loop_state,
+          last_action_at: updates.last_action_at,
+        });
+        if (typeof loopController.syncLegacyProjectLoopState === 'function') {
+          loopController.syncLegacyProjectLoopState(project_id);
+        }
+      } else if (typeof loopController.syncLegacyProjectLoopState === 'function') {
+        loopController.syncLegacyProjectLoopState(project_id);
+      }
+    } else if (typeof loopController.syncLegacyProjectLoopState === 'function') {
+      loopController.syncLegacyProjectLoopState(project_id);
+    }
+  }
+
+  return createStarvationRecovery({
+    submitScout,
+    updateLoopState,
+    dwellMs: 15 * 60 * 1000,
+  });
+});
 
 
 function getModule(name) {
