@@ -13,7 +13,7 @@ const workflowEngine = require('../../db/workflow-engine');
 const taskManager = require('../../task-manager');
 const { PROVIDER_DEFAULTS, DEFAULT_FALLBACK_MODEL } = require('../../constants');
 const { ErrorCodes, makeError } = require('../error-codes');
-const { MAX_TASK_LENGTH, isPathTraversalSafe, checkProviderAvailability } = require('../shared');
+const { MAX_TASK_LENGTH, isPathTraversalSafe, checkProviderAvailability, resolveHandlerDatabase } = require('../shared');
 const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-study-engine');
@@ -26,6 +26,28 @@ const logger = require('../../logger').child({ component: 'integration-routing' 
 const serverConfig = require('../../config');
 const eventBus = require('../../event-bus');
 serverConfig.init({ db: configCore });
+
+let integrationRoutingHandlerDeps = {};
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function normalizeIntegrationRoutingHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
+  if (hasOwn(deps, 'container')) normalized.container = deps.container;
+  return normalized;
+}
+
+function getIntegrationRoutingDb(deps = integrationRoutingHandlerDeps) {
+  const db = resolveHandlerDatabase(deps, { raw: true });
+  if (!db) {
+    throw new Error('integration-routing handler database dependency is missing (expected db or dbInstance)');
+  }
+  return db;
+}
 
 /**
  * Format a routing rule (or result object) as a Markdown table.
@@ -296,7 +318,7 @@ function resolveSmartSubmitTuning(rawTuning) {
   return tuning;
 }
 
-function extractSmartSubmitInputs(args) {
+function extractSmartSubmitInputs(args, deps = integrationRoutingHandlerDeps) {
   if (!args || typeof args !== 'object') {
     return { error: makeError(ErrorCodes.INVALID_PARAM, 'Arguments object is required') };
   }
@@ -355,13 +377,7 @@ function extractSmartSubmitInputs(args) {
   }
   if (working_directory) {
     try {
-      let rawDb;
-      try {
-        const { defaultContainer } = require('../../container');
-        rawDb = defaultContainer.get('db');
-      } catch {
-        rawDb = require('../../database').getDbInstance();
-      }
+      const rawDb = getIntegrationRoutingDb(deps);
       const versionIntentError = enforceVersionIntentForProject(
         rawDb,
         working_directory,
@@ -372,7 +388,12 @@ function extractSmartSubmitInputs(args) {
       if (versionIntentError) {
         return { error: versionIntentError };
       }
-    } catch (_e) { /* version-intent module unavailable — allow */ }
+    } catch (e) {
+      if (e && /integration-routing handler database dependency/.test(e.message || '')) {
+        return { error: makeError(ErrorCodes.INTERNAL_ERROR, e.message) };
+      }
+      /* version-intent module unavailable — allow */
+    }
   }
 
   const estimatedTokens = Math.max(1, Math.ceil(task.length / 4));
@@ -584,30 +605,30 @@ async function resolveModificationRouting(task, files, routingResult, opts) {
  */
 async function handleSmartSubmitTask(args) {
   try {
-  const inputs = extractSmartSubmitInputs(args);
-  if (inputs.error) return inputs.error;
+    const inputs = extractSmartSubmitInputs(args, integrationRoutingHandlerDeps);
+    if (inputs.error) return inputs.error;
 
-  const {
-    task,
-    working_directory,
-    project,
-    tags,
-    files,
-    model,
-    timeout_minutes,
-    priority,
-    override_provider,
-    tuning: tuningOverrides,
-    estimatedTokens,
-    context_stuff,
-    context_depth,
-    study_context,
-    prefer_free,
-    routing_template,
-    version_intent,
-    task_metadata: userTaskMetadata,
-    __sessionId,
-  } = inputs;
+    const {
+      task,
+      working_directory,
+      project,
+      tags,
+      files,
+      model,
+      timeout_minutes,
+      priority,
+      override_provider,
+      tuning: tuningOverrides,
+      estimatedTokens,
+      context_stuff,
+      context_depth,
+      study_context,
+      prefer_free,
+      routing_template,
+      version_intent,
+      task_metadata: userTaskMetadata,
+      __sessionId,
+    } = inputs;
 
   let selectedProvider;
   let routingResult;
@@ -1622,13 +1643,34 @@ function handleDeleteRoutingRule(args) {
 }
 
 
-function createIntegrationRoutingHandlers(_deps) {
+function withIntegrationRoutingHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = integrationRoutingHandlerDeps;
+    integrationRoutingHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      if (result && typeof result.then === 'function') {
+        return result.finally(() => {
+          integrationRoutingHandlerDeps = previousDeps;
+        });
+      }
+      integrationRoutingHandlerDeps = previousDeps;
+      return result;
+    } catch (error) {
+      integrationRoutingHandlerDeps = previousDeps;
+      throw error;
+    }
+  };
+}
+
+function createIntegrationRoutingHandlers(deps = {}) {
+  const normalizedDeps = normalizeIntegrationRoutingHandlerDeps(deps);
   return {
-    handleSmartSubmitTask,
-    handleTestRouting,
-    handleAddRoutingRule,
-    handleUpdateRoutingRule,
-    handleDeleteRoutingRule,
+    handleSmartSubmitTask: withIntegrationRoutingHandlerDeps(normalizedDeps, handleSmartSubmitTask),
+    handleTestRouting: withIntegrationRoutingHandlerDeps(normalizedDeps, handleTestRouting),
+    handleAddRoutingRule: withIntegrationRoutingHandlerDeps(normalizedDeps, handleAddRoutingRule),
+    handleUpdateRoutingRule: withIntegrationRoutingHandlerDeps(normalizedDeps, handleUpdateRoutingRule),
+    handleDeleteRoutingRule: withIntegrationRoutingHandlerDeps(normalizedDeps, handleDeleteRoutingRule),
   };
 }
 

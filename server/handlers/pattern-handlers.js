@@ -3,7 +3,7 @@
 const { defaultContainer } = require('../container');
 const { runPattern } = require('../patterns/pattern-runner');
 const { createPatternsStore } = require('../patterns/store');
-const { ErrorCodes, makeError, requireString } = require('./shared');
+const { ErrorCodes, makeError, requireString, resolveHandlerDatabase } = require('./shared');
 
 let fallbackPatternsStore = null;
 
@@ -51,7 +51,7 @@ function createPatternHandlerError(message, code = ErrorCodes.INTERNAL_ERROR) {
   return error;
 }
 
-function ensureProviderRegistration(providerRegistry, providerName) {
+function ensureProviderRegistration(providerRegistry, providerName, deps = {}) {
   if (!providerRegistry || typeof providerRegistry.getProviderInstance !== 'function') {
     return;
   }
@@ -61,7 +61,7 @@ function ensureProviderRegistration(providerRegistry, providerName) {
   }
 
   try {
-    const db = require('../database');
+    const db = resolveHandlerDatabase(deps);
     if (db?.isReady?.()) {
       require('../config').init({ db });
       if (typeof providerRegistry.init === 'function') {
@@ -167,7 +167,7 @@ function createPatternHandlers(deps = {}) {
       ? args.provider.trim()
       : 'codex';
     const providerRegistry = getProviderRegistry();
-    ensureProviderRegistration(providerRegistry, providerName);
+    ensureProviderRegistration(providerRegistry, providerName, deps);
     const provider = providerRegistry?.getProviderInstance?.(providerName);
     if (!provider) {
       return makeError(ErrorCodes.NO_HOSTS_AVAILABLE, `Provider not available: ${providerName}`);

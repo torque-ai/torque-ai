@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const Module = require('module');
 const os = require('os');
 const path = require('path');
 
@@ -154,8 +155,12 @@ function createDefaultModules(overrides = {}) {
   };
   const governanceHooks = overrides.governanceHooks || null;
   const defaultContainer = overrides.defaultContainer || {
-    has: vi.fn((name) => name === 'governanceHooks' && Boolean(governanceHooks)),
-    get: vi.fn((name) => (name === 'governanceHooks' ? governanceHooks : undefined)),
+    has: vi.fn((name) => (name === 'governanceHooks' && Boolean(governanceHooks)) || name === 'db'),
+    get: vi.fn((name) => {
+      if (name === 'governanceHooks') return governanceHooks;
+      if (name === 'db') return db;
+      return undefined;
+    }),
   };
 
   return {
@@ -281,6 +286,40 @@ afterEach(() => {
 });
 
 describe('automation-handlers', () => {
+  it('uses injected database dependencies for project defaults without loading the database facade', () => {
+    const db = createMockDb({
+      projectFromPath: { 'C:\\repo': 'repo-project' },
+    });
+    const { handlers } = loadHandlers({ db });
+    const injectedHandlers = handlers.createAutomationHandlers({ db });
+    const originalLoad = Module._load;
+    const blockedRequests = [];
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../database' && parentFile.endsWith('server/handlers/automation-handlers.js')) {
+        blockedRequests.push(request);
+        throw new Error('automation handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    });
+
+    try {
+      const result = injectedHandlers.handleSetProjectDefaults({
+        working_directory: 'C:\\repo',
+        provider: 'codex',
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(db.safeAddColumn).toHaveBeenCalled();
+      expect(db.setProjectConfig).toHaveBeenCalledWith('repo-project', expect.objectContaining({
+        default_provider: 'codex',
+      }));
+      expect(blockedRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
+    }
+  });
+
   describe('configuration handlers', () => {
     it('stores stall detection thresholds and recovery settings', () => {
       const { handlers, mocks } = loadHandlers();

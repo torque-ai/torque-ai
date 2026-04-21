@@ -1,7 +1,31 @@
 'use strict';
 
+const { resolveHandlerDatabase } = require('./shared');
+
+let discoveryHandlerDeps = {};
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function normalizeDiscoveryHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
+  if (hasOwn(deps, 'container')) normalized.container = deps.container;
+  return normalized;
+}
+
+function getDiscoveryDb() {
+  const db = resolveHandlerDatabase(discoveryHandlerDeps, { raw: true });
+  if (!db) {
+    throw new Error('discovery-handlers database dependency is missing (expected db or dbInstance)');
+  }
+  return db;
+}
+
 async function handleDiscoverModels(args) {
-  const db = require('../database').getDbInstance();
+  const db = getDiscoveryDb();
   // Ensure model registry has the DB handle (legacy setDb pattern)
   const registry = require('../models/registry');
   if (typeof registry.setDb === 'function') registry.setDb(db);
@@ -47,8 +71,29 @@ function formatAllResults(results) {
   return out;
 }
 
-function createDiscoveryHandlers() {
-  return { handleDiscoverModels };
+function withDiscoveryHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = discoveryHandlerDeps;
+    discoveryHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      if (result && typeof result.then === 'function') {
+        return result.finally(() => {
+          discoveryHandlerDeps = previousDeps;
+        });
+      }
+      discoveryHandlerDeps = previousDeps;
+      return result;
+    } catch (error) {
+      discoveryHandlerDeps = previousDeps;
+      throw error;
+    }
+  };
+}
+
+function createDiscoveryHandlers(deps = {}) {
+  const normalizedDeps = normalizeDiscoveryHandlerDeps(deps);
+  return { handleDiscoverModels: withDiscoveryHandlerDeps(normalizedDeps, handleDiscoverModels) };
 }
 
 module.exports = { handleDiscoverModels, createDiscoveryHandlers };

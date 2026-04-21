@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const Module = require('module');
 const { createConfigMock } = require('./test-helpers');
 
 const HANDLER_MODULE = '../handlers/integration/routing';
@@ -85,6 +86,9 @@ const mockShared = {
   MAX_TASK_LENGTH: 5000,
   isPathTraversalSafe: vi.fn(),
   checkProviderAvailability: vi.fn(),
+  resolveHandlerDatabase: vi.fn(),
+  requireString: vi.fn(),
+  requireEnum: vi.fn(),
 };
 
 const mockConstants = {
@@ -320,6 +324,28 @@ function resetMockState() {
 
   mockShared.checkProviderAvailability.mockReset();
   mockShared.checkProviderAvailability.mockReturnValue(null);
+  mockShared.resolveHandlerDatabase.mockReset();
+  mockShared.resolveHandlerDatabase.mockImplementation((deps = {}, options = {}) => {
+    if (deps && Object.prototype.hasOwnProperty.call(deps, 'rawDb') && deps.rawDb) {
+      return deps.rawDb;
+    }
+    if (deps && Object.prototype.hasOwnProperty.call(deps, 'db') && deps.db) {
+      return options.raw && deps.db && typeof deps.db.getDbInstance === 'function'
+        ? deps.db.getDbInstance()
+        : deps.db;
+    }
+    try {
+      const { defaultContainer } = require('../container');
+      const value = defaultContainer.get('db');
+      return options.raw && value && typeof value.getDbInstance === 'function'
+        ? value.getDbInstance()
+        : value;
+    } catch (_error) {
+      return null;
+    }
+  });
+  mockShared.ErrorCodes = ErrorCodes;
+  mockShared.makeError = mockErrorCodes.makeError;
 
   mockTaskManager.processQueue.mockReset();
   mockTaskManager.resolveFileReferences.mockReset();
@@ -565,6 +591,106 @@ afterAll(() => {
 });
 
 describe('integration routing handlers', () => {
+  it('uses injected routing database dependencies without loading the database facade', async () => {
+    const originalLoad = Module._load;
+    const blockedRequests = [];
+    const versionIntentDb = {
+      prepare: vi.fn(() => ({
+        get: vi.fn(() => null),
+      })),
+    };
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../../database' && parentFile.endsWith('server/handlers/integration/routing.js')) {
+        blockedRequests.push(request);
+        throw new Error('integration routing handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    });
+
+    try {
+      const injectedRouting = routing.createIntegrationRoutingHandlers({ db: versionIntentDb });
+      const result = await injectedRouting.handleSmartSubmitTask({
+        task: 'Create a formatter',
+        working_directory: process.cwd(),
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(versionIntentDb.prepare).toHaveBeenCalled();
+      expect(mockDb.getDbInstance).not.toHaveBeenCalled();
+      expect(blockedRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
+    }
+  });
+
+  it('uses injected integration database dependencies without loading the database facade', () => {
+    const indexPath = require.resolve('../handlers/integration');
+    const routingPath = require.resolve('../handlers/integration/routing');
+    const plansPath = require.resolve('../handlers/integration/plans');
+    const infraPath = require.resolve('../handlers/integration/infra');
+    const integrationDependencyPaths = [
+      '../db/event-tracking',
+      '../db/file-tracking',
+      '../db/project-config-core',
+      '../db/provider-routing-core',
+      '../db/task-metadata',
+      '../task-manager',
+      '../chunked-review',
+      '../providers/ollama-shared',
+      '../constants',
+    ].map((modulePath) => require.resolve(modulePath));
+    const originalLoad = Module._load;
+    const blockedRequests = [];
+    const db = {
+      getTask: vi.fn(() => null),
+    };
+    delete require.cache[indexPath];
+    installCjsModuleMock('../handlers/integration/routing', {});
+    installCjsModuleMock('../handlers/integration/plans', {});
+    installCjsModuleMock('../handlers/integration/infra', {});
+    installCjsModuleMock('../db/event-tracking', {});
+    installCjsModuleMock('../db/file-tracking', {});
+    installCjsModuleMock('../db/project-config-core', {});
+    installCjsModuleMock('../db/provider-routing-core', {});
+    installCjsModuleMock('../db/task-metadata', {});
+    installCjsModuleMock('../task-manager', mockTaskManager);
+    installCjsModuleMock('../chunked-review', {});
+    installCjsModuleMock('../handlers/shared', mockShared);
+    installCjsModuleMock('../providers/ollama-shared', mockOllamaShared);
+    installCjsModuleMock('../constants', { DEFAULT_FALLBACK_MODEL: 'mock-default-model' });
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../../database' && parentFile.endsWith('server/handlers/integration/index.js')) {
+        blockedRequests.push(request);
+        throw new Error('integration handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    });
+
+    try {
+      const integrationHandlers = require('../handlers/integration');
+      const injectedHandlers = integrationHandlers.createIntegrationHandlers({ db });
+      const result = injectedHandlers.handleTaskChanges({ task_id: 'missing-task' });
+
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('Task not found');
+      expect(db.getTask).toHaveBeenCalledWith('missing-task');
+      expect(blockedRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
+      delete require.cache[indexPath];
+      delete require.cache[routingPath];
+      delete require.cache[plansPath];
+      delete require.cache[infraPath];
+      for (const dependencyPath of integrationDependencyPaths) {
+        delete require.cache[dependencyPath];
+      }
+      clearLoadedModules();
+      routing = loadHandler();
+    }
+  });
+
   describe('handleTestRouting', () => {
     it('rejects missing task descriptions', () => {
       const result = routing.handleTestRouting({});

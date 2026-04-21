@@ -1,4 +1,5 @@
 const path = require('path');
+const Module = require('module');
 const { rawDb, resetTables, safeTool, setupTestDb, teardownTestDb } = require('./vitest-setup');
 const factoryIntake = require('../db/factory-intake');
 const notifications = require('../factory/notifications');
@@ -53,6 +54,31 @@ describe('factory_status', () => {
 
   afterAll(() => {
     teardownTestDb();
+  });
+
+  it('resolves factory database dependencies through injection without loading the database facade', () => {
+    const handlerPath = require.resolve('../handlers/factory-handlers');
+    const originalLoad = Module._load;
+    const blockedRequests = [];
+    const db = rawDb();
+    delete require.cache[handlerPath];
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../database' && parentFile.endsWith('server/handlers/factory-handlers.js')) {
+        blockedRequests.push(request);
+        throw new Error('factory handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    });
+
+    try {
+      const handlers = require('../handlers/factory-handlers');
+      expect(handlers.__test.ensureFactoryDecisionDb({ db })).toBe(db);
+      expect(blockedRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
+      delete require.cache[handlerPath];
+    }
   });
 
   it('reports loop fields per project and counts only stale non-idle loops as stalled', async () => {

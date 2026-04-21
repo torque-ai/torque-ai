@@ -1,6 +1,20 @@
 'use strict';
 
 const { VALID_MODES, createGovernanceRules } = require('../db/governance-rules');
+const { resolveHandlerDatabase } = require('./shared');
+
+let governanceHandlerDeps = {};
+
+function getGovernanceContainer(deps = governanceHandlerDeps) {
+  if (deps && deps.container) {
+    return deps.container;
+  }
+  try {
+    return require('../container').defaultContainer;
+  } catch (_error) {
+    return null;
+  }
+}
 
 function makeJsonResult(payload, options = {}) {
   return {
@@ -63,55 +77,46 @@ function normalizeRule(rule) {
   };
 }
 
-function resolveGovernanceRules() {
+function resolveGovernanceRules(deps = governanceHandlerDeps) {
+  const defaultContainer = getGovernanceContainer(deps);
   // Try container first (preferred — registered during boot)
-  try {
-    const { defaultContainer } = require('../container');
-    if (defaultContainer && typeof defaultContainer.get === 'function') {
-      try {
-        const governanceRules = defaultContainer.get('governanceRules');
-        if (governanceRules) return { governanceRules };
-      } catch (containerLookupError) {
-        void containerLookupError;
+  if (defaultContainer && typeof defaultContainer.get === 'function') {
+    try {
+      const governanceRules = defaultContainer.get('governanceRules');
+      if (governanceRules) return { governanceRules };
+    } catch (containerLookupError) {
+      void containerLookupError;
+    }
+  }
+
+  const db = resolveHandlerDatabase(deps, { raw: true, defaultContainer });
+  if (db && typeof db.prepare === 'function') {
+    const rules = createGovernanceRules({ db });
+    rules.seedBuiltinRules();
+    return { governanceRules: rules };
+  }
+
+  return { error: new Error('governance-handlers database dependency is missing (expected db or dbInstance)') };
+}
+
+function withGovernanceHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = governanceHandlerDeps;
+    governanceHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      if (result && typeof result.then === 'function') {
+        return result.finally(() => {
+          governanceHandlerDeps = previousDeps;
+        });
       }
+      governanceHandlerDeps = previousDeps;
+      return result;
+    } catch (error) {
+      governanceHandlerDeps = previousDeps;
+      throw error;
     }
-  } catch (containerError) {
-    void containerError;
-  }
-
-  // Fallback: try a container-managed db before requiring the database module
-  try {
-    const { defaultContainer } = require('../container');
-    if (defaultContainer && typeof defaultContainer.get === 'function') {
-      try {
-        const db = defaultContainer.get('db');
-        if (db && typeof db.prepare === 'function') {
-          const rules = createGovernanceRules({ db });
-          rules.seedBuiltinRules();
-          return { governanceRules: rules };
-        }
-      } catch (containerDbLookupError) {
-        void containerDbLookupError;
-      }
-    }
-  } catch (containerError) {
-    void containerError;
-  }
-
-  // Last resort: create directly from the database module
-  try {
-    const database = require('../database');
-    const db = database.getDbInstance ? database.getDbInstance() : null;
-    if (db && typeof db.prepare === 'function') {
-      const rules = createGovernanceRules({ db });
-      rules.seedBuiltinRules();
-      return { governanceRules: rules };
-    }
-  } catch (databaseError) {
-    void databaseError;
-  }
-
-  return { error: new Error('Governance rules not initialized — database not available') };
+  };
 }
 
 function makeNotInitializedError(error) {
@@ -335,8 +340,17 @@ async function handleToggleGovernanceRule(args = {}) {
   }
 }
 
+function createGovernanceHandlers(deps = {}) {
+  return {
+    handleGetGovernanceRules: withGovernanceHandlerDeps(deps, handleGetGovernanceRules),
+    handleSetGovernanceRuleMode: withGovernanceHandlerDeps(deps, handleSetGovernanceRuleMode),
+    handleToggleGovernanceRule: withGovernanceHandlerDeps(deps, handleToggleGovernanceRule),
+  };
+}
+
 module.exports = {
   handleGetGovernanceRules,
   handleSetGovernanceRuleMode,
   handleToggleGovernanceRule,
+  createGovernanceHandlers,
 };

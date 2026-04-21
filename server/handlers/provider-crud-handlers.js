@@ -1,11 +1,11 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const database = require('../database');
 const providerRoutingCore = require('../db/provider-routing-core');
 const taskManager = require('../task-manager');
 const { normalizeProviderTransport } = providerRoutingCore;
 const { ErrorCodes, makeError } = require('./error-codes');
+const { resolveHandlerDatabase } = require('./shared');
 const credentialCrypto = require('../utils/credential-crypto');
 const { safeJsonParse } = require('../utils/json');
 
@@ -19,14 +19,26 @@ const DEFAULT_TRANSPORT_BY_TYPE = {
   custom: 'api',
 };
 
+let providerCrudHandlerDeps = {};
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function normalizeProviderCrudHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
+  if (hasOwn(deps, 'container')) normalized.container = deps.container;
+  return normalized;
+}
+
 function getDatabaseHandle() {
-  if (typeof database.getDb === 'function') {
-    return database.getDb();
+  const db = resolveHandlerDatabase(providerCrudHandlerDeps, { raw: true });
+  if (!db) {
+    throw new Error('provider-crud-handlers database dependency is missing (expected db or dbInstance)');
   }
-  if (typeof database.getDbInstance === 'function') {
-    return database.getDbInstance();
-  }
-  return null;
+  return db;
 }
 
 
@@ -747,17 +759,33 @@ function handleClearProviderApiKey(args) {
   return handleClearApiKey(args);
 }
 
-function createProviderCrudHandlers() {
+function withProviderCrudHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = providerCrudHandlerDeps;
+    providerCrudHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      providerCrudHandlerDeps = previousDeps;
+      return result;
+    } catch (error) {
+      providerCrudHandlerDeps = previousDeps;
+      throw error;
+    }
+  };
+}
+
+function createProviderCrudHandlers(deps = {}) {
+  const normalizedDeps = normalizeProviderCrudHandlerDeps(deps);
   return {
-    handleAddProvider,
-    handleRemoveProvider,
-    handleSetApiKey,
-    handleSetProviderApiKey,
-    handleClearApiKey,
-    handleClearProviderApiKey,
+    handleAddProvider: withProviderCrudHandlerDeps(normalizedDeps, handleAddProvider),
+    handleRemoveProvider: withProviderCrudHandlerDeps(normalizedDeps, handleRemoveProvider),
+    handleSetApiKey: withProviderCrudHandlerDeps(normalizedDeps, handleSetApiKey),
+    handleSetProviderApiKey: withProviderCrudHandlerDeps(normalizedDeps, handleSetProviderApiKey),
+    handleClearApiKey: withProviderCrudHandlerDeps(normalizedDeps, handleClearApiKey),
+    handleClearProviderApiKey: withProviderCrudHandlerDeps(normalizedDeps, handleClearProviderApiKey),
     encryptApiKey,
     decryptApiKey,
-    getApiKeyStatus,
+    getApiKeyStatus: withProviderCrudHandlerDeps(normalizedDeps, getApiKeyStatus),
     validatingProviders,
   };
 }

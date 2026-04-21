@@ -415,7 +415,10 @@ async function loadProviderCrudHandlers(overrides = {}) {
   installCjsModuleMock('../utils/sensitive-keys', currentModules.sensitiveKeys);
 
   const imported = await import('../handlers/provider-crud-handlers.js');
-  handlers = imported.default ?? imported;
+  const loadedHandlers = imported.default ?? imported;
+  handlers = typeof loadedHandlers.createProviderCrudHandlers === 'function'
+    ? loadedHandlers.createProviderCrudHandlers({ db: currentModules.db })
+    : loadedHandlers;
   helperFns = loadInternalHelpers();
 
   return currentModules;
@@ -450,6 +453,38 @@ afterEach(() => {
 });
 
 describe('provider-crud-handlers', () => {
+  it('uses injected database dependencies without loading the database facade', async () => {
+    const originalLoad = Module._load;
+    const blockedRequests = [];
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../database' && parentFile.endsWith('server/handlers/provider-crud-handlers.js')) {
+        blockedRequests.push(request);
+        throw new Error('provider CRUD handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    });
+
+    try {
+      const modules = await loadProviderCrudHandlers({
+        dbOptions: { nextPriority: 4 },
+      });
+
+      const result = handlers.handleAddProvider({
+        name: 'custom-cloud',
+        provider_type: 'custom',
+        api_base_url: 'https://api.example.test/v1',
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(modules.db.prepare).toHaveBeenCalled();
+      expect(modules.db.providers.has('custom-cloud')).toBe(true);
+      expect(blockedRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
+    }
+  });
+
   it('handleAddProvider creates a new provider with valid params', async () => {
     const modules = await loadProviderCrudHandlers({
       dbOptions: { nextPriority: 7 },

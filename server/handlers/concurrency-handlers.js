@@ -2,6 +2,21 @@
 
 const { defaultContainer } = require('../container');
 const hostManagement = require('../db/host-management');
+const { resolveHandlerDatabase } = require('./shared');
+
+let concurrencyHandlerDeps = {};
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function normalizeConcurrencyHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
+  if (hasOwn(deps, 'container')) normalized.container = deps.container;
+  return normalized;
+}
 
 function response(message) {
   return {
@@ -42,12 +57,14 @@ function parseVramFactor(value) {
 }
 
 function getDb() {
-  try {
-    return defaultContainer.get('db');
-  } catch {
-    const database = require('../database');
-    return typeof database.getDbInstance === 'function' ? database.getDbInstance() : null;
+  const db = resolveHandlerDatabase(concurrencyHandlerDeps, {
+    raw: true,
+    defaultContainer,
+  });
+  if (!db) {
+    throw new Error('concurrency-handlers database dependency is missing (expected db or dbInstance)');
   }
+  return db;
 }
 
 function getConcurrencyLimits() {
@@ -145,7 +162,7 @@ function setConcurrencyLimit(args = {}) {
     }
 
     try {
-      const db = defaultContainer.get('db');
+      const db = getDb();
       db.prepare("INSERT OR REPLACE INTO config (key, value) VALUES ('vram_overhead_factor', ?)").run(String(parsed.value));
       return response(`Set vram_overhead_factor to ${parsed.value}.`);
     } catch (error) {
@@ -183,7 +200,7 @@ function setConcurrencyLimit(args = {}) {
   if (scope === 'provider') {
     if (!hasMaxConcurrent) return response('max_concurrent is required for provider scope.');
     try {
-      const db = defaultContainer.get('db');
+      const db = getDb();
       const existingProvider = db.prepare('SELECT provider FROM provider_config WHERE provider = ?').get(target);
       if (!existingProvider) {
         return response(`Provider '${target}' not found.`);
@@ -238,10 +255,26 @@ function setConcurrencyLimit(args = {}) {
   return response('Invalid scope. Valid scopes are: vram_factor, provider, workstation, host.');
 }
 
-function createConcurrencyHandlers() {
+function withConcurrencyHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = concurrencyHandlerDeps;
+    concurrencyHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      concurrencyHandlerDeps = previousDeps;
+      return result;
+    } catch (error) {
+      concurrencyHandlerDeps = previousDeps;
+      throw error;
+    }
+  };
+}
+
+function createConcurrencyHandlers(deps = {}) {
+  const normalizedDeps = normalizeConcurrencyHandlerDeps(deps);
   return {
-    handleGetConcurrencyLimits: getConcurrencyLimits,
-    handleSetConcurrencyLimit: setConcurrencyLimit,
+    handleGetConcurrencyLimits: withConcurrencyHandlerDeps(normalizedDeps, getConcurrencyLimits),
+    handleSetConcurrencyLimit: withConcurrencyHandlerDeps(normalizedDeps, setConcurrencyLimit),
   };
 }
 

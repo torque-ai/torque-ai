@@ -4,7 +4,18 @@ import { describe, it, expect, vi } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
+const Module = require('module');
 const { getEffectiveGlobalMaxConcurrent } = require('../execution/effective-concurrency.js');
+
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
 
 function createOptions(overrides = {}) {
   const safeConfigInt = vi.fn((key, defaultValue) => {
@@ -40,6 +51,56 @@ function createOptions(overrides = {}) {
 }
 
 describe('execution/effective-concurrency', () => {
+  it('concurrency handlers use injected database dependencies without loading the database facade', () => {
+    const handlerPath = require.resolve('../handlers/concurrency-handlers');
+    const containerPath = require.resolve('../container');
+    const hostManagementPath = require.resolve('../db/host-management');
+    const originalLoad = Module._load;
+    const blockedRequests = [];
+    const db = {
+      prepare: vi.fn(() => ({
+        all: vi.fn(() => []),
+      })),
+    };
+    delete require.cache[handlerPath];
+    installCjsModuleMock('../container', {
+      defaultContainer: {
+        get: vi.fn(() => {
+          throw new Error('container db unavailable');
+        }),
+      },
+    });
+    installCjsModuleMock('../db/host-management', {
+      getVramOverheadFactor: vi.fn(() => 0.75),
+      listOllamaHosts: vi.fn(() => []),
+    });
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../database' && parentFile.endsWith('server/handlers/concurrency-handlers.js')) {
+        blockedRequests.push(request);
+        throw new Error('concurrency handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    });
+
+    try {
+      const concurrencyHandlers = require('../handlers/concurrency-handlers');
+      const injectedHandlers = concurrencyHandlers.createConcurrencyHandlers({ db });
+      const result = injectedHandlers.handleGetConcurrencyLimits();
+
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredData.providers).toEqual([]);
+      expect(db.prepare).toHaveBeenCalledWith('SELECT provider, max_concurrent, enabled FROM provider_config ORDER BY provider');
+      expect(blockedRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
+      delete require.cache[handlerPath];
+      delete require.cache[containerPath];
+      delete require.cache[hostManagementPath];
+      vi.restoreAllMocks();
+    }
+  });
+
   it('returns configured max_concurrent when auto_compute is false and no db method exists', () => {
     const options = createOptions({
       configValues: {

@@ -3,7 +3,6 @@
 const path = require('path');
 const fs = require('fs');
 const childProcess = require('child_process');
-const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryAudit = require('../db/factory-audit');
 const factoryArchitect = require('../db/factory-architect');
@@ -23,12 +22,22 @@ const { buildProjectCostSummary, getCostPerCycle, getCostPerHealthPoint, getProv
 const { logDecision, getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
 const notifications = require('../factory/notifications');
 const { ErrorCodes, makeError } = require('./error-codes');
+const { resolveHandlerDatabase } = require('./shared');
 const logger = require('../logger').child({ component: 'factory-handlers' });
 
 const STALL_THRESHOLD_MS = 30 * 60 * 1000;
 const COMMITS_TODAY_CACHE_TTL_MS = 60 * 1000;
 const COMMITS_TODAY_TIMEOUT_MS = 5 * 1000;
 const commitsTodayCache = new Map();
+let factoryHandlerDeps = {};
+
+function getFactoryDb(deps = factoryHandlerDeps) {
+  const db = resolveHandlerDatabase(deps, { raw: true });
+  if (!db) {
+    throw new Error('factory-handlers database dependency is missing (expected db or dbInstance)');
+  }
+  return db;
+}
 
 function getCachedCommitsToday(projectPath, nowMs = Date.now()) {
   if (typeof projectPath !== 'string' || !projectPath.trim()) {
@@ -267,8 +276,8 @@ function buildFactoryLoopErrorResponse(error) {
   return factoryHandlerError(classified.errorCode, classified.message, classified.status);
 }
 
-function ensureFactoryDecisionDb() {
-  const db = database.getDbInstance();
+function ensureFactoryDecisionDb(deps = factoryHandlerDeps) {
+  const db = getFactoryDb(deps);
   if (db) {
     factoryDecisions.setDb(db);
   }
@@ -856,7 +865,7 @@ async function handleIntakeFromFindings(args) {
 
 async function handleScanPlansDirectory(args) {
   const project = resolveProject(args.project_id);
-  const db = database.getDbInstance();
+  const db = getFactoryDb();
   const repoRoot = resolvePlansRepoRoot(project.path, args.plans_dir);
   const shippedDetector = createShippedDetector({ repoRoot });
   const planIntake = createPlanFileIntake({ db, factoryIntake, shippedDetector });
@@ -1770,6 +1779,7 @@ Object.defineProperty(module.exports, '__test', {
     countCommitsToday,
     clearCommitsTodayCache,
     getCachedCommitsToday,
+    ensureFactoryDecisionDb,
   },
   enumerable: false,
 });

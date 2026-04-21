@@ -1,6 +1,7 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const Module = require('module');
 const { setupTestDb, teardownTestDb, safeTool, getText, resetTables } = require('./vitest-setup');
 
 describe('Project Discovery Scanning', () => {
@@ -442,6 +443,60 @@ function loadDiscoveryWithBonjour(mockBonjour) {
   });
   return require('../discovery');
 }
+
+describe('discovery handlers DI', () => {
+  afterEach(() => {
+    delete require.cache[require.resolve('../handlers/discovery-handlers')];
+    delete require.cache[require.resolve('../models/registry')];
+    delete require.cache[require.resolve('../discovery/discovery-engine')];
+    delete require.cache[require.resolve('../providers/adapter-registry')];
+    vi.restoreAllMocks();
+  });
+
+  it('uses an injected database dependency without loading the database facade', async () => {
+    const db = {};
+    const registry = { setDb: vi.fn() };
+    const adapter = {};
+    const discoverFromAdapter = vi.fn(async () => ({
+      discovered: 1,
+      new: 1,
+      updated: 0,
+      removed: 0,
+      capabilities_set: 1,
+      roles_assigned: [],
+    }));
+    installMock('../models/registry', registry);
+    installMock('../discovery/discovery-engine', { discoverFromAdapter });
+    installMock('../providers/adapter-registry', {
+      getProviderAdapter: vi.fn(() => adapter),
+      discoverAllModels: vi.fn(),
+    });
+
+    const originalLoad = Module._load;
+    const blockedRequests = [];
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../database' && parentFile.endsWith('server/handlers/discovery-handlers.js')) {
+        blockedRequests.push(request);
+        throw new Error('discovery handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    });
+
+    try {
+      const handlers = require('../handlers/discovery-handlers');
+      const injectedHandlers = handlers.createDiscoveryHandlers({ db });
+      const text = await injectedHandlers.handleDiscoverModels({ provider: 'mock-provider' });
+
+      expect(text).toContain('## Discovery: mock-provider');
+      expect(registry.setDb).toHaveBeenCalledWith(db);
+      expect(discoverFromAdapter).toHaveBeenCalledWith(db, adapter, 'mock-provider', null);
+      expect(blockedRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
+    }
+  });
+});
 
 describe('Bonjour Discovery Host Identities', () => {
   let configCore;

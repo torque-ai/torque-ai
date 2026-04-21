@@ -5,6 +5,7 @@
  */
 
 const { TEST_MODELS } = require('./test-helpers');
+const Module = require('module');
 const taskCore = require('../db/task-core');
 
 // rawDb mock with transaction support (returns a function that calls the callback)
@@ -49,6 +50,39 @@ describe('experiment-handlers (Experiment 6)', () => {
   });
 
   describe('handleSubmitAbTest', () => {
+    it('uses injected database dependencies without loading the database facade', () => {
+      const originalLoad = Module._load;
+      const blockedRequests = [];
+      delete require.cache[require.resolve('../handlers/experiment-handlers')];
+      const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+        const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+        if (request === '../database' && parentFile.endsWith('server/handlers/experiment-handlers.js')) {
+          blockedRequests.push(request);
+          throw new Error('experiment handler should not require database facade');
+        }
+        return originalLoad.call(this, request, parent, isMain);
+      });
+
+      try {
+        const loadedHandlers = require('../handlers/experiment-handlers');
+        const injectedHandlers = loadedHandlers.createExperimentHandlers({ db: mockDb });
+        const result = injectedHandlers.handleSubmitAbTest({
+          task_description: 'Compare provider output',
+          provider_a: 'codex',
+          provider_b: 'ollama',
+          working_directory: '/tmp/project',
+        });
+
+        expect(result.isError).toBeFalsy();
+        expect(mockDb.getDbInstance).toHaveBeenCalled();
+        expect(mockRawDb.transaction).toHaveBeenCalled();
+        expect(taskCore.createTask).toHaveBeenCalledTimes(2);
+        expect(blockedRequests).toEqual([]);
+      } finally {
+        databaseLoadSpy.mockRestore();
+      }
+    });
+
     it('returns error when task_description is missing', () => {
       const result = handlers.handleSubmitAbTest({});
       expect(result.isError).toBe(true);

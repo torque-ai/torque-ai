@@ -1,6 +1,5 @@
 'use strict';
 
-const database = require('../database');
 const { createAuthConfigStore } = require('../auth/auth-config-store');
 const { createConnectedAccountStore } = require('../auth/connected-account-store');
 const { createOAuthController } = require('../auth/oauth-controller');
@@ -8,7 +7,21 @@ const { createConnectionRegistry } = require('../connections/registry');
 const { BEHAVIORAL_TAG_KEYS, applyBehavioralTags, filterByTags } = require('../tools/behavioral-tags');
 const { getAnnotations } = require('../tool-annotations');
 const { ErrorCodes, makeError } = require('./error-codes');
-const { requireString, optionalString } = require('./shared');
+const { requireString, optionalString, resolveHandlerDatabase } = require('./shared');
+
+let managedOauthHandlerDeps = {};
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function normalizeManagedOauthHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
+  if (hasOwn(deps, 'container')) normalized.container = deps.container;
+  return normalized;
+}
 
 function jsonResponse(data) {
   return {
@@ -18,17 +31,15 @@ function jsonResponse(data) {
 }
 
 function getDbHandle() {
-  if (database && typeof database.getDbInstance === 'function') {
-    return database.getDbInstance();
+  const db = resolveHandlerDatabase(managedOauthHandlerDeps, { raw: true });
+  if (!db) {
+    throw new Error('managed-oauth-handlers database dependency is missing (expected db or dbInstance)');
   }
-  return database && typeof database.prepare === 'function' ? database : null;
+  return db;
 }
 
 function buildServices() {
   const db = getDbHandle();
-  if (!db) {
-    return null;
-  }
 
   const authConfigStore = createAuthConfigStore({ db });
   const connectedAccountStore = createConnectedAccountStore({ db });
@@ -247,6 +258,38 @@ function handleListToolsByHints(args) {
   }
 }
 
+function withManagedOauthHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = managedOauthHandlerDeps;
+    managedOauthHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      if (result && typeof result.then === 'function') {
+        return result.finally(() => {
+          managedOauthHandlerDeps = previousDeps;
+        });
+      }
+      managedOauthHandlerDeps = previousDeps;
+      return result;
+    } catch (error) {
+      managedOauthHandlerDeps = previousDeps;
+      throw error;
+    }
+  };
+}
+
+function createManagedOauthHandlers(deps = {}) {
+  const normalizedDeps = normalizeManagedOauthHandlerDeps(deps);
+  return {
+    handleStartOauthFlow: withManagedOauthHandlerDeps(normalizedDeps, handleStartOauthFlow),
+    handleCompleteOauthFlow: withManagedOauthHandlerDeps(normalizedDeps, handleCompleteOauthFlow),
+    handleListConnectedAccounts: withManagedOauthHandlerDeps(normalizedDeps, handleListConnectedAccounts),
+    handleDisableAccount: withManagedOauthHandlerDeps(normalizedDeps, handleDisableAccount),
+    handleDeleteAccount: withManagedOauthHandlerDeps(normalizedDeps, handleDeleteAccount),
+    handleListToolsByHints: withManagedOauthHandlerDeps(normalizedDeps, handleListToolsByHints),
+  };
+}
+
 module.exports = {
   handleStartOauthFlow,
   handleCompleteOauthFlow,
@@ -254,4 +297,5 @@ module.exports = {
   handleDisableAccount,
   handleDeleteAccount,
   handleListToolsByHints,
+  createManagedOauthHandlers,
 };

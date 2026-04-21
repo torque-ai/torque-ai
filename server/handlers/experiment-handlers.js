@@ -8,10 +8,32 @@
  */
 
 const { randomUUID } = require('crypto');
-const database = require('../database'); // facade-only: getDbInstance (raw DB handle for transactions)
 const taskCore = require('../db/task-core');
 const { ErrorCodes, makeError } = require('./error-codes');
+const { resolveHandlerDatabase } = require('./shared');
 const logger = require('../logger').child({ component: 'experiment-handlers' });
+
+let experimentHandlerDeps = {};
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
+function normalizeExperimentHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
+  if (hasOwn(deps, 'container')) normalized.container = deps.container;
+  return normalized;
+}
+
+function getExperimentDb() {
+  const db = resolveHandlerDatabase(experimentHandlerDeps, { raw: true });
+  if (!db) {
+    throw new Error('experiment-handlers database dependency is missing (expected db or dbInstance)');
+  }
+  return db;
+}
 
 /**
  * Submit the same task to two providers for A/B comparison.
@@ -57,7 +79,7 @@ function handleSubmitAbTest(args) {
   };
 
   try {
-    const rawDb = database.getDbInstance ? database.getDbInstance() : database;
+    const rawDb = getExperimentDb();
     const createBothTasks = rawDb.transaction(() => {
       taskCore.createTask({
         id: taskIdA,
@@ -194,10 +216,26 @@ function handleCompareAbTest(args) {
   };
 }
 
-function createExperimentHandlers() {
+function withExperimentHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = experimentHandlerDeps;
+    experimentHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      experimentHandlerDeps = previousDeps;
+      return result;
+    } catch (error) {
+      experimentHandlerDeps = previousDeps;
+      throw error;
+    }
+  };
+}
+
+function createExperimentHandlers(deps = {}) {
+  const normalizedDeps = normalizeExperimentHandlerDeps(deps);
   return {
-    handleSubmitAbTest,
-    handleCompareAbTest,
+    handleSubmitAbTest: withExperimentHandlerDeps(normalizedDeps, handleSubmitAbTest),
+    handleCompareAbTest: withExperimentHandlerDeps(normalizedDeps, handleCompareAbTest),
   };
 }
 

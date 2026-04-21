@@ -1,6 +1,7 @@
 'use strict';
 
 
+const Module = require('module');
 const { createAuthConfigStore } = require('../auth/auth-config-store');
 const { getText, rawDb, safeTool, setupTestDb, teardownTestDb } = require('./vitest-setup');
 
@@ -37,6 +38,35 @@ describe('managed OAuth MCP surface', () => {
     global.fetch = originalFetch;
     vi.restoreAllMocks();
     teardownTestDb();
+  });
+
+  it('uses an injected database dependency without loading the database facade', () => {
+    const handlerPath = require.resolve('../handlers/managed-oauth-handlers');
+    const originalLoad = Module._load;
+    const blockedRequests = [];
+    delete require.cache[handlerPath];
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../database' && parentFile.endsWith('server/handlers/managed-oauth-handlers.js')) {
+        blockedRequests.push(request);
+        throw new Error('managed OAuth handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    });
+
+    try {
+      const handlers = require('../handlers/managed-oauth-handlers');
+      const injectedHandlers = handlers.createManagedOauthHandlers({ db: rawDb() });
+      const result = injectedHandlers.handleListConnectedAccounts({ user_id: 'alice' });
+      const data = parseStructured(result);
+
+      expect(result.isError).not.toBe(true);
+      expect(data).toMatchObject({ count: 0, accounts: [] });
+      expect(blockedRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
+      delete require.cache[handlerPath];
+    }
   });
 
   it('starts an OAuth flow and returns the authorize URL', async () => {

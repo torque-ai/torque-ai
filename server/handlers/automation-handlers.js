@@ -19,7 +19,7 @@ const { TASK_TIMEOUTS } = require('../constants');
 const { buildErrorFeedbackPrompt } = require('../utils/context-enrichment');
 const { safeExecChain } = require('../utils/safe-exec');
 const { executeValidatedCommandSync } = require('../execution/command-policy');
-const { ErrorCodes, makeError } = require('./shared');
+const { ErrorCodes, makeError, resolveHandlerDatabase } = require('./shared');
 const { createTestRunnerRegistry } = require('../test-runner-registry');
 const logger = require('../logger').child({ component: 'automation-handlers' });
 
@@ -51,8 +51,23 @@ function _getTestRunnerRegistry() {
 }
 
 // Lazy-load to avoid circular deps
-let _database, _configCore, _taskCore, _taskManager, _projectConfigCore, _schedulingAutomation, _workflowEngine;
-function database() { return _database || (_database = require('../database')); }
+let automationHandlerDeps = {};
+let _configCore, _taskCore, _taskManager, _projectConfigCore, _schedulingAutomation, _workflowEngine;
+function hasOwn(obj, key) { return Object.prototype.hasOwnProperty.call(obj || {}, key); }
+function normalizeAutomationHandlerDeps(deps = {}) {
+  const normalized = {};
+  if (hasOwn(deps, 'db')) normalized.db = deps.db;
+  if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
+  if (hasOwn(deps, 'container')) normalized.container = deps.container;
+  return normalized;
+}
+function database(options = {}) {
+  const db = resolveHandlerDatabase(automationHandlerDeps, { raw: options.raw === true });
+  if (!db) {
+    throw new Error('automation-handlers database dependency is missing (expected db or dbInstance)');
+  }
+  return db;
+}
 function configCore() { return _configCore || (_configCore = require('../db/config-core')); }
 function taskCore() { return _taskCore || (_taskCore = require('../db/task-core')); }
 function taskManager() { return _taskManager || (_taskManager = require('../task-manager')); }
@@ -91,8 +106,7 @@ async function evaluatePreVerifyGovernance(task, verifyCommand, context = {}) {
       try {
         const { createGovernanceRules } = require('../db/governance-rules');
         const { createGovernanceHooks } = require('../governance/hooks');
-        const database = require('../database');
-        const db = database.getDbInstance ? database.getDbInstance() : database;
+        const db = database({ raw: true });
         if (db && typeof db.prepare === 'function') {
           const gr = createGovernanceRules({ db });
           governance = createGovernanceHooks({ governanceRules: gr });
@@ -1163,20 +1177,41 @@ function handleDeleteTaskTemplate(args) {
 const tsTools = require('./automation-ts-tools');
 const batchOrchestration = require('./automation-batch-orchestration');
 
-function createAutomationHandlers() {
+function withAutomationHandlerDeps(deps, handler) {
+  return (...args) => {
+    const previousDeps = automationHandlerDeps;
+    automationHandlerDeps = deps;
+    try {
+      const result = handler(...args);
+      if (result && typeof result.then === 'function') {
+        return result.finally(() => {
+          automationHandlerDeps = previousDeps;
+        });
+      }
+      automationHandlerDeps = previousDeps;
+      return result;
+    } catch (error) {
+      automationHandlerDeps = previousDeps;
+      throw error;
+    }
+  };
+}
+
+function createAutomationHandlers(deps = {}) {
+  const normalizedDeps = normalizeAutomationHandlerDeps(deps);
   return {
-    handleConfigureStallDetection,
-    handleConfigureQuotaAutoScale,
-    handleAutoVerifyAndFix,
-    handleGenerateTestTasks,
-    handleSetProjectDefaults,
-    handleGetProjectDefaults,
-    handleGetBatchSummary,
-    handleGetTaskEvents,
-    handleCreateTaskTemplate,
-    handleListTaskTemplates,
-    handleSubmitFromTemplate,
-    handleDeleteTaskTemplate,
+    handleConfigureStallDetection: withAutomationHandlerDeps(normalizedDeps, handleConfigureStallDetection),
+    handleConfigureQuotaAutoScale: withAutomationHandlerDeps(normalizedDeps, handleConfigureQuotaAutoScale),
+    handleAutoVerifyAndFix: withAutomationHandlerDeps(normalizedDeps, handleAutoVerifyAndFix),
+    handleGenerateTestTasks: withAutomationHandlerDeps(normalizedDeps, handleGenerateTestTasks),
+    handleSetProjectDefaults: withAutomationHandlerDeps(normalizedDeps, handleSetProjectDefaults),
+    handleGetProjectDefaults: withAutomationHandlerDeps(normalizedDeps, handleGetProjectDefaults),
+    handleGetBatchSummary: withAutomationHandlerDeps(normalizedDeps, handleGetBatchSummary),
+    handleGetTaskEvents: withAutomationHandlerDeps(normalizedDeps, handleGetTaskEvents),
+    handleCreateTaskTemplate: withAutomationHandlerDeps(normalizedDeps, handleCreateTaskTemplate),
+    handleListTaskTemplates: withAutomationHandlerDeps(normalizedDeps, handleListTaskTemplates),
+    handleSubmitFromTemplate: withAutomationHandlerDeps(normalizedDeps, handleSubmitFromTemplate),
+    handleDeleteTaskTemplate: withAutomationHandlerDeps(normalizedDeps, handleDeleteTaskTemplate),
     ...batchOrchestration,
     ...tsTools,
   };

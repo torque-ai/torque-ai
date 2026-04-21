@@ -1,8 +1,55 @@
 'use strict';
 
+const Module = require('module');
 const { createPatternHandlers } = require('../handlers/pattern-handlers');
 
 describe('pattern-handlers', () => {
+  it('bootstraps provider registration through injected database dependencies', async () => {
+    const originalLoad = Module._load;
+    const blockedRequests = [];
+    const db = {
+      isReady: vi.fn(() => true),
+    };
+    const providerRegistry = {
+      init: vi.fn(),
+      registerProviderClass: vi.fn(),
+      getProviderInstance: vi.fn(() => ({ name: 'codex', runPrompt: vi.fn(async () => 'ok') })),
+    };
+    const databaseLoadSpy = vi.spyOn(Module, '_load').mockImplementation(function patchedLoad(request, parent, isMain) {
+      const parentFile = parent?.filename ? parent.filename.replace(/\\/g, '/') : '';
+      if (request === '../database' && parentFile.endsWith('server/handlers/pattern-handlers.js')) {
+        blockedRequests.push(request);
+        throw new Error('pattern handler should not require database facade');
+      }
+      return originalLoad.call(this, request, parent, isMain);
+    });
+
+    try {
+      const handlers = createPatternHandlers({
+        db,
+        patternsStore: {
+          get: () => ({
+            name: 'summarize',
+            system: 'System prompt',
+            user_template: '{{input}}',
+          }),
+        },
+        providerRegistry,
+      });
+
+      const result = await handlers.handleRunPattern({
+        name: 'summarize',
+        input: 'Plain text',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(providerRegistry.init).toHaveBeenCalledWith({ db });
+      expect(blockedRequests).toEqual([]);
+    } finally {
+      databaseLoadSpy.mockRestore();
+    }
+  });
+
   it('lists patterns from the injected store', async () => {
     const handlers = createPatternHandlers({
       patternsStore: {
