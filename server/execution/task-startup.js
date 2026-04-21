@@ -402,6 +402,144 @@ function recordTaskStartedAuditEvent(task, taskId, provider) {
   });
 }
 
+function runStartupPreflight({
+  task,
+  taskId,
+  getMaxConcurrent,
+  config,
+  metrics,
+  preflight,
+  log,
+}) {
+  const maxConcurrent = getMaxConcurrent();
+  const resourceGatingEnabled = config.get('resource_gating_enabled');
+  if (resourceGatingEnabled === '1') {
+    const pressureLevel = metrics.getPressureLevel();
+    if (pressureLevel === 'critical') {
+      throw new Error(`Cannot start task ${taskId}: critical resource pressure - CPU/RAM above 95%`);
+    }
+    if (pressureLevel === 'high') {
+      log.warn(`Starting task ${taskId} under high resource pressure - performance may be degraded`);
+    }
+  }
+
+  preflight(task);
+  return { maxConcurrent, usedEditFormat: null };
+}
+
+function resolveStartupProvider({
+  task,
+  taskId,
+  resolveRouting,
+  registry,
+  failInvalidProvider,
+  parseMetadata,
+  patchMetadata,
+  log,
+}) {
+  const routing = resolveRouting(task, taskId);
+  const provider = routing.provider;
+  if (!registry.isKnownProvider(provider)) {
+    const errorMessage = failInvalidProvider(taskId, provider);
+    throw new Error(errorMessage);
+  }
+
+  if (routing.switchReason) {
+    const currentMeta = parseMetadata(task.metadata);
+    currentMeta._provider_switch_reason = routing.switchReason;
+    currentMeta.intended_provider = provider;
+    try {
+      patchMetadata(taskId, currentMeta);
+    } catch (metaErr) {
+      log.debug(`[startTask] Failed to persist routing switch metadata for ${taskId}: ${metaErr.message}`);
+    }
+  }
+
+  return { provider, routing };
+}
+
+function propagateRoutingChain({
+  task,
+  taskId,
+  provider,
+  parseMetadata,
+  log,
+}) {
+  const routingMeta = parseMetadata(task.metadata);
+  const routingChain = Array.isArray(routingMeta._routing_chain)
+    ? routingMeta._routing_chain
+    : [];
+  if (routingChain.length === 0) {
+    return;
+  }
+
+  const matchingEntry = routingChain.find(entry => entry.provider === provider) || routingChain[0];
+  if (matchingEntry && matchingEntry.model && !task.model) {
+    task.model = matchingEntry.model;
+    log.debug(`[startTask] Propagated model '${matchingEntry.model}' from routing chain for task ${taskId}`);
+  }
+}
+
+function evaluateStartupSafeguards({
+  task,
+  taskId,
+  provider,
+  runSafeguards,
+  parseMetadata,
+  classifyTaskType,
+  estimateContextTokens,
+  evaluatePolicy,
+  describePolicyBlock,
+  cancelBlockedTask,
+  updateTaskStatus,
+  notifyTaskUpdated,
+  drainQueue,
+  getTask,
+  log,
+}) {
+  const safeguardResult = runSafeguards(task, taskId, provider);
+  if (safeguardResult) {
+    return { earlyResult: safeguardResult };
+  }
+
+  const taskMetadata = parseMetadata(task.metadata);
+  const taskType = classifyTaskType(task.task_description || '');
+  const contextTokenEstimate = estimateContextTokens(taskMetadata, task.context);
+  const preExecutePolicyResult = evaluatePolicy({
+    ...task,
+    id: taskId,
+    provider,
+  });
+
+  if (preExecutePolicyResult?.blocked === true) {
+    const cancelReason = `[Policy] ${describePolicyBlock(preExecutePolicyResult, 'pre-execute')}`;
+    try {
+      cancelBlockedTask(taskId, cancelReason);
+    } catch (cancelErr) {
+      log.info(`[Policy] Failed to cancel blocked task ${taskId}: ${cancelErr.message}`);
+      updateTaskStatus(taskId, 'cancelled', { error_output: cancelReason });
+    }
+    try { notifyTaskUpdated(taskId); } catch { /* non-critical */ }
+    try { drainQueue(); } catch (queueErr) { log.info('Failed to process queue:', queueErr.message); }
+    return {
+      earlyResult: {
+        queued: false,
+        blocked: true,
+        cancelled: true,
+        reason: cancelReason,
+        task: getTask(taskId),
+      },
+    };
+  }
+
+  return {
+    earlyResult: null,
+    taskMetadata,
+    taskType,
+    contextTokenEstimate,
+  };
+}
+
 // ── startTask ──────────────────────────────────────────────────────────────
 
 /**
@@ -424,91 +562,57 @@ async function startTask(taskId) {
     return { queued: false, alreadyRunning: true };
   }
 
-  const maxConcurrent = getEffectiveGlobalMaxConcurrent();
-  // Resource pressure gating - block/warn based on system load
-  const resourceGatingEnabled = serverConfig.get('resource_gating_enabled');
-  if (resourceGatingEnabled === '1') {
-    const pressureLevel = gpuMetrics.getPressureLevel();
-    if (pressureLevel === 'critical') {
-      throw new Error(`Cannot start task ${taskId}: critical resource pressure - CPU/RAM above 95%`);
-    }
-    if (pressureLevel === 'high') {
-      logger.warn(`Starting task ${taskId} under high resource pressure - performance may be degraded`);
-    }
-  }
-  const usedEditFormat = null;
-
-  // === PRE-FLIGHT CHECKS ===
-  runPreflightChecks(task);
-
-  // === PROVIDER ROUTING ===
-  // Resolve the final execution provider before provider-aware safeguards so
-  // budget and rate-limit checks apply to the provider that will actually run.
-  const routing = resolveProviderRouting(task, taskId);
-  let provider = routing.provider;
-  if (!providerRegistry.isKnownProvider(provider)) {
-    const errorMessage = failTaskForInvalidProvider(taskId, provider);
-    throw new Error(errorMessage);
-  }
-  // TDA-11: Persist movement narrative when routing changes the provider.
-  // Provider is NOT set here — deferred assignment means tryClaimTaskSlot sets it atomically.
-  // Only record the switch reason so the audit trail explains the routing decision.
-  if (routing.switchReason) {
-    const currentMeta = parseTaskMetadata(task.metadata);
-    currentMeta._provider_switch_reason = routing.switchReason;
-    currentMeta.intended_provider = provider;
-    try {
-      db.patchTaskMetadata(taskId, currentMeta);
-    } catch (metaErr) {
-      logger.debug(`[startTask] Failed to persist routing switch metadata for ${taskId}: ${metaErr.message}`);
-    }
-  }
-
-  // === ROUTING CHAIN PROPAGATION ===
-  // If a routing chain was stored at submission time (from template-based routing),
-  // propagate model from the chain's primary entry to the task if not already set.
-  {
-    const routingMeta = parseTaskMetadata(task.metadata);
-    if (routingMeta._routing_chain && Array.isArray(routingMeta._routing_chain) && routingMeta._routing_chain.length > 0) {
-      // Find the chain entry matching the resolved provider, or use the first entry
-      const matchingEntry = routingMeta._routing_chain.find(e => e.provider === provider) || routingMeta._routing_chain[0];
-      if (matchingEntry && matchingEntry.model && !task.model) {
-        task.model = matchingEntry.model;
-        logger.debug(`[startTask] Propagated model '${matchingEntry.model}' from routing chain for task ${taskId}`);
-      }
-    }
-  }
-
-  // === EXTENDED SAFEGUARD PRE-CHECKS ===
-  const safeguardResult = runSafeguardPreChecks(task, taskId, provider);
-  if (safeguardResult) return safeguardResult;
-
-  let taskMetadata = parseTaskMetadata(task.metadata);
-  const taskType = db.classifyTaskType(task.task_description || '');
-  const contextTokenEstimate = getTaskContextTokenEstimate(taskMetadata, task.context);
-  const preExecutePolicyResult = evaluateTaskPreExecutePolicy({
-    ...task,
-    id: taskId,
-    provider,
+  const { maxConcurrent, usedEditFormat } = runStartupPreflight({
+    task,
+    taskId,
+    getMaxConcurrent: getEffectiveGlobalMaxConcurrent,
+    config: serverConfig,
+    metrics: gpuMetrics,
+    preflight: runPreflightChecks,
+    log: logger,
   });
-  if (preExecutePolicyResult?.blocked === true) {
-    const cancelReason = `[Policy] ${getPolicyBlockReason(preExecutePolicyResult, 'pre-execute')}`;
-    try {
-      cancelTask(taskId, cancelReason);
-    } catch (cancelErr) {
-      logger.info(`[Policy] Failed to cancel blocked task ${taskId}: ${cancelErr.message}`);
-      safeUpdateTaskStatus(taskId, 'cancelled', { error_output: cancelReason });
-    }
-    try { dashboard.notifyTaskUpdated(taskId); } catch { /* non-critical */ }
-    try { processQueue(); } catch (queueErr) { logger.info('Failed to process queue:', queueErr.message); }
-    return {
-      queued: false,
-      blocked: true,
-      cancelled: true,
-      reason: cancelReason,
-      task: db.getTask(taskId),
-    };
+
+  const { provider: startupProvider } = resolveStartupProvider({
+    task,
+    taskId,
+    resolveRouting: resolveProviderRouting,
+    registry: providerRegistry,
+    failInvalidProvider: failTaskForInvalidProvider,
+    parseMetadata: parseTaskMetadata,
+    patchMetadata: (id, metadata) => db.patchTaskMetadata(id, metadata),
+    log: logger,
+  });
+  let provider = startupProvider;
+
+  propagateRoutingChain({
+    task,
+    taskId,
+    provider,
+    parseMetadata: parseTaskMetadata,
+    log: logger,
+  });
+
+  const startupSafeguards = evaluateStartupSafeguards({
+    task,
+    taskId,
+    provider,
+    runSafeguards: runSafeguardPreChecks,
+    parseMetadata: parseTaskMetadata,
+    classifyTaskType: description => db.classifyTaskType(description),
+    estimateContextTokens: getTaskContextTokenEstimate,
+    evaluatePolicy: evaluateTaskPreExecutePolicy,
+    describePolicyBlock: getPolicyBlockReason,
+    cancelBlockedTask: cancelTask,
+    updateTaskStatus: safeUpdateTaskStatus,
+    notifyTaskUpdated: id => dashboard.notifyTaskUpdated(id),
+    drainQueue: processQueue,
+    getTask: id => db.getTask(id),
+    log: logger,
+  });
+  if (startupSafeguards.earlyResult) {
+    return startupSafeguards.earlyResult;
   }
+  let { taskMetadata, taskType, contextTokenEstimate } = startupSafeguards;
 
   // === ATOMIC SLOT CLAIM ===
   // Atomically check concurrency and claim the slot to prevent race conditions
