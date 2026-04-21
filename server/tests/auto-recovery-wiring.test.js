@@ -1,8 +1,6 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { describe, it, expect } = require('vitest');
-
 describe('auto-recovery wiring', () => {
   it('DEFAULT_PLUGIN_NAMES includes auto-recovery-core', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');

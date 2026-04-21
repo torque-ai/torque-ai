@@ -1156,43 +1156,6 @@ function init() {
     debugLog('Plugin loading failed: ' + err.message);
   }
 
-  // Build auto-recovery engine with rules and strategies from loaded plugins.
-  try {
-    const autoRecovery = require('./factory/auto-recovery');
-    const { createAutoRecoveryServices } = require('./factory/auto-recovery/services');
-    let handleRetryFactoryVerify = null;
-    try {
-      ({ handleRetryFactoryVerify } = require('./handlers/factory-handlers'));
-    } catch (_e) { void _e; }
-
-    const allRules = [];
-    const allStrategies = [];
-    for (const plugin of loadedPlugins || []) {
-      if (Array.isArray(plugin && plugin.classifierRules)) allRules.push(...plugin.classifierRules);
-      if (Array.isArray(plugin && plugin.recoveryStrategies)) allStrategies.push(...plugin.recoveryStrategies);
-    }
-
-    const rawDb = (db && typeof db.getDbInstance === 'function')
-      ? db.getDbInstance() : db;
-
-    const services = createAutoRecoveryServices({
-      db: rawDb, eventBus, logger,
-      extras: {
-        retryFactoryVerify: async (args) =>
-          handleRetryFactoryVerify ? handleRetryFactoryVerify(args) : null,
-      },
-    });
-
-    const autoRecoveryEngine = autoRecovery.createAutoRecoveryEngine({
-      db: rawDb, logger, eventBus,
-      rules: allRules, strategies: allStrategies, services,
-    });
-    defaultContainer.register('autoRecoveryEngine', autoRecoveryEngine);
-    logger.info('[startup] auto-recovery engine registered');
-  } catch (err) {
-    logger.warn('Failed to build auto-recovery engine: ' + err.message);
-  }
-
   // Migrate legacy config keys (ollama_model, hashline_capable_models, etc.) into
   // model_roles and model_capabilities. Idempotent — safe on every startup.
   try {
