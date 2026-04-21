@@ -177,6 +177,48 @@ async function tickProject(project) {
       // Skip terminated or idle instances
       if (state === 'IDLE') continue;
 
+      // Self-heal: VERIFY gate pauses with reason `batch_tasks_not_terminal`
+      // don't clear on their own when the blocking batch tasks finish, because
+      // no stage runs while paused-at-gate. Re-check the batch; if it's now
+      // fully terminal, auto-approve the gate so the next tick advances.
+      // Narrowly scoped: only `paused_at_stage === VERIFY` AND the latest
+      // VERIFY decision's outcome.reason confirms the bug shape, so other
+      // VERIFY pause causes (human approval, VERIFY_FAIL) are untouched.
+      if (paused === 'VERIFY' && instance.batch_id) {
+        try {
+          const latest = loopController.getLatestStageDecision(project.id, 'VERIFY');
+          const latestReason = latest?.outcome?.reason || null;
+          const isBatchWaitPause = latestReason === 'batch_tasks_not_terminal'
+            || latest?.action === 'waiting_for_batch_tasks';
+          if (isBatchWaitPause) {
+            const batchTasks = loopController.listTasksForFactoryBatch(instance.batch_id);
+            const nonTerminal = batchTasks.filter(
+              (t) => !['completed', 'shipped', 'cancelled', 'failed'].includes(t.status),
+            );
+            if (batchTasks.length > 0 && nonTerminal.length === 0) {
+              logger.info('Factory tick: auto-clearing VERIFY gate — batch now terminal', {
+                project_id: project.id,
+                instance_id: instance.id,
+                batch_id: instance.batch_id,
+                batch_task_count: batchTasks.length,
+              });
+              try {
+                loopController.approveGateForProject(project.id, 'VERIFY');
+              } catch (approveErr) {
+                logger.debug('Factory tick: auto-approve VERIFY gate failed', {
+                  project_id: project.id,
+                  instance_id: instance.id,
+                  err: approveErr.message,
+                });
+              }
+              continue; // next tick picks up the now-cleared instance
+            }
+          }
+        } catch (checkErr) {
+          logger.debug('Factory tick: VERIFY gate recheck failed', { err: checkErr.message });
+        }
+      }
+
       // Skip paused-at-gate instances (need operator approval, not a tick).
       // READY_FOR_* and paused EXECUTE still participate because the tick can
       // either advance or recover those states.

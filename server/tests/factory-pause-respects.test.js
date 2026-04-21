@@ -184,6 +184,99 @@ describe('factory pause enforcement', () => {
     expect(submitSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('auto-clears a VERIFY gate paused with reason=batch_tasks_not_terminal when the batch becomes terminal', async () => {
+    const decisionLog = require('../factory/decision-log');
+    const factoryDecisions = require('../db/factory-decisions');
+    factoryDecisions.setDb(db);
+
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const batchId = `test-batch-${Date.now()}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: LOOP_STATES.VERIFY,
+    });
+
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, provider, status, tags, working_directory, created_at)
+      VALUES (?, 'batch-task-1', 'ollama', 'completed', ?, ?, datetime('now'))
+    `).run('batch-task-1', JSON.stringify([`factory:batch_id=${batchId}`]), project.path);
+
+    decisionLog.logDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'human',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting approval for VERIFY.',
+      inputs: { previous_state: 'VERIFY', trust_level: 'dark' },
+      outcome: {
+        from_state: 'VERIFY',
+        to_state: 'PAUSED',
+        gate_stage: 'VERIFY',
+        reason: 'batch_tasks_not_terminal',
+      },
+      confidence: 1,
+      batch_id: batchId,
+    });
+
+    const approveSpy = vi.spyOn(loopController, 'approveGateForProject');
+    const staleRunningProject = factoryHealth.getProject(project.id);
+
+    await factoryTick.tickProject(staleRunningProject);
+
+    expect(approveSpy).toHaveBeenCalledWith(project.id, 'VERIFY');
+    const afterTick = factoryLoopInstances.getInstance(instance.id);
+    expect(afterTick.paused_at_stage).toBeNull();
+  });
+
+  it('does not auto-clear a VERIFY gate when a batch task is still non-terminal', async () => {
+    const decisionLog = require('../factory/decision-log');
+    const factoryDecisions = require('../db/factory-decisions');
+    factoryDecisions.setDb(db);
+
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const batchId = `test-batch-pending-${Date.now()}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: LOOP_STATES.VERIFY,
+    });
+
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, provider, status, tags, working_directory, created_at)
+      VALUES (?, 'batch-task-1', 'ollama', 'completed', ?, ?, datetime('now')),
+             (?, 'batch-task-2', 'ollama', 'running',   ?, ?, datetime('now'))
+    `).run(
+      'pending-batch-task-1', JSON.stringify([`factory:batch_id=${batchId}`]), project.path,
+      'pending-batch-task-2', JSON.stringify([`factory:batch_id=${batchId}`]), project.path,
+    );
+
+    decisionLog.logDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'human',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting approval for VERIFY.',
+      outcome: { reason: 'batch_tasks_not_terminal' },
+      confidence: 1,
+      batch_id: batchId,
+    });
+
+    const approveSpy = vi.spyOn(loopController, 'approveGateForProject');
+    const staleRunningProject = factoryHealth.getProject(project.id);
+
+    await factoryTick.tickProject(staleRunningProject);
+
+    expect(approveSpy).not.toHaveBeenCalled();
+    expect(factoryLoopInstances.getInstance(instance.id).paused_at_stage).toBe('VERIFY');
+  });
+
   it('resume restores normal tick auto-start behavior', async () => {
     const project = registerFactoryProject({ status: 'paused', autoContinue: true });
     const stalePausedProject = factoryHealth.getProject(project.id);

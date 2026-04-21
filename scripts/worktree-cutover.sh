@@ -118,8 +118,10 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     EXISTING_BARRIER=""
     for CHECK_STATUS in running queued; do
       RESP=$(curl -s --max-time 5 "${TORQUE_API}/api/v2/tasks?status=${CHECK_STATUS}&limit=100" 2>/dev/null || echo "")
-      # Extract tasks with provider='system' — look for the barrier pattern
-      FOUND=$(echo "$RESP" | grep -oP '"id"\s*:\s*"[^"]*".*?"provider"\s*:\s*"system"' | head -1 | grep -oP '"id"\s*:\s*"\K[^"]+' || true)
+      # Extract tasks with provider='system' — look for the barrier pattern.
+      # POSIX-only (sed -E); grep -oP errors on gitbash Windows under the
+      # default locale and the warnings leak into cutover output.
+      FOUND=$(echo "$RESP" | sed -nE 's/.*"id"[[:space:]]*:[[:space:]]*"([^"\\]+)"[^{]*"provider"[[:space:]]*:[[:space:]]*"system".*/\1/p' | head -1 || true)
       if [ -n "$FOUND" ]; then
         EXISTING_BARRIER="$FOUND"
         break
@@ -185,14 +187,14 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
       echo "  Waiting for pipeline drain..."
       while true; do
         TASK_RESP=$(curl -s --max-time 5 "${TORQUE_API}/api/v2/tasks/${BARRIER_TASK_ID}" 2>/dev/null || echo "")
-        TASK_STATUS=$(echo "$TASK_RESP" | grep -oP '"status"\s*:\s*"\K[^"]+' || true)
+        TASK_STATUS=$(echo "$TASK_RESP" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
 
         if [ "$TASK_STATUS" = "completed" ]; then
           echo "[ok] Barrier completed — server restarting."
           break
         fi
         if [ "$TASK_STATUS" = "failed" ]; then
-          TASK_ERROR=$(echo "$TASK_RESP" | grep -oP '"error_output"\s*:\s*"\K[^"]+' || true)
+          TASK_ERROR=$(echo "$TASK_RESP" | sed -nE 's/.*"error_output"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
           echo "[error] Barrier task failed: ${TASK_ERROR:-unknown}"
           echo "        Merge landed but TORQUE was NOT restarted."
           echo "        Options:"
