@@ -68,6 +68,28 @@ function getOrCreateRemoteAgentRegistry(deps = {}) {
   return _remoteAgentRegistry;
 }
 
+function normalizeInitDeps(depsOrTaskManager) {
+  if (!depsOrTaskManager) {
+    return {};
+  }
+
+  const isObject = typeof depsOrTaskManager === 'object' && !Array.isArray(depsOrTaskManager);
+  if (!isObject) {
+    return { taskManager: depsOrTaskManager };
+  }
+
+  const hasDependencyKeys = Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'taskManager')
+    || Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'remoteAgentRegistry')
+    || Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'db');
+  if (hasDependencyKeys) {
+    return depsOrTaskManager;
+  }
+
+  return Object.keys(depsOrTaskManager).length === 0
+    ? {}
+    : { taskManager: depsOrTaskManager };
+}
+
 // NOTE: Three separate JSON body parsers exist in this codebase:
 //   1. middleware.js parseBody       — canonical parser; used by v2-middleware validateRequest
 //                                     for routes with schema validation. Calls validateJsonDepth.
@@ -668,10 +690,7 @@ async function dispatchV2(req, res) {
  * Only needed if the API server hasn't already initialized them.
  */
 function init(depsOrTaskManager = {}) {
-  const isDepsObject = depsOrTaskManager
-    && typeof depsOrTaskManager === 'object'
-    && !Array.isArray(depsOrTaskManager);
-  const deps = isDepsObject ? depsOrTaskManager : { taskManager: depsOrTaskManager };
+  const deps = normalizeInitDeps(depsOrTaskManager);
   const taskManager = deps.taskManager;
 
   if (taskManager) {

@@ -24,24 +24,40 @@ const { parseBody } = require('./middleware');
 let _taskManager = null;
 let _remoteAgentRegistry = null;
 
-function init(depsOrTaskManager = {}) {
-  const isDepsObject = depsOrTaskManager
-    && typeof depsOrTaskManager === 'object'
-    && !Array.isArray(depsOrTaskManager);
+function normalizeInitDeps(depsOrTaskManager) {
+  if (!depsOrTaskManager) {
+    return {};
+  }
 
-  if (isDepsObject) {
-    if (Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'taskManager')) {
-      _taskManager = depsOrTaskManager.taskManager;
+  const isObject = typeof depsOrTaskManager === 'object' && !Array.isArray(depsOrTaskManager);
+  if (!isObject) {
+    return { taskManager: depsOrTaskManager };
+  }
+
+  const hasDependencyKeys = Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'taskManager')
+    || Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'remoteAgentRegistry');
+  if (hasDependencyKeys) {
+    return depsOrTaskManager;
+  }
+
+  return Object.keys(depsOrTaskManager).length === 0
+    ? {}
+    : { taskManager: depsOrTaskManager };
+}
+
+function init(depsOrTaskManager = {}) {
+  const deps = normalizeInitDeps(depsOrTaskManager);
+
+  if (Object.keys(deps).length > 0) {
+    if (Object.prototype.hasOwnProperty.call(deps, 'taskManager')) {
+      _taskManager = deps.taskManager;
     }
-    if (Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'remoteAgentRegistry')) {
-      _remoteAgentRegistry = depsOrTaskManager.remoteAgentRegistry || null;
+    if (Object.prototype.hasOwnProperty.call(deps, 'remoteAgentRegistry')) {
+      _remoteAgentRegistry = deps.remoteAgentRegistry || null;
     }
     return module.exports;
   }
 
-  if (depsOrTaskManager) {
-    _taskManager = depsOrTaskManager;
-  }
   return module.exports;
 }
 
