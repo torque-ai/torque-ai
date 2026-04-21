@@ -415,18 +415,18 @@ git commit -m "feat(dashboard): auto-detecting chain editor in routing templates
 
 ### Task 4: Build, Push, and Restart
 
-- [ ] **Step 1: Full dashboard build**
+- [x] **Step 1: Full dashboard build**
 
 Run: `cd /path/to/torque/dashboard && npm run build`
 
-- [ ] **Step 2: Push**
+- [x] **Step 2: Push**
 
 ```bash
 cd /path/to/torque
 git push
 ```
 
-- [ ] **Step 3: Restart TORQUE**
+- [x] **Step 3: Restart TORQUE**
 
 ```bash
 bash /path/to/torque/stop-torque.sh
