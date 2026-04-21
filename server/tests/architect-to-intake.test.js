@@ -178,6 +178,13 @@ beforeEach(() => {
   wireFactoryDbModules(dbHandle);
   installCjsModuleMock('../db/task-core', { getTask: getTaskMock });
   vi.clearAllMocks();
+  vi.spyOn(factoryIntake, 'listOpenWorkItems').mockReturnValue([{
+    id: 10001,
+    title: 'Existing intake context',
+    description: 'Keeps architect promotion tests on the LLM path.',
+    status: 'pending',
+    created_at: '2026-04-20T00:00:00.000Z',
+  }]);
 });
 
 afterEach(() => {

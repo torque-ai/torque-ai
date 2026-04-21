@@ -72,6 +72,7 @@ function parseJsonResponse(result) {
 
 describe('plan-file MCP tools', () => {
   let db;
+  let projectRoot;
   let plansDir;
   let project;
   let originalGetDbInstance;
@@ -83,16 +84,20 @@ describe('plan-file MCP tools', () => {
     factoryIntake.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
-    plansDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-plan-tools-'));
+    // plansDir must live INSIDE the project root so plans-dir-validator
+    // (added in the starvation-detection batch) accepts it.
+    projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-plan-tools-project-'));
+    plansDir = path.join(projectRoot, 'plans');
+    fs.mkdirSync(plansDir, { recursive: true });
     project = factoryHealth.registerProject({
       name: 'Plan Tool Project',
-      path: `/tmp/plan-tool-project-${Date.now()}`,
+      path: projectRoot,
       trust_level: 'dark',
     });
   });
 
   afterEach(() => {
-    fs.rmSync(plansDir, { recursive: true, force: true });
+    fs.rmSync(projectRoot, { recursive: true, force: true });
     database.getDbInstance = originalGetDbInstance;
     db.close();
   });

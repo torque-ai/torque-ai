@@ -19,6 +19,7 @@ const { recoverStalledVerifyLoops } = require('./verify-stall-recovery');
 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
 const factoryNotifications = require('./notifications');
 const logger = require('../logger').child({ component: 'factory-tick' });
+const { LOOP_STATES } = require('./loop-states');
 
 const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const activeTimers = new Map(); // project_id → intervalId
@@ -31,6 +32,29 @@ function getProjectConfig(project) {
 async function tickProject(project) {
   try {
     const freshProject = factoryHealth.getProject(project.id);
+
+    // STARVED recovery - re-scout after dwell, transition back to SENSE.
+    if (freshProject && freshProject.loop_state === LOOP_STATES.STARVED) {
+      try {
+        const container = require('../container');
+        const recovery = container.defaultContainer && container.defaultContainer.get
+          ? container.defaultContainer.get('starvationRecovery')
+          : null;
+        if (recovery && typeof recovery.maybeRecover === 'function') {
+          const outcome = await recovery.maybeRecover(freshProject);
+          if (outcome.recovered) {
+            logger.info('Starvation recovery dispatched scouts', { project_id: freshProject.id });
+          } else {
+            logger.debug('Starvation recovery skipped', { project_id: freshProject.id, reason: outcome.reason });
+          }
+        }
+      } catch (err) {
+        logger.warn('Starvation recovery failed', { project_id: freshProject.id, error: err.message });
+      }
+      // STARVED projects do not get reactivated by the rest of tickProject
+      // (Task 3 already excludes them from reactivation), so we can return.
+      return;
+    }
 
     // Baseline probe phase — for projects paused by the verify-review
     // classifier when a baseline (main) was already broken. Task 9 sets
@@ -174,8 +198,8 @@ async function tickProject(project) {
         return;
       }
 
-      // Skip terminated or idle instances
-      if (state === 'IDLE') continue;
+      // Skip terminated, idle, or starved instances
+      if (state === LOOP_STATES.IDLE || state === LOOP_STATES.STARVED) continue;
 
       // Skip paused-at-gate instances (need operator approval, not a tick).
       // READY_FOR_* and paused EXECUTE still participate because the tick can
@@ -260,6 +284,10 @@ async function tickProject(project) {
     // start a new loop automatically.
     const projectBeforeAutoStart = factoryHealth.getProject(project.id);
     if (!projectBeforeAutoStart || projectBeforeAutoStart.status !== 'running') {
+      return;
+    }
+    const projectLoopState = String(projectBeforeAutoStart.loop_state || LOOP_STATES.IDLE).toUpperCase();
+    if (projectLoopState === LOOP_STATES.STARVED) {
       return;
     }
     const cfg = getProjectConfig(projectBeforeAutoStart);
@@ -370,8 +398,11 @@ function initFactoryTicks() {
     const projects = factoryHealth.listProjects();
     for (const project of projects) {
       const cfg = getProjectConfig(project);
-      const shouldTick = project.status === 'running'
-        || (project.status === 'paused' && cfg?.baseline_broken_since);
+      const loopState = String(project.loop_state || LOOP_STATES.IDLE).toUpperCase();
+      const shouldTick = loopState !== LOOP_STATES.STARVED && (
+        project.status === 'running'
+        || (project.status === 'paused' && cfg?.baseline_broken_since)
+      );
       if (!shouldTick) continue;
       const intervalMs = cfg?.loop?.tick_interval_ms || DEFAULT_TICK_INTERVAL_MS;
       startTick(project, intervalMs);

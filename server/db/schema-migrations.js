@@ -189,6 +189,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     void _e;
     // Column already exists
   }
+  safeAddColumn('factory_projects', 'consecutive_empty_cycles INTEGER DEFAULT 0');
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks(workflow_id)`);
   } catch (e) {

@@ -554,6 +554,23 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   const healthScores = normalizeHealthScores(factoryHealth.getLatestScores(project_id));
   const openItems = factoryIntake.listOpenWorkItems({ project_id });
   const intakeItems = normalizeIntakeItems(openItems.filter((item) => !CLOSED_WORK_ITEM_STATUSES.has(item.status)));
+
+  if (intakeItems.length === 0) {
+    logger.info('Architect cycle skipping LLM — intake is empty', { project_id });
+    const cycle = factoryArchitect.createCycle({
+      project_id,
+      input_snapshot: {
+        healthScores,
+        intakeItems: [],
+      },
+      reasoning: 'no open work items; architect LLM skipped',
+      backlog: [],
+      llm_used: false,
+      trigger,
+    });
+    return cycle;
+  }
+
   const prevCycle = factoryArchitect.getLatestCycle(project_id);
 
   // Load human corrections for architect calibration
@@ -662,4 +679,5 @@ module.exports = {
   runArchitectCycle,
   prioritizeByHealth,
   updateBacklogWorkItemStatuses,
+  _internalForTests: { runArchitectLLM },
 };

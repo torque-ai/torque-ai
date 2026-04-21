@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import StatCard from '../components/StatCard';
+import StarvationBanner from '../components/StarvationBanner';
 import { ProjectCard } from './factory/shared';
 import { useFactoryShell } from './factory/useFactoryShell';
 
@@ -98,6 +99,16 @@ export default function Factory() {
                   Refresh
                 </button>
               </div>
+            </div>
+          )}
+
+          {projects.some((p) => p.loop_state === 'STARVED') && (
+            <div className="space-y-2">
+              {projects
+                .filter((p) => p.loop_state === 'STARVED')
+                .map((p) => (
+                  <StarvationBanner key={`starvation-${p.id}`} project={p} />
+                ))}
             </div>
           )}
 
