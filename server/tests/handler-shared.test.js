@@ -1,9 +1,29 @@
+const fs = require('fs');
 const path = require('path');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const shared = require('../handlers/shared');
 
 function getText(result) {
   return result?.content?.[0]?.text || '';
+}
+
+function collectJavaScriptFiles(dir) {
+  const files = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectJavaScriptFiles(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith('.js')) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+function stripCommentsPreservingLines(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\r\n]/g, ''))
+    .replace(/\/\/.*$/gm, '');
 }
 
 describe('handler:shared', () => {
@@ -17,6 +37,35 @@ describe('handler:shared', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe('handler database import guard', () => {
+    it('keeps handler modules from importing database.js directly', () => {
+      const handlersDir = path.resolve(__dirname, '../handlers');
+      const allowedSharedResolver = path.join(handlersDir, 'shared.js');
+      const directDatabaseImportPattern = new RegExp([
+        String.raw`\b(?:require|import)\s*\(\s*['"](?:\.\.[/\\])+database(?:\.js)?['"]\s*\)`,
+        String.raw`\b(?:from|import)\s*['"](?:\.\.[/\\])+database(?:\.js)?['"]`
+      ].join('|'));
+      const violations = [];
+
+      for (const filePath of collectJavaScriptFiles(handlersDir)) {
+        if (filePath === allowedSharedResolver) {
+          continue;
+        }
+
+        const source = stripCommentsPreservingLines(fs.readFileSync(filePath, 'utf8'));
+        const lines = source.split(/\r?\n/);
+        lines.forEach((line, index) => {
+          if (directDatabaseImportPattern.test(line)) {
+            const relativePath = path.relative(process.cwd(), filePath);
+            violations.push(`${relativePath}:${index + 1}: ${line.trim()}`);
+          }
+        });
+      }
+
+      expect(violations).toEqual([]);
+    });
   });
 
   describe('validation helpers', () => {
