@@ -8,6 +8,11 @@ describe('model-registry-handlers', () => {
   });
 
   it('lists models through the persistence helper and preserves markdown output', () => {
+    const db = {
+      prepare: vi.fn(() => {
+        throw new Error('handler should not prepare SQL directly');
+      }),
+    };
     const modelRegistry = {
       listModelSummaries: vi.fn(() => [
         {
@@ -22,10 +27,11 @@ describe('model-registry-handlers', () => {
         },
       ]),
     };
-    const handlers = createModelRegistryHandlers({ modelRegistry });
+    const handlers = createModelRegistryHandlers({ db, modelRegistry });
 
     const result = handlers.handleListModels({ provider: 'ollama' });
 
+    expect(db.prepare).not.toHaveBeenCalled();
     expect(modelRegistry.listModelSummaries).toHaveBeenCalledWith({ provider: 'ollama' });
     expect(result).toContain('## Registered Models');
     expect(result).toContain('| qwen3-coder:30b | qwen3 | 30B | quality | Y | Y | approved |');
@@ -61,5 +67,20 @@ describe('model-registry-handlers', () => {
 
     expect(modelRegistry.assignModelRole).not.toHaveBeenCalled();
     expect(result).toBe('Invalid role "experimental". Valid roles: fast, balanced, quality, default, fallback');
+  });
+
+  it('rejects missing model names before calling persistence', () => {
+    const modelRegistry = {
+      assignModelRole: vi.fn(),
+    };
+    const handlers = createModelRegistryHandlers({ modelRegistry });
+
+    const result = handlers.handleAssignModelRole({
+      provider: 'ollama',
+      role: 'fast',
+    });
+
+    expect(modelRegistry.assignModelRole).not.toHaveBeenCalled();
+    expect(result).toBe('Required: provider, role, model_name. Valid roles: fast, balanced, quality, default, fallback.');
   });
 });
