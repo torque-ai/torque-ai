@@ -234,31 +234,9 @@ async function handleModelStats(req, res) {
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   try {
-    let sqlDb;
-    try {
-      const { defaultContainer } = require('../container');
-      sqlDb = defaultContainer.get('db');
-    } catch (_e) {
-      const database = require('../database');
-      sqlDb = typeof database.getDbInstance === 'function' ? database.getDbInstance() : database;
-    }
-    if (!sqlDb || !sqlDb.prepare) {
-      return sendSuccess(res, requestId, { models: [], days }, 200, req);
-    }
-
-    const rows = sqlDb.prepare(`
-      SELECT model, provider,
-        COUNT(*) as total,
-        COUNT(*) as task_count,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-        AVG(CASE WHEN completed_at IS NOT NULL AND started_at IS NOT NULL
-          THEN (julianday(completed_at) - julianday(started_at)) * 86400
-          ELSE NULL END) as avg_duration_seconds,
-        MAX(created_at) as last_used
-      FROM tasks WHERE created_at >= ? AND model IS NOT NULL AND model != ''
-      GROUP BY model, provider ORDER BY total DESC
-    `).all(since);
+    const rows = typeof taskCore.getModelUsageStats === 'function'
+      ? taskCore.getModelUsageStats(since)
+      : [];
 
     const modelMap = {};
     for (const row of rows) {
@@ -287,20 +265,9 @@ async function handleModelStats(req, res) {
       success_rate: m.total > 0 ? Math.round(m.completed / m.total * 100) : 0,
     }));
 
-    const dailySeries = sqlDb.prepare(`
-      SELECT
-        model,
-        DATE(created_at) as date,
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-      FROM tasks
-      WHERE created_at >= ?
-        AND model IS NOT NULL
-        AND model != ''
-      GROUP BY model, DATE(created_at)
-      ORDER BY date ASC
-    `).all(since);
+    const dailySeries = typeof taskCore.getModelDailyUsageSeries === 'function'
+      ? taskCore.getModelDailyUsageSeries(since)
+      : [];
 
     sendSuccess(res, requestId, { models, dailySeries, days }, 200, req);
   } catch (err) {

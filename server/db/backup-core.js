@@ -228,17 +228,32 @@ function getBackupsDir() {
   return path.resolve(path.join(getDataDir(), 'backups'));
 }
 
-function listBackups(dir) {
-  const defaultDir = getBackupsDir();
-  if (!dir) {
-    dir = defaultDir;
-  } else {
-    const resolved = path.resolve(dir);
-    const rel = path.relative(defaultDir, resolved);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      dir = defaultDir; // Reject traversal — fall back to default
+function isPathInsideDirectory(baseDir, targetDir) {
+  const rel = path.relative(baseDir, targetDir);
+  return rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel));
+}
+
+function resolveManagedBackupsDir(dir) {
+  const backupsDir = path.resolve(getBackupsDir());
+  const resolved = path.resolve(dir || backupsDir);
+
+  if (!isPathInsideDirectory(backupsDir, resolved)) {
+    throw new Error(`Backup directory must resolve to a path inside the managed backups directory: ${backupsDir}`);
+  }
+
+  if (fs.existsSync(resolved)) {
+    const realBackupsDir = fs.existsSync(backupsDir) ? fs.realpathSync(backupsDir) : backupsDir;
+    const realResolved = fs.realpathSync(resolved);
+    if (!isPathInsideDirectory(realBackupsDir, realResolved)) {
+      throw new Error(`Backup directory must resolve to a path inside the managed backups directory: ${backupsDir}`);
     }
   }
+
+  return resolved;
+}
+
+function listBackups(dir) {
+  dir = resolveManagedBackupsDir(dir);
   if (!fs.existsSync(dir)) return [];
 
   return fs.readdirSync(dir)

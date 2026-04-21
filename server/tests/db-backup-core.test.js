@@ -52,6 +52,7 @@ function createFsMock(overrides = {}) {
       mtime: new Date('2026-03-01T00:00:00.000Z'),
     })),
     readdirSync: vi.fn(() => []),
+    realpathSync: vi.fn((fullPath) => fullPath),
     unlinkSync: vi.fn(),
     ...overrides,
   };

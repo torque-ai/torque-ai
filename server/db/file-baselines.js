@@ -16,6 +16,10 @@ const { safeJsonParse } = require('../utils/json');
 
 let db;
 let _getTaskFn;
+const DIRECTORY_BASELINE_YIELD_BATCH_SIZE = 25;
+const VALIDATION_SCAN_MAX_DEPTH = 10;
+const DUPLICATE_SCAN_EXCLUDED_DIRS = new Set(['node_modules', '.git', 'bin', 'obj', 'dist', 'build', '.vs', '.idea']);
+const SIMILAR_FILE_SCAN_EXCLUDED_DIRS = new Set(['node_modules', '.git', 'bin', 'obj', 'dist', '.vs', '.idea']);
 
 function setDb(dbInstance) {
   db = dbInstance;
@@ -70,6 +74,45 @@ function resolveScopedWorkingDirectory(taskId, workingDirectory) {
   return resolvedWorkingDirectory;
 }
 
+async function walkValidationFiles(rootDirectory, options, onFile) {
+  const fsPromises = require('fs').promises;
+  const path = require('path');
+  const {
+    excludedDirectories = new Set(),
+    maxDepth = VALIDATION_SCAN_MAX_DEPTH,
+  } = options || {};
+
+  async function walkDirectory(directory, depth) {
+    if (depth > maxDepth) return;
+
+    let dir;
+    try {
+      dir = await fsPromises.opendir(directory);
+    } catch (_err) {
+      void _err;
+      return;
+    }
+
+    try {
+      for await (const dirent of dir) {
+        const fullPath = path.join(directory, dirent.name);
+
+        if (dirent.isDirectory()) {
+          if (!excludedDirectories.has(dirent.name)) {
+            await walkDirectory(fullPath, depth + 1);
+          }
+        } else if (dirent.isFile()) {
+          await onFile(fullPath, dirent);
+        }
+      }
+    } catch (_err) {
+      void _err;
+    }
+  }
+
+  await walkDirectory(rootDirectory, 0);
+}
+
 
 function captureFileBaseline(filePath, workingDirectory, taskId = null) {
   const fs = require('fs');
@@ -81,6 +124,38 @@ function captureFileBaseline(filePath, workingDirectory, taskId = null) {
   try {
     const stats = fs.statSync(fullPath);
     const content = fs.readFileSync(fullPath, 'utf8');
+    const lineCount = content.split('\n').length;
+    const checksum = crypto.createHash('sha256').update(content).digest('hex');
+
+    const stmt = db.prepare(`
+      INSERT INTO file_baselines (file_path, working_directory, size_bytes, line_count, checksum, captured_at, task_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(file_path, working_directory) DO UPDATE SET
+        size_bytes = excluded.size_bytes,
+        line_count = excluded.line_count,
+        checksum = excluded.checksum,
+        captured_at = excluded.captured_at,
+        task_id = excluded.task_id
+    `);
+    stmt.run(filePath, workingDirectory, stats.size, lineCount, checksum, new Date().toISOString(), taskId);
+
+    return { size: stats.size, lines: lineCount, checksum };
+  } catch (_err) {
+    void _err;
+    return null;
+  }
+}
+
+async function captureFileBaselineAsync(filePath, workingDirectory, taskId = null) {
+  const fsPromises = require('fs').promises;
+  const path = require('path');
+  const crypto = require('crypto');
+
+  const fullPath = path.isAbsolute(filePath) ? filePath : path.join(workingDirectory, filePath);
+
+  try {
+    const stats = await fsPromises.stat(fullPath);
+    const content = await fsPromises.readFile(fullPath, 'utf8');
     const lineCount = content.split('\n').length;
     const checksum = crypto.createHash('sha256').update(content).digest('hex');
 
@@ -172,6 +247,15 @@ async function captureDirectoryBaselines(workingDirectory, extensions = BASELINE
   const path = require('path');
 
   const captured = [];
+  let capturedSinceYield = 0;
+
+  async function yieldAfterBatch() {
+    capturedSinceYield += 1;
+    if (capturedSinceYield >= DIRECTORY_BASELINE_YIELD_BATCH_SIZE) {
+      capturedSinceYield = 0;
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  }
 
   async function walkDir(dir) {
     try {
@@ -185,8 +269,9 @@ async function captureDirectoryBaselines(workingDirectory, extensions = BASELINE
           const ext = path.extname(entry.name).toLowerCase();
           if (extensions.includes(ext)) {
             const relativePath = path.relative(workingDirectory, fullPath);
-            captureFileBaseline(relativePath, workingDirectory);
+            await captureFileBaselineAsync(relativePath, workingDirectory);
             captured.push(relativePath);
+            await yieldAfterBatch();
           }
         }
       }
@@ -815,7 +900,6 @@ function checkFileLocationAnomalies(taskId, workingDirectory) {
 
 async function checkDuplicateFiles(taskId, workingDirectory, options = {}) {
   const { fileExtensions = BASELINE_EXTENSIONS } = options;
-  const fsPromises = require('fs').promises;
   const path = require('path');
   const duplicates = [];
   const scopedWorkingDirectory = resolveScopedWorkingDirectory(taskId, workingDirectory);
@@ -823,36 +907,18 @@ async function checkDuplicateFiles(taskId, workingDirectory, options = {}) {
   // Build a map of filename -> locations
   const fileMap = new Map();
 
-  async function scanDirectory(dir, depth = 0) {
-    if (depth > 10) return; // Prevent infinite recursion
-
-    try {
-      const entries = await fsPromises.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-
-        if (entry.isDirectory()) {
-          // Skip common non-source directories
-          if (['node_modules', '.git', 'bin', 'obj', 'dist', 'build', '.vs', '.idea'].includes(entry.name)) {
-            continue;
-          }
-          await scanDirectory(fullPath, depth + 1);
-        } else if (entry.isFile()) {
-          const ext = path.extname(entry.name).toLowerCase();
-          if (fileExtensions.includes(ext)) {
-            const locations = fileMap.get(entry.name) || [];
-            locations.push(fullPath);
-            fileMap.set(entry.name, locations);
-          }
-        }
+  await walkValidationFiles(
+    scopedWorkingDirectory,
+    { excludedDirectories: DUPLICATE_SCAN_EXCLUDED_DIRS },
+    async (fullPath, dirent) => {
+      const ext = path.extname(dirent.name).toLowerCase();
+      if (fileExtensions.includes(ext)) {
+        const locations = fileMap.get(dirent.name) || [];
+        locations.push(fullPath);
+        fileMap.set(dirent.name, locations);
       }
-    } catch (_err) {
-      void _err;
-      // Skip directories we can't read
     }
-  }
-
-  await scanDirectory(scopedWorkingDirectory);
+  );
 
   // Find duplicates
   for (const [fileName, locations] of fileMap) {
@@ -909,52 +975,37 @@ async function searchSimilarFiles(taskId, searchTerm, workingDirectory, searchTy
   // Normalize search term
   const normalizedTerm = searchTerm.toLowerCase().replace(/\.(cs|ts|tsx|js|jsx|xaml)$/i, '');
 
-  async function searchDir(dir, depth = 0) {
-    if (depth > 10) return;
+  if (scopedWorkingDirectory) {
+    await walkValidationFiles(
+      scopedWorkingDirectory,
+      { excludedDirectories: SIMILAR_FILE_SCAN_EXCLUDED_DIRS },
+      async (fullPath, dirent) => {
+        const fileName = dirent.name.toLowerCase().replace(/\.(cs|ts|tsx|js|jsx|xaml)$/i, '');
 
-    try {
-      const entries = await fsPromises.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-
-        if (entry.isDirectory()) {
-          if (!['node_modules', '.git', 'bin', 'obj', 'dist', '.vs', '.idea'].includes(entry.name)) {
-            await searchDir(fullPath, depth + 1);
+        if (searchType === 'filename') {
+          // Exact or partial filename match
+          if (fileName === normalizedTerm || fileName.includes(normalizedTerm) || normalizedTerm.includes(fileName)) {
+            matches.push(fullPath);
           }
-        } else if (entry.isFile()) {
-          const fileName = entry.name.toLowerCase().replace(/\.(cs|ts|tsx|js|jsx|xaml)$/i, '');
+          return;
+        }
 
-          if (searchType === 'filename') {
-            // Exact or partial filename match
-            if (fileName === normalizedTerm || fileName.includes(normalizedTerm) || normalizedTerm.includes(fileName)) {
+        if (searchType === 'classname' && /\.(cs|ts|tsx|js|jsx)$/.test(dirent.name)) {
+          // Search for class/interface definition inside source file contents.
+          try {
+            const content = await fsPromises.readFile(fullPath, 'utf8');
+            const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const classPattern = new RegExp(`(class|interface)\\s+${escapedTerm}\\b`, 'i');
+            if (classPattern.test(content)) {
               matches.push(fullPath);
             }
-          } else if (searchType === 'classname') {
-            // Search for class/interface definition inside files
-            if (/\.(cs|ts|tsx|js|jsx)$/.test(entry.name)) {
-              try {
-                const content = await fsPromises.readFile(fullPath, 'utf8');
-                const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const classPattern = new RegExp(`(class|interface)\\s+${escapedTerm}\\b`, 'i');
-                if (classPattern.test(content)) {
-                  matches.push(fullPath);
-                }
-              } catch (_e) {
-                void _e;
-                /* skip */
-              }
-            }
+          } catch (_e) {
+            void _e;
+            /* skip */
           }
         }
       }
-    } catch (_e) {
-      void _e;
-      /* skip */
-    }
-  }
-
-  if (scopedWorkingDirectory) {
-    await searchDir(scopedWorkingDirectory);
+    );
   }
 
   // Generate recommendation

@@ -15,6 +15,7 @@ const MODULE_PATHS = [
   '../task-manager',
   '../logger',
   '../config',
+  '../data-dir',
   '../db/backup-core',
   '../db/config-core',
   '../db/email-peek',
@@ -618,7 +619,7 @@ describe('integration/infra handlers', () => {
 
       const result = handlers.handleListDatabaseBackups({});
 
-      expect(mocks.db.listBackups).toHaveBeenCalled();
+      expect(mocks.db.listBackups).toHaveBeenCalledWith();
       expect(getText(result)).toContain('No backups found.');
     });
 
@@ -631,10 +632,51 @@ describe('integration/infra handlers', () => {
       const result = handlers.handleListDatabaseBackups({});
       const text = getText(result);
 
-      expect(mocks.db.listBackups).toHaveBeenCalled();
+      expect(mocks.db.listBackups).toHaveBeenCalledWith();
       expect(text).toContain('## Database Backups (2)');
       expect(text).toContain('| first.db | 1.0 KB | 2026-03-12T08:00:00.000Z |');
       expect(text).toContain('| second.db | 2.0 KB | 2026-03-12T09:00:00.000Z |');
+    });
+
+    it('rejects caller-supplied backup directories before listing', () => {
+      const result = handlers.handleListDatabaseBackups({
+        directory: path.join(os.tmpdir(), 'external-backups'),
+      });
+
+      expectError(result, ErrorCodes.INVALID_PARAM.code, 'directory is not supported');
+      expect(mocks.db.listBackups).not.toHaveBeenCalled();
+    });
+
+    it('does not expose a directory input in the tool schema', () => {
+      const tools = require('../tool-defs/integration-defs');
+      const tool = tools.find((entry) => entry.name === 'list_database_backups');
+
+      expect(tool).toBeTruthy();
+      expect(tool.inputSchema.properties).not.toHaveProperty('directory');
+    });
+
+    it('refuses core backup listings outside the managed backups directory', () => {
+      clearLoadedModules();
+
+      const dataDir = require('../data-dir');
+      const backupCore = require('../db/backup-core');
+      const managedRoot = makeTempDir('torque-managed-backups-', tempDirs);
+      const outsideRoot = makeTempDir('torque-external-backups-', tempDirs);
+
+      try {
+        dataDir.setDataDir(managedRoot);
+
+        const backupsDir = backupCore.getBackupsDir();
+        fs.mkdirSync(backupsDir, { recursive: true });
+        writeFile(path.join(backupsDir, 'managed.db'), '');
+        writeFile(path.join(outsideRoot, 'external.db'), '');
+
+        expect(() => backupCore.listBackups(path.join(backupsDir, '..'))).toThrow('managed backups directory');
+        expect(() => backupCore.listBackups(outsideRoot)).toThrow('managed backups directory');
+        expect(backupCore.listBackups().map((backup) => backup.name)).toEqual(['managed.db']);
+      } finally {
+        dataDir.setDataDir(null);
+      }
     });
 
     it('maps backup listing failures to OPERATION_FAILED', () => {
@@ -642,9 +684,7 @@ describe('integration/infra handlers', () => {
         throw new Error('cannot read backup directory');
       });
 
-      const result = handlers.handleListDatabaseBackups({
-        directory: 'C:\\backups',
-      });
+      const result = handlers.handleListDatabaseBackups({});
 
       expectError(result, ErrorCodes.OPERATION_FAILED.code, 'List backups failed: cannot read backup directory');
     });

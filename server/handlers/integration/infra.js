@@ -226,6 +226,10 @@ async function handleRestoreDatabase(args) {
 
 function handleListDatabaseBackups(args) {
   try {
+    if (args && Object.prototype.hasOwnProperty.call(args, 'directory')) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'directory is not supported; backups are always listed from the managed backups directory');
+    }
+
     const backups = backupCore.listBackups();
     if (backups.length === 0) {
       return { content: [{ type: 'text', text: '## Database Backups\n\nNo backups found.' }] };

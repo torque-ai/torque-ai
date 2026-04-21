@@ -179,6 +179,60 @@ describe('captureDirectoryBaselines', () => {
     expect(captured).toContain('b.ts');
   });
 
+  it('captures and persists directory baselines without synchronous file reads', async () => {
+    const subDir = path.join(testDir, 'dir-async-baseline-test');
+    const filePath = 'async-file.js';
+    fs.mkdirSync(subDir, { recursive: true });
+    fs.writeFileSync(path.join(subDir, filePath), 'const asyncBaseline = true;\n', 'utf8');
+
+    const statSyncSpy = vi.spyOn(fs, 'statSync').mockImplementation(() => {
+      throw new Error('statSync should not be called');
+    });
+    const readFileSyncSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
+      throw new Error('readFileSync should not be called');
+    });
+
+    try {
+      const captured = await mod.captureDirectoryBaselines(subDir, ['.js']);
+
+      expect(captured).toEqual([filePath]);
+      expect(statSyncSpy).not.toHaveBeenCalled();
+      expect(readFileSyncSpy).not.toHaveBeenCalled();
+
+      const baseline = rawDb()
+        .prepare('SELECT * FROM file_baselines WHERE file_path = ? AND working_directory = ?')
+        .get(filePath, subDir);
+      expect(baseline).toBeDefined();
+      expect(baseline.size_bytes).toBeGreaterThan(0);
+      expect(baseline.checksum).toHaveLength(64);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('yields to the event loop between captured file batches', async () => {
+    const subDir = path.join(testDir, 'dir-yield-baseline-test');
+    const originalSetImmediate = globalThis.setImmediate;
+    fs.mkdirSync(subDir, { recursive: true });
+
+    for (let i = 0; i < 30; i += 1) {
+      fs.writeFileSync(path.join(subDir, `file-${i}.js`), `const value${i} = ${i};\n`, 'utf8');
+    }
+
+    const setImmediateSpy = vi.spyOn(globalThis, 'setImmediate').mockImplementation((callback, ...args) => {
+      return originalSetImmediate(callback, ...args);
+    });
+
+    try {
+      const captured = await mod.captureDirectoryBaselines(subDir, ['.js']);
+
+      expect(captured).toHaveLength(30);
+      expect(setImmediateSpy).toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it('recurses into subdirectories (skipping node_modules)', async () => {
     const subDir = path.join(testDir, 'dir-recurse-test');
     const nested = path.join(subDir, 'src');
@@ -886,6 +940,23 @@ describe('checkDuplicateFiles', () => {
     // index.js in node_modules should be skipped, so no duplicate
     expect(dups).toHaveLength(0);
   });
+
+  it('does not scan past the maximum directory depth', async () => {
+    const scanDir = path.join(testDir, 'dup-depth-limit');
+    fs.mkdirSync(path.join(scanDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(scanDir, 'src', 'DeepWidget.js'), 'export const x = 1;', 'utf8');
+
+    let tooDeepDir = scanDir;
+    for (let depth = 1; depth <= 11; depth++) {
+      tooDeepDir = path.join(tooDeepDir, `level-${depth}`);
+    }
+    fs.mkdirSync(tooDeepDir, { recursive: true });
+    fs.writeFileSync(path.join(tooDeepDir, 'DeepWidget.js'), 'export const y = 2;', 'utf8');
+
+    const dups = await mod.checkDuplicateFiles('task-dup-depth-limit', scanDir, { fileExtensions: ['.js'] });
+
+    expect(dups.find(d => d.file_name === 'DeepWidget.js')).toBeUndefined();
+  });
 });
 
 // ============================================
@@ -939,6 +1010,22 @@ describe('searchSimilarFiles', () => {
     expect(result.recommendation).toContain('similar file');
   });
 
+  it('does not read file contents for filename searches', async () => {
+    const searchDir = path.join(testDir, 'similar-filename-no-read');
+    fs.mkdirSync(searchDir, { recursive: true });
+    fs.writeFileSync(path.join(searchDir, 'InventoryService.ts'), 'export class InventoryService {}', 'utf8');
+    const readFileSpy = vi.spyOn(fs.promises, 'readFile');
+
+    try {
+      const result = await mod.searchSimilarFiles('task-sf-no-read', 'InventoryService', searchDir, 'filename');
+
+      expect(result.matches_found).toBe(1);
+      expect(readFileSpy).not.toHaveBeenCalled();
+    } finally {
+      readFileSpy.mockRestore();
+    }
+  });
+
   it('returns no matches for non-existent term', async () => {
     const searchDir = path.join(testDir, 'similar-empty');
     fs.mkdirSync(searchDir, { recursive: true });
@@ -961,6 +1048,25 @@ describe('searchSimilarFiles', () => {
 
     expect(result.matches_found).toBe(1);
     expect(result.matches[0]).toContain('services.ts');
+  });
+
+  it('skips excluded directories and paths past max depth for classname searches', async () => {
+    const searchDir = path.join(testDir, 'class-search-skip-depth');
+    const excludedDir = path.join(searchDir, 'node_modules', 'pkg');
+    fs.mkdirSync(excludedDir, { recursive: true });
+    fs.writeFileSync(path.join(excludedDir, 'SkippedService.ts'), 'export class SkippedService {}', 'utf8');
+
+    let tooDeepDir = searchDir;
+    for (let depth = 1; depth <= 11; depth++) {
+      tooDeepDir = path.join(tooDeepDir, `level-${depth}`);
+    }
+    fs.mkdirSync(tooDeepDir, { recursive: true });
+    fs.writeFileSync(path.join(tooDeepDir, 'SkippedService.ts'), 'export class SkippedService {}', 'utf8');
+
+    const result = await mod.searchSimilarFiles('task-sf-skip-depth', 'SkippedService', searchDir, 'classname');
+
+    expect(result.matches_found).toBe(0);
+    expect(result.matches).toEqual([]);
   });
 
   it('finds partial filename matches', async () => {
