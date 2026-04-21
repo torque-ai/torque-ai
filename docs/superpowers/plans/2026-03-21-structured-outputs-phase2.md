@@ -20,7 +20,7 @@
 - Modify: `server/tool-output-schemas.js` — add 10 new schema entries
 - Modify: `server/tests/tool-output-schemas.test.js` — update expected count
 
-- [ ] **Step 1: Add all 10 schemas to OUTPUT_SCHEMAS in `server/tool-output-schemas.js`**
+- [x] **Step 1: Add all 10 schemas to OUTPUT_SCHEMAS in `server/tool-output-schemas.js`**
 
 Add the following entries to the OUTPUT_SCHEMAS object. Read the spec at `docs/superpowers/specs/2026-03-21-structured-outputs-phase2-design.md` for the exact JSON Schema definitions. The 10 tools are:
 
@@ -187,7 +187,7 @@ Add the following entries to the OUTPUT_SCHEMAS object. Read the spec at `docs/s
   },
 ```
 
-- [ ] **Step 2: Update the schema count test**
+- [x] **Step 2: Update the schema count test**
 
 In `server/tests/tool-output-schemas.test.js`, update the "declares schemas for all expected tools" test to include the 10 new tools and expect count 19:
 
@@ -209,7 +209,7 @@ In `server/tests/tool-output-schemas.test.js`, update the "declares schemas for 
     });
 ```
 
-- [ ] **Step 3: Commit and push**
+- [x] **Step 3: Commit and push**
 
 ```bash
 git add server/tool-output-schemas.js server/tests/tool-output-schemas.test.js
