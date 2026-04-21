@@ -1184,7 +1184,7 @@ function markScheduledTaskRun(id, options = {}) {
  * @param {object} options
  * @returns {object|null}
  */
-async function runScheduledTaskNow(id, options = {}) {
+function runScheduledTaskNow(id, options = {}) {
   const schedule = getScheduledTask(id, { include_runs: false, hydrateRuns: false });
   if (!schedule) {
     return null;
@@ -1250,7 +1250,7 @@ async function runScheduledTaskNow(id, options = {}) {
   }
 
   try {
-    const result = await executeScheduledTask(schedule, {
+    const result = executeScheduledTask(schedule, {
       ...options,
       db: executionDb || baseDb,
       manualRunNow: true,

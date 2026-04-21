@@ -311,7 +311,7 @@ function findActiveScheduledWorkflowRun(schedule, workflowConfig, options, db, g
   return null;
 }
 
-async function executeScheduledTask(schedule, options = {}) {
+function executeScheduledTask(schedule, options = {}) {
   if (!schedule?.id) {
     throw new Error('SCHEDULE_REQUIRED: schedule is required');
   }
@@ -659,11 +659,7 @@ async function executeScheduledTask(schedule, options = {}) {
         }
       }
 
-      // workflowRunner resolves to the handleRunWorkflow result — which is
-      // now async (awaits taskManager.startTask internally). Await so the
-      // isError/error_code checks below see the resolved payload, not a
-      // Promise object that would always look non-error.
-      const runResult = await workflowRunner(launchedWorkflowId, originMetadata);
+      const runResult = workflowRunner(launchedWorkflowId, originMetadata);
       if (runResult?.isError || runResult?.error_code) {
         const errorMessage = extractErrorMessage(runResult, `Failed to run workflow ${launchedWorkflowId}`);
         if (/already running/i.test(errorMessage)) {
