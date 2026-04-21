@@ -306,6 +306,173 @@ function resolveWindowsCmdToNode(cmdPath) {
   }
 }
 
+function buildProviderStartupEnv({ taskId, task, taskMetadata = {}, runDir, env, nvmNodePath }) {
+  const envPath = env.PATH || '';
+  const updatedPath = (nvmNodePath && !envPath.includes(nvmNodePath))
+    ? `${nvmNodePath}${path.delimiter}${envPath}`
+    : envPath;
+
+  return {
+    ...env,
+    PATH: updatedPath,
+    // Ensure HOME is set (required by many tools)
+    HOME: env.HOME || env.USERPROFILE || '/tmp',
+    // Disable TTY detection and interactive prompts
+    FORCE_COLOR: '0',
+    NO_COLOR: '1',
+    TERM: 'dumb',
+    CI: '1',  // Many tools check for CI environment to disable prompts
+    CODEX_NON_INTERACTIVE: '1',  // Custom flag for our use
+    CLAUDE_NON_INTERACTIVE: '1', // Custom flag for Claude
+    TORQUE_TASK_ID: taskId,
+    TORQUE_WORKFLOW_ID: task.workflow_id || '',
+    TORQUE_WORKFLOW_NODE_ID: task.workflow_node_id || '',
+    TORQUE_RUN_DIR: runDir || '',
+    TORQUE_TRANSCRIPT_PATH: taskMetadata.transcript_path || '',
+    // Ensure git works properly
+    GIT_TERMINAL_PROMPT: '0',  // Disable git credential prompts
+    // Fix Windows cp1252 encoding crash when LLM output contains emoji/unicode (P59)
+    PYTHONIOENCODING: 'utf-8'
+  };
+}
+
+function resolvePlatformProviderCommand({
+  cliPath,
+  finalArgs,
+  platform,
+  resolveCmdToNode,
+  log,
+}) {
+  if (platform === 'win32' && /\.(cmd|bat)$/i.test(cliPath)) {
+    const resolved = resolveCmdToNode(cliPath);
+    if (resolved) {
+      log.info(`[TaskManager] Resolved ${cliPath} → node ${resolved.scriptPath}`);
+      return {
+        cliPath: resolved.nodePath,
+        finalArgs: [resolved.scriptPath, ...finalArgs],
+      };
+    }
+
+    // Fallback: cmd.exe wrapping (stdin piping may fail, window may appear)
+    log.info(`[TaskManager] WARNING: Could not resolve ${cliPath} to node script — falling back to cmd.exe`);
+    return {
+      cliPath: 'cmd.exe',
+      finalArgs: ['/c', cliPath, ...finalArgs],
+    };
+  }
+
+  return { cliPath, finalArgs };
+}
+
+function buildBaselineCommitCapture(cwd) {
+  return {
+    command: 'git',
+    args: ['rev-parse', 'HEAD'],
+    options: {
+      cwd,
+      encoding: 'utf-8',
+      timeout: TASK_TIMEOUTS.GIT_STATUS,
+      windowsHide: true,
+    },
+  };
+}
+
+function captureBaselineHead({ taskId, baselineCapture, skipGit, log }) {
+  if (skipGit) return null;
+  try {
+    return execFileSync(
+      baselineCapture.command,
+      baselineCapture.args,
+      baselineCapture.options
+    ).trim();
+  } catch (e) {
+    log.info(`[TaskManager] Could not capture baseline HEAD for task ${taskId}: ${e.message}`);
+    return null;
+  }
+}
+
+async function buildProviderStartupCommand({
+  taskId,
+  task,
+  provider,
+  providerConfig,
+  executionTask,
+  resolvedFileContext,
+  resolvedFiles,
+  runDir,
+  taskMetadata = {},
+  usedEditFormat,
+  taskType,
+  contextTokenEstimate,
+  env = process.env,
+  platform = process.platform,
+  nvmNodePath = NVM_NODE_PATH,
+  resolveCmdToNode = resolveWindowsCmdToNode,
+  captureBaselineCommit = captureBaselineHead,
+  log = logger,
+} = {}) {
+  if (provider === 'ollama') {
+    return {
+      mode: 'ollama',
+      provider,
+      executionTask,
+    };
+  }
+
+  const command = provider === 'claude-cli'
+    ? buildClaudeCliCommand(executionTask, providerConfig, resolvedFileContext)
+    : await buildCodexCommand(executionTask, providerConfig, resolvedFileContext, resolvedFiles);
+
+  const envVars = buildProviderStartupEnv({
+    taskId,
+    task,
+    taskMetadata,
+    runDir,
+    env,
+    nvmNodePath,
+  });
+
+  const platformCommand = resolvePlatformProviderCommand({
+    cliPath: command.cliPath,
+    finalArgs: [...command.finalArgs],
+    platform,
+    resolveCmdToNode,
+    log,
+  });
+
+  const options = {
+    cwd: task.working_directory || process.cwd(),
+    env: envVars,
+    shell: false,
+    windowsHide: true,
+    // Explicitly configure stdio: stdin is piped (we'll close it), stdout/stderr are piped
+    stdio: ['pipe', 'pipe', 'pipe']
+  };
+
+  const baselineCapture = buildBaselineCommitCapture(options.cwd);
+  const baselineCommit = captureBaselineCommit({
+    taskId,
+    baselineCapture,
+    skipGit: skipGitInCloseHandler,
+    log,
+  });
+
+  return {
+    mode: 'spawn',
+    cliPath: platformCommand.cliPath,
+    finalArgs: platformCommand.finalArgs,
+    stdinPrompt: command.stdinPrompt,
+    options,
+    provider,
+    selectedOllamaHostId: null,
+    usedEditFormat,
+    taskMetadata,
+    taskType,
+    contextTokenEstimate,
+    baselineCommit,
+  };
+}
+
 // ── Preflight & Safeguard Checks ───────────────────────────────────────────
 
 /**
@@ -910,11 +1077,6 @@ async function startTask(taskId) {
     ? task
     : { ...task, execution_description: executionDescription };
 
-  // Build command arguments based on provider
-  let cliPath;
-  let finalArgs;
-  let stdinPrompt;
-
   if (provider === 'ollama') {
     const resolvedOllamaModel = resolveRunnableOllamaModel(task);
     if (resolvedOllamaModel && task.model !== resolvedOllamaModel) {
@@ -930,7 +1092,6 @@ async function startTask(taskId) {
     if (executionTask !== task) {
       executionTask.model = task.model;
     }
-    return executeOllamaTask(executionTask);
   } else if (providerRegistry.isApiProvider(provider)) {
     // All cloud API providers use the same execution path via registry
     const instance = providerRegistry.getProviderInstance(provider);
@@ -996,107 +1157,35 @@ async function startTask(taskId) {
         executionTask.provider = task.provider;
         executionTask.model = task.model;
       }
-
-      const codexResult = await buildCodexCommand(executionTask, providerConfig, resolvedFileContext, resolvedFiles);
-      cliPath = codexResult.cliPath;
-      finalArgs = codexResult.finalArgs;
-      stdinPrompt = codexResult.stdinPrompt;
     } else {
       return executeApiProvider(executionTask, instance);
     }
-  } else if (provider === 'claude-cli') {
-    const claudeResult = buildClaudeCliCommand(executionTask, providerConfig, resolvedFileContext);
-    cliPath = claudeResult.cliPath;
-    finalArgs = claudeResult.finalArgs;
-    stdinPrompt = claudeResult.stdinPrompt;
-  } else {
-    // Codex (default)
-    const codexResult = await buildCodexCommand(executionTask, providerConfig, resolvedFileContext, resolvedFiles);
-    cliPath = codexResult.cliPath;
-    finalArgs = codexResult.finalArgs;
-    stdinPrompt = codexResult.stdinPrompt;
   }
 
-  // Ensure nvm node path is in PATH if available
-  const envPath = process.env.PATH || '';
-  const updatedPath = (NVM_NODE_PATH && !envPath.includes(NVM_NODE_PATH))
-    ? `${NVM_NODE_PATH}${path.delimiter}${envPath}`
-    : envPath;
+  const startupCommand = await buildProviderStartupCommand({
+    taskId,
+    task,
+    provider,
+    providerConfig,
+    executionTask,
+    resolvedFileContext,
+    resolvedFiles,
+    runDir,
+    taskMetadata,
+    usedEditFormat,
+    taskType,
+    contextTokenEstimate,
+  });
 
-  // Build environment variables
-  const envVars = {
-    ...process.env,
-    PATH: updatedPath,
-    // Ensure HOME is set (required by many tools)
-    HOME: process.env.HOME || process.env.USERPROFILE || '/tmp',
-    // Disable TTY detection and interactive prompts
-    FORCE_COLOR: '0',
-    NO_COLOR: '1',
-    TERM: 'dumb',
-    CI: '1',  // Many tools check for CI environment to disable prompts
-    CODEX_NON_INTERACTIVE: '1',  // Custom flag for our use
-    CLAUDE_NON_INTERACTIVE: '1', // Custom flag for Claude
-    TORQUE_TASK_ID: taskId,
-    TORQUE_WORKFLOW_ID: task.workflow_id || '',
-    TORQUE_WORKFLOW_NODE_ID: task.workflow_node_id || '',
-    TORQUE_RUN_DIR: runDir || '',
-    TORQUE_TRANSCRIPT_PATH: taskMetadata.transcript_path || '',
-    // Ensure git works properly
-    GIT_TERMINAL_PROMPT: '0',  // Disable git credential prompts
-    // Fix Windows cp1252 encoding crash when LLM output contains emoji/unicode (P59)
-    PYTHONIOENCODING: 'utf-8'
-  };
-
-  const selectedOllamaHostId = null;
+  if (startupCommand.mode === 'ollama') {
+    return executeOllamaTask(startupCommand.executionTask);
+  }
 
   recordTaskStartedAuditEvent(task, taskId, provider);
 
-  // On Windows, .cmd/.bat files must be launched via cmd.exe — BUT cmd.exe
-  // creates a visible console window AND can break process 'close' events.
-  // Always try to resolve the .cmd wrapper to its underlying node script
-  // and spawn node.exe directly. This avoids both problems.
-  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(cliPath)) {
-    const resolved = resolveWindowsCmdToNode(cliPath);
-    if (resolved) {
-      logger.info(`[TaskManager] Resolved ${cliPath} → node ${resolved.scriptPath}`);
-      cliPath = resolved.nodePath;
-      finalArgs = [resolved.scriptPath, ...finalArgs];
-    } else {
-      // Fallback: cmd.exe wrapping (stdin piping may fail, window may appear)
-      logger.info(`[TaskManager] WARNING: Could not resolve ${cliPath} to node script — falling back to cmd.exe`);
-      finalArgs = ['/c', cliPath, ...finalArgs];
-      cliPath = 'cmd.exe';
-    }
-  }
-
-  const options = {
-    cwd: task.working_directory || process.cwd(),
-    env: envVars,
-    shell: false,
-    windowsHide: true,
-    // Explicitly configure stdio: stdin is piped (we'll close it), stdout/stderr are piped
-    stdio: ['pipe', 'pipe', 'pipe']
-  };
-
-  // Capture baseline HEAD SHA before spawning so post-task validation can diff
-  // only the files this task changed, not files from a prior unrelated commit.
-  // Without this, `git diff HEAD~1 HEAD` may return files from a manual commit
-  // made between sessions, causing false-positive validation failures.
-  let baselineCommit = null;
-  if (!skipGitInCloseHandler) try {
-    baselineCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-      cwd: options.cwd, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS, windowsHide: true
-    }).trim();
-  } catch (e) {
-    logger.info(`[TaskManager] Could not capture baseline HEAD for task ${taskId}: ${e.message}`);
-  }
-
   // === SPAWN AND TRACK ===
-  return spawnAndTrackProcess(taskId, task, {
-    cliPath, finalArgs, stdinPrompt, options, provider,
-    selectedOllamaHostId, usedEditFormat, taskMetadata,
-    taskType, contextTokenEstimate, baselineCommit
-  });
+  const { mode: _mode, ...spawnConfig } = startupCommand;
+  return spawnAndTrackProcess(taskId, task, spawnConfig);
   } catch (err) {
     startupResources.releaseOnStartupFailure(err);
     throw err;
@@ -1396,6 +1485,7 @@ module.exports = {
   recordTaskStartedAuditEvent,
   createTaskStartupResourceLifecycle,
   evaluateClaimedStartupPolicy,
+  buildProviderStartupCommand,
   // Queue helpers
   attemptTaskStart,
   safeStartTask,

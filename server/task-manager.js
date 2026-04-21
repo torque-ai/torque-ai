@@ -535,6 +535,7 @@ function buildCodexCommand(...args) { return _commandBuilders.buildCodexCommand(
 function recordTaskStartedAuditEvent(...args) { return _taskStartup.recordTaskStartedAuditEvent(...args); }
 function createTaskStartupResourceLifecycle(...args) { return _taskStartup.createTaskStartupResourceLifecycle(...args); }
 function evaluateClaimedStartupPolicy(...args) { return _taskStartup.evaluateClaimedStartupPolicy(...args); }
+function buildProviderStartupCommand(...args) { return _taskStartup.buildProviderStartupCommand(...args); }
 
 // Provider routing — delegated to execution/provider-router.js
 function resolveProviderRouting(...args) { return _providerRouter.resolveProviderRouting(...args); }
@@ -1231,6 +1232,7 @@ Object.assign(module.exports, {
   recordProviderHealth,
   createTaskStartupResourceLifecycle,
   evaluateClaimedStartupPolicy,
+  buildProviderStartupCommand,
   // Internal state (exported for testing only)
   _testing: {
     get runningProcesses() { return runningProcesses; },

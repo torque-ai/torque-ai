@@ -1,11 +1,14 @@
 'use strict';
 
+const path = require('path');
 const BASE_PROVIDER_PATH = require.resolve('../providers/base');
 const EXECUTION_PATH = require.resolve('../providers/execution');
 const LOGGER_PATH = require.resolve('../logger');
 const EXECUTE_API_PATH = require.resolve('../providers/execute-api');
 const EXECUTE_OLLAMA_PATH = require.resolve('../providers/execute-ollama');
 const EXECUTE_CLI_PATH = require.resolve('../providers/execute-cli');
+const COMMAND_BUILDERS_PATH = require.resolve('../execution/command-builders');
+const TASK_STARTUP_PATH = require.resolve('../execution/task-startup');
 
 const TRACKED_CACHE_PATHS = [
   BASE_PROVIDER_PATH,
@@ -14,6 +17,8 @@ const TRACKED_CACHE_PATHS = [
   EXECUTE_API_PATH,
   EXECUTE_OLLAMA_PATH,
   EXECUTE_CLI_PATH,
+  COMMAND_BUILDERS_PATH,
+  TASK_STARTUP_PATH,
 ];
 
 const ORIGINAL_CACHE_ENTRIES = new Map(
@@ -122,6 +127,49 @@ function makeExecutionDeps(overrides = {}) {
     stallRecoveryAttempts: new Map(),
     ...overrides,
   };
+}
+
+function createStartupCommandTask(overrides = {}) {
+  return {
+    id: 'task-provider-startup',
+    task_description: 'update src/app.js',
+    provider: 'codex',
+    model: null,
+    files: ['src/app.js'],
+    project: 'torque-ai',
+    working_directory: 'C:/repo',
+    workflow_id: 'workflow-1',
+    workflow_node_id: 'node-1',
+    metadata: {},
+    ...overrides,
+  };
+}
+
+function loadProviderStartupCommand({ nvmNodePath = null } = {}) {
+  delete require.cache[COMMAND_BUILDERS_PATH];
+  delete require.cache[TASK_STARTUP_PATH];
+
+  const commandBuilders = require('../execution/command-builders');
+  const wrapWithInstructions = vi.fn((description, provider, _model, context) => (
+    `wrapped:${provider}:${description}:${context.fileContext || ''}`
+  ));
+
+  commandBuilders.init({
+    wrapWithInstructions,
+    providerCfg: { getEnrichmentConfig: vi.fn(() => ({ enabled: false })) },
+    contextEnrichment: { enrichResolvedContextAsync: vi.fn() },
+    codexIntelligence: { buildCodexEnrichedPrompt: vi.fn(() => 'enriched prompt') },
+    db: { kind: 'db' },
+    nvmNodePath,
+  });
+
+  const taskStartup = require('../execution/task-startup');
+  taskStartup.init({
+    buildClaudeCliCommand: commandBuilders.buildClaudeCliCommand,
+    buildCodexCommand: commandBuilders.buildCodexCommand,
+  });
+
+  return { taskStartup, wrapWithInstructions };
 }
 
 afterEach(() => {
@@ -451,6 +499,159 @@ describe('BaseProvider', () => {
     expect(loggerInstance.debug).toHaveBeenCalledWith(
       '[cleanup-test] Failed to cancel stream reader during stream cleanup: transport ended'
     );
+  });
+});
+
+describe('provider startup command builder', () => {
+  it('returns a direct Ollama execution route without spawn inputs', async () => {
+    const { taskStartup } = loadProviderStartupCommand();
+    const captureBaselineCommit = vi.fn();
+    const executionTask = createStartupCommandTask({
+      id: 'task-ollama-startup',
+      provider: 'ollama',
+      model: 'llama3.1',
+    });
+
+    const result = await taskStartup.buildProviderStartupCommand({
+      taskId: executionTask.id,
+      task: executionTask,
+      provider: 'ollama',
+      executionTask,
+      captureBaselineCommit,
+    });
+
+    expect(result).toEqual({
+      mode: 'ollama',
+      provider: 'ollama',
+      executionTask,
+    });
+    expect(captureBaselineCommit).not.toHaveBeenCalled();
+  });
+
+  it('builds Claude CLI spawn inputs with environment, NVM path, and baseline capture data', async () => {
+    const { taskStartup } = loadProviderStartupCommand();
+    const task = createStartupCommandTask({
+      id: 'task-claude-startup',
+      provider: 'claude-cli',
+    });
+    const captureBaselineCommit = vi.fn(() => 'baseline-123');
+
+    const result = await taskStartup.buildProviderStartupCommand({
+      taskId: task.id,
+      task,
+      provider: 'claude-cli',
+      providerConfig: { cli_path: 'claude.exe' },
+      executionTask: task,
+      resolvedFileContext: 'FILE_CONTEXT',
+      resolvedFiles: [],
+      runDir: 'C:/repo/.torque/runs/task-claude-startup',
+      taskMetadata: { transcript_path: 'C:/repo/.torque/runs/task-claude-startup/transcript.json' },
+      usedEditFormat: false,
+      taskType: 'code',
+      contextTokenEstimate: 321,
+      env: { PATH: 'C:/Windows/System32', USERPROFILE: 'C:/Users/Test' },
+      nvmNodePath: 'C:/nvm/current/bin',
+      platform: 'linux',
+      captureBaselineCommit,
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      mode: 'spawn',
+      cliPath: 'claude.exe',
+      finalArgs: [
+        '--dangerously-skip-permissions',
+        '--disable-slash-commands',
+        '--strict-mcp-config',
+        '-p',
+      ],
+      stdinPrompt: 'wrapped:claude-cli:update src/app.js:FILE_CONTEXT',
+      provider: 'claude-cli',
+      selectedOllamaHostId: null,
+      usedEditFormat: false,
+      taskType: 'code',
+      contextTokenEstimate: 321,
+      baselineCommit: 'baseline-123',
+    }));
+    expect(result.options).toEqual(expect.objectContaining({
+      cwd: 'C:/repo',
+      shell: false,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }));
+    expect(result.options.env).toEqual(expect.objectContaining({
+      PATH: `C:/nvm/current/bin${path.delimiter}C:/Windows/System32`,
+      HOME: 'C:/Users/Test',
+      FORCE_COLOR: '0',
+      NO_COLOR: '1',
+      TERM: 'dumb',
+      CI: '1',
+      CODEX_NON_INTERACTIVE: '1',
+      CLAUDE_NON_INTERACTIVE: '1',
+      TORQUE_TASK_ID: 'task-claude-startup',
+      TORQUE_WORKFLOW_ID: 'workflow-1',
+      TORQUE_WORKFLOW_NODE_ID: 'node-1',
+      TORQUE_RUN_DIR: 'C:/repo/.torque/runs/task-claude-startup',
+      TORQUE_TRANSCRIPT_PATH: 'C:/repo/.torque/runs/task-claude-startup/transcript.json',
+      GIT_TERMINAL_PROMPT: '0',
+      PYTHONIOENCODING: 'utf-8',
+    }));
+    expect(captureBaselineCommit).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: 'task-claude-startup',
+      baselineCapture: {
+        command: 'git',
+        args: ['rev-parse', 'HEAD'],
+        options: {
+          cwd: 'C:/repo',
+          encoding: 'utf-8',
+          timeout: expect.any(Number),
+          windowsHide: true,
+        },
+      },
+      skipGit: false,
+    }));
+  });
+
+  it('resolves Windows cmd provider paths to node script spawn inputs', async () => {
+    const { taskStartup } = loadProviderStartupCommand();
+    const task = createStartupCommandTask({
+      id: 'task-codex-windows-startup',
+      provider: 'codex',
+    });
+    const resolveCmdToNode = vi.fn(() => ({
+      nodePath: 'C:/node/node.exe',
+      scriptPath: 'C:/npm/node_modules/@openai/codex/bin/codex.js',
+    }));
+
+    const result = await taskStartup.buildProviderStartupCommand({
+      taskId: task.id,
+      task,
+      provider: 'codex',
+      providerConfig: { cli_path: 'codex.cmd' },
+      executionTask: task,
+      resolvedFileContext: 'FILE_CONTEXT',
+      resolvedFiles: [],
+      taskMetadata: {},
+      env: { PATH: 'C:/Windows/System32', HOME: 'C:/Users/Test' },
+      platform: 'win32',
+      resolveCmdToNode,
+      captureBaselineCommit: vi.fn(() => 'baseline-456'),
+      log: { info: vi.fn() },
+    });
+
+    expect(resolveCmdToNode).toHaveBeenCalledWith('codex.cmd');
+    expect(result.cliPath).toBe('C:/node/node.exe');
+    expect(result.finalArgs).toEqual([
+      'C:/npm/node_modules/@openai/codex/bin/codex.js',
+      'exec',
+      '--skip-git-repo-check',
+      '--full-auto',
+      '-C',
+      'C:/repo',
+      '-',
+    ]);
+    expect(result.stdinPrompt).toBe('wrapped:codex:update src/app.js:FILE_CONTEXT');
+    expect(result.options.env.PATH).toBe('C:/Windows/System32');
+    expect(result.baselineCommit).toBe('baseline-456');
   });
 });
 
