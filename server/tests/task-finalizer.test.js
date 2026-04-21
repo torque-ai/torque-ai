@@ -4,8 +4,10 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
+const childProcess = require('child_process');
 
 const finalizer = require('../execution/task-finalizer');
+const { createAdversarialReviewStage } = require('../execution/adversarial-review-stage');
 const database = require('../database');
 const providerScoring = require('../db/provider-scoring');
 const budgetWatcher = require('../db/budget-watcher');
@@ -74,6 +76,7 @@ function initFinalizer(overrides = {}) {
     handleAutoValidation: overrides.handleAutoValidation || vi.fn(),
     handleBuildTestStyleCommit: overrides.handleBuildTestStyleCommit || vi.fn(),
     handleAutoVerifyRetry: overrides.handleAutoVerifyRetry || vi.fn(async () => {}),
+    handleAdversarialReview: overrides.handleAdversarialReview,
     handleProviderFailover: overrides.handleProviderFailover || vi.fn(),
     handlePostCompletion: overrides.handlePostCompletion || vi.fn(),
   });
@@ -150,6 +153,35 @@ function loadExecuteCliWithMockedSpawn(spawnMock) {
     return require('../providers/execute-cli');
   } finally {
     cp.spawn = originalSpawn;
+  }
+}
+
+function createAdversarialReviewHarness(overrides = {}) {
+  const taskCore = overrides.taskCore || {
+    createTask: vi.fn(),
+    getTask: vi.fn(),
+    updateTask: vi.fn(),
+  };
+  const taskManager = overrides.taskManager || {
+    startTask: vi.fn(),
+  };
+  const stage = createAdversarialReviewStage({
+    adversarialReviews: { insertReview: vi.fn() },
+    verificationLedger: { updateVerificationStatus: vi.fn() },
+    fileRiskAdapter: overrides.fileRiskAdapter || { scoreAndPersist: vi.fn(() => []) },
+    taskCore,
+    taskManager,
+    projectConfigCore: overrides.projectConfigCore || {
+      getProjectConfig: vi.fn(() => ({ adversarial_review: 'always' })),
+    },
+  });
+
+  return { stage, taskCore, taskManager };
+}
+
+async function flushMicrotasksUntil(predicate, attempts = 20) {
+  for (let index = 0; index < attempts && !predicate(); index += 1) {
+    await Promise.resolve();
   }
 }
 
@@ -453,6 +485,139 @@ describe('task-finalizer', () => {
         expect.objectContaining({ resume_context: resumeCtx })
       );
       expect(buildResumeContextSpy.mock.invocationCallOrder[0]).toBeLessThan(safeUpdateTaskStatus.mock.invocationCallOrder[0]);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('awaits asynchronous adversarial diff capture without execFileSync', async () => {
+    let execFileCallback = null;
+    const diff = 'diff --git a/server/app.js b/server/app.js\n+async review diff\n';
+    const execFileSpy = vi.spyOn(childProcess, 'execFile').mockImplementation((cmd, args, opts, cb) => {
+      execFileCallback = cb;
+      expect(cmd).toBe('git');
+      expect(args).toEqual(['diff', 'HEAD~1']);
+      expect(opts).toEqual(expect.objectContaining({
+        cwd: process.cwd(),
+        windowsHide: true,
+        maxBuffer: (50 * 1024) + 1024,
+      }));
+      return { pid: 1234 };
+    });
+    const execFileSyncSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation(() => {
+      throw new Error('sync git diff should not be called');
+    });
+
+    try {
+      const dbBundle = createTaskDb({
+        working_directory: process.cwd(),
+        metadata: '{}',
+      });
+      const { stage, taskCore, taskManager } = createAdversarialReviewHarness();
+      const { safeUpdateTaskStatus } = initFinalizer({
+        dbBundle,
+        handleAdversarialReview: stage,
+      });
+
+      const finalizePromise = finalizer.finalizeTask(dbBundle.taskId, {
+        exitCode: 0,
+        output: 'done',
+        errorOutput: '',
+        filesModified: ['server/app.js'],
+      });
+
+      await flushMicrotasksUntil(() => execFileCallback !== null);
+      expect(execFileSpy).toHaveBeenCalledTimes(1);
+      expect(safeUpdateTaskStatus).not.toHaveBeenCalled();
+
+      execFileCallback(null, diff, '');
+      const result = await finalizePromise;
+
+      expect(result.finalized).toBe(true);
+      expect(taskCore.createTask).toHaveBeenCalledTimes(1);
+      expect(taskCore.createTask.mock.calls[0][0].task_description).toContain('+async review diff');
+      expect(taskManager.startTask).toHaveBeenCalledWith(taskCore.createTask.mock.calls[0][0].id);
+      expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+        dbBundle.taskId,
+        'completed',
+        expect.any(Object)
+      );
+      expect(execFileSyncSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('keeps finalization non-blocking for oversized and failed adversarial git diff', async () => {
+    const maxBytes = 50 * 1024;
+    const oversizedDiff = 'x'.repeat(maxBytes + 500);
+    const maxBufferError = Object.assign(new Error('stdout maxBuffer length exceeded'), {
+      code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+    });
+    const execFileSpy = vi.spyOn(childProcess, 'execFile').mockImplementation((_cmd, _args, _opts, cb) => {
+      cb(maxBufferError, oversizedDiff, '');
+      return { pid: 1234 };
+    });
+    const execFileSyncSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation(() => {
+      throw new Error('sync git diff should not be called');
+    });
+
+    try {
+      const oversizedDbBundle = createTaskDb({
+        id: 'task-oversized-diff',
+        working_directory: process.cwd(),
+        metadata: '{}',
+      });
+      const oversizedHarness = createAdversarialReviewHarness();
+      initFinalizer({
+        dbBundle: oversizedDbBundle,
+        handleAdversarialReview: oversizedHarness.stage,
+      });
+
+      const oversizedResult = await finalizer.finalizeTask(oversizedDbBundle.taskId, {
+        exitCode: 0,
+        output: 'done',
+        errorOutput: '',
+        filesModified: ['server/app.js'],
+      });
+
+      expect(oversizedResult.finalized).toBe(true);
+      expect(oversizedHarness.taskCore.createTask).toHaveBeenCalledTimes(1);
+      const reviewPrompt = oversizedHarness.taskCore.createTask.mock.calls[0][0].task_description;
+      const capturedDiff = reviewPrompt.split('Diff:\n')[1].split('\n\nRespond with ONLY')[0];
+      expect(Buffer.byteLength(capturedDiff, 'utf8')).toBe(maxBytes);
+
+      execFileSpy.mockImplementation((_cmd, _args, _opts, cb) => {
+        cb(new Error('bad revision'), '', 'fatal: bad revision HEAD~1');
+        return { pid: 5678 };
+      });
+
+      const failedDbBundle = createTaskDb({
+        id: 'task-failed-diff',
+        working_directory: process.cwd(),
+        metadata: '{}',
+      });
+      const failedHarness = createAdversarialReviewHarness();
+      const { safeUpdateTaskStatus } = initFinalizer({
+        dbBundle: failedDbBundle,
+        handleAdversarialReview: failedHarness.stage,
+      });
+
+      const failedResult = await finalizer.finalizeTask(failedDbBundle.taskId, {
+        exitCode: 0,
+        output: 'done',
+        errorOutput: '',
+        filesModified: ['server/app.js'],
+      });
+
+      expect(failedResult.finalized).toBe(true);
+      expect(failedHarness.taskCore.createTask).not.toHaveBeenCalled();
+      expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+        failedDbBundle.taskId,
+        'completed',
+        expect.any(Object)
+      );
+      expect(execFileSyncSpy).not.toHaveBeenCalled();
     } finally {
       vi.restoreAllMocks();
     }
