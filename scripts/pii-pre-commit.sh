@@ -24,9 +24,21 @@ BINARY_EXTS="png|jpg|jpeg|gif|bmp|ico|svg|woff|woff2|ttf|eot|mp3|mp4|wav|zip|tar
 # Track tmpfiles for cleanup on exit
 PII_TMPFILES=()
 cleanup_tmpfiles() {
+  # Note: extract_added_lines runs inside a $(...) subshell, so
+  # PII_TMPFILES appends never propagate to this parent-shell array.
+  # In practice the array is empty here and we iterate once over the
+  # "${arr[@]:-}" default-empty fallback. The AND-chain below used to
+  # collapse to a false test ([ -n '' ]) which, under `set -e` in an
+  # EXIT trap, overrode the script's real exit code with 1 and blocked
+  # legitimate commits. Use an if-guard so conditional-context rules
+  # apply and the trap always exits clean.
+  local f
   for f in "${PII_TMPFILES[@]:-}"; do
-    [ -n "$f" ] && [ -f "$f" ] && rm -f "$f"
+    if [ -n "$f" ] && [ -f "$f" ]; then
+      rm -f "$f"
+    fi
   done
+  return 0
 }
 trap cleanup_tmpfiles EXIT
 
