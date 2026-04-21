@@ -48,12 +48,12 @@ function createDeps({ task = createTask(), depOverrides = {} } = {}) {
     patchTaskMetadata: vi.fn(),
     classifyTaskType: vi.fn(() => 'general'),
     getProvider: vi.fn(() => ({ enabled: true, cli_path: 'node' })),
-    tryClaimTaskSlot: vi.fn((taskId, _maxConcurrent, _holderId, provider) => {
+    tryClaimTaskSlot: vi.fn((taskId, _maxConcurrent, holderId, provider) => {
       const current = tasks.get(taskId);
       if (!current) {
         return { success: false, reason: 'not_found' };
       }
-      const claimed = { ...current, status: 'running', provider, pid: null };
+      const claimed = { ...current, status: 'running', provider, pid: null, mcp_instance_id: holderId };
       tasks.set(taskId, claimed);
       return { success: true, task: claimed };
     }),
@@ -379,6 +379,101 @@ describe('task-startup', () => {
     expect(ctx.deps.resolveProviderRouting).not.toHaveBeenCalled();
     expect(ctx.deps.db.tryClaimTaskSlot).not.toHaveBeenCalled();
     expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
+  });
+
+  it('safeStartTask marks deterministic preflight rejection without claiming ownership', () => {
+    const task = createTask({ id: 'preflight-safe-start', working_directory: 'C:/missing-repo' });
+    const ctx = loadTaskStartup({ task });
+    ctx.mockFs.statSync.mockImplementation(() => {
+      const err = new Error('not found');
+      err.code = 'ENOENT';
+      throw err;
+    });
+    ctx.deps.safeUpdateTaskStatus.mockImplementation((taskId, status, patch = {}) => (
+      ctx.deps.db.updateTaskStatus(taskId, status, patch)
+    ));
+
+    const started = ctx.module.safeStartTask(task.id, 'codex');
+
+    expect(started).toBe(false);
+    expect(ctx.deps.db.tryClaimTaskSlot).not.toHaveBeenCalled();
+    expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
+    expect(ctx.deps.safeUpdateTaskStatus).toHaveBeenCalledWith(task.id, 'failed', expect.objectContaining({
+      error_output: 'Working directory does not exist: C:/missing-repo',
+      pid: null,
+      mcp_instance_id: null,
+      ollama_host_id: null,
+    }));
+    expect(ctx.tasks.get(task.id)).toEqual(expect.objectContaining({
+      status: 'failed',
+      pid: null,
+      mcp_instance_id: null,
+      ollama_host_id: null,
+    }));
+  });
+
+  it('preserves user provider override ownership when a claimed provider requeues', async () => {
+    const task = createTask({
+      id: 'provider-override-requeue',
+      provider: 'claude-cli',
+      metadata: { user_provider_override: true },
+    });
+    const ctx = loadTaskStartup({ task });
+    ctx.deps.db.getProvider.mockImplementation((provider) => (
+      provider === 'claude-cli'
+        ? { enabled: false, cli_path: 'claude' }
+        : { enabled: true, cli_path: 'codex' }
+    ));
+    ctx.deps.db.requeueTaskAfterAttemptedStart.mockImplementation((taskId) => {
+      const current = ctx.tasks.get(taskId);
+      const metadata = current?.metadata && typeof current.metadata === 'object' ? current.metadata : {};
+      const next = {
+        ...current,
+        status: 'queued',
+        provider: metadata.user_provider_override ? current.provider : null,
+        started_at: null,
+        completed_at: null,
+        pid: null,
+        progress_percent: null,
+        exit_code: null,
+        mcp_instance_id: null,
+        ollama_host_id: null,
+      };
+      ctx.tasks.set(taskId, next);
+      return next;
+    });
+
+    const result = await ctx.module.startTask(task.id);
+    const updated = ctx.tasks.get(task.id);
+
+    expect(result).toEqual(expect.objectContaining({ queued: true }));
+    expect(ctx.deps.resolveProviderRouting).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'claude-cli',
+        metadata: expect.objectContaining({ user_provider_override: true }),
+      }),
+      task.id,
+    );
+    expect(ctx.deps.db.tryClaimTaskSlot).toHaveBeenCalledWith(
+      task.id,
+      3,
+      'queue-holder',
+      'claude-cli',
+      1,
+      [],
+      10,
+      [],
+    );
+    expect(ctx.deps.db.requeueTaskAfterAttemptedStart).toHaveBeenCalledWith(task.id);
+    expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
+    expect(updated).toEqual(expect.objectContaining({
+      status: 'queued',
+      provider: 'claude-cli',
+      started_at: null,
+      pid: null,
+      mcp_instance_id: null,
+      ollama_host_id: null,
+    }));
   });
 
   it('runPreflightChecks validates description and working_directory', async () => {
