@@ -1,6 +1,6 @@
 'use strict';
 const Database = require('better-sqlite3');
-const { runSchemaMigrations } = require('../db/schema-migrations');
+const { runMigrations } = require('../db/schema-migrations');
 
 describe('factory_projects auto-recovery columns', () => {
   let db;
@@ -10,7 +10,7 @@ describe('factory_projects auto-recovery columns', () => {
       id TEXT PRIMARY KEY, name TEXT, status TEXT,
       loop_state TEXT, loop_paused_at_stage TEXT, loop_last_action_at TEXT
     )`).run();
-    runSchemaMigrations(db);
+    runMigrations(db);
   });
 
   const expected = [
@@ -35,7 +35,7 @@ describe('factory_projects auto-recovery columns', () => {
   }
 
   it('is idempotent (running again does not throw)', () => {
-    expect(() => runSchemaMigrations(db)).not.toThrow();
+    expect(() => runMigrations(db)).not.toThrow();
   });
 });
 
