@@ -1,5 +1,6 @@
 'use strict';
 
+const fsPromises = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -81,6 +82,47 @@ describe('audit chunking', () => {
     expect(units[0].chunkContext).toContain('[CHUNK CONTEXT]');
     expect(units[0].chunkIndex).toBe(1);
     expect(units[0].totalChunks).toBe(3);
+  });
+
+  it('awaits async file readers before building chunked review units', async () => {
+    const file = makeFile('async-large', 6, 'large');
+    const fileReader = vi.fn(() => Promise.resolve([
+      'line 1',
+      'line 2',
+      'export function resolvedContent() {',
+      '  return "from async reader";',
+      '}',
+      'module.exports = resolvedContent;',
+    ].join('\n')));
+
+    const units = await createReviewUnits([file], {
+      maxChunkLines: 2,
+      readFile: fileReader,
+    });
+
+    expect(fileReader).toHaveBeenCalledWith(file.path, file);
+    expect(units).toHaveLength(3);
+    expect(units[1]).toMatchObject({
+      files: [file],
+      chunked: true,
+      chunkIndex: 2,
+      totalChunks: 3,
+    });
+    expect(units[1].chunkContent).toContain('return "from async reader";');
+    expect(units[1].chunkContext).toContain(`This is chunk 2 of 3 for ${file.path} (6 lines total).`);
+    expect(units[1].chunkContext).toContain('Chunk 2: lines 3-5');
+  });
+
+  it('keeps audit source reads off readFileSync', async () => {
+    const sourceFiles = [
+      path.join(__dirname, '..', 'audit', 'orchestrator.js'),
+      path.join(__dirname, '..', 'audit', 'chunking.js'),
+    ];
+
+    for (const sourceFile of sourceFiles) {
+      const source = await fsPromises.readFile(sourceFile, 'utf8');
+      expect(source).not.toMatch(/\breadFileSync\b/);
+    }
   });
 
   it('splitAtLogicalBoundaries splits on function declaration boundaries', () => {

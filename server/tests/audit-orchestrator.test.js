@@ -118,6 +118,75 @@ describe('audit orchestrator', () => {
     }));
   });
 
+  it('awaits async file content reads before creating workflow tasks', async () => {
+    vi.resetModules();
+
+    const fsPromises = require('node:fs/promises');
+    const actualReadFile = fsPromises.readFile.bind(fsPromises);
+    const resolvedContentReads = [];
+    const asyncContentByPath = new Map([
+      [path.join(projectDir, 'src', 'alpha.js'), 'const alpha = "async-alpha";\n'],
+      [path.join(projectDir, 'src', 'beta.js'), 'const beta = "async-beta";\n'],
+      [path.join(projectDir, 'src', 'gamma.js'), 'const gamma = "async-gamma";\n'],
+    ]);
+    const readFile = vi.spyOn(fsPromises, 'readFile').mockImplementation((filePath, encoding) => {
+      if (encoding !== 'utf8') {
+        return actualReadFile(filePath, encoding);
+      }
+
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolvedContentReads.push(filePath);
+          resolve(asyncContentByPath.get(filePath) || '');
+        }, 0);
+      });
+    });
+    const workflowId = 'abcdef12-3456-7890-abcd-ef1234567890';
+
+    try {
+      const {
+        init: initWithMockedReadFile,
+        runAudit: runAuditWithMockedReadFile,
+      } = require('../audit/orchestrator');
+      const mockedCreateWorkflow = vi.fn((workflowArgs) => {
+        expect(resolvedContentReads).toHaveLength(3);
+        expect(workflowArgs.tasks[0].task_description).toContain('const alpha = "async-alpha";');
+        expect(workflowArgs.tasks[0].task_description).toContain('const beta = "async-beta";');
+        expect(workflowArgs.tasks[0].task_description).toContain('const gamma = "async-gamma";');
+
+        return {
+          content: [{
+            type: 'text',
+            text: `## Workflow Created\n\n**ID:** ${workflowId}\n**Name:** test\n**Tasks:** 1`,
+          }],
+        };
+      });
+
+      initWithMockedReadFile({
+        auditStore: {
+          createAuditRun,
+          updateAuditRun,
+          getAuditRun,
+        },
+        createWorkflow: mockedCreateWorkflow,
+        runWorkflow: vi.fn(),
+        scanProject,
+      });
+
+      const result = await runAuditWithMockedReadFile({
+        path: projectDir,
+        source_dirs: ['src'],
+      });
+
+      expect(result.workflow_id).toBe(workflowId);
+      expect(mockedCreateWorkflow).toHaveBeenCalledTimes(1);
+      expect(readFile.mock.calls.filter(([, encoding]) => encoding === 'utf8')).toHaveLength(3);
+    } finally {
+      readFile.mockRestore();
+      vi.resetModules();
+    }
+  });
+
   it('passes provider and model overrides to workflow tasks', async () => {
     const result = await runAudit({
       path: projectDir,
