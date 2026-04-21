@@ -9,23 +9,26 @@ const PROBE_TIMEOUT_MS = 3000;
 
 function defaultGitRunner(cwd, args) {
   return new Promise((resolve, reject) => {
-    let stdout = '';
-    let stderr = '';
-    const proc = childProcess.spawn('git', args, {
+    // Use execFile rather than spawn. spawn('git', ...) on Windows can
+    // emit spurious errors because it doesn't auto-resolve git.exe /
+    // git.cmd in PATH the same way execFile does.
+    childProcess.execFile('git', args, {
       cwd,
       windowsHide: true,
-    });
-    proc.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
-    proc.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
-    proc.on('error', (err) => reject(err));
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        const err = new Error(`git exited ${code}: ${stderr.trim()}`);
-        err.code = `GIT_EXIT_${code}`;
-        reject(err);
+      maxBuffer: 1024 * 1024,
+      encoding: 'utf8',
+    }, (err, stdout, stderr) => {
+      if (err) {
+        if (err.code === 'ENOENT') {
+          reject(err);
+          return;
+        }
+        const wrapped = new Error(`git exited: ${err.message}; stderr=${String(stderr || '').trim()}`);
+        wrapped.code = err.code || 'GIT_ERROR';
+        reject(wrapped);
+        return;
       }
+      resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
     });
   });
 }
