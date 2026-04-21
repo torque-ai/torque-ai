@@ -27,6 +27,13 @@ let handleVerificationLedger = null;
 let handleAdversarialReview = null;
 const finalizationLocks = new Map();
 
+function resetForTest() {
+  deps = {};
+  handleVerificationLedger = null;
+  handleAdversarialReview = null;
+  finalizationLocks.clear();
+}
+
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
   if (deps.db && typeof deps.db.getDbInstance === 'function') {
@@ -935,9 +942,7 @@ function createTaskFinalizer(_deps) {
         return finalizationLocks;
       },
       categorizeFailure,
-      resetForTest() {
-        finalizationLocks.clear();
-      },
+      resetForTest,
     },
   };
 }
@@ -950,9 +955,7 @@ module.exports = {
       return finalizationLocks;
     },
     categorizeFailure,
-    resetForTest() {
-      finalizationLocks.clear();
-    },
+    resetForTest,
   },
   createTaskFinalizer,
 };

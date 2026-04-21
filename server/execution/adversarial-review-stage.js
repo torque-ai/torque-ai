@@ -2,13 +2,14 @@
 
 const { randomUUID } = require('crypto');
 const childProcess = require('child_process');
+const logger = require('../logger').child({ component: 'adversarial-review-stage' });
 
 // Wrap execFile manually (not promisify) so tests can spy on childProcess.execFile.
 // promisify(execFile) uses a custom Symbol that doesn't transfer to spies.
 function execFileAsync(cmd, args, opts) {
   return new Promise((resolve, reject) => {
     childProcess.execFile(cmd, args, opts, (err, stdout, stderr) => {
-      if (err) reject(err);
+      if (err) reject(Object.assign(err, { stdout, stderr }));
       else resolve({ stdout, stderr });
     });
   });
@@ -16,6 +17,7 @@ function execFileAsync(cmd, args, opts) {
 
 const DEFAULT_REVIEW_CHAIN = ['codex', 'deepinfra', 'claude-cli', 'ollama'];
 const DIFF_MAX_BYTES = 50 * 1024;
+const DIFF_MAX_BUFFER_BYTES = DIFF_MAX_BYTES + 1024;
 const DIFF_TIMEOUT_MS = 30_000;
 
 function parseTaskMetadata(taskMetadata) {
@@ -80,19 +82,56 @@ function buildReviewPrompt(taskDescription, diff, highRiskFiles) {
   return lines.join('\n');
 }
 
+function normalizeExecOutput(value) {
+  if (!value) return '';
+  if (Buffer.isBuffer(value)) return value.toString('utf8');
+  return String(value);
+}
+
+function truncateUtf8ToBytes(value, maxBytes) {
+  const text = normalizeExecOutput(value);
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) return text;
+
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(text.slice(0, mid), 'utf8') <= maxBytes) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return text.slice(0, low);
+}
+
+function isMaxBufferError(err) {
+  return err?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+    || /maxBuffer/i.test(err?.message || '');
+}
+
+function formatGitDiffError(err, stderr) {
+  const stderrText = truncateUtf8ToBytes(stderr, 1024);
+  return stderrText
+    ? `${err.message}; stderr: ${stderrText}`
+    : err.message;
+}
+
 async function collectDiff(workingDirectory) {
   try {
     const { stdout } = await execFileAsync('git', ['diff', 'HEAD~1'], {
       cwd: workingDirectory,
       windowsHide: true,
       timeout: DIFF_TIMEOUT_MS,
-      maxBuffer: DIFF_MAX_BYTES + 1024,
+      maxBuffer: DIFF_MAX_BUFFER_BYTES,
     });
 
-    return stdout.length > DIFF_MAX_BYTES
-      ? stdout.slice(0, DIFF_MAX_BYTES)
-      : stdout;
-  } catch {
+    return truncateUtf8ToBytes(stdout, DIFF_MAX_BYTES);
+  } catch (err) {
+    if (isMaxBufferError(err) && err.stdout) {
+      return truncateUtf8ToBytes(err.stdout, DIFF_MAX_BYTES);
+    }
+    logger.info(`[adversarial-review] git diff failed: ${formatGitDiffError(err, err?.stderr)}`);
     return null;
   }
 }
