@@ -17,6 +17,7 @@ const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
 const { pollGitHubIssues } = require('../factory/github-intake');
 const { createPlanFileIntake } = require('../factory/plan-file-intake');
+const { validatePlansDir } = require('../factory/plans-dir-validator');
 const { createShippedDetector } = require('../factory/shipped-detector');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
 const { buildProjectCostSummary, getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
@@ -447,11 +448,38 @@ function resolvePlansRepoRoot(projectPath, plansDir) {
 }
 
 async function handleRegisterFactoryProject(args) {
+  const config = args.config && typeof args.config === 'object' ? { ...args.config } : null;
+  const inlinePlansDir = typeof args.plans_dir === 'string' ? args.plans_dir : null;
+  const effectivePlansDir = inlinePlansDir || (config && typeof config.plans_dir === 'string' ? config.plans_dir : null);
+
+  if (effectivePlansDir) {
+    const validation = validatePlansDir({ projectPath: args.path, plansDir: effectivePlansDir });
+    if (!validation.ok) {
+      return makeError(ErrorCodes.INVALID_PARAM, validation.error);
+    }
+    // Persist the validated plans_dir into config_json.
+    const finalConfig = config || {};
+    finalConfig.plans_dir = effectivePlansDir;
+    const project = factoryHealth.registerProject({
+      name: args.name,
+      path: args.path,
+      brief: args.brief,
+      trust_level: args.trust_level,
+      config: finalConfig,
+    });
+    logger.info(`Registered factory project: ${project.name} (${project.id})`);
+    return jsonResponse({
+      message: `Project "${project.name}" registered with trust level: ${project.trust_level}`,
+      project,
+    });
+  }
+
   const project = factoryHealth.registerProject({
     name: args.name,
     path: args.path,
     brief: args.brief,
     trust_level: args.trust_level,
+    config,
   });
   logger.info(`Registered factory project: ${project.name} (${project.id})`);
   return jsonResponse({
@@ -852,6 +880,12 @@ async function handleIntakeFromFindings(args) {
 
 async function handleScanPlansDirectory(args) {
   const project = resolveProject(args.project_id);
+  if (args.plans_dir) {
+    const validation = validatePlansDir({ projectPath: project.path, plansDir: args.plans_dir });
+    if (!validation.ok) {
+      return makeError(ErrorCodes.INVALID_PARAM, validation.error);
+    }
+  }
   const db = database.getDbInstance();
   const repoRoot = resolvePlansRepoRoot(project.path, args.plans_dir);
   const shippedDetector = createShippedDetector({ repoRoot });
