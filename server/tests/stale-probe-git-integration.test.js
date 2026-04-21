@@ -39,8 +39,10 @@ describe('stale-probe against a real git repo', () => {
     const cleanEnv = Object.fromEntries(
       Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')),
     );
-    const initOut = childProcess.execFileSync('git', ['init'], {
-      cwd: tmpDir,
+    // Pass tmpDir as an explicit argument to `git init` rather than relying
+    // on cwd — on the Omen remote, `git init` with cwd=tmpDir silently
+    // initialised the repo somewhere else (empty directory after success).
+    const initOut = childProcess.execFileSync('git', ['init', tmpDir], {
       env: cleanEnv,
       encoding: 'utf8',
     });
