@@ -116,6 +116,43 @@ describe('secondary execution-path timeout gating', () => {
   });
 });
 
+describe('cloud-adapter HTTP abort-timer gating', () => {
+  // Each cloud adapter had its own `(options.timeout || N) * 60 * 1000` +
+  // unconditional `setTimeout(() => controller.abort(), timeout)`. execute-api
+  // passes `timeout: task.timeout_minutes` straight through, so opt-in zero
+  // landed here as the default N instead. Guard that none of them re-grow
+  // the pattern.
+  const ADAPTER_SITES = [
+    'server/providers/anthropic.js',
+    'server/providers/cerebras.js',
+    'server/providers/deepinfra.js',
+    'server/providers/google-ai.js',
+    'server/providers/groq.js',
+    'server/providers/hyperbolic.js',
+    'server/providers/ollama-cloud.js',
+    'server/providers/openrouter.js',
+    'server/providers/ollama-strategic.js',
+  ];
+  for (const rel of ADAPTER_SITES) {
+    it(`${rel} does not coerce 0 to default via (options.timeout || N)`, () => {
+      const src = readSource(rel);
+      expect(src).not.toMatch(/options\.timeout\s*\|\|\s*\d+/);
+      expect(src).toMatch(/options\.timeout\s*\?\?\s*\d+/);
+      expect(src).toMatch(/timeoutMinutes\s*>\s*0/);
+    });
+  }
+
+  it('claude-code-sdk resolveTimeoutMs returns 0 on explicit 0 input', () => {
+    const src = readSource('server/providers/claude-code-sdk.js');
+    // Old shape: `Number(options.timeout || 0)` + `if (... > 0)` → fell through
+    // to DEFAULT_TIMEOUT_MS on explicit 0. New shape must short-circuit to 0.
+    expect(src).toMatch(/if\s*\(timeoutMs\s*===\s*0\)\s*return\s*0/);
+    expect(src).toMatch(/if\s*\(timeoutMinutes\s*===\s*0\)\s*return\s*0/);
+    // The one caller of timeoutMs must gate its setTimeout on >0.
+    expect(src).toMatch(/if\s*\(timeoutMs\s*>\s*0\)\s*\{[\s\S]*?timeoutHandle\s*=\s*setTimeout/);
+  });
+});
+
 describe('container.js initModules dead-code removal', () => {
   // `initModules` was defined in container.js but never called from anywhere.
   // Registering new services inside it was a silent trap — they never reached

@@ -39,9 +39,12 @@ class OllamaStrategicProvider extends BaseProvider {
 
     try {
       const selectedModel = model || this.defaultModel;
-      const timeout = (options.timeout || 5) * 60 * 1000;
+      const timeoutMinutes = options.timeout ?? 5;
+      const timeout = timeoutMinutes * 60 * 1000;
       const controller = new AbortController();
-      timeoutId = setTimeout(() => controller.abort(), timeout);
+      if (timeoutMinutes > 0) {
+        timeoutId = setTimeout(() => controller.abort(), timeout);
+      }
       abortHandler = () => controller.abort();
       if (options.signal) options.signal.addEventListener('abort', abortHandler, { once: true });
 

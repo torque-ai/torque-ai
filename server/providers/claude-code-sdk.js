@@ -196,13 +196,21 @@ function upsertTranscriptMessage(transcript, message) {
 }
 
 function resolveTimeoutMs(options = {}) {
-  const timeoutMs = Number(options.timeout_ms || 0);
-  if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
-    return Math.max(1000, timeoutMs);
+  const rawMs = options.timeout_ms;
+  if (rawMs !== undefined && rawMs !== null) {
+    const timeoutMs = Number(rawMs);
+    if (Number.isFinite(timeoutMs)) {
+      if (timeoutMs === 0) return 0;
+      if (timeoutMs > 0) return Math.max(1000, timeoutMs);
+    }
   }
-  const timeoutMinutes = Number(options.timeout || 0);
-  if (Number.isFinite(timeoutMinutes) && timeoutMinutes > 0) {
-    return Math.max(1000, timeoutMinutes * 60 * 1000);
+  const rawMinutes = options.timeout;
+  if (rawMinutes !== undefined && rawMinutes !== null) {
+    const timeoutMinutes = Number(rawMinutes);
+    if (Number.isFinite(timeoutMinutes)) {
+      if (timeoutMinutes === 0) return 0;
+      if (timeoutMinutes > 0) return Math.max(1000, timeoutMinutes * 60 * 1000);
+    }
   }
   return DEFAULT_TIMEOUT_MS;
 }
@@ -758,10 +766,12 @@ class ClaudeCodeSdkProvider extends BaseProvider {
         }).catch((error) => finish(reject, error));
       });
 
-      timeoutHandle = setTimeout(() => {
-        child.kill();
-        finish(reject, new Error(`claude-code-sdk timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+      if (timeoutMs > 0) {
+        timeoutHandle = setTimeout(() => {
+          child.kill();
+          finish(reject, new Error(`claude-code-sdk timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }
 
       child.stdin?.end(promptText, 'utf8');
     });

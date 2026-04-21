@@ -78,9 +78,10 @@ class OpenRouterProvider extends BaseProvider {
   // ── Core request methods (single model, no fallback) ───────────────
 
   async _submitSingle(prompt, model, options) {
-    const timeout = (options.timeout || 30) * 60 * 1000;
+    const timeoutMinutes = options.timeout ?? 30;
+    const timeout = timeoutMinutes * 60 * 1000;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const timeoutId = timeoutMinutes > 0 ? setTimeout(() => controller.abort(), timeout) : null;
 
     // Wire external abort signal
     let abortHandler;
@@ -156,9 +157,10 @@ class OpenRouterProvider extends BaseProvider {
   }
 
   async _streamSingle(prompt, model, options) {
-    const timeout = (options.timeout || 30) * 60 * 1000;
+    const timeoutMinutes = options.timeout ?? 30;
+    const timeout = timeoutMinutes * 60 * 1000;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const timeoutId = timeoutMinutes > 0 ? setTimeout(() => controller.abort(), timeout) : null;
     let reader;
 
     let abortHandler;
