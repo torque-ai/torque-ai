@@ -77,4 +77,56 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/\bis_file_load_only_flake\s*\(\)/);
     expect(src).toMatch(/\brun_with_flake_retry\s*\(\)/);
   });
+
+  it('strips ANSI codes before matching vitest summary lines', () => {
+    const src = readHook();
+    // vitest emits ANSI colors under --reporter=dot, making the `^` anchor
+    // miss lines that start with ESC [ … m. 2026-04-21 observed a
+    // "Test Files 5 failed" run silently fall through to BLOCKED without
+    // the retry ever firing, because is_file_load_only_flake didn't see
+    // the plain-text "Test Files" prefix. Guard that strip_ansi is wired
+    // into both failure predicates.
+    expect(src).toMatch(/\bstrip_ansi\s*\(\)/);
+    // Both helpers must pipe through strip_ansi before grep — otherwise
+    // the match regex fails on the ESC prefix.
+    const failuresHelper = src.match(/tests_have_failures\s*\(\)\s*\{[\s\S]*?\n\}/);
+    const flakeHelper = src.match(/is_file_load_only_flake\s*\(\)\s*\{[\s\S]*?\n\}/);
+    expect(failuresHelper?.[0]).toMatch(/strip_ansi/);
+    expect(flakeHelper?.[0]).toMatch(/strip_ansi/);
+  });
+});
+
+describe('install-git-hooks.sh installer', () => {
+  const installerPath = path.join(REPO_ROOT, 'scripts', 'install-git-hooks.sh');
+
+  it('exists and is executable', () => {
+    expect(fs.existsSync(installerPath)).toBe(true);
+    const stat = fs.statSync(installerPath);
+    // On Windows NTFS the exec bit isn't meaningful, so the stronger check
+    // is that the file exists and is referenced from worktree-create.sh.
+    // Node cannot reliably check POSIX mode on Windows — rely on the
+    // wiring assertion below.
+    expect(stat.isFile()).toBe(true);
+  });
+
+  it('uses --git-common-dir so it works from worktrees', () => {
+    const src = fs.readFileSync(installerPath, 'utf8');
+    expect(src).toMatch(/git\s+rev-parse\s+--git-common-dir/);
+  });
+
+  it('is idempotent (only copies when content differs)', () => {
+    const src = fs.readFileSync(installerPath, 'utf8');
+    // The cmp -s check is the idempotency guard — without it, every
+    // worktree-create would report "installed pre-push" regardless of
+    // whether anything changed.
+    expect(src).toMatch(/cmp\s+-s\s+"\$src"\s+"\$dst"/);
+  });
+
+  it('is invoked by worktree-create.sh so new worktrees pick up hook updates', () => {
+    const createSrc = fs.readFileSync(
+      path.join(REPO_ROOT, 'scripts', 'worktree-create.sh'),
+      'utf8',
+    );
+    expect(createSrc).toMatch(/install-git-hooks\.sh/);
+  });
 });

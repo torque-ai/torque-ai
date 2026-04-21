@@ -75,6 +75,20 @@ if [ -z "$local_head_sha" ]; then
   exit 1
 fi
 
+# vitest writes its summary with ANSI color codes even under `--reporter=dot`,
+# which causes `^[[:space:]]*Test Files` anchors to fail (the line begins with
+# an ESC byte, not whitespace). Strip ANSI before matching so the grep patterns
+# see the plain text they were written against. Observed 2026-04-21 when a
+# "Test Files 5 failed | 18989 Tests passed" run failed to trigger the
+# file-load-flake retry — the retry helper ran but `is_file_load_only_flake`
+# returned false on the ANSI-wrapped output, so neither retry nor failure
+# classification worked.
+strip_ansi() {
+  # Matches CSI sequences `ESC [ … m` — enough for vitest's color output.
+  # Printed as $'\x1b' (bash ANSI-C quoting) so it works on git-bash + mac sed.
+  sed $'s/\x1b\\[[0-9;]*m//g'
+}
+
 # vitest prints two summary lines:
 #   Test Files  1 failed | 890 passed | 4 skipped (895)
 #   Tests       18564 passed | 27 skipped | 10 todo (18601)
@@ -84,7 +98,7 @@ fi
 # silently let pushes through with a red test file.
 tests_have_failures() {
   local output="$1"
-  echo "$output" | grep -qE '^[[:space:]]*(Test Files|Tests)[[:space:]].*failed'
+  echo "$output" | strip_ansi | grep -qE '^[[:space:]]*(Test Files|Tests)[[:space:]].*failed'
 }
 
 # Distinguishes real test failures (tests that ran and asserted wrong) from
@@ -94,12 +108,14 @@ tests_have_failures() {
 # deserve one retry before blocking.
 is_file_load_only_flake() {
   local output="$1"
+  local plain
+  plain=$(echo "$output" | strip_ansi)
   # "Tests  N failed" means real assertion failures — not a flake
-  if echo "$output" | grep -qE '^[[:space:]]*Tests[[:space:]]+[0-9]+ failed'; then
+  if echo "$plain" | grep -qE '^[[:space:]]*Tests[[:space:]]+[0-9]+ failed'; then
     return 1
   fi
   # "Test Files N failed" with no test-level failures — likely file-load flake
-  if echo "$output" | grep -qE '^[[:space:]]*Test Files[[:space:]].*failed'; then
+  if echo "$plain" | grep -qE '^[[:space:]]*Test Files[[:space:]].*failed'; then
     return 0
   fi
   return 1

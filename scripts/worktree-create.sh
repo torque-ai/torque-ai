@@ -80,6 +80,14 @@ HOOKEOF
   fi
 fi
 
+# Keep git hooks in sync with tracked sources. Copies scripts/pre-push-hook
+# to .git/hooks/pre-push (via --git-common-dir so it works from worktrees).
+# Idempotent — only copies when content differs.
+INSTALL_HOOKS_SCRIPT="${REPO_ROOT}/scripts/install-git-hooks.sh"
+if [ -x "$INSTALL_HOOKS_SCRIPT" ]; then
+  bash "$INSTALL_HOOKS_SCRIPT"
+fi
+
 echo ""
 echo "  Worktree ready!"
 echo "  ==============="
