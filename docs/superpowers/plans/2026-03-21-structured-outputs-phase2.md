@@ -249,11 +249,11 @@ return {
 
 For the remaining handlers, build `structuredData` from existing variables following the schema field names. Use the spec's schema definitions to know which fields to include.
 
-- [ ] **Step 1: Modify all 8 handler files**
+- [x] **Step 1: Modify all 8 handler files**
 
 Read each handler, understand what variables are available, add `structuredData` to the return. Do NOT change the markdown `content` output.
 
-- [ ] **Step 2: Commit and push**
+- [x] **Step 2: Commit and push**
 
 ```bash
 git add server/handlers/provider-handlers.js server/handlers/provider-ollama-hosts.js server/handlers/validation/index.js server/handlers/integration/index.js server/handlers/concurrency-handlers.js
