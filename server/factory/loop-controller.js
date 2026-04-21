@@ -4615,6 +4615,68 @@ function buildPriorAttemptsBlock(priorAttempts, verifyOutputPrev, verifyOutput) 
   return block;
 }
 
+function isFactoryFeatureEnabled(project_id, flagKey) {
+  try {
+    const project = factoryHealth.getProject(project_id);
+    const raw = project && (project.config_json || project.config);
+    const cfg = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+    return Boolean(cfg && cfg.feature_flags && cfg.feature_flags[flagKey]);
+  } catch {
+    return false;
+  }
+}
+
+async function maybeShipNoop({ project_id, batch_id, work_item_id }) {
+  const attemptHistory = require('../db/factory-attempt-history');
+  const latest = attemptHistory.getLatestForBatch(batch_id);
+  if (!latest) return { shipped_as_noop: false };
+
+  const reason = latest.zero_diff_reason;
+  const conf = latest.classifier_conf == null ? 0 : latest.classifier_conf;
+
+  if (reason === 'already_in_place' && conf >= 0.8) {
+    if (!isFactoryFeatureEnabled(project_id, 'auto_ship_noop_enabled')) {
+      return { shipped_as_noop: false, reason: 'flag_off' };
+    }
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.EXECUTE,
+      action: 'shipped_as_noop',
+      reasoning: 'Codex reported the change was already in place; skipping VERIFY per auto-route policy.',
+      outcome: {
+        work_item_id,
+        classifier_source: latest.classifier_source,
+        classifier_conf: conf,
+        stdout_tail_preview: String(latest.stdout_tail || '').slice(0, 400),
+      },
+      confidence: 1,
+    });
+    return { shipped_as_noop: true };
+  }
+
+  if ((reason === 'blocked' || reason === 'precondition_missing') && conf >= 0.8) {
+    if (!isFactoryFeatureEnabled(project_id, 'auto_ship_noop_enabled')) {
+      return { shipped_as_noop: false, reason: 'flag_off' };
+    }
+    const paused_reason = reason === 'blocked' ? 'blocked_by_codex' : 'precondition_missing';
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.EXECUTE,
+      action: 'paused_at_gate',
+      reasoning: `Codex reported ${reason}; pausing EXECUTE gate for operator review.`,
+      outcome: {
+        work_item_id,
+        paused_stage: 'EXECUTE',
+        paused_reason,
+        classifier_conf: conf,
+        stdout_tail_preview: String(latest.stdout_tail || '').slice(0, 400),
+      },
+      confidence: 1,
+    });
+    return { shipped_as_noop: false, paused: true, paused_reason };
+  }
+
+  return { shipped_as_noop: false };
+}
+
 function buildVerifyFixPrompt({
   planPath, planTitle, branch, verifyCommand, verifyOutput,
   priorAttempts, verifyOutputPrev,
@@ -6207,8 +6269,36 @@ async function runAdvanceLoop(instance_id) {
       }
 
       if (executeNextState === LOOP_STATES.VERIFY) {
+        const executeBatchId = executeStage?.work_item?.batch_id || instance.batch_id;
+        const shipResult = await maybeShipNoop({
+          project_id: project.id,
+          batch_id: executeBatchId,
+          work_item_id: instance && instance.work_item_id,
+        });
+        if (shipResult.shipped_as_noop) {
+          if (instance.work_item_id) {
+            const shippedWorkItem = factoryIntake.updateWorkItem(instance.work_item_id, { status: 'shipped' });
+            rememberSelectedWorkItem(instance.id, shippedWorkItem);
+            factoryIntake.releaseClaimForInstance(instance.id);
+          }
+          const moveToLearn = tryMoveInstanceToStage(instance, LOOP_STATES.LEARN, {
+            batch_id: executeBatchId,
+            work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
+          });
+          instance = moveToLearn.instance;
+          transitionReason = moveToLearn.blocked ? 'stage_occupied' : 'shipped_as_noop';
+          break;
+        }
+        if (shipResult.paused) {
+          instance = updateInstanceAndSync(instance.id, {
+            paused_at_stage: LOOP_STATES.EXECUTE,
+            last_action_at: nowIso(),
+          });
+          transitionReason = shipResult.paused_reason || 'paused_at_gate';
+          break;
+        }
         const moveToVerify = tryMoveInstanceToStage(instance, LOOP_STATES.VERIFY, {
-          batch_id: executeStage?.work_item?.batch_id || instance.batch_id,
+          batch_id: executeBatchId,
           work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
         });
         if (moveToVerify.blocked) {
@@ -6987,7 +7077,13 @@ module.exports = {
   shouldQuarantineForEmptyMerges,
   // Test hooks
   setWorktreeRunnerForTests,
-  __testing__: { VERIFY_FIX_PROMPT_PRIOR_BUDGET, buildPriorAttemptsBlock, renderProgression },
+  __testing__: {
+    VERIFY_FIX_PROMPT_PRIOR_BUDGET,
+    buildPriorAttemptsBlock,
+    renderProgression,
+    maybeShipNoop,
+    isFactoryFeatureEnabled,
+  },
   _internalForTests: {
     claimNextWorkItemForInstance,
     healAlreadyShippedWorkItem,
