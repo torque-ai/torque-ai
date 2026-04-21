@@ -45,8 +45,45 @@ function matchHeuristic(text) {
   return null;
 }
 
-async function invokeLlmFallback(/* args */) {
-  return null;
+const VALID_REASONS = new Set(['already_in_place', 'blocked', 'precondition_missing', 'unknown']);
+
+function buildLlmPrompt(tail) {
+  return [
+    'Classify this Codex stdout tail from a task that produced no file changes.',
+    'Answer with one word from this set: already_in_place, blocked, precondition_missing, unknown.',
+    'No other text.',
+    '',
+    'Tail:',
+    '```',
+    String(tail || '').slice(-1200),
+    '```',
+  ].join('\n');
+}
+
+function parseLlmResponse(text) {
+  const m = String(text || '').trim().toLowerCase().match(/^([a-z_]+)/);
+  if (!m) return 'unknown';
+  const candidate = m[1];
+  return VALID_REASONS.has(candidate) ? candidate : 'unknown';
+}
+
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('llm_timeout')), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function invokeLlmFallback({ stdout_tail, llmRouter, timeoutMs }) {
+  try {
+    const prompt = buildLlmPrompt(stdout_tail);
+    const raw = await withTimeout(Promise.resolve(llmRouter(prompt)), timeoutMs);
+    const reason = parseLlmResponse(raw);
+    return { reason, source: 'llm', confidence: 0.7 };
+  } catch {
+    return { reason: 'unknown', source: 'llm', confidence: 0 };
+  }
 }
 
 async function classifyZeroDiff({
@@ -76,4 +113,7 @@ async function classifyZeroDiff({
   }
 }
 
-module.exports = { classifyZeroDiff, matchHeuristic, HEURISTIC_PATTERNS };
+module.exports = {
+  classifyZeroDiff, matchHeuristic, HEURISTIC_PATTERNS,
+  parseLlmResponse, buildLlmPrompt,
+};

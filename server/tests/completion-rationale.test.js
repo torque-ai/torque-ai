@@ -78,3 +78,64 @@ describe('classifyZeroDiff — heuristic layer', () => {
     expect(HEURISTIC_PATTERNS.precondition_missing.length).toBeGreaterThan(0);
   });
 });
+
+describe('classifyZeroDiff — LLM fallback', () => {
+  it('invokes llmRouter only when heuristic misses', async () => {
+    let calls = 0;
+    const llmRouter = async () => { calls += 1; return 'blocked'; };
+    const hit = await classifyZeroDiff({
+      stdout_tail: 'Already in place.', attempt: 1, kind: 'execute', llmRouter,
+    });
+    const miss = await classifyZeroDiff({
+      stdout_tail: 'Task did unusual thing.', attempt: 1, kind: 'execute', llmRouter,
+    });
+    expect(hit.source).toBe('heuristic');
+    expect(miss.source).toBe('llm');
+    expect(miss.reason).toBe('blocked');
+    expect(miss.confidence).toBe(0.7);
+    expect(calls).toBe(1);
+  });
+
+  it('returns unknown when llmRouter replies with unparseable text', async () => {
+    const llmRouter = async () => 'the vibe is unclear';
+    const res = await classifyZeroDiff({
+      stdout_tail: 'Task did unusual thing.', attempt: 1, kind: 'execute', llmRouter,
+    });
+    expect(res.reason).toBe('unknown');
+  });
+
+  it('returns unknown when llmRouter throws', async () => {
+    const llmRouter = async () => { throw new Error('boom'); };
+    const res = await classifyZeroDiff({
+      stdout_tail: 'Task did unusual thing.', attempt: 1, kind: 'execute', llmRouter,
+    });
+    expect(res.reason).toBe('unknown');
+  });
+
+  it('respects timeoutMs on hanging llmRouter', async () => {
+    const llmRouter = () => new Promise((resolve) => setTimeout(() => resolve('blocked'), 2000));
+    const start = Date.now();
+    const res = await classifyZeroDiff({
+      stdout_tail: 'Task did unusual thing.',
+      attempt: 1, kind: 'execute', llmRouter, timeoutMs: 50,
+    });
+    expect(Date.now() - start).toBeLessThan(500);
+    expect(res.reason).toBe('unknown');
+  });
+
+  it('trims and validates llmRouter response against the bucket set', async () => {
+    const samples = [
+      ['  already_in_place  ', 'already_in_place'],
+      ['BLOCKED', 'blocked'],
+      ['Precondition_Missing', 'precondition_missing'],
+      ['unknown', 'unknown'],
+    ];
+    for (const [input, expected] of samples) {
+      const llmRouter = async () => input;
+      const res = await classifyZeroDiff({
+        stdout_tail: 'Task did unusual thing.', attempt: 1, kind: 'execute', llmRouter,
+      });
+      expect(res.reason).toBe(expected);
+    }
+  });
+});
