@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const database = require('../database');
 const factoryDecisions = require('../db/factory-decisions');
+const attemptHistory = require('../db/factory-attempt-history');
+const { classifyZeroDiff } = require('./completion-rationale');
 const factoryHealth = require('../db/factory-health');
 const factoryWorktrees = require('../db/factory-worktrees');
 const taskCore = require('../db/task-core');
@@ -158,6 +160,25 @@ function runGitWithStdin(worktreePath, args, stdin) {
   });
 }
 
+const STDOUT_TAIL_BUDGET = 1200;
+
+function getStdoutTail(task) {
+  const raw = task && (task.output || task.stdout_tail || task.result_output) || '';
+  return String(raw).replace(/\u001b\[[0-9;]*m/g, '').slice(-STDOUT_TAIL_BUDGET);
+}
+
+function resolveKind(task) {
+  const tag = Array.isArray(task && task.tags) ? task.tags.find((t) => typeof t === 'string' && t.startsWith('factory:verify_retry=')) : null;
+  return tag ? 'verify_retry' : 'execute';
+}
+
+function resolveWorkItemId(task) {
+  const tag = Array.isArray(task && task.tags) ? task.tags.find((t) => typeof t === 'string' && t.startsWith('factory:work_item_id=')) : null;
+  if (!tag) return null;
+  const raw = tag.split('=')[1];
+  return raw && raw !== 'unknown' ? raw : null;
+}
+
 function parsePorcelainPaths(output) {
   return output
     .split(/\r?\n/)
@@ -223,7 +244,7 @@ function safeLogDecision(entry) {
   }
 }
 
-function commitCompletedPlanTask(task) {
+async function commitCompletedPlanTask(task) {
   if (!task || task.status !== 'completed') {
     return;
   }
@@ -255,6 +276,29 @@ function commitCompletedPlanTask(task) {
   try {
     const statusOutput = runGit(worktree.worktreePath, ['status', '--porcelain']).trim();
     if (!statusOutput) {
+      const stdoutTail = getStdoutTail(task);
+      const kind = resolveKind(task);
+      const workItemId = resolveWorkItemId(task);
+      const classification = workItemId
+        ? await classifyZeroDiff({ stdout_tail: stdoutTail, attempt: 1, kind })
+        : { reason: 'unknown', source: 'none', confidence: 0 };
+      if (workItemId) {
+        try {
+          attemptHistory.appendRow({
+            batch_id: worktree.batchId || batchId,
+            work_item_id: workItemId,
+            kind,
+            task_id: task.id,
+            files_touched: [],
+            stdout_tail: stdoutTail,
+            zero_diff_reason: classification.reason,
+            classifier_source: classification.source,
+            classifier_conf: classification.confidence,
+          });
+        } catch (e) {
+          logger.warn('attempt_history_write_failed', { err: e.message, task_id: task.id });
+        }
+      }
       safeLogDecision({
         ...decisionBase,
         action: 'auto_commit_skipped_clean',
@@ -263,6 +307,9 @@ function commitCompletedPlanTask(task) {
           task_id: task.id,
           plan_task_number: planTaskNumber,
           files_changed: [],
+          zero_diff_reason: classification.reason,
+          classifier_source: classification.source,
+          classifier_conf: classification.confidence,
         },
       });
       return;
@@ -306,6 +353,29 @@ function commitCompletedPlanTask(task) {
     if (pathsToStage.length === 0) {
       // Worktree only has pure line-ending drift (or is fully clean).
       const driftPaths = parsePorcelainPaths(statusOutput);
+      const stdoutTail = getStdoutTail(task);
+      const kind = resolveKind(task);
+      const workItemId = resolveWorkItemId(task);
+      const classification = workItemId
+        ? await classifyZeroDiff({ stdout_tail: stdoutTail, attempt: 1, kind })
+        : { reason: 'unknown', source: 'none', confidence: 0 };
+      if (workItemId) {
+        try {
+          attemptHistory.appendRow({
+            batch_id: worktree.batchId || batchId,
+            work_item_id: workItemId,
+            kind,
+            task_id: task.id,
+            files_touched: [],
+            stdout_tail: stdoutTail,
+            zero_diff_reason: classification.reason,
+            classifier_source: classification.source,
+            classifier_conf: classification.confidence,
+          });
+        } catch (e) {
+          logger.warn('attempt_history_write_failed', { err: e.message, task_id: task.id });
+        }
+      }
       safeLogDecision({
         ...decisionBase,
         action: 'auto_commit_skipped_clean',
@@ -314,6 +384,9 @@ function commitCompletedPlanTask(task) {
           task_id: task.id,
           plan_task_number: planTaskNumber,
           files_changed: [],
+          zero_diff_reason: classification.reason,
+          classifier_source: classification.source,
+          classifier_conf: classification.confidence,
           skipped_drift_files: driftPaths,
         },
       });
@@ -336,6 +409,29 @@ function commitCompletedPlanTask(task) {
 
     if (allStaged.length === 0) {
       const driftPaths = parsePorcelainPaths(statusOutput);
+      const stdoutTail = getStdoutTail(task);
+      const kind = resolveKind(task);
+      const workItemId = resolveWorkItemId(task);
+      const classification = workItemId
+        ? await classifyZeroDiff({ stdout_tail: stdoutTail, attempt: 1, kind })
+        : { reason: 'unknown', source: 'none', confidence: 0 };
+      if (workItemId) {
+        try {
+          attemptHistory.appendRow({
+            batch_id: worktree.batchId || batchId,
+            work_item_id: workItemId,
+            kind,
+            task_id: task.id,
+            files_touched: [],
+            stdout_tail: stdoutTail,
+            zero_diff_reason: classification.reason,
+            classifier_source: classification.source,
+            classifier_conf: classification.confidence,
+          });
+        } catch (e) {
+          logger.warn('attempt_history_write_failed', { err: e.message, task_id: task.id });
+        }
+      }
       safeLogDecision({
         ...decisionBase,
         action: 'auto_commit_skipped_clean',
@@ -344,6 +440,9 @@ function commitCompletedPlanTask(task) {
           task_id: task.id,
           plan_task_number: planTaskNumber,
           files_changed: [],
+          zero_diff_reason: classification.reason,
+          classifier_source: classification.source,
+          classifier_conf: classification.confidence,
           skipped_drift_files: driftPaths,
         },
       });
@@ -394,6 +493,21 @@ function commitCompletedPlanTask(task) {
     // for the mirror of this rationale on the pre-merge side.
     runGit(worktree.worktreePath, ['commit', '--no-verify', '-m', commitMessage]);
     const commitSha = runGit(worktree.worktreePath, ['rev-parse', 'HEAD']).trim();
+    const workItemIdCommit = resolveWorkItemId(task);
+    if (workItemIdCommit) {
+      try {
+        attemptHistory.appendRow({
+          batch_id: worktree.batchId || batchId,
+          work_item_id: workItemIdCommit,
+          kind: resolveKind(task),
+          task_id: task.id,
+          files_touched: allStaged,
+          stdout_tail: getStdoutTail(task),
+        });
+      } catch (e) {
+        logger.warn('attempt_history_write_failed', { err: e.message, task_id: task.id });
+      }
+    }
 
     const driftPaths = parsePorcelainPaths(statusOutput).filter((p) => !allStaged.includes(p));
 
@@ -457,7 +571,9 @@ function initFactoryWorktreeAutoCommit({ project = null } = {}) {
       return;
     }
 
-    commitCompletedPlanTask(task);
+    Promise.resolve()
+      .then(() => commitCompletedPlanTask(task))
+      .catch((err) => logger.warn('worktree_auto_commit_listener_failed', { err: err.message, task_id: taskId }));
   };
 
   taskEvents.on('task:completed', completedTaskListener);

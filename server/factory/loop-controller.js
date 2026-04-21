@@ -4529,8 +4529,260 @@ function stripAnsi(text) {
 // blowing past reasonable prompt budgets.
 const VERIFY_FIX_PROMPT_TAIL_BUDGET = 16000;
 
-function buildVerifyFixPrompt({ planPath, planTitle, branch, verifyCommand, verifyOutput }) {
+const VERIFY_FIX_PROMPT_PRIOR_BUDGET = 1800;
+
+function renderFilesTouched(files, file_count) {
+  const arr = Array.isArray(files) ? files : [];
+  if (arr.length === 0) return 'none';
+  const head = arr.slice(0, 5).join(', ');
+  const extra = file_count > 5 ? ` (+${file_count - 5} more)` : '';
+  return `${head}${extra}`;
+}
+
+function renderAttempt(a, labelNumber) {
+  const verifyRetryIdx = labelNumber == null ? '' : ` (verify retry #${labelNumber})`;
+  const kindLabel = a.kind === 'verify_retry' ? `verify_retry${verifyRetryIdx}` : 'execute';
+  const head = `- Attempt ${a.attempt} (${kindLabel}): ${a.file_count} files touched`;
+  const filesPart = a.file_count > 0 ? ` — ${renderFilesTouched(a.files_touched, a.file_count)}.` : '';
+  const classified = a.file_count === 0 && a.zero_diff_reason
+    ? ` — classified as \`${a.zero_diff_reason}\`.`
+    : '.';
+  const summary = String(a.stdout_tail || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+  const summaryLine = summary ? `\n  Codex summary: "${summary}"` : '';
+  return `${head}${filesPart}${classified}${summaryLine}`;
+}
+
+function renderProgression(prevOutput, currOutput) {
+  try {
+    const { extractFailingTestNames } = require('./verify-signature');
+    const prev = extractFailingTestNames(prevOutput);
+    const curr = extractFailingTestNames(currOutput);
+    if (prev.length === 0 && curr.length === 0) return null;
+
+    const prevSet = new Set(prev);
+    const currSet = new Set(curr);
+    const newlyPassing = prev.filter((n) => !currSet.has(n));
+    const newlyFailing = curr.filter((n) => !prevSet.has(n));
+
+    const lines = ['Verify error progression:'];
+    lines.push(`- Previous run failed with: ${prev.length} failure${prev.length === 1 ? '' : 's'}${prev.length ? ` ("${prev.slice(0, 3).join('", "')}"${prev.length > 3 ? ', …' : ''})` : ''}`);
+    lines.push(`- This run is failing with: ${curr.length} failure${curr.length === 1 ? '' : 's'}${curr.length ? ` ("${curr.slice(0, 3).join('", "')}"${curr.length > 3 ? ', …' : ''})` : ''}`);
+    let verdict;
+    if (newlyPassing.length > 0 && newlyFailing.length === 0) {
+      verdict = `  → Partial progress. ${newlyPassing.length} test${newlyPassing.length === 1 ? '' : 's'} now passing. Keep current approach.`;
+    } else if (newlyFailing.length > 0 && newlyPassing.length === 0) {
+      verdict = `  → New failures introduced. Consider reverting part of last attempt.`;
+    } else if (newlyPassing.length === 0 && newlyFailing.length === 0 && prev.length > 0) {
+      verdict = `  → Same failures. Previous approach did not move the needle; try a different angle.`;
+    } else if (newlyPassing.length > 0 && newlyFailing.length > 0) {
+      verdict = `  → Mixed: ${newlyPassing.length} newly passing, ${newlyFailing.length} newly failing.`;
+    } else {
+      verdict = `  → No comparable change.`;
+    }
+    lines.push(verdict);
+    return lines.join('\n');
+  } catch {
+    return null;
+  }
+}
+
+function buildPriorAttemptsBlock(priorAttempts, verifyOutputPrev, verifyOutput) {
+  const attempts = Array.isArray(priorAttempts) ? [...priorAttempts] : [];
+  if (attempts.length === 0) return null;
+
+  attempts.sort((a, b) => a.attempt - b.attempt);
+
+  let verifyRetryIdx = 0;
+  const rendered = attempts.map((a) => {
+    if (a.kind === 'verify_retry') {
+      verifyRetryIdx += 1;
+      return renderAttempt(a, verifyRetryIdx);
+    }
+    return renderAttempt(a, null);
+  });
+
+  let elidedCount = 0;
+  let block = `Prior attempts on this work item:\n${rendered.join('\n')}`;
+  while (block.length > VERIFY_FIX_PROMPT_PRIOR_BUDGET && rendered.length > 1) {
+    rendered.shift();
+    elidedCount += 1;
+    block = `Prior attempts on this work item:\n(${elidedCount} earlier attempt${elidedCount === 1 ? '' : 's'} elided)\n${rendered.join('\n')}`;
+  }
+
+  const progression = renderProgression(verifyOutputPrev, verifyOutput);
+  if (progression) block += `\n\n${progression}`;
+
+  return block;
+}
+
+function isFactoryFeatureEnabled(project_id, flagKey) {
+  try {
+    const project = factoryHealth.getProject(project_id);
+    const raw = project && (project.config_json || project.config);
+    const cfg = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+    return Boolean(cfg && cfg.feature_flags && cfg.feature_flags[flagKey]);
+  } catch {
+    return false;
+  }
+}
+
+async function maybeShipNoop({ project_id, batch_id, work_item_id }) {
+  // Observability-only path: never let an error here propagate into the
+  // EXECUTE -> VERIFY transition. If attempt-history is unreachable
+  // (missing schema, closed db, etc.) treat it as "no prior row" and
+  // fall through to today's behavior.
+  const attemptHistory = require('../db/factory-attempt-history');
+  let latest;
+  try {
+    latest = attemptHistory.getLatestForBatch(batch_id);
+  } catch (err) {
+    logger.debug('maybeShipNoop: getLatestForBatch threw; treating as no prior row', {
+      err: err && err.message, batch_id,
+    });
+    return { shipped_as_noop: false };
+  }
+  if (!latest) return { shipped_as_noop: false };
+
+  const reason = latest.zero_diff_reason;
+  const conf = latest.classifier_conf == null ? 0 : latest.classifier_conf;
+
+  if (reason === 'already_in_place' && conf >= 0.8) {
+    if (!isFactoryFeatureEnabled(project_id, 'auto_ship_noop_enabled')) {
+      return { shipped_as_noop: false, reason: 'flag_off' };
+    }
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.EXECUTE,
+      action: 'shipped_as_noop',
+      reasoning: 'Codex reported the change was already in place; skipping VERIFY per auto-route policy.',
+      outcome: {
+        work_item_id,
+        classifier_source: latest.classifier_source,
+        classifier_conf: conf,
+        stdout_tail_preview: String(latest.stdout_tail || '').slice(0, 400),
+      },
+      confidence: 1,
+    });
+    return { shipped_as_noop: true };
+  }
+
+  if ((reason === 'blocked' || reason === 'precondition_missing') && conf >= 0.8) {
+    if (!isFactoryFeatureEnabled(project_id, 'auto_ship_noop_enabled')) {
+      return { shipped_as_noop: false, reason: 'flag_off' };
+    }
+    const paused_reason = reason === 'blocked' ? 'blocked_by_codex' : 'precondition_missing';
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.EXECUTE,
+      action: 'paused_at_gate',
+      reasoning: `Codex reported ${reason}; pausing EXECUTE gate for operator review.`,
+      outcome: {
+        work_item_id,
+        paused_stage: 'EXECUTE',
+        paused_reason,
+        classifier_conf: conf,
+        stdout_tail_preview: String(latest.stdout_tail || '').slice(0, 400),
+      },
+      confidence: 1,
+    });
+    return { shipped_as_noop: false, paused: true, paused_reason };
+  }
+
+  return { shipped_as_noop: false };
+}
+
+async function attemptSilentRerun({
+  project_id, batch_id, instance_id,
+  priorVerifyOutput, runVerify,
+}) {
+  const { verifySignature } = require('./verify-signature');
+  const instances = require('../db/factory-loop-instances');
+
+  if (!isFactoryFeatureEnabled(project_id, 'verify_silent_rerun_enabled')) {
+    return { kind: 'flag_off' };
+  }
+  // Same defensive posture as maybeShipNoop: never let observability
+  // infrastructure errors (closed db, missing column) stop the loop.
+  // Any read failure is treated as "budget exhausted" so we fall
+  // through to the existing fix-task retry path.
+  try {
+    if (instances.getVerifySilentReruns(instance_id) > 0) {
+      return { kind: 'budget_exhausted' };
+    }
+  } catch (err) {
+    logger.debug('attemptSilentRerun: getVerifySilentReruns threw; skipping silent rerun', {
+      err: err && err.message, instance_id,
+    });
+    return { kind: 'flag_off' };
+  }
+
+  instances.bumpVerifySilentReruns(instance_id);
+
+  safeLogDecision({
+    project_id, batch_id, stage: LOOP_STATES.VERIFY,
+    action: 'verify_silent_rerun_started',
+    reasoning: 'Classifier was ambiguous; rerunning verify silently before spending a Codex retry slot.',
+    outcome: { instance_id },
+    confidence: 1,
+  });
+
+  let verifyResult;
+  try {
+    verifyResult = await runVerify();
+  } catch (err) {
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.VERIFY,
+      action: 'verify_silent_rerun_failed',
+      reasoning: `Silent rerun error: ${err.message}`,
+      outcome: { instance_id, error: err.message },
+      confidence: 1,
+    });
+    return { kind: 'rerun_failed', error: err.message };
+  }
+
+  if (verifyResult.exitCode === 0) {
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.VERIFY,
+      action: 'verify_passed_on_silent_rerun',
+      reasoning: 'Silent rerun passed; advancing without spending a Codex retry.',
+      outcome: { instance_id },
+      confidence: 1,
+    });
+    return { kind: 'passed', output: verifyResult.output };
+  }
+
+  const prevSig = verifySignature(priorVerifyOutput);
+  const currSig = verifySignature(verifyResult.output);
+
+  if (prevSig && currSig && prevSig === currSig) {
+    safeLogDecision({
+      project_id, batch_id, stage: LOOP_STATES.VERIFY,
+      action: 'verify_rerun_same_failure',
+      reasoning: 'Silent rerun produced the same failure signature; falling through to fix-task retry.',
+      outcome: { instance_id, signature: currSig },
+      confidence: 1,
+    });
+    return { kind: 'same_failure', output: verifyResult.output };
+  }
+
+  safeLogDecision({
+    project_id, batch_id, stage: LOOP_STATES.VERIFY,
+    action: 'verify_rerun_different_failure',
+    reasoning: 'Silent rerun produced a different failure signature; passing both to the fix task.',
+    outcome: { instance_id, prev_sig: prevSig, curr_sig: currSig },
+    confidence: 1,
+  });
+  return {
+    kind: 'different_failure',
+    output: verifyResult.output,
+    combinedOutput: `${priorVerifyOutput}\n---\n${verifyResult.output}`,
+  };
+}
+
+function buildVerifyFixPrompt({
+  planPath, planTitle, branch, verifyCommand, verifyOutput,
+  priorAttempts, verifyOutputPrev,
+}) {
   const tail = stripAnsi(String(verifyOutput || '')).slice(-VERIFY_FIX_PROMPT_TAIL_BUDGET);
+  const priorBlock = buildPriorAttemptsBlock(priorAttempts, verifyOutputPrev, verifyOutput);
   const lines = [
     `Plan: ${planTitle || '(unknown)'}`,
     planPath ? `Plan path: ${planPath}` : null,
@@ -4539,6 +4791,8 @@ function buildVerifyFixPrompt({ planPath, planTitle, branch, verifyCommand, veri
     '',
     'The plan tasks for this batch were implemented, but the verify step failed. Read the error output below and make the minimum changes needed to turn the failures green. Common issues: a test that references a module the plan forgot to update, an alignment/invariant test that needs the new entry registered, a stale snapshot, a missing import, a type mismatch, or a lint rule violation.',
     '',
+    priorBlock,
+    priorBlock ? '' : null,
     'Constraints:',
     '- Edit only files in this worktree.',
     '- Do NOT revert the plan\'s intended changes — fix forward.',
@@ -4551,7 +4805,7 @@ function buildVerifyFixPrompt({ planPath, planTitle, branch, verifyCommand, veri
     '```',
     '',
     'After making the edits, stop.',
-  ].filter((x) => x !== null);
+  ].filter((x) => x !== null && x !== undefined);
   return lines.join('\n');
 }
 
@@ -4716,12 +4970,39 @@ async function submitVerifyFixTask({
   const planPath = workItem?.origin?.plan_path || null;
   const planTitle = workItem?.title || workItem?.origin?.title || null;
 
+  const attemptHistory = require('../db/factory-attempt-history');
+  const workItemIdStr = String((workItem && workItem.id) || '');
+  // Defensive read — if attempt-history is unreachable, the retry
+  // prompt just falls back to today's shape (no prior-attempts block).
+  let priorAttempts = [];
+  if (workItemIdStr) {
+    try {
+      priorAttempts = attemptHistory.listByWorkItem(workItemIdStr, { limit: 3 }).reverse();
+    } catch (err) {
+      logger.debug('submitVerifyFixTask: attempt-history read threw; omitting prior-attempts block', {
+        err: err && err.message, work_item_id: workItemIdStr,
+      });
+    }
+  }
+  const latest = priorAttempts[priorAttempts.length - 1];
+  const verifyOutputPrev = latest && latest.verify_output_tail ? latest.verify_output_tail : null;
+
+  if (latest && latest.id) {
+    try {
+      attemptHistory.updateVerifyOutputTail(
+        latest.id,
+        stripAnsi(String(verifyOutput || '')).slice(-VERIFY_FIX_PROMPT_TAIL_BUDGET)
+      );
+    } catch (e) {
+      logger.warn('attempt_history_verify_tail_update_failed', { err: e.message });
+    }
+  }
+
   const prompt = buildVerifyFixPrompt({
-    planPath,
-    planTitle,
+    planPath, planTitle,
     branch: worktreeRecord.branch,
-    verifyCommand,
-    verifyOutput,
+    verifyCommand, verifyOutput,
+    priorAttempts, verifyOutputPrev,
   });
 
   // plan_task_number tag makes factory-worktree-auto-commit listener
@@ -5298,6 +5579,35 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             confidence: 1,
             batch_id,
           });
+          if (review && review.classification === 'ambiguous') {
+            let verifyOutput = res.output;
+            const silentResult = await attemptSilentRerun({
+              project_id,
+              batch_id,
+              instance_id: instance && instance.id,
+              priorVerifyOutput: verifyOutput,
+              runVerify: async () => {
+                const execResult = await worktreeRunner.verify({
+                  worktreePath: worktreeRecord.worktreePath,
+                  branch: worktreeRecord.branch,
+                  verifyCommand,
+                });
+                return {
+                  exitCode: typeof execResult.exitCode === 'number' ? execResult.exitCode : (execResult.passed ? 0 : 1),
+                  output: execResult.output,
+                };
+              },
+            });
+
+            if (silentResult.kind === 'passed') {
+              return { status: 'passed' };
+            }
+            if (silentResult.kind === 'different_failure') {
+              verifyOutput = silentResult.combinedOutput;
+              res.output = verifyOutput;
+            }
+            // same_failure, rerun_failed, flag_off, budget_exhausted → fall through to today's retry path
+          }
         }
 
         if (retryAttempt >= MAX_AUTO_VERIFY_RETRIES) {
@@ -6097,8 +6407,36 @@ async function runAdvanceLoop(instance_id) {
       }
 
       if (executeNextState === LOOP_STATES.VERIFY) {
+        const executeBatchId = executeStage?.work_item?.batch_id || instance.batch_id;
+        const shipResult = await maybeShipNoop({
+          project_id: project.id,
+          batch_id: executeBatchId,
+          work_item_id: instance && instance.work_item_id,
+        });
+        if (shipResult.shipped_as_noop) {
+          if (instance.work_item_id) {
+            const shippedWorkItem = factoryIntake.updateWorkItem(instance.work_item_id, { status: 'shipped' });
+            rememberSelectedWorkItem(instance.id, shippedWorkItem);
+            factoryIntake.releaseClaimForInstance(instance.id);
+          }
+          const moveToLearn = tryMoveInstanceToStage(instance, LOOP_STATES.LEARN, {
+            batch_id: executeBatchId,
+            work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
+          });
+          instance = moveToLearn.instance;
+          transitionReason = moveToLearn.blocked ? 'stage_occupied' : 'shipped_as_noop';
+          break;
+        }
+        if (shipResult.paused) {
+          instance = updateInstanceAndSync(instance.id, {
+            paused_at_stage: LOOP_STATES.EXECUTE,
+            last_action_at: nowIso(),
+          });
+          transitionReason = shipResult.paused_reason || 'paused_at_gate';
+          break;
+        }
         const moveToVerify = tryMoveInstanceToStage(instance, LOOP_STATES.VERIFY, {
-          batch_id: executeStage?.work_item?.batch_id || instance.batch_id,
+          batch_id: executeBatchId,
           work_item_id: transitionWorkItem?.id ?? instance.work_item_id,
         });
         if (moveToVerify.blocked) {
@@ -6877,6 +7215,14 @@ module.exports = {
   shouldQuarantineForEmptyMerges,
   // Test hooks
   setWorktreeRunnerForTests,
+  __testing__: {
+    VERIFY_FIX_PROMPT_PRIOR_BUDGET,
+    buildPriorAttemptsBlock,
+    renderProgression,
+    maybeShipNoop,
+    attemptSilentRerun,
+    isFactoryFeatureEnabled,
+  },
   _internalForTests: {
     claimNextWorkItemForInstance,
     healAlreadyShippedWorkItem,

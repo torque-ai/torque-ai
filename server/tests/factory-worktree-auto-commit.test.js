@@ -6,6 +6,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const childProcess = require('child_process');
 const database = require('../database');
+const attemptHistory = require('../db/factory-attempt-history');
 const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryWorktrees = require('../db/factory-worktrees');
@@ -110,9 +111,72 @@ function createDb() {
       status TEXT NOT NULL DEFAULT 'pending',
       task_description TEXT,
       working_directory TEXT,
+      timeout_minutes INTEGER,
+      auto_approve INTEGER DEFAULT 0,
+      priority INTEGER DEFAULT 0,
+      context TEXT,
+      output TEXT,
+      error_output TEXT,
+      exit_code INTEGER,
+      pid INTEGER,
+      progress_percent INTEGER,
+      files_modified TEXT,
       tags TEXT,
       metadata TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      started_at TEXT,
+      completed_at TEXT,
+      cancel_reason TEXT,
+      retry_count INTEGER DEFAULT 0,
+      max_retries INTEGER DEFAULT 2,
+      depends_on TEXT,
+      template_name TEXT,
+      isolated_workspace TEXT,
+      git_before_sha TEXT,
+      git_after_sha TEXT,
+      git_stash_ref TEXT,
+      project TEXT,
+      retry_strategy TEXT,
+      retry_delay_seconds INTEGER,
+      last_retry_at TEXT,
+      group_id TEXT,
+      paused_at TEXT,
+      pause_reason TEXT,
+      approval_status TEXT,
+      workflow_id TEXT,
+      workflow_node_id TEXT,
+      claimed_by_agent TEXT,
+      required_capabilities TEXT,
+      ollama_host_id TEXT,
+      provider TEXT,
+      model TEXT,
+      original_provider TEXT,
+      provider_switched_at TEXT,
+      mcp_instance_id TEXT,
+      complexity TEXT,
+      task_metadata TEXT,
+      partial_output TEXT,
+      resume_context TEXT,
+      review_status TEXT,
+      stall_timeout_seconds INTEGER,
+      server_epoch INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS factory_attempt_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_id TEXT NOT NULL,
+      work_item_id TEXT NOT NULL,
+      attempt INTEGER NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('execute', 'verify_retry')),
+      task_id TEXT NOT NULL,
+      files_touched TEXT,
+      file_count INTEGER NOT NULL DEFAULT 0,
+      stdout_tail TEXT,
+      zero_diff_reason TEXT,
+      classifier_source TEXT NOT NULL DEFAULT 'none' CHECK (classifier_source IN ('heuristic', 'llm', 'none')),
+      classifier_conf REAL,
+      verify_output_tail TEXT,
+      created_at TEXT NOT NULL
     );
   `);
   return db;
@@ -139,7 +203,7 @@ function initGitWorktree(tempDirs) {
   return { repoPath, worktreePath };
 }
 
-function seedFactoryProject(db, worktreePath) {
+function seedFactoryProject(db, worktreePath, batchId = 'factory-project-1-7') {
   db.prepare(`
     INSERT INTO factory_projects (id, name, path, trust_level, status, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -161,7 +225,7 @@ function seedFactoryProject(db, worktreePath) {
     'manual',
     'Auto commit pending approval task',
     'Close the worktree auto-commit gap.',
-    'factory-project-1-7',
+    batchId,
     '2026-04-14T00:00:00.000Z',
     '2026-04-14T00:00:00.000Z',
   );
@@ -206,7 +270,7 @@ function seedFactoryProject(db, worktreePath) {
   `).run(
     'project-1',
     workItemInfo.lastInsertRowid,
-    'factory-project-1-7',
+    batchId,
     'vc-worktree-1',
     'feat/auto-commit',
     worktreePath,
@@ -265,6 +329,7 @@ describe('factory worktree auto-commit', () => {
     db = createDb();
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
+    attemptHistory.setDb(db);
     factoryHealth.setDb(db);
     factoryWorktrees.setDb(db);
     factoryDecisions.setDb(db);
@@ -277,6 +342,7 @@ describe('factory worktree auto-commit', () => {
     autoCommit?.resetFactoryWorktreeAutoCommitForTests();
     delete require.cache[MODULE_PATH];
     database.getDbInstance = originalGetDbInstance;
+    attemptHistory.setDb(null);
     factoryHealth.setDb(null);
     factoryWorktrees.setDb(null);
     factoryDecisions.setDb(null);
@@ -290,6 +356,42 @@ describe('factory worktree auto-commit', () => {
     vi.restoreAllMocks();
     childProcess.execFileSync = originalExecFileSync;
   });
+
+  async function waitForAutoCommitListener() {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  async function runAutoCommitListenerWithStdoutTail(opts) {
+    const { worktreePath } = initGitWorktree(tempDirs);
+    seedFactoryProject(db, worktreePath, opts.batchId);
+
+    for (const dirtyFile of opts.dirtyFiles) {
+      const targetPath = path.join(worktreePath, dirtyFile);
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.writeFileSync(targetPath, 'dummy content\n');
+    }
+
+    taskCore.createTask({
+      id: opts.taskId,
+      status: 'completed',
+      task_description: `Plan: Auto Commit\nTask ${opts.planTaskNumber}: Add audit logging\n`,
+      working_directory: worktreePath,
+      tags: [
+        `factory:batch_id=${opts.batchId}`,
+        `factory:work_item_id=${opts.workItemId}`,
+        `factory:plan_task_number=${opts.planTaskNumber}`,
+        ...(opts.extraTags || []),
+      ],
+    });
+    taskCore.updateTask(opts.taskId, { output: opts.stdoutTail });
+
+    const task = taskCore.getTask(opts.taskId);
+    expect(autoCommit.initFactoryWorktreeAutoCommit()).toBe(true);
+    taskEvents.emit('task:completed', { id: task.id, status: 'completed' });
+    await waitForAutoCommitListener();
+
+    return { result: task, worktreePath };
+  }
 
   it('registers the listener when only "dark" trust-level projects exist (regression: skipped pre-fix)', () => {
     // Earlier ELIGIBLE_TRUST_LEVELS = ['supervised', 'autonomous'] silently
@@ -315,7 +417,7 @@ describe('factory worktree auto-commit', () => {
     expect(autoCommit.initFactoryWorktreeAutoCommit()).toBe(true);
   });
 
-  it('commits dirty factory worktree changes after a completed plan task and logs auto_committed_task', () => {
+  it('commits dirty factory worktree changes after a completed plan task and logs auto_committed_task', async () => {
     const { worktreePath } = initGitWorktree(tempDirs);
     seedFactoryProject(db, worktreePath);
     insertTask(db, {
@@ -334,6 +436,7 @@ describe('factory worktree auto-commit', () => {
 
     expect(autoCommit.initFactoryWorktreeAutoCommit()).toBe(true);
     taskEvents.emit('task:completed', { id: 'task-commit', status: 'completed' });
+    await waitForAutoCommitListener();
 
     const lastSubject = runRealGit(worktreePath, ['log', '-1', '--pretty=%s']).trim();
     const headSha = runRealGit(worktreePath, ['rev-parse', 'HEAD']).trim();
@@ -353,7 +456,7 @@ describe('factory worktree auto-commit', () => {
     expect(decisions[0].outcome.files_changed).toContain('feature.txt');
   });
 
-  it('passes --no-verify to git commit so the pre-commit hook does not deadlock on the TORQUE HTTP API', () => {
+  it('passes --no-verify to git commit so the pre-commit hook does not deadlock on the TORQUE HTTP API', async () => {
     // Regression test for the LEARN-stage worktree_merge_failed chain:
     // the per-task auto-commit runs via execFileSync and the pre-commit
     // hook's PII-guard re-enters TORQUE via HTTP. When the call site is
@@ -382,6 +485,7 @@ describe('factory worktree auto-commit', () => {
 
     expect(autoCommit.initFactoryWorktreeAutoCommit()).toBe(true);
     taskEvents.emit('task:completed', { id: 'task-no-verify', status: 'completed' });
+    await waitForAutoCommitListener();
 
     const commitCalls = gitSpy.mock.calls.filter(
       ([file, args]) => file === 'git' && Array.isArray(args) && args[0] === 'commit'
@@ -392,7 +496,7 @@ describe('factory worktree auto-commit', () => {
     expect(countCommits(worktreePath)).toBe(2);
   });
 
-  it('logs auto_commit_skipped_clean when the worktree is already clean', () => {
+  it('logs auto_commit_skipped_clean when the worktree is already clean', async () => {
     const { worktreePath } = initGitWorktree(tempDirs);
     seedFactoryProject(db, worktreePath);
     insertTask(db, {
@@ -411,6 +515,7 @@ describe('factory worktree auto-commit', () => {
 
     autoCommit.initFactoryWorktreeAutoCommit();
     taskEvents.emit('task:completed', { id: 'task-clean', status: 'completed' });
+    await waitForAutoCommitListener();
 
     const decisions = listDecisionRows(db);
     const commitCalls = gitSpy.mock.calls.filter(([file, args]) => file === 'git' && Array.isArray(args) && args[0] === 'commit');
@@ -428,7 +533,7 @@ describe('factory worktree auto-commit', () => {
     });
   });
 
-  it('ignores completed tasks that do not carry factory plan tags', () => {
+  it('ignores completed tasks that do not carry factory plan tags', async () => {
     const { worktreePath } = initGitWorktree(tempDirs);
     seedFactoryProject(db, worktreePath);
     insertTask(db, {
@@ -444,6 +549,7 @@ describe('factory worktree auto-commit', () => {
 
     autoCommit.initFactoryWorktreeAutoCommit();
     taskEvents.emit('task:completed', { id: 'task-non-factory', status: 'completed' });
+    await waitForAutoCommitListener();
 
     const commitCalls = gitSpy.mock.calls.filter(([file, args]) => file === 'git' && Array.isArray(args) && args[0] === 'commit');
 
@@ -482,7 +588,7 @@ describe('factory worktree auto-commit', () => {
     expect(listDecisionRows(db)).toHaveLength(0);
   });
 
-  it('logs auto_commit_failed when git commit throws and preserves the dirty worktree', () => {
+  it('logs auto_commit_failed when git commit throws and preserves the dirty worktree', async () => {
     const { worktreePath } = initGitWorktree(tempDirs);
     seedFactoryProject(db, worktreePath);
     insertTask(db, {
@@ -510,6 +616,7 @@ describe('factory worktree auto-commit', () => {
 
     autoCommit.initFactoryWorktreeAutoCommit();
     taskEvents.emit('task:completed', { id: 'task-commit-fail', status: 'completed' });
+    await waitForAutoCommitListener();
 
     const decisions = listDecisionRows(db);
     const statusOutput = runRealGit(worktreePath, ['status', '--porcelain']).trim();
@@ -525,5 +632,61 @@ describe('factory worktree auto-commit', () => {
       },
     });
     expect(decisions[0].outcome.error).toContain('simulated commit failure');
+  });
+
+  describe('worktree-auto-commit — attempt history + rationale', () => {
+    it('writes an attempt_history row with classifier fields when the worktree is clean and Codex said "already in place"', async () => {
+      const { result } = await runAutoCommitListenerWithStdoutTail({
+        stdoutTail: 'The change is already in place.',
+        dirtyFiles: [],
+        batchId: 'batch-h1',
+        workItemId: 'wi-h1',
+        taskId: 'task-h1',
+        planTaskNumber: 1,
+      });
+
+      const rows = db.prepare('SELECT * FROM factory_attempt_history WHERE batch_id=?').all('batch-h1');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].kind).toBe('execute');
+      expect(rows[0].file_count).toBe(0);
+      expect(rows[0].zero_diff_reason).toBe('already_in_place');
+      expect(rows[0].classifier_source).toBe('heuristic');
+      expect(JSON.parse(rows[0].files_touched)).toEqual([]);
+
+      const decision = db.prepare("SELECT * FROM factory_decisions WHERE action='auto_commit_skipped_clean' AND batch_id=?").get('batch-h1');
+      const outcome = JSON.parse(decision.outcome_json || decision.outcome);
+      expect(outcome.zero_diff_reason).toBe('already_in_place');
+      expect(outcome.classifier_source).toBe('heuristic');
+    });
+
+    it('writes an attempt_history row with classifier_source=none on the successful commit path', async () => {
+      await runAutoCommitListenerWithStdoutTail({
+        stdoutTail: 'Created two files.',
+        dirtyFiles: ['src/a.js', 'src/b.js'],
+        batchId: 'batch-h2',
+        workItemId: 'wi-h2',
+        taskId: 'task-h2',
+        planTaskNumber: 1,
+      });
+      const row = db.prepare('SELECT * FROM factory_attempt_history WHERE batch_id=?').get('batch-h2');
+      expect(row.file_count).toBe(2);
+      expect(JSON.parse(row.files_touched).sort()).toEqual(['src/a.js', 'src/b.js'].sort());
+      expect(row.classifier_source).toBe('none');
+      expect(row.zero_diff_reason).toBeNull();
+    });
+
+    it('sets kind=verify_retry when the task tag factory:verify_retry=N is present', async () => {
+      await runAutoCommitListenerWithStdoutTail({
+        stdoutTail: 'already in place',
+        dirtyFiles: [],
+        batchId: 'batch-h3',
+        workItemId: 'wi-h3',
+        taskId: 'task-h3',
+        planTaskNumber: 1002,
+        extraTags: ['factory:verify_retry=2'],
+      });
+      const row = db.prepare('SELECT * FROM factory_attempt_history WHERE batch_id=?').get('batch-h3');
+      expect(row.kind).toBe('verify_retry');
+    });
   });
 });

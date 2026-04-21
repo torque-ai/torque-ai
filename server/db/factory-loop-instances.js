@@ -333,6 +333,40 @@ function claimStageForInstance(id, stage) {
   return getInstance(id);
 }
 
+// The verify_silent_reruns column is added by migration 30. Environments
+// that have not seen that migration (e.g. unit tests that do not run
+// migrations) should silently treat the column as missing = 0 reruns so
+// the silent-rerun feature short-circuits to flag_off / budget_exhausted
+// without blowing up the caller.
+function isMissingColumnError(err) {
+  const msg = err && typeof err.message === 'string' ? err.message : '';
+  return /no such column:\s*verify_silent_reruns/i.test(msg);
+}
+
+function bumpVerifySilentReruns(instance_id) {
+  try {
+    const database = getDb();
+    const info = database.prepare(
+      'UPDATE factory_loop_instances SET verify_silent_reruns = verify_silent_reruns + 1 WHERE id = ?'
+    ).run(instance_id);
+    return info.changes > 0;
+  } catch (err) {
+    if (isMissingColumnError(err)) return false;
+    throw err;
+  }
+}
+
+function getVerifySilentReruns(instance_id) {
+  try {
+    const database = getDb();
+    const row = database.prepare('SELECT verify_silent_reruns FROM factory_loop_instances WHERE id = ?').get(instance_id);
+    return row ? row.verify_silent_reruns : 0;
+  } catch (err) {
+    if (isMissingColumnError(err)) return 0;
+    throw err;
+  }
+}
+
 module.exports = {
   createFactoryLoopInstances,
   setDb,
@@ -348,4 +382,6 @@ module.exports = {
   terminateInstance,
   getStageOccupant,
   claimStageForInstance,
+  bumpVerifySilentReruns,
+  getVerifySilentReruns,
 };

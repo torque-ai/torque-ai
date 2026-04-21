@@ -708,6 +708,36 @@ const MIGRATIONS = [
       // downgrade since it's nullable and unused by earlier code paths.
     ].join('; '),
   },
+  {
+    version: 30,
+    name: 'add_factory_attempt_history_and_silent_rerun_counter',
+    up: [
+      'CREATE TABLE IF NOT EXISTS factory_attempt_history (',
+      '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+      '  batch_id TEXT NOT NULL,',
+      '  work_item_id TEXT NOT NULL,',
+      '  attempt INTEGER NOT NULL,',
+      '  kind TEXT NOT NULL CHECK (kind IN (\'execute\', \'verify_retry\')),',
+      '  task_id TEXT NOT NULL,',
+      '  files_touched TEXT,',
+      '  file_count INTEGER NOT NULL DEFAULT 0,',
+      '  stdout_tail TEXT,',
+      '  zero_diff_reason TEXT,',
+      '  classifier_source TEXT NOT NULL DEFAULT \'none\' CHECK (classifier_source IN (\'heuristic\', \'llm\', \'none\')),',
+      '  classifier_conf REAL,',
+      '  verify_output_tail TEXT,',
+      '  created_at TEXT NOT NULL',
+      ');',
+      'CREATE INDEX IF NOT EXISTS idx_factory_attempt_history_batch ON factory_attempt_history(batch_id, attempt);',
+      'CREATE INDEX IF NOT EXISTS idx_factory_attempt_history_work_item ON factory_attempt_history(work_item_id, created_at DESC);',
+      'ALTER TABLE factory_loop_instances ADD COLUMN verify_silent_reruns INTEGER NOT NULL DEFAULT 0;',
+    ].join('\n'),
+    down: [
+      'DROP INDEX IF EXISTS idx_factory_attempt_history_work_item;',
+      'DROP INDEX IF EXISTS idx_factory_attempt_history_batch;',
+      'DROP TABLE IF EXISTS factory_attempt_history;',
+    ].join('\n'),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
