@@ -47,6 +47,10 @@ describe('stale-probe against a real git repo', () => {
     gitSync(['add', 'foo.js'], { cwd: tmpDir });
     gitSync(['commit', '--no-gpg-sign', '-m', 'initial'], { cwd: tmpDir });
 
+    // Sleep BEFORE capturing scanTime so the initial commit's second
+    // is strictly below scanTime — `git log --since=<t>` is inclusive
+    // at the second granularity and would otherwise include the initial.
+    await new Promise((r) => setTimeout(r, 1100));
     const scanTime = new Date().toISOString();
     await new Promise((r) => setTimeout(r, 1100));
     fs.writeFileSync(path.join(tmpDir, 'foo.js'), 'v2');
@@ -72,6 +76,10 @@ describe('stale-probe against a real git repo', () => {
     gitSync(['add', 'foo.js'], { cwd: tmpDir });
     gitSync(['commit', '--no-gpg-sign', '-m', 'initial'], { cwd: tmpDir });
 
+    // Sleep BEFORE capturing scanTime so the initial commit's second
+    // is strictly below scanTime — `git log --since=<t>` is inclusive
+    // at the second granularity and would otherwise include the initial.
+    await new Promise((r) => setTimeout(r, 1100));
     const scanTime = new Date().toISOString();
     await new Promise((r) => setTimeout(r, 1100));
     for (let i = 0; i < 6; i++) {
