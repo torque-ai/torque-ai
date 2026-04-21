@@ -103,16 +103,25 @@ function rankIntake(items, {
   void now;
   if (!Array.isArray(items)) return [];
   const cfg = mergeConfig(promotionConfig);
-  const decorated = items.map((item) => ({
-    item,
-    key: [
-      severityBucket(item),
-      computeTier(item, projectScores, cfg),
-      -(Number(item?.priority) || 0),
-      SOURCE_TIEBREAK[item?.source] ?? 4,
-      createdAtMs(item),
-    ],
-  }));
+  const decorated = items.map((item) => {
+    const tier = computeTier(item, projectScores, cfg);
+    // Severity only breaks ties WITHIN the promoted tier. For tier-1 items
+    // (non-promoted scouts + all non-scouts), treat severity as neutral so a
+    // HIGH scout with healthy scores doesn't pre-empt a higher-priority
+    // plan_file. See tests "HIGH scout ranks below plan_file when scores are
+    // healthy" and "missing projectScores ... HIGH stays tier 1".
+    const severityKey = tier === 0 ? severityBucket(item) : 4;
+    return {
+      item,
+      key: [
+        tier,
+        severityKey,
+        -(Number(item?.priority) || 0),
+        SOURCE_TIEBREAK[item?.source] ?? 4,
+        createdAtMs(item),
+      ],
+    };
+  });
   decorated.sort((a, b) => {
     for (let i = 0; i < a.key.length; i += 1) {
       if (a.key[i] < b.key[i]) return -1;
