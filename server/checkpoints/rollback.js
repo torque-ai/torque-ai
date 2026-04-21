@@ -2,20 +2,10 @@
 
 const path = require('path');
 const fs = require('fs');
-const { execFileSync } = require('child_process');
-const { checkpointRef, shadowDir } = require('./snapshot');
+const { checkpointRef, gitDir, gitCmd, shadowGitEnv } = require('./snapshot');
 
 function gitEnv(projectRoot) {
-  const dir = shadowDir(projectRoot);
-  return {
-    ...process.env,
-    GIT_DIR: path.join(dir, '.git'),
-    GIT_WORK_TREE: projectRoot,
-  };
-}
-
-function gitCmd(args, opts) {
-  return execFileSync('git', args, { encoding: 'utf8', ...opts });
+  return shadowGitEnv(projectRoot);
 }
 
 function rollbackTask({ project_root, task_id }) {
@@ -24,8 +14,7 @@ function rollbackTask({ project_root, task_id }) {
   }
 
   const projectRoot = path.resolve(project_root);
-  const dir = shadowDir(projectRoot);
-  if (!fs.existsSync(path.join(dir, '.git'))) {
+  if (!fs.existsSync(gitDir(projectRoot))) {
     return { ok: false, error: 'No shadow repo at this project' };
   }
 
@@ -50,8 +39,7 @@ function listCheckpoints(project_root) {
   if (!project_root) return [];
 
   const projectRoot = path.resolve(project_root);
-  const dir = shadowDir(projectRoot);
-  if (!fs.existsSync(path.join(dir, '.git'))) return [];
+  if (!fs.existsSync(gitDir(projectRoot))) return [];
 
   const env = gitEnv(projectRoot);
   let out;

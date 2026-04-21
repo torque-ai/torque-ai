@@ -8,6 +8,15 @@ const logger = require('../logger').child({ component: 'checkpoints' });
 const SHADOW_DIR_NAME = '.torque-checkpoints';
 const SHADOW_AUTHOR_NAME = 'TORQUE Checkpoints';
 const SHADOW_AUTHOR_ID = 'noreply+checkpoints'; // local-only, never used as a real address
+const GIT_ENV_KEYS_TO_CLEAR = [
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_PREFIX',
+];
 
 function shadowDir(projectRoot) {
   return path.join(projectRoot, SHADOW_DIR_NAME);
@@ -17,15 +26,29 @@ function gitDir(projectRoot) {
   return path.join(shadowDir(projectRoot), '.git');
 }
 
-function gitCmd(args, opts) {
-  return execFileSync('git', args, { encoding: 'utf8', ...opts });
+function cleanGitEnv() {
+  const env = { ...process.env };
+  for (const key of GIT_ENV_KEYS_TO_CLEAR) {
+    delete env[key];
+  }
+  return env;
 }
 
-function shadowEnv(projectRoot) {
+function gitCmd(args, opts = {}) {
+  const { env, ...rest } = opts;
+  return execFileSync('git', args, {
+    encoding: 'utf8',
+    ...rest,
+    env: env ? { ...cleanGitEnv(), ...env } : cleanGitEnv(),
+  });
+}
+
+function shadowGitEnv(projectRoot) {
+  const resolvedRoot = path.resolve(projectRoot);
   return {
-    ...process.env,
-    GIT_DIR: gitDir(projectRoot),
-    GIT_WORK_TREE: projectRoot,
+    ...cleanGitEnv(),
+    GIT_DIR: gitDir(resolvedRoot),
+    GIT_WORK_TREE: resolvedRoot,
   };
 }
 
@@ -56,9 +79,11 @@ function ensureShadowIgnored(projectRoot) {
 }
 
 function configureShadowRepo(projectRoot) {
-  const env = shadowEnv(projectRoot);
+  const env = shadowGitEnv(projectRoot);
   gitCmd(['config', '--local', 'core.bare', 'false'], { env });
   gitCmd(['config', '--local', 'core.worktree', projectRoot], { env });
+  gitCmd(['config', '--local', 'core.autocrlf', 'false'], { env });
+  gitCmd(['config', '--local', 'core.eol', 'lf'], { env });
   gitCmd(['config', '--local', 'user.name', SHADOW_AUTHOR_NAME], { env });
   gitCmd(['config', '--local', 'user.email', `${SHADOW_AUTHOR_ID}@local`], { env });
 }
@@ -71,7 +96,7 @@ function ensureShadowRepo(projectRoot) {
 
   if (created) {
     fs.mkdirSync(dir, { recursive: true });
-    gitCmd(['init', '--quiet', '--bare', repoDir]);
+    gitCmd(['init', '--quiet', dir]);
   }
 
   configureShadowRepo(resolvedRoot);
@@ -93,7 +118,7 @@ function snapshotTaskState({ project_root, task_id, task_label }) {
   ensureShadowRepo(projectRoot);
 
   try {
-    const env = shadowEnv(projectRoot);
+    const env = shadowGitEnv(projectRoot);
     gitCmd(['add', '-A'], { env });
     gitCmd(['commit', '--allow-empty', '-m', `${checkpointRef(task_id)}: ${task_label || ''}`], { env });
     gitCmd(['tag', '-f', checkpointRef(task_id), 'HEAD'], { env });
@@ -108,6 +133,9 @@ module.exports = {
   ensureShadowRepo,
   snapshotTaskState,
   shadowDir,
+  gitDir,
+  gitCmd,
+  shadowGitEnv,
   SHADOW_DIR_NAME,
   checkpointRef,
 };

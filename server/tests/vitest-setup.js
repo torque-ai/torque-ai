@@ -444,6 +444,57 @@ function rawDb() {
   return db.getDbInstance();
 }
 
+function quoteIdentifier(name) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error(`Unsafe table name: ${name}`);
+  }
+  return `"${name}"`;
+}
+
+function listUserTables(handle) {
+  return handle.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND name NOT LIKE 'sqlite_%'
+  `).all().map(row => row.name);
+}
+
+function getReferencingTables(handle, targetTable) {
+  return listUserTables(handle).filter(table => {
+    try {
+      return handle.prepare(`PRAGMA foreign_key_list(${quoteIdentifier(table)})`)
+        .all()
+        .some(fk => fk.table === targetTable);
+    } catch {
+      return false;
+    }
+  });
+}
+
+function buildDeleteOrder(handle, tables) {
+  const order = [];
+  const visited = new Set();
+  const visiting = new Set();
+
+  function visit(table) {
+    if (visited.has(table) || visiting.has(table)) return;
+    visiting.add(table);
+    for (const dependent of getReferencingTables(handle, table)) {
+      visit(dependent);
+    }
+    visiting.delete(table);
+    visited.add(table);
+    order.push(table);
+  }
+
+  for (const table of tables) {
+    visit(table);
+  }
+
+  return order;
+}
+
 /**
  * Delete all rows from one or more tables. Useful in beforeEach for test isolation.
  * @param {string|string[]} tables
@@ -451,8 +502,8 @@ function rawDb() {
 function resetTables(tables) {
   const handle = rawDb();
   const names = Array.isArray(tables) ? tables : [tables];
-  for (const table of names) {
-    handle.prepare(`DELETE FROM ${table}`).run();
+  for (const table of buildDeleteOrder(handle, names)) {
+    handle.prepare(`DELETE FROM ${quoteIdentifier(table)}`).run();
   }
 }
 
