@@ -721,6 +721,7 @@ async function handleFactoryStatus() {
       loop_state: loopState,
       loop_paused_at_stage: pausedAtStage,
       loop_last_action_at: lastActionAt,
+      consecutive_empty_cycles: Number.isFinite(p.consecutive_empty_cycles) ? p.consecutive_empty_cycles : 0,
       alert_badge: alertBadge,
       balance,
       weakest_dimension: weakest ? weakest[0] : null,
