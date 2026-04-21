@@ -4,6 +4,8 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
+const { ErrorCodes } = require('../handlers/shared');
+const { getArtifactConfig } = require('../db/task-metadata');
 const dataDir = require('../data-dir');
 const { handleConfigureArtifactStorage } = require('../handlers/advanced/artifacts');
 
@@ -24,9 +26,10 @@ describe('handleConfigureArtifactStorage storage_path boundary', () => {
 
   it('accepts a relative path that resolves inside the data dir', () => {
     const result = handleConfigureArtifactStorage({ storage_path: 'my-artifacts' });
-    const expectedPath = path.join(tempDataDir, 'my-artifacts');
+    const expectedPath = path.resolve(tempDataDir, 'my-artifacts');
 
     expect(result.isError).not.toBe(true);
+    expect(getArtifactConfig().storage_path).toBe(expectedPath);
     expect(getText(result)).toContain(expectedPath);
   });
 
@@ -35,13 +38,15 @@ describe('handleConfigureArtifactStorage storage_path boundary', () => {
     const result = handleConfigureArtifactStorage({ storage_path: outside });
 
     expect(result.isError).toBe(true);
+    expect(result.error_code).toBe(ErrorCodes.INVALID_PARAM.code);
     expect(getText(result)).toMatch(/must resolve within/i);
   });
 
   it('rejects a ../ escape attempt', () => {
-    const result = handleConfigureArtifactStorage({ storage_path: '../../escape' });
+    const result = handleConfigureArtifactStorage({ storage_path: 'my-artifacts/../escape' });
 
     expect(result.isError).toBe(true);
+    expect(result.error_code).toBe(ErrorCodes.INVALID_PARAM.code);
   });
 
   it('rejects a sibling-prefix bypass', () => {
@@ -51,5 +56,6 @@ describe('handleConfigureArtifactStorage storage_path boundary', () => {
     const result = handleConfigureArtifactStorage({ storage_path: bypass });
 
     expect(result.isError).toBe(true);
+    expect(result.error_code).toBe(ErrorCodes.INVALID_PARAM.code);
   });
 });
