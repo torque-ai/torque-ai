@@ -4,16 +4,46 @@ const MAX_REPLAN_ATTEMPTS = 1;
 const LLM_TIMEOUT_MS = 60_000;
 
 const RULES = {
-  plan_has_task_heading:       { severity: 'hard', scope: 'plan' },
-  plan_task_count_upper_bound: { severity: 'hard', scope: 'plan', max: 15 },
-  plan_task_count_lower_bound: { severity: 'warn', scope: 'plan', min: 2 },
-  task_body_min_length:        { severity: 'hard', scope: 'task', min: 100 },
-  task_has_file_reference:     { severity: 'hard', scope: 'task' },
-  task_has_acceptance_criterion: { severity: 'hard', scope: 'task' },
-  task_avoids_vague_phrases:   { severity: 'hard', scope: 'task', minHits: 1 },
-  no_duplicate_task_titles:    { severity: 'hard', scope: 'plan' },
-  task_heading_grammar:        { severity: 'hard', scope: 'plan' },
-  plan_size_upper_bound:       { severity: 'hard', scope: 'plan', maxBytes: 100 * 1024 },
+  plan_has_task_heading: {
+    severity: 'hard', scope: 'plan',
+    description: 'Each task must begin with a "### Task N: ..." heading using imperative grammar.',
+  },
+  plan_task_count_upper_bound: {
+    severity: 'hard', scope: 'plan', max: 15,
+    description: 'A plan must contain at most 15 tasks. Split larger work into multiple plans.',
+  },
+  plan_task_count_lower_bound: {
+    severity: 'warn', scope: 'plan', min: 2,
+    description: 'A plan should contain at least 2 tasks (soft rule - single-task plans are tolerated).',
+  },
+  task_body_min_length: {
+    severity: 'hard', scope: 'task', min: 100,
+    description: 'Task bodies must be at least 100 characters of concrete instruction.',
+  },
+  task_has_file_reference: {
+    severity: 'hard', scope: 'task',
+    description: 'Every task body must reference at least one file path (e.g. `src/foo.ts`).',
+  },
+  task_has_acceptance_criterion: {
+    severity: 'hard', scope: 'task',
+    description: 'Every task must state an acceptance criterion - a test command, an assertion, or a specific observable outcome.',
+  },
+  task_avoids_vague_phrases: {
+    severity: 'hard', scope: 'task', minHits: 1,
+    description: 'Avoid vague phrases ("improve", "update", "clean up", "refactor accordingly") unless accompanied by a concrete file path, function name, or symbol.',
+  },
+  no_duplicate_task_titles: {
+    severity: 'hard', scope: 'plan',
+    description: 'Task titles must be unique within a plan.',
+  },
+  task_heading_grammar: {
+    severity: 'hard', scope: 'plan',
+    description: 'Task headings must use imperative grammar ("Add foo", not "Added foo" or "Adding foo").',
+  },
+  plan_size_upper_bound: {
+    severity: 'hard', scope: 'plan', maxBytes: 100 * 1024,
+    description: 'Plan file size must not exceed 100 KB.',
+  },
 };
 
 const FILE_PATH_RE = /[a-z_][a-z_0-9/-]*\.(js|ts|tsx|jsx|py|cs|md|json|yml|yaml)/i;

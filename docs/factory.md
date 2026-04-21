@@ -74,6 +74,33 @@ Retry fix prompts now include a "Prior attempts on this work item:" block (last 
 Design: `docs/superpowers/specs/2026-04-20-close-handler-retry-observability-design.md`
 Plan:   `docs/superpowers/plans/2026-04-20-close-handler-observability.md`
 
+## Intake / Plan Pipeline (2026-04)
+
+PRIORITIZE now ranks intake items by `(promotion_tier, severity_within_tier, priority, source, age)` before claiming one. Scout findings promote ahead of plan_files when:
+- The finding is CRITICAL (always promotes), or
+- The finding is at or above `severity_floor` (default `HIGH`) AND at least one relevant project score is below its `score_trigger` threshold.
+
+Per-project config lives on `factory_projects.config_json.scout_promotion`; defaults are sensible. Severity only breaks ties **within** the promoted tier, so a HIGH scout with healthy scores does not pre-empt a higher-priority plan_file.
+
+After ranking, each top candidate goes through a cheap stale probe:
+1. Is the scout's `target_file` still present?
+2. How many commits have landed against it since scan time?
+   - 0 commits → finding still valid, keep.
+   - `< stale_churn_threshold` (default 5) → minor churn, probably valid, keep.
+   - `>=` threshold → substantial churn, mark `shipped_stale` and re-pick.
+
+At most `stale_max_repicks` (default 3) consecutive stales per advance; after that, the selector returns no claim and PRIORITIZE re-enters on the next tick.
+
+Decisions emitted:
+- `scout_promoted` — when ranking actually lifted a scout ahead of a plan_file. Outcome: `promoted_ids`, `project_scores`.
+- `skipped_stale_scout_item` — when a candidate was skipped as stale. Outcome: `stale_reason`, `commits_since_scan`, `probe_ms`.
+- `stale_probe_starvation` — when stale_max_repicks exhausted and the selector gave up.
+
+Plan-gen preemption: `architect-runner.js` now composes a plan-authoring guide from the `RULES` const in `plan-quality-gate.js` + a hand-written examples block (via `server/factory/plan-authoring-guide.js`). The composed guide is injected ahead of the architect prompt so the LLM sees the quality-gate rules up front and produces compliant plans on first pass. On any compose error, the file-based guide loads as a fallback.
+
+Design: `docs/superpowers/specs/2026-04-21-intake-plan-pipeline-design.md`
+Plan:   `docs/superpowers/plans/2026-04-21-intake-plan-pipeline.md`
+
 ## Auto-Recovery Decision Actions
 
 The factory emits named decisions for each auto-recovery path so stuck loops are diagnosable from the decision log alone. When debugging a stalled project, query the decisions endpoint first:

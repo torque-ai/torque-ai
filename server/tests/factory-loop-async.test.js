@@ -178,6 +178,14 @@ describe('factory loop async jobs', () => {
       error: null,
     });
 
+    // Wait for runArchitectCycle to be invoked and capture resolveCycle.
+    // PRIORITIZE became async (rankIntake + probeStaleness run before the
+    // architect cycle), so resolveCycle may not be bound synchronously by
+    // the time the assertion above returns.
+    await vi.waitFor(() => {
+      if (typeof resolveCycle !== 'function') throw new Error('cycle not started');
+    }, { timeout: 5000 });
+
     resolveCycle({ id: 'cycle-async-1', summary: 'architect complete' });
 
     const completed = await waitForJobStatus(project.id, descriptor.job_id, 'completed');
