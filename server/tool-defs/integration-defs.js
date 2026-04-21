@@ -860,9 +860,7 @@ const tools = [
     description: 'List available database backups',
     inputSchema: {
       type: 'object',
-      properties: {
-        directory: { type: 'string', description: 'Directory to search for backups. Defaults to the standard backups/ directory.' }
-      }
+      properties: {}
     }
   },
   {
