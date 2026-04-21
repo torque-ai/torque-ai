@@ -1917,7 +1917,7 @@ function healAlreadyShippedWorkItem(project_id, item) {
   }
 }
 
-function claimNextWorkItemForInstance(project_id, instance_id) {
+async function claimNextWorkItemForInstance(project_id, instance_id) {
   const openItems = factoryIntake.listOpenWorkItems({ project_id, limit: 100 });
   if (!Array.isArray(openItems) || openItems.length === 0) {
     return { openItems: [], workItem: null };
@@ -1937,20 +1937,86 @@ function claimNextWorkItemForInstance(project_id, instance_id) {
     survivors.push(item);
   }
 
+  // Cluster B promotion: rank survivors by severity + score triggers.
+  // Fall back to today's status-only order on any error — observability
+  // must never block the loop.
+  const project = factoryHealth.getProject(project_id);
+  const projectScores = parseProjectScoresForPromotion(project);
+  const promotionConfig = parsePromotionConfigForPromotion(project);
+  let rankedCandidates = survivors;
+  try {
+    const { rankIntake } = require('./promotion-policy');
+    rankedCandidates = rankIntake(survivors, { projectScores, promotionConfig });
+    if (didPromoteScoutAhead(survivors, rankedCandidates)) {
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.PRIORITIZE,
+        action: 'scout_promoted',
+        reasoning: 'Scout finding promoted ahead of lower-severity / lower-score candidates.',
+        outcome: {
+          promoted_ids: rankedCandidates
+            .filter((i) => i && i.source === 'scout')
+            .slice(0, 3)
+            .map((i) => i.id),
+          project_scores: projectScores,
+        },
+        confidence: 1,
+      });
+    }
+  } catch (err) {
+    logger.warn('promotion_policy_failed', { err: err && err.message });
+    rankedCandidates = survivors;
+  }
+
   const orderedCandidates = [];
   for (const status of WORK_ITEM_STATUS_ORDER) {
-    orderedCandidates.push(...survivors.filter((item) => item && item.status === status));
+    orderedCandidates.push(...rankedCandidates.filter((item) => item && item.status === status));
   }
-  orderedCandidates.push(...survivors.filter((item) => !orderedCandidates.includes(item)));
+  orderedCandidates.push(...rankedCandidates.filter((item) => !orderedCandidates.includes(item)));
+
+  const maxRepicks = Math.max(1, (promotionConfig?.stale_max_repicks) || 3);
+  const skipped = [];
+  const projectPath = project?.path || null;
+  const { probeStaleness } = require('./stale-probe');
 
   for (const item of orderedCandidates) {
-    if (!item) {
-      continue;
-    }
+    if (!item) continue;
     if (item.claimed_by_instance_id === instance_id) {
       return { openItems: survivors, workItem: item };
     }
-    if (item.claimed_by_instance_id) {
+    if (item.claimed_by_instance_id) continue;
+    if (skipped.length >= maxRepicks) break;
+
+    // Stale probe — non-scout items Gate-1-out immediately in probeStaleness,
+    // so it is safe to run for every candidate.
+    let probe = { stale: false, reason: 'skipped' };
+    try {
+      probe = await probeStaleness(item, { projectPath, promotionConfig });
+    } catch (err) {
+      logger.warn('stale_probe_threw', { err: err && err.message, work_item_id: item.id });
+      probe = { stale: false, reason: 'probe_errored' };
+    }
+
+    if (probe.stale) {
+      try {
+        factoryIntake.updateWorkItem(item.id, { status: 'shipped_stale' });
+      } catch (err) {
+        logger.warn('stale_status_write_failed', { err: err && err.message, work_item_id: item.id });
+      }
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.PRIORITIZE,
+        action: 'skipped_stale_scout_item',
+        reasoning: `Scout finding no longer reproduces: ${probe.reason}`,
+        outcome: {
+          work_item_id: item.id,
+          stale_reason: probe.reason,
+          commits_since_scan: probe.commits_since_scan,
+          probe_ms: probe.probe_ms,
+        },
+        confidence: 1,
+      });
+      skipped.push(item.id);
       continue;
     }
 
@@ -1960,7 +2026,46 @@ function claimNextWorkItemForInstance(project_id, instance_id) {
     }
   }
 
+  if (skipped.length >= maxRepicks) {
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.PRIORITIZE,
+      action: 'stale_probe_starvation',
+      reasoning: `Top ${skipped.length} candidates all marked stale; PRIORITIZE advanced without a claim.`,
+      outcome: { skipped },
+      confidence: 1,
+    });
+  }
+
   return { openItems: survivors, workItem: null };
+}
+
+function parseProjectScoresForPromotion(project) {
+  if (!project) return {};
+  if (project.scores && typeof project.scores === 'object') return project.scores;
+  if (typeof project.scores_json === 'string') {
+    try { return JSON.parse(project.scores_json); } catch { return {}; }
+  }
+  return {};
+}
+
+function parsePromotionConfigForPromotion(project) {
+  const raw = project?.config_json;
+  if (!raw) return null;
+  try {
+    const cfg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return cfg.scout_promotion || null;
+  } catch (err) {
+    logger.warn('promotion_config_parse_failed', { err: err && err.message });
+    return null;
+  }
+}
+
+function didPromoteScoutAhead(originalSurvivors, ranked) {
+  const origFirst = originalSurvivors[0];
+  const rankedFirst = ranked[0];
+  if (!origFirst || !rankedFirst) return false;
+  return origFirst.source !== 'scout' && rankedFirst.source === 'scout';
 }
 
 function getCreatedAtValue(item) {
@@ -2030,10 +2135,10 @@ function scoreWorkItemForPrioritize(workItem, openItems = []) {
   };
 }
 
-function executePrioritizeStage(project, instance, selectedWorkItem = null) {
+async function executePrioritizeStage(project, instance, selectedWorkItem = null) {
   const claimResult = selectedWorkItem
     ? { openItems: factoryIntake.listOpenWorkItems({ project_id: project.id, limit: 100 }), workItem: selectedWorkItem }
-    : claimNextWorkItemForInstance(project.id, instance.id);
+    : await claimNextWorkItemForInstance(project.id, instance.id);
   const openItems = claimResult.openItems;
   const workItem = claimResult.workItem;
 
@@ -6260,7 +6365,7 @@ async function runAdvanceLoop(instance_id) {
     }
 
     case LOOP_STATES.PRIORITIZE: {
-      const prioritizeStage = executePrioritizeStage(project, instance, transitionWorkItem);
+      const prioritizeStage = await executePrioritizeStage(project, instance, transitionWorkItem);
       transitionWorkItem = prioritizeStage?.work_item || transitionWorkItem;
       stageResult = prioritizeStage?.stage_result || null;
       transitionReason = prioritizeStage?.reason || null;

@@ -860,7 +860,7 @@ describe('factory loop work-item shipping', () => {
     );
   });
 
-  it('self-heals a work item that has a merged worktree but non-terminal status before PRIORITIZE picks it', () => {
+  it('self-heals a work item that has a merged worktree but non-terminal status before PRIORITIZE picks it', async () => {
     // Simulates the incident where a worktree merged to main but the LEARN
     // status-update step didn't land (crash/restart/loop interrupted). The
     // item stays at 'in_progress' in intake while factory_worktrees shows
@@ -900,7 +900,7 @@ describe('factory loop work-item shipping', () => {
     factoryWorktrees.markMerged(worktreeRow.id);
 
     const fakeInstanceId = 'instance-self-heal';
-    const result = loopController._internalForTests.claimNextWorkItemForInstance(
+    const result = await loopController._internalForTests.claimNextWorkItemForInstance(
       project.id,
       fakeInstanceId,
     );
@@ -927,7 +927,7 @@ describe('factory loop work-item shipping', () => {
     });
   });
 
-  it('does not resurrect a completed work item from the decision log when starting a fresh instance', () => {
+  it('does not resurrect a completed work item from the decision log when starting a fresh instance', async () => {
     // Flow that triggered the 2026-04-15 live-test failure: the last
     // factory loop ran item X to completion (shipped/completed), but its
     // selected_work_item decision is still in factory_decisions. A fresh
@@ -976,7 +976,7 @@ describe('factory loop work-item shipping', () => {
     // PRIORITIZE's selectedWorkItem param is fed by runAdvanceLoop's
     // tryGetSelectedWorkItem, which is the path we care about here.
     const freshInstanceId = 'instance-fresh';
-    const claimResult = loopController._internalForTests.claimNextWorkItemForInstance(
+    const claimResult = await loopController._internalForTests.claimNextWorkItemForInstance(
       project.id,
       freshInstanceId,
     );
@@ -987,7 +987,7 @@ describe('factory loop work-item shipping', () => {
     expect(factoryIntake.getWorkItem(closedItem.id).status).toBe('completed');
   });
 
-  it('does not heal items whose worktree is still active', () => {
+  it('does not heal items whose worktree is still active', async () => {
     const project = factoryHealth.registerProject({
       name: `Factory Active Worktree ${Date.now()}`,
       path: `/tmp/factory-active-wt-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -1013,7 +1013,7 @@ describe('factory loop work-item shipping', () => {
     });
     // No markMerged — worktree stays 'active'.
 
-    const result = loopController._internalForTests.claimNextWorkItemForInstance(
+    const result = await loopController._internalForTests.claimNextWorkItemForInstance(
       project.id,
       'instance-active',
     );
