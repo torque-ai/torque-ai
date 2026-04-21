@@ -76,7 +76,18 @@ const routes = [
   // Multi-tenant isolation requires user accounts (Phase 3).
   { method: 'POST', path: '/api/tasks', tool: 'smart_submit_task', mapBody: true },
   { method: 'POST', path: '/api/tasks/submit', tool: 'submit_task', mapBody: true },
-  { method: 'GET', path: '/api/tasks', tool: 'list_tasks', mapQuery: true },
+  // REST callers expect "list all tasks"; the MCP list_tasks tool defaults
+  // to a cwd-derived project filter that produced a surprising empty result
+  // over REST (v1 returned [] while v2 /api/v2/tasks returned the full set).
+  // defaultArgs.all_projects aligns v1 REST semantics with v2 unless the
+  // caller explicitly passes ?project=… or ?all_projects=false.
+  {
+    method: 'GET',
+    path: '/api/tasks',
+    tool: 'list_tasks',
+    mapQuery: true,
+    defaultArgs: { all_projects: true },
+  },
   {
     method: 'GET',
     path: /^\/api\/tasks\/([^/]+)\/stream$/,

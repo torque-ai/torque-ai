@@ -360,14 +360,29 @@ async function handleRequest(req, res, context = {}) {
         return await route.handler(req, res, { requestId, params: req.params, query: req.query }, ...routeParams, req);
       }
 
-      // Build args for MCP tool
+      // Build args for MCP tool. Precedence (lowest → highest):
+      //   1. route.defaultArgs — REST-level defaults so callers get sensible
+      //      scoping without restating it on every request. These are the
+      //      weakest source; any caller-provided value wins.
+      //   2. route.mapBody   — JSON body
+      //   3. route.mapQuery  — query-string params
+      //   4. route.mapParams / path params — strongest, since they're in the URL
       let args = {};
       const toolSchema = schemaMap.get(route.tool);
 
+      if (route.defaultArgs && typeof route.defaultArgs === 'object') {
+        args = { ...route.defaultArgs };
+      }
+
       if (route.mapBody) {
-        args = Object.prototype.hasOwnProperty.call(req, 'body')
+        const body = Object.prototype.hasOwnProperty.call(req, 'body')
           ? req.body
           : await parseBody(req);
+        if (body && typeof body === 'object' && !Array.isArray(body)) {
+          args = { ...args, ...body };
+        } else {
+          args = body;
+        }
       }
 
       if (route.mapQuery) {

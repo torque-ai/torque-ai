@@ -578,8 +578,25 @@ describe('captured request handler dispatch', () => {
     });
 
     expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', {
+      // defaultArgs on the /api/tasks route aligns v1 REST semantics with v2
+      // (show all projects, not just the server's cwd-derived project).
+      all_projects: true,
       status: 'queued',
       limit: 5,
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it('honors route.defaultArgs but lets query params override them', async () => {
+    const response = await dispatchRequest(requestHandler, {
+      method: 'GET',
+      // Explicit ?all_projects=false must win over the defaultArgs value.
+      url: '/api/tasks?all_projects=false&project=torque-public',
+    });
+
+    expect(handleToolCallSpy).toHaveBeenCalledWith('list_tasks', {
+      all_projects: false,
+      project: 'torque-public',
     });
     expect(response.statusCode).toBe(200);
   });
