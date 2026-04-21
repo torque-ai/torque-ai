@@ -105,6 +105,9 @@ async function probeStaleness(item, {
     );
     stdout = String(result?.stdout || '');
   } catch (err) {
+    // Temporary diagnostic — remove after the integration tests settle.
+    // eslint-disable-next-line no-console
+    console.error('[stale-probe debug]', { code: err?.code, msg: err?.message });
     if (err && err.message === 'probe_timeout') {
       return makeResult({ reason: 'probe_timeout' });
     }
