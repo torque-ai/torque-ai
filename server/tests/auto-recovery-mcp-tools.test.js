@@ -72,8 +72,11 @@ describe('auto-recovery MCP handlers', () => {
     expect(res.attempted).toBe(true);
   });
 
-  it('trigger_auto_recovery rejects missing project_id', async () => {
+  it('trigger_auto_recovery returns makeError when project_id is missing', async () => {
     const engine = { recoverOne: async () => ({ attempted: true }) };
-    await expect(triggerAutoRecovery({ db, engine })).rejects.toThrow(/project_id/);
+    const res = await triggerAutoRecovery({ db, engine });
+    expect(res.isError).toBe(true);
+    expect(res.error_code).toBe('MISSING_REQUIRED_PARAM');
+    expect(JSON.stringify(res.content)).toMatch(/project_id/);
   });
 });

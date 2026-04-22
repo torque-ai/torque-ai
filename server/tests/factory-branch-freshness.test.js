@@ -87,6 +87,11 @@ describe('branch-freshness git helpers', () => {
     git(repo, ['init']);
     git(repo, ['config', 'user.email', 'test@test.com']);
     git(repo, ['config', 'user.name', 'Test']);
+    // Disable Windows autocrlf so fixture content stays byte-for-byte what the
+    // tests write — otherwise Git converts LF→CRLF on checkout and the assertions
+    // on file content and `git status --porcelain` see spurious modifications.
+    git(repo, ['config', 'core.autocrlf', 'false']);
+    git(repo, ['config', 'core.eol', 'lf']);
     writeFile(repo, '.gitkeep', '');
     git(repo, ['add', '.gitkeep']);
     git(repo, ['commit', '--no-gpg-sign', '-m', 'initial']);
