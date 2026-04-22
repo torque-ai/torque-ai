@@ -33,6 +33,8 @@ The current plugin contract includes `name`, `version`, `install`, `uninstall`, 
 
 All feature work MUST use a git worktree. TORQUE runs from main — never develop directly on main.
 
+This is a durable operating rule for Claude, Codex, and any future agent session in this repository. If the work fixes or changes TORQUE itself, start in a feature worktree, merge back intentionally, and use the restart-barrier path for any runtime/server restart. Do not make TORQUE code changes directly in the main worktree just because they are small.
+
 ### Creating a Feature Worktree
 
     scripts/worktree-create.sh <feature-name>
@@ -51,6 +53,8 @@ This creates a worktree at `.worktrees/feat-<name>/` on branch `feat/<name>`. Op
     scripts/worktree-cutover.sh <feature-name>
 
 This merges the feature branch to main, triggers TORQUE queue drain (waits for running tasks to complete), restarts TORQUE on the new code, and cleans up the worktree.
+
+For docs-only changes that do not affect the running server, merge the worktree deliberately and state that no restart barrier is required. For server code, dashboard runtime, configuration, provider, scheduler, queue, MCP, REST, plugin, or process-lifecycle changes, use `scripts/worktree-cutover.sh <feature-name>` or an equivalent explicit merge followed by `restart_server` / `await_restart`; external process termination is reserved for an unresponsive MCP layer with explicit user approval.
 
 ### Emergency Hotfixes
 

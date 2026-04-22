@@ -2,6 +2,16 @@
 
 Use these agents when orchestrating work through TORQUE in Codex.
 
+## Durable TORQUE Change Rules
+
+These rules apply to future Codex sessions working in this repository:
+
+1) When fixing or changing TORQUE itself, create a dedicated git worktree and branch first. Do not edit `main` directly except for an explicitly approved emergency hotfix.
+2) Make and verify changes inside that feature worktree. Keep the main worktree available for the currently running TORQUE server.
+3) Merge the feature branch back deliberately after review. For runtime/server/config changes, prefer `scripts/worktree-cutover.sh <feature-name>` because it merges, drains, restarts, and cleans up through the intended path.
+4) Use TORQUE restart barriers for server restarts: `restart_server` or `await_restart`. Do not use `taskkill`, `Stop-Process`, PID-file kills, or ad hoc node termination unless the MCP layer is unresponsive and the user explicitly approves.
+5) Docs-only changes may merge without a restart, but still use a worktree and state that no restart is required.
+
 ## task-reviewer
 
 name: task-reviewer
