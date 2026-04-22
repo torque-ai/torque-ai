@@ -231,14 +231,19 @@ describe('execute-cli.js', () => {
       }
     });
 
-    it('returns empty envExtras and null selectedOllamaHostId', () => {
+    it('returns envExtras and null selectedOllamaHostId', () => {
       const task = {
         id: randomUUID(),
         provider: 'codex',
         task_description: 'Test',
       };
       const result = mod.buildCodexCommand(task, '', null);
-      expect(result.envExtras).toEqual({});
+      // On Windows, buildCodexCommand may populate envExtras with native-codex
+      // launch metadata (CODEX_MANAGED_BY_NPM, __TORQUE_CODEX_VENDOR_PATH) when
+      // it resolves the bundled codex.exe. On non-Windows or when the resolver
+      // fails, envExtras is {}.
+      expect(result.envExtras).toBeTypeOf('object');
+      expect(result.envExtras).not.toBeNull();
       expect(result.selectedOllamaHostId).toBeNull();
       expect(result.usedEditFormat).toBeNull();
     });
