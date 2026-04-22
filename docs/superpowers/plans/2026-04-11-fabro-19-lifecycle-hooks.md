@@ -28,7 +28,7 @@
 
 ## Task 1: Dispatcher
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/hooks-dispatcher.test.js`:
 
@@ -90,7 +90,7 @@ describe('dispatchHook', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/hooks/dispatcher.js`:
 
