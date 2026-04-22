@@ -456,6 +456,113 @@ describe('factory worktree auto-commit', () => {
     expect(decisions[0].outcome.files_changed).toContain('feature.txt');
   });
 
+  it('cleans factory run artifacts and plan progress churn without committing them', async () => {
+    const { worktreePath } = initGitWorktree(tempDirs);
+    seedFactoryProject(db, worktreePath);
+    insertTask(db, {
+      taskId: 'task-artifacts-only',
+      workingDirectory: worktreePath,
+      tags: [
+        'factory:batch_id=factory-project-1-7',
+        'factory:plan_task_number=4',
+        'factory:pending_approval',
+      ],
+      metadata: { plan_task_title: 'Skip artifact churn' },
+    });
+
+    const planPath = path.join(worktreePath, 'docs', 'superpowers', 'plans', 'factory-plan.md');
+    fs.mkdirSync(path.dirname(planPath), { recursive: true });
+    fs.writeFileSync(planPath, '# Factory Plan\n\n- [ ] original step\n');
+    runRealGit(worktreePath, ['add', 'docs/superpowers/plans/factory-plan.md']);
+    runRealGit(worktreePath, ['commit', '-m', 'test: seed plan file']);
+    const commitCountBefore = countCommits(worktreePath);
+
+    fs.writeFileSync(planPath, '# Factory Plan\n\n- [x] original step\n');
+    const runManifest = path.join(worktreePath, 'runs', 'artifact-run', 'manifest.json');
+    fs.mkdirSync(path.dirname(runManifest), { recursive: true });
+    fs.writeFileSync(runManifest, '{"ok":true}\n');
+
+    autoCommit.initFactoryWorktreeAutoCommit();
+    taskEvents.emit('task:completed', { id: 'task-artifacts-only', status: 'completed' });
+    await waitForAutoCommitListener();
+
+    const decisions = listDecisionRows(db);
+    expect(countCommits(worktreePath)).toBe(commitCountBefore);
+    expect(runRealGit(worktreePath, ['status', '--porcelain']).trim()).toBe('');
+    expect(fs.readFileSync(planPath, 'utf8')).toContain('- [ ] original step');
+    expect(fs.existsSync(runManifest)).toBe(false);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      action: 'auto_commit_skipped_clean',
+      outcome: {
+        task_id: 'task-artifacts-only',
+        plan_task_number: 4,
+        files_changed: [],
+      },
+    });
+    expect(decisions[0].outcome.skipped_non_product_files).toEqual(
+      expect.arrayContaining([
+        'docs/superpowers/plans/factory-plan.md',
+        'runs/artifact-run/manifest.json',
+      ]),
+    );
+    expect(decisions[0].outcome.cleaned_non_product_files).toEqual(
+      expect.arrayContaining([
+        'docs/superpowers/plans/factory-plan.md',
+        'runs/artifact-run/manifest.json',
+      ]),
+    );
+  });
+
+  it('commits product files while cleaning non-product factory artifacts', async () => {
+    const { worktreePath } = initGitWorktree(tempDirs);
+    seedFactoryProject(db, worktreePath);
+    insertTask(db, {
+      taskId: 'task-product-plus-artifacts',
+      workingDirectory: worktreePath,
+      tags: [
+        'factory:batch_id=factory-project-1-7',
+        'factory:plan_task_number=5',
+        'factory:pending_approval',
+      ],
+      metadata: { plan_task_title: 'Commit product only' },
+    });
+
+    const productPath = path.join(worktreePath, 'server', 'factory', 'product-change.js');
+    fs.mkdirSync(path.dirname(productPath), { recursive: true });
+    fs.writeFileSync(productPath, 'module.exports = true;\n');
+    const runManifest = path.join(worktreePath, 'runs', 'artifact-run', 'manifest.json');
+    fs.mkdirSync(path.dirname(runManifest), { recursive: true });
+    fs.writeFileSync(runManifest, '{"ok":true}\n');
+
+    autoCommit.initFactoryWorktreeAutoCommit();
+    taskEvents.emit('task:completed', { id: 'task-product-plus-artifacts', status: 'completed' });
+    await waitForAutoCommitListener();
+
+    const decisions = listDecisionRows(db);
+    const committedFiles = runRealGit(worktreePath, ['show', '--name-only', '--pretty=', 'HEAD'])
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    expect(countCommits(worktreePath)).toBe(2);
+    expect(runRealGit(worktreePath, ['status', '--porcelain']).trim()).toBe('');
+    expect(fs.existsSync(runManifest)).toBe(false);
+    expect(committedFiles).toContain('server/factory/product-change.js');
+    expect(committedFiles).not.toContain('runs/artifact-run/manifest.json');
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      action: 'auto_committed_task',
+      outcome: {
+        task_id: 'task-product-plus-artifacts',
+        plan_task_number: 5,
+      },
+    });
+    expect(decisions[0].outcome.files_changed).toEqual(['server/factory/product-change.js']);
+    expect(decisions[0].outcome.skipped_non_product_files).toEqual(['runs/artifact-run/manifest.json']);
+    expect(decisions[0].outcome.cleaned_non_product_files).toEqual(['runs/artifact-run/manifest.json']);
+  });
+
   it('passes --no-verify to git commit so the pre-commit hook does not deadlock on the TORQUE HTTP API', async () => {
     // Regression test for the LEARN-stage worktree_merge_failed chain:
     // the per-task auto-commit runs via execFileSync and the pre-commit
