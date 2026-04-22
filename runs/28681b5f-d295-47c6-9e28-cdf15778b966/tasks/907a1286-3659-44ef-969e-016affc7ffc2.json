@@ -1,0 +1,20 @@
+{
+  "id": "907a1286-3659-44ef-969e-016affc7ffc2",
+  "workflow_node_id": "added-after-dep",
+  "task_description": "Added after dep completed",
+  "working_directory": null,
+  "status": "queued",
+  "provider": null,
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama"
+  }
+}

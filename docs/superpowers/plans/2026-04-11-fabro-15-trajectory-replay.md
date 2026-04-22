@@ -389,7 +389,7 @@ git push --no-verify origin main
 
 ## Task 4: MCP tools + REST + docs
 
-- [ ] **Step 1: Tool defs + handlers**
+- [x] **Step 1: Tool defs + handlers**
 
 Create `server/tool-defs/run-artifact-defs.js`:
 
@@ -439,7 +439,7 @@ function handleReplayWorkflow(args) {
 module.exports = { handleBuildRunBundle, handleReplayWorkflow };
 ```
 
-- [ ] **Step 2: Wire dispatch + REST**
+- [x] **Step 2: Wire dispatch + REST**
 
 Add cases to `server/tools.js`. Add routes to `server/api/routes-passthrough.js`:
 
@@ -448,7 +448,7 @@ Add cases to `server/tools.js`. Add routes to `server/api/routes-passthrough.js`
 { method: 'POST', path: '/api/v2/runs/replay', tool: 'replay_workflow', mapBody: true },
 ```
 
-- [ ] **Step 3: Docs + restart + smoke**
+- [x] **Step 3: Docs + restart + smoke**
 
 Create `docs/run-bundles.md`:
 

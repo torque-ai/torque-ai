@@ -1,0 +1,16 @@
+{
+  "workflow_id": "cbecb85a-662f-4dde-a8a4-e4ada89eb890",
+  "name": "wf-restart-recovered",
+  "status": "completed",
+  "created_at": "2026-04-22T12:24:25.023Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T12:24:25.024Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "8deee5fd-66e3-4fb2-8e61-937bde90b54f",
+    "3280c2c7-21c5-4ac5-b21a-d5a0741cc4dd"
+  ],
+  "bundle_built_at": "2026-04-22T12:24:25.025Z",
+  "bundle_format_version": 1
+}

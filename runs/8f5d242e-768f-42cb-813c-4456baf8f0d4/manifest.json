@@ -1,0 +1,16 @@
+{
+  "workflow_id": "8f5d242e-768f-42cb-813c-4456baf8f0d4",
+  "name": "merge-test-wf",
+  "status": "failed",
+  "created_at": "2026-04-22T12:24:29.449Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T12:24:29.795Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "80904fb9-2886-4858-9cf3-ee65eca18c6e",
+    "490b81c2-0c36-432c-b8df-1ebd1ce62c6e"
+  ],
+  "bundle_built_at": "2026-04-22T12:24:29.796Z",
+  "bundle_format_version": 1
+}

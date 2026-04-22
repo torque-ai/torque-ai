@@ -1,0 +1,20 @@
+{
+  "id": "c46192e4-7055-48a1-a351-636294e33094",
+  "workflow_node_id": "B",
+  "task_description": "Task c46192e4",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-QQhdsZ",
+  "status": "cancelled",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": "Cancelled due to dependency failure",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}

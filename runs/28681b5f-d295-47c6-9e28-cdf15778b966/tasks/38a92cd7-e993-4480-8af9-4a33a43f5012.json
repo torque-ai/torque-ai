@@ -1,0 +1,60 @@
+{
+  "id": "38a92cd7-e993-4480-8af9-4a33a43f5012",
+  "workflow_node_id": "dep1",
+  "task_description": "Dependency 1",
+  "working_directory": null,
+  "status": "completed",
+  "provider": null,
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": 0,
+  "started_at": null,
+  "completed_at": "2026-04-22T12:25:27.966Z",
+  "output": "task output here",
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama",
+    "original_requested_provider": "ollama",
+    "intended_provider": "ollama",
+    "provider_decision_trace": {
+      "version": 1,
+      "selected_provider": "ollama",
+      "chosen_provider": "ollama",
+      "requested_provider": "ollama",
+      "original_provider": "ollama",
+      "intended_provider": "ollama",
+      "user_provider_override": false,
+      "auto_routed": false,
+      "selected_at": "2026-04-22T12:25:27.964Z",
+      "selection_reason": "Requested/default provider",
+      "cause": "requested_provider",
+      "switch_reason": null,
+      "selected_candidate": {
+        "provider": "ollama",
+        "role": "primary",
+        "reason": "Requested/default provider",
+        "cause": "requested_provider",
+        "switch_reason": null,
+        "selected": true,
+        "blocked": false,
+        "blocked_reason": null
+      },
+      "fallback_candidates": [],
+      "blocked_candidates": [],
+      "candidates": [
+        {
+          "provider": "ollama",
+          "role": "primary",
+          "reason": "Requested/default provider",
+          "cause": "requested_provider",
+          "switch_reason": null,
+          "selected": true,
+          "blocked": false,
+          "blocked_reason": null
+        }
+      ]
+    }
+  }
+}
