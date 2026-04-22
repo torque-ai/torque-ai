@@ -167,7 +167,7 @@ Stage `server/repo-map/extract-symbols.js`, the test file, and the package files
 
 ## Task 2: Build reference graph + rank
 
-- [ ] **Step 1: Implement `build-graph.js`**
+- [x] **Step 1: Implement `build-graph.js`**
 
 ```js
 'use strict';
@@ -222,7 +222,7 @@ function buildGraphAndRank(fileSymbols, repoRoot) {
 module.exports = { buildGraphAndRank };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 Stage `server/repo-map/build-graph.js`. Commit: `feat(repo-map): reference graph + PageRank centrality`.
 
