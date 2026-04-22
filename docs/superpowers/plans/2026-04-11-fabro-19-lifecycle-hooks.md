@@ -242,7 +242,7 @@ Commit: `feat(hooks): wire TaskStart, TaskComplete, WorkflowStart/Complete dispa
 
 ## Task 3: MCP tools + docs + smoke
 
-- [ ] **Step 1: MCP query tool**
+- [x] **Step 1: MCP query tool**
 
 Create `server/tool-defs/hook-defs.js`:
 
@@ -312,7 +312,7 @@ module.exports = { handleListHooks, handleTestHook };
 
 Wire in `server/tools.js`. Add REST routes.
 
-- [ ] **Step 2: Docs**
+- [x] **Step 2: Docs**
 
 Create `docs/hooks.md`:
 
