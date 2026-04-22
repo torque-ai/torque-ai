@@ -1,0 +1,16 @@
+{
+  "workflow_id": "e7082a2b-af17-4ebb-bb00-823833291517",
+  "name": "wf-partial-cancel",
+  "status": "completed_with_errors",
+  "created_at": "2026-04-22T20:01:19.920Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:01:19.922Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "6386d3d5-d0df-4483-acc0-b463be26a02d",
+    "6c71f0d6-382f-4d16-a904-347b9caa7ab7"
+  ],
+  "bundle_built_at": "2026-04-22T20:01:19.923Z",
+  "bundle_format_version": 1
+}
