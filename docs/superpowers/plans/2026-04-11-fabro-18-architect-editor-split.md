@@ -28,7 +28,7 @@
 
 ## Task 1: Architect prompt + plan parser
 
-- [ ] **Step 1: Implement prompt module**
+- [x] **Step 1: Implement prompt module**
 
 Create `server/execution/architect-prompt.js`:
 
