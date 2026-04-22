@@ -115,6 +115,7 @@ const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
   'execution_failed',
   'started_execution',
 ]);
+const EXECUTE_DEFERRED_STALE_MS = 24 * 60 * 60 * 1000;
 const POLL_MS = 2000;
 
 class StageOccupiedError extends Error {
@@ -124,6 +125,15 @@ class StageOccupiedError extends Error {
     this.code = 'FACTORY_STAGE_OCCUPIED';
     this.project_id = project_id;
     this.stage = stage;
+  }
+}
+
+class ExecuteDeferredPausedError extends Error {
+  constructor(deferral) {
+    super('Project paused before next EXECUTE plan task submission');
+    this.name = 'ExecuteDeferredPausedError';
+    this.code = 'FACTORY_EXECUTE_DEFERRED_PAUSED';
+    Object.assign(this, deferral || {});
   }
 }
 
@@ -263,6 +273,236 @@ function isProjectStatusPaused(project_id) {
   } catch {
     return false;
   }
+}
+
+function deferExecutePlanTaskIfProjectPaused({
+  project_id,
+  batch_id,
+  workItem,
+  planPath,
+  planTaskNumber,
+  planTaskTitle,
+}) {
+  const latestProject = getProjectOrThrow(project_id);
+  if (latestProject.status !== 'paused') {
+    return null;
+  }
+
+  const deferral = {
+    project_id,
+    batch_id: batch_id || null,
+    work_item_id: workItem?.id ?? null,
+    plan_path: planPath || workItem?.origin?.plan_path || null,
+    plan_task_number: planTaskNumber ?? null,
+    remaining_plan_task_number: planTaskNumber ?? null,
+    plan_task_title: planTaskTitle || null,
+  };
+
+  safeLogDecision({
+    project_id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'execute_deferred_paused',
+    reasoning: 'Project is paused; deferring the next EXECUTE plan task instead of submitting a new Codex task.',
+    inputs: {
+      ...getWorkItemDecisionContext(workItem),
+      plan_task_number: deferral.plan_task_number,
+      plan_task_title: deferral.plan_task_title,
+    },
+    outcome: {
+      work_item_id: deferral.work_item_id,
+      plan_path: deferral.plan_path,
+      plan_task_number: deferral.plan_task_number,
+      remaining_plan_task_number: deferral.remaining_plan_task_number,
+      plan_task_title: deferral.plan_task_title,
+      project_status: latestProject.status,
+      next_state: LOOP_STATES.EXECUTE,
+    },
+    confidence: 1,
+    batch_id: deferral.batch_id,
+  });
+
+  return deferral;
+}
+
+function getLatestExecutePausedDeferral({ project_id, batch_id, work_item_id } = {}) {
+  const db = database.getDbInstance();
+  if (!db || !project_id || !batch_id) {
+    return null;
+  }
+
+  try {
+    const rows = db.prepare(`
+      SELECT id, stage, actor, action, reasoning, inputs_json, outcome_json, batch_id, created_at
+      FROM factory_decisions
+      WHERE project_id = ?
+        AND stage = 'execute'
+        AND batch_id = ?
+      ORDER BY id DESC
+      LIMIT 50
+    `).all(project_id, batch_id);
+
+    for (const row of rows) {
+      const hydrated = hydrateDecisionRow(row);
+      if (work_item_id && getDecisionRowWorkItemId(hydrated) !== normalizeWorkItemId(work_item_id)) {
+        continue;
+      }
+      if (hydrated.action === 'completed_execution' || hydrated.action === 'execution_failed') {
+        return null;
+      }
+      if (hydrated.action === 'execute_deferred_paused') {
+        return hydrated;
+      }
+    }
+  } catch (error) {
+    logger.debug('Unable to inspect deferred EXECUTE decisions', {
+      project_id,
+      batch_id,
+      err: error.message,
+    });
+  }
+
+  return null;
+}
+
+function hasExecuteDeferralFollowup({ project_id, batch_id, action, deferral_id } = {}) {
+  const db = database.getDbInstance();
+  if (!db || !project_id || !batch_id || !action || !deferral_id) {
+    return false;
+  }
+
+  try {
+    const rows = db.prepare(`
+      SELECT id, outcome_json
+      FROM factory_decisions
+      WHERE project_id = ?
+        AND stage = 'execute'
+        AND batch_id = ?
+        AND action = ?
+      ORDER BY id DESC
+      LIMIT 25
+    `).all(project_id, batch_id, action);
+
+    return rows.some((row) => {
+      const outcome = parseJsonObject(row.outcome_json);
+      return Number(outcome?.deferral_decision_id) === Number(deferral_id);
+    });
+  } catch (error) {
+    logger.debug('Unable to inspect deferred EXECUTE follow-up decisions', {
+      project_id,
+      batch_id,
+      action,
+      err: error.message,
+    });
+    return false;
+  }
+}
+
+function logExecuteDeferredResume({ project, instance, workItem, batchId, deferral }) {
+  if (!deferral || hasExecuteDeferralFollowup({
+    project_id: project.id,
+    batch_id: batchId,
+    action: 'execute_deferred_resumed',
+    deferral_id: deferral.id,
+  })) {
+    return;
+  }
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'execute_deferred_resumed',
+    reasoning: 'Project resumed; continuing the deferred EXECUTE batch from its existing plan-task position.',
+    inputs: {
+      ...getWorkItemDecisionContext(workItem),
+      instance_id: instance?.id || null,
+      deferral_decision_id: deferral.id,
+      deferred_at: deferral.created_at || null,
+      deferred_plan_task_number: deferral.outcome?.plan_task_number ?? null,
+    },
+    outcome: {
+      ...getWorkItemDecisionContext(workItem),
+      instance_id: instance?.id || null,
+      deferral_decision_id: deferral.id,
+      batch_id: batchId,
+      next_state: LOOP_STATES.EXECUTE,
+    },
+    confidence: 1,
+    batch_id: batchId,
+  });
+}
+
+function maybeWarnStaleExecuteDeferral({ project, instance, workItem, batchId, deferral }) {
+  if (!deferral?.created_at) {
+    return null;
+  }
+
+  const deferredAtMs = Date.parse(deferral.created_at);
+  if (!Number.isFinite(deferredAtMs)) {
+    return null;
+  }
+
+  const ageMs = Date.now() - deferredAtMs;
+  if (ageMs < EXECUTE_DEFERRED_STALE_MS || hasExecuteDeferralFollowup({
+    project_id: project.id,
+    batch_id: batchId,
+    action: 'execute_deferred_paused_stale_warning',
+    deferral_id: deferral.id,
+  })) {
+    return null;
+  }
+
+  const staleHours = Math.floor(ageMs / (60 * 60 * 1000));
+  const warning = {
+    work_item_id: workItem?.id ?? null,
+    instance_id: instance?.id || null,
+    batch_id: batchId,
+    deferral_decision_id: deferral.id,
+    deferred_at: deferral.created_at,
+    stale_hours: staleHours,
+    threshold_hours: 24,
+    plan_task_number: deferral.outcome?.plan_task_number ?? null,
+  };
+
+  logger.warn('EXECUTE stage: resuming stale paused deferral', {
+    project_id: project.id,
+    ...warning,
+  });
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'execute_deferred_paused_stale_warning',
+    reasoning: `Deferred EXECUTE batch has been paused for ${staleHours} hour(s); warning only, cancellation semantics unchanged.`,
+    inputs: {
+      ...getWorkItemDecisionContext(workItem),
+      instance_id: instance?.id || null,
+      deferral_decision_id: deferral.id,
+      deferred_at: deferral.created_at,
+    },
+    outcome: {
+      ...warning,
+      next_state: LOOP_STATES.EXECUTE,
+      cancellation_changed: false,
+    },
+    confidence: 1,
+    batch_id: batchId,
+  });
+
+  try {
+    factoryNotifications.notify({
+      project_id: project.id,
+      event_type: 'execute_deferred_paused_stale',
+      data: warning,
+    });
+  } catch (error) {
+    logger.debug('Failed to emit stale EXECUTE deferral notification', {
+      project_id: project.id,
+      batch_id: batchId,
+      err: error.message,
+    });
+  }
+
+  return warning;
 }
 
 function getCurrentLoopState(loopRecord) {
@@ -3970,6 +4210,29 @@ async function executePlanFileStage(project, instance, workItem) {
     work_item_id: targetItem.id,
     batch_id: executeLogBatchId,
   });
+  const resumedDeferredExecute = project.status !== 'paused'
+    ? getLatestExecutePausedDeferral({
+      project_id: project.id,
+      batch_id: executeLogBatchId,
+      work_item_id: targetItem.id,
+    })
+    : null;
+  if (resumedDeferredExecute) {
+    logExecuteDeferredResume({
+      project,
+      instance,
+      workItem: targetItem,
+      batchId: executeLogBatchId,
+      deferral: resumedDeferredExecute,
+    });
+    maybeWarnStaleExecuteDeferral({
+      project,
+      instance,
+      workItem: targetItem,
+      batchId: executeLogBatchId,
+      deferral: resumedDeferredExecute,
+    });
+  }
 
   // Spin detector: if this batch has re-entered EXECUTE many times in a
   // short window without making forward progress, the loop is thrashing —
@@ -4049,7 +4312,50 @@ async function executePlanFileStage(project, instance, workItem) {
   const worktreeRunner = getWorktreeRunner();
   let worktreeRecord = null;
   let executionWorkingDirectory = project.path;
-  if (worktreeRunner) {
+  if (worktreeRunner && resumedDeferredExecute) {
+    try {
+      const activeWorktree = factoryWorktrees.getActiveWorktreeByBatch(executeLogBatchId);
+      if (activeWorktree?.worktreePath && fs.existsSync(activeWorktree.worktreePath)) {
+        worktreeRecord = activeWorktree;
+        executionWorkingDirectory = activeWorktree.worktreePath;
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.EXECUTE,
+          action: 'execute_deferred_worktree_reused',
+          reasoning: 'Reusing the active batch worktree for a resumed deferred EXECUTE batch.',
+          inputs: {
+            ...getWorkItemDecisionContext(targetItem),
+            deferral_decision_id: resumedDeferredExecute.id,
+          },
+          outcome: {
+            factory_worktree_id: activeWorktree.id,
+            worktree_id: activeWorktree.vcWorktreeId,
+            worktree_path: activeWorktree.worktreePath,
+            branch: activeWorktree.branch,
+            batch_id: executeLogBatchId,
+          },
+          confidence: 1,
+          batch_id: executeLogBatchId,
+        });
+      } else if (activeWorktree) {
+        logger.warn('EXECUTE stage: deferred batch worktree missing on disk; creating a fresh worktree', {
+          project_id: project.id,
+          work_item_id: targetItem.id,
+          batch_id: executeLogBatchId,
+          factory_worktree_id: activeWorktree.id,
+          worktree_path: activeWorktree.worktreePath || null,
+        });
+      }
+    } catch (error) {
+      logger.debug('EXECUTE stage: deferred worktree lookup failed', {
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        batch_id: executeLogBatchId,
+        err: error.message,
+      });
+    }
+  }
+  if (worktreeRunner && !worktreeRecord) {
     let createdWorktree = null;
     try {
       // Pre-reclaim: sweep any stale factory_worktrees row for the target
@@ -4315,6 +4621,18 @@ async function executePlanFileStage(project, instance, workItem) {
         tags.push('factory:pending_approval');
       }
 
+      const pausedDeferral = deferExecutePlanTaskIfProjectPaused({
+        project_id: project.id,
+        batch_id: executeDecisionBatchId,
+        workItem: targetItem,
+        planPath: args.plan_path,
+        planTaskNumber: args.plan_task_number,
+        planTaskTitle: args.plan_task_title,
+      });
+      if (pausedDeferral) {
+        throw new ExecuteDeferredPausedError(pausedDeferral);
+      }
+
       const result = await handleSmartSubmitTask({
         ...args,
         tags: [...new Set(tags)],
@@ -4410,6 +4728,30 @@ async function executePlanFileStage(project, instance, workItem) {
       execution_mode: executeMode,
     });
   } catch (execErr) {
+    if (execErr?.code === 'FACTORY_EXECUTE_DEFERRED_PAUSED') {
+      logger.info('EXECUTE stage: project paused before next plan task submission', {
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        batch_id: execErr.batch_id || executeDecisionBatchId,
+        remaining_plan_task_number: execErr.remaining_plan_task_number ?? null,
+      });
+      return {
+        next_state: LOOP_STATES.EXECUTE,
+        paused_at_stage: null,
+        reason: 'execute_deferred_paused',
+        stage_result: {
+          status: 'deferred',
+          reason: 'project_paused',
+          work_item_id: execErr.work_item_id ?? targetItem.id,
+          plan_path: execErr.plan_path || planPathForExecutor,
+          plan_task_number: execErr.plan_task_number ?? null,
+          remaining_plan_task_number: execErr.remaining_plan_task_number ?? null,
+          batch_id: execErr.batch_id || executeDecisionBatchId,
+        },
+        work_item: targetItem,
+      };
+    }
+
     // Silent-spin fix: before this catch, any exception from the plan
     // executor (submit failure, fs.readFileSync ENOENT on a missing
     // worktree-plan, await timeout, etc.) propagated unwrapped back to
@@ -6704,7 +7046,18 @@ async function runAdvanceLoop(instance_id) {
   let currentState = previousState;
   let pausedAtStage = getPausedAtStage(instance);
 
-  if (isProjectStatusPaused(project.id)) {
+  const projectPaused = isProjectStatusPaused(project.id);
+  const pausedExecuteTarget = projectPaused && currentState === LOOP_STATES.EXECUTE
+    ? tryGetSelectedWorkItem(instance, project.id, { fallbackToLoopSelection: true })
+    : null;
+  const canDeferPausedExecutePlanTask = Boolean(
+    pausedExecuteTarget?.origin?.plan_path
+    && fs.existsSync(pausedExecuteTarget.origin.plan_path)
+  );
+
+  // A paused EXECUTE plan batch still needs to observe the next incomplete
+  // task so it can log execute_deferred_paused at the submission boundary.
+  if (projectPaused && !canDeferPausedExecutePlanTask) {
     return {
       project_id: project.id,
       instance_id: instance.id,

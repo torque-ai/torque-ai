@@ -1,0 +1,21 @@
+{
+  "id": "16c6a202-7cf6-4fe6-b2d2-42b748703472",
+  "workflow_node_id": "yield-node",
+  "task_description": "Yield format task",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-handlers-Hs9eu3",
+  "status": "completed",
+  "provider": null,
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": null,
+  "started_at": "2026-04-22T20:01:24.892Z",
+  "completed_at": "2026-04-22T20:01:24.901Z",
+  "output": "Task completed successfully with some output.",
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama",
+    "auto_routed": true
+  }
+}

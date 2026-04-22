@@ -1,0 +1,21 @@
+{
+  "id": "5da3e1e2-3539-4f69-9886-5544ac16a175",
+  "workflow_node_id": "fail-node",
+  "task_description": "Yield fail task",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-handlers-WielEp",
+  "status": "failed",
+  "provider": null,
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": null,
+  "started_at": "2026-04-22T20:26:19.195Z",
+  "completed_at": "2026-04-22T20:26:19.195Z",
+  "output": null,
+  "error_output": "Something went wrong",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama",
+    "auto_routed": true
+  }
+}

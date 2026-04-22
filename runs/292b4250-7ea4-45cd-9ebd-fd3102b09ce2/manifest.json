@@ -1,0 +1,16 @@
+{
+  "workflow_id": "292b4250-7ea4-45cd-9ebd-fd3102b09ce2",
+  "name": "fork-first-wf",
+  "status": "failed",
+  "created_at": "2026-04-22T20:01:23.829Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:01:24.089Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "0b5e7d8a-cb6e-4b70-a69f-773c26929147",
+    "777c30df-5a10-4cec-9ba8-f96a599c4fa9"
+  ],
+  "bundle_built_at": "2026-04-22T20:01:24.091Z",
+  "bundle_format_version": 1
+}

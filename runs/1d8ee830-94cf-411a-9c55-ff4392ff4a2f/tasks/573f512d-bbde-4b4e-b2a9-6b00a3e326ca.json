@@ -1,0 +1,60 @@
+{
+  "id": "573f512d-bbde-4b4e-b2a9-6b00a3e326ca",
+  "workflow_node_id": "will-fail",
+  "task_description": "This will fail",
+  "working_directory": null,
+  "status": "failed",
+  "provider": "ollama",
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": 1,
+  "started_at": "2026-04-22T20:27:06.048Z",
+  "completed_at": "2026-04-22T20:27:06.049Z",
+  "output": "task output here",
+  "error_output": "something went wrong",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama",
+    "original_requested_provider": "ollama",
+    "intended_provider": "ollama",
+    "provider_decision_trace": {
+      "version": 1,
+      "selected_provider": "ollama",
+      "chosen_provider": "ollama",
+      "requested_provider": "ollama",
+      "original_provider": "ollama",
+      "intended_provider": "ollama",
+      "user_provider_override": false,
+      "auto_routed": false,
+      "selected_at": "2026-04-22T20:27:06.048Z",
+      "selection_reason": "Requested/default provider",
+      "cause": "requested_provider",
+      "switch_reason": null,
+      "selected_candidate": {
+        "provider": "ollama",
+        "role": "primary",
+        "reason": "Requested/default provider",
+        "cause": "requested_provider",
+        "switch_reason": null,
+        "selected": true,
+        "blocked": false,
+        "blocked_reason": null
+      },
+      "fallback_candidates": [],
+      "blocked_candidates": [],
+      "candidates": [
+        {
+          "provider": "ollama",
+          "role": "primary",
+          "reason": "Requested/default provider",
+          "cause": "requested_provider",
+          "switch_reason": null,
+          "selected": true,
+          "blocked": false,
+          "blocked_reason": null
+        }
+      ]
+    }
+  }
+}

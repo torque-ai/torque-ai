@@ -1,0 +1,20 @@
+{
+  "id": "5d78176c-0d71-4a36-bb01-bfe0bfa04575",
+  "workflow_node_id": "A",
+  "task_description": "Task 5d78176c",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-ACULsH",
+  "status": "failed",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "workflow_id": "72d48394-de54-4b0b-b0d1-ed0444688612",
+  "name": "wf-complete-check",
+  "status": "completed",
+  "created_at": "2026-04-22T20:26:14.387Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:26:14.388Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "c0d143f7-ee8c-4605-b2bd-789cc3b819a2",
+    "0358434a-6cbc-4d61-b2c3-9c358a4f0580"
+  ],
+  "bundle_built_at": "2026-04-22T20:26:14.391Z",
+  "bundle_format_version": 1
+}

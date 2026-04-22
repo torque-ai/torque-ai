@@ -1,0 +1,20 @@
+{
+  "id": "d47b947d-47d6-4fb8-b721-444357d254c6",
+  "workflow_node_id": "B",
+  "task_description": "Task d47b947d",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-ACULsH",
+  "status": "skipped",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": "2026-04-22T20:01:20.042Z",
+  "output": null,
+  "error_output": "Skipped due to dependency condition not met",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}

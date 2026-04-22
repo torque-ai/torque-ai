@@ -1,0 +1,20 @@
+{
+  "id": "f8a5e1e7-23c1-4449-b251-053fd3c5d2be",
+  "workflow_node_id": "B",
+  "task_description": "Task f8a5e1e7",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-xUhFDn",
+  "status": "skipped",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": "2026-04-22T20:26:14.517Z",
+  "output": null,
+  "error_output": "Skipped due to dependency condition not met",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}

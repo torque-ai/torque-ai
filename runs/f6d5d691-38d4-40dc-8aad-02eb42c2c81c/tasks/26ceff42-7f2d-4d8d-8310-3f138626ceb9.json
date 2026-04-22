@@ -1,0 +1,21 @@
+{
+  "id": "26ceff42-7f2d-4d8d-8310-3f138626ceb9",
+  "workflow_node_id": "fail-node",
+  "task_description": "Yield fail task",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-handlers-ZoFQbz",
+  "status": "failed",
+  "provider": null,
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": null,
+  "started_at": "2026-04-22T20:08:55.558Z",
+  "completed_at": "2026-04-22T20:08:55.559Z",
+  "output": null,
+  "error_output": "Something went wrong",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama",
+    "auto_routed": true
+  }
+}

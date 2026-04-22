@@ -1,0 +1,20 @@
+{
+  "id": "d1e88146-1489-4ec4-94cb-de31e87ea225",
+  "workflow_node_id": "cm-a",
+  "task_description": "Cancel step A",
+  "working_directory": null,
+  "status": "cancelled",
+  "provider": "ollama",
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama"
+  }
+}

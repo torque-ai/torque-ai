@@ -1,0 +1,15 @@
+{
+  "workflow_id": "23701764-6bf0-484c-b0ab-abe9a7dabe5d",
+  "name": "fail-yield-test",
+  "status": "failed",
+  "created_at": "2026-04-22T20:09:43.838Z",
+  "started_at": "2026-04-22T20:09:43.840Z",
+  "completed_at": "2026-04-22T20:09:43.843Z",
+  "working_directory": null,
+  "task_count": 1,
+  "task_ids": [
+    "94886525-ba70-47ff-87c1-9c115795abf0"
+  ],
+  "bundle_built_at": "2026-04-22T20:09:43.847Z",
+  "bundle_format_version": 1
+}

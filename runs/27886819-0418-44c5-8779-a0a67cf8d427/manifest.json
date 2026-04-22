@@ -1,0 +1,17 @@
+{
+  "workflow_id": "27886819-0418-44c5-8779-a0a67cf8d427",
+  "name": "wf-partial-fail",
+  "status": "completed_with_errors",
+  "created_at": "2026-04-22T20:18:11.165Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:18:11.166Z",
+  "working_directory": null,
+  "task_count": 3,
+  "task_ids": [
+    "964f83d2-6c4f-415f-a4b5-85844fec4d5e",
+    "9ba1d7d2-3816-4e97-bef0-203e8efb30ea",
+    "dd989212-e4e9-44a7-9450-8dd22da7da0d"
+  ],
+  "bundle_built_at": "2026-04-22T20:18:11.168Z",
+  "bundle_format_version": 1
+}

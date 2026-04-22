@@ -1,0 +1,16 @@
+{
+  "workflow_id": "1f47bcef-09ee-4d9b-8869-04bdcdfe747b",
+  "name": "wf-eval-on-fail",
+  "status": "failed",
+  "created_at": "2026-04-22T20:08:50.516Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:08:50.518Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "2c53536f-2879-49f6-8d17-18f407c6310b",
+    "f43f11fe-5638-4ca8-aa21-7d3bb10ddb83"
+  ],
+  "bundle_built_at": "2026-04-22T20:08:50.520Z",
+  "bundle_format_version": 1
+}

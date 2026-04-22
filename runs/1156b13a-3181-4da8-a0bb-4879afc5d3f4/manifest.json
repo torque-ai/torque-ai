@@ -1,0 +1,15 @@
+{
+  "workflow_id": "1156b13a-3181-4da8-a0bb-4879afc5d3f4",
+  "name": "yield-format-wf",
+  "status": "completed",
+  "created_at": "2026-04-22T20:18:15.997Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:18:16.008Z",
+  "working_directory": null,
+  "task_count": 1,
+  "task_ids": [
+    "8ee0e3ce-8793-4530-859d-ea30bcf08c45"
+  ],
+  "bundle_built_at": "2026-04-22T20:18:16.011Z",
+  "bundle_format_version": 1
+}

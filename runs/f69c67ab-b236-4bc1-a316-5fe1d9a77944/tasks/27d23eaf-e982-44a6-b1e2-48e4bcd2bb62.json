@@ -1,0 +1,20 @@
+{
+  "id": "27d23eaf-e982-44a6-b1e2-48e4bcd2bb62",
+  "workflow_node_id": "B",
+  "task_description": "Task 27d23eaf",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-xKVjdM",
+  "status": "cancelled",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": "Cancelled due to dependency failure",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}
