@@ -3,6 +3,32 @@
 const { ErrorCodes, makeError } = require('./shared');
 const logger = require('../logger').child({ component: 'auto-recovery-handlers' });
 
+function unwrapDb(db) {
+  return db && typeof db.getDbInstance === 'function' ? db.getDbInstance() : db;
+}
+
+function resolveAutoRecoveryDeps({ needsDb = false, needsEngine = false } = {}) {
+  try {
+    const { defaultContainer } = require('../container');
+    const deps = {};
+    if (needsDb) {
+      deps.db = unwrapDb(defaultContainer.get('db'));
+    }
+    if (needsEngine) {
+      deps.engine = defaultContainer.get('autoRecoveryEngine');
+    }
+    return deps;
+  } catch (err) {
+    logger.warn({ err: err.message }, 'auto-recovery dependencies unavailable');
+    return {
+      error: makeError(
+        ErrorCodes.INTERNAL_ERROR,
+        `auto-recovery dependencies unavailable: ${err.message}`,
+      ),
+    };
+  }
+}
+
 function listRecoveryStrategies({ engine }) {
   if (!engine || !engine._registry) {
     return makeError(ErrorCodes.INTERNAL_ERROR, 'engine not initialized');
@@ -75,4 +101,37 @@ async function triggerAutoRecovery({ db, engine, project_id }) {
   return engine.recoverOne(project);
 }
 
-module.exports = { listRecoveryStrategies, getRecoveryHistory, clearAutoRecovery, triggerAutoRecovery };
+function handleListRecoveryStrategies(args = {}) {
+  const deps = resolveAutoRecoveryDeps({ needsEngine: true });
+  if (deps.error) return deps.error;
+  return listRecoveryStrategies({ ...args, engine: deps.engine });
+}
+
+function handleGetRecoveryHistory(args = {}) {
+  const deps = resolveAutoRecoveryDeps({ needsDb: true });
+  if (deps.error) return deps.error;
+  return getRecoveryHistory({ ...args, db: deps.db });
+}
+
+function handleClearAutoRecovery(args = {}) {
+  const deps = resolveAutoRecoveryDeps({ needsDb: true });
+  if (deps.error) return deps.error;
+  return clearAutoRecovery({ ...args, db: deps.db });
+}
+
+async function handleTriggerAutoRecovery(args = {}) {
+  const deps = resolveAutoRecoveryDeps({ needsDb: true, needsEngine: true });
+  if (deps.error) return deps.error;
+  return triggerAutoRecovery({ ...args, db: deps.db, engine: deps.engine });
+}
+
+module.exports = {
+  listRecoveryStrategies,
+  getRecoveryHistory,
+  clearAutoRecovery,
+  triggerAutoRecovery,
+  handleListRecoveryStrategies,
+  handleGetRecoveryHistory,
+  handleClearAutoRecovery,
+  handleTriggerAutoRecovery,
+};

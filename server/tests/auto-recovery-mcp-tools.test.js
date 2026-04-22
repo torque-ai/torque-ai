@@ -3,6 +3,7 @@ const Database = require('better-sqlite3');
 const {
   listRecoveryStrategies, getRecoveryHistory, clearAutoRecovery, triggerAutoRecovery,
 } = require('../handlers/auto-recovery-handlers');
+const { routeMap } = require('../tools');
 
 function seedDb() {
   const db = new Database(':memory:');
@@ -26,6 +27,13 @@ function seedDb() {
 describe('auto-recovery MCP handlers', () => {
   let db;
   beforeEach(() => { db = seedDb(); });
+
+  it('registers auto-recovery tools in the REST tool routeMap', () => {
+    expect(routeMap.get('list_recovery_strategies')).toBeInstanceOf(Function);
+    expect(routeMap.get('get_recovery_history')).toBeInstanceOf(Function);
+    expect(routeMap.get('clear_auto_recovery')).toBeInstanceOf(Function);
+    expect(routeMap.get('trigger_auto_recovery')).toBeInstanceOf(Function);
+  });
 
   it('list_recovery_strategies returns rules + strategies', () => {
     const engine = {

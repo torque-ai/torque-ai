@@ -217,6 +217,7 @@ const HANDLER_MODULES = [
   require('./handlers/checkpoint-handlers'),
   require('./handlers/managed-oauth-handlers'),
   require('./handlers/pattern-handlers'),
+  require('./handlers/auto-recovery-handlers'),
   require('./handlers/factory-handlers'),
   evidenceRiskHandlers,
   reviewHandlers,
