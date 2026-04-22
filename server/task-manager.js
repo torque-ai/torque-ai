@@ -974,8 +974,13 @@ _workflowRuntimeModule.init({
   dashboard: getDashboardBroadcaster(),
 });
 try {
-  const { resumeAllRunningWorkflows } = require('./execution/workflow-resume');
-  const result = resumeAllRunningWorkflows();
+  const workflowResume = require('./execution/workflow-resume');
+  workflowResume.init({
+    db,
+    eventBus,
+    logger: typeof logger.child === 'function' ? logger.child({ component: 'workflow-resume' }) : logger,
+  });
+  const result = workflowResume.resumeAllRunningWorkflows();
   if (result.tasks_unblocked > 0) {
     logger.info(`[startup] Resumed ${result.workflows_evaluated} workflow(s), unblocked ${result.tasks_unblocked} task(s)`);
   }

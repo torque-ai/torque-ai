@@ -1,9 +1,5 @@
 'use strict';
 
-const db = require('../database');
-const eventBus = require('../event-bus');
-const logger = require('../logger').child({ component: 'workflow-resume' });
-
 const TERMINAL_WORKFLOW_STATUSES = new Set([
   'completed',
   'completed_with_errors',
@@ -14,16 +10,35 @@ const TERMINAL_WORKFLOW_STATUSES = new Set([
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 const UNBLOCKING_DEPENDENCY_STATUSES = new Set(['completed', 'skipped']);
 
+let db = null;
+let eventBus = { emitQueueChanged: () => {} };
+let logger = { info: () => {} };
+
+function init(deps = {}) {
+  if (deps.db) db = deps.db;
+  if (deps.eventBus) eventBus = deps.eventBus;
+  if (deps.logger) logger = deps.logger;
+}
+
+function getDb() {
+  if (!db) {
+    throw new Error('workflow-resume requires init({ db }) before use');
+  }
+  return db;
+}
+
 function getRawDb() {
-  if (db && typeof db.getDbInstance === 'function') return db.getDbInstance();
-  if (db && typeof db.getDb === 'function') return db.getDb();
-  if (db && typeof db.prepare === 'function') return db;
+  const dbHandle = getDb();
+  if (dbHandle && typeof dbHandle.getDbInstance === 'function') return dbHandle.getDbInstance();
+  if (dbHandle && typeof dbHandle.getDb === 'function') return dbHandle.getDb();
+  if (dbHandle && typeof dbHandle.prepare === 'function') return dbHandle;
   return null;
 }
 
 function getDependencyRows(taskId) {
-  if (db && typeof db.getTaskDependencies === 'function') {
-    return db.getTaskDependencies(taskId) || [];
+  const dbHandle = getDb();
+  if (dbHandle && typeof dbHandle.getTaskDependencies === 'function') {
+    return dbHandle.getTaskDependencies(taskId) || [];
   }
 
   const rawDb = getRawDb();
@@ -38,19 +53,21 @@ function getDependencyRows(taskId) {
 }
 
 function getDependencyStatus(dep) {
+  const dbHandle = getDb();
   if (!dep) return null;
   if (dep.depends_on_status) return dep.depends_on_status;
   if (dep.status) return dep.status;
-  if (dep.depends_on_task_id && typeof db.getTask === 'function') {
-    const task = db.getTask(dep.depends_on_task_id);
+  if (dep.depends_on_task_id && typeof dbHandle.getTask === 'function') {
+    const task = dbHandle.getTask(dep.depends_on_task_id);
     return task?.status || null;
   }
   return null;
 }
 
 function dependenciesAreSatisfied(taskId) {
-  if (typeof db.isTaskUnblockable === 'function') {
-    return Boolean(db.isTaskUnblockable(taskId));
+  const dbHandle = getDb();
+  if (typeof dbHandle.isTaskUnblockable === 'function') {
+    return Boolean(dbHandle.isTaskUnblockable(taskId));
   }
 
   const deps = getDependencyRows(taskId);
@@ -58,13 +75,14 @@ function dependenciesAreSatisfied(taskId) {
 }
 
 function finalizeWorkflowIfTerminal(workflowId) {
-  const tasks = db.getWorkflowTasks(workflowId) || [];
+  const dbHandle = getDb();
+  const tasks = dbHandle.getWorkflowTasks(workflowId) || [];
   const allTerminal = tasks.length > 0 && tasks.every(task => TERMINAL_TASK_STATUSES.has(task.status));
   if (!allTerminal) return false;
 
   const failedCount = tasks.filter(task => task.status === 'failed').length;
   const newStatus = failedCount > 0 ? 'failed' : 'completed';
-  db.updateWorkflow(workflowId, {
+  dbHandle.updateWorkflow(workflowId, {
     status: newStatus,
     completed_at: new Date().toISOString(),
   });
@@ -73,20 +91,21 @@ function finalizeWorkflowIfTerminal(workflowId) {
 }
 
 function resumeWorkflow(workflowId) {
-  const workflow = db.getWorkflow(workflowId);
+  const dbHandle = getDb();
+  const workflow = dbHandle.getWorkflow(workflowId);
   if (!workflow) return { error: 'not_found' };
   if (TERMINAL_WORKFLOW_STATUSES.has(workflow.status)) {
     return { skipped: true, reason: `workflow status=${workflow.status}` };
   }
 
-  const tasks = db.getWorkflowTasks(workflowId) || [];
+  const tasks = dbHandle.getWorkflowTasks(workflowId) || [];
   let unblocked = 0;
 
   for (const task of tasks) {
     if (task.status !== 'blocked') continue;
     if (!dependenciesAreSatisfied(task.id)) continue;
 
-    db.updateTaskStatus(task.id, 'queued');
+    dbHandle.updateTaskStatus(task.id, 'queued');
     unblocked++;
   }
 
@@ -104,13 +123,14 @@ function resumeWorkflow(workflowId) {
 }
 
 function getRunningWorkflowRows() {
+  const dbHandle = getDb();
   const rawDb = getRawDb();
   if (rawDb && typeof rawDb.prepare === 'function') {
     return rawDb.prepare("SELECT id FROM workflows WHERE status = 'running'").all();
   }
 
-  if (typeof db.listWorkflows === 'function') {
-    return (db.listWorkflows({ status: 'running' }) || []).map(workflow => ({ id: workflow.id }));
+  if (typeof dbHandle.listWorkflows === 'function') {
+    return (dbHandle.listWorkflows({ status: 'running' }) || []).map(workflow => ({ id: workflow.id }));
   }
 
   return [];
@@ -131,6 +151,7 @@ function resumeAllRunningWorkflows() {
 }
 
 module.exports = {
+  init,
   resumeWorkflow,
   resumeAllRunningWorkflows,
 };

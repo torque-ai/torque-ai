@@ -1,14 +1,27 @@
 'use strict';
 
-const { resumeWorkflow, resumeAllRunningWorkflows } = require('../execution/workflow-resume');
+const workflowResume = require('../execution/workflow-resume');
 const { ErrorCodes, makeError } = require('./shared');
+
+let initialized = false;
+
+function ensureWorkflowResumeInitialized() {
+  if (initialized) return;
+  workflowResume.init({
+    db: require('../database'),
+    eventBus: require('../event-bus'),
+    logger: require('../logger').child({ component: 'workflow-resume' }),
+  });
+  initialized = true;
+}
 
 function handleResumeWorkflow(args = {}) {
   if (!args.workflow_id) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'workflow_id is required');
   }
 
-  const result = resumeWorkflow(args.workflow_id);
+  ensureWorkflowResumeInitialized();
+  const result = workflowResume.resumeWorkflow(args.workflow_id);
   if (result.error === 'not_found') {
     return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Workflow ${args.workflow_id} not found`);
   }
@@ -27,7 +40,8 @@ function handleResumeWorkflow(args = {}) {
 }
 
 function handleResumeAllWorkflows() {
-  const result = resumeAllRunningWorkflows();
+  ensureWorkflowResumeInitialized();
+  const result = workflowResume.resumeAllRunningWorkflows();
   return {
     content: [{ type: 'text', text: `Evaluated ${result.workflows_evaluated} running workflow(s); unblocked ${result.tasks_unblocked} task(s).` }],
     structuredData: result,

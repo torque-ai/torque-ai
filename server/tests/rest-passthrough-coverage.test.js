@@ -100,7 +100,10 @@ const BUILTIN_PASSTHROUGH_TOOLS = new Set([
 ]);
 
 // Passthrough routes intentionally duplicated in v2CpRoutes (routing layer handles priority)
-const KNOWN_PASSTHROUGH_CP_OVERLAPS = new Set(['GET string:/api/v2/routing/categories']);
+const KNOWN_PASSTHROUGH_CP_OVERLAPS = new Set([
+  'GET string:/api/v2/routing/categories',
+  'POST regex:^\\/api\\/v2\\/workflows\\/([^/]+)\\/resume$/',
+]);
 
 function serializePath(routePath) {
   if (typeof routePath === 'string') {

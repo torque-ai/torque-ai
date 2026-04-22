@@ -562,8 +562,8 @@ const routes = [
   { method: 'POST', path: '/api/v2/workflow-specs/run', tool: 'run_workflow_spec', mapBody: true },
 
   // ─── workflows (21 routes) ────────────────────────────────────────────────────
-  { method: 'POST', path: /^\/api\/v2\/workflows\/([^/]+)\/resume$/, tool: 'resume_workflow', mapParams: ['workflow_id'] },
-  { method: 'POST', path: '/api/v2/workflows/resume-all', tool: 'resume_all_workflows' },
+  { method: 'POST', path: /^\/api\/v2\/workflows\/([^/]+)\/resume$/, tool: 'resume_workflow', mapBody: true, mapParams: ['workflow_id'] },
+  { method: 'POST', path: '/api/v2/workflows/resume-all', tool: 'resume_all_workflows', mapBody: true },
   { method: 'POST', path: '/api/v2/workflows/duplicate-pipeline', tool: 'duplicate_pipeline', mapBody: true },
   { method: 'POST', path: '/api/v2/workflows/export-report', tool: 'export_report', mapBody: true },
   { method: 'POST', path: '/api/v2/workflows/create-workflow-template', tool: 'create_workflow_template', mapBody: true },

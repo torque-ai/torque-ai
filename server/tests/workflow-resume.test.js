@@ -1,8 +1,8 @@
 'use strict';
 
-const { describe, it, expect, beforeAll, afterAll } = require('vitest');
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const workflowResume = require('../execution/workflow-resume');
 
 let db;
 let rawDb;
@@ -10,6 +10,11 @@ let rawDb;
 beforeAll(() => {
   db = setupTestDb('wf-resume').db;
   rawDb = db.getDbInstance();
+  workflowResume.init({
+    db,
+    eventBus: { emitQueueChanged: () => {} },
+    logger: { info: () => {} },
+  });
 });
 
 afterAll(() => teardownTestDb());
@@ -57,8 +62,7 @@ describe('resumeWorkflow', () => {
       },
     });
 
-    const { resumeWorkflow } = require('../execution/workflow-resume');
-    const result = resumeWorkflow(wfId);
+    const result = workflowResume.resumeWorkflow(wfId);
 
     expect(result.unblocked).toBe(1);
     const b = db.getTask(taskIds.b);
@@ -70,8 +74,7 @@ describe('resumeWorkflow', () => {
       status: 'completed',
       taskStates: { a: { status: 'completed' } },
     });
-    const { resumeWorkflow } = require('../execution/workflow-resume');
-    const result = resumeWorkflow(wfId);
+    const result = workflowResume.resumeWorkflow(wfId);
     expect(result.skipped).toBe(true);
   });
 
@@ -83,8 +86,7 @@ describe('resumeWorkflow', () => {
         b: { status: 'completed' },
       },
     });
-    const { resumeWorkflow } = require('../execution/workflow-resume');
-    const result = resumeWorkflow(wfId);
+    const result = workflowResume.resumeWorkflow(wfId);
     expect(result.finalized).toBe(true);
     const wf = db.getWorkflow(wfId);
     expect(wf.status).toBe('completed');
@@ -103,8 +105,7 @@ describe('resumeWorkflow', () => {
         y: { status: 'blocked', depends_on: ['x'] },
       },
     });
-    const { resumeAllRunningWorkflows } = require('../execution/workflow-resume');
-    const result = resumeAllRunningWorkflows();
+    const result = workflowResume.resumeAllRunningWorkflows();
     expect(result.workflows_evaluated).toBeGreaterThanOrEqual(2);
     expect(result.tasks_unblocked).toBeGreaterThanOrEqual(2);
   });
