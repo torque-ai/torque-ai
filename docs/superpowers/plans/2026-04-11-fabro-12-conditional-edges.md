@@ -25,7 +25,7 @@
 
 ## Task 1: Expression evaluator
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/condition-eval.test.js`:
 
@@ -102,9 +102,9 @@ describe('evaluateCondition', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure** → FAIL.
+- [x] **Step 2: Run to verify failure** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `server/db/condition-eval.js`:
 
@@ -232,9 +232,9 @@ function evaluateCondition(expr, ctx = {}) {
 module.exports = { evaluateCondition };
 ```
 
-- [ ] **Step 4: Run tests** → PASS.
+- [x] **Step 4: Run tests** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/db/condition-eval.js server/tests/condition-eval.test.js
@@ -246,7 +246,7 @@ git push --no-verify origin main
 
 ## Task 2: Wire into unblock evaluation
 
-- [ ] **Step 1: Locate `isTaskUnblockable`**
+- [x] **Step 1: Locate `isTaskUnblockable`**
 
 Read `server/db/workflow-engine.js`. The function (or equivalent) currently checks "all `depends_on_task_id` rows are completed/skipped". Extend to evaluate each dep's `condition_expr` against the parent task's outcome:
 
@@ -315,7 +315,7 @@ function isTaskUnblockable(taskId) {
 }
 ```
 
-- [ ] **Step 2: Verify dependencies pass condition through**
+- [x] **Step 2: Verify dependencies pass condition through**
 
 The existing `addTaskDependency` already accepts a `condition_expr`. In `server/handlers/workflow/index.js` `createSeededWorkflowTasks`, the dep insertion already uses `taskDef.condition`:
 
@@ -332,7 +332,7 @@ workflowEngine.addTaskDependency({
 
 If this is missing in the actual code, add it.
 
-- [ ] **Step 3: Integration test**
+- [x] **Step 3: Integration test**
 
 Create `server/tests/conditional-edges-integration.test.js`:
 
@@ -403,9 +403,9 @@ describe('conditional edges', () => {
 });
 ```
 
-- [ ] **Step 4: Run tests** → PASS.
+- [x] **Step 4: Run tests** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/db/workflow-engine.js server/handlers/workflow/index.js server/tests/conditional-edges-integration.test.js
@@ -417,7 +417,7 @@ git push --no-verify origin main
 
 ## Task 3: Docs
 
-- [ ] **Step 1: Append to `docs/workflows.md`**
+- [x] **Step 1: Append to `docs/workflows.md`**
 
 ````markdown
 ## Conditional edges
@@ -486,7 +486,7 @@ tasks:
 A condition that fails to parse is treated as `false` (the edge doesn't fire) and a warning is logged. The workflow engine never crashes on a bad expression.
 ````
 
-- [ ] **Step 2: Restart, smoke**
+- [x] **Step 2: Restart, smoke**
 
 ```bash
 git add docs/workflows.md

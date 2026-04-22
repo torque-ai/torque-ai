@@ -12,8 +12,10 @@
 
 const logger = require('../logger').child({ component: 'workflow-engine' });
 const { safeJsonParse } = require('../utils/json');
+const { evaluateCondition: evaluateEdgeCondition } = require('./condition-eval');
 
 let db;
+const TERMINAL_DEPENDENCY_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 
 function setDb(dbInstance) {
   db = dbInstance;
@@ -709,21 +711,157 @@ function areTaskDependenciesSatisfied(taskId) {
   for (const dep of deps) {
     const status = dep.depends_on_status;
     // Terminal states that allow dependency evaluation
-    if (!['completed', 'failed', 'cancelled', 'skipped'].includes(status)) {
+    if (!TERMINAL_DEPENDENCY_STATUSES.has(status)) {
       return { satisfied: false, deps, waiting_on: dep.depends_on_task_id };
     }
+  }
+
+  if (deps.some(dep => dep.condition_expr)) {
+    return { satisfied: isTaskUnblockable(taskId), deps };
   }
 
   return { satisfied: true, deps };
 }
 
+function parseJsonObject(value) {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return {};
+  const parsed = safeJsonParse(value, {});
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+}
+
+function parseJsonArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  const parsed = safeJsonParse(value, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function outcomeFromStatus(status) {
+  if (status === 'completed') return 'success';
+  if (status === 'failed') return 'fail';
+  return status || 'unknown';
+}
+
+function buildEdgeConditionContext(dep) {
+  const metadata = parseJsonObject(dep.metadata);
+  const metadataContext = metadata.context && typeof metadata.context === 'object' && !Array.isArray(metadata.context)
+    ? metadata.context
+    : {};
+  const tags = parseJsonArray(dep.tags);
+  const startedAt = dep.started_at || null;
+  const completedAt = dep.completed_at || null;
+
+  return {
+    outcome: outcomeFromStatus(dep.status),
+    status: dep.status,
+    exit_code: dep.exit_code,
+    output: dep.output || '',
+    error_output: dep.error_output || '',
+    duration_seconds: startedAt && completedAt
+      ? Math.round((new Date(completedAt) - new Date(startedAt)) / 1000)
+      : 0,
+    failure_class: metadata.failure_class || null,
+    verify: metadata.verify ?? null,
+    provider: metadata.intended_provider || dep.provider || null,
+    context: { tags, ...metadataContext, ...metadata },
+  };
+}
+
+function normalizeConditionContext(context = {}) {
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return {};
+  const next = { ...context };
+  if (next.outcome == null && typeof next.status === 'string') {
+    next.outcome = outcomeFromStatus(next.status);
+  }
+  return next;
+}
+
+function skipTaskBecauseAllConditionsFailed(taskId) {
+  db.prepare(`
+    UPDATE tasks
+    SET status = ?,
+        error_output = ?,
+        completed_at = COALESCE(completed_at, ?)
+    WHERE id = ?
+      AND status NOT IN ('completed', 'failed', 'cancelled', 'skipped')
+  `).run(
+    'skipped',
+    'Skipped due to dependency condition not met: All dependency conditions evaluated to false',
+    new Date().toISOString(),
+    taskId
+  );
+}
+
+function evaluateMergeJoinIfAvailable(task, deps) {
+  const metadata = parseJsonObject(task.metadata);
+  if (metadata.kind !== 'merge') return null;
+
+  try {
+    const { evaluateMergeJoin } = require('../execution/parallel-merge');
+    if (typeof evaluateMergeJoin !== 'function') return null;
+    const result = evaluateMergeJoin(
+      metadata.join_policy || 'wait_all',
+      deps.map(dep => ({ task_id: dep.dep_task_id, status: dep.status }))
+    );
+    return Boolean(result?.unblock);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Determine whether a blocked task can move forward based on terminal deps and
+ * conditional dependency expressions.
+ * @param {string} taskId
+ * @returns {boolean}
+ */
+function isTaskUnblockable(taskId) {
+  const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+  if (!task) return false;
+
+  const deps = db.prepare(`
+    SELECT t.id AS dep_task_id, t.status, t.exit_code, t.output, t.error_output,
+           t.started_at, t.completed_at, t.metadata, t.tags, t.provider,
+           d.condition_expr
+    FROM task_dependencies d
+    JOIN tasks t ON t.id = d.depends_on_task_id
+    WHERE d.task_id = ?
+  `).all(taskId);
+  if (deps.length === 0) return true;
+
+  const mergeResult = evaluateMergeJoinIfAvailable(task, deps);
+  if (mergeResult !== null) return mergeResult;
+
+  for (const dep of deps) {
+    if (!TERMINAL_DEPENDENCY_STATUSES.has(dep.status)) {
+      return false;
+    }
+
+    if (dep.condition_expr) {
+      const conditionPassed = evaluateEdgeCondition(dep.condition_expr, buildEdgeConditionContext(dep));
+      if (!conditionPassed) dep._conditionFailed = true;
+    }
+  }
+
+  const allConditionsFailed = deps.every(dep => dep._conditionFailed);
+  if (allConditionsFailed) {
+    skipTaskBecauseAllConditionsFailed(taskId);
+    return false;
+  }
+
+  return true;
+}
+
 // ============================================
-// Condition Evaluation (Safe AST-based)
+// Condition Evaluation
 // ============================================
 
 /**
  * Evaluate a condition expression against task context
- * Safe AST-based evaluation (no arbitrary code execution)
+ * Safe expression evaluation (no arbitrary code execution)
  */
 const MAX_EXPRESSION_LENGTH = 10240; // 10KB max expression length
 
@@ -736,17 +874,7 @@ function evaluateCondition(expression, context) {
     return false;
   }
 
-  try {
-    // Tokenize
-    const tokens = tokenizeExpression(expression);
-    // Parse to AST
-    const ast = parseExpression(tokens);
-    // Evaluate
-    return evaluateAST(ast, context);
-  } catch (err) {
-    logger.warn(`Condition evaluation error: ${err.message}`);
-    return false; // Invalid expressions fail
-  }
+  return evaluateEdgeCondition(expression, normalizeConditionContext(context));
 }
 
 /**
@@ -1370,6 +1498,7 @@ module.exports = {
   getWorkflowTasks,
   getBlockedTasks,
   areTaskDependenciesSatisfied,
+  isTaskUnblockable,
   evaluateCondition,
   tokenizeExpression,
   parseExpression,

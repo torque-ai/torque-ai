@@ -396,3 +396,40 @@ To re-evaluate every running workflow at once (e.g., after a long DB outage):
     resume_all_workflows {}
 
 This is safe to call repeatedly — re-evaluation is idempotent.
+
+## Conditional edges
+
+Each dependency edge can have a `condition` — a boolean expression evaluated against the parent task's outcome and metadata. If the condition is false, the edge does not fire (the dependent task does not unblock via this edge).
+
+If a dependent has multiple `depends_on` and all their conditions evaluate to false, the dependent is auto-`skipped`.
+
+### Available context
+
+| Key | Resolves to |
+|---|---|
+| `outcome` | `success` / `fail` / `cancelled` / `skipped` |
+| `exit_code` | Process exit code (number) |
+| `failure_class` | From Plan 4 — `transient_infra` / `deterministic` / etc. |
+| `provider` | Provider that ran the parent task |
+| `context.KEY` | Parent task's `metadata.KEY` (or `tags`, an array) |
+| Bare key | Truthiness check |
+
+### Operators
+
+`=` `!=` `>` `<` `>=` `<=` `contains` `matches` `&&` `||` `!`
+
+### Examples
+
+    task: Run security scan
+
+    task: Ship to staging
+    depends_on: [scan]
+    condition: "outcome=success"
+
+    task: Notify human
+    depends_on: [scan]
+    condition: "outcome=fail"
+
+### Error handling
+
+A condition that fails to parse is treated as `false` (the edge doesn't fire) and a warning is logged. The workflow engine never crashes on a bad expression.
