@@ -420,16 +420,13 @@ describe('execution/command-builders', () => {
 
     // --- CLI path resolution ---
     describe('cliPath resolution', () => {
-      it('uses providerConfig.cli_path when provided', async () => {
+      it('uses absolute providerConfig.cli_path when provided', async () => {
         initModule();
         const task = { task_description: 'test' };
-        const result = await commandBuilders.buildCodexCommand(task, { cli_path: '/usr/bin/codex' }, '', null);
+        const cliPath = isWin ? 'C:\\tools\\codex' : '/usr/bin/codex';
+        const result = await commandBuilders.buildCodexCommand(task, { cli_path: cliPath }, '', null);
 
-        if (isWin) {
-          expect(result.cliPath).toBe('/usr/bin/codex.cmd');
-        } else {
-          expect(result.cliPath).toBe('/usr/bin/codex');
-        }
+        expect(result.cliPath).toBe(cliPath);
       });
 
       it('does not append .cmd when providerConfig.cli_path has extension', async () => {

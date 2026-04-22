@@ -56,4 +56,4 @@ const WORKFLOW_SPEC_TOOLS = [
   },
 ];
 
-module.exports = { WORKFLOW_SPEC_TOOLS };
+module.exports = WORKFLOW_SPEC_TOOLS;

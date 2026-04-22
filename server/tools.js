@@ -18,7 +18,10 @@ const symbolIndexerHandlers = require('./handlers/symbol-indexer-handlers');
 const templateHandlers = require('./handlers/template-handlers');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 const competitiveFeatureDefs = require('./tool-defs/competitive-feature-defs');
-const { WORKFLOW_SPEC_TOOLS } = require('./tool-defs/workflow-spec-defs');
+const workflowSpecToolDefs = require('./tool-defs/workflow-spec-defs');
+const WORKFLOW_SPEC_TOOLS = Array.isArray(workflowSpecToolDefs)
+  ? workflowSpecToolDefs
+  : workflowSpecToolDefs.WORKFLOW_SPEC_TOOLS;
 const { applyBehavioralTags } = require('./tools/behavioral-tags');
 
 let _remoteAgentPluginDefs = null;

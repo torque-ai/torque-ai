@@ -1366,13 +1366,13 @@ git push --no-verify origin main
 
 ## Task 12: Verify full suite + restart
 
-- [ ] **Step 1: Run all workflow-spec tests together**
+- [x] **Step 1: Run all workflow-spec tests together**
 
 Run on remote, from `server/` dir: `npx vitest run tests/workflow-spec --no-coverage`
 
 Expected: All tests PASS.
 
-- [ ] **Step 2: Restart TORQUE to load new handlers**
+- [x] **Step 2: Restart TORQUE to load new handlers**
 
 Use the `await_restart` MCP tool with:
 
@@ -1383,7 +1383,7 @@ timeout_minutes: 15
 
 Expected: "Pipeline drained successfully. Server restart triggered."
 
-- [ ] **Step 3: Smoke test the example spec via MCP**
+- [x] **Step 3: Smoke test the example spec via MCP**
 
 Call:
 
@@ -1401,12 +1401,12 @@ validate_workflow_spec { spec_path: "workflows/example-plan-implement.yaml", wor
 
 Expected: `valid: true`.
 
-- [ ] **Step 4: Rebuild dashboard**
+- [x] **Step 4: Rebuild dashboard**
 
 Run (dashboard dir): `npx vite build`
 
 Expected: build success.
 
-- [ ] **Step 5: Verify dashboard**
+- [x] **Step 5: Verify dashboard**
 
 Open the dashboard, hard-refresh (Ctrl+Shift+R), navigate to **Specs**. Confirm `example-plan-implement` appears with a Run button and a `3 tasks` count.
