@@ -79,6 +79,7 @@ function initFinalizer(overrides = {}) {
     handleAdversarialReview: overrides.handleAdversarialReview,
     handleProviderFailover: overrides.handleProviderFailover || vi.fn(),
     handlePostCompletion: overrides.handlePostCompletion || vi.fn(),
+    logFactoryDecision: overrides.logFactoryDecision,
   });
 
   return { safeUpdateTaskStatus };
@@ -179,7 +180,7 @@ function createAdversarialReviewHarness(overrides = {}) {
   return { stage, taskCore, taskManager };
 }
 
-async function flushMicrotasksUntil(predicate, attempts = 20) {
+async function flushMicrotasksUntil(predicate, attempts = 100) {
   for (let index = 0; index < attempts && !predicate(); index += 1) {
     await Promise.resolve();
   }
@@ -254,6 +255,54 @@ describe('task-finalizer', () => {
     expect(storedTask.metadata.finalization.raw_exit_code).toBe(0);
     expect(storedTask.metadata.finalization.final_exit_code).toBe(1);
     expect(storedTask.metadata.finalization.validation_stage_outcomes.auto_validation.outcome).toBe('status:failed');
+    expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', code: 1 }));
+  });
+
+  it('reclassifies Codex phantom success as failed before post-completion hooks', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'codex',
+      tags: [
+        'factory:batch_id=factory-a3df749a-7869-486f-9896-64d38d25d39b-663',
+        'factory:work_item_id=663',
+      ],
+    });
+    const handlePostCompletion = vi.fn();
+    const logFactoryDecision = vi.fn();
+    const { safeUpdateTaskStatus } = initFinalizer({
+      dbBundle,
+      handlePostCompletion,
+      logFactoryDecision,
+    });
+
+    const result = await finalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: '(no output)',
+      errorOutput: "ERROR: Reconnecting... 1/5\nERROR: We're currently experiencing high demand",
+      filesModified: [],
+    });
+
+    const storedTask = dbBundle.getStoredTask();
+    expect(result.finalized).toBe(true);
+    expect(storedTask.status).toBe('failed');
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      dbBundle.taskId,
+      'failed',
+      expect.objectContaining({
+        exit_code: 1,
+        error_output: expect.stringContaining('[phantom-success]'),
+        progress_percent: 0,
+      })
+    );
+    expect(storedTask.metadata.finalization.raw_exit_code).toBe(0);
+    expect(storedTask.metadata.finalization.final_status).toBe('failed');
+    expect(storedTask.metadata.finalization.validation_stage_outcomes.phantom_success_detection.outcome).toBe('status:failed');
+    expect(logFactoryDecision).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: 'a3df749a-7869-486f-9896-64d38d25d39b',
+      stage: 'execute',
+      actor: 'executor',
+      action: 'phantom_completion_detected',
+      batch_id: 'factory-a3df749a-7869-486f-9896-64d38d25d39b-663',
+    }));
     expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', code: 1 }));
   });
 
