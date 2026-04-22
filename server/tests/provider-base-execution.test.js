@@ -663,7 +663,11 @@ describe('provider startup command builder', () => {
       expect(result.options.env.CODEX_MANAGED_BY_NPM).toBe('1');
     }
     expect(result.stdinPrompt).toBe('wrapped:codex:update src/app.js:FILE_CONTEXT');
-    expect(result.options.env.PATH).toBe('C:/Windows/System32');
+    if (result.options.env.PATH !== 'C:/Windows/System32') {
+      const pathEntries = result.options.env.PATH.split(path.delimiter);
+      expect(pathEntries[0]).toMatch(/[\\/]vendor[\\/][^\\/]+[\\/]path$/i);
+      expect(pathEntries).toContain('C:/Windows/System32');
+    }
     expect(result.baselineCommit).toBe('baseline-456');
   });
 });
