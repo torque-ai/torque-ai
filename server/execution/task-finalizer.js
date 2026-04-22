@@ -16,6 +16,7 @@ const { smartDiagnosisStage } = require('./smart-diagnosis-stage');
 const { strategicReviewStage } = require('./strategic-review-stage');
 const { createVerificationLedgerStage } = require('./verification-ledger-stage');
 const { createAdversarialReviewStage } = require('./adversarial-review-stage');
+const { runPhantomSuccessDetection } = require('../validation/phantom-success-detector');
 const { parseDiffusionSignal } = require('../diffusion/signal-parser');
 const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
 const { expandApplyTaskDescription } = require('../diffusion/planner');
@@ -687,6 +688,10 @@ async function finalizeTask(taskId, options = {}) {
 
     await runStage(ctx, 'fuzzy_repair', deps.handleFuzzyRepair, typeof deps.handleFuzzyRepair === 'function');
     await runStage(ctx, 'no_file_change_detection', deps.handleNoFileChangeDetection, typeof deps.handleNoFileChangeDetection === 'function');
+    await runStage(ctx, 'phantom_success_detection', (stageCtx) => runPhantomSuccessDetection(stageCtx, {
+      getRawDb: getRawDbInstance,
+      logDecision: deps.logFactoryDecision,
+    }), ctx.status === 'completed');
     if (ctx.earlyExit) {
       return {
         finalized: false,
