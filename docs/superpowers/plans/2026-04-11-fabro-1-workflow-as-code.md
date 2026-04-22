@@ -927,7 +927,7 @@ git push --no-verify origin main
 **Files:**
 - Modify: `dashboard/src/api.js`
 
-- [ ] **Step 1: Add workflow-specs client**
+- [x] **Step 1: Add workflow-specs client**
 
 Open `dashboard/src/api.js`. Find any existing `export const workflows = {...}` block. Add a new export block near it:
 
@@ -948,7 +948,7 @@ export const workflowSpecs = {
 };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add dashboard/src/api.js
