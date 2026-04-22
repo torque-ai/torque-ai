@@ -27,7 +27,7 @@
 
 ## Task 1: Resume logic
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/workflow-resume.test.js`:
 
@@ -121,9 +121,9 @@ describe('resumeWorkflow', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure** → FAIL.
+- [x] **Step 2: Run to verify failure** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `server/execution/workflow-resume.js`:
 
@@ -205,9 +205,9 @@ function resumeAllRunningWorkflows() {
 module.exports = { resumeWorkflow, resumeAllRunningWorkflows };
 ```
 
-- [ ] **Step 4: Run tests** → PASS.
+- [x] **Step 4: Run tests** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/execution/workflow-resume.js server/tests/workflow-resume.test.js
@@ -219,11 +219,11 @@ git push --no-verify origin main
 
 ## Task 2: Hook into startup
 
-- [ ] **Step 1: Locate the workflow-runtime init**
+- [x] **Step 1: Locate the workflow-runtime init**
 
 Read `server/execution/workflow-runtime.js`. Find the init function or the place where the runtime is wired into the server boot sequence (look in `server/task-manager.js` or `server/index.js`).
 
-- [ ] **Step 2: Call resume on startup**
+- [x] **Step 2: Call resume on startup**
 
 After the workflow-runtime init completes (and after the queue-scheduler is ready), call:
 
@@ -241,7 +241,7 @@ try {
 
 Place this AFTER `_orphanCleanup.startTimers()` so orphan cleanup runs first (it might requeue tasks that resume then needs to re-evaluate).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/task-manager.js
@@ -253,7 +253,7 @@ git push --no-verify origin main
 
 ## Task 3: MCP tool for manual resume
 
-- [ ] **Step 1: Tool def**
+- [x] **Step 1: Tool def**
 
 Create `server/tool-defs/workflow-resume-defs.js`:
 
@@ -282,7 +282,7 @@ const WORKFLOW_RESUME_TOOLS = [
 module.exports = { WORKFLOW_RESUME_TOOLS };
 ```
 
-- [ ] **Step 2: Handler**
+- [x] **Step 2: Handler**
 
 Create `server/handlers/workflow-resume-handlers.js`:
 
@@ -324,7 +324,7 @@ function handleResumeAllWorkflows() {
 module.exports = { handleResumeWorkflow, handleResumeAllWorkflows };
 ```
 
-- [ ] **Step 3: Wire into tools.js + tool-defs index**
+- [x] **Step 3: Wire into tools.js + tool-defs index**
 
 `server/tool-defs/index.js`:
 
@@ -346,7 +346,7 @@ case 'resume_all_workflows': {
 }
 ```
 
-- [ ] **Step 4: REST routes**
+- [x] **Step 4: REST routes**
 
 In `server/api/routes-passthrough.js`:
 
@@ -355,7 +355,7 @@ In `server/api/routes-passthrough.js`:
 { method: 'POST', path: '/api/v2/workflows/resume-all', tool: 'resume_all_workflows' },
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/tool-defs/workflow-resume-defs.js server/tool-defs/index.js server/handlers/workflow-resume-handlers.js server/tools.js server/api/routes-passthrough.js
@@ -367,7 +367,7 @@ git push --no-verify origin main
 
 ## Task 4: Docs + restart + smoke
 
-- [ ] **Step 1: Append to `docs/workflows.md`**
+- [x] **Step 1: Append to `docs/workflows.md`**
 
 ````markdown
 ## Resume / replay
@@ -396,7 +396,7 @@ POST /api/v2/workflows/resume-all
 This is safe to call repeatedly — re-evaluation is idempotent.
 ````
 
-- [ ] **Step 2: Restart, smoke**
+- [x] **Step 2: Restart, smoke**
 
 Submit a multi-task workflow, let one task complete, then call `resume_workflow { workflow_id }` even though nothing is broken. Expected: `unblocked: 0, finalized: false` (no-op confirmation).
 
