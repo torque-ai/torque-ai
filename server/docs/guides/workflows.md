@@ -380,3 +380,19 @@ Add all tasks without `depends_on` — they run in parallel up to the concurrenc
 | `merge_workflows` | Merge branches |
 | `replay_task` | Re-run task |
 | `diff_task_runs` | Compare runs |
+
+## Resume / replay
+
+If TORQUE restarts mid-workflow, all running workflows are automatically re-evaluated on startup:
+- Tasks that are `blocked` and now have all dependencies satisfied → moved to `queued`
+- Workflows where every task is terminal → finalized as `completed` or `failed`
+
+To manually re-evaluate a stuck workflow:
+
+    resume_workflow { workflow_id: "<workflow-id>" }
+
+To re-evaluate every running workflow at once (e.g., after a long DB outage):
+
+    resume_all_workflows {}
+
+This is safe to call repeatedly — re-evaluation is idempotent.
