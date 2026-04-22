@@ -1,6 +1,6 @@
 # Workflow Specs
 
-Workflow specs are version-controlled YAML files that define a TORQUE workflow as a DAG of tasks. Keep concrete specs in `workflows/` and reusable bases in `workflows/templates/`.
+Workflow specs are version-controlled YAML files that define a TORQUE workflow as a DAG of tasks. Commit concrete specs in `<project>/workflows/`, keep reusable bases in `<project>/workflows/templates/`, and run them by name or path from your host or automation entrypoint.
 
 ## Quick start
 
@@ -9,19 +9,26 @@ Workflow specs are version-controlled YAML files that define a TORQUE workflow a
     version: 1
     name: my-workflow
     description: What this workflow does
-    project: torque
     tasks:
       - node_id: plan
-        task: Write a plan to docs/superpowers/plans/foo.md
+        task: Write a plan to docs/plans/foo.md
         provider: claude-cli
       - node_id: implement
         task: Read the plan and execute it
         provider: codex
         depends_on: [plan]
 
-2. Validate the spec with the workflow-spec tooling used by your host or automation entrypoint.
+2. Run it:
 
-3. Keep shared pipeline shapes in `workflows/templates/` and extend them from concrete specs.
+    # via MCP (Claude Code, etc.)
+    run_workflow_spec { spec_path: "workflows/my-workflow.yaml" }
+
+    # via REST
+    curl -X POST http://127.0.0.1:3457/api/v2/workflow-specs/run \
+      -H 'Content-Type: application/json' \
+      -d '{"spec_path": "workflows/my-workflow.yaml"}'
+
+3. Browse the **Workflow Specs** page in the dashboard to see all discovered specs.
 
 ## Schema
 
@@ -30,40 +37,42 @@ Workflow specs are version-controlled YAML files that define a TORQUE workflow a
 | `version` | int | yes | Schema version. Always `1`. |
 | `name` | string | yes | Workflow name (1-200 chars). |
 | `description` | string | no | What the workflow does. |
-| `project` | string | no | Project name inherited by tasks. |
-| `working_directory` | string | no | Default working directory for tasks. |
-| `routing_template` | string | no | Named routing template to apply by default. |
+| `project` | string | no | Project name. Tasks inherit it. |
+| `working_directory` | string | no | Default working directory. |
+| `routing_template` | string | no | Named routing template. |
 | `version_intent` | enum | no | `feature` / `fix` / `breaking` / `internal`. |
-| `priority` | number | no | Queue priority for the workflow. |
+| `priority` | number | no | Queue priority. |
 | `extends` | string | no | Relative or absolute path to a base workflow spec. |
 | `tasks` | array | yes | Task definitions (see below). |
 
 | Field (per task) | Type | Required | Description |
 |---|---|---|---|
-| `node_id` | string | yes | Unique task identifier within the workflow. |
-| `task` | string | yes, unless `__remove: true` | Task prompt / description. |
+| `node_id` | string | yes | Unique within the workflow. |
+| `task` | string | yes, unless `kind: crew` or `__remove: true` | Task description / prompt. |
+| `kind` | enum | no | `crew` for multi-role crew tasks. |
+| `crew` | object | yes, when `kind: crew` | Crew objective, roles, mode, rounds, output schema, and optional router. |
 | `depends_on` | [string] | no | Node IDs this task depends on. |
-| `context_from` | [string] | no | Node IDs whose outputs should be injected as context. |
+| `context_from` | [string] | no | Node IDs whose outputs to inject. |
 | `provider` | enum | no | Explicit provider override. |
 | `model` | string | no | Model override. |
 | `tags` | [string] | no | Free-form tags. |
-| `timeout_minutes` | int | no | Timeout from 1 to 480 minutes. |
+| `timeout_minutes` | int | no | 1-480. |
 | `auto_approve` | bool | no | Skip approval gates. |
-| `version_intent` | enum | no | Override workflow-level intent for this task. |
+| `version_intent` | enum | no | Override workflow-level intent. |
 | `on_fail` | enum | no | `cancel` / `skip` / `continue` / `run_alternate`. |
-| `alternate_node_id` | string | no | Alternate node to run when `on_fail: run_alternate`. |
-| `condition` | string | no | Dependency condition expression. |
+| `alternate_node_id` | string | no | For `run_alternate`. |
+| `condition` | string | no | Edge condition expression. |
 | `goal_gate` | bool | no | Marks a non-bypassable quality gate for the workflow. |
 | `__remove` | bool | no | Only used in child specs to remove an inherited task. |
 
-## Why use specs instead of inline workflows?
+## Why use specs instead of `create_workflow`?
 
-- `git diff` shows workflow changes directly.
-- Specs can be reviewed in pull requests like application code.
-- Shared templates reduce copy-paste across similar factories.
-- Releases preserve the exact workflow shape that shipped.
+- **Diffable** - `git diff workflows/deploy.yaml` shows exactly what changed.
+- **Reviewable** - PR reviews catch workflow changes like any other code change.
+- **Shareable** - Hand someone a spec, they get the same workflow you have.
+- **Versioned** - Tag a release, the workflow as of that release is preserved.
 
-Workflows built inline through runtime-only APIs are ephemeral. Specs are the right shape for workflows you want to keep, review, and reuse.
+Workflows built inline via `create_workflow` are ephemeral. They exist only in the DB. Specs are the right shape for workflows you want to keep.
 
 ## Templates and inheritance
 
@@ -89,7 +98,7 @@ Extends chains are limited to 8 levels deep. Cycles are detected and rejected wi
     version_intent: feature
     tasks:
       - node_id: plan
-        task: Write a step-by-step plan to docs/superpowers/plans/auto-plan.md.
+        task: Write a step-by-step plan to docs/plans/auto-plan.md.
         provider: claude-cli
       - node_id: implement
         task: Read the plan and execute it.
@@ -114,7 +123,7 @@ Extends chains are limited to 8 levels deep. Cycles are detected and rejected wi
       - node_id: plan
         task: |
           Implement a placeholder /api/v2/health endpoint that returns { status: "ok" }.
-          Write a step-by-step plan to docs/superpowers/plans/auto-plan.md.
+          Write a step-by-step plan to docs/plans/auto-plan.md.
 
 All other tasks are inherited unchanged from the base template.
 
