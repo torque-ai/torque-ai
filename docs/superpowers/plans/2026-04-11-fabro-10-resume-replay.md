@@ -219,11 +219,11 @@ git push --no-verify origin main
 
 ## Task 2: Hook into startup
 
-- [ ] **Step 1: Locate the workflow-runtime init**
+- [x] **Step 1: Locate the workflow-runtime init**
 
 Read `server/execution/workflow-runtime.js`. Find the init function or the place where the runtime is wired into the server boot sequence (look in `server/task-manager.js` or `server/index.js`).
 
-- [ ] **Step 2: Call resume on startup**
+- [x] **Step 2: Call resume on startup**
 
 After the workflow-runtime init completes (and after the queue-scheduler is ready), call:
 
@@ -241,7 +241,7 @@ try {
 
 Place this AFTER `_orphanCleanup.startTimers()` so orphan cleanup runs first (it might requeue tasks that resume then needs to re-evaluate).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/task-manager.js
