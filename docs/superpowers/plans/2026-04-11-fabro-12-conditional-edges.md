@@ -246,7 +246,7 @@ git push --no-verify origin main
 
 ## Task 2: Wire into unblock evaluation
 
-- [ ] **Step 1: Locate `isTaskUnblockable`**
+- [x] **Step 1: Locate `isTaskUnblockable`**
 
 Read `server/db/workflow-engine.js`. The function (or equivalent) currently checks "all `depends_on_task_id` rows are completed/skipped". Extend to evaluate each dep's `condition_expr` against the parent task's outcome:
 
@@ -315,7 +315,7 @@ function isTaskUnblockable(taskId) {
 }
 ```
 
-- [ ] **Step 2: Verify dependencies pass condition through**
+- [x] **Step 2: Verify dependencies pass condition through**
 
 The existing `addTaskDependency` already accepts a `condition_expr`. In `server/handlers/workflow/index.js` `createSeededWorkflowTasks`, the dep insertion already uses `taskDef.condition`:
 
@@ -332,7 +332,7 @@ workflowEngine.addTaskDependency({
 
 If this is missing in the actual code, add it.
 
-- [ ] **Step 3: Integration test**
+- [x] **Step 3: Integration test**
 
 Create `server/tests/conditional-edges-integration.test.js`:
 
@@ -403,9 +403,9 @@ describe('conditional edges', () => {
 });
 ```
 
-- [ ] **Step 4: Run tests** → PASS.
+- [x] **Step 4: Run tests** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/db/workflow-engine.js server/handlers/workflow/index.js server/tests/conditional-edges-integration.test.js
