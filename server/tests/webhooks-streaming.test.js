@@ -590,7 +590,11 @@ describe('webhooks-streaming db module', () => {
       mod.recordTaskEvent(task.id, 'progress', '20', '30', { a: 3 });
 
       const conn = rawDb();
-      const all = conn.prepare('SELECT id FROM task_events ORDER BY id ASC').all();
+      const all = conn.prepare(`
+        SELECT id FROM task_events
+        WHERE task_id = ? AND event_type IN ('status_change', 'progress')
+        ORDER BY id ASC
+      `).all(task.id);
       conn.prepare('UPDATE task_events SET created_at = ? WHERE id = ?').run('2026-01-01 00:00:00', all[0].id);
       conn.prepare('UPDATE task_events SET created_at = ? WHERE id = ?').run('2026-01-01 00:10:00', all[1].id);
       conn.prepare('UPDATE task_events SET created_at = ? WHERE id = ?').run('2026-01-01 00:20:00', all[2].id);
@@ -640,6 +644,10 @@ describe('webhooks-streaming db module', () => {
         '2026-01-01 00:00:00',
         subTaskOnly,
         subGlobal
+      );
+      conn.prepare('UPDATE task_events SET created_at = ? WHERE event_type = ?').run(
+        '2000-01-01 00:00:00',
+        'task.created'
       );
 
       mod.recordTaskEvent(taskA.id, 'status_change', 'queued', 'running', { x: 1 });

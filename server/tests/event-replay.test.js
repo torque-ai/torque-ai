@@ -1,7 +1,6 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { describe, it, expect, beforeAll, afterAll } = require('vitest');
 const { setupTestDb, teardownTestDb } = require('./vitest-setup');
 const { listEvents } = require('../events/event-emitter');
 

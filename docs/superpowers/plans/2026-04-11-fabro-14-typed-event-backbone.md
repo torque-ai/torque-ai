@@ -479,7 +479,7 @@ git push --no-verify origin main
 
 ## Task 4: Docs + smoke
 
-- [ ] **Step 1: `docs/events.md`**
+- [x] **Step 1: `docs/events.md`**
 
 ```markdown
 # Task Event Log
@@ -506,7 +506,7 @@ GET /api/v2/events?task_id=...&since=2026-04-11T00:00:00Z
 - **Sidecar services** — retros, dashboard live updates, metrics — all consume events
 ```
 
-- [ ] **Step 2: `await_restart`, smoke test**
+- [x] **Step 2: `await_restart`, smoke test**
 
 Submit a small task. After completion, call `list_task_events { task_id: "..." }`. Expect at least: `task.created`, `provider.routed`, `task.running`, `task.completed`, `verify.tag.assigned`.
 
