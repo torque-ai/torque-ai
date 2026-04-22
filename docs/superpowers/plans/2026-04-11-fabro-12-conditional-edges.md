@@ -417,7 +417,7 @@ git push --no-verify origin main
 
 ## Task 3: Docs
 
-- [ ] **Step 1: Append to `docs/workflows.md`**
+- [x] **Step 1: Append to `docs/workflows.md`**
 
 ````markdown
 ## Conditional edges
@@ -486,7 +486,7 @@ tasks:
 A condition that fails to parse is treated as `false` (the edge doesn't fire) and a warning is logged. The workflow engine never crashes on a bad expression.
 ````
 
-- [ ] **Step 2: Restart, smoke**
+- [x] **Step 2: Restart, smoke**
 
 ```bash
 git add docs/workflows.md

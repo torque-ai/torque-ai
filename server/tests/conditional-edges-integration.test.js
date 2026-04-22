@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, beforeAll, afterAll } = require('vitest');
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
 
 let db;
