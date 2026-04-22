@@ -328,11 +328,11 @@ git push --no-verify origin main
 
 ## Task 4: Wire into context-from injection
 
-- [ ] **Step 1: Locate context_from injection**
+- [x] **Step 1: Locate context_from injection**
 
 Read `server/execution/workflow-runtime.js`. Find where `context_from` is resolved into prior stage outputs and injected into the next task's description (likely in unblock/inject logic).
 
-- [ ] **Step 2: Insert condenser call**
+- [x] **Step 2: Insert condenser call**
 
 Before injecting prior stage outputs into the new task's prompt:
 
@@ -362,7 +362,7 @@ if (wfCondenser.enabled !== false) {
 // Inject finalStages into the task's prompt as before...
 ```
 
-- [ ] **Step 3: Accept condenser config in `create_workflow`**
+- [x] **Step 3: Accept condenser config in `create_workflow`**
 
 In `server/tool-defs/workflow-defs.js` `create_workflow` top-level properties:
 
@@ -386,7 +386,7 @@ if (args.condenser) {
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/execution/workflow-runtime.js server/tool-defs/workflow-defs.js server/handlers/workflow/index.js
