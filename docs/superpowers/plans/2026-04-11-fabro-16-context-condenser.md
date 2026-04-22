@@ -32,7 +32,7 @@
 
 ## Task 1: Token estimation
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/token-estimate.test.js`:
 
@@ -58,7 +58,7 @@ describe('estimateTokens', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/context/token-estimate.js`:
 
@@ -92,7 +92,7 @@ git push --no-verify origin main
 
 ## Task 2: Condense prompt
 
-- [ ] **Step 1: Create the prompt template**
+- [x] **Step 1: Create the prompt template**
 
 Create `server/context/condense-prompt.js`:
 
@@ -132,7 +132,7 @@ Return ONLY the JSON object, no prose around it.`;
 module.exports = { SUMMARY_SCHEMA, buildCondensePrompt };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add server/context/condense-prompt.js
@@ -144,7 +144,7 @@ git push --no-verify origin main
 
 ## Task 3: Condenser orchestrator
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/condenser.test.js`:
 
@@ -226,7 +226,7 @@ describe('condenseHistoryIfNeeded', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/context/condenser.js`:
 
@@ -328,11 +328,11 @@ git push --no-verify origin main
 
 ## Task 4: Wire into context-from injection
 
-- [ ] **Step 1: Locate context_from injection**
+- [x] **Step 1: Locate context_from injection**
 
 Read `server/execution/workflow-runtime.js`. Find where `context_from` is resolved into prior stage outputs and injected into the next task's description (likely in unblock/inject logic).
 
-- [ ] **Step 2: Insert condenser call**
+- [x] **Step 2: Insert condenser call**
 
 Before injecting prior stage outputs into the new task's prompt:
 
@@ -362,7 +362,7 @@ if (wfCondenser.enabled !== false) {
 // Inject finalStages into the task's prompt as before...
 ```
 
-- [ ] **Step 3: Accept condenser config in `create_workflow`**
+- [x] **Step 3: Accept condenser config in `create_workflow`**
 
 In `server/tool-defs/workflow-defs.js` `create_workflow` top-level properties:
 
@@ -386,7 +386,7 @@ if (args.condenser) {
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/execution/workflow-runtime.js server/tool-defs/workflow-defs.js server/handlers/workflow/index.js
@@ -398,7 +398,7 @@ git push --no-verify origin main
 
 ## Task 5: Workflow-spec support (skip if Plan 1 not shipped)
 
-- [ ] **Step 1: Add to schema**
+- [x] **Step 1: Add to schema**
 
 In `server/workflow-spec/schema.js` top-level properties:
 
@@ -415,7 +415,7 @@ condenser: {
 
 In `handleRunWorkflowSpec` `createArgs`, pass `condenser: spec.condenser`.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add server/workflow-spec/schema.js server/handlers/workflow-spec-handlers.js
@@ -427,7 +427,7 @@ git push --no-verify origin main
 
 ## Task 6: Docs + restart + smoke
 
-- [ ] **Step 1: `docs/workflows.md`**
+- [x] **Step 1: `docs/workflows.md`**
 
 Append:
 
@@ -462,7 +462,7 @@ condenser:
 ```
 ````
 
-- [ ] **Step 2: Restart, smoke**
+- [x] **Step 2: Restart, smoke**
 
 `await_restart`. Submit a workflow with 5+ context-chained tasks producing big outputs, set `threshold_tokens: 5000`. Inspect a downstream task's prompt — expect a `[CONDENSED HISTORY]` block instead of full upstream output.
 
