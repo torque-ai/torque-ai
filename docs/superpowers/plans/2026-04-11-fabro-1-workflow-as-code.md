@@ -966,7 +966,7 @@ git push --no-verify origin main
 - Modify: `dashboard/src/App.jsx`
 - Modify: `dashboard/src/components/Layout.jsx`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `dashboard/src/views/WorkflowSpecs.test.jsx`:
 
@@ -1041,13 +1041,13 @@ describe('WorkflowSpecs view', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run (local, dashboard dir): `npx vitest run src/views/WorkflowSpecs.test.jsx --no-coverage`
 
 Expected: FAIL — `WorkflowSpecs` module does not exist.
 
-- [ ] **Step 3: Implement the view**
+- [x] **Step 3: Implement the view**
 
 Create `dashboard/src/views/WorkflowSpecs.jsx`:
 
@@ -1135,7 +1135,7 @@ export default function WorkflowSpecs() {
 }
 ```
 
-- [ ] **Step 4: Add route to App.jsx**
+- [x] **Step 4: Add route to App.jsx**
 
 Open `dashboard/src/App.jsx`. Add the import alongside other view imports:
 
@@ -1149,7 +1149,7 @@ Inside the `<Routes>` block, add a route matching the existing pattern:
 <Route path="/workflow-specs" element={<WorkflowSpecs />} />
 ```
 
-- [ ] **Step 5: Add nav item to Layout**
+- [x] **Step 5: Add nav item to Layout**
 
 Open `dashboard/src/components/Layout.jsx`. Find the existing nav items array or JSX. Add an entry matching the style of neighbors:
 
@@ -1159,19 +1159,19 @@ Open `dashboard/src/components/Layout.jsx`. Find the existing nav items array or
 
 If the nav items embed icons, reuse an existing icon (e.g. document / list glyph) rather than introducing a new asset.
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run (dashboard dir): `npx vitest run src/views/WorkflowSpecs.test.jsx --no-coverage`
 
 Expected: PASS — all 4 tests green.
 
-- [ ] **Step 7: Build the dashboard**
+- [x] **Step 7: Build the dashboard**
 
 Run (dashboard dir): `npx vite build`
 
 Expected: build completes without errors.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add dashboard/src/views/WorkflowSpecs.jsx dashboard/src/views/WorkflowSpecs.test.jsx dashboard/src/App.jsx dashboard/src/components/Layout.jsx
