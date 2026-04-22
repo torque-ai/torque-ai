@@ -1282,7 +1282,7 @@ git push --no-verify origin main
 **Files:**
 - Create: `server/tests/workflow-spec-integration.test.js`
 
-- [ ] **Step 1: Write end-to-end test**
+- [x] **Step 1: Write end-to-end test**
 
 Create `server/tests/workflow-spec-integration.test.js`:
 
@@ -1348,13 +1348,13 @@ tasks:
 });
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [x] **Step 2: Run test to verify it passes**
 
 Run on remote: `npx vitest run tests/workflow-spec-integration.test.js --no-coverage`
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/tests/workflow-spec-integration.test.js

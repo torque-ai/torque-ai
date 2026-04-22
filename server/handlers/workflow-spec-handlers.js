@@ -71,16 +71,23 @@ function handleRunWorkflowSpec(args = {}) {
   }
 
   const spec = parsed.spec;
-  const createResult = workflowHandlers.handleCreateWorkflow({
+  const workflowDescription = typeof args.goal === 'string' && args.goal.trim().length > 0
+    ? args.goal
+    : spec.description;
+  const createArgs = {
     name: spec.name,
-    description: spec.description || args.goal || null,
     working_directory: args.working_directory || spec.working_directory,
     project: spec.project,
     routing_template: spec.routing_template,
     version_intent: spec.version_intent,
     priority: spec.priority,
     tasks: spec.tasks,
-  });
+  };
+  if (workflowDescription !== undefined) {
+    createArgs.description = workflowDescription;
+  }
+
+  const createResult = workflowHandlers.handleCreateWorkflow(createArgs);
 
   if (createResult.isError) return createResult;
 
