@@ -211,8 +211,30 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
   let cliPath;
   if (providerConfig && providerConfig.cli_path) {
     cliPath = providerConfig.cli_path;
-    if (process.platform === 'win32' && !path.extname(cliPath)) {
-      cliPath = cliPath + '.cmd';
+    // Even when providerConfig.cli_path is set, prefer the bundled native
+    // codex.exe on Windows if the configured path is a bare name (e.g.
+    // "codex" or "codex.cmd") — that's the common case and the node-wrapper
+    // shim is what's causing pwsh descendant windows to flash. An absolute
+    // path in providerConfig means the user deliberately chose a specific
+    // binary, so we honor it untouched.
+    if (process.platform === 'win32' && !path.isAbsolute(cliPath)) {
+      const native = resolveCodexNativeBinary();
+      logger.info(`[BuildCodex EXECUTION cli_path-branch] cli_path=${JSON.stringify(cliPath)} native-resolve=${native ? 'OK' : 'NULL'}`);
+      if (native) {
+        return {
+          cliPath: native.binaryPath,
+          finalArgs: codexArgs,
+          stdinPrompt,
+          nativeCodex: {
+            pathPrepend: native.vendorPathDir,
+            envAdditions: { CODEX_MANAGED_BY_NPM: '1' },
+          },
+        };
+      }
+      // Native resolver failed — keep the legacy behavior (append .cmd).
+      if (!path.extname(cliPath)) {
+        cliPath = cliPath + '.cmd';
+      }
     }
     return { cliPath, finalArgs: codexArgs, stdinPrompt };
   } else if (process.platform === 'win32') {

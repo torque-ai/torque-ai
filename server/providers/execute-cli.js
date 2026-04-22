@@ -224,10 +224,26 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
     const envExtras = {};
     if (providerConfig && providerConfig.cli_path) {
       cliPath = providerConfig.cli_path;
-      if (process.platform === 'win32' && !path.extname(cliPath)) {
-        cliPath = cliPath + '.cmd';
+      // Prefer the bundled native codex.exe when the configured cli_path is
+      // a bare name (e.g. "codex" or "codex.cmd"). Absolute paths are
+      // honored as-is — user chose a specific binary deliberately.
+      if (process.platform === 'win32' && !path.isAbsolute(cliPath)) {
+        const native = resolveCodexNativeBinary();
+        logger.info(`[BuildCodex EXECUTE-CLI cli_path-branch] cli_path=${JSON.stringify(cliPath)} native-resolve=${native ? 'OK' : 'NULL'}`);
+        if (native) {
+          cliPath = native.binaryPath;
+          finalArgs = codexArgs;
+          envExtras.__TORQUE_CODEX_VENDOR_PATH = native.vendorPathDir || '';
+          envExtras.CODEX_MANAGED_BY_NPM = '1';
+        } else {
+          if (!path.extname(cliPath)) {
+            cliPath = cliPath + '.cmd';
+          }
+          finalArgs = codexArgs;
+        }
+      } else {
+        finalArgs = codexArgs;
       }
-      finalArgs = codexArgs;
     } else if (process.platform === 'win32') {
       // Prefer launching the bundled native codex.exe directly. The `codex.cmd`
       // shim invokes `node codex.js` which spawns `codex.exe` which spawns a
