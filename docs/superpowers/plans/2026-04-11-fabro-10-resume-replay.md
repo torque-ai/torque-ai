@@ -27,7 +27,7 @@
 
 ## Task 1: Resume logic
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/workflow-resume.test.js`:
 
@@ -121,9 +121,9 @@ describe('resumeWorkflow', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure** → FAIL.
+- [x] **Step 2: Run to verify failure** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `server/execution/workflow-resume.js`:
 
@@ -205,9 +205,9 @@ function resumeAllRunningWorkflows() {
 module.exports = { resumeWorkflow, resumeAllRunningWorkflows };
 ```
 
-- [ ] **Step 4: Run tests** → PASS.
+- [x] **Step 4: Run tests** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/execution/workflow-resume.js server/tests/workflow-resume.test.js
