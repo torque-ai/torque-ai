@@ -556,6 +556,11 @@ const routes = [
   { method: 'POST', path: '/api/v2/workflow-utils/polish-task-description', tool: 'polish_task_description', mapBody: true },
   { method: 'POST', path: '/api/v2/workflow-utils/test-inbound-webhook', tool: 'test_inbound_webhook', mapBody: true },
 
+  // ─── workflow-specs (3 routes) ───────────────────────────────────────────────
+  { method: 'GET', path: '/api/v2/workflow-specs', tool: 'list_workflow_specs', mapQuery: true },
+  { method: 'POST', path: '/api/v2/workflow-specs/validate', tool: 'validate_workflow_spec', mapBody: true },
+  { method: 'POST', path: '/api/v2/workflow-specs/run', tool: 'run_workflow_spec', mapBody: true },
+
   // ─── workflows (18 routes) ────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/workflows/duplicate-pipeline', tool: 'duplicate_pipeline', mapBody: true },
   { method: 'POST', path: '/api/v2/workflows/export-report', tool: 'export_report', mapBody: true },

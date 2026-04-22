@@ -85,7 +85,8 @@ const CREW_SCHEMA = {
   },
 };
 
-// JSON Schema for authored workflow specs on disk.
+// JSON Schema for .yaml workflow spec files.
+// Keep this schema additive-only across versions; old specs must keep parsing.
 const WORKFLOW_SPEC_SCHEMA = {
   type: 'object',
   required: ['version', 'name', 'tasks'],

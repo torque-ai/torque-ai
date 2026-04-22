@@ -1,12 +1,12 @@
 'use strict';
 
 const { parseSpec, parseSpecString } = require('./parse');
+const { discoverSpecs } = require('./discover');
 const { WORKFLOW_SPEC_SCHEMA } = require('./schema');
-const { resolveExtends } = require('./extends');
 
 module.exports = {
   parseSpec,
   parseSpecString,
-  resolveExtends,
+  discoverSpecs,
   WORKFLOW_SPEC_SCHEMA,
 };

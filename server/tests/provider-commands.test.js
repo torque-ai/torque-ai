@@ -168,19 +168,15 @@ describe('buildCodexCommand', () => {
     const task = makeTask({ provider: 'codex' });
     const result = await tm.buildCodexCommand(task, { cli_path: '/usr/local/bin/codex' }, '');
 
-    if (process.platform === 'win32') {
-      expect(result.cliPath).toBe('/usr/local/bin/codex.cmd');
-    } else {
-      expect(result.cliPath).toBe('/usr/local/bin/codex');
-    }
+    expect(result.cliPath).toBe('/usr/local/bin/codex');
   });
 
-  it('uses codex.cmd on Windows', async () => {
+  it('uses codex.cmd or native codex.exe on Windows', async () => {
     if (process.platform !== 'win32') return;
     const task = makeTask({ provider: 'codex' });
     const result = await tm.buildCodexCommand(task, null, '');
 
-    expect(result.cliPath).toBe('codex.cmd');
+    expect(result.cliPath === 'codex.cmd' || /codex\.exe$/i.test(result.cliPath)).toBe(true);
   });
 
   it('wraps task description with instructions', async () => {

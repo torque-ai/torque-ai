@@ -18,6 +18,10 @@ const symbolIndexerHandlers = require('./handlers/symbol-indexer-handlers');
 const templateHandlers = require('./handlers/template-handlers');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
 const competitiveFeatureDefs = require('./tool-defs/competitive-feature-defs');
+const workflowSpecToolDefs = require('./tool-defs/workflow-spec-defs');
+const WORKFLOW_SPEC_TOOLS = Array.isArray(workflowSpecToolDefs)
+  ? workflowSpecToolDefs
+  : workflowSpecToolDefs.WORKFLOW_SPEC_TOOLS;
 const { applyBehavioralTags } = require('./tools/behavioral-tags');
 
 let _remoteAgentPluginDefs = null;
@@ -31,6 +35,7 @@ const TOOLS = [
   ...require('./tool-defs/task-management-defs'),
   ...require('./tool-defs/task-defs'),
   ...require('./tool-defs/workflow-defs'),
+  ...WORKFLOW_SPEC_TOOLS,
   ...require('./tool-defs/baseline-defs'),
   ...require('./tool-defs/checkpoint-defs'),
   ...require('./tool-defs/approval-defs'),
@@ -156,6 +161,7 @@ const TOOL_TIER_LABELS = {
 const HANDLER_MODULES = [
   require('./handlers/task'),
   require('./handlers/workflow'),
+  require('./handlers/workflow-spec-handlers'),
   require('./handlers/validation'),
   require('./handlers/provider-handlers'),
   require('./handlers/provider-crud-handlers'),

@@ -86,6 +86,21 @@ tasks:
     expect(result.errors.join(' ')).toMatch(/yaml|parse/i);
   });
 
+  it('normalizes task field: task -> task_description for workflow engine', () => {
+    const yamlText = `
+version: 1
+name: x
+tasks:
+  - node_id: a
+    task: Write a function
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(true);
+    expect(result.spec.tasks[0].task_description).toBe('Write a function');
+  });
+
   it('accepts authored template directives in raw specs', () => {
     const yamlText = `
 version: 1

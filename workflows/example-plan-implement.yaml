@@ -1,0 +1,28 @@
+version: 1
+name: example-plan-implement
+description: Plan, approve, implement, and simplify a change. A reference example for workflow-specs.
+project: torque
+version_intent: internal
+tasks:
+  - node_id: plan
+    task: |
+      Read the goal from the workflow description.
+      Analyze the codebase and write a step-by-step plan to docs/plans/auto-plan.md.
+    provider: claude-cli
+    tags: [planning]
+
+  - node_id: implement
+    task: |
+      Read docs/plans/auto-plan.md and implement every step.
+      Commit after each logical unit of change.
+    provider: codex
+    depends_on: [plan]
+    tags: [coding]
+
+  - node_id: simplify
+    task: |
+      Review the changes from the previous step for clarity and correctness.
+      Remove dead code, simplify awkward constructs, and ensure naming is consistent.
+    provider: codex
+    depends_on: [implement]
+    tags: [coding, review]

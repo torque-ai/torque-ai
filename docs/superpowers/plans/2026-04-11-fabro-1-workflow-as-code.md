@@ -47,7 +47,7 @@
 - Create: `server/workflow-spec/parse.js`
 - Test: `server/tests/workflow-spec-parse.test.js`
 
-- [ ] **Step 1: Write the JSON schema**
+- [x] **Step 1: Write the JSON schema**
 
 Create `server/workflow-spec/schema.js`:
 
@@ -102,7 +102,7 @@ const WORKFLOW_SPEC_SCHEMA = {
 module.exports = { WORKFLOW_SPEC_SCHEMA };
 ```
 
-- [ ] **Step 2: Write failing tests for the parser**
+- [x] **Step 2: Write failing tests for the parser**
 
 Create `server/tests/workflow-spec-parse.test.js`:
 
@@ -183,13 +183,13 @@ tasks:
 });
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run on remote: `npx vitest run tests/workflow-spec-parse.test.js --no-coverage` (inside the `server/` dir)
 
 Expected: FAIL with "Cannot find module '../workflow-spec/parse'"
 
-- [ ] **Step 4: Implement the parser**
+- [x] **Step 4: Implement the parser**
 
 Create `server/workflow-spec/parse.js`:
 
@@ -259,19 +259,19 @@ function parseSpec(filePath) {
 module.exports = { parseSpec, parseSpecString };
 ```
 
-- [ ] **Step 5: Verify `ajv` and `js-yaml` are installed**
+- [x] **Step 5: Verify `ajv` and `js-yaml` are installed**
 
 Run on remote, from the server dir: `node -e "require('js-yaml'); require('ajv'); console.log('ok')"`
 
 Expected: `ok`. If either is missing, `npm install ajv js-yaml --save` in the `server/` package.
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run on remote: `npx vitest run tests/workflow-spec-parse.test.js --no-coverage`
 
 Expected: PASS — all 6 tests green.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add server/workflow-spec/schema.js server/workflow-spec/parse.js server/tests/workflow-spec-parse.test.js
@@ -287,7 +287,7 @@ git push --no-verify origin main
 - Create: `server/workflow-spec/discover.js`
 - Test: `server/tests/workflow-spec-discover.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `server/tests/workflow-spec-discover.test.js`:
 
@@ -348,13 +348,13 @@ describe('workflow-spec discoverSpecs', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run on remote: `npx vitest run tests/workflow-spec-discover.test.js --no-coverage`
 
 Expected: FAIL with "Cannot find module '../workflow-spec/discover'"
 
-- [ ] **Step 3: Implement discovery**
+- [x] **Step 3: Implement discovery**
 
 Create `server/workflow-spec/discover.js`:
 
@@ -426,13 +426,13 @@ function discoverSpecs(projectRoot) {
 module.exports = { discoverSpecs };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run on remote: `npx vitest run tests/workflow-spec-discover.test.js --no-coverage`
 
 Expected: PASS — all 4 tests green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/workflow-spec/discover.js server/tests/workflow-spec-discover.test.js
@@ -447,7 +447,7 @@ git push --no-verify origin main
 **Files:**
 - Create: `server/workflow-spec/index.js`
 
-- [ ] **Step 1: Create the index re-export**
+- [x] **Step 1: Create the index re-export**
 
 Create `server/workflow-spec/index.js`:
 
@@ -466,7 +466,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add server/workflow-spec/index.js
@@ -482,7 +482,7 @@ git push --no-verify origin main
 - Create: `server/tool-defs/workflow-spec-defs.js`
 - Modify: `server/tool-defs/index.js`
 
-- [ ] **Step 1: Define the tool schemas**
+- [x] **Step 1: Define the tool schemas**
 
 Create `server/tool-defs/workflow-spec-defs.js`:
 
@@ -548,11 +548,11 @@ const WORKFLOW_SPEC_TOOLS = [
 module.exports = { WORKFLOW_SPEC_TOOLS };
 ```
 
-- [ ] **Step 2: Find where tool defs are registered**
+- [x] **Step 2: Find where tool defs are registered**
 
 Read `server/tool-defs/index.js`. Identify the pattern: it imports tool arrays from sibling files and exports a flat merged array (typically called `ALL_TOOLS` or similar), often grouped by tier.
 
-- [ ] **Step 3: Register the new tool defs**
+- [x] **Step 3: Register the new tool defs**
 
 Add to `server/tool-defs/index.js`:
 
@@ -562,7 +562,7 @@ const { WORKFLOW_SPEC_TOOLS } = require('./workflow-spec-defs');
 
 Merge `...WORKFLOW_SPEC_TOOLS` into the tier / array that already contains `create_workflow`. Match the surrounding pattern exactly — if that tier uses `[...EXISTING, ...NEW]`, do the same. Do NOT introduce a new tier.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/tool-defs/workflow-spec-defs.js server/tool-defs/index.js
@@ -579,7 +579,7 @@ git push --no-verify origin main
 - Create: `server/tests/workflow-spec-handlers.test.js`
 - Modify: `server/tools.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `server/tests/workflow-spec-handlers.test.js`:
 
@@ -699,13 +699,13 @@ tasks:
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run on remote: `npx vitest run tests/workflow-spec-handlers.test.js --no-coverage`
 
 Expected: FAIL with "Cannot find module '../handlers/workflow-spec-handlers'"
 
-- [ ] **Step 3: Implement the handlers**
+- [x] **Step 3: Implement the handlers**
 
 Create `server/handlers/workflow-spec-handlers.js`:
 
@@ -806,7 +806,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 4: Wire the handlers into `server/tools.js` dispatch**
+- [x] **Step 4: Wire the handlers into `server/tools.js` dispatch**
 
 Find the `switch (name)` inside `handleToolCall` in `server/tools.js`. Add three `case` blocks alongside the existing `create_workflow` / `run_workflow` cases:
 
@@ -825,13 +825,13 @@ case 'run_workflow_spec': {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run on remote: `npx vitest run tests/workflow-spec-handlers.test.js --no-coverage`
 
 Expected: PASS — all 5 tests green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/handlers/workflow-spec-handlers.js server/tests/workflow-spec-handlers.test.js server/tools.js
@@ -846,7 +846,7 @@ git push --no-verify origin main
 **Files:**
 - Modify: `server/api/routes-passthrough.js`
 
-- [ ] **Step 1: Add routes to the passthrough table**
+- [x] **Step 1: Add routes to the passthrough table**
 
 Open `server/api/routes-passthrough.js`. Find the workflows route block (search for `create_workflow`). Add these entries alongside it:
 
@@ -856,13 +856,13 @@ Open `server/api/routes-passthrough.js`. Find the workflows route block (search 
 { method: 'POST', path: '/api/v2/workflow-specs/run', tool: 'run_workflow_spec', mapBody: true },
 ```
 
-- [ ] **Step 2: Verify routes register without error**
+- [x] **Step 2: Verify routes register without error**
 
 Run on remote, from the `server/` dir: `node -e "require('./api/routes-passthrough'); console.log('ok')"`
 
 Expected: `ok`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/api/routes-passthrough.js
@@ -877,7 +877,7 @@ git push --no-verify origin main
 **Files:**
 - Create: `workflows/example-plan-implement.yaml`
 
-- [ ] **Step 1: Write the example spec**
+- [x] **Step 1: Write the example spec**
 
 Create `workflows/example-plan-implement.yaml`:
 
@@ -912,7 +912,7 @@ tasks:
     tags: [coding, review]
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add workflows/example-plan-implement.yaml
@@ -927,7 +927,7 @@ git push --no-verify origin main
 **Files:**
 - Modify: `dashboard/src/api.js`
 
-- [ ] **Step 1: Add workflow-specs client**
+- [x] **Step 1: Add workflow-specs client**
 
 Open `dashboard/src/api.js`. Find any existing `export const workflows = {...}` block. Add a new export block near it:
 
@@ -948,7 +948,7 @@ export const workflowSpecs = {
 };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add dashboard/src/api.js
@@ -966,7 +966,7 @@ git push --no-verify origin main
 - Modify: `dashboard/src/App.jsx`
 - Modify: `dashboard/src/components/Layout.jsx`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `dashboard/src/views/WorkflowSpecs.test.jsx`:
 
@@ -1041,13 +1041,13 @@ describe('WorkflowSpecs view', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run (local, dashboard dir): `npx vitest run src/views/WorkflowSpecs.test.jsx --no-coverage`
 
 Expected: FAIL — `WorkflowSpecs` module does not exist.
 
-- [ ] **Step 3: Implement the view**
+- [x] **Step 3: Implement the view**
 
 Create `dashboard/src/views/WorkflowSpecs.jsx`:
 
@@ -1135,7 +1135,7 @@ export default function WorkflowSpecs() {
 }
 ```
 
-- [ ] **Step 4: Add route to App.jsx**
+- [x] **Step 4: Add route to App.jsx**
 
 Open `dashboard/src/App.jsx`. Add the import alongside other view imports:
 
@@ -1149,7 +1149,7 @@ Inside the `<Routes>` block, add a route matching the existing pattern:
 <Route path="/workflow-specs" element={<WorkflowSpecs />} />
 ```
 
-- [ ] **Step 5: Add nav item to Layout**
+- [x] **Step 5: Add nav item to Layout**
 
 Open `dashboard/src/components/Layout.jsx`. Find the existing nav items array or JSX. Add an entry matching the style of neighbors:
 
@@ -1159,19 +1159,19 @@ Open `dashboard/src/components/Layout.jsx`. Find the existing nav items array or
 
 If the nav items embed icons, reuse an existing icon (e.g. document / list glyph) rather than introducing a new asset.
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run (dashboard dir): `npx vitest run src/views/WorkflowSpecs.test.jsx --no-coverage`
 
 Expected: PASS — all 4 tests green.
 
-- [ ] **Step 7: Build the dashboard**
+- [x] **Step 7: Build the dashboard**
 
 Run (dashboard dir): `npx vite build`
 
 Expected: build completes without errors.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add dashboard/src/views/WorkflowSpecs.jsx dashboard/src/views/WorkflowSpecs.test.jsx dashboard/src/App.jsx dashboard/src/components/Layout.jsx
@@ -1186,7 +1186,7 @@ git push --no-verify origin main
 **Files:**
 - Create: `docs/workflow-specs.md`
 
-- [ ] **Step 1: Write the doc**
+- [x] **Step 1: Write the doc**
 
 Create `docs/workflow-specs.md`:
 
@@ -1267,7 +1267,7 @@ Workflow specs are version-controlled YAML files that define a TORQUE workflow a
 Workflows built inline via `create_workflow` are ephemeral — they exist only in the DB. Specs are the right shape for workflows you want to keep.
 ````
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/workflow-specs.md
@@ -1282,7 +1282,7 @@ git push --no-verify origin main
 **Files:**
 - Create: `server/tests/workflow-spec-integration.test.js`
 
-- [ ] **Step 1: Write end-to-end test**
+- [x] **Step 1: Write end-to-end test**
 
 Create `server/tests/workflow-spec-integration.test.js`:
 
@@ -1348,13 +1348,13 @@ tasks:
 });
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [x] **Step 2: Run test to verify it passes**
 
 Run on remote: `npx vitest run tests/workflow-spec-integration.test.js --no-coverage`
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/tests/workflow-spec-integration.test.js
@@ -1366,13 +1366,13 @@ git push --no-verify origin main
 
 ## Task 12: Verify full suite + restart
 
-- [ ] **Step 1: Run all workflow-spec tests together**
+- [x] **Step 1: Run all workflow-spec tests together**
 
 Run on remote, from `server/` dir: `npx vitest run tests/workflow-spec --no-coverage`
 
 Expected: All tests PASS.
 
-- [ ] **Step 2: Restart TORQUE to load new handlers**
+- [x] **Step 2: Restart TORQUE to load new handlers**
 
 Use the `await_restart` MCP tool with:
 
@@ -1383,7 +1383,7 @@ timeout_minutes: 15
 
 Expected: "Pipeline drained successfully. Server restart triggered."
 
-- [ ] **Step 3: Smoke test the example spec via MCP**
+- [x] **Step 3: Smoke test the example spec via MCP**
 
 Call:
 
@@ -1401,12 +1401,12 @@ validate_workflow_spec { spec_path: "workflows/example-plan-implement.yaml", wor
 
 Expected: `valid: true`.
 
-- [ ] **Step 4: Rebuild dashboard**
+- [x] **Step 4: Rebuild dashboard**
 
 Run (dashboard dir): `npx vite build`
 
 Expected: build success.
 
-- [ ] **Step 5: Verify dashboard**
+- [x] **Step 5: Verify dashboard**
 
 Open the dashboard, hard-refresh (Ctrl+Shift+R), navigate to **Specs**. Confirm `example-plan-implement` appears with a Run button and a `3 tasks` count.

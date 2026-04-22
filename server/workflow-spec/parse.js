@@ -51,8 +51,8 @@ function parseSpecString(yamlContent) {
   return { ok: true, spec: normalizeSpec(raw) };
 }
 
-async function parseSpec(filePath) {
-  const resolved = await resolveExtends(filePath);
+function parseSpec(filePath) {
+  const resolved = resolveExtends(filePath);
   if (!resolved.ok) {
     return resolved;
   }
