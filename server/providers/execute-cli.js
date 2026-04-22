@@ -178,6 +178,7 @@ function buildClaudeCliCommand(task, resolvedFileContext, providerConfig) {
  * @returns {{ cliPath, finalArgs, stdinPrompt, envExtras, selectedOllamaHostId, usedEditFormat }}
  */
 function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {}) {
+    logger.info(`[BuildCodex PATH=PROVIDERS/EXECUTE-CLI] entered for task ${task && task.id ? String(task.id).slice(0,8) : '<no-id>'} platform=${process.platform} hasProviderConfigCliPath=${Boolean(providerConfig && providerConfig.cli_path)}`);
     const effectiveTaskDescription = applyStudyContextPrompt(task.task_description, task.metadata);
     const wrappedDescription = _helpers.wrapWithInstructions(
       effectiveTaskDescription,
@@ -235,16 +236,15 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
       // factory task flashes a PowerShell window. Skipping the node layer puts
       // us in the best position to control descendant-window semantics.
       const native = resolveCodexNativeBinary();
+      logger.info(`[BuildCodex EXECUTE-CLI] native-resolve result: ${native ? 'OK binary=' + native.binaryPath : 'NULL (will fall back to codex.cmd)'}`);
       if (native) {
-        logger.info(`[BuildCodex] Using native codex binary at ${native.binaryPath}`);
+        logger.info(`[BuildCodex EXECUTE-CLI] RETURN native path. cliPath=${native.binaryPath}`);
         cliPath = native.binaryPath;
         finalArgs = codexArgs;
-        // spawnAndTrackProcess will prepend this to PATH alongside NVM_NODE_PATH.
         envExtras.__TORQUE_CODEX_VENDOR_PATH = native.vendorPathDir || '';
-        // Mirror the npm wrapper's identity marker so codex.exe behaves the same.
         envExtras.CODEX_MANAGED_BY_NPM = '1';
       } else {
-        logger.info('[BuildCodex] Native codex.exe not resolvable; falling back to codex.cmd');
+        logger.info('[BuildCodex EXECUTE-CLI] RETURN codex.cmd fallback');
         cliPath = 'codex.cmd';
         finalArgs = codexArgs;
       }
@@ -256,6 +256,7 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
       finalArgs = codexArgs;
     }
 
+    logger.info(`[BuildCodex EXECUTE-CLI] EXIT final cliPath=${cliPath}`);
     return { cliPath, finalArgs, stdinPrompt, envExtras, selectedOllamaHostId: null, usedEditFormat: null };
 }
 

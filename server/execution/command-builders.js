@@ -137,6 +137,7 @@ function buildClaudeCliCommand(task, providerConfig, resolvedFileContext) {
  * @returns {Promise<{ cliPath: string, finalArgs: string[], stdinPrompt: string }>}
  */
 async function buildCodexCommand(task, providerConfig, resolvedFileContext, resolvedFiles) {
+  logger.info(`[BuildCodex PATH=EXECUTION/COMMAND-BUILDERS] entered for task ${task && task.id ? String(task.id).slice(0,8) : '<no-id>'} platform=${process.platform} hasProviderConfigCliPath=${Boolean(providerConfig && providerConfig.cli_path)}`);
   const promptDescription = getExecutionDescription(task);
   const effectiveTaskDescription = applyStudyContextPrompt(promptDescription, task.metadata);
   let stdinPrompt;
@@ -224,8 +225,9 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
     // is still spawned by codex.exe itself; if that continues to flash, that
     // is codex's own window-flag issue, not ours).
     const native = resolveCodexNativeBinary();
+    logger.info(`[BuildCodex EXECUTION] native-resolve result: ${native ? 'OK binary=' + native.binaryPath : 'NULL (will fall back to codex.cmd)'}`);
     if (native) {
-      logger.info(`[BuildCodex] Using native codex binary at ${native.binaryPath} (skipping node wrapper)`);
+      logger.info(`[BuildCodex EXECUTION] RETURN nativeCodex path. cliPath=${native.binaryPath}`);
       return {
         cliPath: native.binaryPath,
         finalArgs: codexArgs,
@@ -237,7 +239,7 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
       };
     }
     // Native not resolvable — fall back to the npm .cmd shim.
-    logger.info('[BuildCodex] Native codex.exe resolution failed; falling back to codex.cmd');
+    logger.info('[BuildCodex EXECUTION] RETURN codex.cmd fallback');
     cliPath = 'codex.cmd';
     return { cliPath, finalArgs: codexArgs, stdinPrompt };
   } else if (_nvmNodePath) {
