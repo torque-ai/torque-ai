@@ -104,7 +104,7 @@ feat(architect-editor): prompt templates + plan schema
 
 ## Task 2: Orchestrator
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/architect-editor.test.js`:
 
@@ -170,7 +170,7 @@ describe('runArchitectEditor', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/execution/architect-editor.js`:
 
