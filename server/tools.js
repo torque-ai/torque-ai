@@ -26,6 +26,10 @@ const workflowResumeToolDefs = require('./tool-defs/workflow-resume-defs');
 const WORKFLOW_RESUME_TOOLS = Array.isArray(workflowResumeToolDefs)
   ? workflowResumeToolDefs
   : workflowResumeToolDefs.WORKFLOW_RESUME_TOOLS;
+const eventToolDefs = require('./tool-defs/event-defs');
+const EVENT_TOOLS = Array.isArray(eventToolDefs)
+  ? eventToolDefs
+  : eventToolDefs.EVENT_TOOLS;
 const { applyBehavioralTags } = require('./tools/behavioral-tags');
 
 let _remoteAgentPluginDefs = null;
@@ -41,6 +45,7 @@ const TOOLS = [
   ...require('./tool-defs/workflow-defs'),
   ...WORKFLOW_RESUME_TOOLS,
   ...WORKFLOW_SPEC_TOOLS,
+  ...EVENT_TOOLS,
   ...require('./tool-defs/baseline-defs'),
   ...require('./tool-defs/checkpoint-defs'),
   ...require('./tool-defs/approval-defs'),
@@ -168,6 +173,7 @@ const HANDLER_MODULES = [
   require('./handlers/workflow'),
   require('./handlers/workflow-resume-handlers'),
   require('./handlers/workflow-spec-handlers'),
+  require('./handlers/event-handlers'),
   require('./handlers/validation'),
   require('./handlers/provider-handlers'),
   require('./handlers/provider-crud-handlers'),

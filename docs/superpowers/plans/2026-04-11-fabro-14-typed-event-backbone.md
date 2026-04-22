@@ -237,7 +237,7 @@ git push --no-verify origin main
 
 For each site below: read the file, find the matching status mutation, emit the event AFTER the status write succeeds. Each emit is fire-and-forget (wrapped in try/catch — never fail the original operation if emit throws).
 
-- [ ] **Step 1: Task creation (`server/db/task-core.js` `createTask`)**
+- [x] **Step 1: Task creation (`server/db/task-core.js` `createTask`)**
 
 After the INSERT succeeds:
 
@@ -255,7 +255,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 2: Status transitions (`updateTaskStatus`)**
+- [x] **Step 2: Status transitions (`updateTaskStatus`)**
 
 After the UPDATE succeeds, map status → event type:
 
@@ -283,7 +283,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 3: Provider routing (`server/execution/provider-router.js`)**
+- [x] **Step 3: Provider routing (`server/execution/provider-router.js`)**
 
 After the routing decision is finalized:
 
@@ -300,7 +300,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 4: Provider failover (`server/db/smart-routing.js` `approveProviderSwitch`)**
+- [x] **Step 4: Provider failover (`server/db/smart-routing.js` `approveProviderSwitch`)**
 
 After the SQL UPDATE succeeds:
 
@@ -317,7 +317,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 5: Verify tag assignment (`server/validation/auto-verify-retry.js`)**
+- [x] **Step 5: Verify tag assignment (`server/validation/auto-verify-retry.js`)**
 
 Right after the `_db.updateTask(taskId, { tags: cleanedTags })` call:
 
@@ -334,7 +334,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 6: Workflow finalization (`server/execution/workflow-runtime.js`)**
+- [x] **Step 6: Workflow finalization (`server/execution/workflow-runtime.js`)**
 
 When workflow completes/fails:
 
@@ -352,7 +352,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 7: Integration test**
+- [x] **Step 7: Integration test**
 
 Create `server/tests/event-replay.test.js`:
 
