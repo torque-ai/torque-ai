@@ -39,6 +39,7 @@ function gitCmd(args, opts = {}) {
   return execFileSync('git', args, {
     encoding: 'utf8',
     ...rest,
+    windowsHide: true,
     env: env ? { ...cleanGitEnv(), ...env } : cleanGitEnv(),
   });
 }
