@@ -398,7 +398,7 @@ git push --no-verify origin main
 
 ## Task 5: Workflow-spec support (skip if Plan 1 not shipped)
 
-- [ ] **Step 1: Add to schema**
+- [x] **Step 1: Add to schema**
 
 In `server/workflow-spec/schema.js` top-level properties:
 
@@ -415,7 +415,7 @@ condenser: {
 
 In `handleRunWorkflowSpec` `createArgs`, pass `condenser: spec.condenser`.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add server/workflow-spec/schema.js server/handlers/workflow-spec-handlers.js
