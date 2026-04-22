@@ -1,0 +1,15 @@
+{
+  "workflow_id": "c073bb7d-699d-4e99-b904-47edf251efaa",
+  "name": "cancel-reason-wf",
+  "status": "cancelled",
+  "created_at": "2026-04-22T20:18:32.603Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:18:32.606Z",
+  "working_directory": null,
+  "task_count": 1,
+  "task_ids": [
+    "8570e02b-3af2-4d9c-a6f7-178bf9963784"
+  ],
+  "bundle_built_at": "2026-04-22T20:18:32.608Z",
+  "bundle_format_version": 1
+}

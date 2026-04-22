@@ -1,0 +1,16 @@
+{
+  "workflow_id": "af382a04-7b0a-470d-8874-b4754a027edb",
+  "name": "fork-any-wf",
+  "status": "failed",
+  "created_at": "2026-04-22T20:18:14.927Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:18:15.141Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "5065d7e1-a18b-4f7d-8fff-2de259a19573",
+    "5fa51794-6cf8-4ea8-a463-d909624d0972"
+  ],
+  "bundle_built_at": "2026-04-22T20:18:15.143Z",
+  "bundle_format_version": 1
+}
