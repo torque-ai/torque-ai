@@ -25,6 +25,14 @@ const logger = require('../logger').child({ component: 'factory-worktree-auto-co
 const ELIGIBLE_TRUST_LEVELS = new Set(['supervised', 'guided', 'autonomous', 'dark']);
 const BATCH_TAG_PREFIX = 'factory:batch_id=';
 const PLAN_TASK_TAG_PREFIX = 'factory:plan_task_number=';
+const NON_PRODUCT_AUTO_COMMIT_PATTERNS = Object.freeze([
+  /^runs\//i,
+  /^logs\//i,
+  /^\.torque-checkpoints\//i,
+  /^\.tmp\//i,
+  /^tmp\//i,
+  /^docs\/superpowers\/plans\//i,
+]);
 
 let completedTaskListener = null;
 
@@ -197,6 +205,83 @@ function parsePorcelainPaths(output) {
     .filter(Boolean);
 }
 
+function normalizeRelativePath(filePath) {
+  return String(filePath || '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .trim();
+}
+
+function isNonProductAutoCommitPath(filePath) {
+  const normalized = normalizeRelativePath(filePath);
+  if (!normalized) return true;
+  return NON_PRODUCT_AUTO_COMMIT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function partitionAutoCommitPaths(paths) {
+  const stageable = [];
+  const excluded = [];
+  for (const filePath of paths) {
+    if (isNonProductAutoCommitPath(filePath)) {
+      excluded.push(filePath);
+    } else {
+      stageable.push(filePath);
+    }
+  }
+  return { stageable, excluded };
+}
+
+function assertPathInsideWorktree(worktreePath, relativePath) {
+  const root = path.resolve(worktreePath);
+  const resolved = path.resolve(root, relativePath);
+  const rootCompare = root.replace(/\\/g, '/').toLowerCase();
+  const resolvedCompare = resolved.replace(/\\/g, '/').toLowerCase();
+  if (resolvedCompare !== rootCompare && !resolvedCompare.startsWith(`${rootCompare}/`)) {
+    throw new Error(`Refusing to clean path outside worktree: ${relativePath}`);
+  }
+  return resolved;
+}
+
+function removeEmptyParents(worktreePath, filePath) {
+  const root = path.resolve(worktreePath);
+  let current = path.dirname(filePath);
+  while (current && current !== root && current.startsWith(root)) {
+    try {
+      fs.rmdirSync(current);
+      current = path.dirname(current);
+    } catch {
+      return;
+    }
+  }
+}
+
+function removeUntrackedPaths(worktreePath, paths) {
+  const cleaned = [];
+  for (const relativePath of paths) {
+    const target = assertPathInsideWorktree(worktreePath, relativePath);
+    if (!fs.existsSync(target)) {
+      continue;
+    }
+    const stat = fs.lstatSync(target);
+    fs.rmSync(target, { recursive: stat.isDirectory(), force: true });
+    cleaned.push(relativePath);
+    removeEmptyParents(worktreePath, target);
+  }
+  return cleaned;
+}
+
+function restoreTrackedPaths(worktreePath, paths) {
+  if (paths.length === 0) {
+    return [];
+  }
+  runGitWithStdin(
+    worktreePath,
+    ['restore', '--worktree', '--staged', '--pathspec-from-file=-', '--pathspec-file-nul'],
+    paths.join('\0'),
+  );
+  return paths;
+}
+
 function formatGitError(error) {
   const parts = [];
   if (error?.message) {
@@ -348,7 +433,56 @@ async function commitCompletedPlanTask(task) {
       ? untrackedOut.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
       : [];
 
-    const pathsToStage = [...semanticTracked, ...untracked];
+    const trackedPartition = partitionAutoCommitPaths(semanticTracked);
+    const untrackedPartition = partitionAutoCommitPaths(untracked);
+    const nonProductPaths = [...trackedPartition.excluded, ...untrackedPartition.excluded];
+    const cleanedNonProductPaths = [
+      ...restoreTrackedPaths(worktree.worktreePath, trackedPartition.excluded),
+      ...removeUntrackedPaths(worktree.worktreePath, untrackedPartition.excluded),
+    ];
+    const pathsToStage = [...trackedPartition.stageable, ...untrackedPartition.stageable];
+
+    if (pathsToStage.length === 0 && nonProductPaths.length > 0) {
+      const stdoutTail = getStdoutTail(task);
+      const kind = resolveKind(task);
+      const workItemId = resolveWorkItemId(task);
+      const classification = workItemId
+        ? await classifyZeroDiff({ stdout_tail: stdoutTail, attempt: 1, kind })
+        : { reason: 'unknown', source: 'none', confidence: 0 };
+      if (workItemId) {
+        try {
+          attemptHistory.appendRow({
+            batch_id: worktree.batchId || batchId,
+            work_item_id: workItemId,
+            kind,
+            task_id: task.id,
+            files_touched: [],
+            stdout_tail: stdoutTail,
+            zero_diff_reason: classification.reason,
+            classifier_source: classification.source,
+            classifier_conf: classification.confidence,
+          });
+        } catch (e) {
+          logger.warn('attempt_history_write_failed', { err: e.message, task_id: task.id });
+        }
+      }
+      safeLogDecision({
+        ...decisionBase,
+        action: 'auto_commit_skipped_clean',
+        reasoning: 'Approved plan task completed. Worktree dirty files were factory run artifacts or plan-progress churn, so they were cleaned without committing.',
+        outcome: {
+          task_id: task.id,
+          plan_task_number: planTaskNumber,
+          files_changed: [],
+          zero_diff_reason: classification.reason,
+          classifier_source: classification.source,
+          classifier_conf: classification.confidence,
+          skipped_non_product_files: nonProductPaths,
+          cleaned_non_product_files: cleanedNonProductPaths,
+        },
+      });
+      return;
+    }
 
     if (pathsToStage.length === 0) {
       // Worktree only has pure line-ending drift (or is fully clean).
@@ -519,6 +653,8 @@ async function commitCompletedPlanTask(task) {
         commit_sha: commitSha,
         files_changed: allStaged,
         skipped_drift_files: driftPaths,
+        skipped_non_product_files: nonProductPaths,
+        cleaned_non_product_files: cleanedNonProductPaths,
         task_id: task.id,
         plan_task_number: planTaskNumber,
       },

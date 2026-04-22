@@ -53,6 +53,7 @@ npm-debug.log*
 coverage/
 .nyc_output/
 server/tests/_*
+/runs/
 
 # Runtime caches
 server/.cache/
