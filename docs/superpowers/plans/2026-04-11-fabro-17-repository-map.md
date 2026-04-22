@@ -230,7 +230,7 @@ Stage `server/repo-map/build-graph.js`. Commit: `feat(repo-map): reference graph
 
 ## Task 3: Token-budgeted Markdown renderer
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/render-map.test.js`:
 
@@ -259,7 +259,7 @@ describe('renderRepoMap', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/repo-map/render-map.js`:
 
