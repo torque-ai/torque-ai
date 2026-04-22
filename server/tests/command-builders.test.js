@@ -440,13 +440,16 @@ describe('execution/command-builders', () => {
         expect(result.cliPath).toBe('C:\\bin\\codex.exe');
       });
 
-      it('defaults to codex/codex.cmd when no providerConfig', async () => {
+      it('defaults to codex/codex.cmd (or native codex.exe on Windows) when no providerConfig', async () => {
         initModule({ nvmNodePath: null });
         const task = { task_description: 'test' };
         const result = await commandBuilders.buildCodexCommand(task, null, '', null);
 
         if (isWin) {
-          expect(result.cliPath).toBe('codex.cmd');
+          // On Windows, buildCodexCommand prefers the bundled native codex.exe
+          // (to skip the node-wrapper layer that causes pwsh flashes). Fall
+          // back to 'codex.cmd' when the resolver can't find a native binary.
+          expect(result.cliPath === 'codex.cmd' || /codex\.exe$/i.test(result.cliPath)).toBe(true);
         } else {
           expect(result.cliPath).toBe('codex');
         }
@@ -481,7 +484,11 @@ describe('execution/command-builders', () => {
         const task = { task_description: 'test' };
         const result = await commandBuilders.buildCodexCommand(task, {}, '', null);
 
-        expect(result.cliPath).toBe(isWin ? 'codex.cmd' : 'codex');
+        if (isWin) {
+          expect(result.cliPath === 'codex.cmd' || /codex\.exe$/i.test(result.cliPath)).toBe(true);
+        } else {
+          expect(result.cliPath).toBe('codex');
+        }
       });
     });
 
@@ -508,7 +515,11 @@ describe('execution/command-builders', () => {
           '-',
         ]);
         expect(result.stdinPrompt).toContain('Implement auth system');
-        expect(result.cliPath).toBe(isWin ? 'codex.cmd' : 'codex');
+        if (isWin) {
+          expect(result.cliPath === 'codex.cmd' || /codex\.exe$/i.test(result.cliPath)).toBe(true);
+        } else {
+          expect(result.cliPath).toBe('codex');
+        }
       });
 
       it('builds minimal codex command (no model, no working_directory, no auto_approve)', async () => {
