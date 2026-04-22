@@ -30,6 +30,8 @@ const Module = require('module');
 const childProcess = require('child_process');
 
 function wireSharedServerNodeModules() {
+  // Keep worker setup to path wiring only; importing high fan-out server modules here
+  // would cache them before each test file gets its own module graph.
   const sharedServerNodeModules = path.resolve(__dirname, '..', '..', '..', '..', 'server', 'node_modules');
   if (!fs.existsSync(sharedServerNodeModules)) return;
 
@@ -133,4 +135,11 @@ childProcess.spawnSync = function(command, args, options) {
     };
   }
   return _realSpawnSync.call(this, command, args, options);
+};
+
+module.exports = {
+  wireSharedServerNodeModules,
+  isGitCommand,
+  getSubcommand,
+  stubGitOutput,
 };
