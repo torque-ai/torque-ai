@@ -22,6 +22,7 @@ function createFactoryTables(db) {
       loop_batch_id TEXT,
       loop_last_action_at TEXT,
       loop_paused_at_stage TEXT,
+      consecutive_empty_cycles INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -135,6 +136,48 @@ describe('PRIORITIZE short-circuit on empty intake', () => {
       reason: 'no_open_work_item',
       from_state: LOOP_STATES.PRIORITIZE,
       to_state: LOOP_STATES.IDLE,
+      consecutive_empty_cycles: 1,
+    });
+  });
+
+  it('enters STARVED after repeated empty PRIORITIZE cycles', async () => {
+    const project = factoryHealth.registerProject({
+      name: 'starved-intake-project',
+      path: `${process.cwd()}\\starved`,
+      trust_level: 'dark',
+    });
+    factoryHealth.updateProject(project.id, {
+      status: 'running',
+      consecutive_empty_cycles: 2,
+    });
+    const instance = factoryLoopInstances.createInstance({ project_id: project.id });
+    const prioritizeInstance = factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.PRIORITIZE,
+    });
+
+    const result = await loopController._internalForTests.handlePrioritizeTransition({
+      project: factoryHealth.getProject(project.id),
+      instance: prioritizeInstance,
+      currentState: LOOP_STATES.PRIORITIZE,
+    });
+
+    expect(result.transitionReason).toBe('no_open_work_item');
+    expect(result.nextState).toBe(LOOP_STATES.STARVED);
+    expect(factoryLoopInstances.getInstance(instance.id).loop_state).toBe(LOOP_STATES.STARVED);
+    expect(factoryHealth.getProject(project.id).consecutive_empty_cycles).toBe(3);
+
+    const decision = db.prepare(`
+      SELECT action, outcome_json
+      FROM factory_decisions
+      WHERE action = 'entered_starved'
+    `).get();
+    expect(decision).toBeTruthy();
+    expect(JSON.parse(decision.outcome_json)).toMatchObject({
+      reason: 'no_open_work_item',
+      from_state: LOOP_STATES.PRIORITIZE,
+      to_state: LOOP_STATES.STARVED,
+      consecutive_empty_cycles: 3,
+      threshold: 3,
     });
   });
 });

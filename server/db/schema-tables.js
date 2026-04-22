@@ -3574,6 +3574,7 @@ function createTables(db, logger) {
         loop_batch_id TEXT,
         loop_last_action_at TEXT,
         loop_paused_at_stage TEXT,
+        consecutive_empty_cycles INTEGER DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       )

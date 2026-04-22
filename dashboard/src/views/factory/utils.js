@@ -50,6 +50,7 @@ export const LOOP_STAGE_COLORS = {
   LEARN: 'bg-pink-500',
   IDLE: 'bg-slate-600',
   PAUSED: 'bg-amber-400',
+  STARVED: 'bg-rose-500',
 };
 
 export const INTAKE_SOURCE_BADGE_STYLES = {

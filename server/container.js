@@ -295,6 +295,62 @@ _defaultContainer.register(
   }
 );
 
+_defaultContainer.register(
+  'starvationRecovery',
+  ['logger', 'eventBus'],
+  ({ logger: log, eventBus }) => {
+    const { createStarvationRecovery } = require('./factory/starvation-recovery');
+    const { handleSubmitScout } = require('./handlers/diffusion-handlers');
+    const factoryHealth = require('./db/factory-health');
+    const factoryLoopInstances = require('./db/factory-loop-instances');
+    const recoveryLogger = log?.child
+      ? log.child({ component: 'starvation-recovery' })
+      : log;
+
+    return createStarvationRecovery({
+      logger: recoveryLogger,
+      submitScout: async (opts) => handleSubmitScout({
+        scope: opts.scope,
+        working_directory: opts.working_directory || opts.project_path,
+        file_patterns: opts.file_patterns,
+        provider: opts.provider || 'codex',
+        timeout_minutes: opts.timeout_minutes || 30,
+      }),
+      updateLoopState: async (projectId, updates) => {
+        const activeInstances = factoryLoopInstances.listInstances({
+          project_id: projectId,
+          active_only: true,
+        });
+        const starvedInstance = activeInstances.find((instance) => instance.loop_state === 'STARVED');
+        const lastActionAt = updates.loop_last_action_at || new Date().toISOString();
+        if (starvedInstance) {
+          factoryLoopInstances.updateInstance(starvedInstance.id, {
+            loop_state: updates.loop_state,
+            paused_at_stage: updates.loop_paused_at_stage || null,
+            last_action_at: lastActionAt,
+          });
+        }
+
+        const projectUpdates = {
+          loop_state: updates.loop_state,
+          loop_last_action_at: lastActionAt,
+          loop_paused_at_stage: updates.loop_paused_at_stage || null,
+          consecutive_empty_cycles: updates.consecutive_empty_cycles || 0,
+        };
+        const project = factoryHealth.updateProject(projectId, projectUpdates);
+        eventBus?.emitFactoryLoopChanged?.({
+          type: 'state_changed',
+          project_id: projectId,
+          instance_id: starvedInstance?.id || null,
+          loop_state: updates.loop_state,
+          paused_at_stage: updates.loop_paused_at_stage || null,
+        });
+        return project;
+      },
+    });
+  }
+);
+
 
 function getModule(name) {
   try {

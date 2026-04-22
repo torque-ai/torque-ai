@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { factory as factoryApi } from '../api';
 import LoadingSkeleton from '../components/LoadingSkeleton';
+import { StarvationBanner } from '../components/StarvationBanner';
 import StatCard from '../components/StatCard';
 import { useToast } from '../components/Toast';
 import { ProjectCard } from './factory/shared';
@@ -129,17 +130,19 @@ export default function Factory() {
 
           <div className="grid gap-6 xl:grid-cols-3">
             {projects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                activity={projectActivity[project.id]}
-                selected={outletContext.selectedProjectId === project.id}
-                busy={activeProjectAction === project.id}
-                onSelect={setSelectedProjectId}
-                onToggle={handleToggleProject}
-                onClearAutoRecovery={handleClearAutoRecovery}
-                clearAutoRecoveryBusy={clearRecoveryProjectId === project.id}
-              />
+              <div key={project.id} className="space-y-3">
+                <StarvationBanner project={project} />
+                <ProjectCard
+                  project={project}
+                  activity={projectActivity[project.id]}
+                  selected={outletContext.selectedProjectId === project.id}
+                  busy={activeProjectAction === project.id}
+                  onSelect={setSelectedProjectId}
+                  onToggle={handleToggleProject}
+                  onClearAutoRecovery={handleClearAutoRecovery}
+                  clearAutoRecoveryBusy={clearRecoveryProjectId === project.id}
+                />
+              </div>
             ))}
           </div>
 

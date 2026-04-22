@@ -10,6 +10,7 @@ const LOOP_STATES = Object.freeze({
   LEARN: 'LEARN',
   IDLE: 'IDLE',
   PAUSED: 'PAUSED',
+  STARVED: 'STARVED',
 });
 
 const TRANSITIONS = Object.freeze({
@@ -93,7 +94,11 @@ function getPendingGateStage(currentState, trustLevel) {
   assertValidState(currentState);
   assertValidTrustLevel(trustLevel);
 
-  if (currentState === LOOP_STATES.IDLE || currentState === LOOP_STATES.PAUSED) {
+  if (
+    currentState === LOOP_STATES.IDLE
+    || currentState === LOOP_STATES.PAUSED
+    || currentState === LOOP_STATES.STARVED
+  ) {
     return null;
   }
 
@@ -130,7 +135,11 @@ function getNextState(currentState, trustLevel, approvalStatus) {
   assertValidTrustLevel(trustLevel);
   assertValidApprovalStatus(approvalStatus);
 
-  if (currentState === LOOP_STATES.IDLE || currentState === LOOP_STATES.PAUSED) {
+  if (
+    currentState === LOOP_STATES.IDLE
+    || currentState === LOOP_STATES.PAUSED
+    || currentState === LOOP_STATES.STARVED
+  ) {
     return currentState;
   }
 

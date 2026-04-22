@@ -31,6 +31,7 @@ function createFactoryTables(db) {
       loop_batch_id TEXT,
       loop_last_action_at TEXT,
       loop_paused_at_stage TEXT,
+      consecutive_empty_cycles INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
@@ -124,7 +125,7 @@ afterAll(() => {
 });
 
 describe('loop-states', () => {
-  it('exports all 9 states (including PLAN_REVIEW)', () => {
+  it('exports all 10 states (including PLAN_REVIEW and STARVED)', () => {
     expect(LOOP_STATES).toEqual({
       SENSE: 'SENSE',
       PRIORITIZE: 'PRIORITIZE',
@@ -135,8 +136,9 @@ describe('loop-states', () => {
       LEARN: 'LEARN',
       IDLE: 'IDLE',
       PAUSED: 'PAUSED',
+      STARVED: 'STARVED',
     });
-    expect(Object.keys(LOOP_STATES)).toHaveLength(9);
+    expect(Object.keys(LOOP_STATES)).toHaveLength(10);
   });
 
   it('TRANSITIONS maps full cycle (LEARN terminates at IDLE by default)', () => {
@@ -209,9 +211,10 @@ describe('loop-states', () => {
     expect(getNextState(LOOP_STATES.SENSE, 'supervised', 'rejected')).toBe(LOOP_STATES.IDLE);
   });
 
-  it('getNextState returns IDLE/PAUSED unchanged for terminal states', () => {
+  it('getNextState returns terminal states unchanged', () => {
     expect(getNextState(LOOP_STATES.IDLE, 'dark', null)).toBe(LOOP_STATES.IDLE);
     expect(getNextState(LOOP_STATES.PAUSED, 'dark', null)).toBe(LOOP_STATES.PAUSED);
+    expect(getNextState(LOOP_STATES.STARVED, 'dark', null)).toBe(LOOP_STATES.STARVED);
   });
 });
 

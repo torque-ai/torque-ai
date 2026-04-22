@@ -20,6 +20,7 @@ const { runRejectedRecoverySweep } = require('./rejected-recovery');
 const { recoverStalledVerifyLoops } = require('./verify-stall-recovery');
 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
 const factoryNotifications = require('./notifications');
+const { LOOP_STATES } = require('./loop-states');
 const logger = require('../logger').child({ component: 'factory-tick' });
 
 const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -28,6 +29,35 @@ const activeTimers = new Map(); // project_id → intervalId
 function getProjectConfig(project) {
   if (!project.config_json) return {};
   try { return JSON.parse(project.config_json); } catch (_e) { void _e; return {}; }
+}
+
+async function maybeRecoverStarvedProject(project) {
+  try {
+    const container = require('../container').defaultContainer;
+    const starvationRecovery = container.get('starvationRecovery');
+    if (!starvationRecovery || typeof starvationRecovery.maybeRecover !== 'function') {
+      return null;
+    }
+    const result = await starvationRecovery.maybeRecover(project);
+    if (result?.recovered) {
+      logger.info('Factory tick recovered STARVED project', {
+        project_id: project.id,
+        reason: result.reason,
+      });
+    } else if (result?.reason && result.reason !== 'not_starved') {
+      logger.debug('Factory tick left STARVED project parked', {
+        project_id: project.id,
+        reason: result.reason,
+      });
+    }
+    return result;
+  } catch (err) {
+    logger.warn('Factory tick: STARVED recovery failed', {
+      project_id: project?.id,
+      err: err.message,
+    });
+    return null;
+  }
 }
 
 async function tickProject(project) {
@@ -129,6 +159,11 @@ async function tickProject(project) {
       return; // paused projects stay paused until explicitly resumed
     }
 
+    if (freshProject && freshProject.loop_state === LOOP_STATES.STARVED) {
+      await maybeRecoverStarvedProject(freshProject);
+      return;
+    }
+
     // Reconcile orphan worktrees left behind by prior crashed/restarted
     // instances. If a .worktrees/feat-factory-* dir exists with its
     // factory_worktrees row marked abandoned/shipped/merged (or missing
@@ -177,7 +212,16 @@ async function tickProject(project) {
       }
 
       // Skip terminated or idle instances
-      if (state === 'IDLE') continue;
+      if (state === LOOP_STATES.IDLE) continue;
+
+      if (state === LOOP_STATES.STARVED) {
+        await maybeRecoverStarvedProject({
+          ...latestProject,
+          loop_state: LOOP_STATES.STARVED,
+          loop_last_action_at: instance.last_action_at || latestProject.loop_last_action_at,
+        });
+        continue;
+      }
 
       // Self-heal: VERIFY gate pauses with reason `batch_tasks_not_terminal`
       // don't clear on their own when the blocking batch tasks finish, because
@@ -307,7 +351,11 @@ async function tickProject(project) {
       return;
     }
     const cfg = getProjectConfig(projectBeforeAutoStart);
-    if (cfg?.loop?.auto_continue && instances.filter(i => !i.terminated_at).length === 0) {
+    if (
+      cfg?.loop?.auto_continue
+      && projectBeforeAutoStart.loop_state !== LOOP_STATES.STARVED
+      && instances.filter(i => !i.terminated_at).length === 0
+    ) {
       try {
         loopController.startLoopAutoAdvance(project.id);
         logger.info('Factory tick: started new auto-advance loop', {
