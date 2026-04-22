@@ -288,7 +288,7 @@ Stage `server/tool-defs/workflow-defs.js` and `server/handlers/workflow/index.js
 
 ## Task 4: Wire into task-startup
 
-- [ ] **Step 1: Branch on mode in `task-startup.js`**
+- [x] **Step 1: Branch on mode in `task-startup.js`**
 
 Find where the provider is dispatched. Before the normal single-provider path, check for architect_editor mode:
 
@@ -303,7 +303,7 @@ if (taskMeta.mode === 'architect_editor') {
 // ...existing single-provider dispatch path
 ```
 
-- [ ] **Step 2: Implement `runArchitectEditorTask`**
+- [x] **Step 2: Implement `runArchitectEditorTask`**
 
 Add to `task-startup.js`:
 
@@ -361,7 +361,7 @@ async function runArchitectEditorTask(task, taskMeta, taskId) {
 
 (Adjust `runStandardTaskStartup` to whatever the existing single-provider entry point is named. Re-entry needs the `_architect_done` sentinel to avoid an infinite loop.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 Stage `server/execution/task-startup.js`. Commit: `feat(architect-editor): branch task-startup on mode=architect_editor`.
 
