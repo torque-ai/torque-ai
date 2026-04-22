@@ -846,7 +846,7 @@ git push --no-verify origin main
 **Files:**
 - Modify: `server/api/routes-passthrough.js`
 
-- [ ] **Step 1: Add routes to the passthrough table**
+- [x] **Step 1: Add routes to the passthrough table**
 
 Open `server/api/routes-passthrough.js`. Find the workflows route block (search for `create_workflow`). Add these entries alongside it:
 
@@ -856,13 +856,13 @@ Open `server/api/routes-passthrough.js`. Find the workflows route block (search 
 { method: 'POST', path: '/api/v2/workflow-specs/run', tool: 'run_workflow_spec', mapBody: true },
 ```
 
-- [ ] **Step 2: Verify routes register without error**
+- [x] **Step 2: Verify routes register without error**
 
 Run on remote, from the `server/` dir: `node -e "require('./api/routes-passthrough'); console.log('ok')"`
 
 Expected: `ok`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add server/api/routes-passthrough.js
