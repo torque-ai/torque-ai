@@ -47,7 +47,7 @@
 - Create: `server/workflow-spec/parse.js`
 - Test: `server/tests/workflow-spec-parse.test.js`
 
-- [ ] **Step 1: Write the JSON schema**
+- [x] **Step 1: Write the JSON schema**
 
 Create `server/workflow-spec/schema.js`:
 
@@ -102,7 +102,7 @@ const WORKFLOW_SPEC_SCHEMA = {
 module.exports = { WORKFLOW_SPEC_SCHEMA };
 ```
 
-- [ ] **Step 2: Write failing tests for the parser**
+- [x] **Step 2: Write failing tests for the parser**
 
 Create `server/tests/workflow-spec-parse.test.js`:
 
@@ -183,13 +183,13 @@ tasks:
 });
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run on remote: `npx vitest run tests/workflow-spec-parse.test.js --no-coverage` (inside the `server/` dir)
 
 Expected: FAIL with "Cannot find module '../workflow-spec/parse'"
 
-- [ ] **Step 4: Implement the parser**
+- [x] **Step 4: Implement the parser**
 
 Create `server/workflow-spec/parse.js`:
 
@@ -259,19 +259,19 @@ function parseSpec(filePath) {
 module.exports = { parseSpec, parseSpecString };
 ```
 
-- [ ] **Step 5: Verify `ajv` and `js-yaml` are installed**
+- [x] **Step 5: Verify `ajv` and `js-yaml` are installed**
 
 Run on remote, from the server dir: `node -e "require('js-yaml'); require('ajv'); console.log('ok')"`
 
 Expected: `ok`. If either is missing, `npm install ajv js-yaml --save` in the `server/` package.
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run on remote: `npx vitest run tests/workflow-spec-parse.test.js --no-coverage`
 
 Expected: PASS — all 6 tests green.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add server/workflow-spec/schema.js server/workflow-spec/parse.js server/tests/workflow-spec-parse.test.js
