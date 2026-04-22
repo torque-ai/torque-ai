@@ -427,7 +427,7 @@ git push --no-verify origin main
 
 ## Task 6: Docs + restart + smoke
 
-- [ ] **Step 1: `docs/workflows.md`**
+- [x] **Step 1: `docs/workflows.md`**
 
 Append:
 
@@ -462,7 +462,7 @@ condenser:
 ```
 ````
 
-- [ ] **Step 2: Restart, smoke**
+- [x] **Step 2: Restart, smoke**
 
 `await_restart`. Submit a workflow with 5+ context-chained tasks producing big outputs, set `threshold_tokens: 5000`. Inspect a downstream task's prompt — expect a `[CONDENSED HISTORY]` block instead of full upstream output.
 
