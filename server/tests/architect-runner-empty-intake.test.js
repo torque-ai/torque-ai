@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, beforeEach, vi } = require('vitest');
 const architectRunner = require('../factory/architect-runner');
 const factoryIntake = require('../db/factory-intake');
 const factoryArchitect = require('../db/factory-architect');
@@ -23,7 +22,7 @@ describe('runArchitectCycle empty-intake guard', () => {
     }));
     const llmSpy = vi.spyOn(architectRunner._internalForTests, 'runArchitectLLM');
 
-    const cycle = await architectRunner.runArchitectCycle('p1', 'test');
+    const cycle = await architectRunner.runArchitectCycle('p1', 'loop_plan');
 
     expect(llmSpy).not.toHaveBeenCalled();
     expect(createCycle).toHaveBeenCalledTimes(1);

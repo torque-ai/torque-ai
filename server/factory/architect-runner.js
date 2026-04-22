@@ -576,7 +576,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   const openItems = factoryIntake.listOpenWorkItems({ project_id });
   const intakeItems = normalizeIntakeItems(openItems.filter((item) => !CLOSED_WORK_ITEM_STATUSES.has(item.status)));
 
-  if (intakeItems.length === 0) {
+  if (trigger === 'loop_plan' && intakeItems.length === 0) {
     logger.info('Architect cycle skipping LLM; intake is empty', { project_id });
     const cycle = factoryArchitect.createCycle({
       project_id,
@@ -584,7 +584,7 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
         healthScores,
         intakeItems: [],
       },
-      reasoning: 'no open work items; architect LLM skipped',
+      reasoning: 'no open work items during loop_plan; architect LLM skipped',
       backlog: [],
       flags: [],
       llm_used: false,
