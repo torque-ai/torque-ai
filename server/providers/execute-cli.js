@@ -18,6 +18,7 @@ const gitWorktree = require('../utils/git-worktree');
 const { buildSafeEnv } = require('../utils/safe-env');
 const serverConfig = require('../config');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
+const { resolveCodexNativeBinary } = require('../execution/codex-native-resolve');
 
 // Subprocess exit-code sentinels for cases where there is no real exit code
 // (the subprocess either never ran, was torn down before tracking, or the
@@ -219,6 +220,7 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
 
     let cliPath;
     let finalArgs;
+    const envExtras = {};
     if (providerConfig && providerConfig.cli_path) {
       cliPath = providerConfig.cli_path;
       if (process.platform === 'win32' && !path.extname(cliPath)) {
@@ -226,8 +228,26 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
       }
       finalArgs = codexArgs;
     } else if (process.platform === 'win32') {
-      cliPath = 'codex.cmd';
-      finalArgs = codexArgs;
+      // Prefer launching the bundled native codex.exe directly. The `codex.cmd`
+      // shim invokes `node codex.js` which spawns `codex.exe` which spawns a
+      // visible `pwsh.exe` for the command-safety AST parser. windowsHide:true
+      // on our own spawn doesn't propagate through the node wrapper, so every
+      // factory task flashes a PowerShell window. Skipping the node layer puts
+      // us in the best position to control descendant-window semantics.
+      const native = resolveCodexNativeBinary();
+      if (native) {
+        logger.info(`[BuildCodex] Using native codex binary at ${native.binaryPath}`);
+        cliPath = native.binaryPath;
+        finalArgs = codexArgs;
+        // spawnAndTrackProcess will prepend this to PATH alongside NVM_NODE_PATH.
+        envExtras.__TORQUE_CODEX_VENDOR_PATH = native.vendorPathDir || '';
+        // Mirror the npm wrapper's identity marker so codex.exe behaves the same.
+        envExtras.CODEX_MANAGED_BY_NPM = '1';
+      } else {
+        logger.info('[BuildCodex] Native codex.exe not resolvable; falling back to codex.cmd');
+        cliPath = 'codex.cmd';
+        finalArgs = codexArgs;
+      }
     } else if (_NVM_NODE_PATH) {
       cliPath = path.join(_NVM_NODE_PATH, 'node');
       finalArgs = [path.join(_NVM_NODE_PATH, 'codex'), ...codexArgs];
@@ -236,7 +256,7 @@ function buildCodexCommand(task, resolvedFileContext, providerConfig, opts = {})
       finalArgs = codexArgs;
     }
 
-    return { cliPath, finalArgs, stdinPrompt, envExtras: {}, selectedOllamaHostId: null, usedEditFormat: null };
+    return { cliPath, finalArgs, stdinPrompt, envExtras, selectedOllamaHostId: null, usedEditFormat: null };
 }
 
 /**
@@ -281,9 +301,21 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
 
   // Ensure nvm node path is in PATH if available
   const envPath = process.env.PATH || '';
-  const updatedPath = (_NVM_NODE_PATH && !envPath.includes(_NVM_NODE_PATH))
+  let updatedPath = (_NVM_NODE_PATH && !envPath.includes(_NVM_NODE_PATH))
     ? `${_NVM_NODE_PATH}:${envPath}`
     : envPath;
+
+  // Native Codex launches ship with bundled tools (rg.exe) in a vendor `path/`
+  // dir that the npm shim normally prepends to PATH. Mirror that when we
+  // bypass the shim so the native binary finds its companions. Marker is
+  // stripped from envExtras so it never reaches the child process directly.
+  const nativeVendorPath = envExtras ? envExtras.__TORQUE_CODEX_VENDOR_PATH : '';
+  if (envExtras && '__TORQUE_CODEX_VENDOR_PATH' in envExtras) {
+    delete envExtras.__TORQUE_CODEX_VENDOR_PATH;
+  }
+  if (nativeVendorPath && !updatedPath.split(path.delimiter).includes(nativeVendorPath)) {
+    updatedPath = `${nativeVendorPath}${path.delimiter}${updatedPath}`;
+  }
 
   // SECURITY: Set GIT_CEILING_DIRECTORIES to prevent git from traversing above
   // the working directory. For worktree-isolated Codex tasks, this limits git
