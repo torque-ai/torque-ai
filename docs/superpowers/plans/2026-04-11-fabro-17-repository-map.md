@@ -529,15 +529,15 @@ Run → PASS. Commit: `feat(repo-map): inject_repo_map per-task + get_repo_map M
 
 ## Task 6: Workflow-spec (skip if Plan 1 not shipped) + docs + restart
 
-- [ ] **Step 1: Schema (if Plan 1 shipped)**
+- [x] **Step 1: Schema (if Plan 1 shipped)**
 
 Add `inject_repo_map: { type: 'boolean' }` to `tasks.items.properties` in `server/workflow-spec/schema.js`.
 
-- [ ] **Step 2: Docs**
+- [x] **Step 2: Docs**
 
 Create `docs/repo-map.md` with a usage guide. Include: when to use (cross-file refactors, greenfield generation), caching behavior, supported languages (js/ts/py), and the MCP tool reference.
 
-- [ ] **Step 3: Restart, smoke**
+- [x] **Step 3: Restart, smoke**
 
 `await_restart`. Then call the MCP tool to retrieve the map for the TORQUE project itself. Expect a Markdown map with `server/task-manager.js` near the top (highest centrality given its fan-in).
 
