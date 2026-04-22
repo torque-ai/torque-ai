@@ -194,7 +194,7 @@ feat(hooks): lifecycle hook dispatcher with timeout + block-on-exit-nonzero
 
 ## Task 2: Wire into runtime
 
-- [ ] **Step 1: TaskStart in `task-startup.js`**
+- [x] **Step 1: TaskStart in `task-startup.js`**
 
 Right at the entry of `startTask`:
 
@@ -212,7 +212,7 @@ try {
 } catch (e) { logger.info(`[hooks] TaskStart dispatch failed: ${e.message}`); }
 ```
 
-- [ ] **Step 2: TaskComplete in `task-finalizer.js`**
+- [x] **Step 2: TaskComplete in `task-finalizer.js`**
 
 After the final `updateTaskStatus`:
 
@@ -225,7 +225,7 @@ try {
 
 (Pre/Post tool hooks require deeper integration into provider execution loops — leave for v2.)
 
-- [ ] **Step 3: WorkflowStart/WorkflowComplete in `workflow-runtime.js`**
+- [x] **Step 3: WorkflowStart/WorkflowComplete in `workflow-runtime.js`**
 
 At the `startWorkflow` entry and at finalization:
 
