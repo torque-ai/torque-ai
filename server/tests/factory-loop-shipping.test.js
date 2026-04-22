@@ -1025,4 +1025,70 @@ describe('factory loop work-item shipping', () => {
     const decisions = listDecisionRows(db, project.id);
     expect(decisions.find((row) => row.action === 'healed_already_shipped')).toBeUndefined();
   });
+
+  it('claims a fallback item instead of reporting empty intake when stale-probe skip budget is exhausted', async () => {
+    const staleProbe = require('../factory/stale-probe');
+    const project = factoryHealth.registerProject({
+      name: `Factory Stale Probe Fallback ${Date.now()}`,
+      path: `/tmp/factory-stale-fallback-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      trust_level: 'dark',
+    });
+
+    const staleItems = [];
+    for (const [index, priority] of [100, 99, 98].entries()) {
+      const item = factoryIntake.createWorkItem({
+        project_id: project.id,
+        source: 'scout',
+        title: `Stale scout ${index + 1}`,
+        priority,
+        requestor: 'test',
+      });
+      factoryIntake.updateWorkItem(item.id, { status: 'prioritized' });
+      staleItems.push(item);
+    }
+
+    const fallback = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'scout',
+      title: 'Fallback scout after stale budget',
+      priority: 97,
+      requestor: 'test',
+    });
+    factoryIntake.updateWorkItem(fallback.id, { status: 'prioritized' });
+
+    const staleIds = new Set(staleItems.map((item) => item.id));
+    const probeSpy = vi.spyOn(staleProbe, 'probeStaleness').mockImplementation(async (item) => (
+      staleIds.has(item.id)
+        ? { stale: true, reason: 'target_file_deleted', commits_since_scan: 0, probe_ms: 0 }
+        : { stale: false, reason: 'fresh', commits_since_scan: 0, probe_ms: 0 }
+    ));
+
+    try {
+      const result = await loopController._internalForTests.claimNextWorkItemForInstance(
+        project.id,
+        'instance-stale-fallback',
+      );
+
+      expect(result.workItem).toBeTruthy();
+      expect(result.workItem.id).toBe(fallback.id);
+      expect(result.workItem.claimed_by_instance_id).toBe('instance-stale-fallback');
+      expect(probeSpy).toHaveBeenCalledTimes(3);
+
+      for (const item of staleItems) {
+        expect(factoryIntake.getWorkItem(item.id).status).toBe('shipped_stale');
+      }
+
+      const decisions = listDecisionRows(db, project.id);
+      const budgetEntry = decisions.find((row) => row.action === 'stale_probe_budget_exhausted');
+      expect(budgetEntry).toBeTruthy();
+      expect(budgetEntry.outcome).toMatchObject({
+        skipped: staleItems.map((item) => item.id),
+        max_repicks: 3,
+        fallback_work_item_id: fallback.id,
+      });
+      expect(decisions.find((row) => row.action === 'stale_probe_starvation')).toBeUndefined();
+    } finally {
+      probeSpy.mockRestore();
+    }
+  });
 });
