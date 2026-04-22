@@ -158,6 +158,7 @@ const TOOL_TIER_LABELS = {
 const HANDLER_MODULES = [
   require('./handlers/task'),
   require('./handlers/workflow'),
+  require('./handlers/workflow-spec-handlers'),
   require('./handlers/validation'),
   require('./handlers/provider-handlers'),
   require('./handlers/provider-crud-handlers'),

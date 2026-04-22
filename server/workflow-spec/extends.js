@@ -54,7 +54,7 @@ function shallowMergeTopLevel(base, child) {
   return merged;
 }
 
-async function resolveExtends(specPath) {
+function resolveExtends(specPath) {
   const errors = [];
   const visited = new Set();
 
