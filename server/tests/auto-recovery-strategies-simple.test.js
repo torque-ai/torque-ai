@@ -13,6 +13,7 @@ function makeServices(overrides = {}) {
     rejectWorkItem: async (x) => { calls.reject = x; return { ok: true }; },
     advanceLoop: async (x) => { calls.advance = x; return { ok: true }; },
     rejectGate: async (x) => { calls.rejectGate = x; return { ok: true }; },
+    startLoop: async (x) => { calls.startLoop = x; return { ok: true }; },
     pauseProject: async (x) => { calls.pause = x; return { ok: true }; },
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     ...overrides,
@@ -81,6 +82,29 @@ describe('simple strategies', () => {
       project_id: 'p1', work_item_id: 42, reason: 'auto_recovery_reject_and_advance',
     });
     expect(services.calls.rejectGate).toEqual({ project_id: 'p1', stage: 'EXECUTE' });
+  });
+
+  it('reject_and_advance starts a fresh loop when the previous instance is already idle', async () => {
+    const services = makeServices({
+      advanceLoop: async (x) => {
+        services.calls.advance = x;
+        throw new Error('Loop not started for this project');
+      },
+    });
+    const workDecision = {
+      stage: 'execute',
+      action: 'paused_at_gate',
+      outcome: { work_item_id: 42 },
+    };
+    const r = await rejectAndAdvance.run({
+      project, decision: workDecision, services,
+      classification: { category: 'structural_failure' },
+    });
+    expect(r.outcome.loop_started).toBe(true);
+    expect(services.calls.reject).toEqual({
+      project_id: 'p1', work_item_id: 42, reason: 'auto_recovery_reject_and_advance',
+    });
+    expect(services.calls.startLoop).toEqual({ project_id: 'p1', auto_advance: true });
   });
 
   it('escalate pauses the project', async () => {

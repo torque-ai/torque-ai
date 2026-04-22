@@ -265,6 +265,12 @@ _defaultContainer.register('autoRecoveryServices', ['db', 'eventBus', 'logger'],
         if (!loopController) throw new Error('factory loop controller unavailable');
         return loopController.rejectGateForProject(project_id, stage);
       },
+      startLoop: async ({ project_id, auto_advance }) => {
+        if (!loopController) throw new Error('factory loop controller unavailable');
+        return auto_advance
+          ? loopController.startLoopAutoAdvanceForProject(project_id)
+          : loopController.startLoopForProject(project_id);
+      },
       pauseProject: async ({ project_id }) => {
         if (!factoryHealth) throw new Error('factory health service unavailable');
         return factoryHealth.updateProject(project_id, { status: 'paused' });

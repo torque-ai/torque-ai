@@ -76,6 +76,7 @@ function createAutoRecoveryServices({ db, eventBus, logger, extras = {} }) {
     rejectWorkItem: extras.rejectWorkItem || null,
     advanceLoop: extras.advanceLoop || null,
     rejectGate: extras.rejectGate || null,
+    startLoop: extras.startLoop || null,
     pauseProject: extras.pauseProject || null,
     retryPlanGeneration: extras.retryPlanGeneration || null,
     recreateWorktree: extras.recreateWorktree || null,
