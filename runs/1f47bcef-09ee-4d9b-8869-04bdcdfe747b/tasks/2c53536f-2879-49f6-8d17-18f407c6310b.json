@@ -1,0 +1,20 @@
+{
+  "id": "2c53536f-2879-49f6-8d17-18f407c6310b",
+  "workflow_node_id": "A",
+  "task_description": "Task 2c53536f",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-xKVjdM",
+  "status": "failed",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}

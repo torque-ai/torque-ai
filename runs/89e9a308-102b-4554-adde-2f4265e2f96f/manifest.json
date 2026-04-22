@@ -1,0 +1,17 @@
+{
+  "workflow_id": "89e9a308-102b-4554-adde-2f4265e2f96f",
+  "name": "fork-wf",
+  "status": "failed",
+  "created_at": "2026-04-22T20:08:54.476Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:08:54.628Z",
+  "working_directory": null,
+  "task_count": 3,
+  "task_ids": [
+    "aa17e301-af2f-40a4-ae11-55aa55098915",
+    "ecbe73b7-dab8-4018-9394-79f2c94ba709",
+    "0a1f4a5e-f8f3-43c8-8d67-9c9e871e8cfe"
+  ],
+  "bundle_built_at": "2026-04-22T20:08:54.630Z",
+  "bundle_format_version": 1
+}

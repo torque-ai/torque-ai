@@ -1,0 +1,61 @@
+{
+  "id": "ecbe73b7-dab8-4018-9394-79f2c94ba709",
+  "workflow_node_id": null,
+  "task_description": "Task A2",
+  "working_directory": null,
+  "status": "failed",
+  "provider": "ollama",
+  "original_provider": "ollama",
+  "model": "default-model",
+  "exit_code": 1,
+  "started_at": "2026-04-22T20:08:54.606Z",
+  "completed_at": "2026-04-22T20:08:54.624Z",
+  "output": null,
+  "error_output": "Could not connect to Ollama (host: default). Ensure Ollama is running: ollama serve | Or configure a different host: torque config set ollama_host http://your-host:11434 | Original error: ",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama",
+    "auto_routed": true,
+    "original_requested_provider": "ollama",
+    "intended_provider": "ollama",
+    "provider_decision_trace": {
+      "version": 1,
+      "selected_provider": "ollama",
+      "chosen_provider": "ollama",
+      "requested_provider": "ollama",
+      "original_provider": "ollama",
+      "intended_provider": "ollama",
+      "user_provider_override": false,
+      "auto_routed": true,
+      "selected_at": "2026-04-22T20:08:54.600Z",
+      "selection_reason": "Requested/default provider",
+      "cause": "requested_provider",
+      "switch_reason": null,
+      "selected_candidate": {
+        "provider": "ollama",
+        "role": "primary",
+        "reason": "Requested/default provider",
+        "cause": "requested_provider",
+        "switch_reason": null,
+        "selected": true,
+        "blocked": false,
+        "blocked_reason": null
+      },
+      "fallback_candidates": [],
+      "blocked_candidates": [],
+      "candidates": [
+        {
+          "provider": "ollama",
+          "role": "primary",
+          "reason": "Requested/default provider",
+          "cause": "requested_provider",
+          "switch_reason": null,
+          "selected": true,
+          "blocked": false,
+          "blocked_reason": null
+        }
+      ]
+    }
+  }
+}
