@@ -1,0 +1,16 @@
+{
+  "workflow_id": "c7990453-5a4c-4579-978e-b3aff8f08ee8",
+  "name": "wf-deadlock-check",
+  "status": "failed",
+  "created_at": "2026-04-22T19:42:29.173Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T19:42:29.175Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "a8a6c33c-6fd8-4905-aa48-275bf2b1afdf",
+    "8b71eb99-a7f0-4fdd-88e2-5eb803eff3ed"
+  ],
+  "bundle_built_at": "2026-04-22T19:42:29.177Z",
+  "bundle_format_version": 1
+}

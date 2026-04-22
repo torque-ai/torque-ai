@@ -1,0 +1,16 @@
+{
+  "workflow_id": "c547f36e-3746-4b17-99c2-c1cc72225ab1",
+  "name": "yield-test",
+  "status": "completed",
+  "created_at": "2026-04-22T19:43:21.837Z",
+  "started_at": "2026-04-22T19:43:22.263Z",
+  "completed_at": "2026-04-22T19:43:22.302Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "4b6aac9b-5992-4a8f-8499-666d8b09163d",
+    "1f764c68-db4e-4219-950d-3511e7035d2d"
+  ],
+  "bundle_built_at": "2026-04-22T19:43:22.307Z",
+  "bundle_format_version": 1
+}

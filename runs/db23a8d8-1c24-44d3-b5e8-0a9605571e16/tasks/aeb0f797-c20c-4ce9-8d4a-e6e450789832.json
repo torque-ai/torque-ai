@@ -1,0 +1,20 @@
+{
+  "id": "aeb0f797-c20c-4ce9-8d4a-e6e450789832",
+  "workflow_node_id": "A",
+  "task_description": "Task aeb0f797",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-LzAHXM",
+  "status": "failed",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": 1,
+  "started_at": null,
+  "completed_at": "2026-04-22T19:42:29.323Z",
+  "output": null,
+  "error_output": "err",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}
