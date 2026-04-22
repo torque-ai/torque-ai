@@ -1,0 +1,16 @@
+{
+  "workflow_id": "34467c1e-f463-49c1-b088-580ee457f6d1",
+  "name": "wf-total-fail",
+  "status": "failed",
+  "created_at": "2026-04-22T19:29:05.111Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T19:29:05.113Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "7ff50240-8813-47a9-908d-cc86590f6b9c",
+    "bb2220df-1702-49ab-b789-d189c12ce2de"
+  ],
+  "bundle_built_at": "2026-04-22T19:29:05.114Z",
+  "bundle_format_version": 1
+}

@@ -1,0 +1,20 @@
+{
+  "id": "409b2481-551d-430a-b79e-41795f9285df",
+  "workflow_node_id": "lc-a",
+  "task_description": "Lifecycle A",
+  "working_directory": null,
+  "status": "cancelled",
+  "provider": null,
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama"
+  }
+}

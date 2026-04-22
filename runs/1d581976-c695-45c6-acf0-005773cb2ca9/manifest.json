@@ -1,0 +1,15 @@
+{
+  "workflow_id": "1d581976-c695-45c6-acf0-005773cb2ca9",
+  "name": "await-timeout-wf",
+  "status": "failed",
+  "created_at": "2026-04-22T19:29:09.017Z",
+  "started_at": "2026-04-22T19:29:09.020Z",
+  "completed_at": "2026-04-22T19:29:09.107Z",
+  "working_directory": null,
+  "task_count": 1,
+  "task_ids": [
+    "fac2af2f-8c91-41c0-bf27-d50191555444"
+  ],
+  "bundle_built_at": "2026-04-22T19:29:09.120Z",
+  "bundle_format_version": 1
+}

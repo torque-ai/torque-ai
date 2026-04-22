@@ -1,0 +1,16 @@
+{
+  "workflow_id": "6c67a66f-449f-4781-816e-6cbc162a38d3",
+  "name": "runtime-onfail-default",
+  "status": "failed",
+  "created_at": "2026-04-22T19:29:05.220Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T19:29:05.223Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "286442fe-23fd-421d-a1db-cceb30d3e760",
+    "edd68e58-9fb6-49c8-87e5-fab0b8d015f8"
+  ],
+  "bundle_built_at": "2026-04-22T19:29:05.226Z",
+  "bundle_format_version": 1
+}

@@ -1,0 +1,16 @@
+{
+  "workflow_id": "4715cf04-b0b0-4bd7-8347-b860599c8574",
+  "name": "wf-termination-default-skip",
+  "status": "failed",
+  "created_at": "2026-04-22T19:29:05.047Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T19:29:05.049Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "528098ee-1ee1-409c-8401-00e3da1fa0ef",
+    "540b33e1-6eff-4fea-8a95-55da9cea4215"
+  ],
+  "bundle_built_at": "2026-04-22T19:29:05.052Z",
+  "bundle_format_version": 1
+}
