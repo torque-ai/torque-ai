@@ -973,6 +973,15 @@ _workflowRuntimeModule.init({
   processQueue,
   dashboard: getDashboardBroadcaster(),
 });
+try {
+  const { resumeAllRunningWorkflows } = require('./execution/workflow-resume');
+  const result = resumeAllRunningWorkflows();
+  if (result.tasks_unblocked > 0) {
+    logger.info(`[startup] Resumed ${result.workflows_evaluated} workflow(s), unblocked ${result.tasks_unblocked} task(s)`);
+  }
+} catch (err) {
+  logger.info(`[startup] Workflow resume failed: ${err.message}`);
+}
 registerTaskStatusTransitionListener();
 
 _outputSafeguards.init({
