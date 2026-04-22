@@ -28,7 +28,7 @@
 
 ## Task 1: Architect prompt + plan parser
 
-- [ ] **Step 1: Implement prompt module**
+- [x] **Step 1: Implement prompt module**
 
 Create `server/execution/architect-prompt.js`:
 
@@ -104,7 +104,7 @@ feat(architect-editor): prompt templates + plan schema
 
 ## Task 2: Orchestrator
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/architect-editor.test.js`:
 
@@ -170,7 +170,7 @@ describe('runArchitectEditor', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/execution/architect-editor.js`:
 
@@ -238,7 +238,7 @@ feat(architect-editor): orchestrator with fallback for malformed plans
 
 ## Task 3: Per-task fields
 
-- [ ] **Step 1: Tool def**
+- [x] **Step 1: Tool def**
 
 In `server/tool-defs/workflow-defs.js` `create_workflow` `tasks.items.properties`:
 
@@ -262,7 +262,7 @@ if (taskLike.mode === 'architect_editor') {
 }
 ```
 
-- [ ] **Step 2: Validation**
+- [x] **Step 2: Validation**
 
 In `normalizeInitialWorkflowTasks`:
 
@@ -280,7 +280,7 @@ for (const task of normalized) {
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 Stage `server/tool-defs/workflow-defs.js` and `server/handlers/workflow/index.js`. Commit: `feat(architect-editor): accept mode/architect_provider/editor_provider per task`.
 
@@ -288,7 +288,7 @@ Stage `server/tool-defs/workflow-defs.js` and `server/handlers/workflow/index.js
 
 ## Task 4: Wire into task-startup
 
-- [ ] **Step 1: Branch on mode in `task-startup.js`**
+- [x] **Step 1: Branch on mode in `task-startup.js`**
 
 Find where the provider is dispatched. Before the normal single-provider path, check for architect_editor mode:
 
@@ -303,7 +303,7 @@ if (taskMeta.mode === 'architect_editor') {
 // ...existing single-provider dispatch path
 ```
 
-- [ ] **Step 2: Implement `runArchitectEditorTask`**
+- [x] **Step 2: Implement `runArchitectEditorTask`**
 
 Add to `task-startup.js`:
 
@@ -361,7 +361,7 @@ async function runArchitectEditorTask(task, taskMeta, taskId) {
 
 (Adjust `runStandardTaskStartup` to whatever the existing single-provider entry point is named. Re-entry needs the `_architect_done` sentinel to avoid an infinite loop.)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 Stage `server/execution/task-startup.js`. Commit: `feat(architect-editor): branch task-startup on mode=architect_editor`.
 
@@ -369,7 +369,7 @@ Stage `server/execution/task-startup.js`. Commit: `feat(architect-editor): branc
 
 ## Task 5: Workflow-spec (skip if Plan 1 not shipped) + docs + smoke
 
-- [ ] **Step 1: Schema**
+- [x] **Step 1: Schema**
 
 Add to `server/workflow-spec/schema.js` `tasks.items.properties`:
 
@@ -379,7 +379,7 @@ architect_provider: { type: 'string' },
 editor_provider: { type: 'string' },
 ```
 
-- [ ] **Step 2: Docs**
+- [x] **Step 2: Docs**
 
 Create `docs/architect-editor.md`:
 
@@ -416,7 +416,7 @@ Both calls are recorded as separate sub-events (`tool.called` with `phase: archi
 If the architect's response is malformed JSON, TORQUE passes the raw architect output to the editor as advisory text and proceeds. The task does not fail solely because of architect output formatting.
 ```
 
-- [ ] **Step 3: Restart, smoke**
+- [x] **Step 3: Restart, smoke**
 
 Restart TORQUE. Submit a small task with `mode: architect_editor`, `architect_provider: claude-cli`, `editor_provider: codex`. Expect: two events captured under one task, final output reflects both phases, `cost_usd` reflects both calls.
 
