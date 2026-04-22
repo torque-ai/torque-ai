@@ -214,7 +214,7 @@ git push --no-verify origin main
 
 ## Task 2: Hook bundle build into workflow finalization
 
-- [ ] **Step 1: Modify `workflow-runtime.js`**
+- [x] **Step 1: Modify `workflow-runtime.js`**
 
 Where workflow transitions to terminal status (completed/failed/cancelled), fire bundle build asynchronously:
 
@@ -228,7 +228,7 @@ try {
 } catch (e) { /* runs module unavailable */ }
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add server/execution/workflow-runtime.js
