@@ -34,11 +34,11 @@
 
 ## Task 1: Symbol extraction
 
-- [ ] **Step 1: Install deps**
+- [x] **Step 1: Install deps**
 
 In `server/`, install: `web-tree-sitter`, `tree-sitter-javascript`, `tree-sitter-typescript`, `tree-sitter-python`. Save to dependencies.
 
-- [ ] **Step 2: Tests**
+- [x] **Step 2: Tests**
 
 Create `server/tests/extract-symbols.test.js`:
 
@@ -76,7 +76,7 @@ describe('extractSymbols', () => {
 });
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `server/repo-map/extract-symbols.js`:
 
@@ -159,7 +159,7 @@ module.exports = { extractSymbols, languageFor };
 
 Run tests → PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Stage `server/repo-map/extract-symbols.js`, the test file, and the package files. Commit message: `feat(repo-map): tree-sitter symbol extraction`.
 
