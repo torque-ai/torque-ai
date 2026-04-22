@@ -12,6 +12,7 @@ module.exports = {
     let rejected = false;
     let advanced = false;
     let gateRejected = false;
+    let loopStarted = false;
     if (typeof services.rejectWorkItem === 'function' && workItemId) {
       await services.rejectWorkItem({
         project_id: project.id, work_item_id: workItemId,
@@ -24,15 +25,21 @@ module.exports = {
         await services.advanceLoop({ project_id: project.id });
         advanced = true;
       } catch (err) {
-        const isPausedGate = /loop is paused/i.test(String(err?.message || ''));
+        const message = String(err?.message || '');
+        const isPausedGate = /loop is paused/i.test(message);
+        const isIdleLoop = /loop not started/i.test(message);
         const gateStage = typeof decision?.stage === 'string'
           ? decision.stage.trim().toUpperCase()
           : '';
-        if (!isPausedGate || !gateStage || typeof services.rejectGate !== 'function') {
+        if (isPausedGate && gateStage && typeof services.rejectGate === 'function') {
+          await services.rejectGate({ project_id: project.id, stage: gateStage });
+          gateRejected = true;
+        } else if (isIdleLoop && typeof services.startLoop === 'function') {
+          await services.startLoop({ project_id: project.id, auto_advance: true });
+          loopStarted = true;
+        } else {
           throw err;
         }
-        await services.rejectGate({ project_id: project.id, stage: gateStage });
-        gateRejected = true;
       }
     } else if (typeof services.rejectGate === 'function' && decision?.action === 'paused_at_gate') {
       const gateStage = typeof decision?.stage === 'string'
@@ -51,6 +58,7 @@ module.exports = {
         rejected,
         advanced,
         gate_rejected: gateRejected,
+        loop_started: loopStarted,
       },
     };
   },
