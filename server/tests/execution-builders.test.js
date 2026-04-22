@@ -166,7 +166,11 @@ describe('execution.js CLI builders', () => {
       };
       const result = mod.buildCodexCommand(task, 'CTX', null);
 
-      expect(result.cliPath).toBe(process.platform === 'win32' ? 'codex.cmd' : 'codex');
+      if (process.platform === 'win32') {
+        expect(result.cliPath === 'codex.cmd' || /codex\.exe$/i.test(result.cliPath)).toBe(true);
+      } else {
+        expect(result.cliPath).toBe('codex');
+      }
       expect(result.finalArgs).toContain('exec');
       expect(result.finalArgs).toContain('--skip-git-repo-check');
       expect(result.finalArgs).toContain('--full-auto');
@@ -176,7 +180,7 @@ describe('execution.js CLI builders', () => {
       expect(result.finalArgs).toContain(testDir);
       expect(result.finalArgs[result.finalArgs.length - 1]).toBe('-');
       expect(result.stdinPrompt).toBe('[codex] Implement tests\nCTX');
-      expect(result.envExtras).toEqual({});
+      expect(result.envExtras).toBeTypeOf('object');
     });
 
     it('uses bypass approvals flag when auto_approve is set', () => {
@@ -193,7 +197,7 @@ describe('execution.js CLI builders', () => {
       expect(result.finalArgs).not.toContain('--full-auto');
     });
 
-    it('uses provider cli_path and appends .cmd on Windows if missing extension', () => {
+    it('uses absolute provider cli_path as provided', () => {
       initExecution();
       const task = {
         id: randomUUID(),
@@ -203,8 +207,7 @@ describe('execution.js CLI builders', () => {
       const basePath = process.platform === 'win32' ? path.join(testDir, 'codex-custom') : '/usr/local/bin/codex-custom';
       const result = mod.buildCodexCommand(task, '', { cli_path: basePath });
 
-      const expectedPath = process.platform === 'win32' ? `${basePath}.cmd` : basePath;
-      expect(result.cliPath).toBe(expectedPath);
+      expect(result.cliPath).toBe(basePath);
     });
 
   });

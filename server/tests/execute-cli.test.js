@@ -224,11 +224,7 @@ describe('execute-cli.js', () => {
       const basePath = path.join(testDir, 'custom-codex');
       const result = mod.buildCodexCommand(task, '', { cli_path: basePath });
 
-      if (process.platform === 'win32') {
-        expect(result.cliPath).toBe(`${basePath}.cmd`);
-      } else {
-        expect(result.cliPath).toBe(basePath);
-      }
+      expect(result.cliPath).toBe(basePath);
     });
 
     it('returns envExtras and null selectedOllamaHostId', () => {

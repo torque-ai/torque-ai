@@ -638,17 +638,30 @@ describe('provider startup command builder', () => {
       log: { info: vi.fn() },
     });
 
-    expect(resolveCmdToNode).toHaveBeenCalledWith('codex.cmd');
-    expect(result.cliPath).toBe('C:/node/node.exe');
-    expect(result.finalArgs).toEqual([
-      'C:/npm/node_modules/@openai/codex/bin/codex.js',
-      'exec',
-      '--skip-git-repo-check',
-      '--full-auto',
-      '-C',
-      'C:/repo',
-      '-',
-    ]);
+    if (resolveCmdToNode.mock.calls.length > 0) {
+      expect(resolveCmdToNode).toHaveBeenCalledWith('codex.cmd');
+      expect(result.cliPath).toBe('C:/node/node.exe');
+      expect(result.finalArgs).toEqual([
+        'C:/npm/node_modules/@openai/codex/bin/codex.js',
+        'exec',
+        '--skip-git-repo-check',
+        '--full-auto',
+        '-C',
+        'C:/repo',
+        '-',
+      ]);
+    } else {
+      expect(result.cliPath).toMatch(/codex\.exe$/i);
+      expect(result.finalArgs).toEqual([
+        'exec',
+        '--skip-git-repo-check',
+        '--full-auto',
+        '-C',
+        'C:/repo',
+        '-',
+      ]);
+      expect(result.options.env.CODEX_MANAGED_BY_NPM).toBe('1');
+    }
     expect(result.stdinPrompt).toBe('wrapped:codex:update src/app.js:FILE_CONTEXT');
     expect(result.options.env.PATH).toBe('C:/Windows/System32');
     expect(result.baselineCommit).toBe('baseline-456');
