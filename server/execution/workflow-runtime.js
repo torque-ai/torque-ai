@@ -35,6 +35,23 @@ const STARTUP_WORKFLOW_STATUSES = ['running', 'paused'];
 const STARTUP_READY_STATUSES = ['blocked', 'waiting', 'pending'];
 const TERMINAL_TASK_STATUSES = ['completed', 'failed', 'cancelled', 'skipped'];
 
+function emitWorkflowFinalEvent(workflowId, status, tasks, failedCount) {
+  try {
+    const { emitTaskEvent } = require('../events/event-emitter');
+    const { EVENT_TYPES } = require('../events/event-types');
+    emitTaskEvent({
+      task_id: workflowId,
+      workflow_id: workflowId,
+      type: status === 'completed' ? EVENT_TYPES.WORKFLOW_COMPLETED : EVENT_TYPES.WORKFLOW_FAILED,
+      actor: 'workflow-runtime',
+      payload: {
+        task_count: Array.isArray(tasks) ? tasks.length : 0,
+        failed_count: Number.isInteger(failedCount) ? failedCount : 0,
+      },
+    });
+  } catch { /* non-critical */ }
+}
+
 /**
  * Initialize the module with required dependencies.
  * @param {Object} deps
@@ -1653,6 +1670,7 @@ function checkWorkflowCompletion(workflowId) {
       status: finalStatus,
       completed_at: new Date().toISOString()
     });
+    emitWorkflowFinalEvent(workflowId, finalStatus, tasks, stats.failed);
     // Finalize audit run status when audit workflow completes
     maybeFinalizeAuditRun(workflowId, finalStatus);
 
@@ -1703,6 +1721,7 @@ function checkWorkflowCompletion(workflowId) {
         status: 'failed',
         completed_at: new Date().toISOString()
       });
+      emitWorkflowFinalEvent(workflowId, 'failed', tasks, stats.failed);
       refreshWorkflowBlockerSnapshots(workflowId, { workflow: db.getWorkflow(workflowId) });
       // Clean up terminal guards now that the workflow has reached a final state (deadlock)
       terminalGuards.delete(workflowId);

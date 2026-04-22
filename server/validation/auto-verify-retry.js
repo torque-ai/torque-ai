@@ -322,8 +322,9 @@ async function handleAutoVerifyRetry(ctx) {
   //   tests:pass          — verify command exited 0
   //   tests:fail:N        — verify command failed, N error lines detected
   //   tests:timeout       — verify command timed out (inconclusive)
+  let verifyTag;
+  let verifyTagAssigned = false;
   try {
-    let verifyTag;
     if (verifyResult.timedOut) {
       verifyTag = 'tests:timeout';
     } else if (verifyExitCode === 0) {
@@ -341,10 +342,24 @@ async function handleAutoVerifyRetry(ctx) {
     cleanedTags.push(verifyTag);
     if (typeof _db.updateTask === 'function') {
       _db.updateTask(taskId, { tags: cleanedTags });
+      verifyTagAssigned = true;
     }
     logger.info(`[auto-verify] Task ${taskId}: tagged ${verifyTag}`);
   } catch (tagErr) {
     logger.info(`[auto-verify] Task ${taskId}: failed to apply verify tag: ${tagErr.message}`);
+  }
+
+  if (verifyTagAssigned) {
+    try {
+      const { emitTaskEvent } = require('../events/event-emitter');
+      const { EVENT_TYPES } = require('../events/event-types');
+      emitTaskEvent({
+        task_id: taskId,
+        type: EVENT_TYPES.VERIFY_TAG_ASSIGNED,
+        actor: 'auto-verify',
+        payload: { tag: verifyTag, exit_code: verifyExitCode, duration_ms: verifyResult.durationMs },
+      });
+    } catch { /* non-critical */ }
   }
 
   // Success — task stays completed

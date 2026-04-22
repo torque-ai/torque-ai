@@ -30,7 +30,7 @@
 
 ## Task 1: Schema + emitter
 
-- [ ] **Step 1: Add table**
+- [x] **Step 1: Add table**
 
 In `server/db/schema-tables.js`:
 
@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_task_events_type ON task_events(type);
 
 Add `'task_events'` to `ALL_TABLES`.
 
-- [ ] **Step 2: Event types**
+- [x] **Step 2: Event types**
 
 Create `server/events/event-types.js`:
 
@@ -83,7 +83,7 @@ const EVENT_TYPES = {
 module.exports = { EVENT_TYPES };
 ```
 
-- [ ] **Step 3: Emitter module + tests**
+- [x] **Step 3: Emitter module + tests**
 
 Create `server/tests/event-emitter.test.js`:
 

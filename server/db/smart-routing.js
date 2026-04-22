@@ -990,6 +990,16 @@ function approveProviderSwitch(taskId, newProvider = 'claude-cli') {
   const result = stmt.run(new Date().toISOString(), JSON.stringify(currentMetadata), taskDescription, taskId);
   if (result && result.changes > 0) {
     eventBus.emitQueueChanged();
+    try {
+      const { emitTaskEvent } = require('../events/event-emitter');
+      const { EVENT_TYPES } = require('../events/event-types');
+      emitTaskEvent({
+        task_id: taskId,
+        type: EVENT_TYPES.PROVIDER_FAILOVER,
+        actor: 'smart-routing',
+        payload: { from: task.provider, to: newProvider, reason: 'quota_or_failure' },
+      });
+    } catch { /* non-critical */ }
   }
 
   return getTask(taskId);

@@ -44,6 +44,14 @@ const ALLOWED_TASK_COLUMNS = new Set([
 
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
 const ACTIVE_TASK_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running']);
+const STATUS_TO_EVENT = {
+  queued: 'TASK_QUEUED',
+  running: 'TASK_RUNNING',
+  completed: 'TASK_COMPLETED',
+  failed: 'TASK_FAILED',
+  cancelled: 'TASK_CANCELLED',
+  skipped: 'TASK_SKIPPED',
+};
 const JSON_TASK_COLUMNS = new Set([
   'files_modified',
   'context',
@@ -394,7 +402,24 @@ function createTask(task) {
     });
   }
 
-  return getTask(task.id);
+  const createdTask = getTask(task.id);
+  try {
+    const { emitTaskEvent } = require('../events/event-emitter');
+    const { EVENT_TYPES } = require('../events/event-types');
+    emitTaskEvent({
+      task_id: task.id,
+      workflow_id: task.workflow_id || null,
+      type: EVENT_TYPES.TASK_CREATED,
+      actor: 'task-core',
+      payload: {
+        provider: createdTask?.provider || task.provider,
+        project: createdTask?.project || project,
+        tags: createdTask?.tags || tags,
+      },
+    });
+  } catch { /* non-critical */ }
+
+  return createdTask;
 }
 
 /**
@@ -693,6 +718,20 @@ function updateTaskStatus(id, status, additionalFields = {}) {
   if (TERMINAL_TASK_STATUSES.has(status) && previousStatus && previousStatus !== status) {
     if (_notifyTaskStatusTransition) _notifyTaskStatusTransition(id, status, previousStatus, getTask(id));
   }
+
+  try {
+    const { emitTaskEvent } = require('../events/event-emitter');
+    const { EVENT_TYPES } = require('../events/event-types');
+    const eventName = STATUS_TO_EVENT[status];
+    if (eventName) {
+      emitTaskEvent({
+        task_id: id,
+        type: EVENT_TYPES[eventName],
+        actor: 'task-core',
+        payload: { previous_status: previousStatus, additional_fields: additionalFields },
+      });
+    }
+  } catch { /* non-critical */ }
 
   // Emit task:started for heartbeat notifications (only on actual transition to running)
   if (status === 'running' && previousStatus && previousStatus !== 'running') {

@@ -361,6 +361,17 @@ function resolveProviderRouting(task, taskId) {
     logger.debug(`[Routing] Failed to persist provider decision trace for ${taskId}: ${err.message}`);
   }
 
+  try {
+    const { emitTaskEvent } = require('../events/event-emitter');
+    const { EVENT_TYPES } = require('../events/event-types');
+    emitTaskEvent({
+      task_id: taskId,
+      type: EVENT_TYPES.PROVIDER_ROUTED,
+      actor: 'provider-router',
+      payload: { provider, switch_reason: switchReason, decision_trace: decisionTrace },
+    });
+  } catch { /* non-critical */ }
+
   return { provider, switchReason, decisionTrace };
 }
 
