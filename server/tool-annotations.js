@@ -184,6 +184,7 @@ const OVERRIDES = Object.freeze({
   instantiate_template:            Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   template_loop:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   replay_task:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  replay_workflow:                 DISPATCH,
   quick_setup_notifications:       Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   full_project_audit:              Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   list_run_artifacts:              READONLY,
@@ -207,6 +208,7 @@ const OVERRIDES = Object.freeze({
   bulk_approve_models:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   complete_oauth_flow:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   edit_transcript:                 IDEMPOTENT,
+  build_run_bundle:                IDEMPOTENT,
 
   // lifecycle: state transitions, lock/lease management
   watch_ci_repo:                   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),

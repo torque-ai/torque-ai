@@ -1,0 +1,20 @@
+{
+  "id": "579428a3-21f3-4e26-af59-83e4149e58ae",
+  "workflow_node_id": "B",
+  "task_description": "Task B",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-startup-workflow-reconciler-jp8CX5",
+  "status": "skipped",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}

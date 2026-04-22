@@ -1,0 +1,17 @@
+{
+  "workflow_id": "82074020-b715-4955-b7b6-d99b1d4f31b5",
+  "name": "runtime-onfail-cancel",
+  "status": "failed",
+  "created_at": "2026-04-22T12:24:25.130Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T12:24:25.133Z",
+  "working_directory": null,
+  "task_count": 3,
+  "task_ids": [
+    "cacbf6ec-e45f-4a26-8f73-dc422c5d118f",
+    "c46192e4-7055-48a1-a351-636294e33094",
+    "213448e0-4922-4959-be75-f6b62121c763"
+  ],
+  "bundle_built_at": "2026-04-22T12:24:25.135Z",
+  "bundle_format_version": 1
+}

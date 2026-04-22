@@ -1,0 +1,20 @@
+{
+  "id": "910eb637-63f5-4a66-8a22-f4139d60101f",
+  "workflow_node_id": "lc-b",
+  "task_description": "Lifecycle B",
+  "working_directory": null,
+  "status": "skipped",
+  "provider": "ollama",
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": "2026-04-22T12:24:30.551Z",
+  "output": null,
+  "error_output": "Skipped due to dependency condition not met",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama"
+  }
+}

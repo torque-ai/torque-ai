@@ -1,0 +1,16 @@
+{
+  "workflow_id": "c0eeb504-1933-40c0-838c-9d2d5358141c",
+  "name": "all-complete",
+  "status": "completed",
+  "created_at": "2026-04-22T12:25:32.944Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T12:25:32.950Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "c9f49592-c81c-4abd-8f6d-943d482e8bdf",
+    "579428a3-21f3-4e26-af59-83e4149e58ae"
+  ],
+  "bundle_built_at": "2026-04-22T12:25:32.955Z",
+  "bundle_format_version": 1
+}
