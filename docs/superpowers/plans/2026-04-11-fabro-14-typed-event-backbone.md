@@ -399,7 +399,7 @@ git push --no-verify origin main
 
 ## Task 3: MCP query tools + REST
 
-- [ ] **Step 1: Tool defs**
+- [x] **Step 1: Tool defs**
 
 Create `server/tool-defs/event-defs.js`:
 
@@ -424,7 +424,7 @@ const EVENT_TOOLS = [
 module.exports = { EVENT_TOOLS };
 ```
 
-- [ ] **Step 2: Handler**
+- [x] **Step 2: Handler**
 
 Create `server/handlers/event-handlers.js`:
 
@@ -452,7 +452,7 @@ function handleListTaskEvents(args) {
 module.exports = { handleListTaskEvents };
 ```
 
-- [ ] **Step 3: Wire dispatch + REST**
+- [x] **Step 3: Wire dispatch + REST**
 
 In `server/tools.js`:
 ```js
