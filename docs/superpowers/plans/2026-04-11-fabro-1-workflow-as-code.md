@@ -579,7 +579,7 @@ git push --no-verify origin main
 - Create: `server/tests/workflow-spec-handlers.test.js`
 - Modify: `server/tools.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `server/tests/workflow-spec-handlers.test.js`:
 
@@ -699,13 +699,13 @@ tasks:
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run on remote: `npx vitest run tests/workflow-spec-handlers.test.js --no-coverage`
 
 Expected: FAIL with "Cannot find module '../handlers/workflow-spec-handlers'"
 
-- [ ] **Step 3: Implement the handlers**
+- [x] **Step 3: Implement the handlers**
 
 Create `server/handlers/workflow-spec-handlers.js`:
 
@@ -806,7 +806,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 4: Wire the handlers into `server/tools.js` dispatch**
+- [x] **Step 4: Wire the handlers into `server/tools.js` dispatch**
 
 Find the `switch (name)` inside `handleToolCall` in `server/tools.js`. Add three `case` blocks alongside the existing `create_workflow` / `run_workflow` cases:
 
@@ -825,13 +825,13 @@ case 'run_workflow_spec': {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run on remote: `npx vitest run tests/workflow-spec-handlers.test.js --no-coverage`
 
 Expected: PASS — all 5 tests green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/handlers/workflow-spec-handlers.js server/tests/workflow-spec-handlers.test.js server/tools.js
