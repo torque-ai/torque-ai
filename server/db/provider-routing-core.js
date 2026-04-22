@@ -2,6 +2,8 @@
 
 const logger = require('../logger').child({ component: 'provider-routing' });
 const { safeJsonParse } = require('../utils/json');
+const serverConfig = require('../config');
+const providerRegistry = require('../providers/registry');
 
 // Extracted modules
 const smartRouting = require('./smart-routing');
@@ -58,6 +60,9 @@ function _initExtractedModules() {
 
 function setDb(dbInstance) {
   db = dbInstance;
+  try {
+    serverConfig.init({ db: dbInstance });
+  } catch (_e) { /* config may not be initialized in isolated tests */ }
   // Cascade db to extracted modules
   providerHealthHistory.setDb(dbInstance);
   providerRoutingExtras.setDb(dbInstance);
@@ -964,6 +969,33 @@ function getProviderHealth(provider) {
   };
 }
 
+function providerRequiresApiKey(provider) {
+  if (typeof provider !== 'string' || !provider.trim()) return false;
+  return providerRegistry.isApiProvider(provider.trim());
+}
+
+function isProviderConfiguredForRouting(provider) {
+  const providerName = typeof provider === 'string' ? provider.trim() : '';
+  if (!providerName || !providerRequiresApiKey(providerName)) return true;
+  try {
+    return Boolean(serverConfig.getApiKey(providerName));
+  } catch (_e) {
+    return false;
+  }
+}
+
+function isProviderAvailableForRouting(provider) {
+  const providerName = typeof provider === 'string' ? provider.trim() : '';
+  if (!providerName) return false;
+  const providerConfig = getProvider(providerName);
+  return Boolean(
+    providerConfig
+    && providerConfig.enabled
+    && isProviderConfiguredForRouting(providerName)
+    && isProviderHealthy(providerName)
+  );
+}
+
 function isProviderHealthy(provider) {
   const entry = _getOrCreateHealth(provider);
   const total = entry.successes + entry.failures;
@@ -1589,6 +1621,9 @@ module.exports = {
   getProviderHealth,
   getProviderHealthScore,
   isProviderHealthy,
+  providerRequiresApiKey,
+  isProviderConfiguredForRouting,
+  isProviderAvailableForRouting,
   resetProviderHealth,
 
   // Provider Routing Config (from provider-routing-config.js)

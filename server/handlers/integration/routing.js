@@ -611,6 +611,7 @@ async function handleSmartSubmitTask(args) {
 
   let selectedProvider;
   let routingResult;
+  let modRoutingReason = null; // P102: Track modification routing reason for response
 
   // D2.2: Single source — getProviderHealthScore() now lives in provider-routing-core.js
   const getProviderHealthScore = (providerName) => {
@@ -635,15 +636,56 @@ async function handleSmartSubmitTask(args) {
     return [];
   };
 
+  const isProviderConfiguredForRouting = (providerName) => {
+    if (typeof providerRoutingCore.isProviderConfiguredForRouting === 'function') {
+      try {
+        return providerRoutingCore.isProviderConfiguredForRouting(providerName);
+      } catch (e) {
+        logger.debug('[smart-routing] isProviderConfiguredForRouting error:', e.message);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const isProviderAvailableForRouting = (providerName) => {
+    const normalizedProvider = typeof providerName === 'string' ? providerName.trim() : '';
+    if (!normalizedProvider) return false;
+    if (typeof providerRoutingCore.isProviderAvailableForRouting === 'function') {
+      try {
+        return providerRoutingCore.isProviderAvailableForRouting(normalizedProvider);
+      } catch (e) {
+        logger.debug('[smart-routing] isProviderAvailableForRouting error:', e.message);
+      }
+    }
+    try {
+      const candidateConfig = providerRoutingCore.getProvider(normalizedProvider);
+      const candidateHealthy = typeof providerRoutingCore.isProviderHealthy === 'function'
+        ? providerRoutingCore.isProviderHealthy(normalizedProvider)
+        : true;
+      return Boolean(candidateConfig && candidateConfig.enabled
+        && isProviderConfiguredForRouting(normalizedProvider)
+        && candidateHealthy);
+    } catch (e) {
+      logger.debug('[smart-routing] provider availability check error:', e.message);
+      return false;
+    }
+  };
+
   const resolveFirstEnabledProvider = () => {
     if (typeof providerRoutingCore.listProviders !== 'function') {
       return null;
     }
     try {
-      const enabledProvider = providerRoutingCore
-        .listProviders()
+      const providers = providerRoutingCore.listProviders();
+      const enabledProvider = providers
+        .find((candidate) => candidate && candidate.enabled && isProviderAvailableForRouting(candidate.provider || candidate.name));
+      if (enabledProvider) {
+        return enabledProvider.provider || enabledProvider.name || null;
+      }
+      const fallbackEnabledProvider = providers
         .find((candidate) => candidate && candidate.enabled);
-      return enabledProvider ? (enabledProvider.provider || enabledProvider.name || null) : null;
+      return fallbackEnabledProvider ? (fallbackEnabledProvider.provider || fallbackEnabledProvider.name || null) : null;
     } catch (e) {
       logger.debug('[smart-routing] listProviders error:', e.message);
       return null;
@@ -720,6 +762,22 @@ async function handleSmartSubmitTask(args) {
   }
   if (!providerConfig.enabled) {
     return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} is disabled. Enable it or choose a different provider.`);
+  }
+  if (!isProviderConfiguredForRouting(selectedProvider)) {
+    if (override_provider) {
+      return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} requires an API key before it can be used.`);
+    }
+    const fallbackProvider = resolveFirstEnabledProvider();
+    if (fallbackProvider && fallbackProvider !== selectedProvider) {
+      const prevProvider = selectedProvider;
+      selectedProvider = fallbackProvider;
+      providerConfig = providerRoutingCore.getProvider(selectedProvider);
+      routingResult.reason += ` (original provider unconfigured, falling back to ${selectedProvider})`;
+      modRoutingReason = `${prevProvider} unconfigured → ${selectedProvider}`;
+      logger.info(`[SmartRouting] API key gate: ${modRoutingReason}`);
+    } else {
+      return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} requires an API key before it can be used.`);
+    }
   }
 
   // Determine task complexity for routing and review requirements
@@ -1063,7 +1121,6 @@ async function handleSmartSubmitTask(args) {
   const taskId = submissionTaskId;
 
   // Determine model - use three-tier selection based on complexity
-  let modRoutingReason = null; // P102: Track modification routing reason for response
   // P102: Only skip modification routing if user explicitly set a model.
   // Previously used routingResult.model as default, which meant !taskModel was always
   // false for normal/complex tasks — completely bypassing the modification safety logic.
@@ -1186,8 +1243,7 @@ async function handleSmartSubmitTask(args) {
           return false;
         }
         try {
-          const providerConfig = providerRoutingCore.getProvider(candidate.providerName);
-          return providerConfig && providerConfig.enabled && providerRoutingCore.isProviderHealthy(candidate.providerName);
+          return isProviderAvailableForRouting(candidate.providerName);
         } catch {
           return false;
         }

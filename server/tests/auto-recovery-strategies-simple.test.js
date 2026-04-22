@@ -12,6 +12,7 @@ function makeServices(overrides = {}) {
     cleanupWorktreeBuildArtifacts: async () => ({ deleted: ['/x/obj'], stacks: ['dotnet'] }),
     rejectWorkItem: async (x) => { calls.reject = x; return { ok: true }; },
     advanceLoop: async (x) => { calls.advance = x; return { ok: true }; },
+    rejectGate: async (x) => { calls.rejectGate = x; return { ok: true }; },
     pauseProject: async (x) => { calls.pause = x; return { ok: true }; },
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     ...overrides,
@@ -57,6 +58,29 @@ describe('simple strategies', () => {
       project_id: 'p1', work_item_id: 42, reason: 'auto_recovery_reject_and_advance',
     });
     expect(services.calls.advance).toEqual({ project_id: 'p1' });
+  });
+
+  it('reject_and_advance rejects a paused gate when normal advance is blocked', async () => {
+    const services = makeServices({
+      advanceLoop: async (x) => {
+        services.calls.advance = x;
+        throw new Error('Loop is paused — use approveGate to continue');
+      },
+    });
+    const workDecision = {
+      stage: 'execute',
+      action: 'paused_at_gate',
+      outcome: { work_item_id: 42 },
+    };
+    const r = await rejectAndAdvance.run({
+      project, decision: workDecision, services,
+      classification: { category: 'structural_failure' },
+    });
+    expect(r.outcome.gate_rejected).toBe(true);
+    expect(services.calls.reject).toEqual({
+      project_id: 'p1', work_item_id: 42, reason: 'auto_recovery_reject_and_advance',
+    });
+    expect(services.calls.rejectGate).toEqual({ project_id: 'p1', stage: 'EXECUTE' });
   });
 
   it('escalate pauses the project', async () => {

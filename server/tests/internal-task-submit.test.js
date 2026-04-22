@@ -142,6 +142,38 @@ describe('submitFactoryInternalTask', () => {
     });
   });
 
+  it('passes explicit provider and routing controls through to smart submit', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-1' });
+
+    await submitFactoryInternalTask({
+      task: 'generate plan',
+      working_directory: '/repo',
+      kind: 'plan_generation',
+      project_id: 'project-42',
+      work_item_id: 7,
+      provider: ' codex ',
+      routing_template: ' factory-plan ',
+      prefer_free: false,
+      context_stuff: false,
+      context_depth: 'minimal',
+      files: ['docs/plan.md'],
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'codex',
+      routing_template: 'factory-plan',
+      prefer_free: false,
+      context_stuff: false,
+      context_depth: 'minimal',
+      files: ['docs/plan.md'],
+      task_metadata: expect.objectContaining({
+        requested_provider: 'codex',
+        requested_routing_template: 'factory-plan',
+      }),
+    }));
+  });
+
   it('returns the task_id from the submitter response', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'internal-task-9' });

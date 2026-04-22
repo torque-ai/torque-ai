@@ -48,6 +48,9 @@ const mockDb = {
   isCodexExhausted: vi.fn(),
   hasHealthyOllamaHost: vi.fn(),
   isProviderHealthy: vi.fn(),
+  isProviderConfiguredForRouting: vi.fn(),
+  isProviderAvailableForRouting: vi.fn(),
+  listProviders: vi.fn(),
   classifyTaskType: vi.fn(),
   detectTaskLanguage: vi.fn(),
   listOllamaHosts: vi.fn(),
@@ -97,6 +100,7 @@ const ErrorCodes = {
   INVALID_PARAM: 'INVALID_PARAM',
   MISSING_REQUIRED_PARAM: 'MISSING_REQUIRED_PARAM',
   RESOURCE_NOT_FOUND: 'RESOURCE_NOT_FOUND',
+  PROVIDER_ERROR: 'PROVIDER_ERROR',
   OPERATION_FAILED: 'OPERATION_FAILED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 };
@@ -395,6 +399,21 @@ function resetMockState() {
 
   mockDb.isProviderHealthy.mockReset();
   mockDb.isProviderHealthy.mockReturnValue(true);
+
+  mockDb.isProviderConfiguredForRouting.mockReset();
+  mockDb.isProviderConfiguredForRouting.mockReturnValue(true);
+
+  mockDb.isProviderAvailableForRouting.mockReset();
+  mockDb.isProviderAvailableForRouting.mockImplementation((providerName) => {
+    const config = providerConfigs[providerName];
+    return Boolean(config && config.enabled && mockDb.isProviderConfiguredForRouting(providerName) && mockDb.isProviderHealthy(providerName));
+  });
+
+  mockDb.listProviders.mockReset();
+  mockDb.listProviders.mockImplementation(() => Object.entries(providerConfigs).map(([provider, config]) => ({
+    provider,
+    ...config,
+  })));
 
   mockDb.classifyTaskType.mockReset();
   mockDb.classifyTaskType.mockReturnValue('code_gen');
@@ -1073,6 +1092,23 @@ describe('integration routing handlers', () => {
       const task = taskFromResult(result);
       expect(task.provider).toBe('claude-cli');
       expect(textOf(result)).toContain('openrouter unhealthy');
+    });
+
+    it('falls back from enabled API providers that do not have API keys configured', async () => {
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'openrouter',
+        complexity: 'normal',
+        reason: 'Rule selected openrouter',
+      }));
+      mockDb.isProviderConfiguredForRouting.mockImplementation((providerName) => providerName !== 'openrouter');
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Summarize existing scheduler behavior',
+      });
+
+      const task = taskFromResult(result);
+      expect(task.provider).toBe('codex');
+      expect(task.metadata.routing_reason).toContain('original provider unconfigured');
     });
 
     it('returns policy rejections without creating tasks', async () => {

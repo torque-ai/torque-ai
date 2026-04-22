@@ -19,6 +19,12 @@ function requireKnownKind(kind) {
   return kind;
 }
 
+function normalizeOptionalString(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 function readProjectStatusFromDb(project_id) {
   if (!project_id) return null;
 
@@ -59,6 +65,12 @@ async function submitFactoryInternalTask({
   kind,
   project_id,
   work_item_id,
+  provider,
+  routing_template,
+  prefer_free,
+  context_stuff,
+  context_depth,
+  files,
   extra_tags,
   extra_metadata,
   timeout_minutes,
@@ -67,6 +79,8 @@ async function submitFactoryInternalTask({
   const resolvedKind = requireKnownKind(kind);
   assertProjectAcceptsInternalTasks(project_id);
   const project = PROJECT_BY_KIND[resolvedKind];
+  const requestedProvider = normalizeOptionalString(provider);
+  const requestedRoutingTemplate = normalizeOptionalString(routing_template);
   const tags = [
     'factory:internal',
     `factory:${resolvedKind}`,
@@ -79,6 +93,8 @@ async function submitFactoryInternalTask({
     kind: resolvedKind,
     project_id,
     ...(work_item_id ? { work_item_id } : {}),
+    ...(requestedProvider ? { requested_provider: requestedProvider } : {}),
+    ...(requestedRoutingTemplate ? { requested_routing_template: requestedRoutingTemplate } : {}),
     ...(extra_metadata || {}),
   };
 
@@ -87,6 +103,12 @@ async function submitFactoryInternalTask({
     task,
     project,
     working_directory: resolvedWorkingDirectory,
+    ...(requestedProvider ? { provider: requestedProvider } : {}),
+    ...(requestedRoutingTemplate ? { routing_template: requestedRoutingTemplate } : {}),
+    ...(prefer_free !== undefined ? { prefer_free } : {}),
+    ...(context_stuff !== undefined ? { context_stuff } : {}),
+    ...(context_depth !== undefined ? { context_depth } : {}),
+    ...(Array.isArray(files) ? { files } : {}),
     timeout_minutes: timeout_minutes || 10,
     version_intent: 'internal',
     tags,
