@@ -30,7 +30,7 @@
 
 ## Task 1: Schema + emitter
 
-- [ ] **Step 1: Add table**
+- [x] **Step 1: Add table**
 
 In `server/db/schema-tables.js`:
 
@@ -51,7 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_task_events_type ON task_events(type);
 
 Add `'task_events'` to `ALL_TABLES`.
 
-- [ ] **Step 2: Event types**
+- [x] **Step 2: Event types**
 
 Create `server/events/event-types.js`:
 
@@ -83,7 +83,7 @@ const EVENT_TYPES = {
 module.exports = { EVENT_TYPES };
 ```
 
-- [ ] **Step 3: Emitter module + tests**
+- [x] **Step 3: Emitter module + tests**
 
 Create `server/tests/event-emitter.test.js`:
 
@@ -237,7 +237,7 @@ git push --no-verify origin main
 
 For each site below: read the file, find the matching status mutation, emit the event AFTER the status write succeeds. Each emit is fire-and-forget (wrapped in try/catch — never fail the original operation if emit throws).
 
-- [ ] **Step 1: Task creation (`server/db/task-core.js` `createTask`)**
+- [x] **Step 1: Task creation (`server/db/task-core.js` `createTask`)**
 
 After the INSERT succeeds:
 
@@ -255,7 +255,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 2: Status transitions (`updateTaskStatus`)**
+- [x] **Step 2: Status transitions (`updateTaskStatus`)**
 
 After the UPDATE succeeds, map status → event type:
 
@@ -283,7 +283,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 3: Provider routing (`server/execution/provider-router.js`)**
+- [x] **Step 3: Provider routing (`server/execution/provider-router.js`)**
 
 After the routing decision is finalized:
 
@@ -300,7 +300,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 4: Provider failover (`server/db/smart-routing.js` `approveProviderSwitch`)**
+- [x] **Step 4: Provider failover (`server/db/smart-routing.js` `approveProviderSwitch`)**
 
 After the SQL UPDATE succeeds:
 
@@ -317,7 +317,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 5: Verify tag assignment (`server/validation/auto-verify-retry.js`)**
+- [x] **Step 5: Verify tag assignment (`server/validation/auto-verify-retry.js`)**
 
 Right after the `_db.updateTask(taskId, { tags: cleanedTags })` call:
 
@@ -334,7 +334,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 6: Workflow finalization (`server/execution/workflow-runtime.js`)**
+- [x] **Step 6: Workflow finalization (`server/execution/workflow-runtime.js`)**
 
 When workflow completes/fails:
 
@@ -352,7 +352,7 @@ try {
 } catch (e) { /* non-critical */ }
 ```
 
-- [ ] **Step 7: Integration test**
+- [x] **Step 7: Integration test**
 
 Create `server/tests/event-replay.test.js`:
 
@@ -399,7 +399,7 @@ git push --no-verify origin main
 
 ## Task 3: MCP query tools + REST
 
-- [ ] **Step 1: Tool defs**
+- [x] **Step 1: Tool defs**
 
 Create `server/tool-defs/event-defs.js`:
 
@@ -424,7 +424,7 @@ const EVENT_TOOLS = [
 module.exports = { EVENT_TOOLS };
 ```
 
-- [ ] **Step 2: Handler**
+- [x] **Step 2: Handler**
 
 Create `server/handlers/event-handlers.js`:
 
@@ -452,7 +452,7 @@ function handleListTaskEvents(args) {
 module.exports = { handleListTaskEvents };
 ```
 
-- [ ] **Step 3: Wire dispatch + REST**
+- [x] **Step 3: Wire dispatch + REST**
 
 In `server/tools.js`:
 ```js
@@ -479,7 +479,7 @@ git push --no-verify origin main
 
 ## Task 4: Docs + smoke
 
-- [ ] **Step 1: `docs/events.md`**
+- [x] **Step 1: `docs/events.md`**
 
 ```markdown
 # Task Event Log
@@ -506,7 +506,7 @@ GET /api/v2/events?task_id=...&since=2026-04-11T00:00:00Z
 - **Sidecar services** — retros, dashboard live updates, metrics — all consume events
 ```
 
-- [ ] **Step 2: `await_restart`, smoke test**
+- [x] **Step 2: `await_restart`, smoke test**
 
 Submit a small task. After completion, call `list_task_events { task_id: "..." }`. Expect at least: `task.created`, `provider.routed`, `task.running`, `task.completed`, `verify.tag.assigned`.
 

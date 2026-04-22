@@ -244,6 +244,192 @@ function ensureTableColumns(db, tableName, columnDefs = []) {
   }
 }
 
+function getTableColumnSet(db, tableName) {
+  try {
+    return new Set(db.prepare(`PRAGMA table_info(${tableName})`).all().map((column) => column.name));
+  } catch {
+    return new Set();
+  }
+}
+
+function tableExists(db, tableName) {
+  try {
+    return !!db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName);
+  } catch {
+    return false;
+  }
+}
+
+function getIndexColumns(db, indexName) {
+  try {
+    return db.prepare(`PRAGMA index_info(${indexName})`).all()
+      .sort((left, right) => left.seqno - right.seqno)
+      .map((column) => column.name);
+  } catch {
+    return [];
+  }
+}
+
+function createTaskEventsTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id TEXT NOT NULL,
+      workflow_id TEXT,
+      ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      type TEXT NOT NULL DEFAULT '',
+      actor TEXT,
+      payload_json TEXT,
+      event_type TEXT NOT NULL DEFAULT '',
+      old_value TEXT,
+      new_value TEXT,
+      event_data TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    )
+  `);
+}
+
+function ensureTaskEventsIndexes(db) {
+  const taskIndexColumns = getIndexColumns(db, 'idx_task_events_task');
+  if (taskIndexColumns.length && taskIndexColumns.join('|') !== 'task_id|ts') {
+    db.exec('DROP INDEX IF EXISTS idx_task_events_task');
+  }
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, ts);
+    CREATE INDEX IF NOT EXISTS idx_task_events_workflow ON task_events(workflow_id, ts);
+    CREATE INDEX IF NOT EXISTS idx_task_events_type ON task_events(type);
+    CREATE INDEX IF NOT EXISTS idx_task_events_created ON task_events(created_at);
+  `);
+}
+
+function ensureTaskEventsCompatibilityTrigger(db) {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_task_events_fill_compat_fields
+    AFTER INSERT ON task_events
+    FOR EACH ROW
+    WHEN NEW.type = ''
+      OR NEW.event_type = ''
+      OR NEW.payload_json IS NULL
+      OR NEW.event_data IS NULL
+    BEGIN
+      UPDATE task_events
+      SET
+        type = CASE
+          WHEN NEW.type = '' THEN COALESCE(NULLIF(NEW.event_type, ''), NEW.type)
+          ELSE NEW.type
+        END,
+        event_type = CASE
+          WHEN NEW.event_type = '' THEN COALESCE(NULLIF(NEW.type, ''), NEW.event_type)
+          ELSE NEW.event_type
+        END,
+        payload_json = CASE
+          WHEN NEW.payload_json IS NULL THEN COALESCE(NEW.event_data, '{}')
+          ELSE NEW.payload_json
+        END,
+        event_data = CASE
+          WHEN NEW.event_data IS NULL THEN NEW.payload_json
+          ELSE NEW.event_data
+        END
+      WHERE id = NEW.id;
+    END
+  `);
+}
+
+function selectExistingColumn(columns, name, fallbackSql) {
+  return columns.has(name) ? name : fallbackSql;
+}
+
+function rebuildTaskEventsTable(db) {
+  const tmpTable = 'task_events_migration_old';
+
+  db.exec(`DROP TABLE IF EXISTS ${tmpTable}`);
+  db.exec(`ALTER TABLE task_events RENAME TO ${tmpTable}`);
+  createTaskEventsTable(db);
+
+  const oldColumns = getTableColumnSet(db, tmpTable);
+  const tsCandidates = [];
+  if (oldColumns.has('ts')) tsCandidates.push("NULLIF(ts, '')");
+  if (oldColumns.has('created_at')) tsCandidates.push("NULLIF(created_at, '')");
+
+  const typeCandidates = [];
+  if (oldColumns.has('type')) typeCandidates.push("NULLIF(type, '')");
+  if (oldColumns.has('event_type')) typeCandidates.push("NULLIF(event_type, '')");
+
+  const createdAtCandidates = [];
+  if (oldColumns.has('created_at')) createdAtCandidates.push("NULLIF(created_at, '')");
+  if (oldColumns.has('ts')) createdAtCandidates.push("NULLIF(ts, '')");
+
+  const select = {
+    id: selectExistingColumn(oldColumns, 'id', 'NULL'),
+    task_id: selectExistingColumn(oldColumns, 'task_id', "''"),
+    workflow_id: selectExistingColumn(oldColumns, 'workflow_id', 'NULL'),
+    ts: tsCandidates.length
+      ? `COALESCE(${tsCandidates.join(', ')}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`
+      : "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+    type: typeCandidates.length ? `COALESCE(${typeCandidates.join(', ')}, '')` : "''",
+    actor: selectExistingColumn(oldColumns, 'actor', 'NULL'),
+    payload_json: oldColumns.has('payload_json')
+      ? 'payload_json'
+      : oldColumns.has('event_data')
+        ? 'event_data'
+        : 'NULL',
+    event_type: typeCandidates.length ? `COALESCE(${typeCandidates.join(', ')}, '')` : "''",
+    old_value: selectExistingColumn(oldColumns, 'old_value', 'NULL'),
+    new_value: selectExistingColumn(oldColumns, 'new_value', 'NULL'),
+    event_data: oldColumns.has('event_data')
+      ? 'event_data'
+      : oldColumns.has('payload_json')
+        ? 'payload_json'
+        : 'NULL',
+    created_at: createdAtCandidates.length
+      ? `COALESCE(${createdAtCandidates.join(', ')}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`
+      : "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+  };
+  const whereClause = oldColumns.has('task_id') ? 'WHERE task_id IS NOT NULL' : '';
+
+  db.exec(`
+    INSERT INTO task_events (
+      id, task_id, workflow_id, ts, type, actor, payload_json,
+      event_type, old_value, new_value, event_data, created_at
+    )
+    SELECT
+      ${select.id},
+      ${select.task_id},
+      ${select.workflow_id},
+      ${select.ts},
+      ${select.type},
+      ${select.actor},
+      ${select.payload_json},
+      ${select.event_type},
+      ${select.old_value},
+      ${select.new_value},
+      ${select.event_data},
+      ${select.created_at}
+    FROM ${tmpTable}
+    ${whereClause}
+  `);
+  db.exec(`DROP TABLE ${tmpTable}`);
+}
+
+function ensureTaskEventsTable(db) {
+  if (!tableExists(db, 'task_events')) {
+    createTaskEventsTable(db);
+  } else {
+    const columns = getTableColumnSet(db, 'task_events');
+    const foreignKeys = db.prepare('PRAGMA foreign_key_list(task_events)').all();
+    const requiredColumns = ['workflow_id', 'ts', 'type', 'actor', 'payload_json', 'event_type', 'event_data', 'created_at'];
+    const missingRequired = requiredColumns.some((column) => !columns.has(column));
+
+    if (missingRequired || foreignKeys.length > 0) {
+      rebuildTaskEventsTable(db);
+    }
+  }
+
+  ensureTaskEventsIndexes(db);
+  ensureTaskEventsCompatibilityTrigger(db);
+}
+
 // ============================================================
 // Timestamp convention — ALL timestamp columns MUST use UTC ISO 8601 strings.
 //
@@ -963,23 +1149,10 @@ function createTables(db, logger) {
         FOREIGN KEY (task_id) REFERENCES tasks(id)
       )
     `);
-  db.exec(`
-      CREATE TABLE IF NOT EXISTS task_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id TEXT NOT NULL,
-        event_type TEXT NOT NULL,
-        old_value TEXT,
-        new_value TEXT,
-        event_data TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (task_id) REFERENCES tasks(id)
-      )
-    `);
+  ensureTaskEventsTable(db);
   db.exec(`
       CREATE INDEX IF NOT EXISTS idx_task_event_subs_task ON task_event_subscriptions(task_id);
       CREATE INDEX IF NOT EXISTS idx_task_event_subs_expires ON task_event_subscriptions(expires_at);
-      CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id);
-      CREATE INDEX IF NOT EXISTS idx_task_events_created ON task_events(created_at);
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS task_suggestions (

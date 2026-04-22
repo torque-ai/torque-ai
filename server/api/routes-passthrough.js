@@ -10,7 +10,7 @@
  */
 
 const routes = [
-  // ═══ Generated REST routes for 508 MCP tools ═══
+  // ═══ Generated REST routes for 509 MCP tools ═══
   // Generated: 2026-03-13
   // Pattern: tool-passthrough via handleToolCall()
 
@@ -131,6 +131,9 @@ const routes = [
   // ─── experiments (2 routes) ──────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/experiments/submit-ab-test', tool: 'submit_ab_test', mapBody: true },
   { method: 'POST', path: '/api/v2/experiments/compare-ab-test', tool: 'compare_ab_test', mapBody: true },
+
+  // ─── events (1 route) ────────────────────────────────────────────────────────
+  { method: 'GET', path: '/api/v2/events', tool: 'list_task_events', mapQuery: true },
 
   // ─── integration (33 routes) ──────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/integration/rollback-file', tool: 'rollback_file', mapBody: true },
