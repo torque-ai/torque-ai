@@ -482,7 +482,7 @@ git push --no-verify origin main
 - Create: `server/tool-defs/workflow-spec-defs.js`
 - Modify: `server/tool-defs/index.js`
 
-- [ ] **Step 1: Define the tool schemas**
+- [x] **Step 1: Define the tool schemas**
 
 Create `server/tool-defs/workflow-spec-defs.js`:
 
@@ -548,11 +548,11 @@ const WORKFLOW_SPEC_TOOLS = [
 module.exports = { WORKFLOW_SPEC_TOOLS };
 ```
 
-- [ ] **Step 2: Find where tool defs are registered**
+- [x] **Step 2: Find where tool defs are registered**
 
 Read `server/tool-defs/index.js`. Identify the pattern: it imports tool arrays from sibling files and exports a flat merged array (typically called `ALL_TOOLS` or similar), often grouped by tier.
 
-- [ ] **Step 3: Register the new tool defs**
+- [x] **Step 3: Register the new tool defs**
 
 Add to `server/tool-defs/index.js`:
 
@@ -562,7 +562,7 @@ const { WORKFLOW_SPEC_TOOLS } = require('./workflow-spec-defs');
 
 Merge `...WORKFLOW_SPEC_TOOLS` into the tier / array that already contains `create_workflow`. Match the surrounding pattern exactly — if that tier uses `[...EXISTING, ...NEW]`, do the same. Do NOT introduce a new tier.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add server/tool-defs/workflow-spec-defs.js server/tool-defs/index.js
