@@ -1186,7 +1186,7 @@ git push --no-verify origin main
 **Files:**
 - Create: `docs/workflow-specs.md`
 
-- [ ] **Step 1: Write the doc**
+- [x] **Step 1: Write the doc**
 
 Create `docs/workflow-specs.md`:
 
@@ -1267,7 +1267,7 @@ Workflow specs are version-controlled YAML files that define a TORQUE workflow a
 Workflows built inline via `create_workflow` are ephemeral — they exist only in the DB. Specs are the right shape for workflows you want to keep.
 ````
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/workflow-specs.md
