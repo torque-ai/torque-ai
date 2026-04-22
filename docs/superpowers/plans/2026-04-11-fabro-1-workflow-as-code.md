@@ -877,7 +877,7 @@ git push --no-verify origin main
 **Files:**
 - Create: `workflows/example-plan-implement.yaml`
 
-- [ ] **Step 1: Write the example spec**
+- [x] **Step 1: Write the example spec**
 
 Create `workflows/example-plan-implement.yaml`:
 
@@ -912,7 +912,7 @@ tasks:
     tags: [coding, review]
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add workflows/example-plan-implement.yaml
