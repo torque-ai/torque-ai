@@ -697,17 +697,48 @@ function getPersistedTaskBlockerSnapshot(task) {
   return blocker && typeof blocker === 'object' && !Array.isArray(blocker) ? blocker : null;
 }
 
+function outcomeFromTaskStatus(status) {
+  if (status === 'completed') return 'success';
+  if (status === 'failed') return 'fail';
+  return status || 'unknown';
+}
+
+function getTaskTagsForCondition(task) {
+  if (!task) return [];
+  if (Array.isArray(task.tags)) return task.tags;
+  if (typeof task.tags === 'string') {
+    const parsed = safeJsonParse(task.tags, []);
+    return Array.isArray(parsed) ? parsed : [];
+  }
+  return [];
+}
+
+function buildMetadataConditionContext(metadata, task) {
+  const metadataContext = metadata.context && typeof metadata.context === 'object' && !Array.isArray(metadata.context)
+    ? metadata.context
+    : {};
+  return {
+    failure_class: metadata.failure_class || null,
+    verify: metadata.verify ?? null,
+    provider: metadata.intended_provider || task?.provider || null,
+    context: { tags: getTaskTagsForCondition(task), ...metadataContext, ...metadata },
+  };
+}
+
 function buildDependencyConditionContext(dep, depTask, depStatus) {
   const startedAt = dep.depends_on_started_at || depTask?.started_at || null;
   const completedAt = dep.depends_on_completed_at || depTask?.completed_at || null;
+  const metadata = normalizeMetadata(depTask?.metadata);
   return {
+    outcome: outcomeFromTaskStatus(depStatus),
     exit_code: dep.depends_on_exit_code !== undefined ? dep.depends_on_exit_code : (depTask?.exit_code ?? 0),
     output: sanitizeOutputForCondition(((dep.depends_on_output !== undefined ? dep.depends_on_output : depTask?.output) || '').slice(-10240)),
     error_output: sanitizeOutputForCondition(((dep.depends_on_error_output !== undefined ? dep.depends_on_error_output : depTask?.error_output) || '').slice(-5120)),
     duration_seconds: startedAt && completedAt
       ? Math.round((new Date(completedAt) - new Date(startedAt)) / 1000)
       : 0,
-    status: depStatus
+    status: depStatus,
+    ...buildMetadataConditionContext(metadata, depTask),
   };
 }
 
@@ -1354,13 +1385,15 @@ function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
     // Build context for condition evaluation
     // Security: Sanitize output to redact potential secrets before condition evaluation
     const context = {
+      outcome: outcomeFromTaskStatus(completedTask.status),
       exit_code: completedTask.exit_code || 0,
       output: sanitizeOutputForCondition((completedTask.output || '').slice(-10240)), // Last 10KB, sanitized
       error_output: sanitizeOutputForCondition((completedTask.error_output || '').slice(-5120)), // Last 5KB, sanitized
       duration_seconds: completedTask.completed_at && completedTask.started_at
         ? Math.round((new Date(completedTask.completed_at) - new Date(completedTask.started_at)) / 1000)
         : 0,
-      status: completedTask.status
+      status: completedTask.status,
+      ...buildMetadataConditionContext(completedMetadata, completedTask),
     };
 
     // Evaluate condition — if no explicit condition, prerequisite must have succeeded

@@ -25,7 +25,7 @@
 
 ## Task 1: Expression evaluator
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/condition-eval.test.js`:
 
@@ -102,9 +102,9 @@ describe('evaluateCondition', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure** → FAIL.
+- [x] **Step 2: Run to verify failure** → FAIL.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `server/db/condition-eval.js`:
 
@@ -232,9 +232,9 @@ function evaluateCondition(expr, ctx = {}) {
 module.exports = { evaluateCondition };
 ```
 
-- [ ] **Step 4: Run tests** → PASS.
+- [x] **Step 4: Run tests** → PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/db/condition-eval.js server/tests/condition-eval.test.js

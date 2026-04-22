@@ -812,7 +812,7 @@ const _LEGACY_EXPORT_MODULES = [
     'addTaskDependency', 'areTaskDependenciesSatisfied', 'cleanupOldWorkflows', 'createWorkflow', 'createWorkflowTemplate', 'deleteTaskDependency',
     'deleteWorkflow', 'deleteWorkflowTemplate', 'evaluateAST', 'evaluateCondition', 'findEmptyWorkflowPlaceholder', 'getBlockedTasks',
     'getTaskDependencies', 'getTaskDependents', 'getWorkflow', 'getWorkflowDependencies', 'getWorkflowHistory', 'getWorkflowStatus',
-    'getWorkflowTaskCount', 'getWorkflowTasks', 'getWorkflowTemplate', 'getWorkflowTemplateByName', 'injectReviewDependency', 'listWorkflowTemplates',
+    'getWorkflowTaskCount', 'getWorkflowTasks', 'getWorkflowTemplate', 'getWorkflowTemplateByName', 'injectReviewDependency', 'isTaskUnblockable', 'listWorkflowTemplates',
     'listWorkflows', 'parseExpression', 'reconcileStaleWorkflows', 'tokenizeExpression', 'transitionWorkflowStatus', 'updateWorkflow',
     'updateWorkflowCounts', 'wouldCreateCycle',
   ] },
