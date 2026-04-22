@@ -144,7 +144,7 @@ git push --no-verify origin main
 
 ## Task 3: Condenser orchestrator
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/condenser.test.js`:
 
@@ -226,7 +226,7 @@ describe('condenseHistoryIfNeeded', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/context/condenser.js`:
 
