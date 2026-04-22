@@ -287,7 +287,7 @@ git push --no-verify origin main
 - Create: `server/workflow-spec/discover.js`
 - Test: `server/tests/workflow-spec-discover.test.js`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `server/tests/workflow-spec-discover.test.js`:
 
@@ -348,13 +348,13 @@ describe('workflow-spec discoverSpecs', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run on remote: `npx vitest run tests/workflow-spec-discover.test.js --no-coverage`
 
 Expected: FAIL with "Cannot find module '../workflow-spec/discover'"
 
-- [ ] **Step 3: Implement discovery**
+- [x] **Step 3: Implement discovery**
 
 Create `server/workflow-spec/discover.js`:
 
@@ -426,13 +426,13 @@ function discoverSpecs(projectRoot) {
 module.exports = { discoverSpecs };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run on remote: `npx vitest run tests/workflow-spec-discover.test.js --no-coverage`
 
 Expected: PASS — all 4 tests green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/workflow-spec/discover.js server/tests/workflow-spec-discover.test.js
