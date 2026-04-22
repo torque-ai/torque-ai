@@ -1,0 +1,20 @@
+{
+  "id": "3ff6dcfa-1729-48a9-9148-13af864fa6c4",
+  "workflow_node_id": "B",
+  "task_description": "Task 3ff6dcfa",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-LzAHXM",
+  "status": "cancelled",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": "Cancelled due to dependency failure",
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}

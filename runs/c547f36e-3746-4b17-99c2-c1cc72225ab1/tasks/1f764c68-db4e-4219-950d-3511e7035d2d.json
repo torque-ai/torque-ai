@@ -1,0 +1,20 @@
+{
+  "id": "1f764c68-db4e-4219-950d-3511e7035d2d",
+  "workflow_node_id": "step2",
+  "task_description": "Second step",
+  "working_directory": null,
+  "status": "completed",
+  "provider": null,
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": 0,
+  "started_at": null,
+  "completed_at": "2026-04-22T19:43:22.301Z",
+  "output": "task output here",
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama"
+  }
+}

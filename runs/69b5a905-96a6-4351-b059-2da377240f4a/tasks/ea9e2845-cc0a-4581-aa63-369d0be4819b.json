@@ -1,0 +1,20 @@
+{
+  "id": "ea9e2845-cc0a-4581-aa63-369d0be4819b",
+  "workflow_node_id": "A",
+  "task_description": "Task ea9e2845",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-GjDdGV",
+  "status": "completed",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}

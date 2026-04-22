@@ -1,0 +1,20 @@
+{
+  "id": "a01c34e4-66fb-445c-8a09-9083ece04fd4",
+  "workflow_node_id": "cc-a",
+  "task_description": "CC A",
+  "working_directory": null,
+  "status": "cancelled",
+  "provider": "ollama",
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama"
+  }
+}

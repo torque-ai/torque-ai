@@ -1,0 +1,16 @@
+{
+  "workflow_id": "2f74b944-21c0-40e1-863f-80c48124c76d",
+  "name": "merge-no-combine-wf",
+  "status": "failed",
+  "created_at": "2026-04-22T19:29:08.999Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T19:29:09.357Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "64a9f646-a7ca-4802-aa5b-f3fdd4554ffa",
+    "d804c7b2-d139-4440-aeea-5ba1274037f1"
+  ],
+  "bundle_built_at": "2026-04-22T19:29:09.358Z",
+  "bundle_format_version": 1
+}

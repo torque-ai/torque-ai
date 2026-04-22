@@ -1,0 +1,16 @@
+{
+  "workflow_id": "db9b0fee-0169-4def-ad29-737fcfcb2746",
+  "name": "lifecycle-wf",
+  "status": "cancelled",
+  "created_at": "2026-04-22T19:42:34.176Z",
+  "started_at": "2026-04-22T19:42:34.179Z",
+  "completed_at": "2026-04-22T19:42:34.185Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "77508dc1-0cdd-4220-bb38-dd7a9fe0fe28",
+    "dc1e2f0b-25d4-4776-ac35-5c168acb92ff"
+  ],
+  "bundle_built_at": "2026-04-22T19:42:34.186Z",
+  "bundle_format_version": 1
+}

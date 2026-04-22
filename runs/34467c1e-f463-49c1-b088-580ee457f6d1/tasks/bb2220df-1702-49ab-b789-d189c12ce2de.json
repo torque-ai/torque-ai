@@ -1,0 +1,20 @@
+{
+  "id": "bb2220df-1702-49ab-b789-d189c12ce2de",
+  "workflow_node_id": "B",
+  "task_description": "Task bb2220df",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-GjDdGV",
+  "status": "failed",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "2d7259d7-ee00-4a2f-945a-faa7713dbd35",
+  "workflow_node_id": "A-retry",
+  "task_description": "Task 2d7259d7",
+  "working_directory": "C:\\Users\\<os-user>\\AppData\\Local\\Temp\\torque-vtest-workflow-runtime-LzAHXM",
+  "status": "completed",
+  "provider": "codex",
+  "original_provider": "codex",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "codex"
+  }
+}

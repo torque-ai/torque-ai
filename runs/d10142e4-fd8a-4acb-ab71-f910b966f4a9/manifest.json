@@ -1,0 +1,16 @@
+{
+  "workflow_id": "d10142e4-fd8a-4acb-ab71-f910b966f4a9",
+  "name": "verify-timing-test",
+  "status": "completed_with_errors",
+  "created_at": "2026-04-22T19:29:59.095Z",
+  "started_at": "2026-04-22T19:29:59.098Z",
+  "completed_at": "2026-04-22T19:29:59.157Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "382e19ad-0066-4fd3-a616-a97a8f2ade78",
+    "cd4170bb-61c6-44b2-8644-f2e1228cd430"
+  ],
+  "bundle_built_at": "2026-04-22T19:29:59.159Z",
+  "bundle_format_version": 1
+}

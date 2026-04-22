@@ -1,0 +1,17 @@
+{
+  "workflow_id": "e5108a4e-03be-492e-ae31-e9951aa8f670",
+  "name": "wf-all-good",
+  "status": "completed",
+  "created_at": "2026-04-22T19:42:29.207Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T19:42:29.209Z",
+  "working_directory": null,
+  "task_count": 3,
+  "task_ids": [
+    "9ad4abc4-b1a1-45fa-9123-7b379758fe2a",
+    "88286a9d-3928-4bf9-89be-3e407b0af131",
+    "ceba3b87-e0af-4b0e-81e9-052dd14f47ec"
+  ],
+  "bundle_built_at": "2026-04-22T19:42:29.210Z",
+  "bundle_format_version": 1
+}

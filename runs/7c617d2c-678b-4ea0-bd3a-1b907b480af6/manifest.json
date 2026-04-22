@@ -1,0 +1,13 @@
+{
+  "workflow_id": "7c617d2c-678b-4ea0-bd3a-1b907b480af6",
+  "name": "codex-status-recovery",
+  "status": "completed",
+  "created_at": "2026-04-22T19:42:39.642Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T19:42:39.941Z",
+  "working_directory": null,
+  "task_count": 0,
+  "task_ids": [],
+  "bundle_built_at": "2026-04-22T19:42:39.944Z",
+  "bundle_format_version": 1
+}
