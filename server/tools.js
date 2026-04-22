@@ -22,7 +22,10 @@ const workflowSpecToolDefs = require('./tool-defs/workflow-spec-defs');
 const WORKFLOW_SPEC_TOOLS = Array.isArray(workflowSpecToolDefs)
   ? workflowSpecToolDefs
   : workflowSpecToolDefs.WORKFLOW_SPEC_TOOLS;
-const { WORKFLOW_RESUME_TOOLS } = require('./tool-defs/workflow-resume-defs');
+const workflowResumeToolDefs = require('./tool-defs/workflow-resume-defs');
+const WORKFLOW_RESUME_TOOLS = Array.isArray(workflowResumeToolDefs)
+  ? workflowResumeToolDefs
+  : workflowResumeToolDefs.WORKFLOW_RESUME_TOOLS;
 const { applyBehavioralTags } = require('./tools/behavioral-tags');
 
 let _remoteAgentPluginDefs = null;

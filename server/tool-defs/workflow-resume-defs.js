@@ -19,4 +19,5 @@ const WORKFLOW_RESUME_TOOLS = [
   },
 ];
 
-module.exports = { WORKFLOW_RESUME_TOOLS };
+module.exports = WORKFLOW_RESUME_TOOLS;
+module.exports.WORKFLOW_RESUME_TOOLS = WORKFLOW_RESUME_TOOLS;

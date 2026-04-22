@@ -367,7 +367,7 @@ git push --no-verify origin main
 
 ## Task 4: Docs + restart + smoke
 
-- [ ] **Step 1: Append to `docs/workflows.md`**
+- [x] **Step 1: Append to `docs/workflows.md`**
 
 ````markdown
 ## Resume / replay
@@ -396,7 +396,7 @@ POST /api/v2/workflows/resume-all
 This is safe to call repeatedly — re-evaluation is idempotent.
 ````
 
-- [ ] **Step 2: Restart, smoke**
+- [x] **Step 2: Restart, smoke**
 
 Submit a multi-task workflow, let one task complete, then call `resume_workflow { workflow_id }` even though nothing is broken. Expected: `unblocked: 0, finalized: false` (no-op confirmation).
 
