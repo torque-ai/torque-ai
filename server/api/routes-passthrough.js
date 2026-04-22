@@ -10,7 +10,7 @@
  */
 
 const routes = [
-  // ═══ Generated REST routes for 509 MCP tools ═══
+  // ═══ Generated REST routes for 511 MCP tools ═══
   // Generated: 2026-03-13
   // Pattern: tool-passthrough via handleToolCall()
 
@@ -564,7 +564,8 @@ const routes = [
   { method: 'POST', path: '/api/v2/workflow-specs/validate', tool: 'validate_workflow_spec', mapBody: true },
   { method: 'POST', path: '/api/v2/workflow-specs/run', tool: 'run_workflow_spec', mapBody: true },
 
-  // ─── workflows (21 routes) ────────────────────────────────────────────────────
+  // ─── workflows (22 routes) ────────────────────────────────────────────────────
+  { method: 'POST', path: /^\/api\/v2\/workflows\/([^/]+)\/bundle$/, tool: 'build_run_bundle', mapBody: true, mapParams: ['workflow_id'] },
   { method: 'POST', path: /^\/api\/v2\/workflows\/([^/]+)\/resume$/, tool: 'resume_workflow', mapBody: true, mapParams: ['workflow_id'] },
   { method: 'POST', path: '/api/v2/workflows/resume-all', tool: 'resume_all_workflows', mapBody: true },
   { method: 'POST', path: '/api/v2/workflows/duplicate-pipeline', tool: 'duplicate_pipeline', mapBody: true },
@@ -586,6 +587,9 @@ const routes = [
   { method: 'POST', path: '/api/v2/workflows/merge-workflows', tool: 'merge_workflows', mapBody: true },
   { method: 'POST', path: '/api/v2/workflows/replay-task', tool: 'replay_task', mapBody: true },
   { method: 'POST', path: '/api/v2/workflows/diff-task-runs', tool: 'diff_task_runs', mapBody: true },
+
+  // ─── runs (1 route) ─────────────────────────────────────────────────────────
+  { method: 'POST', path: '/api/v2/runs/replay', tool: 'replay_workflow', mapBody: true },
 
   // ─── audit (5 routes) ──────────────────────────────────────────────────────
   { method: 'POST', path: '/api/v2/audit', tool: 'audit_codebase', mapBody: true },
