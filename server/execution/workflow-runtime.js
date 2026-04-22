@@ -52,6 +52,16 @@ function emitWorkflowFinalEvent(workflowId, status, tasks, failedCount) {
   } catch { /* non-critical */ }
 }
 
+function scheduleWorkflowBundleBuild(workflowId) {
+  try {
+    const { buildBundle } = require('../runs/build-bundle');
+    // Fire-and-forget — bundle assembly must not block workflow completion
+    Promise.resolve().then(() => buildBundle(workflowId)).catch(err => {
+      logger.info(`[workflow-runtime] Bundle build failed for ${workflowId}: ${err.message}`);
+    });
+  } catch { /* runs module unavailable */ }
+}
+
 /**
  * Initialize the module with required dependencies.
  * @param {Object} deps
@@ -1671,6 +1681,7 @@ function checkWorkflowCompletion(workflowId) {
       completed_at: new Date().toISOString()
     });
     emitWorkflowFinalEvent(workflowId, finalStatus, tasks, stats.failed);
+    scheduleWorkflowBundleBuild(workflowId);
     // Finalize audit run status when audit workflow completes
     maybeFinalizeAuditRun(workflowId, finalStatus);
 
@@ -1722,6 +1733,7 @@ function checkWorkflowCompletion(workflowId) {
         completed_at: new Date().toISOString()
       });
       emitWorkflowFinalEvent(workflowId, 'failed', tasks, stats.failed);
+      scheduleWorkflowBundleBuild(workflowId);
       refreshWorkflowBlockerSnapshots(workflowId, { workflow: db.getWorkflow(workflowId) });
       // Clean up terminal guards now that the workflow has reached a final state (deadlock)
       terminalGuards.delete(workflowId);
