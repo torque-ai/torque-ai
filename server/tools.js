@@ -650,7 +650,10 @@ async function handleRestartServer(args) {
 // handleAwaitRestart awaits this barrier task via the standard await_task path.
 async function handleRestartServerBarrier(args) {
   const reason = args.reason || 'Manual restart requested';
-  const drainTimeoutMinutes = args.drain_timeout_minutes || args.timeout_minutes || 10;
+  // Default drain budget. 60 min absorbs typical long-running Codex factory
+  // batches (8-hour tasks with mid-run checkpoints) without blocking cutover
+  // indefinitely. Callers can override via drain_timeout_minutes/timeout_minutes.
+  const drainTimeoutMinutes = args.drain_timeout_minutes || args.timeout_minutes || 60;
   const taskCore = require('./db/task-core');
 
   logger.info(`[Restart] Server restart requested (barrier): ${reason}`);

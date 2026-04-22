@@ -95,7 +95,13 @@ fi
 # restarts itself. No external kill required.
 
 if [ "$TORQUE_RUNNING" = "true" ]; then
-  BARRIER_TIMEOUT_MIN=30
+  # Cutover drain budget. Observed 2026-04-21: a 30-minute timeout is too
+  # short when a factory batch carries an 8-hour Codex worktree task in
+  # flight — the barrier expires before the task can finish cooperatively,
+  # forcing restart while real work is still running. A full hour absorbs
+  # the common long-task shapes without blocking cutover indefinitely; the
+  # user can still override by exporting BARRIER_TIMEOUT_MIN before running.
+  BARRIER_TIMEOUT_MIN=${BARRIER_TIMEOUT_MIN:-60}
 
   # --- Dry-run support ---
   # Set CUTOVER_DRY_RUN=1 to print the intended API calls without executing.

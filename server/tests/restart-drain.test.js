@@ -120,7 +120,7 @@ describe('restart_server drain watchdog reverted', () => {
 
   it('still honors the full drainTimeoutMinutes budget', () => {
     // The only drain-failure path left should be the user-set timeout,
-    // bounded by drainTimeoutMinutes (default 30min, configurable).
+    // bounded by drainTimeoutMinutes (default 60min, configurable).
     expect(src).toMatch(/elapsed\s*>=\s*drainTimeoutMs/);
     expect(src).toMatch(/drainTimeoutMs\s*=\s*drainTimeoutMinutes\s*\*\s*60\s*\*\s*1000/);
   });
