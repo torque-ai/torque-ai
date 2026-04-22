@@ -92,7 +92,7 @@ git push --no-verify origin main
 
 ## Task 2: Condense prompt
 
-- [ ] **Step 1: Create the prompt template**
+- [x] **Step 1: Create the prompt template**
 
 Create `server/context/condense-prompt.js`:
 
@@ -132,7 +132,7 @@ Return ONLY the JSON object, no prose around it.`;
 module.exports = { SUMMARY_SCHEMA, buildCondensePrompt };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add server/context/condense-prompt.js
