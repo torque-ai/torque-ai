@@ -447,7 +447,7 @@ git push --no-verify origin main
 **Files:**
 - Create: `server/workflow-spec/index.js`
 
-- [ ] **Step 1: Create the index re-export**
+- [x] **Step 1: Create the index re-export**
 
 Create `server/workflow-spec/index.js`:
 
@@ -466,7 +466,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add server/workflow-spec/index.js
