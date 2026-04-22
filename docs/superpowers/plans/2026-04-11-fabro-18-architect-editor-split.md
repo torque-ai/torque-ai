@@ -369,7 +369,7 @@ Stage `server/execution/task-startup.js`. Commit: `feat(architect-editor): branc
 
 ## Task 5: Workflow-spec (skip if Plan 1 not shipped) + docs + smoke
 
-- [ ] **Step 1: Schema**
+- [x] **Step 1: Schema**
 
 Add to `server/workflow-spec/schema.js` `tasks.items.properties`:
 
@@ -379,7 +379,7 @@ architect_provider: { type: 'string' },
 editor_provider: { type: 'string' },
 ```
 
-- [ ] **Step 2: Docs**
+- [x] **Step 2: Docs**
 
 Create `docs/architect-editor.md`:
 
@@ -416,7 +416,7 @@ Both calls are recorded as separate sub-events (`tool.called` with `phase: archi
 If the architect's response is malformed JSON, TORQUE passes the raw architect output to the editor as advisory text and proceeds. The task does not fail solely because of architect output formatting.
 ```
 
-- [ ] **Step 3: Restart, smoke**
+- [x] **Step 3: Restart, smoke**
 
 Restart TORQUE. Submit a small task with `mode: architect_editor`, `architect_provider: claude-cli`, `editor_provider: codex`. Expect: two events captured under one task, final output reflects both phases, `cost_usd` reflects both calls.
 
