@@ -302,7 +302,7 @@ Run tests → PASS. Commit: `feat(repo-map): token-budgeted Markdown renderer`.
 
 ## Task 4: DB cache + scan orchestrator
 
-- [ ] **Step 1: Schema**
+- [x] **Step 1: Schema**
 
 Add to `server/db/schema-tables.js`:
 
@@ -319,7 +319,7 @@ CREATE TABLE IF NOT EXISTS repo_maps (
 
 Add `'repo_maps'` to `ALL_TABLES`.
 
-- [ ] **Step 2: Cache + scan module**
+- [x] **Step 2: Cache + scan module**
 
 Create `server/repo-map/cache.js`:
 
