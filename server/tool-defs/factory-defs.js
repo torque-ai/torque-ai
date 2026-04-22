@@ -15,6 +15,10 @@ const tools = [
           enum: ['supervised', 'guided', 'autonomous', 'dark'],
           description: 'Initial trust level. supervised=human approves priorities+plan+verify+ship, guided=human approves plan+ship, autonomous=human approves ship only, dark=fully autonomous. Default: supervised.',
         },
+        config: {
+          type: 'object',
+          description: 'Initial project config. plans_dir must stay inside the project and cannot point at docs/superpowers/plans/auto-generated.',
+        },
       },
       required: ['name', 'path'],
     },

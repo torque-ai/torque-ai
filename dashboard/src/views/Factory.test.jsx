@@ -258,4 +258,37 @@ describe('Factory overview', () => {
     // FACTORY_IDLE label does not leak into the document.
     expect(screen.getAllByText('Factory idle')).toHaveLength(1);
   });
+
+  it('surfaces STARVED projects in the project grid', () => {
+    const baseShell = useFactoryShell();
+    const starvedProject = {
+      ...factoryProject,
+      id: 'starved-project',
+      name: 'Starved Project',
+      loop_state: 'STARVED',
+      loop_paused_at_stage: null,
+      consecutive_empty_cycles: 4,
+    };
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      outletContext: {
+        ...baseShell.outletContext,
+        detail: {
+          ...baseShell.outletContext.detail,
+          project: starvedProject,
+        },
+        projects: [starvedProject],
+        selectedProject: starvedProject,
+        selectedProjectId: starvedProject.id,
+      },
+      projects: [starvedProject],
+      totalProjects: 1,
+    });
+
+    renderFactory();
+
+    expect(screen.getByRole('status', { name: /starved project factory loop starved/i })).toBeInTheDocument();
+    expect(screen.getByText(/4 empty cycles/i)).toBeInTheDocument();
+  });
 });

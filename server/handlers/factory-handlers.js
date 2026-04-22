@@ -17,6 +17,7 @@ const guardrailDb = require('../db/factory-guardrails');
 const loopController = require('../factory/loop-controller');
 const { pollGitHubIssues } = require('../factory/github-intake');
 const { createPlanFileIntake } = require('../factory/plan-file-intake');
+const { validatePlansDir } = require('../factory/plans-dir-validator');
 const { guardIntakeItem } = require('../factory/meta-intake-guard');
 const { createShippedDetector } = require('../factory/shipped-detector');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
@@ -448,11 +449,15 @@ function resolvePlansRepoRoot(projectPath, plansDir) {
 }
 
 async function handleRegisterFactoryProject(args) {
+  if (args.config?.plans_dir) {
+    validatePlansDir({ projectPath: args.path, plansDir: args.config.plans_dir });
+  }
   const project = factoryHealth.registerProject({
     name: args.name,
     path: args.path,
     brief: args.brief,
     trust_level: args.trust_level,
+    config: args.config,
   });
   logger.info(`Registered factory project: ${project.name} (${project.id})`);
   return jsonResponse({
@@ -584,7 +589,11 @@ async function handleSetFactoryTrustLevel(args) {
   // { loop: { auto_continue: true } } without overwriting everything.
   if (args.config && typeof args.config === 'object') {
     const existing = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch (_e) { void _e; return {}; } })() : {};
-    updates.config_json = JSON.stringify({ ...existing, ...args.config });
+    const merged = { ...existing, ...args.config };
+    if (merged.plans_dir) {
+      validatePlansDir({ projectPath: project.path, plansDir: merged.plans_dir });
+    }
+    updates.config_json = JSON.stringify(merged);
   }
   const updated = factoryHealth.updateProject(project.id, updates);
   logger.info(`Trust level for "${updated.name}" changed to ${args.trust_level}`);
@@ -727,6 +736,7 @@ async function handleFactoryStatus() {
       loop_state: loopState,
       loop_paused_at_stage: pausedAtStage,
       loop_last_action_at: lastActionAt,
+      consecutive_empty_cycles: Number(p.consecutive_empty_cycles) || 0,
       alert_badge: alertBadge,
       balance,
       weakest_dimension: weakest ? weakest[0] : null,
@@ -890,13 +900,14 @@ async function handleIntakeFromFindings(args) {
 
 async function handleScanPlansDirectory(args) {
   const project = resolveProject(args.project_id);
+  const plansDir = validatePlansDir({ projectPath: project.path, plansDir: args.plans_dir });
   const db = database.getDbInstance();
-  const repoRoot = resolvePlansRepoRoot(project.path, args.plans_dir);
+  const repoRoot = resolvePlansRepoRoot(project.path, plansDir);
   const shippedDetector = createShippedDetector({ repoRoot });
   const planIntake = createPlanFileIntake({ db, factoryIntake, shippedDetector });
   const scanArgs = {
     project_id: project.id,
-    plans_dir: args.plans_dir,
+    plans_dir: plansDir,
   };
 
   if (args.filter_regex) {

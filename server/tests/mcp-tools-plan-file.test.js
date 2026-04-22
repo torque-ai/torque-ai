@@ -74,6 +74,7 @@ describe('plan-file MCP tools', () => {
   let db;
   let plansDir;
   let project;
+  let projectDir;
   let originalGetDbInstance;
 
   beforeEach(() => {
@@ -83,16 +84,18 @@ describe('plan-file MCP tools', () => {
     factoryIntake.setDb(db);
     originalGetDbInstance = database.getDbInstance;
     database.getDbInstance = () => db;
-    plansDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-plan-tools-'));
+    projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-plan-tools-project-'));
+    plansDir = path.join(projectDir, 'docs', 'superpowers', 'plans');
+    fs.mkdirSync(plansDir, { recursive: true });
     project = factoryHealth.registerProject({
       name: 'Plan Tool Project',
-      path: `/tmp/plan-tool-project-${Date.now()}`,
+      path: projectDir,
       trust_level: 'dark',
     });
   });
 
   afterEach(() => {
-    fs.rmSync(plansDir, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
     database.getDbInstance = originalGetDbInstance;
     db.close();
   });

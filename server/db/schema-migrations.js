@@ -189,6 +189,12 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     void _e;
     // Column already exists
   }
+  try {
+    db.exec(`ALTER TABLE factory_projects ADD COLUMN consecutive_empty_cycles INTEGER DEFAULT 0`);
+  } catch (_e) {
+    void _e;
+    // Column already exists
+  }
   const _arAlters = [
     `ALTER TABLE factory_projects ADD COLUMN auto_recovery_attempts INTEGER DEFAULT 0`,
     `ALTER TABLE factory_projects ADD COLUMN auto_recovery_last_action_at TEXT`,

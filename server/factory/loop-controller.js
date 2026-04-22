@@ -117,6 +117,7 @@ const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
 ]);
 const EXECUTE_DEFERRED_STALE_MS = 24 * 60 * 60 * 1000;
 const POLL_MS = 2000;
+const STARVATION_THRESHOLD = 3;
 
 class StageOccupiedError extends Error {
   constructor(project_id, stage) {
@@ -567,6 +568,36 @@ function mapInstanceToLegacyLoopView(instance) {
 function syncLegacyProjectLoopState(project_id) {
   const oldestActiveInstance = getOldestActiveInstance(project_id);
   return factoryHealth.updateProject(project_id, mapInstanceToLegacyLoopView(oldestActiveInstance));
+}
+
+function getConsecutiveEmptyCycles(project_id, fallbackProject = null) {
+  const source = fallbackProject && Object.prototype.hasOwnProperty.call(fallbackProject, 'consecutive_empty_cycles')
+    ? fallbackProject
+    : factoryHealth.getProject(project_id);
+  const value = Number(source?.consecutive_empty_cycles);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+function setConsecutiveEmptyCycles(project_id, value) {
+  const normalized = Math.max(0, Math.floor(Number(value) || 0));
+  try {
+    factoryHealth.updateProject(project_id, { consecutive_empty_cycles: normalized });
+  } catch (err) {
+    if (!/no such column:\s*consecutive_empty_cycles/i.test(String(err?.message || ''))) {
+      throw err;
+    }
+    logger.debug('consecutive_empty_cycles column missing; skipping starvation counter update', {
+      project_id,
+    });
+  }
+  return normalized;
+}
+
+function incrementConsecutiveEmptyCycles(project) {
+  return setConsecutiveEmptyCycles(
+    project.id,
+    getConsecutiveEmptyCycles(project.id, project) + 1,
+  );
 }
 
 function deriveInstanceStateFromLegacyProject(project) {
@@ -4213,29 +4244,48 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
   transitionReason = prioritizeStage?.reason || null;
 
   if (!prioritizeStage?.work_item) {
-    const idleInstance = updateInstanceAndSync(instance.id, {
-      loop_state: LOOP_STATES.IDLE,
+    const consecutiveEmptyCycles = incrementConsecutiveEmptyCycles(project);
+    const nextState = consecutiveEmptyCycles >= STARVATION_THRESHOLD
+      ? LOOP_STATES.STARVED
+      : LOOP_STATES.IDLE;
+    const updatedInstance = updateInstanceAndSync(instance.id, {
+      loop_state: nextState,
       paused_at_stage: null,
       last_action_at: nowIso(),
     });
+    const action = nextState === LOOP_STATES.STARVED
+      ? 'entered_starved'
+      : 'short_circuit_to_idle';
     safeLogDecision({
       project_id: project.id,
       stage: LOOP_STATES.PRIORITIZE,
-      action: 'short_circuit_to_idle',
-      reasoning: 'PRIORITIZE returned no work item; skipping PLAN and architect cycle',
-      outcome: { reason: 'no_open_work_item', from_state: currentState, to_state: LOOP_STATES.IDLE },
+      action,
+      reasoning: nextState === LOOP_STATES.STARVED
+        ? 'PRIORITIZE repeatedly returned no work item; entering STARVED until recovery scouts replenish intake'
+        : 'PRIORITIZE returned no work item; skipping PLAN and architect cycle',
+      outcome: {
+        reason: 'no_open_work_item',
+        from_state: currentState,
+        to_state: nextState,
+        consecutive_empty_cycles: consecutiveEmptyCycles,
+        threshold: STARVATION_THRESHOLD,
+        suggested_actions: nextState === LOOP_STATES.STARVED
+          ? ['run_starvation_recovery_scout', 'inspect_plans_dir', 'add_factory_work_item']
+          : [],
+      },
       confidence: 1,
-      batch_id: getDecisionBatchId(project, null, null, idleInstance),
+      batch_id: getDecisionBatchId(project, null, null, updatedInstance),
     });
     return {
-      instance: idleInstance,
+      instance: updatedInstance,
       transitionWorkItem: null,
       stageResult,
       transitionReason: 'no_open_work_item',
-      nextState: LOOP_STATES.IDLE,
+      nextState,
     };
   }
 
+  setConsecutiveEmptyCycles(project.id, 0);
   instance = getInstanceOrThrow(instance.id);
 
   const enterPlan = tryMoveInstanceToStage(instance, LOOP_STATES.PLAN, {
