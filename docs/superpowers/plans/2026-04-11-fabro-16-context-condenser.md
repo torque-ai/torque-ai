@@ -32,7 +32,7 @@
 
 ## Task 1: Token estimation
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/token-estimate.test.js`:
 
@@ -58,7 +58,7 @@ describe('estimateTokens', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/context/token-estimate.js`:
 
