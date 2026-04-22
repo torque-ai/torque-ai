@@ -253,7 +253,7 @@ git push --no-verify origin main
 
 ## Task 3: MCP tool for manual resume
 
-- [ ] **Step 1: Tool def**
+- [x] **Step 1: Tool def**
 
 Create `server/tool-defs/workflow-resume-defs.js`:
 
@@ -282,7 +282,7 @@ const WORKFLOW_RESUME_TOOLS = [
 module.exports = { WORKFLOW_RESUME_TOOLS };
 ```
 
-- [ ] **Step 2: Handler**
+- [x] **Step 2: Handler**
 
 Create `server/handlers/workflow-resume-handlers.js`:
 
@@ -324,7 +324,7 @@ function handleResumeAllWorkflows() {
 module.exports = { handleResumeWorkflow, handleResumeAllWorkflows };
 ```
 
-- [ ] **Step 3: Wire into tools.js + tool-defs index**
+- [x] **Step 3: Wire into tools.js + tool-defs index**
 
 `server/tool-defs/index.js`:
 
@@ -346,7 +346,7 @@ case 'resume_all_workflows': {
 }
 ```
 
-- [ ] **Step 4: REST routes**
+- [x] **Step 4: REST routes**
 
 In `server/api/routes-passthrough.js`:
 
@@ -355,7 +355,7 @@ In `server/api/routes-passthrough.js`:
 { method: 'POST', path: '/api/v2/workflows/resume-all', tool: 'resume_all_workflows' },
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/tool-defs/workflow-resume-defs.js server/tool-defs/index.js server/handlers/workflow-resume-handlers.js server/tools.js server/api/routes-passthrough.js
