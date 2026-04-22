@@ -29,6 +29,32 @@ describe('auto-recovery-core day-one rules', () => {
     expect(['plan_failure', 'sandbox_interrupt']).toContain(r.category);
   });
 
+  it('classifies execute worktree creation failures as structural failures', () => {
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'worktree_creation_failed',
+      reasoning: 'git worktree creation failed',
+      outcome: { work_item_id: 545, error: 'UNIQUE constraint failed: factory_worktrees.branch' },
+    });
+    expect(r.category).toBe('structural_failure');
+    expect(r.matched_rule).toBe('execute_worktree_creation_failed');
+    expect(r.suggested_strategies[0]).toBe('reject_and_advance');
+  });
+
+  it('classifies execute gates caused by worktree creation failures', () => {
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting approval for EXECUTE.',
+      outcome: {
+        reason: 'worktree_creation_failed',
+        work_item_id: 545,
+      },
+    });
+    expect(r.category).toBe('structural_failure');
+    expect(r.matched_rule).toBe('execute_worktree_creation_gate');
+  });
+
   it('classifies an unclassified VERIFY_FAIL as verify_fail_unclassified', () => {
     const r = classifier.classify({
       stage: 'verify', action: 'worktree_verify_failed',

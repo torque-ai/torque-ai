@@ -3946,6 +3946,7 @@ async function executeNonPlanFileStage(project, instance, workItem) {
         try {
           const reSubmit = await submitFactoryInternalTask({
             task: rePrompt,
+            provider: PLAN_GENERATOR_PROVIDER,
             working_directory: project.path || process.cwd(),
             kind: 'plan_generation',
             project_id: project.id,

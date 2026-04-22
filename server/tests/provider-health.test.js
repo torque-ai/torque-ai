@@ -82,6 +82,31 @@ describe('Provider Health Scoring', () => {
     });
   });
 
+  describe('routing configuration readiness', () => {
+    it('treats API providers without keys as unavailable for routing without changing health counters', () => {
+      const previous = process.env.GROQ_API_KEY;
+      delete process.env.GROQ_API_KEY;
+      try {
+        expect(mod.providerRequiresApiKey('groq')).toBe(true);
+        expect(mod.isProviderConfiguredForRouting('groq')).toBe(false);
+        expect(mod.isProviderHealthy('groq')).toBe(true);
+      } finally {
+        if (previous === undefined) {
+          delete process.env.GROQ_API_KEY;
+        } else {
+          process.env.GROQ_API_KEY = previous;
+        }
+      }
+    });
+
+    it('does not require API keys for CLI/local routing providers', () => {
+      expect(mod.providerRequiresApiKey('codex')).toBe(false);
+      expect(mod.isProviderConfiguredForRouting('codex')).toBe(true);
+      expect(mod.providerRequiresApiKey('ollama')).toBe(false);
+      expect(mod.isProviderConfiguredForRouting('ollama')).toBe(true);
+    });
+  });
+
   describe('resetProviderHealth', () => {
     it('clears all health data', () => {
       mod.recordProviderOutcome('p1', true);

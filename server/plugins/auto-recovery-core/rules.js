@@ -33,6 +33,33 @@ module.exports = [
     suggested_strategies: ['retry_plan_generation', 'fallback_provider', 'reject_and_advance'],
   },
   {
+    name: 'execute_worktree_creation_failed',
+    category: 'structural_failure',
+    priority: 95,
+    confidence: 0.9,
+    match: {
+      stage: 'execute',
+      action: 'worktree_creation_failed',
+    },
+    suggested_strategies: ['reject_and_advance', 'escalate'],
+  },
+  {
+    name: 'execute_worktree_creation_gate',
+    category: 'structural_failure',
+    priority: 94,
+    confidence: 0.8,
+    match_fn: (d) => {
+      if (!d || d.stage !== 'execute' || d.action !== 'paused_at_gate') return false;
+      const text = `${d.reasoning || ''} ${JSON.stringify(d.outcome || {})}`.toLowerCase();
+      return text.includes('worktree_creation_failed')
+        || text.includes('worktree creation failed')
+        || text.includes('factory_worktrees')
+        || text.includes('forcermsync')
+        || text.includes('permission denied');
+    },
+    suggested_strategies: ['reject_and_advance', 'escalate'],
+  },
+  {
     name: 'never_started_paused_project',
     category: 'never_started',
     priority: 90,

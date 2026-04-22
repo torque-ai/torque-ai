@@ -1152,8 +1152,11 @@ async function handleListProviders(req, res) {
       if (!p.enabled) {
         status = 'disabled';
       } else {
+        const isConfigured = providerRoutingCore.isProviderConfiguredForRouting
+          ? providerRoutingCore.isProviderConfiguredForRouting(p.provider)
+          : true;
         const isHealthy = providerRoutingCore.isProviderHealthy ? providerRoutingCore.isProviderHealthy(p.provider) : true;
-        if (total_tasks >= 3 && !isHealthy) {
+        if (!isConfigured || (total_tasks >= 3 && !isHealthy)) {
           status = 'unavailable';
         } else if (failed_tasks > 0) {
           status = 'degraded';

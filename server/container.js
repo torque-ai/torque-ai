@@ -232,14 +232,43 @@ _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
 _defaultContainer.register('autoRecoveryServices', ['db', 'eventBus', 'logger'], ({ db, eventBus, logger: log }) => {
   const { createAutoRecoveryServices } = require('./factory/auto-recovery/services');
   let handleRetryFactoryVerify = null;
+  let factoryIntake = null;
+  let factoryHealth = null;
+  let loopController = null;
   try {
     ({ handleRetryFactoryVerify } = require('./handlers/factory-handlers'));
+  } catch (_e) { void _e; }
+  try {
+    factoryIntake = require('./db/factory-intake');
+    factoryHealth = require('./db/factory-health');
+    loopController = require('./factory/loop-controller');
   } catch (_e) { void _e; }
   return createAutoRecoveryServices({
     db: unwrapDb(db), eventBus, logger: log,
     extras: {
       retryFactoryVerify: async (args) =>
         handleRetryFactoryVerify ? handleRetryFactoryVerify(args) : null,
+      rejectWorkItem: async ({ project_id, work_item_id, reason }) => {
+        if (!factoryIntake) throw new Error('factory intake service unavailable');
+        const item = factoryIntake.getWorkItem(work_item_id);
+        if (!item) throw new Error(`Work item not found: ${work_item_id}`);
+        if (project_id && item.project_id !== project_id) {
+          throw new Error(`Work item ${work_item_id} does not belong to project ${project_id}`);
+        }
+        return factoryIntake.rejectWorkItem(work_item_id, reason);
+      },
+      advanceLoop: async ({ project_id }) => {
+        if (!loopController) throw new Error('factory loop controller unavailable');
+        return loopController.advanceLoopForProject(project_id);
+      },
+      rejectGate: async ({ project_id, stage }) => {
+        if (!loopController) throw new Error('factory loop controller unavailable');
+        return loopController.rejectGateForProject(project_id, stage);
+      },
+      pauseProject: async ({ project_id }) => {
+        if (!factoryHealth) throw new Error('factory health service unavailable');
+        return factoryHealth.updateProject(project_id, { status: 'paused' });
+      },
     },
   });
 });

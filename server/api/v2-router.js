@@ -203,6 +203,15 @@ function isV2ProviderHealthy(providerId) {
 function getV2ProviderStatus(provider, providerId) {
   if (!provider || !provider.enabled) return 'disabled';
 
+  try {
+    if (providerRoutingCore.isProviderConfiguredForRouting
+      && !providerRoutingCore.isProviderConfiguredForRouting(providerId)) {
+      return 'unavailable';
+    }
+  } catch (err) {
+    logger.debug("health metric error", { err: err.message });
+  }
+
   const health = getV2ProviderHealth(providerId);
   const successes = Number(health?.successes ?? health?.successful_tasks) || 0;
   const failures = Number(health?.failures ?? health?.failed_tasks) || 0;
