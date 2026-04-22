@@ -22,6 +22,7 @@ const workflowSpecToolDefs = require('./tool-defs/workflow-spec-defs');
 const WORKFLOW_SPEC_TOOLS = Array.isArray(workflowSpecToolDefs)
   ? workflowSpecToolDefs
   : workflowSpecToolDefs.WORKFLOW_SPEC_TOOLS;
+const { WORKFLOW_RESUME_TOOLS } = require('./tool-defs/workflow-resume-defs');
 const { applyBehavioralTags } = require('./tools/behavioral-tags');
 
 let _remoteAgentPluginDefs = null;
@@ -35,6 +36,7 @@ const TOOLS = [
   ...require('./tool-defs/task-management-defs'),
   ...require('./tool-defs/task-defs'),
   ...require('./tool-defs/workflow-defs'),
+  ...WORKFLOW_RESUME_TOOLS,
   ...WORKFLOW_SPEC_TOOLS,
   ...require('./tool-defs/baseline-defs'),
   ...require('./tool-defs/checkpoint-defs'),
@@ -161,6 +163,7 @@ const TOOL_TIER_LABELS = {
 const HANDLER_MODULES = [
   require('./handlers/task'),
   require('./handlers/workflow'),
+  require('./handlers/workflow-resume-handlers'),
   require('./handlers/workflow-spec-handlers'),
   require('./handlers/validation'),
   require('./handlers/provider-handlers'),
