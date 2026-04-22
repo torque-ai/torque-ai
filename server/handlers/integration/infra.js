@@ -779,7 +779,7 @@ function handleScanProject(args) {
     }
   }
 
-  let scanResult = { ...report };
+  const scanResult = { ...report };
 
   // Project template detection
   try {

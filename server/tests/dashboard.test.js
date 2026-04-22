@@ -16,7 +16,7 @@ function resolveDashboardPath() {
 
 const dashboardPath = resolveDashboardPath();
 const dashboardSource = readFileSync(dashboardPath, 'utf8');
-const initBlockPattern = /  loadAll\(\);\s*  connectWs\(\);\s*  \/\/ Fallback polling when WebSocket is disconnected\s*  pollTimer = setInterval\(function \(\) \{\s*    if \(!ws \|\| ws\.readyState !== WebSocket\.OPEN\) \{\s*      loadAll\(\);\s*    \}\s*  \}, POLL_INTERVAL\);\s*\}\)\(\);\s*$/;
+const initBlockPattern = / {2}loadAll\(\);\s* {2}connectWs\(\);\s* {2}\/\/ Fallback polling when WebSocket is disconnected\s* {2}pollTimer = setInterval\(function \(\) \{\s* {4}if \(!ws \|\| ws\.readyState !== WebSocket\.OPEN\) \{\s* {6}loadAll\(\);\s* {4}\}\s* {2}\}, POLL_INTERVAL\);\s*\}\)\(\);\s*$/;
 
 function instrumentDashboardSource() {
   const instrumented = dashboardSource.replace(

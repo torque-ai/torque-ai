@@ -247,7 +247,7 @@ function checkVisibleProvider(task, rule) {
   };
 }
 
-function checkInspectedBeforeCancel(task, rule, context) { // eslint-disable-line no-unused-vars
+function checkInspectedBeforeCancel(task, rule, context) {
   const taskId = getTaskId(task);
   const inspected = getRecentToolCalls(context).some((call) => {
     const toolName = getToolName(call);

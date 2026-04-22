@@ -6083,7 +6083,6 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
     let retryAttempt = countPriorVerifyRetryTasksForBatch(batch_id);
     let submissionFailures = 0;
     try {
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         // Project-row pause gate, re-checked on every iteration. An operator's
         // pause_project must interrupt an in-flight verify-retry loop — not
@@ -7135,7 +7134,7 @@ async function runAdvanceLoop(instance_id) {
   const { project } = getLoopContextOrThrow(instance_id);
   let instance = getInstanceOrThrow(instance_id);
   const previousState = getCurrentLoopState(instance);
-  let currentState = previousState;
+  const currentState = previousState;
   let pausedAtStage = getPausedAtStage(instance);
 
   const projectPaused = isProjectStatusPaused(project.id);

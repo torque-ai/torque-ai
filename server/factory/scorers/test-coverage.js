@@ -124,7 +124,7 @@ function score(projectPath, scanReport, findingsDir) {
 
   // Fallback: count recognized test assets directly, including .NET test projects/files.
   const testFileCount = countTestAssets(projectPath);
-  let sourceFileCount = mt?.total || scanReport?.fileSizes?.totalCodeFiles || 0;
+  const sourceFileCount = mt?.total || scanReport?.fileSizes?.totalCodeFiles || 0;
 
   if (testFileCount === 0 && sourceFileCount === 0) {
     return { score: 50, details: { source: 'no_data' }, findings: [] };

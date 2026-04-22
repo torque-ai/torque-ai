@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { scoreDimension, scoreAll, DIMENSIONS, resolveHealthScanSourceDirs } = require('../factory/scorer-registry');
 const userFacingScorer = require('../factory/scorers/user-facing');
+const { handleScanProject } = require('../handlers/integration/infra');
 
 // Mock scan_project report matching REAL output shape from handleScanProject
 const MOCK_SCAN_REPORT = {

@@ -49,7 +49,7 @@ const SOURCE_TIEBREAK = Object.freeze({
 function normalizeSeverity(severity) {
   if (typeof severity !== 'string') return null;
   const upper = severity.trim().toUpperCase();
-  return SEVERITY_RANK.hasOwnProperty(upper) ? upper : null;
+  return Object.prototype.hasOwnProperty.call(SEVERITY_RANK, upper) ? upper : null;
 }
 
 function severityBucket(item) {

@@ -486,7 +486,7 @@ function buildTaskAgenticPolicy(task, workingDir, serverConfig) {
   let commandMode = typeof metadata.agentic_command_mode === 'string'
     ? metadata.agentic_command_mode
     : (serverConfig.get('agentic_command_mode') || 'unrestricted');
-  let commandAllowlist = metadataCommandAllowlist.length > 0 || Array.isArray(metadata.agentic_allowed_commands)
+  const commandAllowlist = metadataCommandAllowlist.length > 0 || Array.isArray(metadata.agentic_allowed_commands)
     ? metadataCommandAllowlist
     : (serverConfig.get('agentic_command_allowlist') || '').split(',').filter(Boolean);
   if (Array.isArray(metadata.agentic_allowed_commands)) {

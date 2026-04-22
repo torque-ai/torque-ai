@@ -74,13 +74,6 @@ function createProviderMap(overrides = {}) {
       transport: 'api',
       quota_error_patterns: '[]',
     },
-    ollama: {
-      provider: 'ollama',
-      enabled: 1,
-      priority: 70,
-      transport: 'api',
-      quota_error_patterns: '[]',
-    },
     'ollama': {
       provider: 'ollama',
       enabled: 1,

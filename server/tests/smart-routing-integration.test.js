@@ -187,7 +187,6 @@ beforeAll(() => {
     extractJsFunctionBoundaries: () => [],
     PROVIDER_DEFAULT_TIMEOUTS: {
       codex: 60,
-      ollama: 30,
       'claude-cli': 45,
       hashline: 45,
       'ollama': 30,

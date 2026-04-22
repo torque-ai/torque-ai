@@ -61,7 +61,7 @@ describe('project template registry', () => {
 });
 
 describe('project template detector', () => {
-  let tempDirs = [];
+  const tempDirs = [];
 
   function createTempDir() {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-template-detector-'));

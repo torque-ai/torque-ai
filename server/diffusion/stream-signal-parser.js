@@ -45,7 +45,7 @@ class StreamSignalParser {
         } catch (err) {
           // Attempt repair: PowerShell string interpolation can corrupt JSON
           // by inserting '"' sequences or mangling escapes
-          let repaired = jsonStr
+          const repaired = jsonStr
             .replace(/'"'/g, '"')       // PowerShell double-quote escaping
             .replace(/"'/g, '"')         // Mismatched quote pairs
             .replace(/'/g, '"')          // Single quotes to double quotes (if all else fails)

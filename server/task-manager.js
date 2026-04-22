@@ -11,6 +11,7 @@ const { getModule: getContainerModule } = require('./container');
 const taskCore = require('./db/task-core');
 const coordination = require('./db/coordination');
 const providerRoutingCore = require('./db/provider-routing-core');
+const _sleepWatchdog = require('./maintenance/sleep-watchdog');
 let _dashboard = null;
 function getDashboard() {
   if (!_dashboard) _dashboard = require('./dashboard-server');
@@ -1021,7 +1022,6 @@ _orphanCleanup.init({
 _orphanCleanup.startTimers();
 
 // Sleep watchdog — detects system sleep/wake and shields tasks from false timeouts
-const _sleepWatchdog = require('./maintenance/sleep-watchdog');
 _sleepWatchdog.start({ db, runningProcesses, logger });
 
 _instanceManager.init({

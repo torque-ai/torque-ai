@@ -205,7 +205,7 @@ async function handlePiiScan(req, res, _context = {}) {
   const workingDir = body.working_directory || '';
 
   let customPatterns = [];
-  let builtinOverrides = {};
+  const builtinOverrides = {};
   if (workingDir) {
     try {
       const projectConfigCore = require('../../db/project-config-core');

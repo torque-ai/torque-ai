@@ -1092,7 +1092,7 @@ describe('host-management module', () => {
       makeHost({ id: 'recon-ws-host', url: 'http://recon-ws.local:11434' });
       wsModel.updateWorkstation('ws-recon', { running_tasks: 7 });
 
-      let result = mod.reconcileHostTaskCounts();
+      const result = mod.reconcileHostTaskCounts();
       expect(result.workstations_reconciled).toBeGreaterThan(0);
       expect(wsModel.getWorkstation('ws-recon').running_tasks).toBe(0);
 

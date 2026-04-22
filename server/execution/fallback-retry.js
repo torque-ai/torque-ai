@@ -259,7 +259,7 @@ function tryLocalFirstFallback(taskId, task, errorMsg, options = {}) {
 
   // Use metadata counter as the authoritative local attempt count.
   // Counting [Local-First] markers in error_output is unreliable when output is truncated.
-  let metadata = normalizeMetadata(task.metadata);
+  const metadata = normalizeMetadata(task.metadata);
   const localAttempts = typeof metadata.local_first_attempts === 'number' ? metadata.local_first_attempts : 0;
 
   // Also keep raw error string for model/provider deduplication checks (capped to avoid regex on huge strings).
@@ -516,7 +516,7 @@ function tryStallRecovery(taskId, activity) {
 
   // Store edit format override in task metadata for next run
   if (newSettings.editFormat) {
-    let metadata = normalizeMetadata(task.metadata);
+    const metadata = normalizeMetadata(task.metadata);
     metadata.stallRecoveryEditFormat = newSettings.editFormat;
     updateFields.metadata = JSON.stringify(metadata);
   }

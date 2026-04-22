@@ -1815,5 +1815,4 @@ module.exports = {
   // Validation
   handleAutoVerifyAndFix,
   handleDetectFileConflicts,
-  createV2GovernanceHandlers,
 };
