@@ -34,11 +34,11 @@
 
 ## Task 1: Symbol extraction
 
-- [ ] **Step 1: Install deps**
+- [x] **Step 1: Install deps**
 
 In `server/`, install: `web-tree-sitter`, `tree-sitter-javascript`, `tree-sitter-typescript`, `tree-sitter-python`. Save to dependencies.
 
-- [ ] **Step 2: Tests**
+- [x] **Step 2: Tests**
 
 Create `server/tests/extract-symbols.test.js`:
 
@@ -76,7 +76,7 @@ describe('extractSymbols', () => {
 });
 ```
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `server/repo-map/extract-symbols.js`:
 
@@ -159,7 +159,7 @@ module.exports = { extractSymbols, languageFor };
 
 Run tests → PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Stage `server/repo-map/extract-symbols.js`, the test file, and the package files. Commit message: `feat(repo-map): tree-sitter symbol extraction`.
 
@@ -167,7 +167,7 @@ Stage `server/repo-map/extract-symbols.js`, the test file, and the package files
 
 ## Task 2: Build reference graph + rank
 
-- [ ] **Step 1: Implement `build-graph.js`**
+- [x] **Step 1: Implement `build-graph.js`**
 
 ```js
 'use strict';
@@ -222,7 +222,7 @@ function buildGraphAndRank(fileSymbols, repoRoot) {
 module.exports = { buildGraphAndRank };
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 Stage `server/repo-map/build-graph.js`. Commit: `feat(repo-map): reference graph + PageRank centrality`.
 
@@ -230,7 +230,7 @@ Stage `server/repo-map/build-graph.js`. Commit: `feat(repo-map): reference graph
 
 ## Task 3: Token-budgeted Markdown renderer
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/render-map.test.js`:
 
@@ -259,7 +259,7 @@ describe('renderRepoMap', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/repo-map/render-map.js`:
 
@@ -302,7 +302,7 @@ Run tests → PASS. Commit: `feat(repo-map): token-budgeted Markdown renderer`.
 
 ## Task 4: DB cache + scan orchestrator
 
-- [ ] **Step 1: Schema**
+- [x] **Step 1: Schema**
 
 Add to `server/db/schema-tables.js`:
 
@@ -319,7 +319,7 @@ CREATE TABLE IF NOT EXISTS repo_maps (
 
 Add `'repo_maps'` to `ALL_TABLES`.
 
-- [ ] **Step 2: Cache + scan module**
+- [x] **Step 2: Cache + scan module**
 
 Create `server/repo-map/cache.js`:
 
@@ -411,7 +411,7 @@ Commit: `feat(repo-map): scan orchestrator with content-hash cache`.
 
 ## Task 5: Inject into task prompts + MCP tool
 
-- [ ] **Step 1: Per-task field**
+- [x] **Step 1: Per-task field**
 
 In `server/tool-defs/workflow-defs.js` `create_workflow` `tasks.items.properties`:
 
@@ -425,7 +425,7 @@ In `buildWorkflowTaskMetadata`:
 if (taskLike.inject_repo_map === true) metaObj.inject_repo_map = true;
 ```
 
-- [ ] **Step 2: Inject in task-startup**
+- [x] **Step 2: Inject in task-startup**
 
 Find where the task prompt is finalized before the provider runs. After existing context-stuff logic:
 
@@ -443,7 +443,7 @@ if (taskMeta.inject_repo_map && task.working_directory) {
 }
 ```
 
-- [ ] **Step 3: MCP tool to view the map**
+- [x] **Step 3: MCP tool to view the map**
 
 Create `server/tool-defs/repo-map-defs.js`:
 
@@ -489,7 +489,7 @@ Wire into `server/tools.js` and add REST route in `server/api/routes-passthrough
 { method: 'POST', path: '/api/v2/repo-map', tool: 'get_repo_map', mapBody: true },
 ```
 
-- [ ] **Step 4: Integration test**
+- [x] **Step 4: Integration test**
 
 Create `server/tests/repo-map-integration.test.js`:
 
@@ -529,15 +529,15 @@ Run → PASS. Commit: `feat(repo-map): inject_repo_map per-task + get_repo_map M
 
 ## Task 6: Workflow-spec (skip if Plan 1 not shipped) + docs + restart
 
-- [ ] **Step 1: Schema (if Plan 1 shipped)**
+- [x] **Step 1: Schema (if Plan 1 shipped)**
 
 Add `inject_repo_map: { type: 'boolean' }` to `tasks.items.properties` in `server/workflow-spec/schema.js`.
 
-- [ ] **Step 2: Docs**
+- [x] **Step 2: Docs**
 
 Create `docs/repo-map.md` with a usage guide. Include: when to use (cross-file refactors, greenfield generation), caching behavior, supported languages (js/ts/py), and the MCP tool reference.
 
-- [ ] **Step 3: Restart, smoke**
+- [x] **Step 3: Restart, smoke**
 
 `await_restart`. Then call the MCP tool to retrieve the map for the TORQUE project itself. Expect a Markdown map with `server/task-manager.js` near the top (highest centrality given its fan-in).
 
