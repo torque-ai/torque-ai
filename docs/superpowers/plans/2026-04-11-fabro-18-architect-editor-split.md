@@ -238,7 +238,7 @@ feat(architect-editor): orchestrator with fallback for malformed plans
 
 ## Task 3: Per-task fields
 
-- [ ] **Step 1: Tool def**
+- [x] **Step 1: Tool def**
 
 In `server/tool-defs/workflow-defs.js` `create_workflow` `tasks.items.properties`:
 
@@ -262,7 +262,7 @@ if (taskLike.mode === 'architect_editor') {
 }
 ```
 
-- [ ] **Step 2: Validation**
+- [x] **Step 2: Validation**
 
 In `normalizeInitialWorkflowTasks`:
 
@@ -280,7 +280,7 @@ for (const task of normalized) {
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 Stage `server/tool-defs/workflow-defs.js` and `server/handlers/workflow/index.js`. Commit: `feat(architect-editor): accept mode/architect_provider/editor_provider per task`.
 
