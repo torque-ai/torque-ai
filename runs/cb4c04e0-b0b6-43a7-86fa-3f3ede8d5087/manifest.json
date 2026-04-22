@@ -1,0 +1,15 @@
+{
+  "workflow_id": "cb4c04e0-b0b6-43a7-86fa-3f3ede8d5087",
+  "name": "yield-fail-wf",
+  "status": "failed",
+  "created_at": "2026-04-22T20:26:19.194Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:26:19.197Z",
+  "working_directory": null,
+  "task_count": 1,
+  "task_ids": [
+    "5da3e1e2-3539-4f69-9886-5544ac16a175"
+  ],
+  "bundle_built_at": "2026-04-22T20:26:19.199Z",
+  "bundle_format_version": 1
+}

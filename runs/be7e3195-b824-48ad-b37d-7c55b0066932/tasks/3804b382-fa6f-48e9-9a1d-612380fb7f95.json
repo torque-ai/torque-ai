@@ -1,0 +1,20 @@
+{
+  "id": "3804b382-fa6f-48e9-9a1d-612380fb7f95",
+  "workflow_node_id": "cr-a",
+  "task_description": "Reason step",
+  "working_directory": null,
+  "status": "cancelled",
+  "provider": "ollama",
+  "original_provider": "ollama",
+  "model": null,
+  "exit_code": null,
+  "started_at": null,
+  "completed_at": null,
+  "output": null,
+  "error_output": null,
+  "files_modified": [],
+  "tags": [],
+  "metadata": {
+    "requested_provider": "ollama"
+  }
+}

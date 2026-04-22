@@ -1,0 +1,16 @@
+{
+  "workflow_id": "6cacba27-250f-45b7-b8a2-f4e46bc938f6",
+  "name": "runtime-eval-terminal",
+  "status": "completed",
+  "created_at": "2026-04-22T20:26:14.480Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:26:14.483Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "dfc1e07e-66f8-4cba-b493-9b4c63e21a13",
+    "d538d4c9-3df0-4ca9-975a-881b151aa5cb"
+  ],
+  "bundle_built_at": "2026-04-22T20:26:14.485Z",
+  "bundle_format_version": 1
+}

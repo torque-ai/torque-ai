@@ -1,0 +1,15 @@
+{
+  "workflow_id": "7ac17c16-459b-407e-93b8-1adfd3fa0fe7",
+  "name": "cancel-me-wf",
+  "status": "cancelled",
+  "created_at": "2026-04-22T20:26:35.743Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:26:35.748Z",
+  "working_directory": null,
+  "task_count": 1,
+  "task_ids": [
+    "d1e88146-1489-4ec4-94cb-de31e87ea225"
+  ],
+  "bundle_built_at": "2026-04-22T20:26:35.749Z",
+  "bundle_format_version": 1
+}

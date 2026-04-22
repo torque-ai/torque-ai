@@ -1,0 +1,16 @@
+{
+  "workflow_id": "654c9e4b-d3ad-4dd5-8a7d-99d258e79783",
+  "name": "cancel-count-wf",
+  "status": "cancelled",
+  "created_at": "2026-04-22T20:26:35.760Z",
+  "started_at": null,
+  "completed_at": "2026-04-22T20:26:35.765Z",
+  "working_directory": null,
+  "task_count": 2,
+  "task_ids": [
+    "20798113-ecc1-47f4-99ad-3d86ee46b1d4",
+    "ab42f5cd-4e4a-4fd7-8d96-5db7771b5ac3"
+  ],
+  "bundle_built_at": "2026-04-22T20:26:35.766Z",
+  "bundle_format_version": 1
+}
