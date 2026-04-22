@@ -29,7 +29,7 @@
 
 ## Task 1: Bundle builder
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/build-bundle.test.js`:
 
@@ -90,7 +90,7 @@ describe('buildBundle', () => {
 
 Run → FAIL.
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/runs/build-bundle.js`:
 
