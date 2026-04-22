@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'command-builders' });
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
+const { resolveCodexNativeBinary } = require('./codex-native-resolve');
 
 // Git worktrees store per-worktree state at <main>/.git/worktrees/<name>/ and
 // the shared object database + refs at <main>/.git/, both outside the
@@ -214,6 +215,29 @@ async function buildCodexCommand(task, providerConfig, resolvedFileContext, reso
     }
     return { cliPath, finalArgs: codexArgs, stdinPrompt };
   } else if (process.platform === 'win32') {
+    // Prefer launching the bundled native codex.exe directly. The `codex.cmd`
+    // shim invokes `node codex.js` which spawns `codex.exe` which then spawns
+    // `pwsh.exe` for its command-safety AST parser. windowsHide:true on our
+    // spawn doesn't propagate to descendants, so every task flashes a pwsh
+    // console window. Skipping the node shim cuts one layer and puts us in a
+    // better position to control descendant-window semantics (the pwsh child
+    // is still spawned by codex.exe itself; if that continues to flash, that
+    // is codex's own window-flag issue, not ours).
+    const native = resolveCodexNativeBinary();
+    if (native) {
+      logger.info(`[BuildCodex] Using native codex binary at ${native.binaryPath} (skipping node wrapper)`);
+      return {
+        cliPath: native.binaryPath,
+        finalArgs: codexArgs,
+        stdinPrompt,
+        nativeCodex: {
+          pathPrepend: native.vendorPathDir,
+          envAdditions: { CODEX_MANAGED_BY_NPM: '1' },
+        },
+      };
+    }
+    // Native not resolvable — fall back to the npm .cmd shim.
+    logger.info('[BuildCodex] Native codex.exe resolution failed; falling back to codex.cmd');
     cliPath = 'codex.cmd';
     return { cliPath, finalArgs: codexArgs, stdinPrompt };
   } else if (_nvmNodePath) {

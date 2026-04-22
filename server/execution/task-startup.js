@@ -306,13 +306,21 @@ function resolveWindowsCmdToNode(cmdPath) {
   }
 }
 
-function buildProviderStartupEnv({ taskId, task, taskMetadata = {}, runDir, env, nvmNodePath }) {
+function buildProviderStartupEnv({ taskId, task, taskMetadata = {}, runDir, env, nvmNodePath, nativeCodex = null }) {
   const envPath = env.PATH || '';
-  const updatedPath = (nvmNodePath && !envPath.includes(nvmNodePath))
+  let updatedPath = (nvmNodePath && !envPath.includes(nvmNodePath))
     ? `${nvmNodePath}${path.delimiter}${envPath}`
     : envPath;
 
-  return {
+  // When launching the native codex.exe directly (bypassing the node wrapper),
+  // the wrapper's PATH augmentation for the bundled vendor tools (rg.exe) is
+  // lost. Mirror it here: prepend the vendor path dir if the resolver returned
+  // one and it isn't already on PATH.
+  if (nativeCodex && nativeCodex.pathPrepend && !envPath.split(path.delimiter).includes(nativeCodex.pathPrepend)) {
+    updatedPath = `${nativeCodex.pathPrepend}${path.delimiter}${updatedPath}`;
+  }
+
+  const base = {
     ...env,
     PATH: updatedPath,
     // Ensure HOME is set (required by many tools)
@@ -334,6 +342,14 @@ function buildProviderStartupEnv({ taskId, task, taskMetadata = {}, runDir, env,
     // Fix Windows cp1252 encoding crash when LLM output contains emoji/unicode (P59)
     PYTHONIOENCODING: 'utf-8'
   };
+
+  // Carry the npm-managed marker the node wrapper would normally set, so
+  // codex.exe behaves identically whether launched via wrapper or direct.
+  if (nativeCodex && nativeCodex.envAdditions) {
+    Object.assign(base, nativeCodex.envAdditions);
+  }
+
+  return base;
 }
 
 function resolvePlatformProviderCommand({
@@ -430,15 +446,20 @@ async function buildProviderStartupCommand({
     runDir,
     env,
     nvmNodePath,
+    nativeCodex: command.nativeCodex || null,
   });
 
-  const platformCommand = resolvePlatformProviderCommand({
-    cliPath: command.cliPath,
-    finalArgs: [...command.finalArgs],
-    platform,
-    resolveCmdToNode,
-    log,
-  });
+  // When buildCodexCommand returned a native binary path, skip the .cmd →
+  // node-script rewrite: cliPath is already an absolute .exe, not a shim.
+  const platformCommand = command.nativeCodex
+    ? { cliPath: command.cliPath, finalArgs: [...command.finalArgs] }
+    : resolvePlatformProviderCommand({
+        cliPath: command.cliPath,
+        finalArgs: [...command.finalArgs],
+        platform,
+        resolveCmdToNode,
+        log,
+      });
 
   const options = {
     cwd: task.working_directory || process.cwd(),
@@ -1714,6 +1735,7 @@ module.exports = {
   createTaskStartupResourceLifecycle,
   evaluateClaimedStartupPolicy,
   buildProviderStartupCommand,
+  buildProviderStartupEnv,
   // Queue helpers
   attemptTaskStart,
   safeStartTask,
