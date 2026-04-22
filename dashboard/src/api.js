@@ -494,6 +494,23 @@ export const workflows = {
   history: (id) => requestV2(`/workflows/${id}/history`),
 };
 
+// ─── Workflow spec endpoints (v2) ──────────────────────────────────────────
+
+export const workflowSpecs = {
+  list: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return requestV2(`/workflow-specs${query ? `?${query}` : ''}`);
+  },
+  validate: (spec_path, working_directory) => requestV2('/workflow-specs/validate', {
+    method: 'POST',
+    body: JSON.stringify({ spec_path, working_directory }),
+  }),
+  run: (spec_path, opts = {}) => requestV2('/workflow-specs/run', {
+    method: 'POST',
+    body: JSON.stringify({ spec_path, ...opts }),
+  }),
+};
+
 // ─── Benchmarks (v2) ────────────────────────────────────────────────────────
 
 export const benchmarks = {
@@ -690,4 +707,4 @@ export const factory = {
   recordCorrection: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/corrections`, { method: 'POST', body: JSON.stringify(data), ...opts }),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory };
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, workflowSpecs, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory };
