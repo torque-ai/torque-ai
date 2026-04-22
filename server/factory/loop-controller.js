@@ -127,6 +127,15 @@ class StageOccupiedError extends Error {
   }
 }
 
+class ExecuteDeferredPausedError extends Error {
+  constructor(deferral) {
+    super('Project paused before next EXECUTE plan task submission');
+    this.name = 'ExecuteDeferredPausedError';
+    this.code = 'FACTORY_EXECUTE_DEFERRED_PAUSED';
+    Object.assign(this, deferral || {});
+  }
+}
+
 const selectedWorkItemIds = new Map();
 const loopAdvanceJobs = new Map();
 const activeLoopAdvanceJobs = new Map();
@@ -263,6 +272,55 @@ function isProjectStatusPaused(project_id) {
   } catch {
     return false;
   }
+}
+
+function deferExecutePlanTaskIfProjectPaused({
+  project_id,
+  batch_id,
+  workItem,
+  planPath,
+  planTaskNumber,
+  planTaskTitle,
+}) {
+  const latestProject = getProjectOrThrow(project_id);
+  if (latestProject.status !== 'paused') {
+    return null;
+  }
+
+  const deferral = {
+    project_id,
+    batch_id: batch_id || null,
+    work_item_id: workItem?.id ?? null,
+    plan_path: planPath || workItem?.origin?.plan_path || null,
+    plan_task_number: planTaskNumber ?? null,
+    remaining_plan_task_number: planTaskNumber ?? null,
+    plan_task_title: planTaskTitle || null,
+  };
+
+  safeLogDecision({
+    project_id,
+    stage: LOOP_STATES.EXECUTE,
+    action: 'execute_deferred_paused',
+    reasoning: 'Project is paused; deferring the next EXECUTE plan task instead of submitting a new Codex task.',
+    inputs: {
+      ...getWorkItemDecisionContext(workItem),
+      plan_task_number: deferral.plan_task_number,
+      plan_task_title: deferral.plan_task_title,
+    },
+    outcome: {
+      work_item_id: deferral.work_item_id,
+      plan_path: deferral.plan_path,
+      plan_task_number: deferral.plan_task_number,
+      remaining_plan_task_number: deferral.remaining_plan_task_number,
+      plan_task_title: deferral.plan_task_title,
+      project_status: latestProject.status,
+      next_state: LOOP_STATES.EXECUTE,
+    },
+    confidence: 1,
+    batch_id: deferral.batch_id,
+  });
+
+  return deferral;
 }
 
 function getCurrentLoopState(loopRecord) {
@@ -4315,6 +4373,18 @@ async function executePlanFileStage(project, instance, workItem) {
         tags.push('factory:pending_approval');
       }
 
+      const pausedDeferral = deferExecutePlanTaskIfProjectPaused({
+        project_id: project.id,
+        batch_id: executeDecisionBatchId,
+        workItem: targetItem,
+        planPath: args.plan_path,
+        planTaskNumber: args.plan_task_number,
+        planTaskTitle: args.plan_task_title,
+      });
+      if (pausedDeferral) {
+        throw new ExecuteDeferredPausedError(pausedDeferral);
+      }
+
       const result = await handleSmartSubmitTask({
         ...args,
         tags: [...new Set(tags)],
@@ -4410,6 +4480,30 @@ async function executePlanFileStage(project, instance, workItem) {
       execution_mode: executeMode,
     });
   } catch (execErr) {
+    if (execErr?.code === 'FACTORY_EXECUTE_DEFERRED_PAUSED') {
+      logger.info('EXECUTE stage: project paused before next plan task submission', {
+        project_id: project.id,
+        work_item_id: targetItem.id,
+        batch_id: execErr.batch_id || executeDecisionBatchId,
+        remaining_plan_task_number: execErr.remaining_plan_task_number ?? null,
+      });
+      return {
+        next_state: LOOP_STATES.EXECUTE,
+        paused_at_stage: null,
+        reason: 'execute_deferred_paused',
+        stage_result: {
+          status: 'deferred',
+          reason: 'project_paused',
+          work_item_id: execErr.work_item_id ?? targetItem.id,
+          plan_path: execErr.plan_path || planPathForExecutor,
+          plan_task_number: execErr.plan_task_number ?? null,
+          remaining_plan_task_number: execErr.remaining_plan_task_number ?? null,
+          batch_id: execErr.batch_id || executeDecisionBatchId,
+        },
+        work_item: targetItem,
+      };
+    }
+
     // Silent-spin fix: before this catch, any exception from the plan
     // executor (submit failure, fs.readFileSync ENOENT on a missing
     // worktree-plan, await timeout, etc.) propagated unwrapped back to
@@ -6704,7 +6798,18 @@ async function runAdvanceLoop(instance_id) {
   let currentState = previousState;
   let pausedAtStage = getPausedAtStage(instance);
 
-  if (isProjectStatusPaused(project.id)) {
+  const projectPaused = isProjectStatusPaused(project.id);
+  const pausedExecuteTarget = projectPaused && currentState === LOOP_STATES.EXECUTE
+    ? tryGetSelectedWorkItem(instance, project.id, { fallbackToLoopSelection: true })
+    : null;
+  const canDeferPausedExecutePlanTask = Boolean(
+    pausedExecuteTarget?.origin?.plan_path
+    && fs.existsSync(pausedExecuteTarget.origin.plan_path)
+  );
+
+  // A paused EXECUTE plan batch still needs to observe the next incomplete
+  // task so it can log execute_deferred_paused at the submission boundary.
+  if (projectPaused && !canDeferPausedExecutePlanTask) {
     return {
       project_id: project.id,
       instance_id: instance.id,
