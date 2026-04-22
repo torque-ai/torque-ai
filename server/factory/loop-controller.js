@@ -2249,6 +2249,7 @@ async function claimNextWorkItemForInstance(project_id, instance_id) {
 
   const maxRepicks = Math.max(1, (promotionConfig?.stale_max_repicks) || 3);
   const skipped = [];
+  let staleProbeBudgetExhaustedLogged = false;
   const projectPath = project?.path || null;
   const { probeStaleness } = require('./stale-probe');
 
@@ -2258,16 +2259,31 @@ async function claimNextWorkItemForInstance(project_id, instance_id) {
       return { openItems: survivors, workItem: item };
     }
     if (item.claimed_by_instance_id) continue;
-    if (skipped.length >= maxRepicks) break;
 
     // Stale probe — non-scout items Gate-1-out immediately in probeStaleness,
     // so it is safe to run for every candidate.
     let probe = { stale: false, reason: 'skipped' };
-    try {
-      probe = await probeStaleness(item, { projectPath, promotionConfig });
-    } catch (err) {
-      logger.warn('stale_probe_threw', { err: err && err.message, work_item_id: item.id });
-      probe = { stale: false, reason: 'probe_errored' };
+    if (skipped.length < maxRepicks) {
+      try {
+        probe = await probeStaleness(item, { projectPath, promotionConfig });
+      } catch (err) {
+        logger.warn('stale_probe_threw', { err: err && err.message, work_item_id: item.id });
+        probe = { stale: false, reason: 'probe_errored' };
+      }
+    } else if (!staleProbeBudgetExhaustedLogged) {
+      staleProbeBudgetExhaustedLogged = true;
+      safeLogDecision({
+        project_id,
+        stage: LOOP_STATES.PRIORITIZE,
+        action: 'stale_probe_budget_exhausted',
+        reasoning: 'Stale probe skip budget exhausted; claiming the next open item instead of reporting an empty intake queue.',
+        outcome: {
+          skipped,
+          max_repicks: maxRepicks,
+          fallback_work_item_id: item.id,
+        },
+        confidence: 1,
+      });
     }
 
     if (probe.stale) {
