@@ -28,7 +28,7 @@
 
 ## Task 1: Dispatcher
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 Create `server/tests/hooks-dispatcher.test.js`:
 
@@ -90,7 +90,7 @@ describe('dispatchHook', () => {
 });
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Create `server/hooks/dispatcher.js`:
 
@@ -194,7 +194,7 @@ feat(hooks): lifecycle hook dispatcher with timeout + block-on-exit-nonzero
 
 ## Task 2: Wire into runtime
 
-- [ ] **Step 1: TaskStart in `task-startup.js`**
+- [x] **Step 1: TaskStart in `task-startup.js`**
 
 Right at the entry of `startTask`:
 
@@ -212,7 +212,7 @@ try {
 } catch (e) { logger.info(`[hooks] TaskStart dispatch failed: ${e.message}`); }
 ```
 
-- [ ] **Step 2: TaskComplete in `task-finalizer.js`**
+- [x] **Step 2: TaskComplete in `task-finalizer.js`**
 
 After the final `updateTaskStatus`:
 
@@ -225,7 +225,7 @@ try {
 
 (Pre/Post tool hooks require deeper integration into provider execution loops — leave for v2.)
 
-- [ ] **Step 3: WorkflowStart/WorkflowComplete in `workflow-runtime.js`**
+- [x] **Step 3: WorkflowStart/WorkflowComplete in `workflow-runtime.js`**
 
 At the `startWorkflow` entry and at finalization:
 
@@ -242,7 +242,7 @@ Commit: `feat(hooks): wire TaskStart, TaskComplete, WorkflowStart/Complete dispa
 
 ## Task 3: MCP tools + docs + smoke
 
-- [ ] **Step 1: MCP query tool**
+- [x] **Step 1: MCP query tool**
 
 Create `server/tool-defs/hook-defs.js`:
 
@@ -312,7 +312,7 @@ module.exports = { handleListHooks, handleTestHook };
 
 Wire in `server/tools.js`. Add REST routes.
 
-- [ ] **Step 2: Docs**
+- [x] **Step 2: Docs**
 
 Create `docs/hooks.md`:
 
