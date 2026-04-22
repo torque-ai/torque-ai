@@ -411,7 +411,7 @@ Commit: `feat(repo-map): scan orchestrator with content-hash cache`.
 
 ## Task 5: Inject into task prompts + MCP tool
 
-- [ ] **Step 1: Per-task field**
+- [x] **Step 1: Per-task field**
 
 In `server/tool-defs/workflow-defs.js` `create_workflow` `tasks.items.properties`:
 
@@ -425,7 +425,7 @@ In `buildWorkflowTaskMetadata`:
 if (taskLike.inject_repo_map === true) metaObj.inject_repo_map = true;
 ```
 
-- [ ] **Step 2: Inject in task-startup**
+- [x] **Step 2: Inject in task-startup**
 
 Find where the task prompt is finalized before the provider runs. After existing context-stuff logic:
 
@@ -443,7 +443,7 @@ if (taskMeta.inject_repo_map && task.working_directory) {
 }
 ```
 
-- [ ] **Step 3: MCP tool to view the map**
+- [x] **Step 3: MCP tool to view the map**
 
 Create `server/tool-defs/repo-map-defs.js`:
 
@@ -489,7 +489,7 @@ Wire into `server/tools.js` and add REST route in `server/api/routes-passthrough
 { method: 'POST', path: '/api/v2/repo-map', tool: 'get_repo_map', mapBody: true },
 ```
 
-- [ ] **Step 4: Integration test**
+- [x] **Step 4: Integration test**
 
 Create `server/tests/repo-map-integration.test.js`:
 
