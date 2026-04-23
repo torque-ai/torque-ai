@@ -26,6 +26,20 @@ function createMockResponse() {
   return { response, done };
 }
 
+function createMockStats({ size = 32, mtimeMs = 1000 } = {}) {
+  return {
+    size,
+    mtimeMs,
+    isFile: () => true,
+  };
+}
+
+function createMissingStatError(candidate) {
+  const err = new Error(`ENOENT: no such file or directory, stat '${candidate}'`);
+  err.code = 'ENOENT';
+  return err;
+}
+
 function createMockReq({ method = 'GET', url = '/', headers = {}, body } = {}) {
   const req = new EventEmitter();
   req.method = method;
@@ -241,7 +255,13 @@ function loadDashboardServer({
   if (fsOverrides) {
     const fs = require('fs');
     for (const [key, value] of Object.entries(fsOverrides)) {
-      vi.spyOn(fs, key).mockImplementation(value);
+      if (key === 'promises') {
+        for (const [promiseKey, promiseValue] of Object.entries(value)) {
+          vi.spyOn(fs.promises, promiseKey).mockImplementation(promiseValue);
+        }
+      } else {
+        vi.spyOn(fs, key).mockImplementation(value);
+      }
     }
   }
 
@@ -315,9 +335,15 @@ describe('dashboard-server', () => {
     });
 
     const readFile = vi.fn((filePath, cb) => cb(null, Buffer.from('console.log("ok")')));
+    const stat = vi.fn(async (filePath) => {
+      if (String(filePath).endsWith(jsFileSuffix)) {
+        return createMockStats();
+      }
+      throw createMissingStatError(filePath);
+    });
 
     const { dashboardServer, getRequestHandler } = await loadDashboardServer({
-      fsOverrides: { existsSync, readFile },
+      fsOverrides: { existsSync, readFile, promises: { stat } },
     });
 
     await dashboardServer.start({ port: 4568, openBrowser: false });
@@ -335,11 +361,15 @@ describe('dashboard-server', () => {
   it('returns 404 for unknown static paths when index fallback is unavailable', async () => {
     const distSuffix = path.join('dashboard', 'dist');
     const existsSync = vi.fn((candidate) => String(candidate).endsWith(distSuffix));
+    const stat = vi.fn(async (filePath) => {
+      throw createMissingStatError(filePath);
+    });
 
     const { dashboardServer, getRequestHandler, sendErrorMock } = await loadDashboardServer({
       fsOverrides: {
         existsSync,
         readFile: vi.fn(),
+        promises: { stat },
       },
     });
 
@@ -614,9 +644,15 @@ describe('dashboard-server', () => {
     });
 
     const readFile = vi.fn((filePath, cb) => cb(null, Buffer.from('body {}')));
+    const stat = vi.fn(async (filePath) => {
+      if (String(filePath).endsWith(cssFileSuffix)) {
+        return createMockStats();
+      }
+      throw createMissingStatError(filePath);
+    });
 
     const { dashboardServer, getRequestHandler } = await loadDashboardServer({
-      fsOverrides: { existsSync, readFile },
+      fsOverrides: { existsSync, readFile, promises: { stat } },
     });
 
     await dashboardServer.start({ port: 4578, openBrowser: false });
