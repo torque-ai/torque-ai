@@ -425,3 +425,76 @@ describe('Logger rotation against real filesystem', () => {
     expect(() => JSON.parse(secondRot)).not.toThrow();
   });
 });
+
+describe('Logger argument normalization', () => {
+  function createCapturingLogger() {
+    const logger = new Logger({
+      level: 'debug',
+      logDir: '/tmp/logger-tests',
+      logFile: 'unused.log',
+    });
+    const lines = [];
+    logger._writeLine = line => lines.push(line);
+    return { logger, lines };
+  }
+
+  function parseFirstLine(lines) {
+    expect(lines).toHaveLength(1);
+    return JSON.parse(lines[0]);
+  }
+
+  it('supports object-first structured logging without numeric string keys', () => {
+    const { logger, lines } = createCapturingLogger();
+
+    logger.info({
+      project_id: 'project-1',
+      stage: 'sense',
+      action: 'started_loop',
+    }, 'Factory decision logged');
+
+    const entry = parseFirstLine(lines);
+    expect(entry.message).toBe('Factory decision logged');
+    expect(entry.project_id).toBe('project-1');
+    expect(entry.stage).toBe('sense');
+    expect(entry.action).toBe('started_loop');
+    expect(entry).not.toHaveProperty('0');
+    expect(entry).not.toHaveProperty('1');
+  });
+
+  it('does not spread string detail arguments into numbered fields', () => {
+    const { logger, lines } = createCapturingLogger();
+
+    logger.info('Safeguard failed', 'Cannot read properties of null');
+
+    const entry = parseFirstLine(lines);
+    expect(entry.message).toBe('Safeguard failed');
+    expect(entry.detail).toBe('Cannot read properties of null');
+    expect(entry).not.toHaveProperty('0');
+    expect(entry).not.toHaveProperty('1');
+  });
+
+  it('keeps object-only structured logs readable', () => {
+    const { logger, lines } = createCapturingLogger();
+
+    logger.info({ event: 'heartbeat' });
+
+    const entry = parseFirstLine(lines);
+    expect(entry.message).toBe('Log event');
+    expect(entry.event).toBe('heartbeat');
+    expect(entry).not.toHaveProperty('0');
+  });
+
+  it('serializes Error values in structured data', () => {
+    const { logger, lines } = createCapturingLogger();
+
+    logger.warn({ err: new Error('boom'), task_id: 'task-1' }, 'Task failed');
+
+    const entry = parseFirstLine(lines);
+    expect(entry.message).toBe('Task failed');
+    expect(entry.task_id).toBe('task-1');
+    expect(entry.err).toEqual(expect.objectContaining({
+      name: 'Error',
+      message: 'boom',
+    }));
+  });
+});

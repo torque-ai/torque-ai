@@ -44,6 +44,65 @@ const REDACT_PATTERNS = [
 
 const REDACTION_MARKER = '[REDACTED]';
 
+function isLogRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function serializeError(error) {
+  const serialized = {
+    name: error.name,
+    message: error.message,
+  };
+  if (error.stack) serialized.stack = error.stack;
+
+  for (const key of Object.keys(error)) {
+    if (!(key in serialized)) serialized[key] = error[key];
+  }
+
+  return serialized;
+}
+
+function normalizeLogData(value) {
+  if (value === undefined || value === null) return {};
+  if (value instanceof Error) return { err: serializeError(value) };
+  if (!isLogRecord(value)) return { detail: value };
+
+  const normalized = {};
+  for (const [key, entryValue] of Object.entries(value)) {
+    normalized[key] = entryValue instanceof Error
+      ? serializeError(entryValue)
+      : entryValue;
+  }
+  return normalized;
+}
+
+function normalizeLogArgs(message, data) {
+  if (isLogRecord(message)) {
+    const normalizedData = normalizeLogData(message);
+    if (typeof data === 'string') {
+      return { message: data, data: normalizedData };
+    }
+    if (data instanceof Error) {
+      return {
+        message: data.message,
+        data: { ...normalizedData, err: serializeError(data) },
+      };
+    }
+    if (data !== undefined) {
+      return {
+        message: String(data),
+        data: normalizedData,
+      };
+    }
+    return { message: 'Log event', data: normalizedData };
+  }
+
+  return {
+    message: typeof message === 'string' ? message : String(message),
+    data: normalizeLogData(data),
+  };
+}
+
 class Logger {
   constructor(options = {}) {
     this.level = LEVELS[options.level || 'info'] || LEVELS.info;
@@ -179,15 +238,16 @@ class Logger {
     return result;
   }
 
-  _write(level, message, data = {}) {
+  _write(level, message, data) {
     if (LEVELS[level] < this.level) return;
+    const normalized = normalizeLogArgs(message, data);
 
     const entry = {
       timestamp: new Date().toISOString(),
       level,
-      message,
+      message: normalized.message,
       ...this.context,
-      ...data,
+      ...normalized.data,
     };
 
     const line = this._redact(JSON.stringify(entry)) + '\n';
