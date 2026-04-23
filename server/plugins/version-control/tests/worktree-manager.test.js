@@ -545,6 +545,77 @@ describe('version-control worktree manager', () => {
     expect(manager.getWorktree('wt-cleanup')).toBeNull();
   });
 
+  it('removes the current worktree when only older same-path db siblings exist', () => {
+    const repoPath = makeRepoRoot();
+    const worktreePath = path.join(repoPath, '.worktrees', 'feat-cleanup-sibling');
+    insertWorktree({
+      id: 'wt-old-sibling',
+      repo_path: repoPath,
+      worktree_path: worktreePath,
+      branch: 'feat/cleanup-sibling',
+      created_at: '2026-03-30T00:00:00.000Z',
+      last_activity_at: '2026-03-30T00:00:00.000Z',
+    });
+    insertWorktree({
+      id: 'wt-current-sibling',
+      repo_path: repoPath,
+      worktree_path: worktreePath,
+      branch: 'feat/cleanup-sibling',
+      created_at: '2026-03-31T00:00:00.000Z',
+      last_activity_at: '2026-03-31T00:00:00.000Z',
+    });
+
+    const result = manager.cleanupWorktree('wt-current-sibling');
+
+    expect(result).toMatchObject({
+      id: 'wt-current-sibling',
+      worktree_path: worktreePath,
+      removed: true,
+      branchDeleted: true,
+    });
+    expect(execFileSyncMock).toHaveBeenCalledWith('git', ['worktree', 'remove', '--force', worktreePath], expect.objectContaining({
+      cwd: repoPath,
+    }));
+    expect(db.prepare('SELECT COUNT(*) AS count FROM vc_worktrees WHERE worktree_path = ?').get(worktreePath).count).toBe(0);
+  });
+
+  it('drops only the stale worktree row when a newer same-path db sibling exists', () => {
+    const repoPath = makeRepoRoot();
+    const worktreePath = path.join(repoPath, '.worktrees', 'feat-superseded');
+    insertWorktree({
+      id: 'wt-stale-sibling',
+      repo_path: repoPath,
+      worktree_path: worktreePath,
+      branch: 'feat/superseded',
+      created_at: '2026-03-30T00:00:00.000Z',
+      last_activity_at: '2026-03-30T00:00:00.000Z',
+    });
+    insertWorktree({
+      id: 'wt-newer-sibling',
+      repo_path: repoPath,
+      worktree_path: worktreePath,
+      branch: 'feat/superseded',
+      created_at: '2026-03-31T00:00:00.000Z',
+      last_activity_at: '2026-03-31T00:00:00.000Z',
+    });
+
+    const result = manager.cleanupWorktree('wt-stale-sibling');
+
+    expect(result).toMatchObject({
+      id: 'wt-stale-sibling',
+      worktree_path: worktreePath,
+      removed: false,
+      superseded: true,
+      branchDeleted: false,
+    });
+    expect(execFileSyncMock).not.toHaveBeenCalledWith('git', ['worktree', 'remove', '--force', worktreePath], expect.any(Object));
+    expect(manager.getWorktree('wt-stale-sibling')).toBeNull();
+    expect(manager.getWorktree('wt-newer-sibling')).toMatchObject({
+      id: 'wt-newer-sibling',
+      worktree_path: worktreePath,
+    });
+  });
+
   it('detects stale worktrees and supports dry-run stale cleanup without deleting rows', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-10T00:00:00.000Z'));

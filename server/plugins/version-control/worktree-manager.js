@@ -49,6 +49,30 @@ function normalizeOptionalNumber(value, fieldName) {
   return numeric;
 }
 
+function parseTimestampMs(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isNewerWorktreeRow(candidate, existing) {
+  const candidateCreated = parseTimestampMs(candidate?.created_at);
+  const existingCreated = parseTimestampMs(existing?.created_at);
+  if (candidateCreated !== null && existingCreated !== null && candidateCreated !== existingCreated) {
+    return candidateCreated > existingCreated;
+  }
+
+  const candidateActivity = parseTimestampMs(candidate?.last_activity_at);
+  const existingActivity = parseTimestampMs(existing?.last_activity_at);
+  if (candidateActivity !== null && existingActivity !== null && candidateActivity !== existingActivity) {
+    return candidateActivity > existingActivity;
+  }
+
+  return false;
+}
+
 // Windows-safe recursive delete. Plain fs.rmSync throws EPERM on read-only
 // files (git internals, tool-marked files) and "Directory not empty" on
 // paths where Codex or pytest leaves wheel-check dirs with restrictive
@@ -849,15 +873,16 @@ function createWorktree(repoPath, featureName, options = {}) {
     // row, then the caller tries to abandon the old row by its previous id).
     // Running `git worktree remove --force` on the shared path would wipe the
     // active sibling's directory — so drop only the stale DB row here.
-    const sibling = dbHandle.prepare(
-      'SELECT id FROM vc_worktrees WHERE worktree_path = ? AND id != ?'
-    ).get(existing.worktree_path, existing.id);
-    if (sibling) {
+    const siblings = dbHandle.prepare(
+      'SELECT id, created_at, last_activity_at FROM vc_worktrees WHERE worktree_path = ? AND id != ?'
+    ).all(existing.worktree_path, existing.id);
+    const newerSibling = siblings.find((sibling) => isNewerWorktreeRow(sibling, existing));
+    if (newerSibling) {
       dbHandle.prepare('DELETE FROM vc_worktrees WHERE id = ?').run(existing.id);
       if (logger) {
         logger.warn('cleanupWorktree: dropped stale row superseded by sibling (same path)', {
           stale_id: existing.id,
-          sibling_id: sibling.id,
+          sibling_id: newerSibling.id,
           worktree_path: existing.worktree_path,
           branch: existing.branch,
         });
@@ -872,6 +897,18 @@ function createWorktree(repoPath, featureName, options = {}) {
         branchDeleted: false,
         warnings: [],
       };
+    }
+
+    for (const sibling of siblings) {
+      dbHandle.prepare('DELETE FROM vc_worktrees WHERE id = ?').run(sibling.id);
+      if (logger) {
+        logger.warn('cleanupWorktree: dropped older sibling row for current worktree path', {
+          stale_id: sibling.id,
+          current_id: existing.id,
+          worktree_path: existing.worktree_path,
+          branch: existing.branch,
+        });
+      }
     }
 
     const warnings = [];
