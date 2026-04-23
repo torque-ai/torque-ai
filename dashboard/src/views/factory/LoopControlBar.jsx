@@ -283,21 +283,32 @@ export default function LoopControlBar({
     setBusyActions({});
   }, [projectId]);
 
+  const hasActiveLoop = useMemo(
+    () => instances.some((instance) => instance?.loop_state && instance.loop_state !== 'IDLE' && !instance.terminated_at),
+    [instances]
+  );
+
   useEffect(() => {
     if (!projectId) {
       return undefined;
     }
-
     void loadInstances();
+    return () => {
+      requestVersionRef.current += 1;
+    };
+  }, [loadInstances, projectId]);
+
+  useEffect(() => {
+    if (!projectId || !hasActiveLoop) {
+      return undefined;
+    }
     const intervalId = setInterval(() => {
       void loadInstances({ silent: true });
     }, INSTANCE_POLL_INTERVAL_MS);
-
     return () => {
-      requestVersionRef.current += 1;
       clearInterval(intervalId);
     };
-  }, [loadInstances, projectId]);
+  }, [hasActiveLoop, loadInstances, projectId]);
 
   useEffect(() => {
     const runningJobs = Object.values(jobSnapshots).filter((job) => job?.status === 'running');

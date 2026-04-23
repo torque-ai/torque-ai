@@ -73,7 +73,6 @@ function formatCycleWorkItem(cycle = {}) {
 }
 
 export default function Overview() {
-  const [loopSummaries, setLoopSummaries] = useState({});
   const [cycleHistory, setCycleHistory] = useState([]);
   const [cycleHistoryLoading, setCycleHistoryLoading] = useState(false);
   const [cycleHistoryError, setCycleHistoryError] = useState('');
@@ -92,57 +91,6 @@ export default function Overview() {
     selectedProjectId,
     setSelectedProjectId,
   } = useOutletContext();
-
-  useEffect(() => {
-    if (!Array.isArray(projects) || projects.length === 0) {
-      return undefined;
-    }
-
-    let cancelled = false;
-
-    const loadLoopSummaries = async () => {
-      const nextEntries = await Promise.all(projects.map(async (project) => {
-        try {
-          const instances = await factoryApi.listLoopInstances(project.id, { activeOnly: true });
-          const stages = [...new Set((Array.isArray(instances) ? instances : [])
-            .map((instance) => instance?.loop_state)
-            .filter(Boolean))];
-
-          return [
-            project.id,
-            {
-              activeCount: Array.isArray(instances) ? instances.length : 0,
-              stages,
-              error: null,
-            },
-          ];
-        } catch (error) {
-          return [
-            project.id,
-            {
-              activeCount: 0,
-              stages: [],
-              error: error?.message || 'Unable to load loop summary.',
-            },
-          ];
-        }
-      }));
-
-      if (!cancelled) {
-        setLoopSummaries(Object.fromEntries(nextEntries));
-      }
-    };
-
-    void loadLoopSummaries();
-    const intervalId = setInterval(() => {
-      void loadLoopSummaries();
-    }, 5000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [projects]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -257,8 +205,10 @@ export default function Overview() {
 
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {projects.map((project) => {
-            const summary = loopSummaries[project.id] || { activeCount: 0, stages: [], error: null };
-            const stagesLabel = summary.stages.length > 0 ? summary.stages.join(', ') : '—';
+            const loopState = project.loop_state || 'IDLE';
+            const activeCount = loopState !== 'IDLE' ? 1 : 0;
+            const stages = activeCount > 0 ? [loopState] : [];
+            const stagesLabel = stages.length > 0 ? stages.join(', ') : '—';
 
             return (
               <div
@@ -272,15 +222,12 @@ export default function Overview() {
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-medium text-white">{project.name || project.id}</p>
                   <span className="rounded-full border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300">
-                    {summary.activeCount} active
+                    {activeCount} active
                   </span>
                 </div>
                 <p className="mt-2 text-sm text-slate-300">
-                  {summary.activeCount} active loop{summary.activeCount === 1 ? '' : 's'} • stages: [{stagesLabel}]
+                  {activeCount} active loop{activeCount === 1 ? '' : 's'} • stages: [{stagesLabel}]
                 </p>
-                {summary.error && (
-                  <p className="mt-2 text-xs text-amber-300">{summary.error}</p>
-                )}
               </div>
             );
           })}
