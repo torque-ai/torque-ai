@@ -75,4 +75,15 @@ describe('TestRunnerRegistry', () => {
     expect(result.success).toBe(true);
     expect(result.durationMs).toBe(0);
   });
+
+  it.skipIf(process.platform !== 'win32')('lets Windows PowerShell autoload built-in modules from the local verify shell', async () => {
+    const result = await registry.runVerifyCommand(
+      'powershell -NoProfile -Command "Get-Command Get-FileHash -ErrorAction Stop | Select-Object -ExpandProperty Source"',
+      process.cwd(),
+      { timeout: 60000 }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.output).toContain('Microsoft.PowerShell.Utility');
+  });
 });

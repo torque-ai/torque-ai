@@ -1,6 +1,7 @@
 'use strict';
 
 const { spawnSync, spawn } = require('child_process');
+const { resolveWindowsPowerShellEnv } = require('../../utils/windows-powershell-env');
 
 const SENSITIVE_ENV_PATTERNS = [
   /^(TORQUE_AGENT_SECRET|API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH)/i,
@@ -284,6 +285,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     // Local fallback
     logger.info(`[remote-routing] Running locally: ${command} ${args.join(' ')}`);
     const startMs = Date.now();
+    const childEnv = resolveWindowsPowerShellEnv([command, ...(args || [])].join(' '));
     const spawnResult = spawnSync(command, args, {
       cwd,
       encoding: 'utf8',
@@ -291,6 +293,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       maxBuffer: 10 * 1024 * 1024,
       windowsHide: true,
       shell: true, // Required on Windows — npx/npm are .cmd files resolved via PATH
+      ...(childEnv ? { env: childEnv } : {}),
     });
 
     return {
@@ -389,11 +392,13 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       let timedOut = false;
       let settled = false;
 
+      const childEnv = resolveWindowsPowerShellEnv(command);
       const child = spawn(command, {
         cwd,
         windowsHide: true,
         shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        ...(childEnv ? { env: childEnv } : {}),
       });
 
       child.stdout.setEncoding('utf8');

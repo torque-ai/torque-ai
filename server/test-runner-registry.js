@@ -1,6 +1,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
+const { resolveWindowsPowerShellEnv } = require('./utils/windows-powershell-env');
 
 function createTestRunnerRegistry() {
   let _overrides = null;
@@ -20,11 +21,13 @@ function createTestRunnerRegistry() {
       let timedOut = false;
       let settled = false;
 
+      const childEnv = resolveWindowsPowerShellEnv(command);
       const child = spawn(command, {
         cwd,
         windowsHide: true,
         shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
+        ...(childEnv ? { env: childEnv } : {}),
       });
 
       child.stdout.setEncoding('utf8');
@@ -75,6 +78,7 @@ function createTestRunnerRegistry() {
   function _localRunRemoteOrLocal(command, args, cwd, options = {}) {
     const { spawnSync } = require('child_process');
     const startMs = Date.now();
+    const childEnv = resolveWindowsPowerShellEnv([command, ...(args || [])].join(' '));
     const result = spawnSync(command, args, {
       cwd,
       encoding: 'utf8',
@@ -82,6 +86,7 @@ function createTestRunnerRegistry() {
       maxBuffer: 10 * 1024 * 1024,
       windowsHide: true,
       shell: true,
+      ...(childEnv ? { env: childEnv } : {}),
     });
 
     return Promise.resolve({
