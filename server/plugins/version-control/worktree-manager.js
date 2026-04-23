@@ -10,7 +10,7 @@ const logger = require('../../logger').child({ component: 'worktree-manager' });
 const DEFAULT_BASE_BRANCH = 'main';
 const DEFAULT_WORKTREE_DIR = '.worktrees';
 const DEFAULT_STALE_DAYS = 7;
-const MAX_WORKTREE_LEAF_LENGTH = 40;
+const MAX_WORKTREE_LEAF_LENGTH = 25;
 const VALID_MERGE_STRATEGIES = new Set(['merge', 'squash', 'rebase']);
 
 function resolveDbHandle(dbService) {

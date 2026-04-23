@@ -244,8 +244,8 @@ describe('version-control worktree manager', () => {
     const leaf = path.basename(created.worktree_path);
 
     expect(created.branch).toBe(`feat/${featureName}`);
-    expect(leaf.length).toBeLessThanOrEqual(40);
-    expect(leaf).toMatch(/^feat-factory-742-validate.*-[a-f0-9]{8}$/);
+    expect(leaf.length).toBeLessThanOrEqual(25);
+    expect(leaf).toMatch(/^feat-factory-742-[a-f0-9]{8}$/);
     expect(created.worktree_path).toBe(path.join(repoPath, '.worktrees', leaf));
   });
 
