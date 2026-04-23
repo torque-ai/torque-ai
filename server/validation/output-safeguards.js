@@ -83,6 +83,53 @@ function truncateOptionalText(value, maxLength) {
   return value.slice(0, maxLength);
 }
 
+const NON_MUTATING_FACTORY_INTERNAL_KINDS = new Set([
+  'architect_cycle',
+  'plan_generation',
+]);
+
+function parseJsonField(value, fallback) {
+  if (value && typeof value === 'object') return value;
+  if (typeof value !== 'string' || value.trim() === '') return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function getTaskMetadata(task) {
+  const value = task?.metadata !== undefined && task?.metadata !== null && task.metadata !== ''
+    ? task.metadata
+    : task?.task_metadata;
+  return parseJsonField(value, {});
+}
+
+function getTaskTags(task) {
+  const parsed = parseJsonField(task?.tags, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function shouldSkipOutputSafeguards(task) {
+  const metadata = getTaskMetadata(task);
+  const tags = getTaskTags(task);
+  const factoryInternal = metadata.factory_internal === true || tags.includes('factory:internal');
+  if (!factoryInternal) return false;
+
+  const kind = typeof metadata.kind === 'string' ? metadata.kind : null;
+  if (kind && NON_MUTATING_FACTORY_INTERNAL_KINDS.has(kind)) return true;
+
+  return metadata.factory_plan_review === true || tags.includes('factory:plan_review');
+}
+
+function logSafeguardError(taskId, label, err) {
+  const message = err?.message || String(err);
+  logger.info(`[Safeguard] ${label} for task ${taskId}: ${message}`);
+  if (err?.stack) {
+    logger.debug(`[Safeguard] ${label} stack for task ${taskId}: ${err.stack}`);
+  }
+}
+
 function validateFileSizes(taskId, status, task, db, retryEnabled) {
   let validationScore = 100;
 
@@ -222,6 +269,11 @@ function detectStubImplementations(taskId, status, task, db) {
 
 async function runOutputSafeguards(taskId, status, task) {
   try {
+    if (shouldSkipOutputSafeguards(task)) {
+      logger.info(`[Safeguard] Skipping output safeguards for non-mutating factory-internal task ${taskId}`);
+      return;
+    }
+
     // Check if adaptive retry is enabled
     const retryEnabled = serverConfig.getBool('adaptive_retry_enabled');
     const qualityScoringEnabled = serverConfig.getBool('quality_scoring_enabled');
@@ -399,7 +451,7 @@ async function runOutputSafeguards(taskId, status, task) {
             }
           })
           .catch(err => {
-            logger.info(`[Safeguard] Build check error for ${taskId}:`, err.message);
+            logSafeguardError(taskId, 'Build check error', err);
           });
       }
     }
@@ -770,7 +822,7 @@ async function runOutputSafeguards(taskId, status, task) {
     }
 
   } catch (err) {
-    logger.info(`[Safeguard] Error running safeguards for task ${taskId}:`, err.message);
+    logSafeguardError(taskId, 'Error running safeguards', err);
   }
 }
 
@@ -779,6 +831,7 @@ module.exports = {
   runOutputSafeguards,
   sanitizeOutputForCondition,
   truncateOptionalText,
+  shouldSkipOutputSafeguards,
   MAX_SANITIZE_LENGTH,
   SECRET_PATTERNS,
 };

@@ -204,7 +204,7 @@ describe('server/versioning/auto-release', () => {
     expect(deps.releaseManager.createRelease).not.toHaveBeenCalled();
   });
 
-  it('cutRelease creates a release, records it, and links the commits', () => {
+  it('cutRelease creates a release, records it, links commits, and leaves the worktree clean', () => {
     const getVersioningConfig = vi.fn(() => ({
       enabled: true,
       auto_push: true,
@@ -233,11 +233,7 @@ describe('server/versioning/auto-release', () => {
     expect(deps.changelogGenerator.generateChangelog).toHaveBeenCalledWith('C:/repo', {
       version: '1.1.0',
     });
-    expect(deps.changelogGenerator.updateChangelogFile).toHaveBeenCalledWith(
-      'C:/repo',
-      '1.1.0',
-      'changelog text',
-    );
+    expect(deps.changelogGenerator.updateChangelogFile).not.toHaveBeenCalled();
     expect(result).toEqual(expect.objectContaining({
       releaseId: expect.any(String),
       version: '1.1.0',

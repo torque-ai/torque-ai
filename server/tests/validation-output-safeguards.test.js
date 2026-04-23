@@ -15,6 +15,7 @@
 const {
   sanitizeOutputForCondition,
   truncateOptionalText,
+  shouldSkipOutputSafeguards,
   SECRET_PATTERNS,
   MAX_SANITIZE_LENGTH,
 } = require('../validation/output-safeguards');
@@ -283,6 +284,45 @@ describe('truncateOptionalText', () => {
 
   it('truncates string smoke-test output', () => {
     expect(truncateOptionalText('abcdef', 3)).toBe('abc');
+  });
+});
+
+describe('shouldSkipOutputSafeguards', () => {
+  it('skips non-mutating factory plan-generation tasks', () => {
+    expect(shouldSkipOutputSafeguards({
+      metadata: JSON.stringify({
+        factory_internal: true,
+        kind: 'plan_generation',
+      }),
+      tags: JSON.stringify(['factory:internal', 'factory:plan_generation']),
+    })).toBe(true);
+  });
+
+  it('skips factory plan-review tasks that have no metadata kind', () => {
+    expect(shouldSkipOutputSafeguards({
+      metadata: JSON.stringify({
+        factory_internal: true,
+        factory_plan_review: true,
+      }),
+      tags: JSON.stringify(['factory:internal', 'factory:plan_review']),
+    })).toBe(true);
+  });
+
+  it('does not skip factory execute tasks', () => {
+    expect(shouldSkipOutputSafeguards({
+      metadata: JSON.stringify({
+        factory_internal: true,
+        kind: 'execute',
+      }),
+      tags: JSON.stringify(['factory:internal']),
+    })).toBe(false);
+  });
+
+  it('does not skip regular completed tasks', () => {
+    expect(shouldSkipOutputSafeguards({
+      metadata: '{}',
+      tags: '[]',
+    })).toBe(false);
   });
 });
 
