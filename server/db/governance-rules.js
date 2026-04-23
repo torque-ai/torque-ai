@@ -102,7 +102,7 @@ const BUILTIN_RULES = Object.freeze([
     stage: 'command_execute',
     default_mode: 'block',
     checker_id: 'checkRequireRemoteForBuilds',
-    config: { commands: ['npm test', 'npx vitest', 'dotnet build', 'cargo build', 'go build', 'make'] },
+    config: { commands: ['npm test', 'npx vitest', 'dotnet build', 'dotnet test', 'pwsh scripts/build.ps1', 'pwsh -file scripts/build.ps1', 'powershell scripts/build.ps1', 'powershell -file scripts/build.ps1', 'bash scripts/build.sh', 'sh scripts/build.sh', './scripts/build.sh', 'cargo build', 'go build', 'make'] },
   }),
   Object.freeze({
     id: 'push-before-subagent-tests',

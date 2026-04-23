@@ -111,6 +111,18 @@ describe('runDeterministicRules — per-task content', () => {
     expect(hardFails.some(f => f.rule === 'task_has_acceptance_criterion' && f.taskNumber === 1)).toBe(true);
   });
 
+  it('rejects heavyweight local dotnet validation in task bodies', () => {
+    const plan = `## Task 1: Record evidence\n\nUpdate docs/status/evidence.md with the touched files, then run dotnet build SpudgetBooks.sln and dotnet test SpudgetBooks.sln --no-build before committing.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.some(f => f.rule === 'task_avoids_local_heavy_validation' && f.taskNumber === 1)).toBe(true);
+  });
+
+  it('allows heavyweight validation when it is routed through torque-remote', () => {
+    const plan = `## Task 1: Record evidence\n\nUpdate docs/status/evidence.md with the touched files, then run torque-remote dotnet build SpudgetBooks.sln and torque-remote dotnet test SpudgetBooks.sln --no-build before committing.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_avoids_local_heavy_validation')).toBeUndefined();
+  });
+
   it('rule 7: task with a single "appropriately" near a concrete object does NOT hard-fail', () => {
     const plan = `## Task 1: Wire src/bar.ts\n\nUpdate src/bar.ts to call the new helper appropriately. Run npx vitest tests/bar.test.ts to verify.`;
     const { hardFails } = runDeterministicRules(plan);
@@ -175,7 +187,7 @@ In \`server/plugins/version-control/worktree-manager.js\` and \`server/plugins/v
   it('rule 5: WPF and .NET project paths count as concrete file references', () => {
     const plan = `## Task 1: Fix shell contrast
 
-Edit \`src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml\`, \`src/SpudgetBooks.App/MainWindow.xaml\`, and \`tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj\` so the shell contrast regression is covered. Run dotnet test tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj to verify.`;
+Edit \`src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml\`, \`src/SpudgetBooks.App/MainWindow.xaml\`, and \`tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj\` so the shell contrast regression is covered. Run torque-remote dotnet test tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj to verify.`;
     const { hardFails } = runDeterministicRules(plan);
     expect(hardFails.find(f => f.rule === 'task_has_file_reference')).toBeUndefined();
   });

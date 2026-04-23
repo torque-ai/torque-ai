@@ -482,6 +482,31 @@ describe('governance/hooks', () => {
       expect(result).toEqual({ pass: true });
     });
 
+    it('checkRequireRemoteForBuilds blocks dotnet test even when the stored config is stale', () => {
+      const result = CHECKERS.checkRequireRemoteForBuilds(
+        { task_description: 'Run dotnet test SpudgetBooks.sln --no-build and record the results.' },
+        { config: JSON.stringify({ commands: ['dotnet build'] }) },
+      );
+
+      expect(result).toMatchObject({
+        pass: false,
+        detected_command: 'dotnet test',
+      });
+      expect(result.message).toContain('torque-remote');
+    });
+
+    it('checkRequireRemoteForBuilds blocks PowerShell build wrappers with normalized paths', () => {
+      const result = CHECKERS.checkRequireRemoteForBuilds(
+        { task_description: 'Validation: run `pwsh .\\scripts\\build.ps1` before shipping.' },
+        { config: null },
+      );
+
+      expect(result).toMatchObject({
+        pass: false,
+        detected_command: 'pwsh scripts/build.ps1',
+      });
+    });
+
     it.skip('checkDiffAfterCodex captures git diff stat for codex providers', async () => {
       const execSpy = mockExecFileSuccess('server/governance/hooks.js | 12 ++++++++----\n');
       ({ CHECKERS } = loadHooksModule());

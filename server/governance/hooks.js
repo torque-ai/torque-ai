@@ -11,6 +11,22 @@ const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../utils/git')
 
 const DEFAULT_VISIBLE_PROVIDERS = Object.freeze(['codex', 'claude-cli']);
 const DEFAULT_TEST_COMMANDS = Object.freeze(['vitest', 'jest', 'pytest', 'dotnet test']);
+const DEFAULT_REMOTE_BUILD_COMMANDS = Object.freeze([
+  'npm test',
+  'npx vitest',
+  'dotnet build',
+  'dotnet test',
+  'pwsh scripts/build.ps1',
+  'pwsh -file scripts/build.ps1',
+  'powershell scripts/build.ps1',
+  'powershell -file scripts/build.ps1',
+  'bash scripts/build.sh',
+  'sh scripts/build.sh',
+  './scripts/build.sh',
+  'cargo build',
+  'go build',
+  'make',
+]);
 const INSPECTION_TOOLS = new Set(['check_status', 'get_result']);
 const CODEX_PROVIDERS = new Set(['codex', 'codex-spark']);
 const GIT_PROBE_OPTIONS = Object.freeze({
@@ -44,6 +60,16 @@ function normalizeString(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+function normalizeCommandText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[`'"]/g, '')
+    .replace(/\\/g, '/')
+    .replace(/(^|\s)\.\//g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function parseJsonObject(value) {
   if (!value) return {};
   if (typeof value === 'object' && !Array.isArray(value)) return value;
@@ -70,6 +96,14 @@ function normalizeStringList(values, fallback) {
   return normalized.length > 0
     ? Array.from(new Set(normalized))
     : Array.from(new Set(fallback.map(value => normalizeString(value)).filter(Boolean)));
+}
+
+function mergeNormalizedCommandList(values, fallback) {
+  const source = [
+    ...fallback,
+    ...(Array.isArray(values) ? values : []),
+  ];
+  return Array.from(new Set(source.map(value => normalizeCommandText(value)).filter(Boolean)));
 }
 
 function getTaskMetadata(task) {
@@ -464,11 +498,16 @@ function checkAnnotationsUpdated(task, _rule, _context) {
 }
 
 function checkRequireRemoteForBuilds(task, rule, _context) {
-  const config = safeParseConfig(rule.config, { commands: ['npm test', 'npx vitest', 'dotnet build', 'cargo build', 'go build', 'make'] });
-  const desc = (task.task_description || '').toLowerCase();
-  const matched = (config.commands || []).find(cmd => desc.includes(cmd.toLowerCase()));
+  const config = safeParseConfig(rule.config, {});
+  const commands = mergeNormalizedCommandList(config.commands, DEFAULT_REMOTE_BUILD_COMMANDS);
+  const desc = normalizeCommandText(task.task_description || '');
+  const matched = commands.find(cmd => desc.includes(cmd));
   if (matched) {
-    return { pass: false, message: `Build/test command "${matched}" should run via torque-remote, not locally.` };
+    return {
+      pass: false,
+      message: `Build/test command "${matched}" should run via torque-remote, not locally.`,
+      detected_command: matched,
+    };
   }
   return { pass: true };
 }
