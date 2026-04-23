@@ -807,6 +807,40 @@ describe('process-lifecycle', () => {
 
   // ── killOrphanByPid ──
   describe('killOrphanByPid', () => {
+    it('unrefs the SIGKILL fallback timer when available and still schedules SIGKILL', () => {
+      const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+      const processKillSpy = vi.spyOn(process, 'kill').mockImplementation(() => undefined);
+      const unref = vi.fn();
+      let fallbackCallback;
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay) => {
+        fallbackCallback = callback;
+        expect(delay).toBe(75);
+        return { unref };
+      });
+
+      try {
+        Object.defineProperty(process, 'platform', { value: 'linux' });
+
+        lifecycle.killOrphanByPid(9003, 'orphan-task', 75);
+
+        expect(processKillSpy).toHaveBeenCalledWith(9003, 'SIGTERM');
+        expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+        expect(unref).toHaveBeenCalledTimes(1);
+        expect(processKillSpy).toHaveBeenCalledTimes(1);
+
+        fallbackCallback();
+
+        expect(processKillSpy).toHaveBeenCalledWith(9003, 'SIGKILL');
+        expect(processKillSpy).toHaveBeenCalledTimes(2);
+      } finally {
+        if (platformDescriptor) {
+          Object.defineProperty(process, 'platform', platformDescriptor);
+        }
+        setTimeoutSpy.mockRestore();
+        processKillSpy.mockRestore();
+      }
+    });
+
     if (process.platform === 'win32') {
       it.todo('sends SIGTERM then SIGKILL for orphan PID on non-Windows platform - Windows implementation needed');
       it.todo('swallows ESRCH from orphan SIGTERM without scheduling SIGKILL - Windows implementation needed');

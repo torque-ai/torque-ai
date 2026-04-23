@@ -161,7 +161,9 @@ function killOrphanByPid(pid, taskId, killDelayMs = 5000, label = '') {
       }
     }
   }, killDelayMs);
-  handle.unref();
+  if (typeof handle.unref === 'function') {
+    handle.unref();
+  }
 }
 
 /**
