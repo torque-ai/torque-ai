@@ -27,6 +27,7 @@ describe('cancel retry_scheduled tasks (Bug #7)', () => {
         resolveTaskId: vi.fn(),
         getTask: vi.fn(),
         updateTaskStatus: vi.fn(),
+        releaseAllFileLocks: vi.fn(() => 0),
       },
       runningProcesses: new Map(),
       apiAbortControllers: new Map(),
@@ -59,6 +60,7 @@ describe('cancel retry_scheduled tasks (Bug #7)', () => {
       error_output: 'User cancelled',
       cancel_reason: 'user',
     });
+    expect(deps.db.releaseAllFileLocks).toHaveBeenCalledWith(fullId);
     expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
     expect(mockDispatchTaskEvent).toHaveBeenCalledWith('cancelled', expect.any(Object));
     expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);

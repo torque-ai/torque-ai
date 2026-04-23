@@ -47,6 +47,23 @@ function createCancellationHandler({
       : suffix;
   }
 
+  function releaseFileLocksForCancel(taskId) {
+    if (!db || typeof db.releaseAllFileLocks !== 'function') {
+      return 0;
+    }
+
+    try {
+      const released = db.releaseAllFileLocks(taskId);
+      if (released > 0) {
+        logger.info(`[FileLock] Released ${released} lock(s) for ${taskId} on cancellation`);
+      }
+      return released;
+    } catch (lockErr) {
+      logger.warn(`[FileLock] Non-fatal error releasing locks for cancelled task ${taskId}: ${lockErr.message}`);
+      return 0;
+    }
+  }
+
   function cancelTask(taskId, reason = 'Cancelled by user', options = {}) {
     const cancelReason = options.cancel_reason || 'user';
     const fullId = db.resolveTaskId(taskId);
@@ -80,6 +97,7 @@ function createCancellationHandler({
 
       cleanupChildProcessListeners(proc.process);
       cleanupProcessTracking(proc, fullId, runningProcesses, stallRecoveryAttempts);
+      releaseFileLocksForCancel(fullId);
 
       triggerCancellationWebhook(fullId, webhookEvent);
       dispatchCancelEvent(fullId, webhookEvent);
@@ -108,6 +126,7 @@ function createCancellationHandler({
         error_output: combineErrorForCancel(task.error_output, reason),
         cancel_reason: cancelReason
       });
+      releaseFileLocksForCancel(fullId);
 
       triggerCancellationWebhook(fullId, webhookEvent);
       dispatchCancelEvent(fullId, webhookEvent);
@@ -122,6 +141,7 @@ function createCancellationHandler({
         error_output: combineErrorForCancel(task.error_output, reason),
         cancel_reason: cancelReason
       });
+      releaseFileLocksForCancel(fullId);
       triggerCancellationWebhook(fullId, webhookEvent);
       dispatchCancelEvent(fullId, webhookEvent);
       handleWorkflowTermination(fullId);
@@ -137,6 +157,7 @@ function createCancellationHandler({
         error_output: combineErrorForCancel(task.error_output, reason),
         cancel_reason: cancelReason
       });
+      releaseFileLocksForCancel(fullId);
       triggerCancellationWebhook(fullId, webhookEvent);
       dispatchCancelEvent(fullId, webhookEvent);
       handleWorkflowTermination(fullId);
@@ -154,6 +175,7 @@ function createCancellationHandler({
         ),
         cancel_reason: cancelReason
       });
+      releaseFileLocksForCancel(fullId);
       triggerCancellationWebhook(fullId, webhookEvent);
       dispatchCancelEvent(fullId, webhookEvent);
       handleWorkflowTermination(fullId);
