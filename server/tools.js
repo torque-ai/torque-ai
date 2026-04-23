@@ -134,6 +134,10 @@ function getRuntimeRegisteredToolDefs() {
   }));
 }
 
+function getRuntimeRegisteredToolDef(toolName) {
+  return _runtimeRegisteredToolDefs.find((tool) => tool && tool.name === toolName) || null;
+}
+
 for (const tool of TOOLS) {
   if (tool && tool.name) {
     Object.assign(tool, decorateToolDefinition(tool));
@@ -401,11 +405,19 @@ function getRemoteAgentPluginHandlers() {
 }
 
 function getPluginToolDef(toolName) {
-  return getRemoteAgentPluginDefs().find((tool) => tool && tool.name === toolName) || null;
+  return getRuntimeRegisteredToolDef(toolName)
+    || getRemoteAgentPluginDefs().find((tool) => tool && tool.name === toolName)
+    || null;
 }
 
 function getPluginToolHandler(toolName) {
-  if (!getPluginToolDef(toolName)) {
+  const runtimeTool = getRuntimeRegisteredToolDef(toolName);
+  if (runtimeTool) {
+    return typeof runtimeTool.handler === 'function' ? runtimeTool.handler : null;
+  }
+
+  const remoteTool = getRemoteAgentPluginDefs().find((tool) => tool && tool.name === toolName);
+  if (!remoteTool) {
     return null;
   }
 
@@ -861,6 +873,7 @@ function createTools(_deps) {
     decorateToolDefinition,
     setRuntimeRegisteredToolDefs,
     getRuntimeRegisteredToolDefs,
+    getRuntimeRegisteredToolDef,
   };
 }
 
@@ -874,6 +887,7 @@ module.exports = {
   decorateToolDefinition,
   setRuntimeRegisteredToolDefs,
   getRuntimeRegisteredToolDefs,
+  getRuntimeRegisteredToolDef,
   createTools,
   RESTART_COOLDOWN_MS,
   handleRestartServerBarrier,

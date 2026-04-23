@@ -128,9 +128,11 @@ beforeEach(() => {
   handleToolCallSpy.mockResolvedValue({
     content: [{ type: 'text', text: 'healthy' }],
   });
+  tools.setRuntimeRegisteredToolDefs([]);
 
   db.setConfig('api_key', '');
   db.setConfig('api_rate_limit', '');
+  db.setConfig('rest_api_tool_mode', '');
   db.setConfig('v2_auth_mode', 'permissive');
   db.setConfig('v2_rate_policy', 'enforced');
   db.setConfig('v2_rate_limit', '120');
@@ -771,6 +773,30 @@ describe('captured request handler dispatch', () => {
       const sorted = [...body.tools].sort();
       expect(body.tools).toEqual(sorted);
     });
+
+    it('includes runtime plugin tools', async () => {
+      tools.setRuntimeRegisteredToolDefs([{
+        name: 'vc_list_worktrees',
+        description: 'List tracked worktrees',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            repo_path: { type: 'string' },
+          },
+        },
+        handler: vi.fn(),
+      }]);
+
+      const response = await dispatchRequest(requestHandler, {
+        method: 'GET',
+        url: '/api/tools',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = parseJsonBody(response);
+      expect(body.tools).toContain('vc_list_worktrees');
+      expect(body.count).toBe(body.tools.length);
+    });
   });
 
   describe('POST /api/tools/:tool_name (generic passthrough)', () => {
@@ -820,6 +846,44 @@ describe('captured request handler dispatch', () => {
       expect(handleToolCallSpy).toHaveBeenCalledWith('await_task', {
         task_id: 'abc-123',
         timeout_minutes: 5,
+      });
+    });
+
+    it('allows runtime plugin tools via the generic passthrough when REST mode is full', async () => {
+      db.setConfig('api_key', 'secret-key-123');
+      db.setConfig('rest_api_tool_mode', 'full');
+      tools.setRuntimeRegisteredToolDefs([{
+        name: 'vc_list_worktrees',
+        description: 'List tracked worktrees',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            repo_path: { type: 'string' },
+          },
+        },
+        handler: vi.fn(),
+      }]);
+      handleToolCallSpy.mockResolvedValue({
+        content: [{ type: 'text', text: 'runtime result' }],
+      });
+
+      const response = await dispatchRequest(requestHandler, {
+        method: 'POST',
+        url: '/api/tools/vc_list_worktrees',
+        headers: {
+          'content-type': 'application/json',
+          'x-torque-key': 'secret-key-123',
+        },
+        body: { repo_path: 'C:\\repo' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(parseJsonBody(response)).toMatchObject({
+        tool: 'vc_list_worktrees',
+        result: 'runtime result',
+      });
+      expect(handleToolCallSpy).toHaveBeenCalledWith('vc_list_worktrees', {
+        repo_path: 'C:\\repo',
       });
     });
 
@@ -880,6 +944,46 @@ describe('captured request handler dispatch', () => {
       expect(response.statusCode).toBe(404);
     });
 
+  });
+
+  describe('runtime plugin passthrough routes', () => {
+    it('dispatches v2 passthrough routes to runtime plugin tools', async () => {
+      tools.setRuntimeRegisteredToolDefs([{
+        name: 'vc_list_worktrees',
+        description: 'List tracked worktrees',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            repo_path: { type: 'string' },
+          },
+        },
+        handler: vi.fn(),
+      }]);
+      handleToolCallSpy.mockResolvedValue({
+        content: [{ type: 'text', text: JSON.stringify({ count: 1, worktrees: [] }) }],
+      });
+
+      const response = await dispatchRequest(requestHandler, {
+        method: 'POST',
+        url: '/api/v2/vc/list-worktrees',
+        headers: { 'content-type': 'application/json' },
+        body: { repo_path: 'C:\\repo' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(parseJsonBody(response)).toMatchObject({
+        data: {
+          count: 1,
+          worktrees: [],
+        },
+        meta: {
+          tool: 'vc_list_worktrees',
+        },
+      });
+      expect(handleToolCallSpy).toHaveBeenCalledWith('vc_list_worktrees', {
+        repo_path: 'C:\\repo',
+      });
+    });
   });
 
   describe('TDA-09/TDA-10: deprecation headers on legacy routes', () => {

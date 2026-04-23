@@ -684,6 +684,32 @@ describe('tools.js aggregator source-loader', () => {
       expect(result).toEqual({ plugin: true, args: { name: 'agent-1' } });
     });
 
+    it('dispatches runtime registered plugin tools via their registered handler', async () => {
+      const pluginHandler = vi.fn(async (args) => ({ runtime: true, args }));
+      const subject = createToolsSubject();
+      subject.mod.setRuntimeRegisteredToolDefs([{
+        name: 'vc_list_worktrees',
+        description: 'List tracked worktrees',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            repo_path: { type: 'string' },
+          },
+          required: ['repo_path'],
+          additionalProperties: false,
+        },
+        handler: pluginHandler,
+      }]);
+
+      const result = await subject.mod.handleToolCall('vc_list_worktrees', {
+        repo_path: 'C:\\repo',
+      });
+
+      expect(subject.mod.routeMap.has('vc_list_worktrees')).toBe(false);
+      expect(pluginHandler).toHaveBeenCalledWith({ repo_path: 'C:\\repo' });
+      expect(result).toEqual({ runtime: true, args: { repo_path: 'C:\\repo' } });
+    });
+
     it('falls back to the legacy database module when the container db is unavailable', async () => {
       const pluginHandler = vi.fn(async (args) => ({ plugin: true, args }));
       const createHandlers = vi.fn(() => ({ register_remote_agent: pluginHandler }));
@@ -745,6 +771,34 @@ describe('tools.js aggregator source-loader', () => {
       expect(result.structuredData).toMatchObject({
         name: 'register_remote_agent',
         description: 'Register a remote agent',
+      });
+    });
+
+    it('returns schemas for runtime registered plugin tools via get_tool_schema', async () => {
+      const subject = createToolsSubject();
+      subject.mod.setRuntimeRegisteredToolDefs([{
+        name: 'vc_list_worktrees',
+        description: 'List tracked worktrees',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            repo_path: { type: 'string' },
+          },
+        },
+        handler: vi.fn(),
+      }]);
+
+      const result = await subject.mod.handleToolCall('get_tool_schema', {
+        tool_name: 'vc_list_worktrees',
+      });
+
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredData).toMatchObject({
+        name: 'vc_list_worktrees',
+        description: 'List tracked worktrees',
+        inputSchema: {
+          type: 'object',
+        },
       });
     });
   });

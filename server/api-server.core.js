@@ -53,6 +53,22 @@ const {
 let apiServer = null;
 let apiPort = 3457;
 
+function getRestToolNames() {
+  const names = new Set(tools.routeMap.keys());
+  if (typeof tools.getRuntimeRegisteredToolDefs === 'function') {
+    for (const tool of tools.getRuntimeRegisteredToolDefs()) {
+      if (tool && typeof tool.name === 'string') {
+        names.add(tool.name);
+      }
+    }
+  }
+  return [...names].sort();
+}
+
+function hasRestTool(toolName) {
+  return tools.routeMap.has(toolName)
+    || (typeof tools.getRuntimeRegisteredToolDef === 'function' && Boolean(tools.getRuntimeRegisteredToolDef(toolName)));
+}
 
 const V2_RATE_POLICIES = new Set(['enforced', 'disabled']);
 const DEFAULT_V2_RATE_LIMIT = 120;
@@ -545,7 +561,8 @@ async function handleRequest(req, res, context = {}) {
 
   // Tool discovery — GET /api/tools lists all available MCP tools
   if (req.method === 'GET' && url === '/api/tools') {
-    sendJson(res, { tools: [...tools.routeMap.keys()].sort(), count: tools.routeMap.size }, 200, req);
+    const toolNames = getRestToolNames();
+    sendJson(res, { tools: toolNames, count: toolNames.length }, 200, req);
     return;
   }
 
@@ -557,7 +574,7 @@ async function handleRequest(req, res, context = {}) {
   const BLOCKED_REST_TOOLS = new Set(['restart_server', 'shutdown', 'database_backup', 'database_restore']);
   if (req.method === 'POST' && url.startsWith(TOOL_PREFIX)) {
     const toolName = url.slice(TOOL_PREFIX.length);
-    if (toolName && /^[a-z_]+$/.test(toolName) && tools.routeMap.has(toolName)) {
+    if (toolName && /^[a-z_]+$/.test(toolName) && hasRestTool(toolName)) {
       if (BLOCKED_REST_TOOLS.has(toolName)) {
         sendJson(res, { error: `Tool '${toolName}' is not available via the REST API` }, 403, req);
         return;
