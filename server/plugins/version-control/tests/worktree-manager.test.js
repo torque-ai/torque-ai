@@ -205,6 +205,21 @@ describe('version-control worktree manager', () => {
       last_activity_at: '2026-03-30T10:15:00.000Z',
     });
 
+    if (process.platform === 'win32') {
+      expect(execFileSyncMock).toHaveBeenCalledWith('git', [
+        'config',
+        '--local',
+        'core.longpaths',
+        'true',
+      ], {
+        cwd: repoPath,
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 30000,
+        killSignal: 'SIGKILL',
+      });
+    }
+
     expect(execFileSyncMock).toHaveBeenCalledWith('git', [
       'worktree',
       'add',
