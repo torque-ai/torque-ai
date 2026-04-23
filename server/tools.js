@@ -598,6 +598,7 @@ async function handleRestartServerBarrier(args) {
   // indefinitely. Callers can override via drain_timeout_minutes/timeout_minutes.
   const drainTimeoutMinutes = args.drain_timeout_minutes || args.timeout_minutes || 60;
   const taskCore = require('./db/task-core');
+  const { stageRestartHandoff } = require('./execution/restart-handoff');
 
   logger.info(`[Restart] Server restart requested (barrier): ${reason}`);
 
@@ -666,16 +667,17 @@ async function handleRestartServerBarrier(args) {
   });
   logger.info(`[Restart] Created barrier task ${barrierId} — queue scheduler will block new starts`);
 
-  // If pipeline is already empty, complete immediately and trigger restart
+  // If pipeline is already empty, schedule restart immediately and let the
+  // successor instance complete the barrier after it registers.
   if (activeTasks === 0) {
     // Set the in-memory flag BEFORE marking the barrier completed so
     // isRestartBarrierActive keeps gating the scheduler across the grace
     // period (status change → setTimeout → emitShutdown).
     process._torqueRestartPending = true;
     taskCore.updateTaskStatus(barrierId, 'running', { started_at: new Date().toISOString() });
-    taskCore.updateTaskStatus(barrierId, 'completed', {
-      output: 'Pipeline was already empty',
-      completed_at: new Date().toISOString(),
+    stageRestartHandoff({ barrierId, reason });
+    taskCore.updateTaskStatus(barrierId, 'running', {
+      output: 'Pipeline was already empty; waiting for successor instance to confirm startup',
     });
     logger.info('[Restart] Pipeline empty — triggering immediate restart');
     setTimeout(() => {
@@ -701,22 +703,17 @@ async function handleRestartServerBarrier(args) {
 
     if (running === 0) {
       clearInterval(drainPoll);
-      logger.info('[Restart] Drain complete — completing barrier and restarting...');
-      // Set the in-memory flag BEFORE flipping the barrier to completed so
+      logger.info('[Restart] Drain complete — scheduling successor-owned barrier completion and restarting...');
+      // Set the in-memory flag before shutdown scheduling so
       // isRestartBarrierActive keeps gating the scheduler during the
       // RESTART_RESPONSE_GRACE_MS window and any async shutdown-handler
-      // draining. Without this, the 2–3 s between "barrier completed" and
-      // "subprocesses killed" is a racy window where the scheduler can
-      // promote queued tasks that then die with the process.
+      // draining. The barrier itself stays non-terminal until the successor
+      // instance confirms startup.
       process._torqueRestartPending = true;
-      taskCore.updateTaskStatus(barrierId, 'completed', {
-        output: `Drain complete after ${Math.round((Date.now() - drainStarted) / 1000)}s`,
-        completed_at: new Date().toISOString(),
+      stageRestartHandoff({ barrierId, reason });
+      taskCore.updateTaskStatus(barrierId, 'running', {
+        output: `Drain complete after ${Math.round((Date.now() - drainStarted) / 1000)}s; waiting for successor instance to confirm startup`,
       });
-      try {
-        const { dispatchTaskEvent } = require('./hooks/event-dispatch');
-        dispatchTaskEvent('completed', taskCore.getTask(barrierId));
-      } catch { /* non-fatal */ }
       // Match the empty-pipeline path: give awaiters time to see the
       // completed barrier event and flush their response before shutdown.
       setTimeout(() => {
@@ -803,11 +800,16 @@ function cleanupStaleRestartBarriers() {
   let cleanedCount = 0;
   try {
     const taskCore = require('./db/task-core');
+    const { readRestartHandoff } = require('./execution/restart-handoff');
+    const activeHandoff = readRestartHandoff();
     const candidates = taskCore.listTasks({ status: 'running', limit: 100 })
       .concat(taskCore.listTasks({ status: 'queued', limit: 100 }));
     for (const b of candidates) {
       scannedCount += 1;
       if (b.provider !== 'system') {
+        continue;
+      }
+      if (activeHandoff && activeHandoff.barrier_id === b.id) {
         continue;
       }
       taskCore.updateTaskStatus(b.id, 'cancelled', {

@@ -2249,6 +2249,30 @@ async function handleAwaitRestart(args) {
       return Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
     };
 
+    const formatRestartScheduled = () => ({
+      content: [{
+        type: 'text',
+        text: `## Restart Scheduled\n\nBarrier ${taskId.slice(0, 8)} is waiting for the successor instance to confirm startup.\nThis connection may drop before the new server is fully ready.\n\nAfter reconnect, call restart_status or await_task { task_id: "${taskId}" } to confirm the restart finished.`,
+      }],
+      structuredData: {
+        barrier_id: taskId,
+        barrier_status: 'running',
+        restart_handoff_pending: true,
+      },
+    });
+
+    if (restartResult.status === 'restart_scheduled') {
+      return formatRestartScheduled();
+    }
+
+    try {
+      const { readRestartHandoff } = require('../../execution/restart-handoff');
+      const handoff = readRestartHandoff();
+      if (restartResult.status === 'already_pending' && handoff?.barrier_id === taskId && drainSnapshot().running === 0) {
+        return formatRestartScheduled();
+      }
+    } catch { /* non-fatal */ }
+
     // Check the barrier's terminal state. Returns a formatted response if
     // drained (completed), aborted (failed/cancelled), or missing. Returns
     // null if the barrier is still pending/running.

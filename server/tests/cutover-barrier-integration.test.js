@@ -542,14 +542,16 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(barrier).toContain('isRestartBarrierActive');
     });
 
-    it('restart handler sets process._torqueRestartPending before completing barrier', () => {
+    it('restart handler sets process._torqueRestartPending before staging successor-owned completion', () => {
       const tools = fs.readFileSync(path.join(REPO_ROOT, 'server/tools.js'), 'utf8');
-      // The flag must be set BEFORE the barrier is marked completed
+      // The flag must be set before shutdown scheduling, and the old process
+      // should persist a restart handoff instead of completing the barrier.
       const flagIdx = tools.indexOf('process._torqueRestartPending = true');
-      const completeIdx = tools.indexOf("updateTaskStatus(barrierId, 'completed'");
+      const handoffIdx = tools.indexOf('stageRestartHandoff({ barrierId, reason })');
       expect(flagIdx).toBeGreaterThan(-1);
-      expect(completeIdx).toBeGreaterThan(-1);
-      expect(flagIdx).toBeLessThan(completeIdx);
+      expect(handoffIdx).toBeGreaterThan(-1);
+      expect(flagIdx).toBeLessThan(handoffIdx);
+      expect(tools).not.toContain("updateTaskStatus(barrierId, 'completed'");
     });
   });
 });

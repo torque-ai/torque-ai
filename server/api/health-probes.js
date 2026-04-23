@@ -4,6 +4,7 @@ const database = require('../database');   // getDbInstance, isDbClosed (raw DB 
 const taskCore = require('../db/task-core');
 const { handleToolCall } = require('../tools');
 const { sendJson } = require('./middleware');
+const { isRestartBarrierActive } = require('../execution/restart-barrier');
 
 // Track server start time for readiness check
 const serverStartTime = Date.now();
@@ -115,14 +116,16 @@ function handleReadyz(req, res, _context = {}) {
   const uptimeMs = Date.now() - serverStartTime;
   const minUptimeMs = 5000;
   const databaseState = probeDatabase();
+  const restartBarrier = isRestartBarrierActive(taskCore);
 
-  if (databaseState.accessible && uptimeMs >= minUptimeMs) {
+  if (databaseState.accessible && uptimeMs >= minUptimeMs && !restartBarrier) {
     sendJson(res, { status: 'ready' }, 200, req);
   } else {
     const reasons = [];
     if (!databaseState.initialized) reasons.push('database not initialized');
     else if (!databaseState.accessible) reasons.push('database not accessible');
     if (uptimeMs < minUptimeMs) reasons.push(`server warming up (${Math.round(uptimeMs / 1000)}s < 5s)`);
+    if (restartBarrier) reasons.push(`restart pending (${String(restartBarrier.id).slice(0, 8)})`);
     sendJson(res, { status: 'not ready', reasons }, 503, req);
   }
 }
