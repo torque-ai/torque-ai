@@ -283,6 +283,30 @@ describe('db/backup-core', () => {
     });
   });
 
+  it('backs up explicit sqlite handles with VACUUM INTO instead of serializing into memory', () => {
+    const backupPath = path.join('C:\\tmp', 'pre-startup.db');
+    const backupBytes = Buffer.from('pre-startup-vacuum-backup');
+    const fs = createFsMock({
+      statSync: vi.fn(() => ({ size: backupBytes.length })),
+      ...createStreamingReadMock(backupBytes),
+    });
+    const { subject } = loadSubject({ fs });
+    const db = createDbHandle({
+      exec: vi.fn(),
+      serialize: vi.fn(() => {
+        throw new Error('serialize should not run for explicit sqlite backup');
+      }),
+    });
+
+    const size = subject.writeDatabaseHandleBackupWithHash(db, backupPath);
+
+    expect(db.exec).toHaveBeenCalledWith("VACUUM INTO 'C:\\tmp\\pre-startup.db'");
+    expect(db.serialize).not.toHaveBeenCalled();
+    expect(fs.openSync).toHaveBeenCalledWith(backupPath, 'r');
+    expect(fs.writeFileSync).toHaveBeenCalledWith(backupPath + '.sha256', sha256(backupBytes), 'utf-8');
+    expect(size).toBe(backupBytes.length);
+  });
+
   it('does not recreate the destination directory when it already exists', () => {
     const { subject, fs } = loadSubject();
     const db = createDbHandle();

@@ -300,4 +300,21 @@ describe('discovery/config-migrator', () => {
       expect(row).toBeFalsy();
     });
   });
+
+  describe('database handle normalization', () => {
+    it('accepts the legacy database facade when it exposes getDbInstance', () => {
+      rawDb().prepare(`INSERT INTO config (key, value) VALUES ('ollama_model', '${TEST_MODELS.DEFAULT}')`).run();
+
+      migrateConfigToRegistry({ getDbInstance: () => rawDb() });
+
+      const row = rawDb().prepare(
+        "SELECT model_name FROM model_roles WHERE provider = 'ollama' AND role = 'default'"
+      ).get();
+      expect(row.model_name).toBe(TEST_MODELS.DEFAULT);
+    });
+
+    it('throws a clear error for invalid database handles', () => {
+      expect(() => migrateConfigToRegistry({})).toThrow('better-sqlite3 database handle');
+    });
+  });
 });

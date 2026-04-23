@@ -1115,7 +1115,7 @@ function init() {
   // migration is idempotent per its own doc — safe to call on every startup.
   try {
     const { migrateConfigToRegistry } = require('./discovery/config-migrator');
-    migrateConfigToRegistry(db);
+    migrateConfigToRegistry(db.getDbInstance());
     logger.info('[startup] config-to-registry migration complete');
   } catch (err) {
     logger.warn(`[startup] config-to-registry migration failed (non-fatal): ${err.message}`);
@@ -1161,15 +1161,6 @@ function init() {
     logger.info(`[startup] plugins_loaded=${loadedPlugins.map((p) => p.name).join(',') || 'none'}`);
   } catch (err) {
     debugLog('Plugin loading failed: ' + err.message);
-  }
-
-  // Migrate legacy config keys (ollama_model, hashline_capable_models, etc.) into
-  // model_roles and model_capabilities. Idempotent — safe on every startup.
-  try {
-    const { migrateConfigToRegistry } = require('./discovery/config-migrator');
-    migrateConfigToRegistry(db.getDbInstance());
-  } catch (err) {
-    logger.warn(`Config-to-registry migration: ${err.message}`);
   }
 
   // Run initial cloud provider discovery after a short delay (non-blocking).

@@ -278,6 +278,35 @@ describe('startup task reconciler', () => {
     expect(cloneRowsFor('task-factory')).toHaveLength(1);
   });
 
+  test('Eligible orphan with missing working_directory -> failed and not cloned', () => {
+    const missingDir = 'C:\\definitely-missing\\startup-reconciler-worktree';
+    insertTask({
+      id: 'task-missing-workdir',
+      working_directory: missingDir,
+      metadata: { auto_resubmit_on_restart: true },
+    });
+
+    const result = runReconciler();
+
+    expect(result.reconciled).toBe(true);
+    expect(result.actions.missing_workdir_failed).toBe(1);
+    expect(result.actions.cancelled).toBe(0);
+    expect(result.actions.cloned).toBe(0);
+
+    const original = getTaskRow('task-missing-workdir');
+    expect(original.status).toBe('failed');
+    expect(original.error_output).toContain('working_directory no longer exists');
+    expect(parseMetadata(original)).toMatchObject({
+      restart_resubmit_skipped: 'missing_working_directory',
+      missing_working_directory: missingDir,
+    });
+    expect(cloneRowsFor('task-missing-workdir')).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('failed missing-workdir task'),
+      expect.objectContaining({ task_id: 'task-missing-workdir', working_directory: missingDir }),
+    );
+  });
+
   test('Double-run idempotency -> second call no-ops when resubmitted_as points to active clone', () => {
     insertTask({
       id: 'task-idempotent',

@@ -209,6 +209,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   'resource_usage', 'resource_limits', 'resource_estimates',
   // Providers
   'provider_config', 'provider_usage', 'provider_scores', 'provider_task_stats',
+  'model_capabilities', 'workstations',
   'ollama_hosts', 'remote_agents', 'peek_hosts', 'peek_fixture_catalog', 'pack_registry', 'recovery_metrics',
   // Auth
   'api_keys', 'auth_configs', 'connected_accounts',
@@ -526,23 +527,20 @@ function _wireAllModules() {
 function init() {
   refreshDataPaths();
   // Pre-startup safety backup — capture existing DB before schema migrations.
-  // Uses db.serialize() to include WAL data (copyFileSync misses WAL content,
-  // which can hold the majority of data if wal_checkpoint failed at last shutdown).
+  // Uses SQLite VACUUM INTO so large live databases are not serialized into memory.
   if (fs.existsSync(DB_PATH)) {
+    let tempDb = null;
     try {
       const backupDir = path.join(DATA_DIR, 'backups');
       fs.mkdirSync(backupDir, { recursive: true });
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const backupPath = path.join(backupDir, `torque-pre-startup-${timestamp}.db`);
 
-      // Open temporarily in readonly mode to serialize (includes WAL replay)
-      const tempDb = new Database(DB_PATH, { readonly: true });
-      const buffer = tempDb.serialize();
-      tempDb.close();
+      tempDb = new Database(DB_PATH, { readonly: true, fileMustExist: true });
+      const size = backupCore.writeDatabaseHandleBackupWithHash(tempDb, backupPath);
 
-      if (buffer.length > 100000) { // Only keep if DB has meaningful data (>100KB)
-        fs.writeFileSync(backupPath, buffer);
-        logger.info(`[backup] Pre-startup backup: ${backupPath} (${buffer.length} bytes, includes WAL)`);
+      if (size > 100000) { // Only keep if DB has meaningful data (>100KB)
+        logger.info(`[backup] Pre-startup backup: ${backupPath} (${size} bytes, streamed hash)`);
 
         // Keep only last 3 pre-startup backups
         const preStartupFiles = fs.readdirSync(backupDir)
@@ -551,10 +549,18 @@ function init() {
           .reverse();
         for (let i = 3; i < preStartupFiles.length; i++) {
           try { fs.unlinkSync(path.join(backupDir, preStartupFiles[i])); } catch {}
+          try { fs.unlinkSync(path.join(backupDir, preStartupFiles[i] + '.sha256')); } catch {}
         }
+      } else {
+        try { fs.unlinkSync(backupPath); } catch {}
+        try { fs.unlinkSync(backupPath + '.sha256'); } catch {}
       }
     } catch (err) {
       logger.warn(`[backup] Pre-startup backup failed (non-fatal): ${err.message}`);
+    } finally {
+      if (tempDb) {
+        try { tempDb.close(); } catch {}
+      }
     }
   }
 

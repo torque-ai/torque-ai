@@ -104,17 +104,29 @@ function writeBackupHashFile(backupPath) {
   return hash;
 }
 
-function writeLiveDatabaseBackupWithHash(backupPath) {
-  if (_db && typeof _db.exec === 'function') {
+function writeDatabaseHandleBackupWithHash(dbHandle, backupPath) {
+  if (!dbHandle) {
+    throw new Error('Database not initialized');
+  }
+
+  if (typeof dbHandle.exec === 'function') {
     removeBackupTargets(backupPath);
-    _db.exec(`VACUUM INTO ${quoteSqlString(backupPath)}`);
+    dbHandle.exec(`VACUUM INTO ${quoteSqlString(backupPath)}`);
     writeBackupHashFile(backupPath);
     return fs.statSync(backupPath).size;
   }
 
-  const buffer = _db.serialize();
+  if (typeof dbHandle.serialize !== 'function') {
+    throw new Error('Database handle does not support backup');
+  }
+
+  const buffer = dbHandle.serialize();
   writeBackupFileWithHash(backupPath, buffer);
   return buffer.length;
+}
+
+function writeLiveDatabaseBackupWithHash(backupPath) {
+  return writeDatabaseHandleBackupWithHash(_db, backupPath);
 }
 
 function backupDatabase(destPath) {
@@ -429,4 +441,5 @@ module.exports = {
   listBackups,
   cleanupOldBackups,
   getBackupsDir,
+  writeDatabaseHandleBackupWithHash,
 };

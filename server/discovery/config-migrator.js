@@ -19,6 +19,19 @@
  *   ollama_model_prompts    → model_registry.prompt_template (only where NULL)
  */
 
+function _getRawDbHandle(db) {
+  if (db && typeof db.prepare === 'function') {
+    return db;
+  }
+  if (db && typeof db.getDbInstance === 'function') {
+    const rawDb = db.getDbInstance();
+    if (rawDb && typeof rawDb.prepare === 'function') {
+      return rawDb;
+    }
+  }
+  throw new TypeError('migrateConfigToRegistry requires a better-sqlite3 database handle');
+}
+
 /**
  * Read a single config value by key. Returns null when key is absent.
  *
@@ -166,12 +179,14 @@ function _migrateModelPrompts(db) {
  * @param {import('better-sqlite3').Database} db - A better-sqlite3 database instance
  */
 function migrateConfigToRegistry(db) {
-  _migrateTierModels(db);
-  _migrateHashlineCapabilities(db);
-  _migrateModelSettings(db);
-  _migrateModelPrompts(db);
+  const rawDb = _getRawDbHandle(db);
+  _migrateTierModels(rawDb);
+  _migrateHashlineCapabilities(rawDb);
+  _migrateModelSettings(rawDb);
+  _migrateModelPrompts(rawDb);
 }
 
 module.exports = {
   migrateConfigToRegistry,
+  _getRawDbHandle,
 };

@@ -144,9 +144,34 @@ for (const tool of TOOLS) {
   }
 }
 
+function loadStaticPluginToolNamesForCoverage() {
+  const pluginDefModules = [
+    './plugins/model-freshness/tool-defs',
+    './plugins/remote-agents/tool-defs',
+  ];
+  const names = [];
+
+  for (const modulePath of pluginDefModules) {
+    try {
+      const defs = require(modulePath);
+      if (!Array.isArray(defs)) continue;
+      for (const tool of defs) {
+        if (tool && typeof tool.name === 'string') {
+          names.push(tool.name);
+        }
+      }
+    } catch (err) {
+      logger.debug(`[tool-annotations] skipped static plugin coverage for ${modulePath}: ${err.message}`);
+    }
+  }
+
+  return names;
+}
+
 // Startup validator: warn on uncovered tools and stale overrides
 const _allToolNames = TOOLS.filter(t => t && t.name).map(t => t.name);
-const _coverage = validateCoverage(_allToolNames);
+const _coverageToolNames = [...new Set([..._allToolNames, ...loadStaticPluginToolNamesForCoverage()])];
+const _coverage = validateCoverage(_coverageToolNames);
 if (_coverage.uncovered.length > 0) {
   logger.warn(`[tool-annotations] ${_coverage.uncovered.length} tool(s) have no annotation coverage (fallback used): ${_coverage.uncovered.join(', ')}`);
 }
@@ -340,6 +365,17 @@ const INTERNAL_HANDLER_EXPORTS = new Set([
   'handleFactoryLoopInstanceJobStatus',
 ]);
 
+const EXPECTED_ROUTE_COLLISIONS = new Set([
+  'get_budget_status',
+  'get_circuit_breaker_status',
+  'get_file_risk',
+  'get_provider_scores',
+  'get_task_risk_summary',
+  'get_verification_checks',
+  'list_models',
+  'rollback_task',
+]);
+
 const routeMap = new Map();
 
 for (const mod of HANDLER_MODULES) {
@@ -349,7 +385,12 @@ for (const mod of HANDLER_MODULES) {
     let toolName = pascalToSnake(fnName.slice(6));
     toolName = FIXUPS[toolName] || toolName;
     if (routeMap.has(toolName)) {
-      logger.warn(`[tools] routeMap collision: "${toolName}" — overwriting previous handler`);
+      const message = `[tools] routeMap collision: "${toolName}" — overwriting previous handler`;
+      if (EXPECTED_ROUTE_COLLISIONS.has(toolName)) {
+        logger.debug(message);
+      } else {
+        logger.warn(message);
+      }
     }
     routeMap.set(toolName, fn);
   }

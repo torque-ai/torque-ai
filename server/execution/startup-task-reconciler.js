@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const defaultLogger = require('../logger').child({ component: 'startup-task-reconciler' });
@@ -111,6 +112,17 @@ function isSqliteConstraint(err) {
   );
 }
 
+function isMissingWorkingDirectory(workingDirectory) {
+  if (typeof workingDirectory !== 'string' || workingDirectory.trim() === '') {
+    return false;
+  }
+  try {
+    return !fs.existsSync(workingDirectory);
+  } catch {
+    return true;
+  }
+}
+
 function updateResumeContext(rawDb, taskId, resumeContext) {
   rawDb.prepare('UPDATE tasks SET resume_context = ? WHERE id = ?').run(
     JSON.stringify(resumeContext),
@@ -127,6 +139,24 @@ function patchOriginalMetadata(taskCore, rawDb, taskId, metadata) {
     taskId,
   );
   return result.changes > 0;
+}
+
+function failMissingWorkingDirectory({ original, metadata, taskCore, rawDb, logger }) {
+  const message = `[startup-reconciler] task was not resubmitted because working_directory no longer exists: ${original.working_directory}`;
+  taskCore.updateTaskStatus(original.id, 'failed', {
+    error_output: `${original.error_output || ''}\n${message}`,
+    completed_at: new Date().toISOString(),
+  });
+  patchOriginalMetadata(taskCore, rawDb, original.id, {
+    ...metadata,
+    reconciler: 'startup',
+    restart_resubmit_skipped: 'missing_working_directory',
+    missing_working_directory: original.working_directory,
+  });
+  safeLog(logger, 'warn', `Startup task reconciler failed missing-workdir task ${original.id}`, {
+    task_id: original.id,
+    working_directory: original.working_directory,
+  });
 }
 
 function rewireWorkflowDependencies(rawDb, original, newTaskId) {
@@ -200,6 +230,7 @@ function reconcileOrphanedTasksOnStartup({
     constraint_skipped: 0,
     retry_requeued: 0,
     retry_exhausted_failed: 0,
+    missing_workdir_failed: 0,
     errors: 0,
   };
 
@@ -260,6 +291,12 @@ function reconcileOrphanedTasksOnStartup({
       const eligible = isEligibleForClone(original, metadata, db, rawDb);
       if (eligibleOnly && !eligible) {
         actions.skipped++;
+        continue;
+      }
+
+      if (eligible && isMissingWorkingDirectory(original.working_directory)) {
+        failMissingWorkingDirectory({ original, metadata, taskCore, rawDb, logger });
+        actions.missing_workdir_failed++;
         continue;
       }
 
@@ -331,7 +368,7 @@ function reconcileOrphanedTasksOnStartup({
   }
 
   return {
-    reconciled: actions.cancelled > 0 || actions.cloned > 0 || actions.constraint_skipped > 0,
+    reconciled: actions.cancelled > 0 || actions.cloned > 0 || actions.constraint_skipped > 0 || actions.missing_workdir_failed > 0,
     actions,
   };
 }

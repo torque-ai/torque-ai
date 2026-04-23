@@ -292,6 +292,25 @@ describe('tools.js aggregator source-loader', () => {
       );
     });
 
+    it('debug-logs expected route collisions without warning noise', () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      const subject = createToolsSubject({
+        modules: {
+          './handlers/validation': { handleGetBudgetStatus: first },
+          './handlers/budget-handlers': { handleGetBudgetStatus: second },
+        },
+      });
+
+      expect(subject.mod.routeMap.get('get_budget_status')).toBe(second);
+      expect(subject.logger.child.debug).toHaveBeenCalledWith(
+        expect.stringContaining('routeMap collision: "get_budget_status"'),
+      );
+      expect(subject.logger.child.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('routeMap collision: "get_budget_status"'),
+      );
+    });
+
     it('counts only unique routed tool names after fixups', () => {
       const handleSubmitTask = vi.fn();
       const handleTaskInfo = vi.fn();
