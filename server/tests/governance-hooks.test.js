@@ -507,6 +507,15 @@ describe('governance/hooks', () => {
       });
     });
 
+    it('checkRequireRemoteForBuilds allows torque-remote-prefixed commands', () => {
+      const result = CHECKERS.checkRequireRemoteForBuilds(
+        { task_description: 'Validation: run `torque-remote dotnet test SpudgetBooks.sln --no-build` before shipping.' },
+        { config: null },
+      );
+
+      expect(result).toEqual({ pass: true });
+    });
+
     it.skip('checkDiffAfterCodex captures git diff stat for codex providers', async () => {
       const execSpy = mockExecFileSuccess('server/governance/hooks.js | 12 ++++++++----\n');
       ({ CHECKERS } = loadHooksModule());

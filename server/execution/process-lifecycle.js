@@ -87,6 +87,55 @@ function safeDecrementHostSlot(proc) {
 function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '') {
   if (!proc || !proc.process) return;
   const prefix = label ? `[${label}] ` : '';
+  const pid = Number(proc.process.pid);
+
+  if (process.platform === 'win32') {
+    if (Number.isFinite(pid) && pid > 0) {
+      try {
+        const { execFileSync } = require('child_process');
+        execFileSync('taskkill', ['/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
+      } catch (err) {
+        if (!err.message.includes('not found')) {
+          logger.info(`${prefix}Failed to send taskkill /T to task ${taskId}: ${err.message}`);
+        }
+      }
+    }
+
+    try {
+      proc.process.kill('SIGTERM');
+    } catch (err) {
+      if (err.code !== 'ESRCH') {
+        logger.info(`${prefix}Failed to send SIGTERM to task ${taskId}: ${err.message}`);
+      }
+    }
+
+    const forceHandle = setTimeout(() => {
+      if (Number.isFinite(pid) && pid > 0) {
+        try {
+          const { execFileSync } = require('child_process');
+          execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
+          return;
+        } catch (err) {
+          if (!err.message.includes('not found')) {
+            logger.info(`${prefix}Failed to send taskkill /F /T to task ${taskId}: ${err.message}`);
+          }
+        }
+      }
+
+      try {
+        proc.process.kill('SIGKILL');
+      } catch (err) {
+        if (err.code !== 'ESRCH') {
+          logger.info(`${prefix}Failed to send SIGKILL to task ${taskId}: ${err.message}`);
+        }
+      }
+    }, killDelayMs);
+    forceHandle.unref();
+    if (proc.process.once) {
+      proc.process.once('exit', () => clearTimeout(forceHandle));
+    }
+    return forceHandle;
+  }
 
   try {
     proc.process.kill('SIGTERM');
@@ -132,7 +181,7 @@ function killOrphanByPid(pid, taskId, killDelayMs = 5000, label = '') {
   if (process.platform === 'win32') {
     try {
       const { execFileSync } = require('child_process');
-      execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true });
+      execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
       logger.info(`${prefix}Killed orphan PID ${pid} (task ${taskId}) via taskkill`);
     } catch (err) {
       if (!err.message.includes('not found')) {
@@ -182,7 +231,7 @@ function pauseProcess(proc, taskId, label = '') {
     // Windows: SIGSTOP not supported. Kill process tree — resumeTask will restart from DB.
     try {
       const { execFileSync } = require('child_process');
-      execFileSync('taskkill', ['/F', '/T', '/PID', String(proc.process.pid)], { timeout: 5000, windowsHide: true });
+      execFileSync('taskkill', ['/F', '/T', '/PID', String(proc.process.pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
     } catch {
       try {
         proc.process.kill('SIGTERM');
