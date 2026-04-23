@@ -44,6 +44,7 @@ function createDeps({ task = createTask(), depOverrides = {} } = {}) {
     checkDuplicateTask: vi.fn(() => ({ isDuplicate: false })),
     recordTaskFingerprint: vi.fn(),
     isBudgetExceeded: vi.fn(() => ({ exceeded: false, warning: false })),
+    listTasks: vi.fn(() => []),
     recordAuditEvent: vi.fn(),
     patchTaskMetadata: vi.fn(),
     classifyTaskType: vi.fn(() => 'general'),
@@ -319,6 +320,45 @@ describe('task-startup', () => {
         baselineCommit: 'abc123',
       }),
     );
+  });
+
+  it('parks direct start attempts behind an active restart barrier', async () => {
+    const task = createTask({ status: 'queued', provider: 'codex' });
+    const ctx = loadTaskStartup({ task });
+    const barrier = {
+      id: 'barrier-direct-start',
+      provider: 'system',
+      status: 'running',
+    };
+    ctx.deps.db.listTasks.mockImplementation(({ status }) => (
+      status === 'running' ? [barrier] : []
+    ));
+
+    const result = await ctx.module.startTask(task.id);
+
+    expect(result).toEqual(expect.objectContaining({
+      queued: true,
+      restartBarrier: true,
+      barrier,
+      task: expect.objectContaining({
+        id: task.id,
+        status: 'queued',
+        error_output: expect.stringContaining('Restart barrier active'),
+      }),
+    }));
+    expect(ctx.deps.db.updateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'queued',
+      expect.objectContaining({
+        error_output: expect.stringContaining('Restart barrier active'),
+        pid: null,
+        mcp_instance_id: null,
+        ollama_host_id: null,
+      }),
+    );
+    expect(ctx.deps.resolveProviderRouting).not.toHaveBeenCalled();
+    expect(ctx.deps.db.tryClaimTaskSlot).not.toHaveBeenCalled();
+    expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
   });
 
   it('stamps the resolved Ollama model before handing off to the executor', async () => {
