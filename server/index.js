@@ -1084,6 +1084,13 @@ function init() {
     // Non-fatal during migration — existing require() paths still work
   }
 
+  try {
+    const { dispatchAutoRecoveryStartupReconcile } = require('./factory/startup-reconciler');
+    dispatchAutoRecoveryStartupReconcile();
+  } catch (err) {
+    logger.warn(`[startup] factory auto-recovery startup reconcile skipped: ${err.message}`);
+  }
+
   // Wire provider scoring into provider-routing-core. The scoring module is
   // registered in the DI factory block (see container.js) but provider-routing-core
   // keeps its own module-scoped `providerScoring` reference, so we inject the

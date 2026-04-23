@@ -93,7 +93,12 @@ function setupStdoutHandler(child, taskId, streamId) {
         proc._scoutSignalParser = new StreamSignalParser((type, data) => {
           logger.info(`[Streams] Scout signal detected for task ${taskId}: ${type}`);
           try {
-            dispatchTaskEvent(taskId, 'scout_signal', { signal_type: type, ...data });
+            dispatchTaskEvent('scout_signal', {
+              ...(task || {}),
+              id: taskId,
+              status: task?.status || 'running',
+              event_data: { signal_type: type, ...data },
+            });
           } catch (err) {
             logger.info(`[Streams] Scout signal dispatch error: ${err.message}`);
           }

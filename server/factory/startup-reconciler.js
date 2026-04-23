@@ -11,6 +11,7 @@ const { LOOP_STATES } = require('./loop-states');
 const worktreeReconcile = require('./worktree-reconcile');
 
 let alreadyReconciled = false;
+let autoRecoveryStartupDispatched = false;
 
 function safeLog(logger, level, message, payload) {
   const fn = logger && typeof logger[level] === 'function' ? logger[level] : null;
@@ -155,6 +156,34 @@ function createActionCounters() {
   };
 }
 
+function dispatchAutoRecoveryStartupReconcile({ logger = defaultLogger } = {}) {
+  if (autoRecoveryStartupDispatched) {
+    return { dispatched: false, reason: 'already_dispatched' };
+  }
+
+  try {
+    const container = require('../container').defaultContainer;
+    const autoRecoveryEngine = container.get('autoRecoveryEngine');
+    if (!autoRecoveryEngine || typeof autoRecoveryEngine.reconcileOnStartup !== 'function') {
+      return { dispatched: false, reason: 'unavailable' };
+    }
+
+    autoRecoveryStartupDispatched = true;
+    Promise.resolve(autoRecoveryEngine.reconcileOnStartup())
+      .then((summary) => {
+        safeLog(logger, 'info', 'auto-recovery startup reconcile completed', summary || {});
+      })
+      .catch((err) => {
+        safeLog(logger, 'warn', 'auto-recovery startup reconcile failed', { err: err.message });
+      });
+
+    return { dispatched: true };
+  } catch (err) {
+    safeLog(logger, 'warn', 'auto-recovery startup reconcile dispatch failed', { err: err.message });
+    return { dispatched: false, reason: 'dispatch_failed', error: err.message };
+  }
+}
+
 function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
   if (alreadyReconciled) {
     return {
@@ -267,26 +296,6 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
 
   alreadyReconciled = true;
 
-  // Auto-recovery engine startup reconcile — resets stuck instances, clears
-  // exhausted flags for projects whose loop_state recovered externally, etc.
-  // Fire-and-forget because this function is synchronous; the engine reports
-  // via its own decision log.
-  try {
-    const container = require('../container').defaultContainer;
-    const autoRecoveryEngine = container.get('autoRecoveryEngine');
-    if (autoRecoveryEngine && typeof autoRecoveryEngine.reconcileOnStartup === 'function') {
-      Promise.resolve(autoRecoveryEngine.reconcileOnStartup())
-        .then((summary) => {
-          safeLog(logger, 'info', 'auto-recovery startup reconcile completed', summary || {});
-        })
-        .catch((err) => {
-          safeLog(logger, 'warn', 'auto-recovery startup reconcile failed', { err: err.message });
-        });
-    }
-  } catch (err) {
-    safeLog(logger, 'warn', 'auto-recovery startup reconcile dispatch failed', { err: err.message });
-  }
-
   return {
     reconciled: true,
     actions,
@@ -299,6 +308,7 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger } = {}) {
 const resumeAutoAdvanceOnStartup = reconcileFactoryProjectsOnStartup;
 
 module.exports = {
+  dispatchAutoRecoveryStartupReconcile,
   reconcileFactoryProjectsOnStartup,
   resumeAutoAdvanceOnStartup,
 };

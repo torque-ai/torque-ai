@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const EventEmitter = require('events');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
+const { installMock } = require('./cjs-mock');
 
 let processStreams;
 
@@ -98,6 +99,39 @@ describe('process-streams', () => {
 
       expect(proc.output).toBe('hello world');
       expect(proc.lastOutputAt).toBeGreaterThan(0);
+    });
+
+    it('dispatches parsed scout signals with the scout_signal event shape', () => {
+      const dispatchTaskEvent = vi.fn();
+      installMock('../hooks/event-dispatch', { dispatchTaskEvent });
+      deps.db.getTask = vi.fn().mockReturnValue({
+        id: 't1',
+        status: 'running',
+        provider: 'codex',
+        project: 'bitsy',
+        metadata: { mode: 'scout' },
+      });
+
+      const child = makeChild();
+      const proc = makeProc({ provider: 'codex' });
+      deps.runningProcesses.set('t1', proc);
+
+      processStreams.setupStdoutHandler(child, 't1', 's1', 'codex');
+      child.stdout.emit('data', Buffer.from([
+        '__PATTERNS_READY__',
+        '{"patterns":[{"id":"p1","description":"Fix stale worktree cleanup"}]}',
+        '__PATTERNS_READY_END__',
+      ].join('\n')));
+
+      expect(dispatchTaskEvent).toHaveBeenCalledWith('scout_signal', expect.objectContaining({
+        id: 't1',
+        status: 'running',
+        provider: 'codex',
+        event_data: expect.objectContaining({
+          signal_type: 'patterns_ready',
+          patterns: [expect.objectContaining({ id: 'p1' })],
+        }),
+      }));
     });
 
     it('truncates output when exceeding MAX_OUTPUT_BUFFER', () => {

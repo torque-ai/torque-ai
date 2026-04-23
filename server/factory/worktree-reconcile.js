@@ -52,6 +52,41 @@ function clearReadOnlyRecursive(dir) {
   }
 }
 
+function quarantineDir(dir) {
+  if (!fs.existsSync(dir)) {
+    return { ok: true, path: null };
+  }
+
+  const parent = path.dirname(dir);
+  const leaf = path.basename(dir);
+  const traceLeaf = leaf.length > 80 ? leaf.slice(0, 80) : leaf;
+  const quarantineRoot = path.join(parent, '.torque-delete-pending');
+
+  try {
+    fs.mkdirSync(quarantineRoot, { recursive: true });
+  } catch (err) {
+    return { ok: false, path: null, err: `mkdir quarantine root failed: ${err.message}` };
+  }
+
+  let lastErr = null;
+  for (let i = 0; i < 5; i += 1) {
+    const suffix = `${Date.now()}-${process.pid}-${i}`;
+    const target = path.join(quarantineRoot, `${traceLeaf}-${suffix}`);
+    try {
+      fs.renameSync(dir, target);
+      return { ok: !fs.existsSync(dir), path: target };
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  return {
+    ok: false,
+    path: null,
+    err: lastErr ? lastErr.message : 'rename failed',
+  };
+}
+
 // Layered force-delete that handles Windows quirks. Order:
 //   1. fs.rmSync recursive+force (works for the common case)
 //   2. chmod-recursive to clear read-only, then rmSync again (handles git
@@ -60,9 +95,14 @@ function clearReadOnlyRecursive(dir) {
 //      "Directory not empty" error from files rmSync cannot unlink —
 //      e.g. symlinks, files open in another process that released the
 //      lock between attempts).
+//   4. quarantine rename when delete commands leave the original path behind
+//      despite reporting success (observed on Windows with Bitsy pytest temp
+//      roots that deny traversal). This releases the factory worktree path so
+//      future work can reuse it while preserving the stubborn payload for
+//      separate manual cleanup.
 // Returns {ok, attempts: [{step, ok, err?}]}. `ok` reflects whether the
-// directory is actually gone, not whether every step succeeded.
-function forceRmDir(dir) {
+// original directory path is gone, not whether every step succeeded.
+function forceRmDir(dir, options = {}) {
   const attempts = [];
   if (!fs.existsSync(dir)) {
     return { ok: true, attempts };
@@ -106,6 +146,28 @@ function forceRmDir(dir) {
     attempts.push({ step: 'rm_shell', ok: false, err: err.message });
   }
 
+  if (!fs.existsSync(dir)) {
+    return { ok: true, attempts };
+  }
+
+  if (options.quarantine !== false) {
+    const quarantine = quarantineDir(dir);
+    attempts.push({
+      step: 'quarantine_rename',
+      ok: quarantine.ok,
+      err: quarantine.ok ? null : quarantine.err,
+      quarantine_path: quarantine.path,
+    });
+    if (quarantine.ok) {
+      return {
+        ok: true,
+        attempts,
+        quarantined: true,
+        quarantinePath: quarantine.path,
+      };
+    }
+  }
+
   return { ok: !fs.existsSync(dir), attempts };
 }
 
@@ -139,6 +201,8 @@ function reclaimDir({ repoPath, worktreePath, branch }) {
             .map((a) => `${a.step}: ${a.err || 'failed'}`)
             .join(' | '),
       sub_attempts: rmResult.attempts,
+      quarantined: Boolean(rmResult.quarantined),
+      quarantine_path: rmResult.quarantinePath || null,
     });
   }
 
@@ -156,10 +220,15 @@ function reclaimDir({ repoPath, worktreePath, branch }) {
   }
 
   const stillOnDisk = fs.existsSync(worktreePath);
+  const quarantineAttempt = attempts.find((attempt) => (
+    attempt.step === 'fs_rm' && attempt.quarantined && attempt.quarantine_path
+  ));
   return {
     success: !stillOnDisk,
     worktreePath,
     branch: branch || null,
+    quarantined: Boolean(quarantineAttempt),
+    quarantinePath: quarantineAttempt ? quarantineAttempt.quarantine_path : null,
     attempts,
   };
 }
@@ -388,12 +457,19 @@ function reconcileProject({ db, project_id, project_path, worktree_dir = DEFAULT
     const branch = classification.row && classification.row.branch ? classification.row.branch : null;
     const result = reclaimDir({ repoPath: project_path, worktreePath: dirPath, branch });
     if (result.success) {
-      cleaned.push({ worktreePath: dirPath, branch, reason: classification.reason });
+      const cleanedEntry = { worktreePath: dirPath, branch, reason: classification.reason };
+      if (result.quarantined) {
+        cleanedEntry.quarantined = true;
+        cleanedEntry.quarantinePath = result.quarantinePath;
+      }
+      cleaned.push(cleanedEntry);
       logger.info('reconciled orphan worktree', {
         project_id,
         worktreePath: dirPath,
         branch,
         reason: classification.reason,
+        quarantined: Boolean(result.quarantined),
+        quarantinePath: result.quarantinePath || null,
       });
     } else {
       failed.push({
@@ -422,6 +498,7 @@ module.exports = {
   listRepoVcWorktrees,
   forceRmDir,
   clearReadOnlyRecursive,
+  quarantineDir,
   RECLAIMABLE_STATUSES,
   FACTORY_LEAF_PREFIX,
 };

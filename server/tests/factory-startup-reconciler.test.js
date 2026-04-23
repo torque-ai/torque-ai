@@ -10,6 +10,7 @@ const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const factoryWorktrees = require('../db/factory-worktrees');
 const taskCore = require('../db/task-core');
+const { defaultContainer } = require('../container');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
 const worktreeReconcile = require('../factory/worktree-reconcile');
@@ -389,5 +390,30 @@ describe('factory startup reconciler', () => {
     expect(calls.filter((call) => call.type === 'advance')).toHaveLength(1);
     expect(calls.filter((call) => call.type === 'start')).toHaveLength(0);
     expect(worktreeReconcile.reconcileProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not dispatch auto-recovery before the DI container is booted', () => {
+    const getSpy = vi.spyOn(defaultContainer, 'get').mockImplementation(() => {
+      throw new Error('container should not be touched during factory project reconcile');
+    });
+    const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+    const result = reconcileFactoryProjectsOnStartup();
+
+    expect(result.reconciled).toBe(true);
+    expect(getSpy).not.toHaveBeenCalled();
+  });
+
+  it('dispatches auto-recovery startup reconciliation after DI boot', async () => {
+    const reconcileOnStartup = vi.fn().mockResolvedValue({ attempts: 1 });
+    const getSpy = vi.spyOn(defaultContainer, 'get').mockReturnValue({ reconcileOnStartup });
+    const { dispatchAutoRecoveryStartupReconcile } = loadFreshReconciler();
+
+    const result = dispatchAutoRecoveryStartupReconcile();
+    await flushImmediate();
+
+    expect(result).toEqual({ dispatched: true });
+    expect(getSpy).toHaveBeenCalledWith('autoRecoveryEngine');
+    expect(reconcileOnStartup).toHaveBeenCalledTimes(1);
   });
 });
