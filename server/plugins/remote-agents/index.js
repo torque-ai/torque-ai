@@ -1,9 +1,14 @@
 'use strict';
 
 const allToolDefs = require('./tool-defs');
-const { createHandlers } = require('./handlers');
-const { RemoteAgentRegistry } = require('./agent-registry');
 const { createRemoteTestRouter } = require('./remote-test-routing');
+const {
+  getInstalledRegistry,
+  getRemoteAgentPluginHandlers,
+  requireRemoteAgentRegistry,
+  resetRemoteAgentRegistry,
+  unwrapRemoteAgentDb,
+} = require('./registry-runtime');
 
 const PLUGIN_NAME = 'remote-agents';
 const PLUGIN_VERSION = '1.0.0';
@@ -18,26 +23,14 @@ function getContainerService(container, name) {
 }
 
 function resolveRawDb(dbService) {
-  const rawDb = dbService && typeof dbService.getDbInstance === 'function'
-    ? dbService.getDbInstance()
-    : (dbService && typeof dbService.getDb === 'function' ? dbService.getDb() : dbService);
-  if (!rawDb || typeof rawDb.prepare !== 'function') {
+  try {
+    return unwrapRemoteAgentDb(dbService);
+  } catch {
     throw new Error('remote-agents plugin requires db service with prepare()');
   }
-  return rawDb;
-}
-
-// Module-level singleton set during install() so consumers can access the
-// plugin's shared registry without constructing their own instance.
-let _installedRegistry = null;
-
-/** Return the RemoteAgentRegistry singleton created by the plugin, or null if not installed. */
-function getInstalledRegistry() {
-  return _installedRegistry;
 }
 
 function createPlugin() {
-  let db = null;
   let dbService = null;
   let agentRegistry = null;
   let testRunnerRegistry = null;
@@ -52,9 +45,8 @@ function createPlugin() {
         dbService = require('../../database');
       } catch {}
     }
-    db = resolveRawDb(dbService);
-    agentRegistry = new RemoteAgentRegistry(db);
-    _installedRegistry = agentRegistry;
+    resolveRawDb(dbService);
+    agentRegistry = requireRemoteAgentRegistry({ db: dbService });
 
     testRunnerRegistry = getContainerService(container, 'testRunnerRegistry');
     if (testRunnerRegistry) {
@@ -66,7 +58,7 @@ function createPlugin() {
       });
     }
 
-    handlers = createHandlers({ agentRegistry, db: dbService });
+    handlers = getRemoteAgentPluginHandlers({ remoteAgentRegistry: agentRegistry, db: dbService });
 
     healthCheckTimer = setInterval(() => {
       agentRegistry.runHealthChecks().catch(() => {});
@@ -83,17 +75,18 @@ function createPlugin() {
     if (testRunnerRegistry) {
       testRunnerRegistry.unregister();
     }
-    db = null;
     dbService = null;
     agentRegistry = null;
-    _installedRegistry = null;
+    resetRemoteAgentRegistry();
     testRunnerRegistry = null;
     handlers = null;
     installed = false;
   }
 
   function mcpTools() {
-    if (!installed || !handlers) return [];
+    if (!installed) return [];
+    handlers = getRemoteAgentPluginHandlers({ db: dbService });
+    if (!handlers) return [];
     return allToolDefs.map((toolDef) => ({ ...toolDef, handler: handlers[toolDef.name] }));
   }
 

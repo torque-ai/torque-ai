@@ -16,6 +16,9 @@ const { recordTaskEvent, getTaskEvents } = require('../db/webhooks-streaming');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'api-server' });
 const v2Inference = require('./v2-inference');
+const {
+  getRemoteAgentPluginHandlers: resolveRemoteAgentPluginHandlers,
+} = require('../plugins/remote-agents/registry-runtime');
 
 const {
   sendJson,
@@ -39,24 +42,8 @@ const {
   getV2ProviderHealthPayload,
 } = require('./v2-discovery-helpers');
 
-let _remoteAgentPluginHandlers = null;
-
 function getRemoteAgentPluginHandlers() {
-  if (_remoteAgentPluginHandlers) {
-    return _remoteAgentPluginHandlers;
-  }
-
-  const { getInstalledRegistry } = require('../plugins/remote-agents');
-  const agentRegistry = getInstalledRegistry();
-  if (!agentRegistry) return null;
-
-  const database = require('../database');
-  const { createHandlers } = require('../plugins/remote-agents/handlers');
-  _remoteAgentPluginHandlers = createHandlers({
-    agentRegistry,
-    db: database,
-  });
-  return _remoteAgentPluginHandlers;
+  return resolveRemoteAgentPluginHandlers({ db });
 }
 
 // ---------------------------------------------------------------------------
@@ -1120,11 +1107,21 @@ function handleV2ProviderDetail(_req, res, context = {}, providerId, req = null)
 // ---------------------------------------------------------------------------
 
 async function handleV2RemoteRun(req, res, _context = {}) {
-  return getRemoteAgentPluginHandlers().run_remote_command(req, res);
+  const handlers = getRemoteAgentPluginHandlers();
+  if (!handlers || typeof handlers.run_remote_command !== 'function') {
+    const requestId = _context.requestId || req?.requestId || randomUUID();
+    return sendV2Error(res, requestId, 'not_initialized', 'Agent registry not initialized', 500, {}, req);
+  }
+  return handlers.run_remote_command(req, res);
 }
 
 async function handleV2RemoteTest(req, res, _context = {}) {
-  return getRemoteAgentPluginHandlers().run_tests(req, res);
+  const handlers = getRemoteAgentPluginHandlers();
+  if (!handlers || typeof handlers.run_tests !== 'function') {
+    const requestId = _context.requestId || req?.requestId || randomUUID();
+    return sendV2Error(res, requestId, 'not_initialized', 'Agent registry not initialized', 500, {}, req);
+  }
+  return handlers.run_tests(req, res);
 }
 
 module.exports = {

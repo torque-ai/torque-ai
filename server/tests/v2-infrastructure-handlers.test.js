@@ -17,6 +17,7 @@ const MODULE_PATHS = [
   '../handlers/workstation-handlers',
   '../discovery',
   '../utils/host-monitoring',
+  '../plugins/remote-agents/registry-runtime',
 ];
 
 const state = {
@@ -519,6 +520,9 @@ describe('api/v2-infrastructure-handlers', () => {
   });
 
   afterEach(() => {
+    if (handlers && typeof handlers._resetRegistryCache === 'function') {
+      handlers._resetRegistryCache();
+    }
     clearLoadedModules();
     vi.restoreAllMocks();
     vi.useRealTimers();

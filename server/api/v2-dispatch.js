@@ -23,6 +23,7 @@ const v2GovernanceHandlers = require('./v2-governance-handlers');
 const v2AnalyticsHandlers = require('./v2-analytics-handlers');
 const v2InfrastructureHandlers = require('./v2-infrastructure-handlers');
 const concurrencyHandlers = require('../handlers/concurrency-handlers');
+const { resolveRemoteAgentRegistry } = require('../plugins/remote-agents/registry-runtime');
 
 // Hoisted handler modules (avoids repeated require() inside handler functions)
 const routingHandlers = require('../handlers/routing-template-handlers');
@@ -32,41 +33,6 @@ const modelHandlers = require('../handlers/model-handlers');
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10MB
 const BODY_PARSE_TIMEOUT_MS = 30000;
-let _remoteAgentRegistry = null;
-let _remoteAgentRegistryResolved = false;
-
-function unwrapRemoteAgentDb(dbService) {
-  const rawDb = dbService && typeof dbService.getDbInstance === 'function'
-    ? dbService.getDbInstance()
-    : (dbService && typeof dbService.getDb === 'function' ? dbService.getDb() : dbService);
-  if (!rawDb || typeof rawDb.prepare !== 'function') {
-    throw new Error('remote agent registry requires db service with prepare()');
-  }
-  return rawDb;
-}
-
-function getOrCreateRemoteAgentRegistry(deps = {}) {
-  if (Object.prototype.hasOwnProperty.call(deps, 'remoteAgentRegistry')) {
-    _remoteAgentRegistry = deps.remoteAgentRegistry || null;
-    _remoteAgentRegistryResolved = true;
-    return _remoteAgentRegistry;
-  }
-
-  if (_remoteAgentRegistryResolved) {
-    return _remoteAgentRegistry;
-  }
-
-  try {
-    const dbService = deps.db || require('../database');
-    const { RemoteAgentRegistry } = require('../plugins/remote-agents/agent-registry');
-    _remoteAgentRegistry = new RemoteAgentRegistry(unwrapRemoteAgentDb(dbService));
-  } catch (err) {
-    logger.warn('Remote agent registry unavailable for v2 dispatch', { error: err.message });
-    _remoteAgentRegistry = null;
-  }
-  _remoteAgentRegistryResolved = true;
-  return _remoteAgentRegistry;
-}
 
 function normalizeInitDeps(depsOrTaskManager) {
   if (!depsOrTaskManager) {
@@ -705,7 +671,7 @@ function init(depsOrTaskManager = {}) {
   if (shouldInitInfrastructure) {
     v2InfrastructureHandlers.init({
       taskManager,
-      remoteAgentRegistry: getOrCreateRemoteAgentRegistry(deps),
+      remoteAgentRegistry: resolveRemoteAgentRegistry(deps),
     });
   }
 }

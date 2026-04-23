@@ -20,9 +20,14 @@ const {
   resolveRequestId,
 } = require('./v2-control-plane');
 const { parseBody } = require('./middleware');
+const {
+  getInstalledRegistry,
+  resetRemoteAgentRegistry,
+  resolveRemoteAgentRegistry,
+  setRemoteAgentRegistry,
+} = require('../plugins/remote-agents/registry-runtime');
 
 let _taskManager = null;
-let _remoteAgentRegistry = null;
 
 function redactCredential(credential) {
   const safe = { ...(credential || {}) };
@@ -43,7 +48,8 @@ function normalizeInitDeps(depsOrTaskManager) {
   }
 
   const hasDependencyKeys = Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'taskManager')
-    || Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'remoteAgentRegistry');
+    || Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'remoteAgentRegistry')
+    || Object.prototype.hasOwnProperty.call(depsOrTaskManager, 'db');
   if (hasDependencyKeys) {
     return depsOrTaskManager;
   }
@@ -61,7 +67,9 @@ function init(depsOrTaskManager = {}) {
       _taskManager = deps.taskManager;
     }
     if (Object.prototype.hasOwnProperty.call(deps, 'remoteAgentRegistry')) {
-      _remoteAgentRegistry = deps.remoteAgentRegistry || null;
+      setRemoteAgentRegistry(deps.remoteAgentRegistry);
+    } else if (Object.prototype.hasOwnProperty.call(deps, 'db')) {
+      resolveRemoteAgentRegistry({ db: deps.db });
     }
     return module.exports;
   }
@@ -512,9 +520,9 @@ async function handleDeleteCredential(req, res) {
 
 // ─── Remote Agents ──────────────────────────────────────────────────────────
 
-function _resetRegistryCache() { _remoteAgentRegistry = null; }
+function _resetRegistryCache() { resetRemoteAgentRegistry(); }
 function _getRegistry() {
-  return _remoteAgentRegistry;
+  return getInstalledRegistry();
 }
 
 function _sanitizeAgent(agent) {

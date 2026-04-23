@@ -49,6 +49,95 @@ function createUnavailableRegistry() {
   };
 }
 
+describe('remote agent registry runtime', () => {
+  let runtime;
+
+  beforeEach(() => {
+    delete require.cache[require.resolve('../registry-runtime')];
+    runtime = require('../registry-runtime');
+    runtime.resetRemoteAgentRegistry();
+  });
+
+  afterEach(() => {
+    runtime.resetRemoteAgentRegistry();
+  });
+
+  it('unwraps supported db service shapes and reuses the constructed registry', () => {
+    const rawDb = { prepare: vi.fn() };
+    const registry = runtime.resolveRemoteAgentRegistry({
+      db: { getDbInstance: () => rawDb },
+    });
+    const cachedRegistry = runtime.resolveRemoteAgentRegistry({
+      db: { getDb: () => { throw new Error('cached registry should be reused'); } },
+    });
+
+    expect(registry).toBe(cachedRegistry);
+    expect(registry.db).toBe(rawDb);
+
+    runtime.resetRemoteAgentRegistry();
+
+    const getDbRaw = { prepare: vi.fn() };
+    const getDbRegistry = runtime.resolveRemoteAgentRegistry({
+      db: { getDb: () => getDbRaw },
+    });
+    expect(getDbRegistry.db).toBe(getDbRaw);
+  });
+
+  it('supports explicit registry injection and reset for test isolation', () => {
+    const injectedRegistry = { getAll: vi.fn(() => []) };
+
+    expect(runtime.resolveRemoteAgentRegistry({ remoteAgentRegistry: injectedRegistry })).toBe(injectedRegistry);
+    expect(runtime.getInstalledRegistry()).toBe(injectedRegistry);
+
+    runtime.resetRemoteAgentRegistry();
+
+    expect(runtime.getInstalledRegistry()).toBeNull();
+    expect(runtime.resolveRemoteAgentRegistry({ remoteAgentRegistry: null })).toBeNull();
+  });
+
+  it('clears cached plugin handlers when the registry is reset', () => {
+    const handlersPath = require.resolve('../handlers');
+    const originalHandlersModule = require.cache[handlersPath];
+    const createHandlers = vi.fn(({ agentRegistry }) => ({
+      register_remote_agent: vi.fn(() => agentRegistry.id),
+    }));
+
+    require.cache[handlersPath] = {
+      id: handlersPath,
+      filename: handlersPath,
+      loaded: true,
+      exports: { createHandlers },
+    };
+
+    try {
+      const db = { prepare: vi.fn() };
+      const firstRegistry = { id: 'first' };
+      const secondRegistry = { id: 'second' };
+
+      runtime.resolveRemoteAgentRegistry({ remoteAgentRegistry: firstRegistry });
+      const firstHandlers = runtime.getRemoteAgentPluginHandlers({ db });
+      const cachedHandlers = runtime.getRemoteAgentPluginHandlers({ db });
+
+      expect(cachedHandlers).toBe(firstHandlers);
+      expect(createHandlers).toHaveBeenCalledTimes(1);
+
+      runtime.resetRemoteAgentRegistry();
+      runtime.resolveRemoteAgentRegistry({ remoteAgentRegistry: secondRegistry });
+      const secondHandlers = runtime.getRemoteAgentPluginHandlers({ db });
+
+      expect(secondHandlers).not.toBe(firstHandlers);
+      expect(createHandlers).toHaveBeenCalledTimes(2);
+      expect(secondHandlers.register_remote_agent()).toBe('second');
+    } finally {
+      if (originalHandlersModule) {
+        require.cache[handlersPath] = originalHandlersModule;
+      } else {
+        delete require.cache[handlersPath];
+      }
+    }
+  });
+});
+
 describe.skipIf(process.env.CI === 'true' || !canSpawnCommands())('remote test execution integration', { timeout: 20000 }, () => {
   let server;
   let port;

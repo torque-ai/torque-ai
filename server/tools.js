@@ -37,7 +37,6 @@ const RUN_ARTIFACT_TOOLS = Array.isArray(runArtifactToolDefs)
 const { applyBehavioralTags } = require('./tools/behavioral-tags');
 
 let _remoteAgentPluginDefs = null;
-let _remoteAgentPluginHandlers = null;
 let _runtimeRegisteredToolDefs = [];
 
 // ── Tool definitions (JSON schemas) ──
@@ -376,28 +375,10 @@ function getRemoteAgentPluginDefs() {
 }
 
 function getRemoteAgentPluginHandlers() {
-  if (_remoteAgentPluginHandlers) {
-    return _remoteAgentPluginHandlers;
-  }
-
-  const { getInstalledRegistry } = require('./plugins/remote-agents');
-  const agentRegistry = getInstalledRegistry();
-  if (!agentRegistry) return null;
-
-  let database;
-  try {
-    const { defaultContainer } = require('./container');
-    database = defaultContainer.get('db');
-  } catch {
-    database = require('./database');
-  }
-  const { createHandlers } = require('./plugins/remote-agents/handlers');
-
-  _remoteAgentPluginHandlers = createHandlers({
-    agentRegistry,
-    db: database,
-  });
-  return _remoteAgentPluginHandlers;
+  const {
+    getRemoteAgentPluginHandlers: resolveRemoteAgentPluginHandlers,
+  } = require('./plugins/remote-agents/registry-runtime');
+  return resolveRemoteAgentPluginHandlers();
 }
 
 function getPluginToolDef(toolName) {

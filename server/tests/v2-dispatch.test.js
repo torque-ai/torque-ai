@@ -270,6 +270,7 @@ beforeAll(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  require('../plugins/remote-agents/registry-runtime').resetRemoteAgentRegistry();
 });
 
 describe('v2-dispatch module', () => {
@@ -625,6 +626,19 @@ describe('v2-dispatch module', () => {
       v2Dispatch.init(null);
 
       expect(mockHandlers.tasks.init).not.toHaveBeenCalled();
+    });
+
+    it('passes an explicitly injected remote-agent registry to infrastructure handlers', () => {
+      const tm = { submit: vi.fn() };
+      const remoteAgentRegistry = { getAll: vi.fn(() => []) };
+      mockHandlers.infrastructure.init.mockClear();
+
+      v2Dispatch.init({ taskManager: tm, remoteAgentRegistry });
+
+      expect(mockHandlers.infrastructure.init).toHaveBeenCalledWith({
+        taskManager: tm,
+        remoteAgentRegistry,
+      });
     });
   });
 

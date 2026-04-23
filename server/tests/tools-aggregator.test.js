@@ -647,12 +647,12 @@ describe('tools.js aggregator source-loader', () => {
       });
     });
 
-    it('dispatches plugin-provided tools via the lazy-loaded plugin handler registry using the container db when available', async () => {
-      const pluginHandler = vi.fn(async (args) => ({ plugin: true, args }));
-      const createHandlers = vi.fn(() => ({ register_remote_agent: pluginHandler }));
-      const mockRegistry = { listAgents: vi.fn() };
-      const containerDb = { listTasks: vi.fn(() => ['from-container']) };
-      const get = vi.fn(() => containerDb);
+    it('dispatches plugin-provided tools through the shared remote-agent runtime handlers', async () => {
+      const firstHandler = vi.fn(async (args) => ({ plugin: 'first', args }));
+      const secondHandler = vi.fn(async (args) => ({ plugin: 'second', args }));
+      const getRemoteAgentPluginHandlers = vi.fn()
+        .mockReturnValueOnce({ register_remote_agent: firstHandler })
+        .mockReturnValueOnce({ register_remote_agent: secondHandler });
       const subject = createToolsSubject({
         modules: {
           './plugins/remote-agents/tool-defs': [{
@@ -665,32 +665,23 @@ describe('tools.js aggregator source-loader', () => {
               },
             },
           }],
-          './container': { defaultContainer: { get } },
-          './plugins/remote-agents': { getInstalledRegistry: () => mockRegistry },
-          './plugins/remote-agents/handlers': { createHandlers },
+          './plugins/remote-agents/registry-runtime': { getRemoteAgentPluginHandlers },
         },
       });
 
-      const result = await subject.mod.handleToolCall('register_remote_agent', { name: 'agent-1' });
+      const firstResult = await subject.mod.handleToolCall('register_remote_agent', { name: 'agent-1' });
+      const secondResult = await subject.mod.handleToolCall('register_remote_agent', { name: 'agent-2' });
 
       expect(subject.mod.routeMap.has('register_remote_agent')).toBe(false);
-      expect(createHandlers).toHaveBeenCalledTimes(1);
-      expect(get).toHaveBeenCalledWith('db');
-      expect(createHandlers).toHaveBeenCalledWith({
-        agentRegistry: mockRegistry,
-        db: containerDb,
-      });
-      expect(pluginHandler).toHaveBeenCalledWith({ name: 'agent-1' });
-      expect(result).toEqual({ plugin: true, args: { name: 'agent-1' } });
+      expect(getRemoteAgentPluginHandlers).toHaveBeenCalledTimes(2);
+      expect(firstHandler).toHaveBeenCalledWith({ name: 'agent-1' });
+      expect(secondHandler).toHaveBeenCalledWith({ name: 'agent-2' });
+      expect(firstResult).toEqual({ plugin: 'first', args: { name: 'agent-1' } });
+      expect(secondResult).toEqual({ plugin: 'second', args: { name: 'agent-2' } });
     });
 
-    it('falls back to the legacy database module when the container db is unavailable', async () => {
-      const pluginHandler = vi.fn(async (args) => ({ plugin: true, args }));
-      const createHandlers = vi.fn(() => ({ register_remote_agent: pluginHandler }));
-      const mockRegistry = { listAgents: vi.fn() };
-      const get = vi.fn(() => {
-        throw new Error('container not booted');
-      });
+    it('treats plugin-provided tools as unavailable when the runtime has no active registry handlers', async () => {
+      const getRemoteAgentPluginHandlers = vi.fn(() => null);
       const subject = createToolsSubject({
         modules: {
           './plugins/remote-agents/tool-defs': [{
@@ -703,22 +694,16 @@ describe('tools.js aggregator source-loader', () => {
               },
             },
           }],
-          './container': { defaultContainer: { get } },
-          './plugins/remote-agents': { getInstalledRegistry: () => mockRegistry },
-          './plugins/remote-agents/handlers': { createHandlers },
+          './plugins/remote-agents/registry-runtime': { getRemoteAgentPluginHandlers },
         },
       });
 
-      const result = await subject.mod.handleToolCall('register_remote_agent', { name: 'agent-1' });
-
-      expect(createHandlers).toHaveBeenCalledTimes(1);
-      expect(get).toHaveBeenCalledWith('db');
-      expect(createHandlers).toHaveBeenCalledWith({
-        agentRegistry: mockRegistry,
-        db: subject.database,
+      await expect(subject.mod.handleToolCall('register_remote_agent', { name: 'agent-1' })).rejects.toMatchObject({
+        code: -32602,
+        message: 'Unknown tool: register_remote_agent',
       });
-      expect(pluginHandler).toHaveBeenCalledWith({ name: 'agent-1' });
-      expect(result).toEqual({ plugin: true, args: { name: 'agent-1' } });
+
+      expect(getRemoteAgentPluginHandlers).toHaveBeenCalledTimes(1);
     });
 
     it('returns schemas for plugin-provided tools via get_tool_schema', async () => {
