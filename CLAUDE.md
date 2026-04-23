@@ -56,6 +56,8 @@ This merges the feature branch to main, triggers TORQUE queue drain (waits for r
 
 For docs-only changes that do not affect the running server, merge the worktree deliberately and state that no restart barrier is required. For server code, dashboard runtime, configuration, provider, scheduler, queue, MCP, REST, plugin, or process-lifecycle changes, use `scripts/worktree-cutover.sh <feature-name>` or an equivalent explicit merge followed by `restart_server` / `await_restart`; external process termination is reserved for an unresponsive MCP layer with explicit user approval.
 
+Restart barriers are allowed to take a while. Some Codex/factory tasks normally run 30-60 minutes, so `await_restart` may need to hold the barrier until those tasks finish. Keep watching heartbeat/status output and do not cancel, bypass, or treat the barrier as stuck unless task status shows a real stall or the user approves an emergency override.
+
 ### Emergency Hotfixes
 
 For critical fixes that can't wait for the worktree workflow:
