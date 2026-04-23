@@ -47,8 +47,8 @@ Two call sites change. No schema change.
         │  2. write raw SSE `retry: 2000\n\n`      │
         │     to every session                     │
         │                                          │
-        │  3. persistSessionOnShutdown for         │
-        │     every session in `sessions`          │  ← new shutdown-time persist
+        │  3. persistSubscription for every        │
+        │     session in `sessions`                │  ← new shutdown-time call
         │                                          │
         │  4. session.res.end() (existing)         │
 ```
@@ -76,25 +76,17 @@ if (session.res && !session.res.writableEnded) {
 
 The `sendJsonRpcNotification` helper already exists at `mcp-sse.js:~209`. We do not need a new wire format.
 
-### 2. Per-session persistence on shutdown — `session.js:persistSessionOnShutdown`
+### 2. Per-session persistence on shutdown — call `persistSubscription` in `mcp-sse.js:stop()`
 
-New helper that delegates to `persistSubscription` but bypasses its "only write if this session subscribed" semantics. Called from `mcp-sse.js stop()` for every active session — a session that only issued tool calls still gets a row so it can be resumed.
+The existing `persistSubscription` already writes the row unconditionally once its "owned session" guard passes, and the guard holds for every session in the live `sessions` map during shutdown (we iterate before `clearAllSessionState()`). Default `eventFilter = {completed, failed}` is set at session creation, so sessions that never called `subscribe_task_events` still have a writable row.
 
-```js
-function persistSessionOnShutdown(sessionId, session) {
-  // Unconditional shutdown-time persist. Uses the same row shape
-  // as persistSubscription (eventFilter + taskFilter) but does not
-  // require the session to have called subscribe_task_events.
-}
-```
-
-The mcp-sse.js shutdown loop becomes:
+No new helper is needed. The mcp-sse.js shutdown loop becomes:
 
 ```js
 for (const [id, session] of sessions) {
   clearTrackedInterval(session.keepaliveTimer);
   try {
-    sessionMod.persistSessionOnShutdown(id, session);
+    sessionMod.persistSubscription(id, session);
   } catch { /* non-fatal */ }
   // ...existing hint writes + res.end()
 }
