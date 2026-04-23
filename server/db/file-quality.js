@@ -46,6 +46,81 @@ function listAllSyntaxValidators() {
   return db.prepare('SELECT * FROM syntax_validators ORDER BY name').all();
 }
 
+function getValidatorArgs(validator) {
+  return validator.args
+    ? validator.args.split(/\s+/).filter(Boolean)
+    : [];
+}
+
+function getSuccessExitCodes(validator) {
+  return String(validator.success_exit_codes || '0')
+    .split(',')
+    .map(c => parseInt(c.trim(), 10))
+    .filter(Number.isFinite);
+}
+
+function runValidatorProcess(validator, args, workingDirectory, stdin = null) {
+  const { spawn } = require('child_process');
+
+  return new Promise((resolve) => {
+    const proc = spawn(validator.command, args, {
+      cwd: workingDirectory,
+      timeout: TASK_TIMEOUTS.HTTP_REQUEST,
+      windowsHide: true
+    });
+
+    let output = '';
+    let errorOutput = '';
+
+    proc.stdout.on('data', data => output += data.toString());
+    proc.stderr.on('data', data => errorOutput += data.toString());
+
+    proc.on('close', code => {
+      resolve({
+        validator: validator.name,
+        success: getSuccessExitCodes(validator).includes(code),
+        exitCode: code,
+        output,
+        errorOutput
+      });
+    });
+
+    proc.on('error', err => {
+      resolve({
+        validator: validator.name,
+        success: false,
+        error: err.message
+      });
+    });
+
+    if (stdin !== null && proc.stdin) {
+      proc.stdin.end(stdin);
+    }
+  });
+}
+
+function isNodeCheckValidator(validator, args) {
+  const command = String(validator.command || '').toLowerCase();
+  return (command === 'node' || command.endsWith('/node') || command.endsWith('\\node') || command.endsWith('node.exe'))
+    && args.includes('--check');
+}
+
+function isCommonJsEsmSyntaxError(result) {
+  const combined = `${result?.output || ''}\n${result?.errorOutput || ''}\n${result?.error || ''}`;
+  return combined.includes('Cannot use import statement outside a module')
+    || combined.includes('Unexpected token \'export\'');
+}
+
+function looksLikeEsmJavaScript(fullPath) {
+  const fs = require('fs');
+  try {
+    const source = fs.readFileSync(fullPath, 'utf8');
+    return /^\s*(?:import|export)\s/m.test(source) ? source : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Run syntax validation on a file
  * @param {any} filePath
@@ -55,7 +130,6 @@ function listAllSyntaxValidators() {
 
 async function runSyntaxValidation(filePath, workingDirectory) {
   const path = require('path');
-  const { spawn } = require('child_process');
 
   const ext = path.extname(filePath).toLowerCase();
   const validators = getSyntaxValidators(ext);
@@ -68,42 +142,34 @@ async function runSyntaxValidation(filePath, workingDirectory) {
 
   for (const validator of validators) {
     const fullPath = path.isAbsolute(filePath) ? filePath : path.join(workingDirectory, filePath);
-    const args = validator.args ? validator.args.split(' ') : [];
+    const args = getValidatorArgs(validator);
     args.push(fullPath);
 
     try {
-      const result = await new Promise((resolve, _reject) => {
-        const proc = spawn(validator.command, args, {
-          cwd: workingDirectory,
-          timeout: TASK_TIMEOUTS.HTTP_REQUEST,
-          windowsHide: true
-        });
+      let result = await runValidatorProcess(validator, args, workingDirectory);
 
-        let output = '';
-        let errorOutput = '';
-
-        proc.stdout.on('data', data => output += data.toString());
-        proc.stderr.on('data', data => errorOutput += data.toString());
-
-        proc.on('close', code => {
-          const successCodes = validator.success_exit_codes.split(',').map(c => parseInt(c.trim(), 10));
-          resolve({
-            validator: validator.name,
-            success: successCodes.includes(code),
-            exitCode: code,
-            output,
-            errorOutput
-          });
-        });
-
-        proc.on('error', err => {
-          resolve({
-            validator: validator.name,
-            success: false,
-            error: err.message
-          });
-        });
-      });
+      if (
+        !result.success
+        && ext === '.js'
+        && isNodeCheckValidator(validator, args)
+        && isCommonJsEsmSyntaxError(result)
+      ) {
+        const source = looksLikeEsmJavaScript(fullPath);
+        if (source) {
+          const moduleResult = await runValidatorProcess(
+            validator,
+            ['--input-type=module', '--check'],
+            workingDirectory,
+            source,
+          );
+          if (moduleResult.success) {
+            result = {
+              ...moduleResult,
+              retriedAsModule: true,
+            };
+          }
+        }
+      }
 
       results.push(result);
     } catch (err) {
