@@ -1477,6 +1477,74 @@ describe('factory loop-controller EXECUTE modes', () => {
     }
   });
 
+  it('terminates no-open-work loops so idle instances are not active heartbeats', async () => {
+    const { project, workItem } = registerPlanProject();
+    factoryIntake.updateWorkItem(workItem.id, { status: 'completed' });
+    const started = loopController.startLoopForProject(project.id);
+
+    const senseAdvance = await loopController.advanceLoopForProject(project.id);
+    expect(senseAdvance).toMatchObject({
+      new_state: LOOP_STATES.PRIORITIZE,
+      paused_at_stage: LOOP_STATES.PRIORITIZE,
+    });
+
+    loopController.approveGateForProject(project.id, LOOP_STATES.PRIORITIZE);
+    const prioritizeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(prioritizeAdvance).toMatchObject({
+      new_state: LOOP_STATES.IDLE,
+      paused_at_stage: null,
+      reason: 'no_open_work_item',
+    });
+    expect(factoryLoopInstances.getInstance(started.instance_id)).toMatchObject({
+      loop_state: LOOP_STATES.IDLE,
+      terminated_at: expect.any(String),
+    });
+    expect(loopController.getActiveInstances(project.id)).toEqual([]);
+
+    const result = await loopController.awaitFactoryLoop(project.id, {
+      heartbeat_minutes: 0,
+      timeout_minutes: 1,
+    });
+
+    expect(result).toMatchObject({
+      status: 'terminated',
+      timed_out: false,
+      instance: {
+        id: started.instance_id,
+        project_id: project.id,
+      },
+    });
+  });
+
+  it('awaitFactoryLoop treats legacy nonterminated IDLE instances as terminal', async () => {
+    const { project } = registerPlanProject();
+    const started = loopController.startLoopForProject(project.id);
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      loop_state: LOOP_STATES.IDLE,
+      paused_at_stage: null,
+      last_action_at: new Date().toISOString(),
+    });
+
+    expect(loopController.getActiveInstances(project.id)).toEqual([]);
+
+    const result = await loopController.awaitFactoryLoop(project.id, {
+      heartbeat_minutes: 0,
+      timeout_minutes: 1,
+    });
+
+    expect(result).toMatchObject({
+      status: 'terminated',
+      timed_out: false,
+      instance: {
+        id: started.instance_id,
+        project_id: project.id,
+        loop_state: LOOP_STATES.IDLE,
+        terminated_at: null,
+      },
+    });
+  });
+
   it('awaitFactoryLoop returns timeout when nothing changes', async () => {
     const { project } = registerPlanProject();
     const started = loopController.startLoopForProject(project.id);

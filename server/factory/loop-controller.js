@@ -4265,11 +4265,19 @@ async function handlePrioritizeTransition({ project, instance, currentState }) {
     const nextState = consecutiveEmptyCycles >= STARVATION_THRESHOLD
       ? LOOP_STATES.STARVED
       : LOOP_STATES.IDLE;
-    const updatedInstance = updateInstanceAndSync(instance.id, {
-      loop_state: nextState,
-      paused_at_stage: null,
-      last_action_at: nowIso(),
-    });
+    const updatedInstance = nextState === LOOP_STATES.IDLE
+      ? terminateInstanceAndSync(instance.id)
+      : updateInstanceAndSync(instance.id, {
+          loop_state: nextState,
+          paused_at_stage: null,
+          last_action_at: nowIso(),
+        });
+    if (nextState === LOOP_STATES.IDLE) {
+      recordFactoryIdleIfExhausted(project.id, {
+        last_action_at: updatedInstance.last_action_at || null,
+        reason: 'no_open_work_item',
+      });
+    }
     const action = nextState === LOOP_STATES.STARVED
       ? 'entered_starved'
       : 'short_circuit_to_idle';
@@ -8266,7 +8274,7 @@ async function awaitFactoryLoop(project_id, {
     const now = Date.now();
     const elapsedMs = now - startedAt;
 
-    if (instance.terminated_at) {
+    if (instance.terminated_at || instance.loop_state === LOOP_STATES.IDLE) {
       return { status: 'terminated', instance, elapsed_ms: elapsedMs, timed_out: false };
     }
 

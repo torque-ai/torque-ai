@@ -189,6 +189,7 @@ function listInstances({ project_id, active_only = false } = {}) {
   }
   if (active_only) {
     where.push('terminated_at IS NULL');
+    where.push("loop_state <> 'IDLE'");
   }
 
   const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
