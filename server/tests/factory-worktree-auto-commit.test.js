@@ -563,6 +563,63 @@ describe('factory worktree auto-commit', () => {
     expect(decisions[0].outcome.cleaned_non_product_files).toEqual(['runs/artifact-run/manifest.json']);
   });
 
+  it('rejects verify retry edits outside the existing branch and plan scope before committing', async () => {
+    const { worktreePath } = initGitWorktree(tempDirs);
+    seedFactoryProject(db, worktreePath);
+
+    const scopedFile = path.join(worktreePath, 'server', 'tests', 'metrics.test.js');
+    fs.mkdirSync(path.dirname(scopedFile), { recursive: true });
+    fs.writeFileSync(scopedFile, 'expect(metric).toBe("torque_tasks_total");\n');
+    runRealGit(worktreePath, ['add', 'server/tests/metrics.test.js']);
+    runRealGit(worktreePath, ['commit', '-m', 'fix(metrics): seed branch scope']);
+    const commitCountBefore = countCommits(worktreePath);
+
+    const planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'factory-retry-plan-'));
+    tempDirs.push(planDir);
+    const planPath = path.join(planDir, '584-metrics.md');
+    fs.writeFileSync(planPath, 'Edit server/tests/metrics.test.js only.\n');
+
+    insertTask(db, {
+      taskId: 'task-off-scope-retry',
+      workingDirectory: worktreePath,
+      tags: [
+        'factory:batch_id=factory-project-1-7',
+        'factory:work_item_id=7',
+        'factory:plan_task_number=1001',
+        'factory:verify_retry=1',
+      ],
+      metadata: {
+        plan_path: planPath,
+        plan_task_title: 'verify auto-retry #1',
+      },
+    });
+
+    const offScopePath = path.join(worktreePath, 'server', 'handlers', 'auto-recovery-handlers.js');
+    fs.mkdirSync(path.dirname(offScopePath), { recursive: true });
+    fs.writeFileSync(offScopePath, 'module.exports = { unrelated: true };\n');
+
+    expect(autoCommit.initFactoryWorktreeAutoCommit()).toBe(true);
+    taskEvents.emit('task:completed', { id: 'task-off-scope-retry', status: 'completed' });
+    await waitForAutoCommitListener();
+
+    const decisions = listDecisionRows(db);
+    expect(countCommits(worktreePath)).toBe(commitCountBefore);
+    expect(runRealGit(worktreePath, ['status', '--porcelain']).trim()).toBe('');
+    expect(fs.existsSync(offScopePath)).toBe(false);
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0]).toMatchObject({
+      action: 'auto_commit_rejected_off_scope',
+      outcome: {
+        task_id: 'task-off-scope-retry',
+        plan_task_number: 1001,
+      },
+    });
+    expect(decisions[0].outcome.off_scope_files).toContain('server/handlers/auto-recovery-handlers.js');
+    expect(decisions[0].outcome.scope_envelope).toEqual(
+      expect.arrayContaining(['server/tests/metrics.test.js']),
+    );
+  });
+
   it('passes --no-verify to git commit so the pre-commit hook does not deadlock on the TORQUE HTTP API', async () => {
     // Regression test for the LEARN-stage worktree_merge_failed chain:
     // the per-task auto-commit runs via execFileSync and the pre-commit

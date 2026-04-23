@@ -33,6 +33,7 @@ const NON_PRODUCT_AUTO_COMMIT_PATTERNS = Object.freeze([
   /^tmp\//i,
   /^docs\/superpowers\/plans\//i,
 ]);
+const VERIFY_RETRY_SCOPE_PATH_RE = /[A-Za-z0-9_./\\-]+\.(?:tsx|jsx|cjs|mjs|yaml|yml|json|sql|js|ts|py|cs|md)/g;
 
 let completedTaskListener = null;
 
@@ -181,6 +182,30 @@ function resolveKind(task) {
   return tag ? 'verify_retry' : 'execute';
 }
 
+function resolveTaskMetadata(task) {
+  const metadata = task?.metadata;
+  if (!metadata) return {};
+  if (typeof metadata === 'object') return metadata;
+  if (typeof metadata !== 'string') return {};
+  try {
+    const parsed = JSON.parse(metadata);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function resolvePlanPath(task) {
+  const metadata = resolveTaskMetadata(task);
+  if (typeof metadata.plan_path === 'string' && metadata.plan_path.trim()) {
+    return metadata.plan_path.trim();
+  }
+
+  const description = typeof task?.task_description === 'string' ? task.task_description : '';
+  const match = /^Plan path:\s*(.+)$/mi.exec(description);
+  return match?.[1]?.trim() || null;
+}
+
 function resolveWorkItemId(task) {
   const tag = Array.isArray(task && task.tags) ? task.tags.find((t) => typeof t === 'string' && t.startsWith('factory:work_item_id=')) : null;
   if (!tag) return null;
@@ -211,6 +236,74 @@ function normalizeRelativePath(filePath) {
     .replace(/\\/g, '/')
     .replace(/^\.\/+/, '')
     .trim();
+}
+
+function extractScopeEnvelopeFiles(text) {
+  const files = new Set();
+  for (const match of String(text || '').matchAll(VERIFY_RETRY_SCOPE_PATH_RE)) {
+    const normalized = normalizeRelativePath(match[0]);
+    if (normalized) files.add(normalized);
+  }
+  return Array.from(files);
+}
+
+function getScopeEnvelopeBasenames(scopeEnvelope) {
+  const suffixes = new Set();
+  for (const file of scopeEnvelope || []) {
+    const normalized = normalizeRelativePath(file);
+    if (!normalized) continue;
+    suffixes.add(normalized);
+    const withoutRoot = normalized
+      .replace(/^[A-Za-z]:\//, '')
+      .replace(/^\/+/, '');
+    if (withoutRoot) suffixes.add(withoutRoot);
+    const basename = withoutRoot.split('/').filter(Boolean).pop();
+    if (basename) suffixes.add(basename);
+  }
+  return Array.from(suffixes);
+}
+
+function getOutOfScopeFiles(files, scopeEnvelope) {
+  const scopeEnvelopeBasenames = getScopeEnvelopeBasenames(scopeEnvelope);
+  return (Array.isArray(files) ? files : []).filter((file) => {
+    const normalized = normalizeRelativePath(file);
+    return normalized && !scopeEnvelopeBasenames.some((suffix) => normalized.endsWith(suffix));
+  });
+}
+
+function readPlanText(planPath) {
+  if (!planPath) return '';
+  try {
+    return fs.readFileSync(planPath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function getExistingBranchDiffFiles(worktreePath) {
+  const refsToTry = [
+    ['diff', '--name-only', 'main...HEAD'],
+    ['diff', '--name-only', 'HEAD~1', 'HEAD'],
+  ];
+  for (const args of refsToTry) {
+    try {
+      const output = runGit(worktreePath, args).trim();
+      if (output) {
+        return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      }
+    } catch {
+      // Try the next fallback ref.
+    }
+  }
+  return [];
+}
+
+function buildVerifyRetryCommitScope(task, worktreePath) {
+  const planText = readPlanText(resolvePlanPath(task));
+  return new Set([
+    ...extractScopeEnvelopeFiles(planText),
+    ...getExistingBranchDiffFiles(worktreePath).map(normalizeRelativePath).filter(Boolean),
+  ]);
 }
 
 function isNonProductAutoCommitPath(filePath) {
@@ -442,6 +535,36 @@ async function commitCompletedPlanTask(task) {
       ...removeUntrackedPaths(worktree.worktreePath, untrackedPartition.excluded),
     ];
     const pathsToStage = [...trackedPartition.stageable, ...untrackedPartition.stageable];
+
+    if (resolveKind(task) === 'verify_retry' && pathsToStage.length > 0) {
+      const scopeEnvelope = buildVerifyRetryCommitScope(task, worktree.worktreePath);
+      const offScopeFiles = scopeEnvelope.size > 0
+        ? getOutOfScopeFiles(pathsToStage, scopeEnvelope)
+        : pathsToStage;
+
+      if (offScopeFiles.length > 0) {
+        const rejectedTracked = pathsToStage.filter((p) => semanticTracked.includes(p));
+        const rejectedUntracked = pathsToStage.filter((p) => untracked.includes(p));
+        const restoredTracked = restoreTrackedPaths(worktree.worktreePath, rejectedTracked);
+        const removedUntracked = removeUntrackedPaths(worktree.worktreePath, rejectedUntracked);
+
+        safeLogDecision({
+          ...decisionBase,
+          action: 'auto_commit_rejected_off_scope',
+          reasoning: 'Verify retry task touched files outside the existing branch and plan scope, so the factory discarded the retry diff instead of committing it.',
+          outcome: {
+            task_id: task.id,
+            plan_task_number: planTaskNumber,
+            files_rejected: pathsToStage,
+            off_scope_files: offScopeFiles,
+            scope_envelope: Array.from(scopeEnvelope),
+            restored_tracked_files: restoredTracked,
+            removed_untracked_files: removedUntracked,
+          },
+        });
+        return;
+      }
+    }
 
     if (pathsToStage.length === 0 && nonProductPaths.length > 0) {
       const stdoutTail = getStdoutTail(task);
