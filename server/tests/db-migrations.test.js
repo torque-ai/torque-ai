@@ -29,6 +29,7 @@ function createBaseSchema(conn, options = {}) {
     includeConfig = true,
     includeComplexityRouting = true,
     includeFactoryTables = true,
+    includeMemories = true,
     existingModelAffinityColumns = false,
     includeModelFamilyTemplates = true,
     includeModelRegistry = true,
@@ -159,6 +160,19 @@ function createBaseSchema(conn, options = {}) {
       CREATE INDEX idx_fwi_status_priority ON factory_work_items(status, priority DESC);
       CREATE INDEX idx_fwi_source ON factory_work_items(source);
       CREATE INDEX idx_fwi_linked ON factory_work_items(linked_item_id);
+    `);
+  }
+
+  if (includeMemories) {
+    conn.exec(`
+      CREATE TABLE memories (
+        id TEXT PRIMARY KEY,
+        role TEXT,
+        content TEXT NOT NULL,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT
+      );
     `);
   }
 

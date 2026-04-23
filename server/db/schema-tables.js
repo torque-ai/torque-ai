@@ -77,6 +77,7 @@ const VALID_TABLE_NAMES = new Set([
   'intelligence_log',
   'linter_configs',
   'maintenance_schedule',
+  'memories',
   'model_capabilities',
   'model_family_templates',
   'model_registry',
@@ -1664,6 +1665,19 @@ function createTables(db, logger) {
         disconnected_at TEXT
       )
     `);
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS memories (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL DEFAULT 'semantic',
+        namespace TEXT NOT NULL DEFAULT '',
+        role TEXT,
+        content TEXT NOT NULL,
+        metadata_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        updated_at TEXT
+      )
+    `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_memories_kind_namespace ON memories(kind, namespace)');
   db.exec(`
       CREATE TABLE IF NOT EXISTS agent_groups (
         id TEXT PRIMARY KEY,
