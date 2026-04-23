@@ -763,6 +763,16 @@ const MIGRATIONS = [
     up: readSqlMigration('033-memory-kind-namespace.sql'),
     down: 'DROP INDEX IF EXISTS idx_memories_kind_namespace',
   },
+  {
+    version: 34,
+    name: 'add_specialist_chat_history',
+    up: readSqlMigration('034-specialist-chat-history.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_spec_history_agent',
+      'DROP INDEX IF EXISTS idx_spec_history_session',
+      'DROP TABLE IF EXISTS specialist_chat_history',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
