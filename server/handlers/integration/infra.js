@@ -473,16 +473,139 @@ function detectProjectType(workingDir) {
   return { type: 'unknown', src: ['src', '.'], test: '.test.', testDir: 'tests' };
 }
 
-function handleScanProject(args) {
-  const projectPath = args.path;
-  if (!projectPath || !fs.existsSync(projectPath)) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Project path does not exist: ${projectPath}`);
+function decodePathForTraversalCheck(input) {
+  let decoded = String(input);
+  for (let i = 0; i < 5; i++) {
+    let next;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      break;
+    }
+    if (next === decoded) break;
+    decoded = next;
   }
+  return decoded;
+}
+
+function hasTraversalSegment(input) {
+  const decoded = decodePathForTraversalCheck(input);
+  return [String(input), decoded]
+    .map(value => value.replace(/\\/g, '/'))
+    .some(value => value.split('/').some(segment => segment === '..'));
+}
+
+function isPathInside(rootPath, targetPath) {
+  const resolvedRoot = path.resolve(rootPath);
+  const resolvedTarget = path.resolve(targetPath);
+  const compareRoot = process.platform === 'win32' ? resolvedRoot.toLowerCase() : resolvedRoot;
+  const compareTarget = process.platform === 'win32' ? resolvedTarget.toLowerCase() : resolvedTarget;
+  const relative = path.relative(compareRoot, compareTarget);
+  return relative === '' || (relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function resolveScanProjectRoot(args = {}) {
+  const hasExplicitPath = typeof args.path === 'string' && args.path.trim().length > 0;
+  const requestedPath = hasExplicitPath
+    ? args.path.trim()
+    : (typeof args.working_directory === 'string' ? args.working_directory.trim() : '');
+  if (!requestedPath) {
+    return { error: makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'path is required') };
+  }
+  if (requestedPath.includes('\x00') || hasTraversalSegment(requestedPath)) {
+    return { error: makeError(ErrorCodes.PATH_TRAVERSAL, 'Project path contains path traversal') };
+  }
+
+  const explicitProjectRoot = typeof args.project_root === 'string' && args.project_root.trim()
+    ? args.project_root.trim()
+    : (hasExplicitPath && typeof args.working_directory === 'string' && args.working_directory.trim() ? args.working_directory.trim() : null);
+
+  if (explicitProjectRoot && (explicitProjectRoot.includes('\x00') || hasTraversalSegment(explicitProjectRoot))) {
+    return { error: makeError(ErrorCodes.PATH_TRAVERSAL, 'Project root contains path traversal') };
+  }
+
+  const rootCandidate = explicitProjectRoot ? path.resolve(explicitProjectRoot) : null;
+  const scanCandidate = explicitProjectRoot && !path.isAbsolute(requestedPath)
+    ? path.resolve(rootCandidate, requestedPath)
+    : path.resolve(requestedPath);
+
+  let projectRoot = null;
+  if (rootCandidate) {
+    try {
+      const rootStat = fs.lstatSync(rootCandidate);
+      if (rootStat.isSymbolicLink()) {
+        return { error: makeError(ErrorCodes.PATH_TRAVERSAL, 'Project root must not be a symlink') };
+      }
+      if (!rootStat.isDirectory()) {
+        return { error: makeError(ErrorCodes.INVALID_PARAM, 'Project root must be a directory') };
+      }
+      projectRoot = fs.realpathSync(rootCandidate);
+    } catch {
+      return { error: makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Project root does not exist: ${explicitProjectRoot}`) };
+    }
+  }
+
+  try {
+    const scanStat = fs.lstatSync(scanCandidate);
+    if (scanStat.isSymbolicLink()) {
+      return { error: makeError(ErrorCodes.PATH_TRAVERSAL, 'Project path must not be a symlink') };
+    }
+    if (!scanStat.isDirectory()) {
+      return { error: makeError(ErrorCodes.INVALID_PARAM, 'Project path must be a directory') };
+    }
+    const scanRoot = fs.realpathSync(scanCandidate);
+    const containmentRoot = projectRoot || scanRoot;
+    if (!isPathInside(containmentRoot, scanRoot)) {
+      return { error: makeError(ErrorCodes.PATH_TRAVERSAL, 'Project path must resolve inside project root') };
+    }
+    return { projectRoot: containmentRoot, scanRoot };
+  } catch {
+    return { error: makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Project path does not exist: ${requestedPath}`) };
+  }
+}
+
+function normalizeScanSourceDirs(sourceDirs, projectPath) {
+  const normalizedDirs = [];
+  for (const sourceDir of sourceDirs) {
+    if (typeof sourceDir !== 'string' || sourceDir.trim().length === 0) {
+      return { error: makeError(ErrorCodes.INVALID_PARAM, 'source_dirs entries must be non-empty strings') };
+    }
+
+    const requestedDir = sourceDir.trim();
+    if (requestedDir.includes('\x00') || hasTraversalSegment(requestedDir)) {
+      return { error: makeError(ErrorCodes.PATH_TRAVERSAL, 'source_dirs entries must not contain path traversal') };
+    }
+
+    if (path.isAbsolute(requestedDir)) {
+      const resolvedDir = path.resolve(requestedDir);
+      if (!isPathInside(projectPath, resolvedDir)) {
+        return { error: makeError(ErrorCodes.PATH_TRAVERSAL, 'source_dirs entries must resolve inside project root') };
+      }
+      const relativeDir = path.relative(projectPath, resolvedDir).replace(/\\/g, '/');
+      normalizedDirs.push(relativeDir || '.');
+    } else {
+      const relativeDir = requestedDir.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '');
+      normalizedDirs.push(relativeDir || '.');
+    }
+  }
+  return { value: normalizedDirs };
+}
+
+function handleScanProject(args = {}) {
+  const resolvedProject = resolveScanProjectRoot(args);
+  if (resolvedProject.error) {
+    return resolvedProject.error;
+  }
+  const projectPath = resolvedProject.scanRoot;
 
   const detected = detectProjectType(projectPath);
   const checks = args.checks || ['summary', 'missing_tests', 'todos', 'file_sizes', 'data_inventory', 'dependencies'];
   const explicitSourceDirs = Array.isArray(args.source_dirs) ? args.source_dirs : null;
-  const sourceDirs = explicitSourceDirs || detected.src;
+  const normalizedSourceDirs = explicitSourceDirs ? normalizeScanSourceDirs(explicitSourceDirs, projectPath) : null;
+  if (normalizedSourceDirs?.error) {
+    return normalizedSourceDirs.error;
+  }
+  const sourceDirs = normalizedSourceDirs?.value || detected.src;
   const testSuffix = args.test_pattern || detected.test;
   const validTodoTypes = new Set(['TODO', 'FIXME', 'HACK', 'XXX', 'TEMP']);
   if (args.todo_types !== undefined && !Array.isArray(args.todo_types)) {
@@ -516,32 +639,30 @@ function handleScanProject(args) {
       const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
       for (const entry of entries) {
         if (ignoreDirs.has(entry.name)) continue;
-        if (entry.isDirectory() && ignorePrefixes.some(p => entry.name === p || entry.name.startsWith(p + '-'))) continue;
         const fullPath = path.join(dir, entry.name);
-        // Skip symlinks to prevent directory traversal
+        let entryStat;
         try {
-          const lstat = fs.lstatSync(fullPath);
-          if (lstat.isSymbolicLink()) continue;
+          entryStat = fs.lstatSync(fullPath);
         } catch {
           continue;
         }
+        if (entryStat.isSymbolicLink()) continue;
+        if (entryStat.isDirectory() && ignorePrefixes.some(p => entry.name === p || entry.name.startsWith(p + '-'))) continue;
         try {
-          const realFullPath = fs.realpathSync(fullPath).replace(/\\/g, '/');
-          const normalizedProjectPath = projectPath.replace(/\\/g, '/');
-          if (!realFullPath.startsWith(normalizedProjectPath)) continue;
+          const realFullPath = fs.realpathSync(fullPath);
+          if (!isPathInside(projectPath, realFullPath)) continue;
         } catch {
           continue;
         }
-        if (entry.isDirectory()) {
+        if (entryStat.isDirectory()) {
           walkDir(fullPath, fileList);
-        } else if (entry.isFile()) {
-          const stat = fs.statSync(fullPath);
+        } else if (entryStat.isFile()) {
           fileList.push({
             path: fullPath,
             relativePath: path.relative(projectPath, fullPath),
             name: entry.name,
             ext: path.extname(entry.name).toLowerCase(),
-            size: stat.size,
+            size: entryStat.size,
             lines: null // lazy-loaded
           });
         }
