@@ -3,6 +3,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { useOutletContext } from 'react-router-dom';
 import { factory as factoryApi, getDecisionLog } from '../../api';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
+import { SelectProjectPrompt } from './shared';
 import {
   BADGE_FALLBACK_STYLE,
   DECISION_STAGE_BADGE_STYLES,
@@ -315,7 +316,7 @@ export default function History() {
     : null;
 
   if (!selectedProject) {
-    return null;
+    return <SelectProjectPrompt message="Select a project above to view its completed work item history." />;
   }
 
   return (

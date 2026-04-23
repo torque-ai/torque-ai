@@ -45,6 +45,14 @@ function getFactoryAlertBadge(alertBadge) {
   };
 }
 
+export function SelectProjectPrompt({ message = 'Select a factory project above to view its details.' }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-800/40 px-6 py-10 text-center text-sm text-slate-400">
+      {message}
+    </div>
+  );
+}
+
 export function StatusDot({ status }) {
   return (
     <span

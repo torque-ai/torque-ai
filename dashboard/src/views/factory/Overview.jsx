@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { factory as factoryApi } from '../../api';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
-import { StatusDot, TrustBadge } from './shared';
+import { SelectProjectPrompt, StatusDot, TrustBadge } from './shared';
 import LoopControlBar from './LoopControlBar';
 import {
   BADGE_FALLBACK_STYLE,
@@ -182,7 +182,11 @@ export default function Overview() {
     };
   }, [selectedProjectId]);
 
-  if (!selectedProject || !detail) {
+  if (!selectedProject) {
+    return <SelectProjectPrompt message="Select a project above to view its health, trust, and loop state." />;
+  }
+
+  if (!detail) {
     return null;
   }
 

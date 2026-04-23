@@ -4,7 +4,7 @@ import { factory as factoryApi } from '../../api';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import StatCard from '../../components/StatCard';
 import { useToast } from '../../components/Toast';
-import { StatusDot, TrustBadge } from './shared';
+import { SelectProjectPrompt, StatusDot, TrustBadge } from './shared';
 import { formatCurrency, formatLabel, normalizeCostMetrics } from './utils';
 
 const GUARDRAIL_COLORS = { green: 'text-green-400', yellow: 'text-yellow-400', red: 'text-red-400' };
@@ -475,7 +475,7 @@ export default function Policy() {
   const { costMetrics, costMetricsLoading, refreshSelectedProject, selectedProject } = useOutletContext();
 
   if (!selectedProject) {
-    return null;
+    return <SelectProjectPrompt message="Select a project above to view its policy, guardrails, and cost metrics." />;
   }
 
   const costMetricsData = costMetrics || normalizeCostMetrics();

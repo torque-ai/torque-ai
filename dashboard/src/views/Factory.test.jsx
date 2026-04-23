@@ -259,6 +259,56 @@ describe('Factory overview', () => {
     expect(screen.getAllByText('Factory idle')).toHaveLength(1);
   });
 
+  it('shows a placeholder on subtabs when no project is selected', async () => {
+    const baseShell = useFactoryShell();
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      outletContext: {
+        ...baseShell.outletContext,
+        detail: null,
+        projects: [factoryProject],
+        selectedProject: null,
+        selectedProjectId: null,
+      },
+    });
+
+    const IntakeMod = await import('./factory/Intake');
+    render(
+      <ToastProvider>
+        <MemoryRouter initialEntries={['/factory/intake']}>
+          <Routes>
+            <Route path="/factory" element={<Factory />}>
+              <Route path="intake" element={<IntakeMod.default />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
+    );
+
+    expect(screen.getByText(/select a project above to view its intake/i)).toBeInTheDocument();
+  });
+
+  it('redirects /factory/decisions to /factory/activity', async () => {
+    const ActivityMod = await import('./factory/Activity');
+    const { Navigate } = await import('react-router-dom');
+    render(
+      <ToastProvider>
+        <MemoryRouter initialEntries={['/factory/decisions']}>
+          <Routes>
+            <Route path="/factory" element={<Factory />}>
+              <Route path="activity" element={<ActivityMod.default />} />
+              <Route path="decisions" element={<Navigate to="/factory/activity" replace />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
+    );
+
+    // Activity renders audit trail heading when a project is selected.
+    expect(screen.getByText(/audit trail/i)).toBeInTheDocument();
+  });
+
   it('surfaces STARVED projects in the project grid', () => {
     const baseShell = useFactoryShell();
     const starvedProject = {

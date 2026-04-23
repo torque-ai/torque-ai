@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
-import { ArchitectBacklogItemRow } from './shared';
+import { ArchitectBacklogItemRow, SelectProjectPrompt } from './shared';
 import {
   BADGE_FALLBACK_STYLE,
   INTAKE_SOURCE_BADGE_STYLES,
@@ -32,7 +32,7 @@ export default function Intake() {
   }, [architectBacklog.cycleId, architectBacklog.reasoningSummary]);
 
   if (!selectedProject) {
-    return null;
+    return <SelectProjectPrompt message="Select a project above to view its intake queue." />;
   }
 
   const intakeSummary = getIntakeSummary(intakeItems);

@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
+import { SelectProjectPrompt } from './shared';
 import {
   BADGE_FALLBACK_STYLE,
   DECISION_ACTOR_BADGE_STYLES,
@@ -38,7 +39,7 @@ export default function Activity() {
   }, [decisionFilters.actor, decisionFilters.batchId, decisionFilters.since, decisionFilters.stage, decisionLog]);
 
   if (!selectedProject) {
-    return null;
+    return <SelectProjectPrompt message="Select a project above to view its decision audit trail." />;
   }
 
   const digestEventCounts = getDigestEventCounts(digest?.events || []);
