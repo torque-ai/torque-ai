@@ -75,6 +75,27 @@ function safeDecrementHostSlot(proc) {
   }
 }
 
+function isPidStillAlive(pid) {
+  const normalizedPid = Number(pid);
+  if (!Number.isFinite(normalizedPid) || normalizedPid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(normalizedPid, 0);
+    return true;
+  } catch (err) {
+    return err?.code === 'EPERM';
+  }
+}
+
+function logTaskkillFailureIfAlive(pid, message) {
+  if (!isPidStillAlive(pid)) {
+    return;
+  }
+  logger.info(message);
+}
+
 /**
  * Gracefully kill a child process: SIGTERM, then SIGKILL after a delay.
  * Both signals swallow ESRCH (process already exited).
@@ -95,9 +116,7 @@ function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '') {
         const { execFileSync } = require('child_process');
         execFileSync('taskkill', ['/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
       } catch (err) {
-        if (!err.message.includes('not found')) {
-          logger.info(`${prefix}Failed to send taskkill /T to task ${taskId}: ${err.message}`);
-        }
+        logTaskkillFailureIfAlive(pid, `${prefix}Failed to send taskkill /T to task ${taskId}: ${err.message}`);
       }
     }
 
@@ -116,9 +135,7 @@ function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '') {
           execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
           return;
         } catch (err) {
-          if (!err.message.includes('not found')) {
-            logger.info(`${prefix}Failed to send taskkill /F /T to task ${taskId}: ${err.message}`);
-          }
+          logTaskkillFailureIfAlive(pid, `${prefix}Failed to send taskkill /F /T to task ${taskId}: ${err.message}`);
         }
       }
 

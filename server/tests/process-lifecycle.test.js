@@ -670,6 +670,60 @@ describe('process-lifecycle', () => {
           execFileSyncSpy.mockRestore();
         }
       });
+
+      it('suppresses taskkill failure logs when the pid is already gone', () => {
+        const loggerState = createLifecycleLoggerMock();
+        const { subject, loggerMock } = loadLifecycleSubject({ loggerMock: loggerState });
+        const proc = { process: { pid: 43210, kill: vi.fn(), once: vi.fn() } };
+        const cp = require('child_process');
+        const execFileSyncSpy = vi.spyOn(cp, 'execFileSync').mockImplementation(() => {
+          throw new Error('Command failed: taskkill /T /PID 43210');
+        });
+        const processKillSpy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+          if (signal === 0) {
+            const err = new Error('No such process');
+            err.code = 'ESRCH';
+            throw err;
+          }
+          return true;
+        });
+
+        try {
+          subject.killProcessGraceful(proc, 'task-1', 1000, 'Timeout');
+          vi.advanceTimersByTime(1000);
+
+          const messages = loggerMock.info.mock.calls.map(([message]) => message);
+          expect(messages.some((message) => message.includes('Failed to send taskkill'))).toBe(false);
+        } finally {
+          execFileSyncSpy.mockRestore();
+          processKillSpy.mockRestore();
+        }
+      });
+
+      it('keeps taskkill failure logs when the pid is still alive', () => {
+        const loggerState = createLifecycleLoggerMock();
+        const { subject, loggerMock } = loadLifecycleSubject({ loggerMock: loggerState });
+        const proc = { process: { pid: 43210, kill: vi.fn(), once: vi.fn() } };
+        const cp = require('child_process');
+        const execFileSyncSpy = vi.spyOn(cp, 'execFileSync').mockImplementation(() => {
+          throw new Error('Command failed: taskkill /T /PID 43210');
+        });
+        const processKillSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+
+        try {
+          subject.killProcessGraceful(proc, 'task-1', 1000, 'Timeout');
+          vi.advanceTimersByTime(1000);
+
+          const messages = loggerMock.info.mock.calls.map(([message]) => message);
+          expect(messages).toEqual(expect.arrayContaining([
+            expect.stringContaining('Failed to send taskkill /T to task task-1'),
+            expect.stringContaining('Failed to send taskkill /F /T to task task-1'),
+          ]));
+        } finally {
+          execFileSyncSpy.mockRestore();
+          processKillSpy.mockRestore();
+        }
+      });
     }
   });
 
