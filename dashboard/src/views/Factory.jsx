@@ -12,7 +12,7 @@ const FACTORY_TABS = [
   { to: '/factory', label: 'Overview', end: true },
   { to: '/factory/intake', label: 'Intake' },
   { to: '/factory/health', label: 'Health' },
-  { to: '/factory/decisions', label: 'Activity' },
+  { to: '/factory/activity', label: 'Activity' },
   { to: '/factory/history', label: 'History' },
   { to: '/factory/policy', label: 'Policy' },
 ];
@@ -167,9 +167,7 @@ export default function Factory() {
             </nav>
           </div>
 
-          {outletContext.selectedProject && (
-            <Outlet context={outletContext} />
-          )}
+          <Outlet context={outletContext} />
         </>
       )}
     </div>

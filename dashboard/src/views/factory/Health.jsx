@@ -4,7 +4,7 @@ import { factory as factoryApi } from '../../api';
 import RadarChart from '../../components/RadarChart';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { useToast } from '../../components/Toast';
-import { DimensionBar, StatusDot, TrustBadge } from './shared';
+import { DimensionBar, SelectProjectPrompt, StatusDot, TrustBadge } from './shared';
 import { formatBalance, formatLabel, getScoreEntries } from './utils';
 
 function FeedbackPanel({ project }) {
@@ -52,23 +52,27 @@ function FeedbackPanel({ project }) {
       {drift && drift.drift_detected && (
         <div className="mb-3 rounded border border-amber-600/30 bg-amber-900/30 p-3">
           <p className="mb-1 text-xs font-medium text-amber-300">Drift Detected</p>
-          {drift.patterns.map((pattern, index) => (
-            <div key={index} className="mb-1 text-xs text-slate-300">
-              <span
-                className={`mr-1 inline-block h-2 w-2 rounded-full ${
-                  pattern.severity === 'critical'
-                    ? 'bg-red-400'
-                    : pattern.severity === 'warning'
-                      ? 'bg-amber-400'
-                      : 'bg-blue-400'
-                }`}
-              />
-              <span className="font-medium">{pattern.type.replace(/_/g, ' ')}:</span> {pattern.details}
-              {pattern.dimensions && pattern.dimensions.length > 0 && (
-                <span className="ml-1 text-slate-500">({pattern.dimensions.join(', ')})</span>
-              )}
-            </div>
-          ))}
+          {(Array.isArray(drift.patterns) ? drift.patterns : []).map((pattern, index) => {
+            const patternType = String(pattern?.type || 'unknown');
+            const dimensions = Array.isArray(pattern?.dimensions) ? pattern.dimensions : [];
+            return (
+              <div key={pattern?.id || `${patternType}-${index}`} className="mb-1 text-xs text-slate-300">
+                <span
+                  className={`mr-1 inline-block h-2 w-2 rounded-full ${
+                    pattern?.severity === 'critical'
+                      ? 'bg-red-400'
+                      : pattern?.severity === 'warning'
+                        ? 'bg-amber-400'
+                        : 'bg-blue-400'
+                  }`}
+                />
+                <span className="font-medium">{patternType.replace(/_/g, ' ')}:</span> {pattern?.details || '—'}
+                {dimensions.length > 0 && (
+                  <span className="ml-1 text-slate-500">({dimensions.join(', ')})</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -86,7 +90,11 @@ function FeedbackPanel({ project }) {
 export default function Health() {
   const { detail, detailLoading, selectedProject } = useOutletContext();
 
-  if (!selectedProject || !detail) {
+  if (!selectedProject) {
+    return <SelectProjectPrompt message="Select a project above to view its health scores and drift feedback." />;
+  }
+
+  if (!detail) {
     return null;
   }
 

@@ -18,7 +18,8 @@ const ROUTE_NAMES = {
   '/factory': 'Factory',
   '/factory/intake': 'Factory',
   '/factory/health': 'Factory',
-  '/factory/decisions': 'Factory',
+  '/factory/activity': 'Factory',
+  '/factory/history': 'Factory',
   '/factory/policy': 'Factory',
   '/settings': 'Project Settings',
 };
