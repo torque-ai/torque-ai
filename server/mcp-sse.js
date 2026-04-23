@@ -333,9 +333,25 @@ async function handleHttpRequest(req, res) {
     return streamableHttpMod.handleHttpRequest(req, res, url);
   }
 
+  // RFC 9728 OAuth Protected Resource Metadata — MCP clients (notably Claude Code's
+  // plugin-registered MCP path) probe this endpoint and flag "SDK auth failed" on 404
+  // even for no-auth servers. Returning an empty authorization_servers array signals
+  // "this resource requires no auth" and clears the banner.
+  if (req.method === 'GET' && isOauthProtectedResourceMetadataPath(url.pathname)) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ authorization_servers: [] }));
+    return;
+  }
+
   // Unknown route
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found. Use GET /sse to connect.' }));
+}
+
+function isOauthProtectedResourceMetadataPath(pathname) {
+  return pathname === '/.well-known/oauth-protected-resource'
+    || pathname === '/.well-known/oauth-protected-resource/sse'
+    || pathname === '/.well-known/oauth-protected-resource/mcp';
 }
 
 /**
