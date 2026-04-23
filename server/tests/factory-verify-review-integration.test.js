@@ -260,6 +260,82 @@ describe('executeVerifyStage + verify-review integration', () => {
     expect(project.status).toBe('running');
   });
 
+  it('rechecks branch freshness after a failed verify and rebases before classifier triage', async () => {
+    const loopController = require('../factory/loop-controller');
+    const verifyReview = require('../factory/verify-review');
+    const guardrailRunner = require('../factory/guardrail-runner');
+    const branchFreshness = require('../factory/branch-freshness');
+
+    const { projectId, workItemId, batchId, worktreeAbsPath } = seedProjectItemAndWorktree(dbHandle);
+
+    const verify = vi.fn()
+      .mockResolvedValueOnce({
+        passed: false,
+        exitCode: 1,
+        stdout: 'FAIL stale baseline',
+        stderr: '',
+        output: 'FAIL stale baseline',
+        durationMs: 100,
+        timedOut: false,
+      })
+      .mockResolvedValueOnce({
+        passed: true,
+        exitCode: 0,
+        stdout: 'PASS',
+        stderr: '',
+        output: 'PASS',
+        durationMs: 50,
+        timedOut: false,
+      });
+    loopController.setWorktreeRunnerForTests({ verify });
+
+    const freshnessSpy = vi.spyOn(branchFreshness, 'checkBranchFreshness')
+      .mockResolvedValueOnce({
+        stale: false,
+        reason: null,
+        commitsBehind: 0,
+        staleFiles: [],
+      })
+      .mockResolvedValueOnce({
+        stale: true,
+        reason: 'behind_threshold',
+        commitsBehind: 8,
+        staleFiles: [],
+      });
+    const rebaseSpy = vi.spyOn(branchFreshness, 'attemptRebase').mockResolvedValue({ ok: true });
+    const reviewSpy = vi.spyOn(verifyReview, 'reviewVerifyFailure');
+    vi.spyOn(guardrailRunner, 'runPostBatchChecks').mockReturnValue({
+      status: 'passed',
+      passed: true,
+      results: [],
+      batch_id: batchId,
+    });
+
+    const instance = { id: 'inst-stale', project_id: projectId, batch_id: batchId, work_item_id: workItemId };
+    const result = await loopController.executeVerifyStage(projectId, batchId, instance);
+
+    expect(result.status).toBe('passed');
+    expect(verify).toHaveBeenCalledTimes(2);
+    expect(freshnessSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      worktreePath: worktreeAbsPath,
+      branch: `feat/factory-${workItemId}-test`,
+      baseRef: 'main',
+      threshold: 0,
+    }));
+    expect(freshnessSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      worktreePath: worktreeAbsPath,
+      branch: `feat/factory-${workItemId}-test`,
+      baseRef: 'main',
+      threshold: 0,
+    }));
+    expect(rebaseSpy).toHaveBeenCalledWith(
+      worktreeAbsPath,
+      `feat/factory-${workItemId}-test`,
+      'main',
+    );
+    expect(reviewSpy).not.toHaveBeenCalled();
+  });
+
   it('Scenario 2 (baseline_broken): rejects item, pauses project, emits event', async () => {
     const loopController = require('../factory/loop-controller');
     const verifyReview = require('../factory/verify-review');

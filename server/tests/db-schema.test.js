@@ -143,6 +143,7 @@ describe('db/schema.js — applySchema', () => {
       'provider_config', 'provider_usage', 'routing_rules', 'ollama_hosts',
       'factory_loop_instances',
       'complexity_routing',
+      'specialist_chat_history',
     ];
 
     it.each(expectedTables)('creates table "%s"', (tableName) => {
@@ -214,6 +215,8 @@ describe('db/schema.js — applySchema', () => {
       'idx_file_locks_path', 'idx_backups_task',
       'idx_factory_loop_instances_stage_occupancy',
       'idx_factory_loop_instances_project_active',
+      'idx_spec_history_session',
+      'idx_spec_history_agent',
     ];
 
     it.each(expectedIndexes)('creates index "%s"', (indexName) => {

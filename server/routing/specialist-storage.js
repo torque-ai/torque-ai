@@ -31,6 +31,28 @@ function normalizeLimit(limit, fallback) {
   return Math.trunc(numeric);
 }
 
+function ensureSpecialistHistorySchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS specialist_chat_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
+      content TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_spec_history_session
+    ON specialist_chat_history(user_id, session_id, created_at)
+  `);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_spec_history_agent
+    ON specialist_chat_history(user_id, session_id, agent_id, created_at)
+  `);
+}
+
 function createSpecialistStorage({ db, now = Date.now } = {}) {
   if (!db || typeof db.prepare !== 'function') {
     throw new Error('db with prepare() is required');
@@ -38,6 +60,8 @@ function createSpecialistStorage({ db, now = Date.now } = {}) {
   if (typeof now !== 'function') {
     throw new Error('now must be a function');
   }
+
+  ensureSpecialistHistorySchema(db);
 
   const appendStmt = db.prepare(`
     INSERT INTO specialist_chat_history (user_id, session_id, agent_id, role, content, created_at)

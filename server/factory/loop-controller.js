@@ -6362,6 +6362,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
       }
     } catch (_e) { void _e; }
     let res = null;
+    let postFailureFreshnessChecked = false;
     // Seed the retry counter from prior verify-retry tasks for this batch.
     // Without this, any re-entry to executeVerifyStage (stall-recovery,
     // VERIFY_FAIL resume, dispatcher re-entry) resets retryAttempt to 0 and
@@ -6418,6 +6419,78 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             batch_id,
           });
           break;
+        }
+
+        if (!postFailureFreshnessChecked) {
+          postFailureFreshnessChecked = true;
+          const postFailureFreshness = await branchFreshness.checkBranchFreshness({
+            worktreePath: worktreeRecord.worktreePath,
+            branch: worktreeRecord.branch,
+            baseRef,
+            threshold: staleBranchCommitThreshold,
+          });
+
+          if (postFailureFreshness.stale) {
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.VERIFY,
+              action: 'branch_stale_detected_post_verify',
+              reasoning: `Branch ${worktreeRecord.branch} became stale versus ${baseRef} during VERIFY; attempting automatic rebase before classifying the failure.`,
+              outcome: {
+                commits_behind: postFailureFreshness.commitsBehind,
+                stale_files: postFailureFreshness.staleFiles,
+                threshold: staleBranchCommitThreshold,
+              },
+              confidence: 1,
+              batch_id,
+            });
+
+            const postFailureRebase = await branchFreshness.attemptRebase(
+              worktreeRecord.worktreePath,
+              worktreeRecord.branch,
+              baseRef,
+            );
+            if (postFailureRebase.ok) {
+              safeLogDecision({
+                project_id,
+                stage: LOOP_STATES.VERIFY,
+                action: 'branch_auto_rebased_post_verify',
+                reasoning: `Automatically rebased ${worktreeRecord.branch} onto ${baseRef} after VERIFY drift; re-running verify before classifier triage.`,
+                outcome: {
+                  branch: worktreeRecord.branch,
+                  baseRef,
+                },
+                confidence: 1,
+                batch_id,
+              });
+              review = null;
+              continue;
+            }
+
+            if (workItemForRetry && workItemForRetry.id) {
+              factoryIntake.rejectWorkItemUnactionable(workItemForRetry.id, branchStaleRejectReason);
+            }
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.VERIFY,
+              action: 'branch_stale_rebase_conflict_post_verify',
+              reasoning: `Automatic rebase of ${worktreeRecord.branch} onto ${baseRef} failed after VERIFY drift; pausing VERIFY.`,
+              outcome: {
+                commits_behind: postFailureFreshness.commitsBehind,
+                stale_files: postFailureFreshness.staleFiles,
+                error: postFailureRebase.error,
+              },
+              confidence: 1,
+              batch_id,
+            });
+            return {
+              status: 'failed',
+              reason: branchStaleRejectReason,
+              pause_at_stage: 'VERIFY',
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+            };
+          }
         }
 
         // Verify-review classifier: on the FIRST failure only, classify the

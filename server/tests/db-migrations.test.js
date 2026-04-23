@@ -811,6 +811,20 @@ describe('db/migrations', () => {
       expect(getAppliedVersions(db)).toContain(33);
     });
 
+    it('creates specialist_chat_history when applying migration v34 to a minimal schema', () => {
+      createBaseSchema(db);
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 34));
+
+      expect(() => subject.runMigrations(db)).not.toThrow();
+      expect(tableExists(db, 'specialist_chat_history')).toBe(true);
+      expect(getColumnNames(db, 'specialist_chat_history')).toEqual(
+        expect.arrayContaining(['user_id', 'session_id', 'agent_id', 'role', 'content', 'created_at']),
+      );
+      expect(indexExists(db, 'idx_spec_history_session')).toBe(true);
+      expect(indexExists(db, 'idx_spec_history_agent')).toBe(true);
+      expect(getAppliedVersions(db)).toContain(34);
+    });
+
     it('falls back to split statement execution for multi-statement rollback SQL', () => {
       seedAppliedVersions(db, subject.MIGRATIONS);
       addTemporaryMigration({
