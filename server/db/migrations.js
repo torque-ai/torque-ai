@@ -757,6 +757,16 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS action_state_snapshots',
     ].join('; '),
   },
+  {
+    version: 33,
+    name: 'add_specialist_chat_history',
+    up: readSqlMigration('033-specialist-chat-history.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_spec_history_agent',
+      'DROP INDEX IF EXISTS idx_spec_history_session',
+      'DROP TABLE IF EXISTS specialist_chat_history',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
