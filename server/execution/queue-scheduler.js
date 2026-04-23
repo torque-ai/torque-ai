@@ -49,6 +49,7 @@ let _providerLimitCacheTs = 0;
 const PROVIDER_LIMIT_CACHE_TTL_MS = 10000;
 const QUEUE_CHANGED_EVENT = 'torque:queue-changed';
 const QUEUE_CHANGED_LISTENER_TAG = Symbol.for('torque.queueChangedListener');
+const EXIT_CLEANUP_LISTENER_TAG = Symbol.for('torque.queueSchedulerExitCleanup');
 const FREE_PROVIDERS = Object.freeze([
   'groq',
   'cerebras',
@@ -66,6 +67,7 @@ const COST_FREE_PROVIDERS = Object.freeze([
   ...FREE_PROVIDERS,
   'ollama',
 ]);
+const FILE_LOCK_WAIT_METADATA_KEY = 'file_lock_wait';
 
 function removeStaleQueueChangedListeners() {
   for (const listener of process.listeners(QUEUE_CHANGED_EVENT)) {
@@ -181,13 +183,22 @@ function stop() {
 let _exitCleanupRegistered = false;
 function ensureExitCleanup() {
   if (_exitCleanupRegistered) return;
+  for (const listener of process.listeners('exit')) {
+    if (listener && listener[EXIT_CLEANUP_LISTENER_TAG]) {
+      _exitCleanupRegistered = true;
+      return;
+    }
+  }
+
   _exitCleanupRegistered = true;
-  process.once('exit', () => {
+  const listener = () => {
     if (_queueChangedListener) {
       process.removeListener(QUEUE_CHANGED_EVENT, _queueChangedListener);
       _queueChangedListener = null;
     }
-  });
+  };
+  listener[EXIT_CLEANUP_LISTENER_TAG] = true;
+  process.once('exit', listener);
 }
 
 /**
@@ -209,6 +220,22 @@ function resolveEffectiveProvider(task) {
     }
   } catch { /* invalid metadata */ }
   return '';
+}
+
+function getFileLockWaitUntilMs(task) {
+  const metadata = normalizeMetadata(task?.metadata);
+  const wait = metadata[FILE_LOCK_WAIT_METADATA_KEY];
+  if (!wait || typeof wait !== 'object' || Array.isArray(wait)) {
+    return null;
+  }
+
+  const retryAfterMs = Date.parse(wait.retry_after);
+  return Number.isFinite(retryAfterMs) ? retryAfterMs : null;
+}
+
+function shouldSkipTaskForFileLockWait(task, nowMs = Date.now()) {
+  const retryAfterMs = getFileLockWaitUntilMs(task);
+  return Number.isFinite(retryAfterMs) && retryAfterMs > nowMs;
 }
 
 function categorizeQueuedTasks(queuedTasks, codexEnabled) {
@@ -753,7 +780,10 @@ function processQueueInternal(options = {}) {
 
   // Queue-age telemetry: compute max and average queue wait times
   const now = Date.now();
-  const queueAges = queuedTasks
+  const runnableQueuedTasks = queuedTasks.filter(task => !shouldSkipTaskForFileLockWait(task, now));
+  if (runnableQueuedTasks.length === 0) return;
+
+  const queueAges = runnableQueuedTasks
     .filter(t => t.created_at)
     .map(t => (now - new Date(t.created_at).getTime()) / 1000);
   if (queueAges.length > 0) {
@@ -769,7 +799,7 @@ function processQueueInternal(options = {}) {
   const codexEnabled = serverConfig.isOptIn('codex_enabled');
 
   // Separate tasks by provider type
-  const { ollamaTasks, codexTasks, apiTasks, invalidTasks } = categorizeQueuedTasks(queuedTasks, codexEnabled);
+  const { ollamaTasks, codexTasks, apiTasks, invalidTasks } = categorizeQueuedTasks(runnableQueuedTasks, codexEnabled);
 
   for (const task of invalidTasks) {
     const providerLabel = typeof task?.provider === 'string' && task.provider.trim()
@@ -971,10 +1001,10 @@ function processQueueInternal(options = {}) {
       return;
     }
 
-    const queueHeadIndex = queuedTasks.findIndex((task) => task.id === queueHead.id);
+    const queueHeadIndex = runnableQueuedTasks.findIndex((task) => task.id === queueHead.id);
     const fallbackTasks = queueHeadIndex >= 0
-      ? queuedTasks.slice(queueHeadIndex)
-      : [queueHead];
+      ? runnableQueuedTasks.slice(queueHeadIndex)
+      : runnableQueuedTasks;
 
     for (const nextTask of fallbackTasks) {
       // Check provider-specific limits before blindly starting
@@ -1109,6 +1139,7 @@ function createQueueScheduler(_deps) {
     resolveEffectiveProvider,
     categorizeQueuedTasks,
     shouldSkipTaskForApproval,
+    shouldSkipTaskForFileLockWait,
     processQueueInternal,
     resolveCodexPendingTasks,
     _getLastAutoScaleActivation: () => _lastAutoScaleActivation,
@@ -1126,6 +1157,7 @@ module.exports = {
   resolveEffectiveProvider,
   categorizeQueuedTasks,
   shouldSkipTaskForApproval,
+  shouldSkipTaskForFileLockWait,
   processQueueInternal,
   resolveCodexPendingTasks,
   // Exposed for testing auto-scale cooldown

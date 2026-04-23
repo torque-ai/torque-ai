@@ -476,6 +476,101 @@ describe('task-startup', () => {
     }));
   });
 
+  it('backs off sandboxed file-lock conflicts without immediately spinning the queue', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-23T00:00:00.000Z'));
+
+    const task = createTask({
+      id: 'file-lock-conflict',
+      task_description: 'Edit server/api.js',
+      provider: 'codex',
+    });
+    const ctx = loadTaskStartup({ task });
+    ctx.deps.resolveFileReferences.mockReturnValue({
+      resolved: [{ actual: 'server/api.js' }],
+    });
+    ctx.deps.db.acquireFileLock.mockReturnValue({
+      acquired: false,
+      lockedBy: 'holder-task',
+    });
+
+    const result = await ctx.module.startTask(task.id);
+
+    expect(result).toEqual(expect.objectContaining({
+      queued: true,
+      fileLockConflict: true,
+      conflictFile: 'server/api.js',
+      conflictTask: 'holder-task',
+      retryAfter: '2026-04-23T00:00:02.500Z',
+    }));
+    expect(ctx.deps.db.requeueTaskAfterAttemptedStart).toHaveBeenCalledWith(
+      task.id,
+      expect.objectContaining({
+        error_output: expect.stringContaining("Requeued: file 'server/api.js' is being edited by task holder-task."),
+        metadata: expect.objectContaining({
+          file_lock_wait: expect.objectContaining({
+            file: 'server/api.js',
+            locked_by: 'holder-task',
+            retry_after: '2026-04-23T00:00:02.500Z',
+            delay_ms: ctx.module.FILE_LOCK_REQUEUE_DELAY_MS,
+            conflict_count: 1,
+            signature: 'server/api.js::holder-task',
+          }),
+        }),
+      }),
+    );
+    expect(ctx.deps.processQueue).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(ctx.module.FILE_LOCK_REQUEUE_DELAY_MS - 1);
+    expect(ctx.deps.processQueue).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(ctx.deps.processQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not append duplicate output for the same file-lock conflict', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-23T00:00:10.000Z'));
+
+    const existingOutput = "Requeued: file 'server/api.js' is being edited by task holder-task. Waiting 2500ms before retry.";
+    const task = createTask({
+      id: 'file-lock-repeat',
+      task_description: 'Edit server/api.js',
+      provider: 'codex',
+      error_output: existingOutput,
+      metadata: {
+        file_lock_wait: {
+          file: 'server/api.js',
+          locked_by: 'holder-task',
+          retry_after: '2026-04-23T00:00:01.000Z',
+          delay_ms: 2500,
+          conflict_count: 1,
+          signature: 'server/api.js::holder-task',
+        },
+      },
+    });
+    const ctx = loadTaskStartup({ task });
+    ctx.deps.resolveFileReferences.mockReturnValue({
+      resolved: [{ actual: 'server/api.js' }],
+    });
+    ctx.deps.db.acquireFileLock.mockReturnValue({
+      acquired: false,
+      lockedBy: 'holder-task',
+    });
+
+    await ctx.module.startTask(task.id);
+
+    const patch = ctx.deps.db.requeueTaskAfterAttemptedStart.mock.calls[0][1];
+    expect(patch.error_output).toBe(existingOutput);
+    expect(patch.metadata.file_lock_wait).toEqual(expect.objectContaining({
+      file: 'server/api.js',
+      locked_by: 'holder-task',
+      retry_after: '2026-04-23T00:00:12.500Z',
+      conflict_count: 2,
+      signature: 'server/api.js::holder-task',
+    }));
+  });
+
   it('runPreflightChecks validates description and working_directory', async () => {
     const ctx = loadTaskStartup();
 

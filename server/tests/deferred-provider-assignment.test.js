@@ -85,6 +85,7 @@ describe('Deferred Provider Assignment', () => {
   });
 
   afterEach(() => {
+    scheduler.stop();
     vi.restoreAllMocks();
   });
 
@@ -275,6 +276,67 @@ describe('Deferred Provider Assignment', () => {
       scheduler.processQueueInternal({ skipRecentProcessGuard: true });
 
       expect(mocks.safeStartTask).toHaveBeenCalledWith('ollama-deferred-1', expect.anything());
+    });
+
+    it('skips a task deferred by file-lock backoff and starts the next runnable task', () => {
+      const now = new Date('2026-04-23T00:00:00.000Z').getTime();
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      mockDb.getRunningCount.mockReturnValue(0);
+      mockDb.listTasks.mockReturnValue([]);
+      mockDb.listQueuedTasksLightweight = vi.fn().mockReturnValue([
+        {
+          id: 'codex-lock-wait',
+          provider: 'codex',
+          model: null,
+          task_description: 'Waiting on a locked file',
+          metadata: JSON.stringify({
+            file_lock_wait: {
+              file: 'server/api.js',
+              locked_by: 'holder-task',
+              retry_after: '2026-04-23T00:00:02.500Z',
+            },
+          }),
+          created_at: '2026-04-23T00:00:00.000Z',
+        },
+        {
+          id: 'codex-runnable',
+          provider: 'codex',
+          model: null,
+          task_description: 'Can run while the first task waits',
+          metadata: null,
+          created_at: '2026-04-23T00:00:01.000Z',
+        },
+      ]);
+
+      scheduler.processQueueInternal({ skipRecentProcessGuard: true });
+
+      expect(mocks.safeStartTask).toHaveBeenCalledTimes(1);
+      expect(mocks.safeStartTask).toHaveBeenCalledWith('codex-runnable', expect.anything());
+    });
+
+    it('starts a file-lock deferred task once its retry timestamp has passed', () => {
+      const now = new Date('2026-04-23T00:00:03.000Z').getTime();
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      mockDb.getRunningCount.mockReturnValue(0);
+      mockDb.listTasks.mockReturnValue([]);
+      mockDb.listQueuedTasksLightweight = vi.fn().mockReturnValue([{
+        id: 'codex-lock-ready',
+        provider: 'codex',
+        model: null,
+        task_description: 'Retry locked file now',
+        metadata: JSON.stringify({
+          file_lock_wait: {
+            file: 'server/api.js',
+            locked_by: 'holder-task',
+            retry_after: '2026-04-23T00:00:02.500Z',
+          },
+        }),
+        created_at: '2026-04-23T00:00:00.000Z',
+      }]);
+
+      scheduler.processQueueInternal({ skipRecentProcessGuard: true });
+
+      expect(mocks.safeStartTask).toHaveBeenCalledWith('codex-lock-ready', expect.anything());
     });
   });
 });

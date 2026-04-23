@@ -58,6 +58,83 @@ const RETRY_CLEANUP_INTERVAL_MS = 30000;
 
 // Maximum output buffer size (10MB) to prevent memory exhaustion
 const MAX_OUTPUT_BUFFER = 10 * 1024 * 1024;
+const FILE_LOCK_REQUEUE_DELAY_MS = 2500;
+const FILE_LOCK_WAIT_METADATA_KEY = 'file_lock_wait';
+
+function getTaskMetadataObject(task) {
+  try {
+    if (typeof parseTaskMetadata === 'function') {
+      const parsed = parseTaskMetadata(task?.metadata);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    }
+  } catch { /* fall through */ }
+  return {};
+}
+
+function appendLine(base, line) {
+  const current = typeof base === 'string' ? base : '';
+  if (!current) return line;
+  return current.endsWith('\n') ? current + line : current + '\n' + line;
+}
+
+function buildFileLockRequeuePatch(task, filePath, lockedBy) {
+  const nowMs = Date.now();
+  const lockedByLabel = typeof lockedBy === 'string' && lockedBy.trim()
+    ? lockedBy.trim()
+    : 'unknown';
+  const metadata = getTaskMetadataObject(task);
+  const previousWait = metadata[FILE_LOCK_WAIT_METADATA_KEY]
+    && typeof metadata[FILE_LOCK_WAIT_METADATA_KEY] === 'object'
+    ? metadata[FILE_LOCK_WAIT_METADATA_KEY]
+    : {};
+  const previousCount = Number.parseInt(previousWait.conflict_count, 10);
+  const conflictCount = Number.isFinite(previousCount) && previousCount > 0
+    ? previousCount + 1
+    : 1;
+  const signature = `${filePath}::${lockedByLabel}`;
+  const previousSignature = typeof previousWait.signature === 'string'
+    ? previousWait.signature
+    : '';
+  const messagePrefix = `Requeued: file '${filePath}' is being edited by task ${lockedByLabel}.`;
+  let errorOutput = typeof task?.error_output === 'string' ? task.error_output : '';
+
+  if (previousSignature !== signature && !errorOutput.includes(messagePrefix)) {
+    errorOutput = appendLine(
+      errorOutput,
+      `${messagePrefix} Waiting ${FILE_LOCK_REQUEUE_DELAY_MS}ms before retry.`,
+    );
+  }
+
+  return {
+    error_output: errorOutput,
+    metadata: {
+      ...metadata,
+      [FILE_LOCK_WAIT_METADATA_KEY]: {
+        file: filePath,
+        locked_by: lockedByLabel,
+        retry_after: new Date(nowMs + FILE_LOCK_REQUEUE_DELAY_MS).toISOString(),
+        delay_ms: FILE_LOCK_REQUEUE_DELAY_MS,
+        conflict_count: conflictCount,
+        last_conflict_at: new Date(nowMs).toISOString(),
+        signature,
+      },
+    },
+  };
+}
+
+function scheduleFileLockRetryQueue() {
+  if (typeof processQueue !== 'function') return;
+  const timer = setTimeout(() => {
+    try {
+      processQueue();
+    } catch (err) {
+      logger.info(`[FileLock] Failed to process delayed queue retry: ${err.message}`);
+    }
+  }, FILE_LOCK_REQUEUE_DELAY_MS);
+  if (timer && typeof timer.unref === 'function') {
+    timer.unref();
+  }
+}
 
 function resolveRunnableOllamaModel(task) {
   try {
@@ -833,17 +910,17 @@ function createTaskStartupResourceLifecycle({
           if (isSandboxed) {
             logger.info(`[FileLock] Task ${taskId.slice(0,8)} (${currentProvider}): file '${filePath}' locked by task ${lockResult.lockedBy?.slice(0,8) || 'unknown'} - requeuing to prevent sandbox conflict`);
             releaseAcquiredFileLocks();
-            db.requeueTaskAfterAttemptedStart(taskId, {
-              error_output: (task.error_output || '') + `\nRequeued: file '${filePath}' is being edited by task ${lockResult.lockedBy || 'unknown'}. Will retry when the lock is released.`,
-            });
+            const requeuePatch = buildFileLockRequeuePatch(task, filePath, lockResult.lockedBy);
+            db.requeueTaskAfterAttemptedStart(taskId, requeuePatch);
             dashboard.notifyTaskUpdated(taskId);
-            processQueue();
+            scheduleFileLockRetryQueue();
             return {
               earlyResult: {
                 queued: true,
                 fileLockConflict: true,
                 conflictFile: filePath,
                 conflictTask: lockResult.lockedBy,
+                retryAfter: requeuePatch.metadata[FILE_LOCK_WAIT_METADATA_KEY].retry_after,
               },
             };
           }
@@ -1752,6 +1829,7 @@ module.exports = {
   // Constants
   NVM_NODE_PATH,
   MAX_OUTPUT_BUFFER,
+  FILE_LOCK_REQUEUE_DELAY_MS,
   // Test-mode flag accessors
   setSkipGitInCloseHandler,
   getSkipGitInCloseHandler,
