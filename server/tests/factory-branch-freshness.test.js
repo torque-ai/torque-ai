@@ -233,6 +233,31 @@ describe('branch-freshness git helpers', () => {
     expect(git(repo, ['rev-list', '--count', 'master..feature-clean']).stdout.trim()).toBe('1');
   });
 
+  it('cleans plan-progress churn before stale-branch rebase', async () => {
+    const repo = initRepo();
+
+    commitFile(repo, 'docs/superpowers/plans/factory-plan.md', '- [ ] Step 1\n', 'seed plan');
+    git(repo, ['checkout', '-b', 'feature-plan-churn']);
+    commitFile(repo, 'src/feature.js', 'feature\n', 'feature work');
+    git(repo, ['checkout', 'master']);
+    commitFile(repo, 'src/master.js', 'master\n', 'master file');
+    git(repo, ['checkout', 'feature-plan-churn']);
+    writeFile(repo, 'docs/superpowers/plans/factory-plan.md', '- [x] Step 1\n');
+    writeFile(repo, 'runs/factory/transient.txt', 'transient\n');
+
+    const result = await branchFreshness.attemptRebase(repo, 'feature-plan-churn', 'master');
+
+    expect(result).toEqual({
+      ok: true,
+      restoredNonProductPaths: ['docs/superpowers/plans/factory-plan.md'],
+      removedNonProductPaths: ['runs/'],
+    });
+    expect(git(repo, ['status', '--porcelain']).stdout).toBe('');
+    expect(fs.readFileSync(path.join(repo, 'docs', 'superpowers', 'plans', 'factory-plan.md'), 'utf8')).toBe('- [ ] Step 1\n');
+    expect(fs.existsSync(path.join(repo, 'runs', 'factory', 'transient.txt'))).toBe(false);
+    expect(fs.readFileSync(path.join(repo, 'src', 'master.js'), 'utf8')).toBe('master\n');
+  });
+
   it('aborts and reports an error when rebase conflicts', async () => {
     const repo = initRepo();
 
