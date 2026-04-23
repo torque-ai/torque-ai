@@ -40,9 +40,9 @@ const configCache = new Map();
 const CONFIG_CACHE_TTL = 30000;
 
 const REJECT_RECOVERY_CONFIG_DEFAULTS = Object.freeze({
-  reject_recovery_enabled: '0',
-  reject_recovery_sweep_interval_ms: String(60 * 60 * 1000),
-  reject_recovery_age_threshold_ms: String(24 * 60 * 60 * 1000),
+  reject_recovery_enabled: '1',
+  reject_recovery_sweep_interval_ms: String(15 * 60 * 1000),
+  reject_recovery_age_threshold_ms: String(60 * 60 * 1000),
   reject_recovery_max_reopens: '1',
 });
 

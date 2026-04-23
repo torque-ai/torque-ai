@@ -41,9 +41,9 @@ const EXPECTED_CONFIG_DEFAULTS = {
   rate_limiting_enabled: '1',
   file_locking_enabled: '1',
   quota_auto_scale_enabled: 'false',
-  reject_recovery_enabled: '0',
-  reject_recovery_sweep_interval_ms: String(60 * 60 * 1000),
-  reject_recovery_age_threshold_ms: String(24 * 60 * 60 * 1000),
+  reject_recovery_enabled: '1',
+  reject_recovery_sweep_interval_ms: String(15 * 60 * 1000),
+  reject_recovery_age_threshold_ms: String(60 * 60 * 1000),
   reject_recovery_max_reopens: '1',
   scheduling_mode: 'legacy',
 };

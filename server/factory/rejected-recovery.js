@@ -20,6 +20,7 @@ const DEFAULT_RECOVERY_CONFIG = Object.freeze({
   ageThresholdMs: Number.parseInt(REJECT_RECOVERY_CONFIG_DEFAULTS.reject_recovery_age_threshold_ms, 10),
   maxReopens: Number.parseInt(REJECT_RECOVERY_CONFIG_DEFAULTS.reject_recovery_max_reopens, 10),
 });
+const RECOVERABLE_TERMINAL_STATUSES = Object.freeze(['rejected', 'unactionable']);
 
 const AUTO_REJECT_REASON_PATTERNS = Object.freeze([
   /^auto_/i,
@@ -39,6 +40,11 @@ const AUTO_REJECT_REASON_PATTERNS = Object.freeze([
   /^worktree_and_branch_lost_during_verify$/i,
   /^dep_cascade_exhausted:/i,
   /^dep_resolver_unresolvable:/i,
+]);
+const AUTO_UNACTIONABLE_REASON_PATTERNS = Object.freeze([
+  /^zero_diff_across_retries$/i,
+  /^branch_stale_vs_base$/i,
+  /^branch_stale_vs_master$/i,
 ]);
 
 let lastSweepAtMs = null;
@@ -88,7 +94,7 @@ function parseJsonObject(value) {
   }
 }
 
-function isAutoRejectedReason(reason) {
+function matchesRecoverableReason(patterns, reason) {
   const text = String(reason || '').trim();
   if (!text) {
     return false;
@@ -98,10 +104,24 @@ function isAutoRejectedReason(reason) {
   if (parsed) {
     return parsed.auto_rejected === true
       || parsed.action === 'auto_rejected'
-      || AUTO_REJECT_REASON_PATTERNS.some((pattern) => pattern.test(String(parsed.reason || '')));
+      || patterns.some((pattern) => pattern.test(String(parsed.reason || '')));
   }
 
-  return AUTO_REJECT_REASON_PATTERNS.some((pattern) => pattern.test(text));
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function isAutoRecoverableTerminalReason(status, reason) {
+  if (status === 'rejected') {
+    return matchesRecoverableReason(AUTO_REJECT_REASON_PATTERNS, reason);
+  }
+  if (status === 'unactionable') {
+    return matchesRecoverableReason(AUTO_UNACTIONABLE_REASON_PATTERNS, reason);
+  }
+  return false;
+}
+
+function isAutoRejectedReason(reason) {
+  return isAutoRecoverableTerminalReason('rejected', reason);
 }
 
 function getRecoveryBatchId(workItemId) {
@@ -135,15 +155,15 @@ function listRecoverableRejectedWorkItems(db, {
       p.trust_level AS project_trust_level
     FROM factory_work_items wi
     JOIN factory_projects p ON p.id = wi.project_id
-    WHERE wi.status = 'rejected'
+    WHERE wi.status IN (${RECOVERABLE_TERMINAL_STATUSES.map(() => '?').join(', ')})
       AND p.status = 'running'
       AND p.trust_level = 'dark'
     ORDER BY wi.updated_at ASC, wi.id ASC
     LIMIT ?
-  `).all(limit);
+  `).all(...RECOVERABLE_TERMINAL_STATUSES, limit);
 
   return rows.filter((row) => {
-    if (!isAutoRejectedReason(row.reject_reason)) {
+    if (!isAutoRecoverableTerminalReason(row.status, row.reject_reason)) {
       return false;
     }
 
@@ -170,7 +190,6 @@ function recoverRejectedWorkItems({
   factoryDecisions.setDb(db);
 
   const actions = [];
-  let reopenedCount = 0;
   const items = listRecoverableRejectedWorkItems(db, {
     ageThresholdMs: recoveryConfig.ageThresholdMs,
     nowMs,
@@ -188,10 +207,6 @@ function recoverRejectedWorkItems({
       continue;
     }
 
-    if (reopenedCount >= recoveryConfig.maxReopens) {
-      break;
-    }
-
     const nextReopens = priorReopens + 1;
     try {
       const reopened = factoryIntake.updateWorkItem(item.id, {
@@ -201,10 +216,11 @@ function recoverRejectedWorkItems({
         batch_id: null,
       });
 
-      logger.warn('Auto-reopening rejected factory work item', {
+      logger.warn('Auto-reopening terminal factory work item', {
         event: RECOVERY_DECISION_ACTION,
         project_id: item.project_id,
         work_item_id: item.id,
+        previous_status: item.status,
         reopens: nextReopens,
         previous_reject_reason: item.reject_reason || null,
       });
@@ -214,7 +230,7 @@ function recoverRejectedWorkItems({
         stage: RECOVERY_DECISION_STAGE,
         actor: RECOVERY_DECISION_ACTOR,
         action: RECOVERY_DECISION_ACTION,
-        reasoning: `Rejected work item ${item.id} exceeded age threshold and matched auto-reject recovery criteria; reopening (${nextReopens}/${recoveryConfig.maxReopens}).`,
+        reasoning: `Terminal work item ${item.id} exceeded age threshold and matched auto-recovery criteria; reopening (${nextReopens}/${recoveryConfig.maxReopens}).`,
         inputs: {
           work_item_id: item.id,
           previous_status: item.status,
@@ -236,9 +252,8 @@ function recoverRejectedWorkItems({
         action: 'reopened',
         reopens: nextReopens,
       });
-      reopenedCount++;
     } catch (err) {
-      logger.error('Auto-reopen for rejected factory work item failed', {
+      logger.error('Auto-reopen for terminal factory work item failed', {
         event: 'factory_rejected_item_auto_reopen_failed',
         project_id: item.project_id,
         work_item_id: item.id,

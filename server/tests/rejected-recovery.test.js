@@ -31,7 +31,8 @@ function createRunningDarkProject() {
   return createDarkProject({ status: 'running' });
 }
 
-function createRejectedWorkItem(projectId, {
+function createTerminalWorkItem(projectId, {
+  status = 'rejected',
   rejectReason = 'verify_failed_after_3_retries',
   updatedAt = new Date(Date.now() - (2 * 60 * 60 * 1000)).toISOString(),
 } = {}) {
@@ -40,7 +41,7 @@ function createRejectedWorkItem(projectId, {
     source: 'manual',
     title: `Rejected item ${Math.random().toString(16).slice(2)}`,
     description: 'Exercise rejected recovery gating.',
-    status: 'rejected',
+    status,
   });
 
   db.prepare(`
@@ -53,6 +54,18 @@ function createRejectedWorkItem(projectId, {
   return factoryIntake.getWorkItem(item.id);
 }
 
+function createRejectedWorkItem(projectId, options = {}) {
+  return createTerminalWorkItem(projectId, { status: 'rejected', ...options });
+}
+
+function createUnactionableWorkItem(projectId, options = {}) {
+  return createTerminalWorkItem(projectId, {
+    status: 'unactionable',
+    rejectReason: 'zero_diff_across_retries',
+    ...options,
+  });
+}
+
 function enableRejectRecovery({
   sweepIntervalMs = 60 * 1000,
   ageThresholdMs = 60 * 1000,
@@ -62,6 +75,24 @@ function enableRejectRecovery({
   configCore.setConfig('reject_recovery_sweep_interval_ms', String(sweepIntervalMs));
   configCore.setConfig('reject_recovery_age_threshold_ms', String(ageThresholdMs));
   configCore.setConfig('reject_recovery_max_reopens', String(maxReopens));
+}
+
+function disableRejectRecovery() {
+  configCore.setConfig('reject_recovery_enabled', '0');
+}
+
+function recordPriorReopen(workItemId) {
+  const item = factoryIntake.getWorkItem(workItemId);
+  db.prepare(`
+    INSERT INTO factory_decisions (
+      project_id, stage, actor, action, reasoning, inputs_json, outcome_json, confidence, batch_id, created_at
+    )
+    VALUES (?, 'learn', 'verifier', ?, 'prior reopen', '{}', '{}', 1, ?, datetime('now'))
+  `).run(
+    item.project_id,
+    RECOVERY_DECISION_ACTION,
+    `reject-recovery:${workItemId}`,
+  );
 }
 
 beforeEach(() => {
@@ -85,6 +116,7 @@ describe('rejected work item recovery sweep', () => {
   it('manual factory tick leaves rejected items closed when reject recovery is disabled', async () => {
     const project = createRunningDarkProject();
     const item = createRejectedWorkItem(project.id);
+    disableRejectRecovery();
 
     await factoryTick.tickProject(project);
 
@@ -100,31 +132,50 @@ describe('rejected work item recovery sweep', () => {
     `).get(RECOVERY_DECISION_ACTION).count).toBe(0);
   });
 
-  it('factory tick reopens eligible rejected items only when reject recovery is enabled', async () => {
+  it('factory tick reopens eligible terminal items only when reject recovery is enabled', async () => {
     const project = createRunningDarkProject();
-    const item = createRejectedWorkItem(project.id);
+    const rejected = createRejectedWorkItem(project.id);
+    const unactionable = createUnactionableWorkItem(project.id);
     enableRejectRecovery();
 
     await factoryTick.tickProject(project);
 
-    expect(factoryIntake.getWorkItem(item.id)).toMatchObject({
-      id: item.id,
+    expect(factoryIntake.getWorkItem(rejected.id)).toMatchObject({
+      id: rejected.id,
       status: 'pending',
       reject_reason: null,
       claimed_by_instance_id: null,
       batch_id: null,
     });
-    const decision = db.prepare(`
+    expect(factoryIntake.getWorkItem(unactionable.id)).toMatchObject({
+      id: unactionable.id,
+      status: 'pending',
+      reject_reason: null,
+      claimed_by_instance_id: null,
+      batch_id: null,
+    });
+    const decisions = db.prepare(`
       SELECT action, batch_id, outcome_json
       FROM factory_decisions
       WHERE action = ?
-    `).get(RECOVERY_DECISION_ACTION);
-    expect(decision).toMatchObject({
+      ORDER BY batch_id
+    `).all(RECOVERY_DECISION_ACTION);
+    expect(decisions).toHaveLength(2);
+    expect(decisions[0]).toMatchObject({
       action: RECOVERY_DECISION_ACTION,
-      batch_id: `reject-recovery:${item.id}`,
+      batch_id: `reject-recovery:${rejected.id}`,
     });
-    expect(JSON.parse(decision.outcome_json)).toMatchObject({
-      work_item_id: item.id,
+    expect(JSON.parse(decisions[0].outcome_json)).toMatchObject({
+      work_item_id: rejected.id,
+      status: 'pending',
+      reopens: 1,
+    });
+    expect(decisions[1]).toMatchObject({
+      action: RECOVERY_DECISION_ACTION,
+      batch_id: `reject-recovery:${unactionable.id}`,
+    });
+    expect(JSON.parse(decisions[1].outcome_json)).toMatchObject({
+      work_item_id: unactionable.id,
       status: 'pending',
       reopens: 1,
     });
@@ -163,7 +214,7 @@ describe('rejected work item recovery sweep', () => {
     `).get(RECOVERY_DECISION_ACTION).count).toBe(2);
   });
 
-  it('factory tick skips inactive projects and caps reopened items per sweep', async () => {
+  it('factory tick skips inactive projects and enforces reopen caps per item', async () => {
     const runningProject = createRunningDarkProject();
     const inactiveProject = createDarkProject({ status: 'idle' });
     const reopened = [
@@ -172,7 +223,8 @@ describe('rejected work item recovery sweep', () => {
     ];
     const capped = createRejectedWorkItem(runningProject.id);
     const inactive = createRejectedWorkItem(inactiveProject.id);
-    enableRejectRecovery({ maxReopens: 2 });
+    recordPriorReopen(capped.id);
+    enableRejectRecovery({ maxReopens: 1 });
 
     await factoryTick.tickProject(runningProject);
 
@@ -194,6 +246,6 @@ describe('rejected work item recovery sweep', () => {
       SELECT COUNT(*) AS count
       FROM factory_decisions
       WHERE action = ?
-    `).get(RECOVERY_DECISION_ACTION).count).toBe(2);
+    `).get(RECOVERY_DECISION_ACTION).count).toBe(3);
   });
 });
