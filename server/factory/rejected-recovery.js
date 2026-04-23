@@ -16,6 +16,7 @@ const RECOVERY_DECISION_ACTOR = 'verifier';
 const RECOVERY_BATCH_PREFIX = 'reject-recovery';
 const DEFAULT_SWEEP_PAGE_LIMIT = 100;
 const DEFAULT_SWEEP_SCAN_LIMIT = DEFAULT_SWEEP_PAGE_LIMIT * 10;
+const MAX_REOPENS_PER_PROJECT_PER_SWEEP = 1;
 const RECOVERY_SORT_EPOCH_SQL = `COALESCE(unixepoch(COALESCE(wi.updated_at, wi.created_at)), 0)`;
 const DEFAULT_RECOVERY_CONFIG = Object.freeze({
   sweepIntervalMs: Number.parseInt(REJECT_RECOVERY_CONFIG_DEFAULTS.reject_recovery_sweep_interval_ms, 10),
@@ -128,6 +129,11 @@ function isAutoRejectedReason(reason) {
 
 function getRecoveryBatchId(workItemId) {
   return `${RECOVERY_BATCH_PREFIX}:${workItemId}`;
+}
+
+function getOpenWorkItemCountForProject(projectId) {
+  const items = factoryIntake.listOpenWorkItems({ project_id: projectId, limit: 2 });
+  return Array.isArray(items) ? items.length : 0;
 }
 
 function countPriorReopens(db, workItemId) {
@@ -264,8 +270,36 @@ function recoverRejectedWorkItems({
     ageThresholdMs: recoveryConfig.ageThresholdMs,
     nowMs,
   });
+  const openWorkItemCountByProject = new Map();
+  const reopenedThisSweepByProject = new Map();
 
   for (const item of items) {
+    const openWorkItemCount = openWorkItemCountByProject.has(item.project_id)
+      ? openWorkItemCountByProject.get(item.project_id)
+      : getOpenWorkItemCountForProject(item.project_id);
+    openWorkItemCountByProject.set(item.project_id, openWorkItemCount);
+
+    if (openWorkItemCount > 0) {
+      actions.push({
+        project_id: item.project_id,
+        work_item_id: item.id,
+        action: 'skipped_project_backpressure',
+        open_work_items: openWorkItemCount,
+      });
+      continue;
+    }
+
+    const reopenedThisSweep = reopenedThisSweepByProject.get(item.project_id) || 0;
+    if (reopenedThisSweep >= MAX_REOPENS_PER_PROJECT_PER_SWEEP) {
+      actions.push({
+        project_id: item.project_id,
+        work_item_id: item.id,
+        action: 'skipped_project_sweep_limit',
+        reopened_this_sweep: reopenedThisSweep,
+      });
+      continue;
+    }
+
     const priorReopens = countPriorReopens(db, item.id);
     if (priorReopens >= recoveryConfig.maxReopens) {
       actions.push({
@@ -316,6 +350,8 @@ function recoverRejectedWorkItems({
         batch_id: getRecoveryBatchId(item.id),
       });
 
+      reopenedThisSweepByProject.set(item.project_id, reopenedThisSweep + 1);
+      openWorkItemCountByProject.set(item.project_id, openWorkItemCount + 1);
       actions.push({
         project_id: item.project_id,
         work_item_id: item.id,

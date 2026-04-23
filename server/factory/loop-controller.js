@@ -5690,19 +5690,22 @@ async function maybeShipNoop({ project_id, batch_id, work_item_id }) {
     if (!isFactoryFeatureEnabled(project_id, 'auto_ship_noop_enabled')) {
       return { shipped_as_noop: false, reason: 'flag_off' };
     }
+    const paused_reason = 'already_in_place_review_required';
     safeLogDecision({
       project_id, batch_id, stage: LOOP_STATES.EXECUTE,
-      action: 'shipped_as_noop',
-      reasoning: 'Codex reported the change was already in place; skipping VERIFY per auto-route policy.',
+      action: 'paused_at_gate',
+      reasoning: 'Codex reported the change was already in place; pausing EXECUTE for operator review instead of skipping VERIFY.',
       outcome: {
         work_item_id,
+        paused_stage: 'EXECUTE',
+        paused_reason,
         classifier_source: latest.classifier_source,
         classifier_conf: conf,
         stdout_tail_preview: String(latest.stdout_tail || '').slice(0, 400),
       },
       confidence: 1,
     });
-    return { shipped_as_noop: true };
+    return { shipped_as_noop: false, paused: true, paused_reason };
   }
 
   if ((reason === 'blocked' || reason === 'precondition_missing') && conf >= 0.8) {

@@ -7,7 +7,7 @@ const factoryDecisions = require('../db/factory-decisions');
 const loopController = require('../factory/loop-controller');
 const { createMinimalSchema } = require('./helpers/factory-attempt-history-schema');
 
-describe('loop-controller — ship-noop auto-route', () => {
+describe('loop-controller — zero-diff execute gating', () => {
   let db;
 
   beforeEach(() => {
@@ -30,7 +30,7 @@ describe('loop-controller — ship-noop auto-route', () => {
     db.prepare('INSERT INTO factory_work_items (id, project_id, status) VALUES (?, ?, ?)').run(id, 'proj-1', 'prioritized');
   }
 
-  it('advances to LEARN with shipped_as_noop when reason=already_in_place, conf=1.0, flag=on', async () => {
+  it('pauses at EXECUTE for operator review when reason=already_in_place, conf=1.0, flag=on', async () => {
     insertProject({ flagOn: true });
     insertWorkItem(42);
     attemptHistory.appendRow({
@@ -41,9 +41,15 @@ describe('loop-controller — ship-noop auto-route', () => {
     const result = await loopController.__testing__.maybeShipNoop({
       project_id: 'proj-1', batch_id: 'batch-n1', work_item_id: '42',
     });
-    expect(result).toEqual(expect.objectContaining({ shipped_as_noop: true }));
-    const decision = db.prepare("SELECT action FROM factory_decisions WHERE batch_id='batch-n1' AND action='shipped_as_noop'").get();
+    expect(result).toEqual(expect.objectContaining({
+      shipped_as_noop: false,
+      paused: true,
+      paused_reason: 'already_in_place_review_required',
+    }));
+    const decision = db.prepare("SELECT * FROM factory_decisions WHERE batch_id='batch-n1' AND action='paused_at_gate'").get();
     expect(decision).toBeDefined();
+    const outcome = JSON.parse(decision.outcome_json);
+    expect(outcome.paused_reason).toBe('already_in_place_review_required');
   });
 
   it('does not ship-noop when flag is off', async () => {

@@ -66,6 +66,16 @@ function createUnactionableWorkItem(projectId, options = {}) {
   });
 }
 
+function createOpenWorkItem(projectId) {
+  return factoryIntake.createWorkItem({
+    project_id: projectId,
+    source: 'manual',
+    title: `Open item ${Math.random().toString(16).slice(2)}`,
+    description: 'Exercise reject-recovery backpressure.',
+    status: 'pending',
+  });
+}
+
 function enableRejectRecovery({
   sweepIntervalMs = 60 * 1000,
   ageThresholdMs = 60 * 1000,
@@ -137,12 +147,13 @@ describe('rejected work item recovery sweep', () => {
   });
 
   it('factory tick reopens eligible terminal items only when reject recovery is enabled', async () => {
-    const project = createRunningDarkProject();
-    const rejected = createRejectedWorkItem(project.id);
-    const unactionable = createUnactionableWorkItem(project.id);
+    const rejectedProject = createRunningDarkProject();
+    const unactionableProject = createRunningDarkProject();
+    const rejected = createRejectedWorkItem(rejectedProject.id);
+    const unactionable = createUnactionableWorkItem(unactionableProject.id);
     enableRejectRecovery();
 
-    await factoryTick.tickProject(project);
+    await factoryTick.tickProject(rejectedProject);
 
     expect(factoryIntake.getWorkItem(rejected.id)).toMatchObject({
       id: rejected.id,
@@ -185,6 +196,43 @@ describe('rejected work item recovery sweep', () => {
     });
   });
 
+  it('reopens at most one terminal item per project per sweep', async () => {
+    const project = createRunningDarkProject();
+    const first = createRejectedWorkItem(project.id, {
+      updatedAt: '2026-04-18T12:00:00.000Z',
+    });
+    const second = createUnactionableWorkItem(project.id, {
+      updatedAt: '2026-04-18T12:30:00.000Z',
+    });
+    enableRejectRecovery({ sweepIntervalMs: 5 * 60 * 1000, maxReopens: 2 });
+
+    await factoryTick.tickProject(project);
+
+    expect(factoryIntake.getWorkItem(first.id)).toMatchObject({
+      id: first.id,
+      status: 'pending',
+      reject_reason: null,
+    });
+    expect(factoryIntake.getWorkItem(second.id)).toMatchObject({
+      id: second.id,
+      status: 'unactionable',
+      reject_reason: 'zero_diff_across_retries',
+    });
+    expect(countRecoveryDecisions()).toBe(1);
+
+    vi.setSystemTime(new Date('2026-04-18T18:05:01.000Z'));
+    db.prepare(`UPDATE factory_work_items SET status = 'shipped', updated_at = datetime('now') WHERE id = ?`).run(first.id);
+
+    await factoryTick.tickProject(project);
+
+    expect(factoryIntake.getWorkItem(second.id)).toMatchObject({
+      id: second.id,
+      status: 'pending',
+      reject_reason: null,
+    });
+    expect(countRecoveryDecisions()).toBe(2);
+  });
+
   it('factory tick runs at most one rejected recovery sweep per configured interval', async () => {
     const project = createRunningDarkProject();
     const first = createRejectedWorkItem(project.id);
@@ -204,6 +252,7 @@ describe('rejected work item recovery sweep', () => {
     expect(countRecoveryDecisions()).toBe(1);
 
     vi.setSystemTime(new Date('2026-04-18T18:05:01.000Z'));
+    db.prepare(`UPDATE factory_work_items SET status = 'shipped', updated_at = datetime('now') WHERE id = ?`).run(first.id);
     await factoryTick.tickProject(project);
 
     expect(factoryIntake.getWorkItem(second.id).status).toBe('pending');
@@ -213,10 +262,7 @@ describe('rejected work item recovery sweep', () => {
   it('factory tick skips inactive projects and enforces reopen caps per item', async () => {
     const runningProject = createRunningDarkProject();
     const inactiveProject = createDarkProject({ status: 'idle' });
-    const reopened = [
-      createRejectedWorkItem(runningProject.id),
-      createRejectedWorkItem(runningProject.id),
-    ];
+    const reopened = createRejectedWorkItem(runningProject.id);
     const capped = createRejectedWorkItem(runningProject.id);
     const inactive = createRejectedWorkItem(inactiveProject.id);
     recordPriorReopen(capped.id);
@@ -224,10 +270,7 @@ describe('rejected work item recovery sweep', () => {
 
     await factoryTick.tickProject(runningProject);
 
-    expect(reopened.map((item) => factoryIntake.getWorkItem(item.id).status)).toEqual([
-      'pending',
-      'pending',
-    ]);
+    expect(factoryIntake.getWorkItem(reopened.id).status).toBe('pending');
     expect(factoryIntake.getWorkItem(capped.id)).toMatchObject({
       id: capped.id,
       status: 'rejected',
@@ -238,7 +281,23 @@ describe('rejected work item recovery sweep', () => {
       status: 'rejected',
       reject_reason: 'verify_failed_after_3_retries',
     });
-    expect(countRecoveryDecisions()).toBe(3);
+    expect(countRecoveryDecisions()).toBe(2);
+  });
+
+  it('skips reopening terminal items when the project already has open work', async () => {
+    const project = createRunningDarkProject();
+    const terminal = createRejectedWorkItem(project.id);
+    createOpenWorkItem(project.id);
+    enableRejectRecovery();
+
+    await factoryTick.tickProject(project);
+
+    expect(factoryIntake.getWorkItem(terminal.id)).toMatchObject({
+      id: terminal.id,
+      status: 'rejected',
+      reject_reason: 'verify_failed_after_3_retries',
+    });
+    expect(countRecoveryDecisions()).toBe(0);
   });
 
   it('factory tick scans later terminal-item pages before giving up on recovery', async () => {

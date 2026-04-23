@@ -148,4 +148,41 @@ describe('auto-recovery engine.tick', () => {
     const summary = await engine.tick();
     expect(summary.attempts).toBe(1);
   });
+
+  it('rearms exhausted projects after they resume active progress', async () => {
+    db.prepare(`INSERT INTO factory_projects
+                (id, status, loop_state, loop_paused_at_stage, auto_recovery_attempts,
+                 auto_recovery_last_action_at, auto_recovery_exhausted, auto_recovery_last_strategy)
+                VALUES ('p6', 'running', 'VERIFY', NULL, 5,
+                        '2026-04-21T12:30:00Z', 1, 'retry')`).run();
+
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [],
+      strategies: [],
+      nowMs: () => Date.parse('2026-04-21T13:00:00Z'),
+    });
+
+    const summary = await engine.tick();
+    expect(summary).toEqual(expect.objectContaining({ attempts: 0, rearmed: 1 }));
+
+    const project = db.prepare(`
+      SELECT auto_recovery_attempts, auto_recovery_exhausted, auto_recovery_last_action_at, auto_recovery_last_strategy
+      FROM factory_projects
+      WHERE id = 'p6'
+    `).get();
+    expect(project).toEqual({
+      auto_recovery_attempts: 0,
+      auto_recovery_exhausted: 0,
+      auto_recovery_last_action_at: null,
+      auto_recovery_last_strategy: null,
+    });
+
+    const rearmed = db.prepare(`
+      SELECT action
+      FROM factory_decisions
+      WHERE actor = 'auto-recovery' AND action = 'auto_recovery_rearmed'
+    `).get();
+    expect(rearmed).toBeDefined();
+  });
 });
