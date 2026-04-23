@@ -15,6 +15,7 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'git-worktree' });
 const { TASK_TIMEOUTS } = require('../constants');
+const { safeGitExec } = require('./git');
 
 /** Base directory for worktrees (inside server/.tmp/worktrees/) */
 const WORKTREE_BASE_DIR = path.join(__dirname, '..', '.tmp', 'worktrees');
@@ -176,7 +177,7 @@ function createWorktree(taskId, sourceDir) {
 function mergeWorktreeChanges(worktreePath, sourceDir, taskId) {
   try {
     // First check if there are any changes at all in the worktree
-    const statusOutput = execFileSync('git', ['status', '--porcelain'], {
+    const statusOutput = safeGitExec(['status', '--porcelain'], {
       cwd: worktreePath,
       encoding: 'utf-8',
       timeout: TASK_TIMEOUTS.GIT_STATUS,

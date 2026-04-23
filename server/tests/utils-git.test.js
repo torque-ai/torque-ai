@@ -189,6 +189,53 @@ describe('utils/git', () => {
     });
   });
 
+  describe('cleanupStaleGitStatusProcesses', () => {
+    it('does nothing off Windows', () => {
+      const execFileSyncSpy = vi.fn();
+      const { cleanupStaleGitStatusProcesses } = loadGitUtils();
+
+      const cleaned = cleanupStaleGitStatusProcesses({
+        platform: 'linux',
+        execFileSync: execFileSyncSpy,
+        allowInTest: true,
+      });
+
+      expect(cleaned).toBe(0);
+      expect(execFileSyncSpy).not.toHaveBeenCalled();
+    });
+
+    it('terminates only stale orphaned git status probes through a hidden PowerShell sweep', () => {
+      const execFileSyncSpy = vi.fn(() => '111\r\n222\r\n');
+      const { cleanupStaleGitStatusProcesses } = loadGitUtils();
+
+      const cleaned = cleanupStaleGitStatusProcesses({
+        platform: 'win32',
+        execFileSync: execFileSyncSpy,
+        allowInTest: true,
+        force: true,
+        minAgeMs: 60000,
+      });
+
+      expect(cleaned).toBe(2);
+      expect(execFileSyncSpy).toHaveBeenCalledWith('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        expect.stringContaining('status\\s+--porcelain'),
+      ], expect.objectContaining({
+        timeout: 10000,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }));
+      const script = execFileSyncSpy.mock.calls[0][1][5];
+      expect(script).toContain("Name -ieq 'git.exe'");
+      expect(script).toContain('ParentProcessId');
+      expect(script).toContain('Stop-Process');
+    });
+  });
+
   describe('getModifiedFiles', () => {
     it('parses porcelain output into file entries', () => {
       const execFileSyncSpy = vi.spyOn(childProcess, 'execFileSync').mockReturnValue(

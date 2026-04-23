@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const logger = require('../logger');
+const { safeGitExec } = require('../utils/git');
 
 /** Max ms to wait for any git subprocess — prevents hanging in non-repo dirs. */
 const GIT_TIMEOUT_MS = 8000;
@@ -31,7 +32,10 @@ const GIT_TIMEOUT_MS = 8000;
  * @returns {string}
  */
 function gitExec(args, workingDir) {
-  return execFileSync('git', args, {
+  const runner = Array.isArray(args) && args[0] === 'status'
+    ? safeGitExec
+    : (gitArgs, options) => execFileSync('git', gitArgs, options);
+  return runner(args, {
     cwd: workingDir,
     encoding: 'utf-8',
     timeout: GIT_TIMEOUT_MS,

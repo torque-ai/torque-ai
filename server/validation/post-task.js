@@ -15,6 +15,7 @@ const { execFileSync, spawnSync } = require('child_process');
 const logger = require('../logger').child({ component: 'post-task-validation' });
 const serverConfig = require('../config');
 const { TASK_TIMEOUTS } = require('../constants');
+const { safeGitExec } = require('../utils/git');
 const { createTestRunnerRegistry } = require('../test-runner-registry');
 const buildVerification = require('./build-verification');
 
@@ -142,7 +143,7 @@ function getGitStatusEntries(workingDir) {
   if (!workingDir || !fs.existsSync(workingDir)) return [];
 
   try {
-    const gitOutput = execFileSync('git', ['status', '--porcelain'], {
+    const gitOutput = safeGitExec(['status', '--porcelain'], {
       cwd: workingDir,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_STATUS,
@@ -460,10 +461,10 @@ function cleanupJunkFiles(workingDir, taskId) {
   ];
 
   try {
-    // Get list of new/modified files from git using execFileSync (no shell injection)
+    // Get list of new/modified files from git using array args (no shell injection)
     let gitOutput;
     try {
-      gitOutput = execFileSync('git', ['status', '--porcelain'], {
+      gitOutput = safeGitExec(['status', '--porcelain'], {
         cwd: workingDir,
         encoding: 'utf8',
         timeout: TASK_TIMEOUTS.GIT_STATUS,
@@ -951,7 +952,7 @@ function runLLMSafeguards(taskId, workingDir, modifiedFiles, options = {}) {
   // New files skip size/line-count checks since tasks that create files start small.
   const newFiles = new Set();
   try {
-    const gitStatus = execFileSync('git', ['status', '--porcelain'], {
+    const gitStatus = safeGitExec(['status', '--porcelain'], {
       cwd: workingDir, encoding: 'utf8', timeout: TASK_TIMEOUTS.GIT_STATUS, stdio: 'pipe', windowsHide: true
     });
     for (const line of gitStatus.split('\n')) {
@@ -1412,9 +1413,10 @@ function rollbackTaskChanges(taskId, workingDir) {
 
   try {
     // Check if there are uncommitted changes to rollback
-    const status = execFileSync('git', ['status', '--porcelain'], {
+    const status = safeGitExec(['status', '--porcelain'], {
       cwd: workingDir,
       encoding: 'utf8',
+      timeout: TASK_TIMEOUTS.GIT_STATUS,
       windowsHide: true,
     });
 

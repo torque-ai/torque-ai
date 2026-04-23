@@ -20,6 +20,7 @@ const { TASK_TIMEOUTS } = require('../constants');
 const perfTracker = require('../db/provider-performance');
 const { failoverBackoffMs } = require('../utils/backoff');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
+const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../utils/git');
 
 // Dependency injection
 let db = null;
@@ -138,8 +139,13 @@ async function handleBuildTestStyleCommit(ctx) {
   if (autoCommitsDisabled) {
     try {
       const gitStatusResult = spawnSync('git', ['status', '--porcelain'], {
-        cwd: workingDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_ADD_ALL, windowsHide: true
+        cwd: workingDir,
+        encoding: 'utf-8',
+        timeout: TASK_TIMEOUTS.GIT_STATUS,
+        windowsHide: true,
+        env: { ...process.env, ...GIT_SAFE_ENV },
       });
+      if (gitStatusResult.error) cleanupStaleGitStatusProcesses({ force: true });
       const gitStatus = (gitStatusResult.stdout || '').trim();
 
       if (gitStatus.length > 0) {

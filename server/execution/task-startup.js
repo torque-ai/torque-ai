@@ -11,7 +11,9 @@ const fs = require('fs');
 const { execFileSync } = require('child_process');
 const logger = require('../logger').child({ component: 'task-startup' });
 const { TASK_TIMEOUTS } = require('../constants');
-const { parseGitStatusLine } = require('../utils/git');
+const gitUtils = require('../utils/git');
+const { parseGitStatusLine } = gitUtils;
+const safeGitExec = gitUtils.safeGitExec || ((args, opts) => execFileSync('git', args, opts));
 const { parseMentions } = require('../repo-graph/mention-parser');
 const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
 const { validateTranscript } = require('../transcripts/transcript-validator');
@@ -474,11 +476,10 @@ function buildBaselineCommitCapture(cwd) {
 function captureBaselineHead({ taskId, baselineCapture, skipGit, log }) {
   if (skipGit) return null;
   try {
-    return execFileSync(
-      baselineCapture.command,
-      baselineCapture.args,
-      baselineCapture.options
-    ).trim();
+    if (baselineCapture.command === 'git') {
+      return safeGitExec(baselineCapture.args, baselineCapture.options).trim();
+    }
+    return execFileSync(baselineCapture.command, baselineCapture.args, baselineCapture.options).trim();
   } catch (e) {
     log.info(`[TaskManager] Could not capture baseline HEAD for task ${taskId}: ${e.message}`);
     return null;
@@ -1703,8 +1704,7 @@ function estimateProgress(output, provider) {
 function getActualModifiedFiles(workingDir) {
   if (skipGitInCloseHandler) return null;
   try {
-    // SECURITY: Using execFileSync with array args (safe from injection)
-    const result = execFileSync('git', ['status', '--porcelain'], {
+    const result = safeGitExec(['status', '--porcelain'], {
       cwd: workingDir,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_STATUS,

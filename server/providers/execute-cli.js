@@ -15,6 +15,7 @@ const { PROVIDER_DEFAULTS, COMPLETION_GRACE_MS, COMPLETION_GRACE_CODEX_MS } = re
 const { extractModifiedFiles } = require('../utils/file-resolution');
 const { redactCommandArgs, redactSecrets } = require('../utils/sanitize');
 const gitWorktree = require('../utils/git-worktree');
+const { safeGitExec } = require('../utils/git');
 const { buildSafeEnv } = require('../utils/safe-env');
 const serverConfig = require('../config');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
@@ -844,7 +845,7 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
         try {
           const { execFileSync } = require('child_process');
           const workDir = task.working_directory;
-          const statusOut = execFileSync('git', ['status', '--porcelain'], {
+          const statusOut = safeGitExec(['status', '--porcelain'], {
             cwd: workDir, encoding: 'utf-8', timeout: 10000,
             stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
           }).trim();

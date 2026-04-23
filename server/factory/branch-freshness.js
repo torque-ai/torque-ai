@@ -3,6 +3,8 @@
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { TASK_TIMEOUTS } = require('../constants');
+const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../utils/git');
 
 const DEFAULT_STALE_PATH_PATTERNS = Object.freeze([
   'tests/**/Approvals/**',
@@ -27,16 +29,26 @@ function runGit(worktreePath, args, options = {}) {
     let stderr = '';
     let settled = false;
     let child;
+    let timeoutHandle = null;
+    const timeoutMs = Number.isFinite(Number(options.timeout))
+      ? Number(options.timeout)
+      : TASK_TIMEOUTS.GIT_STATUS;
+    const isStatusProbe = args[0] === 'status' && args.some(arg => /^--porcelain(?:=|$)/.test(String(arg || '')));
 
     const finish = (result) => {
       if (settled) return;
       settled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
       resolve(result);
     };
 
     try {
       child = childProcess.spawn('git', args, {
         cwd: worktreePath,
+        env: { ...process.env, ...GIT_SAFE_ENV, ...(options.env || {}) },
         stdio: [options.stdin != null ? 'pipe' : 'ignore', 'pipe', 'pipe'],
         windowsHide: true,
       });
@@ -44,6 +56,14 @@ function runGit(worktreePath, args, options = {}) {
       finish({ code: 1, stdout: '', stderr: err.message, error: err });
       return;
     }
+
+    timeoutHandle = setTimeout(() => {
+      if (settled) return;
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      if (isStatusProbe) cleanupStaleGitStatusProcesses({ force: true });
+      finish({ code: 1, stdout, stderr: stderr || `git timed out after ${timeoutMs}ms` });
+    }, timeoutMs);
+    timeoutHandle.unref?.();
 
     child.stdout.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
     child.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });

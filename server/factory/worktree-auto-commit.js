@@ -13,6 +13,8 @@ const taskCore = require('../db/task-core');
 const { logDecision } = require('./decision-log');
 const { taskEvents } = require('../hooks/event-dispatch');
 const logger = require('../logger').child({ component: 'factory-worktree-auto-commit' });
+const { TASK_TIMEOUTS } = require('../constants');
+const { safeGitExec } = require('../utils/git');
 
 // Mirror of factory-health.js VALID_TRUST_LEVELS. Earlier this set was
 // ['supervised', 'autonomous'], which silently excluded 'dark' (the most
@@ -182,9 +184,16 @@ function buildCommitMessage(planTaskNumber, planTaskTitle) {
 }
 
 function runGit(worktreePath, args) {
-  return childProcess.execFileSync('git', args, {
+  const timeout = Array.isArray(args) && args[0] === 'status'
+    ? TASK_TIMEOUTS.GIT_STATUS
+    : TASK_TIMEOUTS.GIT_COMMIT;
+  const runner = Array.isArray(args) && args[0] === 'status'
+    ? safeGitExec
+    : (gitArgs, options) => childProcess.execFileSync('git', gitArgs, options);
+  return runner(args, {
     cwd: worktreePath,
     encoding: 'utf8',
+    timeout,
     windowsHide: true,
   });
 }
@@ -196,6 +205,7 @@ function runGitWithStdin(worktreePath, args, stdin) {
   return childProcess.execFileSync('git', args, {
     cwd: worktreePath,
     encoding: 'utf8',
+    timeout: TASK_TIMEOUTS.GIT_COMMIT,
     windowsHide: true,
     input: stdin,
   });

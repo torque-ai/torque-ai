@@ -21,6 +21,7 @@ const taskManager = require('../../task-manager');
 const logger = require('../../logger').child({ component: 'task-handlers' });
 const { TASK_TIMEOUTS } = require('../../constants');
 const { prependResumeContextToPrompt } = require('../../utils/resume-context');
+const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../../utils/git');
 const { escapeRegExp, safeLimit,
         MAX_NAME_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_TASK_LENGTH, MAX_BATCH_SIZE, ErrorCodes, makeError, requireTask } = require('../shared');
 const { formatTime } = require('./utils');
@@ -184,8 +185,10 @@ function execGit(gitArgs, cwd) {
       timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
       maxBuffer: 10 * 1024 * 1024,
       windowsHide: true,
+      env: { ...process.env, ...GIT_SAFE_ENV },
     });
     if (result.error) {
+      if (gitArgs[0] === 'status') cleanupStaleGitStatusProcesses({ force: true });
       return { success: false, error: result.error.message };
     }
     if (result.status !== 0) {

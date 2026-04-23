@@ -7,6 +7,7 @@ const {
   evaluateBatchTestFixes,
   resolveChangeSetKey: resolveBatchTestFixesChangeSetKey,
 } = require('./rules/batch-test-fixes');
+const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../utils/git');
 
 const DEFAULT_VISIBLE_PROVIDERS = Object.freeze(['codex', 'claude-cli']);
 const DEFAULT_TEST_COMMANDS = Object.freeze(['vitest', 'jest', 'pytest', 'dotnet test']);
@@ -364,6 +365,7 @@ async function resolveBatchTestFixesChangeSet(task, context) {
       encoding: 'utf8',
       timeout: 5000,
       windowsHide: true,
+      env: { ...process.env, ...GIT_SAFE_ENV },
     });
     // Use only branch info (# branch.head line), not file status which changes between runs
     const branchLine = stdout.split('\n').find(l => l.startsWith('# branch.head ')) || '';
@@ -371,6 +373,7 @@ async function resolveBatchTestFixesChangeSet(task, context) {
     const workflowKey = task?.workflow_id || context?.workflow_id || context?.workflowId || 'standalone';
     return `${workflowKey}::${task.working_directory}::${branch}`;
   } catch {
+    cleanupStaleGitStatusProcesses({ force: true });
     // Fall back to the explicit/task-derived key when git metadata is unavailable.
   }
 

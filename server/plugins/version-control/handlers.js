@@ -3,6 +3,8 @@
 const path = require('path');
 const { randomUUID } = require('crypto');
 const { execFileSync } = require('child_process');
+const { TASK_TIMEOUTS } = require('../../constants');
+const { safeGitExec } = require('../../utils/git');
 
 const DEFAULT_BASE_BRANCH = 'main';
 const DEFAULT_MERGE_STRATEGY = 'merge';
@@ -253,9 +255,13 @@ function extractFilesChanged(result) {
 }
 
 function runGit(repoPath, args) {
-  return execFileSync('git', args, {
+  const runner = Array.isArray(args) && args[0] === 'status'
+    ? safeGitExec
+    : (gitArgs, options) => execFileSync('git', gitArgs, options);
+  return runner(args, {
     cwd: repoPath,
     encoding: 'utf8',
+    timeout: Array.isArray(args) && args[0] === 'status' ? TASK_TIMEOUTS.GIT_STATUS : TASK_TIMEOUTS.GIT_COMMIT,
     windowsHide: true,
   });
 }

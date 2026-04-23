@@ -41,6 +41,7 @@ const mcpProtocol = require('./mcp-protocol');
 const timerRegistry = require('./timer-registry');
 const eventBus = require('./event-bus');
 const maintenanceScheduler = require('./maintenance/scheduler');
+const { cleanupStaleGitStatusProcesses } = require('./utils/git');
 
 // Stored handler ref for shutdown listener deduplication across init() calls
 let _shutdownHandler = null;
@@ -435,6 +436,7 @@ let orphanCheckInterval = null;
 
 // Track error rate cleanup interval for proper shutdown
 let errorRateCleanupInterval = null;
+let staleGitStatusCleanupInterval = null;
 
 // P91: Periodic queue processing interval (safety net for stuck tasks)
 let queueProcessingInterval = null;
@@ -496,6 +498,21 @@ function startErrorRateCleanup() {
     }
   }, ERROR_RATE_WINDOW_MS));
   errorRateCleanupInterval.unref();
+}
+
+function startStaleGitStatusCleanup() {
+  if (staleGitStatusCleanupInterval || process.platform !== 'win32') return;
+
+  const sweep = () => {
+    const cleaned = cleanupStaleGitStatusProcesses();
+    if (cleaned > 0) {
+      debugLog(`[GitCleanup] Terminated ${cleaned} stale orphaned git status process(es)`);
+    }
+  };
+
+  sweep();
+  staleGitStatusCleanupInterval = timerRegistry.trackInterval(setInterval(sweep, 60000));
+  staleGitStatusCleanupInterval.unref();
 }
 
 /**
@@ -1727,6 +1744,7 @@ function main() {
 
   // Start periodic cleanup intervals (deferred from module-load time)
   startErrorRateCleanup();
+  startStaleGitStatusCleanup();
 
   // Set up readline interface for stdin
   // Store in module-level variable for cleanup on shutdown
@@ -1968,6 +1986,7 @@ const _testing = {
     queueProcessingInterval = null;
     stdioHeartbeatInterval = null;
     errorRateCleanupInterval = null;
+    staleGitStatusCleanupInterval = null;
     orphanCheckInterval = null;
     if (shutdownTimer) {
       clearTimeout(shutdownTimer);
@@ -1989,6 +2008,7 @@ module.exports = {
   debugLog,
   _shouldLogError,
   startErrorRateCleanup,
+  startStaleGitStatusCleanup,
   parsePidRecord,
   writePidRecord,
   startPidHeartbeat,

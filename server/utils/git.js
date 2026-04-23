@@ -20,6 +20,108 @@ const GIT_SAFE_ENV = {
   GIT_OPTIONAL_LOCKS: '0',
 };
 
+const DEFAULT_STALE_GIT_STATUS_MIN_AGE_MS = 60_000;
+const DEFAULT_STALE_GIT_STATUS_CLEANUP_INTERVAL_MS = 60_000;
+let lastStaleGitStatusCleanupAt = 0;
+
+function isGitStatusProbeArgs(args) {
+  return Array.isArray(args)
+    && args[0] === 'status'
+    && args.some(arg => /^--porcelain(?:=|$)/.test(String(arg || '')));
+}
+
+function shouldRunStaleGitStatusCleanup(platform, env, allowInTest) {
+  if (platform !== 'win32') return false;
+  if (allowInTest) return true;
+  return env.NODE_ENV !== 'test' && env.VITEST !== 'true';
+}
+
+/**
+ * Kill stale orphaned `git status --porcelain*` probes on Windows.
+ *
+ * TORQUE status probes should finish within a few seconds. If their parent
+ * process is gone and they are still alive after a minute, they are abandoned
+ * workers rather than useful Git operations. This deliberately does not match
+ * commit/rebase/fetch/push or non-status Git commands.
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.minAgeMs]
+ * @param {boolean} [opts.force]
+ * @param {number} [opts.now]
+ * @param {string} [opts.platform]
+ * @param {NodeJS.ProcessEnv} [opts.env]
+ * @param {boolean} [opts.allowInTest]
+ * @param {Function} [opts.execFileSync]
+ * @returns {number} Number of process ids reported as terminated
+ */
+function cleanupStaleGitStatusProcesses(opts = {}) {
+  const {
+    minAgeMs = DEFAULT_STALE_GIT_STATUS_MIN_AGE_MS,
+    force = false,
+    now = Date.now(),
+    platform = process.platform,
+    env = process.env,
+    allowInTest = false,
+    execFileSync = childProcess.execFileSync,
+  } = opts;
+
+  if (!shouldRunStaleGitStatusCleanup(platform, env, allowInTest)) return 0;
+  if (!force && now - lastStaleGitStatusCleanupAt < DEFAULT_STALE_GIT_STATUS_CLEANUP_INTERVAL_MS) {
+    return 0;
+  }
+  lastStaleGitStatusCleanupAt = now;
+
+  const safeMinAgeMs = Math.max(1_000, Number.isFinite(Number(minAgeMs))
+    ? Number(minAgeMs)
+    : DEFAULT_STALE_GIT_STATUS_MIN_AGE_MS);
+
+  const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$cutoff = (Get-Date).AddMilliseconds(-${safeMinAgeMs})
+$all = @(Get-CimInstance Win32_Process)
+$pidSet = @{}
+foreach ($proc in $all) { $pidSet[[int]$proc.ProcessId] = $true }
+$pattern = '(?i)(^|[\\\\/"]|\\s)git(?:\\.exe)?["'']?\\s+status\\s+--porcelain(?:=2)?(?:\\s+--branch)?(?:\\s|$)'
+$targets = @($all | Where-Object {
+  $_.Name -ieq 'git.exe' -and
+  $_.CommandLine -match $pattern -and
+  $_.CreationDate -lt $cutoff -and
+  ($_.ParentProcessId -eq $null -or -not $pidSet.ContainsKey([int]$_.ParentProcessId))
+})
+foreach ($target in $targets) {
+  try {
+    Stop-Process -Id $target.ProcessId -Force -ErrorAction Stop
+    [string]$target.ProcessId
+  } catch {}
+}
+`.trim();
+
+  try {
+    const stdout = execFileSync('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      script,
+    ], {
+      encoding: 'utf8',
+      timeout: 10_000,
+      maxBuffer: 256 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+
+    return String(stdout || '')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .length;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Execute a git command with safe defaults that prevent orphaned processes.
  *
@@ -46,7 +148,14 @@ function safeGitExec(args, opts = {}) {
     ...opts,
     env: { ...process.env, ...GIT_SAFE_ENV, ...(opts.env || {}) },
   };
-  return childProcess.execFileSync('git', args, merged);
+  try {
+    return childProcess.execFileSync('git', args, merged);
+  } catch (err) {
+    if (isGitStatusProbeArgs(args)) {
+      cleanupStaleGitStatusProcesses({ force: true });
+    }
+    throw err;
+  }
 }
 
 // ─── Worktree fingerprint cache ─────────────────────────────────────
@@ -154,6 +263,7 @@ function invalidateFingerprintCache(workingDir) {
 module.exports = {
   safeGitExec,
   GIT_SAFE_ENV,
+  cleanupStaleGitStatusProcesses,
   parseGitStatusLine,
   getModifiedFiles,
   getWorktreeFingerprint,
