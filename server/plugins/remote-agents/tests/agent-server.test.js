@@ -224,7 +224,7 @@ describe('remote/agent-server', () => {
     ['git protocol localhost', 'git://127.0.0.1/repo.git'],
     ['metadata service over http', 'http://169.254.169.254/repo.git'],
     ['local file URL', 'file:///etc/passwd'],
-    ['ssh URL', 'ssh://git@github.com/org/repo.git'],
+    ['ssh URL', 'ssh://user@example.com/org/repo.git'],
     ['credential-bearing URL', 'https://github.com@127.0.0.1/repo.git'],
     ['suffix host bypass', 'https://github.com.evil.test/org/repo.git'],
   ])('POST /sync rejects unsafe repoUrl: %s', async (_label, repoUrl) => {
