@@ -28,6 +28,7 @@ const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const activeTimers = new Map(); // project_id → intervalId
 const ACTIVE_FACTORY_TASK_STATUSES = Object.freeze(['queued', 'running', 'pending', 'blocked', 'retry_scheduled']);
 const CLOSED_FACTORY_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected', 'unactionable']);
+const TERMINAL_FACTORY_BATCH_TASK_STATUSES = new Set(['completed', 'shipped', 'cancelled', 'failed']);
 const DEFAULT_TASK_CANCEL_GRACE_MS = Math.max(
   0,
   Number.parseInt(process.env.TORQUE_FACTORY_VERIFY_CANCEL_GRACE_MS || '5500', 10) || 0,
@@ -101,6 +102,43 @@ function taskMatchesFactoryInstance(task, instance) {
     return true;
   }
   return Boolean(instance.work_item_id && tags.includes(`factory:work_item_id=${instance.work_item_id}`));
+}
+
+function getVerifyBatchWaitState(projectId, instance) {
+  if (
+    !instance
+    || String(instance.paused_at_stage || '').toUpperCase() !== LOOP_STATES.VERIFY
+    || !instance.batch_id
+  ) {
+    return null;
+  }
+
+  try {
+    const latest = loopController.getLatestStageDecision(projectId, LOOP_STATES.VERIFY);
+    const latestReason = latest?.outcome?.reason || null;
+    const isBatchWaitPause = latestReason === 'batch_tasks_not_terminal'
+      || latest?.action === 'waiting_for_batch_tasks';
+    if (!isBatchWaitPause) {
+      return null;
+    }
+
+    const batchTasks = loopController.listTasksForFactoryBatch(instance.batch_id);
+    const nonTerminal = batchTasks.filter(
+      (task) => !TERMINAL_FACTORY_BATCH_TASK_STATUSES.has(task.status),
+    );
+    return {
+      batchTasks,
+      nonTerminal,
+    };
+  } catch (err) {
+    logger.debug('Factory tick: VERIFY batch wait inspection failed', {
+      project_id: projectId,
+      instance_id: instance.id,
+      batch_id: instance.batch_id,
+      err: err.message,
+    });
+    return null;
+  }
 }
 
 function resolveTaskCore(override) {
@@ -551,37 +589,24 @@ async function tickProject(project) {
       // VERIFY decision's outcome.reason confirms the bug shape, so other
       // VERIFY pause causes (human approval, VERIFY_FAIL) are untouched.
       if (paused === 'VERIFY' && instance.batch_id) {
-        try {
-          const latest = loopController.getLatestStageDecision(project.id, 'VERIFY');
-          const latestReason = latest?.outcome?.reason || null;
-          const isBatchWaitPause = latestReason === 'batch_tasks_not_terminal'
-            || latest?.action === 'waiting_for_batch_tasks';
-          if (isBatchWaitPause) {
-            const batchTasks = loopController.listTasksForFactoryBatch(instance.batch_id);
-            const nonTerminal = batchTasks.filter(
-              (t) => !['completed', 'shipped', 'cancelled', 'failed'].includes(t.status),
-            );
-            if (batchTasks.length > 0 && nonTerminal.length === 0) {
-              logger.info('Factory tick: auto-clearing VERIFY gate — batch now terminal', {
-                project_id: project.id,
-                instance_id: instance.id,
-                batch_id: instance.batch_id,
-                batch_task_count: batchTasks.length,
-              });
-              try {
-                loopController.approveGateForProject(project.id, 'VERIFY');
-              } catch (approveErr) {
-                logger.debug('Factory tick: auto-approve VERIFY gate failed', {
-                  project_id: project.id,
-                  instance_id: instance.id,
-                  err: approveErr.message,
-                });
-              }
-              continue; // next tick picks up the now-cleared instance
-            }
+        const batchWaitState = getVerifyBatchWaitState(project.id, instance);
+        if (batchWaitState && batchWaitState.batchTasks.length > 0 && batchWaitState.nonTerminal.length === 0) {
+          logger.info('Factory tick: auto-clearing VERIFY gate — batch now terminal', {
+            project_id: project.id,
+            instance_id: instance.id,
+            batch_id: instance.batch_id,
+            batch_task_count: batchWaitState.batchTasks.length,
+          });
+          try {
+            loopController.approveGateForProject(project.id, 'VERIFY');
+          } catch (approveErr) {
+            logger.debug('Factory tick: auto-approve VERIFY gate failed', {
+              project_id: project.id,
+              instance_id: instance.id,
+              err: approveErr.message,
+            });
           }
-        } catch (checkErr) {
-          logger.debug('Factory tick: VERIFY gate recheck failed', { err: checkErr.message });
+          continue; // next tick picks up the now-cleared instance
         }
       }
 
@@ -709,6 +734,18 @@ async function tickProject(project) {
         eventBus,
         retryFactoryVerify: ({ project_id }) => handleRetryFactoryVerify({ project: project_id }),
         resolveUnrecoverableVerify: resolveUnrecoverableVerifyLoop,
+        shouldSkipStalledLoop: ({ project_id }) => {
+          const instances = factoryLoopInstances.listInstances({
+            project_id,
+            active_only: true,
+          });
+          return instances
+            .filter(isVerifyLoopInstance)
+            .some((instance) => {
+              const batchWaitState = getVerifyBatchWaitState(project_id, instance);
+              return Boolean(batchWaitState && batchWaitState.nonTerminal.length > 0);
+            });
+        },
       });
       if (verifyRecoveryActions.some((action) => action.action === 'resolved_unrecoverable_verify')) {
         maybeStartAutoAdvanceLoop(project.id, 'verify_unrecoverable_resolved');

@@ -139,6 +139,7 @@ async function recoverStalledVerifyLoops({
   eventBus,
   retryFactoryVerify,
   resolveUnrecoverableVerify = null,
+  shouldSkipStalledLoop = null,
 }) {
   if (!db || typeof db.prepare !== 'function') {
     throw new Error('recoverStalledVerifyLoops requires a database handle');
@@ -155,6 +156,21 @@ async function recoverStalledVerifyLoops({
   factoryDecisions.setDb(db);
 
   for (const stalledLoop of listStalledVerifyLoops(db)) {
+    if (typeof shouldSkipStalledLoop === 'function') {
+      let skipRecovery = false;
+      try {
+        skipRecovery = Boolean(await shouldSkipStalledLoop(stalledLoop));
+      } catch (err) {
+        logger.warn('Failed to evaluate stalled VERIFY loop skip hook', {
+          project_id: stalledLoop.project_id,
+          err: err.message,
+        });
+      }
+      if (skipRecovery) {
+        continue;
+      }
+    }
+
     if (stalledLoop.attempts >= MAX_RECOVERY_ATTEMPTS) {
       const payload = {
         project_id: stalledLoop.project_id,

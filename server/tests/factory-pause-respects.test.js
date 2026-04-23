@@ -419,6 +419,85 @@ describe('factory pause enforcement', () => {
     expect(afterTick.paused_at_stage).toBeNull();
   });
 
+  it('does not treat VERIFY batch waits with retry_scheduled tasks as unrecoverable stalls', async () => {
+    const decisionLog = require('../factory/decision-log');
+    const factoryDecisions = require('../db/factory-decisions');
+    factoryDecisions.setDb(db);
+
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Wait for retried batch task',
+      description: 'Retry-scheduled batch tasks should block VERIFY recovery instead of rejecting the work item.',
+      status: 'verifying',
+    });
+    const batchId = `test-batch-retry-${Date.now()}`;
+    const staleAt = new Date(Date.now() - (90 * 60 * 1000)).toISOString();
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: item.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: LOOP_STATES.VERIFY,
+      last_action_at: staleAt,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: LOOP_STATES.VERIFY,
+      loop_batch_id: batchId,
+      loop_last_action_at: staleAt,
+    });
+    db.prepare('UPDATE factory_projects SET verify_recovery_attempts = 2 WHERE id = ?').run(project.id);
+
+    taskCore.createTask({
+      id: 'retry-scheduled-batch-task',
+      status: 'retry_scheduled',
+      task_description: 'still draining retry budget',
+      working_directory: project.path,
+      tags: [
+        `factory:batch_id=${batchId}`,
+        `factory:work_item_id=${item.id}`,
+        'factory:plan_task_number=2',
+        'project:torque-public',
+      ],
+    });
+
+    decisionLog.logDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'human',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting approval for VERIFY.',
+      outcome: {
+        from_state: 'VERIFY',
+        to_state: 'PAUSED',
+        gate_stage: 'VERIFY',
+        reason: 'batch_tasks_not_terminal',
+      },
+      confidence: 1,
+      batch_id: batchId,
+    });
+
+    const approveSpy = vi.spyOn(loopController, 'approveGateForProject');
+    const staleRunningProject = factoryHealth.getProject(project.id);
+
+    await factoryTick.tickProject(staleRunningProject);
+
+    expect(approveSpy).not.toHaveBeenCalled();
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeNull();
+    expect(factoryIntake.getWorkItem(item.id)).toMatchObject({
+      status: 'verifying',
+      reject_reason: null,
+    });
+    expect(taskCore.getTask('retry-scheduled-batch-task')).toMatchObject({
+      status: 'retry_scheduled',
+    });
+    expect(db.prepare('SELECT verify_recovery_attempts FROM factory_projects WHERE id = ?').get(project.id).verify_recovery_attempts).toBe(2);
+  });
+
   it('does not auto-clear a VERIFY gate when a batch task is still non-terminal', async () => {
     const decisionLog = require('../factory/decision-log');
     const factoryDecisions = require('../db/factory-decisions');

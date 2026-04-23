@@ -171,6 +171,31 @@ describe('recoverStalledVerifyLoops', () => {
     expect(actions).toEqual([{ project_id: projectId, action: 'retry', attempts: 1 }]);
   });
 
+  it('skips stalled VERIFY recovery when the caller reports the loop is still waiting on batch tasks', async () => {
+    const projectId = insertProject({
+      loopState: 'PAUSED',
+      pausedAtStage: 'VERIFY',
+      lastActionAt: new Date(Date.now() - (VERIFY_STALL_THRESHOLD_MS + 60 * 1000)).toISOString(),
+    });
+    const retryFactoryVerify = vi.fn().mockResolvedValue({});
+    const shouldSkipStalledLoop = vi.fn().mockResolvedValue('batch_tasks_not_terminal');
+
+    const actions = await recoverStalledVerifyLoops({
+      db,
+      logger: makeLogger(),
+      eventBus: createEventBus(),
+      retryFactoryVerify,
+      shouldSkipStalledLoop,
+    });
+
+    expect(shouldSkipStalledLoop).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: projectId,
+      attempts: 0,
+    }));
+    expect(actions).toEqual([]);
+    expect(retryFactoryVerify).not.toHaveBeenCalled();
+  });
+
   it('emits factory:verify_unrecoverable after max recovery attempts without retrying again', async () => {
     const projectId = insertProject({
       loopState: 'VERIFY',
