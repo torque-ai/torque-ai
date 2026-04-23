@@ -1,5 +1,7 @@
 'use strict';
 
+const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
+
 const MAX_REPLAN_ATTEMPTS = 1;
 const LLM_TIMEOUT_MS = 60_000;
 
@@ -61,12 +63,6 @@ const CONCRETE_FILE_PATH_RE = /(?:^|[\s`'"([])(?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\
 const CONCRETE_BACKTICK_RE = /`[^`\n]+`/;
 const CONCRETE_QUOTED_RE = /"[^"\n]+"|'[^'\n]+'/;
 const CONCRETE_IDENTIFIER_RE = /\b(?:[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|[a-z]+(?:[A-Z][A-Za-z0-9]*)+|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\b/g;
-const HEAVY_LOCAL_VALIDATION_PATTERNS = Object.freeze([
-  { label: 'dotnet build', re: /\bdotnet\s+build\b/i },
-  { label: 'dotnet test', re: /\bdotnet\s+test\b/i },
-  { label: 'pwsh scripts/build.ps1', re: /\b(?:pwsh|powershell(?:\.exe)?)(?:\s+-file)?\s+(?:\.?[\\/])?scripts[\\/](?:build|test)\.ps1\b/i },
-  { label: 'bash scripts/build.sh', re: /\b(?:bash|sh)\s+(?:\.?[\\/])?scripts[\\/](?:build|test)\.sh\b/i },
-]);
 const NESTED_WORKTREE_SETUP_PATTERNS = [
   {
     label: 'create worktree before editing',
@@ -137,35 +133,6 @@ function isUnsupportedWorktreeSetupCritique(text) {
   const value = String(text || '').trim();
   if (!value) return false;
   return WORKTREE_SETUP_CRITIQUE_RE.test(value);
-}
-
-function normalizeCommandText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/[`'"]/g, '')
-    .replace(/\\/g, '/')
-    .replace(/(^|\s)\.\//g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function findHeavyLocalValidationCommand(text) {
-  const lines = String(text || '').split(/\r?\n/);
-
-  for (const rawLine of lines) {
-    const line = normalizeCommandText(rawLine);
-    if (!line || line.includes('torque-remote')) {
-      continue;
-    }
-
-    for (const pattern of HEAVY_LOCAL_VALIDATION_PATTERNS) {
-      if (pattern.re.test(line)) {
-        return rawLine.trim() || pattern.label;
-      }
-    }
-  }
-
-  return null;
 }
 
 function parseTasks(planMarkdown) {

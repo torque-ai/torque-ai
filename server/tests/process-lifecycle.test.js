@@ -641,6 +641,36 @@ describe('process-lifecycle', () => {
       // Non-ESRCH errors are logged but not re-thrown
       expect(() => lifecycle.killProcessGraceful(proc, 'task-1', 5000, 'StallRecovery')).not.toThrow();
     });
+
+    if (process.platform === 'win32') {
+      it('uses taskkill tree cleanup when the child pid is known', () => {
+        const kill = vi.fn();
+        const proc = { process: { pid: 43210, kill, once: vi.fn() } };
+        const cp = require('child_process');
+        const execFileSyncSpy = vi.spyOn(cp, 'execFileSync').mockImplementation(() => '');
+
+        try {
+          lifecycle.killProcessGraceful(proc, 'task-1', 1000, 'Timeout');
+
+          expect(execFileSyncSpy).toHaveBeenCalledWith(
+            'taskkill',
+            ['/T', '/PID', '43210'],
+            expect.objectContaining({ timeout: 5000, windowsHide: true }),
+          );
+          expect(kill).toHaveBeenCalledWith('SIGTERM');
+
+          vi.advanceTimersByTime(1000);
+
+          expect(execFileSyncSpy).toHaveBeenCalledWith(
+            'taskkill',
+            ['/F', '/T', '/PID', '43210'],
+            expect.objectContaining({ timeout: 5000, windowsHide: true }),
+          );
+        } finally {
+          execFileSyncSpy.mockRestore();
+        }
+      });
+    }
   });
 
   // ── safeTriggerWebhook ──

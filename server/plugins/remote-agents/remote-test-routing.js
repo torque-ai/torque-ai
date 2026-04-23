@@ -2,6 +2,7 @@
 
 const { spawnSync, spawn } = require('child_process');
 const { resolveWindowsPowerShellEnv } = require('../../utils/windows-powershell-env');
+const { killProcessGraceful } = require('../../execution/process-lifecycle');
 
 const SENSITIVE_ENV_PATTERNS = [
   /^(TORQUE_AGENT_SECRET|API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH)/i,
@@ -411,9 +412,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
 
       const timer = setTimeout(() => {
         timedOut = true;
-        try { child.kill('SIGTERM'); } catch { /* best effort */ }
-        // Force kill after 5s grace
-        setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 5000);
+        killProcessGraceful({ process: child }, 'verify-local', 5000, 'remote-routing');
       }, timeout);
 
       child.on('close', (code) => {

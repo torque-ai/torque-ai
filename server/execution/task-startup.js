@@ -19,6 +19,7 @@ const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
 const { validateTranscript } = require('../transcripts/transcript-validator');
 const { PreflightError, isPreflightError } = require('./preflight-error');
 const { isRestartBarrierActive } = require('./restart-barrier');
+const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 
 // ── Injected Dependencies ──────────────────────────────────────────────────
 let db;
@@ -63,6 +64,8 @@ const RETRY_CLEANUP_INTERVAL_MS = 30000;
 const MAX_OUTPUT_BUFFER = 10 * 1024 * 1024;
 const FILE_LOCK_REQUEUE_DELAY_MS = 2500;
 const FILE_LOCK_WAIT_METADATA_KEY = 'file_lock_wait';
+const FACTORY_WORKTREE_RE = /(^|[\\/])\.worktrees([\\/]|$)/i;
+const VISIBLE_SHELL_PROVIDERS = new Set(['claude-cli', 'codex', 'codex-spark']);
 
 function getTaskMetadataObject(task) {
   try {
@@ -997,6 +1000,29 @@ function evaluateClaimedStartupPolicy({
   };
 }
 
+function evaluateFactoryWorktreeHeavyValidationGuard(task, provider) {
+  const normalizedProvider = String(provider || task?.provider || '').trim().toLowerCase();
+  if (!VISIBLE_SHELL_PROVIDERS.has(normalizedProvider)) {
+    return null;
+  }
+
+  const workingDirectory = String(task?.working_directory || '');
+  if (!FACTORY_WORKTREE_RE.test(workingDirectory)) {
+    return null;
+  }
+
+  const detectedCommand = findHeavyLocalValidationCommand(task?.task_description || '');
+  if (!detectedCommand) {
+    return null;
+  }
+
+  return {
+    blocked: true,
+    detected_command: detectedCommand,
+    message: `Factory worktree task includes heavyweight local validation (${detectedCommand}). Use torque-remote for .NET/build-wrapper validation, or leave the full verify command to the orchestrator.`,
+  };
+}
+
 function loadTaskForStartup(taskId) {
   const currentTask = db.getTask(taskId);
   if (!currentTask) {
@@ -1242,7 +1268,32 @@ function evaluateClaimedPolicyForStartup({
     resourceLifecycle: startupResources,
     log: logger,
   });
-  return policyResult.earlyResult || null;
+  if (policyResult.earlyResult) {
+    return policyResult.earlyResult;
+  }
+
+  const guardResult = evaluateFactoryWorktreeHeavyValidationGuard(task, provider);
+  if (!guardResult) {
+    return null;
+  }
+
+  const cancelReason = `[Governance] ${guardResult.message}`;
+  try {
+    cancelTask(taskId, cancelReason);
+  } catch (cancelErr) {
+    logger.info(`[Governance] Failed to cancel blocked task ${taskId}: ${cancelErr.message}`);
+    safeUpdateTaskStatus(taskId, 'cancelled', { error_output: cancelReason });
+  }
+  startupResources.releaseForPolicyBlock(cancelReason);
+  try { dashboard.notifyTaskUpdated(taskId); } catch { /* non-critical */ }
+  try { processQueue(); } catch (queueErr) { logger.info('Failed to process queue:', queueErr.message); }
+  return {
+    queued: false,
+    blocked: true,
+    cancelled: true,
+    reason: cancelReason,
+    task: db.getTask(taskId),
+  };
 }
 
 async function buildStartupExecutionTask(task, taskId) {
@@ -1841,6 +1892,7 @@ module.exports = {
   recordTaskStartedAuditEvent,
   createTaskStartupResourceLifecycle,
   evaluateClaimedStartupPolicy,
+  evaluateFactoryWorktreeHeavyValidationGuard,
   buildProviderStartupCommand,
   buildProviderStartupEnv,
   // Queue helpers

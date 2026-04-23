@@ -8,6 +8,7 @@ const {
   resolveChangeSetKey: resolveBatchTestFixesChangeSetKey,
 } = require('./rules/batch-test-fixes');
 const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../utils/git');
+const { findFirstUnroutedCommand } = require('../utils/heavy-validation-guard');
 
 const DEFAULT_VISIBLE_PROVIDERS = Object.freeze(['codex', 'claude-cli']);
 const DEFAULT_TEST_COMMANDS = Object.freeze(['vitest', 'jest', 'pytest', 'dotnet test']);
@@ -500,8 +501,7 @@ function checkAnnotationsUpdated(task, _rule, _context) {
 function checkRequireRemoteForBuilds(task, rule, _context) {
   const config = safeParseConfig(rule.config, {});
   const commands = mergeNormalizedCommandList(config.commands, DEFAULT_REMOTE_BUILD_COMMANDS);
-  const desc = normalizeCommandText(task.task_description || '');
-  const matched = commands.find(cmd => desc.includes(cmd));
+  const matched = findFirstUnroutedCommand(task.task_description || '', commands);
   if (matched) {
     return {
       pass: false,

@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import path from 'node:path';
 
-const { buildProviderStartupEnv } = require('../execution/task-startup');
+const {
+  buildProviderStartupEnv,
+  evaluateFactoryWorktreeHeavyValidationGuard,
+} = require('../execution/task-startup');
 
 describe('buildProviderStartupEnv — native codex PATH augmentation', () => {
   const baseArgs = {
@@ -96,5 +99,38 @@ describe('buildProviderStartupEnv — native codex PATH augmentation', () => {
     expect(parts[0]).toBe(vendorPath);
     expect(parts[1]).toBe(nvmPath);
     expect(parts[2]).toBe('/usr/bin');
+  });
+});
+
+describe('evaluateFactoryWorktreeHeavyValidationGuard', () => {
+  it('blocks heavy local .NET validation for codex tasks in factory worktrees', () => {
+    const result = evaluateFactoryWorktreeHeavyValidationGuard({
+      task_description: 'Update the evidence doc, then run dotnet test SpudgetBooks.sln --no-build.',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SpudgetBooks\\.worktrees\\fea-1234',
+    }, 'codex');
+
+    expect(result).toMatchObject({
+      blocked: true,
+      detected_command: 'Update the evidence doc, then run dotnet test SpudgetBooks.sln --no-build.',
+    });
+    expect(result.message).toContain('torque-remote');
+  });
+
+  it('allows torque-remote validation commands in factory worktrees', () => {
+    const result = evaluateFactoryWorktreeHeavyValidationGuard({
+      task_description: 'Run torque-remote dotnet test tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj before shipping.',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SpudgetBooks\\.worktrees\\fea-1234',
+    }, 'codex');
+
+    expect(result).toBeNull();
+  });
+
+  it('ignores heavy validation commands outside factory worktrees', () => {
+    const result = evaluateFactoryWorktreeHeavyValidationGuard({
+      task_description: 'Run dotnet test SpudgetBooks.sln --no-build before shipping.',
+      working_directory: 'C:\\Users\\FactoryUser\\Projects\\SpudgetBooks',
+    }, 'codex');
+
+    expect(result).toBeNull();
   });
 });
