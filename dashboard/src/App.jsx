@@ -308,7 +308,8 @@ function AppInner() {
                 <Route index element={<FactoryOverview />} />
                 <Route path="intake" element={<FactoryIntake />} />
                 <Route path="health" element={<FactoryHealth />} />
-                <Route path="decisions" element={<FactoryActivity />} />
+                <Route path="activity" element={<FactoryActivity />} />
+                <Route path="decisions" element={<Navigate to="/factory/activity" replace />} />
                 <Route path="history" element={<FactoryHistory />} />
                 <Route path="policy" element={<FactoryPolicy />} />
               </Route>
