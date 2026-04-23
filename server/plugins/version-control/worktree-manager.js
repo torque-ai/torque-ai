@@ -290,6 +290,11 @@ function isStaleWorktree(worktree, staleDays = DEFAULT_STALE_DAYS) {
     return false;
   }
 
+  const worktreePath = normalizeOptionalString(worktree.worktree_path);
+  if (worktreePath && !fs.existsSync(worktreePath)) {
+    return true;
+  }
+
   const status = normalizeOptionalString(worktree.status);
   if (status && status.toLowerCase() === 'merged') {
     return false;
@@ -836,11 +841,12 @@ function createWorktree(repoPath, featureName, options = {}) {
 
   function listWorktrees(repoPath = null) {
     const repositoryPath = normalizeOptionalString(repoPath);
-    const rows = repositoryPath
-      ? dbHandle.prepare('SELECT * FROM vc_worktrees WHERE repo_path = ? ORDER BY created_at DESC').all(repositoryPath)
-      : dbHandle.prepare('SELECT * FROM vc_worktrees ORDER BY created_at DESC').all();
+    const rows = dbHandle.prepare('SELECT * FROM vc_worktrees ORDER BY created_at DESC').all();
+    const filteredRows = repositoryPath
+      ? rows.filter((row) => normalizePathKey(row.repo_path) === normalizePathKey(repositoryPath))
+      : rows;
 
-    return rows.map((row) => withDerivedFields(row));
+    return filteredRows.map((row) => withDerivedFields(row));
   }
 
   function getWorktree(id) {
@@ -917,6 +923,7 @@ function createWorktree(repoPath, featureName, options = {}) {
       && options.deleteBranch !== false
       && options.delete_branch !== false;
     const removeArgs = ['worktree', 'remove'];
+    const worktreePathExists = fs.existsSync(existing.worktree_path);
 
     if (deleteBranch) {
       assertWorktreeIsClean(existing.worktree_path, 'cleanup');
@@ -927,7 +934,20 @@ function createWorktree(repoPath, featureName, options = {}) {
     }
 
     removeArgs.push(existing.worktree_path);
-    runGit(existing.repo_path, removeArgs);
+    if (worktreePathExists) {
+      try {
+        runGit(existing.repo_path, removeArgs);
+      } catch (error) {
+        const gitMessage = extractGitError(error);
+        if (!/is not a working tree/i.test(gitMessage)) {
+          throw error;
+        }
+        forceRmSync(existing.worktree_path);
+        warnings.push(`git worktree remove skipped stale path: ${gitMessage}`);
+      }
+    } else {
+      warnings.push('worktree path missing; removed stale database row');
+    }
 
     try {
       runGit(existing.repo_path, ['worktree', 'prune']);

@@ -60,6 +60,12 @@ function defaultStatusForCode(code) {
   return ERROR_STATUS_BY_CODE[code] || 500;
 }
 
+function normalizeHttpErrorStatus(status, fallback = 500) {
+  return Number.isInteger(status) && status >= 400 && status <= 599
+    ? status
+    : fallback;
+}
+
 function createV2Error(code, message, status, details) {
   const error = new Error(message);
   error.v2 = true;
@@ -178,7 +184,7 @@ function normalizeError(err, req) {
   if (err?.v2 === true) {
     code = typeof err.code === 'string' ? err.code : DEFAULT_ERROR_CODE;
     message = err.message || DEFAULT_ERROR_MESSAGE;
-    status = Number.isInteger(err.status) ? err.status : defaultStatusForCode(code);
+    status = normalizeHttpErrorStatus(err.status, defaultStatusForCode(code));
     details = coerceDetails(err.details);
   } else if (err instanceof URIError) {
     code = 'validation_error';
@@ -196,7 +202,7 @@ function normalizeError(err, req) {
     if (err.message && err.message !== DEFAULT_ERROR_MESSAGE) {
       logger.debug(`[v2-middleware] Internal error: ${err.message}`);
     }
-    status = Number.isInteger(err.status) ? err.status : defaultStatusForCode(code);
+    status = normalizeHttpErrorStatus(err.status, defaultStatusForCode(code));
     details = coerceDetails(err.details);
   } else if (err instanceof Error) {
     if (err.message && err.message !== DEFAULT_ERROR_MESSAGE) {
@@ -204,7 +210,7 @@ function normalizeError(err, req) {
     }
     message = DEFAULT_ERROR_MESSAGE; // Don't leak internal error messages
     details = coerceDetails(err.details);
-    status = Number.isInteger(err.status) ? err.status : 500;
+    status = normalizeHttpErrorStatus(err.status, 500);
   }
 
   return {

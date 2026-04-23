@@ -194,6 +194,27 @@ describe('normalizeError', () => {
       },
     });
   });
+
+  it('does not pass child process exit codes through as HTTP status codes', () => {
+    const error = new Error('git exited 128');
+    error.code = 128;
+    error.status = 128;
+
+    const normalized = normalizeError(error, {
+      headers: { 'x-request-id': 'req-exit-code' },
+    });
+
+    expect(normalized).toMatchObject({
+      status: 500,
+      body: {
+        error: {
+          code: 'provider_unavailable',
+          message: 'Internal server error',
+          request_id: 'req-exit-code',
+        },
+      },
+    });
+  });
 });
 
 describe('v2 route middleware wiring', () => {

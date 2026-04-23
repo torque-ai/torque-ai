@@ -223,6 +223,7 @@ describe('version-control worktree manager', () => {
 
   it('lists worktrees sorted by created_at descending and filters by repo', () => {
     const repoPathA = makeRepoRoot();
+    const repoPathASlash = repoPathA.replace(/\\/g, '/');
     const repoPathB = makeRepoRoot();
 
     insertWorktree({
@@ -233,7 +234,7 @@ describe('version-control worktree manager', () => {
     });
     insertWorktree({
       id: 'wt-new',
-      repo_path: repoPathA,
+      repo_path: repoPathASlash,
       worktree_path: path.join(repoPathA, '.worktrees', 'feat-new'),
       created_at: '2026-03-30T12:00:00.000Z',
     });
@@ -625,17 +626,29 @@ describe('version-control worktree manager', () => {
       id: 'wt-stale',
       repo_path: repoPath,
       worktree_path: path.join(repoPath, '.worktrees', 'feat-stale'),
+      created_at: '2026-03-20T00:00:00.000Z',
       last_activity_at: '2026-03-20T00:00:00.000Z',
     });
     insertWorktree({
       id: 'wt-fresh',
       repo_path: repoPath,
       worktree_path: path.join(repoPath, '.worktrees', 'feat-fresh'),
+      created_at: '2026-04-09T00:00:00.000Z',
       last_activity_at: '2026-04-09T00:00:00.000Z',
     });
+    insertWorktree({
+      id: 'wt-missing-merged',
+      repo_path: repoPath,
+      worktree_path: path.join(repoPath, '.worktrees', 'feat-missing-merged'),
+      status: 'merged',
+      created_at: '2026-03-19T00:00:00.000Z',
+      last_activity_at: '2026-04-09T00:00:00.000Z',
+      skipMkdir: true,
+    });
 
-    expect(manager.getStaleWorktrees(7, repoPath).map((worktree) => worktree.id)).toEqual(['wt-stale']);
+    expect(manager.getStaleWorktrees(7, repoPath).map((worktree) => worktree.id)).toEqual(['wt-stale', 'wt-missing-merged']);
     expect(manager.listWorktrees(repoPath).find((worktree) => worktree.id === 'wt-stale').isStale).toBe(true);
+    expect(manager.listWorktrees(repoPath).find((worktree) => worktree.id === 'wt-missing-merged').isStale).toBe(true);
 
     execFileSyncMock.mockClear();
     const result = manager.cleanupStale({ repoPath, staleDays: 7, dryRun: true });
@@ -644,10 +657,10 @@ describe('version-control worktree manager', () => {
       dryRun: true,
       repo_path: repoPath,
       stale_days: 7,
-      count: 1,
+      count: 2,
     });
-    expect(result.worktrees.map((worktree) => worktree.id)).toEqual(['wt-stale']);
-    expect(db.prepare('SELECT COUNT(*) AS count FROM vc_worktrees').get().count).toBe(2);
+    expect(result.worktrees.map((worktree) => worktree.id)).toEqual(['wt-stale', 'wt-missing-merged']);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM vc_worktrees').get().count).toBe(3);
     expect(execFileSyncMock).not.toHaveBeenCalled();
   });
 
@@ -973,5 +986,25 @@ describe('version-control worktree manager (real git integration)', () => {
       removed: true,
     });
     expect(manager.getWorktree(created.id)).toBeNull();
+  });
+
+  it('cleanupWorktree succeeds when the missing worktree has already been pruned by git', () => {
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'pruned vanished worktree');
+
+    fs.rmSync(created.worktree_path, { recursive: true, force: true });
+    runRealGit(repoPath, ['worktree', 'prune']);
+    expect(runRealGit(repoPath, ['worktree', 'list', '--porcelain'])).not.toContain(created.worktree_path);
+
+    const result = manager.cleanupWorktree(created.id, { deleteBranch: true });
+
+    expect(result).toMatchObject({
+      id: created.id,
+      removed: true,
+      branchDeleted: true,
+    });
+    expect(result.warnings).toContain('worktree path missing; removed stale database row');
+    expect(manager.getWorktree(created.id)).toBeNull();
+    expect(branchExists(repoPath, created.branch)).toBe(false);
   });
 });
