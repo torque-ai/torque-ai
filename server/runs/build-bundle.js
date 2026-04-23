@@ -3,9 +3,11 @@
 const fs = require('fs');
 const path = require('path');
 const db = require('../database');
+const { getDataDir } = require('../data-dir');
 const logger = require('../logger').child({ component: 'runs' });
 
 const BUNDLE_FORMAT_VERSION = 1;
+const FALLBACK_BUNDLE_DIR_NAME = 'workflow-bundles';
 
 /**
  * Assemble a self-contained artifact bundle for a workflow.
@@ -18,8 +20,7 @@ function buildBundle(workflowId, opts = {}) {
   const workflow = db.getWorkflow(normalizedWorkflowId);
   if (!workflow) return null;
 
-  const rootDir = path.resolve(opts.rootDir || workflow.working_directory || process.cwd());
-  const bundleDir = path.join(rootDir, 'runs', normalizedWorkflowId);
+  const bundleDir = resolveBundleDir(workflow, normalizedWorkflowId, opts);
   const tasksDir = path.join(bundleDir, 'tasks');
   fs.mkdirSync(tasksDir, { recursive: true });
 
@@ -39,6 +40,19 @@ function buildBundle(workflowId, opts = {}) {
 
   logger.info(`[runs] Bundle written: ${bundleDir} (${tasks.length} tasks, ${events.length} events)`);
   return bundleDir;
+}
+
+function resolveBundleDir(workflow, workflowId, opts = {}) {
+  if (opts.rootDir) {
+    return path.join(path.resolve(opts.rootDir), 'runs', workflowId);
+  }
+
+  if (typeof workflow.working_directory === 'string' && workflow.working_directory.trim()) {
+    return path.join(path.resolve(workflow.working_directory.trim()), 'runs', workflowId);
+  }
+
+  // Null-working-directory workflows should not dirty the repo/server cwd.
+  return path.join(path.resolve(getDataDir()), FALLBACK_BUNDLE_DIR_NAME, workflowId);
 }
 
 function buildManifest(workflow, tasks) {
@@ -181,4 +195,4 @@ function normalizePathSegment(value, label) {
   return normalized;
 }
 
-module.exports = { buildBundle };
+module.exports = { buildBundle, resolveBundleDir, FALLBACK_BUNDLE_DIR_NAME };

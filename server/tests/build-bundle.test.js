@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
-const { buildBundle } = require('../runs/build-bundle');
+const { getDataDir } = require('../data-dir');
+const { buildBundle, FALLBACK_BUNDLE_DIR_NAME } = require('../runs/build-bundle');
 
 let db;
 let testDir;
@@ -74,5 +75,28 @@ describe('buildBundle', () => {
 
   it('returns null for unknown workflow_id', () => {
     expect(buildBundle('does-not-exist', { rootDir: testDir })).toBeNull();
+  });
+
+  it('falls back to the TORQUE data dir when workflow working_directory is null', () => {
+    const wfId = randomUUID();
+    conn.prepare(`
+      INSERT INTO workflows (id, name, status, created_at, started_at, completed_at, working_directory)
+      VALUES (?, 'fallback', 'completed', ?, ?, ?, NULL)
+    `).run(
+      wfId,
+      '2026-04-11T10:00:00Z',
+      '2026-04-11T10:00:00Z',
+      '2026-04-11T10:05:00Z',
+    );
+
+    const bundleDir = buildBundle(wfId);
+    const expectedDir = path.join(path.resolve(getDataDir()), FALLBACK_BUNDLE_DIR_NAME, wfId);
+
+    expect(bundleDir).toBe(expectedDir);
+    expect(fs.existsSync(path.join(bundleDir, 'manifest.json'))).toBe(true);
+
+    const manifest = JSON.parse(fs.readFileSync(path.join(bundleDir, 'manifest.json'), 'utf8'));
+    expect(manifest.workflow_id).toBe(wfId);
+    expect(manifest.working_directory).toBeNull();
   });
 });
