@@ -316,6 +316,45 @@ describe('version-control release manager', () => {
     });
   });
 
+  it('createRelease bumps to the next patch when an inferred tag already exists', () => {
+    insertCommit(db, {
+      id: 'feat-existing-tag',
+      commit_type: 'feat',
+      message: 'feat: add duplicate-safe release',
+      generated_at: '2026-03-29T08:00:00.000Z',
+    });
+
+    const duplicateTagError = new Error("fatal: tag 'v1.3.0' already exists");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-30T11:45:00.000Z'));
+
+    execFileSyncMock
+      .mockReturnValueOnce('v1.2.3\n')
+      .mockReturnValueOnce('2026-03-29T00:00:00.000Z\n')
+      .mockImplementationOnce(() => { throw duplicateTagError; })
+      .mockReturnValueOnce('');
+
+    const result = manager.createRelease('C:\\repo');
+
+    expect(result).toEqual({
+      version: '1.3.1',
+      tag: 'v1.3.1',
+      bump: 'minor',
+      pushed: false,
+      commitCount: 1,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['tag', '-a', 'v1.3.0', '-m', 'Release 1.3.0'], {
+      cwd: 'C:\\repo',
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['tag', '-a', 'v1.3.1', '-m', 'Release 1.3.1'], {
+      cwd: 'C:\\repo',
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+  });
+
   it('createRelease pushes the tag when push=true', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-30T11:45:00.000Z'));

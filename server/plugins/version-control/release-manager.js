@@ -8,6 +8,7 @@ const NO_TAGS_ERROR_PATTERN = /no names found|cannot describe anything|no tags c
 const BREAKING_CHANGE_PATTERN = /BREAKING CHANGE|BREAKING:/i;
 const MESSAGE_TYPE_PATTERN = /^([a-z]+)(?:\([^)]+\))?!?:/i;
 const PRERELEASE_PATTERN = /^[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*$/;
+const TAG_EXISTS_PATTERN = /tag ['"][^'"]+['"] already exists|already exists/i;
 
 function resolveDbHandle(dbService) {
   const handle = dbService && typeof dbService.getDbInstance === 'function'
@@ -55,6 +56,16 @@ function isNoTagsError(error) {
   return NO_TAGS_ERROR_PATTERN.test(details);
 }
 
+function isTagAlreadyExistsError(error) {
+  const details = [
+    typeof error?.message === 'string' ? error.message : '',
+    typeof error?.stderr === 'string' ? error.stderr : '',
+    typeof error?.stdout === 'string' ? error.stdout : '',
+  ].join('\n');
+
+  return TAG_EXISTS_PATTERN.test(details);
+}
+
 function parseSemver(value, fieldName, options = {}) {
   const allowPrerelease = options.allowPrerelease === true;
   const normalized = requireString(value, fieldName);
@@ -82,6 +93,15 @@ function parseSemver(value, fieldName, options = {}) {
 
 function formatBaseVersion(version) {
   return `${version.major}.${version.minor}.${version.patch}`;
+}
+
+function bumpPatchVersionText(versionText) {
+  const parsed = parseSemver(versionText, 'version');
+  return formatBaseVersion({
+    major: parsed.version.major,
+    minor: parsed.version.minor,
+    patch: parsed.version.patch + 1,
+  });
 }
 
 function normalizePrerelease(value) {
@@ -302,10 +322,21 @@ function createReleaseManager({ db } = {}) {
         commitCount: 0,
       }
       : inferNextVersion(normalizedRepoPath, normalizedOptions);
-    const version = releaseInfo.next;
-    const tag = `v${version}`;
+    let version = releaseInfo.next;
+    let tag = `v${version}`;
 
-    runGit(normalizedRepoPath, ['tag', '-a', tag, '-m', `Release ${version}`]);
+    while (true) {
+      try {
+        runGit(normalizedRepoPath, ['tag', '-a', tag, '-m', `Release ${version}`]);
+        break;
+      } catch (error) {
+        if (normalizedOptions.version || !isTagAlreadyExistsError(error)) {
+          throw error;
+        }
+        version = bumpPatchVersionText(version);
+        tag = `v${version}`;
+      }
+    }
 
     if (push) {
       runGit(normalizedRepoPath, ['push', 'origin', tag]);

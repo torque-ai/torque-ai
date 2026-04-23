@@ -14,6 +14,7 @@
 
 const {
   sanitizeOutputForCondition,
+  truncateOptionalText,
   SECRET_PATTERNS,
   MAX_SANITIZE_LENGTH,
 } = require('../validation/output-safeguards');
@@ -270,6 +271,18 @@ function calculateTotal(items) {
       expect(result).toContain('[REDACTED]');
       expect(result).not.toContain('abcdefghijklmnopqrstuvwxyz');
     });
+  });
+});
+
+describe('truncateOptionalText', () => {
+  it('returns empty string for null or non-string smoke-test output', () => {
+    expect(truncateOptionalText(null, 500)).toBe('');
+    expect(truncateOptionalText(undefined, 500)).toBe('');
+    expect(truncateOptionalText({ error: 'boom' }, 500)).toBe('');
+  });
+
+  it('truncates string smoke-test output', () => {
+    expect(truncateOptionalText('abcdef', 3)).toBe('abc');
   });
 });
 

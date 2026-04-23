@@ -78,6 +78,11 @@ function sanitizeOutputForCondition(text) {
   return sanitized;
 }
 
+function truncateOptionalText(value, maxLength) {
+  if (typeof value !== 'string') return '';
+  return value.slice(0, maxLength);
+}
+
 function validateFileSizes(taskId, status, task, db, retryEnabled) {
   let validationScore = 100;
 
@@ -747,8 +752,9 @@ async function runOutputSafeguards(taskId, status, task) {
           const smokeResult = db.runAppSmokeTestSync(taskId, task.working_directory, { timeoutSeconds: 10 });
           if (!smokeResult.passed) {
             logger.info(`[Safeguard] Smoke test FAILED for ${taskId} (exit code: ${smokeResult.exit_code})`);
-            if (smokeResult.error_output) {
-              logger.info(`[Safeguard] Smoke test error: ${smokeResult.error_output.slice(0, 500)}`);
+            const errorOutput = truncateOptionalText(smokeResult.error_output, 500);
+            if (errorOutput) {
+              logger.info(`[Safeguard] Smoke test error: ${errorOutput}`);
             }
           } else {
             logger.info(`[Safeguard] Smoke test PASSED for ${taskId}`);
@@ -772,6 +778,7 @@ module.exports = {
   init,
   runOutputSafeguards,
   sanitizeOutputForCondition,
+  truncateOptionalText,
   MAX_SANITIZE_LENGTH,
   SECRET_PATTERNS,
 };
