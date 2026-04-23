@@ -251,6 +251,35 @@ describe('version-control worktree manager', () => {
     expect(created.worktree_path).toBe(path.join(repoPath, '.worktrees', leaf));
   });
 
+  it('quarantines an undeletable stale worktree path before recreating it', () => {
+    const repoPath = makeRepoRoot();
+    const stalePath = path.join(repoPath, '.worktrees', 'fea-7038346e');
+    fs.mkdirSync(stalePath, { recursive: true });
+    fs.writeFileSync(path.join(stalePath, 'locked.tmp'), 'stale');
+
+    const originalRmSync = fs.rmSync;
+    const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementation((target, options) => {
+      if (path.resolve(String(target)) === path.resolve(stalePath)) {
+        throw new Error('simulated locked directory');
+      }
+      return originalRmSync.call(fs, target, options);
+    });
+
+    try {
+      const created = manager.createWorktree(repoPath, 'new login flow');
+      const worktreeRoot = path.dirname(stalePath);
+      const staleEntries = fs.readdirSync(worktreeRoot)
+        .filter((entry) => entry.startsWith('.stale-fea-7038346e-'));
+
+      expect(created.worktree_path).toBe(stalePath);
+      expect(staleEntries).toHaveLength(1);
+      expect(fs.existsSync(path.join(worktreeRoot, staleEntries[0], 'locked.tmp'))).toBe(true);
+      expect(fs.existsSync(path.join(created.worktree_path, '.git'))).toBe(true);
+    } finally {
+      rmSpy.mockRestore();
+    }
+  });
+
   it('lists worktrees sorted by created_at descending and filters by repo', () => {
     const repoPathA = makeRepoRoot();
     const repoPathASlash = repoPathA.replace(/\\/g, '/');

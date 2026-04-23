@@ -150,6 +150,15 @@ function forceRmSync(target) {
   );
 }
 
+function quarantineStalePathSync(target) {
+  const parent = path.dirname(target);
+  const leaf = path.basename(target);
+  const suffix = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+  const quarantinePath = path.join(parent, `.stale-${leaf}-${suffix}`);
+  fs.renameSync(target, quarantinePath);
+  return quarantinePath;
+}
+
 function runGit(cwd, args, options = {}) {
   return childProcess.execFileSync('git', args, {
     cwd,
@@ -720,7 +729,25 @@ function createWorktree(repoPath, featureName, options = {}) {
         worktreePath,
         branch,
       });
-      forceRmSync(worktreePath);
+      try {
+        forceRmSync(worktreePath);
+      } catch (cleanupErr) {
+        let quarantinePath = null;
+        try {
+          quarantinePath = quarantineStalePathSync(worktreePath);
+        } catch (quarantineErr) {
+          throw new Error(
+            `stale worktree path cleanup failed for ${worktreePath}: ${cleanupErr.message}; `
+            + `quarantine failed: ${quarantineErr.message}`
+          );
+        }
+        logger.warn('createWorktree: quarantined stale worktree directory after cleanup failed', {
+          worktreePath,
+          quarantinePath,
+          branch,
+          err: cleanupErr.message,
+        });
+      }
       try {
         runGit(repositoryPath, ['worktree', 'prune']);
       } catch (pruneErr) {
