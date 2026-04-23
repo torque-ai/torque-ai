@@ -297,25 +297,45 @@ _defaultContainer.register(
 
 _defaultContainer.register(
   'starvationRecovery',
-  ['logger', 'eventBus'],
-  ({ logger: log, eventBus }) => {
+  ['db', 'logger', 'eventBus'],
+  ({ db, logger: log, eventBus }) => {
     const { createStarvationRecovery } = require('./factory/starvation-recovery');
+    const { createScoutFindingsIntake } = require('./factory/scout-findings-intake');
     const { handleSubmitScout } = require('./handlers/diffusion-handlers');
     const factoryHealth = require('./db/factory-health');
+    const factoryIntake = require('./db/factory-intake');
     const factoryLoopInstances = require('./db/factory-loop-instances');
     const recoveryLogger = log?.child
       ? log.child({ component: 'starvation-recovery' })
       : log;
+    const rawDb = unwrapDb(db);
 
     return createStarvationRecovery({
       logger: recoveryLogger,
       submitScout: async (opts) => handleSubmitScout({
+        project_id: opts.project_id,
+        project_path: opts.project_path,
+        reason: opts.reason,
         scope: opts.scope,
         working_directory: opts.working_directory || opts.project_path,
         file_patterns: opts.file_patterns,
         provider: opts.provider || 'codex',
         timeout_minutes: opts.timeout_minutes || 30,
       }),
+      countOpenWorkItems: async (projectId) => factoryIntake.listOpenWorkItems({
+        project_id: projectId,
+        limit: 1,
+      }).length,
+      ingestScoutFindings: async (project) => {
+        if (!rawDb || !project?.path) {
+          return { created: [], skipped: [], scanned: 0 };
+        }
+        const intake = createScoutFindingsIntake({ db: rawDb, factoryIntake });
+        return intake.scan({
+          project_id: project.id,
+          findings_dir: path.join(project.path, 'docs', 'findings'),
+        });
+      },
       updateLoopState: async (projectId, updates) => {
         const activeInstances = factoryLoopInstances.listInstances({
           project_id: projectId,

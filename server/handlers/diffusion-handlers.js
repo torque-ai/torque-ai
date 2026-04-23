@@ -119,7 +119,16 @@ function autoSelectApplyProviders() {
 }
 
 function handleSubmitScout(args) {
-  const { scope, working_directory, file_patterns, provider, timeout_minutes } = args || {};
+  const {
+    scope,
+    working_directory,
+    file_patterns,
+    provider,
+    timeout_minutes,
+    reason,
+    project_id,
+    project_path,
+  } = args || {};
 
   if (!scope || typeof scope !== 'string' || !scope.trim()) {
     return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'scope is required');
@@ -162,6 +171,9 @@ function handleSubmitScout(args) {
     metadata: JSON.stringify({
       mode: 'scout',
       diffusion: true,
+      reason: reason || null,
+      project_id: project_id || null,
+      project_path: project_path || working_directory,
       scope: scope.trim(),
       file_patterns: file_patterns || null,
     }),

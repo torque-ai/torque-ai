@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const childProcess = require('child_process');
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const {
@@ -311,6 +312,33 @@ describe('forceRmDir', () => {
     const result = forceRmDir(dir);
     expect(result.ok).toBe(true);
     expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it('quarantines a directory when delete commands report success but leave the path behind', () => {
+    const dir = path.join(testDir, `rm-quarantine-${Date.now()}`);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'x', 'utf8');
+
+    const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementation(() => {});
+    const execSpy = vi.spyOn(childProcess, 'execFileSync').mockImplementation(() => Buffer.from(''));
+
+    let result;
+    try {
+      result = forceRmDir(dir);
+    } finally {
+      rmSpy.mockRestore();
+      execSpy.mockRestore();
+    }
+
+    expect(result.ok).toBe(true);
+    expect(result.quarantined).toBe(true);
+    expect(fs.existsSync(dir)).toBe(false);
+    expect(result.quarantinePath).toContain('.torque-delete-pending');
+    expect(fs.existsSync(result.quarantinePath)).toBe(true);
+    expect(result.attempts.at(-1)).toMatchObject({
+      step: 'quarantine_rename',
+      ok: true,
+    });
   });
 });
 

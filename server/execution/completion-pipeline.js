@@ -343,6 +343,23 @@ async function handlePostCompletion(ctx) {
       try { deps.handlePipelineStepCompletion(taskId, ctx.status); } catch (e) { logger.error('Pipeline step completion failed:', e.message); }
     }
 
+    if (ctx.status === 'completed' && updatedTask) {
+      try {
+        const { promoteScoutTaskOutputToIntake } = require('../factory/scout-output-intake');
+        const scoutIntake = promoteScoutTaskOutputToIntake(updatedTask, { logger });
+        if (scoutIntake.created.length > 0 || scoutIntake.skipped.length > 0) {
+          logger.info('[ScoutIntake] Processed starvation recovery scout output', {
+            task_id: taskId,
+            created: scoutIntake.created.length,
+            skipped: scoutIntake.skipped.length,
+            reason: scoutIntake.reason || null,
+          });
+        }
+      } catch (err) {
+        logger.warn(`[ScoutIntake] Non-fatal error processing scout output for ${taskId}: ${err.message}`);
+      }
+    }
+
     // Release file locks synchronously BEFORE event dispatch so blocked tasks
     // can acquire them immediately when they receive the completion notification.
     // (The async safeguard chain also releases locks, but that races with event dispatch.)

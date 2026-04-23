@@ -87,6 +87,28 @@ function normalizeDuration(task) {
     : Math.round((Date.now() - startedAt) / 1000);
 }
 
+function normalizeEventDetails(task) {
+  if (!isTaskRecord(task)) {
+    return null;
+  }
+  const details = task.event_data ?? task.eventData ?? task.details ?? null;
+  if (details == null) {
+    return null;
+  }
+  if (typeof details === 'string') {
+    const trimmed = details.trim();
+    if (!trimmed) {
+      return null;
+    }
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return trimmed;
+    }
+  }
+  return details;
+}
+
 function collectTaskPayloadIssues(eventStatus, task) {
   const issues = [];
   if (!isTaskRecord(task)) {
@@ -134,6 +156,7 @@ function buildTaskEventContext(eventName, task) {
     : '';
   const taskPayloadIssues = collectTaskPayloadIssues(eventName, task);
   const malformedTaskPayload = taskPayloadIssues.length > 0;
+  const details = normalizeEventDetails(taskRecord);
 
   return {
     rawTask: taskRecord,
@@ -150,6 +173,7 @@ function buildTaskEventContext(eventName, task) {
     description,
     malformedTaskPayload,
     taskPayloadIssues,
+    details,
     emitterTask: taskRecord || {
       id: taskId,
       status: taskStatus || eventStatus,
@@ -211,6 +235,7 @@ function persistTaskEvent(eventName, task) {
       project: context.project,
       provider: context.provider,
       duration: context.duration,
+      details: context.details,
     });
 
     rawDb.prepare(`
