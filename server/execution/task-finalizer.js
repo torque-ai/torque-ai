@@ -20,6 +20,7 @@ const { runPhantomSuccessDetection } = require('../validation/phantom-success-de
 const { parseDiffusionSignal } = require('../diffusion/signal-parser');
 const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
 const { expandApplyTaskDescription } = require('../diffusion/planner');
+const { safeJsonParse } = require('../utils/json');
 const resumeContextUtils = require('../utils/resume-context');
 const { v4: uuidv4 } = require('uuid');
 
@@ -213,44 +214,42 @@ function getCheckpointStore() {
   }
 }
 
-function resolveWorkflowCheckpointVersion(workflowId, versionCandidate) {
+function normalizeWorkflowCheckpointVersion(versionCandidate) {
   const explicitVersion = Number(versionCandidate);
   if (Number.isInteger(explicitVersion) && explicitVersion > 0) {
     return explicitVersion;
   }
 
+  return 1;
+}
+
+function readWorkflowCheckpointSnapshot(workflowId, fallbackState, versionCandidate) {
+  const fallbackVersion = normalizeWorkflowCheckpointVersion(versionCandidate);
+
   const rawDb = getRawDbInstance();
   if (!rawDb || !workflowId) {
-    return 1;
+    return {
+      state: fallbackState,
+      version: fallbackVersion,
+    };
   }
 
   try {
-    const row = rawDb.prepare('SELECT version FROM workflow_state WHERE workflow_id = ?').get(workflowId);
-    const workflowVersion = Number(row?.version);
-    if (Number.isInteger(workflowVersion) && workflowVersion > 0) {
-      return workflowVersion;
+    const row = rawDb.prepare('SELECT state_json, version FROM workflow_state WHERE workflow_id = ?').get(workflowId);
+    if (row) {
+      return {
+        state: safeJsonParse(row.state_json, fallbackState),
+        version: normalizeWorkflowCheckpointVersion(row.version),
+      };
     }
   } catch (_err) {
     // workflow_state is not present on every branch yet; fall back below.
   }
 
-  try {
-    const row = rawDb.prepare(`
-      SELECT state_version
-      FROM workflow_checkpoints
-      WHERE workflow_id = ?
-      ORDER BY taken_at DESC, rowid DESC
-      LIMIT 1
-    `).get(workflowId);
-    const lastVersion = Number(row?.state_version);
-    if (Number.isInteger(lastVersion) && lastVersion > 0) {
-      return lastVersion + 1;
-    }
-  } catch (_err) {
-    // Checkpoint schema may not be available in isolated tests.
-  }
-
-  return 1;
+  return {
+    state: fallbackState,
+    version: fallbackVersion,
+  };
 }
 
 function getDurationMsForScoring(task) {
@@ -874,16 +873,25 @@ async function finalizeTask(taskId, options = {}) {
     const workflowStateVersion = options.stateVersion !== undefined
       ? options.stateVersion
       : (procState.stateVersion !== undefined ? procState.stateVersion : workflowState?.version);
-    if (ctx.status === 'completed' && ctx.task?.workflow_id && workflowState !== undefined) {
+    if (ctx.status === 'completed' && ctx.task?.workflow_id) {
       try {
         const checkpointStore = getCheckpointStore();
-        if (checkpointStore && typeof checkpointStore.writeCheckpoint === 'function') {
+        const workflowSnapshot = readWorkflowCheckpointSnapshot(
+          ctx.task.workflow_id,
+          workflowState,
+          workflowStateVersion,
+        );
+        if (
+          checkpointStore
+          && typeof checkpointStore.writeCheckpoint === 'function'
+          && workflowSnapshot.state !== undefined
+        ) {
           checkpointStore.writeCheckpoint({
             workflowId: ctx.task.workflow_id,
-            stepId: ctx.task.workflow_node_id || ctx.task.node_id || null,
+            stepId: ctx.task.workflow_node_id || ctx.task.node_id || task.workflow_node_id || task.node_id || null,
             taskId,
-            state: workflowState,
-            version: resolveWorkflowCheckpointVersion(ctx.task.workflow_id, workflowStateVersion),
+            state: workflowSnapshot.state,
+            version: workflowSnapshot.version,
           });
         }
       } catch (checkpointErr) {
