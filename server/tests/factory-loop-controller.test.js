@@ -330,6 +330,45 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   }
 
+  it('does not restore an unactionable item from the decision log on a fresh loop', async () => {
+    const { project, workItem, planPath } = registerPlanProject();
+    factoryIntake.updateWorkItem(workItem.id, {
+      status: 'unactionable',
+      reject_reason: 'branch_stale_vs_base',
+    });
+    const fallback = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'manual',
+      title: 'Fallback open item',
+      description: 'Open work should be selected instead of the closed decision-log item.',
+      priority: 45,
+      requestor: 'test',
+      origin: { plan_path: planPath },
+    });
+    factoryDecisions.recordDecision({
+      project_id: project.id,
+      stage: 'prioritize',
+      actor: 'architect',
+      action: 'selected_work_item',
+      reasoning: 'Historical selection that is now terminal.',
+      outcome: { work_item_id: workItem.id },
+      confidence: 1,
+    });
+
+    loopController.startLoopForProject(project.id);
+    const senseAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(senseAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
+    loopController.approveGateForProject(project.id, LOOP_STATES.PRIORITIZE);
+    await loopController.advanceLoopForProject(project.id);
+    const instance = loopController.getActiveInstances(project.id)[0];
+    expect(instance.work_item_id).toBe(fallback.id);
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      status: 'unactionable',
+      reject_reason: 'branch_stale_vs_base',
+    });
+  });
+
   it('defaults supervised EXECUTE to pending approval and records held task submissions', async () => {
     const { project, workItem, planPath } = registerPlanProject();
     const before = fs.readFileSync(planPath, 'utf8');
