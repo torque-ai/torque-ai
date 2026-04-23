@@ -450,7 +450,12 @@ describe('ProcessTracker', () => {
 
     it('resetAll clears runtime maps and cancels retry timers', () => {
       const clearSpy = vi.spyOn(global, 'clearTimeout');
-      tracker.set(taskId, { process: { pid: 1, kill: vi.fn() } });
+      const kill = vi.fn();
+      tracker.set(taskId, {
+        process: { pid: 1, kill },
+        timeoutHandle: setTimeout(() => {}, 10_000),
+        startupTimeoutHandle: setTimeout(() => {}, 10_000),
+      });
       tracker.setStallAttempts(taskId, { attempts: 1, lastStrategy: 'none' });
       tracker.setAbortController(taskId, new AbortController());
       tracker.setRetryTimeout(taskId, setTimeout(() => {}, 10_000));
@@ -463,6 +468,7 @@ describe('ProcessTracker', () => {
       expect(tracker.abortControllers.size).toBe(0);
       expect(tracker.cleanupGuard.size).toBe(0);
       expect(tracker.retryTimeouts.size).toBe(0);
+      expect(kill).toHaveBeenCalledWith('SIGTERM');
       expect(clearSpy).toHaveBeenCalled();
     });
 

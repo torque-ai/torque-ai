@@ -1,6 +1,7 @@
-'use strict';
-const { describe, it, expect } = require('vitest');
-const { validateMemory, resolveNamespace, MEMORY_KINDS } = require('../memory/memory-kind');
+import { describe, it, expect } from 'vitest';
+import memoryKind from '../memory/memory-kind';
+
+const { validateMemory, resolveNamespace, MEMORY_KINDS } = memoryKind;
 
 describe('memory kinds', () => {
   it('MEMORY_KINDS exposes all three', () => {

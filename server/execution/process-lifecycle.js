@@ -12,7 +12,7 @@
  * management in one cohesive module.
  */
 
-const { spawn } = require('child_process');
+const childProcess = require('child_process');
 // Lazy-load to survive test-time module cache resets (setupTestDb)
 function getTaskCore() { return require('../db/task-core'); }
 function getHostManagement() { return require('../db/host-management'); }
@@ -355,7 +355,7 @@ function spawnAndTrackProcess(taskId, task, {
   logger.info(`[TaskManager] Provider: ${provider}, Working dir: ${options.cwd}`);
 
   // Spawn the process (using spawn, not exec, for security)
-  const child = spawn(cliPath, finalArgs, options);
+  const child = childProcess.spawn(cliPath, finalArgs, options);
 
   // CRITICAL: Attach error listener IMMEDIATELY after spawn to prevent
   // unhandled 'error' events from crashing the process (e.g., ENOENT when

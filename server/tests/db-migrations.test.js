@@ -784,6 +784,33 @@ describe('db/migrations', () => {
       expect(getAppliedVersions(db)).toContain(2);
     });
 
+    it('tolerates pre-existing memory kind namespace index when applying migration v33', () => {
+      createBaseSchema(db);
+      db.exec(`
+        ALTER TABLE memories ADD COLUMN kind TEXT NOT NULL DEFAULT 'semantic';
+        ALTER TABLE memories ADD COLUMN namespace TEXT NOT NULL DEFAULT '';
+        CREATE INDEX idx_memories_kind_namespace ON memories(kind, namespace);
+      `);
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 33));
+
+      expect(() => subject.runMigrations(db)).not.toThrow();
+      expect(indexExists(db, 'idx_memories_kind_namespace')).toBe(true);
+      expect(getAppliedVersions(db)).toContain(33);
+    });
+
+    it('creates memories table when applying migration v33 to a minimal schema', () => {
+      createBaseSchema(db, { includeMemories: false });
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 33));
+
+      expect(() => subject.runMigrations(db)).not.toThrow();
+      expect(tableExists(db, 'memories')).toBe(true);
+      expect(getColumnNames(db, 'memories')).toEqual(
+        expect.arrayContaining(['kind', 'namespace', 'role', 'content', 'metadata_json']),
+      );
+      expect(indexExists(db, 'idx_memories_kind_namespace')).toBe(true);
+      expect(getAppliedVersions(db)).toContain(33);
+    });
+
     it('falls back to split statement execution for multi-statement rollback SQL', () => {
       seedAppliedVersions(db, subject.MIGRATIONS);
       addTemporaryMigration({
