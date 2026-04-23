@@ -5,7 +5,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
-const { createServer } = require('../agent-server');
+const { createServer, validateRepoCloneUrl } = require('../agent-server');
 
 const TEST_SECRET = 'remote-agent-server-test-secret';
 
@@ -78,6 +78,9 @@ beforeAll(async () => {
   server = createServer({
     secret: TEST_SECRET,
     projectsDir,
+    config: {
+      allowed_repo_hosts: ['github.com'],
+    },
   });
 
   await new Promise((resolve, reject) => {
@@ -215,6 +218,42 @@ describe('remote/agent-server', () => {
     });
     expect(fs.existsSync(expectedPath)).toBe(true);
     expect(fs.statSync(expectedPath).isDirectory()).toBe(true);
+  });
+
+  it.each([
+    ['git protocol localhost', 'git://127.0.0.1/repo.git'],
+    ['metadata service over http', 'http://169.254.169.254/repo.git'],
+    ['local file URL', 'file:///etc/passwd'],
+    ['ssh URL', 'ssh://user@example.com/org/repo.git'],
+    ['credential-bearing URL', 'https://github.com@127.0.0.1/repo.git'],
+    ['suffix host bypass', 'https://github.com.evil.test/org/repo.git'],
+  ])('POST /sync rejects unsafe repoUrl: %s', async (_label, repoUrl) => {
+    const project = `unsafe-sync-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const expectedPath = path.join(projectsDir, project);
+
+    const response = await request({
+      method: 'POST',
+      pathname: '/sync',
+      headers: authHeaders(),
+      body: {
+        project,
+        branch: 'main',
+        repoUrl,
+      },
+    });
+
+    expect([400, 403]).toContain(response.statusCode);
+    expect(parseJson(response.body).error).toEqual(expect.any(String));
+    expect(fs.existsSync(expectedPath)).toBe(false);
+  });
+
+  it('validateRepoCloneUrl allows only exact configured HTTPS hosts', () => {
+    const state = { config: { allowed_repo_hosts: ['github.com'] } };
+
+    expect(validateRepoCloneUrl('https://github.com/org/repo.git', state))
+      .toBe('https://github.com/org/repo.git');
+    expect(() => validateRepoCloneUrl('https://github.com.evil.test/org/repo.git', state))
+      .toThrow(/Repository host is not allowed: github\.com\.evil\.test/);
   });
 
   it('invalid JSON body returns 400', async () => {

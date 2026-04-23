@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
+const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
@@ -373,20 +374,88 @@ function resolveProjectDir(baseDir, project) {
   return projectDir;
 }
 
+function normalizeRepoHostList(hosts) {
+  if (!hosts) {
+    return [];
+  }
+
+  const values = typeof hosts === 'string'
+    ? hosts.split(',')
+    : Array.from(hosts);
+
+  return values
+    .map((host) => String(host).trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function getAllowedRepoHosts(state = {}) {
+  const configHosts = state && state.config && state.config.allowed_repo_hosts;
+  const hosts = configHosts || process.env.TORQUE_AGENT_ALLOWED_REPO_HOSTS;
+  return new Set(normalizeRepoHostList(hosts));
+}
+
+function isLocalOrIpHost(hostname) {
+  const normalized = String(hostname || '').toLowerCase();
+  const ipHost = normalized.replace(/^\[|\]$/g, '');
+  return normalized === 'localhost'
+    || normalized.endsWith('.localhost')
+    || net.isIP(ipHost) !== 0;
+}
+
+function validateRepoCloneUrl(repoUrl, state = {}) {
+  if (typeof repoUrl !== 'string' || !repoUrl.trim()) {
+    throw createHttpError('Missing repository URL', 400);
+  }
+
+  const rawRepoUrl = repoUrl.trim();
+  let parsed;
+  try {
+    parsed = new URL(rawRepoUrl);
+  } catch (error) {
+    throw createHttpError(`Invalid repository URL: ${error.message}`, 400);
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw createHttpError('Only https:// repository URLs are allowed', 400);
+  }
+
+  if (parsed.username || parsed.password) {
+    throw createHttpError('Repository URL credentials are not allowed', 400);
+  }
+
+  if (parsed.port && parsed.port !== '443') {
+    throw createHttpError('Repository URL non-default ports are not allowed', 400);
+  }
+
+  if (parsed.search || parsed.hash || rawRepoUrl.includes('?') || rawRepoUrl.includes('#')) {
+    throw createHttpError('Repository URL query strings and fragments are not allowed', 400);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (isLocalOrIpHost(hostname)) {
+    throw createHttpError(`Repository host is not allowed: ${hostname}`, 403);
+  }
+
+  const allowedHosts = getAllowedRepoHosts(state);
+  if (!allowedHosts.has(hostname)) {
+    throw createHttpError(`Repository host is not allowed: ${hostname}`, 403);
+  }
+
+  return parsed.href;
+}
+
 function hasGitMetadata(projectDir) {
   return fs.existsSync(path.join(projectDir, '.git'));
 }
 
-async function syncProject({ baseDir, project, branch = 'main', repoUrl }) {
+async function syncProject({ baseDir, project, branch = 'main', repoUrl, state }) {
   const projectDir = resolveProjectDir(baseDir, project);
   fs.mkdirSync(baseDir, { recursive: true });
+  const validatedRepoUrl = repoUrl ? validateRepoCloneUrl(repoUrl, state) : null;
 
   if (!fs.existsSync(projectDir)) {
-    if (repoUrl) {
-      if (!repoUrl.startsWith('https://')) {
-        return { success: false, error: 'Only https:// repository URLs are allowed' };
-      }
-      await runGit(['clone', '--branch', branch, repoUrl, projectDir], {
+    if (validatedRepoUrl) {
+      await runGit(['clone', '--branch', branch, '--', validatedRepoUrl, projectDir], {
         timeout: DEFAULT_TIMEOUT_MS,
       });
     } else {
@@ -701,6 +770,7 @@ function createServer(options = {}) {
           project: body.project,
           branch: body.branch || 'main',
           repoUrl: body.repoUrl || body.repo_url,
+          state,
         });
         writeJson(res, 200, payload);
       } catch (error) {
@@ -819,6 +889,7 @@ module.exports = {
   streamRun,
   syncProject,
   terminateChild,
+  validateRepoCloneUrl,
   validateRunRequest,
   writeJson,
 };
