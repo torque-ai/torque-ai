@@ -141,6 +141,9 @@ expect_file_empty() {
 
 reset_stub_env() {
   unset GIT_REV_PARSE_OUTPUT GIT_REV_PARSE_EXIT_CODE GIT_DEFAULT_EXIT_CODE
+  unset GIT_VERIFY_EXISTS GIT_VERIFY_DEFAULT_EXIT_CODE
+  unset GIT_DIFF_BASE_OUTPUT GIT_DIFF_HEAD_OUTPUT GIT_DIFF_EXIT_CODE
+  unset GIT_LS_FILES_OUTPUT GIT_LS_FILES_EXIT_CODE
   unset SSH_CONNECT_OUTPUT SSH_CONNECT_EXIT_CODE
   unset SSH_WMIC_OUTPUT SSH_WMIC_EXIT_CODE
   unset SSH_BRANCH_EXISTS_OUTPUT SSH_BRANCH_EXISTS_EXIT_CODE
@@ -207,6 +210,35 @@ if [[ "$#" -ge 3 && "$1" == "rev-parse" && "$2" == "--abbrev-ref" && "$3" == "HE
     printf '%s\n' "$GIT_REV_PARSE_OUTPUT"
   fi
   exit "${GIT_REV_PARSE_EXIT_CODE:-0}"
+fi
+
+if [[ "$#" -ge 3 && "$1" == "rev-parse" && "$2" == "--verify" ]]; then
+  ref="$3"
+  if grep -Fxq -- "$ref" <<<"${GIT_VERIFY_EXISTS:-}"; then
+    printf '%s\n' "$ref"
+    exit 0
+  fi
+  exit "${GIT_VERIFY_DEFAULT_EXIT_CODE:-1}"
+fi
+
+if [[ "$#" -ge 2 && "$1" == "diff" && "$2" == "--binary" ]]; then
+  if [[ "${3:-}" == "HEAD" ]]; then
+    if [[ "${GIT_DIFF_HEAD_OUTPUT+x}" == "x" && -n "$GIT_DIFF_HEAD_OUTPUT" ]]; then
+      printf '%s' "$GIT_DIFF_HEAD_OUTPUT"
+    fi
+  else
+    if [[ "${GIT_DIFF_BASE_OUTPUT+x}" == "x" && -n "$GIT_DIFF_BASE_OUTPUT" ]]; then
+      printf '%s' "$GIT_DIFF_BASE_OUTPUT"
+    fi
+  fi
+  exit "${GIT_DIFF_EXIT_CODE:-0}"
+fi
+
+if [[ "$#" -ge 4 && "$1" == "ls-files" && "$2" == "--others" && "$3" == "--exclude-standard" && "$4" == "-z" ]]; then
+  if [[ "${GIT_LS_FILES_OUTPUT+x}" == "x" && -n "$GIT_LS_FILES_OUTPUT" ]]; then
+    printf '%s' "$GIT_LS_FILES_OUTPUT"
+  fi
+  exit "${GIT_LS_FILES_EXIT_CODE:-0}"
 fi
 
 exit "${GIT_DEFAULT_EXIT_CODE:-0}"
@@ -324,6 +356,8 @@ EOF
 }
 EOF
 
+  export GIT_VERIFY_EXISTS="origin/main"
+
   write_stub_jq "$tmp/bin/jq"
   write_stub_git "$tmp/bin/git"
   write_stub_ssh "$tmp/bin/ssh"
@@ -372,6 +406,7 @@ test_default_syncs_main() {
   expect_file_contains "local branch detection runs" "$tmp/calls.log" "git [rev-parse] [--abbrev-ref] [HEAD]"
   expect_file_contains "ssh sync checks out main" "$tmp/calls.log" "git checkout --force main"
   expect_file_contains "ssh sync resets origin/main" "$tmp/calls.log" "git reset --hard origin/main"
+  expect_file_contains "remote execute uses git bash" "$tmp/calls.log" "C:\\progra~1\\Git\\bin\\bash.exe"
 
   finish_test "test_default_syncs_main"
 }
@@ -385,11 +420,13 @@ test_branch_flag_syncs_override() {
 
   make_test_env
   tmp="$LAST_TEST_ENV"
+  export GIT_VERIFY_EXISTS=$'origin/main\norigin/wip/foo'
 
   run_torque_remote "$tmp" --branch wip/foo echo hi
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
   expect_file_not_contains "branch override skips local branch detection" "$tmp/calls.log" "git [rev-parse] [--abbrev-ref] [HEAD]"
+  expect_file_not_contains "branch override skips local bundle diff" "$tmp/calls.log" "git [diff] [--binary]"
   expect_file_contains "ssh sync checks out override branch" "$tmp/calls.log" "git checkout --force wip/foo"
   expect_file_contains "ssh sync resets origin override branch" "$tmp/calls.log" "git reset --hard origin/wip/foo"
 
@@ -405,7 +442,6 @@ test_branch_flag_missing_errors() {
 
   make_test_env
   tmp="$LAST_TEST_ENV"
-  export SSH_BRANCH_EXISTS_EXIT_CODE=1
 
   run_torque_remote "$tmp" --branch bogus-branch echo hi
 
@@ -436,6 +472,33 @@ test_invalid_branch_name_errors() {
   finish_test "test_invalid_branch_name_errors"
 }
 
+test_local_state_overlays_worktree_from_fallback_base() {
+  local tmp
+
+  echo "Test: local worktree state overlays fallback base"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="feat/local-only"
+  export GIT_VERIFY_EXISTS="origin/main"
+  export GIT_DIFF_BASE_OUTPUT='diff --git a/file.txt b/file.txt'
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_file_contains "missing remote branch is checked first" "$tmp/calls.log" "git [rev-parse] [--verify] [origin/feat/local-only]"
+  expect_file_contains "fallback base is checked" "$tmp/calls.log" "git [rev-parse] [--verify] [origin/main]"
+  expect_file_contains "base diff is created" "$tmp/calls.log" "git [diff] [--binary] [origin/main..HEAD]"
+  expect_file_contains "worktree diff is created" "$tmp/calls.log" "git [diff] [--binary] [HEAD]"
+  expect_file_contains "untracked files are inspected" "$tmp/calls.log" "git [ls-files] [--others] [--exclude-standard] [-z]"
+  expect_contains "stderr mentions fallback overlay" "$RUN_STDERR" "using main as the remote base and overlaying local worktree state"
+  expect_file_contains "remote script is uploaded before execution" "$tmp/calls.log" "cat > /tmp/torque-remote-exec-"
+
+  finish_test "test_local_state_overlays_worktree_from_fallback_base"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -446,6 +509,7 @@ main() {
   test_branch_flag_syncs_override
   test_branch_flag_missing_errors
   test_invalid_branch_name_errors
+  test_local_state_overlays_worktree_from_fallback_base
 
   echo ""
   echo "=============================="

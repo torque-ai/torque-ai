@@ -282,11 +282,13 @@ Use `torque-remote` for heavy commands when a remote workstation is configured:
     torque-remote dotnet build example-project.sln            # build remotely
     torque-remote cargo build --release                    # any heavy command
 
-**Testing uncommitted branches:** Use `--branch <ref>` to sync and run against a non-main branch on the remote. Example:
+**Testing local worktree state:** Run `torque-remote` from the feature worktree directory. The remote side resets to the branch's origin ref when available, or falls back to `origin/main` / `origin/master`, overlays the local commits and dirty worktree state for that single command, then cleans back to the base ref.
+
+`--branch <ref>` remains an explicit pushed-ref override when you want to test a ref that already exists on origin. Example:
 
     torque-remote --branch wip/experiment npx vitest run server/tests/foo.test.js
 
-Without `--branch`, `torque-remote` syncs the current local branch (or falls back to `origin/main` for detached HEAD).
+Without `--branch`, `torque-remote` uses the current worktree as the source of truth for the remote run.
 
 If the remote is unreachable or overloaded, `torque-remote` falls back to local execution automatically.
 
@@ -310,7 +312,7 @@ Examples:
     git push origin main                    # gated: full dashboard + remote server suite
     git push origin wip/experiment          # ungated: skip tests for iteration
 
-When iterating on an uncommitted feature branch before it lands on `main`, use `torque-remote --branch <ref>` to sync that branch state and run targeted remote tests.
+When iterating on an unpushed feature branch before it lands on `main`, run `torque-remote` from that feature worktree so the remote workstation sees the exact local state you are validating.
 
 ## Task Completion Notifications
 

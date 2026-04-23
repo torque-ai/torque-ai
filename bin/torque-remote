@@ -25,6 +25,79 @@ json_get() {
   jq -r "$field // empty" "$file" 2>/dev/null | tr -d '\r' || true
 }
 
+TEMP_DIRS=()
+
+cleanup_temp_dirs() {
+  local dir
+  for dir in "${TEMP_DIRS[@]}"; do
+    [[ -n "$dir" && -d "$dir" ]] && rm -rf "$dir"
+  done
+}
+
+make_temp_dir() {
+  local dir
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/torque-remote.XXXXXX")"
+  TEMP_DIRS+=("$dir")
+  printf '%s\n' "$dir"
+}
+
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+resolve_sync_ref() {
+  local branch="$1"
+
+  if [[ -n "$branch" ]] && git rev-parse --verify "origin/$branch" >/dev/null 2>&1; then
+    printf 'origin/%s\n' "$branch"
+    return 0
+  fi
+
+  local candidate
+  for candidate in origin/main origin/master; do
+    if git rev-parse --verify "$candidate" >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+create_local_state_bundle() {
+  local base_ref="$1"
+  local bundle_dir committed_patch worktree_patch untracked_list bundle_tar
+
+  bundle_dir="$(make_temp_dir)"
+  committed_patch="$bundle_dir/committed.patch"
+  worktree_patch="$bundle_dir/worktree.patch"
+  untracked_list="$bundle_dir/untracked.list"
+  bundle_tar="$bundle_dir/local-state.tar"
+
+  git diff --binary "$base_ref..HEAD" > "$committed_patch"
+  git diff --binary HEAD > "$worktree_patch"
+  git ls-files --others --exclude-standard -z > "$untracked_list"
+
+  if [[ ! -s "$committed_patch" && ! -s "$worktree_patch" && ! -s "$untracked_list" ]]; then
+    printf '\n'
+    return 0
+  fi
+
+  if [[ -s "$untracked_list" ]]; then
+    tar -cf "$bundle_dir/untracked.tar" --null -T "$untracked_list"
+  fi
+
+  local tar_args=(committed.patch worktree.patch)
+  if [[ -f "$bundle_dir/untracked.tar" ]]; then
+    tar_args+=(untracked.tar)
+  fi
+
+  tar -cf "$bundle_tar" -C "$bundle_dir" "${tar_args[@]}"
+  printf '%s\n' "$bundle_tar"
+}
+
+trap cleanup_temp_dirs EXIT
+
 # ---- Prerequisites ----
 
 command -v jq  &>/dev/null || die "jq is required but not found in PATH"
@@ -181,6 +254,8 @@ case "$TRANSPORT" in
     ;;
 
   ssh)
+    cd "$PROJECT_ROOT"
+
     # Validate connection details
     [[ -z "$SSH_HOST" ]] && die "SSH transport requires 'host' in ~/.torque-remote.local.json"
     [[ -z "$SSH_USER" ]] && die "SSH transport requires 'user' in ~/.torque-remote.local.json"
@@ -229,39 +304,102 @@ case "$TRANSPORT" in
       exit $exit_code
     fi
 
+    SYNC_REF=""
+    SYNC_BRANCH=""
+    APPLY_LOCAL_STATE="false"
+    LOCAL_STATE_BUNDLE=""
+
     # Sync
     if [[ "$SYNC_BEFORE_RUN" == "true" ]]; then
       if [[ -n "$BRANCH_OVERRIDE" ]]; then
-        local_branch="$BRANCH_OVERRIDE"
-        if ! ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-          "cd \"$REMOTE_PROJECT_PATH\" && git fetch origin && git rev-parse --verify origin/$local_branch" \
-          &>/dev/null; then
-          die "Branch '$local_branch' does not exist on origin"
+        if ! git rev-parse --verify "origin/$BRANCH_OVERRIDE" >/dev/null 2>&1; then
+          die "Branch '$BRANCH_OVERRIDE' does not exist on origin"
         fi
-        info "Syncing $local_branch on remote..."
-        ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-          "cd \"$REMOTE_PROJECT_PATH\" && git fetch origin && git checkout --force $local_branch && git reset --hard origin/$local_branch" \
-          2>&1 | tee -a /tmp/torque-remote-sync.log | grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || warn "Sync failed — remote may have stale code (see /tmp/torque-remote-sync.log)"
+        SYNC_REF="origin/$BRANCH_OVERRIDE"
       else
         local_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
         if [[ "$local_branch" == "HEAD" ]]; then
-          warn "Detached HEAD — skipping remote sync, remote may have stale code"
-        elif [[ ! "$local_branch" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
-          warn "Branch name contains unsafe characters — skipping sync"
+          SYNC_REF="$(resolve_sync_ref "")" || die "Could not resolve a remote base ref for detached HEAD"
+        elif [[ "$local_branch" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+          SYNC_REF="$(resolve_sync_ref "$local_branch")" || die "Could not resolve a remote base ref for '$local_branch'"
         else
-          info "Syncing $local_branch on remote..."
-          ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-            "cd \"$REMOTE_PROJECT_PATH\" && git fetch origin && git checkout --force $local_branch && git reset --hard origin/$local_branch" \
-            2>&1 | tee -a /tmp/torque-remote-sync.log | grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || warn "Sync failed — remote may have stale code (see /tmp/torque-remote-sync.log)"
+          warn "Branch name contains unsafe characters — falling back to default origin branch"
+          SYNC_REF="$(resolve_sync_ref "")" || die "Could not resolve a remote base ref for '$local_branch'"
+        fi
+
+        LOCAL_STATE_BUNDLE="$(create_local_state_bundle "$SYNC_REF")"
+        if [[ -n "$LOCAL_STATE_BUNDLE" ]]; then
+          APPLY_LOCAL_STATE="true"
+          if [[ "$SYNC_REF" != "origin/$local_branch" ]]; then
+            info "Branch '$local_branch' is not on origin; using ${SYNC_REF#origin/} as the remote base and overlaying local worktree state"
+          else
+            info "Overlaying local worktree state on top of ${SYNC_REF#origin/}"
+          fi
         fi
       fi
+
+      SYNC_BRANCH="${SYNC_REF#origin/}"
+      info "Syncing $SYNC_BRANCH on remote..."
+      ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+        "cd \"$REMOTE_PROJECT_PATH\" && git fetch origin && git checkout --force $SYNC_BRANCH && git reset --hard $SYNC_REF" \
+        2>&1 | tee -a /tmp/torque-remote-sync.log | grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || warn "Sync failed — remote may have stale code (see /tmp/torque-remote-sync.log)"
     fi
 
-    # Execute
+    GIT_BASH='C:\progra~1\Git\bin\bash.exe'
+    REMOTE_EXEC_PATH="/tmp/torque-remote-exec-$$-$RANDOM.sh"
+    REMOTE_EXEC_SCRIPT_LOCAL="$(make_temp_dir)/remote-exec.sh"
+    REMOTE_EXEC_SCRIPT=$(cat <<EOF
+PROJECT_PATH=$(shell_quote "$REMOTE_PROJECT_PATH")
+SCRIPT_PATH=$(shell_quote "$REMOTE_EXEC_PATH")
+SYNC_REF=$(shell_quote "$SYNC_REF")
+APPLY_LOCAL_STATE=$(shell_quote "$APPLY_LOCAL_STATE")
+COMMAND=$(shell_quote "$COMMAND")
+set -euo pipefail
+cd "\$PROJECT_PATH"
+sync_dir=""
+cleanup() {
+  rm -f "\$SCRIPT_PATH" >/dev/null 2>&1 || true
+  if [[ -n "\$sync_dir" && -d "\$sync_dir" ]]; then
+    rm -rf "\$sync_dir"
+  fi
+  if [[ "\$APPLY_LOCAL_STATE" == "true" ]]; then
+    git reset --hard "\$SYNC_REF" >/dev/null 2>&1 || true
+    git clean -fd >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
+if [[ "\$APPLY_LOCAL_STATE" == "true" ]]; then
+  sync_dir="\$(mktemp -d "\${TMPDIR:-/tmp}/torque-remote-sync.XXXXXX")"
+  tar -xf - -C "\$sync_dir"
+  if [[ -s "\$sync_dir/committed.patch" ]]; then
+    git apply --binary "\$sync_dir/committed.patch"
+  fi
+  if [[ -s "\$sync_dir/worktree.patch" ]]; then
+    git apply --binary "\$sync_dir/worktree.patch"
+  fi
+  if [[ -f "\$sync_dir/untracked.tar" ]]; then
+    tar -xf "\$sync_dir/untracked.tar" -C .
+  fi
+fi
+eval "\$COMMAND"
+EOF
+)
+    printf '%s' "$REMOTE_EXEC_SCRIPT" > "$REMOTE_EXEC_SCRIPT_LOCAL"
+    REMOTE_UPLOAD_COMMAND="\"$GIT_BASH\" -lc \"cat > $REMOTE_EXEC_PATH && chmod +x $REMOTE_EXEC_PATH\""
+    REMOTE_RUN_COMMAND="\"$GIT_BASH\" $REMOTE_EXEC_PATH"
+
+    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      "$REMOTE_UPLOAD_COMMAND" < "$REMOTE_EXEC_SCRIPT_LOCAL"
+
     info "Running on $SSH_USER@$SSH_HOST: $COMMAND"
     set +e
-    timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "cd \"$REMOTE_PROJECT_PATH\" && $COMMAND"
+    if [[ "$APPLY_LOCAL_STATE" == "true" ]]; then
+      timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+        "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE"
+    else
+      timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+        "$REMOTE_RUN_COMMAND"
+    fi
     exit_code=$?
     set -e
 
