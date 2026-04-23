@@ -461,6 +461,50 @@ describe('Logger argument normalization', () => {
     expect(entry).not.toHaveProperty('1');
   });
 
+  it('preserves the envelope message when structured data also has message metadata', () => {
+    const { logger, lines } = createCapturingLogger();
+
+    logger.info({
+      component: 'decision-log',
+      message: {
+        project_id: 'project-1',
+        action: 'plan_quality_rejected_will_replan',
+      },
+      level: 'metadata-level',
+      timestamp: 'metadata-timestamp',
+    }, 'Factory decision logged');
+
+    const entry = parseFirstLine(lines);
+    expect(entry.message).toBe('Factory decision logged');
+    expect(entry.level).toBe('info');
+    expect(entry.timestamp).not.toBe('metadata-timestamp');
+    expect(entry.metadata_message).toEqual({
+      project_id: 'project-1',
+      action: 'plan_quality_rejected_will_replan',
+    });
+    expect(entry.metadata_level).toBe('metadata-level');
+    expect(entry.metadata_timestamp).toBe('metadata-timestamp');
+    expect(entry).not.toHaveProperty('0');
+    expect(entry).not.toHaveProperty('1');
+  });
+
+  it('preserves string-first messages when data has reserved log fields', () => {
+    const { logger, lines } = createCapturingLogger();
+
+    logger.warn('Factory event', {
+      message: 'payload message',
+      level: 'payload level',
+      timestamp: 'payload timestamp',
+    });
+
+    const entry = parseFirstLine(lines);
+    expect(entry.message).toBe('Factory event');
+    expect(entry.level).toBe('warn');
+    expect(entry.metadata_message).toBe('payload message');
+    expect(entry.metadata_level).toBe('payload level');
+    expect(entry.metadata_timestamp).toBe('payload timestamp');
+  });
+
   it('does not spread string detail arguments into numbered fields', () => {
     const { logger, lines } = createCapturingLogger();
 
