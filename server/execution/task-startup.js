@@ -16,6 +16,7 @@ const { parseMentions } = require('../repo-graph/mention-parser');
 const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
 const { validateTranscript } = require('../transcripts/transcript-validator');
 const { PreflightError, isPreflightError } = require('./preflight-error');
+const { isRestartBarrierActive } = require('./restart-barrier');
 
 // ── Injected Dependencies ──────────────────────────────────────────────────
 let db;
@@ -1008,6 +1009,29 @@ function loadTaskForStartup(taskId) {
   return task;
 }
 
+function parkTaskBehindRestartBarrier(task, taskId, barrier) {
+  const barrierId = typeof barrier?.id === 'string' && barrier.id
+    ? barrier.id
+    : 'unknown';
+  const barrierShortId = barrierId.slice(0, 8);
+  const errorOutput = `Restart barrier active (${barrierShortId}). Will start after restart completes.`;
+  const updatedTask = db.updateTaskStatus(taskId, 'queued', {
+    error_output: errorOutput,
+    pid: null,
+    mcp_instance_id: null,
+    ollama_host_id: null,
+  }) || db.getTask(taskId);
+
+  logger.info(`[startTask] Restart barrier active (${barrierShortId}) — task ${taskId.slice(0, 8)} queued, start deferred`);
+
+  return {
+    queued: true,
+    restartBarrier: true,
+    barrier,
+    task: updatedTask || { ...task, status: 'queued', error_output: errorOutput },
+  };
+}
+
 function prepareStartupPreClaim(task, taskId) {
   const { maxConcurrent, usedEditFormat } = runStartupPreflight({
     task,
@@ -1440,6 +1464,12 @@ async function startTask(taskId) {
   if (task.status === 'running') {
     logger.info(`Task already running: ${taskId}, skipping duplicate start`);
     return { queued: false, alreadyRunning: true };
+  }
+  if (task.provider !== 'system' && ['pending', 'queued'].includes(task.status)) {
+    const barrier = isRestartBarrierActive(db);
+    if (barrier) {
+      return parkTaskBehindRestartBarrier(task, taskId, barrier);
+    }
   }
 
   const preClaim = prepareStartupPreClaim(task, taskId);
