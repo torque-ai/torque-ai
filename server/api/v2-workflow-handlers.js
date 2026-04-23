@@ -25,6 +25,40 @@ function init(taskManager) {
   _taskManager = taskManager;
 }
 
+function getContainerService(name) {
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has(name)) {
+      return defaultContainer.get(name);
+    }
+  } catch {
+    // Best-effort lookup; the handler returns 503 when the service is unavailable.
+  }
+  return null;
+}
+
+function getCheckpointStore() {
+  return getContainerService('checkpointStore');
+}
+
+function getForker() {
+  return getContainerService('forker');
+}
+
+function classifyForkError(err) {
+  const message = err?.message || 'Workflow fork failed';
+  if (/^Checkpoint not found:/i.test(message)) {
+    return { code: 'checkpoint_not_found', status: 404 };
+  }
+  if (/workflow not found/i.test(message)) {
+    return { code: 'workflow_not_found', status: 404 };
+  }
+  if (/required|must be|schema validation|JSON-serializable/i.test(message)) {
+    return { code: 'validation_error', status: 400 };
+  }
+  return { code: 'operation_failed', status: 500 };
+}
+
 function syncWorkflowBlockers(workflowId) {
   if (!workflowId) return;
   try {
@@ -333,6 +367,86 @@ async function handleWorkflowHistory(req, res) {
   }
 }
 
+// ─── GET /api/v2/workflows/:workflow_id/checkpoints — List checkpoints ───
+
+async function handleGetWorkflowCheckpoints(req, res) {
+  const requestId = resolveRequestId(req);
+  const workflowId = req.params?.workflow_id;
+
+  const workflow = workflowEngine.getWorkflow(workflowId);
+  if (!workflow) {
+    return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
+  }
+
+  const checkpointStore = getCheckpointStore();
+  if (!checkpointStore || typeof checkpointStore.listCheckpoints !== 'function') {
+    return sendError(res, requestId, 'service_unavailable', 'Workflow checkpoint store is unavailable', 503, {}, req);
+  }
+
+  try {
+    sendSuccess(res, requestId, {
+      workflow_id: workflowId,
+      checkpoints: checkpointStore.listCheckpoints(workflowId),
+    }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── POST /api/v2/workflows/:workflow_id/fork — Fork from checkpoint ─────
+
+async function handleForkWorkflow(req, res) {
+  const requestId = resolveRequestId(req);
+  const workflowId = req.params?.workflow_id;
+  const body = req.body || await parseBody(req);
+  const checkpointId = typeof body?.checkpoint_id === 'string' ? body.checkpoint_id.trim() : '';
+
+  const workflow = workflowEngine.getWorkflow(workflowId);
+  if (!workflow) {
+    return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
+  }
+  if (!checkpointId) {
+    return sendError(res, requestId, 'validation_error', 'checkpoint_id is required', 400, undefined, req);
+  }
+
+  const checkpointStore = getCheckpointStore();
+  if (!checkpointStore || typeof checkpointStore.getCheckpoint !== 'function') {
+    return sendError(res, requestId, 'service_unavailable', 'Workflow checkpoint store is unavailable', 503, {}, req);
+  }
+
+  const forker = getForker();
+  if (!forker || typeof forker.fork !== 'function') {
+    return sendError(res, requestId, 'service_unavailable', 'Workflow forker is unavailable', 503, {}, req);
+  }
+
+  const checkpoint = checkpointStore.getCheckpoint(checkpointId);
+  if (!checkpoint) {
+    return sendError(res, requestId, 'checkpoint_not_found', `Checkpoint not found: ${checkpointId}`, 404, {}, req);
+  }
+  if (checkpoint.workflow_id !== workflowId) {
+    return sendError(
+      res,
+      requestId,
+      'validation_error',
+      `Checkpoint ${checkpointId} does not belong to workflow ${workflowId}`,
+      400,
+      {},
+      req,
+    );
+  }
+
+  try {
+    sendSuccess(res, requestId, forker.fork({
+      checkpointId,
+      name: body?.name,
+      state_overrides: body?.state_overrides,
+    }), 201, req);
+  } catch (err) {
+    const { code, status } = classifyForkError(err);
+    sendError(res, requestId, code, err.message || 'Workflow fork failed', status, {}, req);
+  }
+}
+
 // ─── POST /api/v2/workflows/feature — Create feature workflow ────────────
 
 async function handleCreateFeatureWorkflow(req, res) {
@@ -481,6 +595,8 @@ function createV2WorkflowHandlers(_deps) {
     handleCancelWorkflow,
     handleAddWorkflowTask,
     handleWorkflowHistory,
+    handleGetWorkflowCheckpoints,
+    handleForkWorkflow,
     handleCreateFeatureWorkflow,
     handlePauseWorkflow,
     handleResumeWorkflow,
@@ -497,6 +613,8 @@ module.exports = {
   handleCancelWorkflow,
   handleAddWorkflowTask,
   handleWorkflowHistory,
+  handleGetWorkflowCheckpoints,
+  handleForkWorkflow,
   handleCreateFeatureWorkflow,
   handlePauseWorkflow,
   handleResumeWorkflow,

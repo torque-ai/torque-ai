@@ -236,6 +236,18 @@ _defaultContainer.register('checkpointStore', ['db'], ({ db }) => {
   const { createCheckpointStore } = require('./workflow-state/checkpoint-store');
   return createCheckpointStore({ db: unwrapDb(db) });
 });
+_defaultContainer.register('workflowState', ['db'], ({ db }) => {
+  const { createWorkflowState } = require('./workflow-state/workflow-state');
+  return createWorkflowState({ db: unwrapDb(db) });
+});
+_defaultContainer.register('forker', ['db', 'checkpointStore', 'workflowState'], ({
+  db,
+  checkpointStore,
+  workflowState,
+}) => {
+  const { createForker } = require('./workflow-state/forker');
+  return createForker({ db: unwrapDb(db), checkpointStore, workflowState });
+});
 _defaultContainer.register('specialistStorage', ['db'], ({ db }) => (
   createSpecialistStorage({ db: unwrapDb(db) })
 ));
