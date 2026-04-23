@@ -41,7 +41,7 @@ function addHost(name) {
   db.addOllamaHost({
     id,
     name,
-    url: `http://${name}:11434`,
+    url: `http://${id}.test:11434`,
     max_concurrent: 4,
     enabled: true,
   });
@@ -500,6 +500,9 @@ describe('process-lifecycle', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
+    clearLifecycleModuleCache();
+    lifecycle = require('../execution/process-lifecycle');
   });
 
   // ── clearProcTimeouts ──
