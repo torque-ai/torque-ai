@@ -197,6 +197,24 @@ describe('Path traversal hardening', () => {
       expect(getText(result).toLowerCase()).toContain('path traversal');
     });
 
+    it('rejects absolute out-of-root paths in smart_submit_task files list', async () => {
+      const workDir = createTempDir();
+      const outsideDir = createTempDir('torque-path-traversal-outside-');
+      const outsidePath = path.join(outsideDir, 'outside.ts');
+      fs.writeFileSync(outsidePath, 'export const outside = true;\n');
+
+      const result = await integrationRouting.handleSmartSubmitTask({
+        task: 'Fix the issue in outside.ts',
+        files: [outsidePath],
+        working_directory: workDir,
+        override_provider: 'ollama',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_PARAM');
+      expect(getText(result).toLowerCase()).toContain('path traversal');
+    });
+
     it('rejects traversal in test_routing files list', () => {
       const result = integrationRouting.handleTestRouting({
         task: 'Security test task',
