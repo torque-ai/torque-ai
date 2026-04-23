@@ -191,6 +191,7 @@ const VALID_TABLE_NAMES = new Set([
   'webhook_logs',
   'webhooks',
   'work_stealing_log',
+  'workflow_checkpoints',
   'workflow_forks',
   'workflow_templates',
   'workflows',
@@ -1483,6 +1484,18 @@ function createTables(db, logger) {
     'priority INTEGER DEFAULT 0',
   ]);
   db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_checkpoints (
+        checkpoint_id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL,
+        step_id TEXT,
+        task_id TEXT,
+        state_json TEXT NOT NULL,
+        state_version INTEGER NOT NULL,
+        taken_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+      )
+    `);
+  db.exec(`
       CREATE TABLE IF NOT EXISTS task_dependencies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         workflow_id TEXT NOT NULL,
@@ -1515,6 +1528,8 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_workflows_priority ON workflows(priority);
       CREATE INDEX IF NOT EXISTS idx_workflows_status_priority ON workflows(status, priority DESC);
       CREATE INDEX IF NOT EXISTS idx_workflows_template ON workflows(template_id);
+      CREATE INDEX IF NOT EXISTS idx_workflow_checkpoints_wf_time ON workflow_checkpoints(workflow_id, taken_at);
+      CREATE INDEX IF NOT EXISTS idx_workflow_checkpoints_step ON workflow_checkpoints(workflow_id, step_id);
       CREATE INDEX IF NOT EXISTS idx_task_deps_workflow ON task_dependencies(workflow_id);
       CREATE INDEX IF NOT EXISTS idx_task_deps_task ON task_dependencies(task_id);
       CREATE INDEX IF NOT EXISTS idx_task_deps_depends_on ON task_dependencies(depends_on_task_id);
