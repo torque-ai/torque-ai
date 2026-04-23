@@ -158,6 +158,33 @@ function safeGitExec(args, opts = {}) {
   }
 }
 
+/**
+ * Check whether a git revision exists in the current repository.
+ *
+ * Uses the same safe git wrapper as other helpers so missing refs stay quiet
+ * and never surface raw stderr in test or runtime logs.
+ *
+ * @param {string} workingDir
+ * @param {string} ref
+ * @param {{ timeout?: number }} [opts]
+ * @returns {boolean}
+ */
+function gitRefExists(workingDir, ref, opts = {}) {
+  if (!workingDir || typeof ref !== 'string' || ref.trim().length === 0) {
+    return false;
+  }
+
+  try {
+    safeGitExec(['rev-parse', '--verify', ref], {
+      cwd: workingDir,
+      timeout: opts.timeout ?? TASK_TIMEOUTS.GIT_DIFF ?? TASK_TIMEOUTS.GIT_STATUS,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Worktree fingerprint cache ─────────────────────────────────────
 // Prevents git-status storms: multiple callers asking for the same
 // working directory within the TTL share one cached result instead
@@ -262,6 +289,7 @@ function invalidateFingerprintCache(workingDir) {
 
 module.exports = {
   safeGitExec,
+  gitRefExists,
   GIT_SAFE_ENV,
   cleanupStaleGitStatusProcesses,
   parseGitStatusLine,

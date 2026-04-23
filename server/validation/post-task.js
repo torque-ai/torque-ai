@@ -15,7 +15,7 @@ const { execFileSync, spawnSync } = require('child_process');
 const logger = require('../logger').child({ component: 'post-task-validation' });
 const serverConfig = require('../config');
 const { TASK_TIMEOUTS } = require('../constants');
-const { safeGitExec } = require('../utils/git');
+const { safeGitExec, gitRefExists } = require('../utils/git');
 const { createTestRunnerRegistry } = require('../test-runner-registry');
 const buildVerification = require('./build-verification');
 
@@ -533,15 +533,29 @@ function getFileChangesForValidation(workingDir, numCommits = 1) {
   try {
     // Get list of files changed in last N commits
     let changedFilesRaw = '';
+    const compareRef = `HEAD~${numCommits}`;
+    const hasCompareRef = gitRefExists(workingDir, compareRef, {
+      timeout: TASK_TIMEOUTS.GIT_DIFF,
+    });
     try {
-      changedFilesRaw = execFileSync('git', ['diff', '--name-only', `HEAD~${numCommits}`, 'HEAD'],
-        { cwd: workingDir, encoding: 'utf8', windowsHide: true });
+      if (hasCompareRef) {
+        changedFilesRaw = safeGitExec(['diff', '--name-only', compareRef, 'HEAD'], {
+          cwd: workingDir,
+          encoding: 'utf8',
+          timeout: TASK_TIMEOUTS.GIT_DIFF,
+        });
+      }
     } catch (err) {
       logger.debug("task handler error", { err: err.message });
-      // Fallback: get staged/unstaged changes
+    }
+
+    if (!changedFilesRaw) {
       try {
-        changedFilesRaw = execFileSync('git', ['diff', '--name-only', 'HEAD'],
-          { cwd: workingDir, encoding: 'utf8', windowsHide: true });
+        changedFilesRaw = safeGitExec(['diff', '--name-only', 'HEAD'], {
+          cwd: workingDir,
+          encoding: 'utf8',
+          timeout: TASK_TIMEOUTS.GIT_DIFF,
+        });
       } catch (err) {
         logger.debug("task handler error", { err: err.message });
         return fileChanges;
@@ -565,13 +579,18 @@ function getFileChangesForValidation(workingDir, numCommits = 1) {
         // Get original content from before the commit
         let originalContent = '';
         let originalSize = 0;
-        try {
-          originalContent = execFileSync('git', ['show', `HEAD~${numCommits}:${relPath}`],
-            { cwd: workingDir, encoding: 'utf8', windowsHide: true });
-          originalSize = Buffer.byteLength(originalContent, 'utf8');
-        } catch (err) {
-          logger.debug("task handler error", { err: err.message });
-          // File may be new, original size is 0
+        if (hasCompareRef) {
+          try {
+            originalContent = safeGitExec(['show', `${compareRef}:${relPath}`], {
+              cwd: workingDir,
+              encoding: 'utf8',
+              timeout: TASK_TIMEOUTS.GIT_DIFF,
+            });
+            originalSize = Buffer.byteLength(originalContent, 'utf8');
+          } catch (err) {
+            logger.debug("task handler error", { err: err.message });
+            // File may be new, original size is 0
+          }
         }
 
         fileChanges.push({

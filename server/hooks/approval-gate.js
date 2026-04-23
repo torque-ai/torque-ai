@@ -1,13 +1,13 @@
 'use strict';
 
 const path = require('path');
-const { execFileSync } = require('child_process');
 
 const taskCore = require('../db/task-core');
 const fileTracking = require('../db/file-tracking');
 const validationRules = require('../db/validation-rules');
 const logger = require('../logger').child({ component: 'approval-gate' });
 const { TASK_TIMEOUTS } = require('../constants');
+const { safeGitExec, gitRefExists } = require('../utils/git');
 
 const MAX_ALLOWED_SIZE_DECREASE_PERCENT = -50;
 
@@ -47,12 +47,17 @@ function readGitDiffFiles(workingDirectory) {
   ];
 
   for (const gitArgs of commands) {
+    if (gitArgs[2] === 'HEAD~1' && !gitRefExists(normalizedWorkdir, 'HEAD~1', {
+      timeout: TASK_TIMEOUTS.GIT_DIFF,
+    })) {
+      continue;
+    }
+
     try {
-      const output = execFileSync('git', gitArgs, {
+      const output = safeGitExec(gitArgs, {
         cwd: normalizedWorkdir,
         encoding: 'utf8',
         timeout: TASK_TIMEOUTS.GIT_DIFF,
-        windowsHide: true,
       }).trim();
 
       if (!output) continue;

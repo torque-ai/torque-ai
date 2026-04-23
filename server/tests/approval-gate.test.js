@@ -22,6 +22,7 @@ const validationRulesPath = require.resolve(VALIDATION_RULES_MODULE);
 const loggerPath = require.resolve(LOGGER_MODULE);
 const constantsPath = require.resolve(CONSTANTS_MODULE);
 const childProcessPath = require.resolve(CHILD_PROCESS_MODULE);
+const gitUtilsPath = require.resolve('../utils/git');
 
 function clearModuleCaches() {
   delete require.cache[subjectPath];
@@ -31,6 +32,7 @@ function clearModuleCaches() {
   delete require.cache[loggerPath];
   delete require.cache[constantsPath];
   delete require.cache[childProcessPath];
+  delete require.cache[gitUtilsPath];
 }
 
 function createDbMock(overrides) {
@@ -78,6 +80,33 @@ function loadSubject(options = {}) {
   installMock(LOGGER_MODULE, logger);
   installMock(CONSTANTS_MODULE, constants);
   installMock(CHILD_PROCESS_MODULE, childProcess);
+  installMock('../utils/git', {
+    safeGitExec: (args, opts) => childProcess.execFileSync('git', args, {
+      encoding: 'utf8',
+      timeout: constants.TASK_TIMEOUTS.GIT_DIFF,
+      maxBuffer: 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      ...opts,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', ...(opts?.env || {}) },
+    }),
+    gitRefExists: (workingDir, ref, opts = {}) => {
+      try {
+        childProcess.execFileSync('git', ['rev-parse', '--verify', ref], {
+          cwd: workingDir,
+          encoding: 'utf8',
+          timeout: opts.timeout || constants.TASK_TIMEOUTS.GIT_DIFF,
+          maxBuffer: 1024 * 1024,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+          env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
 
   return {
     ...require(SUBJECT_MODULE),
@@ -240,6 +269,7 @@ describe('hooks/approval-gate', () => {
             throw new Error('git missing');
           })
           .mockImplementationOnce(() => '   ')
+          .mockImplementationOnce(() => 'deadbeef\n')
           .mockImplementationOnce(() => `${relativePath}\n`),
       },
     });
@@ -252,19 +282,49 @@ describe('hooks/approval-gate', () => {
       cwd: workingDirectory,
       encoding: 'utf8',
       timeout: constants.TASK_TIMEOUTS.GIT_DIFF,
+      maxBuffer: 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      env: expect.objectContaining({
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_OPTIONAL_LOCKS: '0',
+      }),
     });
     expect(childProcess.execFileSync).toHaveBeenNthCalledWith(2, 'git', ['diff', '--name-only', '--cached'], {
       cwd: workingDirectory,
       encoding: 'utf8',
       timeout: constants.TASK_TIMEOUTS.GIT_DIFF,
+      maxBuffer: 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      env: expect.objectContaining({
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_OPTIONAL_LOCKS: '0',
+      }),
     });
-    expect(childProcess.execFileSync).toHaveBeenNthCalledWith(3, 'git', ['diff', '--name-only', 'HEAD~1', 'HEAD'], {
+    expect(childProcess.execFileSync).toHaveBeenNthCalledWith(3, 'git', ['rev-parse', '--verify', 'HEAD~1'], {
       cwd: workingDirectory,
       encoding: 'utf8',
       timeout: constants.TASK_TIMEOUTS.GIT_DIFF,
+      maxBuffer: 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      env: expect.objectContaining({
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_OPTIONAL_LOCKS: '0',
+      }),
+    });
+    expect(childProcess.execFileSync).toHaveBeenNthCalledWith(4, 'git', ['diff', '--name-only', 'HEAD~1', 'HEAD'], {
+      cwd: workingDirectory,
+      encoding: 'utf8',
+      timeout: constants.TASK_TIMEOUTS.GIT_DIFF,
+      maxBuffer: 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: expect.objectContaining({
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_OPTIONAL_LOCKS: '0',
+      }),
     });
     expect(db.compareFileToBaseline).toHaveBeenCalledWith(relativePath, workingDirectory);
     expect(approvalLogger.info).toHaveBeenCalledWith('[ApprovalGate] task-git-diff => rejected');

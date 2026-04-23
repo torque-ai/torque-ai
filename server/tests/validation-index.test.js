@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const childProcess = require('child_process');
 const Module = require('module');
 const { randomUUID } = require('crypto');
 
@@ -213,6 +214,23 @@ describe('validation handler index', () => {
       expect(result.isError).toBeFalsy();
       expect(getText(result)).toContain('Validation Passed');
       expect(getText(result)).toContain(task.id);
+    });
+
+    it('does not diff against HEAD~1 when the repo has no parent commit', () => {
+      seedValidationRules();
+      stageRepoFile('src/app.js', 'module.exports = 42;\n');
+      const task = createTask();
+      const execSpy = vi.spyOn(childProcess, 'execFileSync');
+
+      const result = validationModule.handleValidateTaskOutput({ task_id: task.id });
+
+      expect(result.isError).toBeFalsy();
+      expect(execSpy.mock.calls.some((call) => (
+        call[0] === 'git'
+          && Array.isArray(call[1])
+          && call[1][0] === 'diff'
+          && call[1][2] === 'HEAD~1'
+      ))).toBe(false);
     });
 
     it.each([

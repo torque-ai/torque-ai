@@ -113,6 +113,30 @@ describe('utils-all', () => {
       });
     });
 
+    describe('gitRefExists', () => {
+      it('returns true when rev-parse verifies the ref', () => {
+        const execFileSyncSpy = vi.spyOn(childProcess, 'execFileSync').mockReturnValue('abc123\n');
+        const { gitRefExists } = loadGitUtils();
+
+        expect(gitRefExists('/repo', 'HEAD~1', { timeout: 987 })).toBe(true);
+        expect(execFileSyncSpy).toHaveBeenCalledWith('git', ['rev-parse', '--verify', 'HEAD~1'], expect.objectContaining({
+          cwd: '/repo',
+          timeout: 987,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        }));
+      });
+
+      it('returns false when the ref does not exist', () => {
+        vi.spyOn(childProcess, 'execFileSync').mockImplementation(() => {
+          throw new Error('bad revision');
+        });
+        const { gitRefExists } = loadGitUtils();
+
+        expect(gitRefExists('/repo', 'HEAD~1')).toBe(false);
+      });
+    });
+
     describe('parseGitStatusLine', () => {
       it.each([
         ['returns null for null input', null],

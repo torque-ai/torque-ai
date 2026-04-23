@@ -172,6 +172,9 @@ describe('post-task validation module', () => {
       writeFile(workingDir, 'README.md', '# docs\n');
 
       mockExecFileSync.mockImplementation((cmd, args) => {
+        if (cmd === 'git' && args[0] === 'rev-parse' && args[2] === 'HEAD~2') {
+          return 'abc123\n';
+        }
         if (cmd === 'git' && args[0] === 'diff' && args[2] === 'HEAD~2') {
           return 'src/a.js\nREADME.md\n';
         }
@@ -197,7 +200,7 @@ describe('post-task validation module', () => {
       writeFile(workingDir, 'new.ts', current);
 
       mockExecFileSync.mockImplementation((cmd, args) => {
-        if (cmd === 'git' && args[0] === 'diff' && args[2] === 'HEAD~1') {
+        if (cmd === 'git' && args[0] === 'rev-parse' && args[2] === 'HEAD~1') {
           throw new Error('no previous commit');
         }
         if (cmd === 'git' && args[0] === 'diff' && args[2] === 'HEAD') {
@@ -215,6 +218,7 @@ describe('post-task validation module', () => {
       expect(result[0].path).toBe('new.ts');
       expect(result[0].originalContent).toBe('');
       expect(result[0].originalSize).toBe(result[0].size);
+      expect(mockExecFileSync).not.toHaveBeenCalledWith('git', ['show', 'HEAD~1:new.ts'], expect.anything());
     });
   });
 

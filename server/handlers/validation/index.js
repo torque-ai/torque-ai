@@ -13,10 +13,10 @@ const costTracking = require('../../db/cost-tracking');
 const fileTracking = require('../../db/file-tracking');
 const validationRules = require('../../db/validation-rules');
 const configCore = require('../../db/config-core');
-const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const { TASK_TIMEOUTS } = require('../../constants');
+const { safeGitExec, gitRefExists } = require('../../utils/git');
 const { requireString, requireTask, ErrorCodes, makeError } = require('../shared');
 const logger = require('../../logger').child({ component: 'validation' });
 const postToolHooks = require('../../hooks/post-tool-hooks');
@@ -239,12 +239,14 @@ function handleValidateTaskOutput(args) {
       let gitOutput = '';
       const tryGitDiff = (gitArgs) => {
         try {
-          return execFileSync('git', gitArgs, {
-            cwd: workDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS, windowsHide: true
+          return safeGitExec(gitArgs, {
+            cwd: workDir, encoding: 'utf-8', timeout: TASK_TIMEOUTS.GIT_STATUS
           }).trim();
         } catch { return ''; }
       };
-      gitOutput = tryGitDiff(['diff', '--name-only', 'HEAD~1', 'HEAD']);
+      if (gitRefExists(workDir, 'HEAD~1', { timeout: TASK_TIMEOUTS.GIT_STATUS })) {
+        gitOutput = tryGitDiff(['diff', '--name-only', 'HEAD~1', 'HEAD']);
+      }
       if (!gitOutput) gitOutput = tryGitDiff(['diff', '--name-only', '--cached']);
       if (!gitOutput) gitOutput = tryGitDiff(['diff', '--name-only']);
       const changedFiles = gitOutput.split('\n').filter(f => f.trim());
