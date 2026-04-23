@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const { createScorer } = require('../evals/scorer');
 const { composeScorers } = require('../evals/compose-scorers');
 

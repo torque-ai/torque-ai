@@ -2489,10 +2489,10 @@ function handleGetSessionHistory(args = {}) {
 }
 
 async function handleCreateEvalTask(args = {}) {
-  const nameError = requireString(args, 'name', 'name');
-  if (nameError) return nameError;
-
   try {
+    const nameError = requireString(args, 'name', 'name');
+    if (nameError) return nameError;
+
     const taskSpec = createEvalTaskSpecFromArgs(args);
     registerEvalTask(taskSpec);
     return buildToolResult({
@@ -2508,22 +2508,22 @@ async function handleCreateEvalTask(args = {}) {
 }
 
 async function handleRunEvalTask(args = {}) {
-  const nameError = requireString(args, 'name', 'name');
-  if (nameError) return nameError;
-
-  const task = getRegisteredEvalTask(args.name.trim());
-  if (!task) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Eval task not found: ${args.name}`);
-  }
-
-  if (args.limit !== undefined) {
-    const numeric = Number(args.limit);
-    if (!Number.isFinite(numeric) || numeric < 1) {
-      return makeError(ErrorCodes.INVALID_PARAM, 'limit must be a positive integer');
-    }
-  }
-
   try {
+    const nameError = requireString(args, 'name', 'name');
+    if (nameError) return nameError;
+
+    const task = getRegisteredEvalTask(args.name.trim());
+    if (!task) {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Eval task not found: ${args.name}`);
+    }
+
+    if (args.limit !== undefined) {
+      const numeric = Number(args.limit);
+      if (!Number.isFinite(numeric) || numeric < 1) {
+        return makeError(ErrorCodes.INVALID_PARAM, 'limit must be a positive integer');
+      }
+    }
+
     const tools = require('../tools');
     const result = await runSamples(task, {
       limit: args.limit,
@@ -2537,18 +2537,18 @@ async function handleRunEvalTask(args = {}) {
 }
 
 async function handleSetApprovalPolicy(args = {}) {
-  const nameError = requireString(args, 'name', 'name');
-  if (nameError) return nameError;
-  if (!Array.isArray(args.rules)) {
-    return makeError(ErrorCodes.INVALID_PARAM, 'rules must be an array');
-  }
-
-  const task = getRegisteredEvalTask(args.name.trim());
-  if (!task) {
-    return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Eval task not found: ${args.name}`);
-  }
-
   try {
+    const nameError = requireString(args, 'name', 'name');
+    if (nameError) return nameError;
+    if (!Array.isArray(args.rules)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'rules must be an array');
+    }
+
+    const task = getRegisteredEvalTask(args.name.trim());
+    if (!task) {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Eval task not found: ${args.name}`);
+    }
+
     task.approvalPolicy = createApprovalPolicy({ rules: args.rules });
     return buildToolResult({
       name: task.name,

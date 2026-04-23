@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const { createSolver, chainSolvers } = require('../evals/solver');
 
 describe('Solver', () => {

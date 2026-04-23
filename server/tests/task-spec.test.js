@@ -1,13 +1,15 @@
 'use strict';
 
-const { describe, it, expect } = require('vitest');
 const { createTaskSpec } = require('../evals/task-spec');
 
 describe('TaskSpec', () => {
   it('requires dataset, solver, scorer', () => {
     expect(() => createTaskSpec({})).toThrow(/dataset/);
     expect(() => createTaskSpec({ dataset: [{}] })).toThrow(/solver/);
-    expect(() => createTaskSpec({ dataset: [{}], solver: {} })).toThrow(/scorer/);
+    expect(() => createTaskSpec({
+      dataset: [{}],
+      solver: { run: async () => ({}) },
+    })).toThrow(/scorer/);
   });
 
   it('accepts optional sandbox + approval policy', () => {

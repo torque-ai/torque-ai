@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, vi } = require('vitest');
 const { createApprovalPolicy } = require('../evals/approval-policy');
 const { runSample, runSamples } = require('../evals/run-sample');
 const { createScorer } = require('../evals/scorer');
