@@ -1049,8 +1049,17 @@ function isProviderQuotaError(providerId, errorOutput) {
 
   const patterns = provider.quota_error_patterns;
   const text = (errorOutput || '').toLowerCase();
+  if (
+    /\bunauthori[sz]ed\b/.test(text)
+    || /\b401\b/.test(text)
+    || /\bauthentication failed\b/.test(text)
+    || /\binvalid (?:api key|credentials?)\b/.test(text)
+    || /\bapi key (?:not found|missing|invalid)\b/.test(text)
+  ) {
+    return false;
+  }
 
-  return patterns.some(pattern => text.includes(pattern.toLowerCase()));
+  return patterns.some(pattern => typeof pattern === 'string' && text.includes(pattern.toLowerCase()));
 }
 
 /**

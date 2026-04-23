@@ -268,6 +268,21 @@ describe('validation-rules module', () => {
       expect(results).toEqual([]);
     });
 
+    it('skips malformed pattern rules without throwing', () => {
+      const task = createTask();
+      rawDb().prepare(`
+        INSERT INTO validation_rules (id, name, rule_type, pattern, severity, enabled, created_at)
+        VALUES (?, 'Malformed Pattern', 'pattern', NULL, 'warning', 1, ?)
+      `).run(randomUUID(), new Date().toISOString());
+
+      expect(() => mod.validateTaskOutput(task.id, [
+        { path: '/src/app.js', content: 'const ok = true;', size: 16 }
+      ])).not.toThrow();
+      expect(mod.validateTaskOutput(task.id, [
+        { path: '/src/app.js', content: 'const ok = true;', size: 16 }
+      ])).toEqual([]);
+    });
+
     it('truncates very long file content before pattern matching', () => {
       const task = createTask();
       mod.saveValidationRule({
@@ -536,6 +551,18 @@ describe('validation-rules module', () => {
       expect(matches).toEqual([]);
       const row = rawDb().prepare('SELECT occurrence_count FROM failure_patterns WHERE id = ?').get(patternId);
       expect(row.occurrence_count).toBe(1);
+    });
+
+    it('skips malformed failure patterns without throwing', () => {
+      rawDb().prepare(`
+        INSERT INTO failure_patterns
+          (id, name, pattern_type, pattern_definition, signature, occurrence_count, enabled, created_at)
+        VALUES (?, 'Malformed Failure Pattern', 'output', '', NULL, 1, 1, ?)
+      `).run(randomUUID(), new Date().toISOString());
+
+      const task = createTask();
+      expect(() => mod.matchFailurePatterns(task.id, 'normal output', null)).not.toThrow();
+      expect(mod.matchFailurePatterns(task.id, 'normal output', null)).toEqual([]);
     });
 
     it('matchFailurePatterns filters by provider', () => {

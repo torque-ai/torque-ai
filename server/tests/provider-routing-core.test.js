@@ -1235,6 +1235,13 @@ describe('provider-routing-core', () => {
       expect(core.isProviderQuotaError('no-such-provider', '429')).toBe(false);
     });
 
+    it('does not treat auth failures as quota exhaustion', () => {
+      const { core } = loadCore();
+
+      expect(core.isProviderQuotaError('codex', '401 Unauthorized while handling 429 retry')).toBe(false);
+      expect(core.isProviderQuotaError('codex', 'authentication failed: rate limit unavailable')).toBe(false);
+    });
+
     it('tracks codex exhaustion state in config', () => {
       const { core, state } = loadCore();
 

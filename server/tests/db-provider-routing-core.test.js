@@ -436,6 +436,12 @@ describe('db/provider-routing-core', () => {
       expect(core.isProviderQuotaError('no-such', '429')).toBe(false);
     });
 
+    it('isProviderQuotaError lets auth failures override quota-looking text', () => {
+      core.updateProvider('codex', { quota_error_patterns: ['Rate Limit', '429', 'quota exceeded'] });
+      expect(core.isProviderQuotaError('codex', '401 Unauthorized: quota exceeded')).toBe(false);
+      expect(core.isProviderQuotaError('codex', 'Invalid API key; rate limit status unknown')).toBe(false);
+    });
+
     it('isCodexExhausted and setCodexExhausted toggle persisted state', () => {
       // setCodexExhausted writes directly to the raw db, bypassing the config cache.
       // Read directly via rawDb() to avoid stale cache reads.

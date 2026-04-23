@@ -19,6 +19,12 @@ function setGetTask(fn) { _getTask = fn; }
 
 function getTask(...args) { return _getTask(...args); }
 
+function previewPattern(value) {
+  return typeof value === 'string'
+    ? value.slice(0, 50)
+    : String(value ?? '<missing>');
+}
+
 function _readQuantifier(pattern, startIndex) {
   const char = pattern[startIndex];
   if (!char) return null;
@@ -237,7 +243,7 @@ function validateTaskOutput(taskId, fileChanges = []) {
   for (const rule of rules) {
     if (rule.rule_type === 'pattern' && rule.pattern) {
       if (_isLikelyReDoSRiskPattern(rule.pattern)) {
-        logger.info(`[Validation] Skipping potentially unsafe regex pattern: ${rule.pattern.slice(0, 50)}...`);
+        logger.info(`[Validation] Skipping potentially unsafe regex pattern: ${previewPattern(rule.pattern)}...`);
         continue;
       }
 
@@ -440,7 +446,7 @@ function matchFailurePatterns(taskId, output, provider) {
     if (pattern.provider && pattern.provider !== provider) continue;
 
     if (_isLikelyReDoSRiskPattern(pattern.signature)) {
-      logger.info(`[Validation] Skipping potentially unsafe regex pattern: ${pattern.signature.slice(0, 50)}...`);
+      logger.info(`[Validation] Skipping potentially unsafe regex pattern: ${previewPattern(pattern.signature)}...`);
       continue;
     }
 

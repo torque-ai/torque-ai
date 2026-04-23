@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const { createAutoRecoveryServices, detectTechStack, cleanupPaths } =
   require('../factory/auto-recovery/services');
+const { STACK_CLEAN_PATHS } = require('../factory/auto-recovery/services');
 
 describe('detectTechStack', () => {
   let tmp;
@@ -21,6 +22,13 @@ describe('detectTechStack', () => {
   it('detects python from pyproject.toml', () => {
     fs.writeFileSync(path.join(tmp, 'pyproject.toml'), '');
     expect(detectTechStack(tmp)).toContain('python');
+  });
+  it('includes pytest temp roots in Python cleanup paths', () => {
+    expect(STACK_CLEAN_PATHS.python).toEqual(expect.arrayContaining([
+      '.pytest_cache',
+      '.pytest-tmp',
+      '.torque-pytest-tmp',
+    ]));
   });
   it('detects rust from Cargo.toml', () => {
     fs.writeFileSync(path.join(tmp, 'Cargo.toml'), '');

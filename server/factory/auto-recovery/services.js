@@ -20,7 +20,7 @@ const STACK_SIGNALS = {
 const STACK_CLEAN_PATHS = {
   dotnet: ['obj', 'bin', 'TestResults'],
   node: ['node_modules/.cache', 'dist', '.next/cache'],
-  python: ['__pycache__', '.pytest_cache', 'build'],
+  python: ['__pycache__', '.pytest_cache', '.pytest-tmp', '.torque-pytest-tmp', '.tox', '.nox', '.mypy_cache', '.ruff_cache', 'build'],
   rust: ['target/debug/incremental'],
   go: ['pkg', 'bin'],
 };

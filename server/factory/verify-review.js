@@ -19,6 +19,8 @@ const ENVIRONMENT_EXIT_CODES = new Set([127, 126, 124]);
 const ENVIRONMENT_STDERR_PATTERNS = [
   /\bEPERM\b/,
   /\bEACCES\b/,
+  /\bPermissionError\b.*(?:Access is denied|Permission denied|WinError\s+5)/i,
+  /^(?=[\s\S]*(?:pytest|\.pytest|pytest-))(?=[\s\S]*\bPermissionError\b)(?=[\s\S]*(?:Access is denied|Permission denied|WinError\s+5))/i,
   /\bENOENT\b/,
   /\btimeout after \d+/i,
   /\bkilled by signal\b/i,
@@ -81,6 +83,16 @@ function detectEnvironmentFailure(verifyOutput) {
   const stderrChecks = [
     { re: /\bEPERM\b/, signal: 'stderr_EPERM', reason: 'permission_denied' },
     { re: /\bEACCES\b/, signal: 'stderr_EACCES', reason: 'permission_denied' },
+    {
+      re: /\bPermissionError\b.*(?:Access is denied|Permission denied|WinError\s+5)/i,
+      signal: 'stderr_PermissionError',
+      reason: 'permission_denied',
+    },
+    {
+      re: /^(?=[\s\S]*(?:pytest|\.pytest|pytest-))(?=[\s\S]*\bPermissionError\b)(?=[\s\S]*(?:Access is denied|Permission denied|WinError\s+5))/i,
+      signal: 'stderr_pytest_temp_permission',
+      reason: 'permission_denied',
+    },
     { re: /\bENOENT\b/, signal: 'stderr_ENOENT', reason: 'missing_file_or_dir' },
     { re: /\btimeout after \d+/i, signal: 'stderr_timeout', reason: 'timeout' },
     { re: /\bkilled by signal\b/i, signal: 'stderr_killed', reason: 'timeout' },

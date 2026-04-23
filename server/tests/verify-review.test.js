@@ -142,6 +142,18 @@ describe('detectEnvironmentFailure', () => {
     expect(r.reason).toBe('permission_denied');
   });
 
+  it('returns detected=true for Windows pytest temp PermissionError output', () => {
+    const stderr = [
+      "PermissionError: [WinError 5] Access is denied: 'C:\\repo\\.pytest-tmp\\pytest-cache-files-a1'",
+      'pytest failed while cleaning temporary directories',
+    ].join('\n');
+    const r = detectEnvironmentFailure({ exitCode: 1, stdout: '', stderr, timedOut: false });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_PermissionError');
+    expect(r.signals).toContain('stderr_pytest_temp_permission');
+    expect(r.reason).toBe('permission_denied');
+  });
+
   it('returns detected=true when stderr matches ENOENT pattern', () => {
     const r = detectEnvironmentFailure({ exitCode: 1, stdout: '', stderr: 'Error: ENOENT: no such file or directory', timedOut: false });
     expect(r.detected).toBe(true);
