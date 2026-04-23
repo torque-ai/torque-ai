@@ -14,7 +14,9 @@ const RECOVERY_DECISION_ACTION = 'factory_rejected_item_auto_reopen';
 const RECOVERY_DECISION_STAGE = 'learn';
 const RECOVERY_DECISION_ACTOR = 'verifier';
 const RECOVERY_BATCH_PREFIX = 'reject-recovery';
-const DEFAULT_SWEEP_LIMIT = 100;
+const DEFAULT_SWEEP_PAGE_LIMIT = 100;
+const DEFAULT_SWEEP_SCAN_LIMIT = DEFAULT_SWEEP_PAGE_LIMIT * 10;
+const RECOVERY_SORT_EPOCH_SQL = `COALESCE(unixepoch(COALESCE(wi.updated_at, wi.created_at)), 0)`;
 const DEFAULT_RECOVERY_CONFIG = Object.freeze({
   sweepIntervalMs: Number.parseInt(REJECT_RECOVERY_CONFIG_DEFAULTS.reject_recovery_sweep_interval_ms, 10),
   ageThresholdMs: Number.parseInt(REJECT_RECOVERY_CONFIG_DEFAULTS.reject_recovery_age_threshold_ms, 10),
@@ -139,38 +141,106 @@ function countPriorReopens(db, workItemId) {
   return Number(row?.count || 0);
 }
 
-function listRecoverableRejectedWorkItems(db, {
-  ageThresholdMs,
-  nowMs = Date.now(),
-  limit = DEFAULT_SWEEP_LIMIT,
+function listRecoverySweepPage(db, {
+  cursor = null,
+  limit = DEFAULT_SWEEP_PAGE_LIMIT,
 } = {}) {
   if (!db || typeof db.prepare !== 'function') {
-    throw new Error('listRecoverableRejectedWorkItems requires a database handle');
+    throw new Error('listRecoverySweepPage requires a database handle');
   }
 
-  const rows = db.prepare(`
+  const safeLimit = parsePositiveIntegerConfigValue(limit, DEFAULT_SWEEP_PAGE_LIMIT);
+  const params = [...RECOVERABLE_TERMINAL_STATUSES];
+  let cursorClause = '';
+  if (cursor) {
+    cursorClause = `
+      AND (
+        ${RECOVERY_SORT_EPOCH_SQL} > ?
+        OR (
+          ${RECOVERY_SORT_EPOCH_SQL} = ?
+          AND wi.id > ?
+        )
+      )
+    `;
+    params.push(cursor.sortEpoch, cursor.sortEpoch, cursor.id);
+  }
+  params.push(safeLimit);
+
+  return db.prepare(`
     SELECT
       wi.*,
       p.status AS project_status,
-      p.trust_level AS project_trust_level
+      p.trust_level AS project_trust_level,
+      ${RECOVERY_SORT_EPOCH_SQL} AS recovery_sort_epoch
     FROM factory_work_items wi
     JOIN factory_projects p ON p.id = wi.project_id
     WHERE wi.status IN (${RECOVERABLE_TERMINAL_STATUSES.map(() => '?').join(', ')})
       AND p.status = 'running'
       AND p.trust_level = 'dark'
-    ORDER BY wi.updated_at ASC, wi.id ASC
+      ${cursorClause}
+    ORDER BY recovery_sort_epoch ASC, wi.id ASC
     LIMIT ?
-  `).all(...RECOVERABLE_TERMINAL_STATUSES, limit);
+  `).all(...params);
+}
 
-  return rows.filter((row) => {
-    if (!isAutoRecoverableTerminalReason(row.status, row.reject_reason)) {
-      return false;
+function isAgeEligible(row, ageThresholdMs, nowMs) {
+  const updatedAt = row.updated_at || row.created_at;
+  const updatedAtMs = Date.parse(updatedAt);
+  return Number.isFinite(updatedAtMs) && (nowMs - updatedAtMs) >= ageThresholdMs;
+}
+
+function listRecoverableRejectedWorkItems(db, {
+  ageThresholdMs,
+  nowMs = Date.now(),
+  limit = DEFAULT_SWEEP_SCAN_LIMIT,
+  pageLimit = DEFAULT_SWEEP_PAGE_LIMIT,
+} = {}) {
+  if (!db || typeof db.prepare !== 'function') {
+    throw new Error('listRecoverableRejectedWorkItems requires a database handle');
+  }
+
+  const safeScanLimit = parsePositiveIntegerConfigValue(limit, DEFAULT_SWEEP_SCAN_LIMIT);
+  const safePageLimit = Math.min(
+    safeScanLimit,
+    parsePositiveIntegerConfigValue(pageLimit, DEFAULT_SWEEP_PAGE_LIMIT),
+  );
+  const recoverable = [];
+  let cursor = null;
+  let scanned = 0;
+
+  while (scanned < safeScanLimit) {
+    const remaining = safeScanLimit - scanned;
+    const page = listRecoverySweepPage(db, {
+      cursor,
+      limit: Math.min(safePageLimit, remaining),
+    });
+    if (page.length === 0) {
+      break;
     }
 
-    const updatedAt = row.updated_at || row.created_at;
-    const updatedAtMs = Date.parse(updatedAt);
-    return Number.isFinite(updatedAtMs) && (nowMs - updatedAtMs) >= ageThresholdMs;
-  });
+    scanned += page.length;
+    const lastRow = page[page.length - 1];
+    cursor = {
+      sortEpoch: lastRow.recovery_sort_epoch,
+      id: lastRow.id,
+    };
+
+    for (const row of page) {
+      if (!isAutoRecoverableTerminalReason(row.status, row.reject_reason)) {
+        continue;
+      }
+      if (!isAgeEligible(row, ageThresholdMs, nowMs)) {
+        continue;
+      }
+      recoverable.push(row);
+    }
+
+    if (page.length < Math.min(safePageLimit, remaining)) {
+      break;
+    }
+  }
+
+  return recoverable;
 }
 
 function recoverRejectedWorkItems({

@@ -95,6 +95,14 @@ function recordPriorReopen(workItemId) {
   );
 }
 
+function countRecoveryDecisions() {
+  return db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM factory_decisions
+    WHERE action = ?
+  `).get(RECOVERY_DECISION_ACTION).count;
+}
+
 beforeEach(() => {
   ({ testDir } = setupTestDbOnly(`rejected-recovery-${Date.now()}`));
   db = rawDb();
@@ -125,11 +133,7 @@ describe('rejected work item recovery sweep', () => {
       status: 'rejected',
       reject_reason: 'verify_failed_after_3_retries',
     });
-    expect(db.prepare(`
-      SELECT COUNT(*) AS count
-      FROM factory_decisions
-      WHERE action = ?
-    `).get(RECOVERY_DECISION_ACTION).count).toBe(0);
+    expect(countRecoveryDecisions()).toBe(0);
   });
 
   it('factory tick reopens eligible terminal items only when reject recovery is enabled', async () => {
@@ -197,21 +201,13 @@ describe('rejected work item recovery sweep', () => {
       status: 'rejected',
       reject_reason: 'verify_failed_after_3_retries',
     });
-    expect(db.prepare(`
-      SELECT COUNT(*) AS count
-      FROM factory_decisions
-      WHERE action = ?
-    `).get(RECOVERY_DECISION_ACTION).count).toBe(1);
+    expect(countRecoveryDecisions()).toBe(1);
 
     vi.setSystemTime(new Date('2026-04-18T18:05:01.000Z'));
     await factoryTick.tickProject(project);
 
     expect(factoryIntake.getWorkItem(second.id).status).toBe('pending');
-    expect(db.prepare(`
-      SELECT COUNT(*) AS count
-      FROM factory_decisions
-      WHERE action = ?
-    `).get(RECOVERY_DECISION_ACTION).count).toBe(2);
+    expect(countRecoveryDecisions()).toBe(2);
   });
 
   it('factory tick skips inactive projects and enforces reopen caps per item', async () => {
@@ -242,10 +238,31 @@ describe('rejected work item recovery sweep', () => {
       status: 'rejected',
       reject_reason: 'verify_failed_after_3_retries',
     });
-    expect(db.prepare(`
-      SELECT COUNT(*) AS count
-      FROM factory_decisions
-      WHERE action = ?
-    `).get(RECOVERY_DECISION_ACTION).count).toBe(3);
+    expect(countRecoveryDecisions()).toBe(3);
+  });
+
+  it('factory tick scans later terminal-item pages before giving up on recovery', async () => {
+    const project = createRunningDarkProject();
+    const olderCappedItems = Array.from({ length: 100 }, () => createRejectedWorkItem(project.id, {
+      updatedAt: '2026-04-18T12:00:00.000Z',
+    }));
+    for (const item of olderCappedItems) {
+      recordPriorReopen(item.id);
+    }
+
+    const starved = createUnactionableWorkItem(project.id, {
+      updatedAt: '2026-04-18T12:30:00.000Z',
+    });
+    const beforeDecisions = countRecoveryDecisions();
+    enableRejectRecovery({ maxReopens: 1 });
+
+    await factoryTick.tickProject(project);
+
+    expect(factoryIntake.getWorkItem(starved.id)).toMatchObject({
+      id: starved.id,
+      status: 'pending',
+      reject_reason: null,
+    });
+    expect(countRecoveryDecisions()).toBe(beforeDecisions + 1);
   });
 });
