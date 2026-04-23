@@ -1545,6 +1545,39 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
+  it('treats STARVED as a terminal loop state for await and async advance', async () => {
+    const { project } = registerPlanProject();
+    const started = loopController.startLoopForProject(project.id);
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      loop_state: LOOP_STATES.STARVED,
+      paused_at_stage: null,
+      last_action_at: new Date().toISOString(),
+    });
+
+    const advanceResult = await loopController.advanceLoop(started.instance_id);
+    expect(advanceResult).toMatchObject({
+      new_state: LOOP_STATES.STARVED,
+      reason: 'loop_starved',
+    });
+    expect(() => loopController.advanceLoopAsync(started.instance_id, { autoAdvance: true }))
+      .toThrow(/starved/i);
+
+    const result = await loopController.awaitFactoryLoop(project.id, {
+      heartbeat_minutes: 0.02,
+      timeout_minutes: 1,
+    });
+
+    expect(result).toMatchObject({
+      status: 'starved',
+      timed_out: false,
+      instance: {
+        id: started.instance_id,
+        project_id: project.id,
+        loop_state: LOOP_STATES.STARVED,
+      },
+    });
+  });
+
   it('awaitFactoryLoop returns timeout when nothing changes', async () => {
     const { project } = registerPlanProject();
     const started = loopController.startLoopForProject(project.id);

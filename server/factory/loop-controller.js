@@ -7346,6 +7346,18 @@ async function runAdvanceLoop(instance_id) {
     };
   }
 
+  if (currentState === LOOP_STATES.STARVED) {
+    return {
+      project_id: project.id,
+      instance_id: instance.id,
+      previous_state: previousState,
+      new_state: LOOP_STATES.STARVED,
+      paused_at_stage: null,
+      stage_result: null,
+      reason: 'loop_starved',
+    };
+  }
+
   if (instance.terminated_at || currentState === LOOP_STATES.IDLE) {
     throw new Error('Loop not started for this project');
   }
@@ -7787,6 +7799,9 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
   if (currentState === LOOP_STATES.IDLE) {
     throw new Error('Loop not started for this project');
   }
+  if (currentState === LOOP_STATES.STARVED) {
+    throw new Error('Loop is starved — replenish intake before advancing');
+  }
 
   if (getPausedAtStage(instance) && !isReadyForStage(getPausedAtStage(instance))) {
     throw new Error('Loop is paused — use approveGate to continue');
@@ -7839,6 +7854,7 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
       if (
         autoAdvance
         && result.new_state !== LOOP_STATES.IDLE
+        && result.new_state !== LOOP_STATES.STARVED
         && !result.paused_at_stage
         && !isProjectStatusPaused(project.id)
       ) {
@@ -7889,6 +7905,7 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
         autoAdvance
         && latestState
         && latestState !== LOOP_STATES.IDLE
+        && latestState !== LOOP_STATES.STARVED
         && !latestPaused
         && !isProjectStatusPaused(project.id)
       ) {
@@ -8218,6 +8235,7 @@ const STAGE_ORDER_RANKS = Object.freeze({
   EXECUTE: 4,
   VERIFY: 5,
   LEARN: 6,
+  STARVED: 2.5,
   IDLE: 7,
 });
 
@@ -8284,6 +8302,10 @@ async function awaitFactoryLoop(project_id, {
 
     if (Array.isArray(target_paused_stages) && target_paused_stages.includes(instance.paused_at_stage)) {
       return { status: 'target_paused_stage_reached', instance, elapsed_ms: elapsedMs, timed_out: false };
+    }
+
+    if (instance.loop_state === LOOP_STATES.STARVED) {
+      return { status: 'starved', instance, elapsed_ms: elapsedMs, timed_out: false };
     }
 
     if (await_termination && instance.paused_at_stage) {

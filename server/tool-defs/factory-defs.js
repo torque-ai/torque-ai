@@ -442,14 +442,14 @@ const tools = [
   },
   {
     name: 'await_factory_loop',
-    description: 'Block until a factory loop instance reaches a target state, terminates, or pauses. Wakes via internal poll (2s) with heartbeat snapshots every N minutes — re-invoke after each heartbeat to continue waiting. Use this instead of polling factory_loop_status in a loop.',
+    description: 'Block until a factory loop instance reaches a target state, terminates, pauses, or starves. Wakes via internal poll (2s) with heartbeat snapshots every N minutes — re-invoke after each heartbeat to continue waiting. Use this instead of polling factory_loop_status in a loop.',
     inputSchema: {
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Project ID or path' },
         target_states: {
           type: 'array',
-          items: { type: 'string', enum: ['SENSE', 'PRIORITIZE', 'PLAN', 'EXECUTE', 'VERIFY', 'LEARN', 'IDLE', 'PAUSED'] },
+          items: { type: 'string', enum: ['SENSE', 'PRIORITIZE', 'PLAN', 'EXECUTE', 'VERIFY', 'LEARN', 'IDLE', 'PAUSED', 'STARVED'] },
           description: 'Loop states to await',
         },
         target_paused_stages: {
