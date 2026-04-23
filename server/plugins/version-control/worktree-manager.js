@@ -159,6 +159,17 @@ function quarantineStalePathSync(target) {
   return quarantinePath;
 }
 
+function resolveAlternateWorktreePath(target) {
+  for (let index = 1; index <= 20; index += 1) {
+    const candidate = `${target}-${index}`;
+    if (!fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(`no alternate worktree path available for ${target}`);
+}
+
 function runGit(cwd, args, options = {}) {
   return childProcess.execFileSync('git', args, {
     cwd,
@@ -713,7 +724,7 @@ function createWorktree(repoPath, featureName, options = {}) {
     const baseBranch = normalizeOptionalString(options.baseBranch || options.base_branch) || DEFAULT_BASE_BRANCH;
     const worktreeDir = normalizeOptionalString(options.worktreeDir || options.worktree_dir) || DEFAULT_WORKTREE_DIR;
     const branch = buildBranchName(requestedFeatureName);
-    const worktreePath = buildWorktreePath(repositoryPath, worktreeDir, branch);
+    let worktreePath = buildWorktreePath(repositoryPath, worktreeDir, branch);
     const createdAt = new Date().toISOString();
 
     fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
@@ -721,9 +732,9 @@ function createWorktree(repoPath, featureName, options = {}) {
     // Clean up stale worktree directory if it exists from a prior run
     // that wasn't fully removed (git worktree remove succeeded but
     // the physical directory persisted due to file locks). If we can't
-    // clear it, propagate — proceeding into `git worktree add` against a
-    // locked/non-empty path produces phantom state (empty dir, no
-    // metadata) that cascades silently through downstream stages.
+    // clear it, quarantine it or pick a short alternate leaf. Proceeding into
+    // `git worktree add` against a locked/non-empty path produces phantom
+    // state (empty dir, no metadata) that cascades through downstream stages.
     if (fs.existsSync(worktreePath)) {
       logger.warn('createWorktree: removing stale worktree directory', {
         worktreePath,
@@ -736,17 +747,24 @@ function createWorktree(repoPath, featureName, options = {}) {
         try {
           quarantinePath = quarantineStalePathSync(worktreePath);
         } catch (quarantineErr) {
-          throw new Error(
-            `stale worktree path cleanup failed for ${worktreePath}: ${cleanupErr.message}; `
-            + `quarantine failed: ${quarantineErr.message}`
-          );
+          const originalWorktreePath = worktreePath;
+          worktreePath = resolveAlternateWorktreePath(originalWorktreePath);
+          logger.warn('createWorktree: using alternate worktree path after stale cleanup failed', {
+            worktreePath: originalWorktreePath,
+            alternateWorktreePath: worktreePath,
+            branch,
+            err: cleanupErr.message,
+            quarantine_err: quarantineErr.message,
+          });
         }
-        logger.warn('createWorktree: quarantined stale worktree directory after cleanup failed', {
-          worktreePath,
-          quarantinePath,
-          branch,
-          err: cleanupErr.message,
-        });
+        if (quarantinePath) {
+          logger.warn('createWorktree: quarantined stale worktree directory after cleanup failed', {
+            worktreePath,
+            quarantinePath,
+            branch,
+            err: cleanupErr.message,
+          });
+        }
       }
       try {
         runGit(repositoryPath, ['worktree', 'prune']);

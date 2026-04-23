@@ -280,6 +280,39 @@ describe('version-control worktree manager', () => {
     }
   });
 
+  it('uses an alternate short worktree path when stale cleanup and quarantine both fail', () => {
+    const repoPath = makeRepoRoot();
+    const stalePath = path.join(repoPath, '.worktrees', 'fea-7038346e');
+    fs.mkdirSync(stalePath, { recursive: true });
+    fs.writeFileSync(path.join(stalePath, 'locked.tmp'), 'stale');
+
+    const originalRmSync = fs.rmSync;
+    const originalRenameSync = fs.renameSync;
+    const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementation((target, options) => {
+      if (path.resolve(String(target)) === path.resolve(stalePath)) {
+        throw new Error('simulated locked directory');
+      }
+      return originalRmSync.call(fs, target, options);
+    });
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (path.resolve(String(from)) === path.resolve(stalePath)) {
+        throw new Error(`simulated busy rename to ${to}`);
+      }
+      return originalRenameSync.call(fs, from, to);
+    });
+
+    try {
+      const created = manager.createWorktree(repoPath, 'new login flow');
+
+      expect(created.worktree_path).toBe(`${stalePath}-1`);
+      expect(fs.existsSync(path.join(stalePath, 'locked.tmp'))).toBe(true);
+      expect(fs.existsSync(path.join(created.worktree_path, '.git'))).toBe(true);
+    } finally {
+      renameSpy.mockRestore();
+      rmSpy.mockRestore();
+    }
+  });
+
   it('lists worktrees sorted by created_at descending and filters by repo', () => {
     const repoPathA = makeRepoRoot();
     const repoPathASlash = repoPathA.replace(/\\/g, '/');
