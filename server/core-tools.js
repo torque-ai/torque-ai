@@ -53,6 +53,7 @@ const TIER_2 = [
   'register_action_schema', 'list_actions', 'dispatch_nl',
   'action_app_run', 'action_app_fork', 'action_app_history',
   'dispatch_subagent', 'resume_session', 'fork_session', 'list_sessions',
+  'save_memory', 'search_memory', 'optimize_prompt', 'reflect_on_run',
   // Project config (advanced)
   'configure_stall_detection', 'auto_verify_and_fix', 'commit_task',
   // Batch orchestration

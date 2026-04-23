@@ -204,6 +204,61 @@ module.exports = [
     },
   },
   {
+    name: 'save_memory',
+    description: 'Save a memory of kind semantic|episodic|procedural with namespace support.',
+    inputSchema: {
+      type: 'object',
+      required: ['kind', 'content'],
+      properties: {
+        kind: { enum: ['semantic', 'episodic', 'procedural'] },
+        content: { type: 'string', description: 'Body; for episodic pass JSON {input,output,rationale}.' },
+        role: { type: 'string', description: 'Required when kind=procedural (e.g. planner, reviewer).' },
+        namespace: { type: 'string', description: 'Template like {user_id}/{project_id}; resolved on save.' },
+        vars: { type: 'object' },
+        embedding: { type: 'array', items: { type: 'number' } },
+      },
+    },
+  },
+  {
+    name: 'search_memory',
+    description: 'Search memories by kind + namespace + optional similarity query.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string' },
+        namespace: { type: 'string' },
+        query: { type: 'string' },
+        limit: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'optimize_prompt',
+    description: 'Run a prompt optimizer over a role\'s current prompt using the given trajectory + feedback.',
+    inputSchema: {
+      type: 'object',
+      required: ['role', 'strategy'],
+      properties: {
+        role: { type: 'string' },
+        strategy: { enum: ['metaprompt', 'gradient', 'prompt_memory'] },
+        trajectory: { type: 'array' },
+        feedback: { type: 'array', items: { type: 'string' } },
+        apply: { type: 'boolean', description: 'If true, overwrite the procedural memory with the optimized prompt.' },
+      },
+    },
+  },
+  {
+    name: 'reflect_on_run',
+    description: 'Schedule a debounced background reflection pass over a run_id; extracts episodic memories + proposed procedural updates.',
+    inputSchema: {
+      type: 'object',
+      required: ['run_id'],
+      properties: {
+        run_id: { type: 'string' },
+      },
+    },
+  },
+  {
     name: 'read_transcript',
     description: 'Read a task transcript from its run directory.',
     inputSchema: {

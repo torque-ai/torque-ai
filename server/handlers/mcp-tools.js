@@ -7,6 +7,9 @@ const { createAction } = require('../actions/action');
 const { createApplication } = require('../actions/application');
 const { createStatePersister } = require('../actions/state-persister');
 const { translateToAction } = require('../dispatch/translator');
+const { validateMemory, resolveNamespace, MEMORY_KINDS } = require('../memory/memory-kind');
+const { createPromptOptimizer } = require('../memory/prompt-optimizer');
+const { createReflectionExecutor } = require('../memory/reflection-executor');
 const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
 const { validateTranscript } = require('../transcripts/transcript-validator');
 const {
@@ -22,6 +25,7 @@ const SURFACE_TOOL_ALIASES = Object.freeze({
     start: 'run_workflow',
   }),
 });
+const MEMORY_REFLECTION_DEBOUNCE_MS = 500;
 
 function buildToolResult(payload) {
   return {
@@ -34,12 +38,407 @@ function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function parseJsonObject(value, fallback = {}) {
+  if (!value || typeof value !== 'string') return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return isPlainObject(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function validateStringArray(value, field) {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || !entry.trim())) {
     return makeError(ErrorCodes.INVALID_PARAM, `${field} must be an array of non-empty strings`);
   }
   return null;
 }
+
+function resolveMemoryDb() {
+  try {
+    if (defaultContainer?.has?.('db')) {
+      const db = defaultContainer.get('db');
+      if (db && typeof db.prepare === 'function') return db;
+    }
+  } catch (error) {
+    void error;
+  }
+
+  const database = require('../database');
+  const db = typeof database.getDbInstance === 'function'
+    ? database.getDbInstance()
+    : database;
+  if (!db || typeof db.prepare !== 'function') {
+    throw createHandlerError('memory database is unavailable', ErrorCodes.DATABASE_ERROR);
+  }
+  return db;
+}
+
+function ensureMemorySchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memories (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'semantic',
+      namespace TEXT NOT NULL DEFAULT '',
+      role TEXT,
+      content TEXT NOT NULL,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT
+    )
+  `);
+
+  const columns = new Set(db.prepare('PRAGMA table_info(memories)').all().map((row) => row.name));
+  const additions = [
+    ['kind', "ALTER TABLE memories ADD COLUMN kind TEXT NOT NULL DEFAULT 'semantic'"],
+    ['namespace', "ALTER TABLE memories ADD COLUMN namespace TEXT NOT NULL DEFAULT ''"],
+    ['role', 'ALTER TABLE memories ADD COLUMN role TEXT'],
+    ['metadata_json', 'ALTER TABLE memories ADD COLUMN metadata_json TEXT'],
+    ['created_at', 'ALTER TABLE memories ADD COLUMN created_at TEXT'],
+    ['updated_at', 'ALTER TABLE memories ADD COLUMN updated_at TEXT'],
+  ];
+  for (const [column, statement] of additions) {
+    if (columns.has(column)) continue;
+    try {
+      db.prepare(statement).run();
+    } catch (error) {
+      if (!String(error && error.message || '').includes('duplicate column')) {
+        throw error;
+      }
+    }
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_memories_kind_namespace ON memories(kind, namespace)');
+}
+
+function getMemoryDb() {
+  const db = resolveMemoryDb();
+  ensureMemorySchema(db);
+  return db;
+}
+
+function resolveMemoryNamespace(args = {}) {
+  const namespaceError = optionalString(args, 'namespace', 'namespace');
+  if (namespaceError) return { error: namespaceError };
+  if (args.vars !== undefined && !isPlainObject(args.vars)) {
+    return { error: makeError(ErrorCodes.INVALID_PARAM, 'vars must be an object') };
+  }
+  const template = typeof args.namespace === 'string' ? args.namespace : '';
+  return { namespace: resolveNamespace(template, args.vars || {}) };
+}
+
+function normalizeMemoryArgs(args = {}) {
+  const kind = typeof args.kind === 'string' ? args.kind.trim() : args.kind;
+  if (!MEMORY_KINDS.includes(kind)) {
+    return { error: makeError(ErrorCodes.INVALID_PARAM, `kind must be one of: ${MEMORY_KINDS.join(', ')}`) };
+  }
+
+  if (typeof args.content !== 'string' || args.content.length === 0) {
+    return { error: makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'content is required') };
+  }
+
+  const roleError = optionalString(args, 'role', 'role');
+  if (roleError) return { error: roleError };
+
+  const resolved = resolveMemoryNamespace(args);
+  if (resolved.error) return { error: resolved.error };
+
+  if (
+    args.embedding !== undefined
+    && (!Array.isArray(args.embedding) || args.embedding.some((value) => typeof value !== 'number' || !Number.isFinite(value)))
+  ) {
+    return { error: makeError(ErrorCodes.INVALID_PARAM, 'embedding must be an array of finite numbers') };
+  }
+
+  const memory = {
+    kind,
+    content: args.content,
+    role: typeof args.role === 'string' && args.role.trim() ? args.role.trim() : null,
+    namespace: resolved.namespace,
+  };
+
+  try {
+    validateMemory(memory);
+  } catch (error) {
+    return { error: makeError(ErrorCodes.INVALID_PARAM, error.message || String(error)) };
+  }
+
+  return { memory };
+}
+
+function memoryRowToRecord(row, score = null) {
+  const record = {
+    id: row.id,
+    kind: row.kind,
+    namespace: row.namespace || '',
+    role: row.role || null,
+    content: row.content,
+    metadata: parseJsonObject(row.metadata_json, {}),
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+  if (score !== null) record.score = score;
+  return record;
+}
+
+function latestProceduralMemory(db, role, namespace) {
+  return db.prepare(`
+    SELECT * FROM memories
+    WHERE kind = 'procedural' AND role = ? AND namespace = ?
+    ORDER BY COALESCE(updated_at, created_at) DESC
+    LIMIT 1
+  `).get(role, namespace);
+}
+
+function saveMemoryRecord(memory, metadata = {}, options = {}) {
+  const db = getMemoryDb();
+  const now = new Date().toISOString();
+  const metadataJson = JSON.stringify(metadata || {});
+  const upsertProcedural = options.upsertProcedural !== false;
+  const existing = upsertProcedural && memory.kind === 'procedural' && memory.role
+    ? latestProceduralMemory(db, memory.role, memory.namespace || '')
+    : null;
+
+  if (existing) {
+    db.prepare(`
+      UPDATE memories
+      SET content = ?, metadata_json = ?, updated_at = ?
+      WHERE id = ?
+    `).run(memory.content, metadataJson, now, existing.id);
+    const row = db.prepare('SELECT * FROM memories WHERE id = ?').get(existing.id);
+    return { ...memoryRowToRecord(row), created: false };
+  }
+
+  const id = randomUUID();
+  db.prepare(`
+    INSERT INTO memories (id, kind, namespace, role, content, metadata_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    memory.kind,
+    memory.namespace || '',
+    memory.role || null,
+    memory.content,
+    metadataJson,
+    now,
+    now,
+  );
+  const row = db.prepare('SELECT * FROM memories WHERE id = ?').get(id);
+  return { ...memoryRowToRecord(row), created: true };
+}
+
+function tokenize(value) {
+  return String(value || '')
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .filter((token) => token.length > 1);
+}
+
+function scoreMemoryRecord(record, query) {
+  const queryText = String(query || '').trim().toLowerCase();
+  if (!queryText) return null;
+  const haystack = [
+    record.content,
+    record.role,
+    record.namespace,
+    JSON.stringify(record.metadata || {}),
+  ].join('\n').toLowerCase();
+  let score = haystack.includes(queryText) ? 1 : 0;
+  const queryTokens = new Set(tokenize(queryText));
+  if (queryTokens.size > 0) {
+    const targetTokens = new Set(tokenize(haystack));
+    let hits = 0;
+    for (const token of queryTokens) {
+      if (targetTokens.has(token)) hits += 1;
+    }
+    score += hits / queryTokens.size;
+  }
+  return Number(score.toFixed(4));
+}
+
+function getLatestProceduralPrompt(role, namespace) {
+  const db = getMemoryDb();
+  const row = latestProceduralMemory(db, role, namespace || '');
+  return row ? memoryRowToRecord(row) : null;
+}
+
+function getCodexProvider() {
+  let providerRegistry = null;
+  try {
+    if (defaultContainer?.has?.('providerRegistry')) {
+      providerRegistry = defaultContainer.get('providerRegistry');
+    }
+  } catch (error) {
+    void error;
+  }
+
+  if (!providerRegistry) {
+    providerRegistry = require('../providers/registry');
+  }
+
+  try {
+    const database = require('../database');
+    if (database?.isReady?.()) {
+      require('../config').init({ db: database });
+      if (typeof providerRegistry.init === 'function') {
+        providerRegistry.init({ db: database });
+      }
+    }
+  } catch (error) {
+    void error;
+  }
+
+  try {
+    providerRegistry.registerProviderClass('codex', require('../providers/v2-cli-providers').CodexCliProvider);
+  } catch (error) {
+    void error;
+  }
+
+  return providerRegistry?.getProviderInstance?.('codex') || null;
+}
+
+function buildPromptOptimizationRequest({ role, strategy, current, trajectory, feedback }) {
+  return [
+    `Optimize the procedural prompt for role "${role}" using the "${strategy}" strategy.`,
+    'Return only the revised prompt text. Do not wrap it in markdown or JSON.',
+    '',
+    'Current prompt:',
+    current || '(empty)',
+    '',
+    'Trajectory JSON:',
+    JSON.stringify(trajectory || [], null, 2),
+    '',
+    'Feedback JSON:',
+    JSON.stringify(feedback || [], null, 2),
+  ].join('\n');
+}
+
+async function callPromptOptimizerModel(provider, prompt) {
+  if (!provider) {
+    throw createHandlerError('codex provider is unavailable', ErrorCodes.NO_HOSTS_AVAILABLE);
+  }
+
+  if (typeof provider.runPrompt === 'function') {
+    const result = await provider.runPrompt({ prompt, max_tokens: 1500 });
+    return normalizeModelOutput(result);
+  }
+
+  if (typeof provider.submit === 'function') {
+    const result = await provider.submit(prompt, null, { transport: 'api', maxTokens: 1500, raw_prompt: true });
+    return normalizeModelOutput(result);
+  }
+
+  throw createHandlerError('codex provider does not support prompt execution', ErrorCodes.INVALID_PARAM);
+}
+
+function createOptimizerLlm({ role, strategy }) {
+  return {
+    propose: async ({ current, feedback, trajectory }) => {
+      const provider = getCodexProvider();
+      const prompt = buildPromptOptimizationRequest({ role, strategy, current, trajectory, feedback });
+      const proposed = String(await callPromptOptimizerModel(provider, prompt) || '').trim();
+      if (!proposed) {
+        throw createHandlerError('optimizer provider returned an empty prompt', ErrorCodes.PROVIDER_ERROR);
+      }
+      return proposed;
+    },
+  };
+}
+
+function messageContentToText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((part) => {
+      if (typeof part === 'string') return part;
+      if (part && typeof part.text === 'string') return part.text;
+      return '';
+    }).filter(Boolean).join('\n');
+  }
+  if (content && typeof content === 'object') {
+    return JSON.stringify(content);
+  }
+  return '';
+}
+
+function getLastMessageText(messages, role) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role !== role) continue;
+    const text = messageContentToText(messages[i].content).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function getTaskForRun(runId) {
+  try {
+    return require('../db/task-core').getTask(runId) || null;
+  } catch {
+    return null;
+  }
+}
+
+function deriveProceduralProposals(task, episode) {
+  const proposals = [];
+  const errorText = String(task?.error_output || '').trim();
+  if (task?.status === 'failed' && errorText) {
+    proposals.push({
+      role: 'executor',
+      prompt_delta: `When a run fails with "${errorText.split(/\r?\n/)[0].slice(0, 160)}", preserve the error evidence and plan a targeted retry.`,
+    });
+  }
+  if (episode.input && episode.output && episode.output.length > 1000) {
+    proposals.push({
+      role: 'reviewer',
+      prompt_delta: 'When reviewing long outputs, summarize the decisive evidence before recommending follow-up work.',
+    });
+  }
+  return proposals;
+}
+
+async function reflectRunToMemory(runId) {
+  const task = getTaskForRun(runId);
+  let messages = [];
+  let transcriptPath = null;
+  try {
+    const transcriptLog = getTranscriptLogForTask(runId);
+    transcriptPath = transcriptLog.filePath;
+    messages = transcriptLog.read();
+  } catch (error) {
+    void error;
+  }
+
+  const input = getLastMessageText(messages, 'user') || String(task?.task_description || '').trim();
+  const output = getLastMessageText(messages, 'assistant') || String(task?.output || task?.error_output || '').trim();
+  if (!input && !output) {
+    return null;
+  }
+
+  const episode = {
+    input,
+    output,
+    rationale: `Reflected from run ${runId}`,
+  };
+  const proposals = deriveProceduralProposals(task, episode);
+  return saveMemoryRecord({
+    kind: 'episodic',
+    namespace: `runs/${runId}`,
+    role: null,
+    content: JSON.stringify(episode),
+  }, {
+    source: 'reflect_on_run',
+    run_id: runId,
+    task_id: task?.id || null,
+    task_status: task?.status || null,
+    transcript_path: transcriptPath,
+    message_count: messages.length,
+    proposed_procedural_updates: proposals,
+  }, { upsertProcedural: false });
+}
+
+const reflectionExecutor = createReflectionExecutor({
+  reflect: reflectRunToMemory,
+  debounceMs: MEMORY_REFLECTION_DEBOUNCE_MS,
+});
 
 function getStatePersister() {
   try {
@@ -965,6 +1364,171 @@ async function handleListSessions() {
   }
 }
 
+async function handleSaveMemory(args = {}) {
+  const normalized = normalizeMemoryArgs(args);
+  if (normalized.error) return normalized.error;
+
+  try {
+    const metadata = {
+      vars: args.vars || {},
+    };
+    if (args.embedding !== undefined) {
+      metadata.embedding = args.embedding;
+    }
+
+    const memory = saveMemoryRecord(normalized.memory, metadata);
+    return buildToolResult({
+      ok: true,
+      memory,
+    });
+  } catch (error) {
+    return makeError(ErrorCodes.DATABASE_ERROR, error.message || String(error));
+  }
+}
+
+async function handleSearchMemory(args = {}) {
+  try {
+    const kindError = optionalString(args, 'kind', 'kind');
+    if (kindError) return kindError;
+    const queryError = optionalString(args, 'query', 'query');
+    if (queryError) return queryError;
+    const resolved = resolveMemoryNamespace(args);
+    if (resolved.error) return resolved.error;
+
+    const kind = typeof args.kind === 'string' && args.kind.trim() ? args.kind.trim() : null;
+    if (kind && !MEMORY_KINDS.includes(kind)) {
+      return makeError(ErrorCodes.INVALID_PARAM, `kind must be one of: ${MEMORY_KINDS.join(', ')}`);
+    }
+
+    let limit = args.limit === undefined ? 10 : Math.floor(Number(args.limit));
+    if (!Number.isFinite(limit) || limit < 1) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'limit must be a positive number');
+    }
+    limit = Math.min(limit, 50);
+
+    const query = typeof args.query === 'string' ? args.query.trim() : '';
+    const db = getMemoryDb();
+    const where = [];
+    const params = [];
+    if (kind) {
+      where.push('kind = ?');
+      params.push(kind);
+    }
+    if (typeof args.namespace === 'string') {
+      where.push('namespace = ?');
+      params.push(resolved.namespace);
+    }
+    const sql = [
+      'SELECT * FROM memories',
+      where.length ? `WHERE ${where.join(' AND ')}` : '',
+      'ORDER BY COALESCE(updated_at, created_at) DESC',
+      'LIMIT ?',
+    ].filter(Boolean).join(' ');
+    params.push(query ? Math.min(limit * 5, 250) : limit);
+
+    let memories = db.prepare(sql).all(...params).map((row) => memoryRowToRecord(row));
+    if (query) {
+      memories = memories
+        .map((record) => ({ record, score: scoreMemoryRecord(record, query) }))
+        .filter((entry) => entry.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit)
+        .map((entry) => ({ ...entry.record, score: entry.score }));
+    }
+
+    return buildToolResult({
+      ok: true,
+      count: memories.length,
+      memories,
+    });
+  } catch (error) {
+    return makeError(ErrorCodes.DATABASE_ERROR, error.message || String(error));
+  }
+}
+
+async function handleOptimizePrompt(args = {}) {
+  try {
+    const roleError = requireString(args, 'role', 'role');
+    if (roleError) return roleError;
+    const strategyError = requireString(args, 'strategy', 'strategy');
+    if (strategyError) return strategyError;
+    const resolved = resolveMemoryNamespace(args);
+    if (resolved.error) return resolved.error;
+
+    const role = args.role.trim();
+    const strategy = args.strategy.trim();
+    if (!['metaprompt', 'gradient', 'prompt_memory'].includes(strategy)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'strategy must be metaprompt, gradient, or prompt_memory');
+    }
+    if (args.trajectory !== undefined && !Array.isArray(args.trajectory)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'trajectory must be an array');
+    }
+    if (
+      args.feedback !== undefined
+      && (!Array.isArray(args.feedback) || args.feedback.some((item) => typeof item !== 'string'))
+    ) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'feedback must be an array of strings');
+    }
+
+    const currentMemory = getLatestProceduralPrompt(role, resolved.namespace);
+    const optimizer = createPromptOptimizer({
+      strategy,
+      llm: strategy === 'prompt_memory' ? null : createOptimizerLlm({ role, strategy }),
+    });
+    const result = await optimizer.optimize({
+      current: currentMemory?.content || '',
+      trajectory: args.trajectory || [],
+      feedback: args.feedback || [],
+    });
+
+    let appliedMemory = null;
+    if (args.apply === true) {
+      if (typeof result.prompt !== 'string' || result.prompt.trim().length === 0) {
+        return makeError(ErrorCodes.INVALID_PARAM, 'optimizer produced an empty prompt; nothing was applied');
+      }
+      appliedMemory = saveMemoryRecord({
+        kind: 'procedural',
+        namespace: resolved.namespace,
+        role,
+        content: result.prompt,
+      }, {
+        source: 'optimize_prompt',
+        strategy,
+        previous_memory_id: currentMemory?.id || null,
+        trajectory_count: Array.isArray(args.trajectory) ? args.trajectory.length : 0,
+        feedback_count: Array.isArray(args.feedback) ? args.feedback.length : 0,
+      });
+    }
+
+    return buildToolResult({
+      ok: true,
+      role,
+      namespace: resolved.namespace,
+      strategy,
+      changed: Boolean(result.changed),
+      applied: args.apply === true,
+      memory_id: appliedMemory?.id || currentMemory?.id || null,
+      prompt: result.prompt,
+    });
+  } catch (error) {
+    return makeError(error.code || ErrorCodes.OPERATION_FAILED, error.message || String(error));
+  }
+}
+
+async function handleReflectOnRun(args = {}) {
+  const runIdError = requireString(args, 'run_id', 'run_id');
+  if (runIdError) return runIdError;
+
+  const runId = args.run_id.trim();
+  reflectionExecutor.submit(runId);
+  return buildToolResult({
+    ok: true,
+    run_id: runId,
+    scheduled: true,
+    debounce_ms: MEMORY_REFLECTION_DEBOUNCE_MS,
+  });
+}
+
 async function handleReadTranscript(args = {}) {
   try {
     const taskError = requireString(args, 'task_id', 'task_id');
@@ -1162,6 +1726,10 @@ module.exports = {
   handleResumeSession,
   handleForkSession,
   handleListSessions,
+  handleSaveMemory,
+  handleSearchMemory,
+  handleOptimizePrompt,
+  handleReflectOnRun,
   handleReadTranscript,
   handleEditTranscript,
   handleReplayFromTranscript,
