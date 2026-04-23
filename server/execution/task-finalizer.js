@@ -181,6 +181,78 @@ function getRawDbInstance() {
   }
 }
 
+function getCheckpointStore() {
+  if (deps.checkpointStore && typeof deps.checkpointStore.writeCheckpoint === 'function') {
+    return deps.checkpointStore;
+  }
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (
+      defaultContainer
+      && typeof defaultContainer.has === 'function'
+      && defaultContainer.has('checkpointStore')
+      && typeof defaultContainer.get === 'function'
+    ) {
+      return defaultContainer.get('checkpointStore');
+    }
+  } catch (_err) {
+    // Container may be unavailable or not booted in direct-module tests.
+  }
+
+  const rawDb = getRawDbInstance();
+  if (!rawDb) {
+    return null;
+  }
+
+  try {
+    const { createCheckpointStore } = require('../workflow-state/checkpoint-store');
+    return createCheckpointStore({ db: rawDb });
+  } catch (_err) {
+    return null;
+  }
+}
+
+function resolveWorkflowCheckpointVersion(workflowId, versionCandidate) {
+  const explicitVersion = Number(versionCandidate);
+  if (Number.isInteger(explicitVersion) && explicitVersion > 0) {
+    return explicitVersion;
+  }
+
+  const rawDb = getRawDbInstance();
+  if (!rawDb || !workflowId) {
+    return 1;
+  }
+
+  try {
+    const row = rawDb.prepare('SELECT version FROM workflow_state WHERE workflow_id = ?').get(workflowId);
+    const workflowVersion = Number(row?.version);
+    if (Number.isInteger(workflowVersion) && workflowVersion > 0) {
+      return workflowVersion;
+    }
+  } catch (_err) {
+    // workflow_state is not present on every branch yet; fall back below.
+  }
+
+  try {
+    const row = rawDb.prepare(`
+      SELECT state_version
+      FROM workflow_checkpoints
+      WHERE workflow_id = ?
+      ORDER BY taken_at DESC, rowid DESC
+      LIMIT 1
+    `).get(workflowId);
+    const lastVersion = Number(row?.state_version);
+    if (Number.isInteger(lastVersion) && lastVersion > 0) {
+      return lastVersion + 1;
+    }
+  } catch (_err) {
+    // Checkpoint schema may not be available in isolated tests.
+  }
+
+  return 1;
+}
+
 function getDurationMsForScoring(task) {
   const startedAt = parseTimestampMs(task?.started_at);
   if (!startedAt) return 0;
@@ -798,6 +870,26 @@ async function finalizeTask(taskId, options = {}) {
     updateTaskStatus(taskId, ctx.status, statusFields);
 
     ctx.task = deps.db.getTask(taskId) || task;
+    const workflowState = options.state !== undefined ? options.state : procState.state;
+    const workflowStateVersion = options.stateVersion !== undefined
+      ? options.stateVersion
+      : (procState.stateVersion !== undefined ? procState.stateVersion : workflowState?.version);
+    if (ctx.status === 'completed' && ctx.task?.workflow_id && workflowState !== undefined) {
+      try {
+        const checkpointStore = getCheckpointStore();
+        if (checkpointStore && typeof checkpointStore.writeCheckpoint === 'function') {
+          checkpointStore.writeCheckpoint({
+            workflowId: ctx.task.workflow_id,
+            stepId: ctx.task.workflow_node_id || ctx.task.node_id || null,
+            taskId,
+            state: workflowState,
+            version: resolveWorkflowCheckpointVersion(ctx.task.workflow_id, workflowStateVersion),
+          });
+        }
+      } catch (checkpointErr) {
+        logger.info(`[finalizer] Workflow checkpoint capture failed: ${checkpointErr.message}`);
+      }
+    }
     try {
       const { snapshotTaskState } = require('../checkpoints/snapshot');
       // Fire-and-forget — checkpoint must not block finalization

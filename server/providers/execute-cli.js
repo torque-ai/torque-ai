@@ -907,6 +907,8 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
               errorOutput: redactSecrets(proc.errorOutput),
               baselineCommit: proc.baselineCommit,
               provider: proc.provider,
+              state: proc.state,
+              stateVersion: proc.stateVersion,
               completionDetected: proc.completionDetected,
             }
           : {
@@ -933,6 +935,8 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
               errorOutput: redactSecrets(proc.errorOutput),
               baselineCommit: proc.baselineCommit,
               provider: proc.provider,
+              state: proc.state,
+              stateVersion: proc.stateVersion,
             }
           : {
               provider,
@@ -997,6 +1001,8 @@ function spawnAndTrackProcess(taskId, task, cmdSpec, provider) {
           output: proc?.output || '',
           errorOutput: redactSecrets(proc?.errorOutput || ''),
           baselineCommit: proc?.baselineCommit || null,
+          state: proc?.state,
+          stateVersion: proc?.stateVersion,
           provider,
         },
       });

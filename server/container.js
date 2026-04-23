@@ -232,6 +232,10 @@ _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
   const { createProviderScoring } = require('./db/provider-scoring');
   return createProviderScoring({ db: unwrapDb(db) });
 });
+_defaultContainer.register('checkpointStore', ['db'], ({ db }) => {
+  const { createCheckpointStore } = require('./workflow-state/checkpoint-store');
+  return createCheckpointStore({ db: unwrapDb(db) });
+});
 _defaultContainer.register('specialistStorage', ['db'], ({ db }) => (
   createSpecialistStorage({ db: unwrapDb(db) })
 ));
