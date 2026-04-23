@@ -1219,6 +1219,55 @@ describe('factory loop-controller EXECUTE modes', () => {
     expect(decisions.find((d) => d.action === 'worktree_reclaim_skipped_live_owner')).toBeTruthy();
   });
 
+  it('reuses an active worktree owned by a completed task instead of reclaiming it', async () => {
+    const { project, workItem } = registerPlanProject();
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
+    const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
+    const worktreePath = path.join(project.path, '.worktrees', 'feat-completed-owner');
+    fs.mkdirSync(worktreePath, { recursive: true });
+    const existing = factoryWorktrees.recordWorktree({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: `factory-${project.id}-${workItem.id}`,
+      vc_worktree_id: 'vc-completed-owner',
+      branch: targetBranch,
+      worktree_path: worktreePath,
+    });
+    factoryWorktrees.setOwningTask(existing.id, 'task-completed-owner');
+    taskCore.getTask = vi.fn((taskId) => ({
+      id: taskId,
+      status: 'completed',
+      error_output: null,
+    }));
+
+    const worktreeRunner = {
+      createForBatch: vi.fn(),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 12,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
+    expect(worktreeRunner.abandon).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: worktreePath,
+    }));
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'worktree_reused_completed_owner')).toBeTruthy();
+    expect(decisions.find((d) => d.action === 'worktree_reclaimed')).toBeFalsy();
+  });
+
   it('pauses EXECUTE at a fail-loud state when worktree creation throws (no fallback to main)', async () => {
     const { project, workItem, planPath } = registerPlanProject();
     const planBefore = fs.readFileSync(planPath, 'utf8');

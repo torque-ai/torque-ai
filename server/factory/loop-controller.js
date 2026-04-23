@@ -110,6 +110,8 @@ function setWorktreeRunnerForTests(runner) {
 }
 const PENDING_APPROVAL_SUCCESS_TASK_STATUSES = new Set(['completed', 'shipped']);
 const PENDING_APPROVAL_FAILURE_TASK_STATUSES = new Set(['failed', 'cancelled']);
+const LIVE_WORKTREE_OWNER_STATUSES = new Set(['queued', 'running', 'pending', 'retry_scheduled']);
+const REUSABLE_WORKTREE_OWNER_STATUSES = new Set(['completed']);
 const EXECUTION_TERMINAL_DECISION_ACTIONS = Object.freeze([
   'completed_execution',
   'execution_failed',
@@ -4581,7 +4583,6 @@ async function executePlanFileStage(project, instance, workItem) {
       if (stale) {
         let owning = null;
         let owningStatus = null;
-        const liveStatuses = new Set(['queued', 'running', 'pending', 'retry_scheduled']);
         try {
           if (stale.owningTaskId) {
             const taskCore = require('../db/task-core');
@@ -4614,7 +4615,7 @@ async function executePlanFileStage(project, instance, workItem) {
           : Date.parse(createdAtRaw);
         const staleAgeMs = Number.isFinite(createdAt) ? Date.now() - createdAt : null;
         const withinReclaimGrace = staleAgeMs === null || staleAgeMs < reclaimGraceMs;
-        if (owning && liveStatuses.has(owningStatus) && withinReclaimGrace) {
+        if (owning && LIVE_WORKTREE_OWNER_STATUSES.has(owningStatus) && withinReclaimGrace) {
           logger.info('factory worktree: skipping pre-reclaim for fresh live owner', {
             project_id: project.id,
             work_item_id: targetItem.id,
@@ -4658,7 +4659,38 @@ async function executePlanFileStage(project, instance, workItem) {
             },
           };
         }
-        logger.warn('factory worktree: pre-reclaiming stale active row before create', {
+        const staleWorktreePath = stale.worktreePath || stale.worktree_path || null;
+        if (owning && REUSABLE_WORKTREE_OWNER_STATUSES.has(owningStatus) && staleWorktreePath && fs.existsSync(staleWorktreePath)) {
+          worktreeRecord = stale;
+          executionWorkingDirectory = staleWorktreePath;
+          logger.info('factory worktree: reusing active worktree with completed owner before create', {
+            project_id: project.id,
+            work_item_id: targetItem.id,
+            branch: targetBranch,
+            factory_worktree_id: stale.id,
+            owning_task_id: stale.owningTaskId,
+            owning_status: owningStatus,
+            worktree_path: staleWorktreePath,
+          });
+          safeLogDecision({
+            project_id: project.id,
+            stage: LOOP_STATES.EXECUTE,
+            action: 'worktree_reused_completed_owner',
+            reasoning: 'Reused the active factory worktree because its owning task completed; reclaiming here would discard completed task output.',
+            inputs: { ...getWorkItemDecisionContext(targetItem) },
+            outcome: {
+              factory_worktree_id: stale.id,
+              stale_batch_id: stale.batch_id,
+              branch: targetBranch,
+              owning_task_id: stale.owningTaskId,
+              owning_status: owningStatus,
+              worktree_path: staleWorktreePath,
+            },
+            confidence: 1,
+            batch_id: executeLogBatchId,
+          });
+        }
+        if (!worktreeRecord) logger.warn('factory worktree: pre-reclaiming stale active row before create', {
           project_id: project.id,
           work_item_id: targetItem.id,
           branch: targetBranch,
@@ -4671,7 +4703,7 @@ async function executePlanFileStage(project, instance, workItem) {
         // this the subsequent `git worktree remove` / fs.rmSync hit
         // "Device or resource busy" on Windows and the reclaim produces
         // phantom state.
-        if (stale.owningTaskId) {
+        if (!worktreeRecord && stale.owningTaskId) {
           try {
             const taskCore = require('../db/task-core');
             const owning = taskCore.getTask(stale.owningTaskId);
@@ -4712,8 +4744,8 @@ async function executePlanFileStage(project, instance, workItem) {
             });
           }
         }
-        factoryWorktrees.markAbandoned(stale.id, 'pre_reclaim_before_create');
-        if (typeof worktreeRunner.abandon === 'function' && stale.vcWorktreeId) {
+        if (!worktreeRecord) factoryWorktrees.markAbandoned(stale.id, 'pre_reclaim_before_create');
+        if (!worktreeRecord && typeof worktreeRunner.abandon === 'function' && stale.vcWorktreeId) {
           // Let errors propagate — if cleanup fails (e.g. a process still
           // holds a file lock), the outer catch will pause EXECUTE with a
           // real diagnostic instead of silently proceeding into a broken
@@ -4724,7 +4756,7 @@ async function executePlanFileStage(project, instance, workItem) {
             reason: 'pre_reclaim_before_create',
           });
         }
-        safeLogDecision({
+        if (!worktreeRecord) safeLogDecision({
           project_id: project.id,
           stage: LOOP_STATES.EXECUTE,
           action: 'worktree_reclaimed',
@@ -4740,81 +4772,83 @@ async function executePlanFileStage(project, instance, workItem) {
         });
       }
 
-      try {
-        createdWorktree = await worktreeRunner.createForBatch({
-          project,
-          workItem: targetItem,
-          batchId: executeLogBatchId,
-        });
-      } catch (firstErr) {
-        // Retry once after reconciling orphan worktrees if the error looks
-        // like a stale-state collision. "already exists" is how git reports
-        // both stale path entries and stale branch names. Reconciling the
-        // project's .worktrees/ against the DB removes any dir whose DB row
-        // is abandoned/shipped/merged (or missing for a factory-named dir),
-        // then the retry proceeds on a clean slate. We only retry on the
-        // already-exists signal — other failures (permissions, disk full)
-        // should surface immediately.
-        const errMsg = firstErr && typeof firstErr.message === 'string' ? firstErr.message : '';
-        if (/already exists/i.test(errMsg)) {
-          try {
-            const database = require('../database');
-            const db = database.getDbInstance();
-            if (db && project.path) {
-              const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
-              const rec = reconcileOrphanWorktrees({
-                db,
-                project_id: project.id,
-                project_path: project.path,
-              });
-              logger.warn('factory worktree: reconciled orphans before retry', {
-                project_id: project.id,
-                work_item_id: targetItem.id,
-                cleaned: rec.cleaned.length,
-                failed: rec.failed.length,
-              });
-            }
-          } catch (reconcileErr) {
-            logger.warn('factory worktree: reconcile-before-retry failed', {
-              project_id: project.id,
-              err: reconcileErr.message,
-            });
-          }
+      if (!worktreeRecord) {
+        try {
           createdWorktree = await worktreeRunner.createForBatch({
             project,
             workItem: targetItem,
             batchId: executeLogBatchId,
           });
-        } else {
-          throw firstErr;
+        } catch (firstErr) {
+          // Retry once after reconciling orphan worktrees if the error looks
+          // like a stale-state collision. "already exists" is how git reports
+          // both stale path entries and stale branch names. Reconciling the
+          // project's .worktrees/ against the DB removes any dir whose DB row
+          // is abandoned/shipped/merged (or missing for a factory-named dir),
+          // then the retry proceeds on a clean slate. We only retry on the
+          // already-exists signal — other failures (permissions, disk full)
+          // should surface immediately.
+          const errMsg = firstErr && typeof firstErr.message === 'string' ? firstErr.message : '';
+          if (/already exists/i.test(errMsg)) {
+            try {
+              const database = require('../database');
+              const db = database.getDbInstance();
+              if (db && project.path) {
+                const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
+                const rec = reconcileOrphanWorktrees({
+                  db,
+                  project_id: project.id,
+                  project_path: project.path,
+                });
+                logger.warn('factory worktree: reconciled orphans before retry', {
+                  project_id: project.id,
+                  work_item_id: targetItem.id,
+                  cleaned: rec.cleaned.length,
+                  failed: rec.failed.length,
+                });
+              }
+            } catch (reconcileErr) {
+              logger.warn('factory worktree: reconcile-before-retry failed', {
+                project_id: project.id,
+                err: reconcileErr.message,
+              });
+            }
+            createdWorktree = await worktreeRunner.createForBatch({
+              project,
+              workItem: targetItem,
+              batchId: executeLogBatchId,
+            });
+          } else {
+            throw firstErr;
+          }
         }
-      }
-      worktreeRecord = factoryWorktrees.recordWorktree({
-        project_id: project.id,
-        work_item_id: targetItem.id,
-        batch_id: executeLogBatchId,
-        vc_worktree_id: createdWorktree.id,
-        branch: createdWorktree.branch,
-        worktree_path: createdWorktree.worktreePath,
-        base_branch: createdWorktree.baseBranch || createdWorktree.base_branch || null,
-      });
-      executionWorkingDirectory = worktreeRecord.worktreePath;
-      safeLogDecision({
-        project_id: project.id,
-        stage: LOOP_STATES.EXECUTE,
-        action: 'worktree_created',
-        reasoning: `Created isolated worktree for factory batch ${executeLogBatchId}.`,
-        inputs: { ...getWorkItemDecisionContext(targetItem) },
-        outcome: {
-          worktree_id: worktreeRecord.vcWorktreeId,
-          factory_worktree_id: worktreeRecord.id,
-          worktree_path: worktreeRecord.worktreePath,
-          branch: worktreeRecord.branch,
+        worktreeRecord = factoryWorktrees.recordWorktree({
+          project_id: project.id,
+          work_item_id: targetItem.id,
           batch_id: executeLogBatchId,
-        },
-        confidence: 1,
-        batch_id: executeLogBatchId,
-      });
+          vc_worktree_id: createdWorktree.id,
+          branch: createdWorktree.branch,
+          worktree_path: createdWorktree.worktreePath,
+          base_branch: createdWorktree.baseBranch || createdWorktree.base_branch || null,
+        });
+        executionWorkingDirectory = worktreeRecord.worktreePath;
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.EXECUTE,
+          action: 'worktree_created',
+          reasoning: `Created isolated worktree for factory batch ${executeLogBatchId}.`,
+          inputs: { ...getWorkItemDecisionContext(targetItem) },
+          outcome: {
+            worktree_id: worktreeRecord.vcWorktreeId,
+            factory_worktree_id: worktreeRecord.id,
+            worktree_path: worktreeRecord.worktreePath,
+            branch: worktreeRecord.branch,
+            batch_id: executeLogBatchId,
+          },
+          confidence: 1,
+          batch_id: executeLogBatchId,
+        });
+      }
     } catch (err) {
       if (createdWorktree && !worktreeRecord && typeof worktreeRunner.abandon === 'function') {
         try {
