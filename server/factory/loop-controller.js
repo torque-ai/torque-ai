@@ -5176,7 +5176,7 @@ const VERIFY_FIX_PROMPT_TAIL_BUDGET = 16000;
 
 const VERIFY_FIX_PROMPT_PRIOR_BUDGET = 1800;
 
-const VERIFY_RETRY_SCOPE_PATH_RE = /[A-Za-z0-9_./\\-]+\.(?:tsx|jsx|cjs|mjs|yaml|yml|json|sql|js|ts|py|cs|md)/g;
+const VERIFY_RETRY_SCOPE_PATH_RE = /[A-Za-z0-9_./\\-]+\.(?:csproj|fsproj|vbproj|targets|props|tsx|jsx|cjs|mjs|yaml|yml|json|sql|xaml|axaml|xml|resx|psm1|ps1|sln|js|ts|py|cs|sh|md)/g;
 
 function normalizeScopeEnvelopePath(filePath) {
   return String(filePath || '')
