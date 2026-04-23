@@ -87,6 +87,39 @@ if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
   TORQUE_RUNNING=true
 fi
 
+summarize_running_blockers() {
+  local resp
+  resp=$(curl -s --max-time 5 "${TORQUE_API}/api/v2/tasks?status=running&limit=20" 2>/dev/null || echo "")
+  if [ -z "$resp" ]; then
+    return 0
+  fi
+  node -e '
+    let input = "";
+    process.stdin.on("data", chunk => { input += chunk; });
+    process.stdin.on("end", () => {
+      let parsed;
+      try { parsed = JSON.parse(input); } catch { return; }
+      const items = parsed?.data?.items || parsed?.items || parsed?.tasks || [];
+      const blockers = items
+        .filter(task => task && task.provider !== "system" && task.status === "running")
+        .slice(0, 5);
+      if (blockers.length === 0) return;
+      console.log(`    Blocking running task${blockers.length === 1 ? "" : "s"}:`);
+      for (const task of blockers) {
+        const id = String(task.id || "").slice(0, 8) || "unknown";
+        const provider = task.provider || "unknown";
+        const cwd = task.working_directory || task.cwd || "";
+        const desc = String(task.description || task.task_description || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 90);
+        const where = cwd ? ` cwd=${cwd}` : "";
+        console.log(`      ${id} ${provider}${where}${desc ? ` — ${desc}` : ""}`);
+      }
+    });
+  ' <<< "$resp" 2>/dev/null || true
+}
+
 # --- Restart via barrier primitive ---
 # Instead of cooperative drain + stop-torque.sh (which races with factory
 # auto_advance), we use the restart barrier: POST /api/v2/system/restart-server
@@ -191,6 +224,7 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
 
     if [ "${BARRIER_STATUS:-}" != "restart_scheduled" ]; then
       echo "  Waiting for pipeline drain..."
+      LAST_BLOCKER_REPORT=0
       while true; do
         TASK_RESP=$(curl -s --max-time 5 "${TORQUE_API}/api/v2/tasks/${BARRIER_TASK_ID}" 2>/dev/null || echo "")
         TASK_STATUS=$(echo "$TASK_RESP" | sed -nE 's/.*"status"[[:space:]]*:[[:space:]]*"([^"\\]+)".*/\1/p' | head -1 || true)
@@ -236,6 +270,12 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
           echo "[error] Timed out waiting for barrier task ${BARRIER_TASK_ID:0:8}."
           echo "        Merge landed but TORQUE was NOT restarted."
           exit 2
+        fi
+
+        NOW_SECONDS=$(date +%s)
+        if [ $((NOW_SECONDS - LAST_BLOCKER_REPORT)) -ge "${CUTOVER_BLOCKER_REPORT_SECONDS:-60}" ]; then
+          summarize_running_blockers
+          LAST_BLOCKER_REPORT="$NOW_SECONDS"
         fi
 
         echo "    Barrier ${BARRIER_TASK_ID:0:8}: ${TASK_STATUS} — sleeping 10s..."

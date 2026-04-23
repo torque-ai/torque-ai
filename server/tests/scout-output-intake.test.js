@@ -125,6 +125,52 @@ describe('scout output intake', () => {
     })]);
   });
 
+  it('normalizes legacy string scout_complete work item references', () => {
+    const workItems = collectConcreteWorkItems([
+      '__SCOUT_COMPLETE__',
+      JSON.stringify({
+        concrete_factory_work_items: [
+          'docs/superpowers/plans/auto-generated/765-add-ci-gates-for-ledger-invariants-and-security-contract-tests.md',
+        ],
+      }),
+      '__SCOUT_COMPLETE_END__',
+    ].join('\n'));
+
+    expect(workItems).toEqual([expect.objectContaining({
+      title: 'Add ci gates for ledger invariants and security contract tests',
+      source: 'docs/superpowers/plans/auto-generated/765-add-ci-gates-for-ledger-invariants-and-security-contract-tests.md',
+      sources: ['docs/superpowers/plans/auto-generated/765-add-ci-gates-for-ledger-invariants-and-security-contract-tests.md'],
+    })]);
+  });
+
+  it('normalizes scout work item objects with id, reason, source_files, validation, and string priority', () => {
+    const workItems = collectConcreteWorkItems([
+      '__SCOUT_COMPLETE__',
+      JSON.stringify({
+        concrete_factory_work_items: [{
+          id: 'dlphone-typed-lan-startup-failure-reasons',
+          priority: 'high',
+          source_files: [
+            'docs/superpowers/plans/auto-generated/754-add-typed-lanstartupcoordinator-failure-reasons.md',
+          ],
+          reason: 'Plan docs are checked, but current code has no typed failure reason surface.',
+          validation: ['dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter LanStartupCoordinator'],
+        }],
+      }),
+      '__SCOUT_COMPLETE_END__',
+    ].join('\n'));
+
+    expect(workItems).toEqual([expect.objectContaining({
+      title: 'Dlphone typed lan startup failure reasons',
+      priority: 'high',
+      why: 'Plan docs are checked, but current code has no typed failure reason surface.',
+      allowed_files: [
+        'docs/superpowers/plans/auto-generated/754-add-typed-lanstartupcoordinator-failure-reasons.md',
+      ],
+      verification: 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter LanStartupCoordinator',
+    })]);
+  });
+
   it('promotes concrete scout_complete work items and resolves legacy project metadata by path', () => {
     const factoryIntake = {
       findDuplicates: vi.fn().mockReturnValue([]),

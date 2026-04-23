@@ -126,6 +126,26 @@ describe('handleSubmitScout', () => {
     expect(result.isError).toBeFalsy();
     expect(result.content[0].text).toContain('Scout Task Submitted');
   });
+
+  it('tags starvation recovery scouts with project context', () => {
+    const result = handlers.handleSubmitScout({
+      scope: 'Factory starvation recovery scout.',
+      working_directory: '/proj',
+      provider: 'codex',
+      reason: 'factory_starvation_recovery',
+      project_id: 'project-1',
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(mockTaskCore.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      tags: expect.arrayContaining([
+        'factory:scout',
+        'factory:reason=factory_starvation_recovery',
+        'factory:project_id=project-1',
+        'factory:starvation_recovery',
+      ]),
+    }));
+  });
 });
 
 describe('handleCreateDiffusionPlan', () => {

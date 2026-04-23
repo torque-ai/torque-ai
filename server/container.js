@@ -336,6 +336,36 @@ _defaultContainer.register(
           findings_dir: path.join(project.path, 'docs', 'findings'),
         });
       },
+      ingestScoutOutputs: async (project) => {
+        if (!rawDb || !project?.path) {
+          return { created: [], skipped: [], scanned: 0 };
+        }
+        const { promoteScoutTaskOutputToIntake } = require('./factory/scout-output-intake');
+        const windowsPath = String(project.path).replace(/\//g, '\\');
+        const rows = rawDb.prepare(`
+          SELECT *
+          FROM tasks
+          WHERE status = 'completed'
+            AND (working_directory = ? OR working_directory = ?)
+            AND (
+              metadata LIKE '%factory_starvation_recovery%'
+              OR task_description LIKE '%Factory starvation recovery scout%'
+              OR output LIKE '%__SCOUT_COMPLETE__%'
+              OR output LIKE '%__PATTERNS_READY__%'
+            )
+          ORDER BY COALESCE(completed_at, created_at) DESC
+          LIMIT 20
+        `).all(project.path, windowsPath);
+
+        const created = [];
+        const skipped = [];
+        for (const row of rows) {
+          const result = promoteScoutTaskOutputToIntake(row, { factoryIntake, logger: recoveryLogger });
+          created.push(...(result.created || []));
+          skipped.push(...(result.skipped || []));
+        }
+        return { created, skipped, scanned: rows.length };
+      },
       updateLoopState: async (projectId, updates) => {
         const activeInstances = factoryLoopInstances.listInstances({
           project_id: projectId,

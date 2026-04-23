@@ -481,18 +481,34 @@ async function handleListFactoryProjects(args) {
   return jsonResponse({ projects: summaries });
 }
 
+function summarizeHealthModel(scores) {
+  const present = Object.keys(scores || {});
+  const missing = [...factoryHealth.VALID_DIMENSIONS].filter((dimension) => !present.includes(dimension));
+  return {
+    dimension_count: present.length,
+    missing_dimensions: missing,
+    status: present.length === 0
+      ? 'missing'
+      : (missing.length > 0 ? 'partial' : 'complete'),
+  };
+}
+
 async function handleProjectHealth(args) {
   const project = resolveProject(args.project);
   const scores = factoryHealth.getLatestScores(project.id);
   const balance = factoryHealth.getBalanceScore(project.id, scores);
   const dimensions = Object.keys(scores);
   const weakest = Object.entries(scores).sort((a, b) => a[1] - b[1])[0];
+  const healthModel = summarizeHealthModel(scores);
 
   const result = {
     project: { id: project.id, name: project.name, path: project.path, trust_level: project.trust_level, status: project.status },
     scores,
     balance,
     weakest_dimension: weakest ? { dimension: weakest[0], score: weakest[1] } : null,
+    dimension_count: healthModel.dimension_count,
+    health_model_status: healthModel.status,
+    health_missing_dimensions: healthModel.missing_dimensions,
   };
 
   if (args.include_trends) {
@@ -697,6 +713,7 @@ async function handleFactoryStatus() {
     const scores = factoryHealth.getLatestScores(p.id);
     const balance = factoryHealth.getBalanceScore(p.id, scores);
     const weakest = Object.entries(scores).sort((a, b) => a[1] - b[1])[0];
+    const healthModel = summarizeHealthModel(scores);
 
     // Derive loop_state from the active instance, not the project row.
     // The project row is a write-through cache that can go stale when
@@ -740,7 +757,9 @@ async function handleFactoryStatus() {
       alert_badge: alertBadge,
       balance,
       weakest_dimension: weakest ? weakest[0] : null,
-      dimension_count: Object.keys(scores).length,
+      dimension_count: healthModel.dimension_count,
+      health_model_status: healthModel.status,
+      health_missing_dimensions: healthModel.missing_dimensions,
     };
   }));
 

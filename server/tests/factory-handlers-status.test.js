@@ -163,7 +163,15 @@ describe('factory_status', () => {
     for (const project of payload.projects) {
       expect(project).toHaveProperty('loop_state');
       expect(project).toHaveProperty('loop_paused_at_stage');
+      expect(project).toHaveProperty('health_model_status');
+      expect(project).toHaveProperty('health_missing_dimensions');
     }
+
+    expect(projectsById['project-idle-old']).toMatchObject({
+      dimension_count: 0,
+      health_model_status: 'missing',
+    });
+    expect(projectsById['project-idle-old'].health_missing_dimensions).toContain('build_ci');
 
     expect(payload.summary).toMatchObject({
       total: 3,

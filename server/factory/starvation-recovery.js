@@ -32,6 +32,7 @@ function createStarvationRecovery({
   updateLoopState,
   countOpenWorkItems,
   ingestScoutFindings,
+  ingestScoutOutputs,
   dwellMs = DEFAULT_DWELL_MS,
   now = () => Date.now(),
   logger = console,
@@ -130,11 +131,33 @@ function createStarvationRecovery({
       });
     }
 
+    let scoutOutputIngest = null;
+    if (typeof ingestScoutOutputs === 'function') {
+      try {
+        scoutOutputIngest = await ingestScoutOutputs(project);
+      } catch (err) {
+        logger.warn?.('Starvation recovery scout output ingest failed', {
+          project_id: project.id,
+          err: err.message,
+        });
+      }
+    }
+
+    const createdFromScoutOutputs = getCreatedCount(scoutOutputIngest);
+    if (createdFromScoutOutputs > 0) {
+      return moveToSense(project, 'scout_outputs_ingested', {
+        created_count: createdFromScoutOutputs,
+        scout_output_ingest: scoutOutputIngest,
+        findings_ingest: findingsIngest,
+      });
+    }
+
     const postIngestOpenCount = await openWorkItemCount(project);
     if (postIngestOpenCount > 0) {
       return moveToSense(project, 'open_intake_available_after_findings_scan', {
         open_work_items: postIngestOpenCount,
         findings_ingest: findingsIngest,
+        scout_output_ingest: scoutOutputIngest,
       });
     }
 
@@ -181,6 +204,7 @@ function createStarvationRecovery({
       reason: 'scout_submitted_waiting_for_intake',
       scout,
       findings_ingest: findingsIngest,
+      scout_output_ingest: scoutOutputIngest,
     };
   }
 

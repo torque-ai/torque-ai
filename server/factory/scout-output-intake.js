@@ -41,6 +41,26 @@ function truncateTitle(value) {
   return `${text.slice(0, MAX_TITLE_LENGTH - 3).trim()}...`;
 }
 
+function titleFromIdentifier(value) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return null;
+  }
+  const basename = raw
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean)
+    .pop()
+    || raw;
+  const withoutExt = basename.replace(/\.[a-z0-9]+$/i, '');
+  const withoutLeadingId = withoutExt.replace(/^\d+[-_]+/, '');
+  const text = withoutLeadingId
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : raw;
+}
+
 function normalizePattern(pattern) {
   if (!pattern || typeof pattern !== 'object') {
     return null;
@@ -100,11 +120,34 @@ function collectPatterns(output) {
 }
 
 function normalizeConcreteWorkItem(item) {
+  if (typeof item === 'string') {
+    const title = titleFromIdentifier(item);
+    if (!title) {
+      return null;
+    }
+    return {
+      title,
+      why: null,
+      description: `Scout identified a concrete factory work item reference: ${item}`,
+      allowed_files: [],
+      verification: null,
+      source: item,
+      sources: [item],
+      priority: null,
+    };
+  }
+
   if (!item || typeof item !== 'object') {
     return null;
   }
   const title = typeof item.title === 'string' && item.title.trim()
     ? item.title.trim()
+    : titleFromIdentifier(item.id || item.source || item.sources?.[0] || item.source_files?.[0]);
+  const allowedFiles = Array.isArray(item.allowed_files)
+    ? item.allowed_files.filter(Boolean)
+    : (Array.isArray(item.source_files) ? item.source_files.filter(Boolean) : []);
+  const validation = Array.isArray(item.validation)
+    ? item.validation.filter(Boolean).join('; ')
     : null;
   if (!title) {
     return null;
@@ -112,13 +155,13 @@ function normalizeConcreteWorkItem(item) {
 
   return {
     title,
-    why: typeof item.why === 'string' ? item.why.trim() : null,
+    why: typeof item.why === 'string' ? item.why.trim() : (typeof item.reason === 'string' ? item.reason.trim() : null),
     description: typeof item.description === 'string' ? item.description.trim() : null,
-    allowed_files: Array.isArray(item.allowed_files) ? item.allowed_files.filter(Boolean) : [],
-    verification: typeof item.verification === 'string' ? item.verification.trim() : null,
+    allowed_files: allowedFiles,
+    verification: typeof item.verification === 'string' ? item.verification.trim() : validation,
     source: typeof item.source === 'string' ? item.source.trim() : null,
-    sources: Array.isArray(item.sources) ? item.sources.filter(Boolean) : [],
-    priority: Number.isFinite(Number(item.priority)) ? Number(item.priority) : null,
+    sources: Array.isArray(item.sources) ? item.sources.filter(Boolean) : allowedFiles,
+    priority: Object.prototype.hasOwnProperty.call(item, 'priority') ? item.priority : null,
   };
 }
 
@@ -164,13 +207,20 @@ function buildConcreteDescription(item, task) {
 }
 
 function priorityForConcreteItem(item) {
-  if (!Number.isFinite(item.priority)) {
+  if (typeof item.priority === 'string') {
+    const normalized = item.priority.trim().toLowerCase();
+    if (['low', 'default', 'medium', 'high', 'architect_assigned', 'user_override'].includes(normalized)) {
+      return normalized;
+    }
+  }
+  const numeric = Number(item.priority);
+  if (!Number.isFinite(numeric)) {
     return 'default';
   }
-  if (item.priority <= 2) {
+  if (numeric <= 2) {
     return 'high';
   }
-  if (item.priority <= 4) {
+  if (numeric <= 4) {
     return 'medium';
   }
   return 'default';

@@ -160,6 +160,16 @@ function handleSubmitScout(args) {
   const taskDescription = `${system}\n\n---\n\n${user}`;
   const taskId = uuidv4();
   const timeout = Math.min(timeout_minutes || DEFAULT_SCOUT_TIMEOUT, 60);
+  const tags = ['factory:scout'];
+  if (reason) {
+    tags.push(`factory:reason=${reason}`);
+  }
+  if (project_id) {
+    tags.push(`factory:project_id=${project_id}`);
+  }
+  if (reason === 'factory_starvation_recovery') {
+    tags.push('factory:starvation_recovery');
+  }
 
   taskCore().createTask({
     id: taskId,
@@ -168,6 +178,7 @@ function handleSubmitScout(args) {
     status: 'queued',
     provider: selectedProvider,
     timeout_minutes: timeout,
+    tags,
     metadata: JSON.stringify({
       mode: 'scout',
       diffusion: true,

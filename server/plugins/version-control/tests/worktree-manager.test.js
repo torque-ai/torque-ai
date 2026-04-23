@@ -236,6 +236,19 @@ describe('version-control worktree manager', () => {
     });
   });
 
+  it('uses a stable short worktree directory leaf for long branch names', () => {
+    const repoPath = makeRepoRoot();
+    const featureName = 'factory-742-validate-parser-to-repository-separation-with-focused-regression-coverage';
+
+    const created = manager.createWorktree(repoPath, featureName);
+    const leaf = path.basename(created.worktree_path);
+
+    expect(created.branch).toBe(`feat/${featureName}`);
+    expect(leaf.length).toBeLessThanOrEqual(40);
+    expect(leaf).toMatch(/^feat-factory-742-validate.*-[a-f0-9]{8}$/);
+    expect(created.worktree_path).toBe(path.join(repoPath, '.worktrees', leaf));
+  });
+
   it('lists worktrees sorted by created_at descending and filters by repo', () => {
     const repoPathA = makeRepoRoot();
     const repoPathASlash = repoPathA.replace(/\\/g, '/');

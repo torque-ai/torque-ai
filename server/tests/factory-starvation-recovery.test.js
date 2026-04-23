@@ -124,6 +124,50 @@ describe('factory starvation recovery', () => {
     }));
   });
 
+  it('ingests completed scout task output before submitting a new scout', async () => {
+    const submitScout = vi.fn();
+    const updateLoopState = vi.fn().mockResolvedValue({});
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const ingestScoutFindings = vi.fn().mockResolvedValue({ created: [], skipped: [], scanned: 0 });
+    const ingestScoutOutputs = vi.fn().mockResolvedValue({
+      created: [{ id: 43 }],
+      skipped: [],
+      scanned: 1,
+    });
+    const nowMs = Date.parse('2026-04-22T12:30:00.000Z');
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      ingestScoutFindings,
+      ingestScoutOutputs,
+      dwellMs: 1000,
+      now: () => nowMs,
+    });
+
+    const result = await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-04-22T12:00:00.000Z',
+    });
+
+    expect(result).toMatchObject({
+      recovered: true,
+      reason: 'scout_outputs_ingested',
+      created_count: 1,
+    });
+    expect(ingestScoutOutputs).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'project-1',
+      path: 'C:\\repo',
+    }));
+    expect(submitScout).not.toHaveBeenCalled();
+    expect(updateLoopState).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      loop_state: LOOP_STATES.SENSE,
+      consecutive_empty_cycles: 0,
+    }));
+  });
+
   it('submits a scout after dwell but keeps STARVED projects parked until intake exists', async () => {
     const submitScout = vi.fn().mockResolvedValue({ task_id: 'task-1' });
     const updateLoopState = vi.fn().mockResolvedValue({});

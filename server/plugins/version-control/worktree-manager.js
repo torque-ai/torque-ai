@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { randomUUID } = require('crypto');
+const { createHash, randomUUID } = require('crypto');
 const childProcess = require('child_process');
 
 const logger = require('../../logger').child({ component: 'worktree-manager' });
@@ -10,6 +10,7 @@ const logger = require('../../logger').child({ component: 'worktree-manager' });
 const DEFAULT_BASE_BRANCH = 'main';
 const DEFAULT_WORKTREE_DIR = '.worktrees';
 const DEFAULT_STALE_DAYS = 7;
+const MAX_WORKTREE_LEAF_LENGTH = 40;
 const VALID_MERGE_STRATEGIES = new Set(['merge', 'squash', 'rebase']);
 
 function resolveDbHandle(dbService) {
@@ -186,11 +187,22 @@ function buildBranchName(featureName) {
 }
 
 function buildWorktreeLeaf(branch) {
-  return String(branch || '')
+  const leaf = String(branch || '')
     .replace(/^refs\/heads\//, '')
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '') || 'worktree';
+
+  if (leaf.length <= MAX_WORKTREE_LEAF_LENGTH) {
+    return leaf;
+  }
+
+  const hash = createHash('sha1').update(leaf).digest('hex').slice(0, 8);
+  const prefixLength = MAX_WORKTREE_LEAF_LENGTH - hash.length - 1;
+  const prefix = leaf
+    .slice(0, prefixLength)
+    .replace(/[-._]+$/g, '') || 'worktree';
+  return `${prefix}-${hash}`;
 }
 
 function buildWorktreePath(repoPath, worktreeDir, branch) {
