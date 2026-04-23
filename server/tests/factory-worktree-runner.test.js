@@ -184,6 +184,47 @@ describe('createWorktreeRunner.verify', () => {
     expect(result.output).toContain('[fallback-local-verify]');
   });
 
+  it('falls back to local verify when the remote Python launcher lacks the requested runtime', async () => {
+    const runRemoteVerify = vi.fn(() => ({
+      exitCode: 103,
+      stdout: '[torque-remote] Running on worker: py -3.12 -m pytest tests/ -q',
+      stderr: [
+        'No suitable Python runtime found',
+        'Pass --list (-0) to see all detected environments on your machine',
+        'or set environment variable PYLAUNCHER_ALLOW_INSTALL to use winget',
+        'or open the Microsoft Store to the requested version.',
+      ].join('\n'),
+    }));
+    const runLocalVerify = vi.fn(() => ({
+      exitCode: 0,
+      stdout: 'local ok',
+      stderr: '',
+    }));
+    const runner = createWorktreeRunner({
+      worktreeManager: makeWorktreeManagerMock(),
+      runRemoteVerify,
+      runLocalVerify,
+      countCommitsAhead: nonEmptyCountCommitsAhead,
+    });
+
+    const result = await runner.verify({
+      worktreePath: 'C:/wt',
+      branch: 'feat/python-fallback',
+      verifyCommand: 'py -3.12 -m pytest tests/ -q',
+    });
+
+    expect(result.passed).toBe(true);
+    expect(runRemoteVerify).toHaveBeenCalledTimes(1);
+    expect(runLocalVerify).toHaveBeenCalledWith(expect.objectContaining({
+      branch: 'feat/python-fallback',
+      command: 'py -3.12 -m pytest tests/ -q',
+      cwd: 'C:/wt',
+      fallbackReason: 'No suitable Python runtime found',
+    }));
+    expect(result.output).toContain('local ok');
+    expect(result.output).toContain('[fallback-local-verify]');
+  });
+
   it('does not fall back for ordinary verify failures', async () => {
     const runRemoteVerify = vi.fn(() => ({
       exitCode: 1,

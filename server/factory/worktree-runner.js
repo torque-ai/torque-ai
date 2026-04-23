@@ -158,6 +158,9 @@ function shouldFallbackToLocalVerify(result) {
     || text.includes('repository not found')
     || text.includes('git bash not found')
     || text.includes('bash_not_found')
+    || text.includes('no suitable python runtime found')
+    || text.includes('pylauncher_allow_install')
+    || text.includes('microsoft store to the requested version')
     || (text.includes('torque-remote') && (
       text.includes('not found')
       || text.includes('is not recognized')
