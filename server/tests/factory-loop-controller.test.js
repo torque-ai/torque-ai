@@ -17,6 +17,7 @@ const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
 const loopController = require('../factory/loop-controller');
+const verifyReview = require('../factory/verify-review');
 const { LOOP_STATES } = require('../factory/loop-states');
 
 const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
@@ -594,6 +595,17 @@ describe('factory loop-controller EXECUTE modes', () => {
     const batchId = `factory-${project.id}-${workItem.id}`;
     const wtPath1 = path.join(project.path, '.worktrees', 'feat-factory-verify-fail');
     fs.mkdirSync(wtPath1, { recursive: true });
+    vi.spyOn(verifyReview, 'reviewVerifyFailure').mockResolvedValue({
+      classification: 'task_caused',
+      confidence: 'high',
+      modifiedFiles: ['tests/factory-work.test.js'],
+      failingTests: ['tests/factory-work.test.js'],
+      intersection: ['tests/factory-work.test.js'],
+      environmentSignals: [],
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: null,
+    });
     const worktreeRunner = {
       createForBatch: vi.fn(async () => ({
         id: 'vc-worktree-verify-fail',
@@ -657,11 +669,88 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
+  it('pauses VERIFY instead of auto-retrying ambiguous low-confidence failures', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPathAmbiguous = path.join(project.path, '.worktrees', 'feat-factory-ambiguous-verify');
+    fs.mkdirSync(wtPathAmbiguous, { recursive: true });
+    const reviewSpy = vi.spyOn(verifyReview, 'reviewVerifyFailure').mockResolvedValue({
+      classification: 'ambiguous',
+      confidence: 'low',
+      modifiedFiles: ['server/tests/metrics.test.js'],
+      failingTests: [],
+      intersection: [],
+      environmentSignals: [],
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: null,
+    });
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-ambiguous',
+        branch: 'feat/factory-ambiguous-verify',
+        worktreePath: wtPathAmbiguous,
+      })),
+      verify: vi.fn(async () => ({
+        passed: false,
+        output: 'runner output without a parseable failing test list',
+        durationMs: 22,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (_args) => {
+      submittedTaskCount += 1;
+      const taskId = `ambiguous-task-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: 'completed',
+      });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(reviewSpy).toHaveBeenCalled();
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+    expect(submittedTaskCount).toBe(1);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(verifyAdvance.paused_at_stage ?? verifyAdvance.stage_result?.pause_at_stage).toBe('VERIFY_FAIL');
+    expect(verifyAdvance.stage_result).toMatchObject({
+      status: 'failed',
+      reason: 'verify_ambiguous_requires_operator',
+    });
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'verify_retry_submitted')).toBeUndefined();
+    expect(decisions.find((d) => d.action === 'verify_reviewed_ambiguous_paused')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        classification: 'ambiguous',
+        silent_rerun: 'flag_off',
+      }),
+    });
+  });
+
   it('auto-retries a failing VERIFY and ships when the second attempt passes', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;
     const wtPath2 = path.join(project.path, '.worktrees', 'feat-factory-verify-retry');
     fs.mkdirSync(wtPath2, { recursive: true });
+    vi.spyOn(verifyReview, 'reviewVerifyFailure').mockResolvedValue({
+      classification: 'task_caused',
+      confidence: 'high',
+      modifiedFiles: ['tests/factory-work.test.js'],
+      failingTests: ['tests/factory-work.test.js'],
+      intersection: ['tests/factory-work.test.js'],
+      environmentSignals: [],
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: null,
+    });
     let verifyCall = 0;
     const worktreeRunner = {
       createForBatch: vi.fn(async () => ({

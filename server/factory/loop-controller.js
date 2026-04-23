@@ -6199,9 +6199,9 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
         // Verify-review classifier: on the FIRST failure only, classify the
         // failure as task_caused, baseline_broken, environment_failure, or
         // ambiguous. Baseline_broken / environment_failure short-circuit the
-        // retry loop — the item is rejected, the project is paused, and an
-        // event is emitted. Task_caused / ambiguous / classifier-throw all
-        // fall through to the existing retry path.
+        // retry loop. Task_caused enters the repair path. Ambiguous failures
+        // get one silent rerun, then pause for operator triage instead of
+        // letting a retry task repair unrelated full-suite failures.
         if (retryAttempt === 0 && !review) {
           try {
             const wi = instance?.work_item_id
@@ -6558,27 +6558,6 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             return { status: 'rejected', reason: review.classification };
           }
 
-          const reviewedAction = review && review.classification === 'task_caused'
-            ? 'verify_reviewed_task_caused'
-            : 'verify_reviewed_ambiguous_retrying';
-          safeLogDecision({
-            project_id,
-            stage: LOOP_STATES.VERIFY,
-            action: reviewedAction,
-            reasoning: review
-              ? `Classifier says ${review.classification} (confidence=${review.confidence}); existing retry path will fire.`
-              : 'Classifier unavailable; retrying as before.',
-            outcome: review ? {
-              work_item_id: instance?.work_item_id || null,
-              classification: review.classification,
-              confidence: review.confidence,
-              modifiedFiles: review.modifiedFiles,
-              failingTests: review.failingTests,
-              intersection: review.intersection,
-            } : { work_item_id: instance?.work_item_id || null, classifier: 'unavailable' },
-            confidence: 1,
-            batch_id,
-          });
           if (review && review.classification === 'ambiguous') {
             let verifyOutput = res.output;
             const silentResult = await attemptSilentRerun({
@@ -6606,8 +6585,55 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               verifyOutput = silentResult.combinedOutput;
               res.output = verifyOutput;
             }
-            // same_failure, rerun_failed, flag_off, budget_exhausted → fall through to today's retry path
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.VERIFY,
+              action: 'verify_reviewed_ambiguous_paused',
+              reasoning: `Classifier says ambiguous (confidence=${review.confidence}); pausing instead of auto-retrying an unscoped failure.`,
+              outcome: {
+                work_item_id: instance?.work_item_id || null,
+                classification: review.classification,
+                confidence: review.confidence,
+                modifiedFiles: review.modifiedFiles,
+                failingTests: review.failingTests,
+                intersection: review.intersection,
+                silent_rerun: silentResult.kind,
+              },
+              confidence: 1,
+              batch_id,
+            });
+            return {
+              status: 'failed',
+              reason: 'verify_ambiguous_requires_operator',
+              pause_at_stage: 'VERIFY_FAIL',
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+              verify_output: String(res.output || '').slice(-1500),
+              retry_attempts: retryAttempt,
+            };
           }
+
+          const reviewedAction = review && review.classification === 'task_caused'
+            ? 'verify_reviewed_task_caused'
+            : 'verify_reviewed_retrying';
+          safeLogDecision({
+            project_id,
+            stage: LOOP_STATES.VERIFY,
+            action: reviewedAction,
+            reasoning: review
+              ? `Classifier says ${review.classification} (confidence=${review.confidence}); retry path will fire.`
+              : 'Classifier unavailable; retrying as before.',
+            outcome: review ? {
+              work_item_id: instance?.work_item_id || null,
+              classification: review.classification,
+              confidence: review.confidence,
+              modifiedFiles: review.modifiedFiles,
+              failingTests: review.failingTests,
+              intersection: review.intersection,
+            } : { work_item_id: instance?.work_item_id || null, classifier: 'unavailable' },
+            confidence: 1,
+            batch_id,
+          });
         }
 
         if (retryAttempt >= MAX_AUTO_VERIFY_RETRIES) {
