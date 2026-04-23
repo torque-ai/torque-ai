@@ -45,6 +45,33 @@ shell_quote() {
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
+format_command_for_log() {
+  local part parts=()
+  for part in "$@"; do
+    parts+=("$(printf '%q' "$part")")
+  done
+  local joined=""
+  if [[ ${#parts[@]} -gt 0 ]]; then
+    joined="${parts[0]}"
+    for part in "${parts[@]:1}"; do
+      joined+=" $part"
+    done
+  fi
+  printf '%s\n' "$joined"
+}
+
+bash_array_literal() {
+  local name="$1"
+  shift
+
+  printf '%s=(\n' "$name"
+  local item
+  for item in "$@"; do
+    printf '  %q\n' "$item"
+  done
+  printf ')\n'
+}
+
 resolve_sync_ref() {
   local branch="$1"
 
@@ -125,8 +152,6 @@ USAGE
 fi
 
 # Parse an optional branch override before the command payload.
-# This only accepts --branch as the first positional flag so "$*"
-# still resolves to the command exactly after shifting it away.
 BRANCH_OVERRIDE=""
 if [[ "$1" == "--branch" ]]; then
   [[ $# -lt 2 ]] && die "Invalid --branch value: "
@@ -237,17 +262,18 @@ fi
 
 # ---- Command to run ----
 
-COMMAND="$*"
+COMMAND_ARGS=("$@")
+COMMAND_DISPLAY="$(format_command_for_log "${COMMAND_ARGS[@]}")"
 
 # ---- Execute ----
 
 case "$TRANSPORT" in
 
   local)
-    info "Running locally: $COMMAND"
+    info "Running locally: $COMMAND_DISPLAY"
     cd "$PROJECT_ROOT"
     set +e
-    eval "$COMMAND"
+    "${COMMAND_ARGS[@]}"
     exit_code=$?
     set -e
     exit $exit_code
@@ -272,7 +298,7 @@ case "$TRANSPORT" in
       warn "Remote $SSH_HOST unreachable — falling back to local"
       cd "$PROJECT_ROOT"
       set +e
-      eval "$COMMAND"
+      "${COMMAND_ARGS[@]}"
       exit_code=$?
       set -e
       exit $exit_code
@@ -298,7 +324,7 @@ case "$TRANSPORT" in
       warn "Remote $SSH_HOST is overloaded (${load_pct}% CPU, threshold ${LOAD_THRESHOLD}%) — falling back to local"
       cd "$PROJECT_ROOT"
       set +e
-      eval "$COMMAND"
+      "${COMMAND_ARGS[@]}"
       exit_code=$?
       set -e
       exit $exit_code
@@ -348,12 +374,13 @@ case "$TRANSPORT" in
     GIT_BASH='C:\progra~1\Git\bin\bash.exe'
     REMOTE_EXEC_PATH="/tmp/torque-remote-exec-$$-$RANDOM.sh"
     REMOTE_EXEC_SCRIPT_LOCAL="$(make_temp_dir)/remote-exec.sh"
+    COMMAND_ARGS_LITERAL="$(bash_array_literal COMMAND_ARGS "${COMMAND_ARGS[@]}")"
     REMOTE_EXEC_SCRIPT=$(cat <<EOF
 PROJECT_PATH=$(shell_quote "$REMOTE_PROJECT_PATH")
 SCRIPT_PATH=$(shell_quote "$REMOTE_EXEC_PATH")
 SYNC_REF=$(shell_quote "$SYNC_REF")
 APPLY_LOCAL_STATE=$(shell_quote "$APPLY_LOCAL_STATE")
-COMMAND=$(shell_quote "$COMMAND")
+$COMMAND_ARGS_LITERAL
 set -euo pipefail
 cd "\$PROJECT_PATH"
 sync_dir=""
@@ -381,7 +408,7 @@ if [[ "\$APPLY_LOCAL_STATE" == "true" ]]; then
     tar -xf "\$sync_dir/untracked.tar" -C .
   fi
 fi
-eval "\$COMMAND"
+"\${COMMAND_ARGS[@]}"
 EOF
 )
     printf '%s' "$REMOTE_EXEC_SCRIPT" > "$REMOTE_EXEC_SCRIPT_LOCAL"
@@ -391,7 +418,7 @@ EOF
     ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
       "$REMOTE_UPLOAD_COMMAND" < "$REMOTE_EXEC_SCRIPT_LOCAL"
 
-    info "Running on $SSH_USER@$SSH_HOST: $COMMAND"
+    info "Running on $SSH_USER@$SSH_HOST: $COMMAND_DISPLAY"
     set +e
     if [[ "$APPLY_LOCAL_STATE" == "true" ]]; then
       timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \

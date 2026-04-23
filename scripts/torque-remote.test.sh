@@ -11,6 +11,8 @@ RUN_EXIT=0
 RUN_STDOUT=""
 RUN_STDERR=""
 LAST_TEST_ENV=""
+RUN_ARGV_LOG=""
+RUN_REMOTE_UPLOAD=""
 
 SCRIPT_UNDER_TEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)/torque-remote"
 ORIGINAL_PATH="$PATH"
@@ -149,6 +151,23 @@ reset_stub_env() {
   unset SSH_BRANCH_EXISTS_OUTPUT SSH_BRANCH_EXISTS_EXIT_CODE
   unset SSH_SYNC_OUTPUT SSH_SYNC_EXIT_CODE
   unset SSH_EXEC_OUTPUT SSH_EXEC_EXIT_CODE
+}
+
+write_stub_argv_dump() {
+  local path="$1"
+  cat > "$path" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+
+log_file="${TORQUE_REMOTE_TEST_ARGV_LOG:?}"
+index=1
+{
+  for arg in "$@"; do
+    printf '%s=%s\n' "$index" "$arg"
+    index=$((index + 1))
+  done
+} > "$log_file"
+EOF
 }
 
 write_stub_jq() {
@@ -300,6 +319,15 @@ if [[ "$remote_cmd" == *"git checkout --force "* && "$remote_cmd" == *"git reset
   exit "${SSH_SYNC_EXIT_CODE:-0}"
 fi
 
+if [[ "$remote_cmd" == *"cat > /tmp/torque-remote-exec-"* && "$remote_cmd" == *"chmod +x /tmp/torque-remote-exec-"* ]]; then
+  if [[ -n "${TORQUE_REMOTE_TEST_REMOTE_UPLOAD:-}" ]]; then
+    cat > "$TORQUE_REMOTE_TEST_REMOTE_UPLOAD"
+  else
+    cat >/dev/null
+  fi
+  exit 0
+fi
+
 if [[ "${SSH_EXEC_OUTPUT+x}" == "x" && -n "$SSH_EXEC_OUTPUT" ]]; then
   printf '%s\n' "$SSH_EXEC_OUTPUT"
 fi
@@ -339,6 +367,8 @@ make_test_env() {
 
   mkdir -p "$tmp/.git" "$tmp/bin" "$tmp/home"
   : > "$tmp/calls.log"
+  : > "$tmp/argv.log"
+  : > "$tmp/remote-upload.sh"
 
   cat > "$tmp/.torque-remote.json" <<'EOF'
 {
@@ -362,7 +392,8 @@ EOF
   write_stub_git "$tmp/bin/git"
   write_stub_ssh "$tmp/bin/ssh"
   write_stub_timeout "$tmp/bin/timeout"
-  chmod +x "$tmp/bin/jq" "$tmp/bin/git" "$tmp/bin/ssh" "$tmp/bin/timeout"
+  write_stub_argv_dump "$tmp/bin/argv-dump"
+  chmod +x "$tmp/bin/jq" "$tmp/bin/git" "$tmp/bin/ssh" "$tmp/bin/timeout" "$tmp/bin/argv-dump"
 
   LAST_TEST_ENV="$tmp"
 }
@@ -382,11 +413,15 @@ run_torque_remote() {
     HOME="$tmp/home" \
     PATH="$tmp/bin:$ORIGINAL_PATH" \
     TORQUE_REMOTE_TEST_CALLS_LOG="$tmp/calls.log" \
+    TORQUE_REMOTE_TEST_ARGV_LOG="$tmp/argv.log" \
+    TORQUE_REMOTE_TEST_REMOTE_UPLOAD="$tmp/remote-upload.sh" \
     bash "$SCRIPT_UNDER_TEST" "$@" >"$stdout_file" 2>"$stderr_file"
   )
   RUN_EXIT=$?
   RUN_STDOUT="$(slurp_file "$stdout_file")"
   RUN_STDERR="$(slurp_file "$stderr_file")"
+  RUN_ARGV_LOG="$(slurp_file "$tmp/argv.log")"
+  RUN_REMOTE_UPLOAD="$(slurp_file "$tmp/remote-upload.sh")"
 }
 
 test_default_syncs_main() {
@@ -499,6 +534,50 @@ test_local_state_overlays_worktree_from_fallback_base() {
   finish_test "test_local_state_overlays_worktree_from_fallback_base"
 }
 
+test_local_fallback_preserves_quoted_arguments() {
+  local tmp
+
+  echo "Test: local fallback preserves quoted arguments"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export SSH_CONNECT_EXIT_CODE=1
+
+  run_torque_remote "$tmp" argv-dump "two words" 'semi;ignored'
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "stderr reports fallback" "$RUN_STDERR" "falling back to local"
+  expect_contains "first argument keeps spaces" "$RUN_ARGV_LOG" "1=two words"
+  expect_contains "second argument keeps semicolon literal" "$RUN_ARGV_LOG" "2=semi;ignored"
+
+  finish_test "test_local_fallback_preserves_quoted_arguments"
+}
+
+test_remote_script_preserves_quoted_arguments() {
+  local tmp
+
+  echo "Test: remote upload preserves quoted arguments"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" argv-dump "two words" 'semi;ignored'
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "remote script defines argv array" "$RUN_REMOTE_UPLOAD" "COMMAND_ARGS=("
+  expect_contains "remote script preserves spaced argument" "$RUN_REMOTE_UPLOAD" "two\\ words"
+  expect_contains "remote script preserves semicolon literal" "$RUN_REMOTE_UPLOAD" "semi\\;ignored"
+  expect_contains "remote script executes argv array" "$RUN_REMOTE_UPLOAD" "\"\${COMMAND_ARGS[@]}\""
+  expect_not_contains "remote script does not use eval" "$RUN_REMOTE_UPLOAD" "eval \"\$COMMAND\""
+
+  finish_test "test_remote_script_preserves_quoted_arguments"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -510,6 +589,8 @@ main() {
   test_branch_flag_missing_errors
   test_invalid_branch_name_errors
   test_local_state_overlays_worktree_from_fallback_base
+  test_local_fallback_preserves_quoted_arguments
+  test_remote_script_preserves_quoted_arguments
 
   echo ""
   echo "=============================="
