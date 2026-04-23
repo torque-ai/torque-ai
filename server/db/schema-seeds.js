@@ -88,30 +88,28 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertConfig.run('policy_profile_torque_default_enabled', '0');
   const pruneScheduleNow = new Date().toISOString();
   const pruneNextRun = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const staleTaskNextRun = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const vacuumNextRun = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const insertMaintenanceSchedule = db.prepare(`
       INSERT OR IGNORE INTO maintenance_schedule (id, task_type, schedule_type, interval_minutes, cron_expression, next_run_at, enabled, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-  insertMaintenanceSchedule.run(
-      'prune_old_tasks',
-      'prune_old_tasks',
-      'interval',
-      1440,
-      null,
-      pruneNextRun,
-      1,
-      pruneScheduleNow
-    );
-  insertMaintenanceSchedule.run(
-      'purge_task_output',
-      'purge_task_output',
-      'interval',
-      1440,
-      null,
-      pruneNextRun,
-      1,
-      pruneScheduleNow
-    );
+  // Every task_type handled by server/maintenance/scheduler.js:runMaintenanceTask must be
+  // seeded here (except the 'all' aggregate case). Missing rows = silent no-op for that cleanup.
+  const maintenanceScheduleSeeds = [
+    // id,                    task_type,              interval_minutes, next_run
+    ['prune_old_tasks',       'prune_old_tasks',       1440, pruneNextRun],
+    ['purge_task_output',     'purge_task_output',     1440, pruneNextRun],
+    ['cleanup_logs',          'cleanup_logs',          1440, pruneNextRun],
+    ['cleanup_stale_tasks',   'cleanup_stale_tasks',      5, staleTaskNextRun],
+    ['enforce_limits',        'enforce_limits',        1440, pruneNextRun],
+    ['aggregate_metrics',     'aggregate_metrics',     1440, pruneNextRun],
+    ['archive_old_tasks',     'archive_old_tasks',     1440, pruneNextRun],
+    ['vacuum_database',       'vacuum_database',      10080, vacuumNextRun],
+  ];
+  for (const [id, taskType, intervalMinutes, nextRun] of maintenanceScheduleSeeds) {
+    insertMaintenanceSchedule.run(id, taskType, 'interval', intervalMinutes, null, nextRun, 1, pruneScheduleNow);
+  }
   const hasLegacyMaintenanceTasks = db.prepare(`
       SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'maintenance_tasks'
     `).get();
