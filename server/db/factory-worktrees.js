@@ -1,9 +1,11 @@
 'use strict';
 
 let db = null;
+const tableColumnCache = new Map();
 
 function setDb(dbInstance) {
   db = dbInstance;
+  tableColumnCache.clear();
 }
 
 function resolveDbHandle(candidate) {
@@ -56,6 +58,28 @@ function isMissingTableError(error) {
   return Boolean(error && typeof error.message === 'string' && error.message.includes('no such table: factory_worktrees'));
 }
 
+function hasColumn(tableName, columnName) {
+  const cacheKey = `${tableName}.${columnName}`;
+  if (tableColumnCache.has(cacheKey)) {
+    return tableColumnCache.get(cacheKey);
+  }
+  if (!/^[A-Za-z0-9_]+$/.test(tableName)) {
+    return false;
+  }
+  try {
+    const columns = getDb().prepare(`PRAGMA table_info(${tableName})`).all();
+    const present = columns.some((column) => column.name === columnName);
+    tableColumnCache.set(cacheKey, present);
+    return present;
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      tableColumnCache.set(cacheKey, false);
+      return false;
+    }
+    throw error;
+  }
+}
+
 function parseWorktree(row) {
   if (!row) {
     return null;
@@ -67,6 +91,7 @@ function parseWorktree(row) {
     workItemId: row.work_item_id,
     worktreePath: row.worktree_path,
     owningTaskId: row.owning_task_id || null,
+    baseBranch: row.base_branch || row.baseBranch || null,
   };
 }
 
@@ -96,25 +121,39 @@ function recordWorktree({
   vc_worktree_id,
   branch,
   worktree_path,
+  base_branch,
+  baseBranch,
 }) {
-  const info = getDb().prepare(`
-    INSERT INTO factory_worktrees (
-      project_id,
-      work_item_id,
-      batch_id,
-      vc_worktree_id,
-      branch,
-      worktree_path
-    )
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
+  const dbHandle = getDb();
+  const branchBase = base_branch || baseBranch || null;
+  const fields = [
+    'project_id',
+    'work_item_id',
+    'batch_id',
+    'vc_worktree_id',
+    'branch',
+    'worktree_path',
+  ];
+  const values = [
     requireText(project_id, 'project_id'),
     requireInteger(work_item_id, 'work_item_id'),
     requireText(batch_id, 'batch_id'),
     requireText(vc_worktree_id, 'vc_worktree_id'),
     requireText(branch, 'branch'),
     requireText(worktree_path, 'worktree_path'),
-  );
+  ];
+  if (branchBase && hasColumn('factory_worktrees', 'base_branch')) {
+    fields.push('base_branch');
+    values.push(requireText(branchBase, 'base_branch'));
+  }
+
+  const placeholders = fields.map(() => '?').join(', ');
+  const info = dbHandle.prepare(`
+    INSERT INTO factory_worktrees (
+      ${fields.join(',\n      ')}
+    )
+    VALUES (${placeholders})
+  `).run(...values);
 
   return getWorktree(info.lastInsertRowid);
 }
@@ -299,6 +338,33 @@ function listActiveWorktrees() {
   }
 }
 
+function pruneAbandonedWorktrees({ olderThanHours = 24, limit = 1000 } = {}) {
+  const retentionHours = Number(olderThanHours);
+  const rowLimit = Number(limit);
+  const safeRetentionHours = Number.isFinite(retentionHours) && retentionHours > 0 ? retentionHours : 24;
+  const safeLimit = Number.isInteger(rowLimit) && rowLimit > 0 ? Math.min(rowLimit, 5000) : 1000;
+  const cutoff = new Date(Date.now() - safeRetentionHours * 60 * 60 * 1000).toISOString();
+  try {
+    const result = getDb().prepare(`
+      DELETE FROM factory_worktrees
+      WHERE id IN (
+        SELECT id
+        FROM factory_worktrees
+        WHERE status = 'abandoned'
+          AND datetime(COALESCE(abandoned_at, created_at)) < datetime(?)
+        ORDER BY datetime(COALESCE(abandoned_at, created_at)) ASC, id ASC
+        LIMIT ?
+      )
+    `).run(cutoff, safeLimit);
+    return result.changes;
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return 0;
+    }
+    throw error;
+  }
+}
+
 module.exports = {
   setDb,
   recordWorktree,
@@ -310,6 +376,7 @@ module.exports = {
   markMerged,
   markAbandoned,
   listActiveWorktrees,
+  pruneAbandonedWorktrees,
   setOwningTask,
   clearOwningTask,
 };

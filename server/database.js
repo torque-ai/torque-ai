@@ -635,6 +635,22 @@ function init() {
     // Wire all sub-modules via factory functions (hostManagement.setDb already called above for migrateToMultiHost)
     _wireAllModules();
     registerFacadeWithContainer();
+    try {
+      const released = fileTracking.releaseExpiredFileLocks();
+      if (released > 0) {
+        logger.info(`[Startup] Released ${released} expired file lock(s)`);
+      }
+    } catch (err) {
+      logger.warn(`[Startup] Failed to release expired file locks: ${err && err.message ? err.message : err}`);
+    }
+    try {
+      const pruned = factoryWorktrees.pruneAbandonedWorktrees();
+      if (pruned > 0) {
+        logger.info(`[Startup] Pruned ${pruned} abandoned factory worktree row(s)`);
+      }
+    } catch (err) {
+      logger.warn(`[Startup] Failed to prune abandoned factory worktree rows: ${err && err.message ? err.message : err}`);
+    }
 
     const backupInterval = parseInt(getConfig('backup_interval_minutes') || '60', 10);
     if (backupInterval > 0) {
@@ -833,7 +849,7 @@ const _LEGACY_EXPORT_MODULES = [
     'getVulnerabilityScanResults', 'getWorkflowFileWrites', 'getXamlConsistencyResults', 'getXamlValidationResults', 'isBudgetExceeded', 'isDiffReviewRequired',
     'listAllSyntaxValidators', 'listRollbacks', 'markDiffReviewed', 'markTimeoutAlertNotified', 'performAutoRollback', 'recordAuditEvent',
     'recordAutoRollback', 'recordCost', 'recordDuplicateFile', 'recordFileLocationAnomaly', 'recordQualityScore', 'recordRateLimitEvent',
-    'recordTaskFileWrite', 'recordTaskFingerprint', 'releaseAllFileLocks', 'releaseFileLock', 'resolveDuplicateFile', 'resolveFileLocationAnomaly',
+    'recordTaskFileWrite', 'recordTaskFingerprint', 'releaseAllFileLocks', 'releaseExpiredFileLocks', 'releaseFileLock', 'resolveDuplicateFile', 'resolveFileLocationAnomaly',
     'restoreFileBackup', 'runAppSmokeTest', 'runAppSmokeTestSync', 'runBuildCheck', 'runSecurityScan', 'runStyleCheck',
     'runSyntaxValidation', 'runVulnerabilityScan', 'saveBuildResult', 'searchSimilarFiles', 'setBudget', 'setExpectedOutputPath',
     'setOutputLimit', 'updateBudgetSpend', 'updateProviderStats', 'validateApiContract', 'validateXamlSemantics', 'verifyTypeReferences',
@@ -1025,7 +1041,7 @@ const _LEGACY_EXPORT_MODULES = [
   ] },
   { name: 'factoryWorktrees', exports: [
     'clearOwningTask', 'getActiveWorktree', 'getActiveWorktreeByBatch', 'getActiveWorktreeByBranch', 'getLatestWorktreeForWorkItem', 'getWorktreeByBranch',
-    'listActiveWorktrees', 'markAbandoned', 'markMerged', 'recordWorktree', 'setOwningTask',
+    'listActiveWorktrees', 'markAbandoned', 'markMerged', 'pruneAbandonedWorktrees', 'recordWorktree', 'setOwningTask',
   ] },
 ];
 

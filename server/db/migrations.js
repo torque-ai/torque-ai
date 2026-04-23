@@ -738,6 +738,16 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS factory_attempt_history;',
     ].join('\n'),
   },
+  {
+    version: 31,
+    name: 'add_factory_worktrees_base_branch',
+    up: [
+      'ALTER TABLE factory_worktrees ADD COLUMN base_branch TEXT',
+    ].join('; '),
+    // SQLite lacks DROP COLUMN on older versions; leave the nullable column
+    // in place on downgrade.
+    down: 'SELECT 1',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

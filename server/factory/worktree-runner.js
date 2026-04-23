@@ -301,6 +301,7 @@ function createWorktreeRunner({
       id: record.id,
       worktreePath: record.worktree_path,
       branch: record.branch,
+      baseBranch,
     };
   }
 
@@ -326,6 +327,11 @@ function createWorktreeRunner({
       return {
         passed: false,
         output: `[empty-branch] Branch ${branch} has no commits ahead of ${resolvedBaseBranch}; nothing to verify.`,
+        stdout: '',
+        stderr: `[empty-branch] Branch ${branch} has no commits ahead of ${resolvedBaseBranch}; nothing to verify.`,
+        exitCode: 1,
+        error: null,
+        timedOut: false,
         durationMs: Date.now() - start,
         reason: 'empty_branch',
       };
@@ -367,7 +373,16 @@ function createWorktreeRunner({
         exit_code: out && out.exitCode,
       });
     }
-    return { passed, output, durationMs };
+    return {
+      passed,
+      output,
+      stdout: out && typeof out.stdout === 'string' ? out.stdout : '',
+      stderr: out && typeof out.stderr === 'string' ? out.stderr : '',
+      exitCode: out && typeof out.exitCode === 'number' ? out.exitCode : null,
+      error: out && out.error ? String(out.error) : null,
+      timedOut: Boolean(out && out.timedOut),
+      durationMs,
+    };
   }
 
   async function mergeToMain({ id, branch, target = 'main', strategy = 'merge' }) {

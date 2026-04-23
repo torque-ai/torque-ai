@@ -24,16 +24,52 @@ const ENVIRONMENT_STDERR_PATTERNS = [
   /\bkilled by signal\b/i,
 ];
 
+function normalizeVerifyOutput(verifyOutput) {
+  if (!verifyOutput || typeof verifyOutput !== 'object') {
+    return {
+      exitCode: null,
+      stdout: '',
+      stderr: '',
+      output: '',
+      timedOut: false,
+    };
+  }
+  const stdout = String(verifyOutput.stdout || '');
+  const stderr = String(verifyOutput.stderr || '');
+  const output = String(verifyOutput.output || '');
+  let exitCode = typeof verifyOutput.exitCode === 'number' ? verifyOutput.exitCode : null;
+  if (exitCode === null) {
+    const exitMatch = output.match(/\bexit[_ -]?code\b\D+(\d+)/i);
+    if (exitMatch) {
+      exitCode = Number(exitMatch[1]);
+    }
+  }
+  const combined = [stdout, stderr, output]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join('\n');
+  return {
+    ...verifyOutput,
+    exitCode,
+    stdout,
+    stderr,
+    output,
+    combined,
+    timedOut: verifyOutput.timedOut === true,
+  };
+}
+
 function detectEnvironmentFailure(verifyOutput) {
+  const normalized = normalizeVerifyOutput(verifyOutput);
   const signals = [];
   let reason = null;
 
-  if (verifyOutput && verifyOutput.timedOut === true) {
+  if (normalized.timedOut === true) {
     signals.push('timed_out');
     reason = 'timeout';
   }
 
-  const exitCode = verifyOutput ? verifyOutput.exitCode : null;
+  const exitCode = normalized.exitCode;
   if (typeof exitCode === 'number' && ENVIRONMENT_EXIT_CODES.has(exitCode)) {
     signals.push(`exit_${exitCode}`);
     if (exitCode === 127) reason = reason || 'command_not_found';
@@ -41,7 +77,7 @@ function detectEnvironmentFailure(verifyOutput) {
     else if (exitCode === 124) reason = reason || 'timeout';
   }
 
-  const stderr = verifyOutput ? String(verifyOutput.stderr || '') : '';
+  const stderr = [normalized.stderr, normalized.output].filter(Boolean).join('\n');
   const stderrChecks = [
     { re: /\bEPERM\b/, signal: 'stderr_EPERM', reason: 'permission_denied' },
     { re: /\bEACCES\b/, signal: 'stderr_EACCES', reason: 'permission_denied' },
@@ -61,7 +97,8 @@ function detectEnvironmentFailure(verifyOutput) {
 
 function parseFailingTests(verifyOutput) {
   if (!verifyOutput) return [];
-  const combined = String(verifyOutput.stdout || '') + '\n' + String(verifyOutput.stderr || '');
+  const normalized = normalizeVerifyOutput(verifyOutput);
+  const combined = normalized.combined || '';
   if (!combined.trim()) return [];
 
   const paths = new Set();
@@ -78,7 +115,7 @@ function parseFailingTests(verifyOutput) {
     paths.add(m[1]);
   }
   // Vitest FAIL header: "FAIL  src/foo.test.ts > describe > it"
-  const vitestFailRe = /^\s*FAIL\s+([A-Za-z0-9_./\\-]+?\.(?:ts|tsx|js|jsx|mjs|cjs))\s*>/gm;
+  const vitestFailRe = /^\s*FAIL\s+([A-Za-z0-9_./\\-]+?\.(?:ts|tsx|js|jsx|mjs|cjs))(?=\s*(?:>|\[|$))/gm;
   for (const m of combined.matchAll(vitestFailRe)) {
     paths.add(m[1]);
   }
@@ -120,7 +157,7 @@ async function getModifiedFiles(workingDirectory, worktreeBranch, mergeBase) {
   });
 }
 
-async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, timeoutMs = LLM_TIMEOUT_MS }) {
+async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, workingDirectory, timeoutMs = LLM_TIMEOUT_MS }) {
   const { submitFactoryInternalTask } = require('./internal-task-submit');
   const { handleAwaitTask } = require('../handlers/workflow/await');
   const taskCore = require('../db/task-core');
@@ -130,7 +167,7 @@ async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, 
   try {
     const submitResult = await submitFactoryInternalTask({
       task: prompt,
-      working_directory: project?.path || process.cwd(),
+      working_directory: workingDirectory || project?.path || process.cwd(),
       kind: 'plan_generation',
       project_id: project?.id,
       work_item_id: workItem?.id,
@@ -221,7 +258,7 @@ async function reviewVerifyFailure({
   // Missing-dependency classification: adapters detect common patterns
   // (ModuleNotFoundError, Cannot find module, etc.), LLM maps module→package.
   try {
-    const combined = String(verifyOutput?.stdout || '') + '\n' + String(verifyOutput?.stderr || '');
+    const combined = normalizeVerifyOutput(verifyOutput).combined || '';
     const registry = require('./dep-resolver/registry');
     const hit = registry.detect(combined);
     if (hit && hit.adapter && typeof hit.adapter.mapModuleToPackage === 'function') {
@@ -322,6 +359,7 @@ async function reviewVerifyFailure({
     modifiedFiles,
     workItem,
     project,
+    workingDirectory,
     timeoutMs: options.llmTimeoutMs,
   });
 
@@ -370,6 +408,7 @@ module.exports = {
   LLM_TIMEOUT_MS,
   ENVIRONMENT_EXIT_CODES,
   ENVIRONMENT_STDERR_PATTERNS,
+  normalizeVerifyOutput,
   detectEnvironmentFailure,
   parseFailingTests,
   getModifiedFiles,
