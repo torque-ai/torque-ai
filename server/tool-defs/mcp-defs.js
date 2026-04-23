@@ -382,4 +382,67 @@ module.exports = [
       required: ['user_id', 'session_id'],
     },
   },
+  {
+    name: 'create_eval_task',
+    description: 'Register an evaluation task (dataset + solver + scorer + optional sandbox + approval policy).',
+    inputSchema: {
+      type: 'object',
+      required: ['name', 'dataset', 'solver', 'scorer'],
+      properties: {
+        name: { type: 'string' },
+        dataset: { type: 'array' },
+        solver: {
+          type: 'object',
+          required: ['run_js'],
+          properties: {
+            run_js: { type: 'string' },
+          },
+        },
+        scorer: {
+          type: 'object',
+          required: ['kind'],
+          properties: {
+            kind: { type: 'string' },
+            target_js: { type: 'string' },
+            grade_js: { type: 'string' },
+          },
+        },
+        sandbox: { type: 'object' },
+        approval_policy: {
+          type: 'object',
+          properties: {
+            rules: { type: 'array' },
+          },
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+      },
+    },
+  },
+  {
+    name: 'run_eval_task',
+    description: 'Run a registered eval task and return per-sample scores + aggregate.',
+    inputSchema: {
+      type: 'object',
+      required: ['name'],
+      properties: {
+        name: { type: 'string' },
+        limit: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'set_approval_policy',
+    description: 'Set/replace the approval policy for a registered eval task.',
+    inputSchema: {
+      type: 'object',
+      required: ['name', 'rules'],
+      properties: {
+        name: { type: 'string' },
+        rules: { type: 'array' },
+      },
+    },
+  },
 ];

@@ -55,6 +55,7 @@ const TIER_2 = [
   'dispatch_subagent', 'resume_session', 'fork_session', 'list_sessions',
   'save_memory', 'search_memory', 'optimize_prompt', 'reflect_on_run',
   'register_specialist', 'route_turn', 'get_session_history',
+  'create_eval_task', 'run_eval_task', 'set_approval_policy',
   // Project config (advanced)
   'configure_stall_detection', 'auto_verify_and_fix', 'commit_task',
   // Batch orchestration

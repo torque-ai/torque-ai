@@ -7,6 +7,11 @@ const { createAction } = require('../actions/action');
 const { createApplication } = require('../actions/application');
 const { createStatePersister } = require('../actions/state-persister');
 const { translateToAction } = require('../dispatch/translator');
+const { createApprovalPolicy } = require('../evals/approval-policy');
+const { runSamples } = require('../evals/run-sample');
+const { createScorer } = require('../evals/scorer');
+const { createSolver } = require('../evals/solver');
+const { createTaskSpec } = require('../evals/task-spec');
 const { validateMemory, resolveNamespace, MEMORY_KINDS } = require('../memory/memory-kind');
 const { createPromptOptimizer } = require('../memory/prompt-optimizer');
 const { createReflectionExecutor } = require('../memory/reflection-executor');
@@ -26,6 +31,7 @@ const SURFACE_TOOL_ALIASES = Object.freeze({
   }),
 });
 const MEMORY_REFLECTION_DEBOUNCE_MS = 500;
+const EVAL_SCRIPT_TIMEOUT_MS = 1000;
 
 function buildToolResult(payload) {
   return {
@@ -50,12 +56,20 @@ function parseJsonObject(value, fallback = {}) {
 
 const SPECIALIST_HISTORY_PROMPT_LIMIT = 20;
 let fallbackRegisteredSpecialists = null;
+let fallbackRegisteredEvalTasks = null;
 
 function ensureFallbackRegisteredSpecialists() {
   if (!fallbackRegisteredSpecialists) {
     fallbackRegisteredSpecialists = Object.create(null);
   }
   return fallbackRegisteredSpecialists;
+}
+
+function ensureFallbackRegisteredEvalTasks() {
+  if (!fallbackRegisteredEvalTasks) {
+    fallbackRegisteredEvalTasks = new Map();
+  }
+  return fallbackRegisteredEvalTasks;
 }
 
 function unwrapDbService(dbService) {
@@ -89,6 +103,18 @@ function resolveSpecialistStorage() {
   const database = require('../database');
   const { createSpecialistStorage } = require('../routing/specialist-storage');
   return createSpecialistStorage({ db: unwrapDbService(database) });
+}
+
+function resolveEvalTaskRegistry() {
+  try {
+    if (defaultContainer?.has?.('evalTaskRegistry')) {
+      return defaultContainer.get('evalTaskRegistry');
+    }
+  } catch (error) {
+    void error;
+  }
+
+  return ensureFallbackRegisteredEvalTasks();
 }
 
 function resolveHeuristicTurnClassifier() {
@@ -861,6 +887,222 @@ function looksLikeFunctionExpression(source) {
     || trimmed.startsWith('async function')
     || trimmed.startsWith('(')
     || trimmed.includes('=>');
+}
+
+function getEvalScriptExpression(source, params, { async = true } = {}) {
+  const trimmed = source.trim();
+  if (looksLikeFunctionExpression(trimmed)) {
+    return `(${trimmed})`;
+  }
+
+  const asyncKeyword = async ? 'async ' : '';
+  const bareExpression = trimmed.replace(/;+\s*$/, '');
+  const canUseExpression = !bareExpression.includes('return') && !bareExpression.includes(';');
+  if (canUseExpression) {
+    return `(${asyncKeyword}(${params.join(', ')}) => (${bareExpression}))`;
+  }
+
+  return `(${asyncKeyword}(${params.join(', ')}) => { ${trimmed} })`;
+}
+
+function createEvalConsole() {
+  return Object.freeze({
+    log() {},
+    warn() {},
+    error() {},
+  });
+}
+
+function compileEvalFunction(source, { filename, params, async = true, label }) {
+  if (typeof source !== 'string' || !source.trim()) {
+    throw createHandlerError(`${label} must be a non-empty string`, ErrorCodes.INVALID_PARAM);
+  }
+
+  const fnExpression = getEvalScriptExpression(source, params, { async });
+  return async (...values) => {
+    const bindings = {};
+    params.forEach((param, index) => {
+      bindings[`__${param}`] = values[index];
+    });
+
+    const invocationArgs = params.map((param) => `__${param}`).join(', ');
+    const script = new vm.Script(
+      `(async () => {
+        const fn = ${fnExpression};
+        if (typeof fn !== 'function') return Promise.reject(new TypeError('${label} did not evaluate to a function'));
+        return await fn(${invocationArgs});
+      })()`,
+      { filename },
+    );
+
+    return script.runInNewContext({
+      ...bindings,
+      console: createEvalConsole(),
+    }, { timeout: EVAL_SCRIPT_TIMEOUT_MS });
+  };
+}
+
+function normalizeEvalTags(tags) {
+  if (tags === undefined) {
+    return [];
+  }
+  if (!Array.isArray(tags) || tags.some((tag) => typeof tag !== 'string' || !tag.trim())) {
+    throw createHandlerError('tags must be an array of non-empty strings', ErrorCodes.INVALID_PARAM);
+  }
+  return tags.map((tag) => tag.trim());
+}
+
+function buildEvalSolver(taskName, solverConfig) {
+  if (!isPlainObject(solverConfig)) {
+    throw createHandlerError('solver must be an object', ErrorCodes.INVALID_PARAM);
+  }
+  if (typeof solverConfig.run_js !== 'string' || !solverConfig.run_js.trim()) {
+    throw createHandlerError('solver.run_js must be a non-empty string', ErrorCodes.INVALID_PARAM);
+  }
+
+  const run = compileEvalFunction(solverConfig.run_js, {
+    filename: `eval-solver-${taskName}.vm.js`,
+    params: ['sample', 'ctx'],
+    label: 'solver.run_js',
+  });
+
+  return createSolver({
+    name: `${taskName}:solver`,
+    run: async (sample, ctx = {}) => {
+      const result = await run(sample, ctx);
+      return isPlainObject(result) ? result : { output: result };
+    },
+  });
+}
+
+function buildEvalScorer(taskName, scorerConfig) {
+  if (!isPlainObject(scorerConfig)) {
+    throw createHandlerError('scorer must be an object', ErrorCodes.INVALID_PARAM);
+  }
+
+  const kind = typeof scorerConfig.kind === 'string' ? scorerConfig.kind.trim() : '';
+  if (!kind) {
+    throw createHandlerError('scorer.kind must be a non-empty string', ErrorCodes.INVALID_PARAM);
+  }
+
+  if (kind === 'model_graded') {
+    if (typeof scorerConfig.grade_js !== 'string' || !scorerConfig.grade_js.trim()) {
+      throw createHandlerError('scorer.grade_js is required for model_graded scorers', ErrorCodes.INVALID_PARAM);
+    }
+
+    const grade = compileEvalFunction(scorerConfig.grade_js, {
+      filename: `eval-grade-${taskName}.vm.js`,
+      params: ['sample', 'result', 'ctx'],
+      label: 'scorer.grade_js',
+    });
+
+    return createScorer({ kind, grade });
+  }
+
+  if (kind === 'match' || kind === 'choice') {
+    if (typeof scorerConfig.target_js !== 'string' || !scorerConfig.target_js.trim()) {
+      throw createHandlerError(`scorer.target_js is required for ${kind} scorers`, ErrorCodes.INVALID_PARAM);
+    }
+
+    const target = compileEvalFunction(scorerConfig.target_js, {
+      filename: `eval-target-${taskName}.vm.js`,
+      params: ['sample', 'ctx'],
+      label: 'scorer.target_js',
+    });
+
+    return createScorer({ kind, target });
+  }
+
+  throw createHandlerError(`unsupported scorer kind: ${kind}`, ErrorCodes.INVALID_PARAM);
+}
+
+function registerEvalTask(taskSpec) {
+  const registry = resolveEvalTaskRegistry();
+  if (typeof registry.set !== 'function') {
+    throw createHandlerError('eval task registry is unavailable', ErrorCodes.INTERNAL_ERROR);
+  }
+  registry.set(taskSpec.name, taskSpec);
+  return taskSpec;
+}
+
+function getRegisteredEvalTask(name) {
+  const registry = resolveEvalTaskRegistry();
+  if (typeof registry.get !== 'function') {
+    return null;
+  }
+  return registry.get(name) || null;
+}
+
+function createEvalTaskSpecFromArgs(args = {}) {
+  if (!Array.isArray(args.dataset) || args.dataset.length === 0) {
+    throw createHandlerError('dataset must be a non-empty array', ErrorCodes.INVALID_PARAM);
+  }
+
+  const taskName = args.name.trim();
+  const approvalPolicy = args.approval_policy
+    ? createApprovalPolicy({ rules: Array.isArray(args.approval_policy.rules) ? args.approval_policy.rules : [] })
+    : null;
+
+  return createTaskSpec({
+    name: taskName,
+    dataset: args.dataset,
+    solver: buildEvalSolver(taskName, args.solver),
+    scorer: buildEvalScorer(taskName, args.scorer),
+    sandbox: isPlainObject(args.sandbox) ? { ...args.sandbox } : args.sandbox,
+    approvalPolicy,
+    tags: normalizeEvalTags(args.tags),
+    metadata: {
+      registered_via: 'mcp',
+      created_at: new Date().toISOString(),
+      solver: { run_js: args.solver.run_js },
+      scorer: {
+        kind: args.scorer.kind,
+        target_js: args.scorer.target_js || null,
+        grade_js: args.scorer.grade_js || null,
+      },
+    },
+  });
+}
+
+async function queueEvalApprovalReview({ task, sample, tool, args: toolArgs, action }) {
+  try {
+    const tools = require('../tools');
+    const description = [
+      `Review eval sample escalation for task "${task?.name || 'unknown'}".`,
+      `Approval policy returned "${action}" before tool "${tool}" was allowed to run.`,
+      '',
+      'Sample:',
+      JSON.stringify(sample, null, 2),
+      '',
+      'Tool args:',
+      JSON.stringify(toolArgs || {}, null, 2),
+    ].join('\n');
+    const result = await tools.handleToolCall('submit_task', {
+      task: description,
+      project: `eval:${task?.name || 'unassigned'}`,
+      tags: ['eval-approval', 'human-review'],
+      auto_approve: false,
+      priority: 1,
+    });
+
+    if (result?.isError) {
+      return {
+        queued: false,
+        error: extractToolText(result) || 'failed to queue review task',
+      };
+    }
+
+    return {
+      queued: true,
+      task_id: result?.structuredData?.task_id || null,
+      message: extractToolText(result) || null,
+    };
+  } catch (error) {
+    return {
+      queued: false,
+      error: error?.message || String(error),
+    };
+  }
 }
 
 function compileActionRun(runJs, actionName) {
@@ -2246,6 +2488,78 @@ function handleGetSessionHistory(args = {}) {
   }
 }
 
+async function handleCreateEvalTask(args = {}) {
+  try {
+    const nameError = requireString(args, 'name', 'name');
+    if (nameError) return nameError;
+
+    const taskSpec = createEvalTaskSpecFromArgs(args);
+    registerEvalTask(taskSpec);
+    return buildToolResult({
+      name: taskSpec.name,
+      registered: true,
+      dataset_size: taskSpec.dataset.length,
+      tags: taskSpec.tags,
+      has_approval_policy: Boolean(taskSpec.approvalPolicy),
+    });
+  } catch (error) {
+    return makeError(error.code || ErrorCodes.INVALID_PARAM, error.message || String(error));
+  }
+}
+
+async function handleRunEvalTask(args = {}) {
+  try {
+    const nameError = requireString(args, 'name', 'name');
+    if (nameError) return nameError;
+
+    const task = getRegisteredEvalTask(args.name.trim());
+    if (!task) {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Eval task not found: ${args.name}`);
+    }
+
+    if (args.limit !== undefined) {
+      const numeric = Number(args.limit);
+      if (!Number.isFinite(numeric) || numeric < 1) {
+        return makeError(ErrorCodes.INVALID_PARAM, 'limit must be a positive integer');
+      }
+    }
+
+    const tools = require('../tools');
+    const result = await runSamples(task, {
+      limit: args.limit,
+      callTool: (toolName, toolArgs) => tools.handleToolCall(toolName, toolArgs),
+      onEscalate: queueEvalApprovalReview,
+    });
+    return buildToolResult(result);
+  } catch (error) {
+    return makeError(error.code || ErrorCodes.OPERATION_FAILED, error.message || String(error));
+  }
+}
+
+async function handleSetApprovalPolicy(args = {}) {
+  try {
+    const nameError = requireString(args, 'name', 'name');
+    if (nameError) return nameError;
+    if (!Array.isArray(args.rules)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'rules must be an array');
+    }
+
+    const task = getRegisteredEvalTask(args.name.trim());
+    if (!task) {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Eval task not found: ${args.name}`);
+    }
+
+    task.approvalPolicy = createApprovalPolicy({ rules: args.rules });
+    return buildToolResult({
+      name: task.name,
+      updated: true,
+      rule_count: task.approvalPolicy.rules.length,
+    });
+  } catch (error) {
+    return makeError(error.code || ErrorCodes.INVALID_PARAM, error.message || String(error));
+  }
+}
+
 module.exports = {
   handleRegisterActionSchema,
   handleListActions,
@@ -2267,4 +2581,7 @@ module.exports = {
   handleRegisterSpecialist,
   handleRouteTurn,
   handleGetSessionHistory,
+  handleCreateEvalTask,
+  handleRunEvalTask,
+  handleSetApprovalPolicy,
 };
