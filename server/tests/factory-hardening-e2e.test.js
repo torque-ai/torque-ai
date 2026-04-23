@@ -365,4 +365,93 @@ describe('factory hardening end-to-end', () => {
     expect(executeVerifySpy).not.toHaveBeenCalled();
     expect(verifyImpl).not.toHaveBeenCalled();
   });
+
+  it('terminates VERIFY when verify review rejects and pauses the project', async () => {
+    const project = createProject({ config: { verify_command: 'npm test' } });
+    const planPath = writePlanFile();
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'scout',
+      title: 'Baseline broken should not linger in verify',
+      description: 'The verify classifier rejected this item because baseline tests are already red.',
+      requestor: 'test',
+      status: 'verifying',
+      origin: { plan_path: planPath },
+    });
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const instanceId = randomUUID();
+    const now = new Date('2026-04-21T12:03:00.000Z').toISOString();
+
+    factoryIntake.updateWorkItem(workItem.id, {
+      batch_id: batchId,
+      claimed_by_instance_id: instanceId,
+    });
+    dbHandle.prepare(`
+      INSERT INTO factory_loop_instances (
+        id, project_id, work_item_id, batch_id, loop_state, paused_at_stage, last_action_at, created_at
+      )
+      VALUES (?, ?, ?, ?, 'VERIFY', NULL, ?, ?)
+    `).run(instanceId, project.id, workItem.id, batchId, now, now);
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      loop_batch_id: batchId,
+      loop_last_action_at: now,
+      loop_paused_at_stage: null,
+    });
+
+    loopController.__testing__.setExecuteVerifyStageForTests(async () => {
+      factoryIntake.updateWorkItem(workItem.id, {
+        status: 'rejected',
+        reject_reason: 'verify_failed_baseline_unrelated',
+      });
+      const cfg = {
+        verify_command: 'npm test',
+        baseline_broken_since: '2026-04-21T12:03:10.000Z',
+        baseline_broken_reason: 'verify_failed_baseline_unrelated',
+        baseline_broken_evidence: { failing_tests: ['tests/baseline.test.js'] },
+        baseline_broken_probe_attempts: 0,
+        baseline_broken_tick_count: 0,
+      };
+      factoryHealth.updateProject(project.id, {
+        status: 'paused',
+        config_json: JSON.stringify(cfg),
+      });
+      return { status: 'rejected', reason: 'baseline_broken' };
+    });
+
+    const advanced = await loopController.advanceLoopForProject(project.id);
+
+    expect(advanced).toMatchObject({
+      previous_state: LOOP_STATES.VERIFY,
+      new_state: LOOP_STATES.IDLE,
+      paused_at_stage: null,
+      reason: 'baseline_broken',
+    });
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      status: 'rejected',
+      reject_reason: 'verify_failed_baseline_unrelated',
+      claimed_by_instance_id: null,
+    });
+    expect(factoryLoopInstances.getInstance(instanceId)).toMatchObject({
+      loop_state: LOOP_STATES.IDLE,
+      terminated_at: expect.any(String),
+    });
+    expect(factoryHealth.getProject(project.id)).toMatchObject({
+      status: 'paused',
+      loop_state: LOOP_STATES.IDLE,
+      loop_batch_id: null,
+      loop_paused_at_stage: null,
+    });
+    const decision = dbHandle.prepare(`
+      SELECT action, outcome_json
+      FROM factory_decisions
+      WHERE project_id = ? AND batch_id = ? AND action = 'verify_terminal_rejection_terminated'
+    `).get(project.id, batchId);
+    expect(decision).toBeTruthy();
+    expect(JSON.parse(decision.outcome_json)).toMatchObject({
+      work_item_id: workItem.id,
+      instance_id: instanceId,
+      reason: 'baseline_broken',
+    });
+  });
 });

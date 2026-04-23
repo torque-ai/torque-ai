@@ -532,6 +532,10 @@ function getReadyStage(pausedAtStage) {
     : null;
 }
 
+function isTerminalVerifyRejection(stageResult) {
+  return stageResult && stageResult.status === 'rejected';
+}
+
 function assertValidGateStage(stage) {
   if (!isValidState(stage) || stage === LOOP_STATES.IDLE || stage === LOOP_STATES.PAUSED) {
     throw new Error(`Invalid gate stage: ${String(stage)}`);
@@ -7770,6 +7774,38 @@ async function runAdvanceLoop(instance_id) {
         });
         transitionReason = stageResult.reason || transitionReason;
         break;
+      }
+
+      if (isTerminalVerifyRejection(stageResult)) {
+        const lastActionAt = instance.last_action_at || nowIso();
+        terminateInstanceAndSync(instance.id, { abandonWorktree: true });
+        recordFactoryIdleIfExhausted(project.id, {
+          last_action_at: lastActionAt,
+          reason: stageResult.reason || 'verify_rejected',
+        });
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.VERIFY,
+          actor: 'verifier',
+          action: 'verify_terminal_rejection_terminated',
+          reasoning: 'VERIFY rejected the work item and no further stages should run for this instance.',
+          outcome: {
+            work_item_id: instance.work_item_id || null,
+            instance_id: instance.id,
+            reason: stageResult.reason || null,
+          },
+          confidence: 1,
+          batch_id: instance.batch_id,
+        });
+        return {
+          project_id: project.id,
+          instance_id,
+          previous_state: previousState,
+          new_state: LOOP_STATES.IDLE,
+          paused_at_stage: null,
+          stage_result: stageResult,
+          reason: stageResult.reason || 'verify_rejected',
+        };
       }
 
       const moveToLearn = tryMoveInstanceToStage(instance, LOOP_STATES.LEARN, {
