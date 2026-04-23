@@ -1030,4 +1030,46 @@ describe('MCP SSE Transport', () => {
       expect(result.success).toBe(true);
     });
   });
+
+  describe('RFC 9728 OAuth protected resource metadata', () => {
+    beforeAll(async () => {
+      await mcpSse.start({ port: 0 });
+    });
+
+    for (const path of [
+      '/.well-known/oauth-protected-resource',
+      '/.well-known/oauth-protected-resource/sse',
+      '/.well-known/oauth-protected-resource/mcp',
+    ]) {
+      it(`GET ${path} returns 200 with empty authorization_servers`, async () => {
+        const { response } = await dispatchRequest(handleHttpRequest, {
+          method: 'GET',
+          url: path,
+          headers: { host: 'localhost:3458' },
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['Content-Type']).toBe('application/json');
+        const body = JSON.parse(response.getBody());
+        expect(body).toEqual({ authorization_servers: [] });
+      });
+    }
+
+    it('POST /.well-known/oauth-protected-resource falls through to 404', async () => {
+      const { response } = await dispatchRequest(handleHttpRequest, {
+        method: 'POST',
+        url: '/.well-known/oauth-protected-resource',
+        headers: { host: 'localhost:3458' },
+      });
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('unrelated /.well-known path returns 404', async () => {
+      const { response } = await dispatchRequest(handleHttpRequest, {
+        method: 'GET',
+        url: '/.well-known/openid-configuration',
+        headers: { host: 'localhost:3458' },
+      });
+      expect(response.statusCode).toBe(404);
+    });
+  });
 });
