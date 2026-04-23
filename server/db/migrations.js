@@ -757,6 +757,12 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS action_state_snapshots',
     ].join('; '),
   },
+  {
+    version: 33,
+    name: 'add_memory_kind_namespace',
+    up: readSqlMigration('033-memory-kind-namespace.sql'),
+    down: 'DROP INDEX IF EXISTS idx_memories_kind_namespace',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
