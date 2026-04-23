@@ -8,6 +8,7 @@ const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
+const taskCore = require('../db/task-core');
 const routingModule = require('../handlers/integration/routing');
 const factoryTick = require('../factory/factory-tick');
 const loopController = require('../factory/loop-controller');
@@ -171,7 +172,7 @@ describe('factory pause enforcement', () => {
     expect(submitSpy).not.toHaveBeenCalled();
   });
 
-  it('resolves unrecoverable VERIFY stalls by rejecting the item and terminating the instance', () => {
+  it('resolves unrecoverable VERIFY stalls by rejecting the item and terminating the instance', async () => {
     const project = registerFactoryProject({ status: 'running', autoContinue: true });
     const item = factoryIntake.createWorkItem({
       project_id: project.id,
@@ -199,11 +200,14 @@ describe('factory pause enforcement', () => {
     });
     db.prepare('UPDATE factory_projects SET verify_recovery_attempts = 2 WHERE id = ?').run(project.id);
 
-    const resolution = factoryTick._internalForTests.resolveUnrecoverableVerifyLoop({
-      project_id: project.id,
-      attempts: 2,
-      last_action_at: staleAt,
-    });
+    const resolution = await factoryTick._internalForTests.resolveUnrecoverableVerifyLoop(
+      {
+        project_id: project.id,
+        attempts: 2,
+        last_action_at: staleAt,
+      },
+      { cancelGraceMs: 0, taskCore, taskManager: { cancelTask: vi.fn() } },
+    );
 
     expect(resolution).toMatchObject({
       action: 'resolved_unrecoverable_verify',
@@ -225,6 +229,132 @@ describe('factory pause enforcement', () => {
       reject_reason: 'verify_stalled_after_2_recovery_attempts',
     });
     expect(db.prepare('SELECT verify_recovery_attempts FROM factory_projects WHERE id = ?').get(project.id).verify_recovery_attempts).toBe(0);
+  });
+
+  it('cancels live batch tasks before terminating an unrecoverable VERIFY instance', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Cancel stale batch task',
+      description: 'The associated running task should be cancelled before the instance is abandoned.',
+      status: 'verifying',
+    });
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: item.id,
+      batch_id: 'factory-test-cancel-batch',
+    });
+    const staleAt = new Date(Date.now() - (90 * 60 * 1000)).toISOString();
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: LOOP_STATES.VERIFY,
+      last_action_at: staleAt,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: LOOP_STATES.VERIFY,
+      loop_batch_id: 'factory-test-cancel-batch',
+      loop_last_action_at: staleAt,
+    });
+    db.prepare('UPDATE factory_projects SET verify_recovery_attempts = 2 WHERE id = ?').run(project.id);
+    taskCore.createTask({
+      id: 'task-stale-verify-batch',
+      status: 'running',
+      task_description: 'stale batch task',
+      working_directory: project.path,
+      tags: [
+        'factory:batch_id=factory-test-cancel-batch',
+        `factory:work_item_id=${item.id}`,
+        'factory:plan_task_number=1',
+        'project:torque-public',
+      ],
+    });
+    const taskManager = {
+      cancelTask: vi.fn((taskId, _reason, options) => {
+        taskCore.updateTaskStatus(taskId, 'cancelled', { cancel_reason: options.cancel_reason });
+        return true;
+      }),
+    };
+
+    const resolution = await factoryTick._internalForTests.resolveUnrecoverableVerifyLoop(
+      {
+        project_id: project.id,
+        attempts: 2,
+        last_action_at: staleAt,
+      },
+      { cancelGraceMs: 0, taskCore, taskManager },
+    );
+
+    expect(taskManager.cancelTask).toHaveBeenCalledWith(
+      'task-stale-verify-batch',
+      expect.stringContaining('VERIFY stall recovery exhausted'),
+      { cancel_reason: 'factory_verify_unrecoverable' },
+    );
+    expect(resolution.cancelled_tasks).toEqual(['task-stale-verify-batch']);
+    expect(taskCore.getTask('task-stale-verify-batch')).toMatchObject({
+      status: 'cancelled',
+      cancel_reason: 'factory_verify_unrecoverable',
+    });
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeTruthy();
+    expect(factoryIntake.getWorkItem(item.id)).toMatchObject({
+      status: 'rejected',
+      reject_reason: 'verify_stalled_after_2_recovery_attempts',
+    });
+  });
+
+  it('cancels active factory tasks whose work item is already closed', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const rejectedItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Already rejected item',
+      description: 'Any still-running tasks for this item are stale.',
+      status: 'rejected',
+      reject_reason: 'verify_stalled_after_2_recovery_attempts',
+    });
+    const executingItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Still active item',
+      description: 'This task should remain running.',
+      status: 'executing',
+    });
+    taskCore.createTask({
+      id: 'task-closed-work-item',
+      status: 'running',
+      task_description: 'stale closed work item task',
+      working_directory: project.path,
+      tags: [`factory:work_item_id=${rejectedItem.id}`, 'project:torque-public'],
+    });
+    taskCore.createTask({
+      id: 'task-active-work-item',
+      status: 'running',
+      task_description: 'active work item task',
+      working_directory: project.path,
+      tags: [`factory:work_item_id=${executingItem.id}`, 'project:torque-public'],
+    });
+    const taskManager = {
+      cancelTask: vi.fn((taskId, _reason, options) => {
+        taskCore.updateTaskStatus(taskId, 'cancelled', { cancel_reason: options.cancel_reason });
+        return true;
+      }),
+    };
+
+    const result = await factoryTick._internalForTests.cancelClosedFactoryWorkItemTasks(
+      project.id,
+      { cancelGraceMs: 0, taskCore, taskManager },
+    );
+
+    expect(result.cancelled_task_ids).toEqual(['task-closed-work-item']);
+    expect(taskManager.cancelTask).toHaveBeenCalledTimes(1);
+    expect(taskCore.getTask('task-closed-work-item')).toMatchObject({
+      status: 'cancelled',
+      cancel_reason: 'factory_closed_work_item',
+    });
+    expect(taskCore.getTask('task-active-work-item')).toMatchObject({
+      status: 'running',
+    });
   });
 
   it('allows internal task submission for a running project', async () => {

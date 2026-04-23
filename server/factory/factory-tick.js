@@ -26,6 +26,12 @@ const logger = require('../logger').child({ component: 'factory-tick' });
 
 const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const activeTimers = new Map(); // project_id → intervalId
+const ACTIVE_FACTORY_TASK_STATUSES = Object.freeze(['queued', 'running', 'pending', 'blocked', 'retry_scheduled']);
+const CLOSED_FACTORY_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected', 'unactionable']);
+const DEFAULT_TASK_CANCEL_GRACE_MS = Math.max(
+  0,
+  Number.parseInt(process.env.TORQUE_FACTORY_VERIFY_CANCEL_GRACE_MS || '5500', 10) || 0,
+);
 
 function getProjectConfig(project) {
   if (!project.config_json) return {};
@@ -66,7 +72,175 @@ function isVerifyLoopInstance(instance) {
     || String(instance?.paused_at_stage || '').toUpperCase() === LOOP_STATES.VERIFY;
 }
 
-function resolveUnrecoverableVerifyLoop({ project_id, attempts, last_action_at }) {
+function sleep(ms) {
+  if (!ms || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getTaskTags(task) {
+  if (Array.isArray(task?.tags)) return task.tags;
+  if (typeof task?.tags !== 'string') return [];
+  try {
+    const parsed = JSON.parse(task.tags);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_err) {
+    return [];
+  }
+}
+
+function getFactoryWorkItemIdFromTask(task) {
+  const tag = getTaskTags(task).find((entry) => /^factory:work_item_id=\d+$/.test(entry));
+  if (!tag) return null;
+  const value = Number(tag.slice('factory:work_item_id='.length));
+  return Number.isFinite(value) ? value : null;
+}
+
+function taskMatchesFactoryInstance(task, instance) {
+  const tags = getTaskTags(task);
+  if (instance.batch_id && tags.includes(`factory:batch_id=${instance.batch_id}`)) {
+    return true;
+  }
+  return Boolean(instance.work_item_id && tags.includes(`factory:work_item_id=${instance.work_item_id}`));
+}
+
+function resolveTaskCore(override) {
+  if (override !== undefined) return override;
+  return require('../db/task-core');
+}
+
+function resolveTaskManager(override) {
+  if (override !== undefined) return override;
+  return require('../task-manager');
+}
+
+function appendCancelError(task, reason) {
+  const prefix = task?.error_output ? `${task.error_output}\n` : '';
+  return `${prefix}[factory] ${reason}`;
+}
+
+function cancelFactoryTask(task, reason, { taskCore, taskManager, cancelReason }) {
+  if (!task || !task.id) {
+    return { cancelled: false, error: 'missing_task_id' };
+  }
+
+  try {
+    if (taskManager && typeof taskManager.cancelTask === 'function') {
+      const cancelled = taskManager.cancelTask(task.id, reason, { cancel_reason: cancelReason });
+      if (cancelled) return { cancelled: true };
+    }
+  } catch (err) {
+    logger.warn('Factory tick: task manager cancellation failed; falling back to DB status update', {
+      task_id: task.id,
+      err: err.message,
+    });
+  }
+
+  try {
+    taskCore.updateTaskStatus(task.id, 'cancelled', {
+      error_output: appendCancelError(task, reason),
+      cancel_reason: cancelReason,
+    });
+    return { cancelled: true, fallback: true };
+  } catch (err) {
+    return { cancelled: false, error: err.message };
+  }
+}
+
+async function cancelFactoryTasksForInstance(instance, options = {}) {
+  const taskCore = resolveTaskCore(options.taskCore);
+  const taskManager = resolveTaskManager(options.taskManager);
+  const lookupTags = [];
+  if (instance.batch_id) lookupTags.push(`factory:batch_id=${instance.batch_id}`);
+  if (instance.work_item_id) lookupTags.push(`factory:work_item_id=${instance.work_item_id}`);
+  if (lookupTags.length === 0) {
+    return { task_ids: [], cancelled_task_ids: [], failed_cancellations: [] };
+  }
+
+  const candidates = taskCore.listTasks({
+    statuses: ACTIVE_FACTORY_TASK_STATUSES,
+    tags: lookupTags,
+    limit: 10000,
+    includeArchived: true,
+  }).filter((task) => taskMatchesFactoryInstance(task, instance));
+  const cancelledTaskIds = [];
+  const failedCancellations = [];
+  const reason = `Factory cancelled task because VERIFY stall recovery exhausted for instance ${instance.id}`;
+
+  for (const task of candidates) {
+    const result = cancelFactoryTask(task, reason, {
+      taskCore,
+      taskManager,
+      cancelReason: 'factory_verify_unrecoverable',
+    });
+    if (result.cancelled) {
+      cancelledTaskIds.push(task.id);
+    } else {
+      failedCancellations.push({ task_id: task.id, error: result.error || 'cancel_failed' });
+    }
+  }
+
+  if (cancelledTaskIds.length > 0) {
+    await sleep(options.cancelGraceMs ?? DEFAULT_TASK_CANCEL_GRACE_MS);
+  }
+
+  return {
+    task_ids: candidates.map((task) => task.id),
+    cancelled_task_ids: cancelledTaskIds,
+    failed_cancellations: failedCancellations,
+  };
+}
+
+async function cancelClosedFactoryWorkItemTasks(project_id, options = {}) {
+  const taskCore = resolveTaskCore(options.taskCore);
+  const taskManager = resolveTaskManager(options.taskManager);
+  const candidates = taskCore.listTasks({
+    statuses: ACTIVE_FACTORY_TASK_STATUSES,
+    limit: 10000,
+    includeArchived: true,
+  });
+  const cancelledTaskIds = [];
+  const failedCancellations = [];
+  const closedWorkItemIds = new Set();
+
+  for (const task of candidates) {
+    const workItemId = getFactoryWorkItemIdFromTask(task);
+    if (!workItemId) continue;
+    const workItem = factoryIntake.getWorkItem(workItemId);
+    if (!workItem || workItem.project_id !== project_id) continue;
+    if (!CLOSED_FACTORY_WORK_ITEM_STATUSES.has(workItem.status)) continue;
+
+    const reason = `Factory cancelled task because work item ${workItemId} is ${workItem.status}`;
+    const result = cancelFactoryTask(task, reason, {
+      taskCore,
+      taskManager,
+      cancelReason: 'factory_closed_work_item',
+    });
+    if (result.cancelled) {
+      cancelledTaskIds.push(task.id);
+      closedWorkItemIds.add(workItemId);
+    } else {
+      failedCancellations.push({ task_id: task.id, work_item_id: workItemId, error: result.error || 'cancel_failed' });
+    }
+  }
+
+  if (cancelledTaskIds.length > 0) {
+    await sleep(options.cancelGraceMs ?? DEFAULT_TASK_CANCEL_GRACE_MS);
+    logger.warn('Factory tick cancelled active tasks for closed factory work items', {
+      event: 'factory_closed_work_item_tasks_cancelled',
+      project_id,
+      cancelled_tasks: cancelledTaskIds.length,
+      closed_work_items: Array.from(closedWorkItemIds),
+    });
+  }
+
+  return {
+    cancelled_task_ids: cancelledTaskIds,
+    failed_cancellations: failedCancellations,
+    closed_work_item_ids: Array.from(closedWorkItemIds),
+  };
+}
+
+async function resolveUnrecoverableVerifyLoop({ project_id, attempts, last_action_at }, options = {}) {
   const activeInstances = factoryLoopInstances.listInstances({
     project_id,
     active_only: true,
@@ -75,8 +249,24 @@ function resolveUnrecoverableVerifyLoop({ project_id, attempts, last_action_at }
   const now = new Date().toISOString();
   const terminatedInstances = [];
   const rejectedWorkItems = [];
+  const cancelledTasks = [];
+  const failedTaskCancellations = [];
 
   for (const instance of verifyInstances) {
+    try {
+      const taskCleanup = await cancelFactoryTasksForInstance(instance, options);
+      cancelledTasks.push(...taskCleanup.cancelled_task_ids);
+      failedTaskCancellations.push(...taskCleanup.failed_cancellations);
+    } catch (err) {
+      failedTaskCancellations.push({ instance_id: instance.id, error: err.message });
+      logger.warn('Factory tick: failed to cancel unrecoverable VERIFY batch tasks', {
+        project_id,
+        instance_id: instance.id,
+        batch_id: instance.batch_id,
+        err: err.message,
+      });
+    }
+
     if (instance.work_item_id) {
       try {
         factoryIntake.updateWorkItem(instance.work_item_id, {
@@ -134,12 +324,16 @@ function resolveUnrecoverableVerifyLoop({ project_id, attempts, last_action_at }
     attempts,
     terminated_instances: terminatedInstances.length,
     rejected_work_items: rejectedWorkItems.length,
+    cancelled_tasks: cancelledTasks.length,
+    failed_task_cancellations: failedTaskCancellations.length,
   });
 
   return {
     action: 'resolved_unrecoverable_verify',
     terminated_instances: terminatedInstances,
     rejected_work_items: rejectedWorkItems,
+    cancelled_tasks: cancelledTasks,
+    failed_task_cancellations: failedTaskCancellations,
   };
 }
 
@@ -279,6 +473,15 @@ async function tickProject(project) {
     if (freshProject && freshProject.loop_state === LOOP_STATES.STARVED) {
       await maybeRecoverStarvedProject(freshProject);
       return;
+    }
+
+    try {
+      await cancelClosedFactoryWorkItemTasks(project.id);
+    } catch (err) {
+      logger.debug('Factory tick: closed work item task cleanup failed', {
+        project_id: project.id,
+        err: err.message,
+      });
     }
 
     // Reconcile orphan worktrees left behind by prior crashed/restarted
@@ -610,6 +813,8 @@ module.exports = {
   stopAll,
   tickProject,
   _internalForTests: {
+    cancelClosedFactoryWorkItemTasks,
+    cancelFactoryTasksForInstance,
     resolveUnrecoverableVerifyLoop,
     maybeStartAutoAdvanceLoop,
   },
