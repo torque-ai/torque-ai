@@ -130,11 +130,11 @@ function refreshFactoryDbHandles() {
 }
 
 function ensureFactoryDbHandles() {
-  const db = refreshFactoryDbHandles();
-  if (!db) {
-    throw new Error('Factory loop database unavailable; retry after startup completes');
-  }
-  return db;
+  // Best-effort refresh from the global database facade. Tests and some startup
+  // recovery paths may inject DB handles directly into the factory stores while
+  // database.js is temporarily unavailable; the store methods below still know
+  // whether their own handle is usable and will throw if it is not.
+  return refreshFactoryDbHandles();
 }
 const PENDING_APPROVAL_SUCCESS_TASK_STATUSES = new Set(['completed', 'shipped']);
 const PENDING_APPROVAL_FAILURE_TASK_STATUSES = new Set(['failed', 'cancelled']);
