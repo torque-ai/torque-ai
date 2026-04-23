@@ -204,6 +204,62 @@ describe('recoverStalledVerifyLoops', () => {
     );
   });
 
+  it('delegates maxed stalled VERIFY loops to a terminal resolver and stops reprocessing after state clears', async () => {
+    const projectId = insertProject({
+      loopState: 'VERIFY',
+      lastActionAt: new Date(Date.now() - (VERIFY_STALL_THRESHOLD_MS + 60 * 1000)).toISOString(),
+    });
+    const retryFactoryVerify = vi.fn().mockResolvedValue({});
+    const resolveUnrecoverableVerify = vi.fn().mockImplementation(async ({ project_id }) => {
+      db.prepare(`
+        UPDATE factory_projects
+        SET loop_state = 'IDLE',
+            loop_paused_at_stage = NULL,
+            loop_last_action_at = ?
+        WHERE id = ?
+      `).run(new Date().toISOString(), project_id);
+      return {
+        action: 'resolved_unrecoverable_verify',
+        terminated_instances: ['inst-1'],
+      };
+    });
+    const logger = makeLogger();
+
+    await recoverStalledVerifyLoops({ db, logger, eventBus: createEventBus(), retryFactoryVerify });
+    await recoverStalledVerifyLoops({ db, logger, eventBus: createEventBus(), retryFactoryVerify });
+    const actions = await recoverStalledVerifyLoops({
+      db,
+      logger,
+      eventBus: createEventBus(),
+      retryFactoryVerify,
+      resolveUnrecoverableVerify,
+    });
+    const nextActions = await recoverStalledVerifyLoops({
+      db,
+      logger,
+      eventBus: createEventBus(),
+      retryFactoryVerify,
+      resolveUnrecoverableVerify,
+    });
+
+    expect(resolveUnrecoverableVerify).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: projectId,
+      attempts: MAX_RECOVERY_ATTEMPTS,
+    }));
+    expect(actions).toEqual([
+      {
+        project_id: projectId,
+        action: 'resolved_unrecoverable_verify',
+        attempts: MAX_RECOVERY_ATTEMPTS,
+        resolution: {
+          action: 'resolved_unrecoverable_verify',
+          terminated_instances: ['inst-1'],
+        },
+      },
+    ]);
+    expect(nextActions).toEqual([]);
+  });
+
   it('keeps attempt counts across invocations when the DB column is absent', async () => {
     const projectId = insertProject({
       loopState: 'VERIFY',

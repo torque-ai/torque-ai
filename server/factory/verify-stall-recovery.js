@@ -53,6 +53,15 @@ function setRecoveryAttempts(db, projectId, attempts, hasColumn) {
   inMemoryVerifyRecoveryAttempts.set(projectId, attempts);
 }
 
+function resetRecoveryAttempts(db, projectId) {
+  const hasColumn = hasVerifyRecoveryAttemptsColumn(db);
+  if (hasColumn) {
+    setRecoveryAttempts(db, projectId, 0, hasColumn);
+    return;
+  }
+  inMemoryVerifyRecoveryAttempts.delete(projectId);
+}
+
 function hasAutoRecoveryColumns(db) {
   try {
     const columns = db.prepare('PRAGMA table_info(factory_projects)').all();
@@ -129,6 +138,7 @@ async function recoverStalledVerifyLoops({
   logger,
   eventBus,
   retryFactoryVerify,
+  resolveUnrecoverableVerify = null,
 }) {
   if (!db || typeof db.prepare !== 'function') {
     throw new Error('recoverStalledVerifyLoops requires a database handle');
@@ -173,11 +183,32 @@ async function recoverStalledVerifyLoops({
           err: logErr.message,
         });
       }
-      actions.push({
+      let resolution = null;
+      let action = 'skipped_maxed';
+      if (typeof resolveUnrecoverableVerify === 'function') {
+        try {
+          resolution = await resolveUnrecoverableVerify(payload);
+          action = resolution?.action || 'resolved_maxed';
+        } catch (err) {
+          action = 'resolution_failed';
+          resolution = { error: err.message };
+          logger.error('Failed to resolve unrecoverable VERIFY loop', {
+            event: 'factory_verify_unrecoverable_resolution_failed',
+            project_id: stalledLoop.project_id,
+            attempts: stalledLoop.attempts,
+            err: err.message,
+          });
+        }
+      }
+      const entry = {
         project_id: stalledLoop.project_id,
-        action: 'skipped_maxed',
+        action,
         attempts: stalledLoop.attempts,
-      });
+      };
+      if (resolution) {
+        entry.resolution = resolution;
+      }
+      actions.push(entry);
       continue;
     }
 
@@ -244,4 +275,5 @@ module.exports = {
   MAX_RECOVERY_ATTEMPTS,
   listStalledVerifyLoops,
   recoverStalledVerifyLoops,
+  resetRecoveryAttempts,
 };

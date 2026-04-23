@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const routingModule = require('../handlers/integration/routing');
 const factoryTick = require('../factory/factory-tick');
@@ -168,6 +169,62 @@ describe('factory pause enforcement', () => {
     })).rejects.toThrow(/paused.*internal task submission blocked/i);
 
     expect(submitSpy).not.toHaveBeenCalled();
+  });
+
+  it('resolves unrecoverable VERIFY stalls by rejecting the item and terminating the instance', () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Exercise terminal verify stall handling',
+      description: 'A test work item that should be rejected after VERIFY stall recovery exhausts.',
+      status: 'verifying',
+    });
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: item.id,
+      batch_id: 'factory-test-batch',
+    });
+    const staleAt = new Date(Date.now() - (90 * 60 * 1000)).toISOString();
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: LOOP_STATES.VERIFY,
+      last_action_at: staleAt,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: LOOP_STATES.VERIFY,
+      loop_batch_id: 'factory-test-batch',
+      loop_last_action_at: staleAt,
+    });
+    db.prepare('UPDATE factory_projects SET verify_recovery_attempts = 2 WHERE id = ?').run(project.id);
+
+    const resolution = factoryTick._internalForTests.resolveUnrecoverableVerifyLoop({
+      project_id: project.id,
+      attempts: 2,
+      last_action_at: staleAt,
+    });
+
+    expect(resolution).toMatchObject({
+      action: 'resolved_unrecoverable_verify',
+      terminated_instances: [instance.id],
+      rejected_work_items: [item.id],
+    });
+    expect(factoryLoopInstances.getInstance(instance.id)).toMatchObject({
+      loop_state: LOOP_STATES.IDLE,
+      paused_at_stage: null,
+    });
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeTruthy();
+    expect(factoryHealth.getProject(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.IDLE,
+      loop_paused_at_stage: null,
+      loop_batch_id: null,
+    });
+    expect(factoryIntake.getWorkItem(item.id)).toMatchObject({
+      status: 'rejected',
+      reject_reason: 'verify_stalled_after_2_recovery_attempts',
+    });
+    expect(db.prepare('SELECT verify_recovery_attempts FROM factory_projects WHERE id = ?').get(project.id).verify_recovery_attempts).toBe(0);
   });
 
   it('allows internal task submission for a running project', async () => {
