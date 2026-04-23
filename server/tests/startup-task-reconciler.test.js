@@ -301,8 +301,8 @@ describe('startup task reconciler', () => {
       missing_working_directory: missingDir,
     });
     expect(cloneRowsFor('task-missing-workdir')).toHaveLength(0);
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('failed missing-workdir task'),
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('marked missing-workdir task terminal'),
       expect.objectContaining({ task_id: 'task-missing-workdir', working_directory: missingDir }),
     );
   });

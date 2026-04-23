@@ -108,6 +108,34 @@ function setWorktreeRunnerForTests(runner) {
     sharedWorktreeRunner = runner;
   }
 }
+
+function refreshFactoryDbHandles() {
+  let db = null;
+  try {
+    db = database.getDbInstance();
+  } catch {
+    return null;
+  }
+
+  if (!db || typeof db.prepare !== 'function') {
+    return null;
+  }
+
+  for (const store of [factoryHealth, factoryIntake, factoryDecisions, factoryLoopInstances, factoryWorktrees]) {
+    if (store && typeof store.setDb === 'function') {
+      store.setDb(db);
+    }
+  }
+  return db;
+}
+
+function ensureFactoryDbHandles() {
+  const db = refreshFactoryDbHandles();
+  if (!db) {
+    throw new Error('Factory loop database unavailable; retry after startup completes');
+  }
+  return db;
+}
 const PENDING_APPROVAL_SUCCESS_TASK_STATUSES = new Set(['completed', 'shipped']);
 const PENDING_APPROVAL_FAILURE_TASK_STATUSES = new Set(['failed', 'cancelled']);
 const LIVE_WORKTREE_OWNER_STATUSES = new Set(['queued', 'running', 'pending', 'retry_scheduled']);
@@ -192,6 +220,7 @@ function emitLoopAdvanceJobEvent(job) {
 }
 
 function getProjectOrThrow(project_id) {
+  ensureFactoryDbHandles();
   const project = factoryHealth.getProject(project_id);
   if (!project) {
     throw new Error(`Project not found: ${project_id}`);
@@ -200,6 +229,7 @@ function getProjectOrThrow(project_id) {
 }
 
 function getInstanceOrThrow(instance_id) {
+  ensureFactoryDbHandles();
   const instance = factoryLoopInstances.getInstance(instance_id);
   if (!instance) {
     throw new Error(`Factory loop instance not found: ${instance_id}`);
@@ -271,6 +301,7 @@ function getPausedAtStage(loopRecord) {
 function isProjectStatusPaused(project_id) {
   if (!project_id) return false;
   try {
+    refreshFactoryDbHandles();
     const project = factoryHealth.getProject(project_id);
     return project?.status === 'paused';
   } catch {

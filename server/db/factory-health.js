@@ -23,6 +23,52 @@ function setDb(dbInstance) {
   db = dbInstance;
 }
 
+function resolveDbHandle(candidate) {
+  if (!candidate) {
+    return null;
+  }
+  if (typeof candidate.prepare === 'function') {
+    return candidate;
+  }
+  if (typeof candidate.getDbInstance === 'function') {
+    return candidate.getDbInstance();
+  }
+  if (typeof candidate.getDb === 'function') {
+    return candidate.getDb();
+  }
+  return null;
+}
+
+function getDb() {
+  let instance = resolveDbHandle(db);
+  if (!instance) {
+    try {
+      const { defaultContainer } = require('../container');
+      if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('db')) {
+        instance = resolveDbHandle(defaultContainer.get('db'));
+      }
+    } catch {
+      // Fall through to database.js below.
+    }
+  }
+  if (!instance) {
+    try {
+      const database = require('../database');
+      instance = resolveDbHandle(database);
+    } catch {
+      // Let the explicit error below surface if no active DB is available.
+    }
+  }
+
+  if (instance) {
+    db = instance;
+  }
+  if (!instance || typeof instance.prepare !== 'function') {
+    throw new Error('Factory health requires an active database connection');
+  }
+  return instance;
+}
+
 function registerProject({ name, path, brief, trust_level, config }) {
   const id = uuidv4();
   const level = trust_level || 'supervised';
@@ -31,7 +77,8 @@ function registerProject({ name, path, brief, trust_level, config }) {
   }
   const normalizedPath = normalizeProjectPath(path);
   const now = new Date().toISOString();
-  db.prepare(`
+  const database = getDb();
+  database.prepare(`
     INSERT INTO factory_projects (id, name, path, brief, trust_level, status, config_json, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, 'paused', ?, ?, ?)
   `).run(id, name, normalizedPath, brief || null, level, config ? JSON.stringify(config) : null, now, now);
@@ -40,7 +87,7 @@ function registerProject({ name, path, brief, trust_level, config }) {
 }
 
 function getProject(id) {
-  const row = db.prepare('SELECT * FROM factory_projects WHERE id = ?').get(id);
+  const row = getDb().prepare('SELECT * FROM factory_projects WHERE id = ?').get(id);
   if (!row) return null;
   if (row.config_json) {
     try { row.config = JSON.parse(row.config_json); } catch { row.config = null; }
@@ -50,12 +97,13 @@ function getProject(id) {
 
 function getProjectByPath(projectPath) {
   const normalized = normalizeProjectPath(projectPath);
+  const database = getDb();
   // Exact match first (fast path for already-normalized rows)
-  let row = db.prepare('SELECT * FROM factory_projects WHERE path = ?').get(normalized);
+  let row = database.prepare('SELECT * FROM factory_projects WHERE path = ?').get(normalized);
   if (!row) {
     // Fall back to in-memory normalized comparison to catch legacy rows that
     // were stored with backslashes or non-canonical paths
-    const rows = db.prepare('SELECT * FROM factory_projects').all();
+    const rows = database.prepare('SELECT * FROM factory_projects').all();
     row = rows.find(r => normalizeProjectPath(r.path) === normalized) || null;
   }
   if (!row) return null;
@@ -66,6 +114,7 @@ function getProjectByPath(projectPath) {
 }
 
 function listProjects(filter) {
+  const database = getDb();
   let sql = 'SELECT * FROM factory_projects';
   const params = [];
   if (filter?.status) {
@@ -73,7 +122,7 @@ function listProjects(filter) {
     params.push(filter.status);
   }
   sql += ' ORDER BY updated_at DESC';
-  const rows = db.prepare(sql).all(...params);
+  const rows = database.prepare(sql).all(...params);
   for (const row of rows) {
     if (row.config_json) {
       try { row.config = JSON.parse(row.config_json); } catch { row.config = null; }
@@ -83,6 +132,7 @@ function listProjects(filter) {
 }
 
 function updateProject(id, updates) {
+  const database = getDb();
   const allowed = [
     'name',
     'brief',
@@ -115,12 +165,12 @@ function updateProject(id, updates) {
   sets.push("updated_at = datetime('now')");
   params.push(id);
 
-  db.prepare(`UPDATE factory_projects SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  database.prepare(`UPDATE factory_projects SET ${sets.join(', ')} WHERE id = ?`).run(...params);
   return getProject(id);
 }
 
 function recordSnapshot({ project_id, dimension, score, scan_type, details, batch_id }) {
-  const info = db.prepare(`
+  const info = getDb().prepare(`
     INSERT INTO factory_health_snapshots (project_id, dimension, score, details_json, scan_type, batch_id, scanned_at)
     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
   `).run(
@@ -135,7 +185,7 @@ function recordSnapshot({ project_id, dimension, score, scan_type, details, batc
 }
 
 function getLatestScores(projectId) {
-  const rows = db.prepare(`
+  const rows = getDb().prepare(`
     SELECT dimension, score FROM factory_health_snapshots
     WHERE project_id = ? AND id IN (
       SELECT MAX(id) FROM factory_health_snapshots
@@ -153,7 +203,7 @@ function getLatestScores(projectId) {
 
 function getScoreHistory(projectId, dimension, limit, options = {}) {
   const order = options && options.order === 'DESC' ? 'DESC' : 'ASC';
-  return db.prepare(`
+  return getDb().prepare(`
     SELECT id, score, scan_type, batch_id, scanned_at, details_json
     FROM factory_health_snapshots
     WHERE project_id = ? AND dimension = ?
@@ -163,7 +213,7 @@ function getScoreHistory(projectId, dimension, limit, options = {}) {
 }
 
 function getLatestSnapshotIds(projectId) {
-  const rows = db.prepare(`
+  const rows = getDb().prepare(`
     SELECT dimension, MAX(id) AS snapshot_id
     FROM factory_health_snapshots
     WHERE project_id = ?
@@ -188,11 +238,12 @@ function getBalanceScore(projectId, latestScores) {
 }
 
 function recordFindings(snapshotId, findings) {
-  const stmt = db.prepare(`
+  const database = getDb();
+  const stmt = database.prepare(`
     INSERT INTO factory_health_findings (snapshot_id, severity, message, file_path, details_json)
     VALUES (?, ?, ?, ?, ?)
   `);
-  const insert = db.transaction((items) => {
+  const insert = database.transaction((items) => {
     for (const f of items) {
       if (!f.message && !f.title) continue; // skip findings with no message
       stmt.run(
@@ -208,7 +259,7 @@ function recordFindings(snapshotId, findings) {
 }
 
 function getFindings(snapshotId) {
-  return db.prepare(
+  return getDb().prepare(
     'SELECT * FROM factory_health_findings WHERE snapshot_id = ? ORDER BY id'
   ).all(snapshotId);
 }
@@ -218,7 +269,7 @@ function getFindingsForSnapshots(snapshotIds) {
   if (ids.length === 0) return {};
 
   const placeholders = ids.map(() => '?').join(', ');
-  const rows = db.prepare(`
+  const rows = getDb().prepare(`
     SELECT * FROM factory_health_findings
     WHERE snapshot_id IN (${placeholders})
     ORDER BY snapshot_id, id
@@ -274,7 +325,7 @@ function setProjectPolicy(projectId, policy) {
   const config = project.config_json ? JSON.parse(project.config_json) : {};
   config.policy = merged;
 
-  db.prepare(`UPDATE factory_projects SET config_json = ?, updated_at = datetime('now') WHERE id = ?`)
+  getDb().prepare(`UPDATE factory_projects SET config_json = ?, updated_at = datetime('now') WHERE id = ?`)
     .run(JSON.stringify(config), projectId);
 
   return merged;

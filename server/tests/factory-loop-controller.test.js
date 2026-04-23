@@ -330,6 +330,23 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   }
 
+  it('refreshes factory store DB handles before loop operations', () => {
+    const { project } = registerPlanProject();
+    factoryHealth.setDb(null);
+    factoryIntake.setDb(null);
+    factoryLoopInstances.setDb(null);
+    factoryDecisions.setDb(null);
+    factoryWorktrees.setDb(null);
+
+    const result = loopController.startLoop(project.id);
+
+    expect(result).toMatchObject({
+      project_id: project.id,
+      state: LOOP_STATES.SENSE,
+    });
+    expect(factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })).toHaveLength(1);
+  });
+
   it('does not restore an unactionable item from the decision log on a fresh loop', async () => {
     const { project, workItem, planPath } = registerPlanProject();
     factoryIntake.updateWorkItem(workItem.id, {

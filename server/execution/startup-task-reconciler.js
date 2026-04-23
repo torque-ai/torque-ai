@@ -172,7 +172,7 @@ function failMissingWorkingDirectory({ original, metadata, taskCore, rawDb, logg
     patchOriginalMetadata(taskCore, rawDb, original.id, nextMetadata);
   }
 
-  safeLog(logger, 'warn', `Startup task reconciler failed missing-workdir task ${original.id}`, {
+  safeLog(logger, 'info', `Startup task reconciler marked missing-workdir task terminal ${original.id}`, {
     task_id: original.id,
     working_directory: original.working_directory,
   });
