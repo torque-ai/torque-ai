@@ -143,16 +143,35 @@ function patchOriginalMetadata(taskCore, rawDb, taskId, metadata) {
 
 function failMissingWorkingDirectory({ original, metadata, taskCore, rawDb, logger }) {
   const message = `[startup-reconciler] task was not resubmitted because working_directory no longer exists: ${original.working_directory}`;
-  taskCore.updateTaskStatus(original.id, 'failed', {
-    error_output: `${original.error_output || ''}\n${message}`,
-    completed_at: new Date().toISOString(),
-  });
-  patchOriginalMetadata(taskCore, rawDb, original.id, {
+  const completedAt = new Date().toISOString();
+  const errorOutput = `${original.error_output || ''}\n${message}`;
+  const nextMetadata = {
     ...metadata,
     reconciler: 'startup',
     restart_resubmit_skipped: 'missing_working_directory',
     missing_working_directory: original.working_directory,
-  });
+  };
+
+  if (original.status === 'cancelled') {
+    rawDb.prepare(`
+      UPDATE tasks
+      SET cancel_reason = ?, error_output = ?, completed_at = ?, metadata = ?
+      WHERE id = ?
+    `).run(
+      'missing_working_directory',
+      errorOutput,
+      completedAt,
+      JSON.stringify(nextMetadata),
+      original.id,
+    );
+  } else {
+    taskCore.updateTaskStatus(original.id, 'failed', {
+      error_output: errorOutput,
+      completed_at: completedAt,
+    });
+    patchOriginalMetadata(taskCore, rawDb, original.id, nextMetadata);
+  }
+
   safeLog(logger, 'warn', `Startup task reconciler failed missing-workdir task ${original.id}`, {
     task_id: original.id,
     working_directory: original.working_directory,

@@ -366,14 +366,21 @@ const INTERNAL_HANDLER_EXPORTS = new Set([
 ]);
 
 const EXPECTED_ROUTE_COLLISIONS = new Set([
+  'get_adversarial_reviews',
   'get_budget_status',
   'get_circuit_breaker_status',
   'get_file_risk',
+  'get_high_risk_files',
   'get_provider_scores',
   'get_task_risk_summary',
+  'get_verification_ledger',
+  'get_verification_summary',
   'get_verification_checks',
   'list_models',
+  'request_adversarial_review',
+  'review_task_output',
   'rollback_task',
+  'set_file_risk_override',
 ]);
 
 const routeMap = new Map();

@@ -307,6 +307,33 @@ describe('startup task reconciler', () => {
     );
   });
 
+  test('Cancelled restart orphan with missing working_directory -> retagged and not cloned', () => {
+    const missingDir = 'C:\\definitely-missing\\cancelled-startup-reconciler-worktree';
+    insertTask({
+      id: 'task-cancelled-missing-workdir',
+      status: 'cancelled',
+      cancel_reason: 'server_restart',
+      working_directory: missingDir,
+      metadata: { auto_resubmit_on_restart: true },
+    });
+
+    const result = runReconciler();
+
+    expect(result.reconciled).toBe(true);
+    expect(result.actions.missing_workdir_failed).toBe(1);
+    expect(result.actions.cloned).toBe(0);
+
+    const original = getTaskRow('task-cancelled-missing-workdir');
+    expect(original.status).toBe('cancelled');
+    expect(original.cancel_reason).toBe('missing_working_directory');
+    expect(original.error_output).toContain('working_directory no longer exists');
+    expect(parseMetadata(original)).toMatchObject({
+      restart_resubmit_skipped: 'missing_working_directory',
+      missing_working_directory: missingDir,
+    });
+    expect(cloneRowsFor('task-cancelled-missing-workdir')).toHaveLength(0);
+  });
+
   test('Double-run idempotency -> second call no-ops when resubmitted_as points to active clone', () => {
     insertTask({
       id: 'task-idempotent',
