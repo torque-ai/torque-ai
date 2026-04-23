@@ -67,9 +67,9 @@ function createAutoReleaseService({ db, releaseManager, changelogGenerator, logg
       changelog = changelogGenerator.generateChangelog(repoPath, {
         version: releaseResult.version,
       });
-      if (changelog) {
-        changelogGenerator.updateChangelogFile(repoPath, releaseResult.version, changelog);
-      }
+      // Completion-triggered auto-release runs against live project worktrees.
+      // Store changelog text as release metadata, but leave CHANGELOG.md writes
+      // to explicit release/docs flows so background completion cannot dirty main.
     } catch (err) {
       log.info(`[auto-release] Changelog generation failed (non-fatal): ${err.message}`);
     }
