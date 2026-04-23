@@ -417,6 +417,53 @@ describe('factory worktree auto-commit', () => {
     expect(autoCommit.initFactoryWorktreeAutoCommit()).toBe(true);
   });
 
+  it('preserves full paths from porcelain status lines when reporting drift', () => {
+    expect(autoCommit._internalForTests.parsePorcelainPaths([
+      ' M docs/superpowers/plans/2026-04-11-fabro-102-procedural-memory.md',
+      ' M server/db/migrations.js',
+      '?? server/memory/',
+      '',
+    ].join('\n'))).toEqual([
+      'docs/superpowers/plans/2026-04-11-fabro-102-procedural-memory.md',
+      'server/db/migrations.js',
+      'server/memory/',
+    ]);
+
+    expect(autoCommit._internalForTests.parsePorcelainPaths(
+      'M docs/superpowers/plans/2026-04-11-fabro-102-procedural-memory.md\n',
+    )).toEqual([
+      'docs/superpowers/plans/2026-04-11-fabro-102-procedural-memory.md',
+    ]);
+  });
+
+  it('ignores stale completed tasks from an older batch instead of committing the current active worktree', async () => {
+    const { worktreePath } = initGitWorktree(tempDirs);
+    seedFactoryProject(db, worktreePath, 'factory-project-1-134');
+    const staleWorktreePath = path.join(path.dirname(worktreePath), 'feat-factory-133-stale');
+    insertTask(db, {
+      taskId: 'task-stale-batch',
+      workingDirectory: staleWorktreePath,
+      tags: [
+        'factory:batch_id=factory-project-1-133',
+        'factory:work_item_id=133',
+        'factory:plan_task_number=2',
+        'factory:pending_approval',
+      ],
+    });
+    fs.writeFileSync(path.join(worktreePath, 'feature.txt'), 'current batch change\n');
+
+    expect(autoCommit.initFactoryWorktreeAutoCommit()).toBe(true);
+    taskEvents.emit('task:completed', { id: 'task-stale-batch', status: 'completed' });
+    await waitForAutoCommitListener();
+
+    const decisions = listDecisionRows(db);
+    const statusOutput = runRealGit(worktreePath, ['status', '--porcelain']).trim();
+
+    expect(countCommits(worktreePath)).toBe(1);
+    expect(statusOutput).toContain('feature.txt');
+    expect(decisions).toHaveLength(0);
+  });
+
   it('commits dirty factory worktree changes after a completed plan task and logs auto_committed_task', async () => {
     const { worktreePath } = initGitWorktree(tempDirs);
     seedFactoryProject(db, worktreePath);
