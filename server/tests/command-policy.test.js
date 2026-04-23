@@ -4,6 +4,7 @@ const childProcess = require('child_process');
 const {
   validateCommand,
   executeValidatedCommand,
+  executeValidatedCommandSync,
 } = require('../execution/command-policy');
 
 describe('command-policy', () => {
@@ -41,6 +42,25 @@ describe('command-policy', () => {
       const subshell = validateCommand('node', ['--check', '$(whoami)']);
       expect(subshell.allowed).toBe(false);
       expect(subshell.reason).toContain('metacharacter');
+    });
+
+    it('allows cmd wrappers only when each chained command is allowlisted', () => {
+      expect(validateCommand('cmd', ['/c', 'dotnet test App.Tests.csproj && dotnet test Integration.Tests.csproj']))
+        .toEqual({ allowed: true });
+      expect(validateCommand('cmd.exe', ['/d', '/s', '/c', 'dotnet test App.Tests.csproj && git status --short']))
+        .toEqual({ allowed: true });
+
+      const unsafeShell = validateCommand('cmd', ['/c', 'dotnet test App.Tests.csproj || git status --short']);
+      expect(unsafeShell.allowed).toBe(false);
+      expect(unsafeShell.reason).toContain('metacharacter');
+
+      const unsafeCommand = validateCommand('cmd', ['/c', 'del important.db']);
+      expect(unsafeCommand.allowed).toBe(false);
+      expect(unsafeCommand.reason).toContain("Command 'del important.db' is not allowed");
+
+      const nestedShell = validateCommand('cmd', ['/c', 'cmd /c dotnet test App.Tests.csproj']);
+      expect(nestedShell.allowed).toBe(false);
+      expect(nestedShell.reason).toContain('Nested shell wrappers');
     });
 
     it('allows advanced_shell commands when dangerous is true', () => {
@@ -114,6 +134,29 @@ describe('command-policy', () => {
       });
 
       expect(result.stdout).toBe('advanced-ok');
+    });
+  });
+
+  describe('executeValidatedCommandSync', () => {
+    it('executes allowlisted cmd chains through execFileSync', () => {
+      const execSpy = vi.spyOn(childProcess, 'execFileSync').mockReturnValue('ok');
+
+      const result = executeValidatedCommandSync('cmd', ['/c', 'dotnet test App.Tests.csproj && dotnet test Integration.Tests.csproj'], {
+        profile: 'safe_verify',
+        source: 'command-policy.test',
+        caller: 'executeValidatedCommandSync',
+        encoding: 'utf8',
+      });
+
+      expect(result).toBe('ok');
+      expect(execSpy).toHaveBeenCalledWith(
+        'cmd',
+        ['/c', 'dotnet test App.Tests.csproj && dotnet test Integration.Tests.csproj'],
+        expect.objectContaining({
+          encoding: 'utf8',
+          windowsHide: true,
+        })
+      );
     });
   });
 });

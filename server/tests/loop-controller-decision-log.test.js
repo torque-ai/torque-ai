@@ -201,6 +201,19 @@ afterEach(() => {
 });
 
 describe('loop-controller decision logging', () => {
+  it('skips decision logging when the database handle is unavailable', () => {
+    database.getDbInstance = () => null;
+
+    const result = loopController._internalForTests.safeLogDecision({
+      project_id: 'missing-db-project',
+      stage: LOOP_STATES.SENSE,
+      action: 'scanned_plans',
+    });
+
+    expect(result).toBeNull();
+    expect(listDecisionRows(db, 'missing-db-project')).toEqual([]);
+  });
+
   it('logs SENSE -> PRIORITIZE -> PLAN decisions, gate approvals, and plan-generation rejection', async () => {
     const { project, workItem } = registerProjectWithWorkItem('guided');
 

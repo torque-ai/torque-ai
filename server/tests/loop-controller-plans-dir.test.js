@@ -157,4 +157,32 @@ describe('loop-controller SENSE plans_dir intake', () => {
       step_count: 2,
     });
   });
+
+  it('does not crash SENSE plans_dir intake when the database handle is unavailable', () => {
+    const planPath = path.join(plansDir, 'feature-b.md');
+    fs.writeFileSync(planPath, [
+      '# Feature B Implementation Plan',
+      '',
+      '## Task 1: keep SENSE resilient',
+      '- [ ] skip intake while database is unavailable',
+    ].join('\n'));
+
+    const project = factoryHealth.registerProject({
+      name: 'PlansDir Missing DB Project',
+      path: `/tmp/plans-dir-missing-db-${Date.now()}`,
+      trust_level: 'dark',
+      config: { plans_dir: plansDir },
+    });
+
+    database.getDbInstance = () => null;
+
+    expect(() => loopController._internalForTests.executeSenseStage(project.id)).not.toThrow();
+
+    const count = db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM factory_work_items
+      WHERE project_id = ? AND source = 'plan_file'
+    `).get(project.id).count;
+    expect(count).toBe(0);
+  });
 });

@@ -68,10 +68,6 @@ const COMMAND_PROFILES = {
       name: 'pwsh',
       match: (cmd) => isExecutable(cmd, 'pwsh'),
     },
-    {
-      name: 'cmd',
-      match: (cmd) => isExecutable(cmd, 'cmd'),
-    },
   ],
   build: [
     {
@@ -220,6 +216,117 @@ function findShellMetacharacter(commandText, args) {
   return null;
 }
 
+function getShellScriptFromRequest(request) {
+  const shell = normalizeExecutable(request.cmd);
+  const args = Array.isArray(request.args) ? request.args : [];
+
+  if (shell === 'cmd') {
+    let index = 0;
+    while (typeof args[index] === 'string' && ['/d', '/s'].includes(args[index].toLowerCase())) {
+      index += 1;
+    }
+    if (typeof args[index] !== 'string' || args[index].toLowerCase() !== '/c') {
+      return { error: 'cmd wrappers must use /c with an allowlisted command' };
+    }
+    if (args.length !== index + 2 || typeof args[index + 1] !== 'string' || !args[index + 1].trim()) {
+      return { error: 'cmd /c requires exactly one command string' };
+    }
+    return { script: args[index + 1] };
+  }
+
+  if (shell === 'sh' || shell === 'bash') {
+    if (typeof args[0] !== 'string' || !['-c', '-lc'].includes(args[0].toLowerCase())) {
+      return { error: `${shell} wrappers must use -c with an allowlisted command` };
+    }
+    if (args.length !== 2 || typeof args[1] !== 'string' || !args[1].trim()) {
+      return { error: `${shell} ${args[0]} requires exactly one command string` };
+    }
+    return { script: args[1] };
+  }
+
+  return null;
+}
+
+function splitAndChain(commandText) {
+  const parts = [];
+  let current = '';
+  let quote = null;
+
+  for (let i = 0; i < commandText.length; i += 1) {
+    const char = commandText[i];
+    const next = commandText[i + 1];
+
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      }
+      current += char;
+      continue;
+    }
+
+    if (char === '"' || char === '\'') {
+      quote = char;
+      current += char;
+      continue;
+    }
+
+    if (char === '&' && next === '&') {
+      const trimmed = current.trim();
+      if (!trimmed) {
+        return { error: 'Empty command in && chain' };
+      }
+      parts.push(trimmed);
+      current = '';
+      i += 1;
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (quote) {
+    return { error: 'Unterminated quote in shell command chain' };
+  }
+
+  const trimmed = current.trim();
+  if (!trimmed) {
+    return { error: 'Empty command in && chain' };
+  }
+  parts.push(trimmed);
+  return { parts };
+}
+
+function validateAllowlistedShellChain(request, profile) {
+  const shellScript = getShellScriptFromRequest(request);
+  if (!shellScript) return null;
+  if (shellScript.error) return { allowed: false, reason: shellScript.error };
+
+  const split = splitAndChain(shellScript.script);
+  if (split.error) return { allowed: false, reason: split.error };
+
+  const rules = COMMAND_PROFILES[profile] || [];
+  for (const part of split.parts) {
+    const segment = extractCommandRequest(part, [], request.context);
+    if (segment.error) return { allowed: false, reason: segment.error };
+
+    if (getShellScriptFromRequest(segment)) {
+      return { allowed: false, reason: 'Nested shell wrappers are not allowed for safe verification' };
+    }
+
+    const metacharacter = findShellMetacharacter(segment.commandText, segment.args);
+    if (metacharacter) {
+      return { allowed: false, reason: `Shell metacharacter '${metacharacter}' is not allowed for profile '${profile}'` };
+    }
+
+    const matchesProfile = rules.some((rule) => rule.match(segment.cmd, segment.args));
+    if (!matchesProfile) {
+      return { allowed: false, reason: `Command '${describeCommand(segment.cmd, segment.args)}' is not allowed for profile '${profile}'` };
+    }
+  }
+
+  return { allowed: true };
+}
+
 function describeCommand(cmd, args) {
   return [cmd, ...args].join(' ').trim();
 }
@@ -266,6 +373,17 @@ function validateCommand(command, args, profile = 'safe_verify', extraContext = 
 
     logDecision('debug', 'allowed advanced command', meta);
     return { allowed: true };
+  }
+
+  const shellChainValidation = validateAllowlistedShellChain(request, profile);
+  if (shellChainValidation) {
+    if (shellChainValidation.allowed) {
+      logDecision('debug', 'allowed shell command chain', meta);
+      return { allowed: true };
+    }
+    meta.reason = shellChainValidation.reason;
+    logDecision('warn', 'blocked command validation', meta);
+    return { allowed: false, reason: meta.reason };
   }
 
   const metacharacter = findShellMetacharacter(request.commandText, request.args);

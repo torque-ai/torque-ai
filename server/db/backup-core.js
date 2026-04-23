@@ -66,6 +66,57 @@ function writeBackupFileWithHash(backupPath, buffer) {
   return hash;
 }
 
+function quoteSqlString(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function removeBackupTargets(backupPath) {
+  for (const target of [backupPath, backupPath + '.sha256']) {
+    try {
+      if (fs.existsSync(target)) fs.unlinkSync(target);
+    } catch {
+      // Best effort: VACUUM INTO will fail clearly if the target remains.
+    }
+  }
+}
+
+function hashFileSync(filePath) {
+  const hash = crypto.createHash('sha256');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  const fd = fs.openSync(filePath, 'r');
+
+  try {
+    while (true) {
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead <= 0) break;
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  return hash.digest('hex');
+}
+
+function writeBackupHashFile(backupPath) {
+  const hash = hashFileSync(backupPath);
+  fs.writeFileSync(backupPath + '.sha256', hash, 'utf-8');
+  return hash;
+}
+
+function writeLiveDatabaseBackupWithHash(backupPath) {
+  if (_db && typeof _db.exec === 'function') {
+    removeBackupTargets(backupPath);
+    _db.exec(`VACUUM INTO ${quoteSqlString(backupPath)}`);
+    writeBackupHashFile(backupPath);
+    return fs.statSync(backupPath).size;
+  }
+
+  const buffer = _db.serialize();
+  writeBackupFileWithHash(backupPath, buffer);
+  return buffer.length;
+}
+
 function backupDatabase(destPath) {
   if (!_db) throw new Error('Database not initialized');
 
@@ -74,13 +125,10 @@ function backupDatabase(destPath) {
     fs.mkdirSync(destDir, { recursive: true });
   }
 
-  const buffer = _db.serialize();
-  writeBackupFileWithHash(destPath, buffer);
-
-  const stats = fs.statSync(destPath);
+  const size = writeLiveDatabaseBackupWithHash(destPath);
   return {
     path: destPath,
-    size: stats.size,
+    size,
     created_at: new Date().toISOString(),
   };
 }
@@ -100,18 +148,18 @@ function startBackupScheduler(intervalMs = 3600000) {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const backupPath = path.join(backupDir, `torque-${timestamp}.db`);
 
-      const buffer = _db.serialize();
+      const size = writeLiveDatabaseBackupWithHash(backupPath);
 
       // Skip tiny backups — if the DB has less than 100KB of data, don't overwrite
       // good backups with empty ones (protects against backup-during-corruption)
-      if (buffer.length < 100000) {
-        logger.info(`[backup] Skipping periodic backup — DB too small (${buffer.length} bytes)`);
+      if (size < 100000) {
+        try { fs.unlinkSync(backupPath); } catch {}
+        try { fs.unlinkSync(backupPath + '.sha256'); } catch {}
+        logger.info(`[backup] Skipping periodic backup — DB too small (${size} bytes)`);
         return;
       }
 
-      writeBackupFileWithHash(backupPath, buffer);
-
-      logger.info(`[backup] Database backed up to ${backupPath} (${buffer.length} bytes)`);
+      logger.info(`[backup] Database backed up to ${backupPath} (${size} bytes)`);
 
       // Only prune periodic backups (torque-YYYY-...), NOT pre-shutdown or pre-startup backups
       const PERIODIC_BACKUP_PATTERN = /^torque-\d{4}-\d{2}-\d{2}T/;
@@ -318,17 +366,17 @@ function takePreShutdownBackup() {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = path.join(backupDir, `torque-pre-shutdown-${timestamp}.db`);
 
-    const buffer = _db.serialize();
+    const size = writeLiveDatabaseBackupWithHash(backupPath);
 
     // Only save if the DB has meaningful content (>100KB suggests real data)
-    if (buffer.length < 100000) {
-      logger.info(`[backup] Skipping pre-shutdown backup — DB too small (${buffer.length} bytes), likely empty`);
+    if (size < 100000) {
+      try { fs.unlinkSync(backupPath); } catch {}
+      try { fs.unlinkSync(backupPath + '.sha256'); } catch {}
+      logger.info(`[backup] Skipping pre-shutdown backup — DB too small (${size} bytes), likely empty`);
       return null;
     }
 
-    writeBackupFileWithHash(backupPath, buffer);
-
-    logger.info(`[backup] Pre-shutdown backup saved: ${backupPath} (${buffer.length} bytes)`);
+    logger.info(`[backup] Pre-shutdown backup saved: ${backupPath} (${size} bytes)`);
 
     // Keep only the last 5 pre-shutdown backups
     const preShutdownFiles = fs.readdirSync(backupDir)
@@ -344,7 +392,7 @@ function takePreShutdownBackup() {
       } catch {}
     }
 
-    return { path: backupPath, size: buffer.length };
+    return { path: backupPath, size };
   } catch (err) {
     logger.warn(`[backup] Pre-shutdown backup failed: ${err.message}`);
     return null;

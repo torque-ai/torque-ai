@@ -87,6 +87,22 @@ function sha256(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
+function createStreamingReadMock(buffer) {
+  let offset = 0;
+
+  return {
+    openSync: vi.fn(() => 17),
+    readSync: vi.fn((_fd, target, targetOffset, length) => {
+      if (offset >= buffer.length) return 0;
+      const end = Math.min(offset + length, buffer.length);
+      const bytesRead = buffer.copy(target, targetOffset, offset, end);
+      offset += bytesRead;
+      return bytesRead;
+    }),
+    closeSync: vi.fn(),
+  };
+}
+
 function mockBackupIntegrity(fs, backupPath, backupBuffer, expectedHash = sha256(backupBuffer)) {
   const hashPath = backupPath + '.sha256';
   fs.existsSync.mockImplementation((fullPath) => fullPath === backupPath || fullPath === hashPath);
@@ -234,6 +250,39 @@ describe('db/backup-core', () => {
     expect(new Date(result.created_at).toISOString()).toBe(result.created_at);
   });
 
+  it('backs up live sqlite handles with VACUUM INTO instead of serializing into memory', () => {
+    const backupPath = path.join('C:\\tmp', 'owner\'s-live-backup.db');
+    const backupBytes = Buffer.from('vacuum-backup-bytes');
+    const fs = createFsMock({
+      existsSync: vi.fn(() => false),
+      statSync: vi.fn(() => ({
+        size: 100001,
+        mtime: new Date('2026-03-02T00:00:00.000Z'),
+      })),
+      ...createStreamingReadMock(backupBytes),
+    });
+    const { subject } = loadSubject({ fs });
+    const db = createDbHandle({
+      exec: vi.fn(),
+      serialize: vi.fn(() => {
+        throw new Error('serialize should not run for live sqlite backup');
+      }),
+    });
+
+    subject.setDb(db);
+
+    const result = subject.backupDatabase(backupPath);
+
+    expect(db.exec).toHaveBeenCalledWith("VACUUM INTO 'C:\\tmp\\owner''s-live-backup.db'");
+    expect(db.serialize).not.toHaveBeenCalled();
+    expect(fs.openSync).toHaveBeenCalledWith(backupPath, 'r');
+    expect(fs.writeFileSync).toHaveBeenCalledWith(backupPath + '.sha256', sha256(backupBytes), 'utf-8');
+    expect(result).toMatchObject({
+      path: backupPath,
+      size: 100001,
+    });
+  });
+
   it('does not recreate the destination directory when it already exists', () => {
     const { subject, fs } = loadSubject();
     const db = createDbHandle();
@@ -364,6 +413,41 @@ describe('db/backup-core', () => {
     subject.startBackupScheduler(250);
     expect(() => intervalCallback()).not.toThrow();
     expect(backupLogger.warn).toHaveBeenCalledWith('[backup] Backup failed: disk full');
+  });
+
+  it('uses VACUUM INTO for pre-shutdown backups without serializing the database', () => {
+    const backupRoot = path.join('C:\\data-root');
+    const backupDir = path.join(backupRoot, 'backups');
+    const backupBytes = Buffer.from('pre-shutdown-vacuum-backup');
+    const fs = createFsMock({
+      statSync: vi.fn(() => ({
+        size: 100001,
+        mtime: new Date('2026-03-02T00:00:00.000Z'),
+      })),
+      ...createStreamingReadMock(backupBytes),
+    });
+    const { subject, backupLogger } = loadSubject({
+      fs,
+      dataDirMock: createDataDirMock(backupRoot),
+    });
+    const db = createDbHandle({
+      exec: vi.fn(),
+      serialize: vi.fn(() => {
+        throw new Error('serialize should not run for pre-shutdown backup');
+      }),
+    });
+
+    subject.setDb(db);
+    setCommonInternals(subject);
+
+    const result = subject.takePreShutdownBackup();
+    const backupPath = db.exec.mock.calls[0][0].match(/VACUUM INTO '(.+)'/)[1];
+
+    expect(backupPath.startsWith(backupDir.replace(/'/g, "''"))).toBe(true);
+    expect(db.serialize).not.toHaveBeenCalled();
+    expect(fs.writeFileSync).toHaveBeenCalledWith(expect.stringMatching(/torque-pre-shutdown-.*\.db\.sha256$/), sha256(backupBytes), 'utf-8');
+    expect(backupLogger.info).toHaveBeenCalledWith(expect.stringContaining('Pre-shutdown backup saved'));
+    expect(result.size).toBe(100001);
   });
 
   it('rejects restore requests without explicit confirmation', async () => {
