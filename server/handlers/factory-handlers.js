@@ -1349,6 +1349,10 @@ async function handleResumeProjectBaselineFixed(args) {
     }
 
     const baselineProbe = require('../factory/baseline-probe');
+    const timeoutMs = baselineProbe.resolveBaselineProbeTimeoutMs({
+      timeout_minutes: args.timeout_minutes,
+      config: cfg,
+    });
     const runnerRegistry = require('../test-runner-registry').createTestRunnerRegistry();
     const runner = async ({ command, cwd, timeoutMs }) => {
       const r = await runnerRegistry.runVerifyCommand(command, cwd, { timeout: timeoutMs });
@@ -1365,7 +1369,7 @@ async function handleResumeProjectBaselineFixed(args) {
       project: projectRow,
       verifyCommand,
       runner,
-      timeoutMs: 5 * 60 * 1000,
+      timeoutMs,
     });
 
     if (!probe.passed) {
@@ -1408,6 +1412,7 @@ async function handleResumeProjectBaselineFixed(args) {
       message: `Project "${projectRow.name}" resumed — baseline probe passed in ${probe.durationMs}ms.`,
       project_id: projectRow.id,
       probe_duration_ms: probe.durationMs,
+      probe_timeout_ms: timeoutMs,
     });
   } catch (err) {
     logger.warn('handleResumeProjectBaselineFixed failed', { err: err.message });

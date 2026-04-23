@@ -1,8 +1,29 @@
 'use strict';
 
 const OUTPUT_TRUNCATE_BYTES = 4 * 1024;
+const DEFAULT_BASELINE_PROBE_TIMEOUT_MINUTES = 60;
+const MAX_BASELINE_PROBE_TIMEOUT_MINUTES = 240;
+const DEFAULT_BASELINE_PROBE_TIMEOUT_MS = DEFAULT_BASELINE_PROBE_TIMEOUT_MINUTES * 60 * 1000;
 
-async function probeProjectBaseline({ project, verifyCommand, runner, timeoutMs = 5 * 60 * 1000 }) {
+function normalizeBaselineProbeTimeoutMinutes(timeoutMinutes, fallbackMinutes = DEFAULT_BASELINE_PROBE_TIMEOUT_MINUTES) {
+  const fallback = Number.isFinite(Number(fallbackMinutes)) && Number(fallbackMinutes) > 0
+    ? Number(fallbackMinutes)
+    : DEFAULT_BASELINE_PROBE_TIMEOUT_MINUTES;
+  const numeric = timeoutMinutes == null ? fallback : Number(timeoutMinutes);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.min(Math.max(numeric, 1), MAX_BASELINE_PROBE_TIMEOUT_MINUTES);
+}
+
+function resolveBaselineProbeTimeoutMs({ timeout_minutes, config } = {}) {
+  const configuredTimeout = config && typeof config === 'object'
+    ? config.baseline_probe_timeout_minutes
+    : undefined;
+  return normalizeBaselineProbeTimeoutMinutes(timeout_minutes ?? configuredTimeout) * 60 * 1000;
+}
+
+async function probeProjectBaseline({ project, verifyCommand, runner, timeoutMs = DEFAULT_BASELINE_PROBE_TIMEOUT_MS }) {
   if (!verifyCommand || !String(verifyCommand).trim()) {
     return { passed: false, exitCode: null, output: '', durationMs: 0, error: 'no_verify_command' };
   }
@@ -29,4 +50,11 @@ async function probeProjectBaseline({ project, verifyCommand, runner, timeoutMs 
   return { passed: false, exitCode: result.exitCode, output, durationMs: result.durationMs, error: null };
 }
 
-module.exports = { probeProjectBaseline };
+module.exports = {
+  DEFAULT_BASELINE_PROBE_TIMEOUT_MINUTES,
+  DEFAULT_BASELINE_PROBE_TIMEOUT_MS,
+  MAX_BASELINE_PROBE_TIMEOUT_MINUTES,
+  normalizeBaselineProbeTimeoutMinutes,
+  resolveBaselineProbeTimeoutMs,
+  probeProjectBaseline,
+};

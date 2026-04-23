@@ -505,6 +505,13 @@ const tools = [
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Project ID or path' },
+        timeout_minutes: {
+          type: 'number',
+          default: 60,
+          minimum: 1,
+          maximum: 240,
+          description: 'Maximum time to wait for the baseline verify probe. Defaults to 60 minutes for long project gates.',
+        },
       },
       required: ['project'],
     },

@@ -109,11 +109,12 @@ async function tickProject(project) {
 
           let probe;
           try {
+            const timeoutMs = baselineProbe.resolveBaselineProbeTimeoutMs({ config: cfg });
             probe = await baselineProbe.probeProjectBaseline({
               project: freshProject,
               verifyCommand,
               runner,
-              timeoutMs: 5 * 60 * 1000,
+              timeoutMs,
             });
           } catch (err) {
             probe = { passed: false, error: 'runner_threw', exitCode: null, output: err.message, durationMs: 0 };

@@ -34,7 +34,7 @@ describe('factory-tick baseline probe phase', () => {
 
     const projectId = seedPausedBaselineProject(db, { probeAttempts: 0, tickCountSincePause: 1 });
 
-    vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
+    const probeSpy = vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
       passed: true, exitCode: 0, output: 'all green', durationMs: 5000, error: null,
     });
     const eventSpy = vi.fn();
@@ -48,6 +48,7 @@ describe('factory-tick baseline probe phase', () => {
     const cfg = JSON.parse(updated.config_json);
     expect(cfg.baseline_broken_since).toBeNull();
     expect(cfg.baseline_broken_reason).toBeNull();
+    expect(probeSpy).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 60 * 60 * 1000 }));
     expect(eventSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -69,6 +70,26 @@ describe('factory-tick baseline probe phase', () => {
     const cfg = JSON.parse(updated.config_json);
     expect(cfg.baseline_broken_since).toBeTruthy();
     expect(cfg.baseline_broken_probe_attempts).toBe(1);
+  });
+
+  it('uses project-configured baseline probe timeout when automatic probing runs', async () => {
+    const factoryTick = require('../factory/factory-tick');
+    const baselineProbe = require('../factory/baseline-probe');
+
+    const projectId = seedPausedBaselineProject(db, { probeAttempts: 0, tickCountSincePause: 1 });
+    const row = db.prepare('SELECT config_json FROM factory_projects WHERE id = ?').get(projectId);
+    const cfg = JSON.parse(row.config_json);
+    cfg.baseline_probe_timeout_minutes = 90;
+    db.prepare('UPDATE factory_projects SET config_json = ? WHERE id = ?').run(JSON.stringify(cfg), projectId);
+
+    const probeSpy = vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
+      passed: false, exitCode: 1, output: 'FAIL', durationMs: 1, error: null,
+    });
+
+    const project = db.prepare('SELECT * FROM factory_projects WHERE id = ?').get(projectId);
+    await factoryTick.tickProject(project);
+
+    expect(probeSpy).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 90 * 60 * 1000 }));
   });
 
   it('skips probing when tick count has not reached the next backoff slot', async () => {
@@ -165,13 +186,14 @@ describe('handleResumeProjectBaselineFixed', () => {
     const projectConfigCore = require('../db/project-config-core');
     vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue({ verify_command: 'npm test' });
     const baselineProbe = require('../factory/baseline-probe');
-    vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
+    const probeSpy = vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
       passed: true, exitCode: 0, output: 'all green', durationMs: 4321, error: null,
     });
     const { handleResumeProjectBaselineFixed } = require('../handlers/factory-handlers');
-    const r = await handleResumeProjectBaselineFixed({ project: projectId });
+    const r = await handleResumeProjectBaselineFixed({ project: projectId, timeout_minutes: 75 });
     expect(r.isError).toBeFalsy();
     expect(r.content[0].text).toContain('resumed');
+    expect(probeSpy).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 75 * 60 * 1000 }));
     const updated = db.prepare('SELECT status, config_json FROM factory_projects WHERE id = ?').get(projectId);
     expect(updated.status).toBe('running');
     const cfg = JSON.parse(updated.config_json);

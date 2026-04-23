@@ -4,6 +4,27 @@ describe('baseline-probe module exports', () => {
   it('exports probeProjectBaseline', () => {
     const mod = require('../factory/baseline-probe');
     expect(typeof mod.probeProjectBaseline).toBe('function');
+    expect(typeof mod.resolveBaselineProbeTimeoutMs).toBe('function');
+  });
+});
+
+describe('resolveBaselineProbeTimeoutMs', () => {
+  it('defaults to 60 minutes and honors explicit timeout over project config', () => {
+    const { resolveBaselineProbeTimeoutMs } = require('../factory/baseline-probe');
+    expect(resolveBaselineProbeTimeoutMs()).toBe(60 * 60 * 1000);
+    expect(resolveBaselineProbeTimeoutMs({
+      timeout_minutes: 90,
+      config: { baseline_probe_timeout_minutes: 30 },
+    })).toBe(90 * 60 * 1000);
+  });
+
+  it('uses project config timeout and clamps unreasonable values', () => {
+    const { resolveBaselineProbeTimeoutMs } = require('../factory/baseline-probe');
+    expect(resolveBaselineProbeTimeoutMs({
+      config: { baseline_probe_timeout_minutes: 45 },
+    })).toBe(45 * 60 * 1000);
+    expect(resolveBaselineProbeTimeoutMs({ timeout_minutes: 999 })).toBe(240 * 60 * 1000);
+    expect(resolveBaselineProbeTimeoutMs({ timeout_minutes: 0 })).toBe(1 * 60 * 1000);
   });
 });
 
@@ -35,6 +56,7 @@ describe('probeProjectBaseline', () => {
     expect(r.exitCode).toBe(0);
     expect(r.durationMs).toBe(1234);
     expect(runner).toHaveBeenCalledTimes(1);
+    expect(runner).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 60 * 60 * 1000 }));
   });
 
   it('returns { passed: false, output preserved } when runner exits non-zero', async () => {
