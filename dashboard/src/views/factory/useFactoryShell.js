@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { factory as factoryApi, getDecisionLog, getFactoryDigest } from '../../api';
 import { useToast } from '../../components/Toast';
 import {
@@ -258,8 +258,17 @@ export function useFactoryShell() {
     }
   }, [toast]);
 
+  const projectIdsKey = useMemo(
+    () => projects.map((p) => p.id).sort().join(','),
+    [projects]
+  );
+  const projectsRef = useRef(projects);
   useEffect(() => {
-    if (projects.length === 0) {
+    projectsRef.current = projects;
+  }, [projects]);
+
+  useEffect(() => {
+    if (projectsRef.current.length === 0) {
       setProjectActivity({});
       return undefined;
     }
@@ -267,7 +276,7 @@ export function useFactoryShell() {
     let cancelled = false;
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
-    Promise.all(projects.map(async (project) => {
+    Promise.all(projectsRef.current.map(async (project) => {
       const [recentResponse, latestResponse] = await Promise.all([
         getDecisionLog(project.id, { since: oneHourAgo, limit: 100 }).catch(() => ({ decisions: [] })),
         getDecisionLog(project.id, { limit: 1 }).catch(() => ({ decisions: [] })),
@@ -295,7 +304,7 @@ export function useFactoryShell() {
     return () => {
       cancelled = true;
     };
-  }, [projects]);
+  }, [projectIdsKey]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -395,11 +404,58 @@ export function useFactoryShell() {
     };
 
     pollSelectedProject({ includeBacklog: false });
-    const pollIntervalId = setInterval(pollSelectedProject, 5000);
+
+    let timeoutId = null;
+
+    const getInterval = () => {
+      const current = projectsRef.current.find((project) => project.id === selectedProjectId);
+      const loopState = current?.loop_state || 'IDLE';
+      const isActive = loopState !== 'IDLE' && loopState !== 'PAUSED';
+      return isActive ? 5000 : 15000;
+    };
+
+    const scheduleNext = () => {
+      if (cancelled) {
+        return;
+      }
+
+      timeoutId = setTimeout(async () => {
+        if (cancelled) {
+          return;
+        }
+
+        if (typeof document !== 'undefined' && document.hidden) {
+          scheduleNext();
+          return;
+        }
+
+        await pollSelectedProject();
+        scheduleNext();
+      }, getInterval());
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden && !cancelled) {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        pollSelectedProject().finally(() => scheduleNext());
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    scheduleNext();
 
     return () => {
       cancelled = true;
-      clearInterval(pollIntervalId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
     };
   }, [applyBacklogResponse, selectedProjectId]);
 
