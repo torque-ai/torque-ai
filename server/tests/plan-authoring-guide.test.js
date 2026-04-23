@@ -46,6 +46,11 @@ describe('plan-authoring-guide', () => {
     expect(DEFAULT_EXAMPLES).toMatch(/\*\*Bad\*\*/);
   });
 
+  it('composeGuide tells generated plans not to create nested worktrees', () => {
+    const guide = composeGuide();
+    expect(guide).toContain('factory execution already runs in an isolated worktree');
+  });
+
   it('renderRuleList sorts rules by key for stable output', () => {
     const fakeRules = {
       z_rule: { severity: 'hard', description: 'Zeta.' },

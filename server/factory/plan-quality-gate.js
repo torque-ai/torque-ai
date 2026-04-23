@@ -32,6 +32,10 @@ const RULES = {
     severity: 'hard', scope: 'task', minHits: 1,
     description: 'Avoid vague phrases ("improve", "update", "clean up", "refactor accordingly") unless accompanied by a concrete file path, function name, or symbol.',
   },
+  task_avoids_nested_worktree_setup: {
+    severity: 'hard', scope: 'task',
+    description: 'Factory plan tasks must not instruct workers to create or switch to another git worktree; factory execution already runs in an isolated worktree.',
+  },
   no_duplicate_task_titles: {
     severity: 'hard', scope: 'plan',
     description: 'Task titles must be unique within a plan.',
@@ -46,13 +50,27 @@ const RULES = {
   },
 };
 
-const FILE_PATH_RE = /[a-z_][a-z_0-9/-]*\.(js|ts|tsx|jsx|py|cs|md|json|yml|yaml)/i;
+const FILE_PATH_RE = /[A-Za-z0-9_./\\-]+\.(?:csproj|fsproj|vbproj|targets|props|tsx|jsx|cjs|mjs|yaml|yml|json|sql|xaml|axaml|xml|resx|psm1|ps1|sln|js|ts|py|cs|sh|md)\b/i;
 const GREP_TARGET_RE = /\bsearch_files\b|\bgrep\b/i;
 const ACCEPTANCE_RE = /\b(npx vitest|dotnet test|pytest|npm test|assert|expect|should produce|should exist)\b/i;
-const CONCRETE_FILE_PATH_RE = /(?:^|[\s`'"([])(?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.(?:cjs|cs|css|go|html|java|js|json|jsx|md|mjs|ps1|py|rb|rs|sh|sql|ts|tsx|txt|xml|ya?ml)\b/i;
+const CONCRETE_FILE_PATH_RE = /(?:^|[\s`'"([])(?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+\.(?:csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|html|java|js|json|jsx|md|mjs|psm1|ps1|py|rb|resx|rs|sh|sln|sql|ts|tsx|txt|xaml|axaml|xml|ya?ml)\b/i;
 const CONCRETE_BACKTICK_RE = /`[^`\n]+`/;
 const CONCRETE_QUOTED_RE = /"[^"\n]+"|'[^'\n]+'/;
 const CONCRETE_IDENTIFIER_RE = /\b(?:[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|[a-z]+(?:[A-Z][A-Za-z0-9]*)+|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\b/g;
+const NESTED_WORKTREE_SETUP_PATTERNS = [
+  {
+    label: 'create worktree before editing',
+    re: /\bcreate\s+(?:a\s+)?(?:(?:dedicated|feature|separate|new)\s+){0,3}(?:git\s+)?worktree\b[\s\S]{0,240}\bgit\s+worktree\s+add\b/i,
+  },
+  {
+    label: 'run worktree add and continue in another path',
+    re: /\b(?:run|execute|use)\b[\s\S]{0,80}\bgit\s+worktree\s+add\b[\s\S]{0,220}\b(?:before editing|then work|work only inside|work inside|inside that path|branch first)\b/i,
+  },
+  {
+    label: 'worktree add before editing',
+    re: /\bgit\s+worktree\s+add\b[\s\S]{0,220}\b(?:before editing|then work|work only inside|work inside|inside that path|branch first)\b/i,
+  },
+];
 const VAGUE_PHRASES = [
   { label: 'appropriately', re: /\bappropriately\b/gi },
   { label: 'as needed', re: /\bas\s+needed\b/gi },
@@ -92,6 +110,16 @@ function findUnqualifiedVaguePhrases(text) {
   }
 
   return hits;
+}
+
+function findNestedWorktreeSetup(text) {
+  const value = String(text || '');
+  for (const pattern of NESTED_WORKTREE_SETUP_PATTERNS) {
+    if (pattern.re.test(value)) {
+      return pattern.label;
+    }
+  }
+  return null;
 }
 
 function parseTasks(planMarkdown) {
@@ -195,6 +223,15 @@ function runDeterministicRules(planMarkdown) {
         rule: 'task_avoids_vague_phrases',
         taskNumber: task.number,
         detail: `Task ${task.number} contains vague phrase(s) without object-level detail: ${labels.join(', ')}.`,
+      });
+    }
+
+    const nestedWorktreeSetup = findNestedWorktreeSetup(task.body);
+    if (nestedWorktreeSetup) {
+      hardFails.push({
+        rule: 'task_avoids_nested_worktree_setup',
+        taskNumber: task.number,
+        detail: `Task ${task.number} instructs the worker to create or switch to another git worktree (${nestedWorktreeSetup}). Factory execution already provides the isolated worktree; remove the nested worktree setup.`,
       });
     }
   }

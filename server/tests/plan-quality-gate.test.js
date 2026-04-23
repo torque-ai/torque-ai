@@ -154,6 +154,30 @@ describe('runDeterministicRules — per-task content', () => {
     const { hardFails } = runDeterministicRules(plan);
     expect(hardFails.some(f => f.rule === 'task_avoids_vague_phrases' && f.taskNumber === 1)).toBe(true);
   });
+
+  it('task-local git worktree setup hard-fails task_avoids_nested_worktree_setup', () => {
+    const plan = `## Task 1: Centralize registry construction
+
+Create a dedicated worktree before editing: \`git worktree add ../torque-public-remote-agent-registry-dedupe -b work-item-585-remote-agent-registry-dedupe\`. In that worktree, create \`server/plugins/remote-agents/registry-runtime.js\` and update \`server/api/v2-dispatch.js\` to use the helper. Run npx vitest server/tests/v2-dispatch.test.js to verify.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.some(f => f.rule === 'task_avoids_nested_worktree_setup' && f.taskNumber === 1)).toBe(true);
+  });
+
+  it('product code that mentions git worktree add as behavior under test still passes nested-worktree guard', () => {
+    const plan = `## Task 1: Cover worktree manager creation
+
+In \`server/plugins/version-control/worktree-manager.js\` and \`server/plugins/version-control/tests/worktree-manager.test.js\`, assert that \`createWorktree\` invokes \`git worktree add\` through the injected command runner and records the returned branch. Run npx vitest server/plugins/version-control/tests/worktree-manager.test.js to verify.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_avoids_nested_worktree_setup')).toBeUndefined();
+  });
+
+  it('rule 5: WPF and .NET project paths count as concrete file references', () => {
+    const plan = `## Task 1: Fix shell contrast
+
+Edit \`src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml\`, \`src/SpudgetBooks.App/MainWindow.xaml\`, and \`tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj\` so the shell contrast regression is covered. Run dotnet test tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj to verify.`;
+    const { hardFails } = runDeterministicRules(plan);
+    expect(hardFails.find(f => f.rule === 'task_has_file_reference')).toBeUndefined();
+  });
 });
 
 describe('runDeterministicRules — shape and budget', () => {
