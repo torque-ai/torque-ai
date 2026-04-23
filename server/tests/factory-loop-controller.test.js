@@ -1545,8 +1545,9 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
-  it('treats STARVED as a terminal loop state for await and async advance', async () => {
-    const { project } = registerPlanProject();
+  it('treats STARVED as terminal when no intake is available', async () => {
+    const { project, workItem } = registerPlanProject();
+    factoryIntake.updateWorkItem(workItem.id, { status: 'completed' });
     const started = loopController.startLoopForProject(project.id);
     factoryLoopInstances.updateInstance(started.instance_id, {
       loop_state: LOOP_STATES.STARVED,
@@ -1575,6 +1576,67 @@ describe('factory loop-controller EXECUTE modes', () => {
         project_id: project.id,
         loop_state: LOOP_STATES.STARVED,
       },
+    });
+  });
+
+  it('recovers STARVED loop advance when intake has been replenished', async () => {
+    const { project } = registerPlanProject();
+    const started = loopController.startLoopForProject(project.id);
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      loop_state: LOOP_STATES.STARVED,
+      paused_at_stage: null,
+      last_action_at: new Date().toISOString(),
+    });
+
+    const advanceResult = await loopController.advanceLoop(started.instance_id);
+
+    expect(advanceResult).toMatchObject({
+      previous_state: LOOP_STATES.STARVED,
+      new_state: LOOP_STATES.PRIORITIZE,
+      paused_at_stage: LOOP_STATES.PRIORITIZE,
+      reason: 'starved_intake_replenished',
+      stage_result: {
+        recovered_from_state: LOOP_STATES.STARVED,
+        open_work_items: 1,
+        target_state: LOOP_STATES.PRIORITIZE,
+      },
+    });
+
+    expect(factoryLoopInstances.getInstance(started.instance_id)).toMatchObject({
+      loop_state: LOOP_STATES.PRIORITIZE,
+      paused_at_stage: LOOP_STATES.PRIORITIZE,
+      batch_id: null,
+      work_item_id: null,
+    });
+  });
+
+  it('allows async STARVED advance when intake has been replenished', async () => {
+    const { project } = registerPlanProject();
+    factoryHealth.updateProject(project.id, { trust_level: 'autonomous' });
+    const started = loopController.startLoopForProject(project.id);
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      loop_state: LOOP_STATES.STARVED,
+      paused_at_stage: null,
+      last_action_at: new Date().toISOString(),
+    });
+
+    const descriptor = loopController.advanceLoopAsync(started.instance_id);
+
+    expect(descriptor).toMatchObject({
+      current_state: LOOP_STATES.STARVED,
+      status: 'running',
+      error: null,
+    });
+
+    await vi.waitFor(() => {
+      const completed = loopController.getLoopAdvanceJobStatusForProject(project.id, descriptor.job_id);
+      expect(completed).toMatchObject({
+        status: 'completed',
+        new_state: LOOP_STATES.PRIORITIZE,
+        paused_at_stage: null,
+        reason: 'starved_intake_replenished',
+        error: null,
+      });
     });
   });
 

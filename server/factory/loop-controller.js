@@ -2095,6 +2095,49 @@ function countOpenWorkItems(project_id) {
   }
 }
 
+function recoverStarvedInstanceForAdvance(project, instance) {
+  const openWorkItems = countOpenWorkItems(project.id);
+  if (openWorkItems <= 0) {
+    return null;
+  }
+
+  clearSelectedWorkItem(instance.id);
+  setConsecutiveEmptyCycles(project.id, 0);
+
+  const pendingGateStage = getPendingGateStage(LOOP_STATES.SENSE, project.trust_level);
+  const targetStage = LOOP_STATES.PRIORITIZE;
+  const moved = tryMoveInstanceToStage(instance, targetStage, {
+    paused_at_stage: pendingGateStage === targetStage ? targetStage : null,
+    batch_id: null,
+    work_item_id: null,
+  });
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.SENSE,
+    action: moved.blocked ? 'starved_recovery_blocked' : 'recovered_from_starved',
+    reasoning: moved.blocked
+      ? 'STARVED loop has replenished intake, but the next stage is occupied'
+      : 'STARVED loop has replenished intake; advancing to PRIORITIZE without requiring reset',
+    outcome: {
+      reason: 'starved_intake_replenished',
+      from_state: LOOP_STATES.STARVED,
+      to_state: getCurrentLoopState(moved.instance),
+      paused_at_stage: getPausedAtStage(moved.instance),
+      open_work_items: openWorkItems,
+      target_state: targetStage,
+    },
+    confidence: 1,
+    batch_id: getDecisionBatchId(project, null, null, moved.instance),
+  });
+
+  return {
+    instance: moved.instance,
+    openWorkItems,
+    blocked: moved.blocked,
+  };
+}
+
 function countRunningLoopItems(project_id) {
   try {
     return getActiveInstances(project_id)
@@ -7347,6 +7390,24 @@ async function runAdvanceLoop(instance_id) {
   }
 
   if (currentState === LOOP_STATES.STARVED) {
+    const recovered = recoverStarvedInstanceForAdvance(project, instance);
+    if (recovered) {
+      instance = recovered.instance;
+      return {
+        project_id: project.id,
+        instance_id: instance.id,
+        previous_state: previousState,
+        new_state: getCurrentLoopState(instance),
+        paused_at_stage: getPausedAtStage(instance),
+        stage_result: {
+          recovered_from_state: LOOP_STATES.STARVED,
+          open_work_items: recovered.openWorkItems,
+          target_state: LOOP_STATES.PRIORITIZE,
+        },
+        reason: recovered.blocked ? 'stage_occupied' : 'starved_intake_replenished',
+      };
+    }
+
     return {
       project_id: project.id,
       instance_id: instance.id,
@@ -7800,7 +7861,10 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
     throw new Error('Loop not started for this project');
   }
   if (currentState === LOOP_STATES.STARVED) {
-    throw new Error('Loop is starved — replenish intake before advancing');
+    const openWorkItems = countOpenWorkItems(project.id);
+    if (openWorkItems <= 0) {
+      throw new Error('Loop is starved — replenish intake before advancing');
+    }
   }
 
   if (getPausedAtStage(instance) && !isReadyForStage(getPausedAtStage(instance))) {
