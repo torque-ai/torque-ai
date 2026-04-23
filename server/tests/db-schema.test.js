@@ -120,7 +120,7 @@ describe('db/schema.js — applySchema', () => {
       'resource_limits', 'bulk_operations', 'duration_predictions',
       'prediction_models', 'task_artifacts', 'artifact_config', 'run_artifacts',
       'task_breakpoints', 'debug_sessions', 'debug_captures',
-      'workflows', 'workflow_checkpoints', 'task_dependencies', 'workflow_templates',
+      'workflows', 'workflow_checkpoints', 'workflow_state', 'task_dependencies', 'workflow_templates',
       'task_cache', 'task_priority_scores', 'failure_patterns',
       'intelligence_log', 'strategy_experiments', 'cache_config',
       'priority_config', 'adaptive_retry_rules', 'agents', 'agent_groups',
@@ -190,7 +190,7 @@ describe('db/schema.js — applySchema', () => {
       'idx_task_artifacts_task', 'idx_run_artifacts_task', 'idx_task_breakpoints_task',
       'idx_debug_sessions_task', 'idx_debug_captures_session',
       'idx_workflows_status', 'idx_workflow_checkpoints_wf_time',
-      'idx_workflow_checkpoints_step', 'idx_task_deps_workflow',
+      'idx_workflow_checkpoints_step', 'idx_workflow_state_updated', 'idx_task_deps_workflow',
       'idx_cache_hash', 'idx_cache_expires',
       'idx_priority_combined', 'idx_patterns_type',
       'idx_intel_task', 'idx_intel_type',
@@ -526,6 +526,14 @@ describe('db/schema.js — applySchema', () => {
       expect(ref.from).toBe('workflow_id');
       expect(ref.to).toBe('id');
     });
+
+    it('workflow_state references workflows(id)', () => {
+      const fks = db.prepare("PRAGMA foreign_key_list('workflow_state')").all();
+      const ref = fks.find(fk => fk.table === 'workflows');
+      expect(ref).toBeTruthy();
+      expect(ref.from).toBe('workflow_id');
+      expect(ref.to).toBe('id');
+    });
   });
 
   // ====================================================
@@ -586,6 +594,14 @@ describe('db/schema.js — applySchema', () => {
 
     it('policy_overrides has overridden_by column', () => {
       expect(getColumnByName('policy_overrides', 'overridden_by')).toBeTruthy();
+    });
+
+    it('workflows has parent_workflow_id column', () => {
+      expect(getColumnByName('workflows', 'parent_workflow_id')).toBeTruthy();
+    });
+
+    it('workflows has fork_checkpoint_id column', () => {
+      expect(getColumnByName('workflows', 'fork_checkpoint_id')).toBeTruthy();
     });
   });
 });

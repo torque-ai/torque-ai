@@ -795,6 +795,18 @@ describe('db/migrations', () => {
       expect(getAppliedVersions(db)).not.toContain(25);
     });
 
+    it('rolls back migration v36 by dropping workflow_state artifacts and removing its version row', () => {
+      createBaseSchema(db);
+      subject.runMigrations(db);
+      expect(tableExists(db, 'workflow_state')).toBe(true);
+
+      subject.rollbackMigration(db, 36);
+
+      expect(tableExists(db, 'workflow_state')).toBe(false);
+      expect(indexExists(db, 'idx_workflow_state_updated')).toBe(false);
+      expect(getAppliedVersions(db)).not.toContain(36);
+    });
+
     it('allows a rolled back migration to be reapplied on the next run', () => {
       createBaseSchema(db);
       subject.runMigrations(db);
@@ -874,6 +886,36 @@ describe('db/migrations', () => {
       expect(ref.from).toBe('workflow_id');
       expect(ref.to).toBe('id');
       expect(getAppliedVersions(db)).toContain(35);
+    });
+
+    it('creates workflow_state and workflow fork columns when applying migration v36 to a minimal schema', () => {
+      createBaseSchema(db);
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 36));
+
+      expect(() => subject.runMigrations(db)).not.toThrow();
+      expect(tableExists(db, 'workflow_state')).toBe(true);
+      expect(getColumnNames(db, 'workflow_state')).toEqual(
+        expect.arrayContaining([
+          'workflow_id',
+          'state_json',
+          'schema_json',
+          'reducers_json',
+          'version',
+          'updated_at',
+        ]),
+      );
+      expect(indexExists(db, 'idx_workflow_state_updated')).toBe(true);
+
+      const workflowColumns = getColumnNames(db, 'workflows');
+      expect(workflowColumns).toContain('parent_workflow_id');
+      expect(workflowColumns).toContain('fork_checkpoint_id');
+
+      const fks = db.prepare("PRAGMA foreign_key_list('workflow_state')").all();
+      const ref = fks.find((fk) => fk.table === 'workflows');
+      expect(ref).toBeTruthy();
+      expect(ref.from).toBe('workflow_id');
+      expect(ref.to).toBe('id');
+      expect(getAppliedVersions(db)).toContain(36);
     });
 
     it('falls back to split statement execution for multi-statement rollback SQL', () => {

@@ -63,6 +63,7 @@ const EXPECTED_TABLES = [
   "debug_captures",
   "workflows",
   "workflow_checkpoints",
+  "workflow_state",
   "task_dependencies",
   "workflow_templates",
   "task_cache",
@@ -273,6 +274,7 @@ const EXPECTED_INDEXES = [
   "idx_workflows_status",
   "idx_workflow_checkpoints_wf_time",
   "idx_workflow_checkpoints_step",
+  "idx_workflow_state_updated",
   "idx_workflows_template",
   "idx_task_deps_workflow",
   "idx_task_deps_task",
@@ -675,6 +677,12 @@ describe('db/schema-tables', () => {
     expect(getColumn('tasks', 'retry_count')).toMatchObject({ type: 'INTEGER', dflt_value: '0' });
     expect(getColumn('tasks', 'max_retries')).toMatchObject({ type: 'INTEGER', dflt_value: '0' });
     expect(getColumn('tasks', 'provider')).toMatchObject({ type: 'TEXT', dflt_value: "'codex'" });
+    expect(getColumn('workflows', 'parent_workflow_id')).toMatchObject({ type: 'TEXT' });
+    expect(getColumn('workflows', 'fork_checkpoint_id')).toMatchObject({ type: 'TEXT' });
+    expect(getColumn('workflow_state', 'workflow_id')).toMatchObject({ type: 'TEXT', pk: 1 });
+    expect(getColumn('workflow_state', 'state_json')).toMatchObject({ type: 'TEXT', notnull: 1 });
+    expect(getColumn('workflow_state', 'version')).toMatchObject({ type: 'INTEGER', notnull: 1, dflt_value: '1' });
+    expect(getColumn('workflow_state', 'updated_at')).toMatchObject({ type: 'TEXT', notnull: 1 });
 
     expect(getColumn('audit_log', 'actor')).toMatchObject({ type: 'TEXT', dflt_value: "'system'" });
     expect(getColumn('audit_log', 'previous_hash')).toMatchObject({ type: 'TEXT' });
@@ -800,6 +808,9 @@ describe('db/schema-tables', () => {
     const taskClaimForeignKeys = getForeignKeys('task_claims');
     expect(taskClaimForeignKeys.some((foreignKey) => foreignKey.table === 'tasks' && foreignKey.from === 'task_id')).toBe(true);
     expect(taskClaimForeignKeys.some((foreignKey) => foreignKey.table === 'agents' && foreignKey.from === 'agent_id')).toBe(true);
+
+    const workflowStateForeignKeys = getForeignKeys('workflow_state');
+    expect(workflowStateForeignKeys.some((foreignKey) => foreignKey.table === 'workflows' && foreignKey.from === 'workflow_id')).toBe(true);
 
     const fixtureCatalogForeignKeys = getForeignKeys('peek_fixture_catalog');
     expect(fixtureCatalogForeignKeys.some((foreignKey) => foreignKey.table === 'peek_fixture_catalog' && foreignKey.from === 'parent_fixture_id')).toBe(true);

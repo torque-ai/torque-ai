@@ -783,6 +783,15 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS workflow_checkpoints',
     ].join('; '),
   },
+  {
+    version: 36,
+    name: 'add_workflow_state_and_fork_columns',
+    up: readSqlMigration('036-workflow-state-and-fork-columns.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_workflow_state_updated',
+      'DROP TABLE IF EXISTS workflow_state',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
