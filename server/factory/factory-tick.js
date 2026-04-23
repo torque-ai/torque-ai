@@ -9,6 +9,7 @@
 // Starts when a project has status=running, stops on pause/stop.
 
 const factoryHealth = require('../db/factory-health');
+const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
 const { getRejectRecoveryConfig } = require('../db/config-core');
 const database = require('../database');
@@ -17,7 +18,7 @@ const { handleRetryFactoryVerify } = require('../handlers/factory-handlers');
 const loopController = require('./loop-controller');
 const { detectStuckLoops } = require('./stuck-loop-detector');
 const { runRejectedRecoverySweep } = require('./rejected-recovery');
-const { recoverStalledVerifyLoops } = require('./verify-stall-recovery');
+const { recoverStalledVerifyLoops, resetRecoveryAttempts } = require('./verify-stall-recovery');
 const { reconcileProject: reconcileOrphanWorktrees } = require('./worktree-reconcile');
 const factoryNotifications = require('./notifications');
 const { LOOP_STATES } = require('./loop-states');
@@ -58,6 +59,121 @@ async function maybeRecoverStarvedProject(project) {
     });
     return null;
   }
+}
+
+function isVerifyLoopInstance(instance) {
+  return String(instance?.loop_state || '').toUpperCase() === LOOP_STATES.VERIFY
+    || String(instance?.paused_at_stage || '').toUpperCase() === LOOP_STATES.VERIFY;
+}
+
+function resolveUnrecoverableVerifyLoop({ project_id, attempts, last_action_at }) {
+  const activeInstances = factoryLoopInstances.listInstances({
+    project_id,
+    active_only: true,
+  });
+  const verifyInstances = activeInstances.filter(isVerifyLoopInstance);
+  const now = new Date().toISOString();
+  const terminatedInstances = [];
+  const rejectedWorkItems = [];
+
+  for (const instance of verifyInstances) {
+    if (instance.work_item_id) {
+      try {
+        factoryIntake.updateWorkItem(instance.work_item_id, {
+          status: 'rejected',
+          reject_reason: `verify_stalled_after_${attempts}_recovery_attempts`,
+        });
+        rejectedWorkItems.push(instance.work_item_id);
+      } catch (err) {
+        logger.warn('Factory tick: failed to reject unrecoverable VERIFY work item', {
+          project_id,
+          instance_id: instance.id,
+          work_item_id: instance.work_item_id,
+          err: err.message,
+        });
+      }
+    }
+
+    loopController.terminateInstanceAndSync(instance.id, { abandonWorktree: true });
+    terminatedInstances.push(instance.id);
+  }
+
+  if (verifyInstances.length === 0 && activeInstances.length === 0) {
+    factoryHealth.updateProject(project_id, {
+      loop_state: LOOP_STATES.IDLE,
+      loop_batch_id: null,
+      loop_paused_at_stage: null,
+      loop_last_action_at: now,
+    });
+  }
+
+  try {
+    resetRecoveryAttempts(database.getDbInstance(), project_id);
+  } catch (err) {
+    logger.warn('Factory tick: failed to reset VERIFY recovery attempts', {
+      project_id,
+      err: err.message,
+    });
+  }
+
+  try {
+    loopController.recordFactoryIdleIfExhausted(project_id, {
+      last_action_at: last_action_at || now,
+      reason: 'verify_stall_unrecoverable',
+    });
+  } catch (err) {
+    logger.debug('Factory tick: failed to record idle state after VERIFY terminal recovery', {
+      project_id,
+      err: err.message,
+    });
+  }
+
+  logger.warn('Factory tick resolved unrecoverable VERIFY stall', {
+    event: 'factory_verify_unrecoverable_resolved',
+    project_id,
+    attempts,
+    terminated_instances: terminatedInstances.length,
+    rejected_work_items: rejectedWorkItems.length,
+  });
+
+  return {
+    action: 'resolved_unrecoverable_verify',
+    terminated_instances: terminatedInstances,
+    rejected_work_items: rejectedWorkItems,
+  };
+}
+
+function maybeStartAutoAdvanceLoop(projectId, reason = 'tick') {
+  const projectBeforeAutoStart = factoryHealth.getProject(projectId);
+  if (!projectBeforeAutoStart || projectBeforeAutoStart.status !== 'running') {
+    return false;
+  }
+  const cfg = getProjectConfig(projectBeforeAutoStart);
+  const activeInstances = factoryLoopInstances.listInstances({
+    project_id: projectId,
+    active_only: true,
+  });
+  if (
+    cfg?.loop?.auto_continue
+    && projectBeforeAutoStart.loop_state !== LOOP_STATES.STARVED
+    && activeInstances.length === 0
+  ) {
+    try {
+      loopController.startLoopAutoAdvance(projectId);
+      logger.info('Factory tick: started new auto-advance loop', {
+        project_id: projectId,
+        reason,
+      });
+      return true;
+    } catch (err) {
+      logger.debug('Factory tick: could not start new loop', {
+        project_id: projectId,
+        reason,
+        err: err.message,
+      });
+    }
+  }
+  return false;
 }
 
 async function tickProject(project) {
@@ -351,24 +467,7 @@ async function tickProject(project) {
     if (!projectBeforeAutoStart || projectBeforeAutoStart.status !== 'running') {
       return;
     }
-    const cfg = getProjectConfig(projectBeforeAutoStart);
-    if (
-      cfg?.loop?.auto_continue
-      && projectBeforeAutoStart.loop_state !== LOOP_STATES.STARVED
-      && instances.filter(i => !i.terminated_at).length === 0
-    ) {
-      try {
-        loopController.startLoopAutoAdvance(project.id);
-        logger.info('Factory tick: started new auto-advance loop', {
-          project_id: project.id,
-        });
-      } catch (err) {
-        logger.debug('Factory tick: could not start new loop', {
-          project_id: project.id,
-          err: err.message,
-        });
-      }
-    }
+    maybeStartAutoAdvanceLoop(project.id);
 
     // Drift reconciliation: sync the legacy project-level loop_state
     // columns from the active instance every tick. Idempotent. Closes
@@ -401,12 +500,16 @@ async function tickProject(project) {
         eventBus.emitFactoryLoopStalled(payload);
       }
 
-      await recoverStalledVerifyLoops({
+      const verifyRecoveryActions = await recoverStalledVerifyLoops({
         db,
         logger,
         eventBus,
         retryFactoryVerify: ({ project_id }) => handleRetryFactoryVerify({ project: project_id }),
+        resolveUnrecoverableVerify: resolveUnrecoverableVerifyLoop,
       });
+      if (verifyRecoveryActions.some((action) => action.action === 'resolved_unrecoverable_verify')) {
+        maybeStartAutoAdvanceLoop(project.id, 'verify_unrecoverable_resolved');
+      }
 
       const rejectRecoveryConfig = getRejectRecoveryConfig();
       if (rejectRecoveryConfig.enabled) {
@@ -506,4 +609,8 @@ module.exports = {
   stopTick,
   stopAll,
   tickProject,
+  _internalForTests: {
+    resolveUnrecoverableVerifyLoop,
+    maybeStartAutoAdvanceLoop,
+  },
 };
