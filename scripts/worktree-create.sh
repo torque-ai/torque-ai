@@ -1,10 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FEATURE_NAME="${1:-}"
-if [ -z "$FEATURE_NAME" ]; then
-  echo "Usage: scripts/worktree-create.sh <feature-name>"
-  echo "Example: scripts/worktree-create.sh pii-guard"
+usage() {
+  echo "Usage: scripts/worktree-create.sh <feature-name> [--install]"
+  echo "Example: scripts/worktree-create.sh pii-guard --install"
+}
+
+FEATURE_NAME=""
+INSTALL_DEPS="false"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --install)
+      INSTALL_DEPS="true"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "ERROR: Unknown option '$1'" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [[ -n "$FEATURE_NAME" ]]; then
+        echo "ERROR: Unexpected extra argument '$1'" >&2
+        usage >&2
+        exit 1
+      fi
+      FEATURE_NAME="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$FEATURE_NAME" ]]; then
+  usage
   exit 1
 fi
 
@@ -47,14 +80,38 @@ echo "Creating worktree at ${WORKTREE_DIR}..."
 mkdir -p "$(dirname "$WORKTREE_DIR")"
 git worktree add "$WORKTREE_DIR" "$BRANCH"
 
-if [ -f "${WORKTREE_DIR}/server/package.json" ]; then
-  echo "Installing server dependencies..."
-  (cd "${WORKTREE_DIR}/server" && npm install --silent)
-fi
+install_worktree_dependencies() {
+  local worktree_dir="$1"
 
-if [ -f "${WORKTREE_DIR}/dashboard/package.json" ]; then
-  echo "Installing dashboard dependencies..."
-  (cd "${WORKTREE_DIR}/dashboard" && npm install --silent)
+  if [ -f "${worktree_dir}/server/package.json" ]; then
+    echo "Installing server dependencies..."
+    (cd "${worktree_dir}/server" && npm install --silent)
+  fi
+
+  if [ -f "${worktree_dir}/dashboard/package.json" ]; then
+    echo "Installing dashboard dependencies..."
+    (cd "${worktree_dir}/dashboard" && npm install --silent)
+  fi
+}
+
+print_dependency_install_hint() {
+  local worktree_dir="$1"
+
+  echo "Skipping dependency installs (default)."
+  if [ -f "${worktree_dir}/server/package.json" ]; then
+    echo "  To bootstrap server dependencies later:"
+    echo "    (cd ${worktree_dir}/server && npm install --silent)"
+  fi
+  if [ -f "${worktree_dir}/dashboard/package.json" ]; then
+    echo "  To bootstrap dashboard dependencies later:"
+    echo "    (cd ${worktree_dir}/dashboard && npm install --silent)"
+  fi
+}
+
+if [[ "$INSTALL_DEPS" == "true" ]]; then
+  install_worktree_dependencies "$WORKTREE_DIR"
+else
+  print_dependency_install_hint "$WORKTREE_DIR"
 fi
 
 # Ensure worktree guard is in the pre-commit hook (must run BEFORE PII guard)

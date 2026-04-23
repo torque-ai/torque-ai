@@ -20,12 +20,46 @@ die()  { echo "[torque-remote] ERROR: $*" >&2; exit 1; }
 warn() { echo "[torque-remote] WARNING: $*" >&2; }
 info() { echo "[torque-remote] $*" >&2; }
 
+json_get_without_jq() {
+  local file="$1" field="$2" key raw
+  key="${field#.}"
+
+  [[ -f "$file" ]] || return 0
+
+  raw="$(
+    tr -d '\r\n' < "$file" |
+      sed -nE "s/.*\"$key\"[[:space:]]*:[[:space:]]*(\"([^\"\\\\]|\\\\.)*\"|true|false|null|-?[0-9]+([.][0-9]+)?).*/\1/p" |
+      head -n 1
+  )"
+
+  if [[ -z "$raw" || "$raw" == "null" ]]; then
+    return 0
+  fi
+
+  if [[ "$raw" == \"*\" ]]; then
+    raw="${raw:1:${#raw}-2}"
+    raw="${raw//\\\\/\\}"
+    raw="${raw//\\\"/\"}"
+  fi
+
+  printf '%s\n' "$raw"
+}
+
 json_get() {
   local file="$1" field="$2"
-  jq -r "$field // empty" "$file" 2>/dev/null | tr -d '\r' || true
+
+  if command -v jq >/dev/null 2>&1; then
+    jq -r "$field // empty" "$file" 2>/dev/null | tr -d '\r' || true
+    return 0
+  fi
+
+  json_get_without_jq "$file" "$field"
 }
 
 TEMP_DIRS=()
+REMOTE_CLEANUP_COMMAND=""
+REMOTE_EXEC_PATH=""
+REMOTE_UPLOAD_COMPLETE="false"
 
 cleanup_temp_dirs() {
   local dir
@@ -70,6 +104,65 @@ bash_array_literal() {
     printf '  %q\n' "$item"
   done
   printf ')\n'
+}
+
+run_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+
+  if [[ "$timeout_seconds" == "0" ]]; then
+    "$@"
+    return $?
+  fi
+
+  local timeout_marker watcher_pid command_pid exit_code stdin_fd
+  timeout_marker="$(make_temp_dir)/timed_out"
+
+  exec {stdin_fd}<&0
+  "$@" <&"$stdin_fd" &
+  command_pid=$!
+  exec {stdin_fd}<&-
+
+  (
+    sleep "$timeout_seconds"
+    if kill -0 "$command_pid" 2>/dev/null; then
+      : > "$timeout_marker"
+      kill -TERM "$command_pid" 2>/dev/null || true
+      sleep 1
+      kill -KILL "$command_pid" 2>/dev/null || true
+    fi
+  ) &
+  watcher_pid=$!
+
+  wait "$command_pid"
+  exit_code=$?
+
+  kill "$watcher_pid" 2>/dev/null || true
+  wait "$watcher_pid" 2>/dev/null || true
+
+  if [[ -f "$timeout_marker" ]]; then
+    return 124
+  fi
+
+  return "$exit_code"
+}
+
+cleanup_remote_exec() {
+  if [[ "$REMOTE_UPLOAD_COMPLETE" != "true" || -z "$REMOTE_CLEANUP_COMMAND" ]]; then
+    return 0
+  fi
+
+  if ! ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$REMOTE_CLEANUP_COMMAND" >/dev/null 2>&1; then
+    warn "Best-effort remote cleanup failed for $SSH_USER@$SSH_HOST:$REMOTE_EXEC_PATH"
+  fi
+
+  REMOTE_UPLOAD_COMPLETE="false"
+  REMOTE_CLEANUP_COMMAND=""
+}
+
+cleanup_on_exit() {
+  cleanup_remote_exec
+  cleanup_temp_dirs
 }
 
 resolve_sync_ref() {
@@ -123,11 +216,10 @@ create_local_state_bundle() {
   printf '%s\n' "$bundle_tar"
 }
 
-trap cleanup_temp_dirs EXIT
+trap cleanup_on_exit EXIT
 
 # ---- Prerequisites ----
 
-command -v jq  &>/dev/null || die "jq is required but not found in PATH"
 command -v ssh &>/dev/null || die "ssh is required but not found in PATH"
 
 # ---- Usage ----
@@ -414,21 +506,33 @@ EOF
     printf '%s' "$REMOTE_EXEC_SCRIPT" > "$REMOTE_EXEC_SCRIPT_LOCAL"
     REMOTE_UPLOAD_COMMAND="\"$GIT_BASH\" -lc \"cat > $REMOTE_EXEC_PATH && chmod +x $REMOTE_EXEC_PATH\""
     REMOTE_RUN_COMMAND="\"$GIT_BASH\" $REMOTE_EXEC_PATH"
+    REMOTE_CLEANUP_BODY=$(cat <<EOF
+cd $(shell_quote "$REMOTE_PROJECT_PATH") || exit 0
+rm -f $(shell_quote "$REMOTE_EXEC_PATH") >/dev/null 2>&1 || true
+if [[ $(shell_quote "$APPLY_LOCAL_STATE") == 'true' ]]; then
+  git reset --hard $(shell_quote "$SYNC_REF") >/dev/null 2>&1 || true
+  git clean -fd >/dev/null 2>&1 || true
+fi
+EOF
+)
+    REMOTE_CLEANUP_COMMAND="\"$GIT_BASH\" -lc $(shell_quote "$REMOTE_CLEANUP_BODY")"
 
     ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
       "$REMOTE_UPLOAD_COMMAND" < "$REMOTE_EXEC_SCRIPT_LOCAL"
+    REMOTE_UPLOAD_COMPLETE="true"
 
     info "Running on $SSH_USER@$SSH_HOST: $COMMAND_DISPLAY"
     set +e
     if [[ "$APPLY_LOCAL_STATE" == "true" ]]; then
-      timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
         "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE"
     else
-      timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
         "$REMOTE_RUN_COMMAND"
     fi
     exit_code=$?
     set -e
+    cleanup_remote_exec
 
     if [[ $exit_code -eq 124 ]]; then
       echo "[torque-remote] ERROR: Command timed out after ${TIMEOUT_SECONDS}s" >&2

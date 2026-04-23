@@ -37,9 +37,9 @@ This is a durable operating rule for Claude, Codex, and any future agent session
 
 ### Creating a Feature Worktree
 
-    scripts/worktree-create.sh <feature-name>
+    scripts/worktree-create.sh <feature-name> [--install]
 
-This creates a worktree at `.worktrees/feat-<name>/` on branch `feat/<name>`. Open that directory in Claude Code to develop the feature.
+This creates a worktree at `.worktrees/feat-<name>/` on branch `feat/<name>`. Open that directory in Claude Code to develop the feature. Dependency installs are skipped by default so worktree creation stays cheap; pass `--install` only when that worktree needs local `node_modules`.
 
 ### During Development
 

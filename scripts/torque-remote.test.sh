@@ -13,6 +13,8 @@ RUN_STDERR=""
 LAST_TEST_ENV=""
 RUN_ARGV_LOG=""
 RUN_REMOTE_UPLOAD=""
+RUN_REMOTE_COMMANDS=""
+RUN_REMOTE_STDIN_SIZE="0"
 
 SCRIPT_UNDER_TEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)/torque-remote"
 ORIGINAL_PATH="$PATH"
@@ -71,6 +73,15 @@ slurp_file() {
   fi
 }
 
+file_size_bytes() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    wc -c < "$file" | tr -d '[:space:]'
+  else
+    printf '0'
+  fi
+}
+
 expect_eq() {
   local desc="$1"
   local expected="$2"
@@ -87,6 +98,15 @@ expect_nonzero() {
 
   if [[ "$actual" -eq 0 ]]; then
     record_failure "$desc (expected non-zero exit code, got 0)"
+  fi
+}
+
+expect_greater_than_zero() {
+  local desc="$1"
+  local actual="$2"
+
+  if [[ "$actual" -le 0 ]]; then
+    record_failure "$desc (expected value > 0, got $actual)"
   fi
 }
 
@@ -296,6 +316,10 @@ if [[ "$remote_cmd" == "echo ok" ]]; then
   exit "${SSH_CONNECT_EXIT_CODE:-0}"
 fi
 
+if [[ -n "${TORQUE_REMOTE_TEST_REMOTE_COMMANDS:-}" ]]; then
+  printf '%s\n' "$remote_cmd" >> "$TORQUE_REMOTE_TEST_REMOTE_COMMANDS"
+fi
+
 if [[ "$remote_cmd" == "wmic cpu get loadpercentage /value" ]]; then
   if [[ "${SSH_WMIC_OUTPUT+x}" == "x" ]]; then
     printf '%s\n' "$SSH_WMIC_OUTPUT"
@@ -326,6 +350,20 @@ if [[ "$remote_cmd" == *"cat > /tmp/torque-remote-exec-"* && "$remote_cmd" == *"
     cat >/dev/null
   fi
   exit 0
+fi
+
+if [[ "$remote_cmd" == *"/tmp/torque-remote-exec-"* && "$remote_cmd" != *"rm -f"* ]]; then
+  if [[ -n "${TORQUE_REMOTE_TEST_REMOTE_STDIN:-}" ]]; then
+    cat > "$TORQUE_REMOTE_TEST_REMOTE_STDIN"
+  else
+    cat >/dev/null
+  fi
+
+  if [[ "${SSH_EXEC_OUTPUT+x}" == "x" && -n "$SSH_EXEC_OUTPUT" ]]; then
+    printf '%s\n' "$SSH_EXEC_OUTPUT"
+  fi
+
+  exit "${SSH_EXEC_EXIT_CODE:-0}"
 fi
 
 if [[ "${SSH_EXEC_OUTPUT+x}" == "x" && -n "$SSH_EXEC_OUTPUT" ]]; then
@@ -369,6 +407,8 @@ make_test_env() {
   : > "$tmp/calls.log"
   : > "$tmp/argv.log"
   : > "$tmp/remote-upload.sh"
+  : > "$tmp/remote-commands.log"
+  : > "$tmp/remote-stdin.bin"
 
   cat > "$tmp/.torque-remote.json" <<'EOF'
 {
@@ -415,6 +455,8 @@ run_torque_remote() {
     TORQUE_REMOTE_TEST_CALLS_LOG="$tmp/calls.log" \
     TORQUE_REMOTE_TEST_ARGV_LOG="$tmp/argv.log" \
     TORQUE_REMOTE_TEST_REMOTE_UPLOAD="$tmp/remote-upload.sh" \
+    TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$tmp/remote-commands.log" \
+    TORQUE_REMOTE_TEST_REMOTE_STDIN="$tmp/remote-stdin.bin" \
     bash "$SCRIPT_UNDER_TEST" "$@" >"$stdout_file" 2>"$stderr_file"
   )
   RUN_EXIT=$?
@@ -422,6 +464,8 @@ run_torque_remote() {
   RUN_STDERR="$(slurp_file "$stderr_file")"
   RUN_ARGV_LOG="$(slurp_file "$tmp/argv.log")"
   RUN_REMOTE_UPLOAD="$(slurp_file "$tmp/remote-upload.sh")"
+  RUN_REMOTE_COMMANDS="$(slurp_file "$tmp/remote-commands.log")"
+  RUN_REMOTE_STDIN_SIZE="$(file_size_bytes "$tmp/remote-stdin.bin")"
 }
 
 test_default_syncs_main() {
@@ -578,6 +622,89 @@ test_remote_script_preserves_quoted_arguments() {
   finish_test "test_remote_script_preserves_quoted_arguments"
 }
 
+test_config_parses_without_jq() {
+  local tmp
+
+  echo "Test: config parsing falls back without jq"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  rm -f "$tmp/bin/jq"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_file_not_contains "jq is not invoked" "$tmp/calls.log" "jq ["
+  expect_file_contains "config still routes over ssh" "$tmp/calls.log" "git checkout --force main"
+
+  finish_test "test_config_parses_without_jq"
+}
+
+test_remote_run_does_not_require_timeout_binary() {
+  local tmp
+
+  echo "Test: remote run does not require timeout binary"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  rm -f "$tmp/bin/timeout"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_file_not_contains "timeout shim is not invoked" "$tmp/calls.log" "timeout ["
+
+  finish_test "test_remote_run_does_not_require_timeout_binary"
+}
+
+test_remote_cleanup_runs_after_command() {
+  local tmp
+
+  echo "Test: remote cleanup runs after command"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export GIT_DIFF_BASE_OUTPUT='diff --git a/file.txt b/file.txt'
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_contains "cleanup issues an rm for the remote script" "$RUN_REMOTE_COMMANDS" "rm -f"
+  expect_contains "cleanup targets the remote script path" "$RUN_REMOTE_COMMANDS" "/tmp/torque-remote-exec-"
+  expect_contains "cleanup resets tracked state after overlays" "$RUN_REMOTE_COMMANDS" "git clean -fd"
+
+  finish_test "test_remote_cleanup_runs_after_command"
+}
+
+test_remote_overlay_bundle_reaches_run_command() {
+  local tmp
+
+  echo "Test: remote overlay bundle reaches run command stdin"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export GIT_DIFF_BASE_OUTPUT='diff --git a/file.txt b/file.txt'
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  expect_greater_than_zero "run command receives a non-empty stdin bundle" "$RUN_REMOTE_STDIN_SIZE"
+
+  finish_test "test_remote_overlay_bundle_reaches_run_command"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -591,6 +718,10 @@ main() {
   test_local_state_overlays_worktree_from_fallback_base
   test_local_fallback_preserves_quoted_arguments
   test_remote_script_preserves_quoted_arguments
+  test_config_parses_without_jq
+  test_remote_run_does_not_require_timeout_binary
+  test_remote_cleanup_runs_after_command
+  test_remote_overlay_bundle_reaches_run_command
 
   echo ""
   echo "=============================="

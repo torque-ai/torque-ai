@@ -130,3 +130,24 @@ describe('install-git-hooks.sh installer', () => {
     expect(createSrc).toMatch(/install-git-hooks\.sh/);
   });
 });
+
+describe('worktree-create dependency bootstrap', () => {
+  const createPath = path.join(REPO_ROOT, 'scripts', 'worktree-create.sh');
+
+  function readCreate() {
+    return fs.readFileSync(createPath, 'utf8');
+  }
+
+  it('documents optional --install usage and defaults installs off', () => {
+    const src = readCreate();
+    expect(src).toMatch(/Usage: scripts\/worktree-create\.sh <feature-name> \[--install\]/);
+    expect(src).toMatch(/INSTALL_DEPS="false"/);
+    expect(src).toMatch(/Skipping dependency installs \(default\)/);
+  });
+
+  it('gates npm installs behind the --install flag', () => {
+    const src = readCreate();
+    expect(src).toMatch(/install_worktree_dependencies\s*\(\)/);
+    expect(src).toMatch(/if \[\[ "\$INSTALL_DEPS" == "true" \]\]; then[\s\S]*install_worktree_dependencies "\$WORKTREE_DIR"/);
+  });
+});
