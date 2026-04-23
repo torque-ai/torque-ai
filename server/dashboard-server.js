@@ -75,6 +75,13 @@ const DEFAULT_WS_TOPICS = [
 
 const STATIC_FILE_CACHE_MAX_BYTES = 1024 * 1024;
 const staticFileCache = new Map();
+const REACT_DASHBOARD_DIR = path.resolve(__dirname, '..', 'dashboard', 'dist');
+const STATIC_DASHBOARD_DIR = path.resolve(__dirname, 'dashboard');
+// Probe for dist/index.html once. If a build appears or disappears later, the
+// selected static root remains stable for this server process.
+const DASHBOARD_STATIC_DIR = fs.existsSync(path.join(REACT_DASHBOARD_DIR, 'index.html'))
+  ? REACT_DASHBOARD_DIR
+  : STATIC_DASHBOARD_DIR;
 const TASK_UPDATED_LISTENER_TAG = Symbol.for('torque.dashboardTaskUpdatedListener');
 let taskUpdatedProcessListener = null;
 
@@ -197,98 +204,99 @@ const MIME_TYPES = {
   '.woff2': 'font/woff2',
 };
 
+async function getStaticFileStats(filePath) {
+  try {
+    const stats = await fs.promises.stat(filePath);
+    return stats.isFile() ? stats : null;
+  } catch (err) {
+    if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+      return null;
+    }
+    throw err;
+  }
+}
+
 /**
- * Serve static files from dashboard/dist
+ * Serve static files from the cached dashboard directory.
  * @param {http.IncomingMessage} req - The incoming HTTP request
  * @param {http.ServerResponse} res - The HTTP response object
  * @returns {void}
  */
 function serveStatic(req, res) {
-  // Try React build first, fall back to lightweight static dashboard.
-  // Probe for dist/index.html rather than just the dist/ directory — an
-  // interrupted vite build leaves dist/ with assets/ but no entry file,
-  // which would otherwise commit us to serving a broken tree and 404ing
-  // instead of falling back to the legacy static dashboard.
-  const reactDir = path.join(__dirname, '..', 'dashboard', 'dist');
-  const staticDir = path.join(__dirname, 'dashboard');
-  const dashboardDir = fs.existsSync(path.join(reactDir, 'index.html')) ? reactDir : staticDir;
-  let filePath = path.join(dashboardDir, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
+  (async () => {
+    const dashboardDir = DASHBOARD_STATIC_DIR;
+    const urlPath = req.url === '/' ? 'index.html' : req.url.split('?')[0];
+    let filePath = path.join(dashboardDir, urlPath);
 
-  // Security: prevent directory traversal (use path.sep to avoid prefix bypass)
-  const resolvedFile = path.resolve(filePath);
-  const resolvedRoot = path.resolve(dashboardDir);
-  if (resolvedFile !== resolvedRoot && !resolvedFile.startsWith(resolvedRoot + path.sep)) {
-    sendError(res, 'Forbidden', 403);
-    return;
-  }
-
-  // If file doesn't exist and it's not an API route, serve index.html (SPA routing)
-  if (!fs.existsSync(filePath) && !req.url.startsWith('/api/')) {
-    filePath = path.join(dashboardDir, 'index.html');
-  }
-
-  if (!fs.existsSync(filePath)) {
-    sendError(res, 'Not found', 404);
-    return;
-  }
-
-  const ext = path.extname(filePath);
-  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-  const cacheControl = filePath.endsWith('index.html')
-    ? 'no-cache, no-store, must-revalidate'
-    : 'public, max-age=31536000, immutable';
-
-  const sendFile = (data, cacheControlValue, contentTypeValue) => {
-    res.writeHead(200, {
-      'Content-Type': contentTypeValue,
-      'Cache-Control': cacheControlValue,
-      ...SECURITY_HEADERS,
-    });
-    res.end(data);
-  };
-
-  const completeRead = (canCache, cacheMtime) => {
-    fs.readFile(filePath, (err, data) => {
-      if (err) {
-        if (canCache) {
-          staticFileCache.delete(filePath);
-        }
-        sendError(res, 'Internal error', 500);
-        return;
-      }
-
-      if (canCache && data.length <= STATIC_FILE_CACHE_MAX_BYTES) {
-        staticFileCache.set(filePath, {
-          content: data,
-          contentType,
-          mtimeMs: cacheMtime,
-          size: data.length,
-        });
-        if (staticFileCache.size > 200) {
-          const firstKey = staticFileCache.keys().next().value;
-          staticFileCache.delete(firstKey);
-        }
-      } else {
-        staticFileCache.delete(filePath);
-      }
-
-      sendFile(data, cacheControl, contentType);
-    });
-  };
-
-  if (typeof fs.stat !== 'function') {
-    completeRead(false, undefined);
-    return;
-  }
-
-  fs.stat(filePath, (err, stats) => {
-    if (err || !stats) {
-      completeRead(false, undefined);
+    // Security: prevent directory traversal (use path.sep to avoid prefix bypass)
+    const resolvedFile = path.resolve(filePath);
+    const resolvedRoot = DASHBOARD_STATIC_DIR;
+    if (resolvedFile !== resolvedRoot && !resolvedFile.startsWith(resolvedRoot + path.sep)) {
+      sendError(res, 'Forbidden', 403);
       return;
     }
 
+    let stats = await getStaticFileStats(filePath);
+    const isAssetRequest = path.extname(path.basename(urlPath)) !== '';
+
+    // Extensionless dashboard routes are handled by the React/legacy SPA shell.
+    if (!stats && !isAssetRequest && !req.url.startsWith('/api/')) {
+      filePath = path.join(dashboardDir, 'index.html');
+      stats = await getStaticFileStats(filePath);
+    }
+
+    if (!stats) {
+      sendError(res, 'Not found', 404);
+      return;
+    }
+
+    const ext = path.extname(filePath);
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    const cacheControl = filePath.endsWith('index.html')
+      ? 'no-cache, no-store, must-revalidate'
+      : 'public, max-age=31536000, immutable';
+
+    const sendFile = (data, cacheControlValue, contentTypeValue) => {
+      res.writeHead(200, {
+        'Content-Type': contentTypeValue,
+        'Cache-Control': cacheControlValue,
+        ...SECURITY_HEADERS,
+      });
+      res.end(data);
+    };
+
+    const completeRead = (canCache, cacheMtime) => {
+      fs.readFile(filePath, (err, data) => {
+        if (err) {
+          if (canCache) {
+            staticFileCache.delete(filePath);
+          }
+          const isMissingRead = err.code === 'ENOENT' || err.code === 'ENOTDIR';
+          sendError(res, isMissingRead ? 'Not found' : 'Internal error', isMissingRead ? 404 : 500);
+          return;
+        }
+
+        if (canCache && data.length <= STATIC_FILE_CACHE_MAX_BYTES) {
+          staticFileCache.set(filePath, {
+            content: data,
+            contentType,
+            mtimeMs: cacheMtime,
+            size: data.length,
+          });
+          if (staticFileCache.size > 200) {
+            const firstKey = staticFileCache.keys().next().value;
+            staticFileCache.delete(firstKey);
+          }
+        } else {
+          staticFileCache.delete(filePath);
+        }
+
+        sendFile(data, cacheControl, contentType);
+      });
+    };
+
     const cacheMtime = Number(stats.mtimeMs);
-    const canCache = typeof cacheMtime === 'number' && stats.size <= STATIC_FILE_CACHE_MAX_BYTES;
+    const canCache = Number.isFinite(cacheMtime) && stats.size <= STATIC_FILE_CACHE_MAX_BYTES;
     const cached = canCache ? staticFileCache.get(filePath) : null;
 
     if (!canCache) {
@@ -303,6 +311,11 @@ function serveStatic(req, res) {
     }
 
     completeRead(true, cacheMtime);
+  })().catch((err) => {
+    process.stderr.write(`Static file error: ${err.message}\n`);
+    if (!res.headersSent) {
+      sendError(res, 'Internal error', 500);
+    }
   });
 }
 
