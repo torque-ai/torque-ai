@@ -27,6 +27,9 @@ const { createActionRegistry } = require('./dispatch/action-registry');
 const { createConstructionCache } = require('./dispatch/construction-cache');
 const { createExecutor } = require('./dispatch/executor');
 const { createRunDirManager } = require('./runs/run-dir-manager');
+const { createSpecialistStorage } = require('./routing/specialist-storage');
+const { createTurnClassifier } = require('./routing/turn-classifier');
+const { createRoutedOrchestrator } = require('./routing/routed-orchestrator');
 
 /**
  * Topological sort using Kahn's algorithm.
@@ -214,6 +217,7 @@ _defaultContainer.register('familyTemplates', ['db'], ({ db }) => createFamilyTe
 _defaultContainer.register('actionRegistry', [], () => createActionRegistry());
 _defaultContainer.register('constructionCache', ['db'], ({ db }) => createConstructionCache({ db: unwrapDb(db) }));
 _defaultContainer.register('executor', ['actionRegistry'], ({ actionRegistry }) => createExecutor({ registry: actionRegistry }));
+_defaultContainer.register('registeredSpecialists', [], () => ({}));
 _defaultContainer.register('runDirManager', ['db'], ({ db }) => {
   const dataDir = typeof db.getDataDir === 'function'
     ? db.getDataDir()
@@ -228,6 +232,22 @@ _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
   const { createProviderScoring } = require('./db/provider-scoring');
   return createProviderScoring({ db: unwrapDb(db) });
 });
+_defaultContainer.register('specialistStorage', ['db'], ({ db }) => (
+  createSpecialistStorage({ db: unwrapDb(db) })
+));
+_defaultContainer.register('turnClassifier', [], () => (
+  createTurnClassifier({ adapter: 'heuristic' })
+));
+_defaultContainer.register(
+  'routedOrchestrator',
+  ['turnClassifier', 'specialistStorage', 'registeredSpecialists'],
+  ({ turnClassifier, specialistStorage, registeredSpecialists }) => createRoutedOrchestrator({
+    classifier: turnClassifier,
+    storage: specialistStorage,
+    agents: registeredSpecialists,
+    defaultAgent: 'general',
+  })
+);
 
 _defaultContainer.register('autoRecoveryServices', ['db', 'eventBus', 'logger'], ({ db, eventBus, logger: log }) => {
   const { createAutoRecoveryServices } = require('./factory/auto-recovery/services');

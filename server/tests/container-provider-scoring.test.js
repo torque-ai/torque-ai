@@ -28,3 +28,18 @@ describe('defaultContainer — provider-scoring registration', () => {
     expect(typeof mod.createProviderScoring).toBe('function');
   });
 });
+
+describe('defaultContainer — specialist routing registrations', () => {
+  it('has the specialist routing services in the DI factory block', () => {
+    expect(defaultContainer.has('registeredSpecialists')).toBe(true);
+    expect(defaultContainer.has('specialistStorage')).toBe(true);
+    expect(defaultContainer.has('turnClassifier')).toBe(true);
+    expect(defaultContainer.has('routedOrchestrator')).toBe(true);
+  });
+
+  it('registers the specialist routing factories from the routing modules', () => {
+    expect(typeof require('../routing/specialist-storage').createSpecialistStorage).toBe('function');
+    expect(typeof require('../routing/turn-classifier').createTurnClassifier).toBe('function');
+    expect(typeof require('../routing/routed-orchestrator').createRoutedOrchestrator).toBe('function');
+  });
+});

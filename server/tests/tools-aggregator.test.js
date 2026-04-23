@@ -845,6 +845,9 @@ describe('tools.js live registry integration', () => {
     ['list_repos', 'handleListRepos'],
     ['reindex_repo', 'handleReindexRepo'],
     ['resolve_mentions', 'handleResolveMentions'],
+    ['register_specialist', 'handleRegisterSpecialist'],
+    ['route_turn', 'handleRouteTurn'],
+    ['get_session_history', 'handleGetSessionHistory'],
   ])('contains %s routed to %s', (toolName, handlerName) => {
     expect(realTools.routeMap.has(toolName)).toBe(true);
     expect(realTools.routeMap.get(toolName)).toEqual(expect.any(Function));
@@ -857,6 +860,14 @@ describe('tools.js live registry integration', () => {
       'list_repos',
       'reindex_repo',
       'resolve_mentions',
+    ]));
+  });
+
+  it('includes specialist routing MCP tool defs in the live TOOLS catalog', () => {
+    expect(getToolNames()).toEqual(expect.arrayContaining([
+      'register_specialist',
+      'route_turn',
+      'get_session_history',
     ]));
   });
 

@@ -5,7 +5,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
+const { defaultContainer } = require('../container');
 const database = require('../database');
+const providerRegistry = require('../providers/registry');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const { EXTENDED_TOOL_NAMES } = require('../core-tools');
@@ -63,6 +65,25 @@ function createFactoryTables(db) {
 
     CREATE INDEX IF NOT EXISTS idx_factory_plan_file_project
       ON factory_plan_file_intake(project_id);
+  `);
+}
+
+function createSpecialistRoutingTables(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS specialist_chat_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
+      content TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_spec_history_session
+      ON specialist_chat_history(user_id, session_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_spec_history_agent
+      ON specialist_chat_history(user_id, session_id, agent_id, created_at);
   `);
 }
 
@@ -184,5 +205,105 @@ describe('plan-file MCP tools', () => {
     assert.equal(plannedOnly.items.length, 1);
     assert.equal(plannedOnly.items[0].status, 'planned');
     assert.equal(pendingOnly.items.length, 0);
+  });
+});
+
+describe('specialist routing MCP tools', () => {
+  let db;
+  let originalGetDbInstance;
+  let originalGetProviderInstance;
+  let originalRegisterProviderClass;
+  let originalInit;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    createSpecialistRoutingTables(db);
+    defaultContainer.resetForTest();
+    originalGetDbInstance = database.getDbInstance;
+    database.getDbInstance = () => db;
+    originalGetProviderInstance = providerRegistry.getProviderInstance;
+    originalRegisterProviderClass = providerRegistry.registerProviderClass;
+    originalInit = providerRegistry.init;
+    providerRegistry.getProviderInstance = (name) => {
+      if (name !== 'fake-provider') {
+        return null;
+      }
+      return {
+        runPrompt: async () => 'specialist reply',
+      };
+    };
+    providerRegistry.registerProviderClass = () => {};
+    providerRegistry.init = () => {};
+  });
+
+  afterEach(() => {
+    defaultContainer.resetForTest();
+    database.getDbInstance = originalGetDbInstance;
+    providerRegistry.getProviderInstance = originalGetProviderInstance;
+    providerRegistry.registerProviderClass = originalRegisterProviderClass;
+    providerRegistry.init = originalInit;
+    db.close();
+  });
+
+  it('registers provider-backed specialists, routes a turn, and persists scoped history', async () => {
+    parseJsonResponse(await handleToolCall('register_specialist', {
+      id: 'billing',
+      description: 'Handles refunds and invoices.',
+      handler: { kind: 'provider', provider: 'fake-provider' },
+    }));
+    parseJsonResponse(await handleToolCall('register_specialist', {
+      id: 'general',
+      description: 'Fallback specialist.',
+      handler: { kind: 'provider', provider: 'fake-provider' },
+    }));
+
+    const routed = parseJsonResponse(await handleToolCall('route_turn', {
+      user_id: 'u1',
+      session_id: 's1',
+      user_input: 'refund please',
+    }));
+    const specialistHistory = parseJsonResponse(await handleToolCall('get_session_history', {
+      user_id: 'u1',
+      session_id: 's1',
+      agent_id: 'billing',
+    }));
+    const globalHistory = parseJsonResponse(await handleToolCall('get_session_history', {
+      user_id: 'u1',
+      session_id: 's1',
+    }));
+
+    assert.equal(routed.agent_id, 'billing');
+    assert.equal(routed.response, 'specialist reply');
+    assert.equal(routed.routed, true);
+    assert.equal(specialistHistory.count, 2);
+    assert.equal(globalHistory.count, 2);
+    assert.deepStrictEqual(specialistHistory.history.map((entry) => entry.role), ['user', 'assistant']);
+  });
+
+  it('keeps follow-up routing on the previous specialist via persisted history', async () => {
+    parseJsonResponse(await handleToolCall('register_specialist', {
+      id: 'billing',
+      description: 'Handles refunds and invoices.',
+      handler: { kind: 'provider', provider: 'fake-provider' },
+    }));
+    parseJsonResponse(await handleToolCall('register_specialist', {
+      id: 'general',
+      description: 'Fallback specialist.',
+      handler: { kind: 'provider', provider: 'fake-provider' },
+    }));
+
+    parseJsonResponse(await handleToolCall('route_turn', {
+      user_id: 'u-follow',
+      session_id: 's-follow',
+      user_input: 'refund please',
+    }));
+    const followUp = parseJsonResponse(await handleToolCall('route_turn', {
+      user_id: 'u-follow',
+      session_id: 's-follow',
+      user_input: 'again',
+    }));
+
+    assert.equal(followUp.agent_id, 'billing');
+    assert.equal(followUp.routed, true);
   });
 });
