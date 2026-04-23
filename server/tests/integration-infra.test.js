@@ -694,6 +694,36 @@ describe('Integration Infra Handlers', () => {
   // handleScanProject
   // ============================================================
   describe('scan_project', () => {
+    function makeScanProjectFixture(prefix) {
+      return fs.mkdtempSync(path.join(testDir, `${prefix}-`));
+    }
+
+    function writeScanFile(rootDir, relativePath, content) {
+      const fullPath = path.join(rootDir, relativePath);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, content, 'utf8');
+    }
+
+    function removeScanFixtures(...dirs) {
+      for (const dir of dirs) {
+        if (dir && fs.existsSync(dir)) {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
+      }
+    }
+
+    function createDirectoryLink(targetDir, linkPath) {
+      try {
+        fs.symlinkSync(targetDir, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
+        return true;
+      } catch (err) {
+        if (['EPERM', 'EACCES', 'ENOSYS', 'ENOTSUP'].includes(err.code)) {
+          return false;
+        }
+        throw err;
+      }
+    }
+
     it('rejects missing path', async () => {
       const result = await safeTool('scan_project', {});
       expect(result.isError).toBe(true);
@@ -706,6 +736,91 @@ describe('Integration Infra Handlers', () => {
       });
       expect(result.isError).toBe(true);
       expect(getText(result)).toContain('does not exist');
+    });
+
+    it('scans ordinary in-project files inside an explicit project root', async () => {
+      const projectDir = makeScanProjectFixture('scan-project-normal');
+      try {
+        writeScanFile(projectDir, 'src/app.js', 'console.log("inside");');
+
+        const result = await safeTool('scan_project', {
+          path: projectDir,
+          project_root: projectDir,
+          checks: ['summary', 'file_sizes']
+        });
+
+        expect(result.isError).toBeFalsy();
+        const text = getText(result).replace(/\\/g, '/');
+        expect(text).toContain('**Total files:** 1');
+        expect(text).toContain('| src/app.js | 1 |');
+      } finally {
+        removeScanFixtures(projectDir);
+      }
+    });
+
+    it('rejects project paths with traversal segments', async () => {
+      const projectDir = makeScanProjectFixture('scan-project-traversal-root');
+      const outsideDir = makeScanProjectFixture('scan-project-traversal-outside');
+      try {
+        writeScanFile(outsideDir, 'secret.js', 'console.log("outside");');
+        const traversalPath = `${projectDir}${path.sep}..${path.sep}${path.basename(outsideDir)}`;
+
+        const result = await safeTool('scan_project', {
+          path: traversalPath,
+          checks: ['summary']
+        });
+
+        expect(result.isError).toBe(true);
+        expect(getText(result)).toMatch(/path traversal/i);
+      } finally {
+        removeScanFixtures(projectDir, outsideDir);
+      }
+    });
+
+    it('rejects absolute scan paths outside the supplied project root', async () => {
+      const projectDir = makeScanProjectFixture('scan-project-absolute-root');
+      const outsideDir = makeScanProjectFixture('scan-project-absolute-outside');
+      try {
+        writeScanFile(projectDir, 'src/app.js', 'console.log("inside");');
+        writeScanFile(outsideDir, 'secret.js', 'console.log("outside");');
+
+        const result = await safeTool('scan_project', {
+          path: outsideDir,
+          project_root: projectDir,
+          checks: ['summary']
+        });
+
+        expect(result.isError).toBe(true);
+        expect(getText(result)).toContain('inside project root');
+      } finally {
+        removeScanFixtures(projectDir, outsideDir);
+      }
+    });
+
+    it('skips symlinked directories that point outside the project', async () => {
+      const projectDir = makeScanProjectFixture('scan-project-symlink-root');
+      const outsideDir = makeScanProjectFixture('scan-project-symlink-outside');
+      try {
+        writeScanFile(projectDir, 'src/app.js', 'console.log("inside");');
+        writeScanFile(outsideDir, 'secret.js', '// TODO: outside leak');
+        const linkPath = path.join(projectDir, 'linked-outside');
+        const linked = createDirectoryLink(outsideDir, linkPath);
+        if (!linked) return;
+
+        const result = await safeTool('scan_project', {
+          path: projectDir,
+          checks: ['summary', 'todos', 'file_sizes']
+        });
+
+        expect(result.isError).toBeFalsy();
+        const text = getText(result).replace(/\\/g, '/');
+        expect(text).toContain('**Total files:** 1');
+        expect(text).toContain('| src/app.js | 1 |');
+        expect(text).not.toContain('secret.js');
+        expect(text).not.toContain('outside leak');
+      } finally {
+        removeScanFixtures(projectDir, outsideDir);
+      }
     });
 
     it('scans a valid directory with default checks', async () => {
