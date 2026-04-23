@@ -183,9 +183,11 @@ describe('version-control worktree manager', () => {
 
     const repoPath = makeRepoRoot();
     const created = manager.createWorktree(repoPath, 'new login flow', { baseBranch: 'develop' });
+    const leaf = path.basename(created.worktree_path);
 
     expect(created.branch).toBe('feat/new-login-flow');
-    expect(created.worktree_path).toBe(path.join(repoPath, '.worktrees', 'feat-new-login-flow'));
+    expect(leaf).toBe('fea-7038346e');
+    expect(created.worktree_path).toBe(path.join(repoPath, '.worktrees', leaf));
     expect(created.base_branch).toBe('develop');
     expect(created.feature_name).toBe('new login flow');
     expect(created.status).toBe('active');
@@ -244,8 +246,8 @@ describe('version-control worktree manager', () => {
     const leaf = path.basename(created.worktree_path);
 
     expect(created.branch).toBe(`feat/${featureName}`);
-    expect(leaf.length).toBeLessThanOrEqual(25);
-    expect(leaf).toMatch(/^feat-factory-742-[a-f0-9]{8}$/);
+    expect(leaf.length).toBeLessThanOrEqual(12);
+    expect(leaf).toMatch(/^fea-[a-f0-9]{8}$/);
     expect(created.worktree_path).toBe(path.join(repoPath, '.worktrees', leaf));
   });
 
