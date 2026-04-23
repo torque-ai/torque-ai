@@ -1,12 +1,16 @@
 'use strict';
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
 const SCRIPT_PATH = path.resolve(__dirname, '../../scripts/worktree-cutover.sh');
 const REPO_ROOT = path.resolve(__dirname, '../..');
+const GIT_BASH_PATH = path.join('C:', 'Program Files', 'Git', 'bin', 'bash.exe');
+const BASH_EXECUTABLE = process.platform === 'win32' && fs.existsSync(GIT_BASH_PATH)
+  ? GIT_BASH_PATH
+  : 'bash';
 
 /**
  * Integration tests for worktree-cutover.sh restart barrier flow.
@@ -15,9 +19,9 @@ const REPO_ROOT = path.resolve(__dirname, '../..');
  * without executing them. We use this to verify the barrier flow is correctly
  * wired without needing a live TORQUE server.
  *
- * For the non-dry-run paths (barrier submit, poll, attach), we test by
- * asserting on the script source directly — the bash is simple enough that
- * structural assertions are meaningful.
+ * For the restart confirmation path, we also run a simulated non-dry-run shell
+ * with stubbed git/curl responses so the test can prove the script waits for
+ * PID turnover instead of accepting the old server's /livez response.
  */
 
 // Helper: run the cutover script in dry-run mode with a fake feature name.
@@ -33,6 +37,9 @@ export CUTOVER_DRY_RUN=1
 
 # Stub git to pass pre-checks
 git() {
+  if [ "$1" = "-C" ]; then
+    shift 2
+  fi
   case "$1" in
     rev-parse)   echo "/fake/repo" ;;
     show-ref)    return 0 ;;
@@ -61,6 +68,9 @@ mkdir -p "$FAKE_WORKTREE"
 
 # Override REPO_ROOT detection by wrapping git rev-parse
 git() {
+  if [ "$1" = "-C" ]; then
+    shift 2
+  fi
   case "$1" in
     rev-parse)   echo "/tmp/cutover-test-$$" ;;
     show-ref)    return 0 ;;
@@ -89,7 +99,7 @@ rm -rf "/tmp/cutover-test-$$"
   fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
 
   try {
-    const result = execSync(`bash "${wrapperPath}" "${featureName}"`, {
+    const result = execFileSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
       encoding: 'utf8',
       timeout: 10000,
       env: { ...process.env, CUTOVER_DRY_RUN: '1', ...env },
@@ -100,6 +110,97 @@ rm -rf "/tmp/cutover-test-$$"
     try {
       fs.unlinkSync(wrapperPath);
       fs.rmdirSync(tmpDir);
+    } catch { /* cleanup best-effort */ }
+  }
+}
+
+function runPidTurnoverSimulation(featureName, env = {}) {
+  const wrapper = `
+#!/usr/bin/env bash
+set -euo pipefail
+
+SAFE_NAME=$(echo "${featureName}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+FAKE_ROOT=$(mktemp -d)
+FAKE_REPO="$FAKE_ROOT/repo"
+FAKE_WORKTREE="$FAKE_REPO/.worktrees/feat-$SAFE_NAME"
+FAKE_DATA="$FAKE_ROOT/data"
+mkdir -p "$FAKE_WORKTREE" "$FAKE_DATA" "$FAKE_REPO/server"
+PID_FILE="$FAKE_DATA/torque.pid"
+printf '{"pid":111,"startedAt":"2026-04-23T19:10:00.000Z","heartbeatAt":"2026-04-23T19:10:05.000Z"}' > "$PID_FILE"
+LIVEZ_CALLS=0
+
+git() {
+  if [ "$1" = "-C" ]; then
+    shift 2
+  fi
+  case "$1" in
+    rev-parse)   echo "$FAKE_REPO" ;;
+    show-ref)    return 0 ;;
+    merge)       echo "Already up to date." ;;
+    diff)        return 0 ;;
+    worktree)    return 0 ;;
+    branch)      return 0 ;;
+    status)      return 0 ;;
+    *)           command git "$@" ;;
+  esac
+}
+export -f git
+
+sleep() { :; }
+export -f sleep
+
+curl() {
+  case "\${*}" in
+    */api/v2/system/restart-server*)
+      echo '{"task_id":"11111111-1111-4111-8111-111111111111","status":"running"}'
+      return 0
+      ;;
+    */api/v2/tasks/11111111-1111-4111-8111-111111111111*)
+      echo '{"status":"completed"}'
+      return 0
+      ;;
+    */api/v2/tasks?status=*)
+      echo '{"items":[]}'
+      return 0
+      ;;
+    */livez*|*/api/version*)
+      LIVEZ_CALLS=$((LIVEZ_CALLS + 1))
+      if [ "$LIVEZ_CALLS" -ge 4 ]; then
+        printf '{"pid":222,"startedAt":"2026-04-23T19:12:46.008Z","heartbeatAt":"2026-04-23T19:12:47.000Z"}' > "$PID_FILE"
+      fi
+      echo '{"ok":true}'
+      return 0
+      ;;
+    *)
+      echo '{}'
+      return 0
+      ;;
+  esac
+}
+export -f curl
+
+export TORQUE_PID_FILE="$PID_FILE"
+
+SCRIPT_BODY=$(tail -n +3 "${SCRIPT_PATH.replace(/\\/g, '/')}")
+eval "$SCRIPT_BODY" <<< ""
+
+rm -rf "$FAKE_ROOT"
+`;
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutover-turnover-'));
+  const wrapperPath = path.join(tmpDir, 'turnover-cutover.sh');
+  fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
+
+  try {
+    return execFileSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
+      encoding: 'utf8',
+      timeout: 10000,
+      env: { ...process.env, ...env },
+      windowsHide: true,
+    });
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     } catch { /* cleanup best-effort */ }
   }
 }
@@ -182,6 +283,12 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(scriptSource).toContain('TORQUE restarted on updated main');
     });
 
+    it('requires process turnover before accepting a healthy server', () => {
+      expect(scriptSource).toContain('TORQUE_PID_FILE');
+      expect(scriptSource).toContain('confirmed via PID turnover');
+      expect(scriptSource).toContain('never showed PID turnover');
+    });
+
     it('falls back to manual start if server does not come back', () => {
       expect(scriptSource).toContain('nohup node');
       expect(scriptSource).toContain('TORQUE started manually on updated main');
@@ -259,10 +366,31 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(dryRunOutput).toContain('/api/v2/tasks/<task_id>');
     });
 
+    it('prints the turnover confirmation step', () => {
+      if (!dryRunOutput) return;
+      expect(dryRunOutput).toContain('[dry-run] Would confirm process turnover before accepting health');
+      expect(dryRunOutput).toContain('Require changed pid/startedAt');
+    });
+
     it('prints the SSE verification call', () => {
       if (!dryRunOutput) return;
       expect(dryRunOutput).toContain('[dry-run] Would verify new server');
       expect(dryRunOutput).toContain('3458/sse');
+    });
+  });
+
+  describe('simulated restart turnover', () => {
+    it('waits for PID turnover instead of trusting the first livez success', () => {
+      let output = null;
+      try {
+        output = runPidTurnoverSimulation('test-barrier-feature');
+      } catch (_e) {
+        output = null;
+      }
+
+      if (!output) return;
+      expect(output).toContain('Confirming restart via PID turnover');
+      expect(output).toContain('TORQUE restarted on updated main (confirmed via PID turnover)');
     });
   });
 

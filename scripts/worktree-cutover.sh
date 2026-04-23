@@ -22,6 +22,72 @@ torque_api_reachable() {
     || curl -s --max-time "${TORQUE_PROBE_TIMEOUT_SECONDS}" "${TORQUE_API}/api/version" > /dev/null 2>&1
 }
 
+resolve_torque_pid_file() {
+  if [ -n "${TORQUE_PID_FILE:-}" ]; then
+    echo "${TORQUE_PID_FILE}"
+    return 0
+  fi
+  if [ -n "${TORQUE_DATA_DIR:-}" ]; then
+    echo "${TORQUE_DATA_DIR}/torque.pid"
+    return 0
+  fi
+  if [ -f "${HOME}/.torque/torque.pid" ] || [ -d "${HOME}/.torque" ]; then
+    echo "${HOME}/.torque/torque.pid"
+    return 0
+  fi
+  if [ -f "${REPO_ROOT}/server/torque.pid" ] || [ -d "${REPO_ROOT}/server" ]; then
+    echo "${REPO_ROOT}/server/torque.pid"
+    return 0
+  fi
+  echo "${TMPDIR:-/tmp}/torque/torque.pid"
+}
+
+read_pid_signature() {
+  local pid_file="${1:-}"
+  if [ -z "$pid_file" ] || [ ! -f "$pid_file" ]; then
+    return 1
+  fi
+  node - "$pid_file" <<'EOF'
+const fs = require('fs');
+
+const pidFile = process.argv[2];
+if (!pidFile) {
+  process.exit(1);
+}
+
+try {
+  const raw = fs.readFileSync(pidFile, 'utf8').trim();
+  if (!raw) process.exit(1);
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && Number.isInteger(parsed.pid) && parsed.pid > 0) {
+      const startedAt = typeof parsed.startedAt === 'string' ? parsed.startedAt : '';
+      process.stdout.write(`${parsed.pid}|${startedAt}`);
+      process.exit(0);
+    }
+  } catch {}
+
+  const legacyPid = Number.parseInt(raw, 10);
+  if (!Number.isInteger(legacyPid) || legacyPid <= 0) {
+    process.exit(1);
+  }
+  process.stdout.write(`${legacyPid}|`);
+} catch {
+  process.exit(1);
+}
+EOF
+}
+
+pid_signature_changed() {
+  local before="${1:-}"
+  local after="${2:-}"
+  [ -n "$before" ] && [ -n "$after" ] && [ "$before" != "$after" ]
+}
+
+TORQUE_PID_FILE_PATH="$(resolve_torque_pid_file)"
+TORQUE_PRE_RESTART_PID_SIGNATURE=""
+
 if [ ! -d "$WORKTREE_DIR" ]; then
   echo "ERROR: Worktree not found at ${WORKTREE_DIR}"
   exit 1
@@ -94,6 +160,7 @@ fi
 TORQUE_RUNNING=false
 if torque_api_reachable; then
   TORQUE_RUNNING=true
+  TORQUE_PRE_RESTART_PID_SIGNATURE=$(read_pid_signature "${TORQUE_PID_FILE_PATH}" 2>/dev/null || true)
 fi
 
 summarize_running_blockers() {
@@ -156,6 +223,9 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     echo "  Body: {\"reason\":\"Cutover to ${FEATURE_NAME}\",\"timeout_minutes\":${BARRIER_TIMEOUT_MIN}}"
     echo "[dry-run] Would poll barrier task:"
     echo "  GET ${TORQUE_API}/api/v2/tasks/<task_id>"
+    echo "[dry-run] Would confirm process turnover before accepting health:"
+    echo "  PID file: ${TORQUE_PID_FILE_PATH}"
+    echo "  Require changed pid/startedAt or outage + recovery fallback"
     echo "[dry-run] Would verify new server:"
     echo "  curl http://127.0.0.1:3458/sse"
   else
@@ -299,28 +369,74 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     #    hashing a multi-GB SQLite DB, so keep waiting before attempting a
     #    manual start that could collide with the child process' startup lock.
     echo "  Waiting for TORQUE to restart on updated main..."
+    if [ -n "${TORQUE_PRE_RESTART_PID_SIGNATURE}" ]; then
+      echo "  Confirming restart via PID turnover: ${TORQUE_PID_FILE_PATH}"
+    else
+      echo "  PID record unavailable — falling back to outage + recovery confirmation."
+    fi
     RESTART_WAIT_SECONDS=${CUTOVER_RESTART_WAIT_SECONDS:-240}
     RESTART_DEADLINE=$(( $(date +%s) + RESTART_WAIT_SECONDS ))
+    RESTART_CONFIRMED=false
+    OUTAGE_OBSERVED=false
     while [ "$(date +%s)" -lt "$RESTART_DEADLINE" ]; do
+      CURRENT_REACHABLE=false
       if torque_api_reachable; then
-        echo "[ok] TORQUE restarted on updated main"
-        break
+        CURRENT_REACHABLE=true
+      else
+        OUTAGE_OBSERVED=true
+      fi
+
+      if [ "$CURRENT_REACHABLE" = "true" ]; then
+        if [ -n "${TORQUE_PRE_RESTART_PID_SIGNATURE}" ]; then
+          CURRENT_PID_SIGNATURE=$(read_pid_signature "${TORQUE_PID_FILE_PATH}" 2>/dev/null || true)
+          if pid_signature_changed "${TORQUE_PRE_RESTART_PID_SIGNATURE}" "${CURRENT_PID_SIGNATURE}"; then
+            echo "[ok] TORQUE restarted on updated main (confirmed via PID turnover)"
+            RESTART_CONFIRMED=true
+            break
+          fi
+        elif [ "$OUTAGE_OBSERVED" = "true" ]; then
+          echo "[ok] TORQUE restarted on updated main (confirmed via outage + recovery)"
+          RESTART_CONFIRMED=true
+          break
+        fi
       fi
       sleep 2
     done
 
-    if ! torque_api_reachable; then
+    if [ "$RESTART_CONFIRMED" != "true" ] && torque_api_reachable; then
+      if [ -n "${TORQUE_PRE_RESTART_PID_SIGNATURE}" ]; then
+        echo "[error] TORQUE stayed reachable but never showed PID turnover."
+        echo "        The old process may still be serving after barrier completion."
+        echo "        Check ${TORQUE_PID_FILE_PATH} and torque.log before forcing a restart."
+      else
+        echo "[error] TORQUE stayed reachable but restart could not be confirmed."
+        echo "        No PID record was available, and no outage was observed."
+        echo "        Check ${TORQUE_PID_FILE_PATH} and torque.log before forcing a restart."
+      fi
+      exit 2
+    fi
+
+    if [ "$RESTART_CONFIRMED" != "true" ]; then
       echo "[warn] TORQUE did not come back up within ${RESTART_WAIT_SECONDS}s. Starting manually..."
       nohup node "${REPO_ROOT}/server/index.js" > /dev/null 2>&1 &
       MANUAL_WAIT_SECONDS=${CUTOVER_MANUAL_START_WAIT_SECONDS:-120}
       MANUAL_DEADLINE=$(( $(date +%s) + MANUAL_WAIT_SECONDS ))
       while [ "$(date +%s)" -lt "$MANUAL_DEADLINE" ]; do
         if torque_api_reachable; then
-          break
+          if [ -n "${TORQUE_PRE_RESTART_PID_SIGNATURE}" ]; then
+            CURRENT_PID_SIGNATURE=$(read_pid_signature "${TORQUE_PID_FILE_PATH}" 2>/dev/null || true)
+            if pid_signature_changed "${TORQUE_PRE_RESTART_PID_SIGNATURE}" "${CURRENT_PID_SIGNATURE}"; then
+              RESTART_CONFIRMED=true
+              break
+            fi
+          else
+            RESTART_CONFIRMED=true
+            break
+          fi
         fi
         sleep 2
       done
-      if torque_api_reachable; then
+      if [ "$RESTART_CONFIRMED" = "true" ]; then
         echo "[ok] TORQUE started manually on updated main"
       else
         echo "[warn] TORQUE may not have started. Check manually."
