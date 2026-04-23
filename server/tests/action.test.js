@@ -1,5 +1,5 @@
 'use strict';
-const { describe, it, expect } = require('vitest');
+
 const { createAction } = require('../actions/action');
 
 describe('createAction', () => {

@@ -1,6 +1,5 @@
 'use strict';
 
-const { afterEach, beforeEach, describe, expect, it } = require('vitest');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { createStatePersister } = require('../actions/state-persister');
 
