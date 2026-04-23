@@ -29,6 +29,7 @@ describe('task-cancellation', () => {
         resolveTaskId: vi.fn(),
         getTask: vi.fn(),
         updateTaskStatus: vi.fn(),
+        releaseAllFileLocks: vi.fn(() => 0),
       },
       runningProcesses: new Map(),
       apiAbortControllers: new Map(),
@@ -122,10 +123,13 @@ describe('task-cancellation', () => {
       expect(deps.cleanupProcessTracking).toHaveBeenCalledWith(
         fakeProc, fullId, deps.runningProcesses, deps.stallRecoveryAttempts
       );
+      expect(deps.db.releaseAllFileLocks).toHaveBeenCalledWith(fullId);
       expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
       expect(mockDispatchTaskEvent).toHaveBeenCalledWith('cancelled', expect.any(Object));
       expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
       expect(deps.processQueue).toHaveBeenCalled();
+      expect(deps.db.releaseAllFileLocks.mock.invocationCallOrder[0])
+        .toBeLessThan(deps.processQueue.mock.invocationCallOrder[0]);
     });
 
     it('uses graceful SIGTERM then SIGKILL flow and removes ProcessTracker state', () => {
@@ -239,6 +243,7 @@ describe('task-cancellation', () => {
         error_output: 'Cancelled by user',
         cancel_reason: 'user',
       });
+      expect(deps.db.releaseAllFileLocks).toHaveBeenCalledWith(fullId);
       expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
       expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
       // processQueue should NOT be called for queued tasks
@@ -257,6 +262,7 @@ describe('task-cancellation', () => {
         error_output: 'Cancelled by user',
         cancel_reason: 'user',
       });
+      expect(deps.db.releaseAllFileLocks).toHaveBeenCalledWith(fullId);
       expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
       expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
     });
@@ -273,6 +279,7 @@ describe('task-cancellation', () => {
         error_output: 'Cancelled by user',
         cancel_reason: 'user',
       });
+      expect(deps.db.releaseAllFileLocks).toHaveBeenCalledWith(fullId);
       expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
     });
 
@@ -289,6 +296,7 @@ describe('task-cancellation', () => {
         error_output: expect.stringContaining('Process was not found in memory'),
         cancel_reason: 'user',
       });
+      expect(deps.db.releaseAllFileLocks).toHaveBeenCalledWith(fullId);
       expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
       expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
       expect(deps.processQueue).toHaveBeenCalled();
@@ -306,6 +314,26 @@ describe('task-cancellation', () => {
         error_output: 'Server shutdown',
         cancel_reason: 'server_restart',
       });
+      expect(deps.db.releaseAllFileLocks).toHaveBeenCalledWith(fullId);
+    });
+
+    it('logs and continues when cancellation lock release fails', () => {
+      const fullId = 'queued-lock-release-error-task';
+      deps.db.resolveTaskId.mockReturnValue(fullId);
+      deps.db.getTask.mockReturnValue({ id: fullId, status: 'queued' });
+      deps.db.releaseAllFileLocks.mockImplementation(() => {
+        throw new Error('sqlite busy');
+      });
+
+      const result = handler.cancelTask(fullId);
+
+      expect(result).toBe(true);
+      expect(deps.db.releaseAllFileLocks).toHaveBeenCalledWith(fullId);
+      expect(deps.logger.warn).toHaveBeenCalledWith(
+        `[FileLock] Non-fatal error releasing locks for cancelled task ${fullId}: sqlite busy`
+      );
+      expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
+      expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
     });
 
     it('aborts API controller if present', () => {
