@@ -5,6 +5,7 @@ describe('verify-review module exports', () => {
     const mod = require('../factory/verify-review');
     expect(typeof mod.reviewVerifyFailure).toBe('function');
     expect(typeof mod.detectEnvironmentFailure).toBe('function');
+    expect(typeof mod.normalizeVerifyOutput).toBe('function');
     expect(typeof mod.parseFailingTests).toBe('function');
     expect(typeof mod.getModifiedFiles).toBe('function');
     expect(typeof mod.runLlmTiebreak).toBe('function');
@@ -148,6 +149,19 @@ describe('detectEnvironmentFailure', () => {
     expect(r.reason).toBe('missing_file_or_dir');
   });
 
+  it('uses combined output fallback when stdout and stderr are absent', () => {
+    const r = detectEnvironmentFailure({ output: '[error] Error: ENOENT: no such file or directory', exitCode: 1 });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('stderr_ENOENT');
+  });
+
+  it('parses exit_code from output fallback', () => {
+    const r = detectEnvironmentFailure({ output: 'factory worktree verify finished exit_code: 127' });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('exit_127');
+    expect(r.reason).toBe('command_not_found');
+  });
+
   it('returns detected=false for normal test-runner exit 1 with failing-test output', () => {
     const r = detectEnvironmentFailure({ exitCode: 1, stdout: 'FAILED tests/foo.py::test_bar', stderr: '', timedOut: false });
     expect(r.detected).toBe(false);
@@ -195,6 +209,16 @@ FAILED tests/baz.py::test_qux - ValueError: bad input
     expect(r).toContain('src/components/Foo.test.tsx');
     expect(r).toContain('src/utils/bar.test.ts');
     expect(r).toHaveLength(2);
+  });
+
+  it('parses vitest failure paths from output fallback', () => {
+    const r = parseFailingTests({
+      output: `
+ FAIL  server/tests/factory-verify-review.test.js [ server/tests/factory-verify-review.test.js ]
+ ❯ server/tests/factory-verify-review.test.js:42:7
+`,
+    });
+    expect(r).toEqual(['server/tests/factory-verify-review.test.js']);
   });
 
   it('parses dotnet test failure summary into test DLL paths', () => {
@@ -385,6 +409,29 @@ describe('runLlmTiebreak', () => {
     });
     expect(r.verdict).toBe('go');
     expect(r.critique).toContain('modified util');
+  });
+
+  it('submits the LLM tiebreak task in the provided worktree directory', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-worktree' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"The failing test belongs to this diff."}',
+      }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    await runLlmTiebreak({
+      failingTests: ['tests/helper.test.ts'],
+      modifiedFiles: ['src/helper.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/repo/root' },
+      workingDirectory: '/repo/.worktrees/feat-factory-1',
+    });
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: '/repo/.worktrees/feat-factory-1',
+    }));
   });
 
   it('returns {verdict: null, critique: null} when output is unparseable', async () => {

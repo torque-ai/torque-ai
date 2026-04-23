@@ -25,7 +25,7 @@ const branchFreshness = require('./branch-freshness');
 const { createPlanFileIntake } = require('./plan-file-intake');
 const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
-const { createWorktreeRunner } = require('./worktree-runner');
+const { createWorktreeRunner, detectDefaultBranch } = require('./worktree-runner');
 const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 const eventBus = require('../event-bus');
 const logger = require('../logger').child({ component: 'loop-controller' });
@@ -4528,6 +4528,85 @@ async function executePlanFileStage(project, instance, workItem) {
       const targetBranch = resolveBranchName({ workItem: targetItem });
       const stale = factoryWorktrees.getActiveWorktreeByBranch(targetBranch);
       if (stale) {
+        let owning = null;
+        let owningStatus = null;
+        const liveStatuses = new Set(['queued', 'running', 'pending', 'retry_scheduled']);
+        try {
+          if (stale.owningTaskId) {
+            const taskCore = require('../db/task-core');
+            owning = taskCore.getTask(stale.owningTaskId);
+            owningStatus = owning?.status || null;
+          }
+        } catch (ownershipErr) {
+          logger.warn('factory worktree: owning-task lookup failed before reclaim guard', {
+            stale_factory_worktree_id: stale.id,
+            owning_task_id: stale.owningTaskId || null,
+            err: ownershipErr && ownershipErr.message,
+          });
+        }
+        let reclaimGraceMs = 10 * 60 * 1000;
+        try {
+          const cfg = project?.config_json ? JSON.parse(project.config_json) : {};
+          const configuredMs = Number(cfg.worktree_reclaim_grace_ms);
+          const configuredMinutes = Number(cfg.worktree_reclaim_grace_minutes);
+          if (Number.isFinite(configuredMs) && configuredMs > 0) {
+            reclaimGraceMs = configuredMs;
+          } else if (Number.isFinite(configuredMinutes) && configuredMinutes > 0) {
+            reclaimGraceMs = configuredMinutes * 60 * 1000;
+          }
+        } catch (_cfgErr) {
+          void _cfgErr;
+        }
+        const createdAtRaw = stale.created_at || stale.createdAt || '';
+        const createdAt = typeof createdAtRaw === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(createdAtRaw)
+          ? Date.parse(`${createdAtRaw.replace(' ', 'T')}Z`)
+          : Date.parse(createdAtRaw);
+        const staleAgeMs = Number.isFinite(createdAt) ? Date.now() - createdAt : null;
+        const withinReclaimGrace = staleAgeMs === null || staleAgeMs < reclaimGraceMs;
+        if (owning && liveStatuses.has(owningStatus) && withinReclaimGrace) {
+          logger.info('factory worktree: skipping pre-reclaim for fresh live owner', {
+            project_id: project.id,
+            work_item_id: targetItem.id,
+            branch: targetBranch,
+            stale_factory_worktree_id: stale.id,
+            stale_batch_id: stale.batch_id,
+            owning_task_id: stale.owningTaskId,
+            owning_status: owningStatus,
+            stale_age_ms: staleAgeMs,
+            reclaim_grace_ms: reclaimGraceMs,
+          });
+          safeLogDecision({
+            project_id: project.id,
+            stage: LOOP_STATES.EXECUTE,
+            action: 'worktree_reclaim_skipped_live_owner',
+            reasoning: 'Skipped pre-reclaim because the branch is still owned by a recent live task.',
+            inputs: { ...getWorkItemDecisionContext(targetItem) },
+            outcome: {
+              stale_factory_worktree_id: stale.id,
+              stale_batch_id: stale.batch_id,
+              branch: targetBranch,
+              owning_task_id: stale.owningTaskId,
+              owning_status: owningStatus,
+              stale_age_ms: staleAgeMs,
+              reclaim_grace_ms: reclaimGraceMs,
+            },
+            confidence: 1,
+            batch_id: executeLogBatchId,
+          });
+          return {
+            reason: 'active worktree owner still running',
+            work_item: targetItem,
+            stop_execution: true,
+            next_state: LOOP_STATES.EXECUTE,
+            stage_result: {
+              status: 'waiting',
+              reason: 'active_worktree_owner_running',
+              factory_worktree_id: stale.id,
+              owning_task_id: stale.owningTaskId,
+              owning_status: owningStatus,
+            },
+          };
+        }
         logger.warn('factory worktree: pre-reclaiming stale active row before create', {
           project_id: project.id,
           work_item_id: targetItem.id,
@@ -4666,6 +4745,7 @@ async function executePlanFileStage(project, instance, workItem) {
         vc_worktree_id: createdWorktree.id,
         branch: createdWorktree.branch,
         worktree_path: createdWorktree.worktreePath,
+        base_branch: createdWorktree.baseBranch || createdWorktree.base_branch || null,
       });
       executionWorkingDirectory = worktreeRecord.worktreePath;
       safeLogDecision({
@@ -6052,8 +6132,12 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
       projectConfig = {};
     }
     const thresholdValue = Number(projectConfig.stale_branch_commit_threshold);
-    const staleBranchCommitThreshold = Number.isFinite(thresholdValue) ? thresholdValue : 5;
-    const baseRef = worktreeRecord.base_branch || 'master';
+    const staleBranchCommitThreshold = Number.isFinite(thresholdValue) ? thresholdValue : 0;
+    const baseRef = worktreeRecord.base_branch
+      || worktreeRecord.baseBranch
+      || detectDefaultBranch(worktreeRecord.worktreePath || project?.path || process.cwd())
+      || 'main';
+    const branchStaleRejectReason = 'branch_stale_vs_base';
     const freshness = await branchFreshness.checkBranchFreshness({
       worktreePath: worktreeRecord.worktreePath,
       branch: worktreeRecord.branch,
@@ -6096,7 +6180,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
         });
       } else {
         if (workItemForRetry && workItemForRetry.id) {
-          factoryIntake.rejectWorkItemUnactionable(workItemForRetry.id, 'branch_stale_vs_master');
+          factoryIntake.rejectWorkItemUnactionable(workItemForRetry.id, branchStaleRejectReason);
         }
         safeLogDecision({
           project_id,
@@ -6113,7 +6197,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
         });
         return {
           status: 'failed',
-          reason: 'branch_stale_vs_master',
+          reason: branchStaleRejectReason,
           pause_at_stage: 'VERIFY',
           branch: worktreeRecord.branch,
           worktree_path: worktreeRecord.worktreePath,
@@ -6177,6 +6261,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
           worktreePath: worktreeRecord.worktreePath,
           branch: worktreeRecord.branch,
           verifyCommand,
+          baseBranch: baseRef,
         });
         if (res.passed) {
           safeLogDecision({
@@ -6210,9 +6295,9 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               : null;
             review = await verifyReview.reviewVerifyFailure({
               verifyOutput: res,
-              workingDirectory: project?.path || process.cwd(),
+              workingDirectory: worktreeRecord.worktreePath || project?.path || process.cwd(),
               worktreeBranch: worktreeRecord.branch,
-              mergeBase: worktreeRecord.base_branch || 'main',
+              mergeBase: baseRef,
               workItem: wi,
               project: project || { id: project_id, path: null },
               batch_id,
@@ -6571,6 +6656,7 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
                   worktreePath: worktreeRecord.worktreePath,
                   branch: worktreeRecord.branch,
                   verifyCommand,
+                  baseBranch: baseRef,
                 });
                 return {
                   exitCode: typeof execResult.exitCode === 'number' ? execResult.exitCode : (execResult.passed ? 0 : 1),

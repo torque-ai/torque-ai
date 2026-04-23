@@ -98,6 +98,7 @@ describe('createWorktreeRunner.createForBatch', () => {
     );
     expect(result.branch).toMatch(/^feat\/factory-42-cover-scan-report-fallback-branches$/);
     expect(result.worktreePath).toContain('.worktrees');
+    expect(result.baseBranch).toBe('main');
   });
 
   it('throws without project.path or workItem.id', async () => {
@@ -143,6 +144,8 @@ describe('createWorktreeRunner.verify', () => {
     });
     expect(result.passed).toBe(false);
     expect(result.output).toContain('boom');
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe('boom');
   });
 
   it('falls back to local verify when remote sync is unavailable', async () => {
@@ -233,6 +236,8 @@ describe('createWorktreeRunner.verify', () => {
     expect(result.passed).toBe(false);
     expect(result.reason).toBe('empty_branch');
     expect(result.output).toMatch(/no commits ahead of main/);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toMatch(/empty-branch/);
     expect(runRemoteVerify).not.toHaveBeenCalled();
     expect(runLocalVerify).not.toHaveBeenCalled();
     expect(countCommitsAhead).toHaveBeenCalledWith({

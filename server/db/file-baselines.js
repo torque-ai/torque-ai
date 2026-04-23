@@ -385,6 +385,8 @@ function acquireFileLock(filePath, workingDirectory, taskId, lockType = 'exclusi
     const expiresAt = new Date(Date.now() + timeoutSeconds * 1000).toISOString();
     const now = new Date().toISOString();
 
+    releaseExpiredFileLocks(now);
+
     // Check for existing locks (within transaction for atomicity)
     const existing = db.prepare(`
       SELECT * FROM file_locks
@@ -439,12 +441,25 @@ function releaseAllFileLocks(taskId) {
   return result.changes;
 }
 
+function releaseExpiredFileLocks(now = new Date().toISOString()) {
+  const stmt = db.prepare(`
+    UPDATE file_locks
+    SET released_at = ?
+    WHERE released_at IS NULL
+      AND expires_at IS NOT NULL
+      AND expires_at <= ?
+  `);
+  const result = stmt.run(now, now);
+  return result.changes;
+}
+
 /**
  * Get active file locks
  */
 
 function getActiveFileLocks(taskId = null) {
   const now = new Date().toISOString();
+  releaseExpiredFileLocks(now);
   if (taskId) {
     return db.prepare(`
       SELECT * FROM file_locks WHERE task_id = ? AND released_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
@@ -1065,6 +1080,7 @@ module.exports = {
   acquireFileLock,
   releaseFileLock,
   releaseAllFileLocks,
+  releaseExpiredFileLocks,
   getActiveFileLocks,
   createRollback,
   getRollback,

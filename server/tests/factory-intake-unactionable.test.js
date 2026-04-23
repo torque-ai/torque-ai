@@ -9,6 +9,7 @@ const EXPECTED_REJECT_REASONS = [
   'zero_diff_across_retries',
   'retry_off_scope',
   'branch_stale_vs_master',
+  'branch_stale_vs_base',
 ];
 
 function createFactoryTables(db) {
@@ -105,7 +106,7 @@ describe('factory intake unactionable status', () => {
   });
 
   test('REJECT_REASONS contains the unactionable reason constants', () => {
-    expect(factoryIntake.REJECT_REASONS.size).toBe(4);
+    expect(factoryIntake.REJECT_REASONS.size).toBe(5);
     for (const reason of EXPECTED_REJECT_REASONS) {
       expect(factoryIntake.REJECT_REASONS.has(reason)).toBe(true);
     }

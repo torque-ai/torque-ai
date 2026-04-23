@@ -216,6 +216,79 @@ describe('factory worktrees persistence', () => {
     factoryWorktrees.setDb(null);
   });
 
+  it('persists base_branch when the schema has the column', () => {
+    const db = new Database(dbPath);
+    createTables(db);
+    db.prepare('ALTER TABLE factory_worktrees ADD COLUMN base_branch TEXT').run();
+    const workItemId = seedParents(db);
+
+    const factoryWorktrees = loadFreshFactoryWorktrees();
+    factoryWorktrees.setDb(db);
+    const recorded = factoryWorktrees.recordWorktree({
+      project_id: 'project-1',
+      work_item_id: workItemId,
+      batch_id: 'batch-base',
+      vc_worktree_id: 'vc-worktree-1',
+      branch: 'feat/factory-base',
+      base_branch: 'develop',
+      worktree_path: 'C:/repo/.worktrees/feat/factory-base',
+    });
+
+    expect(recorded.baseBranch).toBe('develop');
+    const row = db.prepare('SELECT base_branch FROM factory_worktrees WHERE id = ?').get(recorded.id);
+    expect(row.base_branch).toBe('develop');
+
+    db.close();
+    factoryWorktrees.setDb(null);
+  });
+
+  it('prunes only abandoned worktrees older than the retention window', () => {
+    const db = new Database(dbPath);
+    createTables(db);
+    const workItemId = seedParents(db);
+
+    const factoryWorktrees = loadFreshFactoryWorktrees();
+    factoryWorktrees.setDb(db);
+    const oldAbandoned = factoryWorktrees.recordWorktree({
+      project_id: 'project-1',
+      work_item_id: workItemId,
+      batch_id: 'batch-old',
+      vc_worktree_id: 'vc-worktree-old',
+      branch: 'feat/factory-old',
+      worktree_path: 'C:/repo/.worktrees/feat/factory-old',
+    });
+    factoryWorktrees.markAbandoned(oldAbandoned.id);
+    db.prepare("UPDATE factory_worktrees SET abandoned_at = datetime('now', '-2 days') WHERE id = ?").run(oldAbandoned.id);
+
+    const freshAbandoned = factoryWorktrees.recordWorktree({
+      project_id: 'project-1',
+      work_item_id: workItemId,
+      batch_id: 'batch-fresh',
+      vc_worktree_id: 'vc-worktree-fresh',
+      branch: 'feat/factory-fresh',
+      worktree_path: 'C:/repo/.worktrees/feat/factory-fresh',
+    });
+    factoryWorktrees.markAbandoned(freshAbandoned.id);
+
+    const active = factoryWorktrees.recordWorktree({
+      project_id: 'project-1',
+      work_item_id: workItemId,
+      batch_id: 'batch-active',
+      vc_worktree_id: 'vc-worktree-active',
+      branch: 'feat/factory-active',
+      worktree_path: 'C:/repo/.worktrees/feat/factory-active',
+    });
+
+    const pruned = factoryWorktrees.pruneAbandonedWorktrees({ olderThanHours: 24 });
+    expect(pruned).toBe(1);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM factory_worktrees WHERE id = ?').get(oldAbandoned.id).count).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM factory_worktrees WHERE id = ?').get(freshAbandoned.id).count).toBe(1);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM factory_worktrees WHERE id = ?').get(active.id).count).toBe(1);
+
+    db.close();
+    factoryWorktrees.setDb(null);
+  });
+
   it('allows re-recording a branch after the previous worktree is merged', () => {
     // Partial unique index (status = 'active') — merged rows are historical
     // and shouldn't block a fresh worktree on the same branch if the work

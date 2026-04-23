@@ -409,6 +409,20 @@ describe('acquireFileLock', () => {
     expect(r1.acquired).toBe(true);
     expect(r2.acquired).toBe(true);
   });
+
+  it('releases expired locks before checking conflicts', () => {
+    mod.acquireFileLock('expired-reclaim.js', testDir, 'task-lk-expired', 'exclusive', -1);
+
+    const result = mod.acquireFileLock('expired-reclaim.js', testDir, 'task-lk-new');
+
+    expect(result.acquired).toBe(true);
+    const expired = rawDb().prepare(`
+      SELECT released_at
+      FROM file_locks
+      WHERE file_path = ? AND working_directory = ? AND task_id = ?
+    `).get('expired-reclaim.js', testDir, 'task-lk-expired');
+    expect(expired.released_at).toBeTruthy();
+  });
 });
 
 describe('releaseFileLock', () => {
@@ -440,6 +454,18 @@ describe('releaseAllFileLocks', () => {
 
     const otherLocks = mod.getActiveFileLocks('task-lk-other');
     expect(otherLocks).toHaveLength(1);
+  });
+});
+
+describe('releaseExpiredFileLocks', () => {
+  it('marks expired unreleased locks as released', () => {
+    mod.acquireFileLock('expired.js', testDir, 'task-lk-expired-release', 'exclusive', -1);
+
+    const released = mod.releaseExpiredFileLocks();
+
+    expect(released).toBe(1);
+    const locks = mod.getActiveFileLocks('task-lk-expired-release');
+    expect(locks).toHaveLength(0);
   });
 });
 

@@ -185,15 +185,22 @@ describe('executeVerifyStage + verify-review integration', () => {
     const awaitModule = require('../handlers/workflow/await');
     const taskCore = require('../db/task-core');
     const guardrailRunner = require('../factory/guardrail-runner');
+    const branchFreshness = require('../factory/branch-freshness');
 
-    const { projectId, workItemId, batchId } = seedProjectItemAndWorktree(dbHandle);
+    const { projectId, workItemId, batchId, worktreeAbsPath } = seedProjectItemAndWorktree(dbHandle);
 
     const verify = vi.fn()
       .mockResolvedValueOnce({ passed: false, exitCode: 1, stdout: 'FAIL  tests/foo.test.ts', stderr: '', output: 'FAIL  tests/foo.test.ts', durationMs: 100, timedOut: false })
       .mockResolvedValueOnce({ passed: true, exitCode: 0, stdout: 'PASS', stderr: '', output: 'PASS', durationMs: 50, timedOut: false });
     loopController.setWorktreeRunnerForTests({ verify });
 
-    vi.spyOn(verifyReview, 'reviewVerifyFailure').mockResolvedValue({
+    const freshnessSpy = vi.spyOn(branchFreshness, 'checkBranchFreshness').mockResolvedValue({
+      stale: false,
+      reason: null,
+      commitsBehind: 0,
+      staleFiles: [],
+    });
+    const reviewSpy = vi.spyOn(verifyReview, 'reviewVerifyFailure').mockResolvedValue({
       classification: 'task_caused',
       confidence: 'high',
       modifiedFiles: ['tests/foo.test.ts'],
@@ -229,6 +236,22 @@ describe('executeVerifyStage + verify-review integration', () => {
 
     expect(r.status).toBe('passed');
     expect(verify).toHaveBeenCalledTimes(2);
+    expect(freshnessSpy).toHaveBeenCalledWith(expect.objectContaining({
+      worktreePath: worktreeAbsPath,
+      branch: `feat/factory-${workItemId}-test`,
+      baseRef: 'main',
+      threshold: 0,
+    }));
+    expect(verify).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      worktreePath: worktreeAbsPath,
+      branch: `feat/factory-${workItemId}-test`,
+      baseBranch: 'main',
+    }));
+    expect(reviewSpy).toHaveBeenCalledWith(expect.objectContaining({
+      workingDirectory: worktreeAbsPath,
+      worktreeBranch: `feat/factory-${workItemId}-test`,
+      mergeBase: 'main',
+    }));
 
     const item = dbHandle.prepare('SELECT status FROM factory_work_items WHERE id = ?').get(workItemId);
     expect(item.status).not.toBe('rejected');
