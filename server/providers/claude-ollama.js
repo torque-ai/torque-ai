@@ -18,7 +18,6 @@ const {
   normalizeToolResult,
   normalizeUsage,
   extractTextDelta,
-  extractFallbackText,
 } = require('./claude-code/stream-parser');
 
 const DEFAULT_MODE = 'auto';

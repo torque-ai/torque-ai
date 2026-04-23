@@ -1,6 +1,6 @@
 'use strict';
 
-function createHostRegistry(db) {
+function createHostRegistry(_db) {
   const hosts = new Map();
 
   function getHealthyHosts() {

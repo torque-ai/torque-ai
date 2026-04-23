@@ -1,6 +1,5 @@
 'use strict';
 
-const fsPromises = require('node:fs').promises;
 const fsSync = require('node:fs');
 const nodePath = require('node:path');
 

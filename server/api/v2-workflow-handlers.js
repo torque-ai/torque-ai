@@ -66,7 +66,7 @@ function getWorkflowTaskListWithBlockers(workflowId, statusOverride = null) {
 }
 
 function buildWorkflowDetailPayload(workflow, workflowId = workflow?.id) {
-  const { status, taskList } = getWorkflowTaskListWithBlockers(workflowId);
+  const { taskList } = getWorkflowTaskListWithBlockers(workflowId);
   const detail = buildWorkflowDetailResponse(workflow, taskList);
   if (!detail) return null;
   return {

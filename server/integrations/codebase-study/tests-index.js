@@ -197,7 +197,7 @@ function createTestsIndex(deps = {}) {
       coverage: [...flowCoverage, ...subsystemCoverage, ...validationCoverage]
         .sort((left, right) => (right.sort_score || 0) - (left.sort_score || 0) || left.label.localeCompare(right.label))
         .slice(0, TEST_MATRIX_LIMIT)
-        .map(({ sort_score, ...rest }) => ({
+        .map(({ sort_score: _sortScore, ...rest }) => ({
           ...rest,
           confidence: rest.scope_type === 'validation' ? 'medium' : 'high',
           evidence_quality: rest.scope_type === 'validation' ? 'script-derived' : 'test-derived',

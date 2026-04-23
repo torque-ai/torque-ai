@@ -97,7 +97,6 @@ module.exports.__testHelpers = {
   applyTaskExecutionContext,
   resolveHookWorkingDirectory,
   maybeFireFileWriteHooks,
-  handleRestartServer,
 };
 `;
   const compiled = new Function(

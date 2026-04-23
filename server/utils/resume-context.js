@@ -8,7 +8,7 @@ const MAX_FILES = 50;
 const RESUME_CONTEXT_HEADING = '## Previous Attempt (failed)';
 const RESUME_CONTEXT_INSTRUCTION = 'Do not repeat the same approach. Fix the error and complete the task.';
 
-const FILE_ACTION_PATTERN = /\b(?:Wrote|Created|Modified|Updated|Edited)\b(?:\s+(?:file|path))?\s*[:\-]?\s*(.+)$/i;
+const FILE_ACTION_PATTERN = /\b(?:Wrote|Created|Modified|Updated|Edited)\b(?:\s+(?:file|path))?\s*[:-]?\s*(.+)$/i;
 const MARKDOWN_LINK_PATTERN = /\[([^\]\r\n]+\.[A-Za-z0-9]{1,16})\](?:\([^)]+\))?/g;
 const CODE_SPAN_PATH_PATTERN = /`([^`\r\n]+\.[A-Za-z0-9]{1,16})`/g;
 const QUOTED_PATH_PATTERN = /["']([^"'\r\n]+\.[A-Za-z0-9]{1,16})["']/g;
@@ -39,7 +39,7 @@ function addUnique(list, value) {
 function normalizePath(rawPath) {
   return toText(rawPath)
     .trim()
-    .replace(/^[`'"\[(<]+/, '')
+    .replace(/^[`'"[(<]+/, '')
     .replace(/[`'"\])>.,;:]+$/, '')
     .replace(/\\/g, '/');
 }

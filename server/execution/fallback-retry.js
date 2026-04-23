@@ -16,7 +16,6 @@ const modelRoles = require('../db/model-roles');
 const { CLOUD_PROVIDERS, getProviderFallbackChain } = require('../db/provider-routing-core');
 const serverConfig = require('../config');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
-const { safeJsonParse } = require('../utils/json');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 

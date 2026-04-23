@@ -116,21 +116,6 @@ function routeSignature(route) {
   return `${route.method} ${serializePath(route.path)}`;
 }
 
-function normalizePath(routePath) {
-  if (typeof routePath === 'string') {
-    return routePath;
-  }
-  return routePath.source
-    .replace(/\\\//g, '/')
-    .replace(/^\^/, '')
-    .replace(/\$$/, '');
-}
-
-function extractDomain(route) {
-  const match = normalizePath(route.path).match(/^\/api\/v2\/([^/]+)/);
-  return match ? match[1] : null;
-}
-
 function findDuplicates(values) {
   const counts = new Map();
   values.forEach((value) => {

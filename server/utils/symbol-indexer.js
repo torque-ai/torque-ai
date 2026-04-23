@@ -407,8 +407,8 @@ function extractSymbolsRegex(content, filePath, ext) {
     { regex: /^(?:public|internal)\s+(?:partial\s+|sealed\s+|abstract\s+|static\s+)*(?:class|struct|record)\s+(\w+)/, kind: 'class' },
     { regex: /^(?:public|internal)\s+interface\s+(\w+)/, kind: 'interface' },
     { regex: /^(?:public|internal)\s+enum\s+(\w+)/, kind: 'enum' },
-    { regex: /^(?:public|internal)\s+(?:static\s+|virtual\s+|override\s+|async\s+|sealed\s+|partial\s+)*(?:[\w<>\[\]?,.]+\s+)+(\w+)\s*\(/, kind: 'method' },
-    { regex: /^(?:public|internal)\s+(?:static\s+|virtual\s+|override\s+|sealed\s+|partial\s+)*(?:[\w<>\[\]?,.]+\s+)+(\w+)\s*\{\s*(?:get|set)/, kind: 'property' },
+    { regex: /^(?:public|internal)\s+(?:static\s+|virtual\s+|override\s+|async\s+|sealed\s+|partial\s+)*(?:[\w<>[\]?,.]+\s+)+(\w+)\s*\(/, kind: 'method' },
+    { regex: /^(?:public|internal)\s+(?:static\s+|virtual\s+|override\s+|sealed\s+|partial\s+)*(?:[\w<>[\]?,.]+\s+)+(\w+)\s*\{\s*(?:get|set)/, kind: 'property' },
   ];
   const patterns = ext === '.cs' ? CSHARP_PATTERNS : JS_PATTERNS;
 

@@ -609,7 +609,7 @@ describe('factory loop-controller EXECUTE modes', () => {
       abandon: vi.fn(),
     };
     let submittedTaskCount = 0;
-    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+    routingModule.handleSmartSubmitTask = vi.fn(async (_args) => {
       submittedTaskCount += 1;
       const taskId = `approval-task-fail-${submittedTaskCount}`;
       insertBatchTask(db, {

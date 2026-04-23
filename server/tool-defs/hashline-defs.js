@@ -19,7 +19,7 @@ const tools = [
   },
   {
     name: 'hashline_edit',
-    description: 'Edit a file using line:hash references from hashline_read. Provide edits as an array of { start_line, start_hash, end_line, end_hash, new_content }. Hashes are verified against the cached read — stale hashes are rejected with current content shown. Multiple edits are applied bottom-to-top to preserve line numbers. Use new_content=\"\" to delete lines.',
+    description: 'Edit a file using line:hash references from hashline_read. Provide edits as an array of { start_line, start_hash, end_line, end_hash, new_content }. Hashes are verified against the cached read — stale hashes are rejected with current content shown. Multiple edits are applied bottom-to-top to preserve line numbers. Use new_content="" to delete lines.',
     inputSchema: {
       type: 'object',
       properties: {

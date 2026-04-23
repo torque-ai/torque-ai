@@ -3,8 +3,6 @@ const { randomUUID } = require('crypto');
 const tools = require('./tools');
 const { handleToolCall, schemaMap } = tools;
 const db = require('./database');
-const taskCore = require('./db/task-core');
-const costTracking = require('./db/cost-tracking');
 const serverConfig = require('./config');
 const logger = require('./logger').child({ component: 'api-server' });
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
@@ -16,7 +14,6 @@ const { createV2Router, V2_PROVIDER_ROUTE_HANDLER_NAMES } = require('./api/v2-ro
 const { normalizeError } = require('./api/v2-middleware');
 const v2TaskHandlers = require('./api/v2-task-handlers');
 const v2WorkflowHandlers = require('./api/v2-workflow-handlers');
-const eventBus = require('./event-bus');
 const v2GovernanceHandlers = require('./api/v2-governance-handlers');
 const v2AnalyticsHandlers = require('./api/v2-analytics-handlers');
 const v2InfrastructureHandlers = require('./api/v2-infrastructure-handlers');
@@ -25,7 +22,6 @@ const { FACTORY_V2_ROUTES, PII_SCAN_ROUTE } = require('./api/routes/index');
 const quotaLifecycleHandlers = require('./api/handlers/quota-and-lifecycle-handlers');
 const {
   coerceRestPassthroughValue,
-  executeRouteMiddleware,
   runRouteMiddleware,
   isExcludedRoute,
 } = require('./api/dispatcher-helpers');
@@ -42,7 +38,7 @@ const {
   applyMiddleware,
   DEFAULT_RATE_WINDOW_MS,
 } = middleware;
-const { handleInboundWebhook, verifyWebhookSignature, substitutePayload, setQuotaTrackerGetter: setWebhookQuotaTrackerGetter } = webhooks;
+const { handleInboundWebhook, verifyWebhookSignature, substitutePayload } = webhooks;
 const { handleHealthz, handleReadyz, handleLivez } = require('./api/health-probes');
 const {
   setQuotaTrackerGetter,

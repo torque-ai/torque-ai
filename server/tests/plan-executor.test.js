@@ -43,7 +43,7 @@ describe('plan-executor', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plan-exec-'));
     planPath = path.join(dir, 'plan.md');
     fs.writeFileSync(planPath, PLAN);
-    submitMock = vi.fn(async ({ task }) => ({ task_id: `t_${submitMock.mock.calls.length}` }));
+    submitMock = vi.fn(async ({ task: _task }) => ({ task_id: `t_${submitMock.mock.calls.length}` }));
     awaitMock = vi.fn(async () => ({ status: 'completed', verify_status: 'passed' }));
     exec = createPlanExecutor({ submit: submitMock, awaitTask: awaitMock });
   });

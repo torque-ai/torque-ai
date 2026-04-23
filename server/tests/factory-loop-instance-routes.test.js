@@ -70,7 +70,7 @@ describe('factory loop instance routes', () => {
     vi.restoreAllMocks();
   });
 
-  function findRoute(predicate, label) {
+  function findRoute(predicate, _label) {
     const route = FACTORY_V2_ROUTES.find(predicate);
     expect(route).toBeDefined();
     expect(typeof route.handler).toBe('function');

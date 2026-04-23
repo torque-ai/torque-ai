@@ -25,8 +25,7 @@ const mockContainer = {
   },
 };
 
-// Save original and replace
-const originalContainerModule = require.cache[containerPath];
+// Replace container with test double.
 require.cache[containerPath] = {
   id: containerPath,
   filename: containerPath,

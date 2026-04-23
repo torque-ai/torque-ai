@@ -11,8 +11,7 @@ import {
 
 const { EventEmitter } = require('events');
 const http = require('http');
-const { generateOpenApiSpec, OPENAPI_VERSION, API_TITLE } = require('../api/openapi-generator');
-const apiRoutes = require('../api/routes');
+const { OPENAPI_VERSION, API_TITLE } = require('../api/openapi-generator');
 const taskCore = require('../db/task-core');
 const costTracking = require('../db/cost-tracking');
 const providerRoutingCore = require('../db/provider-routing-core');

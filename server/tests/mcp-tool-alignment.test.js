@@ -15,14 +15,9 @@ const HANDLERS_DIR = path.join(SERVER_ROOT, 'handlers');
 const TOOLS_AGGREGATOR_TEST_FILE = path.join(__dirname, 'tools-aggregator.test.js');
 const TOOL_SCHEMA_VALIDATION_TEST_FILE = path.join(__dirname, 'tool-schema-validation.test.js');
 const TOOL_ANNOTATIONS_TEST_FILE = path.join(__dirname, 'tool-annotations.test.js');
-const REST_PASSTHROUGH_COVERAGE_TEST_FILE = path.join(__dirname, 'rest-passthrough-coverage.test.js');
 const P3_ASYNC_TRYCATCH_TEST_FILE = path.join(__dirname, 'p3-async-trycatch.test.js');
 const P3_RAW_THROWS_TEST_FILE = path.join(__dirname, 'p3-raw-throws.test.js');
 const CORE_TOOLS_TEST_FILE = path.join(__dirname, 'core-tools.test.js');
-
-const ROUTE_SOURCE_FILES = [
-  path.join(SERVER_ROOT, 'api', 'routes-passthrough.js'),
-];
 
 // Recursive alignment uses the existing p3 exemptions plus a few legacy nested modules
 // whose handlers intentionally delegate error handling today.
@@ -88,25 +83,6 @@ function lineNumberForIndex(source, index) {
   return source.slice(0, index).split(/\r?\n/).length;
 }
 
-function extractStringArrayConstant(filePath, constantName) {
-  const source = fs.readFileSync(filePath, 'utf8');
-  const match = new RegExp(`const\\s+${constantName}\\s*=\\s*\\[(?<body>[\\s\\S]*?)\\];`).exec(source);
-  if (!match) {
-    throw new Error(`Could not find ${constantName} in ${relativeToRepo(filePath)}`);
-  }
-
-  const values = [];
-  const stringRegex = /['"]([^'"]+)['"]/g;
-  for (const stringMatch of match.groups.body.matchAll(stringRegex)) {
-    values.push(stringMatch[1]);
-  }
-
-  return {
-    values,
-    line: lineNumberForIndex(source, match.index),
-  };
-}
-
 function buildToolNameOccurrenceQueues(source) {
   const queues = new Map();
   const nameRegex = /\bname\s*:\s*['"]([^'"]+)['"]/g;
@@ -152,110 +128,6 @@ function collectToolEntries(drifts) {
   }
 
   return entries;
-}
-
-function walkAst(node, visit) {
-  if (!node || typeof node !== 'object') {
-    return;
-  }
-  if (Array.isArray(node)) {
-    node.forEach((child) => walkAst(child, visit));
-    return;
-  }
-  if (typeof node.type === 'string') {
-    visit(node);
-  }
-  for (const value of Object.values(node)) {
-    if (!value || typeof value !== 'object') {
-      continue;
-    }
-    walkAst(value, visit);
-  }
-}
-
-function getPropertyName(node) {
-  if (!node) {
-    return null;
-  }
-  if (node.type === 'Identifier') {
-    return node.name;
-  }
-  if (node.type === 'Literal' && typeof node.value === 'string') {
-    return node.value;
-  }
-  return null;
-}
-
-function readRoutePathValue(node) {
-  if (!node) {
-    return null;
-  }
-  if (node.type === 'Literal') {
-    if (typeof node.value === 'string') {
-      return node.value;
-    }
-    if (node.regex && typeof node.regex.pattern === 'string') {
-      return node.regex.pattern;
-    }
-  }
-  if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
-    return node.quasis.map((part) => part.value.cooked || '').join('');
-  }
-  return null;
-}
-
-function extractDomainFromRoutePath(routePath) {
-  const normalized = String(routePath)
-    .replace(/\\\//g, '/')
-    .replace(/^\^/, '')
-    .replace(/\$$/, '');
-  const match = normalized.match(/^\/api\/v2\/([^/]+)/);
-  return match ? match[1] : null;
-}
-
-function collectRouteDomains(filePath) {
-  const source = fs.readFileSync(filePath, 'utf8');
-  const ast = acorn.parse(source, {
-    ecmaVersion: 2023,
-    sourceType: 'script',
-    locations: true,
-  });
-
-  const domains = [];
-  walkAst(ast, (node) => {
-    if (node.type !== 'ObjectExpression') {
-      return;
-    }
-
-    const pathProperty = node.properties.find((property) => (
-      property
-      && property.type === 'Property'
-      && !property.computed
-      && getPropertyName(property.key) === 'path'
-    ));
-
-    if (!pathProperty) {
-      return;
-    }
-
-    const routePath = readRoutePathValue(pathProperty.value);
-    if (!routePath) {
-      return;
-    }
-
-    const domain = extractDomainFromRoutePath(routePath);
-    if (!domain) {
-      return;
-    }
-
-    domains.push({
-      domain,
-      filePath,
-      line: pathProperty.value.loc.start.line,
-    });
-  });
-
-  return domains;
 }
 
 function extractInlineToolNamesFromTools(filePath) {

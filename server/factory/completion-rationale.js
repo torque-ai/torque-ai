@@ -89,7 +89,6 @@ async function invokeLlmFallback({ stdout_tail, llmRouter, timeoutMs }) {
 async function classifyZeroDiff({
   stdout_tail = '',
   attempt = 1,
-  kind = 'execute',
   llmRouter = null,
   timeoutMs = 30000,
 } = {}) {

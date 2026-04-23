@@ -8,7 +8,6 @@
 const path = require('path');
 const database = require('../../database');
 const eventTracking = require('../../db/event-tracking');
-const fileTracking = require('../../db/file-tracking');
 const projectConfigCore = require('../../db/project-config-core');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const taskMetadata = require('../../db/task-metadata');

@@ -173,7 +173,6 @@ function handleGetReviewWorkflowConfig(_args) {
 }
 
 function handleBackupDatabase(args) {
-  const os = require('os');
   const destPath = args.dest_path || path.join(
     require('../../data-dir').getDataDir(),
     'backups',

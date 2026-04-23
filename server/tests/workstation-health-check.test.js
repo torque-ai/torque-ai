@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import http from 'node:http';
 import { TEST_MODELS } from './test-helpers';
 

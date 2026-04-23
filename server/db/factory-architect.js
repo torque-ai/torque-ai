@@ -1,7 +1,5 @@
 'use strict';
 
-const logger = require('../logger').child({ component: 'factory-architect' });
-
 let db = null;
 
 function setDb(dbInstance) {

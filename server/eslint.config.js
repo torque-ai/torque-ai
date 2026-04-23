@@ -54,11 +54,9 @@ module.exports = [
       },
     },
     rules: {
-      // Keep unused symbols visible without failing the release gate; the
-      // current codebase still carries a warning baseline.
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
-      'no-control-regex': 'warn',
-      'no-useless-escape': 'warn',
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
+      'no-control-regex': 'error',
+      'no-useless-escape': 'error',
       'no-constant-condition': 'warn',
       'no-empty': ['warn', { allowEmptyCatch: true }],
       'no-redeclare': 'error',

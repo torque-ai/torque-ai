@@ -15,7 +15,6 @@ const { evaluatePermission } = require('./claude-code/permission-chain');
 const { loadSkills } = require('./claude-code/skills-loader');
 const {
   cleanText,
-  extractTextFromContent,
   normalizeToolCall,
   normalizeToolResult,
   normalizeUsage,

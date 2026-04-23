@@ -27,7 +27,7 @@ const _executeCliModule = require('./execute-cli');
 // Agentic pipeline components
 const { runAgenticLoop } = require('./ollama-agentic');
 const { isAgenticCapable, needsPromptInjection, init: initCapability } = require('./agentic-capability');
-const { createToolExecutor, TOOL_DEFINITIONS, selectToolsForTask } = require('./ollama-tools');
+const { createToolExecutor, selectToolsForTask } = require('./ollama-tools');
 const { captureSnapshot, checkAndRevert, revertScopedChanges } = require('./agentic-git-safety');
 const { resolveOllamaModel } = require('./ollama-shared');
 

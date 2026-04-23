@@ -120,33 +120,6 @@ function workstationUrl(workstation, path, defaultPort) {
   return url.href;
 }
 
-function normalizeHealthResponse(payload) {
-  let healthy = true;
-  const models = [];
-
-  if (payload && typeof payload === 'object') {
-    if (Object.prototype.hasOwnProperty.call(payload, 'healthy')) {
-      healthy = !!payload.healthy;
-    } else if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
-      healthy = normalizeTrimmed(payload.status).toLowerCase() === 'healthy' || normalizeTrimmed(payload.status).toLowerCase() === 'ok';
-    } else if (Object.prototype.hasOwnProperty.call(payload, 'ok')) {
-      healthy = !!payload.ok;
-    } else if (Object.prototype.hasOwnProperty.call(payload, 'up')) {
-      healthy = !!payload.up;
-    } else {
-      healthy = true;
-    }
-
-    if (Array.isArray(payload.models)) {
-      models.push(...payload.models);
-    }
-  } else if (typeof payload === 'boolean') {
-    healthy = payload;
-  }
-
-  return { healthy, models };
-}
-
 function listWorkstations(args = {}) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) {
     return buildFetchError('listWorkstations expects an argument object');

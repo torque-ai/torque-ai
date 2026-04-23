@@ -1,7 +1,7 @@
 'use strict';
 const { scoreFilesByPath } = require('../../db/file-risk-patterns');
 
-function createFileRiskAdapter({ db, fileRisk, customPatterns = {} }) {
+function createFileRiskAdapter({ db: _db, fileRisk, customPatterns = {} }) {
   function scoreAndPersist(filePaths, workingDirectory, taskId) {
     const normalizedPaths = Array.isArray(filePaths) ? filePaths : [];
     const normalizedDir = workingDirectory || '';

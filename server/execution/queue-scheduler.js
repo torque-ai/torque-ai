@@ -16,7 +16,6 @@ const { classifyTaskType } = require('../db/model-capabilities');
 const providerRegistry = require('../providers/registry');
 const serverConfig = require('../config');
 const gpuMetrics = require('../scripts/gpu-metrics-server');
-const { safeJsonParse } = require('../utils/json');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { DEFAULT_FALLBACK_MODEL } = require('../constants');
 const { resolveOllamaModel } = require('../providers/ollama-shared');
