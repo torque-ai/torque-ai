@@ -201,7 +201,7 @@ function normalizeSingleQuotedJson(text) {
     (_, prefix, key) => `${prefix}"${escapeDoubleQuotedText(key)}":`,
   );
   normalized = normalized.replace(
-    /([:\[,]\s*)'([^'\\]*(?:\\.[^'\\]*)*)'(?=\s*[,}\]])/g,
+    /((?::|,|\[)\s*)'([^'\\]*(?:\\.[^'\\]*)*)'(?=\s*[,}\]])/g,
     (_, prefix, value) => `${prefix}"${escapeDoubleQuotedText(value)}"`,
   );
   return normalized;

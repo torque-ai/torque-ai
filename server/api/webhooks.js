@@ -60,7 +60,12 @@ function substitutePayload(template, payload) {
       value = value[key];
     }
     if (value == null) return match;
-    const str = String(value).slice(0, 500).replace(/[\x00-\x1f\x7f]/g, '');
+    const str = Array.from(String(value).slice(0, 500))
+      .filter((char) => {
+        const code = char.charCodeAt(0);
+        return code >= 32 && code !== 127;
+      })
+      .join('');
     return str;
   });
 }

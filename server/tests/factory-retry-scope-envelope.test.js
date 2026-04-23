@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../event-bus', () => ({ emitTaskEvent: vi.fn() }));
 
@@ -77,7 +77,6 @@ describe('enforceVerifyRetryScopeEnvelope — envelope pass path', () => {
     const logDecisionFn = vi.fn();
     const rejectWorkItemUnactionableFn = vi.fn();
 
-    const plan_path = null;
     const readFileShim = {
       readFileSync: () => planText,
     };

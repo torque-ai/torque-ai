@@ -24,6 +24,14 @@ const { parseBody } = require('./middleware');
 let _taskManager = null;
 let _remoteAgentRegistry = null;
 
+function redactCredential(credential) {
+  const safe = { ...(credential || {}) };
+  delete safe.encrypted_value;
+  delete safe.iv;
+  delete safe.auth_tag;
+  return safe;
+}
+
 function normalizeInitDeps(depsOrTaskManager) {
   if (!depsOrTaskManager) {
     return {};
@@ -376,7 +384,7 @@ async function handleListPeekHosts(req, res) {
   const requestId = resolveRequestId(req);
   const hosts = (emailPeek.listPeekHosts ? emailPeek.listPeekHosts() : []).map(host => ({
     ...host,
-    credentials: (hostManagement.listCredentials ? hostManagement.listCredentials(host.name, 'peek') : []).map(({ encrypted_value, iv, auth_tag, ...safe }) => safe),
+    credentials: (hostManagement.listCredentials ? hostManagement.listCredentials(host.name, 'peek') : []).map(redactCredential),
   }));
   sendList(res, requestId, hosts, hosts.length, req);
 }
@@ -448,7 +456,7 @@ async function handleListCredentials(req, res) {
   }
 
   const creds = hostManagement.listCredentials ? hostManagement.listCredentials(hostName, hostType) : [];
-  const redacted = creds.map(({ encrypted_value, iv, auth_tag, ...safe }) => safe);
+  const redacted = creds.map(redactCredential);
   sendList(res, requestId, redacted, redacted.length, req);
 }
 

@@ -38,7 +38,7 @@ function createVerificationLedger({ db }) {
   function insertChecks(checks) {
     const tx = db.transaction((items) => {
       const statement = db.prepare(insertSql);
-      for (const check of checks) {
+      for (const check of items) {
         const now = new Date().toISOString();
         statement.run(
           check.task_id,

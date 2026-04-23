@@ -1,8 +1,7 @@
 'use strict';
 
-const path = require('path');
 const fs = require('fs');
-const { spawnSync, spawn } = require('child_process');
+const { spawn } = require('child_process');
 
 // Async variant of spawnInBash that returns a Promise — used for verify
 // commands that can run up to 30 minutes. spawnSync would block the Node
@@ -133,27 +132,6 @@ function resolveBashOnWindows() {
     }
   }
   return null;
-}
-
-function spawnInBash(bashCmd, options) {
-  if (process.platform === 'win32') {
-    const bashPath = resolveBashOnWindows();
-    if (!bashPath) {
-      return {
-        status: 1,
-        stdout: '',
-        stderr: 'Git Bash not found on this Windows host',
-        error: { message: 'bash_not_found' },
-      };
-    }
-    return spawnSync(bashPath, ['-lc', bashCmd], { ...options, windowsHide: true });
-  }
-  return spawnSync('bash', ['-lc', bashCmd], options);
-}
-
-function spawnInSystemShell(command, options) {
-  const { cmd, args } = resolveSystemShellCommand(process.platform, command);
-  return spawnSync(cmd, args, { ...options, windowsHide: true });
 }
 
 function summarizeVerifyFailure(result) {

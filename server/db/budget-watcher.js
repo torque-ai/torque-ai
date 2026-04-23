@@ -65,7 +65,7 @@ function safeJsonParse(value, fallback = {}) {
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed;
     }
-  } catch (error) {
+  } catch (_error) {
     // intentionally ignore malformed JSON and use defaults
   }
   return fallback;
@@ -74,7 +74,7 @@ function safeJsonParse(value, fallback = {}) {
 function safeJsonStringify(value) {
   try {
     return JSON.stringify(value);
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -191,7 +191,7 @@ function ensureThresholdConfigStorage(database) {
   try {
     database.prepare('ALTER TABLE cost_budgets ADD COLUMN threshold_config TEXT').run();
     return 'column';
-  } catch (error) {
+  } catch (_error) {
     ensureBudgetThresholdActionsTable(database);
     return 'table';
   }

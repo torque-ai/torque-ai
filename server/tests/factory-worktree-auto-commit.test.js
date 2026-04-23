@@ -743,7 +743,7 @@ describe('factory worktree auto-commit', () => {
 
   describe('worktree-auto-commit — attempt history + rationale', () => {
     it('writes an attempt_history row with classifier fields when the worktree is clean and Codex said "already in place"', async () => {
-      const { result } = await runAutoCommitListenerWithStdoutTail({
+      await runAutoCommitListenerWithStdoutTail({
         stdoutTail: 'The change is already in place.',
         dirtyFiles: [],
         batchId: 'batch-h1',

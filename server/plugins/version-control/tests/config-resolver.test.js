@@ -131,6 +131,7 @@ describe('version-control config resolver', () => {
 
     const resolver = createConfigResolver();
     const first = resolver.getEffectiveConfig(repoDir);
+    expect(first.worktree.stale_threshold_days).toBe(5);
 
     fs.writeFileSync(
       path.join(repoDir, '.torque-vc.json'),

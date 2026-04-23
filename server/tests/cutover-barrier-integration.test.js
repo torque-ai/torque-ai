@@ -1,6 +1,6 @@
 'use strict';
 
-const { execSync, execFileSync } = require('child_process');
+const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -55,14 +55,14 @@ curl() {
 export -f curl
 
 # Create a fake worktree dir so the -d check passes
-SAFE_NAME=\$(echo "${featureName}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
-FAKE_WORKTREE="/tmp/cutover-test-\$\$/feat-\${SAFE_NAME}"
-mkdir -p "\$FAKE_WORKTREE"
+SAFE_NAME=$(echo "${featureName}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+FAKE_WORKTREE="/tmp/cutover-test-$$/feat-\${SAFE_NAME}"
+mkdir -p "$FAKE_WORKTREE"
 
 # Override REPO_ROOT detection by wrapping git rev-parse
 git() {
   case "$1" in
-    rev-parse)   echo "/tmp/cutover-test-\$\$" ;;
+    rev-parse)   echo "/tmp/cutover-test-$$" ;;
     show-ref)    return 0 ;;
     merge)       echo "Already up to date." ;;
     diff)        return 0 ;;
@@ -76,11 +76,11 @@ export -f git
 # Source the script (but skip set -euo pipefail since we already set it)
 # We need to run it in the current shell so our function stubs take effect.
 # Extract everything after the shebang and set lines.
-SCRIPT_BODY=\$(tail -n +3 "${SCRIPT_PATH.replace(/\\/g, '/')}")
-eval "\$SCRIPT_BODY" <<< ""
+SCRIPT_BODY=$(tail -n +3 "${SCRIPT_PATH.replace(/\\/g, '/')}")
+eval "$SCRIPT_BODY" <<< ""
 
 # Clean up fake worktree
-rm -rf "/tmp/cutover-test-\$\$"
+rm -rf "/tmp/cutover-test-$$"
 `;
 
   // Write wrapper to temp file
@@ -226,7 +226,7 @@ describe('worktree-cutover.sh barrier integration', () => {
     beforeAll(() => {
       try {
         dryRunOutput = runDryRun('test-barrier-feature');
-      } catch (e) {
+      } catch (_e) {
         // If the wrapper fails (e.g. on CI without bash), skip gracefully
         dryRunOutput = null;
       }

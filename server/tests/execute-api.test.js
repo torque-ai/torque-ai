@@ -5,7 +5,6 @@ const LOGGER_PATH = require.resolve('../logger');
 const SANITIZE_PATH = require.resolve('../utils/sanitize');
 const CONTEXT_STUFFING_PATH = require.resolve('../utils/context-stuffing');
 const STUDY_ENGINE_PATH = require.resolve('../integrations/codebase-study-engine');
-const { TEST_MODELS } = require('./test-helpers');
 
 const ORIGINAL_CACHE_ENTRIES = new Map([
   [LOGGER_PATH, require.cache[LOGGER_PATH]],

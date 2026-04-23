@@ -11,8 +11,6 @@ const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const { logDecision, getAuditTrail, getDecisionStats } = require('../factory/decision-log');
 const notifications = require('../factory/notifications');
-const eventBus = require('../event-bus');
-const { triggerWebhooks } = require('../handlers/webhook-handlers');
 
 let db;
 let projectId;

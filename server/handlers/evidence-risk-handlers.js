@@ -36,18 +36,6 @@ function getAdversarialReviewsService() {
   }
 }
 
-function parseAdversarialIssues(raw) {
-  if (raw === null || raw === undefined) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (_err) {
-    return [];
-  }
-}
-
 function parseRiskReasons(raw) {
   if (Array.isArray(raw)) {
     return raw;

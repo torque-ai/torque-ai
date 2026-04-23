@@ -172,7 +172,8 @@ const STDOUT_TAIL_BUDGET = 1200;
 
 function getStdoutTail(task) {
   const raw = task && (task.output || task.stdout_tail || task.result_output) || '';
-  return String(raw).replace(/\u001b\[[0-9;]*m/g, '').slice(-STDOUT_TAIL_BUDGET);
+  const ansiPattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+  return String(raw).replace(ansiPattern, '').slice(-STDOUT_TAIL_BUDGET);
 }
 
 function resolveKind(task) {
@@ -419,7 +420,7 @@ async function commitCompletedPlanTask(task) {
           'diff', '--quiet', '--ignore-cr-at-eol', 'HEAD', '--', p,
         ], { cwd: worktree.worktreePath, windowsHide: true });
         return false; // exit 0 → no semantic diff; this is pure drift.
-      } catch (err) {
+      } catch (_err) {
         // Any non-zero exit (most commonly 1 for "has diff") counts
         // as a real change we want to stage.
         return true;
@@ -609,6 +610,12 @@ async function commitCompletedPlanTask(task) {
           );
           piiFixCount += result.findings.length;
         }
+      }
+      if (piiFixCount > 0) {
+        logger.info('PII pre-sanitize replaced findings before factory commit', {
+          findings: piiFixCount,
+          worktree_path: worktree.worktreePath,
+        });
       }
     } catch (piiErr) {
       logger.warn('PII pre-sanitize failed (non-fatal); git commit will attempt anyway', {

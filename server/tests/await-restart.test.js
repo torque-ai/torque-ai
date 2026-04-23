@@ -11,7 +11,6 @@ const { mocks } = vi.hoisted(() => {
 });
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
-const taskCore = require('../db/task-core');
 const hostMonitoring = require('../utils/host-monitoring');
 
 let handlers;

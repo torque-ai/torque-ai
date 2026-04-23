@@ -55,7 +55,6 @@ function withTimeout(promise, ms) {
 async function probeStaleness(item, {
   projectPath,
   promotionConfig = DEFAULT_PROMOTION_CONFIG,
-  now = new Date(),
   gitRunner = defaultGitRunner,
 } = {}) {
   const start = Date.now();

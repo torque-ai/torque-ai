@@ -125,7 +125,7 @@ function resetActivityBaselines(now) {
   if (!_runningProcesses) return;
 
   let reset = 0;
-  for (const [taskId, proc] of _runningProcesses) {
+  for (const [_taskId, proc] of _runningProcesses) {
     if (proc && proc.lastOutputAt) {
       proc.lastOutputAt = now;
       reset++;

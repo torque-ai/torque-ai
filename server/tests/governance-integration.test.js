@@ -19,8 +19,6 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...original, execFile: mockExecFile };
 });
 
-const childProcess = require('child_process');
-
 function installMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
   require.cache[resolved] = {
@@ -173,7 +171,7 @@ function createCompletionDeps(updatedTask) {
 }
 
 describe('governance integration', () => {
-  let taskCoreDb;
+  let _taskCoreDb;
   let governanceRules;
   let governanceLogger;
   let coreHandlers;
@@ -193,7 +191,7 @@ describe('governance integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    ({ db, mod: taskCoreDb, testDir } = setupTestDbModule('../db/task-core', 'governance-integration'));
+    ({ db, mod: _taskCoreDb, testDir } = setupTestDbModule('../db/task-core', 'governance-integration'));
     ensureGovernanceSchema();
 
     ({ createGovernanceHooks } = loadFresh('../governance/hooks'));

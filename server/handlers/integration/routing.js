@@ -1045,7 +1045,6 @@ async function handleSmartSubmitTask(args) {
 
         for (let i = 0; i < batches.length; i++) {
           const batch = batches[i];
-          const fnNames = batch.map(fn => fn.name).join(', ');
           const startLine = batch[0].startLine;
           const endLine = batch[batch.length - 1].endLine;
           const nodeId = `step-${i + 1}`;

@@ -349,7 +349,7 @@ describe('codebase study integration', () => {
       'dashboard/src/App.jsx': 'export default function App() { return null; }\n',
     });
 
-    const { service, taskCore, schedulingAutomation } = createService();
+    const { service } = createService();
     await service.runStudyCycle(repoDir);
 
     const knowledgePack = readKnowledgePack(repoDir);
@@ -1068,7 +1068,7 @@ describe('codebase study integration', () => {
       'server/tests/task-manager.test.js': 'const taskManager = require("../task-manager");\nexports.taskLifecycle = () => taskManager.startTask();\n',
     });
 
-    const { service, taskCore, schedulingAutomation } = createService();
+    const { service } = createService();
     await service.runStudyCycle(repoDir);
 
     writeRepoFile(repoDir, 'server/task-manager.js', [

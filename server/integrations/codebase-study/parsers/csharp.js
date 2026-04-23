@@ -48,8 +48,6 @@ const C_SHARP_BUILTIN_TYPE_NAMES = new Set([
   'void',
 ]);
 
-const C_SHARP_PARAMETER_MODIFIERS = new Set(['ref', 'out', 'in', 'params', 'this', 'scoped']);
-
 function extractSymbols(source, filePath) {
   return extractCs(source, filePath);
 }
@@ -74,8 +72,8 @@ function extractCSharpSymbols(content, filePath) {
     { regex: /^(?:public|internal)\s+(?:partial\s+|sealed\s+|abstract\s+|static\s+)*(?:class|struct|record)\s+(\w+)/, kind: 'class' },
     { regex: /^(?:public|internal)\s+interface\s+(\w+)/, kind: 'interface' },
     { regex: /^(?:public|internal)\s+enum\s+(\w+)/, kind: 'enum' },
-    { regex: /^(?:public|internal)\s+(?:static\s+|virtual\s+|override\s+|async\s+|sealed\s+|partial\s+)*(?:[\w<>\[\]?,.]+\s+)+(\w+)\s*\(/, kind: 'method' },
-    { regex: /^(?:public|internal)\s+(?:static\s+|virtual\s+|override\s+|sealed\s+|partial\s+)*(?:[\w<>\[\]?,.]+\s+)+(\w+)\s*\{\s*(?:get|set)/, kind: 'property' },
+    { regex: /^(?:public|internal)\s+(?:static\s+|virtual\s+|override\s+|async\s+|sealed\s+|partial\s+)*(?:[\w<>[\]?,.]+\s+)+(\w+)\s*\(/, kind: 'method' },
+    { regex: /^(?:public|internal)\s+(?:static\s+|virtual\s+|override\s+|sealed\s+|partial\s+)*(?:[\w<>[\]?,.]+\s+)+(\w+)\s*\{\s*(?:get|set)/, kind: 'property' },
   ];
 
   for (let index = 0; index < lines.length; index += 1) {

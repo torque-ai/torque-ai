@@ -2,8 +2,6 @@
 
 const { PEEK_SENSOR_TYPES, validatePeekInvestigationBundleEnvelope } = require('../contracts/peek');
 const { FIXTURE_CATALOG } = require('../contracts/peek-fixtures');
-// Retained inline so this spec no longer depends on the deleted quality-score handler.
-const EVIDENCE_WEIGHTS = { screenshot: 15, annotated_screenshot: 10, elements_tree: 20, measurements: 10, text_content: 10, annotation_index: 5, capture_data: 10, metadata: 10, app_type_extras: 10 };
 
 const SENSOR_FIXTURES = Object.entries(FIXTURE_CATALOG);
 const PERFORMANCE_COUNTER_FIELDS = ['cpu_percent', 'memory_bytes', 'handle_count', 'thread_count', 'uptime_seconds'];

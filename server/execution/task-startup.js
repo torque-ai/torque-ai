@@ -1027,7 +1027,7 @@ function requeueIfClaimedProviderDisabled(taskId, provider, providerConfig) {
 }
 
 function seedStartupTranscript({
-  taskId,
+  _taskId,
   taskMetadata,
   transcriptLog,
   runDirManager,
@@ -1106,7 +1106,7 @@ function prepareStartupRunDirectory({
 
   const runDir = runDirManager.openRunDir(taskId);
   const transcriptLog = createTaskTranscriptLog({ taskId, runDir, runDirManager });
-  seedStartupTranscript({ taskId, taskMetadata, transcriptLog, runDirManager });
+  seedStartupTranscript({ _taskId: taskId, taskMetadata, transcriptLog, runDirManager });
   return {
     runDir,
     taskMetadata: applyRunDirectoryState({

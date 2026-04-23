@@ -48,7 +48,7 @@ require.cache[loggerPath] = {
 // Now safe to import modules that use the logger
 // ---------------------------------------------------------------------------
 const { runAgenticLoop } = require('./ollama-agentic');
-const { createToolExecutor, TOOL_DEFINITIONS, selectToolsForTask } = require('./ollama-tools');
+const { createToolExecutor, selectToolsForTask } = require('./ollama-tools');
 
 const adapters = {
   ollama: require('./adapters/ollama-chat'),

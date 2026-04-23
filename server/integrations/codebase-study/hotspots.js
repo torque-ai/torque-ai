@@ -445,7 +445,13 @@ function createHotspotsAnalyzer(deps = {}) {
       ));
 
     return selectDiverseHotspots(candidates, HOTSPOT_LIMIT)
-      .map(({ score, area_key, category_priority, role_bucket, ...rest }) => rest);
+      .map(({
+        score: _score,
+        area_key: _areaKey,
+        category_priority: _categoryPriority,
+        role_bucket: _roleBucket,
+        ...rest
+      }) => rest);
   }
 
   function analyzeHotspots(input = {}) {

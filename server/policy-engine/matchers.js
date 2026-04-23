@@ -321,7 +321,7 @@ function evaluateMatcher(matcher = {}, context = {}) {
     const matchedPattern = descriptionMatches.some((pattern) => {
       try {
         return new RegExp(pattern, 'i').test(taskDescription);
-      } catch (err) {
+      } catch (_err) {
         return false;
       }
     });

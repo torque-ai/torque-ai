@@ -39,7 +39,7 @@ describe('streamRun', () => {
     });
 
     const tools = {
-      search: { handler: vi.fn(async ({ q }) => ({ count: 3 })) },
+      search: { handler: vi.fn(async ({ q: _q }) => ({ count: 3 })) },
     };
 
     const events = await collect(streamRun({ prompt: 'search x', tools, callProvider, maxSteps: 5 }));

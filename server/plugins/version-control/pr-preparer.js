@@ -96,7 +96,7 @@ function humanizeBranchName(branchName) {
   const trimmed = normalizeOptionalString(branchName) || '';
   const withoutPrefix = trimmed.replace(BRANCH_PREFIX_PATTERN, '');
   const text = withoutPrefix
-    .replace(/[\/_-]+/g, ' ')
+    .replace(/[/_-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 

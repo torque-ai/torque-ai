@@ -1,8 +1,5 @@
 'use strict';
 
-const { v4: uuidv4 } = require('uuid');
-const logger = require('../logger').child({ component: 'factory-intake' });
-
 const VALID_SOURCES = new Set([
   'conversational', 'conversation',
   'github_issue', 'github',

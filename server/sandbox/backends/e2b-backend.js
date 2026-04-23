@@ -18,7 +18,7 @@ function shellEscape(value) {
   if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(text)) {
     return text;
   }
-  return `'${text.replace(/'/g, `'\"'\"'`)}'`;
+  return `'${text.replace(/'/g, `'"'"'`)}'`;
 }
 
 function buildPosixCommand(cmd, args = []) {

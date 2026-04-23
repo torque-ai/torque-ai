@@ -7,7 +7,6 @@ const childProcess = require('child_process');
 const logger = require('../logger').child({ component: 'worktree-reconcile' });
 
 const DEFAULT_WORKTREE_DIR = '.worktrees';
-const FACTORY_BRANCH_PREFIX = 'feat/factory-';
 const FACTORY_LEAF_PREFIX = 'feat-factory-';
 const RECLAIMABLE_STATUSES = new Set(['abandoned', 'shipped', 'merged']);
 

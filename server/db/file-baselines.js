@@ -967,7 +967,6 @@ function getAllFileLocationIssues(taskId) {
 
 async function searchSimilarFiles(taskId, searchTerm, workingDirectory, searchType = 'filename') {
   const fsPromises = require('fs').promises;
-  const path = require('path');
   const now = new Date().toISOString();
   const matches = [];
   const scopedWorkingDirectory = resolveScopedWorkingDirectory(taskId, workingDirectory);

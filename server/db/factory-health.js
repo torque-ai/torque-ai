@@ -2,8 +2,7 @@
 
 const nodePath = require('path');
 const { v4: uuidv4 } = require('uuid');
-const logger = require('../logger').child({ component: 'factory-health' });
-const { validatePolicy, mergeWithDefaults, DEFAULT_POLICY } = require('../factory/policy-engine');
+const { validatePolicy, mergeWithDefaults } = require('../factory/policy-engine');
 
 const VALID_TRUST_LEVELS = new Set(['supervised', 'guided', 'autonomous', 'dark']);
 const VALID_STATUSES = new Set(['paused', 'running', 'idle']);
