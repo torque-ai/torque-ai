@@ -160,6 +160,11 @@ function runGit(cwd, args, options = {}) {
   });
 }
 
+function ensureWindowsLongPathSupport(repoPath) {
+  if (process.platform !== 'win32') return;
+  runGit(repoPath, ['config', '--local', 'core.longpaths', 'true']);
+}
+
 function slugify(value) {
   const slug = String(value || '')
     .trim()
@@ -691,6 +696,7 @@ function createWorktree(repoPath, featureName, options = {}) {
     const createdAt = new Date().toISOString();
 
     fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+    ensureWindowsLongPathSupport(repositoryPath);
     // Clean up stale worktree directory if it exists from a prior run
     // that wasn't fully removed (git worktree remove succeeded but
     // the physical directory persisted due to file locks). If we can't
