@@ -6,6 +6,9 @@
  */
 
 const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 let mod;
 
@@ -91,6 +94,36 @@ describe('file-quality', () => {
       expect(all[0].name).toBe('alpha');
       expect(all[1].name).toBe('beta');
       expect(all[2].name).toBe('gamma');
+    });
+
+    it('should retry node --check as ESM for import-based .js files', async () => {
+      rawDb().prepare(`
+        INSERT INTO syntax_validators (id, name, file_extensions, command, args, success_exit_codes, enabled, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('syntax-node', 'JavaScript Syntax Check', '.js', 'node', '--check', '0', 1, new Date().toISOString());
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-esm-check-'));
+      const filePath = path.join(tempDir, 'esm-test.js');
+      fs.writeFileSync(path.join(tempDir, 'package.json'), '{"type":"commonjs"}\n', 'utf8');
+      fs.writeFileSync(filePath, "import path from 'node:path';\nexport const sep = path.sep;\n", 'utf8');
+
+      try {
+        const result = await mod.runSyntaxValidation(filePath, tempDir);
+
+        expect(result).toMatchObject({
+          validated: true,
+          passed: true,
+        });
+        expect(result.results).toHaveLength(1);
+        expect(result.results[0]).toMatchObject({
+          validator: 'JavaScript Syntax Check',
+          success: true,
+          exitCode: 0,
+          retriedAsModule: true,
+        });
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   });
 
