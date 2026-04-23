@@ -12,7 +12,6 @@ RUN_STDOUT=""
 RUN_STDERR=""
 LAST_TEST_ENV=""
 RUN_ARGV_LOG=""
-RUN_REMOTE_UPLOAD=""
 RUN_REMOTE_COMMANDS=""
 RUN_REMOTE_STDIN_SIZE="0"
 
@@ -343,16 +342,7 @@ if [[ "$remote_cmd" == *"git checkout --force "* && "$remote_cmd" == *"git reset
   exit "${SSH_SYNC_EXIT_CODE:-0}"
 fi
 
-if [[ "$remote_cmd" == *"cat > /tmp/torque-remote-exec-"* && "$remote_cmd" == *"chmod +x /tmp/torque-remote-exec-"* ]]; then
-  if [[ -n "${TORQUE_REMOTE_TEST_REMOTE_UPLOAD:-}" ]]; then
-    cat > "$TORQUE_REMOTE_TEST_REMOTE_UPLOAD"
-  else
-    cat >/dev/null
-  fi
-  exit 0
-fi
-
-if [[ "$remote_cmd" == *"/tmp/torque-remote-exec-"* && "$remote_cmd" != *"rm -f"* ]]; then
+if [[ "$remote_cmd" == *"torque-remote-inline-run"* ]]; then
   if [[ -n "${TORQUE_REMOTE_TEST_REMOTE_STDIN:-}" ]]; then
     cat > "$TORQUE_REMOTE_TEST_REMOTE_STDIN"
   else
@@ -406,7 +396,6 @@ make_test_env() {
   mkdir -p "$tmp/.git" "$tmp/bin" "$tmp/home"
   : > "$tmp/calls.log"
   : > "$tmp/argv.log"
-  : > "$tmp/remote-upload.sh"
   : > "$tmp/remote-commands.log"
   : > "$tmp/remote-stdin.bin"
 
@@ -454,7 +443,6 @@ run_torque_remote() {
     PATH="$tmp/bin:$ORIGINAL_PATH" \
     TORQUE_REMOTE_TEST_CALLS_LOG="$tmp/calls.log" \
     TORQUE_REMOTE_TEST_ARGV_LOG="$tmp/argv.log" \
-    TORQUE_REMOTE_TEST_REMOTE_UPLOAD="$tmp/remote-upload.sh" \
     TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$tmp/remote-commands.log" \
     TORQUE_REMOTE_TEST_REMOTE_STDIN="$tmp/remote-stdin.bin" \
     bash "$SCRIPT_UNDER_TEST" "$@" >"$stdout_file" 2>"$stderr_file"
@@ -463,7 +451,6 @@ run_torque_remote() {
   RUN_STDOUT="$(slurp_file "$stdout_file")"
   RUN_STDERR="$(slurp_file "$stderr_file")"
   RUN_ARGV_LOG="$(slurp_file "$tmp/argv.log")"
-  RUN_REMOTE_UPLOAD="$(slurp_file "$tmp/remote-upload.sh")"
   RUN_REMOTE_COMMANDS="$(slurp_file "$tmp/remote-commands.log")"
   RUN_REMOTE_STDIN_SIZE="$(file_size_bytes "$tmp/remote-stdin.bin")"
 }
@@ -573,7 +560,8 @@ test_local_state_overlays_worktree_from_fallback_base() {
   expect_file_contains "worktree diff is created" "$tmp/calls.log" "git [diff] [--binary] [HEAD]"
   expect_file_contains "untracked files are inspected" "$tmp/calls.log" "git [ls-files] [--others] [--exclude-standard] [-z]"
   expect_contains "stderr mentions fallback overlay" "$RUN_STDERR" "using main as the remote base and overlaying local worktree state"
-  expect_file_contains "remote script is uploaded before execution" "$tmp/calls.log" "cat > /tmp/torque-remote-exec-"
+  expect_contains "remote run uses inline execution marker" "$RUN_REMOTE_COMMANDS" "torque-remote-inline-run"
+  expect_file_not_contains "no temp-script upload round-trip remains" "$tmp/calls.log" "cat > /tmp/torque-remote-exec-"
 
   finish_test "test_local_state_overlays_worktree_from_fallback_base"
 }
@@ -599,10 +587,10 @@ test_local_fallback_preserves_quoted_arguments() {
   finish_test "test_local_fallback_preserves_quoted_arguments"
 }
 
-test_remote_script_preserves_quoted_arguments() {
+test_remote_inline_command_preserves_quoted_arguments() {
   local tmp
 
-  echo "Test: remote upload preserves quoted arguments"
+  echo "Test: remote inline command preserves quoted arguments"
   TEST_ERRORS=()
   reset_stub_env
 
@@ -613,13 +601,13 @@ test_remote_script_preserves_quoted_arguments() {
   run_torque_remote "$tmp" argv-dump "two words" 'semi;ignored'
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "remote script defines argv array" "$RUN_REMOTE_UPLOAD" "COMMAND_ARGS=("
-  expect_contains "remote script preserves spaced argument" "$RUN_REMOTE_UPLOAD" "two\\ words"
-  expect_contains "remote script preserves semicolon literal" "$RUN_REMOTE_UPLOAD" "semi\\;ignored"
-  expect_contains "remote script executes argv array" "$RUN_REMOTE_UPLOAD" "\"\${COMMAND_ARGS[@]}\""
-  expect_not_contains "remote script does not use eval" "$RUN_REMOTE_UPLOAD" "eval \"\$COMMAND\""
+  expect_contains "remote command defines argv array" "$RUN_REMOTE_COMMANDS" "COMMAND_ARGS=("
+  expect_contains "remote command preserves spaced argument" "$RUN_REMOTE_COMMANDS" "two\\ words"
+  expect_contains "remote command preserves semicolon literal" "$RUN_REMOTE_COMMANDS" "semi\\;ignored"
+  expect_contains "remote command executes argv array" "$RUN_REMOTE_COMMANDS" "\"\${COMMAND_ARGS[@]}\""
+  expect_not_contains "remote command does not use eval" "$RUN_REMOTE_COMMANDS" "eval \"\$COMMAND\""
 
-  finish_test "test_remote_script_preserves_quoted_arguments"
+  finish_test "test_remote_inline_command_preserves_quoted_arguments"
 }
 
 test_config_parses_without_jq() {
@@ -663,10 +651,10 @@ test_remote_run_does_not_require_timeout_binary() {
   finish_test "test_remote_run_does_not_require_timeout_binary"
 }
 
-test_remote_cleanup_runs_after_command() {
+test_successful_overlay_skips_failsafe_cleanup_round_trip() {
   local tmp
 
-  echo "Test: remote cleanup runs after command"
+  echo "Test: successful overlay skips fail-safe cleanup round-trip"
   TEST_ERRORS=()
   reset_stub_env
 
@@ -678,11 +666,9 @@ test_remote_cleanup_runs_after_command() {
   run_torque_remote "$tmp" echo hi
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "cleanup issues an rm for the remote script" "$RUN_REMOTE_COMMANDS" "rm -f"
-  expect_contains "cleanup targets the remote script path" "$RUN_REMOTE_COMMANDS" "/tmp/torque-remote-exec-"
-  expect_contains "cleanup resets tracked state after overlays" "$RUN_REMOTE_COMMANDS" "git clean -fd"
+  expect_not_contains "success path avoids fail-safe cleanup ssh" "$RUN_REMOTE_COMMANDS" "torque-remote-failsafe-cleanup"
 
-  finish_test "test_remote_cleanup_runs_after_command"
+  finish_test "test_successful_overlay_skips_failsafe_cleanup_round_trip"
 }
 
 test_remote_overlay_bundle_reaches_run_command() {
@@ -705,6 +691,28 @@ test_remote_overlay_bundle_reaches_run_command() {
   finish_test "test_remote_overlay_bundle_reaches_run_command"
 }
 
+test_timeout_style_failure_triggers_failsafe_cleanup_round_trip() {
+  local tmp
+
+  echo "Test: timeout-style failure triggers fail-safe cleanup round-trip"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+  export GIT_DIFF_BASE_OUTPUT='diff --git a/file.txt b/file.txt'
+  export SSH_EXEC_EXIT_CODE=124
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_nonzero "exit code is non-zero" "$RUN_EXIT"
+  expect_contains "stderr reports timeout" "$RUN_STDERR" "timed out after"
+  expect_contains "fail-safe cleanup command runs on timeout-style exit" "$RUN_REMOTE_COMMANDS" "torque-remote-failsafe-cleanup"
+
+  finish_test "test_timeout_style_failure_triggers_failsafe_cleanup_round_trip"
+}
+
 main() {
   if [[ ! -f "$SCRIPT_UNDER_TEST" ]]; then
     echo "torque-remote script not found: $SCRIPT_UNDER_TEST" >&2
@@ -717,11 +725,12 @@ main() {
   test_invalid_branch_name_errors
   test_local_state_overlays_worktree_from_fallback_base
   test_local_fallback_preserves_quoted_arguments
-  test_remote_script_preserves_quoted_arguments
+  test_remote_inline_command_preserves_quoted_arguments
   test_config_parses_without_jq
   test_remote_run_does_not_require_timeout_binary
-  test_remote_cleanup_runs_after_command
+  test_successful_overlay_skips_failsafe_cleanup_round_trip
   test_remote_overlay_bundle_reaches_run_command
+  test_timeout_style_failure_triggers_failsafe_cleanup_round_trip
 
   echo ""
   echo "=============================="

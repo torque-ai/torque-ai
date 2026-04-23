@@ -32,15 +32,16 @@ Worktrees live in `.worktrees/` inside the repo root (already in `.gitignore`). 
 
 ### Workflow
 
-1. **Create worktree:** `scripts/worktree-create.sh <feature-name>`
+1. **Create worktree:** `scripts/worktree-create.sh <feature-name> [--install]`
    - Creates branch `feat/<feature-name>` from current main
    - Creates worktree at `.worktrees/feat-<feature-name>/`
-   - Runs `npm install` in the worktree's `server/` directory
+   - Skips dependency installs by default so creation stays cheap
+   - Pass `--install` when the new worktree needs local `node_modules`
    - Prints the path for the user to open in Claude Code
 
 2. **Develop in worktree:** All code changes, commits, and tests happen in the worktree directory. TORQUE continues running from main undisturbed.
 
-3. **Test in worktree:** Run tests via `torque-remote` from the worktree directory. The worktree has its own node_modules and can run independently.
+3. **Test in worktree:** Run tests via `torque-remote` from the worktree directory. Install dependencies only in the worktrees that need them.
 
 4. **Cutover:** `scripts/worktree-cutover.sh <feature-name>`
    - Merges `feat/<feature-name>` into main (fast-forward or merge commit)
@@ -94,7 +95,7 @@ Add to CLAUDE.md:
 
 | File | Purpose |
 |------|---------|
-| `scripts/worktree-create.sh` | Create feature worktree with branch, deps install |
+| `scripts/worktree-create.sh` | Create feature worktree with branch; installs deps only with `--install` |
 | `scripts/worktree-cutover.sh` | Merge to main, trigger drain restart, cleanup worktree |
 | `scripts/worktree-guard.sh` | Pre-commit hook blocking direct main commits |
 | `server/index.js` | Queue drain mode in `restart_server` handler |

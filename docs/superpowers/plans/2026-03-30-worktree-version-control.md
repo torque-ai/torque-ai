@@ -14,7 +14,7 @@
 
 | File | Responsibility |
 |------|---------------|
-| `scripts/worktree-create.sh` | Create feature worktree — branch, checkout, npm install |
+| `scripts/worktree-create.sh` | Create feature worktree — branch, checkout, optional dependency install |
 | `scripts/worktree-cutover.sh` | Merge feature to main, drain TORQUE, restart, cleanup |
 | `scripts/worktree-guard.sh` | Pre-commit hook — block direct main commits when worktrees exist |
 | `server/tools.js` | Add `drain: true` option to `handleRestartServer` |
@@ -35,14 +35,47 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: scripts/worktree-create.sh <feature-name>
+# Usage: scripts/worktree-create.sh <feature-name> [--install]
 # Creates a git worktree for feature development.
 # TORQUE continues running from main — all dev happens in the worktree.
 
-FEATURE_NAME="${1:-}"
-if [ -z "$FEATURE_NAME" ]; then
-  echo "Usage: scripts/worktree-create.sh <feature-name>"
-  echo "Example: scripts/worktree-create.sh pii-guard"
+usage() {
+  echo "Usage: scripts/worktree-create.sh <feature-name> [--install]"
+  echo "Example: scripts/worktree-create.sh pii-guard --install"
+}
+
+FEATURE_NAME=""
+INSTALL_DEPS="false"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --install)
+      INSTALL_DEPS="true"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "ERROR: Unknown option '$1'" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [[ -n "$FEATURE_NAME" ]]; then
+        echo "ERROR: Unexpected extra argument '$1'" >&2
+        usage >&2
+        exit 1
+      fi
+      FEATURE_NAME="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$FEATURE_NAME" ]]; then
+  usage
   exit 1
 fi
 
@@ -72,15 +105,38 @@ echo "Creating worktree at ${WORKTREE_DIR}..."
 mkdir -p "$(dirname "$WORKTREE_DIR")"
 git worktree add "$WORKTREE_DIR" "$BRANCH"
 
-# Install dependencies
-if [ -f "${WORKTREE_DIR}/server/package.json" ]; then
-  echo "Installing server dependencies..."
-  (cd "${WORKTREE_DIR}/server" && npm install --silent)
-fi
+install_worktree_dependencies() {
+  local worktree_dir="$1"
 
-if [ -f "${WORKTREE_DIR}/dashboard/package.json" ]; then
-  echo "Installing dashboard dependencies..."
-  (cd "${WORKTREE_DIR}/dashboard" && npm install --silent)
+  if [ -f "${worktree_dir}/server/package.json" ]; then
+    echo "Installing server dependencies..."
+    (cd "${worktree_dir}/server" && npm install --silent)
+  fi
+
+  if [ -f "${worktree_dir}/dashboard/package.json" ]; then
+    echo "Installing dashboard dependencies..."
+    (cd "${worktree_dir}/dashboard" && npm install --silent)
+  fi
+}
+
+print_dependency_install_hint() {
+  local worktree_dir="$1"
+
+  echo "Skipping dependency installs (default)."
+  if [ -f "${worktree_dir}/server/package.json" ]; then
+    echo "  To bootstrap server dependencies later:"
+    echo "    (cd ${worktree_dir}/server && npm install --silent)"
+  fi
+  if [ -f "${worktree_dir}/dashboard/package.json" ]; then
+    echo "  To bootstrap dashboard dependencies later:"
+    echo "    (cd ${worktree_dir}/dashboard && npm install --silent)"
+  fi
+}
+
+if [[ "$INSTALL_DEPS" == "true" ]]; then
+  install_worktree_dependencies "$WORKTREE_DIR"
+else
+  print_dependency_install_hint "$WORKTREE_DIR"
 fi
 
 # Install the worktree guard hook if not already present
@@ -524,10 +580,10 @@ All feature work MUST use a git worktree. TORQUE runs from main — never develo
 ### Creating a Feature Worktree
 
 ```bash
-scripts/worktree-create.sh <feature-name>
+scripts/worktree-create.sh <feature-name> [--install]
 ```
 
-This creates a worktree at `.worktrees/feat-<name>/` on branch `feat/<name>`. Open that directory in Claude Code to develop the feature.
+This creates a worktree at `.worktrees/feat-<name>/` on branch `feat/<name>`. Open that directory in Claude Code to develop the feature. Dependency installs are skipped by default so creation stays cheap; pass `--install` only when that worktree needs local `node_modules`.
 
 ### During Development
 
@@ -570,10 +626,10 @@ git commit -m "docs: add worktree version control policy to CLAUDE.md"
 - [ ] **Step 1: Create a test worktree**
 
 ```bash
-scripts/worktree-create.sh test-version-control
+scripts/worktree-create.sh test-version-control --install
 ```
 
-Expected: worktree at `.worktrees/feat-test-version-control/`, branch `feat/test-version-control`, deps installed.
+Expected: worktree at `.worktrees/feat-test-version-control/`, branch `feat/test-version-control`, deps installed because `--install` was requested.
 
 - [ ] **Step 2: Verify guard blocks main commits**
 

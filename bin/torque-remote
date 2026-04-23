@@ -58,8 +58,7 @@ json_get() {
 
 TEMP_DIRS=()
 REMOTE_CLEANUP_COMMAND=""
-REMOTE_EXEC_PATH=""
-REMOTE_UPLOAD_COMPLETE="false"
+REMOTE_CLEANUP_REQUIRED="false"
 
 cleanup_temp_dirs() {
   local dir
@@ -148,15 +147,15 @@ run_with_timeout() {
 }
 
 cleanup_remote_exec() {
-  if [[ "$REMOTE_UPLOAD_COMPLETE" != "true" || -z "$REMOTE_CLEANUP_COMMAND" ]]; then
+  if [[ "$REMOTE_CLEANUP_REQUIRED" != "true" || -z "$REMOTE_CLEANUP_COMMAND" ]]; then
     return 0
   fi
 
   if ! ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" "$REMOTE_CLEANUP_COMMAND" >/dev/null 2>&1; then
-    warn "Best-effort remote cleanup failed for $SSH_USER@$SSH_HOST:$REMOTE_EXEC_PATH"
+    warn "Best-effort remote cleanup failed for $SSH_USER@$SSH_HOST:$REMOTE_PROJECT_PATH"
   fi
 
-  REMOTE_UPLOAD_COMPLETE="false"
+  REMOTE_CLEANUP_REQUIRED="false"
   REMOTE_CLEANUP_COMMAND=""
 }
 
@@ -464,12 +463,10 @@ case "$TRANSPORT" in
     fi
 
     GIT_BASH='C:\progra~1\Git\bin\bash.exe'
-    REMOTE_EXEC_PATH="/tmp/torque-remote-exec-$$-$RANDOM.sh"
-    REMOTE_EXEC_SCRIPT_LOCAL="$(make_temp_dir)/remote-exec.sh"
     COMMAND_ARGS_LITERAL="$(bash_array_literal COMMAND_ARGS "${COMMAND_ARGS[@]}")"
-    REMOTE_EXEC_SCRIPT=$(cat <<EOF
+    REMOTE_RUN_BODY=$(cat <<EOF
+# torque-remote-inline-run
 PROJECT_PATH=$(shell_quote "$REMOTE_PROJECT_PATH")
-SCRIPT_PATH=$(shell_quote "$REMOTE_EXEC_PATH")
 SYNC_REF=$(shell_quote "$SYNC_REF")
 APPLY_LOCAL_STATE=$(shell_quote "$APPLY_LOCAL_STATE")
 $COMMAND_ARGS_LITERAL
@@ -477,7 +474,6 @@ set -euo pipefail
 cd "\$PROJECT_PATH"
 sync_dir=""
 cleanup() {
-  rm -f "\$SCRIPT_PATH" >/dev/null 2>&1 || true
   if [[ -n "\$sync_dir" && -d "\$sync_dir" ]]; then
     rm -rf "\$sync_dir"
   fi
@@ -503,12 +499,10 @@ fi
 "\${COMMAND_ARGS[@]}"
 EOF
 )
-    printf '%s' "$REMOTE_EXEC_SCRIPT" > "$REMOTE_EXEC_SCRIPT_LOCAL"
-    REMOTE_UPLOAD_COMMAND="\"$GIT_BASH\" -lc \"cat > $REMOTE_EXEC_PATH && chmod +x $REMOTE_EXEC_PATH\""
-    REMOTE_RUN_COMMAND="\"$GIT_BASH\" $REMOTE_EXEC_PATH"
+    REMOTE_RUN_COMMAND="\"$GIT_BASH\" -lc $(shell_quote "$REMOTE_RUN_BODY")"
     REMOTE_CLEANUP_BODY=$(cat <<EOF
+# torque-remote-failsafe-cleanup
 cd $(shell_quote "$REMOTE_PROJECT_PATH") || exit 0
-rm -f $(shell_quote "$REMOTE_EXEC_PATH") >/dev/null 2>&1 || true
 if [[ $(shell_quote "$APPLY_LOCAL_STATE") == 'true' ]]; then
   git reset --hard $(shell_quote "$SYNC_REF") >/dev/null 2>&1 || true
   git clean -fd >/dev/null 2>&1 || true
@@ -516,10 +510,7 @@ fi
 EOF
 )
     REMOTE_CLEANUP_COMMAND="\"$GIT_BASH\" -lc $(shell_quote "$REMOTE_CLEANUP_BODY")"
-
-    ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-      "$REMOTE_UPLOAD_COMMAND" < "$REMOTE_EXEC_SCRIPT_LOCAL"
-    REMOTE_UPLOAD_COMPLETE="true"
+    REMOTE_CLEANUP_REQUIRED="$APPLY_LOCAL_STATE"
 
     info "Running on $SSH_USER@$SSH_HOST: $COMMAND_DISPLAY"
     set +e
@@ -532,7 +523,19 @@ EOF
     fi
     exit_code=$?
     set -e
-    cleanup_remote_exec
+
+    if [[ "$APPLY_LOCAL_STATE" == "true" ]]; then
+      case "$exit_code" in
+        124|255)
+          cleanup_remote_exec
+          ;;
+        *)
+          REMOTE_CLEANUP_REQUIRED="false"
+          ;;
+      esac
+    else
+      REMOTE_CLEANUP_REQUIRED="false"
+    fi
 
     if [[ $exit_code -eq 124 ]]; then
       echo "[torque-remote] ERROR: Command timed out after ${TIMEOUT_SECONDS}s" >&2
