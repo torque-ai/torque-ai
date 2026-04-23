@@ -26,6 +26,25 @@ describe('verify retry scope envelope — pure helpers', () => {
     ]));
   });
 
+  it('extractScopeEnvelopeFiles includes WPF and .NET project paths from SpudgetBooks-style plans', () => {
+    const text = [
+      'Edit `src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml`,',
+      '`src/SpudgetBooks.App/Navigation/Shell/BreadcrumbBar.xaml`, and',
+      '`src/SpudgetBooks.App/MainWindow.xaml`.',
+      'Validate with `dotnet test tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj -c Release`.',
+      'Use `pwsh scripts/e2e.ps1 -Configuration Release` for the visual smoke.',
+    ].join('\n');
+
+    const files = extractScopeEnvelopeFiles(text);
+    expect(files).toEqual(expect.arrayContaining([
+      'src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml',
+      'src/SpudgetBooks.App/Navigation/Shell/BreadcrumbBar.xaml',
+      'src/SpudgetBooks.App/MainWindow.xaml',
+      'tests/SpudgetBooks.App.Tests/SpudgetBooks.App.Tests.csproj',
+      'scripts/e2e.ps1',
+    ]));
+  });
+
   it('extractScopeEnvelopeFiles returns empty array on empty input', () => {
     expect(extractScopeEnvelopeFiles('')).toEqual([]);
     expect(extractScopeEnvelopeFiles(null)).toEqual([]);
@@ -65,6 +84,26 @@ describe('verify retry scope envelope — pure helpers', () => {
       'docs/notes.md',
     ]));
     expect(off).not.toContain('server/a.js');
+  });
+
+  it('treats plan-listed WPF XAML shell edits as in-scope during verify retries', () => {
+    const envelope = computeScopeEnvelope([
+      'Edit `src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml`,',
+      '`src/SpudgetBooks.App/Navigation/Shell/ActionTrayControl.xaml`,',
+      '`src/SpudgetBooks.App/Navigation/Shell/BreadcrumbBar.xaml`,',
+      '`src/SpudgetBooks.App/Navigation/Shell/StatusBarControl.xaml`,',
+      'and `src/SpudgetBooks.App/MainWindow.xaml`.',
+    ].join('\n'), '');
+
+    const off = isOutOfScope([
+      'src/SpudgetBooks.App/MainWindow.xaml',
+      'src/SpudgetBooks.App/Navigation/Shell/ActionTrayControl.xaml',
+      'src/SpudgetBooks.App/Navigation/Shell/BreadcrumbBar.xaml',
+      'src/SpudgetBooks.App/Navigation/Shell/SidebarTreeControl.xaml',
+      'src/SpudgetBooks.App/Navigation/Shell/StatusBarControl.xaml',
+    ], envelope);
+
+    expect(off).toEqual([]);
   });
 });
 
