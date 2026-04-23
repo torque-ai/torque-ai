@@ -793,7 +793,9 @@ describe('Advanced Coordination Handlers', () => {
       const result = await safeTool('export_metrics_prometheus', {});
       expect(result.isError).toBeFalsy();
       const text = getText(result);
+      const staleMetricPrefix = ['codex', 'bridge_'].join('');
       expect(text).toContain('torque_tasks_total');
+      expect(text).not.toContain(staleMetricPrefix);
       expect(text).toContain('# HELP');
       expect(text).toContain('# TYPE');
     });
