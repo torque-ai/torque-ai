@@ -3,6 +3,7 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const fsPromises = require('node:fs/promises');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { TEST_MODELS } = require('./test-helpers');
 
@@ -13,6 +14,7 @@ let taskManager;
 let templateBuffer;
 let processQueueSpy;
 const TEMPLATE_BUF_PATH = path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf');
+const tempDirs = [];
 
 function ensureModelCapabilitiesColumns() {
   const rawDb = db.getDb ? db.getDb() : db.getDbInstance();
@@ -215,6 +217,14 @@ afterAll(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  while (tempDirs.length) {
+    const dir = tempDirs.pop();
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  }
 });
 
 beforeEach(() => {
@@ -288,6 +298,49 @@ describe('detectTaskLanguage helper', () => {
 function getTaskMetadata(task) {
   if (!task || task.metadata == null) return {};
   return typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata;
+}
+
+function createTempDir(prefix = 'torque-smart-routing-') {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function writeTempFile(root, relativePath, content) {
+  const filePath = path.join(root, relativePath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content);
+  return filePath;
+}
+
+function isWithinRoot(candidatePath, root) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidatePath));
+  return relative === '' || (relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function getOutOfRootReadTargets(readSpy, root) {
+  return readSpy.mock.calls
+    .map(([target]) => String(target))
+    .filter(target => !isWithinRoot(target, root));
+}
+
+function expectInvalidParamOrNoOutOfRootRead(result, readSpy, workDir) {
+  expect(getOutOfRootReadTargets(readSpy, workDir)).toEqual([]);
+  if (result && result.isError) {
+    expect(result.error_code).toBe('INVALID_PARAM');
+    return;
+  }
+  expect(getSubmittedTask(result)).toBeTruthy();
+}
+
+function forceOllamaRouting() {
+  vi.spyOn(require('../db/provider-routing-core'), 'analyzeTaskForRouting').mockReturnValue({
+    provider: 'ollama',
+    complexity: 'normal',
+    reason: 'Forced Ollama routing for modification file-size tests',
+    rule: null,
+    fallbackApplied: false,
+  });
 }
 
 describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
@@ -428,5 +481,62 @@ describe('handleSmartSubmitTask end-to-end (mocked task submission)', () => {
     });
     expect(result.content[0].text).toContain('### Subscribe');
     expect(result.content[0].text).toContain('"task_ids"');
+  });
+
+  it.each([
+    ['relative traversal', () => '../../outside.js'],
+    ['encoded traversal', () => '%2e%2e%2foutside.js'],
+    ['Windows traversal', () => '..\\..\\outside.ts'],
+    ['absolute outside path', ({ outsideTs }) => outsideTs],
+  ])('does not read out-of-root files from %s in task descriptions', async (label, buildMention) => {
+    const workDir = createTempDir();
+    const outsideDir = createTempDir('torque-smart-routing-outside-');
+    const outsideJs = writeTempFile(outsideDir, 'outside.js', 'module.exports = 1;\n');
+    const outsideTs = writeTempFile(outsideDir, 'outside.ts', 'export const outside = true;\n');
+    const mention = buildMention({ outsideJs, outsideTs });
+    forceOllamaRouting();
+    vi.spyOn(taskManager, 'resolveFileReferences').mockReturnValue({
+      resolved: [{ requested: mention, actual: mention.endsWith('.js') ? outsideJs : outsideTs }],
+      unresolved: [],
+    });
+    const readSpy = vi.spyOn(fsPromises, 'readFile');
+
+    const result = await handler.handleSmartSubmitTask({
+      task: `Fix the issue in ${mention} for ${label}`,
+      working_directory: workDir,
+      context_stuff: false,
+      study_context: false,
+    });
+
+    expectInvalidParamOrNoOutOfRootRead(result, readSpy, workDir);
+  });
+
+  it('counts an in-root file referenced only from the task description', async () => {
+    const workDir = createTempDir();
+    const inRootFile = writeTempFile(
+      workDir,
+      path.join('src', 'safe.ts'),
+      ['export function safe() {', '  return true;', '}', ''].join('\n')
+    );
+    forceOllamaRouting();
+    vi.spyOn(taskManager, 'resolveFileReferences').mockReturnValue({
+      resolved: [{ requested: 'src/safe.ts', actual: inRootFile }],
+      unresolved: [],
+    });
+    const readSpy = vi.spyOn(fsPromises, 'readFile');
+
+    const result = await handler.handleSmartSubmitTask({
+      task: 'Fix the issue in src/safe.ts',
+      working_directory: workDir,
+      context_stuff: false,
+      study_context: false,
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(getOutOfRootReadTargets(readSpy, workDir)).toEqual([]);
+    expect(readSpy.mock.calls.map(([target]) => path.resolve(String(target)))).toContain(path.resolve(inRootFile));
+    const createdTask = getSubmittedTask(result);
+    expect(createdTask).toBeTruthy();
+    expect(createdTask.provider).toBe('ollama');
   });
 });
