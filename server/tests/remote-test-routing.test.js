@@ -1,9 +1,10 @@
 import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const childProcess = require('child_process');
+const workstationModelPath = require.resolve('../workstation/model');
 
 const { mockSpawnSync, mockSpawn } = vi.hoisted(() => ({
   mockSpawnSync: vi.fn(),
@@ -15,18 +16,52 @@ vi.mock('child_process', () => ({
   spawn: mockSpawn,
 }));
 
+let originalWorkstationModelCache;
+let workstationModelMockInstalled = false;
+
+function restoreWorkstationModelMock() {
+  if (!workstationModelMockInstalled) return;
+
+  if (originalWorkstationModelCache) {
+    require.cache[workstationModelPath] = originalWorkstationModelCache;
+  } else {
+    delete require.cache[workstationModelPath];
+  }
+
+  originalWorkstationModelCache = undefined;
+  workstationModelMockInstalled = false;
+}
+
+function installWorkstationModelMock(exportsValue) {
+  if (!workstationModelMockInstalled) {
+    originalWorkstationModelCache = require.cache[workstationModelPath];
+  }
+
+  require.cache[workstationModelPath] = {
+    id: workstationModelPath,
+    filename: workstationModelPath,
+    loaded: true,
+    exports: exportsValue,
+  };
+
+  workstationModelMockInstalled = true;
+}
+
 async function loadRemoteTestRouting(options = {}) {
+  restoreWorkstationModelMock();
   vi.resetModules();
   childProcess.spawnSync = mockSpawnSync;
   childProcess.spawn = mockSpawn;
-  vi.doUnmock('../workstation/model');
 
   if (options.workstationMissing) {
-    vi.doMock('../workstation/model', () => {
-      throw new Error('module not found');
+    installWorkstationModelMock({
+      listWorkstations: vi.fn(() => {
+        throw new Error('module not found');
+      }),
+      hasCapability: vi.fn(),
     });
   } else if (options.workstationModule) {
-    vi.doMock('../workstation/model', () => options.workstationModule);
+    installWorkstationModelMock(options.workstationModule);
   }
 
   return import('../plugins/remote-agents/remote-test-routing.js');
@@ -158,6 +193,10 @@ describe('remote-test-routing', () => {
     }));
 
     remoteTestRouting = await loadRemoteTestRouting();
+  });
+
+  afterEach(() => {
+    restoreWorkstationModelMock();
   });
 
   it('filterSensitiveEnv removes API keys, tokens, and passwords from env objects', () => {
