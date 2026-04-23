@@ -84,20 +84,52 @@ function parseFactoryBatchId(batchId) {
   };
 }
 
+function getWorktreeBatchId(worktree) {
+  return worktree?.batchId || worktree?.batch_id || null;
+}
+
 function resolveWorktree(task, batchId) {
+  const expectedPath = normalizePathForCompare(task?.working_directory);
   let worktree = batchId ? factoryWorktrees.getActiveWorktreeByBatch(batchId) : null;
-  if (!worktree && task?.working_directory) {
-    const expectedPath = normalizePathForCompare(task.working_directory);
-    if (expectedPath) {
-      worktree = factoryWorktrees.listActiveWorktrees().find((candidate) => (
-        normalizePathForCompare(candidate?.worktreePath) === expectedPath
-      )) || null;
-    }
+  if (!worktree && expectedPath) {
+    worktree = factoryWorktrees.listActiveWorktrees().find((candidate) => (
+      normalizePathForCompare(candidate?.worktreePath) === expectedPath
+        && (!batchId || getWorktreeBatchId(candidate) === batchId)
+    )) || null;
   }
 
   const parsedBatch = parseFactoryBatchId(batchId);
-  if (!worktree && parsedBatch?.project_id) {
-    worktree = factoryWorktrees.getActiveWorktree(parsedBatch.project_id);
+  if (!worktree) {
+    logger.warn('factory_auto_commit_worktree_not_found', {
+      task_id: task?.id,
+      batch_id: batchId,
+      batch_project_id: parsedBatch?.project_id || null,
+      batch_work_item_id: parsedBatch?.work_item_id || null,
+      task_working_directory: task?.working_directory || null,
+    });
+    return null;
+  }
+
+  const worktreeBatchId = getWorktreeBatchId(worktree);
+  if (batchId && worktreeBatchId && worktreeBatchId !== batchId) {
+    logger.warn('factory_auto_commit_batch_mismatch_skipped', {
+      task_id: task?.id,
+      task_batch_id: batchId,
+      worktree_batch_id: worktreeBatchId,
+      worktree_path: worktree.worktreePath || null,
+    });
+    return null;
+  }
+
+  const worktreePath = normalizePathForCompare(worktree.worktreePath);
+  if (expectedPath && worktreePath && expectedPath !== worktreePath) {
+    logger.warn('factory_auto_commit_worktree_path_mismatch_skipped', {
+      task_id: task?.id,
+      batch_id: batchId,
+      task_working_directory: task?.working_directory || null,
+      worktree_path: worktree.worktreePath || null,
+    });
+    return null;
   }
 
   return worktree || null;
@@ -219,7 +251,7 @@ function parsePorcelainPaths(output) {
     .map((line) => line.trimEnd())
     .filter(Boolean)
     .map((line) => {
-      const rawPath = line.slice(3).trim();
+      const rawPath = extractPorcelainPath(line);
       if (!rawPath) {
         return null;
       }
@@ -229,6 +261,23 @@ function parsePorcelainPaths(output) {
       return normalized ? normalized.replace(/^"+|"+$/g, '') : null;
     })
     .filter(Boolean);
+}
+
+function extractPorcelainPath(line) {
+  if (typeof line !== 'string' || line === '') {
+    return null;
+  }
+
+  // Porcelain v1 status is normally two status columns plus a space. Some
+  // callers historically trimmed the whole status output, stripping the
+  // leading status column from the first line when the index column was blank.
+  if (line.length >= 3 && line[2] === ' ') {
+    return line.slice(3).trim();
+  }
+  if (line.length >= 2 && line[1] === ' ') {
+    return line.slice(2).trim();
+  }
+  return line.trim();
 }
 
 function normalizeRelativePath(filePath) {
@@ -453,8 +502,8 @@ async function commitCompletedPlanTask(task) {
   };
 
   try {
-    const statusOutput = runGit(worktree.worktreePath, ['status', '--porcelain']).trim();
-    if (!statusOutput) {
+    const statusOutput = runGit(worktree.worktreePath, ['status', '--porcelain']);
+    if (!statusOutput.trim()) {
       const stdoutTail = getStdoutTail(task);
       const kind = resolveKind(task);
       const workItemId = resolveWorkItemId(task);
@@ -859,4 +908,7 @@ module.exports = {
   initFactoryWorktreeAutoCommit,
   commitCompletedPlanTask,
   resetFactoryWorktreeAutoCommitForTests,
+  _internalForTests: {
+    parsePorcelainPaths,
+  },
 };
