@@ -166,8 +166,8 @@ export function useFactoryShell() {
     const batchId = String(filters?.batchId || '').trim();
     const since = getDecisionSinceParam(filters?.since);
 
-    setDecisionLog([]);
-    setDecisionStats(normalizeDecisionStats());
+    // Keep prior results visible while fetching — clearing to [] here
+    // flashed the empty-state between keystrokes on filter changes.
     setDecisionLoading(true);
 
     try {
