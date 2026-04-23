@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { factory as factoryApi } from '../../api';
+import { factory as factoryApi, providers as providersApi } from '../../api';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import StatCard from '../../components/StatCard';
 import { useToast } from '../../components/Toast';
@@ -9,6 +9,7 @@ import { formatCurrency, formatLabel, normalizeCostMetrics } from './utils';
 
 const GUARDRAIL_COLORS = { green: 'text-green-400', yellow: 'text-yellow-400', red: 'text-red-400' };
 const GUARDRAIL_LABELS = { green: 'Pass', yellow: 'Warning', red: 'Fail' };
+const PROVIDER_FALLBACK = ['codex', 'ollama', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'claude-cli', 'anthropic'];
 
 function GuardrailPanel({ project }) {
   const [status, setStatus] = useState(null);
@@ -16,39 +17,63 @@ function GuardrailPanel({ project }) {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => {
-    if (!project) {
+  const loadGuardrails = useCallback(async (projectId) => {
+    if (!projectId) {
       return;
     }
 
     setLoading(true);
-    Promise.all([
-      factoryApi.guardrailStatus(project.id),
-      factoryApi.guardrailEvents(project.id, { limit: 20 }),
-    ])
-      .then(([statusResponse, eventsResponse]) => {
-        setStatus(statusResponse.status_map || {});
-        setEvents(eventsResponse.events || []);
-      })
-      .catch(() => {
-        setStatus(null);
-        setEvents([]);
-      })
-      .finally(() => setLoading(false));
-  }, [project?.id]);
+    try {
+      const [statusResponse, eventsResponse] = await Promise.all([
+        factoryApi.guardrailStatus(projectId),
+        factoryApi.guardrailEvents(projectId, { limit: 20 }),
+      ]);
+      setStatus(statusResponse.status_map || {});
+      setEvents(eventsResponse.events || []);
+    } catch {
+      setStatus(null);
+      setEvents([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!project) {
+      return;
+    }
+    void loadGuardrails(project.id);
+  }, [project?.id, loadGuardrails]);
 
   const categories = ['scope', 'quality', 'resource', 'silent_failure', 'security', 'conflict', 'control'];
 
   return (
     <section className="mt-6 rounded-lg bg-slate-800 p-4">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between text-left"
-        onClick={() => setExpanded((current) => !current)}
-      >
-        <h3 className="text-lg font-semibold text-slate-200">Guardrails</h3>
-        <span className="text-sm text-slate-400">{expanded ? '▼' : '▶'}</span>
-      </button>
+      <div className="flex items-center justify-between gap-3">
+        <button
+          type="button"
+          className="flex flex-1 items-center justify-between text-left"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <h3 className="text-lg font-semibold text-slate-200">Guardrails</h3>
+          <span className="text-sm text-slate-400">{expanded ? '▼' : '▶'}</span>
+        </button>
+        {expanded && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (project?.id) {
+                void loadGuardrails(project.id);
+              }
+            }}
+            disabled={loading || !project?.id}
+            className="ml-2 shrink-0 rounded-lg border border-slate-600 bg-slate-900/70 px-3 py-1 text-xs font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        )}
+      </div>
 
       {expanded && (
         <div className="mt-4">
@@ -120,7 +145,30 @@ function PolicyPanel({ project, onSave }) {
   const [saving, setSaving] = useState(false);
   const [newPath, setNewPath] = useState('');
   const [newCheck, setNewCheck] = useState('');
+  const [availableProviders, setAvailableProviders] = useState(PROVIDER_FALLBACK);
   const toast = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    providersApi.list()
+      .then((items) => {
+        if (cancelled) {
+          return;
+        }
+        const names = Array.isArray(items)
+          ? items.map((entry) => entry?.id || entry?.name || entry?.provider).filter(Boolean)
+          : [];
+        if (names.length > 0) {
+          setAvailableProviders(names);
+        }
+      })
+      .catch(() => {
+        // Keep PROVIDER_FALLBACK if the fetch fails — user still gets a usable list.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!project) {
@@ -447,7 +495,7 @@ function PolicyPanel({ project, onSave }) {
         <div className="col-span-full">
           <label className="mb-1 block text-sm text-slate-400">Provider Restrictions (empty = all allowed)</label>
           <div className="flex flex-wrap gap-3">
-            {['codex', 'ollama', 'deepinfra', 'hyperbolic', 'groq', 'cerebras', 'google-ai', 'openrouter', 'claude-cli', 'anthropic'].map((provider) => (
+            {availableProviders.map((provider) => (
               <label key={provider} className="flex items-center gap-1.5 text-sm text-slate-300">
                 <input
                   type="checkbox"
