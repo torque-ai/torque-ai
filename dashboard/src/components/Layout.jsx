@@ -24,6 +24,18 @@ const ROUTE_NAMES = {
   '/settings': 'Project Settings',
 };
 
+function getRouteName(pathname) {
+  if (ROUTE_NAMES[pathname]) {
+    return ROUTE_NAMES[pathname];
+  }
+
+  if (/^\/workflows\/[^/]+\/timeline$/i.test(pathname)) {
+    return 'Workflow Timeline';
+  }
+
+  return '';
+}
+
 // Simple SVG icons as components
 const KanbanIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -326,7 +338,7 @@ export default function Layout({ isConnected, isReconnecting, failedCount = 0, s
   const userMenuRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
-  const currentRoute = ROUTE_NAMES[location.pathname] || '';
+  const currentRoute = getRouteName(location.pathname);
   const alertCount = failedCount + stuckCount;
 
   // Close mobile sidebar on route change

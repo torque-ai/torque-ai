@@ -492,6 +492,12 @@ export const workflows = {
   get: (id) => requestV2(`/workflows/${id}`),
   tasks: (id) => requestV2(`/workflows/${id}/tasks`),
   history: (id) => requestV2(`/workflows/${id}/history`),
+  checkpoints: (id, options = {}) => requestV2(`/workflows/${id}/checkpoints`, options),
+  fork: (id, data, options = {}) => requestV2(`/workflows/${id}/fork`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+    ...options,
+  }),
 };
 
 // ─── Workflow spec endpoints (v2) ──────────────────────────────────────────

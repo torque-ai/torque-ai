@@ -48,6 +48,8 @@ vi.mock('./api', () => ({
   },
   workflows: {
     list: vi.fn().mockResolvedValue({ workflows: [], pagination: { page: 1, totalPages: 1, total: 0 } }),
+    checkpoints: vi.fn().mockResolvedValue({ checkpoints: [] }),
+    fork: vi.fn().mockResolvedValue({ new_workflow_id: 'wf-fork-1' }),
   },
   routingTemplates: {
     list: vi.fn().mockResolvedValue([]),

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { workflows as workflowsApi } from '../api';
 import { useToast } from '../components/Toast';
 import { useAbortableRequest } from '../hooks/useAbortableRequest';
@@ -227,7 +227,7 @@ function DAGTaskRow({ task, depth = 0, onOpenDrawer, now }) {
 }
 
 /** Expanded workflow detail: loads tasks and renders as DAG graph + table */
-function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, now }) {
+function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, onOpenTimeline, now }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('graph'); // 'graph' or 'table'
@@ -321,6 +321,13 @@ function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, now }) {
                 Cost: ${detail.cost.total_cost_usd.toFixed(4)}
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => onOpenTimeline?.(workflowId)}
+              className="rounded-md border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-200 transition-colors hover:bg-blue-500/20"
+            >
+              Timeline + Fork
+            </button>
             <div className="ml-auto flex items-center gap-1">
               <button
                 onClick={() => setViewMode('graph')}
@@ -427,6 +434,7 @@ function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, now }) {
 
 export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [workflows, setWorkflows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
@@ -438,6 +446,9 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
   const { execute } = useAbortableRequest();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [relativeTimeTick]);
+  const openTimeline = useCallback((workflowId) => {
+    navigate(`/workflows/${workflowId}/timeline`);
+  }, [navigate]);
 
   // Sync filter + page to URL
   useEffect(() => {
@@ -679,6 +690,17 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
                         {wf.description && (
                           <p className="text-xs text-slate-500 mt-0.5 truncate max-w-xs">{wf.description}</p>
                         )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openTimeline(wf.id);
+                          }}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="mt-2 inline-flex items-center rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-[11px] font-medium text-blue-200 transition-colors hover:bg-blue-500/20"
+                        >
+                          Timeline + Fork
+                        </button>
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={wf.status} />
@@ -721,6 +743,7 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
                       <ExpandedWorkflowDAG
                         workflowId={wf.id}
                         onOpenDrawer={onOpenDrawer}
+                        onOpenTimeline={openTimeline}
                         now={now}
                       />
                     )}
