@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  collectConcreteWorkItems,
   collectPatterns,
   createScoutOutputIntake,
   isStarvationRecoveryScoutTask,
@@ -19,6 +20,13 @@ describe('scout output intake', () => {
     expect(isStarvationRecoveryScoutTask({
       metadata: { mode: 'scout', project_id: 'project-1' },
     })).toBe(false);
+
+    expect(isStarvationRecoveryScoutTask({
+      metadata: {
+        mode: 'scout',
+        scope: 'Factory starvation recovery scout. The project reached STARVED.',
+      },
+    })).toBe(true);
   });
 
   it('extracts patterns_ready signals from scout output', () => {
@@ -91,6 +99,76 @@ describe('scout output intake', () => {
         type: 'starvation_recovery_scout_pattern',
         task_id: 'task-1',
         pattern_id: 'worktree-cleanup',
+      }),
+    }));
+  });
+
+  it('extracts concrete factory work items from scout_complete signals', () => {
+    const workItems = collectConcreteWorkItems([
+      '__SCOUT_COMPLETE__',
+      JSON.stringify({
+        concrete_factory_work_items: [{
+          priority: 1,
+          title: 'Align CI mypy command with the scoped pyproject typing contract',
+          why: 'The CI workflow uses the broad mypy target.',
+          allowed_files: ['.github/workflows/ci.yml'],
+          verification: 'python -m mypy',
+        }],
+      }),
+      '__SCOUT_COMPLETE_END__',
+    ].join('\n'));
+
+    expect(workItems).toEqual([expect.objectContaining({
+      priority: 1,
+      title: 'Align CI mypy command with the scoped pyproject typing contract',
+      allowed_files: ['.github/workflows/ci.yml'],
+    })]);
+  });
+
+  it('promotes concrete scout_complete work items and resolves legacy project metadata by path', () => {
+    const factoryIntake = {
+      findDuplicates: vi.fn().mockReturnValue([]),
+      createWorkItem: vi.fn((item) => ({ id: 1, ...item })),
+    };
+    const intake = createScoutOutputIntake({
+      factoryIntake,
+      resolveProjectId: vi.fn().mockReturnValue('project-1'),
+    });
+
+    const result = intake.promoteTask({
+      id: 'task-legacy',
+      working_directory: 'C:\\repo',
+      metadata: {
+        mode: 'scout',
+        scope: 'Factory starvation recovery scout. The project reached STARVED.',
+      },
+      output: [
+        '__SCOUT_COMPLETE__',
+        JSON.stringify({
+          concrete_factory_work_items: [{
+            priority: 1,
+            title: 'Align CI mypy command with the scoped pyproject typing contract',
+            why: 'The CI workflow uses the broad mypy target.',
+            allowed_files: ['.github/workflows/ci.yml', 'tests/test_ci_parity.py'],
+            verification: 'python -m mypy; pytest tests/test_ci_parity.py -q',
+          }],
+        }),
+        '__SCOUT_COMPLETE_END__',
+      ].join('\n'),
+    });
+
+    expect(result.created).toHaveLength(1);
+    expect(result.work_items_seen).toBe(1);
+    expect(factoryIntake.createWorkItem).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: 'project-1',
+      source: 'scout',
+      title: 'Align CI mypy command with the scoped pyproject typing contract',
+      priority: 'high',
+      origin: expect.objectContaining({
+        type: 'starvation_recovery_scout_work_item',
+        task_id: 'task-legacy',
+        allowed_files: ['.github/workflows/ci.yml', 'tests/test_ci_parity.py'],
+        verification: 'python -m mypy; pytest tests/test_ci_parity.py -q',
       }),
     }));
   });
