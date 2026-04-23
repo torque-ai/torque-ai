@@ -120,9 +120,13 @@ function handleClearAutoRecovery(args = {}) {
 }
 
 async function handleTriggerAutoRecovery(args = {}) {
-  const deps = resolveAutoRecoveryDeps({ needsDb: true, needsEngine: true });
-  if (deps.error) return deps.error;
-  return triggerAutoRecovery({ ...args, db: deps.db, engine: deps.engine });
+  try {
+    const deps = resolveAutoRecoveryDeps({ needsDb: true, needsEngine: true });
+    if (deps.error) return deps.error;
+    return triggerAutoRecovery({ ...args, db: deps.db, engine: deps.engine });
+  } catch (err) {
+    return makeError(ErrorCodes.INTERNAL_ERROR, err.message || String(err));
+  }
 }
 
 module.exports = {
