@@ -71,7 +71,7 @@ function looksLikeFunctionExpression(source) {
 
 function compileActionRun(runJs, actionName) {
   if (typeof runJs !== 'string' || !runJs.trim()) {
-    throw new Error(`action ${actionName}: run_js must be a non-empty string`);
+    throw createHandlerError(`action ${actionName}: run_js must be a non-empty string`, ErrorCodes.INVALID_PARAM);
   }
 
   const source = runJs.trim();
@@ -83,7 +83,7 @@ function compileActionRun(runJs, actionName) {
     const script = new vm.Script(
       `(async () => {
         const run = ${runnerExpression};
-        if (typeof run !== 'function') throw new Error('run_js did not evaluate to a function');
+        if (typeof run !== 'function') return Promise.reject(new TypeError('run_js did not evaluate to a function'));
         return await run(__state, __inputs);
       })()`,
       { filename: `action-app-${actionName}.vm.js` },
