@@ -144,6 +144,25 @@ function _previewPattern(pattern) {
     : String(pattern ?? '<missing>');
 }
 
+function _getRegexFailurePatternSignature(pattern) {
+  if (!pattern) return null;
+
+  const patternType = typeof pattern.pattern_type === 'string'
+    ? pattern.pattern_type.trim().toLowerCase()
+    : '';
+
+  if (patternType && patternType !== 'output' && patternType !== 'regex') {
+    return null;
+  }
+
+  if (typeof pattern.signature !== 'string') {
+    return null;
+  }
+
+  const signature = pattern.signature.trim();
+  return signature || null;
+}
+
 // ============================================================
 // Validation rules
 // ============================================================
@@ -243,7 +262,7 @@ function validateTaskOutput(taskId, fileChanges = []) {
   for (const rule of rules) {
     if (rule.rule_type === 'pattern' && rule.pattern) {
       if (_isLikelyReDoSRiskPattern(rule.pattern)) {
-        logger.info(`[Validation] Skipping potentially unsafe regex pattern: ${rule.pattern.slice(0, 50)}...`);
+        logger.info(`[Validation] Skipping potentially unsafe regex pattern: ${_previewPattern(rule.pattern)}...`);
         continue;
       }
 
@@ -445,15 +464,18 @@ function matchFailurePatterns(taskId, output, provider) {
     // Filter by provider if specified
     if (pattern.provider && pattern.provider !== provider) continue;
 
-    if (_isLikelyReDoSRiskPattern(pattern.signature)) {
-      logger.info(`[Validation] Skipping potentially unsafe regex pattern: ${_previewPattern(pattern.signature)}...`);
+    const signature = _getRegexFailurePatternSignature(pattern);
+    if (!signature) continue;
+
+    if (_isLikelyReDoSRiskPattern(signature)) {
+      logger.info(`[Validation] Skipping potentially unsafe regex pattern: ${_previewPattern(signature)}...`);
       continue;
     }
 
     const inputToMatch = (output || '').slice(0, MAX_REGEX_INPUT_LENGTH);
 
     try {
-      const regex = new RegExp(pattern.signature, 'gmi');
+      const regex = new RegExp(signature, 'gmi');
       if (regex.test(inputToMatch)) {
         // Record the match
         const stmt = db.prepare(`
@@ -474,7 +496,7 @@ function matchFailurePatterns(taskId, output, provider) {
         });
       }
     } catch (e) {
-      logger.warn(`Invalid pattern regex: ${pattern.signature}`, e.message);
+      logger.warn(`Invalid pattern regex: ${signature}`, e.message);
     }
   }
 

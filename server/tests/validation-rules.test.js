@@ -550,6 +550,32 @@ describe('validation-rules module', () => {
       expect(mod.matchFailurePatterns(task.id, 'Error text', null)).toEqual([]);
     });
 
+    it('skips blank-signature failure patterns without matching everything', () => {
+      rawDb().prepare(`
+        INSERT INTO failure_patterns (id, name, pattern_type, signature, enabled, created_at, updated_at)
+        VALUES (?, ?, 'output', '   ', 1, ?, ?)
+      `).run(randomUUID(), 'Blank signature', new Date().toISOString(), new Date().toISOString());
+
+      const task = createTask();
+
+      expect(mod.matchFailurePatterns(task.id, 'Error text', null)).toEqual([]);
+      const matches = rawDb().prepare('SELECT * FROM failure_matches WHERE task_id = ?').all(task.id);
+      expect(matches).toEqual([]);
+    });
+
+    it('ignores non-output failure patterns during regex matching', () => {
+      rawDb().prepare(`
+        INSERT INTO failure_patterns (id, name, pattern_type, signature, pattern_definition, enabled, created_at, updated_at)
+        VALUES (?, ?, 'keyword', 'specific-error', '{"keyword":"specific-error"}', 1, ?, ?)
+      `).run(randomUUID(), 'Keyword analytics pattern', new Date().toISOString(), new Date().toISOString());
+
+      const task = createTask();
+
+      expect(mod.matchFailurePatterns(task.id, 'specific-error here', null)).toEqual([]);
+      const matches = rawDb().prepare('SELECT * FROM failure_matches WHERE task_id = ?').all(task.id);
+      expect(matches).toEqual([]);
+    });
+
     it('matchFailurePatterns filters by provider', () => {
       mod.saveFailurePattern({
         id: randomUUID(),
