@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const { createTables } = require('../db/schema-tables');
@@ -247,5 +248,33 @@ describe('db/schema-seeds', () => {
       default_mode: 'warn',
       checker_id: 'checkBatchTestFixes',
     });
+  });
+
+  it('seeds every task_type handled by runMaintenanceTask', () => {
+    // Enumerate every non-aggregate `case '<name>':` in the scheduler switch and
+    // require a matching maintenance_schedule row. Without this, a handler can
+    // exist in code but never fire because no schedule row drives it (the cause
+    // of 1.4 GB stream_chunks accumulation observed in production).
+    const schedulerSrc = fs.readFileSync(
+      path.resolve(__dirname, '..', 'maintenance', 'scheduler.js'),
+      'utf8',
+    );
+    const runFnStart = schedulerSrc.indexOf('function runMaintenanceTask');
+    expect(runFnStart).toBeGreaterThan(-1);
+    // Scan only within runMaintenanceTask to avoid picking up unrelated switch statements.
+    const runFnBody = schedulerSrc.slice(runFnStart, runFnStart + 5000);
+
+    const handledTypes = new Set();
+    for (const m of runFnBody.matchAll(/case\s+'([a-z_]+)'\s*:/g)) {
+      if (m[1] !== 'all') handledTypes.add(m[1]);
+    }
+    expect(handledTypes.size).toBeGreaterThan(0);
+
+    const scheduled = new Set(
+      db.prepare('SELECT task_type FROM maintenance_schedule').all().map((r) => r.task_type),
+    );
+
+    const missing = [...handledTypes].filter((t) => !scheduled.has(t));
+    expect(missing).toEqual([]);
   });
 });
