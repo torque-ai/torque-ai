@@ -265,4 +265,76 @@ describe('server/versioning/auto-release', () => {
     );
     expect(deps.logger.info).toHaveBeenCalledWith('[auto-release] Released v1.1.0 (minor) for C:/repo');
   });
+
+  it('cutRelease skips projects whose latest tag is not semantic-versioned', () => {
+    const getVersioningConfig = vi.fn(() => ({
+      enabled: true,
+      auto_push: true,
+      start: '1.0.0',
+    }));
+    const { createAutoReleaseService } = loadAutoRelease({ getVersioningConfig });
+    const { db, statements } = createDbMock({
+      unreleasedCommits: [
+        { id: 'commit-1', version_intent: 'fix' },
+      ],
+    });
+    const deps = createDependencies({
+      releaseManager: {
+        getLatestTag: vi.fn(() => {
+          throw new Error('tag must be a semantic version like 1.2.3');
+        }),
+      },
+    });
+    const service = createAutoReleaseService({ db, ...deps });
+
+    const result = service.cutRelease('C:/repo', {
+      workflowId: null,
+      taskId: 'task-1',
+      trigger: 'task',
+    });
+
+    expect(result).toBeNull();
+    expect(deps.releaseManager.getLatestTag).toHaveBeenCalledWith('C:/repo');
+    expect(deps.releaseManager.createRelease).not.toHaveBeenCalled();
+    expect(statements.insertRelease.run).not.toHaveBeenCalled();
+    expect(deps.logger.error).not.toHaveBeenCalled();
+    expect(deps.logger.info).toHaveBeenCalledWith(expect.stringContaining('latest tag is not semantic-versioned'));
+  });
+
+  it('cutRelease downgrades semantic version release errors to skip logs', () => {
+    const getVersioningConfig = vi.fn(() => ({
+      enabled: true,
+      auto_push: false,
+      start: 'not-semver',
+    }));
+    const { createAutoReleaseService } = loadAutoRelease({ getVersioningConfig });
+    const { db, statements } = createDbMock({
+      unreleasedCommits: [
+        { id: 'commit-1', version_intent: 'feature' },
+      ],
+    });
+    const deps = createDependencies({
+      releaseManager: {
+        createRelease: vi.fn(() => {
+          throw new Error('startVersion must be a semantic version like 1.2.3');
+        }),
+      },
+    });
+    const service = createAutoReleaseService({ db, ...deps });
+
+    const result = service.cutRelease('C:/repo', {
+      workflowId: null,
+      taskId: 'task-1',
+      trigger: 'task',
+    });
+
+    expect(result).toBeNull();
+    expect(deps.releaseManager.createRelease).toHaveBeenCalledWith('C:/repo', {
+      push: false,
+      startVersion: 'not-semver',
+    });
+    expect(statements.insertRelease.run).not.toHaveBeenCalled();
+    expect(deps.logger.error).not.toHaveBeenCalled();
+    expect(deps.logger.info).toHaveBeenCalledWith(expect.stringContaining('release configuration is not semantic-versioned'));
+  });
 });

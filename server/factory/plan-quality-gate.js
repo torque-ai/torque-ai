@@ -71,6 +71,7 @@ const NESTED_WORKTREE_SETUP_PATTERNS = [
     re: /\bgit\s+worktree\s+add\b[\s\S]{0,220}\b(?:before editing|then work|work only inside|work inside|inside that path|branch first)\b/i,
   },
 ];
+const WORKTREE_SETUP_CRITIQUE_RE = /\b(?:omit(?:s|ted|ting)?|missing|lack(?:s|ed|ing)?|without|does\s+not\s+(?:include|mention|require)|no\s+(?:dedicated\s+)?worktree)\b[\s\S]{0,180}\b(?:worktree|feature\s+branch|branch)\b/i;
 const VAGUE_PHRASES = [
   { label: 'appropriately', re: /\bappropriately\b/gi },
   { label: 'as needed', re: /\bas\s+needed\b/gi },
@@ -120,6 +121,12 @@ function findNestedWorktreeSetup(text) {
     }
   }
   return null;
+}
+
+function isUnsupportedWorktreeSetupCritique(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  return WORKTREE_SETUP_CRITIQUE_RE.test(value);
 }
 
 function parseTasks(planMarkdown) {
@@ -308,6 +315,10 @@ Work item description: ${workItem?.description || '(none)'}
 
 Return ONLY valid JSON in this shape: {"verdict":"go"|"no-go","critique":"one sentence explaining the verdict"}
 
+Factory execution already creates an isolated git worktree and feature branch for each batch.
+Do NOT reject a plan because it omits worktree or branch setup instructions.
+Do reject a plan only for semantic mismatch with the work item, missing concrete implementation scope, or unsafe/incorrect execution guidance.
+
 Plan:
 ${plan}
 `;
@@ -361,6 +372,9 @@ async function evaluatePlan({ plan, workItem, project }) {
   const isNoGo = typeof critique === 'string' && critique.startsWith('[no-go]');
   if (isNoGo) {
     const cleanCritique = critique.replace(/^\[no-go\]\s*/, '');
+    if (isUnsupportedWorktreeSetupCritique(cleanCritique)) {
+      return { passed: true, hardFails: [], warnings, llmCritique: null, feedbackPrompt: null };
+    }
     const feedbackPrompt = buildFeedbackPrompt([], warnings, cleanCritique);
     return { passed: false, hardFails: [], warnings, llmCritique: cleanCritique, feedbackPrompt };
   }
@@ -374,5 +388,6 @@ module.exports = {
   runDeterministicRules,
   runLlmSemanticCheck,
   buildFeedbackPrompt,
+  isUnsupportedWorktreeSetupCritique,
   evaluatePlan,
 };

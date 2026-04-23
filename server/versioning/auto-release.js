@@ -3,6 +3,8 @@
 const { randomUUID } = require('crypto');
 const { highestIntent, intentToBump, getVersioningConfig } = require('./version-intent');
 
+const SEMVER_ERROR_RE = /semantic version like 1\.2\.3/i;
+
 function createAutoReleaseService({ db, releaseManager, changelogGenerator, logger }) {
   if (!db || typeof db.prepare !== 'function') {
     throw new Error('auto-release service requires db with prepare()');
@@ -33,6 +35,31 @@ function createAutoReleaseService({ db, releaseManager, changelogGenerator, logg
     return intentToBump(intent);
   }
 
+  function isSemanticVersionError(error) {
+    const message = [
+      typeof error?.message === 'string' ? error.message : '',
+      typeof error?.stderr === 'string' ? error.stderr : '',
+      typeof error?.stdout === 'string' ? error.stdout : '',
+    ].join('\n');
+    return SEMVER_ERROR_RE.test(message);
+  }
+
+  function releaseReadinessFailure(repoPath) {
+    if (typeof releaseManager.getLatestTag !== 'function') {
+      return null;
+    }
+
+    try {
+      releaseManager.getLatestTag(repoPath);
+      return null;
+    } catch (err) {
+      if (isSemanticVersionError(err)) {
+        return err;
+      }
+      throw err;
+    }
+  }
+
   function cutRelease(repoPath, { workflowId, taskId, trigger }) {
     const config = getVersioningConfig(db, repoPath);
     if (!config || !config.enabled) {
@@ -51,6 +78,12 @@ function createAutoReleaseService({ db, releaseManager, changelogGenerator, logg
       return null;
     }
 
+    const readinessError = releaseReadinessFailure(repoPath);
+    if (readinessError) {
+      log.info(`[auto-release] Skipping release for ${repoPath}: latest tag is not semantic-versioned (${readinessError.message})`);
+      return null;
+    }
+
     let releaseResult;
     try {
       releaseResult = releaseManager.createRelease(repoPath, {
@@ -58,6 +91,10 @@ function createAutoReleaseService({ db, releaseManager, changelogGenerator, logg
         startVersion: config.start,
       });
     } catch (err) {
+      if (isSemanticVersionError(err)) {
+        log.info(`[auto-release] Skipping release for ${repoPath}: release configuration is not semantic-versioned (${err.message})`);
+        return null;
+      }
       log.error(`[auto-release] Failed to create release for ${repoPath}: ${err.message}`);
       return null;
     }
@@ -119,7 +156,7 @@ function createAutoReleaseService({ db, releaseManager, changelogGenerator, logg
     };
   }
 
-  return { cutRelease, getUnreleasedCommits, calculateBump };
+  return { cutRelease, getUnreleasedCommits, calculateBump, isSemanticVersionError };
 }
 
 module.exports = { createAutoReleaseService };

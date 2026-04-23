@@ -43,6 +43,7 @@ const REDACT_PATTERNS = [
 ];
 
 const REDACTION_MARKER = '[REDACTED]';
+const RESERVED_ENTRY_FIELDS = new Set(['timestamp', 'level', 'message']);
 
 function isLogRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -101,6 +102,15 @@ function normalizeLogArgs(message, data) {
     message: typeof message === 'string' ? message : String(message),
     data: normalizeLogData(data),
   };
+}
+
+function protectEntryFields(data) {
+  const protectedData = {};
+  for (const [key, value] of Object.entries(data || {})) {
+    const outputKey = RESERVED_ENTRY_FIELDS.has(key) ? `metadata_${key}` : key;
+    protectedData[outputKey] = value;
+  }
+  return protectedData;
 }
 
 class Logger {
@@ -241,13 +251,16 @@ class Logger {
   _write(level, message, data) {
     if (LEVELS[level] < this.level) return;
     const normalized = normalizeLogArgs(message, data);
+    const metadata = protectEntryFields({
+      ...this.context,
+      ...normalized.data,
+    });
 
     const entry = {
       timestamp: new Date().toISOString(),
       level,
       message: normalized.message,
-      ...this.context,
-      ...normalized.data,
+      ...metadata,
     };
 
     const line = this._redact(JSON.stringify(entry)) + '\n';
