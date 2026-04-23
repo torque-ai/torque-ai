@@ -10,18 +10,21 @@ const DATABASE_MODULE = '../database';
 const TASK_CORE_MODULE = '../db/task-core';
 const TOOLS_MODULE = '../tools';
 const MIDDLEWARE_MODULE = '../api/middleware';
+const RESTART_BARRIER_MODULE = '../execution/restart-barrier';
 const MODULE_PATHS = [
   HEALTH_PROBES_MODULE,
   DATABASE_MODULE,
   TASK_CORE_MODULE,
   TOOLS_MODULE,
   MIDDLEWARE_MODULE,
+  RESTART_BARRIER_MODULE,
 ];
 
 let mockDb;
 let mockTaskCore;
 let mockTools;
 let mockMiddleware;
+let mockRestartBarrier;
 
 function installCjsModuleMock(modulePath, exportsValue) {
   const resolved = require.resolve(modulePath);
@@ -83,12 +86,19 @@ function createMockMiddleware() {
   };
 }
 
+function createMockRestartBarrier() {
+  return {
+    isRestartBarrierActive: vi.fn(() => null),
+  };
+}
+
 function loadHealthProbes() {
   clearModules();
   installCjsModuleMock(DATABASE_MODULE, mockDb);
   installCjsModuleMock(TASK_CORE_MODULE, mockTaskCore);
   installCjsModuleMock(TOOLS_MODULE, mockTools);
   installCjsModuleMock(MIDDLEWARE_MODULE, mockMiddleware);
+  installCjsModuleMock(RESTART_BARRIER_MODULE, mockRestartBarrier);
   return require(HEALTH_PROBES_MODULE);
 }
 
@@ -125,6 +135,7 @@ beforeEach(() => {
   mockTaskCore = createMockTaskCore();
   mockTools = createMockTools();
   mockMiddleware = createMockMiddleware();
+  mockRestartBarrier = createMockRestartBarrier();
   clearModules();
 });
 
@@ -192,8 +203,29 @@ describe('api/health-probes', () => {
 
       expect(mockTaskCore.countTasks).toHaveBeenCalledTimes(1);
       expect(mockTaskCore.countTasks).toHaveBeenCalledWith({ status: 'running' });
+      expect(mockRestartBarrier.isRestartBarrierActive).toHaveBeenCalledWith(mockTaskCore);
       expect(mockMiddleware.sendJson).toHaveBeenCalledWith(res, { status: 'ready' }, 200, req);
       expect(res.body).toEqual({ status: 'ready' });
+    });
+
+    it('returns not ready while a restart handoff is pending even after warm-up', () => {
+      const clock = freezeNow(15_000);
+      mockRestartBarrier.isRestartBarrierActive.mockReturnValue({
+        id: 'restart-barrier-1234',
+        provider: 'system',
+        status: 'running',
+      });
+      const probes = loadHealthProbes();
+      const res = createRes();
+
+      clock.advance(6_000);
+      probes.handleReadyz(createReq({ url: '/readyz' }), res);
+
+      expect(res.statusCode).toBe(503);
+      expect(res.body).toEqual({
+        status: 'not ready',
+        reasons: ['restart pending (restart-)'],
+      });
     });
 
     it('returns not ready just before the 5 second warm-up threshold even when the database is accessible', () => {

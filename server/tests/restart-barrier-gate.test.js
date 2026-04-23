@@ -2,6 +2,7 @@
 
 const { setupE2eDb, teardownE2eDb } = require('./e2e-helpers');
 const { isRestartBarrierActive } = require('../execution/restart-barrier');
+const restartHandoff = require('../execution/restart-handoff');
 
 const SLOT_PULL_PATH = require.resolve('../execution/slot-pull-scheduler');
 
@@ -77,6 +78,7 @@ describe('isRestartBarrierActive (helper)', () => {
 
   afterEach(async () => {
     delete process._torqueRestartPending;
+    restartHandoff.clearRestartHandoff();
     if (ctx) await teardownE2eDb(ctx);
     ctx = null;
     db = null;
@@ -110,6 +112,24 @@ describe('isRestartBarrierActive (helper)', () => {
   it('returns null when db lacks listTasks', () => {
     expect(isRestartBarrierActive({})).toBeNull();
     expect(isRestartBarrierActive(null)).toBeNull();
+  });
+
+  it('returns a synthetic row from the persisted restart handoff when no db barrier row exists', () => {
+    restartHandoff.writeRestartHandoff({
+      barrier_id: 'handoff-barrier-1',
+      reason: 'test restart',
+      requested_at: '2026-04-23T19:34:18.000Z',
+    });
+
+    const row = isRestartBarrierActive(null);
+
+    expect(row).toEqual({
+      id: 'handoff-barrier-1',
+      provider: 'system',
+      status: 'pending-startup',
+      started_at: '2026-04-23T19:34:18.000Z',
+      created_at: '2026-04-23T19:34:18.000Z',
+    });
   });
 
   it('returns a synthetic row when process._torqueRestartPending is set (no DB barrier)', () => {

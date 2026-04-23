@@ -1,11 +1,12 @@
 'use strict';
 
-const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, resetTables } = require('./vitest-setup');
 const tools = require('../tools');
 const taskCore = require('../db/task-core');
 const taskManager = require('../task-manager');
 const logger = require('../logger');
 const eventBus = require('../event-bus');
+const restartHandoff = require('../execution/restart-handoff');
 
 describe('restart_server tool', () => {
   let shutdownListeners = [];
@@ -21,6 +22,8 @@ describe('restart_server tool', () => {
     vi.useFakeTimers();
     vi.restoreAllMocks();
     shutdownListeners = [];
+    resetTables('tasks');
+    restartHandoff.clearRestartHandoff();
   });
 
   afterEach(() => {
@@ -28,6 +31,7 @@ describe('restart_server tool', () => {
       eventBus.removeListener('shutdown', fn);
     }
     shutdownListeners = [];
+    restartHandoff.clearRestartHandoff();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -48,6 +52,11 @@ describe('restart_server tool', () => {
     expect(result.success).toBe(true);
     expect(result.status).toBe('restart_scheduled');
     expect(result.content[0].text).toContain('restart');
+    expect(taskCore.getTask(result.task_id).status).toBe('running');
+    expect(restartHandoff.readRestartHandoff()).toMatchObject({
+      barrier_id: result.task_id,
+      reason: 'unit restart',
+    });
 
     // Shutdown is delayed — not immediate
     expect(shutdownEvents).toHaveLength(0);

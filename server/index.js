@@ -1051,17 +1051,6 @@ function init() {
     debugLog(`Server epoch: ${newEpoch}`);
   }
 
-  // Clean up stale restart barrier tasks from previous server instance
-  try {
-    const { cleanupStaleRestartBarriers } = require('./tools');
-    const cleaned = cleanupStaleRestartBarriers();
-    if (cleaned > 0) {
-      debugLog(`Cleaned up ${cleaned} stale restart barrier task(s)`);
-    }
-  } catch (err) {
-    debugLog(`Restart barrier cleanup failed (non-fatal): ${err.message}`);
-  }
-
   // Auto-inject TORQUE MCP config for local mode
   if (isLocalMode) {
     try {
@@ -1219,6 +1208,17 @@ function init() {
   // Register this MCP instance for multi-session coordination
   taskManager.registerInstance();
   taskManager.startInstanceHeartbeat();
+
+  // Clean up stale restart barrier tasks from previous crashed instances.
+  try {
+    const { cleanupStaleRestartBarriers } = require('./tools');
+    const cleaned = cleanupStaleRestartBarriers();
+    if (cleaned > 0) {
+      debugLog(`Cleaned up ${cleaned} stale restart barrier task(s)`);
+    }
+  } catch (err) {
+    debugLog(`Restart barrier cleanup failed (non-fatal): ${err.message}`);
+  }
 
   // Instance-aware orphan cleanup — distinguishes tasks from crashed instances vs active siblings
   try {
@@ -1546,6 +1546,19 @@ function init() {
     if (apiResult.success) {
       apiStarted = true;
       debugLog(`REST API auto-started at http://127.0.0.1:${apiResult.port}`);
+      try {
+        const { completePendingRestartHandoff } = require('./execution/restart-handoff');
+        const finalized = completePendingRestartHandoff({
+          taskCore: db,
+          instanceId: taskManager.getMcpInstanceId(),
+          logger,
+        });
+        if (finalized.completed) {
+          debugLog(`Restart handoff completed for barrier ${String(finalized.barrier_id).slice(0, 8)}`);
+        }
+      } catch (err) {
+        debugLog(`Restart handoff finalize failed (non-fatal): ${err.message}`);
+      }
     }
   }).catch(err => {
     debugLog(`REST API failed to start: ${err.message}`);

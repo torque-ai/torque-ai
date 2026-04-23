@@ -1,5 +1,7 @@
 'use strict';
 
+const { readRestartHandoff } = require('./restart-handoff');
+
 /**
  * Shared restart-barrier check used by both the legacy queue scheduler and the
  * slot-pull scheduler. A barrier task is a task with `provider = 'system'` in
@@ -26,7 +28,18 @@ function isRestartBarrierActive(db) {
   if (typeof process !== 'undefined' && process._torqueRestartPending) {
     return { id: 'restart-pending-flag', provider: 'system', status: 'pending-shutdown' };
   }
-  if (!db) return null;
+  if (!db) {
+    const handoff = readRestartHandoff();
+    return handoff && handoff.barrier_id
+      ? {
+        id: handoff.barrier_id,
+        provider: 'system',
+        status: 'pending-startup',
+        started_at: handoff.requested_at || null,
+        created_at: handoff.requested_at || null,
+      }
+      : null;
+  }
   if (typeof db.prepare === 'function') {
     try {
       const row = db.prepare(
@@ -50,8 +63,18 @@ function isRestartBarrierActive(db) {
         : null;
       return queuedBarrier || null;
     } catch {
-      return null;
+      // Fall through to persisted restart handoff below
     }
+  }
+  const handoff = readRestartHandoff();
+  if (handoff && handoff.barrier_id) {
+    return {
+      id: handoff.barrier_id,
+      provider: 'system',
+      status: 'pending-startup',
+      started_at: handoff.requested_at || null,
+      created_at: handoff.requested_at || null,
+    };
   }
   return null;
 }
