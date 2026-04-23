@@ -28,6 +28,11 @@ function init(deps = {}) {
   if (deps.db) _db = deps.db;
 }
 
+function isInsideWorkingDirectory(workingDir, targetPath) {
+  const rel = path.relative(path.resolve(workingDir), targetPath);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 /**
  * Build formatted file context block from resolved files.
  * Reads files, adds line numbers with method markers, caps at maxBytes.
@@ -81,6 +86,7 @@ function trySymbolLevelContext(resolvedFiles, workingDirectory, maxBytes, taskDe
     for (const { actual } of resolvedFiles) {
       if (totalBytes >= maxBytes) break;
       const fullPath = path.resolve(workingDirectory, actual);
+      if (!isInsideWorkingDirectory(workingDirectory, fullPath)) continue;
       const outline = symbolIndexer.getFileOutline(fullPath, workingDirectory);
       if (outline.length === 0) continue;
       const outlineText = outline.map(s => `  ${s.kind} ${s.name} (L${s.start_line}-${s.end_line})`).join('\n');
@@ -119,6 +125,11 @@ async function buildFileContext(resolvedFiles, workingDirectory, maxBytes = 3000
     if (totalBytes >= maxBytes) break;
 
     const fullPath = path.resolve(workingDirectory, actual);
+    if (!isInsideWorkingDirectory(workingDirectory, fullPath)) {
+      logger.warn(`[FileContext] Skipping referenced file outside working dir: ${actual}`);
+      continue;
+    }
+
     let content;
     try {
       content = await fs.promises.readFile(fullPath, 'utf8');
@@ -245,26 +256,33 @@ async function extractJsFunctionBoundaries(filePath) {
  * without interactive approval prompts.
  * @param {string} workingDir - The working directory
  * @param {string[]} filePaths - Relative file paths to ensure exist
- * @returns {string[]} Array of absolute paths that were created or already existed
+ * @returns {Promise<string[]>} Array of absolute paths that were created or already existed
  */
-function ensureTargetFilesExist(workingDir, filePaths) {
+async function ensureTargetFilesExist(workingDir, filePaths) {
   const resolvedPaths = [];
 
   for (const relPath of filePaths) {
     const absPath = path.resolve(workingDir, relPath);
 
     // Safety: ensure the resolved path is inside the working directory
-    const rel = path.relative(path.resolve(workingDir), absPath);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    if (!isInsideWorkingDirectory(workingDir, absPath)) {
       logger.warn(`[FileContext] Skipping target file outside working dir: ${relPath}`);
       continue;
     }
 
     try {
-      if (!fs.existsSync(absPath)) {
+      let exists = true;
+      try {
+        await fs.promises.access(absPath, fs.constants.F_OK);
+      } catch (accessErr) {
+        if (accessErr && accessErr.code !== 'ENOENT') throw accessErr;
+        exists = false;
+      }
+
+      if (!exists) {
         // Create parent directories
         const dir = path.dirname(absPath);
-        fs.mkdirSync(dir, { recursive: true });
+        await fs.promises.mkdir(dir, { recursive: true });
 
         // Create stub file with a comment indicating it's a placeholder
         const ext = path.extname(absPath).toLowerCase();
@@ -278,8 +296,12 @@ function ensureTargetFilesExist(workingDir, filePaths) {
         } else {
           stub = '// Placeholder\n';
         }
-        fs.writeFileSync(absPath, stub, 'utf8');
-        logger.info(`[FileContext] Created stub file: ${relPath}`);
+        try {
+          await fs.promises.writeFile(absPath, stub, { encoding: 'utf8', flag: 'wx' });
+          logger.info(`[FileContext] Created stub file: ${relPath}`);
+        } catch (writeErr) {
+          if (!writeErr || writeErr.code !== 'EEXIST') throw writeErr;
+        }
       }
       resolvedPaths.push(absPath);
     } catch (e) {
