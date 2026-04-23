@@ -1,6 +1,7 @@
-'use strict';
-const { describe, it, expect, vi } = require('vitest');
-const { createReflectionExecutor } = require('../memory/reflection-executor');
+import { describe, it, expect, vi } from 'vitest';
+import reflectionExecutor from '../memory/reflection-executor';
+
+const { createReflectionExecutor } = reflectionExecutor;
 
 describe('reflectionExecutor', () => {
   it('debounces repeated submit calls within window', async () => {

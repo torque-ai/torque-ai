@@ -451,6 +451,18 @@ class ProcessTracker extends Map {
    * Reset all internal state (for testing).
    */
   resetAll() {
+    // Test resets must not silently orphan real child processes. Several
+    // integration tests replace child_process.spawn with mocks; if a real
+    // process slipped through, clear it before dropping the only handle.
+    for (const entry of this.values()) {
+      if (entry?.timeoutHandle) clearTimeout(entry.timeoutHandle);
+      if (entry?.startupTimeoutHandle) clearTimeout(entry.startupTimeoutHandle);
+      if (entry?.completionGraceHandle) clearTimeout(entry.completionGraceHandle);
+      const child = entry?.process;
+      if (child && typeof child.kill === 'function' && !child.killed) {
+        try { child.kill('SIGTERM'); } catch { /* process may already be gone */ }
+      }
+    }
     // Clear pending retry timeouts first (cancel timers)
     this.cancelAllRetryTimeouts();
     this.clear();

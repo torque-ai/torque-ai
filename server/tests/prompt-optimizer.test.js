@@ -1,6 +1,7 @@
-'use strict';
-const { describe, it, expect } = require('vitest');
-const { createPromptOptimizer } = require('../memory/prompt-optimizer');
+import { describe, it, expect } from 'vitest';
+import promptOptimizer from '../memory/prompt-optimizer';
+
+const { createPromptOptimizer } = promptOptimizer;
 
 describe('promptOptimizer', () => {
   it('metaprompt strategy returns a rewritten prompt from an LLM adapter', async () => {

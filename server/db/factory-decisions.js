@@ -11,6 +11,52 @@ function setDb(dbInstance) {
   db = dbInstance;
 }
 
+function resolveDbHandle(candidate) {
+  if (!candidate) {
+    return null;
+  }
+  if (typeof candidate.prepare === 'function') {
+    return candidate;
+  }
+  if (typeof candidate.getDbInstance === 'function') {
+    return candidate.getDbInstance();
+  }
+  if (typeof candidate.getDb === 'function') {
+    return candidate.getDb();
+  }
+  return null;
+}
+
+function getDb() {
+  let instance = resolveDbHandle(db);
+  if (!instance) {
+    try {
+      const { defaultContainer } = require('../container');
+      if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('db')) {
+        instance = resolveDbHandle(defaultContainer.get('db'));
+      }
+    } catch {
+      // Fall through to the database.js fallback below.
+    }
+  }
+  if (!instance) {
+    try {
+      const database = require('../database');
+      instance = resolveDbHandle(database);
+    } catch {
+      // Let the explicit error below surface if no active DB is available.
+    }
+  }
+
+  if (instance) {
+    db = instance;
+  }
+  if (!instance || typeof instance.prepare !== 'function') {
+    throw new Error('Factory decisions requires an active database connection');
+  }
+  return instance;
+}
+
 function recordDecision({
   project_id,
   stage,
@@ -29,7 +75,8 @@ function recordDecision({
   validateStage(stage);
   validateActor(actor);
 
-  const info = db.prepare(`
+  const instance = getDb();
+  const info = instance.prepare(`
     INSERT INTO factory_decisions (
       project_id,
       stage,
@@ -67,6 +114,7 @@ function listDecisions(project_id, { stage, actor, since, limit } = {}) {
     throw new Error('since must be a non-empty ISO date string');
   }
 
+  const instance = getDb();
   const safeLimit = Number.isInteger(limit) && limit > 0 ? limit : 100;
   const params = [project_id];
   const where = ['project_id = ?'];
@@ -86,7 +134,7 @@ function listDecisions(project_id, { stage, actor, since, limit } = {}) {
     params.push(since);
   }
 
-  const rows = db.prepare(`
+  const rows = instance.prepare(`
     SELECT * FROM factory_decisions
     WHERE ${where.join(' AND ')}
     ORDER BY created_at DESC
@@ -100,7 +148,8 @@ function getDecisionContext(project_id, batch_id) {
   if (!project_id) throw new Error('project_id is required');
   if (!batch_id) throw new Error('batch_id is required');
 
-  const rows = db.prepare(`
+  const instance = getDb();
+  const rows = instance.prepare(`
     SELECT * FROM factory_decisions
     WHERE project_id = ? AND batch_id = ?
     ORDER BY created_at ASC
@@ -112,7 +161,8 @@ function getDecisionContext(project_id, batch_id) {
 function getDecisionStats(project_id) {
   if (!project_id) throw new Error('project_id is required');
 
-  const summary = db.prepare(`
+  const instance = getDb();
+  const summary = instance.prepare(`
     SELECT COUNT(*) AS total, AVG(confidence) AS avg_confidence
     FROM factory_decisions
     WHERE project_id = ?
@@ -121,7 +171,7 @@ function getDecisionStats(project_id) {
   const by_stage = Object.fromEntries(Array.from(VALID_STAGES, (value) => [value, 0]));
   const by_actor = Object.fromEntries(Array.from(VALID_ACTORS, (value) => [value, 0]));
 
-  const stageRows = db.prepare(`
+  const stageRows = instance.prepare(`
     SELECT stage, COUNT(*) AS count
     FROM factory_decisions
     WHERE project_id = ?
@@ -132,7 +182,7 @@ function getDecisionStats(project_id) {
     by_stage[row.stage] = row.count;
   }
 
-  const actorRows = db.prepare(`
+  const actorRows = instance.prepare(`
     SELECT actor, COUNT(*) AS count
     FROM factory_decisions
     WHERE project_id = ?
@@ -154,7 +204,8 @@ function getDecisionStats(project_id) {
 }
 
 function getDecision(id) {
-  const row = db.prepare('SELECT * FROM factory_decisions WHERE id = ?').get(id);
+  const instance = getDb();
+  const row = instance.prepare('SELECT * FROM factory_decisions WHERE id = ?').get(id);
   return parseDecisionRow(row);
 }
 
@@ -213,6 +264,7 @@ function validateActor(actor) {
 
 module.exports = {
   setDb,
+  getDb,
   recordDecision,
   listDecisions,
   getDecisionContext,

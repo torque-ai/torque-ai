@@ -1365,10 +1365,10 @@ async function handleListSessions() {
 }
 
 async function handleSaveMemory(args = {}) {
-  const normalized = normalizeMemoryArgs(args);
-  if (normalized.error) return normalized.error;
-
   try {
+    const normalized = normalizeMemoryArgs(args);
+    if (normalized.error) return normalized.error;
+
     const metadata = {
       vars: args.vars || {},
     };
@@ -1516,17 +1516,21 @@ async function handleOptimizePrompt(args = {}) {
 }
 
 async function handleReflectOnRun(args = {}) {
-  const runIdError = requireString(args, 'run_id', 'run_id');
-  if (runIdError) return runIdError;
+  try {
+    const runIdError = requireString(args, 'run_id', 'run_id');
+    if (runIdError) return runIdError;
 
-  const runId = args.run_id.trim();
-  reflectionExecutor.submit(runId);
-  return buildToolResult({
-    ok: true,
-    run_id: runId,
-    scheduled: true,
-    debounce_ms: MEMORY_REFLECTION_DEBOUNCE_MS,
-  });
+    const runId = args.run_id.trim();
+    reflectionExecutor.submit(runId);
+    return buildToolResult({
+      ok: true,
+      run_id: runId,
+      scheduled: true,
+      debounce_ms: MEMORY_REFLECTION_DEBOUNCE_MS,
+    });
+  } catch (error) {
+    return makeError(error.code || ErrorCodes.OPERATION_FAILED, error.message || String(error));
+  }
 }
 
 async function handleReadTranscript(args = {}) {

@@ -1844,8 +1844,10 @@ function safeLogDecision(entry) {
   }
 
   try {
-    const db = database.getDbInstance();
-    if (!db || typeof db.prepare !== 'function') {
+    const decisionDb = typeof factoryDecisions.getDb === 'function'
+      ? factoryDecisions.getDb()
+      : database.getDbInstance();
+    if (!decisionDb || typeof decisionDb.prepare !== 'function') {
       logger.debug('Skipping factory decision log because database is unavailable', {
         project_id: entry?.project_id,
         stage: normalizedStage,
@@ -1853,7 +1855,7 @@ function safeLogDecision(entry) {
       });
       return null;
     }
-    factoryDecisions.setDb(db);
+    factoryDecisions.setDb(decisionDb);
 
     const decision = logDecision({
       ...entry,

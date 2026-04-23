@@ -27,6 +27,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Module = require('module');
+const { EventEmitter } = require('events');
+const { PassThrough } = require('stream');
 const childProcess = require('child_process');
 
 function wireSharedServerNodeModules() {
@@ -60,8 +62,10 @@ try {
 
 // Save originals — git-test-utils.js uses these for real git operations
 const _realExecFileSync = childProcess.execFileSync;
+const _realSpawn = childProcess.spawn;
 const _realSpawnSync = childProcess.spawnSync;
 childProcess._realExecFileSync = _realExecFileSync;
+childProcess._realSpawn = _realSpawn;
 childProcess._realSpawnSync = _realSpawnSync;
 
 function isGitCommand(file) {
@@ -112,12 +116,60 @@ function stubGitOutput(args, encoding) {
   return wrap('');
 }
 
+function isAgentCliCommand(file) {
+  if (typeof file !== 'string') return false;
+  const base = path.basename(file).toLowerCase();
+  return base === 'codex'
+    || base === 'codex.exe'
+    || base === 'codex.cmd'
+    || base === 'claude'
+    || base === 'claude.cmd';
+}
+
+function createBlockedAgentChild(command, args) {
+  const child = new EventEmitter();
+  child.stdin = new PassThrough();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.pid = 0;
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+    return true;
+  };
+
+  process.nextTick(() => {
+    const renderedArgs = Array.isArray(args) ? args.join(' ') : '';
+    child.stderr.write(`[test-sandbox] blocked real agent CLI spawn: ${command} ${renderedArgs}\n`);
+    child.stdin.end();
+    child.stderr.end();
+    child.stdout.end();
+    child.emit('exit', 1, null);
+    child.emit('close', 1, null);
+    child.stdin.destroy();
+    child.stdout.destroy();
+    child.stderr.destroy();
+  });
+
+  return child;
+}
+
 // Patch execFileSync — intercept git, pass through everything else
 childProcess.execFileSync = function(file, args, options) {
   if (isGitCommand(file)) {
     return stubGitOutput(args, options?.encoding);
   }
   return _realExecFileSync.call(this, file, args, options);
+};
+
+// Patch spawn — block accidental real agent CLIs in tests. Test files that need
+// process behavior should install their own mock spawn; real Codex/Claude runs
+// are too slow and can leak child processes on Windows.
+childProcess.spawn = function(command, args, options) {
+  if (process.env.TORQUE_ALLOW_REAL_AGENT_CLI !== '1' && isAgentCliCommand(command)) {
+    return createBlockedAgentChild(command, args);
+  }
+  return _realSpawn.call(this, command, args, options);
 };
 
 // Patch spawnSync — intercept git, pass through everything else
@@ -140,6 +192,7 @@ childProcess.spawnSync = function(command, args, options) {
 module.exports = {
   wireSharedServerNodeModules,
   isGitCommand,
+  isAgentCliCommand,
   getSubcommand,
   stubGitOutput,
 };
