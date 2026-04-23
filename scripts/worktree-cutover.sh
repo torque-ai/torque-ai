@@ -12,6 +12,15 @@ BRANCH="feat/${SAFE_NAME}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 WORKTREE_DIR="${REPO_ROOT}/.worktrees/feat-${SAFE_NAME}"
 TORQUE_API="http://127.0.0.1:3457"
+TORQUE_PROBE_TIMEOUT_SECONDS=${CUTOVER_PROBE_TIMEOUT_SECONDS:-5}
+
+torque_api_reachable() {
+  # /livez is intentionally cheap and avoids false "not running" reports when
+  # heavier endpoints are slow under factory load. Fall back to /api/version for
+  # older servers that predate health probes.
+  curl -s --max-time "${TORQUE_PROBE_TIMEOUT_SECONDS}" "${TORQUE_API}/livez" > /dev/null 2>&1 \
+    || curl -s --max-time "${TORQUE_PROBE_TIMEOUT_SECONDS}" "${TORQUE_API}/api/version" > /dev/null 2>&1
+}
 
 if [ ! -d "$WORKTREE_DIR" ]; then
   echo "ERROR: Worktree not found at ${WORKTREE_DIR}"
@@ -83,7 +92,7 @@ if echo "$merge_changed_files" | grep -qE "^dashboard/(src/|package(-lock)?\.jso
 fi
 
 TORQUE_RUNNING=false
-if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
+if torque_api_reachable; then
   TORQUE_RUNNING=true
 fi
 
@@ -286,25 +295,32 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     # 4. Wait for the new server to come up. The barrier handler triggers
     #    emitShutdown with a 1500ms grace period, then the process exits.
     #    The server auto-restarts (or the OS restarts it) on the updated main.
-    #    We wait up to 30 seconds for the new process.
+    #    Startup can legitimately take minutes when the pre-startup backup is
+    #    hashing a multi-GB SQLite DB, so keep waiting before attempting a
+    #    manual start that could collide with the child process' startup lock.
     echo "  Waiting for TORQUE to restart on updated main..."
-    sleep 4
-    RESTART_ATTEMPTS=0
-    MAX_RESTART_WAIT=26  # 4s initial + up to 26 * 2s = 56s total
-    while [ "$RESTART_ATTEMPTS" -lt "$MAX_RESTART_WAIT" ]; do
-      if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
+    RESTART_WAIT_SECONDS=${CUTOVER_RESTART_WAIT_SECONDS:-240}
+    RESTART_DEADLINE=$(( $(date +%s) + RESTART_WAIT_SECONDS ))
+    while [ "$(date +%s)" -lt "$RESTART_DEADLINE" ]; do
+      if torque_api_reachable; then
         echo "[ok] TORQUE restarted on updated main"
         break
       fi
-      RESTART_ATTEMPTS=$((RESTART_ATTEMPTS + 1))
       sleep 2
     done
 
-    if [ "$RESTART_ATTEMPTS" -ge "$MAX_RESTART_WAIT" ]; then
-      echo "[warn] TORQUE did not come back up within 60s. Starting manually..."
+    if ! torque_api_reachable; then
+      echo "[warn] TORQUE did not come back up within ${RESTART_WAIT_SECONDS}s. Starting manually..."
       nohup node "${REPO_ROOT}/server/index.js" > /dev/null 2>&1 &
-      sleep 4
-      if curl -s --max-time 2 "${TORQUE_API}/api/version" > /dev/null 2>&1; then
+      MANUAL_WAIT_SECONDS=${CUTOVER_MANUAL_START_WAIT_SECONDS:-120}
+      MANUAL_DEADLINE=$(( $(date +%s) + MANUAL_WAIT_SECONDS ))
+      while [ "$(date +%s)" -lt "$MANUAL_DEADLINE" ]; do
+        if torque_api_reachable; then
+          break
+        fi
+        sleep 2
+      done
+      if torque_api_reachable; then
         echo "[ok] TORQUE started manually on updated main"
       else
         echo "[warn] TORQUE may not have started. Check manually."
