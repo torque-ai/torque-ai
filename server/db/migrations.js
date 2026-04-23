@@ -748,6 +748,15 @@ const MIGRATIONS = [
     // in place on downgrade.
     down: 'SELECT 1',
   },
+  {
+    version: 32,
+    name: 'add_action_state_snapshots',
+    up: readSqlMigration('032-action-state-snapshots.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_action_snapshots_app',
+      'DROP TABLE IF EXISTS action_state_snapshots',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

@@ -81,6 +81,57 @@ module.exports = [
     },
   },
   {
+    name: 'action_app_run',
+    description: 'Create and run an action application. Actions are registered JS (vm2-sandboxed).',
+    inputSchema: {
+      type: 'object',
+      required: ['actions', 'initial_state'],
+      properties: {
+        actions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            required: ['name', 'reads', 'writes', 'run_js'],
+            properties: {
+              name: { type: 'string' },
+              reads: { type: 'array' },
+              writes: { type: 'array' },
+              run_js: { type: 'string' },
+            },
+          },
+        },
+        transitions: { type: 'object' },
+        initial_state: { type: 'object' },
+        app_id: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'action_app_fork',
+    description: 'Fork an existing app at a given sequence_id into a new app.',
+    inputSchema: {
+      type: 'object',
+      required: ['app_id', 'sequence_id'],
+      properties: {
+        app_id: { type: 'string' },
+        sequence_id: { type: 'number' },
+        new_app_id: { type: 'string' },
+      },
+    },
+  },
+  {
+    name: 'action_app_history',
+    description: 'Return the ordered history of snapshots for an app.',
+    inputSchema: {
+      type: 'object',
+      required: ['app_id'],
+      properties: {
+        app_id: { type: 'string' },
+        partition_key: { type: 'string' },
+      },
+    },
+  },
+  {
     name: 'dispatch_subagent',
     description: 'Dispatch a Claude Code subagent with isolated context + restricted tool list + optional skill. Returns subagent result only.',
     inputSchema: {

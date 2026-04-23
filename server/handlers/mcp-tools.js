@@ -1,7 +1,11 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const vm = require('vm');
 const { defaultContainer } = require('../container');
+const { createAction } = require('../actions/action');
+const { createApplication } = require('../actions/application');
+const { createStatePersister } = require('../actions/state-persister');
 const { translateToAction } = require('../dispatch/translator');
 const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
 const { validateTranscript } = require('../transcripts/transcript-validator');
@@ -24,6 +28,109 @@ function buildToolResult(payload) {
     ...payload,
     content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
   };
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateStringArray(value, field) {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || !entry.trim())) {
+    return makeError(ErrorCodes.INVALID_PARAM, `${field} must be an array of non-empty strings`);
+  }
+  return null;
+}
+
+function getStatePersister() {
+  try {
+    if (
+      defaultContainer
+      && typeof defaultContainer.has === 'function'
+      && defaultContainer.has('statePersister')
+    ) {
+      return defaultContainer.get('statePersister');
+    }
+  } catch (error) {
+    void error;
+  }
+
+  const database = require('../database');
+  const db = typeof database.getDbInstance === 'function'
+    ? database.getDbInstance()
+    : database;
+  return createStatePersister({ db });
+}
+
+function looksLikeFunctionExpression(source) {
+  const trimmed = source.trim();
+  return trimmed.startsWith('function')
+    || trimmed.startsWith('async function')
+    || trimmed.startsWith('(')
+    || trimmed.includes('=>');
+}
+
+function compileActionRun(runJs, actionName) {
+  if (typeof runJs !== 'string' || !runJs.trim()) {
+    throw createHandlerError(`action ${actionName}: run_js must be a non-empty string`, ErrorCodes.INVALID_PARAM);
+  }
+
+  const source = runJs.trim();
+  const runnerExpression = looksLikeFunctionExpression(source)
+    ? `(${source})`
+    : `(async (state, inputs) => { ${source} })`;
+
+  return async (state, inputs = {}) => {
+    const script = new vm.Script(
+      `(async () => {
+        const run = ${runnerExpression};
+        if (typeof run !== 'function') return Promise.reject(new TypeError('run_js did not evaluate to a function'));
+        return await run(__state, __inputs);
+      })()`,
+      { filename: `action-app-${actionName}.vm.js` },
+    );
+    return script.runInNewContext({
+      __state: state,
+      __inputs: inputs,
+      console: Object.freeze({
+        log() {},
+        warn() {},
+        error() {},
+      }),
+    }, { timeout: 1000 });
+  };
+}
+
+function buildActionAppActions(actionDefs) {
+  if (!Array.isArray(actionDefs) || actionDefs.length === 0) {
+    return { error: makeError(ErrorCodes.INVALID_PARAM, 'actions must be a non-empty array') };
+  }
+
+  const actions = [];
+  for (const [index, actionDef] of actionDefs.entries()) {
+    if (!isPlainObject(actionDef)) {
+      return { error: makeError(ErrorCodes.INVALID_PARAM, `actions[${index}] must be an object`) };
+    }
+    if (!actionDef.name || typeof actionDef.name !== 'string') {
+      return { error: makeError(ErrorCodes.INVALID_PARAM, `actions[${index}].name must be a non-empty string`) };
+    }
+    const readError = validateStringArray(actionDef.reads, `actions[${index}].reads`);
+    if (readError) return { error: readError };
+    const writeError = validateStringArray(actionDef.writes, `actions[${index}].writes`);
+    if (writeError) return { error: writeError };
+
+    try {
+      actions.push(createAction({
+        name: actionDef.name.trim(),
+        reads: actionDef.reads.map((entry) => entry.trim()),
+        writes: actionDef.writes.map((entry) => entry.trim()),
+        run: compileActionRun(actionDef.run_js, actionDef.name.trim()),
+      }));
+    } catch (error) {
+      return { error: makeError(ErrorCodes.INVALID_PARAM, error.message || String(error)) };
+    }
+  }
+
+  return { actions };
 }
 
 function validateStringArrayArg(args, field) {
@@ -597,6 +704,145 @@ async function handleDispatchNl(args) {
   }
 }
 
+async function handleActionAppRun(args = {}) {
+  try {
+    const built = buildActionAppActions(args.actions);
+    if (built.error) return built.error;
+
+    if (!isPlainObject(args.initial_state)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'initial_state must be an object');
+    }
+    if (args.transitions !== undefined && !isPlainObject(args.transitions)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'transitions must be an object');
+    }
+
+    const appIdError = optionalString(args, 'app_id', 'app_id');
+    if (appIdError) return appIdError;
+    const partitionKeyError = optionalString(args, 'partition_key', 'partition_key');
+    if (partitionKeyError) return partitionKeyError;
+
+    const persister = getStatePersister();
+    const app = createApplication({
+      actions: built.actions,
+      transitions: args.transitions || {},
+      initialState: args.initial_state,
+      persister,
+      app_id: args.app_id || undefined,
+      partition_key: args.partition_key || '',
+    });
+
+    const results = [];
+    for (const action of built.actions) {
+      const stepResult = await app.step(action.name);
+      results.push({
+        action_name: action.name,
+        result: stepResult.result,
+        state: stepResult.nextState,
+      });
+    }
+
+    return buildToolResult({
+      ok: true,
+      app_id: app.app_id,
+      partition_key: app.partition_key,
+      sequence_id: app.getSequence() - 1,
+      final_state: app.getState(),
+      results,
+    });
+  } catch (error) {
+    return makeError(ErrorCodes.INVALID_PARAM, error.message || String(error));
+  }
+}
+
+async function handleActionAppFork(args = {}) {
+  try {
+    const appIdError = requireString(args, 'app_id', 'app_id');
+    if (appIdError) return appIdError;
+    const partitionKeyError = optionalString(args, 'partition_key', 'partition_key');
+    if (partitionKeyError) return partitionKeyError;
+    const newAppIdError = optionalString(args, 'new_app_id', 'new_app_id');
+    if (newAppIdError) return newAppIdError;
+    const newPartitionKeyError = optionalString(args, 'new_partition_key', 'new_partition_key');
+    if (newPartitionKeyError) return newPartitionKeyError;
+    if (!Number.isInteger(args.sequence_id)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'sequence_id must be an integer');
+    }
+
+    const persister = getStatePersister();
+    const sourceAppId = args.app_id.trim();
+    const sourcePartitionKey = args.partition_key || '';
+    const snapshot = persister.loadAt({
+      app_id: sourceAppId,
+      partition_key: sourcePartitionKey,
+      sequence_id: args.sequence_id,
+    });
+    if (!snapshot) {
+      return makeError(
+        ErrorCodes.RESOURCE_NOT_FOUND,
+        `no snapshot at ${sourceAppId}:${sourcePartitionKey}:${args.sequence_id}`,
+      );
+    }
+
+    const newAppId = args.new_app_id || `app_${randomUUID().slice(0, 10)}`;
+    const newPartitionKey = args.new_partition_key || '';
+    persister.save({
+      app_id: newAppId,
+      partition_key: newPartitionKey,
+      sequence_id: 0,
+      action_name: `fork:${snapshot.action_name}`,
+      state: snapshot.state,
+      result: {
+        forked_from: {
+          app_id: sourceAppId,
+          partition_key: sourcePartitionKey,
+          sequence_id: args.sequence_id,
+        },
+      },
+    });
+
+    return buildToolResult({
+      ok: true,
+      app_id: newAppId,
+      partition_key: newPartitionKey,
+      sequence_id: 0,
+      forked_from: {
+        app_id: sourceAppId,
+        partition_key: sourcePartitionKey,
+        sequence_id: args.sequence_id,
+      },
+      state: snapshot.state,
+    });
+  } catch (error) {
+    return makeError(ErrorCodes.INVALID_PARAM, error.message || String(error));
+  }
+}
+
+async function handleActionAppHistory(args = {}) {
+  try {
+    const appIdError = requireString(args, 'app_id', 'app_id');
+    if (appIdError) return appIdError;
+    const partitionKeyError = optionalString(args, 'partition_key', 'partition_key');
+    if (partitionKeyError) return partitionKeyError;
+
+    const appId = args.app_id.trim();
+    const partitionKey = args.partition_key || '';
+    const history = getStatePersister().history({
+      app_id: appId,
+      partition_key: partitionKey,
+    });
+
+    return buildToolResult({
+      ok: true,
+      app_id: appId,
+      partition_key: partitionKey,
+      count: history.length,
+      history,
+    });
+  } catch (error) {
+    return makeError(ErrorCodes.INVALID_PARAM, error.message || String(error));
+  }
+}
+
 async function handleDispatchSubagent(args = {}) {
   try {
     const promptError = requireString(args, 'prompt', 'prompt');
@@ -909,6 +1155,9 @@ module.exports = {
   handleRegisterActionSchema,
   handleListActions,
   handleDispatchNl,
+  handleActionAppRun,
+  handleActionAppFork,
+  handleActionAppHistory,
   handleDispatchSubagent,
   handleResumeSession,
   handleForkSession,
