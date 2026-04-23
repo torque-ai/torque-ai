@@ -167,6 +167,12 @@ describe('EXTENDED_TOOL_NAMES (Tier 1 + 2)', () => {
       expect.arrayContaining(['run_batch', 'generate_test_tasks']),
     );
   });
+
+  it('includes specialist routing tools in Tier 2', () => {
+    expect(EXTENDED_TOOL_NAMES).toEqual(
+      expect.arrayContaining(['register_specialist', 'route_turn', 'get_session_history']),
+    );
+  });
 });
 
 describe('TIER_1 and TIER_2 arrays', () => {

@@ -93,6 +93,7 @@ const OVERRIDES = Object.freeze({
   audit_codebase:                  Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   compare_providers:               Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   dispatch_nl:                     Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
+  route_turn:                      Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   action_app_run:                  DISPATCH,
   action_app_fork:                 DISPATCH,
   action_app_history:              READONLY,

@@ -48,6 +48,401 @@ function parseJsonObject(value, fallback = {}) {
   }
 }
 
+const SPECIALIST_HISTORY_PROMPT_LIMIT = 20;
+let fallbackRegisteredSpecialists = null;
+
+function ensureFallbackRegisteredSpecialists() {
+  if (!fallbackRegisteredSpecialists) {
+    fallbackRegisteredSpecialists = Object.create(null);
+  }
+  return fallbackRegisteredSpecialists;
+}
+
+function unwrapDbService(dbService) {
+  if (dbService && typeof dbService.getDbInstance === 'function') {
+    return dbService.getDbInstance();
+  }
+  return dbService;
+}
+
+function resolveSpecialistRegistry() {
+  try {
+    if (defaultContainer?.has?.('registeredSpecialists')) {
+      return defaultContainer.get('registeredSpecialists');
+    }
+  } catch (error) {
+    void error;
+  }
+
+  return ensureFallbackRegisteredSpecialists();
+}
+
+function resolveSpecialistStorage() {
+  try {
+    if (defaultContainer?.has?.('specialistStorage')) {
+      return defaultContainer.get('specialistStorage');
+    }
+  } catch (error) {
+    void error;
+  }
+
+  const database = require('../database');
+  const { createSpecialistStorage } = require('../routing/specialist-storage');
+  return createSpecialistStorage({ db: unwrapDbService(database) });
+}
+
+function resolveHeuristicTurnClassifier() {
+  try {
+    if (defaultContainer?.has?.('turnClassifier')) {
+      return defaultContainer.get('turnClassifier');
+    }
+  } catch (error) {
+    void error;
+  }
+
+  const { createTurnClassifier } = require('../routing/turn-classifier');
+  return createTurnClassifier({ adapter: 'heuristic' });
+}
+
+function resolveRoutedOrchestrator({ classifier = null, defaultAgent = 'general' } = {}) {
+  if (!classifier && defaultAgent === 'general') {
+    try {
+      if (defaultContainer?.has?.('routedOrchestrator')) {
+        return defaultContainer.get('routedOrchestrator');
+      }
+    } catch (error) {
+      void error;
+    }
+  }
+
+  const { createRoutedOrchestrator } = require('../routing/routed-orchestrator');
+  return createRoutedOrchestrator({
+    classifier: classifier || resolveHeuristicTurnClassifier(),
+    storage: resolveSpecialistStorage(),
+    agents: resolveSpecialistRegistry(),
+    defaultAgent,
+  });
+}
+
+function resolveProviderRegistry() {
+  try {
+    if (defaultContainer?.has?.('providerRegistry')) {
+      return defaultContainer.get('providerRegistry');
+    }
+  } catch (error) {
+    void error;
+  }
+
+  return require('../providers/registry');
+}
+
+function ensureRoutingProviderRegistration(providerRegistry, providerName) {
+  if (!providerRegistry || typeof providerRegistry.getProviderInstance !== 'function') {
+    return;
+  }
+
+  try {
+    const db = require('../database');
+    if (db?.isReady?.()) {
+      require('../config').init({ db });
+      if (typeof providerRegistry.init === 'function') {
+        providerRegistry.init({ db });
+      }
+    }
+  } catch (error) {
+    void error;
+  }
+
+  try {
+    const cliProviders = require('../providers/v2-cli-providers');
+    if (providerName === 'codex' && typeof cliProviders.CodexCliProvider === 'function') {
+      providerRegistry.registerProviderClass('codex', cliProviders.CodexCliProvider);
+    }
+    if (providerName === 'claude-cli' && typeof cliProviders.ClaudeCliProvider === 'function') {
+      providerRegistry.registerProviderClass('claude-cli', cliProviders.ClaudeCliProvider);
+    }
+  } catch (error) {
+    void error;
+  }
+
+  if (providerName === 'claude-code-sdk') {
+    try {
+      providerRegistry.registerProviderClass('claude-code-sdk', require('../providers/claude-code-sdk'));
+    } catch (error) {
+      void error;
+    }
+  }
+}
+
+async function callProviderPrompt(provider, prompt, options = {}) {
+  if (!provider) {
+    throw createHandlerError('Provider instance is unavailable', ErrorCodes.NO_HOSTS_AVAILABLE);
+  }
+
+  if (typeof provider.runPrompt === 'function') {
+    const result = await provider.runPrompt({
+      prompt,
+      format: options.format,
+      max_tokens: options.maxTokens,
+      transport: options.transport,
+      working_directory: options.workingDirectory,
+    });
+    return normalizeModelOutput(result);
+  }
+
+  if (typeof provider.submit === 'function') {
+    const result = await provider.submit(prompt, options.model || null, {
+      transport: options.transport || 'api',
+      maxTokens: options.maxTokens,
+      working_directory: options.workingDirectory,
+      raw_prompt: true,
+    });
+    return normalizeModelOutput(result);
+  }
+
+  throw createHandlerError(
+    `Provider "${provider.name || 'unknown'}" does not support prompt execution`,
+    ErrorCodes.INVALID_PARAM,
+  );
+}
+
+function renderTranscriptForPrompt(history = [], { limit = SPECIALIST_HISTORY_PROMPT_LIMIT } = {}) {
+  const transcript = Array.isArray(history) ? history.slice(-limit) : [];
+  if (transcript.length === 0) {
+    return '(empty)';
+  }
+
+  return transcript
+    .map((entry, index) => {
+      const role = typeof entry?.role === 'string' && entry.role.trim()
+        ? entry.role.trim()
+        : 'message';
+      const agentId = typeof entry?.agent_id === 'string' && entry.agent_id.trim()
+        ? ` [agent:${entry.agent_id.trim()}]`
+        : '';
+      const content = typeof entry?.content === 'string'
+        ? entry.content
+        : JSON.stringify(entry?.content ?? '');
+      return `${index + 1}. ${role}${agentId}: ${content}`;
+    })
+    .join('\n');
+}
+
+function tryParseJsonObject(text) {
+  if (typeof text !== 'string' || !text.trim()) {
+    return null;
+  }
+
+  const candidates = [text.trim()];
+  const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch?.[1]) {
+    candidates.push(fencedMatch[1].trim());
+  }
+
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    candidates.push(text.slice(firstBrace, lastBrace + 1).trim());
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (isPlainObject(parsed)) {
+        return parsed;
+      }
+    } catch (error) {
+      void error;
+    }
+  }
+
+  return null;
+}
+
+function normalizeConfidence(value, fallback = 0) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function normalizeSpecialistHandler(handler = {}) {
+  if (!isPlainObject(handler)) {
+    throw createHandlerError('handler must be an object', ErrorCodes.INVALID_PARAM);
+  }
+
+  const inferredKind = typeof handler.kind === 'string' && handler.kind.trim()
+    ? handler.kind.trim().toLowerCase()
+    : (typeof handler.provider === 'string' && handler.provider.trim()
+      ? 'provider'
+      : (typeof handler.workflow_id === 'string' && handler.workflow_id.trim()
+        ? 'workflow'
+        : ((typeof handler.crew_id === 'string' && handler.crew_id.trim()) || isPlainObject(handler.crew)
+          ? 'crew'
+          : '')));
+
+  if (!['provider', 'workflow', 'crew'].includes(inferredKind)) {
+    throw createHandlerError('handler.kind must be one of: provider, workflow, crew', ErrorCodes.INVALID_PARAM);
+  }
+
+  const normalized = { ...handler, kind: inferredKind };
+
+  if (inferredKind === 'provider') {
+    if (typeof normalized.provider !== 'string' || normalized.provider.trim().length === 0) {
+      throw createHandlerError('provider handler requires handler.provider', ErrorCodes.INVALID_PARAM);
+    }
+    normalized.provider = normalized.provider.trim();
+    if (normalized.model !== undefined && typeof normalized.model !== 'string') {
+      throw createHandlerError('handler.model must be a string when provided', ErrorCodes.INVALID_PARAM);
+    }
+    if (normalized.transport !== undefined && typeof normalized.transport !== 'string') {
+      throw createHandlerError('handler.transport must be a string when provided', ErrorCodes.INVALID_PARAM);
+    }
+    if (normalized.system_prompt !== undefined && typeof normalized.system_prompt !== 'string') {
+      throw createHandlerError('handler.system_prompt must be a string when provided', ErrorCodes.INVALID_PARAM);
+    }
+    if (normalized.working_directory !== undefined && typeof normalized.working_directory !== 'string') {
+      throw createHandlerError('handler.working_directory must be a string when provided', ErrorCodes.INVALID_PARAM);
+    }
+    if (normalized.max_tokens !== undefined && (!Number.isInteger(normalized.max_tokens) || normalized.max_tokens < 1)) {
+      throw createHandlerError('handler.max_tokens must be a positive integer when provided', ErrorCodes.INVALID_PARAM);
+    }
+    return normalized;
+  }
+
+  if (typeof normalized.workflow_id === 'string' && normalized.workflow_id.trim()) {
+    normalized.workflow_id = normalized.workflow_id.trim();
+  }
+
+  if (inferredKind === 'workflow') {
+    if (!normalized.workflow_id) {
+      throw createHandlerError('workflow handler requires handler.workflow_id', ErrorCodes.INVALID_PARAM);
+    }
+    return normalized;
+  }
+
+  if (!normalized.workflow_id) {
+    throw createHandlerError(
+      'crew handlers require handler.workflow_id in this runtime because no standalone crew registry is available',
+      ErrorCodes.INVALID_PARAM,
+    );
+  }
+
+  return normalized;
+}
+
+function createSpecialistResponder(agentId, description, handler) {
+  const handlerRef = normalizeSpecialistHandler(handler);
+
+  if (handlerRef.kind === 'provider') {
+    return async ({ userInput, specialistHistory = [], globalHistory = [] }) => {
+      const providerRegistry = resolveProviderRegistry();
+      ensureRoutingProviderRegistration(providerRegistry, handlerRef.provider);
+      const provider = providerRegistry?.getProviderInstance?.(handlerRef.provider);
+      if (!provider) {
+        throw createHandlerError(`Provider not available: ${handlerRef.provider}`, ErrorCodes.NO_HOSTS_AVAILABLE);
+      }
+
+      const promptSections = [];
+      if (typeof handlerRef.system_prompt === 'string' && handlerRef.system_prompt.trim()) {
+        promptSections.push(handlerRef.system_prompt.trim());
+      }
+      promptSections.push(`You are specialist "${agentId}". ${description}`.trim());
+      promptSections.push('Respond to the latest user turn as the selected specialist. Return only the assistant reply text.');
+      promptSections.push(`Specialist transcript:\n${renderTranscriptForPrompt(specialistHistory)}`);
+      promptSections.push(`Global transcript:\n${renderTranscriptForPrompt(globalHistory)}`);
+      promptSections.push(`Latest user turn:\n${userInput}`);
+
+      const response = await callProviderPrompt(provider, promptSections.join('\n\n'), {
+        model: handlerRef.model || null,
+        transport: handlerRef.transport,
+        workingDirectory: handlerRef.working_directory,
+        maxTokens: handlerRef.max_tokens || 1200,
+      });
+
+      const normalizedResponse = typeof response === 'string'
+        ? response.trim()
+        : JSON.stringify(response);
+      if (!normalizedResponse) {
+        throw createHandlerError(`Provider "${handlerRef.provider}" returned an empty response`, ErrorCodes.PROVIDER_ERROR);
+      }
+      return normalizedResponse;
+    };
+  }
+
+  return async () => {
+    const tools = require('../tools');
+    const result = await tools.handleToolCall('run_workflow', {
+      workflow_id: handlerRef.workflow_id,
+    });
+    if (result?.isError) {
+      throw createHandlerError(
+        extractToolText(result) || `workflow ${handlerRef.workflow_id} failed`,
+        result?.error_code || ErrorCodes.OPERATION_FAILED,
+      );
+    }
+
+    const text = extractToolText(result);
+    return text || `Workflow ${handlerRef.workflow_id} started`;
+  };
+}
+
+async function classifyTurnViaLlm(args = {}) {
+  const heuristicClassifier = resolveHeuristicTurnClassifier();
+  const fallback = await heuristicClassifier.classify(args);
+
+  const providerName = typeof process.env.TORQUE_TURN_CLASSIFIER_PROVIDER === 'string'
+    && process.env.TORQUE_TURN_CLASSIFIER_PROVIDER.trim()
+    ? process.env.TORQUE_TURN_CLASSIFIER_PROVIDER.trim()
+    : 'codex';
+
+  try {
+    const providerRegistry = resolveProviderRegistry();
+    ensureRoutingProviderRegistration(providerRegistry, providerName);
+    const provider = providerRegistry?.getProviderInstance?.(providerName);
+    if (!provider) {
+      return fallback;
+    }
+
+    const agents = Array.isArray(args.agents) ? args.agents : [];
+    const prompt = [
+      'Route the latest user turn to the best specialist id from the list below.',
+      'Return JSON only: {"agent_id":"<id or null>","confidence":0.0}',
+      '',
+      'Available specialists:',
+      ...agents.map((agent) => `- ${agent.id}: ${agent.description || ''}`),
+      '',
+      `Recent transcript:\n${renderTranscriptForPrompt(args.history)}`,
+      '',
+      `Latest user turn:\n${args.userInput || ''}`,
+    ].join('\n');
+
+    const raw = await callProviderPrompt(provider, prompt, {
+      format: 'json',
+      transport: 'api',
+      maxTokens: 300,
+    });
+    const parsed = tryParseJsonObject(raw);
+    const knownAgentIds = new Set(agents.map((agent) => agent.id));
+    const agentId = typeof parsed?.agent_id === 'string' && knownAgentIds.has(parsed.agent_id)
+      ? parsed.agent_id
+      : null;
+
+    if (!agentId) {
+      return fallback;
+    }
+
+    return {
+      agent_id: agentId,
+      confidence: normalizeConfidence(parsed.confidence, 0.7),
+    };
+  } catch (error) {
+    void error;
+    return fallback;
+  }
+}
+
 function validateStringArray(value, field) {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || !entry.trim())) {
     return makeError(ErrorCodes.INVALID_PARAM, `${field} must be an array of non-empty strings`);
@@ -1719,6 +2114,138 @@ async function handleReplayFromTranscript(args = {}) {
   }
 }
 
+function handleRegisterSpecialist(args = {}) {
+  const idError = requireString(args, 'id', 'id');
+  if (idError) return idError;
+  const descriptionError = requireString(args, 'description', 'description');
+  if (descriptionError) return descriptionError;
+
+  if (!isPlainObject(args.handler)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'handler must be an object');
+  }
+
+  try {
+    const agentId = args.id.trim();
+    const description = args.description.trim();
+    const handler = normalizeSpecialistHandler(args.handler);
+    const registry = resolveSpecialistRegistry();
+    const existed = Object.prototype.hasOwnProperty.call(registry, agentId);
+
+    registry[agentId] = {
+      id: agentId,
+      description,
+      handler,
+      respond: createSpecialistResponder(agentId, description, handler),
+    };
+
+    return buildToolResult({
+      ok: true,
+      updated: existed,
+      specialist: {
+        id: agentId,
+        description,
+        handler,
+      },
+      total_specialists: Object.keys(registry).length,
+    });
+  } catch (error) {
+    return makeError(error.code || ErrorCodes.INVALID_PARAM, error.message || String(error));
+  }
+}
+
+async function handleRouteTurn(args = {}) {
+  try {
+    const userIdError = requireString(args, 'user_id', 'user_id');
+    if (userIdError) return userIdError;
+    const sessionIdError = requireString(args, 'session_id', 'session_id');
+    if (sessionIdError) return sessionIdError;
+    const inputError = requireString(args, 'user_input', 'user_input');
+    if (inputError) return inputError;
+
+    const defaultAgentError = optionalString(args, 'default_agent', 'default_agent');
+    if (defaultAgentError) return defaultAgentError;
+
+    const adapter = args.classifier_adapter === undefined || args.classifier_adapter === null
+      ? 'heuristic'
+      : args.classifier_adapter;
+    if (!['heuristic', 'llm'].includes(adapter)) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'classifier_adapter must be one of: heuristic, llm');
+    }
+
+    const registry = resolveSpecialistRegistry();
+    if (Object.keys(registry).length === 0) {
+      return makeError(ErrorCodes.RESOURCE_NOT_FOUND, 'No specialists registered');
+    }
+
+    const classifier = adapter === 'heuristic'
+      ? null
+      : require('../routing/turn-classifier').createTurnClassifier({
+        adapter: 'llm',
+        classifyFn: classifyTurnViaLlm,
+      });
+
+    const defaultAgent = typeof args.default_agent === 'string' && args.default_agent.trim()
+      ? args.default_agent.trim()
+      : 'general';
+    const orchestrator = resolveRoutedOrchestrator({
+      classifier,
+      defaultAgent,
+    });
+    const result = await orchestrator.routeTurn({
+      user_id: args.user_id.trim(),
+      session_id: args.session_id.trim(),
+      userInput: args.user_input.trim(),
+    });
+
+    return buildToolResult({
+      ok: true,
+      user_id: args.user_id.trim(),
+      session_id: args.session_id.trim(),
+      classifier_adapter: adapter,
+      default_agent: defaultAgent,
+      agent_id: result.agent_id,
+      response: result.response,
+      confidence: result.confidence,
+      routed: result.routed,
+    });
+  } catch (error) {
+    return makeError(error.code || ErrorCodes.OPERATION_FAILED, error.message || String(error));
+  }
+}
+
+function handleGetSessionHistory(args = {}) {
+  const userIdError = requireString(args, 'user_id', 'user_id');
+  if (userIdError) return userIdError;
+  const sessionIdError = requireString(args, 'session_id', 'session_id');
+  if (sessionIdError) return sessionIdError;
+  const agentIdError = optionalString(args, 'agent_id', 'agent_id');
+  if (agentIdError) return agentIdError;
+
+  try {
+    const storage = resolveSpecialistStorage();
+    const userId = args.user_id.trim();
+    const sessionId = args.session_id.trim();
+    const agentId = typeof args.agent_id === 'string' && args.agent_id.trim()
+      ? args.agent_id.trim()
+      : null;
+    const history = agentId
+      ? storage.readSpecialist({ user_id: userId, session_id: sessionId, agent_id: agentId })
+      : storage.readGlobal({ user_id: userId, session_id: sessionId });
+
+    return buildToolResult({
+      ok: true,
+      scope: agentId ? 'specialist' : 'global',
+      user_id: userId,
+      session_id: sessionId,
+      agent_id: agentId,
+      count: history.length,
+      history,
+    });
+  } catch (error) {
+    return makeError(error.code || ErrorCodes.OPERATION_FAILED, error.message || String(error));
+  }
+}
+
 module.exports = {
   handleRegisterActionSchema,
   handleListActions,
@@ -1737,4 +2264,7 @@ module.exports = {
   handleReadTranscript,
   handleEditTranscript,
   handleReplayFromTranscript,
+  handleRegisterSpecialist,
+  handleRouteTurn,
+  handleGetSessionHistory,
 };

@@ -307,4 +307,79 @@ module.exports = [
       required: ['task_id'],
     },
   },
+  {
+    name: 'register_specialist',
+    description: 'Register a specialist agent with id, description, and a runnable handler reference.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Specialist identifier used by the turn router.',
+        },
+        description: {
+          type: 'string',
+          description: 'Short natural-language description used for routing decisions.',
+        },
+        handler: {
+          type: 'object',
+          description: 'Runnable handler reference such as { kind:"provider", provider:"codex" } or { kind:"workflow", workflow_id:"..." }.',
+        },
+      },
+      required: ['id', 'description', 'handler'],
+    },
+  },
+  {
+    name: 'route_turn',
+    description: 'Classify a user turn, dispatch to the chosen specialist, and persist transcripts.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'End-user identifier for transcript scoping.',
+        },
+        session_id: {
+          type: 'string',
+          description: 'Conversation/session identifier.',
+        },
+        user_input: {
+          type: 'string',
+          description: 'Latest user utterance to route.',
+        },
+        classifier_adapter: {
+          type: 'string',
+          enum: ['heuristic', 'llm'],
+          description: 'Classifier adapter override. Defaults to heuristic.',
+        },
+        default_agent: {
+          type: 'string',
+          description: 'Optional fallback specialist id when classification is inconclusive.',
+        },
+      },
+      required: ['user_id', 'session_id', 'user_input'],
+    },
+  },
+  {
+    name: 'get_session_history',
+    description: 'Return specialist-scoped or global session history.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        user_id: {
+          type: 'string',
+          description: 'End-user identifier for transcript scoping.',
+        },
+        session_id: {
+          type: 'string',
+          description: 'Conversation/session identifier.',
+        },
+        agent_id: {
+          type: 'string',
+          description: 'Optional specialist id. Omit for global session history.',
+        },
+      },
+      required: ['user_id', 'session_id'],
+    },
+  },
 ];
