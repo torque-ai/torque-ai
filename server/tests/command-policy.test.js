@@ -18,6 +18,9 @@ describe('command-policy', () => {
       expect(validateCommand('npx', ['tsc', '--noEmit'])).toEqual({ allowed: true });
       expect(validateCommand('npx vitest run')).toEqual({ allowed: true });
       expect(validateCommand('npm test')).toEqual({ allowed: true });
+      expect(validateCommand('pytest', ['tests/', '-q'])).toEqual({ allowed: true });
+      expect(validateCommand('python', ['-m', 'pytest', 'tests/', '-q'])).toEqual({ allowed: true });
+      expect(validateCommand('py', ['-3.12', '-m', 'pytest', 'tests/', '-q'])).toEqual({ allowed: true });
       expect(validateCommand('node --check src/index.js')).toEqual({ allowed: true });
       expect(validateCommand('git diff --stat HEAD~1')).toEqual({ allowed: true });
       expect(validateCommand('git', ['status', '--short'])).toEqual({ allowed: true });
@@ -49,6 +52,8 @@ describe('command-policy', () => {
         .toEqual({ allowed: true });
       expect(validateCommand('cmd.exe', ['/d', '/s', '/c', 'dotnet test App.Tests.csproj && git status --short']))
         .toEqual({ allowed: true });
+      expect(validateCommand('cmd', ['/c', 'py -3.12 -m pytest tests/ -q']))
+        .toEqual({ allowed: true });
 
       const unsafeShell = validateCommand('cmd', ['/c', 'dotnet test App.Tests.csproj || git status --short']);
       expect(unsafeShell.allowed).toBe(false);
@@ -57,6 +62,10 @@ describe('command-policy', () => {
       const unsafeCommand = validateCommand('cmd', ['/c', 'del important.db']);
       expect(unsafeCommand.allowed).toBe(false);
       expect(unsafeCommand.reason).toContain("Command 'del important.db' is not allowed");
+
+      const unsafePython = validateCommand('cmd', ['/c', 'py -3.12 -c "import os"']);
+      expect(unsafePython.allowed).toBe(false);
+      expect(unsafePython.reason).toContain("Command 'py -3.12 -c import os' is not allowed");
 
       const nestedShell = validateCommand('cmd', ['/c', 'cmd /c dotnet test App.Tests.csproj']);
       expect(nestedShell.allowed).toBe(false);

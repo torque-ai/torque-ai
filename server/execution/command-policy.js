@@ -28,6 +28,14 @@ const COMMAND_PROFILES = {
       match: (cmd, args) => isExecutable(cmd, 'npm') && matchesArg(args, 0, 'test'),
     },
     {
+      name: 'pytest',
+      match: (cmd) => isExecutable(cmd, 'pytest'),
+    },
+    {
+      name: 'python -m pytest',
+      match: (cmd, args) => isPythonExecutable(cmd) && matchesPythonModule(args, 'pytest'),
+    },
+    {
       name: 'node --check',
       match: (cmd, args) => isExecutable(cmd, 'node') && matchesArg(args, 0, '--check'),
     },
@@ -200,8 +208,24 @@ function isExecutable(command, expected) {
   return normalizeExecutable(command) === expected;
 }
 
+function isPythonExecutable(command) {
+  const normalized = normalizeExecutable(command);
+  return normalized === 'py'
+    || normalized === 'python'
+    || normalized === 'python3'
+    || /^python\d+(?:\.\d+)*$/.test(normalized);
+}
+
 function matchesArg(args, index, expected) {
   return typeof args[index] === 'string' && args[index].toLowerCase() === expected;
+}
+
+function matchesPythonModule(args, expectedModule) {
+  let index = 0;
+  while (typeof args[index] === 'string' && args[index].startsWith('-') && args[index].toLowerCase() !== '-m') {
+    index += 1;
+  }
+  return matchesArg(args, index, '-m') && matchesArg(args, index + 1, expectedModule);
 }
 
 function findShellMetacharacter(commandText, args) {

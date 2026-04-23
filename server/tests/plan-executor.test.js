@@ -199,4 +199,26 @@ Modify \`src/already-there.js\`:
     expect(submitMock).not.toHaveBeenCalled();
     expect(r.completed_tasks).toEqual([1]);
   });
+
+  it('executes checklist-style plans and ticks numbered checklist items', async () => {
+    const CHECKLIST_PLAN = `# Marketplace Submission Plan
+
+## Submission Steps
+
+1. [ ] Push README
+   - Verify \`README.md\` mentions plugin install
+2. [ ] Submit the plugin
+`;
+    fs.writeFileSync(planPath, CHECKLIST_PLAN);
+
+    const r = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+
+    expect(submitMock).toHaveBeenCalledTimes(1);
+    expect(submitMock.mock.calls[0][0].task).toContain('Task 1: Submission Steps');
+    expect(submitMock.mock.calls[0][0].task).toContain('Verify `README.md` mentions plugin install');
+    const updated = fs.readFileSync(planPath, 'utf8');
+    expect(updated).toContain('1. [x] Push README');
+    expect(updated).toContain('2. [x] Submit the plugin');
+    expect(r.completed_tasks).toEqual([1]);
+  });
 });

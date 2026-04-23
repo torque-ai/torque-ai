@@ -36,6 +36,25 @@ git commit -m "feat(x): MCP surface"
 \`\`\`
 `;
 
+const CHECKLIST_PLAN = `# Marketplace Submission Plan
+
+**Goal:** Submit the plugin cleanly.
+**Tech Stack:** Node.js, Vitest.
+
+## Pre-Submission Checklist
+
+### Security Review
+
+- [x] **Run npm audit**
+- [ ] **Document privacy posture**
+  - Update \`PRIVACY.md\`
+
+### Submission Steps
+
+1. [ ] Push \`README.md\`
+2. [ ] Submit via \`claude.ai/settings/plugins/submit\`
+`;
+
 describe('parsePlanFile', () => {
   it('returns one task per "## Task N:" heading', () => {
     const parsed = parsePlanFile(SAMPLE);
@@ -129,5 +148,31 @@ describe('parsePlanFile', () => {
     const parsed = parsePlanFile(H4_PLAN);
     expect(parsed.tasks).toHaveLength(1);
     expect(parsed.tasks[0].task_number).toBe(1);
+  });
+
+  it('falls back to checklist sections when a plan has no explicit task headings', () => {
+    const parsed = parsePlanFile(CHECKLIST_PLAN);
+    expect(parsed.tasks).toHaveLength(2);
+    expect(parsed.tasks[0]).toMatchObject({
+      task_number: 1,
+      task_title: 'Security Review',
+      completed: false,
+    });
+    expect(parsed.tasks[0].steps).toHaveLength(2);
+    expect(parsed.tasks[0].steps[0]).toMatchObject({
+      step_number: 1,
+      title: 'Run npm audit',
+      done: true,
+    });
+    expect(parsed.tasks[0].steps[1]).toMatchObject({
+      step_number: 2,
+      title: 'Document privacy posture',
+      done: false,
+      notes: ['- Update `PRIVACY.md`'],
+    });
+    expect(parsed.tasks[1].steps.map((step) => step.title)).toEqual([
+      'Push README.md',
+      'Submit via claude.ai/settings/plugins/submit',
+    ]);
   });
 });

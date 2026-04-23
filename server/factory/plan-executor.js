@@ -11,6 +11,9 @@ function buildTaskPrompt(task, planTitle) {
   const lines = [`Plan: ${planTitle}`, `Task ${task.task_number}: ${task.task_title}`, ''];
   for (const step of task.steps) {
     lines.push(`### Step ${step.step_number}: ${step.title}`);
+    if (Array.isArray(step.notes) && step.notes.length > 0) {
+      lines.push(...step.notes);
+    }
     for (const block of step.code_blocks) {
       lines.push('```' + (block.lang || ''));
       lines.push(block.content);
@@ -31,7 +34,7 @@ function tickTaskInFile(filePath, taskNumber) {
   const lines = content.split('\n');
   for (const step of task.steps) {
     const idx = lines.findIndex(l => l === step.raw_checkbox_line);
-    if (idx >= 0) lines[idx] = lines[idx].replace(/-\s*\[\s*\]/, '- [x]');
+    if (idx >= 0) lines[idx] = lines[idx].replace(/\[\s*\]/, '[x]');
   }
   const tmp = filePath + '.tmp';
   fs.writeFileSync(tmp, lines.join('\n'));
