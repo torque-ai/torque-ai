@@ -185,7 +185,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
     'claude-code-sdk': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
     'claude-ollama': { capabilities: ['file_edit', 'reasoning', 'code_review'], band: 'C' },
     deepinfra: { capabilities: ['reasoning', 'large_context', 'code_review'], band: 'B' },
-    'ollama-cloud': { capabilities: ['reasoning', 'large_context', 'code_review'], band: 'B' },
+    'ollama-cloud': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning', 'large_context', 'code_review'], band: 'B' },
     hyperbolic: { capabilities: ['reasoning', 'large_context'], band: 'B' },
     anthropic: { capabilities: ['reasoning', 'code_review'], band: 'B' },
     ollama: { capabilities: ['file_edit', 'reasoning', 'code_review'], band: 'C' },

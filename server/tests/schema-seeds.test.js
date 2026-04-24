@@ -175,7 +175,7 @@ describe('db/schema-seeds', () => {
     const rows = db.prepare(`
       SELECT provider, capability_tags, quality_band
       FROM provider_config
-      WHERE provider IN ('codex', 'claude-cli', 'claude-code-sdk', 'ollama', 'groq')
+      WHERE provider IN ('codex', 'claude-cli', 'claude-code-sdk', 'ollama', 'ollama-cloud', 'groq')
       ORDER BY provider
     `).all();
     const byProvider = Object.fromEntries(rows.map((row) => [row.provider, row]));
@@ -207,6 +207,15 @@ describe('db/schema-seeds', () => {
       'code_review',
     ]);
     expect(byProvider['ollama'].quality_band).toBe('C');
+    expect(JSON.parse(byProvider['ollama-cloud'].capability_tags)).toEqual([
+      'file_creation',
+      'file_edit',
+      'multi_file',
+      'reasoning',
+      'large_context',
+      'code_review',
+    ]);
+    expect(byProvider['ollama-cloud'].quality_band).toBe('B');
     expect(JSON.parse(byProvider.groq.capability_tags)).toEqual([]);
     expect(byProvider.groq.quality_band).toBe('D');
   });

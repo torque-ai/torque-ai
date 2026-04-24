@@ -19,6 +19,14 @@ describe('provider-capabilities', () => {
         'multi_file',
         'reasoning',
       ]);
+      expect(providerCapabilities.getProviderCapabilities('ollama-cloud')).toEqual([
+        'file_creation',
+        'file_edit',
+        'multi_file',
+        'reasoning',
+        'large_context',
+        'code_review',
+      ]);
       expect(providerCapabilities.getProviderCapabilities('does-not-exist')).toEqual([]);
     });
 
@@ -40,6 +48,7 @@ describe('provider-capabilities', () => {
     it('returns the default quality band mapping for known providers', () => {
       expect(providerCapabilities.getQualityBand('codex')).toBe('A');
       expect(providerCapabilities.getQualityBand('deepinfra')).toBe('B');
+      expect(providerCapabilities.getQualityBand('ollama-cloud')).toBe('B');
       expect(providerCapabilities.getQualityBand('groq')).toBe('D');
     });
 
@@ -132,6 +141,7 @@ describe('provider-capabilities', () => {
 
       expect(providers[0]).toBe('codex');
       expect(providers).toContain('claude-cli');
+      expect(providers).toContain('ollama-cloud');
       expect(providers).not.toContain('ollama');
       expect(providers).not.toContain('groq');
     });
@@ -185,7 +195,7 @@ describe('provider-capabilities', () => {
         },
       });
 
-      expect(providers).toEqual(['codex']);
+      expect(providers).toEqual(['codex', 'ollama-cloud']);
     });
   });
 });

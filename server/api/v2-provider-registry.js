@@ -143,7 +143,7 @@ const PROVIDER_REGISTRY = {
     features: {
       chat: true,
       stream: true,
-      tools: false,
+      tools: true,
       vision: false,
       embeddings: false,
       image_input: false,

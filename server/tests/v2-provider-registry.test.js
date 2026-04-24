@@ -72,4 +72,9 @@ describe('v2-provider-registry', () => {
     expect(PROVIDER_REGISTRY['google-ai']).toBeDefined();
     expect(PROVIDER_REGISTRY['openrouter']).toBeDefined();
   });
+
+  it('marks ollama-cloud as remote and tool-capable', () => {
+    expect(PROVIDER_REGISTRY['ollama-cloud'].local).toBe(false);
+    expect(PROVIDER_REGISTRY['ollama-cloud'].features.tools).toBe(true);
+  });
 });

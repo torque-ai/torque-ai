@@ -40,9 +40,10 @@ describe('PROVIDER_CLASSES', () => {
     expect(PROVIDER_CLASSES['ollama']).toBe('guided');
   });
 
-  it('classifies all cloud inference providers as prompt-only', () => {
+  it('classifies tool-capable ollama-cloud separately from prompt-only cloud inference providers', () => {
+    expect(PROVIDER_CLASSES['ollama-cloud']).toBe('guided');
     const promptOnly = [
-      'ollama-cloud', 'cerebras', 'groq', 'deepinfra',
+      'cerebras', 'groq', 'deepinfra',
       'google-ai', 'openrouter', 'hyperbolic', 'anthropic',
     ];
     for (const p of promptOnly) {
@@ -114,8 +115,8 @@ describe('getProviderClass', () => {
     expect(getProviderClass('anthropic')).toBe('prompt-only');
   });
 
-  it('returns prompt-only for ollama-cloud', () => {
-    expect(getProviderClass('ollama-cloud')).toBe('prompt-only');
+  it('returns guided for ollama-cloud', () => {
+    expect(getProviderClass('ollama-cloud')).toBe('guided');
   });
 
   it('defaults to prompt-only for unknown provider string', () => {
@@ -216,6 +217,14 @@ describe('shouldDecompose — guided, should NOT decompose', () => {
     expect(result.decompose).toBe(false);
   });
 
+  it('treats ollama-cloud as guided for non-matching work', () => {
+    const result = shouldDecompose(
+      makeTask('Implement a new caching layer for the API', 'complex'),
+      makeRouting('ollama-cloud')
+    );
+    expect(result.decompose).toBe(false);
+  });
+
   it('returns decompose:false for C# match on normal (non-complex) task', () => {
     // C# pattern requires complexity === 'complex'
     const result = shouldDecompose(
@@ -291,6 +300,17 @@ describe('shouldDecompose — guided + JS decompose-verb patterns', () => {
     );
     expect(result.decompose).toBe(true);
     expect(result.type).toBe('js');
+  });
+});
+
+describe('shouldDecompose — guided + ollama-cloud', () => {
+  it('decomposes complex C# work for ollama-cloud', () => {
+    const result = shouldDecompose(
+      makeTask('Refactor the data access layer in the .csproj project', 'complex'),
+      makeRouting('ollama-cloud')
+    );
+    expect(result.decompose).toBe(true);
+    expect(result.type).toBe('csharp');
   });
 });
 

@@ -8,7 +8,7 @@
  *
  * Provider classes:
  *   agentic      — full tool-use agents (codex, codex-spark, claude-cli)
- *   guided       — tool-use agents with explicit workflow guidance (ollama)
+ *   guided       — tool-use agents with explicit workflow guidance (ollama, ollama-cloud)
  *   prompt-only  — stateless completion APIs (all cloud inference providers)
  */
 
@@ -21,11 +21,11 @@ const PROVIDER_CLASSES = {
   'codex-spark': 'agentic',
   'claude-cli':  'agentic',
 
-  // Guided: local Ollama — capable of tool use but needs explicit workflow guidance
+  // Guided: tool-capable Ollama providers that still benefit from explicit workflow guidance
   'ollama':      'guided',
+  'ollama-cloud': 'guided',
 
   // Prompt-only: stateless completion APIs — no tool use
-  'ollama-cloud':  'prompt-only',
   'cerebras':      'prompt-only',
   'groq':          'prompt-only',
   'deepinfra':     'prompt-only',

@@ -7,7 +7,7 @@ const DEFAULT_CAPABILITIES = {
   'claude-cli': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
   'claude-code-sdk': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
   deepinfra: { capabilities: ['reasoning', 'large_context', 'code_review'], band: 'B' },
-  'ollama-cloud': { capabilities: ['reasoning', 'large_context', 'code_review'], band: 'B' },
+  'ollama-cloud': { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning', 'large_context', 'code_review'], band: 'B' },
   hyperbolic: { capabilities: ['reasoning', 'large_context'], band: 'B' },
   anthropic: { capabilities: ['reasoning', 'code_review'], band: 'B' },
   ollama: { capabilities: ['reasoning', 'code_review'], band: 'C' },
@@ -98,7 +98,7 @@ function generateEligibleProviders({ capabilityRequirements = [], qualityTier = 
     }
     eligible.push({
       provider, band,
-      bandOrder: BAND_ORDER[band] || 99,
+      bandOrder: BAND_ORDER[band] ?? 99,
       empiricalRank: getEmpiricalRank ? getEmpiricalRank(provider) : 0,
     });
   }

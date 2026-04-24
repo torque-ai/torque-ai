@@ -938,6 +938,24 @@ describe('integration routing handlers', () => {
       expect(task.timeout_minutes).toBe(25);
     });
 
+    it('preserves ollama-cloud for test-writing tasks when the provider supports repo writes', async () => {
+      providerConfigs['ollama-cloud'] = { name: 'ollama-cloud', enabled: true };
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'ollama-cloud',
+        model: 'mistral-large-3:675b',
+        complexity: 'normal',
+      }));
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Write tests for the user service module',
+      });
+
+      const task = taskFromResult(result);
+      expect(task.provider).toBe('ollama-cloud');
+      expect(task.model).toBeNull();
+      expect(textOf(result)).not.toContain('Codex Spark');
+    });
+
     it('routes greenfield local tasks to Codex Spark when Codex is enabled', async () => {
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
         provider: 'ollama',

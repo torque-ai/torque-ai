@@ -23,6 +23,8 @@ const { shouldDecompose, decomposeTask: buildDecomposedTasks, GUIDED_FILE_THRESH
 const { enforceVersionIntentForProject } = require('../../versioning/version-intent');
 const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
+const { getProviderCapabilities } = require('../../db/provider-capabilities');
+const { isAgenticCapable } = require('../../providers/agentic-capability');
 const logger = require('../../logger').child({ component: 'integration-routing' });
 const serverConfig = require('../../config');
 const eventBus = require('../../event-bus');
@@ -100,6 +102,20 @@ function normalizeInitialTaskStatus(initialStatus) {
   // queue scheduler only scans `queued` work, so leaving normal submissions in
   // `pending` strands them indefinitely.
   return initialStatus === 'pending_approval' ? 'pending_approval' : 'queued';
+}
+
+const BUILTIN_AGENTIC_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk']);
+
+function providerSupportsRepoWriteTasks(provider, model) {
+  if (!provider) return false;
+  if (BUILTIN_AGENTIC_PROVIDERS.has(provider)) return true;
+
+  const providerCapabilities = new Set(getProviderCapabilities(provider));
+  if (!providerCapabilities.has('file_creation') || !providerCapabilities.has('file_edit')) {
+    return false;
+  }
+
+  return isAgenticCapable(provider, model).capable;
 }
 
 function buildSplitSuggestions(files, maxSuggestions = 3) {
@@ -1160,20 +1176,22 @@ async function handleSmartSubmitTask(args) {
     logger.info(`[SmartRouting] Codex exhausted — all tasks route to local LLM`);
   }
 
-  // Route test-writing tasks to Codex Spark — local LLMs consistently produce tests with
-  // hallucinated APIs, wrong assertions, and broken output. Cloud providers (commandos)
-  // handle test writing reliably. Only applies when user didn't force a provider/model.
+  // Route test-writing tasks to Codex only when the selected provider lacks
+  // reliable repo-write capability. This preserves the local Ollama safety
+  // rule without overriding tool-capable cloud adapters such as ollama-cloud.
   const testTaskPattern = /\b(write|create|add|generate|replace .+ with)\b.{0,30}\b(tests?|specs?|\.test\.|\.spec\.)/i;
   const explicitTestTaskPattern = /\b(?:test|testing)\s+task\b/i;
   const isTestTask = !override_provider && !model &&
     (testTaskPattern.test(task) || explicitTestTaskPattern.test(task));
-  if (isTestTask && selectedProvider !== 'codex' && serverConfig.isOptIn('codex_enabled') && !codexExhausted) {
+  const routingModel = model || routingResult?.model || taskModel || null;
+  const selectedProviderSupportsTests = providerSupportsRepoWriteTasks(selectedProvider, routingModel);
+  if (isTestTask && !selectedProviderSupportsTests && selectedProvider !== 'codex' && serverConfig.isOptIn('codex_enabled') && !codexExhausted) {
     selectedProvider = 'codex';
     const sparkEnabled = serverConfig.isOptIn('codex_spark_enabled');
     if (sparkEnabled) {
       taskModel = 'gpt-5.3-codex-spark';
     }
-    logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (local LLMs unreliable for tests)`);
+    logger.info(`[SmartRouting] Test task detected → routing to Codex${sparkEnabled ? ' Spark' : ''} (${routingResult?.provider || 'selected provider'} lacks reliable repo-write test capability)`);
   }
   const modResult = await resolveModificationRouting(task, files, routingResult, {
     selectedProvider,
