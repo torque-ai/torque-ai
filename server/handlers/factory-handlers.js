@@ -1,5 +1,6 @@
 'use strict';
 
+const { randomUUID } = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const childProcess = require('child_process');
@@ -30,7 +31,9 @@ const logger = require('../logger').child({ component: 'factory-handlers' });
 const STALL_THRESHOLD_MS = 30 * 60 * 1000;
 const COMMITS_TODAY_CACHE_TTL_MS = 60 * 1000;
 const COMMITS_TODAY_TIMEOUT_MS = 5 * 1000;
+const BASELINE_RESUME_JOBS_TO_KEEP_PER_PROJECT = 25;
 const commitsTodayCache = new Map();
+const baselineResumeJobs = new Map();
 
 function getCachedCommitsToday(projectPath, nowMs = Date.now()) {
   if (typeof projectPath !== 'string' || !projectPath.trim()) {
@@ -45,6 +48,87 @@ function getCachedCommitsToday(projectPath, nowMs = Date.now()) {
     return null;
   }
   return cached.commitsToday;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function parseProjectConfig(projectConfigJson) {
+  try {
+    return projectConfigJson ? JSON.parse(projectConfigJson) : {};
+  } catch (_e) {
+    void _e;
+    return {};
+  }
+}
+
+function getBaselineResumeJobsByProject(projectId) {
+  let jobs = baselineResumeJobs.get(projectId);
+  if (!jobs) {
+    jobs = new Map();
+    baselineResumeJobs.set(projectId, jobs);
+  }
+  return jobs;
+}
+
+function getBaselineResumeJob(projectId, jobId) {
+  return getBaselineResumeJobsByProject(projectId).get(jobId) || null;
+}
+
+function hasRunningBaselineResumeJob(projectId) {
+  const jobs = baselineResumeJobs.get(projectId);
+  if (!jobs) {
+    return false;
+  }
+  for (const job of jobs.values()) {
+    if (job.status === 'running') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizeBaselineResumeJob(job) {
+  if (!job) {
+    return null;
+  }
+  return {
+    job_id: job.job_id,
+    project_id: job.project_id,
+    project_name: job.project_name || null,
+    status: job.status,
+    created_at: job.created_at,
+    started_at: job.started_at,
+    completed_at: job.completed_at || null,
+    duration_ms: job.duration_ms || null,
+    probe_timeout_ms: job.probe_timeout_ms,
+    probe_exit_code: job.probe_exit_code ?? null,
+    probe_timed_out: job.probe_timed_out || false,
+    project_resumed: job.project_resumed || false,
+    message: job.message || null,
+    error: job.error || null,
+    preview_output: job.preview_output || null,
+  };
+}
+
+function trimBaselineResumeJobs(projectId) {
+  const jobs = baselineResumeJobs.get(projectId);
+  if (!jobs || jobs.size <= BASELINE_RESUME_JOBS_TO_KEEP_PER_PROJECT) {
+    return;
+  }
+  const entries = [...jobs.values()].sort((a, b) => {
+    if (a.created_at < b.created_at) return -1;
+    if (a.created_at > b.created_at) return 1;
+    return 0;
+  });
+  while (jobs.size > BASELINE_RESUME_JOBS_TO_KEEP_PER_PROJECT) {
+    const oldest = entries.shift();
+    if (!oldest) {
+      return;
+    }
+    jobs.delete(oldest.job_id);
+  }
 }
 
 function clearCommitsTodayCache() {
@@ -1306,6 +1390,111 @@ async function handleRetryFactoryVerify(args) {
   return jsonResponse(result);
 }
 
+function createBaselineResumeJob(projectId, projectName, timeoutMs) {
+  return {
+    job_id: randomUUID(),
+    project_id: projectId,
+    project_name: projectName,
+    status: 'running',
+    created_at: nowIso(),
+    started_at: nowIso(),
+    completed_at: null,
+    duration_ms: null,
+    probe_timeout_ms: timeoutMs,
+    probe_exit_code: null,
+    probe_timed_out: false,
+    probe_duration_ms: null,
+    preview_output: null,
+    project_resumed: false,
+    message: 'Baseline resume in progress.',
+    error: null,
+  };
+}
+
+async function executeBaselineResumeProbe({
+  projectRow,
+  job,
+  verifyCommand,
+  timeoutMs,
+}) {
+  const start = Date.now();
+
+  try {
+    const baselineProbe = require('../factory/baseline-probe');
+    const runnerRegistry = require('../test-runner-registry').createTestRunnerRegistry();
+    const runner = async ({ command, cwd, timeoutMs: runnerTimeoutMs }) => {
+      const runnerResult = await runnerRegistry.runVerifyCommand(command, cwd, { timeout: runnerTimeoutMs });
+      return {
+        exitCode: runnerResult.exitCode,
+        stdout: runnerResult.output || '',
+        stderr: runnerResult.error || '',
+        durationMs: runnerResult.durationMs,
+        timedOut: !!runnerResult.timedOut,
+      };
+    };
+
+    const probe = await baselineProbe.probeProjectBaseline({
+      project: projectRow,
+      verifyCommand,
+      runner,
+      timeoutMs,
+    });
+
+    job.probe_exit_code = probe.exitCode;
+    job.probe_timed_out = !!probe.timedOut;
+    job.probe_duration_ms = probe.durationMs;
+    job.preview_output = String(probe.output || '').slice(-1500);
+
+    if (!probe.passed) {
+      job.status = 'failed';
+      job.message = `Baseline still failing (exit ${probe.exitCode}). Fix the failing tests, then try again.`;
+      return;
+    }
+
+    const project = factoryHealth.getProject(projectRow.id);
+    const cfg = parseProjectConfig(project?.config_json);
+    const pausedSince = Date.parse(cfg.baseline_broken_since) || Date.now();
+    cfg.baseline_broken_since = null;
+    cfg.baseline_broken_reason = null;
+    cfg.baseline_broken_evidence = null;
+    cfg.baseline_broken_probe_attempts = 0;
+    cfg.baseline_broken_tick_count = 0;
+    factoryHealth.updateProject(projectRow.id, {
+      status: 'running',
+      config_json: JSON.stringify(cfg),
+    });
+
+    try {
+      const updated = factoryHealth.getProject(projectRow.id);
+      const factoryTick = require('../factory/factory-tick');
+      factoryTick.startTick(updated);
+    } catch (_e) {
+      void _e; /* factory-tick not loaded */
+    }
+    try {
+      const eventBus = require('../event-bus');
+      eventBus.emitFactoryProjectBaselineCleared({
+        project_id: projectRow.id,
+        cleared_after_ms: Date.now() - pausedSince,
+      });
+    } catch (_e) {
+      void _e;
+    }
+
+    job.status = 'completed';
+    job.project_resumed = true;
+    job.message = `Project "${projectRow.name}" resumed — baseline probe passed in ${probe.durationMs}ms.`;
+  } catch (err) {
+    job.status = 'failed';
+    job.error = err.message || String(err);
+    job.message = `Baseline resume failed: ${job.error}`;
+    logger.warn('handleResumeProjectBaselineFixed worker failed', { err: job.error, project_id: projectRow.id });
+  } finally {
+    job.completed_at = nowIso();
+    job.duration_ms = Date.now() - start;
+  }
+}
+
 async function handleResumeProjectBaselineFixed(args) {
   try {
     const projectRef = args?.project;
@@ -1321,9 +1510,7 @@ async function handleResumeProjectBaselineFixed(args) {
       return makeError(ErrorCodes.RESOURCE_NOT_FOUND, `Project not found: ${projectRef}`);
     }
 
-    const cfg = projectRow.config_json
-      ? (() => { try { return JSON.parse(projectRow.config_json); } catch { return {}; } })()
-      : {};
+    const cfg = parseProjectConfig(projectRow.config_json);
     if (!cfg.baseline_broken_since) {
       return makeError(
         ErrorCodes.CONFLICT,
@@ -1353,71 +1540,47 @@ async function handleResumeProjectBaselineFixed(args) {
       timeout_minutes: args.timeout_minutes,
       config: cfg,
     });
-    const runnerRegistry = require('../test-runner-registry').createTestRunnerRegistry();
-    const runner = async ({ command, cwd, timeoutMs }) => {
-      const r = await runnerRegistry.runVerifyCommand(command, cwd, { timeout: timeoutMs });
-      return {
-        exitCode: r.exitCode,
-        stdout: r.output || '',
-        stderr: r.error || '',
-        durationMs: r.durationMs,
-        timedOut: !!r.timedOut,
-      };
-    };
-
-    const probe = await baselineProbe.probeProjectBaseline({
-      project: projectRow,
-      verifyCommand,
-      runner,
-      timeoutMs,
-    });
-
-    if (!probe.passed) {
-      const preview = String(probe.output || '').slice(-1500);
+    if (hasRunningBaselineResumeJob(projectRow.id)) {
       return makeError(
         ErrorCodes.CONFLICT,
-        `Baseline still failing (exit ${probe.exitCode}). Fix the failing tests, then try again.\n\nProbe output (last 1500 chars):\n${preview}`,
+        `A baseline resume operation is already running for project "${projectRow.name}".`,
       );
     }
 
-    const pausedSince = Date.parse(cfg.baseline_broken_since) || Date.now();
-    cfg.baseline_broken_since = null;
-    cfg.baseline_broken_reason = null;
-    cfg.baseline_broken_evidence = null;
-    cfg.baseline_broken_probe_attempts = 0;
-    cfg.baseline_broken_tick_count = 0;
-    factoryHealth.updateProject(projectRow.id, {
-      status: 'running',
-      config_json: JSON.stringify(cfg),
+    const job = createBaselineResumeJob(projectRow.id, projectRow.name, timeoutMs);
+    const jobs = getBaselineResumeJobsByProject(projectRow.id);
+    jobs.set(job.job_id, job);
+    trimBaselineResumeJobs(projectRow.id);
+    void executeBaselineResumeProbe({
+      projectRow,
+      job,
+      verifyCommand,
+      timeoutMs,
     });
-    // Re-start factory tick timer on resume. The pause path stops the tick
-    // for trust_level != autonomous/dark or non-auto_continue projects, so
-    // without startTick here the project would sit in status='running' with
-    // no active tick, and nothing would advance. Mirror handleResumeProject.
-    try {
-      const updated = factoryHealth.getProject(projectRow.id);
-      const factoryTick = require('../factory/factory-tick');
-      factoryTick.startTick(updated);
-    } catch (_e) { void _e; /* factory-tick not loaded */ }
-    try {
-      const eventBus = require('../event-bus');
-      eventBus.emitFactoryProjectBaselineCleared({
-        project_id: projectRow.id,
-        cleared_after_ms: Date.now() - pausedSince,
-      });
-    } catch (_e) { void _e; }
 
-    return jsonResponse({
-      status: 'resumed',
-      message: `Project "${projectRow.name}" resumed — baseline probe passed in ${probe.durationMs}ms.`,
-      project_id: projectRow.id,
-      probe_duration_ms: probe.durationMs,
-      probe_timeout_ms: timeoutMs,
+    return jsonResponse(normalizeBaselineResumeJob(job), {
+      status: 202,
+      headers: {
+        Location: `/api/v2/factory/projects/${projectRow.id}/baseline-resume/${job.job_id}`,
+      },
     });
   } catch (err) {
     logger.warn('handleResumeProjectBaselineFixed failed', { err: err.message });
     return makeError(ErrorCodes.INTERNAL_ERROR, `Failed to resume project baseline: ${err.message}`);
   }
+}
+
+async function handleBaselineResumeJobStatus(args) {
+  const project = resolveProject(args.project);
+  const job = getBaselineResumeJob(project.id, args.job_id);
+  if (!job) {
+    return jsonResponse(null, {
+      status: 404,
+      errorCode: 'baseline_resume_job_not_found',
+      errorMessage: `Baseline resume job not found: ${args.job_id}`,
+    });
+  }
+  return jsonResponse(normalizeBaselineResumeJob(job));
 }
 
 async function handleFactoryLoopStatus(args) {
@@ -1810,6 +1973,7 @@ module.exports = {
   handleAdvanceFactoryLoopAsync,
   handleApproveFactoryGate,
   handleRetryFactoryVerify,
+  handleBaselineResumeJobStatus,
   handleResumeProjectBaselineFixed,
   handleFactoryLoopStatus,
   handleListFactoryLoopInstances,

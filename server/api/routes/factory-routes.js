@@ -214,6 +214,19 @@ const FACTORY_V2_ROUTES = [
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/approve$/, tool: 'approve_factory_gate', mapParams: ['project'], mapBody: true },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/retry-verify$/, tool: 'retry_factory_verify', mapParams: ['project'] },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/baseline-resume$/, tool: 'resume_project_baseline_fixed', mapParams: ['project'], mapBody: true },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/baseline-resume\/([^/]+)$/,
+    mapParams: ['project', 'job_id'],
+    handlerName: 'handleBaselineResumeJobStatus',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleBaselineResumeJobStatus,
+      async () => ({ project: req.params.project, job_id: req.params.job_id }),
+    ),
+  },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop\/batch$/, tool: 'attach_factory_batch', mapParams: ['project'], mapBody: true },
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/loop$/, tool: 'factory_loop_status', mapParams: ['project'] },
   {
