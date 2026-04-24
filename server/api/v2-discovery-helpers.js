@@ -14,6 +14,7 @@ const { getDefaultProvider, getProviderHealth, isProviderHealthy } = require('..
 const { listOllamaHosts, recordHostHealthCheck } = require('../db/host-management');
 const { getProviderStats } = require('../db/file-tracking');
 const { PROVIDER_DEFAULT_TIMEOUTS, PROVIDER_DEFAULTS } = require('../constants');
+const { getProviderHealthStatus } = require('../utils/provider-health-status');
 const {
   getProviderCapabilityMatrix,
 } = require('../providers/adapter-registry');
@@ -265,18 +266,10 @@ function isV2ProviderHealthy(providerId) {
 }
 
 function getV2ProviderStatus(provider, providerId) {
-  if (!provider || !provider.enabled) return 'disabled';
-
-  const health = getV2ProviderHealth(providerId);
-  const total = (health?.successes ?? 0) + (health?.failures ?? 0);
-
-  if (total >= 3 && !isV2ProviderHealthy(providerId)) {
-    return 'unavailable';
-  }
-  if (health && (health.failures || 0) > 0) {
-    return 'degraded';
-  }
-  return 'healthy';
+  return getProviderHealthStatus(
+    providerId ? { ...provider, provider: providerId } : provider,
+    getV2ProviderHealth(providerId),
+  ).status;
 }
 
 function buildV2ProviderLimits(provider, providerId) {
@@ -804,7 +797,7 @@ async function getV2ProviderHealthPayload(provider, providerId) {
     } else if (healthyResults.length !== results.length || status === 'degraded') {
       status = 'degraded';
     } else if (status !== 'unavailable') {
-      status = 'healthy';
+      status = status === 'warning' ? 'warning' : 'healthy';
     }
 
     return {

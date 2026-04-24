@@ -20,6 +20,7 @@ const schedulingAutomation = require('../db/scheduling-automation');
 const validationRules = require('../db/validation-rules');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const { VALID_CONFIG_KEYS } = require('../db/config-keys');
+const { getProviderHealthStatus } = require('../utils/provider-health-status');
 const {
   DEFAULT_PROPOSAL_SIGNIFICANCE_LEVEL,
   DEFAULT_PROPOSAL_MIN_SCORE,
@@ -1147,21 +1148,10 @@ async function handleListProviders(req, res) {
         }
       } catch { /* key enrichment is best-effort */ }
 
-      // Compute provider health status (mirrors getV2ProviderStatus in v2-router.js)
-      let status = 'healthy';
-      if (!p.enabled) {
-        status = 'disabled';
-      } else {
-        const isConfigured = providerRoutingCore.isProviderConfiguredForRouting
-          ? providerRoutingCore.isProviderConfiguredForRouting(p.provider)
-          : true;
-        const isHealthy = providerRoutingCore.isProviderHealthy ? providerRoutingCore.isProviderHealthy(p.provider) : true;
-        if (!isConfigured || (total_tasks >= 3 && !isHealthy)) {
-          status = 'unavailable';
-        } else if (failed_tasks > 0) {
-          status = 'degraded';
-        }
-      }
+      const runtimeHealth = providerRoutingCore.getProviderHealth
+        ? providerRoutingCore.getProviderHealth(p.provider)
+        : { successes: 0, failures: 0, failureRate: 0 };
+      const { status } = getProviderHealthStatus(p, runtimeHealth);
 
       return {
         ...p,

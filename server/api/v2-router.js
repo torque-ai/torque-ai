@@ -191,39 +191,17 @@ function getV2ProviderHealth(providerId) {
   }
 }
 
-function isV2ProviderHealthy(providerId) {
-  try {
-    return providerRoutingCore.isProviderHealthy?.(providerId);
-  } catch (err) {
-    logger.debug("health metric error", { err: err.message });
-    return true;
-  }
-}
-
 function getV2ProviderStatus(provider, providerId) {
-  if (!provider || !provider.enabled) return 'disabled';
-
   try {
-    if (providerRoutingCore.isProviderConfiguredForRouting
-      && !providerRoutingCore.isProviderConfiguredForRouting(providerId)) {
-      return 'unavailable';
-    }
+    const { getProviderHealthStatus } = require('../utils/provider-health-status');
+    return getProviderHealthStatus(
+      providerId ? { ...provider, provider: providerId } : provider,
+      getV2ProviderHealth(providerId),
+    ).status;
   } catch (err) {
     logger.debug("health metric error", { err: err.message });
+    return 'healthy';
   }
-
-  const health = getV2ProviderHealth(providerId);
-  const successes = Number(health?.successes ?? health?.successful_tasks) || 0;
-  const failures = Number(health?.failures ?? health?.failed_tasks) || 0;
-  const total = successes + failures;
-
-  if (total >= 3 && !isV2ProviderHealthy(providerId)) {
-    return 'unavailable';
-  }
-  if (failures > 0) {
-    return 'degraded';
-  }
-  return 'healthy';
 }
 
 function buildV2ProviderLimits(provider, providerId) {

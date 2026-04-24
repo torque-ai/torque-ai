@@ -80,6 +80,37 @@ describe('Provider Health Scoring', () => {
       // 66% failure rate, 3 observations
       expect(mod.isProviderHealthy('bad')).toBe(false);
     });
+
+    it('keeps codex healthy until three failures accumulate', () => {
+      mod.recordProviderOutcome('codex', true);
+      mod.recordProviderOutcome('codex', false);
+      mod.recordProviderOutcome('codex', false);
+
+      expect(mod.getProviderHealth('codex')).toEqual(expect.objectContaining({
+        successes: 1,
+        failures: 2,
+      }));
+      expect(mod.isProviderHealthy('codex')).toBe(true);
+    });
+
+    it('marks codex unhealthy once three failures accumulate', () => {
+      mod.recordProviderOutcome('codex', true);
+      mod.recordProviderOutcome('codex', false);
+      mod.recordProviderOutcome('codex', false);
+      mod.recordProviderOutcome('codex', false);
+
+      expect(mod.isProviderHealthy('codex')).toBe(false);
+    });
+  });
+
+  describe('getProviderHealthThresholds', () => {
+    it('uses a higher minimum failure count for codex', () => {
+      expect(mod.getProviderHealthThresholds('codex')).toEqual(expect.objectContaining({
+        minSamples: 3,
+        minFailures: 3,
+        maxFailureRate: 0.30,
+      }));
+    });
   });
 
   describe('routing configuration readiness', () => {

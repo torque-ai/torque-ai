@@ -13,6 +13,7 @@ import { providers, tasks } from '../api';
 const MOCK_PROVIDERS = [
   { id: 'codex', name: 'Codex', enabled: true, status: 'healthy' },
   { id: 'ollama', name: 'Ollama', enabled: true, status: 'healthy' },
+  { id: 'openrouter', name: 'OpenRouter', enabled: true, status: 'warning' },
   { id: 'deepinfra', name: 'DeepInfra', enabled: true, status: 'degraded' },
   { id: 'hyperbolic', name: 'Hyperbolic', enabled: true, status: 'unavailable' },
   { id: 'anthropic', name: 'Anthropic', enabled: false, status: 'disabled' },
@@ -32,7 +33,7 @@ describe('HealthBar', () => {
 
   it('renders compact bar with healthy count', async () => {
     await act(async () => { render(<HealthBar />); });
-    expect(screen.getByText('2/5')).toBeInTheDocument();
+    expect(screen.getByText('2/6')).toBeInTheDocument();
   });
 
   it('fetches from providers.list not provider-quotas', async () => {
@@ -53,6 +54,7 @@ describe('HealthBar', () => {
     await act(async () => { render(<HealthBar />); });
     const providerSection = screen.getByText('Providers:').closest('button');
     fireEvent.click(providerSection);
+    expect(screen.getByText('warning')).toBeInTheDocument();
     expect(screen.getByText('degraded')).toBeInTheDocument();
     expect(screen.getByText('unavailable')).toBeInTheDocument();
     expect(screen.getByText('disabled')).toBeInTheDocument();
@@ -82,7 +84,7 @@ describe('HealthBar', () => {
   it('handles { providers: [...] } envelope shape from V2 API', async () => {
     providers.list.mockResolvedValue({ providers: MOCK_PROVIDERS });
     await act(async () => { render(<HealthBar />); });
-    expect(screen.getByText('2/5')).toBeInTheDocument();
+    expect(screen.getByText('2/6')).toBeInTheDocument();
   });
 
   it('handles provider field name instead of id (governance handler shape)', async () => {

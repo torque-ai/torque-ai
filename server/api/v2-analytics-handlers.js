@@ -15,6 +15,7 @@ const fileTracking = require('../db/file-tracking');
 const providerRoutingCore = require('../db/provider-routing-core');
 const webhooksStreaming = require('../db/webhooks-streaming');
 const serverConfig = require('../config');
+const { getProviderHealthStatus } = require('../utils/provider-health-status');
 const {
   sendSuccess,
   sendError,
@@ -525,12 +526,7 @@ async function handleProviderHealth(req, res) {
   for (const p of providers) {
     const dayStats = fileTracking.getProviderStats ? fileTracking.getProviderStats(p.provider, 1) : {};
     const health = providerRoutingCore.getProviderHealth ? providerRoutingCore.getProviderHealth(p.provider) : { successes: 0, failures: 0, failureRate: 0 };
-    const isHealthy = providerRoutingCore.isProviderHealthy ? providerRoutingCore.isProviderHealthy(p.provider) : true;
-
-    let healthStatus = 'healthy';
-    if (!p.enabled) healthStatus = 'disabled';
-    else if (!isHealthy) healthStatus = 'degraded';
-    else if (health.failureRate > 0.1 && (health.successes + health.failures) >= 3) healthStatus = 'warning';
+    const { status: healthStatus } = getProviderHealthStatus(p, health);
 
     healthCards.push({
       provider: p.provider,

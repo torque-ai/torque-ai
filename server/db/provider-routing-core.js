@@ -925,6 +925,24 @@ function getProviderStats(providerId, days = 30) {
 
 const _providerHealth = new Map();
 const HEALTH_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const DEFAULT_PROVIDER_HEALTH_THRESHOLDS = Object.freeze({
+  minSamples: 3,
+  minFailures: 1,
+  maxFailureRate: 0.30,
+});
+const PROVIDER_HEALTH_THRESHOLD_OVERRIDES = Object.freeze({
+  codex: Object.freeze({
+    minFailures: 3,
+  }),
+});
+
+function getProviderHealthThresholds(provider) {
+  const providerName = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
+  return {
+    ...DEFAULT_PROVIDER_HEALTH_THRESHOLDS,
+    ...(PROVIDER_HEALTH_THRESHOLD_OVERRIDES[providerName] || {}),
+  };
+}
 
 function _getOrCreateHealth(provider) {
   if (!_providerHealth.has(provider)) {
@@ -997,8 +1015,10 @@ function isProviderAvailableForRouting(provider) {
 function isProviderHealthy(provider) {
   const entry = _getOrCreateHealth(provider);
   const total = entry.successes + entry.failures;
-  if (total < 3) return true; // Not enough data
-  return (entry.failures / total) < 0.30;
+  const thresholds = getProviderHealthThresholds(provider);
+  if (total < thresholds.minSamples) return true;
+  if (entry.failures < thresholds.minFailures) return true;
+  return (entry.failures / total) < thresholds.maxFailureRate;
 }
 
 /**
@@ -1633,6 +1653,7 @@ module.exports = {
   recordProviderOutcome,
   getProviderHealth,
   getProviderHealthScore,
+  getProviderHealthThresholds,
   isProviderHealthy,
   providerRequiresApiKey,
   isProviderConfiguredForRouting,

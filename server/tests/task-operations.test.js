@@ -368,6 +368,26 @@ describe('task-operations handlers', () => {
       );
     });
 
+    it('includes provider routing health details in the result payload', () => {
+      vi.spyOn(projectConfigCore, 'recordHealthCheck').mockReturnValue(undefined);
+      const providerRoutingCore = require('../db/provider-routing-core');
+      vi.spyOn(providerRoutingCore, 'getProvider').mockReturnValue({ provider: 'codex', enabled: true });
+      vi.spyOn(providerRoutingCore, 'getProviderHealth').mockReturnValue({
+        successes: 5,
+        failures: 2,
+        failureRate: 2 / 7,
+      });
+      vi.spyOn(providerRoutingCore, 'isProviderHealthy').mockReturnValue(true);
+
+      const result = handlers.handleHealthCheck({ check_type: 'connectivity' });
+
+      expect(result.structuredData.details).toEqual(expect.objectContaining({
+        provider_health_status: 'warning',
+        successes_1h: 5,
+        failures_1h: 2,
+      }));
+    });
+
     it('runs full check type with capacity info when healthy', () => {
       vi.spyOn(projectConfigCore, 'recordHealthCheck').mockReturnValue(undefined);
       vi.spyOn(taskManager, 'getRunningTaskCount').mockReturnValue(1);

@@ -3,6 +3,7 @@ import { providers as providersApi, tasks as tasksApi } from '../api';
 
 const STATUS_DOT = {
   healthy: 'bg-green-500',
+  warning: 'bg-yellow-400',
   degraded: 'bg-yellow-500',
   unavailable: 'bg-red-500',
   disabled: 'bg-slate-600',
@@ -10,6 +11,7 @@ const STATUS_DOT = {
 
 const STATUS_TEXT = {
   healthy: 'text-slate-200',
+  warning: 'text-slate-200',
   degraded: 'text-slate-200',
   unavailable: 'text-slate-200',
   disabled: 'text-slate-500',
@@ -121,6 +123,7 @@ export default function HealthBar() {
                 <span className={STATUS_TEXT[p.status] || STATUS_TEXT.disabled}>{p.id || p.provider}</span>
                 {p.status !== 'healthy' && (
                   <span className={`text-[10px] ${
+                    p.status === 'warning' ? 'text-yellow-400' :
                     p.status === 'degraded' ? 'text-yellow-500' :
                     p.status === 'unavailable' ? 'text-red-500' :
                     'text-slate-500'

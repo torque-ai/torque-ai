@@ -12,6 +12,7 @@ const providerRoutingCore = require('../../db/provider-routing-core');
 const webhooksStreaming = require('../../db/webhooks-streaming');
 const workflowEngine = require('../../db/workflow-engine');
 const serverConfig = require('../../config');
+const { getProviderHealthStatus } = require('../../utils/provider-health-status');
 const { sendJson, sendError, parseBody, enrichTaskWithHostName } = require('../utils');
 const { getStrategicStatus } = require('../../handlers/orchestrator-handlers');
 const { evaluateWorkflowVisibility, getWorkflowTaskCounts } = require('../../handlers/shared');
@@ -602,19 +603,7 @@ function handleGetProviderHealth(_req, res) {
       ? providerRoutingCore.getProviderHealth(p.provider)
       : { successes: 0, failures: 0, failureRate: 0 };
 
-    const isHealthy = (typeof providerRoutingCore.isProviderHealthy === 'function')
-      ? providerRoutingCore.isProviderHealthy(p.provider)
-      : true;
-
-    // Determine health status
-    let healthStatus = 'healthy';
-    if (!p.enabled) {
-      healthStatus = 'disabled';
-    } else if (!isHealthy) {
-      healthStatus = 'degraded';
-    } else if (health.failureRate > 0.1 && (health.successes + health.failures) >= 3) {
-      healthStatus = 'warning';
-    }
+    const { status: healthStatus } = getProviderHealthStatus(p, health);
 
     healthCards.push({
       provider: p.provider,

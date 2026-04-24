@@ -363,7 +363,7 @@ describe('v2 provider health and model inventory endpoints', () => {
     expect(payload.meta.request_id).toEqual(expect.any(String));
     expect(payload.data).toEqual(expect.objectContaining({
       provider_id: 'groq',
-      status: 'degraded',
+      status: 'warning',
       latency_ms: 1800,
       success_ratio: 0.9,
       last_error: 'provider has recent failures',

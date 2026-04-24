@@ -266,6 +266,18 @@ function handleHealthCheck(args) {
       details.version = result.stdout.trim();
     }
 
+    const provider = typeof providerRoutingCore.getProvider === 'function'
+      ? providerRoutingCore.getProvider('codex')
+      : { provider: 'codex', enabled: true };
+    const health = typeof providerRoutingCore.getProviderHealth === 'function'
+      ? providerRoutingCore.getProviderHealth('codex')
+      : { successes: 0, failures: 0, failureRate: 0 };
+    const { getProviderHealthStatus } = require('../../utils/provider-health-status');
+    const providerHealth = getProviderHealthStatus(provider || { provider: 'codex', enabled: true }, health);
+    details.provider_health_status = providerHealth.status;
+    details.successes_1h = providerHealth.health.successes;
+    details.failures_1h = providerHealth.health.failures;
+
     // Additional checks for 'full' or 'performance' check types
     if ((checkType === 'full' || checkType === 'performance') && status === 'healthy') {
       // Check current running tasks
