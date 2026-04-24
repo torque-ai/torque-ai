@@ -63,14 +63,15 @@ const CREW_SCHEMA = {
     roles: {
       type: 'array',
       minItems: 1,
+      maxItems: 6,
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['name'],
+        required: ['name', 'description'],
         properties: {
           name: { type: 'string', minLength: 1 },
           description: { type: 'string' },
-          provider: { type: 'string', enum: WORKFLOW_PROVIDER_ENUM },
+          provider: { type: 'string' },
           model: { type: 'string' },
         },
       },

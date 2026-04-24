@@ -30,21 +30,23 @@ const CREW_ROUTER_SCHEMA = {
 
 const CREW_SCHEMA = {
   type: 'object',
-  description: 'Crew configuration for a multi-role autonomous task node.',
+  description: 'Bounded autonomous subteam configuration. Active when kind=crew.',
   properties: {
     objective: {
       type: 'string',
-      description: 'Shared objective for the crew'
+      description: 'Open-ended goal the crew works toward.'
     },
     roles: {
       type: 'array',
+      minItems: 1,
+      maxItems: 6,
       description: 'Crew roles that can act during the run',
       items: {
         type: 'object',
+        required: ['name', 'description'],
         properties: {
           name: {
-            type: 'string',
-            description: 'Role name'
+            type: 'string'
           },
           description: {
             type: 'string',
@@ -52,26 +54,26 @@ const CREW_SCHEMA = {
           },
           provider: {
             type: 'string',
-            enum: ['codex', 'claude-cli', 'claude-ollama', 'ollama', 'ollama-cloud', 'anthropic', 'cerebras', 'deepinfra', 'google-ai', 'groq', 'hyperbolic', 'openrouter'],
             description: 'Optional provider override for this role'
           },
           model: {
             type: 'string',
             description: 'Optional model override for this role'
           }
-        },
-        required: ['name']
+        }
       }
     },
     mode: {
       type: 'string',
       enum: ['round_robin', 'hierarchical', 'parallel'],
-      description: 'Legacy crew execution mode'
+      default: 'round_robin',
+      description: 'Crew execution mode'
     },
     max_rounds: {
-      type: 'number',
+      type: 'integer',
       minimum: 1,
       maximum: 20,
+      default: 5,
       description: 'Maximum number of crew rounds'
     },
     output_schema: {

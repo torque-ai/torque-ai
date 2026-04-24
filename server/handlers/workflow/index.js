@@ -207,50 +207,6 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function cloneJsonValue(value) {
-  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-}
-
-function normalizeCrewTaskConfig(crew) {
-  if (!isPlainObject(crew)) {
-    return null;
-  }
-
-  const normalized = {};
-  if (typeof crew.objective === 'string') {
-    normalized.objective = crew.objective;
-  }
-  if (Array.isArray(crew.roles)) {
-    normalized.roles = crew.roles.map((role) => {
-      const nextRole = {};
-      if (typeof role?.name === 'string') nextRole.name = role.name;
-      if (typeof role?.description === 'string') nextRole.description = role.description;
-      if (typeof role?.provider === 'string') nextRole.provider = role.provider;
-      if (typeof role?.model === 'string') nextRole.model = role.model;
-      return nextRole;
-    });
-  }
-  if (typeof crew.mode === 'string') {
-    normalized.mode = crew.mode;
-  }
-  if (Number.isInteger(crew.max_rounds)) {
-    normalized.max_rounds = crew.max_rounds;
-  }
-  if (isPlainObject(crew.output_schema)) {
-    normalized.output_schema = cloneJsonValue(crew.output_schema);
-  }
-  if (isPlainObject(crew.router)) {
-    const router = {};
-    if (typeof crew.router.mode === 'string') router.mode = crew.router.mode;
-    if (typeof crew.router.code_fn === 'string') router.code_fn = crew.router.code_fn;
-    if (typeof crew.router.agent_model === 'string') router.agent_model = crew.router.agent_model;
-    if (typeof crew.router.agent_provider === 'string') router.agent_provider = crew.router.agent_provider;
-    normalized.router = router;
-  }
-
-  return normalized;
-}
-
 function validateCrewTaskLike(taskLike, nodeId, workflowId) {
   const nodeLabel = nodeId || '(auto)';
   const workflowLabel = workflowId || '(unknown)';
@@ -277,13 +233,19 @@ function validateCrewTaskLike(taskLike, nodeId, workflowId) {
   if (!objective) {
     return makeError(
       ErrorCodes.INVALID_PARAM,
-      `Crew task '${nodeLabel}' in workflow '${workflowLabel}' requires crew.objective as a non-empty string.`
+      `Crew node '${nodeLabel}' must have crew.objective`
     );
   }
   if (!Array.isArray(crew.roles) || crew.roles.length === 0) {
     return makeError(
       ErrorCodes.INVALID_PARAM,
-      `Crew task '${nodeLabel}' in workflow '${workflowLabel}' requires crew.roles as a non-empty array.`
+      `Crew node '${nodeLabel}' must have crew.roles with at least one role`
+    );
+  }
+  if (crew.roles.length > 6) {
+    return makeError(
+      ErrorCodes.INVALID_PARAM,
+      `crew.roles for node '${nodeLabel}' in workflow '${workflowLabel}' must contain at most 6 roles.`
     );
   }
   for (let index = 0; index < crew.roles.length; index += 1) {
@@ -301,7 +263,13 @@ function validateCrewTaskLike(taskLike, nodeId, workflowId) {
         `crew.roles[${index}] for node '${nodeLabel}' in workflow '${workflowLabel}' requires a non-empty name.`
       );
     }
-    for (const fieldName of ['description', 'provider', 'model']) {
+    if (typeof role.description !== 'string') {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `crew.roles[${index}].description for node '${nodeLabel}' in workflow '${workflowLabel}' must be a string.`
+      );
+    }
+    for (const fieldName of ['provider', 'model']) {
       if (role[fieldName] !== undefined && typeof role[fieldName] !== 'string') {
         return makeError(
           ErrorCodes.INVALID_PARAM,
@@ -421,7 +389,7 @@ function buildWorkflowTaskMetadata(taskLike) {
   }
   if (taskLike.kind === 'crew') {
     metaObj.kind = 'crew';
-    metaObj.crew = normalizeCrewTaskConfig(taskLike.crew);
+    metaObj.crew = taskLike.crew || {};
   }
   return metaObj;
 }

@@ -91,7 +91,11 @@ describe('BUG-001b: workflow node provider override preserved through requeue', 
           kind: 'crew',
           crew: {
             objective: 'Route planner, critic, and writer until done',
-            roles: [{ name: 'planner' }, { name: 'critic' }, { name: 'writer' }],
+            roles: [
+              { name: 'planner', description: 'Build the plan and hand off to the reviewer roles.' },
+              { name: 'critic', description: 'Challenge weak points and request stronger output.' },
+              { name: 'writer', description: 'Produce the final output after incorporating critique.' },
+            ],
             max_rounds: 8,
             router: {
               mode: 'hybrid',
@@ -112,7 +116,11 @@ describe('BUG-001b: workflow node provider override preserved through requeue', 
     expect(meta.kind).toBe('crew');
     expect(meta.crew).toEqual({
       objective: 'Route planner, critic, and writer until done',
-      roles: [{ name: 'planner' }, { name: 'critic' }, { name: 'writer' }],
+      roles: [
+        { name: 'planner', description: 'Build the plan and hand off to the reviewer roles.' },
+        { name: 'critic', description: 'Challenge weak points and request stronger output.' },
+        { name: 'writer', description: 'Produce the final output after incorporating critique.' },
+      ],
       max_rounds: 8,
       router: {
         mode: 'hybrid',
@@ -271,7 +279,10 @@ describe('BUG-001b: workflow node provider override preserved through requeue', 
       kind: 'crew',
       crew: {
         objective: 'Have planner speak first',
-        roles: [{ name: 'planner' }, { name: 'critic' }],
+        roles: [
+          { name: 'planner', description: 'Start the discussion with the initial plan.' },
+          { name: 'critic', description: 'Review the planner output and decide whether to stop.' },
+        ],
         router: {
           mode: 'code',
           code_fn: 'return turn.turn_count === 0 ? \'planner\' : null;',
@@ -289,12 +300,63 @@ describe('BUG-001b: workflow node provider override preserved through requeue', 
     expect(meta.kind).toBe('crew');
     expect(meta.crew).toEqual({
       objective: 'Have planner speak first',
-      roles: [{ name: 'planner' }, { name: 'critic' }],
+      roles: [
+        { name: 'planner', description: 'Start the discussion with the initial plan.' },
+        { name: 'critic', description: 'Review the planner output and decide whether to stop.' },
+      ],
       router: {
         mode: 'code',
         code_fn: 'return turn.turn_count === 0 ? \'planner\' : null;',
       },
     });
+  });
+
+  it('rejects crew nodes when a role description is missing', async () => {
+    const result = await safeTool('create_workflow', {
+      name: 'crew-missing-role-description',
+      working_directory: testDir,
+      tasks: [
+        {
+          node_id: 'crew-plan',
+          kind: 'crew',
+          crew: {
+            objective: 'Route planner and critic until done',
+            roles: [{ name: 'planner' }, { name: 'critic', description: 'Review the plan.' }],
+          },
+        },
+      ],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getText(result)).toMatch(/description/i);
+  });
+
+  it('rejects crew nodes with more than six roles', async () => {
+    const result = await safeTool('create_workflow', {
+      name: 'crew-too-many-roles',
+      working_directory: testDir,
+      tasks: [
+        {
+          node_id: 'crew-plan',
+          kind: 'crew',
+          crew: {
+            objective: 'Coordinate a large crew',
+            roles: [
+              { name: 'r1', description: 'Role 1' },
+              { name: 'r2', description: 'Role 2' },
+              { name: 'r3', description: 'Role 3' },
+              { name: 'r4', description: 'Role 4' },
+              { name: 'r5', description: 'Role 5' },
+              { name: 'r6', description: 'Role 6' },
+              { name: 'r7', description: 'Role 7' },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(getText(result)).toMatch(/6|roles/i);
   });
 
   // ── Mixed queue: override + auto-routed tasks coexist correctly ──

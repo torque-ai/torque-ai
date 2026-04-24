@@ -134,7 +134,9 @@ tasks:
       objective: Coordinate a planner and critic
       roles:
         - name: planner
+          description: Produce the initial plan and hand off to the critic.
         - name: critic
+          description: Review the plan and decide whether another turn is needed.
       max_rounds: 8
       router:
         mode: hybrid
@@ -153,7 +155,10 @@ tasks:
         kind: 'crew',
         crew: {
           objective: 'Coordinate a planner and critic',
-          roles: [{ name: 'planner' }, { name: 'critic' }],
+          roles: [
+            { name: 'planner', description: 'Produce the initial plan and hand off to the critic.' },
+            { name: 'critic', description: 'Review the plan and decide whether another turn is needed.' },
+          ],
           max_rounds: 8,
           router: {
             mode: 'hybrid',
