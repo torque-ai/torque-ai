@@ -120,6 +120,25 @@ function startMaintenanceScheduler(opts = {}) {
         debugLog(`Task archival error: ${archErr.message}`);
       }
 
+      // Purge output/error_output from terminal tasks past retention. Archival
+      // only sets archived=1 — the heavy TEXT blobs stay on disk. Without this
+      // purge, tasks.db grows unbounded. The `purge_task_output` maintenance
+      // task exists but was only reachable through the `maintenance_schedules`
+      // table, which isn't seeded anywhere, so it never ran. On 2026-04-24 a
+      // live install had ~7000 terminal tasks with output still populated,
+      // 647 MB of it older than 7 days. Inline alongside archival so it's
+      // unconditional. Retention is configurable via
+      // `task_output_retention_days` (default 30).
+      try {
+        const retentionDays = serverConfig.getInt('task_output_retention_days', 30);
+        if (retentionDays > 0 && typeof db.purgeOldTaskOutput === 'function') {
+          const purged = db.purgeOldTaskOutput(retentionDays);
+          if (purged > 0) debugLog(`Purged output from ${purged} old task(s) (retention: ${retentionDays} days)`);
+        }
+      } catch (purgeErr) {
+        debugLog(`Task output purge error: ${purgeErr.message}`);
+      }
+
       // C-2: Execute due user cron scheduled tasks
       try {
         const dueSchedules = db.getDueScheduledTasks();
