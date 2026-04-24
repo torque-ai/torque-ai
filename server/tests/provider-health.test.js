@@ -81,20 +81,24 @@ describe('Provider Health Scoring', () => {
       expect(mod.isProviderHealthy('bad')).toBe(false);
     });
 
-    it('keeps codex healthy until three failures accumulate', () => {
+    it('keeps codex healthy until five failures accumulate', () => {
       mod.recordProviderOutcome('codex', true);
+      mod.recordProviderOutcome('codex', false);
+      mod.recordProviderOutcome('codex', false);
       mod.recordProviderOutcome('codex', false);
       mod.recordProviderOutcome('codex', false);
 
       expect(mod.getProviderHealth('codex')).toEqual(expect.objectContaining({
         successes: 1,
-        failures: 2,
+        failures: 4,
       }));
       expect(mod.isProviderHealthy('codex')).toBe(true);
     });
 
-    it('marks codex unhealthy once three failures accumulate', () => {
+    it('marks codex unhealthy once five failures accumulate', () => {
       mod.recordProviderOutcome('codex', true);
+      mod.recordProviderOutcome('codex', false);
+      mod.recordProviderOutcome('codex', false);
       mod.recordProviderOutcome('codex', false);
       mod.recordProviderOutcome('codex', false);
       mod.recordProviderOutcome('codex', false);
@@ -107,7 +111,7 @@ describe('Provider Health Scoring', () => {
     it('uses a higher minimum failure count for codex', () => {
       expect(mod.getProviderHealthThresholds('codex')).toEqual(expect.objectContaining({
         minSamples: 3,
-        minFailures: 3,
+        minFailures: 5,
         maxFailureRate: 0.30,
       }));
     });

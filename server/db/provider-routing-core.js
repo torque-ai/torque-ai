@@ -932,7 +932,7 @@ const DEFAULT_PROVIDER_HEALTH_THRESHOLDS = Object.freeze({
 });
 const PROVIDER_HEALTH_THRESHOLD_OVERRIDES = Object.freeze({
   codex: Object.freeze({
-    minFailures: 3,
+    minFailures: 5,
   }),
 });
 
