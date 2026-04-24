@@ -31,7 +31,6 @@ const AUTO_REJECT_REASON_PATTERNS = Object.freeze([
   /^verify_failed_after_\d+_retries$/i,
   /^plan_quality_gate_rejected_after_2_attempts$/i,
   /^no_worktree_for_batch/i,
-  /^empty_branch_after_execute$/i,
   /^consecutive_empty_executions$/i,
   /^stuck_executing_over_1h_no_progress/i,
   /^cannot_generate_plan:/i,

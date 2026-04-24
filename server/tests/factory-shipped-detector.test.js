@@ -1,5 +1,4 @@
 'use strict';
-
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -34,6 +33,7 @@ function writeRepoFiles(repoRoot, fileReferences) {
     fs.writeFileSync(absolutePath, '// exists\n');
   }
 }
+
 
 describe('factory shipped detector', () => {
   let repoRoot;
