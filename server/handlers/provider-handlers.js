@@ -612,7 +612,13 @@ function handleGetProviderPercentiles(args) {
   }
 
   const fromDate = new Date(Date.now() - days * 86400000).toISOString();
-  const tasks = taskCore.listTasks({ provider, from_date: fromDate, limit: 1000 });
+  // Percentile math only needs started_at + completed_at — skip heavy TEXT blobs.
+  const tasks = taskCore.listTasks({
+    provider,
+    from_date: fromDate,
+    limit: 1000,
+    columns: taskCore.TASK_TIMING_COLUMNS,
+  });
   const taskList = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
 
   const durations = taskList
