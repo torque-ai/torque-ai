@@ -31,6 +31,7 @@ const mockDb = {
   getBestFormatForModel: vi.fn(),
   getFormatSuccessRatesSummary: vi.fn(),
   getHealthTrend: vi.fn(),
+  resetProviderHealth: vi.fn(),
   listTasks: vi.fn(),
 };
 
@@ -97,6 +98,10 @@ function resetMocks() {
     days,
     trend: 'stable',
   }));
+  mockDb.resetProviderHealth.mockReturnValue({
+    scope: 'all',
+    reset_count: 0,
+  });
   mockDb.listTasks.mockReturnValue([]);
   mockDb.getModelLeaderboard.mockReturnValue([]);
   mockProviderRegistry.isApiProvider.mockReturnValue(false);
@@ -137,6 +142,7 @@ function loadHandlers() {
     setDefaultProvider: mockDb.setDefaultProvider,
     setProviderFallbackChain: mockDb.setProviderFallbackChain,
     getHealthTrend: mockDb.getHealthTrend,
+    resetProviderHealth: mockDb.resetProviderHealth,
   });
   installMock('../task-manager', mockTaskManager);
   installMock('../dashboard-server', mockDashboard);
@@ -489,6 +495,63 @@ describe('provider-handlers.js', () => {
         previous_failure_rate: 0.4,
         recent_failure_rate: 0.1,
       }]);
+    });
+  });
+
+  describe('handleResetProviderHealth', () => {
+    it('resets all provider health windows when provider is omitted', () => {
+      mockDb.resetProviderHealth.mockReturnValue({
+        scope: 'all',
+        reset_count: 2,
+      });
+
+      const result = handlers.handleResetProviderHealth({});
+
+      expect(mockDb.resetProviderHealth).toHaveBeenCalledWith(undefined);
+      expect(getText(result)).toContain('Provider Health Reset');
+      expect(getText(result)).toContain('Cleared the in-memory health window for all providers.');
+      expect(result.structuredData).toEqual({
+        scope: 'all',
+        reset_count: 2,
+      });
+    });
+
+    it('resets one configured provider when provider is supplied', () => {
+      mockDb.listProviders.mockReturnValue([
+        { provider: 'codex' },
+        { provider: 'ollama' },
+      ]);
+      mockDb.resetProviderHealth.mockReturnValue({
+        scope: 'provider',
+        provider: 'codex',
+        reset_count: 1,
+      });
+
+      const result = handlers.handleResetProviderHealth({ provider: 'codex' });
+
+      expect(mockDb.listProviders).toHaveBeenCalledTimes(1);
+      expect(mockDb.resetProviderHealth).toHaveBeenCalledWith('codex');
+      expect(getText(result)).toContain('Cleared the in-memory health window for **codex**.');
+      expect(result.structuredData).toEqual({
+        scope: 'provider',
+        provider: 'codex',
+        reset_count: 1,
+      });
+    });
+
+    it('returns INVALID_PARAM for blank or unknown provider names', () => {
+      mockDb.listProviders.mockReturnValue([{ provider: 'codex' }]);
+
+      const blank = handlers.handleResetProviderHealth({ provider: '   ' });
+      const unknown = handlers.handleResetProviderHealth({ provider: 'ollama-cloud' });
+
+      expect(blank.isError).toBe(true);
+      expect(blank.error_code).toBe('INVALID_PARAM');
+      expect(getText(blank)).toContain('provider must not be empty');
+      expect(unknown.isError).toBe(true);
+      expect(unknown.error_code).toBe('INVALID_PARAM');
+      expect(getText(unknown)).toContain('unknown provider: ollama-cloud');
+      expect(mockDb.resetProviderHealth).not.toHaveBeenCalled();
     });
   });
 

@@ -900,6 +900,20 @@ const tools = [
     }
   },
   {
+    name: 'reset_provider_health',
+    description: 'Reset the in-memory provider health window used by smart routing. Optionally target a single provider.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        provider: {
+          type: 'string',
+          description: 'Specific provider to reset. Omit to clear the health window for all providers.'
+        }
+      },
+      required: []
+    }
+  },
+  {
     name: 'get_model_leaderboard',
     description: 'Get model performance leaderboard ranked by success rate. Shows which models perform best for specific task types and languages. Data comes from actual task outcomes (currently ollama providers only).',
     inputSchema: {

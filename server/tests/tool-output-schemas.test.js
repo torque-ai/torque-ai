@@ -103,7 +103,7 @@ describe('tool-output-schemas', () => {
         ...PHASE2_PROVIDER_COST_MONITORING_TOOLS,
         // Phase 3
         'workflow_history', 'list_models', 'list_pending_models', 'list_model_roles',
-        'list_archived', 'get_archive_stats', 'get_provider_health_trends',
+        'list_archived', 'get_archive_stats', 'get_provider_health_trends', 'reset_provider_health',
         'health_check', 'integration_health', 'list_tags',
         // OAuth / tool hints / handoff / sessions
         'start_oauth_flow', 'complete_oauth_flow', 'list_connected_accounts',
@@ -672,6 +672,18 @@ describe('tool-output-schemas', () => {
 
       expect(result.structuredData).toBeDefined();
       expect(Array.isArray(result.structuredData.trends)).toBe(true);
+      expect(result.content).toBeDefined();
+    });
+
+    it('reset_provider_health returns structuredData with scope and reset_count', () => {
+      const { handleResetProviderHealth } = require('../handlers/provider-handlers');
+      const result = handleResetProviderHealth({});
+
+      if (result.isError) return;
+
+      expect(result.structuredData).toBeDefined();
+      expect(['all', 'provider']).toContain(result.structuredData.scope);
+      expect(typeof result.structuredData.reset_count).toBe('number');
       expect(result.content).toBeDefined();
     });
 

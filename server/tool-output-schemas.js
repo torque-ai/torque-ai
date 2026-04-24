@@ -553,6 +553,16 @@ const OUTPUT_SCHEMAS = {
     required: ['trends'],
   },
 
+  reset_provider_health: {
+    type: 'object',
+    properties: {
+      scope: { type: 'string', enum: ['all', 'provider'] },
+      provider: { type: 'string' },
+      reset_count: { type: 'number' },
+    },
+    required: ['scope', 'reset_count'],
+  },
+
   health_check: {
     type: 'object',
     properties: {

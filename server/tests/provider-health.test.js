@@ -111,9 +111,26 @@ describe('Provider Health Scoring', () => {
     it('clears all health data', () => {
       mod.recordProviderOutcome('p1', true);
       mod.recordProviderOutcome('p2', false);
-      mod.resetProviderHealth();
+      expect(mod.resetProviderHealth()).toEqual({
+        scope: 'all',
+        reset_count: 2,
+      });
       expect(mod.getProviderHealth('p1').successes).toBe(0);
       expect(mod.getProviderHealth('p2').failures).toBe(0);
+    });
+
+    it('clears one provider without touching the others', () => {
+      mod.recordProviderOutcome('p1', true);
+      mod.recordProviderOutcome('p2', false);
+
+      expect(mod.resetProviderHealth('p1')).toEqual({
+        scope: 'provider',
+        provider: 'p1',
+        reset_count: 1,
+      });
+
+      expect(mod.getProviderHealth('p1').successes).toBe(0);
+      expect(mod.getProviderHealth('p2').failures).toBe(1);
     });
   });
 });

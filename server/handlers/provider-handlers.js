@@ -519,6 +519,63 @@ function handleGetProviderHealthTrends(args = {}) {
 }
 
 /**
+ * Reset in-memory provider health windows used by smart routing
+ * @param {Object} [args] - Handler arguments.
+ * @returns {Object} Response payload.
+ */
+function handleResetProviderHealth(args = {}) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'args must be an object');
+  }
+
+  const hasProvider = Object.prototype.hasOwnProperty.call(args, 'provider') && args.provider !== undefined;
+  let providerName;
+
+  if (hasProvider) {
+    if (typeof args.provider !== 'string') {
+      return makeError(ErrorCodes.INVALID_PARAM, 'provider must be a string');
+    }
+
+    providerName = args.provider.trim();
+    if (!providerName) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'provider must not be empty');
+    }
+
+    const knownProviders = new Set(
+      providerRoutingCore
+        .listProviders()
+        .map((entry) => entry && entry.provider)
+        .filter(Boolean)
+    );
+
+    if (!knownProviders.has(providerName)) {
+      return makeError(ErrorCodes.INVALID_PARAM, `unknown provider: ${providerName}`);
+    }
+  }
+
+  const result = providerRoutingCore.resetProviderHealth(providerName);
+  let output = '## Provider Health Reset\n\n';
+  if (providerName) {
+    output += `Cleared the in-memory health window for **${providerName}**.\n\n`;
+  } else {
+    output += 'Cleared the in-memory health window for all providers.\n\n';
+  }
+  output += '| Field | Value |\n';
+  output += '|-------|-------|\n';
+  output += `| Scope | ${result.scope} |\n`;
+  if (result.provider) {
+    output += `| Provider | ${result.provider} |\n`;
+  }
+  output += `| Reset Count | ${result.reset_count} |\n`;
+  output += '\nPersistent provider health history was not modified.';
+
+  return {
+    content: [{ type: 'text', text: output }],
+    structuredData: result,
+  };
+}
+
+/**
  * Get model performance leaderboard
  * @param {Object} args - Handler arguments.
  * @returns {Object} Response payload.
@@ -616,6 +673,7 @@ function createProviderHandlers() {
     handleDetectProviderDegradation,
     handleGetFormatSuccessRates,
     handleGetProviderHealthTrends,
+    handleResetProviderHealth,
     handleGetModelLeaderboard,
     handleGetProviderPercentiles,
     ...ollamaHostHandlers,
@@ -636,6 +694,7 @@ module.exports = {
   handleDetectProviderDegradation,
   handleGetFormatSuccessRates,
   handleGetProviderHealthTrends,
+  handleResetProviderHealth,
   handleGetModelLeaderboard,
   handleGetProviderPercentiles,
   ...ollamaHostHandlers,

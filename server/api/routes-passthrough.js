@@ -264,6 +264,7 @@ const routes = [
   { method: 'POST', path: '/api/v2/providers/set-host-settings', tool: 'set_host_settings', mapBody: true },
   { method: 'GET', path: '/api/v2/providers/get-format-success-rates', tool: 'get_format_success_rates', mapQuery: true },
   { method: 'GET', path: '/api/v2/providers/get-provider-health-trends', tool: 'get_provider_health_trends', mapQuery: true },
+  { method: 'POST', path: '/api/v2/providers/reset-provider-health', tool: 'reset_provider_health', mapBody: true },
   { method: 'GET', path: '/api/v2/providers/get-model-leaderboard', tool: 'get_model_leaderboard', mapQuery: true },
   { method: 'POST', path: '/api/v2/providers/manage-tuning', tool: 'manage_tuning', mapBody: true },
   { method: 'POST', path: '/api/v2/providers/manage-host', tool: 'manage_host', mapBody: true },
