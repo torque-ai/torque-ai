@@ -1504,6 +1504,100 @@ function cleanupFailedStartupResources(startupResources, err) {
   startupResources.releaseOnStartupFailure(err);
 }
 
+function parseCrewRoleOutput(raw) {
+  if (typeof raw === 'string') {
+    return JSON.parse(raw);
+  }
+
+  if (raw && typeof raw === 'object') {
+    if (typeof raw.output === 'string') {
+      return JSON.parse(raw.output);
+    }
+    if (Object.prototype.hasOwnProperty.call(raw, 'output')) {
+      return raw.output;
+    }
+  }
+
+  return raw;
+}
+
+async function runCrewTask(task, taskMeta, taskId) {
+  const { runCrew } = require('../crew/crew-runtime');
+  const runtimeProviderRegistry = providerRegistry || require('../providers/registry');
+  const crew = taskMeta?.crew && typeof taskMeta.crew === 'object' ? taskMeta.crew : {};
+
+  db.updateTaskStatus(taskId, 'running', {
+    pid: null,
+    mcp_instance_id: null,
+    ollama_host_id: null,
+  });
+
+  try {
+    const callRole = async ({ role, history, objective }) => {
+      const provider = role.provider || 'codex';
+      const inst = runtimeProviderRegistry?.getProviderInstance?.(provider);
+      if (!inst) {
+        throw new Error(`Crew role ${role.name}: provider ${provider} not available`);
+      }
+
+      const prompt = `You are ${role.name}. ${role.description || ''}\n\nObjective: ${objective}\n\nHistory so far (${history.length} turns):\n${history.map(h => `- ${h.role}: ${JSON.stringify(h.output)}`).join('\n')}\n\nRespond with a JSON object representing your contribution. If you believe the objective is achieved, include "done": true and any required output fields.`;
+
+      let out;
+      if (typeof inst.runPrompt === 'function') {
+        out = await inst.runPrompt(prompt, role.model || null, {
+          format: 'json',
+          maxTokens: 1500,
+          working_directory: task.working_directory,
+        });
+      } else if (typeof inst.submit === 'function') {
+        out = await inst.submit(prompt, role.model || null, {
+          raw_prompt: true,
+          maxTokens: 1500,
+          working_directory: task.working_directory,
+        });
+      } else {
+        throw new Error(`Crew role ${role.name}: provider ${provider} not available`);
+      }
+
+      return { output: parseCrewRoleOutput(out) };
+    };
+
+    const result = await runCrew({
+      objective: crew.objective,
+      roles: crew.roles,
+      mode: crew.mode || 'round_robin',
+      max_rounds: crew.max_rounds || 5,
+      output_schema: crew.output_schema,
+      callRole,
+    });
+
+    db.updateTaskStatus(taskId, 'completed', {
+      output: JSON.stringify(result.final_output, null, 2),
+      metadata: JSON.stringify({
+        ...taskMeta,
+        crew_result: {
+          terminated_by: result.terminated_by,
+          rounds: result.rounds,
+          history_count: Array.isArray(result.history) ? result.history.length : 0,
+        },
+      }),
+      pid: null,
+      mcp_instance_id: null,
+      ollama_host_id: null,
+    });
+
+    return { queued: false, alreadyRunning: false, crew: true };
+  } catch (err) {
+    db.updateTaskStatus(taskId, 'failed', {
+      error_output: err.message,
+      pid: null,
+      mcp_instance_id: null,
+      ollama_host_id: null,
+    });
+    throw err;
+  }
+}
+
 // ── startTask ──────────────────────────────────────────────────────────────
 
 /**
@@ -1522,6 +1616,16 @@ async function startTask(taskId) {
     if (barrier) {
       return parkTaskBehindRestartBarrier(task, taskId, barrier);
     }
+  }
+
+  let taskMeta;
+  try {
+    taskMeta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
+  } catch {
+    taskMeta = {};
+  }
+  if (taskMeta.kind === 'crew') {
+    return runCrewTask(task, taskMeta, taskId);
   }
 
   const preClaim = prepareStartupPreClaim(task, taskId);

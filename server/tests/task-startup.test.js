@@ -406,6 +406,112 @@ describe('task-startup', () => {
     }
   });
 
+  it('runs crew tasks through the crew runtime and completes with crew_result metadata', async () => {
+    const task = createTask({
+      id: 'crew-startup-task',
+      provider: null,
+      metadata: {
+        kind: 'crew',
+        crew: {
+          objective: 'Produce a reviewed plan',
+          roles: [
+            { name: 'planner', description: 'Draft the initial plan.', provider: 'codex', model: 'gpt-5.4' },
+            { name: 'reviewer', description: 'Challenge the draft and mark it done.', provider: 'codex' },
+          ],
+          max_rounds: 3,
+        },
+      },
+    });
+    const mockProvider = {
+      runPrompt: vi.fn()
+        .mockResolvedValueOnce(JSON.stringify({ plan: 'draft' }))
+        .mockResolvedValueOnce(JSON.stringify({ done: true, plan: 'final' })),
+    };
+    const runCrew = vi.fn(async ({ objective, roles, max_rounds, callRole }) => {
+      const first = await callRole({ role: roles[0], history: [], objective });
+      const second = await callRole({
+        role: roles[1],
+        history: [{ role: roles[0].name, output: first.output }],
+        objective,
+      });
+      return {
+        terminated_by: 'output_matched_schema',
+        rounds: 2,
+        history: [
+          { role: roles[0].name, output: first.output },
+          { role: roles[1].name, output: second.output },
+        ],
+        final_output: second.output,
+      };
+    });
+    const crewRuntimePath = require.resolve('../crew/crew-runtime');
+    const originalCrewRuntime = require.cache[crewRuntimePath];
+    const ctx = loadTaskStartup({
+      task,
+      depOverrides: {
+        providerRegistry: {
+          getProviderInstance: vi.fn(() => mockProvider),
+        },
+      },
+    });
+
+    installCjsModuleMock('../crew/crew-runtime', { runCrew });
+
+    try {
+      const result = await ctx.module.startTask(task.id);
+      const updated = ctx.tasks.get(task.id);
+      const metadata = typeof updated.metadata === 'string' ? JSON.parse(updated.metadata) : updated.metadata;
+
+      expect(result).toEqual({ queued: false, alreadyRunning: false, crew: true });
+      expect(runCrew).toHaveBeenCalledWith(expect.objectContaining({
+        objective: 'Produce a reviewed plan',
+        roles: task.metadata.crew.roles,
+        mode: 'round_robin',
+        max_rounds: 3,
+      }));
+      expect(ctx.deps.providerRegistry.getProviderInstance).toHaveBeenCalledTimes(2);
+      expect(mockProvider.runPrompt).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining('You are planner. Draft the initial plan.'),
+        'gpt-5.4',
+        expect.objectContaining({
+          format: 'json',
+          maxTokens: 1500,
+          working_directory: 'C:/repo',
+        }),
+      );
+      expect(mockProvider.runPrompt).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining('- planner: {"plan":"draft"}'),
+        null,
+        expect.objectContaining({
+          format: 'json',
+          maxTokens: 1500,
+          working_directory: 'C:/repo',
+        }),
+      );
+      expect(ctx.deps.resolveProviderRouting).not.toHaveBeenCalled();
+      expect(ctx.deps.db.tryClaimTaskSlot).not.toHaveBeenCalled();
+      expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
+      expect(updated.status).toBe('completed');
+      expect(updated.output).toBe(JSON.stringify({ done: true, plan: 'final' }, null, 2));
+      expect(metadata).toEqual(expect.objectContaining({
+        kind: 'crew',
+        crew_result: {
+          terminated_by: 'output_matched_schema',
+          rounds: 2,
+          history_count: 2,
+        },
+      }));
+    } finally {
+      if (originalCrewRuntime) {
+        require.cache[crewRuntimePath] = originalCrewRuntime;
+      } else {
+        delete require.cache[crewRuntimePath];
+      }
+    }
+  });
+
   it('startTask fails gracefully when runPreflightChecks rejects the task', async () => {
     const task = createTask({ working_directory: 'C:/missing-repo' });
     const ctx = loadTaskStartup({ task });
