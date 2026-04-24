@@ -17,7 +17,7 @@ const {
   buildWorkflowDetailResponse,
   buildTaskResponse,
 } = require('./v2-control-plane');
-const { parseBody } = require('./middleware');
+const { parseBody, sendJson } = require('./middleware');
 
 let _taskManager = null;
 
@@ -43,6 +43,10 @@ function getCheckpointStore() {
 
 function getForker() {
   return getContainerService('forker');
+}
+
+function getWorkflowControl() {
+  return getContainerService('workflowControl');
 }
 
 function classifyForkError(err) {
@@ -585,6 +589,82 @@ async function handleGetWorkflowTasks(req, res) {
   }
 }
 
+async function handleWorkflowControlQuery(req, res) {
+  let body = {};
+  try {
+    body = req.body || await parseBody(req);
+  } catch (err) {
+    return sendJson(res, { error: err.message || 'Invalid JSON' }, 400, req);
+  }
+
+  const name = typeof body?.name === 'string' ? body.name.trim() : '';
+  if (!name) {
+    return sendJson(res, { error: 'name required' }, 400, req);
+  }
+
+  const workflowControl = getWorkflowControl();
+  if (!workflowControl || typeof workflowControl.query !== 'function') {
+    return sendJson(res, { error: 'workflow control is unavailable' }, 503, req);
+  }
+
+  try {
+    return sendJson(res, workflowControl.query(req.params?.workflow_id, name), 200, req);
+  } catch (err) {
+    return sendJson(res, { error: err.message }, 500, req);
+  }
+}
+
+async function handleWorkflowControlSignal(req, res) {
+  let body = {};
+  try {
+    body = req.body || await parseBody(req);
+  } catch (err) {
+    return sendJson(res, { error: err.message || 'Invalid JSON' }, 400, req);
+  }
+
+  const name = typeof body?.name === 'string' ? body.name.trim() : '';
+  if (!name) {
+    return sendJson(res, { error: 'name required' }, 400, req);
+  }
+
+  const workflowControl = getWorkflowControl();
+  if (!workflowControl || typeof workflowControl.signal !== 'function') {
+    return sendJson(res, { error: 'workflow control is unavailable' }, 503, req);
+  }
+
+  try {
+    return sendJson(res, workflowControl.signal(req.params?.workflow_id, name, body?.value), 200, req);
+  } catch (err) {
+    return sendJson(res, { error: err.message }, 500, req);
+  }
+}
+
+async function handleWorkflowControlUpdate(req, res) {
+  let body = {};
+  try {
+    body = req.body || await parseBody(req);
+  } catch (err) {
+    return sendJson(res, { error: err.message || 'Invalid JSON' }, 400, req);
+  }
+
+  const name = typeof body?.name === 'string' ? body.name.trim() : '';
+  if (!name) {
+    return sendJson(res, { error: 'name required' }, 400, req);
+  }
+
+  const workflowControl = getWorkflowControl();
+  if (!workflowControl || typeof workflowControl.update !== 'function') {
+    return sendJson(res, { error: 'workflow control is unavailable' }, 503, req);
+  }
+
+  try {
+    const result = await workflowControl.update(req.params?.workflow_id, name, body?.value);
+    return sendJson(res, result, result?.ok ? 200 : 400, req);
+  } catch (err) {
+    return sendJson(res, { error: err.message }, 500, req);
+  }
+}
+
 function createV2WorkflowHandlers(_deps) {
   return {
     init,
@@ -601,6 +681,9 @@ function createV2WorkflowHandlers(_deps) {
     handlePauseWorkflow,
     handleResumeWorkflow,
     handleGetWorkflowTasks,
+    handleWorkflowControlQuery,
+    handleWorkflowControlSignal,
+    handleWorkflowControlUpdate,
   };
 }
 
@@ -619,5 +702,8 @@ module.exports = {
   handlePauseWorkflow,
   handleResumeWorkflow,
   handleGetWorkflowTasks,
+  handleWorkflowControlQuery,
+  handleWorkflowControlSignal,
+  handleWorkflowControlUpdate,
   createV2WorkflowHandlers,
 };

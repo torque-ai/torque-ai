@@ -33,6 +33,9 @@ function createRouteHandlerLookup({
     handleGetQuotaAutoScale: quotaLifecycleHandlers.handleGetQuotaAutoScale,
     handleGetProviderQuotas: quotaLifecycleHandlers.handleGetProviderQuotas,
     handleBootstrapWorkstation,
+    handleWorkflowControlQuery: v2WorkflowHandlers.handleWorkflowControlQuery,
+    handleWorkflowControlSignal: v2WorkflowHandlers.handleWorkflowControlSignal,
+    handleWorkflowControlUpdate: v2WorkflowHandlers.handleWorkflowControlUpdate,
     // V2 Control-Plane: Tasks
     handleV2CpPreviewTaskStudyContext: v2TaskHandlers.handlePreviewTaskStudyContext,
     handleV2CpSubmitTask: v2TaskHandlers.handleSubmitTask,

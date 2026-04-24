@@ -26,6 +26,7 @@ const { createFamilyTemplates } = require('./db/family-templates');
 const { createActionRegistry } = require('./dispatch/action-registry');
 const { createConstructionCache } = require('./dispatch/construction-cache');
 const { createExecutor } = require('./dispatch/executor');
+const { createJournalWriter } = require('./journal/journal-writer');
 const { createRunDirManager } = require('./runs/run-dir-manager');
 const { createSpecialistStorage } = require('./routing/specialist-storage');
 const { createTurnClassifier } = require('./routing/turn-classifier');
@@ -240,6 +241,21 @@ _defaultContainer.register('workflowState', ['db'], ({ db }) => {
   const { createWorkflowState } = require('./workflow-state/workflow-state');
   return createWorkflowState({ db: unwrapDb(db) });
 });
+_defaultContainer.register('journalWriter', ['db'], ({ db }) => (
+  createJournalWriter({ db })
+));
+_defaultContainer.register(
+  'workflowControl',
+  ['db', 'workflowState', 'journalWriter'],
+  ({ db, workflowState, journalWriter }) => {
+    const { createWorkflowControl } = require('./control/workflow-control');
+    return createWorkflowControl({
+      db,
+      workflowState,
+      journal: journalWriter,
+    });
+  }
+);
 _defaultContainer.register('forker', ['db', 'checkpointStore', 'workflowState'], ({
   db,
   checkpointStore,
