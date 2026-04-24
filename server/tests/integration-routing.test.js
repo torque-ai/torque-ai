@@ -17,6 +17,7 @@ const MODULE_PATHS = [
   '../config',
   '../db/config-core',
   '../db/host-management',
+  '../db/project-config-core',
   '../db/provider-routing-core',
   '../db/task-core',
   '../db/workflow-engine',
@@ -39,6 +40,7 @@ const mockDb = {
   checkOllamaHealth: vi.fn(),
   analyzeTaskForRouting: vi.fn(),
   getConfig: vi.fn(),
+  getProjectDefaults: vi.fn(),
   getProvider: vi.fn(),
   getDefaultProvider: vi.fn(),
   determineTaskComplexity: vi.fn(),
@@ -233,6 +235,7 @@ function loadHandler() {
   installCjsModuleMock('../config', createConfigModuleMock());
   installCjsModuleMock('../db/config-core', mockDb);
   installCjsModuleMock('../db/host-management', mockDb);
+  installCjsModuleMock('../db/project-config-core', mockDb);
   installCjsModuleMock('../db/provider-routing-core', mockDb);
   installCjsModuleMock('../db/task-core', mockDb);
   installCjsModuleMock('../db/workflow-engine', mockDb);

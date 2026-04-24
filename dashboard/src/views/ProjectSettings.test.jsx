@@ -57,6 +57,7 @@ describe('ProjectSettings', () => {
             default_provider: 'codex',
             default_model: 'gpt-5.3-codex-spark',
             verify_command: 'npm test',
+            routing_template_id: 'tmpl-1',
             auto_fix_enabled: 1,
             default_timeout: 45,
           },
@@ -69,15 +70,6 @@ describe('ProjectSettings', () => {
             { id: 'tmpl-1', name: 'Quality First', preset: true },
             { id: 'tmpl-2', name: 'Cost Saver', preset: true },
           ],
-        });
-      }
-
-      if (url === '/api/v2/routing/active') {
-        return createResponse({
-          data: {
-            explicit: true,
-            template: { id: 'tmpl-1', name: 'Quality First' },
-          },
         });
       }
 
@@ -165,6 +157,7 @@ describe('ProjectSettings', () => {
             default_provider: 'codex',
             default_model: 'gpt-5.3-codex-spark',
             verify_command: 'npm test',
+            routing_template_id: null,
             auto_fix_enabled: 1,
             default_timeout: 45,
           },
@@ -174,15 +167,6 @@ describe('ProjectSettings', () => {
       if (url === '/api/v2/routing/templates') {
         return createResponse({
           data: [{ id: 'tmpl-1', name: 'System Default', preset: true }],
-        });
-      }
-
-      if (url === '/api/v2/routing/active') {
-        return createResponse({
-          data: {
-            explicit: false,
-            template: { id: 'tmpl-1', name: 'System Default' },
-          },
         });
       }
 
@@ -232,6 +216,7 @@ describe('ProjectSettings', () => {
             default_provider: 'ollama',
             default_model: 'qwen2.5-coder:32b',
             verify_command: 'npm run build',
+            routing_template_id: null,
             auto_fix_enabled: 0,
             default_timeout: 30,
           },
@@ -241,15 +226,6 @@ describe('ProjectSettings', () => {
       if (url === '/api/v2/routing/templates') {
         return createResponse({
           data: [{ id: 'tmpl-1', name: 'System Default', preset: true }],
-        });
-      }
-
-      if (url === '/api/v2/routing/active') {
-        return createResponse({
-          data: {
-            explicit: false,
-            template: { id: 'tmpl-1', name: 'System Default' },
-          },
         });
       }
 

@@ -563,9 +563,11 @@ function getReadyStage(pausedAtStage) {
     : null;
 }
 
-function isTerminalVerifyRejection(stageResult) {
+function isTerminalVerifyOutcome(stageResult) {
   return stageResult
-    && (stageResult.status === 'rejected' || stageResult.status === 'unactionable');
+    && (stageResult.status === 'rejected'
+      || stageResult.status === 'unactionable'
+      || stageResult.status === 'shipped');
 }
 
 function assertValidGateStage(stage) {
@@ -2284,6 +2286,130 @@ function healAlreadyShippedWorkItem(project_id, item) {
     });
     return null;
   }
+}
+
+function detectWorkItemShippedOnMain(project, workItem) {
+  if (!project?.path || !workItem) {
+    return null;
+  }
+
+  const planContent = workItem.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)
+    ? fs.readFileSync(workItem.origin.plan_path, 'utf8')
+    : workItem.description || '';
+  const detector = createShippedDetector({ repoRoot: project.path });
+  return detector.detectShipped({ content: planContent, title: workItem.title });
+}
+
+function resolveVerifyEmptyBranch({
+  project,
+  project_id,
+  instance,
+  workItem,
+  worktreeRecord,
+  verifyResult,
+  batch_id,
+}) {
+  const resolvedWorkItem = instance?.work_item_id
+    ? factoryIntake.getWorkItem(instance.work_item_id)
+    : (workItem || null);
+  const detection = detectWorkItemShippedOnMain(project, resolvedWorkItem);
+  const outputPreview = String(
+    verifyResult?.stderr
+    || verifyResult?.output
+    || verifyResult?.stdout
+    || ''
+  ).slice(-1500);
+  const sharedOutcome = {
+    work_item_id: resolvedWorkItem?.id || null,
+    branch: worktreeRecord.branch,
+    worktree_path: worktreeRecord.worktreePath,
+    output_preview: outputPreview,
+    detection: detection ? {
+      shipped: detection.shipped,
+      confidence: detection.confidence,
+      signals: detection.signals,
+    } : null,
+  };
+
+  if (resolvedWorkItem && detection?.shipped && detection.confidence !== 'low') {
+    factoryIntake.updateWorkItem(resolvedWorkItem.id, { status: 'shipped' });
+    safeLogDecision({
+      project_id,
+      stage: LOOP_STATES.VERIFY,
+      action: 'verify_empty_branch_auto_shipped',
+      reasoning: `VERIFY found no commits ahead for ${worktreeRecord.branch}, and shipped-detector matched existing work on main (${detection.confidence} confidence). Marking shipped instead of pausing.`,
+      outcome: sharedOutcome,
+      confidence: 1,
+      batch_id,
+    });
+    return {
+      status: 'shipped',
+      reason: 'auto_shipped_empty_branch_at_verify',
+      branch: worktreeRecord.branch,
+      worktree_path: worktreeRecord.worktreePath,
+    };
+  }
+
+  if (resolvedWorkItem?.id) {
+    factoryIntake.updateWorkItem(resolvedWorkItem.id, {
+      status: 'rejected',
+      reject_reason: 'empty_branch_after_execute',
+    });
+  }
+  safeLogDecision({
+    project_id,
+    stage: LOOP_STATES.VERIFY,
+    action: 'verify_empty_branch_auto_rejected',
+    reasoning: `VERIFY found no commits ahead for ${worktreeRecord.branch}, and shipped-detector did not match existing work on main. Rejecting so the factory can advance instead of pausing.`,
+    outcome: sharedOutcome,
+    confidence: 1,
+    batch_id,
+  });
+  return {
+    status: 'rejected',
+    reason: 'empty_branch_after_execute',
+    branch: worktreeRecord.branch,
+    worktree_path: worktreeRecord.worktreePath,
+  };
+}
+
+function finalizeTerminalVerifyOutcome({ project, instance, previousState, stageResult }) {
+  const lastActionAt = instance.last_action_at || nowIso();
+  terminateInstanceAndSync(instance.id, { abandonWorktree: true });
+  recordFactoryIdleIfExhausted(project.id, {
+    last_action_at: lastActionAt,
+    reason: stageResult.reason || 'verify_terminal',
+  });
+  const terminalAction = stageResult.status === 'shipped'
+    ? 'verify_terminal_shipped_terminated'
+    : 'verify_terminal_rejection_terminated';
+  const terminalReasoning = stageResult.status === 'shipped'
+    ? 'VERIFY auto-resolved the work item as shipped and no further stages should run for this instance.'
+    : 'VERIFY reached a terminal outcome and no further stages should run for this instance.';
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.VERIFY,
+    actor: 'verifier',
+    action: terminalAction,
+    reasoning: terminalReasoning,
+    outcome: {
+      work_item_id: instance.work_item_id || null,
+      instance_id: instance.id,
+      status: stageResult.status || null,
+      reason: stageResult.reason || null,
+    },
+    confidence: 1,
+    batch_id: instance.batch_id,
+  });
+  return {
+    project_id: project.id,
+    instance_id: instance.id,
+    previous_state: previousState,
+    new_state: LOOP_STATES.IDLE,
+    paused_at_stage: null,
+    stage_result: stageResult,
+    reason: stageResult.reason || 'verify_terminal',
+  };
 }
 
 async function claimNextWorkItemForInstance(project_id, instance_id) {
@@ -6503,6 +6629,18 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
         // retry loop. Task_caused enters the repair path. Ambiguous failures
         // get one silent rerun, then pause for operator triage instead of
         // letting a retry task repair unrelated full-suite failures.
+        if (res?.reason === 'empty_branch') {
+          return resolveVerifyEmptyBranch({
+            project,
+            project_id,
+            instance,
+            workItem: workItemForRetry,
+            worktreeRecord,
+            verifyResult: res,
+            batch_id,
+          });
+        }
+
         if (retryAttempt === 0 && !review) {
           try {
             const wi = instance?.work_item_id
@@ -7914,6 +8052,13 @@ async function runAdvanceLoop(instance_id) {
             last_action_at: nowIso(),
           });
           transitionReason = stageResult.reason || transitionReason;
+        } else if (isTerminalVerifyOutcome(stageResult)) {
+          return finalizeTerminalVerifyOutcome({
+            project,
+            instance,
+            previousState,
+            stageResult,
+          });
         }
       }
       break;
@@ -7932,37 +8077,13 @@ async function runAdvanceLoop(instance_id) {
         break;
       }
 
-      if (isTerminalVerifyRejection(stageResult)) {
-        const lastActionAt = instance.last_action_at || nowIso();
-        terminateInstanceAndSync(instance.id, { abandonWorktree: true });
-        recordFactoryIdleIfExhausted(project.id, {
-          last_action_at: lastActionAt,
-          reason: stageResult.reason || 'verify_rejected',
+      if (isTerminalVerifyOutcome(stageResult)) {
+        return finalizeTerminalVerifyOutcome({
+          project,
+          instance,
+          previousState,
+          stageResult,
         });
-        safeLogDecision({
-          project_id: project.id,
-          stage: LOOP_STATES.VERIFY,
-          actor: 'verifier',
-          action: 'verify_terminal_rejection_terminated',
-          reasoning: 'VERIFY reached a terminal outcome and no further stages should run for this instance.',
-          outcome: {
-            work_item_id: instance.work_item_id || null,
-            instance_id: instance.id,
-            status: stageResult.status || null,
-            reason: stageResult.reason || null,
-          },
-          confidence: 1,
-          batch_id: instance.batch_id,
-        });
-        return {
-          project_id: project.id,
-          instance_id,
-          previous_state: previousState,
-          new_state: LOOP_STATES.IDLE,
-          paused_at_stage: null,
-          stage_result: stageResult,
-          reason: stageResult.reason || 'verify_rejected',
-        };
       }
 
       const moveToLearn = tryMoveInstanceToStage(instance, LOOP_STATES.LEARN, {

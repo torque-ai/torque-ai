@@ -745,6 +745,7 @@ function createTables(db, logger) {
         default_priority INTEGER DEFAULT 0,
         auto_approve INTEGER DEFAULT 0,
         enabled INTEGER DEFAULT 1,
+        routing_template_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )

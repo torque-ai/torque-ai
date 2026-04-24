@@ -219,6 +219,23 @@ describe('rejected work item recovery sweep', () => {
     expect(countRecoveryDecisions()).toBe(0);
   });
 
+  it('keeps empty-branch rejected items closed even when reject recovery is enabled', async () => {
+    const project = createRunningDarkProject();
+    const item = createRejectedWorkItem(project.id, {
+      rejectReason: 'empty_branch_after_execute',
+    });
+    enableRejectRecovery();
+
+    await factoryTick.tickProject(project);
+
+    expect(factoryIntake.getWorkItem(item.id)).toMatchObject({
+      id: item.id,
+      status: 'rejected',
+      reject_reason: 'empty_branch_after_execute',
+    });
+    expect(countRecoveryDecisions()).toBe(0);
+  });
+
   it('reopens at most one terminal item per project per sweep', async () => {
     const project = createRunningDarkProject();
     const first = createRejectedWorkItem(project.id, {

@@ -369,6 +369,42 @@ describe('createWorktreeRunner.verify', () => {
     });
   });
 
+  it('skips verify when branch diff only contains non-code files', async () => {
+    const runRemoteVerify = vi.fn();
+    const runLocalVerify = vi.fn();
+    const countCommitsAhead = vi.fn(() => 2);
+    const listChangedFiles = vi.fn(() => [
+      'docs/superpowers/plans/auto-generated/754-add-typed-lanstartupcoordinator-failure-reasons.md',
+      'docs/superpowers/plans/auto-generated/755-emit-typed-lan-startup-failures-in-automation-results.md',
+      'docs/superpowers/plans/auto-generated/759-emit-typed-lan-startup-failures-in-automation-results.md',
+    ]);
+    const runner = createWorktreeRunner({
+      worktreeManager: makeWorktreeManagerMock(),
+      runRemoteVerify,
+      runLocalVerify,
+      countCommitsAhead,
+      listChangedFiles,
+    });
+
+    const result = await runner.verify({
+      worktreePath: 'C:/wt',
+      branch: 'feat/docs-only',
+      verifyCommand: 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter LanStartupCoordinator',
+      baseBranch: 'main',
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.reason).toBe('non_code_only');
+    expect(result.output).toMatch(/skipping verify command/i);
+    expect(runRemoteVerify).not.toHaveBeenCalled();
+    expect(runLocalVerify).not.toHaveBeenCalled();
+    expect(listChangedFiles).toHaveBeenCalledWith({
+      cwd: 'C:/wt',
+      baseBranch: 'main',
+      branch: 'feat/docs-only',
+    });
+  });
+
   it('runs remote verify normally when branch has commits ahead of base', async () => {
     const runRemoteVerify = vi.fn(() => ({ exitCode: 0, stdout: 'ok', stderr: '' }));
     const countCommitsAhead = vi.fn(() => 3);

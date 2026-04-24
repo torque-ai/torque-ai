@@ -648,6 +648,7 @@ function handleSetProjectDefaults(args) {
   database().safeAddColumn('project_config', 'default_provider TEXT');
   database().safeAddColumn('project_config', 'default_model TEXT');
   database().safeAddColumn('project_config', 'verify_command TEXT');
+  database().safeAddColumn('project_config', 'routing_template_id TEXT');
   database().safeAddColumn('project_config', 'auto_fix_enabled INTEGER DEFAULT 0');
   database().safeAddColumn('project_config', 'test_pattern TEXT');
   database().safeAddColumn('project_config', 'auto_verify_on_completion INTEGER');
@@ -672,6 +673,11 @@ function handleSetProjectDefaults(args) {
   if (args.verify_command) {
     configUpdate.verify_command = args.verify_command;
     changes.push(`Verify command: ${args.verify_command}`);
+  }
+
+  if (args.routing_template_id !== undefined) {
+    configUpdate.routing_template_id = args.routing_template_id || null;
+    changes.push(`Routing template: ${args.routing_template_id || 'System Default'}`);
   }
 
   if (typeof args.auto_fix === 'boolean') {
@@ -857,6 +863,7 @@ function formatProjectConfig(config, stepProviders, piiGuard) {
   output += `| Setting | Value |\n|---------|-------|\n`;
   output += `| Provider | ${config.default_provider || '(smart routing)'} |\n`;
   output += `| Model | ${config.default_model || '(auto)'} |\n`;
+  output += `| Routing template | ${config.routing_template_id || '(system default)'} |\n`;
   output += `| Verify command | ${config.verify_command || '(none)'} |\n`;
   output += `| Auto-fix | ${config.auto_fix_enabled ? 'Yes' : 'No'} |\n`;
   output += `| Test pattern | ${config.test_pattern || '.test.ts'} |\n`;
