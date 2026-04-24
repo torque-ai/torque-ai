@@ -32,6 +32,7 @@ const {
   validateJsonDepth,
 } = require('./api/v2-dispatch');
 const eventBus = require('./event-bus');
+const dashboardLogger = require('./logger').child({ component: 'dashboard-server' });
 
 
 // Server state
@@ -816,6 +817,12 @@ async function start(options = {}) {
               });
             }
           }).catch(err => {
+            dashboardLogger.warn('v2 dispatch rejected (body path)', {
+              method: req.method,
+              path: (req.url || '').split('?')[0],
+              err: err && err.message,
+              stack: err && err.stack ? err.stack.split('\n').slice(0, 10).join(' | ') : null,
+            });
             process.stderr.write(`V2 dispatch error: ${err.message}\n`);
             if (!res.headersSent) {
               sendError(res, 'Internal server error', 500);
@@ -839,6 +846,12 @@ async function start(options = {}) {
           });
         }
       }).catch(err => {
+        dashboardLogger.warn('v2 dispatch rejected (GET path)', {
+          method: req.method,
+          path: (req.url || '').split('?')[0],
+          err: err && err.message,
+          stack: err && err.stack ? err.stack.split('\n').slice(0, 10).join(' | ') : null,
+        });
         process.stderr.write(`V2 dispatch error: ${err.message}\n`);
         if (!res.headersSent) {
           sendError(res, 'Internal server error', 500);
