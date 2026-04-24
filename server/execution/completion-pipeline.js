@@ -102,12 +102,97 @@ function recordModelOutcome(task, success) {
 }
 
 /**
- * Record provider health outcome for all providers.
- * Non-fatal — used by provider health scoring to deprioritize unreliable providers.
+ * Provider health should only reflect provider-native failures.
+ * Local orchestration failures should not poison routing health.
  */
-function recordProviderHealth(task, success) {
+const PROVIDER_NATIVE_FAILURE_PATTERNS = [
+  /ERROR:\s*\{"detail":/i,
+  /\binvalid\s+api\s*key\b/i,
+  /\bauthentication\s+failed\b/i,
+  /\bunauthorized\b/i,
+  /\bforbidden\b/i,
+  /\binsufficient[_ ]quota\b/i,
+  /\bquota exceeded\b/i,
+  /\brate limit/i,
+  /\btoo many requests\b/i,
+  /\b(?:HTTP[/\s]*|status[:\s]*)?(401|403|408|409|429|5\d{2})\b/i,
+  /\bmodel\b.*\bnot (supported|found|available)\b/i,
+  /\bcontext length\b/i,
+  /\bmaximum context\b/i,
+  /\bprovider timeout\b/i,
+  /\btimeout while contacting provider\b/i,
+  /\bservice unavailable\b/i,
+  /\boverloaded\b/i,
+];
+
+const ORCHESTRATION_FAILURE_PATTERNS = [
+  /\baccess denied\b/i,
+  /\bEACCES\b/i,
+  /\bEPERM\b/i,
+  /\bESRCH\b/i,
+  /\bENOENT\b/i,
+  /\bno such file or directory\b/i,
+  /\bcannot find the path\b/i,
+  /\bzombie check\b/i,
+  /\bSIGTERM\b/i,
+  /\bkilled\b/i,
+  /\btask timed out - retry with longer timeout\b/i,
+  /\btimed out - retry with longer timeout\b/i,
+  /\bspawn\b.*\b(?:EACCES|EPERM|ENOENT)\b/i,
+];
+
+function extractProviderHealthSignals(task, context = {}) {
+  const parts = [];
+  const taskMetadata = context.metadata !== undefined
+    ? context.metadata
+    : (typeof deps.parseTaskMetadata === 'function'
+      ? deps.parseTaskMetadata(task?.metadata)
+      : safeJsonParse(task?.metadata, {}));
+  const strategicReason = typeof taskMetadata?.strategic_diagnosis?.reason === 'string'
+    ? taskMetadata.strategic_diagnosis.reason
+    : '';
+  const validationOutcomes = taskMetadata?.finalization?.validation_stage_outcomes
+    ? JSON.stringify(taskMetadata.finalization.validation_stage_outcomes)
+    : '';
+
+  for (const value of [
+    context.errorOutput,
+    context.output,
+    context.proc?.errorOutput,
+    context.proc?.output,
+    task?.error_output,
+    strategicReason,
+    validationOutcomes,
+  ]) {
+    if (typeof value === 'string' && value.trim()) {
+      parts.push(value.trim());
+    }
+  }
+
+  return parts.join('\n');
+}
+
+function shouldRecordProviderHealth(task, success, context = {}) {
+  if (!task || !task.provider) {
+    return false;
+  }
+  if (success) {
+    return true;
+  }
+
+  const failureSignals = extractProviderHealthSignals(task, context);
+  if (!failureSignals) {
+    return false;
+  }
+  if (ORCHESTRATION_FAILURE_PATTERNS.some((pattern) => pattern.test(failureSignals))) {
+    return false;
+  }
+  return PROVIDER_NATIVE_FAILURE_PATTERNS.some((pattern) => pattern.test(failureSignals));
+}
+
+function recordProviderHealth(task, success, context = {}) {
   try {
-    if (!task || !task.provider) return;
+    if (!shouldRecordProviderHealth(task, success, context)) return;
     deps.db.recordProviderOutcome(task.provider, success);
   } catch (err) {
     logger.warn(`[ProviderHealth] Failed to record: ${err.message}`);
@@ -307,7 +392,7 @@ async function handlePostCompletion(ctx) {
     if (!finalizedByTaskFinalizer) {
       recordModelOutcome(outcomeTask, outcomeSuccess);
     }
-    recordProviderHealth(outcomeTask, outcomeSuccess);
+    recordProviderHealth(outcomeTask, outcomeSuccess, { ...ctx, metadata: outcomeMetadata });
   } catch (outcomeErr) {
     logger.warn('[Outcomes] Non-fatal error:', outcomeErr.message);
   }
