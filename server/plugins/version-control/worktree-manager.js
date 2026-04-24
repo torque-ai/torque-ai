@@ -452,6 +452,43 @@ function createWorktreeManager({ db } = {}) {
     if (!staged) {
       return { committed: false, reason: 'nothing_to_renormalize' };
     }
+
+    // SAFETY CHECK: the commit message promises "normalize line endings". If
+    // the staged diff contains anything beyond EOL drift, the commit would
+    // silently rewrite real code under a misleading message. 2026-04-24 saw
+    // this clobber 150 lines of perf work on main. Refuse to commit semantic
+    // diffs; let the caller decide how to handle the dirty state (the next
+    // fallback in assertWorktreeIsClean does a loud pre-merge cleanup).
+    const hasSemanticChange = (() => {
+      try {
+        runGit(worktreePath, [
+          'diff', '--cached', '--quiet', '--ignore-cr-at-eol', '--ignore-all-space',
+        ]);
+        return false;
+      } catch (_err) {
+        void _err;
+        return true;
+      }
+    })();
+    if (hasSemanticChange) {
+      const stagedFiles = staged.split('\n').filter(Boolean);
+      // Reset the index so callers aren't left with unexpected staged content.
+      try {
+        runGit(worktreePath, ['reset', 'HEAD', '--']);
+      } catch (_err) {
+        void _err;
+      }
+      logger.warn(
+        'renormalizeLineEndings refused to commit: staged diff has semantic content, not just EOL drift',
+        { worktreePath, files: stagedFiles },
+      );
+      return {
+        committed: false,
+        reason: 'semantic_diff_blocked',
+        files: stagedFiles,
+      };
+    }
+
     try {
       // --no-verify: factory-internal commit. When called from inside a
       // synchronous execFileSync chain (e.g. LEARN → mergeWorktree), TORQUE's
@@ -597,6 +634,26 @@ function createWorktreeManager({ db } = {}) {
     // operator knows there's uncommitted work to preserve.
     if (action === 'cleanup') {
       throw new Error(`worktree ${worktreePath} has uncommitted changes — refusing to ${action}`);
+    }
+    // SKIP for 'merge-target' action — this path is cleaning the MAIN repo
+    // before a factory merge. If main has semantic drift vs HEAD, that's not
+    // something to auto-commit under "pre-merge cleanup" — it's a signal
+    // something is writing to main without a proper commit (factory task
+    // clobber, concurrent checkout, filesystem race). 2026-04-24 saw this
+    // silently wipe 150 lines of a shipped performance fix. Fail loudly so
+    // the operator (or factory recovery) can investigate before merging.
+    if (action === 'merge-target') {
+      const dirtyFiles = String(runGit(worktreePath, ['diff', '--name-only', 'HEAD'])).trim();
+      const err = new Error(
+        `main repo at ${worktreePath} has semantic drift vs HEAD — refusing to auto-commit `
+        + `under "pre-merge cleanup" and land arbitrary content on main. Files: `
+        + `${dirtyFiles.split('\n').filter(Boolean).join(', ')}. Inspect the drift with `
+        + `'git diff HEAD' in ${worktreePath} before retrying the factory merge.`
+      );
+      err.code = 'MAIN_REPO_SEMANTIC_DRIFT';
+      err.path = worktreePath;
+      err.files = dirtyFiles.split('\n').filter(Boolean);
+      throw err;
     }
     try {
       const fs = require('fs');

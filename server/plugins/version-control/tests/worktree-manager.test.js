@@ -993,6 +993,58 @@ describe('version-control worktree manager (real git integration)', () => {
     });
   });
 
+  it('mergeWorktree refuses to auto-commit semantic drift on the main repo under "pre-merge cleanup"', () => {
+    // Guards the 2026-04-24 regression where main's working tree had semantic
+    // drift vs HEAD at merge time (cause uncertain — concurrent write, stale
+    // checkout, whatever). The factory's attempt-3 "pre-merge cleanup" path
+    // committed that drift under a misleading message and wiped 150 lines of
+    // shipped perf work on main. Fix: refuse to auto-commit semantic drift
+    // on the merge target; surface a MAIN_REPO_SEMANTIC_DRIFT error so the
+    // operator can investigate.
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'merge target drift');
+
+    fs.writeFileSync(path.join(created.worktree_path, 'feature.txt'), 'feature\n');
+    runRealGit(created.worktree_path, ['add', 'feature.txt']);
+    runRealGit(created.worktree_path, ['commit', '-m', 'add feature']);
+
+    // Corrupt the main repo's working tree: substantive, non-EOL change.
+    const readmePath = path.join(repoPath, 'README.md');
+    fs.writeFileSync(readmePath, '# Totally different content\nnot line-ending drift\n');
+
+    expect(() => manager.mergeWorktree(created.id, { deleteAfter: false }))
+      .toThrow(/semantic drift vs HEAD|MAIN_REPO_SEMANTIC_DRIFT/);
+
+    // Main must still be at its original state; no silent clobber commit.
+    const log = runRealGit(repoPath, ['log', '--pretty=%s', 'main']).trim();
+    expect(log).not.toMatch(/pre-merge cleanup/);
+    expect(log).not.toMatch(/normalize line endings/);
+  });
+
+  it('renormalizeLineEndings path refuses to commit when the staged diff is semantic, not EOL-only', () => {
+    // Unit-level check on the first-attempt commit: when git add --renormalize
+    // stages a blob that has semantic content differences (not just CRLF/LF),
+    // the commit under "chore: normalize line endings" is misleading. Refuse,
+    // reset the index, and let the caller decide.
+    const repoPath = initGitRepo();
+    const created = manager.createWorktree(repoPath, 'renormalize semantic');
+
+    fs.writeFileSync(path.join(created.worktree_path, 'feature.txt'), 'feature\n');
+    runRealGit(created.worktree_path, ['add', 'feature.txt']);
+    runRealGit(created.worktree_path, ['commit', '-m', 'add feature']);
+
+    // Corrupt README.md on the feature worktree with semantic content.
+    fs.writeFileSync(path.join(created.worktree_path, 'README.md'), '# Not the original readme\n');
+
+    // Merge action runs attempt-1 (renormalize) first — semantic content
+    // means renormalize must refuse, then attempt-3 cleanup commits the real
+    // diff under the honest "pre-merge cleanup" message. There must NEVER
+    // be a "normalize line endings" commit on top of semantic content.
+    manager.mergeWorktree(created.id, { deleteAfter: false });
+    const log = runRealGit(repoPath, ['log', '--pretty=%s', 'main']).trim();
+    expect(log).not.toMatch(/normalize line endings/);
+  });
+
   it('cleanupWorktree blocks dirty branch-deleting cleanup but allows explicit recovery cleanup without deleting the branch', () => {
     const repoPath = initGitRepo();
     const created = manager.createWorktree(repoPath, 'dirty cleanup');
