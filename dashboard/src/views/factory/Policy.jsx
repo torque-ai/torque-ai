@@ -16,6 +16,7 @@ function GuardrailPanel({ project }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const projectId = project?.id ?? null;
 
   const loadGuardrails = useCallback(async (projectId) => {
     if (!projectId) {
@@ -39,11 +40,11 @@ function GuardrailPanel({ project }) {
   }, []);
 
   useEffect(() => {
-    if (!project) {
+    if (!projectId) {
       return;
     }
-    void loadGuardrails(project.id);
-  }, [project?.id, loadGuardrails]);
+    void loadGuardrails(projectId);
+  }, [projectId, loadGuardrails]);
 
   const categories = ['scope', 'quality', 'resource', 'silent_failure', 'security', 'conflict', 'control'];
 
@@ -63,11 +64,11 @@ function GuardrailPanel({ project }) {
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              if (project?.id) {
-                void loadGuardrails(project.id);
+              if (projectId) {
+                void loadGuardrails(projectId);
               }
             }}
-            disabled={loading || !project?.id}
+            disabled={loading || !projectId}
             className="ml-2 shrink-0 rounded-lg border border-slate-600 bg-slate-900/70 px-3 py-1 text-xs font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? 'Refreshing…' : 'Refresh'}
@@ -147,6 +148,7 @@ function PolicyPanel({ project, onSave }) {
   const [newCheck, setNewCheck] = useState('');
   const [availableProviders, setAvailableProviders] = useState(PROVIDER_FALLBACK);
   const toast = useToast();
+  const projectId = project?.id ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -171,7 +173,7 @@ function PolicyPanel({ project, onSave }) {
   }, []);
 
   useEffect(() => {
-    if (!project) {
+    if (!projectId) {
       return undefined;
     }
 
@@ -179,7 +181,7 @@ function PolicyPanel({ project, onSave }) {
     setPolicy(null);
     setLoading(true);
 
-    factoryApi.getPolicy(project.id)
+    factoryApi.getPolicy(projectId)
       .then((response) => {
         if (!cancelled) {
           setPolicy(response.policy);
@@ -199,7 +201,7 @@ function PolicyPanel({ project, onSave }) {
     return () => {
       cancelled = true;
     };
-  }, [project?.id, toast]);
+  }, [projectId, toast]);
 
   const update = (path, value) => {
     setPolicy((current) => {
@@ -224,13 +226,13 @@ function PolicyPanel({ project, onSave }) {
   };
 
   const save = async () => {
-    if (!project || !policy) {
+    if (!projectId || !policy) {
       return;
     }
 
     setSaving(true);
     try {
-      const response = await factoryApi.setPolicy(project.id, policy);
+      const response = await factoryApi.setPolicy(projectId, policy);
       setPolicy(response.policy);
       toast.success('Policy saved');
       onSave?.();

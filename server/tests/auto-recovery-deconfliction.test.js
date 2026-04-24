@@ -7,7 +7,7 @@ describe('deconfliction — verify-stall-recovery yields to engine', () => {
     const db = new Database(':memory:');
     db.prepare(`CREATE TABLE factory_projects (
       id TEXT PRIMARY KEY, loop_state TEXT, loop_paused_at_stage TEXT,
-      loop_last_action_at TEXT, verify_recovery_attempts INTEGER DEFAULT 0,
+      loop_batch_id TEXT, loop_last_action_at TEXT, verify_recovery_attempts INTEGER DEFAULT 0,
       auto_recovery_attempts INTEGER DEFAULT 0,
       auto_recovery_last_action_at TEXT,
       auto_recovery_exhausted INTEGER DEFAULT 0,

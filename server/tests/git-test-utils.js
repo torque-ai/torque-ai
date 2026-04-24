@@ -8,7 +8,7 @@
  *
  * This module provides a `gitSync()` wrapper that applies safe defaults:
  *  - windowsHide: true      — no console window allocation
- *  - timeout: 10000          — prevent hanging processes
+ *  - timeout: 30000          — prevent hangs without flaking under full-suite load
  *  - stdio: 'pipe'           — capture output, don't inherit terminal
  *  - env with GIT_TERMINAL_PROMPT=0, GIT_OPTIONAL_LOCKS=0,
  *    GIT_CONFIG_NOSYSTEM=1   — prevent git from launching helpers
@@ -48,9 +48,10 @@ const GIT_TEST_ENV = {
 };
 
 /** Default options for all git calls in tests. */
+const GIT_SYNC_TIMEOUT_MS = 30000;
 const GIT_DEFAULT_OPTS = {
   windowsHide: true,
-  timeout: 10000,
+  timeout: GIT_SYNC_TIMEOUT_MS,
   stdio: ['ignore', 'pipe', 'pipe'],
   env: GIT_TEST_ENV,
   encoding: 'utf8',

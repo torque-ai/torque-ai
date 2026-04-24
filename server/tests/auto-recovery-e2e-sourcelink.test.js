@@ -6,7 +6,7 @@ const { createPlugin } = require('../plugins/auto-recovery-core');
 function seed(db) {
   db.prepare(`CREATE TABLE factory_projects (
     id TEXT PRIMARY KEY, name TEXT, status TEXT, path TEXT,
-    loop_state TEXT, loop_paused_at_stage TEXT, loop_last_action_at TEXT,
+    loop_state TEXT, loop_batch_id TEXT, loop_paused_at_stage TEXT, loop_last_action_at TEXT,
     auto_recovery_attempts INTEGER DEFAULT 0,
     auto_recovery_last_action_at TEXT,
     auto_recovery_exhausted INTEGER DEFAULT 0,

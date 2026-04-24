@@ -177,14 +177,23 @@ function createForker({ db, checkpointStore, workflowState } = {}) {
       newWorkflowId,
     );
 
+    const checkpointRow = dbHandle.prepare(`
+      SELECT rowid AS checkpoint_rowid
+      FROM workflow_checkpoints
+      WHERE checkpoint_id = ?
+    `).get(checkpoint.checkpoint_id);
+    if (!checkpointRow) {
+      throw new Error(`Checkpoint row not found: ${checkpoint.checkpoint_id}`);
+    }
+
     const completedStepIds = new Set(
       dbHandle.prepare(`
         SELECT DISTINCT step_id
         FROM workflow_checkpoints
         WHERE workflow_id = ?
-          AND taken_at <= ?
+          AND rowid <= ?
           AND step_id IS NOT NULL
-      `).all(checkpoint.workflow_id, checkpoint.taken_at).map((row) => row.step_id),
+      `).all(checkpoint.workflow_id, checkpointRow.checkpoint_rowid).map((row) => row.step_id),
     );
 
     const sourceTasks = dbHandle.prepare(`

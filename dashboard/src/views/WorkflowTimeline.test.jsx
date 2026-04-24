@@ -108,4 +108,4 @@ describe('WorkflowTimeline', () => {
       expect(screen.getAllByText(/wf-fork-99/).length).toBeGreaterThan(0);
     });
   });
-}
+});

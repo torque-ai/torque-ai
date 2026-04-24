@@ -72,6 +72,11 @@ describe('workflow-state/forker', () => {
       state: { logs: ['plan done', 'build done'] },
       version: 3,
     });
+    db.prepare(`
+      UPDATE workflow_checkpoints
+      SET taken_at = '2026-04-23T00:00:01.000Z'
+      WHERE workflow_id = 'wf-orig'
+    `).run();
   });
 
   afterEach(() => {

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { ArchitectBacklogItemRow, SelectProjectPrompt } from './shared';
@@ -13,8 +13,29 @@ import {
   getIntakeSummary,
 } from './utils';
 
+function ArchitectReasoningPanel({ reasoningSummary }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="mt-6 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-white"
+      >
+        <span className="text-xs text-slate-500">{expanded ? '▼' : '▶'}</span>
+        <span>Reasoning</span>
+      </button>
+      {expanded && (
+        <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">
+          {reasoningSummary}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function Intake() {
-  const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const {
     architectBacklog,
     architectLoading,
@@ -26,10 +47,6 @@ export default function Intake() {
     rejectingItemId,
     selectedProject,
   } = useOutletContext();
-
-  useEffect(() => {
-    setReasoningExpanded(false);
-  }, [architectBacklog.cycleId, architectBacklog.reasoningSummary]);
 
   if (!selectedProject) {
     return <SelectProjectPrompt message="Select a project above to view its intake queue." />;
@@ -178,21 +195,10 @@ export default function Intake() {
             </ol>
 
             {architectBacklog.reasoningSummary && (
-              <div className="mt-6 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
-                <button
-                  type="button"
-                  onClick={() => setReasoningExpanded((current) => !current)}
-                  className="flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-white"
-                >
-                  <span className="text-xs text-slate-500">{reasoningExpanded ? '▼' : '▶'}</span>
-                  <span>Reasoning</span>
-                </button>
-                {reasoningExpanded && (
-                  <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">
-                    {architectBacklog.reasoningSummary}
-                  </p>
-                )}
-              </div>
+              <ArchitectReasoningPanel
+                key={`${architectBacklog.cycleId || 'none'}:${architectBacklog.reasoningSummary}`}
+                reasoningSummary={architectBacklog.reasoningSummary}
+              />
             )}
           </>
         )}

@@ -877,7 +877,7 @@ export default memo(function ScheduleDetailDrawer({ scheduleId, highlightedRunId
                   <span className="text-slate-500">Auto-Submit</span>
                   <button
                     type="button"
-                    onClick={() => saveField('submit_proposals', !Boolean(studyToolArgs.submit_proposals))}
+                    onClick={() => saveField('submit_proposals', !studyToolArgs.submit_proposals)}
                     className={`justify-self-start rounded px-3 py-1 text-xs font-medium transition-colors ${
                       studyToolArgs.submit_proposals
                         ? 'bg-green-600/20 text-green-300 hover:bg-green-600/40'
