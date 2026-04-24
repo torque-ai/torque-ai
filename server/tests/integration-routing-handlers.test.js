@@ -1223,6 +1223,40 @@ describe('integration routing handlers', () => {
       expect(textOf(result)).toContain('### Subscribe');
     });
 
+    it('preserves cloud routing models for decomposed subtasks', async () => {
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'ollama-cloud',
+        model: 'qwen3-coder:480b',
+        chain: [
+          { provider: 'ollama-cloud', model: 'qwen3-coder:480b' },
+          { provider: 'codex' },
+        ],
+        complexity: 'complex',
+        reason: 'Complex cloud task',
+      }));
+      mockDb.decomposeTask.mockReturnValueOnce([
+        'Extract repository interface',
+        'Wire repository into service',
+      ]);
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Refactor Service.cs in C# to add a repository abstraction',
+        files: ['src/Service.cs'],
+        working_directory: process.cwd(),
+        routing_template: 'preset-ollama-cloud-primary',
+      });
+
+      expect(result.workflow_id).toBeTruthy();
+      const firstTask = getStoredTask(result.task_ids[0]);
+      expect(firstTask.provider).toBe('ollama-cloud');
+      expect(firstTask.model).toBe('qwen3-coder:480b');
+      expect(firstTask.metadata._routing_template).toBe('preset-ollama-cloud-primary');
+      expect(firstTask.metadata._routing_chain).toEqual([
+        { provider: 'ollama-cloud', model: 'qwen3-coder:480b' },
+        { provider: 'codex' },
+      ]);
+    });
+
     it('auto-decomposes large JS files into function batches', async () => {
       vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(1600));
       mockTaskManager.extractJsFunctionBoundaries.mockReturnValueOnce([
@@ -1242,6 +1276,38 @@ describe('integration routing handlers', () => {
       expect(result.task_ids).toHaveLength(4);
       expect(textOf(result)).toContain('JS File Auto-Decomposed into Workflow');
       expect(textOf(result)).toContain('### Subscribe');
+    });
+
+    it('preserves cloud routing models for JS decomposition batches', async () => {
+      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(1600));
+      mockTaskManager.extractJsFunctionBoundaries.mockReturnValueOnce([
+        { name: 'alpha', startLine: 1, endLine: 80, lineCount: 80 },
+        { name: 'beta', startLine: 81, endLine: 160, lineCount: 80 },
+        { name: 'gamma', startLine: 161, endLine: 240, lineCount: 80 },
+        { name: 'delta', startLine: 241, endLine: 320, lineCount: 80 },
+      ]);
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'ollama-cloud',
+        model: 'qwen3-coder:480b',
+        chain: [
+          { provider: 'ollama-cloud', model: 'qwen3-coder:480b' },
+          { provider: 'codex' },
+        ],
+        complexity: 'normal',
+      }));
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Add logging to src/app.js',
+        files: ['src/app.js'],
+        working_directory: process.cwd(),
+        routing_template: 'preset-ollama-cloud-primary',
+      });
+
+      expect(result.workflow_id).toBeTruthy();
+      const firstTask = getStoredTask(result.task_ids[0]);
+      expect(firstTask.provider).toBe('ollama-cloud');
+      expect(firstTask.model).toBe('qwen3-coder:480b');
+      expect(firstTask.metadata._routing_template).toBe('preset-ollama-cloud-primary');
     });
 
     it('stores split suggestions for complex multi-file tasks', async () => {

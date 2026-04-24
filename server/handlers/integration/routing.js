@@ -46,6 +46,29 @@ function formatRuleTable(title, fields) {
   return output;
 }
 
+function resolveDecomposedSubtaskModel({ requestedModel, provider, routingResult, complexity = 'normal' }) {
+  if (typeof requestedModel === 'string' && requestedModel.trim()) {
+    return requestedModel.trim();
+  }
+
+  const routingChain = Array.isArray(routingResult?.chain) ? routingResult.chain : [];
+  const chainMatch = routingChain.find((entry) => entry?.provider === provider && typeof entry?.model === 'string' && entry.model.trim());
+  if (chainMatch?.model) {
+    return chainMatch.model.trim();
+  }
+
+  if (routingResult?.provider === provider && typeof routingResult?.model === 'string' && routingResult.model.trim()) {
+    return routingResult.model.trim();
+  }
+
+  if (provider === 'ollama') {
+    const tierModel = hostManagement.getModelTierForComplexity(complexity)?.modelConfig;
+    return tierModel || resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
+  }
+
+  return null;
+}
+
 function normalizeSubscriptionTaskIds(taskIds) {
   if (!Array.isArray(taskIds)) {
     return [];
@@ -920,10 +943,6 @@ async function handleSmartSubmitTask(args) {
         status: 'pending'
       });
 
-      // Determine model for subtasks - use balanced tier since subtasks are simpler
-      const subtaskTier = hostManagement.getModelTierForComplexity('normal');
-      const subtaskModel = model || subtaskTier.modelConfig;
-
       let prevTaskId = null;
       const createdTasks = [];
 
@@ -931,6 +950,12 @@ async function handleSmartSubmitTask(args) {
         const def = taskDefs[i];
         const nodeId = `step-${i + 1}`;
         const subtaskId = require('uuid').v4();
+        const subtaskModel = resolveDecomposedSubtaskModel({
+          requestedModel: model,
+          provider: def.provider,
+          routingResult,
+          complexity: 'normal',
+        });
 
         taskCore.createTask({
           id: subtaskId,
@@ -950,9 +975,13 @@ async function handleSmartSubmitTask(args) {
           metadata: JSON.stringify({
             smart_routing: true,
             intended_provider: def.provider,
+            requested_provider: override_provider || null,
+            requested_model: model || null,
             decomposed_from: task,
             subtask_index: i + 1,
             total_subtasks: subtasks.length,
+            _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
+            _routing_template: effectiveRoutingTemplate || undefined,
             tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
             mcp_session_id: __sessionId || undefined,
           })
@@ -980,13 +1009,21 @@ async function handleSmartSubmitTask(args) {
       taskManager.processQueue();
 
       let output = `## Task Auto-Decomposed into Workflow\n\n`;
-      output += `Complex task was automatically split into ${subtasks.length} simpler subtasks for local LLM processing.\n\n`;
+      output += `Complex task was automatically split into ${subtasks.length} simpler subtasks for ${routingResult.provider} processing.\n\n`;
       output += `| Field | Value |\n`;
       output += `|-------|-------|\n`;
       output += `| Workflow ID | \`${workflowId}\` |\n`;
       output += `| Subtasks | ${subtasks.length} |\n`;
       output += `| Provider | **${routingResult.provider}** |\n`;
-      output += `| Model | ${subtaskModel} |\n`;
+      const summarySubtaskModel = resolveDecomposedSubtaskModel({
+        requestedModel: model,
+        provider: routingResult.provider,
+        routingResult,
+        complexity: 'normal',
+      });
+      if (summarySubtaskModel) {
+        output += `| Model | ${summarySubtaskModel} |\n`;
+      }
       if (routingResult.selectedHost || routingResult.hostId) {
         output += `| Host | ${routingResult.selectedHost || routingResult.hostId} |\n`;
       }
@@ -1084,7 +1121,6 @@ async function handleSmartSubmitTask(args) {
         const workflowId = require('uuid').v4();
         workflowEngine.createWorkflow({ id: workflowId, name: `JS Auto: ${task.substring(0, 55)}${task.length > 55 ? '...' : ''}`, description: `Auto-decomposed: ${largestFile} (${largestLineCount} lines, ${boundaries.length} fns, ${batches.length} batches)`, status: 'pending' });
 
-        const subtaskModel = model || resolveOllamaModel(null, null) || DEFAULT_FALLBACK_MODEL;
         let prevTaskId = null;
         const createdTasks = [];
 
@@ -1095,6 +1131,12 @@ async function handleSmartSubmitTask(args) {
           const nodeId = `step-${i + 1}`;
           const subtaskId = require('uuid').v4();
           const def = taskDefs[i];
+          const subtaskModel = resolveDecomposedSubtaskModel({
+            requestedModel: model,
+            provider: def.provider,
+            routingResult,
+            complexity: 'normal',
+          });
 
           taskCore.createTask({
             id: subtaskId,
@@ -1114,6 +1156,8 @@ async function handleSmartSubmitTask(args) {
             metadata: JSON.stringify({
               smart_routing: true,
               intended_provider: def.provider,
+              requested_provider: override_provider || null,
+              requested_model: model || null,
               decomposed_from: task,
               js_decomposition: true,
               subtask_index: i + 1,
@@ -1121,6 +1165,8 @@ async function handleSmartSubmitTask(args) {
               target_file: largestFile,
               function_names: batch.map(fn => fn.name),
               line_range: { start: startLine, end: endLine },
+              _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
+              _routing_template: effectiveRoutingTemplate || undefined,
               tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
               mcp_session_id: __sessionId || undefined,
             })
@@ -1137,7 +1183,17 @@ async function handleSmartSubmitTask(args) {
         let output = `## JS File Auto-Decomposed into Workflow\n\n`;
         output += `\`${largestFile}\` (${largestLineCount} lines, ${boundaries.length} functions) split into ${batches.length} batches.\n\n`;
         output += `| Field | Value |\n|-------|-------|\n`;
-        output += `| Workflow ID | \`${workflowId}\` |\n| Target File | \`${largestFile}\` |\n| Batches | ${batches.length} |\n| Provider | **${routingResult.provider}** |\n| Model | ${subtaskModel} |\n| On Failure | continue |\n`;
+        const summarySubtaskModel = resolveDecomposedSubtaskModel({
+          requestedModel: model,
+          provider: routingResult.provider,
+          routingResult,
+          complexity: 'normal',
+        });
+        output += `| Workflow ID | \`${workflowId}\` |\n| Target File | \`${largestFile}\` |\n| Batches | ${batches.length} |\n| Provider | **${routingResult.provider}** |\n`;
+        if (summarySubtaskModel) {
+          output += `| Model | ${summarySubtaskModel} |\n`;
+        }
+        output += `| On Failure | continue |\n`;
         output += `\n### Batches\n\n| Batch | Lines | Functions |\n|-------|-------|-----------|\n`;
         for (const t of createdTasks) { output += `| ${t.step} | ${t.lines} | ${t.functions.join(', ')} |\n`; }
         output += `\n### Why Decomposed?\n`;
