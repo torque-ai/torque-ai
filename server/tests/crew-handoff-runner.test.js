@@ -1,8 +1,9 @@
 'use strict';
 
-import { beforeEach, describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 
 const { runCrew, runCrewTurn } = require('../crew/crew-runner');
+const { runCrew: runCrewRuntime } = require('../crew/crew-runtime');
 const { codeRouter } = require('../crew/routers');
 const { createContextVariables } = require('../crew/context-variables');
 const { createHandoff, getHandoffHistory, resetHandoffState } = require('../crew/handoff');
@@ -156,5 +157,86 @@ describe('runCrew', () => {
       }),
     ]);
     expect(result.final_output).toEqual({ speaker: 'critic' });
+  });
+});
+
+describe('crew-runtime runCrew', () => {
+  it('round_robin: each role takes a turn until objective met or rounds exhausted', async () => {
+    const calls = [];
+    const callRole = vi.fn(async ({ role, history }) => {
+      calls.push({ role: role.name, round: history.length });
+      if (role.name === 'planner' && calls.filter((entry) => entry.role === 'planner').length === 2) {
+        return { output: { plan: 'final', done: true } };
+      }
+      return { output: { partial: `${role.name} round` } };
+    });
+
+    const result = await runCrewRuntime({
+      objective: 'Plan a feature',
+      roles: [{ name: 'planner', description: 'Plans' }, { name: 'critic', description: 'Critiques' }],
+      mode: 'round_robin',
+      max_rounds: 5,
+      output_schema: {
+        type: 'object',
+        required: ['done'],
+        properties: { done: { type: 'boolean' } },
+      },
+      callRole,
+    });
+
+    expect(result.terminated_by).toBe('output_matched_schema');
+    expect(result.final_output.done).toBe(true);
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('terminates at max_rounds even if no role declares done', async () => {
+    const callRole = vi.fn(async () => ({ output: { partial: 'still working' } }));
+
+    const result = await runCrewRuntime({
+      objective: 'never finish',
+      roles: [{ name: 'r1', description: '' }],
+      mode: 'round_robin',
+      max_rounds: 3,
+      output_schema: { type: 'object', required: ['done'] },
+      callRole,
+    });
+
+    expect(result.terminated_by).toBe('max_rounds');
+    expect(callRole).toHaveBeenCalledTimes(3);
+  });
+
+  it('parallel mode runs all roles concurrently in each round', async () => {
+    const startTimes = [];
+    const callRole = vi.fn(async ({ role }) => {
+      startTimes.push({ role: role.name, t: Date.now() });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { output: { from: role.name } };
+    });
+
+    await runCrewRuntime({
+      objective: 'race',
+      roles: [{ name: 'a' }, { name: 'b' }, { name: 'c' }],
+      mode: 'parallel',
+      max_rounds: 1,
+      callRole,
+    });
+
+    const spread = Math.max(...startTimes.map((entry) => entry.t)) - Math.min(...startTimes.map((entry) => entry.t));
+    expect(spread).toBeLessThan(40);
+  });
+
+  it('returns aggregated history for downstream observability', async () => {
+    const callRole = vi.fn(async ({ role }) => ({ output: { from: role.name } }));
+
+    const result = await runCrewRuntime({
+      objective: 'log',
+      roles: [{ name: 'r1' }],
+      mode: 'round_robin',
+      max_rounds: 2,
+      callRole,
+    });
+
+    expect(result.history).toHaveLength(2);
+    expect(result.history[0].role).toBe('r1');
   });
 });
