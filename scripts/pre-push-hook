@@ -186,7 +186,7 @@ echo "[pre-push] Running dashboard tests on remote (branch: $staging_branch)..."
 # so the remote shell changes dir before running the test runner;
 # otherwise vitest picks up the server suite too.
 cd "$REPO_ROOT"
-run_with_flake_retry "Dashboard tests" "torque-remote --branch $staging_branch \"cd dashboard && npx vitest run --reporter=dot\""
+run_with_flake_retry "Dashboard tests" "torque-remote --branch $staging_branch bash -lc \"cd dashboard && npx vitest run --reporter=dot\""
 dash_output="$RETRIED_OUTPUT"
 dash_exit="$RETRIED_EXIT"
 echo "$dash_output" | tail -5
@@ -202,7 +202,7 @@ cd "$REPO_ROOT"
 # the root config uses pool=forks with no retry, which reproducibly
 # causes ~30–50 cross-file flakes that don't happen from server/.
 # Matches the dashboard pattern above.
-run_with_flake_retry "Server tests" "torque-remote --branch $staging_branch \"cd server && npx vitest run --reporter=dot\""
+run_with_flake_retry "Server tests" "torque-remote --branch $staging_branch bash -lc \"cd server && npx vitest run --reporter=dot\""
 server_output="$RETRIED_OUTPUT"
 server_exit="$RETRIED_EXIT"
 echo "$server_output" | tail -5
