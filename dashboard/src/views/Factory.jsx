@@ -1,11 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { factory as factoryApi } from '../api';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import { StarvationBanner } from '../components/StarvationBanner';
-import StatCard from '../components/StatCard';
 import { useToast } from '../components/Toast';
-import { ProjectCard, ProjectListRow, SelectProjectPrompt } from './factory/shared';
+import { ProjectCard, ProjectListRow, SelectProjectPrompt, groupProjectsForList } from './factory/shared';
 import { useFactoryShell } from './factory/useFactoryShell';
 
 const FACTORY_TABS = [
@@ -37,6 +36,7 @@ export default function Factory() {
     totalProjects,
   } = useFactoryShell();
   const { refreshSelectedProject, selectedProjectId } = outletContext;
+  const projectGroups = useMemo(() => groupProjectsForList(projects), [projects]);
 
   const handleClearAutoRecovery = useCallback(async (project) => {
     if (!project?.id || clearRecoveryProjectId) {
@@ -60,17 +60,23 @@ export default function Factory() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white">Software Factory</h1>
-          <p className="mt-1 text-sm text-slate-400">Health, trust, and runtime state across registered factory projects.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-2xl font-semibold text-white">Software Factory</h1>
+        {totalProjects > 0 && (
+          <span className="text-sm text-slate-400">
+            {totalProjects} project{totalProjects === 1 ? '' : 's'}
+            <span className="text-slate-600"> · </span>
+            <span className="text-emerald-300">{runningProjects} running</span>
+            <span className="text-slate-600"> · </span>
+            <span className="text-amber-300">{pausedProjects} paused</span>
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
             disabled={loading}
             onClick={() => loadProjects({ silent: totalProjects > 0 })}
-            className="inline-flex items-center justify-center rounded-lg border border-slate-600 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center rounded-lg border border-slate-600 bg-slate-900/70 px-3 py-1.5 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? 'Refreshing...' : 'Refresh'}
           </button>
@@ -79,18 +85,12 @@ export default function Factory() {
               type="button"
               disabled={pauseAllBusy}
               onClick={handlePauseAll}
-              className="inline-flex items-center justify-center rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-200 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-200 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {pauseAllBusy ? 'Pausing...' : 'Pause All'}
             </button>
           )}
         </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <StatCard label="Total Projects" value={totalProjects} gradient="blue" />
-        <StatCard label="Running" value={runningProjects} gradient="green" />
-        <StatCard label="Paused" value={pausedProjects} gradient="orange" />
       </div>
 
       {loading ? (
@@ -129,16 +129,22 @@ export default function Factory() {
           )}
 
           <div className="grid gap-6 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)]">
-            <div className="space-y-1 rounded-2xl border border-slate-700 bg-slate-800/40 p-2">
-              <p className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Projects</p>
-              {projects.map((project) => (
-                <ProjectListRow
-                  key={project.id}
-                  project={project}
-                  activity={projectActivity[project.id]}
-                  selected={outletContext.selectedProjectId === project.id}
-                  onSelect={setSelectedProjectId}
-                />
+            <div className="space-y-3 rounded-2xl border border-slate-700 bg-slate-800/40 p-2">
+              {projectGroups.map((group) => (
+                <div key={group.id} className="space-y-1">
+                  <p className="px-2 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    {group.label} <span className="text-slate-600">· {group.items.length}</span>
+                  </p>
+                  {group.items.map((project) => (
+                    <ProjectListRow
+                      key={project.id}
+                      project={project}
+                      activity={projectActivity[project.id]}
+                      selected={outletContext.selectedProjectId === project.id}
+                      onSelect={setSelectedProjectId}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
             <div className="space-y-3 min-w-0">
