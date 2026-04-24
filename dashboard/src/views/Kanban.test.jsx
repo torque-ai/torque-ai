@@ -7,6 +7,7 @@ vi.mock('../api', () => ({
   requestV2: vi.fn().mockResolvedValue({}),
   tasks: {
     list: vi.fn(),
+    kanbanSummary: vi.fn(),
     retry: vi.fn(),
     cancel: vi.fn(),
     approve: vi.fn(),
@@ -145,6 +146,26 @@ describe('Kanban', () => {
     ]);
     // All list calls return empty by default
     tasksApi.list.mockResolvedValue(emptyTasks);
+    // kanbanSummary default adapter: call tasksApi.list per status so existing
+    // test fixtures (`tasksApi.list.mockImplementation({ status } => ...)`)
+    // keep working without rewriting every it() block. Each status becomes a
+    // bucket whose `tasks` come from the per-status list call.
+    tasksApi.kanbanSummary.mockImplementation(async () => {
+      const statuses = [
+        'pending_approval', 'queued', 'running', 'pending_provider_switch',
+        'completed', 'failed', 'cancelled',
+      ];
+      const buckets = {};
+      await Promise.all(statuses.map(async (status) => {
+        try {
+          const resp = await tasksApi.list({ status, limit: 50 });
+          buckets[status] = { tasks: (resp && resp.tasks) || [], total: (resp && resp.total) || 0 };
+        } catch {
+          buckets[status] = { tasks: [], total: 0 };
+        }
+      }));
+      return buckets;
+    });
     tasksApi.approve.mockResolvedValue({});
     tasksApi.reject.mockResolvedValue({});
     tasksApi.rejectSwitch.mockResolvedValue({});
@@ -180,6 +201,7 @@ describe('Kanban', () => {
 
   it('renders loading skeleton initially', () => {
     tasksApi.list.mockReturnValue(new Promise(() => {}));
+    tasksApi.kanbanSummary.mockReturnValue(new Promise(() => {}));
     statsApi.overview.mockReturnValue(new Promise(() => {}));
     statsApi.stuck.mockReturnValue(new Promise(() => {}));
     statsApi.quality.mockReturnValue(new Promise(() => {}));
