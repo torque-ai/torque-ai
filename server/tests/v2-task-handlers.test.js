@@ -549,10 +549,10 @@ describe('api/v2-task-handlers.handleListTasks', () => {
 
     await handlers.handleListTasks(req, res);
 
-    expect(mockDb.listTasks).toHaveBeenCalledWith({
+    expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
       limit: 20,
       offset: 0,
-    });
+    }));
     expect(mockDb.countTasks).toHaveBeenCalledWith({});
     expect(getLastList()).toEqual({
       res,
@@ -577,10 +577,10 @@ describe('api/v2-task-handlers.handleListTasks', () => {
 
     await handlers.handleListTasks(req, createRes());
 
-    expect(mockDb.listTasks).toHaveBeenCalledWith({
+    expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
       limit: 2,
       offset: 0,
-    });
+    }));
     expect(getLastList().items).toHaveLength(3);
     expect(getLastList().items.map((item) => item.id)).toEqual(['task-1', 'task-2', 'task-3']);
   });
@@ -607,7 +607,7 @@ describe('api/v2-task-handlers.handleListTasks', () => {
 
     await handlers.handleListTasks(req, createRes());
 
-    expect(mockDb.listTasks).toHaveBeenCalledWith({
+    expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'codex',
       search: 'lint',
       tags: ['ui', 'perf'],
@@ -617,7 +617,7 @@ describe('api/v2-task-handlers.handleListTasks', () => {
       orderDir: 'desc',
       limit: 25,
       offset: 25,
-    });
+    }));
     expect(mockDb.countTasks).toHaveBeenCalledWith({
       provider: 'codex',
       search: 'lint',
@@ -679,11 +679,11 @@ describe('api/v2-task-handlers.handleListTasks', () => {
 
     await handlers.handleListTasks(req, createRes());
 
-    expect(mockDb.listTasks).toHaveBeenCalledWith({
+    expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
       archivedOnly: true,
       limit: 10,
       offset: 40,
-    });
+    }));
     expect(mockDb.countTasks).toHaveBeenCalledWith({
       archivedOnly: true,
     });

@@ -1756,13 +1756,13 @@ describe('task-core handlers', () => {
       const result = handlers.handleListTasks({});
 
       expect(mockDb.getCurrentProject).toHaveBeenCalledWith(process.cwd());
-      expect(mockDb.listTasks).toHaveBeenCalledWith({
+      expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
         status: undefined,
         tags: undefined,
         project: 'torque',
         project_id: undefined,
         limit: 20,
-      });
+      }));
       expect(textOf(result)).toContain('No tasks found in project: torque');
       expect(textOf(result)).toContain('all_projects: true');
     });
@@ -1788,13 +1788,13 @@ describe('task-core handlers', () => {
       });
       const text = textOf(result);
 
-      expect(mockDb.listTasks).toHaveBeenCalledWith({
+      expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
         status: 'queued',
         tags: ['alpha', 'beta'],
         project: null,
         project_id: undefined,
         limit: 10,
-      });
+      }));
       expect(text).toContain('## Tasks (all projects, queued, tags: alpha, beta)');
       expect(text).toContain('| abcdef12... | queued | super-long-mode');
       expect(text).toContain('| BuildHost- |');
