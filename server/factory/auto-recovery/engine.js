@@ -20,6 +20,38 @@ function latestRealDecisionForProject(db, projectId) {
   return { ...row, outcome };
 }
 
+function latestRelevantDecisionForProject(db, project) {
+  if (!project?.id) return null;
+  const batchId = project.loop_batch_id || null;
+  const pausedStage = String(project.loop_paused_at_stage || '').trim().toLowerCase();
+  const scopedClauses = [];
+  const params = [project.id];
+
+  if (batchId) {
+    scopedClauses.push('batch_id = ?');
+    params.push(batchId);
+  }
+  if (pausedStage) {
+    scopedClauses.push('stage = ?');
+    params.push(pausedStage);
+  }
+
+  const scopedWhere = scopedClauses.length > 0
+    ? ` AND (${scopedClauses.join(' OR ')})`
+    : '';
+  const row = db.prepare(`
+    SELECT id, project_id, stage, actor, action, reasoning,
+           inputs_json, outcome_json, confidence, batch_id, created_at
+    FROM factory_decisions
+    WHERE project_id = ? AND COALESCE(actor, '') != 'auto-recovery'${scopedWhere}
+    ORDER BY id DESC LIMIT 1
+  `).get(...params);
+  if (!row) return latestRealDecisionForProject(db, project.id);
+  let outcome = null;
+  try { outcome = row.outcome_json ? JSON.parse(row.outcome_json) : null; } catch {}
+  return { ...row, outcome };
+}
+
 function logDecision(db, { project_id, stage, action, reasoning, outcome, confidence, batch_id }) {
   db.prepare(`INSERT INTO factory_decisions
     (project_id, stage, actor, action, reasoning, outcome_json, confidence, batch_id, created_at)
@@ -33,7 +65,7 @@ function logDecision(db, { project_id, stage, action, reasoning, outcome, confid
 
 function listProjectsToRearm(db) {
   return db.prepare(`
-    SELECT id, name, status, loop_state, loop_paused_at_stage, auto_recovery_last_action_at
+    SELECT id, name, status, loop_state, loop_batch_id, loop_paused_at_stage, auto_recovery_last_action_at
     FROM factory_projects
     WHERE COALESCE(auto_recovery_exhausted, 0) = 1
       AND LOWER(COALESCE(status, '')) = 'running'
@@ -68,7 +100,7 @@ function createAutoRecoveryEngine({
     let rearmed = 0;
     for (const project of projects) {
       const activeProgress = String(project.loop_state || 'IDLE').toUpperCase() !== 'PAUSED';
-      const latestDecision = activeProgress ? null : latestRealDecisionForProject(db, project.id);
+      const latestDecision = activeProgress ? null : latestRelevantDecisionForProject(db, project);
       const latestDecisionAt = Date.parse(latestDecision?.created_at || '');
       const lastRecoveryAt = Date.parse(project.auto_recovery_last_action_at || '');
       const hasNewRealDecision = Number.isFinite(latestDecisionAt)
@@ -112,7 +144,7 @@ function createAutoRecoveryEngine({
   }
 
   async function recoverOne(project) {
-    const decision = latestRealDecisionForProject(db, project.id);
+    const decision = latestRelevantDecisionForProject(db, project);
     const classifyInput = decision
       ? decision
       : { action: 'never_started', stage: 'plan', outcome: {} };

@@ -5,7 +5,7 @@ const { createAutoRecoveryEngine } = require('../factory/auto-recovery');
 function seedSchema(db) {
   db.prepare(`CREATE TABLE factory_projects (
     id TEXT PRIMARY KEY, name TEXT, status TEXT,
-    loop_state TEXT, loop_paused_at_stage TEXT, loop_last_action_at TEXT,
+    loop_state TEXT, loop_batch_id TEXT, loop_paused_at_stage TEXT, loop_last_action_at TEXT,
     auto_recovery_attempts INTEGER DEFAULT 0,
     auto_recovery_last_action_at TEXT,
     auto_recovery_exhausted INTEGER DEFAULT 0,
@@ -188,13 +188,16 @@ describe('auto-recovery engine.tick', () => {
 
   it('rearms exhausted paused projects when a newer real decision arrives and retries in the same tick', async () => {
     db.prepare(`INSERT INTO factory_projects
-                (id, status, loop_state, loop_paused_at_stage, auto_recovery_attempts,
+                (id, status, loop_state, loop_batch_id, loop_paused_at_stage, auto_recovery_attempts,
                  auto_recovery_last_action_at, auto_recovery_exhausted, auto_recovery_last_strategy)
-                VALUES ('p7', 'running', 'PAUSED', 'VERIFY_FAIL', 5,
+                VALUES ('p7', 'running', 'PAUSED', 'batch-verify-1', 'VERIFY_FAIL', 5,
                         '2026-04-21T12:30:00Z', 1, 'retry')`).run();
     db.prepare(`INSERT INTO factory_decisions
-                (project_id, stage, actor, action, created_at)
-                VALUES ('p7', 'verify', 'verifier', 'verify_reviewed_ambiguous_paused', '2026-04-21T12:45:00Z')`).run();
+                (project_id, stage, actor, action, batch_id, created_at)
+                VALUES ('p7', 'verify', 'verifier', 'verify_reviewed_ambiguous_paused', 'batch-verify-1', '2026-04-21T12:45:00Z')`).run();
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, batch_id, created_at)
+                VALUES ('p7', 'learn', 'human', 'manual_zero_diff_reclose', 'batch-learn-9', '2026-04-21T12:50:00Z')`).run();
 
     const ran = [];
     const engine = createAutoRecoveryEngine({
@@ -238,6 +241,19 @@ describe('auto-recovery engine.tick', () => {
       rearm_cause: 'new_real_decision',
       latest_decision_action: 'verify_reviewed_ambiguous_paused',
       latest_decision_stage: 'verify',
+    });
+
+    const classified = db.prepare(`
+      SELECT outcome_json
+      FROM factory_decisions
+      WHERE actor = 'auto-recovery' AND action = 'auto_recovery_strategy_selected'
+      ORDER BY id DESC
+      LIMIT 1
+    `).get();
+    expect(JSON.parse(classified.outcome_json)).toMatchObject({
+      classification: {
+        category: 'unknown',
+      },
     });
   });
 });
