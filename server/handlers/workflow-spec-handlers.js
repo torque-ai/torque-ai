@@ -71,9 +71,15 @@ function handleRunWorkflowSpec(args = {}) {
   }
 
   const spec = parsed.spec;
+  const description =
+    typeof spec.description === 'string'
+      ? spec.description
+      : typeof args.goal === 'string'
+        ? args.goal
+        : undefined;
   const createArgs = {
     name: spec.name,
-    description: spec.description || args.goal || null,
+    description,
     working_directory: args.working_directory || spec.working_directory,
     project: spec.project,
     routing_template: spec.routing_template,
