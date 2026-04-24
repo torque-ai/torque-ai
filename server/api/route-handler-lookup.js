@@ -63,6 +63,8 @@ function createRouteHandlerLookup({
     handleV2CpCancelWorkflow: v2WorkflowHandlers.handleCancelWorkflow,
     handleV2CpAddWorkflowTask: v2WorkflowHandlers.handleAddWorkflowTask,
     handleV2CpWorkflowHistory: v2WorkflowHandlers.handleWorkflowHistory,
+    handleV2CpWorkflowEvents: v2WorkflowHandlers.handleWorkflowEvents,
+    handleV2CpWorkflowReplay: v2WorkflowHandlers.handleWorkflowReplay,
     handleV2CpGetWorkflowCheckpoints: v2WorkflowHandlers.handleGetWorkflowCheckpoints,
     handleV2CpForkWorkflow: v2WorkflowHandlers.handleForkWorkflow,
     handleV2CpCreateFeatureWorkflow: v2WorkflowHandlers.handleCreateFeatureWorkflow,

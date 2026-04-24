@@ -1019,6 +1019,8 @@ const routes = [
   // --- Workflows --- (compat: v2 equivalents at /api/v2/workflows)
   { method: 'GET', pattern: /^\/api\/workflows$/,                       handler: analytics.handleListWorkflows, compat: true },
   { method: 'GET', pattern: /^\/api\/workflows\/([^/]+)\/tasks$/,       handler: analytics.handleGetWorkflowTasks },
+  { method: 'GET', pattern: /^\/api\/workflows\/([^/]+)\/events$/,      handler: analytics.handleGetWorkflowEvents, compat: true },
+  { method: 'GET', pattern: /^\/api\/workflows\/([^/]+)\/replay$/,      handler: analytics.handleReplayWorkflow, compat: true },
   { method: 'GET', pattern: /^\/api\/workflows\/([^/]+)\/history$/,     handler: analytics.handleGetWorkflowHistory, compat: true },
   { method: 'GET', pattern: /^\/api\/workflows\/([^/]+)$/,              handler: analytics.handleGetWorkflow, compat: true },
 

@@ -11,6 +11,8 @@ const fileTracking = require('../../db/file-tracking');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const webhooksStreaming = require('../../db/webhooks-streaming');
 const workflowEngine = require('../../db/workflow-engine');
+const { createJournalWriter } = require('../../journal/journal-writer');
+const { replayWorkflow } = require('../../journal/journal-replay');
 const serverConfig = require('../../config');
 const { getProviderHealthStatus } = require('../../utils/provider-health-status');
 const { sendJson, sendError, parseBody, enrichTaskWithHostName } = require('../utils');
@@ -43,6 +45,30 @@ function parseDays(days, fallback = 7) {
 
 function parseLimit(limit, fallback = 50) {
   return clampQueryInt(limit, 1, 1000, fallback);
+}
+
+function getRawDb(dbService) {
+  if (!dbService) {
+    return null;
+  }
+  if (typeof dbService.getDbInstance === 'function') {
+    return dbService.getDbInstance();
+  }
+  if (typeof dbService.getDb === 'function') {
+    return dbService.getDb();
+  }
+  return dbService;
+}
+
+function parseWorkflowSeqParam(rawValue, fieldName) {
+  if (rawValue === undefined || rawValue === null || rawValue === '') {
+    return { value: null };
+  }
+  const parsed = Number.parseInt(String(rawValue), 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return { error: `${fieldName} must be a non-negative integer` };
+  }
+  return { value: parsed };
 }
 
 /**
@@ -814,6 +840,77 @@ function handleGetWorkflowHistory(req, res, query, workflowId) {
   return sendJson(res, history);
 }
 
+/**
+ * GET /api/workflows/:id/events - Get workflow journal events
+ */
+function handleGetWorkflowEvents(req, res, query, workflowId, context) {
+  const workflow = workflowEngine.getWorkflowStatus(workflowId);
+  if (!workflow) {
+    return sendError(res, 'Workflow not found', 404);
+  }
+
+  const fromSeq = parseWorkflowSeqParam(query?.from_seq, 'from_seq');
+  if (fromSeq.error) {
+    return sendError(res, fromSeq.error, 400);
+  }
+
+  const toSeq = parseWorkflowSeqParam(query?.to_seq, 'to_seq');
+  if (toSeq.error) {
+    return sendError(res, toSeq.error, 400);
+  }
+
+  if (fromSeq.value !== null && toSeq.value !== null && fromSeq.value > toSeq.value) {
+    return sendError(res, 'from_seq must be less than or equal to to_seq', 400);
+  }
+
+  const rawDb = getRawDb(context?.db);
+  if (!rawDb || typeof rawDb.prepare !== 'function') {
+    return sendError(res, 'Database unavailable', 503);
+  }
+
+  try {
+    const journal = createJournalWriter({ db: rawDb });
+    const events = journal.readJournal(workflowId, {
+      fromSeq: fromSeq.value,
+      toSeq: toSeq.value,
+    });
+    return sendJson(res, { workflow_id: workflowId, events });
+  } catch (err) {
+    return sendError(res, err.message, 500);
+  }
+}
+
+/**
+ * GET /api/workflows/:id/replay - Replay journal to reconstruct workflow runtime state
+ */
+function handleReplayWorkflow(req, res, query, workflowId, context) {
+  const workflow = workflowEngine.getWorkflowStatus(workflowId);
+  if (!workflow) {
+    return sendError(res, 'Workflow not found', 404);
+  }
+
+  const toSeq = parseWorkflowSeqParam(query?.to_seq, 'to_seq');
+  if (toSeq.error) {
+    return sendError(res, toSeq.error, 400);
+  }
+
+  const rawDb = getRawDb(context?.db);
+  if (!rawDb || typeof rawDb.prepare !== 'function') {
+    return sendError(res, 'Database unavailable', 503);
+  }
+
+  try {
+    const replay = replayWorkflow({
+      db: rawDb,
+      workflowId,
+      toSeq: toSeq.value,
+    });
+    return sendJson(res, replay);
+  } catch (err) {
+    return sendError(res, err.message, 500);
+  }
+}
+
 function createDashboardAnalyticsRoutes() {
   return {
     handleStatsOverview,
@@ -841,6 +938,8 @@ function createDashboardAnalyticsRoutes() {
     handleGetWorkflow,
     handleGetWorkflowTasks,
     handleGetWorkflowHistory,
+    handleGetWorkflowEvents,
+    handleReplayWorkflow,
   };
 }
 
@@ -874,5 +973,7 @@ module.exports = {
   handleGetWorkflow,
   handleGetWorkflowTasks,
   handleGetWorkflowHistory,
+  handleGetWorkflowEvents,
+  handleReplayWorkflow,
   createDashboardAnalyticsRoutes,
 };

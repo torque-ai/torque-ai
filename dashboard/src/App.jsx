@@ -17,6 +17,7 @@ const History = lazy(() => import('./views/History'));
 const Providers = lazy(() => import('./views/Providers'));
 const WorkflowsHub = lazy(() => import('./views/WorkflowsHub'));
 const WorkflowTimeline = lazy(() => import('./views/WorkflowTimeline'));
+const WorkflowEventLog = lazy(() => import('./views/WorkflowEventLog'));
 const WorkflowSpecs = lazy(() => import('./views/WorkflowSpecs'));
 const InfrastructureHub = lazy(() => import('./views/InfrastructureHub'));
 const OperationsHub = lazy(() => import('./views/OperationsHub'));
@@ -299,6 +300,7 @@ function AppInner() {
                 }
               />
               <Route path="history" element={<History onOpenDrawer={openDrawer} relativeTimeTick={relativeTimeTick} />} />
+              <Route path="workflows/:id/events" element={<WorkflowEventLog />} />
               <Route path="workflows/:id/timeline" element={<WorkflowTimeline />} />
               <Route path="workflows" element={<WorkflowsHub onOpenDrawer={openDrawer} workflowTick={workflowTick} tasksTick={tasksTick} relativeTimeTick={relativeTimeTick} />} />
               <Route path="workflow-specs" element={<WorkflowSpecs />} />

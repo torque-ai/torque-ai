@@ -8,6 +8,7 @@
  */
 
 const workflowEngine = require('../db/workflow-engine');
+const { replayWorkflow } = require('../journal/journal-replay');
 const {
   sendSuccess,
   sendError,
@@ -41,8 +42,36 @@ function getCheckpointStore() {
   return getContainerService('checkpointStore');
 }
 
+function getRawDatabase() {
+  const dbService = getContainerService('db');
+  if (!dbService) {
+    return null;
+  }
+
+  if (typeof dbService.getDbInstance === 'function') {
+    return dbService.getDbInstance();
+  }
+  if (typeof dbService.getDb === 'function') {
+    return dbService.getDb();
+  }
+  return dbService;
+}
+
 function getForker() {
   return getContainerService('forker');
+}
+
+function parseWorkflowSeqParam(rawValue, fieldName) {
+  if (rawValue === undefined || rawValue === null || rawValue === '') {
+    return { value: null };
+  }
+
+  const parsed = Number.parseInt(String(rawValue), 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return { error: `${fieldName} must be a non-negative integer` };
+  }
+
+  return { value: parsed };
 }
 
 function classifyForkError(err) {
@@ -367,6 +396,86 @@ async function handleWorkflowHistory(req, res) {
   }
 }
 
+// ─── GET /api/v2/workflows/:workflow_id/events — Workflow events ─────────────
+
+async function handleWorkflowEvents(req, res) {
+  const requestId = resolveRequestId(req);
+  const workflowId = req.params?.workflow_id;
+  const query = req.query || {};
+
+  const workflow = workflowEngine.getWorkflow(workflowId);
+  if (!workflow) {
+    return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
+  }
+
+  const fromSeqResult = parseWorkflowSeqParam(query.from_seq, 'from_seq');
+  if (fromSeqResult.error) {
+    return sendError(res, requestId, 'validation_error', fromSeqResult.error, 400, {}, req);
+  }
+
+  const toSeqResult = parseWorkflowSeqParam(query.to_seq, 'to_seq');
+  if (toSeqResult.error) {
+    return sendError(res, requestId, 'validation_error', toSeqResult.error, 400, {}, req);
+  }
+
+  if (fromSeqResult.value !== null && toSeqResult.value !== null && fromSeqResult.value > toSeqResult.value) {
+    return sendError(res, requestId, 'validation_error', 'from_seq must be less than or equal to to_seq', 400, {}, req);
+  }
+
+  const journalWriter = getContainerService('journalWriter');
+  if (!journalWriter || typeof journalWriter.readJournal !== 'function') {
+    return sendError(res, requestId, 'service_unavailable', 'Journal service unavailable', 503, {}, req);
+  }
+
+  try {
+    const events = journalWriter.readJournal(workflowId, {
+      fromSeq: fromSeqResult.value,
+      toSeq: toSeqResult.value,
+    });
+
+    sendSuccess(res, requestId, {
+      workflow_id: workflowId,
+      events,
+    }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+// ─── GET /api/v2/workflows/:workflow_id/replay — Workflow replay state from journal ─────
+
+async function handleWorkflowReplay(req, res) {
+  const requestId = resolveRequestId(req);
+  const workflowId = req.params?.workflow_id;
+  const query = req.query || {};
+
+  const workflow = workflowEngine.getWorkflow(workflowId);
+  if (!workflow) {
+    return sendError(res, requestId, 'workflow_not_found', `Workflow not found: ${workflowId}`, 404, {}, req);
+  }
+
+  const toSeqResult = parseWorkflowSeqParam(query.to_seq, 'to_seq');
+  if (toSeqResult.error) {
+    return sendError(res, requestId, 'validation_error', toSeqResult.error, 400, {}, req);
+  }
+
+  const rawDb = getRawDatabase();
+  if (!rawDb || typeof rawDb.prepare !== 'function') {
+    return sendError(res, requestId, 'service_unavailable', 'Database service unavailable', 503, {}, req);
+  }
+
+  try {
+    const result = replayWorkflow({
+      db: rawDb,
+      workflowId,
+      toSeq: toSeqResult.value,
+    });
+    sendSuccess(res, requestId, result, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
 // ─── GET /api/v2/workflows/:workflow_id/checkpoints — List checkpoints ───
 
 async function handleGetWorkflowCheckpoints(req, res) {
@@ -595,6 +704,8 @@ function createV2WorkflowHandlers(_deps) {
     handleCancelWorkflow,
     handleAddWorkflowTask,
     handleWorkflowHistory,
+    handleWorkflowEvents,
+    handleWorkflowReplay,
     handleGetWorkflowCheckpoints,
     handleForkWorkflow,
     handleCreateFeatureWorkflow,
@@ -613,6 +724,8 @@ module.exports = {
   handleCancelWorkflow,
   handleAddWorkflowTask,
   handleWorkflowHistory,
+  handleWorkflowEvents,
+  handleWorkflowReplay,
   handleGetWorkflowCheckpoints,
   handleForkWorkflow,
   handleCreateFeatureWorkflow,

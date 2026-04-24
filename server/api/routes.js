@@ -460,6 +460,24 @@ const routes = [
   },
   {
     method: 'GET',
+    path: /^\/api\/v2\/workflows\/([^/]+)\/events$/,
+    handlerName: 'handleV2CpWorkflowEvents',
+    mapParams: ['workflow_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('workflow_id', 'workflow id'),
+    }),
+  },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/workflows\/([^/]+)\/replay$/,
+    handlerName: 'handleV2CpWorkflowReplay',
+    mapParams: ['workflow_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('workflow_id', 'workflow id'),
+    }),
+  },
+  {
+    method: 'GET',
     path: /^\/api\/v2\/workflows\/([^/]+)\/checkpoints$/,
     handlerName: 'handleV2CpGetWorkflowCheckpoints',
     mapParams: ['workflow_id'],
