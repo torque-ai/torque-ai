@@ -28,6 +28,7 @@ let deps = {};
 let handleVerificationLedger = null;
 let handleAdversarialReview = null;
 const finalizationLocks = new Map();
+let _journalWriter;
 
 function resetForTest() {
   deps = {};
@@ -97,6 +98,62 @@ function normalizeExitCode(exitCode) {
   if (exitCode === 0 || exitCode === '0') return 0;
   const parsed = Number.parseInt(exitCode, 10);
   return Number.isFinite(parsed) ? parsed : -1;
+}
+
+function getJournalWriter() {
+  if (_journalWriter !== undefined) return _journalWriter;
+  _journalWriter = null;
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('journalWriter')) {
+      _journalWriter = defaultContainer.get('journalWriter');
+    }
+  } catch (_err) {
+    // Journal writer is optional for task completion semantics.
+  }
+
+  return _journalWriter;
+}
+
+function emitTaskFinalizationJournalEvent(task, status, rawExitCode, finalOutput, errorOutput) {
+  const journal = getJournalWriter();
+  if (!journal || !task?.workflow_id) return;
+
+  try {
+    if (status === 'completed') {
+      journal.write({
+        workflowId: task.workflow_id,
+        type: 'task_completed',
+        taskId: task.id,
+        stepId: task.node_id || null,
+        payload: {
+          exit_code: rawExitCode,
+          has_output: !!(finalOutput && finalOutput.trim().length > 0),
+        },
+      });
+      return;
+    }
+
+    if (status === 'failed') {
+      journal.write({
+        workflowId: task.workflow_id,
+        type: 'task_failed',
+        taskId: task.id,
+        stepId: task.node_id || null,
+        payload: {
+          failure_class: task.failure_class || categorizeFailure({
+            output: finalOutput,
+            errorOutput,
+            status,
+          }),
+          error_output: errorOutput || null,
+        },
+      });
+    }
+  } catch (_err) {
+    // Journal writes must not block finalization.
+  }
 }
 
 function buildCombinedOutput(output, errorOutput) {
@@ -867,6 +924,7 @@ async function finalizeTask(taskId, options = {}) {
     }
     const updateTaskStatus = deps.safeUpdateTaskStatus || deps.db.updateTaskStatus;
     updateTaskStatus(taskId, ctx.status, statusFields);
+    emitTaskFinalizationJournalEvent(ctx.task, ctx.status, rawExitCode, sanitizedOutput, ctx.errorOutput);
 
     ctx.task = deps.db.getTask(taskId) || task;
     const workflowState = options.state !== undefined ? options.state : procState.state;
@@ -1020,6 +1078,7 @@ async function finalizeTask(taskId, options = {}) {
     }
     const updateTaskStatus = deps.safeUpdateTaskStatus || deps.db.updateTaskStatus;
     updateTaskStatus(taskId, 'failed', fallbackFields);
+    emitTaskFinalizationJournalEvent(currentTask, 'failed', rawExitCode, fallbackOutput, fallbackCtx.errorOutput);
 
     fallbackCtx.task = deps.db.getTask(taskId) || currentTask;
     await indexRunArtifacts(taskId, fallbackCtx.task?.workflow_id || currentTask?.workflow_id || null);

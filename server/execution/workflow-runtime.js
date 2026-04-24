@@ -18,6 +18,41 @@ const { safeJsonParse } = require('../utils/json');
 const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { stripAnsiEscapes } = require('../utils/sanitize');
 const eventBus = require('../event-bus');
+let _journalWriter;
+
+function getJournalWriter() {
+  if (_journalWriter !== undefined) return _journalWriter;
+  _journalWriter = null;
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('journalWriter')) {
+      _journalWriter = defaultContainer.get('journalWriter');
+    }
+  } catch (_err) {
+    // Optional dependency.
+  }
+
+  return _journalWriter;
+}
+
+function emitDependencyUnblockedEvent(task) {
+  const journal = getJournalWriter();
+  if (!journal || !task?.workflow_id) return;
+
+  try {
+    journal.write({
+      workflowId: task.workflow_id,
+      type: 'dependency_unblocked',
+      taskId: task.id,
+      payload: {
+        unblocked_at: new Date().toISOString(),
+      },
+    });
+  } catch (_err) {
+    // Journal writer failures are non-fatal.
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Dependency injection
@@ -1492,7 +1527,8 @@ function unblockTask(taskId) {
   if (!task || !['blocked', 'waiting'].includes(task.status)) return false;
 
   try {
-    clearTaskBlockerSnapshot(taskId, { status: 'queued' });
+    const unblockedTask = clearTaskBlockerSnapshot(taskId, { status: 'queued' }) || task;
+    emitDependencyUnblockedEvent(unblockedTask);
     eventBus.emitQueueChanged();
     return true;
   } catch (err) {

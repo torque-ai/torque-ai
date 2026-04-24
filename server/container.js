@@ -217,6 +217,13 @@ _defaultContainer.register('familyTemplates', ['db'], ({ db }) => createFamilyTe
 _defaultContainer.register('actionRegistry', [], () => createActionRegistry());
 _defaultContainer.register('constructionCache', ['db'], ({ db }) => createConstructionCache({ db: unwrapDb(db) }));
 _defaultContainer.register('executor', ['actionRegistry'], ({ actionRegistry }) => createExecutor({ registry: actionRegistry }));
+_defaultContainer.register('journalWriter', ['db', 'logger'], ({ db, logger: log }) => {
+  const { createJournalWriter } = require('./journal/journal-writer');
+  return createJournalWriter({
+    db: unwrapDb(db),
+    logger: log || logger,
+  });
+});
 _defaultContainer.register('registeredSpecialists', [], () => ({}));
 _defaultContainer.register('runDirManager', ['db'], ({ db }) => {
   const dataDir = typeof db.getDataDir === 'function'

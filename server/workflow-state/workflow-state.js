@@ -5,6 +5,23 @@ const { reduceState } = require('./reducers');
 const { safeJsonParse } = require('../utils/json');
 
 const ajv = new Ajv({ strict: false, allErrors: true });
+let _journalWriter;
+
+function getJournalWriter() {
+  if (_journalWriter !== undefined) return _journalWriter;
+  _journalWriter = null;
+
+  try {
+    const { getModule } = require('../container');
+    if (typeof getModule === 'function') {
+      _journalWriter = getModule('journalWriter') || null;
+    }
+  } catch (_err) {
+    // Optional dependency for event history replay.
+  }
+
+  return _journalWriter;
+}
 
 function resolveDbHandle(db) {
   if (db && typeof db.prepare === 'function' && typeof db.exec === 'function') {
@@ -158,6 +175,21 @@ function createWorkflowState({ db } = {}) {
       new Date().toISOString(),
       normalizedWorkflowId,
     );
+    const journal = getJournalWriter();
+    if (journal) {
+      try {
+        journal.write({
+          workflowId: normalizedWorkflowId,
+          type: 'state_patched',
+          payload: {
+            patch,
+            reducers: meta.reducers,
+          },
+        });
+      } catch (_err) {
+        // State patch journaling is advisory and should not block state updates.
+      }
+    }
 
     return {
       ok: true,

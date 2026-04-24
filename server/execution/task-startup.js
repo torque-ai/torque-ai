@@ -55,6 +55,7 @@ let QUEUE_LOCK_HOLDER_ID;
 
 // State
 let skipGitInCloseHandler = false;
+let _journalWriter;
 
 // Track last cleanup time to avoid excessive cleanup overhead
 let lastRetryCleanupTime = 0;
@@ -75,6 +76,22 @@ function getTaskMetadataObject(task) {
     }
   } catch { /* fall through */ }
   return {};
+}
+
+function getJournalWriter() {
+  if (_journalWriter !== undefined) return _journalWriter;
+  _journalWriter = null;
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('journalWriter')) {
+      _journalWriter = defaultContainer.get('journalWriter');
+    }
+  } catch (_err) {
+    // Journal writer is non-critical.
+  }
+
+  return _journalWriter;
 }
 
 function appendLine(base, line) {
@@ -670,6 +687,26 @@ function recordTaskStartedAuditEvent(task, taskId, provider) {
     working_directory: task.working_directory,
     provider
   });
+
+  const journal = getJournalWriter();
+  if (!journal || !task?.workflow_id) {
+    return;
+  }
+
+  try {
+    journal.write({
+      workflowId: task.workflow_id,
+      type: 'task_started',
+      taskId,
+      stepId: task.node_id || null,
+      payload: {
+        provider: task.provider,
+        model: task.model,
+      },
+    });
+  } catch (_err) {
+    // Journal failures should not block task execution.
+  }
 }
 
 function runStartupPreflight({
