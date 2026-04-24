@@ -262,6 +262,10 @@ function init(deps) {
   if (!deps || !Object.prototype.hasOwnProperty.call(deps, 'db')) return;
 
   const nextDb = deps.db;
+  // A caller passing `{ db: undefined }` (commonly from `serverConfig.init({ db: deps.db })`
+  // where deps.db happens to be undefined at call time) must not clobber an already-wired db.
+  // `null` is a distinct explicit-clear signal used by close()/shutdown paths.
+  if (nextDb === undefined) return;
   if (nextDb === null) {
     db = null;
     return;

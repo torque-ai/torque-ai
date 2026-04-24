@@ -254,6 +254,43 @@ describe('server/config.js — unified config resolution', () => {
       freshConfig.init({});
       expect(freshConfig.get('unknown')).toBeNull();
     });
+
+    it('ignores { db: undefined } so an already-wired db is not clobbered', () => {
+      // Regression: multiple call sites do `serverConfig.init({ db: deps.db })` without
+      // guarding against deps.db being undefined. Before the fix this overwrote the
+      // cached db with undefined, making getApiKey silently return null for providers
+      // whose keys only existed in provider_config.api_key_encrypted.
+      vi.resetModules();
+      const freshConfig = require('../config');
+      const fakeRow = { api_key_encrypted: null };
+      let calls = 0;
+      const goodDb = {
+        getProvider: () => { calls++; return fakeRow; },
+      };
+
+      freshConfig.init({ db: goodDb });
+      freshConfig.getApiKey('groq');
+      expect(calls).toBe(1);
+
+      freshConfig.init({ db: undefined });
+      freshConfig.getApiKey('groq');
+      expect(calls, 'undefined must not clobber the wired db').toBe(2);
+    });
+
+    it('still accepts explicit { db: null } to clear the wired db', () => {
+      vi.resetModules();
+      const freshConfig = require('../config');
+      let calls = 0;
+      const goodDb = { getProvider: () => { calls++; return null; } };
+
+      freshConfig.init({ db: goodDb });
+      freshConfig.getApiKey('groq');
+      expect(calls).toBe(1);
+
+      freshConfig.init({ db: null });
+      freshConfig.getApiKey('groq');
+      expect(calls, 'null is an explicit clear; the wired db must be dropped').toBe(1);
+    });
   });
 
   // ── REGISTRY ───────────────────────────────────────────────────────────
