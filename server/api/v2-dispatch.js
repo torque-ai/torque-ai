@@ -677,6 +677,22 @@ async function dispatchV2(req, res) {
       return true;
 
     } catch (err) {
+      // Surface real handler errors to the log at warn-level. Without this, the
+      // normalizeError path only logs at debug which the default 'info' logger
+      // filters out — a whole class of "endpoint returns 500 with no detail"
+      // bugs stays invisible. 2026-04-24 hit this with
+      // /api/v2/strategic/operations: "Internal server error" for months with
+      // zero 200s in any rotated log, no stack anywhere. Keep the user-facing
+      // body unchanged (still goes through normalizeError).
+      logger.warn('v2 handler threw', {
+        method: req.method,
+        path: (req.url || '').split('?')[0],
+        handlerName: route.handlerName,
+        requestId: req.requestId,
+        err: err && err.message,
+        stack: err && err.stack ? err.stack.split('\n').slice(0, 8).join(' | ') : null,
+        code: err?.code,
+      });
       // Use v2 error normalization for consistent responses
       const { status, body } = normalizeError(err, req);
       if (!res.headersSent) {
