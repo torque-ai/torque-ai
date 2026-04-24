@@ -763,8 +763,11 @@ function stop() {
     clearAllTrackedIntervals();
     streamableHttpMod.stop();
 
-    for (const [_id, session] of sessions) {
+    for (const [id, session] of sessions) {
       clearTrackedInterval(session.keepaliveTimer);
+      // Persist filter state so a client reconnecting with this sessionId
+      // within the TTL gets its subscription restored.
+      try { sessionMod.persistSubscription(id, session); } catch { /* non-fatal */ }
       if (session.res && !session.res.writableEnded) {
         // Reconnect hint 1: MCP protocol-level notification.
         try {
