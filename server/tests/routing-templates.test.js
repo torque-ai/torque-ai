@@ -97,6 +97,25 @@ describe('seedPresets', () => {
     expect(providers.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('Ollama Cloud Primary routes code categories to ollama-cloud first', () => {
+    const tmpl = mod.getTemplateByName('Ollama Cloud Primary');
+    expect(tmpl).not.toBeNull();
+
+    const editChain = Array.isArray(tmpl.rules.targeted_file_edit)
+      ? tmpl.rules.targeted_file_edit
+      : [tmpl.rules.targeted_file_edit];
+    const planChain = Array.isArray(tmpl.rules.plan_generation)
+      ? tmpl.rules.plan_generation
+      : [tmpl.rules.plan_generation];
+    const largeCodeChain = Array.isArray(tmpl.rules.large_code_gen)
+      ? tmpl.rules.large_code_gen
+      : [tmpl.rules.large_code_gen];
+
+    expect(editChain[0].provider).toBe('ollama-cloud');
+    expect(planChain[0].provider).toBe('ollama-cloud');
+    expect(largeCodeChain[0].provider).toBe('ollama-cloud');
+  });
+
   it('preset IDs follow preset-<filename> convention', () => {
     const tmpl = mod.getTemplate('preset-system-default');
     expect(tmpl).not.toBeNull();
