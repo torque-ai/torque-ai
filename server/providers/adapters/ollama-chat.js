@@ -107,17 +107,24 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
         signal,
       },
       (res) => {
+        let settled = false;
         let buffer = '';
         let accumulatedContent = '';
         const accumulatedToolCalls = [];
-        let resolved = false;
+        let sawParseablePayload = false;
         // Token counts come on the done:true line
         let promptTokens = 0;
         let completionTokens = 0;
 
+        function doReject(error) {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        }
+
         function doResolve(parsed) {
-          if (resolved) return;
-          resolved = true;
+          if (settled) return;
+          settled = true;
 
           // Normalise Ollama token field names → common interface names
           promptTokens = parsed?.prompt_eval_count ?? promptTokens;
@@ -136,6 +143,19 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
           });
         }
 
+        if ((res.statusCode || 0) < 200 || (res.statusCode || 0) >= 300) {
+          let errorBody = '';
+          res.on('data', (chunk) => {
+            errorBody += chunk.toString();
+          });
+          res.on('end', () => {
+            const detail = errorBody.trim() || res.statusMessage || 'request failed';
+            doReject(new Error(`Ollama chat API error (${res.statusCode}): ${detail}`));
+          });
+          res.on('error', doReject);
+          return;
+        }
+
         res.on('data', (chunk) => {
           buffer += chunk.toString();
           const lines = buffer.split('\n');
@@ -150,6 +170,7 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
               // Skip malformed NDJSON lines
               continue;
             }
+            sawParseablePayload = true;
 
             if (parsed.message) {
               if (parsed.message.content) {
@@ -174,15 +195,20 @@ function chatCompletion({ host, apiKey, model, messages, tools, options, timeout
             let parsed = null;
             try { parsed = JSON.parse(buffer); } catch { /* ignore */ }
             if (parsed) {
+              sawParseablePayload = true;
               if (parsed.message?.content) accumulatedContent += parsed.message.content;
               if (parsed.message?.tool_calls) accumulatedToolCalls.push(...parsed.message.tool_calls);
             }
+          }
+          if (!sawParseablePayload && !accumulatedContent && accumulatedToolCalls.length === 0) {
+            doReject(new Error('Ollama chat returned no parseable response'));
+            return;
           }
           // Resolve even if we never saw done:true (e.g. non-streaming or truncated response)
           doResolve(null);
         });
 
-        res.on('error', reject);
+        res.on('error', doReject);
       }
     );
 

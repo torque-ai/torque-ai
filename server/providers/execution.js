@@ -65,6 +65,9 @@ const PROVIDER_DEFAULT_MODEL = {
   'google-ai': 'gemini-2.5-flash-lite',
 };
 
+const AGENTIC_WORKER_UNSUPPORTED_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk']);
+const AGENTIC_CLOUD_TO_CODEX_FALLBACKS = new Set(['google-ai', 'groq', 'openrouter', 'ollama-cloud', 'cerebras']);
+
 // ── Deps captured at init time for the agentic wrapper ────────────────
 let _agenticDeps = null;
 
@@ -236,6 +239,185 @@ function normalizeTaskMetadata(task) {
   return (task.metadata && typeof task.metadata === 'object' && !Array.isArray(task.metadata))
     ? task.metadata
     : {};
+}
+
+function normalizeProviderName(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function normalizeOptionalModel(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function isAgenticWorkerCompatibleProvider(provider) {
+  const normalizedProvider = normalizeProviderName(provider);
+  return !!normalizedProvider && !AGENTIC_WORKER_UNSUPPORTED_PROVIDERS.has(normalizedProvider);
+}
+
+function isProviderEnabledAndHealthyForHandoff(db, provider) {
+  const normalizedProvider = normalizeProviderName(provider);
+  if (!normalizedProvider) return false;
+
+  try {
+    const providerConfig = typeof db?.getProvider === 'function'
+      ? db.getProvider(normalizedProvider)
+      : null;
+    if (!providerConfig || !providerConfig.enabled) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  if (typeof db?.isProviderHealthy === 'function') {
+    try {
+      if (!db.isProviderHealthy(normalizedProvider)) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function getNextAgenticChainTarget(chain, currentProvider, currentModel, currentChainPosition = null) {
+  if (!Array.isArray(chain) || chain.length === 0) return null;
+
+  if (Number.isInteger(currentChainPosition) && currentChainPosition >= 1 && currentChainPosition < chain.length) {
+    return {
+      entry: chain[currentChainPosition],
+      remainingChain: chain.slice(currentChainPosition),
+    };
+  }
+
+  const normalizedProvider = normalizeProviderName(currentProvider);
+  const normalizedModel = normalizeOptionalModel(currentModel);
+  const currentIndex = chain.findIndex((entry) => {
+    if (normalizeProviderName(entry?.provider) !== normalizedProvider) return false;
+    const entryModel = normalizeOptionalModel(entry?.model);
+    if (!normalizedModel || !entryModel) return true;
+    return entryModel === normalizedModel;
+  });
+
+  if (currentIndex === -1 || currentIndex + 1 >= chain.length) {
+    return null;
+  }
+
+  return {
+    entry: chain[currentIndex + 1],
+    remainingChain: chain.slice(currentIndex + 1),
+  };
+}
+
+function taskLikelyRequiresFileChanges(task) {
+  const metadata = normalizeTaskMetadata(task);
+  if (metadata.diffusion_role === 'compute') return false;
+
+  const taskDescription = String(task?.task_description || '');
+  if (/\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace)\b/i.test(taskDescription)) {
+    return true;
+  }
+
+  const filePaths = normalizeStringList(metadata.file_paths);
+  const requiredPaths = normalizeStringList(metadata.agentic_required_modified_paths ?? metadata.required_modified_paths);
+  return filePaths.length > 0 || requiredPaths.length > 0;
+}
+
+function shouldEscalateNoOpAgenticResult(task, result) {
+  if (!taskLikelyRequiresFileChanges(task)) return false;
+
+  const toolCount = Array.isArray(result?.toolLog) ? result.toolLog.length : 0;
+  const changedFileCount = Array.isArray(result?.changedFiles) ? result.changedFiles.length : 0;
+  if (changedFileCount > 0) return false;
+  if (toolCount === 0) return true;
+
+  return !(result.toolLog || []).some((entry) => ['write_file', 'edit_file', 'replace_lines'].includes(entry?.name));
+}
+
+function resolveAgenticHandoffTarget({
+  task,
+  chain,
+  db,
+  currentProvider,
+  currentModel,
+  currentChainPosition = null,
+  preferredTarget = null,
+}) {
+  if (preferredTarget?.provider) {
+    return {
+      entry: preferredTarget,
+      remainingChain: Array.isArray(chain) && Number.isInteger(currentChainPosition) && currentChainPosition >= 1
+        ? chain.slice(currentChainPosition)
+        : [preferredTarget],
+    };
+  }
+
+  const chainTarget = getNextAgenticChainTarget(chain, currentProvider, currentModel, currentChainPosition);
+  if (chainTarget?.entry?.provider) {
+    return chainTarget;
+  }
+
+  const normalizedProvider = normalizeProviderName(currentProvider || task?.provider);
+  if (AGENTIC_CLOUD_TO_CODEX_FALLBACKS.has(normalizedProvider) && isProviderEnabledAndHealthyForHandoff(db, 'codex')) {
+    return {
+      entry: { provider: 'codex', model: null },
+      remainingChain: [{ provider: 'codex' }],
+    };
+  }
+
+  return null;
+}
+
+function buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason) {
+  const existingMetadata = normalizeTaskMetadata(task);
+  const metadata = {
+    ...existingMetadata,
+    user_provider_override: true,
+    intended_provider: targetEntry.provider,
+    requested_provider: targetEntry.provider,
+    requested_model: targetEntry.model || null,
+    eligible_providers: [targetEntry.provider],
+    agentic_handoff_from: task?.provider || null,
+    agentic_handoff_reason: reason,
+    agentic_handoff_at: new Date().toISOString(),
+  };
+
+  if (!metadata.original_requested_provider && existingMetadata.requested_provider) {
+    metadata.original_requested_provider = existingMetadata.requested_provider;
+  }
+
+  if (Array.isArray(remainingChain) && remainingChain.length > 1) {
+    metadata._routing_chain = remainingChain;
+  } else {
+    delete metadata._routing_chain;
+  }
+
+  return {
+    started_at: null,
+    completed_at: null,
+    pid: null,
+    progress_percent: null,
+    exit_code: null,
+    mcp_instance_id: null,
+    ollama_host_id: null,
+    output: null,
+    error_output: null,
+    provider: targetEntry.provider,
+    model: targetEntry.model || null,
+    metadata,
+    _provider_switch_reason: reason,
+  };
+}
+
+function requeueAgenticTaskForHandoff(db, taskId, task, targetEntry, remainingChain, reason) {
+  if (!db || typeof db.updateTaskStatus !== 'function') {
+    throw new Error(`Cannot hand off task ${taskId}: database updateTaskStatus is unavailable`);
+  }
+
+  const patch = buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason);
+  return db.updateTaskStatus(taskId, 'queued', patch);
 }
 
 function normalizeStringList(value) {
@@ -2037,6 +2219,8 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   let origAbortHandler2 = null;
   let cleanupTrackedWorker = null;
 
+  let chain = null;
+
   try {
     logger.info(`[Agentic] Starting API task ${taskId} with provider ${provider}, model ${model}`);
 
@@ -2054,7 +2238,6 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     const contextBudget = PROVIDER_CONTEXT_BUDGETS[provider] || 16000;
 
     // Check if task has a routing chain (set by smart routing template resolution)
-    let chain = null;
     try {
       const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {});
       chain = meta._routing_chain;
@@ -2196,6 +2379,24 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           result.output += '\n\n--- Git Safety ---\n' + gitReport.report;
         }
       }
+    }
+
+    const handoffTarget = shouldEscalateNoOpAgenticResult(task, result)
+      ? resolveAgenticHandoffTarget({
+          task: db.getTask(taskId) || task,
+          chain,
+          db,
+          currentProvider: result?.provider || provider,
+          currentModel: result?.model || model || null,
+          currentChainPosition: result?.chainPosition || (Array.isArray(chain) && chain.length > 1 ? 1 : null),
+        })
+      : null;
+    if (handoffTarget) {
+      const currentTask = db.getTask(taskId) || task;
+      const reason = `Agentic no-op from ${(result?.provider || provider)}/${result?.model || model || 'default'}: ${(result?.toolLog || []).length} tool calls, ${(result?.changedFiles || []).length} files changed`;
+      requeueAgenticTaskForHandoff(db, taskId, currentTask, handoffTarget.entry, handoffTarget.remainingChain, reason);
+      logger.info(`[Agentic] API task ${taskId} requeued to ${handoffTarget.entry.provider}${handoffTarget.entry.model ? `/${handoffTarget.entry.model}` : ''} after no-op result from ${result?.provider || provider}`);
+      return;
     }
 
     const sessionLogTarget = resolveAgenticSessionLogTarget(task, workingDir, agenticPolicy);
@@ -2369,6 +2570,24 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     }
 
   } catch (error) {
+    const currentTask = db.getTask(taskId) || task;
+    const handoffTarget = resolveAgenticHandoffTarget({
+      task: currentTask,
+      chain,
+      db,
+      currentProvider: error.agenticFailedProvider || provider,
+      currentModel: error.agenticFailedModel || model || null,
+      currentChainPosition: error.agenticChainPosition || null,
+      preferredTarget: error.agenticHandoffTarget || null,
+    });
+    if (handoffTarget) {
+      const reason = error.agenticHandoffReason
+        || `Agentic provider ${(error.agenticFailedProvider || provider)}/${error.agenticFailedModel || model || 'default'} failed: ${error.message}`;
+      requeueAgenticTaskForHandoff(db, taskId, currentTask, handoffTarget.entry, handoffTarget.remainingChain, reason);
+      logger.info(`[Agentic] API task ${taskId} requeued to ${handoffTarget.entry.provider}${handoffTarget.entry.model ? `/${handoffTarget.entry.model}` : ''} after provider failure: ${error.message}`);
+      return;
+    }
+
     logger.info(`[Agentic] API task ${taskId} failed: ${error.message}`);
     safeUpdateTaskStatus(taskId, 'failed', {
       error_output: error.message,
@@ -2503,7 +2722,21 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
       // Record failure
       try { recordProviderOutcome(entry.provider, false); } catch { /* non-critical */ }
 
+      const nextEntry = chain[i + 1];
+      if (nextEntry && !isAgenticWorkerCompatibleProvider(nextEntry.provider)) {
+        const handoffError = new Error(`Provider ${entry.provider}/${entry.model || 'default'} failed; handoff to ${nextEntry.provider} is required`);
+        handoffError.agenticHandoffTarget = nextEntry;
+        handoffError.agenticHandoffReason = `Provider ${entry.provider}/${entry.model || 'default'} failed: ${error.message}`;
+        handoffError.agenticChainPosition = i + 1;
+        handoffError.agenticFailedProvider = entry.provider;
+        handoffError.agenticFailedModel = entry.model || null;
+        throw handoffError;
+      }
+
       if (!isRetryableError(error) || i === chain.length - 1) {
+        error.agenticChainPosition = i + 1;
+        error.agenticFailedProvider = entry.provider;
+        error.agenticFailedModel = entry.model || null;
         logger.info(`[Routing] ${entry.provider} failed (non-retryable or last in chain): ${error.message}`);
         throw error;
       }

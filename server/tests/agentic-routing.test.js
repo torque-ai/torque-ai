@@ -504,6 +504,38 @@ describe('executeWithFallback', () => {
 
     expect(callCount).toBe(3);
   });
+
+  it('surfaces a handoff target when the next chain provider requires CLI execution', async () => {
+    let callCount = 0;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function FakeWorker() {
+      callCount++;
+      const em = new EventEmitter();
+      this.postMessage = () => {};
+      this.terminate = vi.fn();
+      this.on = (ev, h) => em.on(ev, h);
+      setImmediate(() => em.emit('message', { type: 'error', message: '429 Too Many Requests' }));
+    });
+
+    const chain = [
+      { provider: 'ollama-cloud', model: 'kimi-k2:1t' },
+      { provider: 'codex' },
+      { provider: 'openrouter', model: 'fallback-model' },
+    ];
+    const task = { id: 'test-handoff', task_description: 'test task', working_directory: null };
+
+    let caught;
+    try {
+      await executeWithFallback(task, chain, simpleBuildWorkerConfig, {});
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeTruthy();
+    expect(caught.agenticHandoffTarget).toEqual({ provider: 'codex' });
+    expect(caught.agenticFailedProvider).toBe('ollama-cloud');
+    expect(caught.agenticChainPosition).toBe(1);
+    expect(callCount).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -205,6 +205,22 @@ describe('ollama-chat adapter — chatCompletion', () => {
     expect(result.message.content).toBe('ok');
   });
 
+  it('rejects non-2xx responses instead of resolving an empty completion', async () => {
+    requestHandler = (_req, res) => {
+      res.writeHead(401, { 'Content-Type': 'text/plain' });
+      res.end('unauthorized');
+    };
+
+    await expect(
+      chatCompletion({
+        host,
+        apiKey: 'cloud-key',
+        model: TEST_MODELS.SMALL,
+        messages: [{ role: 'user', content: 'ping' }],
+      })
+    ).rejects.toThrow('Ollama chat API error (401): unauthorized');
+  });
+
   // -------------------------------------------------------------------------
   // Test 5: onChunk callback receives streamed text
   // -------------------------------------------------------------------------
