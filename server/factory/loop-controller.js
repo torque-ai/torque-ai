@@ -564,7 +564,8 @@ function getReadyStage(pausedAtStage) {
 }
 
 function isTerminalVerifyRejection(stageResult) {
-  return stageResult && stageResult.status === 'rejected';
+  return stageResult
+    && (stageResult.status === 'rejected' || stageResult.status === 'unactionable');
 }
 
 function assertValidGateStage(stage) {
@@ -6327,19 +6328,19 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
           project_id,
           stage: LOOP_STATES.VERIFY,
           action: 'branch_stale_rebase_conflict',
-          reasoning: `Automatic rebase of ${worktreeRecord.branch} onto ${baseRef} failed; pausing VERIFY.`,
+          reasoning: `Automatic rebase of ${worktreeRecord.branch} onto ${baseRef} failed; marking the work item unactionable so the factory can advance.`,
           outcome: {
             commits_behind: freshness.commitsBehind,
             stale_files: freshness.staleFiles,
             error: rebaseResult.error,
+            work_item_id: workItemForRetry?.id || instance?.work_item_id || null,
           },
           confidence: 1,
           batch_id,
         });
         return {
-          status: 'failed',
+          status: 'unactionable',
           reason: branchStaleRejectReason,
-          pause_at_stage: 'VERIFY',
           branch: worktreeRecord.branch,
           worktree_path: worktreeRecord.worktreePath,
         };
@@ -6477,19 +6478,19 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               project_id,
               stage: LOOP_STATES.VERIFY,
               action: 'branch_stale_rebase_conflict_post_verify',
-              reasoning: `Automatic rebase of ${worktreeRecord.branch} onto ${baseRef} failed after VERIFY drift; pausing VERIFY.`,
+              reasoning: `Automatic rebase of ${worktreeRecord.branch} onto ${baseRef} failed after VERIFY drift; marking the work item unactionable so the factory can advance.`,
               outcome: {
                 commits_behind: postFailureFreshness.commitsBehind,
                 stale_files: postFailureFreshness.staleFiles,
                 error: postFailureRebase.error,
+                work_item_id: workItemForRetry?.id || instance?.work_item_id || null,
               },
               confidence: 1,
               batch_id,
             });
             return {
-              status: 'failed',
+              status: 'unactionable',
               reason: branchStaleRejectReason,
-              pause_at_stage: 'VERIFY',
               branch: worktreeRecord.branch,
               worktree_path: worktreeRecord.worktreePath,
             };
@@ -7913,10 +7914,11 @@ async function runAdvanceLoop(instance_id) {
           stage: LOOP_STATES.VERIFY,
           actor: 'verifier',
           action: 'verify_terminal_rejection_terminated',
-          reasoning: 'VERIFY rejected the work item and no further stages should run for this instance.',
+          reasoning: 'VERIFY reached a terminal outcome and no further stages should run for this instance.',
           outcome: {
             work_item_id: instance.work_item_id || null,
             instance_id: instance.id,
+            status: stageResult.status || null,
             reason: stageResult.reason || null,
           },
           confidence: 1,

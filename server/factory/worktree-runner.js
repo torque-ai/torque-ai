@@ -198,6 +198,11 @@ function shouldFallbackToLocalVerify(result) {
   );
 }
 
+function buildRemoteVerifyInvocation(command) {
+  const normalized = String(command || '').trim();
+  return `torque-remote bash -lc ${JSON.stringify(normalized)}`;
+}
+
 async function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
   const resolvedCwd = cwd || process.cwd();
   if (logger) logger.info('factory worktree verify: running torque-remote', { branch, command, cwd: resolvedCwd });
@@ -218,7 +223,7 @@ async function defaultRunRemoteVerify({ branch, command, cwd, logger }) {
       error: pushResult.error ? pushResult.error.message : null,
     };
   }
-  const verifyResult = await spawnInBashAsync(`torque-remote ${JSON.stringify(command)}`, baseEnv);
+  const verifyResult = await spawnInBashAsync(buildRemoteVerifyInvocation(command), baseEnv);
   return {
     exitCode: typeof verifyResult.status === 'number' ? verifyResult.status : 1,
     stdout: verifyResult.stdout || '',
@@ -479,6 +484,7 @@ module.exports = {
   resolveSystemShellCommand,
   _internalForTests: {
     CHILD_CLOSE_GRACE_MS,
+    buildRemoteVerifyInvocation,
     spawnTrackedProcessAsync,
     spawnInBashAsync,
     spawnInSystemShellAsync,

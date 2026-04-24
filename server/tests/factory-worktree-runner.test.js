@@ -146,6 +146,17 @@ describe('async child process settlement', () => {
   });
 });
 
+describe('remote verify invocation builder', () => {
+  it('wraps verify commands through bash -lc so shell operators survive torque-remote', () => {
+    const invocation = _internalForTests.buildRemoteVerifyInvocation(
+      'dotnet test tests/One.csproj --nologo && dotnet test tests/Two.csproj --nologo',
+    );
+
+    expect(invocation).toMatch(/^torque-remote bash -lc /);
+    expect(invocation).toContain('dotnet test tests/One.csproj --nologo && dotnet test tests/Two.csproj --nologo');
+  });
+});
+
 describe('createWorktreeRunner.createForBatch', () => {
   let worktreeManager;
   let runner;

@@ -16,6 +16,7 @@ const factoryWorktrees = require('../db/factory-worktrees');
 const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
+const branchFreshness = require('../factory/branch-freshness');
 const loopController = require('../factory/loop-controller');
 const verifyReview = require('../factory/verify-review');
 const { LOOP_STATES } = require('../factory/loop-states');
@@ -644,6 +645,87 @@ describe('factory loop-controller EXECUTE modes', () => {
         branch: 'feat/factory-verify-pass',
       }),
     });
+  });
+
+  it('marks stale-branch verify conflicts unactionable and advances instead of looping at VERIFY', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPath = path.join(project.path, '.worktrees', 'feat-factory-branch-stale');
+    fs.mkdirSync(wtPath, { recursive: true });
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-branch-stale',
+        branch: 'feat/factory-branch-stale',
+        worktreePath: wtPath,
+      })),
+      verify: vi.fn(async () => ({ passed: true, output: 'ok', durationMs: 18 })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (args) => {
+      submittedTaskCount += 1;
+      const taskId = `approval-task-branch-stale-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: args.initial_status || 'pending_approval',
+      });
+      return { task_id: taskId };
+    });
+    const checkBranchFreshnessSpy = vi.spyOn(branchFreshness, 'checkBranchFreshness').mockResolvedValue({
+      stale: true,
+      commitsBehind: 12,
+      staleFiles: ['README.md'],
+    });
+    const attemptRebaseSpy = vi.spyOn(branchFreshness, 'attemptRebase').mockResolvedValue({
+      ok: false,
+      error: 'rebase conflict',
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+    try {
+      await advanceSupervisedPlanProject(project.id);
+      const executeAdvance = await loopController.advanceLoopForProject(project.id);
+
+      expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+      expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.VERIFY);
+      expect(executeAdvance.reason).toBe('batch_tasks_not_terminal');
+
+      db.prepare(`UPDATE tasks SET status = 'completed' WHERE id = ?`).run('approval-task-branch-stale-1');
+      loopController.approveGateForProject(project.id, LOOP_STATES.VERIFY);
+
+      const verifyAdvance = await loopController.advanceLoopForProject(project.id);
+
+      expect(worktreeRunner.verify).not.toHaveBeenCalled();
+      expect(verifyAdvance.previous_state).toBe(LOOP_STATES.VERIFY);
+      expect(verifyAdvance.new_state).toBe(LOOP_STATES.IDLE);
+      expect(verifyAdvance.paused_at_stage).toBeNull();
+      expect(verifyAdvance.reason).toBe('branch_stale_vs_base');
+      expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+        status: 'unactionable',
+        reject_reason: 'branch_stale_vs_base',
+      });
+      expect(loopController.getActiveInstances(project.id)).toHaveLength(0);
+
+      const decisions = listDecisionRows(db, project.id);
+      expect(decisions.find((d) => d.action === 'branch_stale_rebase_conflict')).toMatchObject({
+        stage: 'verify',
+        outcome: expect.objectContaining({
+          work_item_id: workItem.id,
+        }),
+      });
+      expect(decisions.find((d) => d.action === 'verify_terminal_rejection_terminated')).toMatchObject({
+        stage: 'verify',
+        outcome: expect.objectContaining({
+          work_item_id: workItem.id,
+          status: 'unactionable',
+          reason: 'branch_stale_vs_base',
+        }),
+      });
+    } finally {
+      checkBranchFreshnessSpy.mockRestore();
+      attemptRebaseSpy.mockRestore();
+    }
   });
 
   it('auto-rejects work item after MAX_AUTO_VERIFY_RETRIES and advances past VERIFY_FAIL', async () => {
