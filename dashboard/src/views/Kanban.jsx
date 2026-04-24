@@ -832,28 +832,38 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     });
   }, []);
 
-  // Full load — all columns + supplementary stats
+  // Full load — all columns + supplementary stats.
+  //
+  // The 7 task-bucket queries used to fan out as separate parallel requests,
+  // which on the live 3.7 GB tasks.db dominated load latency even after
+  // column projection landed server-side (each still paid HTTP +
+  // middleware + serialize/deserialize overhead, and browsers limit to
+  // ~6 concurrent per origin). tasksApi.kanbanSummary() collapses all 7
+  // into one round-trip. Stats and providers stay separate — they're
+  // cacheable on different intervals and unrelated to the task buckets.
   const loadData = useCallback(() => {
     return execute(async (isCurrent) => {
       try {
         // Phase 1: critical data first — gets the board visible fast
-        const [pendingApprovalData, queuedData, runningData, pendingData, overviewData] = await Promise.all([
-          tasksApi.list({ status: 'pending_approval', limit: 50 }),
-          tasksApi.list({ status: 'queued', limit: 50 }),
-          tasksApi.list({ status: 'running', limit: 50 }),
-          tasksApi.list({ status: 'pending_provider_switch', limit: 20 }),
+        const [kanban, overviewData] = await Promise.all([
+          tasksApi.kanbanSummary(),
           statsApi.overview(),
         ]);
         if (!isCurrent()) return;
-        mergeTasks([...pendingApprovalData.tasks, ...queuedData.tasks, ...runningData.tasks, ...pendingData.tasks]);
+        mergeTasks([
+          ...kanban.pending_approval.tasks,
+          ...kanban.queued.tasks,
+          ...kanban.running.tasks,
+          ...kanban.pending_provider_switch.tasks,
+          ...kanban.completed.tasks,
+          ...kanban.failed.tasks,
+          ...kanban.cancelled.tasks,
+        ]);
         setOverview(overviewData);
         setLoading(false);
 
-        // Phase 2: supplementary data — fills in completed/failed/cancelled + charts
-        const [completedData, failedData, cancelledData, stuckData, qualityData, timeseriesData, dailyData, providerData] = await Promise.all([
-          tasksApi.list({ status: 'completed', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
-          tasksApi.list({ status: 'failed', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
-          tasksApi.list({ status: 'cancelled', limit: 30, orderBy: 'completed_at', orderDir: 'desc' }),
+        // Phase 2: supplementary data — charts and ancillary stats
+        const [stuckData, qualityData, timeseriesData, dailyData, providerData] = await Promise.all([
           statsApi.stuck().catch(() => null),
           statsApi.quality().catch(() => null),
           statsApi.timeseries({ days: 7, interval: 'hour' }).catch(() => []),
@@ -861,7 +871,6 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
           providersApi.list().catch(() => []),
         ]);
         if (!isCurrent()) return;
-        mergeTasks([...completedData.tasks, ...failedData.tasks, ...cancelledData.tasks]);
         setStuckTasks(normalizeStuckTasks(stuckData));
         setQualityStats(qualityData);
         setActivityData(Array.isArray(timeseriesData) ? timeseriesData : []);

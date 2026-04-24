@@ -424,6 +424,7 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpPreviewTaskStudyContext: (...args) => v2TaskHandlers.handlePreviewTaskStudyContext(...args),
   handleV2CpSubmitTask: v2TaskHandlers.handleSubmitTask,
   handleV2CpListTasks: v2TaskHandlers.handleListTasks,
+  handleV2CpKanbanSummary: v2TaskHandlers.handleKanbanSummary,
   handleV2CpTaskDiff: v2TaskHandlers.handleTaskDiff,
   handleV2CpTaskLogs: v2TaskHandlers.handleTaskLogs,
   handleV2CpTaskArtifacts: v2TaskHandlers.handleTaskArtifacts,

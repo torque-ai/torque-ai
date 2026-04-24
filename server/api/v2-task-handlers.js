@@ -471,6 +471,61 @@ async function handleListTasks(req, res) {
   sendList(res, requestId, items, total, req);
 }
 
+// ─── GET /api/v2/tasks/kanban-summary — Batched Kanban board data ───────
+//
+// Replaces Kanban's 7-parallel-listTasks fan-out with one round-trip. Each
+// bucket gets the same shape as /api/v2/tasks: buildTaskResponse() items +
+// total (from countTasks). Only task buckets — stats/providers stay separate
+// because they're cacheable on different intervals. On the 3.7 GB live DB,
+// the 7-way fan-out was the dominant dashboard-load cost even after the
+// SELECT * → column-projection fix; a single round-trip drops HTTP +
+// middleware + serialize/deserialize overhead that was the remaining floor.
+
+const KANBAN_BUCKETS = Object.freeze([
+  { key: 'pending_approval',        status: 'pending_approval',        limit: 50, orderDir: 'asc'  },
+  { key: 'queued',                  status: 'queued',                  limit: 50, orderDir: 'asc'  },
+  { key: 'running',                 status: 'running',                 limit: 50, orderDir: 'asc'  },
+  { key: 'pending_provider_switch', status: 'pending_provider_switch', limit: 20, orderDir: 'asc'  },
+  { key: 'completed',               status: 'completed',               limit: 30, orderBy: 'completed_at', orderDir: 'desc' },
+  { key: 'failed',                  status: 'failed',                  limit: 30, orderBy: 'completed_at', orderDir: 'desc' },
+  { key: 'cancelled',               status: 'cancelled',               limit: 30, orderBy: 'completed_at', orderDir: 'desc' },
+]);
+
+async function handleKanbanSummary(req, res) {
+  const requestId = resolveRequestId(req);
+  const buckets = {};
+  const columns = Array.isArray(taskCore.TASK_LIST_COLUMNS) && taskCore.TASK_LIST_COLUMNS.length > 0
+    ? taskCore.TASK_LIST_COLUMNS
+    : undefined;
+
+  for (const cfg of KANBAN_BUCKETS) {
+    let items = [];
+    let total = 0;
+    try {
+      const rows = taskCore.listTasks({
+        status: cfg.status,
+        limit: cfg.limit,
+        orderBy: cfg.orderBy,
+        orderDir: cfg.orderDir,
+        columns,
+      });
+      items = rows.map(buildTaskResponse).filter(Boolean);
+      total = typeof taskCore.countTasks === 'function'
+        ? taskCore.countTasks({ status: cfg.status })
+        : items.length;
+    } catch (err) {
+      // One failing bucket shouldn't break the whole board. Return an empty
+      // bucket + error marker; the dashboard can still render other columns.
+      logger.warn('kanban-summary bucket failed', { bucket: cfg.key, err: err && err.message });
+      items = [];
+      total = 0;
+    }
+    buckets[cfg.key] = { items, total };
+  }
+
+  sendSuccess(res, requestId, { buckets }, 200, req);
+}
+
 // ─── GET /api/v2/tasks/:task_id — Get task detail ────────────────────────
 
 async function handleGetTask(req, res) {
@@ -1403,6 +1458,7 @@ function createV2TaskHandlers(_deps) {
     handlePreviewTaskStudyContext,
     handleSubmitTask,
     handleListTasks,
+    handleKanbanSummary,
     handleGetTask,
     handleTaskArtifacts,
     handleGetTaskArtifact,
@@ -1429,6 +1485,7 @@ module.exports = {
   handlePreviewTaskStudyContext,
   handleSubmitTask,
   handleListTasks,
+  handleKanbanSummary,
   handleGetTask,
   handleTaskArtifacts,
   handleGetTaskArtifact,

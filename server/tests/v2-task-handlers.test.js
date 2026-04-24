@@ -690,6 +690,50 @@ describe('api/v2-task-handlers.handleListTasks', () => {
   });
 });
 
+describe('api/v2-task-handlers.handleKanbanSummary', () => {
+  it('returns 7 buckets populated from one listTasks call per status', async () => {
+    // mockDb.listTasks is shared; make it return bucket-specific fixtures
+    // keyed by the `status` arg the handler passes.
+    mockDb.listTasks.mockImplementation((opts = {}) => {
+      return [{ id: `${opts.status}-1`, status: opts.status, task_description: `desc ${opts.status}` }];
+    });
+    mockDb.countTasks.mockImplementation((opts = {}) => {
+      return { pending_approval: 1, queued: 2, running: 3, pending_provider_switch: 4, completed: 5, failed: 6, cancelled: 7 }[opts.status] || 0;
+    });
+
+    await handlers.handleKanbanSummary(createReq(), createRes());
+
+    const body = getLastSuccess().data;
+    expect(Object.keys(body.buckets).sort()).toEqual([
+      'cancelled', 'completed', 'failed', 'pending_approval', 'pending_provider_switch', 'queued', 'running',
+    ]);
+    for (const [key, bucket] of Object.entries(body.buckets)) {
+      expect(Array.isArray(bucket.items)).toBe(true);
+      expect(bucket.items.length).toBe(1);
+      expect(bucket.items[0].id).toBe(`${key}-1`);
+      expect(typeof bucket.total).toBe('number');
+    }
+    // Exactly one listTasks call per bucket — the whole point of the endpoint.
+    expect(mockDb.listTasks).toHaveBeenCalledTimes(7);
+  });
+
+  it('returns empty bucket when listTasks throws for one status', async () => {
+    mockDb.listTasks.mockImplementation((opts = {}) => {
+      if (opts.status === 'failed') throw new Error('boom');
+      return [{ id: `${opts.status}-1`, status: opts.status }];
+    });
+    mockDb.countTasks.mockReturnValue(1);
+
+    await handlers.handleKanbanSummary(createReq(), createRes());
+
+    const body = getLastSuccess().data;
+    expect(body.buckets.failed).toEqual({ items: [], total: 0 });
+    // Other buckets still populated
+    expect(body.buckets.queued.items.length).toBe(1);
+    expect(body.buckets.completed.items.length).toBe(1);
+  });
+});
+
 describe('api/v2-task-handlers.handleGetTask', () => {
   it('returns task detail including output and error_output', async () => {
     const task = {

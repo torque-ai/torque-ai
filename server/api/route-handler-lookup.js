@@ -37,6 +37,7 @@ function createRouteHandlerLookup({
     handleV2CpPreviewTaskStudyContext: v2TaskHandlers.handlePreviewTaskStudyContext,
     handleV2CpSubmitTask: v2TaskHandlers.handleSubmitTask,
     handleV2CpListTasks: v2TaskHandlers.handleListTasks,
+    handleV2CpKanbanSummary: v2TaskHandlers.handleKanbanSummary,
     handleV2CpTaskDiff: v2TaskHandlers.handleTaskDiff,
     handleV2CpTaskLogs: v2TaskHandlers.handleTaskLogs,
     handleV2CpTaskArtifacts: v2TaskHandlers.handleTaskArtifacts,
