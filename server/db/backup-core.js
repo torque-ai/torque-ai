@@ -148,7 +148,12 @@ function backupDatabase(destPath) {
 function startBackupScheduler(intervalMs = 3600000) {
   stopBackupScheduler();
 
-  const maxBackups = parseInt((_getConfig && _getConfig('backup_max_count')) || '24', 10);
+  // Default max backups lowered from 24 → 6. On a mature install the DB can be
+  // multi-GB; 24 × 3.7 GB observed 2026-04-24 = 89 GB of just periodic
+  // backups on disk. Six hourly snapshots still gives ~6 hours of rollback
+  // window while keeping disk footprint bounded. Override via
+  // `backup_max_count` config.
+  const maxBackups = parseInt((_getConfig && _getConfig('backup_max_count')) || '6', 10);
   const backupDir = path.join(getDataDir(), 'backups');
 
   _backupTimer = setInterval(() => {
@@ -173,8 +178,11 @@ function startBackupScheduler(intervalMs = 3600000) {
 
       logger.info(`[backup] Database backed up to ${backupPath} (${size} bytes)`);
 
-      // Only prune periodic backups (torque-YYYY-...), NOT pre-shutdown or pre-startup backups
-      const PERIODIC_BACKUP_PATTERN = /^torque-\d{4}-\d{2}-\d{2}T/;
+      // Only prune periodic backups, NOT pre-shutdown/pre-startup/pre-provider
+      // (each has its own retention path). Match both legacy `torque-backup-*`
+      // and current `torque-YYYY-*` naming — an earlier pattern left behind
+      // 23 unprunable `torque-backup-*` files when the naming changed.
+      const PERIODIC_BACKUP_PATTERN = /^torque-(backup-)?\d{4}-\d{2}-\d{2}T/;
       const files = fs.readdirSync(backupDir)
         .filter(f => PERIODIC_BACKUP_PATTERN.test(f) && f.endsWith('.db')
           && !f.includes('pre-shutdown') && !f.includes('pre-startup')
