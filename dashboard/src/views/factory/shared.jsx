@@ -25,6 +25,39 @@ function getLoopStatePillStyle(loopState) {
   return LOOP_STATE_PILL_STYLES[normalized] || 'border-blue-500/30 bg-blue-500/10 text-blue-200';
 }
 
+// Bucket projects by attention level so the list pane foregrounds
+// anything a human needs to look at. Within each bucket we sort by
+// name so order is stable across refreshes.
+export function groupProjectsForList(projects) {
+  const buckets = { attention: [], active: [], idle: [], paused: [] };
+  for (const project of projects || []) {
+    const loopState = String(project.loop_state || 'IDLE').toUpperCase();
+    const alertBadge = getFactoryAlertBadge(project.alert_badge);
+    const recoveryExhausted = Number(project.auto_recovery_exhausted) === 1;
+    const needsAttention = loopState === 'STARVED'
+      || Boolean(alertBadge)
+      || recoveryExhausted
+      || (project.status === 'paused' && project.loop_paused_at_stage === 'VERIFY_FAIL');
+
+    if (needsAttention) {
+      buckets.attention.push(project);
+    } else if (project.status === 'paused') {
+      buckets.paused.push(project);
+    } else if (project.status === 'running' && loopState !== 'IDLE') {
+      buckets.active.push(project);
+    } else {
+      buckets.idle.push(project);
+    }
+  }
+  const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''));
+  return [
+    { id: 'attention', label: 'Needs attention', items: buckets.attention.sort(byName) },
+    { id: 'active', label: 'Active', items: buckets.active.sort(byName) },
+    { id: 'paused', label: 'Paused', items: buckets.paused.sort(byName) },
+    { id: 'idle', label: 'Idle', items: buckets.idle.sort(byName) },
+  ].filter((group) => group.items.length > 0);
+}
+
 const FACTORY_ALERT_BADGE_LABELS = {
   VERIFY_FAIL_STREAK: 'Verify failures',
   FACTORY_STALLED: 'Factory stalled',
