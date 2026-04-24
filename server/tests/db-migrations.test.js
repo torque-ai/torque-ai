@@ -807,6 +807,20 @@ describe('db/migrations', () => {
       expect(getAppliedVersions(db)).not.toContain(36);
     });
 
+    it('rolls back migration v37 by dropping workflow_events artifacts and removing its version row', () => {
+      createBaseSchema(db);
+      subject.runMigrations(db);
+      expect(tableExists(db, 'workflow_events')).toBe(true);
+
+      subject.rollbackMigration(db, 37);
+
+      expect(tableExists(db, 'workflow_events')).toBe(false);
+      expect(indexExists(db, 'idx_workflow_events_wf_seq')).toBe(false);
+      expect(indexExists(db, 'idx_workflow_events_type')).toBe(false);
+      expect(indexExists(db, 'idx_workflow_events_task')).toBe(false);
+      expect(getAppliedVersions(db)).not.toContain(37);
+    });
+
     it('allows a rolled back migration to be reapplied on the next run', () => {
       createBaseSchema(db);
       subject.runMigrations(db);
@@ -916,6 +930,36 @@ describe('db/migrations', () => {
       expect(ref.from).toBe('workflow_id');
       expect(ref.to).toBe('id');
       expect(getAppliedVersions(db)).toContain(36);
+    });
+
+    it('creates workflow_events when applying migration v37 to a minimal schema', () => {
+      createBaseSchema(db);
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 37));
+
+      expect(() => subject.runMigrations(db)).not.toThrow();
+      expect(tableExists(db, 'workflow_events')).toBe(true);
+      expect(getColumnNames(db, 'workflow_events')).toEqual(
+        expect.arrayContaining([
+          'event_id',
+          'workflow_id',
+          'seq',
+          'event_type',
+          'task_id',
+          'step_id',
+          'payload_json',
+          'created_at',
+        ]),
+      );
+      expect(indexExists(db, 'idx_workflow_events_wf_seq')).toBe(true);
+      expect(indexExists(db, 'idx_workflow_events_type')).toBe(true);
+      expect(indexExists(db, 'idx_workflow_events_task')).toBe(true);
+
+      const fks = db.prepare("PRAGMA foreign_key_list('workflow_events')").all();
+      const ref = fks.find((fk) => fk.table === 'workflows');
+      expect(ref).toBeTruthy();
+      expect(ref.from).toBe('workflow_id');
+      expect(ref.to).toBe('id');
+      expect(getAppliedVersions(db)).toContain(37);
     });
 
     it('falls back to split statement execution for multi-statement rollback SQL', () => {

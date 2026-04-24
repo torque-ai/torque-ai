@@ -792,6 +792,17 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS workflow_state',
     ].join('; '),
   },
+  {
+    version: 37,
+    name: 'add_workflow_events',
+    up: readSqlMigration('037-workflow-events.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_workflow_events_task',
+      'DROP INDEX IF EXISTS idx_workflow_events_type',
+      'DROP INDEX IF EXISTS idx_workflow_events_wf_seq',
+      'DROP TABLE IF EXISTS workflow_events',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

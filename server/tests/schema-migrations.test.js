@@ -491,6 +491,7 @@ describe('db/migrations.js', () => {
     expect(tables).toContain('benchmark_results');
     expect(tables).toContain('factory_loop_instances');
     expect(tables).toContain('workflow_state');
+    expect(tables).toContain('workflow_events');
   });
 
   it('latest migration is recorded as applied', () => {
@@ -548,6 +549,42 @@ describe('db/migrations.js', () => {
     expect(applied).toEqual({
       version: 36,
       name: 'add_workflow_state_and_fork_columns',
+    });
+  });
+
+  it('migration v37 adds workflow_events', () => {
+    const conn = getMigrationsDbInstance();
+    const workflowEventColumns = conn.prepare('PRAGMA table_info(workflow_events)').all().map((column) => column.name);
+    const workflowEventIndexes = conn.prepare(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name = 'workflow_events' ORDER BY name"
+    ).all().map((row) => row.name);
+    const applied = conn.prepare(
+      'SELECT version, name FROM schema_migrations WHERE version = 37'
+    ).get();
+    const fks = conn.prepare("PRAGMA foreign_key_list('workflow_events')").all();
+    const ref = fks.find((fk) => fk.table === 'workflows');
+
+    expect(workflowEventColumns).toEqual(expect.arrayContaining([
+      'event_id',
+      'workflow_id',
+      'seq',
+      'event_type',
+      'task_id',
+      'step_id',
+      'payload_json',
+      'created_at',
+    ]));
+    expect(workflowEventIndexes).toEqual(expect.arrayContaining([
+      'idx_workflow_events_wf_seq',
+      'idx_workflow_events_type',
+      'idx_workflow_events_task',
+    ]));
+    expect(ref).toBeTruthy();
+    expect(ref.from).toBe('workflow_id');
+    expect(ref.to).toBe('id');
+    expect(applied).toEqual({
+      version: 37,
+      name: 'add_workflow_events',
     });
   });
 

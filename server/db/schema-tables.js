@@ -192,6 +192,7 @@ const VALID_TABLE_NAMES = new Set([
   'webhooks',
   'work_stealing_log',
   'workflow_checkpoints',
+  'workflow_events',
   'workflow_state',
   'workflow_forks',
   'workflow_templates',
