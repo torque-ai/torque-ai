@@ -431,8 +431,50 @@ function createWorktreeManager({ db } = {}) {
     };
   }
 
-  function getWorktreeStatusPorcelain(worktreePath) {
-    return String(runGit(worktreePath, ['status', '--porcelain'])).trim();
+  function getManagedWorktreePrefixes(repoPath) {
+    const rows = dbHandle.prepare('SELECT worktree_path FROM vc_worktrees WHERE repo_path = ?').all(repoPath);
+    const prefixes = new Set();
+
+    for (const row of rows) {
+      const rel = path.relative(repoPath, row.worktree_path || '').replace(/\\/g, '/');
+      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+        continue;
+      }
+      const [firstSegment] = rel.split('/');
+      if (firstSegment) {
+        prefixes.add(`${firstSegment}/`);
+      }
+    }
+
+    return prefixes;
+  }
+
+  function filterIgnoredStatusLines(worktreePath, lines, options = {}) {
+    if (!options.ignoreManagedWorktreeDirs) {
+      return lines;
+    }
+
+    const prefixes = getManagedWorktreePrefixes(worktreePath);
+    if (prefixes.size === 0) {
+      return lines;
+    }
+
+    return lines.filter((line) => {
+      const filePath = String(line || '').slice(3).trim().replace(/\\/g, '/');
+      if (!filePath) {
+        return true;
+      }
+      return ![...prefixes].some((prefix) => filePath === prefix || filePath.startsWith(prefix));
+    });
+  }
+
+  function getWorktreeStatusPorcelain(worktreePath, options = {}) {
+    const raw = String(runGit(worktreePath, ['status', '--porcelain'])).trim();
+    if (!raw) {
+      return '';
+    }
+
+    return filterIgnoredStatusLines(worktreePath, raw.split(/\r?\n/), options).join('\n').trim();
   }
 
   function renormalizeLineEndings(worktreePath) {
@@ -530,11 +572,29 @@ function createWorktreeManager({ db } = {}) {
     }
   }
 
-  function hasUntrackedFiles(worktreePath) {
+  function listUntrackedFiles(worktreePath, options = {}) {
     const output = String(runGit(worktreePath, [
       'ls-files', '--others', '--exclude-standard',
     ])).trim();
-    return output.length > 0;
+    if (!output) {
+      return [];
+    }
+
+    const files = output.split(/\r?\n/).filter(Boolean).map((filePath) => filePath.replace(/\\/g, '/'));
+    if (!options.ignoreManagedWorktreeDirs) {
+      return files;
+    }
+
+    const prefixes = getManagedWorktreePrefixes(worktreePath);
+    if (prefixes.size === 0) {
+      return files;
+    }
+
+    return files.filter((filePath) => ![...prefixes].some((prefix) => filePath === prefix || filePath.startsWith(prefix)));
+  }
+
+  function hasUntrackedFiles(worktreePath, options = {}) {
+    return listUntrackedFiles(worktreePath, options).length > 0;
   }
 
   function detectInProgressGitOperation(worktreePath) {
@@ -581,10 +641,6 @@ function createWorktreeManager({ db } = {}) {
     if (!fs.existsSync(worktreePath)) {
       return;
     }
-    const status = getWorktreeStatusPorcelain(worktreePath);
-    if (!status) {
-      return;
-    }
 
     // Short-circuit on in-progress git operations. If the repo is mid-merge,
     // mid-rebase, mid-cherry-pick, or mid-revert, the pre-merge cleanup path
@@ -592,9 +648,9 @@ function createWorktreeManager({ db } = {}) {
     // iteration because `git commit` refuses to commit while conflict
     // markers are unresolved. The factory retried this ~1/min against bitsy
     // master on 2026-04-20 until the operator noticed. Distinct error +
-    // code lets LEARN pause the project immediately. This check runs after
-    // the porcelain check (cheap short-circuit when the repo is clean) but
-    // before renormalize/auto-commit (which would no-op on UU anyway).
+    // code lets LEARN pause the project immediately. This must run before
+    // the porcelain short-circuit because merge/rebase marker files can be
+    // present even when the working tree itself looks clean.
     const inProgressOp = detectInProgressGitOperation(worktreePath);
     if (inProgressOp) {
       const err = new Error(
@@ -606,6 +662,12 @@ function createWorktreeManager({ db } = {}) {
       err.op = inProgressOp;
       err.path = worktreePath;
       throw err;
+    }
+
+    const ignoreManagedWorktreeDirs = action === 'merge-target';
+    const status = getWorktreeStatusPorcelain(worktreePath, { ignoreManagedWorktreeDirs });
+    if (!status) {
+      return;
     }
 
     // First attempt: renormalize line endings and commit the bookkeeping
@@ -621,7 +683,7 @@ function createWorktreeManager({ db } = {}) {
     // against HEAD is CR-at-EOL + whitespace drift AND there are no
     // untracked files. The merge only cares about committed history;
     // drift in the feature worktree doesn't affect what lands on main.
-    if (!hasSemanticDiffAgainstHead(worktreePath) && !hasUntrackedFiles(worktreePath)) {
+    if (!hasSemanticDiffAgainstHead(worktreePath) && !hasUntrackedFiles(worktreePath, { ignoreManagedWorktreeDirs })) {
       return;
     }
 
@@ -662,8 +724,7 @@ function createWorktreeManager({ db } = {}) {
 
       const changedOut = String(runGit(worktreePath, ['diff', '--name-only', 'HEAD'])).trim();
       const changed = changedOut ? changedOut.split(/\r?\n/).filter(Boolean) : [];
-      const untrackedOut = String(runGit(worktreePath, ['ls-files', '--others', '--exclude-standard'])).trim();
-      const untracked = untrackedOut ? untrackedOut.split(/\r?\n/).filter(Boolean) : [];
+      const untracked = listUntrackedFiles(worktreePath, { ignoreManagedWorktreeDirs });
 
       // Filter to semantic changes only (skip pure CRLF drift)
       const semantic = changed.filter((p) => {
@@ -729,7 +790,7 @@ function createWorktreeManager({ db } = {}) {
     }
 
     // Final check after cleanup commit.
-    if (!hasSemanticDiffAgainstHead(worktreePath) && !hasUntrackedFiles(worktreePath)) {
+    if (!hasSemanticDiffAgainstHead(worktreePath) && !hasUntrackedFiles(worktreePath, { ignoreManagedWorktreeDirs })) {
       return;
     }
     if (!getWorktreeStatusPorcelain(worktreePath)) {

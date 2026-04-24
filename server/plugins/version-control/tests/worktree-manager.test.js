@@ -434,45 +434,60 @@ describe('version-control worktree manager', () => {
       cleaned: false,
     });
 
-    // Call sequence: (1) assertClean(worktree), (2) rev-list ahead check,
-    // (3) assertClean(repo — merge-target), (4) rebase, (5) checkout, (6) merge
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
+    // Call sequence: (1) git-dir probe, (2) assertClean(worktree),
+    // (3) rev-list ahead check, (4) git-dir probe for merge-target,
+    // (5) assertClean(repo — merge-target), (6) rebase, (7) checkout, (8) merge
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['rev-parse', '--git-dir'], {
       cwd: worktreePath,
       encoding: 'utf8',
       windowsHide: true,
       timeout: 30000,
       killSignal: 'SIGKILL',
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['rev-list', '--count', 'release..feat/api-sync'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: 30000,
-      killSignal: 'SIGKILL',
-    });
-    // Call 3: assertWorktreeIsClean(repo_path, 'merge-target') — target-side cleanup
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['status', '--porcelain'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: 30000,
-      killSignal: 'SIGKILL',
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['rebase', 'release'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['status', '--porcelain'], {
       cwd: worktreePath,
       encoding: 'utf8',
       windowsHide: true,
       timeout: 30000,
       killSignal: 'SIGKILL',
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['checkout', 'release'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['rev-list', '--count', 'release..feat/api-sync'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
       timeout: 30000,
       killSignal: 'SIGKILL',
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['merge', '--ff-only', 'feat/api-sync'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['rev-parse', '--git-dir'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    // Call 5: assertWorktreeIsClean(repo_path, 'merge-target') — target-side cleanup
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['status', '--porcelain'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['rebase', 'release'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(7, 'git', ['checkout', 'release'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(8, 'git', ['merge', '--ff-only', 'feat/api-sync'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
@@ -529,51 +544,72 @@ describe('version-control worktree manager', () => {
         status: 'merged',
       }),
     });
-    // Call sequence includes assertClean(repo_path, 'merge-target') at position 3
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
+    // Call sequence includes git-dir probes before each cleanliness check.
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['rev-parse', '--git-dir'], {
       cwd: worktreePath,
       encoding: 'utf8',
       windowsHide: true,
       timeout: 30000,
       killSignal: 'SIGKILL',
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['rev-list', '--count', 'main..feat/cleanup-fail'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: 30000,
-      killSignal: 'SIGKILL',
-    });
-    // Call 3: target-side cleanup check
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['status', '--porcelain'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: 30000,
-      killSignal: 'SIGKILL',
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['checkout', 'main'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: 30000,
-      killSignal: 'SIGKILL',
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['merge', '--no-ff', 'feat/cleanup-fail'], {
-      cwd: repoPath,
-      encoding: 'utf8',
-      windowsHide: true,
-      timeout: 30000,
-      killSignal: 'SIGKILL',
-    });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['status', '--porcelain'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['status', '--porcelain'], {
       cwd: worktreePath,
       encoding: 'utf8',
       windowsHide: true,
       timeout: 30000,
       killSignal: 'SIGKILL',
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(7, 'git', ['worktree', 'remove', '--force', worktreePath], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['rev-list', '--count', 'main..feat/cleanup-fail'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['rev-parse', '--git-dir'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    // Call 5: target-side cleanup check
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['status', '--porcelain'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(6, 'git', ['checkout', 'main'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(7, 'git', ['merge', '--no-ff', 'feat/cleanup-fail'], {
+      cwd: repoPath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(8, 'git', ['rev-parse', '--git-dir'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(9, 'git', ['status', '--porcelain'], {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(10, 'git', ['worktree', 'remove', '--force', worktreePath], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
@@ -607,28 +643,35 @@ describe('version-control worktree manager', () => {
       warnings: [],
     });
 
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['status', '--porcelain'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(1, 'git', ['rev-parse', '--git-dir'], {
       cwd: path.join(repoPath, '.worktrees', 'feat-cleanup'),
       encoding: 'utf8',
       windowsHide: true,
       timeout: 30000,
       killSignal: 'SIGKILL',
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['worktree', 'remove', '--force', path.join(repoPath, '.worktrees', 'feat-cleanup')], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(2, 'git', ['status', '--porcelain'], {
+      cwd: path.join(repoPath, '.worktrees', 'feat-cleanup'),
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 30000,
+      killSignal: 'SIGKILL',
+    });
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['worktree', 'remove', '--force', path.join(repoPath, '.worktrees', 'feat-cleanup')], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
       timeout: 30000,
       killSignal: 'SIGKILL',
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(3, 'git', ['worktree', 'prune'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['worktree', 'prune'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,
       timeout: 30000,
       killSignal: 'SIGKILL',
     });
-    expect(execFileSyncMock).toHaveBeenNthCalledWith(4, 'git', ['branch', '-D', 'feat/cleanup'], {
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(5, 'git', ['branch', '-D', 'feat/cleanup'], {
       cwd: repoPath,
       encoding: 'utf8',
       windowsHide: true,

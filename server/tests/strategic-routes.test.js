@@ -352,7 +352,17 @@ describe('strategic dashboard routes', () => {
       expect(ollama.health_status).toBe('degraded');
     });
 
-    it('marks healthy providers as healthy', () => {
+    it('marks zero-failure providers as healthy', () => {
+      getProviderHealthSpy.mockImplementation((provider) => {
+        const healthMap = {
+          codex: { successes: 18, failures: 0, failureRate: 0 },
+          ollama: { successes: 6, failures: 4, failureRate: 0.4 },
+          deepinfra: { successes: 5, failures: 0, failureRate: 0 },
+          groq: { successes: 0, failures: 0, failureRate: 0 },
+        };
+        return healthMap[provider] || { successes: 0, failures: 0, failureRate: 0 };
+      });
+
       const { res } = createMockRes();
       strategic.handleGetProviderHealth({}, res);
       const data = parseJsonBody(res.body);
