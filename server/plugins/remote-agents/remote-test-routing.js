@@ -1,7 +1,7 @@
 'use strict';
 
 const { spawnSync, spawn } = require('child_process');
-const { resolveWindowsPowerShellEnv } = require('../../utils/windows-powershell-env');
+const { prepareLocalVerifyEnv } = require('../../utils/local-verify-env');
 const { killProcessGraceful } = require('../../execution/process-lifecycle');
 
 const SENSITIVE_ENV_PATTERNS = [
@@ -286,25 +286,29 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     // Local fallback
     logger.info(`[remote-routing] Running locally: ${command} ${args.join(' ')}`);
     const startMs = Date.now();
-    const childEnv = resolveWindowsPowerShellEnv([command, ...(args || [])].join(' '));
-    const spawnResult = spawnSync(command, args, {
-      cwd,
-      encoding: 'utf8',
-      timeout: options.timeout || 120000,
-      maxBuffer: 10 * 1024 * 1024,
-      windowsHide: true,
-      shell: true, // Required on Windows — npx/npm are .cmd files resolved via PATH
-      ...(childEnv ? { env: childEnv } : {}),
-    });
+    const preparedEnv = prepareLocalVerifyEnv([command, ...(args || [])].join(' '));
+    try {
+      const spawnResult = spawnSync(command, args, {
+        cwd,
+        encoding: 'utf8',
+        timeout: options.timeout || 120000,
+        maxBuffer: 10 * 1024 * 1024,
+        windowsHide: true,
+        shell: true, // Required on Windows — npx/npm are .cmd files resolved via PATH
+        ...(preparedEnv.env ? { env: preparedEnv.env } : {}),
+      });
 
-    return {
-      success: spawnResult.status === 0,
-      output: spawnResult.stdout || '',
-      error: spawnResult.stderr || '',
-      exitCode: spawnResult.status ?? 1,
-      durationMs: Date.now() - startMs,
-      remote: false,
-    };
+      return {
+        success: spawnResult.status === 0,
+        output: spawnResult.stdout || '',
+        error: spawnResult.stderr || '',
+        exitCode: spawnResult.status ?? 1,
+        durationMs: Date.now() - startMs,
+        remote: false,
+      };
+    } finally {
+      preparedEnv.cleanup();
+    }
   }
 
   /**
@@ -386,67 +390,70 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     logger.info(`[remote-routing] Running locally (async): ${command}`);
     const startMs = Date.now();
     const timeout = options.timeout || 300000; // 5 minutes default
+    const preparedEnv = prepareLocalVerifyEnv(command);
+    try {
+      const localResult = await new Promise((resolve) => {
+        let stdout = '';
+        let stderr = '';
+        let timedOut = false;
+        let settled = false;
 
-    const localResult = await new Promise((resolve) => {
-      let stdout = '';
-      let stderr = '';
-      let timedOut = false;
-      let settled = false;
+        const child = spawn(command, {
+          cwd,
+          windowsHide: true,
+          shell: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          ...(preparedEnv.env ? { env: preparedEnv.env } : {}),
+        });
 
-      const childEnv = resolveWindowsPowerShellEnv(command);
-      const child = spawn(command, {
-        cwd,
-        windowsHide: true,
-        shell: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        ...(childEnv ? { env: childEnv } : {}),
-      });
+        child.stdout.setEncoding('utf8');
+        child.stderr.setEncoding('utf8');
 
-      child.stdout.setEncoding('utf8');
-      child.stderr.setEncoding('utf8');
+        // Cap buffer at 10MB
+        const MAX_BUF = 10 * 1024 * 1024;
+        child.stdout.on('data', (d) => { if (stdout.length < MAX_BUF) stdout += d; });
+        child.stderr.on('data', (d) => { if (stderr.length < MAX_BUF) stderr += d; });
 
-      // Cap buffer at 10MB
-      const MAX_BUF = 10 * 1024 * 1024;
-      child.stdout.on('data', (d) => { if (stdout.length < MAX_BUF) stdout += d; });
-      child.stderr.on('data', (d) => { if (stderr.length < MAX_BUF) stderr += d; });
+        const timer = setTimeout(() => {
+          timedOut = true;
+          killProcessGraceful({ process: child }, 'verify-local', 5000, 'remote-routing');
+        }, timeout);
 
-      const timer = setTimeout(() => {
-        timedOut = true;
-        killProcessGraceful({ process: child }, 'verify-local', 5000, 'remote-routing');
-      }, timeout);
+        child.on('close', (code) => {
+          clearTimeout(timer);
+          if (settled) return;
+          settled = true;
+          resolve({
+            success: !timedOut && code === 0,
+            output: stdout,
+            error: timedOut ? `Verify command timed out after ${Math.round(timeout / 1000)}s` : stderr,
+            exitCode: timedOut ? 124 : (code ?? 1),
+            durationMs: Date.now() - startMs,
+            remote: false,
+            timedOut,
+          });
+        });
 
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        if (settled) return;
-        settled = true;
-        resolve({
-          success: !timedOut && code === 0,
-          output: stdout,
-          error: timedOut ? `Verify command timed out after ${Math.round(timeout / 1000)}s` : stderr,
-          exitCode: timedOut ? 124 : (code ?? 1),
-          durationMs: Date.now() - startMs,
-          remote: false,
-          timedOut,
+        child.on('error', (err) => {
+          clearTimeout(timer);
+          if (settled) return;
+          settled = true;
+          resolve({
+            success: false,
+            output: stdout,
+            error: err.message || 'spawn error',
+            exitCode: 1,
+            durationMs: Date.now() - startMs,
+            remote: false,
+            timedOut: false,
+          });
         });
       });
 
-      child.on('error', (err) => {
-        clearTimeout(timer);
-        if (settled) return;
-        settled = true;
-        resolve({
-          success: false,
-          output: stdout,
-          error: err.message || 'spawn error',
-          exitCode: 1,
-          durationMs: Date.now() - startMs,
-          remote: false,
-          timedOut: false,
-        });
-      });
-    });
-
-    return localResult;
+      return localResult;
+    } finally {
+      preparedEnv.cleanup();
+    }
   }
 
   return { runRemoteOrLocal, runVerifyCommand, getRemoteConfig, getCurrentBranch };

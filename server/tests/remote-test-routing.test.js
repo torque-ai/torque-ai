@@ -636,6 +636,38 @@ describe('remote-test-routing', () => {
     );
   });
 
+  it('runVerifyCommand isolates pytest temp roots for local Windows verifies', async () => {
+    if (process.platform !== 'win32') {
+      return;
+    }
+
+    const router = remoteTestRouting.createRemoteTestRouter({
+      agentRegistry: createAgentRegistry(),
+      db: createDb(),
+      logger: createLogger(),
+    });
+    mockSpawn.mockReturnValueOnce(createMockChildProcess({
+      code: 0,
+      stdout: 'pytest ok\n',
+    }));
+
+    await router.runVerifyCommand('py -3.12 -m pytest tests/ -q', '/repo');
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'py -3.12 -m pytest tests/ -q',
+      expect.objectContaining({
+        cwd: '/repo',
+        env: expect.objectContaining({
+          TEMP: expect.stringContaining('torque-verify-runtime'),
+          TMP: expect.stringContaining('torque-verify-runtime'),
+          TMPDIR: expect.stringContaining('torque-verify-runtime'),
+        }),
+      }),
+    );
+    const spawnEnv = mockSpawn.mock.calls.at(-1)?.[1]?.env || {};
+    expect(spawnEnv.PYTEST_DEBUG_TEMPROOT).toBeUndefined();
+  });
+
   it('runVerifyCommand resolves async local failure output', async () => {
     const router = remoteTestRouting.createRemoteTestRouter({
       agentRegistry: createAgentRegistry(),

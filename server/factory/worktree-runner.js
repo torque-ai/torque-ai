@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const { spawn } = require('child_process');
+const { prepareLocalVerifyEnv } = require('../utils/local-verify-env');
 
 const CHILD_CLOSE_GRACE_MS = 250;
 
@@ -242,16 +243,22 @@ async function defaultRunLocalVerify({ branch, command, cwd, logger, fallbackRea
       fallback_reason: fallbackReason || null,
     });
   }
-  const result = await spawnInSystemShellAsync(command, {
-    cwd: resolvedCwd,
-    timeout: 30 * 60 * 1000,
-  });
-  return {
-    exitCode: typeof result.status === 'number' ? result.status : 1,
-    stdout: result.stdout || '',
-    stderr: result.stderr || '',
-    error: result.error ? result.error.message : null,
-  };
+  const preparedEnv = prepareLocalVerifyEnv(command);
+  try {
+    const result = await spawnInSystemShellAsync(command, {
+      cwd: resolvedCwd,
+      timeout: 30 * 60 * 1000,
+      ...(preparedEnv.env ? { env: preparedEnv.env } : {}),
+    });
+    return {
+      exitCode: typeof result.status === 'number' ? result.status : 1,
+      stdout: result.stdout || '',
+      stderr: result.stderr || '',
+      error: result.error ? result.error.message : null,
+    };
+  } finally {
+    preparedEnv.cleanup();
+  }
 }
 
 // Fix 3: count commits on `branch` that are not on `baseBranch`. Used as a
