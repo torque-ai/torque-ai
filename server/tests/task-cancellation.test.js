@@ -283,6 +283,24 @@ describe('task-cancellation', () => {
       expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
     });
 
+    it('cancels pending approval tasks', () => {
+      const fullId = 'pending-approval-task';
+      deps.db.resolveTaskId.mockReturnValue(fullId);
+      deps.db.getTask.mockReturnValue({ id: fullId, status: 'pending_approval' });
+
+      const result = handler.cancelTask(fullId);
+
+      expect(result).toBe(true);
+      expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'cancelled', {
+        error_output: 'Cancelled by user',
+        cancel_reason: 'user',
+      });
+      expect(deps.db.releaseAllFileLocks).toHaveBeenCalledWith(fullId);
+      expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'cancelled');
+      expect(deps.handleWorkflowTermination).toHaveBeenCalledWith(fullId);
+      expect(deps.processQueue).not.toHaveBeenCalled();
+    });
+
     it('cancels running tasks without process in memory (decrements host slot)', () => {
       const fullId = 'orphan-running';
       deps.db.resolveTaskId.mockReturnValue(fullId);

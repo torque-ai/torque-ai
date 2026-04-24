@@ -146,7 +146,7 @@ describe('handleV2TaskCancel — running task with taskManager', () => {
       .mockReturnValueOnce(taskRow)   // getV2TaskStatusRow (pre-cancel lookup)
       .mockReturnValueOnce({ ...taskRow, status: 'cancelled' }); // getV2TaskStatusRow (post-cancel lookup)
 
-    const mockTaskManager = { cancelTask: vi.fn() };
+    const mockTaskManager = { cancelTask: vi.fn().mockReturnValue(true) };
     setV2TaskManager(mockTaskManager);
 
     const res = createMockRes();
@@ -159,6 +159,26 @@ describe('handleV2TaskCancel — running task with taskManager', () => {
     expect(statusCode).toBe(200);
     expect(data.cancelled).toBe(true);
     expect(data.task_id).toBe('task-run');
+  });
+
+  it('cancels pending approval tasks when the row lands in cancelled', async () => {
+    const taskRow = { id: 'task-held', status: 'pending_approval', provider: 'codex', model: null };
+    mockTaskCore.getTask
+      .mockReturnValueOnce(taskRow)
+      .mockReturnValueOnce({ ...taskRow, status: 'cancelled' });
+
+    const mockTaskManager = { cancelTask: vi.fn().mockReturnValue(true) };
+    setV2TaskManager(mockTaskManager);
+
+    const res = createMockRes();
+    await handleV2TaskCancel(null, res, { requestId: 'req-003b' }, 'task-held', null);
+
+    expect(mockTaskManager.cancelTask).toHaveBeenCalledWith('task-held', 'Task cancelled by request');
+
+    const { statusCode, data } = parseLastResponse(res);
+    expect(statusCode).toBe(200);
+    expect(data.cancelled).toBe(true);
+    expect(data.status).toBe('cancelled');
   });
 
   it('does NOT call db.updateTaskStatus when taskManager is available', async () => {
@@ -177,6 +197,25 @@ describe('handleV2TaskCancel — running task with taskManager', () => {
     expect(mockTaskManager.cancelTask).toHaveBeenCalledTimes(1);
     expect(updateSpy).not.toHaveBeenCalled();
   });
+
+  it('returns 409 when taskManager reports no cancellation and the task stays non-terminal', async () => {
+    const taskRow = { id: 'task-stale', status: 'pending_approval', provider: 'codex', model: null };
+    mockTaskCore.getTask
+      .mockReturnValueOnce(taskRow)
+      .mockReturnValueOnce(taskRow);
+
+    const mockTaskManager = { cancelTask: vi.fn().mockReturnValue(false) };
+    setV2TaskManager(mockTaskManager);
+
+    const res = createMockRes();
+    await handleV2TaskCancel(null, res, { requestId: 'req-004b' }, 'task-stale', null);
+
+    const { statusCode, data } = parseLastResponse(res);
+    expect(statusCode).toBe(409);
+    expect(data.error.code).toBe('invalid_status');
+    expect(data.error.message).toBe('Task status changed before cancellation could be applied');
+    expect(data.cancelled).toBeUndefined();
+  });
 });
 
 // ─── Fallback: no taskManager — uses db.updateTaskStatus ─────────────────────
@@ -194,7 +233,10 @@ describe('handleV2TaskCancel — running task without taskManager', () => {
     const res = createMockRes();
     await handleV2TaskCancel(null, res, { requestId: 'req-005' }, 'task-run3', null);
 
-    expect(updateSpy).toHaveBeenCalledWith('task-run3', 'cancelled', { error_output: 'Task cancelled by request' });
+    expect(updateSpy).toHaveBeenCalledWith('task-run3', 'cancelled', {
+      error_output: 'Task cancelled by request',
+      cancel_reason: 'user',
+    });
     const { statusCode, data } = parseLastResponse(res);
     expect(statusCode).toBe(200);
     expect(data.cancelled).toBe(true);

@@ -642,17 +642,35 @@ async function handleCancelTask(req, res) {
 
   try {
     const body = req.body || {};
+    const cancelReason = body.reason || 'Cancelled via REST API';
+    let cancelled = false;
     if (_taskManager) {
-      _taskManager.cancelTask(task.id, body.reason || 'Cancelled via REST API');
+      cancelled = _taskManager.cancelTask(task.id, cancelReason);
     } else {
-      taskCore.updateTaskStatus(task.id, 'cancelled');
+      const updatedTask = taskCore.updateTaskStatus(task.id, 'cancelled', {
+        error_output: cancelReason,
+        cancel_reason: 'user',
+      });
+      cancelled = Boolean(updatedTask ? updatedTask.status === 'cancelled' : true);
     }
     const updated = taskCore.getTask(task.id);
+    if (!cancelled || !updated || updated.status !== 'cancelled') {
+      return sendError(
+        res,
+        requestId,
+        'invalid_status',
+        'Task status changed before cancellation could be applied',
+        409,
+        { task_id: task.id, status: updated?.status || task.status },
+        req,
+      );
+    }
+    emitTaskUpdated(task.id, updated.status);
 
     sendSuccess(res, requestId, {
       task_id: task.id,
       cancelled: true,
-      status: updated?.status || 'cancelled',
+      status: updated.status,
     }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
