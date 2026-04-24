@@ -322,13 +322,7 @@ async function handleHostActivity(req, res) {
     }
   }
 
-  // Narrow projection — we only need id, ollama_host_id, model to key the
-  // GPU-status map. Skips the multi-MB error_output columns.
-  const runningTasks = taskCore.listTasks({
-    status: 'running',
-    limit: 100,
-    columns: taskCore.TASK_HOST_COLUMNS,
-  });
+  const runningTasks = taskCore.listTasks({ status: 'running', limit: 100 });
   const taskList = runningTasks.tasks || runningTasks;
   const taskGpuStatus = {};
   for (const t of (Array.isArray(taskList) ? taskList : [])) {
@@ -603,13 +597,7 @@ function handleProviderPercentiles(req, res, query, providerId) {
   const days = parseInt(query.days, 10) || 7;
   const since = new Date(Date.now() - days * 86400000).toISOString();
   try {
-    // Percentiles only need id + timestamps; skip the heavy TEXT blobs.
-    const tasks = taskCore.listTasks({
-      provider: providerId,
-      since,
-      limit: 1000,
-      columns: taskCore.TASK_TIMING_COLUMNS,
-    });
+    const tasks = taskCore.listTasks({ provider: providerId, since, limit: 1000 });
     const taskList = Array.isArray(tasks) ? tasks : (tasks.tasks || []);
     const durations = taskList
       .filter(t => t.completed_at && t.started_at)

@@ -240,35 +240,40 @@ function handleQualityStats(req, res, query) {
 function handleStuckTasks(req, res, query) {
   const now = Date.now();
 
-  // Rows are serialized to the client (.slice(0,10) below) — use the standard
-  // list projection so we skip the heavy output/error_output/context blobs.
-  const listOpts = (status) => ({ status, limit: 50, columns: taskCore.TASK_LIST_COLUMNS });
-
   // Tasks pending approval for >15 minutes
   const pendingApprovalThreshold = 15 * 60 * 1000;
-  const pendingApproval = taskCore.listTasks(listOpts('pending_approval'))
-    .filter(t => {
-      const createdAt = new Date(t.created_at).getTime();
-      return (now - createdAt) > pendingApprovalThreshold;
-    }).map(enrichTaskWithHostName);
+  const pendingApproval = taskCore.listTasks({
+    status: 'pending_approval',
+    limit: 50,
+  }).filter(t => {
+    const createdAt = new Date(t.created_at).getTime();
+    return (now - createdAt) > pendingApprovalThreshold;
+  }).map(enrichTaskWithHostName);
 
   // Tasks pending provider switch for >15 minutes
-  const pendingSwitch = taskCore.listTasks(listOpts('pending_provider_switch'))
-    .filter(t => {
-      const createdAt = new Date(t.provider_switched_at || t.created_at).getTime();
-      return (now - createdAt) > pendingApprovalThreshold;
-    }).map(enrichTaskWithHostName);
+  const pendingSwitch = taskCore.listTasks({
+    status: 'pending_provider_switch',
+    limit: 50,
+  }).filter(t => {
+    const createdAt = new Date(t.provider_switched_at || t.created_at).getTime();
+    return (now - createdAt) > pendingApprovalThreshold;
+  }).map(enrichTaskWithHostName);
 
   // Tasks running for >30 minutes (potential stalls)
   const longRunningThreshold = 30 * 60 * 1000;
-  const longRunning = taskCore.listTasks(listOpts('running'))
-    .filter(t => {
-      const startedAt = new Date(t.started_at).getTime();
-      return (now - startedAt) > longRunningThreshold;
-    }).map(enrichTaskWithHostName);
+  const longRunning = taskCore.listTasks({
+    status: 'running',
+    limit: 50,
+  }).filter(t => {
+    const startedAt = new Date(t.started_at).getTime();
+    return (now - startedAt) > longRunningThreshold;
+  }).map(enrichTaskWithHostName);
 
   // Tasks in waiting status with failed dependencies
-  const waitingTasks = taskCore.listTasks(listOpts('waiting')).map(enrichTaskWithHostName);
+  const waitingTasks = taskCore.listTasks({
+    status: 'waiting',
+    limit: 50,
+  }).map(enrichTaskWithHostName);
 
   sendJson(res, {
     pendingApproval: {
@@ -519,7 +524,6 @@ function handleGetRecentOperations(_req, res, query) {
   const tasks = taskCore.listTasks ? taskCore.listTasks({
     limit,
     order: 'desc',
-    columns: taskCore.TASK_LIST_COLUMNS,
   }) : [];
 
   // Filter to strategic-related tasks (those submitted via strategic tools)
@@ -540,12 +544,10 @@ function handleGetRecentOperations(_req, res, query) {
 function handleGetRoutingDecisions(_req, res, query) {
   const limit = parseInt(query.limit, 10) || 50;
 
-  // Fetch recent tasks — smart-routed tasks have metadata.smart_routing=true or metadata.auto_routed=true.
-  // Narrow projection — we only read routing metadata + a short description slice.
+  // Fetch recent tasks — smart-routed tasks have metadata.smart_routing=true or metadata.auto_routed=true
   const rawTasks = taskCore.listTasks ? taskCore.listTasks({
     limit: limit * 3, // Over-fetch since we filter client-side
     order: 'desc',
-    columns: taskCore.TASK_ROUTING_DECISION_COLUMNS,
   }) : [];
 
   const taskList = Array.isArray(rawTasks) ? rawTasks : (rawTasks.tasks || []);
@@ -723,11 +725,7 @@ function handleQuotaAutoScale(req, res) {
 
     let codexQueueDepth = 0;
     try {
-      const queued = taskCore.listTasks({
-        status: 'queued',
-        limit: 1000,
-        columns: taskCore.TASK_PROVIDER_QUEUE_COLUMNS,
-      });
+      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 });
       const queuedArr = Array.isArray(queued) ? queued : (queued.tasks || []);
       codexQueueDepth = queuedArr.filter(t => {
         if (t.provider === 'codex') return true;

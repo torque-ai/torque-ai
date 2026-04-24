@@ -411,7 +411,7 @@ describe('exported route handlers', () => {
 
     await api.handleGetQuotaAutoScale(createMockRequest(), response);
 
-    expect(listTasksSpy).toHaveBeenCalledWith(expect.objectContaining({ status: 'queued', limit: 1000 }));
+    expect(listTasksSpy).toHaveBeenCalledWith({ status: 'queued', limit: 1000 });
     expect(response.statusCode).toBe(200);
     expect(parseJsonBody(response)).toEqual({
       status: 'ok',

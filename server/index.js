@@ -1453,11 +1453,7 @@ function init() {
   }
   queueProcessingInterval = timerRegistry.trackInterval(setInterval(() => {
     try {
-      // 5s poll — single-row COUNT(*) off the indexed status column beats
-      // listTasks({ limit: 1 }).length, which materializes a full task row.
-      const queuedCount = typeof db.countTasks === 'function'
-        ? db.countTasks({ status: 'queued' })
-        : db.listTasks({ status: 'queued', limit: 1 }).length;
+      const queuedCount = db.listTasks({ status: 'queued', limit: 1 }).length;
       if (queuedCount > 0) {
         taskManager.processQueue();
       }

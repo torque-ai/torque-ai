@@ -858,29 +858,6 @@ const LIST_TASKS_ALLOWED_COLUMNS = new Set([
   'reviewed_at', 'metadata', 'archived', 'task_metadata', 'partial_output', 'resume_context',
 ]);
 
-// Shared column projections for dashboard/REST callers. Using named sets keeps the
-// same shape across handlers so buildTaskResponse et al. see consistent inputs.
-//
-// Heavy columns deliberately excluded from all of these:
-//   output, error_output, context, partial_output, resume_context, task_metadata.
-// On the live 3.7 GB tasks.db these are where the cost lives — single rows carry
-// up to 10 MB of error_output, so `SELECT *` drags tens of megabytes off disk
-// per handler call just to drop them during serialization.
-const TASK_LIST_COLUMNS = Object.freeze([
-  'id', 'status', 'task_description', 'provider', 'model',
-  'working_directory', 'exit_code', 'priority', 'auto_approve',
-  'timeout_minutes', 'progress_percent', 'ollama_host_id',
-  'files_modified', 'created_at', 'started_at', 'completed_at',
-  'original_provider', 'provider_switched_at', 'project', 'tags', 'metadata',
-]);
-const TASK_TIMING_COLUMNS = Object.freeze(['id', 'completed_at', 'started_at']);
-const TASK_HOST_COLUMNS = Object.freeze(['id', 'ollama_host_id', 'model']);
-const TASK_ROUTING_DECISION_COLUMNS = Object.freeze([
-  'id', 'status', 'provider', 'model', 'complexity',
-  'created_at', 'task_description', 'metadata',
-]);
-const TASK_PROVIDER_QUEUE_COLUMNS = Object.freeze(['id', 'provider', 'metadata']);
-
 /**
  * List tasks with optional filtering.
  *
@@ -1652,12 +1629,6 @@ module.exports = {
   setDb,
   setDbClosed,
   setExternalFns,
-  // Shared column-projection constants for list/count callers
-  TASK_LIST_COLUMNS,
-  TASK_TIMING_COLUMNS,
-  TASK_HOST_COLUMNS,
-  TASK_ROUTING_DECISION_COLUMNS,
-  TASK_PROVIDER_QUEUE_COLUMNS,
   // Task CRUD
   createTask,
   ensureProjectRegistered,

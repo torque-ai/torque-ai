@@ -38,14 +38,7 @@ function handleListTasks(req, res, query) {
   filters.orderBy = orderBy;
   filters.orderDir = orderDir;
 
-  // Legacy v1 list — dashboard uses /api/v2/tasks now, but this compat shim is
-  // still reachable. Column projection skips the multi-MB error_output blobs.
-  const tasks = taskCore.listTasks({
-    ...filters,
-    limit,
-    offset,
-    columns: taskCore.TASK_LIST_COLUMNS,
-  }).map(enrichTaskWithHostName);
+  const tasks = taskCore.listTasks({ ...filters, limit, offset }).map(enrichTaskWithHostName);
   const total = taskCore.countTasks(filters);
 
   sendJson(res, {

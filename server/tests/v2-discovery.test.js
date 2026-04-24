@@ -155,7 +155,7 @@ describe('v2 provider discovery routes', () => {
       enabled: true,
       default: false,
       local: true,
-      status: 'warning',
+      status: 'degraded',
     });
     expect(ollama.features).toEqual([
       'chat',
