@@ -3,48 +3,100 @@
 const fs = require('fs');
 const { spawn } = require('child_process');
 
+const CHILD_CLOSE_GRACE_MS = 250;
+
+function spawnTrackedProcessAsync(cmd, args, options = {}, spawnImpl = spawn) {
+  return new Promise((resolve) => {
+    const child = spawnImpl(cmd, args, { ...options, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    let timer = null;
+    let exitFallbackTimer = null;
+    let timedOut = false;
+    let settled = false;
+    let exitCode = null;
+    let exitSignal = null;
+
+    const finish = ({ status, error = null, signal = exitSignal }) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (exitFallbackTimer) clearTimeout(exitFallbackTimer);
+      resolve({
+        status: typeof status === 'number' ? status : 1,
+        stdout,
+        stderr,
+        error,
+        signal,
+      });
+    };
+
+    const scheduleExitFallback = () => {
+      if (settled || exitFallbackTimer) return;
+      exitFallbackTimer = setTimeout(() => {
+        const error = timedOut ? { message: `timeout after ${options.timeout}ms` } : null;
+        finish({
+          status: exitCode,
+          error,
+          signal: exitSignal,
+        });
+      }, CHILD_CLOSE_GRACE_MS);
+    };
+
+    if (options.timeout && options.timeout > 0) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        try { child.kill('SIGKILL'); } catch (_e) { void _e; }
+        scheduleExitFallback();
+      }, options.timeout);
+    }
+
+    child.stdout?.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
+    child.stderr?.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    child.on('error', (err) => {
+      finish({ status: 1, error: err });
+    });
+    child.on('exit', (code, signal) => {
+      exitCode = typeof code === 'number' ? code : 1;
+      exitSignal = signal;
+      scheduleExitFallback();
+    });
+    child.on('close', (code, signal) => {
+      exitCode = typeof code === 'number' ? code : (typeof exitCode === 'number' ? exitCode : 1);
+      exitSignal = signal || exitSignal;
+      const error = timedOut ? { message: `timeout after ${options.timeout}ms` } : null;
+      finish({
+        status: exitCode,
+        error,
+        signal: exitSignal,
+      });
+    });
+  });
+}
+
 // Async variant of spawnInBash that returns a Promise — used for verify
 // commands that can run up to 30 minutes. spawnSync would block the Node
 // event loop for the entire duration, freezing all HTTP responses and
 // other factory loops.
 function spawnInBashAsync(bashCmd, options = {}) {
-  return new Promise((resolve) => {
-    let cmd, args;
-    if (process.platform === 'win32') {
-      const bashPath = resolveBashOnWindows();
-      if (!bashPath) {
-        resolve({ status: 1, stdout: '', stderr: 'Git Bash not found on this Windows host', error: { message: 'bash_not_found' } });
-        return;
-      }
-      cmd = bashPath;
-      args = ['-lc', bashCmd];
-    } else {
-      cmd = 'bash';
-      args = ['-lc', bashCmd];
+  let cmd, args;
+  if (process.platform === 'win32') {
+    const bashPath = resolveBashOnWindows();
+    if (!bashPath) {
+      return Promise.resolve({
+        status: 1,
+        stdout: '',
+        stderr: 'Git Bash not found on this Windows host',
+        error: { message: 'bash_not_found' },
+      });
     }
-    const child = spawn(cmd, args, { ...options, windowsHide: true });
-    let stdout = '';
-    let stderr = '';
-    let timer = null;
-    let timedOut = false;
-    if (options.timeout && options.timeout > 0) {
-      timer = setTimeout(() => {
-        timedOut = true;
-        try { child.kill('SIGKILL'); } catch (_e) { void _e; }
-      }, options.timeout);
-    }
-    child.stdout?.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
-    child.stderr?.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
-    child.on('error', (err) => {
-      if (timer) clearTimeout(timer);
-      resolve({ status: 1, stdout, stderr, error: err });
-    });
-    child.on('close', (code, signal) => {
-      if (timer) clearTimeout(timer);
-      const error = timedOut ? { message: `timeout after ${options.timeout}ms` } : null;
-      resolve({ status: typeof code === 'number' ? code : 1, stdout, stderr, error, signal });
-    });
-  });
+    cmd = bashPath;
+    args = ['-lc', bashCmd];
+  } else {
+    cmd = 'bash';
+    args = ['-lc', bashCmd];
+  }
+  return spawnTrackedProcessAsync(cmd, args, options);
 }
 
 // Resolve the system shell binary + args for the given platform. On Windows
@@ -60,31 +112,8 @@ function resolveSystemShellCommand(platform, command) {
 }
 
 function spawnInSystemShellAsync(command, options = {}) {
-  return new Promise((resolve) => {
-    const { cmd, args } = resolveSystemShellCommand(process.platform, command);
-    const child = spawn(cmd, args, { ...options, windowsHide: true });
-    let stdout = '';
-    let stderr = '';
-    let timer = null;
-    let timedOut = false;
-    if (options.timeout && options.timeout > 0) {
-      timer = setTimeout(() => {
-        timedOut = true;
-        try { child.kill('SIGKILL'); } catch (_e) { void _e; }
-      }, options.timeout);
-    }
-    child.stdout?.on('data', (chunk) => { stdout += chunk.toString('utf8'); });
-    child.stderr?.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
-    child.on('error', (err) => {
-      if (timer) clearTimeout(timer);
-      resolve({ status: 1, stdout, stderr, error: err });
-    });
-    child.on('close', (code, signal) => {
-      if (timer) clearTimeout(timer);
-      const error = timedOut ? { message: `timeout after ${options.timeout}ms` } : null;
-      resolve({ status: typeof code === 'number' ? code : 1, stdout, stderr, error, signal });
-    });
-  });
+  const { cmd, args } = resolveSystemShellCommand(process.platform, command);
+  return spawnTrackedProcessAsync(cmd, args, options);
 }
 
 function sanitizeSlug(title = '', maxLen = 40) {
@@ -448,4 +477,10 @@ module.exports = {
   resolveBranchName,
   detectDefaultBranch,
   resolveSystemShellCommand,
+  _internalForTests: {
+    CHILD_CLOSE_GRACE_MS,
+    spawnTrackedProcessAsync,
+    spawnInBashAsync,
+    spawnInSystemShellAsync,
+  },
 };

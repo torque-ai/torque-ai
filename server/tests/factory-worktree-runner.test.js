@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-const { createWorktreeRunner, sanitizeSlug, resolveSystemShellCommand } = require('../factory/worktree-runner');
+const { EventEmitter } = require('events');
+const {
+  createWorktreeRunner,
+  sanitizeSlug,
+  resolveSystemShellCommand,
+  _internalForTests,
+} = require('../factory/worktree-runner');
 
 function makeWorktreeManagerMock({ listSeed = [] } = {}) {
   const worktrees = [...listSeed];
@@ -73,6 +79,70 @@ describe('resolveSystemShellCommand', () => {
     const resolved = resolveSystemShellCommand('linux', 'echo hello');
     expect(resolved.cmd).toBe('sh');
     expect(resolved.args).toEqual(['-lc', 'echo hello']);
+  });
+});
+
+describe('async child process settlement', () => {
+  function createFakeChild() {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = vi.fn();
+    return child;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('resolves after exit even when close never arrives', async () => {
+    const child = createFakeChild();
+    const promise = _internalForTests.spawnTrackedProcessAsync(
+      'fake-cmd',
+      ['arg'],
+      {},
+      () => child,
+    );
+
+    child.stdout.emit('data', Buffer.from('verify ok'));
+    child.emit('exit', 0, null);
+
+    await vi.advanceTimersByTimeAsync(_internalForTests.CHILD_CLOSE_GRACE_MS);
+    const result = await promise;
+
+    expect(result).toMatchObject({
+      status: 0,
+      stdout: 'verify ok',
+      stderr: '',
+      error: null,
+      signal: null,
+    });
+  });
+
+  it('times out even when neither exit nor close fires', async () => {
+    const child = createFakeChild();
+    const promise = _internalForTests.spawnTrackedProcessAsync(
+      'fake-cmd',
+      ['arg'],
+      { timeout: 1000 },
+      () => child,
+    );
+
+    child.stderr.emit('data', Buffer.from('still waiting'));
+    await vi.advanceTimersByTimeAsync(1000 + _internalForTests.CHILD_CLOSE_GRACE_MS);
+    const result = await promise;
+
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+    expect(result).toMatchObject({
+      status: 1,
+      stdout: '',
+      stderr: 'still waiting',
+      error: { message: 'timeout after 1000ms' },
+    });
   });
 });
 
