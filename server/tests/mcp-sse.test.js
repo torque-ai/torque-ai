@@ -1072,4 +1072,56 @@ describe('MCP SSE Transport', () => {
       expect(response.statusCode).toBe(404);
     });
   });
+
+  describe('graceful shutdown', () => {
+    it('writes MCP server_restarting notification and SSE retry directive to every session before closing', async () => {
+      // Start the server so the handler is captured (no-op if already started by earlier tests).
+      await mcpSse.start({ port: 0 });
+
+      // Seed two fake sessions directly in the map, each with a mock res.
+      const seeded = [];
+      for (let i = 0; i < 2; i++) {
+        const { response } = createMockResponse();
+        const sessionId = `shutdown-test-${i}-${Date.now()}`;
+        const session = {
+          keepaliveTimer: null,
+          res: response,
+          toolMode: 'core',
+          authenticated: true,
+          pendingEvents: [],
+          eventFilter: new Set(['completed', 'failed']),
+          taskFilter: new Set(),
+          projectFilter: new Set(),
+          providerFilter: new Set(),
+          _sessionId: sessionId,
+          _remoteAddress: null,
+          _origin: null,
+          _eventCounter: 0,
+          _ip: null,
+        };
+        mcpSse.sessions.set(sessionId, session);
+        seeded.push({ sessionId, response });
+      }
+
+      mcpSse.stop();
+
+      for (const { response } of seeded) {
+        const body = response.getBody();
+        // Raw SSE retry directive — EventSource reconnect hint.
+        expect(body).toContain('retry: 2000');
+        // MCP JSON-RPC notification.
+        const jsonMatches = [...body.matchAll(/event: message\ndata: (.*)\n/g)];
+        const notifications = jsonMatches
+          .map((m) => JSON.parse(m[1]))
+          .filter((n) => n.method === 'notifications/message');
+        const shutdownNotif = notifications.find(
+          (n) => n?.params?.data?.type === 'server_restarting',
+        );
+        expect(shutdownNotif).toBeDefined();
+        expect(shutdownNotif.params.data.retry_after_ms).toBe(2000);
+        // res.end() must have been called.
+        expect(response.writableEnded).toBe(true);
+      }
+    });
+  });
 });
