@@ -216,7 +216,10 @@ function matchProviderByPattern(taskDescription, files, deps) {
 
   const groqApiKey = serverConfig.getApiKey('groq');
 
-  const isSecurityTask = /\b(security|vulnerab|audit|penetrat|auth|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i.test(taskDescription);
+  // Bare `auth` removed — matches `auth.js` filenames, wrongly steering testing
+  // tasks like "Write unit tests for auth.js" into security routing (claude-cli).
+  // Real auth-security contexts still match via other keywords (injection, credential, encrypt, owasp).
+  const isSecurityTask = /\b(security|vulnerab|audit|penetrat|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i.test(taskDescription);
   const isXamlTask = /\b(xaml|wpf|uwp|maui|avalonia)\b/i.test(taskDescription) ||
     (files && files.some(f => /\.xaml$/i.test(f)));
   const isArchitecturalTask = /\b(architect|refactor.*multi|redesign|migration strategy|system design)\b/i.test(taskDescription);

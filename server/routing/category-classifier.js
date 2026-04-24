@@ -70,7 +70,10 @@ const CATEGORY_META = {
 // prompts mention file paths and writing markdown.
 const PLAN_GENERATION_RE = /\b(generating an execution plan|execution plan for (a )?(single )?(factory )?work item|generate.*execution plan|## Task N:|auto-generated from work_item|Architect for a software factory|prioritize work items based on project health)\b/i;
 
-const SECURITY_RE = /\b(security|vulnerab|audit|penetrat|auth|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i;
+// Bare `auth` removed — matches `auth.js` in filenames, wrongly routing
+// "Write unit tests for auth.js" to security instead of targeted_file_edit.
+// Real auth-security contexts match other keywords (injection, vulnerab, credential, encrypt, owasp).
+const SECURITY_RE = /\b(security|vulnerab|audit|penetrat|encrypt|credential|secret|injection|xss|csrf|owasp)\b/i;
 const XAML_KEYWORD_RE = /\b(xaml|wpf|uwp|maui|avalonia)\b/i;
 const ARCHITECTURAL_RE = /\b(architect|refactor.*multi|redesign|migration strategy|system design)\b/i;
 const REASONING_RE = /\b(reasoning|reasoned|analyze|debug complex|root cause|review.*entire|explain.*architecture|deep.*analysis)\b/i;
