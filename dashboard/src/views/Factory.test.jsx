@@ -245,18 +245,23 @@ describe('Factory overview', () => {
 
     renderFactory();
 
+    // Selected project's full badge renders inside the right-pane
+    // ProjectCard. verify-alert is alertProjects[0] = the selected one.
     expect(screen.getByLabelText('Factory alert: Verify failures')).toBeInTheDocument();
-    expect(screen.getByLabelText('Factory alert: Factory stalled')).toBeInTheDocument();
-    expect(screen.getByLabelText('Factory alert: Factory idle')).toBeInTheDocument();
-    // Each project name renders twice — once in the ProjectCard title, once
-    // in the Active-loops summary list (Overview.jsx:269). Assert the project
-    // card exists without caring which list rendered it.
+
+    // Other keyed alerts surface as small dot indicators in their
+    // ProjectListRow with the alert label as aria-label.
+    expect(screen.getByLabelText('Factory stalled')).toBeInTheDocument();
+    expect(screen.getByLabelText('Factory idle')).toBeInTheDocument();
+
+    // Project name renders in the list row (always) and the detail card
+    // (selected only). Unkeyed-alert is in the list at minimum.
     expect(screen.getAllByText('Unkeyed Alert').length).toBeGreaterThan(0);
-    // 'Factory idle' should only appear once: as the badge label on the
-    // keyed idle-alert project. The unkeyed-alert project (alert_type
-    // 'FACTORY_IDLE' with no alert_key) must render no badge, so its
-    // FACTORY_IDLE label does not leak into the document.
-    expect(screen.getAllByText('Factory idle')).toHaveLength(1);
+
+    // The unkeyed FACTORY_IDLE alert (no alert_key) renders neither a
+    // badge nor a dot, so 'Factory idle' appears exactly once: as the
+    // dot aria-label on the keyed idle-alert project.
+    expect(screen.getAllByLabelText('Factory idle')).toHaveLength(1);
   });
 
   it('shows a placeholder on subtabs when no project is selected', async () => {
