@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import WorkflowSpecs from './WorkflowSpecs';
 
@@ -66,7 +65,6 @@ describe('WorkflowSpecs view', () => {
   });
 
   it('runs a spec when Run button clicked', async () => {
-    const user = userEvent.setup();
     workflowSpecs.list.mockResolvedValue({
       specs: [
         {
@@ -80,7 +78,7 @@ describe('WorkflowSpecs view', () => {
     workflowSpecs.run.mockResolvedValue({ workflow_id: 'wf-123' });
     renderView();
     await waitFor(() => expect(screen.getByText('deploy')).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /run/i }));
+    fireEvent.click(screen.getByRole('button', { name: /run/i }));
     await waitFor(() =>
       expect(workflowSpecs.run).toHaveBeenCalledWith('workflows/deploy.yaml', expect.anything())
     );
