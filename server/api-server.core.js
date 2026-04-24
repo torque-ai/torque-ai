@@ -156,6 +156,16 @@ const ROUTE_HANDLER_LOOKUP = createRouteHandlerLookup({
   handleBootstrapWorkstation: require('./plugins/remote-agents/bootstrap').handleBootstrapWorkstation,
 });
 
+// Fallback lookup: v2-dispatch.js has its own V2_CP_HANDLER_LOOKUP with some
+// handlers implemented inline (strategic/config/reset, routing/active PUT,
+// routing/categories). Port 3457 (api-server.core) and port 3456
+// (dashboard-server) went out of sync — handlers implemented in v2-dispatch
+// worked on 3456 but 500'd on 3457. Until the two tables are consolidated
+// (see #6), fall back to the v2-dispatch lookup for any handlerName that
+// ROUTE_HANDLER_LOOKUP doesn't know about. Same function signature on both
+// sides ((req, res, ctx, ...params, req)) so the forward is transparent.
+const { V2_CP_HANDLER_LOOKUP: V2_DISPATCH_FALLBACK_LOOKUP } = require('./api/v2-dispatch');
+
 const hasPiiScanRoute = routes.some((route) => route.method === PII_SCAN_ROUTE.method && route.path === PII_SCAN_ROUTE.path);
 if (!hasPiiScanRoute) {
   const shutdownRouteIndex = routes.findIndex((route) => route.method === 'POST' && route.path === '/api/shutdown');
@@ -171,10 +181,14 @@ function resolveApiRoutes(deps = {}) {
     .filter((route) => !isExcludedRoute(route));
   const resolvedRoutes = baseRoutes.map((route) => {
     if (!route.handler && route.handlerName) {
-      return {
-        ...route,
-        handler: ROUTE_HANDLER_LOOKUP[route.handlerName],
-      };
+      const primary = ROUTE_HANDLER_LOOKUP[route.handlerName];
+      // Fall back to v2-dispatch's own lookup for any handlerName that the
+      // primary table doesn't know about — keeps 3457 and 3456 consistent
+      // without requiring both tables to stay hand-synchronized.
+      const handler = typeof primary === 'function'
+        ? primary
+        : V2_DISPATCH_FALLBACK_LOOKUP[route.handlerName];
+      return { ...route, handler };
     }
     return route;
   });
