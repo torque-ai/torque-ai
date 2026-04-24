@@ -52,7 +52,7 @@ function getProviderHealthStatus(provider, runtimeHealth = null) {
     status = 'unavailable';
   } else if (!isHealthy) {
     status = 'degraded';
-  } else if (health.failures > 0) {
+  } else if (health.failureRate >= 0.1) {
     status = 'warning';
   }
 
