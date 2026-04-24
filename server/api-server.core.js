@@ -18,7 +18,7 @@ const v2GovernanceHandlers = require('./api/v2-governance-handlers');
 const v2AnalyticsHandlers = require('./api/v2-analytics-handlers');
 const v2InfrastructureHandlers = require('./api/v2-infrastructure-handlers');
 const webhooks = require('./api/webhooks');
-const { FACTORY_V2_ROUTES, PII_SCAN_ROUTE } = require('./api/routes/index');
+const { ACTIVITY_ROUTES, FACTORY_V2_ROUTES, PII_SCAN_ROUTE } = require('./api/routes/index');
 const quotaLifecycleHandlers = require('./api/handlers/quota-and-lifecycle-handlers');
 const {
   coerceRestPassthroughValue,
@@ -190,7 +190,7 @@ function resolveApiRoutes(deps = {}) {
 
   // v2 discovery routes (from v2-router) must precede CP routes to avoid shadowing
   // e.g. GET /api/v2/providers has both a discovery handler and a CP handler
-  return v2Routes.concat(FACTORY_V2_ROUTES, resolvedRoutes, createHealthRoutes(deps));
+  return v2Routes.concat(FACTORY_V2_ROUTES, ACTIVITY_ROUTES, resolvedRoutes, createHealthRoutes(deps));
 }
 
 // Routes that skip plugin-contributed middleware (e.g. auth). Health probes,

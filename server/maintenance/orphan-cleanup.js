@@ -17,6 +17,7 @@ const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const { killProcessGraceful, killOrphanByPid } = require('../execution/process-lifecycle');
 const serverConfig = require('../config');
+const { getModule } = require('../container');
 const { parseModelSizeB } = require('../utils/model');
 
 // ---- Injected dependencies (set via init()) ----
@@ -40,6 +41,7 @@ let dotnetCleanupInterval = null;
 let staleCheckInterval = null;
 let zombieCheckInterval = null;
 let stallCheckInterval = null;
+let activityReapInterval = null;
 let timersStarted = false;
 let staleCheckTimeout = null;
 let staleOwnerRecoveryTimeout = null;
@@ -313,6 +315,23 @@ function checkStaleRunningTasks() {
     }
   } catch (err) {
     logger.info(`[Stale Check] Error: ${err.message} STACK: ${err.stack?.split('\n').slice(0, 5).join(' >> ')}`);
+  }
+}
+
+function reapStaleActivities() {
+  const store = getModule('activityStore');
+  if (!store || typeof store.listStale !== 'function' || typeof store.fail !== 'function') {
+    return;
+  }
+
+  try {
+    const stale = store.listStale({ heartbeatGraceMs: 30000 });
+    for (const id of stale) {
+      store.fail(id, 'Heartbeat timeout exceeded', 'timed_out');
+      logger?.warn?.('reaped stale activity', { activity_id: id });
+    }
+  } catch (err) {
+    logger?.info?.(`[Cleanup] Activity reap error: ${err.message}`);
   }
 }
 
@@ -720,6 +739,10 @@ function startTimers() {
   zombieCheckInterval = setInterval(checkZombieProcesses, 30 * 1000);
   zombieCheckInterval.unref();
 
+  // Reap timed-out activities every 30 seconds.
+  activityReapInterval = setInterval(reapStaleActivities, 30 * 1000);
+  activityReapInterval.unref();
+
   // Also run stale check once on startup after a short delay
   staleCheckTimeout = setTimeout(checkStaleRunningTasks, 10000);
   staleCheckTimeout.unref();
@@ -749,12 +772,14 @@ function stopTimers() {
   if (staleCheckInterval) clearInterval(staleCheckInterval);
   if (zombieCheckInterval) clearInterval(zombieCheckInterval);
   if (stallCheckInterval) clearInterval(stallCheckInterval);
+  if (activityReapInterval) clearInterval(activityReapInterval);
   if (staleCheckTimeout) clearTimeout(staleCheckTimeout);
   if (staleOwnerRecoveryTimeout) clearTimeout(staleOwnerRecoveryTimeout);
   dotnetCleanupInterval = null;
   staleCheckInterval = null;
   zombieCheckInterval = null;
   stallCheckInterval = null;
+  activityReapInterval = null;
   staleCheckTimeout = null;
   staleOwnerRecoveryTimeout = null;
   timersStarted = false;
@@ -798,6 +823,7 @@ module.exports = {
   checkStaleRunningTasks,
   checkZombieProcesses,
   checkStalledTasks,
+  reapStaleActivities,
   cleanupOrphanedHostTasks,
   // Stall threshold (used by getTaskActivity in task-manager.js)
   getStallThreshold,
