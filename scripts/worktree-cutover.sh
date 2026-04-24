@@ -164,6 +164,33 @@ if ! git merge-base --is-ancestor "${BRANCH}" main; then
   exit 1
 fi
 
+# Post-merge working-tree parity check. `git merge` is supposed to update the
+# working tree to match the new HEAD, but on Windows a locked file (AV scan,
+# editor open on a tracked file, stale file handle in an aborted worktree)
+# can leave `git merge` exiting clean with disk state still holding the old
+# content. The merge commit lands, no error fires, and the first process
+# that later runs `git add --renormalize .` (the factory's mergeWorktree
+# path) silently commits the stale disk content under a misleading message.
+# 2026-04-24 saw that clobber 150 lines of shipped perf work on main.
+# Diff HEAD vs. the working tree with EOL + whitespace ignored — if the
+# diff is non-empty after a fresh merge, something's wrong and we should
+# abort before handing off to the restart barrier.
+if ! git -C "${REPO_ROOT}" diff --quiet --ignore-cr-at-eol --ignore-all-space HEAD 2>/dev/null; then
+  drifted=$(git -C "${REPO_ROOT}" diff --name-only --ignore-cr-at-eol --ignore-all-space HEAD 2>/dev/null | head -20)
+  echo "ERROR: post-merge working tree has semantic drift vs HEAD."
+  echo "       The merge commit landed but disk content doesn't match — most"
+  echo "       likely a Windows file-lock during checkout. Investigate before"
+  echo "       triggering the restart barrier; the factory's renormalize path"
+  echo "       would otherwise capture the drift and clobber main."
+  echo "       Drifted files:"
+  echo "$drifted" | sed 's/^/         /'
+  echo ""
+  echo "       To recover: verify no editors/AV hold tracked files open, then"
+  echo "       'git checkout HEAD -- .' to re-materialize HEAD content, then"
+  echo "       re-run the cutover."
+  exit 1
+fi
+
 echo "[ok] Merged"
 
 # Dashboard bundle is served from dashboard/dist/. Only dist/index.html and
