@@ -29,6 +29,7 @@ const {
   formatTime
 } = require('../shared');
 const logger = require('../../logger').child({ component: 'workflow' });
+const { parseStylesheet, resolveTaskProps } = require('../../routing/stylesheet');
 const { safeJsonParse } = require('../../utils/json');
 const { validateVersionIntent, isProjectVersioned } = require('../../versioning/version-intent');
 
@@ -608,6 +609,46 @@ function normalizeProjectName(value) {
   return normalized || null;
 }
 
+function applyWorkflowTaskStyles(taskDefs, styleRules) {
+  if (!Array.isArray(taskDefs) || !Array.isArray(styleRules) || styleRules.length === 0) {
+    return taskDefs;
+  }
+
+  return taskDefs.map((taskDef) => {
+    if (!taskDef || typeof taskDef !== 'object' || Array.isArray(taskDef)) {
+      return taskDef;
+    }
+
+    const props = resolveTaskProps(styleRules, {
+      node_id: typeof taskDef.node_id === 'string' ? taskDef.node_id.trim() : taskDef.node_id,
+      tags: Array.isArray(taskDef.tags) ? taskDef.tags : [],
+    });
+    if (!props || Object.keys(props).length === 0) {
+      return taskDef;
+    }
+
+    let updatedTask = taskDef;
+    if (props.provider && !taskDef.provider) {
+      updatedTask = updatedTask === taskDef ? { ...updatedTask } : updatedTask;
+      updatedTask.provider = props.provider;
+    }
+    if (props.model && !taskDef.model) {
+      updatedTask = updatedTask === taskDef ? { ...updatedTask } : updatedTask;
+      updatedTask.model = props.model;
+    }
+    if (props.reasoning_effort && !taskDef.reasoning_effort) {
+      updatedTask = updatedTask === taskDef ? { ...updatedTask } : updatedTask;
+      updatedTask.reasoning_effort = props.reasoning_effort;
+    }
+    if (props.routing_template && !taskDef.routing_template) {
+      updatedTask = updatedTask === taskDef ? { ...updatedTask } : updatedTask;
+      updatedTask.routing_template = props.routing_template;
+    }
+
+    return updatedTask;
+  });
+}
+
 function normalizeInitialWorkflowTasks(taskDefs, workflowId, workflowWorkingDirectory = null, workflowProject = null) {
   const normalized = [];
   const seenNodeIds = new Set();
@@ -1078,6 +1119,7 @@ function startWorkflowExecution(workflow) {
  */
 function handleCreateWorkflow(args) {
   const workflowProject = normalizeProjectName(args.project);
+  let styleRules = [];
 
   // Input validation
   if (!args.name || typeof args.name !== 'string' || args.name.trim().length === 0) {
@@ -1098,6 +1140,19 @@ function handleCreateWorkflow(args) {
   const preCommitReviewConfig = normalizePreCommitReviewConfig(args.pre_commit_review);
   if (!preCommitReviewConfig.ok) {
     return makeError(ErrorCodes.INVALID_PARAM, preCommitReviewConfig.error);
+  }
+  if (args.model_stylesheet !== undefined && typeof args.model_stylesheet !== 'string') {
+    return makeError(ErrorCodes.INVALID_PARAM, 'model_stylesheet must be a string');
+  }
+  if (args.model_stylesheet) {
+    const parsed = parseStylesheet(args.model_stylesheet);
+    if (!parsed.ok) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `Invalid model_stylesheet:\n- ${parsed.errors.join('\n- ')}`
+      );
+    }
+    styleRules = parsed.rules;
   }
 
   const trimmedName = args.name.trim();
@@ -1134,8 +1189,9 @@ function handleCreateWorkflow(args) {
   }
 
   const workflowId = uuidv4();
+  const styledTaskDefs = applyWorkflowTaskStyles(args.tasks, styleRules);
   const normalizedTasks = normalizeInitialWorkflowTasks(
-    args.tasks,
+    styledTaskDefs,
     workflowId,
     args.working_directory,
     workflowProject

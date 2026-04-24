@@ -110,4 +110,25 @@ tasks:
     });
     expect(result.isError).toBe(true);
   });
+
+  it('passes model_stylesheet through to create_workflow', () => {
+    const wfDir = path.join(testDir, 'workflows');
+    fs.mkdirSync(wfDir, { recursive: true });
+    const specPath = path.join(wfDir, 'style.yaml');
+    fs.writeFileSync(specPath, `
+version: 1
+name: style-test
+project: p
+model_stylesheet: |
+  * { provider: ollama; }
+tasks:
+  - node_id: x
+    task: do x
+`);
+
+    const result = handleRunWorkflowSpec({ spec_path: specPath, working_directory: testDir });
+    expect(result.isError).toBeFalsy();
+    const tasks = db.getWorkflowTasks(result.structuredData.workflow_id);
+    expect(tasks[0].provider).toBe('ollama');
+  });
 });

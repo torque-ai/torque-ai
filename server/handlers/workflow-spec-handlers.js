@@ -71,21 +71,23 @@ function handleRunWorkflowSpec(args = {}) {
   }
 
   const spec = parsed.spec;
-  const workflowDescription = typeof args.goal === 'string' && args.goal.trim().length > 0
-    ? args.goal
-    : spec.description;
+  const description =
+    typeof spec.description === 'string'
+      ? spec.description
+      : typeof args.goal === 'string'
+        ? args.goal
+        : undefined;
   const createArgs = {
     name: spec.name,
+    description,
     working_directory: args.working_directory || spec.working_directory,
     project: spec.project,
     routing_template: spec.routing_template,
     version_intent: spec.version_intent,
     priority: spec.priority,
+    model_stylesheet: spec.model_stylesheet,
     tasks: spec.tasks,
   };
-  if (workflowDescription !== undefined) {
-    createArgs.description = workflowDescription;
-  }
 
   const createResult = workflowHandlers.handleCreateWorkflow(createArgs);
 

@@ -295,6 +295,10 @@ const tools = [
           type: 'string',
           description: 'Default working directory for tasks in this workflow. Tasks inherit this if they do not specify their own.'
         },
+        model_stylesheet: {
+          type: 'string',
+          description: 'CSS-like rules mapping tasks to providers/models. Selectors: * (all), .tag (class), #node_id (id). Example: "* { provider: ollama; } .coding { provider: codex; }"'
+        },
         routing_template: {
           type: 'string',
           description: 'Default routing template for all tasks in this workflow.'

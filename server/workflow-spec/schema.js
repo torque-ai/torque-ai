@@ -98,6 +98,7 @@ const WORKFLOW_SPEC_SCHEMA = {
     project: { type: 'string' },
     working_directory: { type: 'string' },
     routing_template: { type: 'string' },
+    model_stylesheet: { type: 'string' },
     version_intent: { type: 'string', enum: VERSION_INTENT_ENUM },
     priority: { type: 'number' },
     extends: { type: 'string' },
