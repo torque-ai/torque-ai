@@ -1072,4 +1072,133 @@ describe('MCP SSE Transport', () => {
       expect(response.statusCode).toBe(404);
     });
   });
+
+  describe('graceful shutdown', () => {
+    const os = require('os');
+    const path = require('path');
+    const fs = require('fs');
+    const db = require('../database');
+    let templateBuffer;
+
+    beforeAll(() => {
+      templateBuffer = fs.readFileSync(
+        path.join(os.tmpdir(), 'torque-vitest-template', 'template.db.buf'),
+      );
+    });
+
+    beforeEach(() => {
+      db.resetForTest(templateBuffer);
+    });
+
+    it('writes MCP server_restarting notification and SSE retry directive to every session before closing', async () => {
+      // Start the server so the handler is captured (no-op if already started by earlier tests).
+      await mcpSse.start({ port: 0 });
+
+      // Seed two fake sessions directly in the map, each with a mock res.
+      const seeded = [];
+      for (let i = 0; i < 2; i++) {
+        const { response } = createMockResponse();
+        const sessionId = `shutdown-test-${i}-${Date.now()}`;
+        const session = {
+          keepaliveTimer: null,
+          res: response,
+          toolMode: 'core',
+          authenticated: true,
+          pendingEvents: [],
+          eventFilter: new Set(['completed', 'failed']),
+          taskFilter: new Set(),
+          projectFilter: new Set(),
+          providerFilter: new Set(),
+          _sessionId: sessionId,
+          _remoteAddress: null,
+          _origin: null,
+          _eventCounter: 0,
+          _ip: null,
+        };
+        mcpSse.sessions.set(sessionId, session);
+        seeded.push({ sessionId, response });
+      }
+
+      mcpSse.stop();
+
+      for (const { response } of seeded) {
+        const body = response.getBody();
+        // Raw SSE retry directive — EventSource reconnect hint.
+        expect(body).toContain('retry: 2000');
+        // MCP JSON-RPC notification.
+        const jsonMatches = [...body.matchAll(/event: message\ndata: (.*)\n/g)];
+        const notifications = jsonMatches
+          .map((m) => JSON.parse(m[1]))
+          .filter((n) => n.method === 'notifications/message');
+        const shutdownNotif = notifications.find(
+          (n) => n?.params?.data?.type === 'server_restarting',
+        );
+        expect(shutdownNotif).toBeDefined();
+        expect(shutdownNotif.params.data.retry_after_ms).toBe(2000);
+        // res.end() must have been called.
+        expect(response.writableEnded).toBe(true);
+      }
+    });
+
+    it('persists every active session to task_event_subscriptions before closing', async () => {
+      const dbInst = require('../database').getDbInstance();
+
+      await mcpSse.start({ port: 0 });
+
+      const ids = [];
+      // Session A — default filters, no task subscriptions.
+      // Session B — custom event filter, no task subscriptions.
+      // Session C — task subscription set.
+      const configs = [
+        { events: ['completed', 'failed'], tasks: [] },
+        { events: ['completed', 'failed', 'cancelled'], tasks: [] },
+        { events: ['completed', 'failed'], tasks: ['task-id-aaa', 'task-id-bbb'] },
+      ];
+      for (let i = 0; i < configs.length; i++) {
+        const { response } = createMockResponse();
+        const sessionId = `persist-shutdown-${i}-${Date.now()}`;
+        ids.push(sessionId);
+        mcpSse.sessions.set(sessionId, {
+          keepaliveTimer: null,
+          res: response,
+          toolMode: 'core',
+          authenticated: true,
+          pendingEvents: [],
+          eventFilter: new Set(configs[i].events),
+          taskFilter: new Set(configs[i].tasks),
+          projectFilter: new Set(),
+          providerFilter: new Set(),
+          _sessionId: sessionId,
+          _remoteAddress: null,
+          _origin: null,
+          _eventCounter: 0,
+          _ip: null,
+        });
+      }
+
+      // Clear any prior rows for these ids so the test is hermetic.
+      const clearStmt = dbInst.prepare('DELETE FROM task_event_subscriptions WHERE id = ?');
+      for (const id of ids) clearStmt.run(id);
+
+      mcpSse.stop();
+
+      // Every session must have a row written.
+      const readStmt = dbInst.prepare('SELECT id, task_id, event_types FROM task_event_subscriptions WHERE id = ?');
+      for (let i = 0; i < ids.length; i++) {
+        const row = readStmt.get(ids[i]);
+        expect(row, `session ${ids[i]} should be persisted`).toBeTruthy();
+        const events = JSON.parse(row.event_types);
+        expect(events.sort()).toEqual([...configs[i].events].sort());
+        if (configs[i].tasks.length > 0) {
+          const tasks = JSON.parse(row.task_id);
+          expect(tasks.sort()).toEqual([...configs[i].tasks].sort());
+        } else {
+          expect(row.task_id).toBeNull();
+        }
+      }
+
+      // Cleanup.
+      for (const id of ids) clearStmt.run(id);
+    });
+  });
 });

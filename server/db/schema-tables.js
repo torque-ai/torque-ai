@@ -1149,8 +1149,7 @@ function createTables(db, logger) {
         event_types TEXT NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT,
-        last_poll_at TEXT,
-        FOREIGN KEY (task_id) REFERENCES tasks(id)
+        last_poll_at TEXT
       )
     `);
   ensureTaskEventsTable(db);

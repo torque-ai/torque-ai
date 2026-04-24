@@ -763,9 +763,22 @@ function stop() {
     clearAllTrackedIntervals();
     streamableHttpMod.stop();
 
-    for (const [_id, session] of sessions) {
+    for (const [id, session] of sessions) {
       clearTrackedInterval(session.keepaliveTimer);
+      // Persist filter state so a client reconnecting with this sessionId
+      // within the TTL gets its subscription restored.
+      try { sessionMod.persistSubscription(id, session); } catch { /* non-fatal */ }
       if (session.res && !session.res.writableEnded) {
+        // Reconnect hint 1: MCP protocol-level notification.
+        try {
+          sendJsonRpcNotification(session, 'notifications/message', {
+            level: 'info',
+            logger: 'torque',
+            data: { type: 'server_restarting', retry_after_ms: 2000 },
+          });
+        } catch { /* best-effort */ }
+        // Reconnect hint 2: native EventSource `retry:` directive.
+        try { session.res.write('retry: 2000\n\n'); } catch { /* best-effort */ }
         session.res.end();
       }
     }
