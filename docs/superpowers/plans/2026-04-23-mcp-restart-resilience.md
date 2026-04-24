@@ -4,7 +4,7 @@
 
 **Goal:** Emit a reconnect hint on every SSE session at graceful shutdown, and persist every session's filters to `task_event_subscriptions` so reconnects within 24h resume with their old filter state.
 
-**Architecture:** Two call sites change, both inside `server/mcp-sse.js:stop()`. A loop over the live `sessions` map adds three things before the existing `session.res.end()`: a `notifications/message` MCP frame, a raw `retry: 2000\n\n` SSE directive, and an unconditional call to the existing `sessionMod.persistSubscription(id, session)`. No schema change; `persistSubscription` and `restoreSubscription` are already wired.
+**Architecture:** Two call sites change, both inside `server/mcp-sse.js:stop()`. A loop over the live `sessions` map adds three things before the existing `session.res.end()`: a `notifications/message` MCP frame, a raw `retry: 2000\n\n` SSE directive, and an unconditional call to the existing `sessionMod.persistSubscription(id, session)`. One additional schema fix landed during implementation: the stale FK on `task_event_subscriptions.task_id` is dropped (fresh-install update in `schema-tables.js`; in-place migration in `schema-migrations.js`) so `persistSubscription` actually writes rows for sessions with non-empty `taskFilter`. See the "Schema note" section of the spec.
 
 **Tech Stack:** Node.js, vitest, better-sqlite3 (indirect via existing `getDbInstance`), SSE (raw HTTP).
 
@@ -18,8 +18,10 @@
 |------|--------|---------------|
 | `server/mcp-sse.js` | Modify `stop()` function (lines ~759-788) | Add shutdown hints + persistence call before `res.end()` |
 | `server/tests/mcp-sse.test.js` | Add two new tests in a new `describe` block | Cover shutdown hint emission + persistence of all sessions |
+| `server/db/schema-tables.js` | Drop `FOREIGN KEY (task_id) REFERENCES tasks(id)` line from the `task_event_subscriptions` CREATE TABLE | Fresh installs no longer declare the bad FK |
+| `server/db/schema-migrations.js` | Add `dropTaskEventSubscriptionsFk()` and call it from `runMigrations` | Existing deployments rebuild the table in place without the FK |
 
-No new files. No new exports. No schema migration.
+No new files. No new exports.
 
 ---
 

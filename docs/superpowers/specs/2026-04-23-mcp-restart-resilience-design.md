@@ -130,4 +130,4 @@ No integration test is needed beyond these; the restart barrier is already well-
 
 - No config flag. This is strictly additive — shutdown writes more rows; reconnect behavior is unchanged. Neither can break an existing client that doesn't present a sessionId.
 - No changes to `scripts/worktree-cutover.sh` or the restart barrier mechanism itself.
-- No schema migration. The existing `task_event_subscriptions` columns are sufficient.
+- One in-place FK-drop migration on `task_event_subscriptions` (see "Schema note" above); additive otherwise. The migration is idempotent — the FK pre-check early-returns on fresh installs and on already-migrated DBs.

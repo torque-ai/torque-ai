@@ -145,6 +145,12 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
     // propagate so the outer SAVEPOINT migration_batch rolls back (otherwise a
     // partial rebuild would corrupt the table schema, and a failed assertion
     // would log without enforcing).
+    // Toggle `foreign_keys` around the rebuild as belt-and-suspenders. SQLite
+    // ignores the pragma inside a transaction, so it's effectively a no-op while
+    // SAVEPOINT migration_batch is active — but we save/restore it anyway so the
+    // helper stays correct if the surrounding savepoint ever goes away. The
+    // rebuild's real safety comes from table topology: no other table holds an
+    // FK into task_event_subscriptions, so DROP TABLE is safe regardless.
     const fkState = db.pragma('foreign_keys', { simple: true });
     db.pragma('foreign_keys = OFF');
     try {
