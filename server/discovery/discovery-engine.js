@@ -72,7 +72,10 @@ async function discoverFromAdapter(db, adapter, provider, hostId) {
 
   // Auto-approve new models from cloud providers.
   // Local Ollama hosts stay pending; cloud providers should flow through automatically.
-  const isCloudProvider = provider !== 'ollama';
+  // `ollama-cloud` uses the Ollama protocol against a remote endpoint and its
+  // models are Ollama-native — operators curate them like local Ollama models,
+  // so keep new models pending until explicitly approved.
+  const isCloudProvider = provider !== 'ollama' && provider !== 'ollama-cloud';
   if (isCloudProvider) {
     for (const model of syncResult.new) {
       try {
