@@ -271,6 +271,153 @@ describe('providers/execution agentic fixes', () => {
     expect(gitSafetyMock.checkAndRevert.mock.calls.every(([, , description]) => description === task.task_description)).toBe(true);
   });
 
+  it('requeues no-op ollama-cloud agentic tasks to codex for button-up', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));
+
+    const task = {
+      id: 'task-api-noop-handoff',
+      provider: 'ollama-cloud',
+      model: null,
+      task_description: 'Create tools/validate_unity_host_join_smoke.py',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: JSON.stringify({
+        _routing_chain: [
+          { provider: 'ollama-cloud', model: 'kimi-k2:1t' },
+          { provider: 'codex' },
+        ],
+        file_paths: ['tools/validate_unity_host_join_smoke.py'],
+      }),
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    };
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'I would create the validator and tests.',
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 12, completion_tokens: 8 },
+          changedFiles: [],
+          iterations: 2,
+        },
+      ])
+    );
+
+    await mod.executeApiProvider(task, { name: 'ollama-cloud' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('queued');
+    expect(updated.provider).toBe('codex');
+    expect(updated.model).toBeNull();
+    expect(updated.metadata.user_provider_override).toBe(true);
+    expect(updated.metadata.requested_provider).toBe('codex');
+    expect(updated.metadata.agentic_handoff_reason).toContain('Agentic no-op');
+    expect(safeUpdateTaskStatus).not.toHaveBeenCalledWith(
+      task.id,
+      'completed',
+      expect.anything(),
+    );
+  });
+
+  it('requeues ollama-cloud failures to codex when the next chain entry requires CLI execution', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));
+
+    const task = {
+      id: 'task-api-error-handoff',
+      provider: 'ollama-cloud',
+      model: null,
+      task_description: 'Create tools/validate_unity_host_join_smoke.py',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: JSON.stringify({
+        _routing_chain: [
+          { provider: 'ollama-cloud', model: 'kimi-k2:1t' },
+          { provider: 'codex' },
+        ],
+        file_paths: ['tools/validate_unity_host_join_smoke.py'],
+      }),
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus: vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch)),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    };
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'error',
+          message: 'Ollama chat API error (401): unauthorized',
+        },
+      ])
+    );
+
+    await mod.executeApiProvider(task, { name: 'ollama-cloud' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('queued');
+    expect(updated.provider).toBe('codex');
+    expect(updated.metadata.user_provider_override).toBe(true);
+    expect(updated.metadata.requested_provider).toBe('codex');
+    expect(updated.metadata.agentic_handoff_reason).toContain('failed');
+  });
+
   it('reserves and releases the selected Ollama host slot around agentic execution', async () => {
     const { mod } = loadSubject();
     const host = { id: 'host-1', url: 'http://ollama-host:11434' };
