@@ -28,7 +28,13 @@ Most of the resume machinery already exists — `restoreSubscription` is invoked
 - No per-session `lastEventId` tracking or event replay baseline. The global `eventIdCounter` in `session.js` is shared across all sessions; adding per-session tracking would require modifying every notification send site. Out of scope for this round.
 - No change to the 24h subscription TTL.
 - No change to authentication. The existing reconnect-auth check at `mcp-sse.js:366` is untouched.
-- No schema changes. The existing `task_event_subscriptions` columns are sufficient.
+- No new schema columns. One in-place constraint drop (below) is required to unblock the persistence path.
+
+## Schema note — FK drop on `task_event_subscriptions.task_id`
+
+Implementation surfaced a pre-existing latent bug: `task_event_subscriptions.task_id` is declared as `FOREIGN KEY REFERENCES tasks(id)`, but `persistSubscription` at `server/transports/sse/session.js:590` writes `JSON.stringify([...session.taskFilter])` — a JSON array string — into that column. With `foreign_keys = ON` (active per `database.js:611`), any attempt to persist a session with a populated `taskFilter` fails silently (the try/catch at `session.js:601-603` swallows the FK violation). The existing feature has been effectively broken for every non-empty subscription since the FK was added; nothing caught it because the error was swallowed and no code path validates that the write succeeded.
+
+To unblock this spec, drop the FK. The column is a JSON array of task IDs, not a scalar — the FK was never correct. The migration rebuilds the table in place without the FK and preserves the two existing indexes. The fresh-install CREATE TABLE in `schema-tables.js` is updated in lockstep.
 
 ## Architecture
 
