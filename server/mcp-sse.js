@@ -766,6 +766,16 @@ function stop() {
     for (const [_id, session] of sessions) {
       clearTrackedInterval(session.keepaliveTimer);
       if (session.res && !session.res.writableEnded) {
+        // Reconnect hint 1: MCP protocol-level notification.
+        try {
+          sendJsonRpcNotification(session, 'notifications/message', {
+            level: 'info',
+            logger: 'torque',
+            data: { type: 'server_restarting', retry_after_ms: 2000 },
+          });
+        } catch { /* best-effort */ }
+        // Reconnect hint 2: native EventSource `retry:` directive.
+        try { session.res.write('retry: 2000\n\n'); } catch { /* best-effort */ }
         session.res.end();
       }
     }
