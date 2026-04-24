@@ -49,8 +49,8 @@ Workflow specs are version-controlled YAML files that define a TORQUE workflow a
 |---|---|---|---|
 | `node_id` | string | yes | Unique within the workflow. |
 | `task` | string | yes, unless `kind: crew` or `__remove: true` | Task description / prompt. |
-| `kind` | enum | no | `crew` for multi-role crew tasks. |
-| `crew` | object | yes, when `kind: crew` | Crew objective, roles, mode, rounds, output schema, and optional router. |
+| `kind` | enum | no | `agent`, `parallel_fanout`, `merge`, or `crew`. |
+| `crew` | object | yes, when `kind: crew` | Crew objective, roles, mode, rounds, and output schema. |
 | `depends_on` | [string] | no | Node IDs this task depends on. |
 | `context_from` | [string] | no | Node IDs whose outputs to inject. |
 | `provider` | enum | no | Explicit provider override. |

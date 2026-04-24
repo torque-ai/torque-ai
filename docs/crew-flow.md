@@ -1,30 +1,36 @@
 # Crew/Flow Split
 
-A workflow node can be a `crew`: a bounded autonomous subteam that works toward a shared objective while the surrounding workflow remains deterministic.
+A workflow node can be a `crew` - a bounded autonomous subteam working toward an open-ended objective. The surrounding workflow stays deterministic; only the crew node is autonomous.
 
 ## When to use
 
-- Open-ended work where the result shape is known but the path is not.
-- Multi-perspective review where separate roles should challenge or refine each other.
-- Research and synthesis tasks that benefit from explicit turn-taking.
+- Open-ended research where the answer shape is known but the path isn't
+- Multi-perspective review (e.g., security + arch + UX critics on the same change)
+- Brainstorming or ideation tasks that benefit from cross-pollination
+
+## When NOT to use
+
+- Anything reproducible - use a regular task
+- Tasks where you know exactly what should happen - use the architect/editor split (Plan 18) instead
 
 ## Example
 
     - node_id: research
+      task: Research best library for JSON schema validation
       kind: crew
       crew:
-        objective: Pick a JSON schema validation library and justify the recommendation.
+        objective: Pick a library, justify the choice, list 2 alternatives with trade-offs.
         mode: round_robin
         max_rounds: 4
         roles:
           - name: surveyor
-            description: Lists candidate libraries and their trade-offs
+            description: Lists candidate libraries and their key properties
             provider: claude-cli
           - name: critic
             description: Identifies weaknesses in the surveyor's picks
             provider: anthropic
           - name: arbiter
-            description: Produces the final recommendation once confident
+            description: Synthesizes a final recommendation. Set "done": true when confident.
             provider: claude-cli
         output_schema:
           type: object
@@ -34,36 +40,13 @@ A workflow node can be a `crew`: a bounded autonomous subteam that works toward 
             alternatives: { type: array }
             done: { type: boolean }
 
-## Router modes
+## Modes
 
-The `router` field controls which agent speaks next each turn.
-
-- `round_robin` (default) cycles through roles in order.
-- `code` uses a JavaScript function you provide to choose the next role or stop.
-- `llm` asks a routing agent to choose the next speaker.
-- `hybrid` lets code narrow candidates before an LLM picks among them.
-
-    - node_id: plan
-      kind: crew
-      crew:
-        objective: Produce a review-ready implementation plan.
-        roles:
-          - name: planner
-          - name: critic
-          - name: writer
-        max_rounds: 8
-        router:
-          mode: hybrid
-          code_fn: |
-            // Must produce a list of candidate names, or [] to stop.
-            if (turn.turn_count === 0) return ['planner'];
-            const last = turn.history[turn.history.length - 1];
-            if (last?.role === 'writer') return ['critic'];
-            return ['writer', 'critic'];
-          agent_model: gpt-5.3-codex-spark
+- `round_robin` - each role takes a turn in declared order, repeating up to `max_rounds`
+- `parallel` - all roles run concurrently each round, results merged into shared history
+- `hierarchical` - first role is manager, decides which worker role to delegate to next via `output.delegate_to`
 
 ## Termination
 
-- `output_matched_schema` means a role produced output that matched `output_schema`.
-- `router_stopped` means the router returned `null` or no candidates.
-- `max_rounds` means the round limit was reached and the final output is the last turn's output.
+- `output_matched_schema` - any role's output matches `output_schema` (and `done: true` if the schema requires it)
+- `max_rounds` - round limit hit; final output is the last role's output

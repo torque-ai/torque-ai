@@ -123,7 +123,7 @@ tasks:
     ]);
   });
 
-  it('accepts crew tasks with router configuration', () => {
+  it('accepts crew tasks with bounded autonomous configuration', () => {
     const yamlText = `
 version: 1
 name: crew-workflow
@@ -132,18 +132,19 @@ tasks:
     kind: crew
     crew:
       objective: Coordinate a planner and critic
+      mode: round_robin
       roles:
         - name: planner
           description: Produce the initial plan and hand off to the critic.
         - name: critic
           description: Review the plan and decide whether another turn is needed.
-      max_rounds: 8
-      router:
-        mode: hybrid
-        code_fn: |
-          if (turn.turn_count === 0) return ['planner'];
-          return ['critic'];
-        agent_model: gpt-5.3-codex-spark
+      max_rounds: 4
+      output_schema:
+        type: object
+        required: [done]
+        properties:
+          done:
+            type: boolean
 `;
 
     const result = parseSpecString(yamlText);
@@ -155,18 +156,71 @@ tasks:
         kind: 'crew',
         crew: {
           objective: 'Coordinate a planner and critic',
+          mode: 'round_robin',
           roles: [
             { name: 'planner', description: 'Produce the initial plan and hand off to the critic.' },
             { name: 'critic', description: 'Review the plan and decide whether another turn is needed.' },
           ],
-          max_rounds: 8,
-          router: {
-            mode: 'hybrid',
-            code_fn: "if (turn.turn_count === 0) return ['planner'];\nreturn ['critic'];\n",
-            agent_model: 'gpt-5.3-codex-spark',
+          max_rounds: 4,
+          output_schema: {
+            type: 'object',
+            required: ['done'],
+            properties: {
+              done: {
+                type: 'boolean',
+              },
+            },
           },
         },
       },
+    ]);
+  });
+
+  it('accepts workflow specs that use agent, parallel_fanout, merge, and crew kinds', () => {
+    const yamlText = `
+version: 1
+name: split-flow
+tasks:
+  - node_id: gather
+    kind: agent
+    task: Gather the candidate options
+  - node_id: fan
+    kind: parallel_fanout
+    task: Fan out to multiple critics
+    depends_on: [gather]
+  - node_id: critic-a
+    task: Critique option A
+    depends_on: [fan]
+  - node_id: critic-b
+    task: Critique option B
+    depends_on: [fan]
+  - node_id: merge
+    kind: merge
+    task: Merge the critique results
+    depends_on: [critic-a, critic-b]
+  - node_id: finalize
+    kind: crew
+    crew:
+      objective: Produce the final recommendation
+      roles:
+        - name: arbiter
+          description: Synthesizes the final answer.
+`;
+
+    const result = parseSpecString(yamlText);
+
+    expect(result.ok).toBe(true);
+    expect(result.spec.tasks.map((task) => ({
+      node_id: task.node_id,
+      kind: task.kind || 'implicit',
+      task_description: task.task_description || null,
+    }))).toEqual([
+      { node_id: 'gather', kind: 'agent', task_description: 'Gather the candidate options' },
+      { node_id: 'fan', kind: 'parallel_fanout', task_description: 'Fan out to multiple critics' },
+      { node_id: 'critic-a', kind: 'implicit', task_description: 'Critique option A' },
+      { node_id: 'critic-b', kind: 'implicit', task_description: 'Critique option B' },
+      { node_id: 'merge', kind: 'merge', task_description: 'Merge the critique results' },
+      { node_id: 'finalize', kind: 'crew', task_description: null },
     ]);
   });
 });

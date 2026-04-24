@@ -17,42 +17,6 @@ const WORKFLOW_PROVIDER_ENUM = [
 const VERSION_INTENT_ENUM = ['feature', 'fix', 'breaking', 'internal'];
 const ON_FAIL_ENUM = ['cancel', 'skip', 'continue', 'run_alternate'];
 const CREW_MODE_ENUM = ['round_robin', 'hierarchical', 'parallel'];
-const CREW_ROUTER_MODE_ENUM = ['code', 'llm', 'hybrid', 'round_robin'];
-
-const CREW_ROUTER_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['mode'],
-  properties: {
-    mode: { type: 'string', enum: CREW_ROUTER_MODE_ENUM },
-    code_fn: {
-      type: 'string',
-      description: 'JS function source body; receives (state, turn). Return a role name in code mode, candidate names in hybrid mode, or null/[] to stop.',
-    },
-    agent_model: { type: 'string' },
-    agent_provider: { type: 'string' },
-  },
-  allOf: [
-    {
-      if: {
-        properties: { mode: { enum: ['code', 'hybrid'] } },
-        required: ['mode'],
-      },
-      then: {
-        required: ['code_fn'],
-      },
-    },
-    {
-      if: {
-        properties: { mode: { enum: ['llm', 'hybrid'] } },
-        required: ['mode'],
-      },
-      then: {
-        required: ['agent_model'],
-      },
-    },
-  ],
-};
 
 const CREW_SCHEMA = {
   type: 'object',
@@ -79,10 +43,6 @@ const CREW_SCHEMA = {
     mode: { type: 'string', enum: CREW_MODE_ENUM, default: 'round_robin' },
     max_rounds: { type: 'integer', minimum: 1, maximum: 20, default: 5 },
     output_schema: { type: 'object' },
-    router: {
-      ...CREW_ROUTER_SCHEMA,
-      description: 'Optional router config. mode=code uses code_fn, mode=llm uses agent_model, mode=hybrid uses both.',
-    },
   },
 };
 
@@ -130,7 +90,7 @@ const WORKFLOW_SPEC_SCHEMA = {
         properties: {
           node_id: { type: 'string', minLength: 1 },
           task: { type: 'string', minLength: 1 },
-          kind: { type: 'string', enum: ['crew'] },
+          kind: { type: 'string', enum: ['agent', 'parallel_fanout', 'merge', 'crew'] },
           crew: CREW_SCHEMA,
           depends_on: { type: 'array', items: { type: 'string' } },
           context_from: { type: 'array', items: { type: 'string' } },
