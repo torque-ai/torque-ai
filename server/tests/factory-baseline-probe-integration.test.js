@@ -189,10 +189,23 @@ describe('handleResumeProjectBaselineFixed', () => {
     const probeSpy = vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
       passed: true, exitCode: 0, output: 'all green', durationMs: 4321, error: null,
     });
-    const { handleResumeProjectBaselineFixed } = require('../handlers/factory-handlers');
+    const {
+      handleResumeProjectBaselineFixed,
+      handleBaselineResumeJobStatus,
+    } = require('../handlers/factory-handlers');
     const r = await handleResumeProjectBaselineFixed({ project: projectId, timeout_minutes: 75 });
+    const job = r.structuredData;
     expect(r.isError).toBeFalsy();
-    expect(r.content[0].text).toContain('resumed');
+    expect(r.status).toBe(202);
+    expect(job).toBeTruthy();
+    expect(job.status).toBe('running');
+    const statusWhileRunning = await handleBaselineResumeJobStatus({ project: projectId, job_id: job.job_id });
+    expect(statusWhileRunning.structuredData.job_id).toBe(job.job_id);
+    expect(['running', 'completed']).toContain(statusWhileRunning.structuredData.status);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const statusAfterRun = await handleBaselineResumeJobStatus({ project: projectId, job_id: job.job_id });
+    expect(statusAfterRun.structuredData.status).toBe('completed');
+    expect(statusAfterRun.structuredData.project_resumed).toBe(true);
     expect(probeSpy).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 75 * 60 * 1000 }));
     const updated = db.prepare('SELECT status, config_json FROM factory_projects WHERE id = ?').get(projectId);
     expect(updated.status).toBe('running');
@@ -208,12 +221,29 @@ describe('handleResumeProjectBaselineFixed', () => {
     vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
       passed: false, exitCode: 1, output: 'FAILED tests/foo.py', durationMs: 100, error: null,
     });
-    const { handleResumeProjectBaselineFixed } = require('../handlers/factory-handlers');
+    const {
+      handleResumeProjectBaselineFixed,
+      handleBaselineResumeJobStatus,
+    } = require('../handlers/factory-handlers');
     const r = await handleResumeProjectBaselineFixed({ project: projectId });
-    expect(r.isError).toBe(true);
-    expect(r.content[0].text).toContain('Baseline still failing');
-    expect(r.content[0].text).toContain('FAILED tests/foo.py');
+    expect(r.isError).toBeFalsy();
+    expect(r.status).toBe(202);
+    const job = r.structuredData;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const statusAfterRun = await handleBaselineResumeJobStatus({ project: projectId, job_id: job.job_id });
+    expect(statusAfterRun.structuredData.status).toBe('failed');
+    expect(statusAfterRun.structuredData.message).toContain('Baseline still failing');
+    expect(statusAfterRun.structuredData.preview_output).toContain('FAILED tests/foo.py');
     const updated = db.prepare('SELECT status FROM factory_projects WHERE id = ?').get(projectId);
     expect(updated.status).toBe('paused');
+  });
+
+  it('returns 404 for missing status job id', async () => {
+    const projectId = seedPausedBaselineProject(db, { probeAttempts: 0 });
+    const { handleBaselineResumeJobStatus } = require('../handlers/factory-handlers');
+    const r = await handleBaselineResumeJobStatus({ project: projectId, job_id: 'nope' });
+    expect(r.status).toBe(404);
+    expect(r.errorCode).toBe('baseline_resume_job_not_found');
+    expect(r.errorMessage).toContain('Baseline resume job not found');
   });
 });

@@ -500,7 +500,7 @@ const tools = [
   },
   {
     name: 'resume_project_baseline_fixed',
-    description: 'Resume a factory project that was paused by verify-review due to a broken baseline. Runs the project\'s verify_command on a clean checkout of main as a probe; only resumes if the probe passes. Use after fixing pre-existing broken tests that caused the baseline pause.',
+    description: 'Resume a factory project that was paused by verify-review due to a broken baseline. Starts a background baseline verify probe; use the returned Location URL to poll baseline resume status. The probe must pass before the project is returned to running.',
     inputSchema: {
       type: 'object',
       properties: {
