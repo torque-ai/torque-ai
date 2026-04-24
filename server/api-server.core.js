@@ -179,6 +179,32 @@ function resolveApiRoutes(deps = {}) {
     return route;
   });
 
+  // Sanity check: any v2 control-plane route (/api/v2/*) with a handlerName
+  // but no handler AND no `tool:` fallback will 500 silently at runtime. The
+  // dispatch path falls through to handleToolCall(undefined, ...) which
+  // throws "Unknown tool: "; the v2 error normalizer surfaces this as
+  // "provider_unavailable"/500/"Internal server error" and only logs at
+  // debug level. Whole endpoint classes have stayed broken for months with
+  // zero log signal (root cause of /api/v2/strategic/operations + quota/*
+  // 500s surfaced 2026-04-24). Log WARN at boot so the list shows up on
+  // every start — visible without crashing the process for legacy
+  // placeholder routes that haven't had handlers implemented yet.
+  const unresolved = [];
+  for (const route of resolvedRoutes) {
+    const pathStr = typeof route.path === 'string' ? route.path : String(route.path);
+    if (!pathStr.startsWith('/api/v2/')) continue;
+    if (!route.handlerName) continue;
+    if (typeof route.handler !== 'function' && !route.tool) {
+      unresolved.push(`${route.method} ${pathStr} -> handlerName=${route.handlerName}`);
+    }
+  }
+  if (unresolved.length > 0) {
+    logger.warn(
+      `v2 routes with no handler and no tool fallback (will 500 at runtime): ${unresolved.length}`,
+      { routes: unresolved },
+    );
+  }
+
   const v2Routes = createV2Router({
     mountPath: '/api/v2',
     resolveRequestId,
