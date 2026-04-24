@@ -6859,6 +6859,36 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
             return { status: 'rejected', reason: review.classification };
           }
 
+          if (review && review.classification === 'reviewer_timeout') {
+            safeLogDecision({
+              project_id,
+              stage: LOOP_STATES.VERIFY,
+              action: 'verify_reviewer_timeout_paused',
+              reasoning: `Verify reviewer timed out (task=${review.llmTaskId || 'unknown'}); pausing for controlled recovery instead of reusing the generic ambiguous retry loop.`,
+              outcome: {
+                work_item_id: instance?.work_item_id || null,
+                classification: review.classification,
+                confidence: review.confidence,
+                modifiedFiles: review.modifiedFiles,
+                failingTests: review.failingTests,
+                intersection: review.intersection,
+                llmStatus: review.llmStatus || null,
+                task_id: review.llmTaskId || null,
+              },
+              confidence: 1,
+              batch_id,
+            });
+            return {
+              status: 'failed',
+              reason: 'verify_reviewer_timeout_requires_recovery',
+              pause_at_stage: 'VERIFY_FAIL',
+              branch: worktreeRecord.branch,
+              worktree_path: worktreeRecord.worktreePath,
+              verify_output: String(res.output || '').slice(-1500),
+              retry_attempts: retryAttempt,
+            };
+          }
+
           if (review && review.classification === 'ambiguous') {
             let verifyOutput = res.output;
             const silentResult = await attemptSilentRerun({

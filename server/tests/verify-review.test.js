@@ -9,7 +9,7 @@ describe('verify-review module exports', () => {
     expect(typeof mod.parseFailingTests).toBe('function');
     expect(typeof mod.getModifiedFiles).toBe('function');
     expect(typeof mod.runLlmTiebreak).toBe('function');
-    expect(mod.LLM_TIMEOUT_MS).toBe(60_000);
+    expect(mod.LLM_TIMEOUT_MS).toBe(300_000);
     expect(mod.ENVIRONMENT_EXIT_CODES).toBeInstanceOf(Set);
     expect(Array.isArray(mod.ENVIRONMENT_STDERR_PATTERNS)).toBe(true);
   });
@@ -351,7 +351,7 @@ describe('runLlmTiebreak', () => {
     delete require.cache[modulePath];
   });
 
-  it('returns {verdict: null, critique: null} when submit throws', async () => {
+  it('returns submit_failed when submit throws', async () => {
     installMocks({
       submit: vi.fn().mockRejectedValue(new Error('provider down')),
       await: vi.fn(),
@@ -364,14 +364,14 @@ describe('runLlmTiebreak', () => {
       workItem: { id: 1, title: 'w', description: 'd' },
       project: { id: 'p', path: '/tmp/p' },
     });
-    expect(r).toEqual({ verdict: null, critique: null });
+    expect(r).toEqual({ verdict: null, critique: null, status: 'submit_failed', taskId: null });
   });
 
-  it('returns {verdict: null, critique: null} when task does not complete', async () => {
+  it('returns timeout when the review task is cancelled for timeout', async () => {
     installMocks({
       submit: vi.fn().mockResolvedValue({ task_id: 't1' }),
       await: vi.fn().mockResolvedValue({ status: 'timeout' }),
-      task: vi.fn().mockReturnValue({ status: 'running', output: null }),
+      task: vi.fn().mockReturnValue({ status: 'cancelled', output: null, error_output: '[cancelled] Timeout exceeded' }),
     });
     const { runLlmTiebreak } = require('../factory/verify-review');
     const r = await runLlmTiebreak({
@@ -380,7 +380,7 @@ describe('runLlmTiebreak', () => {
       workItem: { id: 1, title: 'w', description: 'd' },
       project: { id: 'p', path: '/tmp/p' },
     });
-    expect(r).toEqual({ verdict: null, critique: null });
+    expect(r).toEqual({ verdict: null, critique: null, status: 'timeout', taskId: 't1' });
   });
 
   it('returns {verdict: "no-go", critique} when task output is JSON no-go', async () => {
@@ -401,6 +401,7 @@ describe('runLlmTiebreak', () => {
     });
     expect(r.verdict).toBe('no-go');
     expect(r.critique).toContain('legacy reconciler');
+    expect(r.status).toBe('completed');
   });
 
   it('returns {verdict: "go", critique} when task output is JSON go', async () => {
@@ -421,9 +422,10 @@ describe('runLlmTiebreak', () => {
     });
     expect(r.verdict).toBe('go');
     expect(r.critique).toContain('modified util');
+    expect(r.status).toBe('completed');
   });
 
-  it('submits the LLM tiebreak task in the provided worktree directory', async () => {
+  it('submits the LLM tiebreak task in the provided worktree directory with the full timeout budget', async () => {
     const submit = vi.fn().mockResolvedValue({ task_id: 't-worktree' });
     installMocks({
       submit,
@@ -443,10 +445,11 @@ describe('runLlmTiebreak', () => {
     });
     expect(submit).toHaveBeenCalledWith(expect.objectContaining({
       working_directory: '/repo/.worktrees/feat-factory-1',
+      timeout_minutes: 5,
     }));
   });
 
-  it('returns {verdict: null, critique: null} when output is unparseable', async () => {
+  it('returns invalid_output when output is unparseable', async () => {
     installMocks({
       submit: vi.fn().mockResolvedValue({ task_id: 't4' }),
       await: vi.fn().mockResolvedValue({ status: 'completed' }),
@@ -459,7 +462,7 @@ describe('runLlmTiebreak', () => {
       workItem: { id: 1, title: 'w', description: 'd' },
       project: { id: 'p', path: '/tmp/p' },
     });
-    expect(r).toEqual({ verdict: null, critique: null });
+    expect(r).toEqual({ verdict: null, critique: null, status: 'invalid_output', taskId: 't4' });
   });
 });
 
@@ -546,8 +549,38 @@ describe('reviewVerifyFailure orchestrator', () => {
     diffSpy.mockRestore();
   });
 
-  it('baseline_candidate + LLM null: returns ambiguous (conservative)', async () => {
-    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({ verdict: null, critique: null });
+  it('baseline_candidate + LLM timeout: returns reviewer_timeout', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({
+      verdict: null,
+      critique: null,
+      status: 'timeout',
+      taskId: 'llm-timeout-1',
+    });
+    const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue(['src/foo.ts']);
+    const r = await verifyReview.reviewVerifyFailure({
+      verifyOutput: { exitCode: 1, stdout: 'FAILED tests/bar.py::test_baz', stderr: '', timedOut: false },
+      workingDirectory: '/tmp/p',
+      worktreeBranch: 'feat/factory-1',
+      mergeBase: 'main',
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(r.classification).toBe('reviewer_timeout');
+    expect(r.confidence).toBe('high');
+    expect(r.llmStatus).toBe('timeout');
+    expect(r.llmTaskId).toBe('llm-timeout-1');
+    expect(r.suggestedRejectReason).toBeNull();
+    llmSpy.mockRestore();
+    diffSpy.mockRestore();
+  });
+
+  it('baseline_candidate + LLM null without timeout: returns ambiguous (conservative)', async () => {
+    const llmSpy = vi.spyOn(verifyReview, 'runLlmTiebreak').mockResolvedValue({
+      verdict: null,
+      critique: null,
+      status: 'invalid_output',
+      taskId: 'llm-invalid-1',
+    });
     const diffSpy = vi.spyOn(verifyReview, 'getModifiedFiles').mockResolvedValue(['src/foo.ts']);
     const r = await verifyReview.reviewVerifyFailure({
       verifyOutput: { exitCode: 1, stdout: 'FAILED tests/bar.py::test_baz', stderr: '', timedOut: false },
@@ -559,6 +592,8 @@ describe('reviewVerifyFailure orchestrator', () => {
     });
     expect(r.classification).toBe('ambiguous');
     expect(r.confidence).toBe('low');
+    expect(r.llmStatus).toBe('invalid_output');
+    expect(r.llmTaskId).toBe('llm-invalid-1');
     expect(r.suggestedRejectReason).toBeNull();
     llmSpy.mockRestore();
     diffSpy.mockRestore();

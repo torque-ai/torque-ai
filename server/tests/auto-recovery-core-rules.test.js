@@ -64,6 +64,18 @@ describe('auto-recovery-core day-one rules', () => {
     expect(r.matched_rule).toBe('verify_fail_unclassified');
   });
 
+  it('classifies reviewer timeout pauses as provider overload and prefers a fresh-session retry', () => {
+    const r = classifier.classify({
+      stage: 'verify',
+      action: 'verify_reviewer_timeout_paused',
+      reasoning: 'Verify reviewer timed out and the loop paused for controlled recovery.',
+      outcome: { task_id: 'review-llm-timeout-1' },
+    });
+    expect(r.category).toBe('provider_overload');
+    expect(r.matched_rule).toBe('verify_reviewer_timeout');
+    expect(r.suggested_strategies[0]).toBe('retry_with_fresh_session');
+  });
+
   it('every rule suggests strategies known to the plugin', () => {
     const strategyNames = new Set(plugin.recoveryStrategies.map(s => s.name));
     for (const rule of plugin.classifierRules) {

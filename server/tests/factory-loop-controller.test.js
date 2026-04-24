@@ -873,6 +873,75 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
+  it('pauses VERIFY_FAIL for controlled recovery when the verify reviewer times out', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPathTimeout = path.join(project.path, '.worktrees', 'feat-factory-reviewer-timeout');
+    fs.mkdirSync(wtPathTimeout, { recursive: true });
+    const reviewSpy = vi.spyOn(verifyReview, 'reviewVerifyFailure').mockResolvedValue({
+      classification: 'reviewer_timeout',
+      confidence: 'high',
+      modifiedFiles: ['server/tests/metrics.test.js'],
+      failingTests: ['server/tests/metrics.test.js'],
+      intersection: [],
+      environmentSignals: [],
+      llmVerdict: null,
+      llmCritique: null,
+      llmStatus: 'timeout',
+      llmTaskId: 'review-llm-timeout-1',
+      suggestedRejectReason: null,
+    });
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-review-timeout',
+        branch: 'feat-factory-reviewer-timeout',
+        worktreePath: wtPathTimeout,
+      })),
+      verify: vi.fn(async () => ({
+        passed: false,
+        output: 'runner output with parsed failures but slow reviewer',
+        durationMs: 22,
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async (_args) => {
+      submittedTaskCount += 1;
+      const taskId = `reviewer-timeout-task-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: 'completed',
+      });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(reviewSpy).toHaveBeenCalled();
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+    expect(submittedTaskCount).toBe(1);
+    expect(verifyAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(verifyAdvance.paused_at_stage ?? verifyAdvance.stage_result?.pause_at_stage).toBe('VERIFY_FAIL');
+    expect(verifyAdvance.stage_result).toMatchObject({
+      status: 'failed',
+      reason: 'verify_reviewer_timeout_requires_recovery',
+    });
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'verify_retry_submitted')).toBeUndefined();
+    expect(decisions.find((d) => d.action === 'verify_reviewer_timeout_paused')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        classification: 'reviewer_timeout',
+        llmStatus: 'timeout',
+        task_id: 'review-llm-timeout-1',
+      }),
+    });
+  });
+
   it('auto-retries a failing VERIFY and ships when the second attempt passes', async () => {
     const { project, workItem } = registerPlanProject();
     const batchId = `factory-${project.id}-${workItem.id}`;

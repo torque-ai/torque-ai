@@ -68,6 +68,14 @@ module.exports = [
     suggested_strategies: ['retry_plan_generation', 'escalate'],
   },
   {
+    name: 'verify_reviewer_timeout',
+    category: 'provider_overload',
+    priority: 80,
+    confidence: 0.8,
+    match: { stage: 'verify', action: 'verify_reviewer_timeout_paused' },
+    suggested_strategies: ['retry_with_fresh_session', 'escalate'],
+  },
+  {
     name: 'verify_fail_unclassified',
     category: 'unknown',
     priority: 10,

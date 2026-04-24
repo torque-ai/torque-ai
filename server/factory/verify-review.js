@@ -14,7 +14,7 @@ const childProcess = require('node:child_process');
   } catch (_e) { void _e; }
 })();
 
-const LLM_TIMEOUT_MS = 60_000;
+const LLM_TIMEOUT_MS = 5 * 60_000;
 const ENVIRONMENT_EXIT_CODES = new Set([127, 126, 124]);
 const ENVIRONMENT_STDERR_PATTERNS = [
   /\bEPERM\b/,
@@ -25,6 +25,23 @@ const ENVIRONMENT_STDERR_PATTERNS = [
   /\btimeout after \d+/i,
   /\bkilled by signal\b/i,
 ];
+const REVIEW_TASK_TIMEOUT_RE = /\btimeout exceeded\b/i;
+
+function buildLlmResult(overrides = {}) {
+  return {
+    verdict: null,
+    critique: null,
+    status: 'no_verdict',
+    taskId: null,
+    ...overrides,
+  };
+}
+
+function timeoutMinutesForMs(timeoutMs) {
+  const numeric = Number(timeoutMs);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 1;
+  return Math.max(1, Math.ceil(numeric / 60_000));
+}
 
 function normalizeVerifyOutput(verifyOutput) {
   if (!verifyOutput || typeof verifyOutput !== 'object') {
@@ -176,6 +193,7 @@ async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, 
 
   const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem });
   let taskId;
+  const timeoutMinutes = timeoutMinutesForMs(timeoutMs);
   try {
     const submitResult = await submitFactoryInternalTask({
       task: prompt,
@@ -183,40 +201,53 @@ async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, 
       kind: 'plan_generation',
       project_id: project?.id,
       work_item_id: workItem?.id,
-      timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)),
+      timeout_minutes: timeoutMinutes,
     });
     taskId = submitResult?.task_id || null;
   } catch (_e) {
-    return { verdict: null, critique: null };
+    return buildLlmResult({ status: 'submit_failed' });
   }
-  if (!taskId) return { verdict: null, critique: null };
+  if (!taskId) return buildLlmResult({ status: 'submit_failed' });
 
+  let awaitResult = null;
   try {
-    await handleAwaitTask({
+    awaitResult = await handleAwaitTask({
       task_id: taskId,
-      timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)),
+      timeout_minutes: timeoutMinutes,
       heartbeat_minutes: 0,
     });
   } catch (_e) {
-    return { verdict: null, critique: null };
+    return buildLlmResult({ status: 'await_failed', taskId });
   }
   const task = taskCore.getTask(taskId);
-  if (!task || task.status !== 'completed') return { verdict: null, critique: null };
+  if (!task) {
+    return buildLlmResult({
+      status: awaitResult?.status === 'timeout' ? 'timeout' : 'missing_task',
+      taskId,
+    });
+  }
+  if (task.status === 'cancelled' && REVIEW_TASK_TIMEOUT_RE.test(String(task.error_output || task.output || ''))) {
+    return buildLlmResult({ status: 'timeout', taskId });
+  }
+  if (awaitResult?.status === 'timeout' && task.status !== 'completed') {
+    return buildLlmResult({ status: 'timeout', taskId });
+  }
+  if (task.status !== 'completed') return buildLlmResult({ status: 'not_completed', taskId });
 
   const raw = String(task.output || '').trim();
-  if (!raw) return { verdict: null, critique: null };
+  if (!raw) return buildLlmResult({ status: 'empty_output', taskId });
   try {
     const jsonMatch = raw.match(/\{[\s\S]*?\}/);
     const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(raw);
     const verdict = parsed && parsed.verdict === 'no-go' ? 'no-go'
                   : parsed && parsed.verdict === 'go' ? 'go'
                   : null;
-    if (verdict === null) return { verdict: null, critique: null };
+    if (verdict === null) return buildLlmResult({ status: 'invalid_output', taskId });
     const critique = typeof parsed.critique === 'string' ? parsed.critique.trim() : null;
-    return { verdict, critique };
+    return buildLlmResult({ verdict, critique, status: 'completed', taskId });
   } catch (_e) {
     void _e;
-    return { verdict: null, critique: null };
+    return buildLlmResult({ status: 'invalid_output', taskId });
   }
 }
 
@@ -376,6 +407,21 @@ async function reviewVerifyFailure({
   });
 
   if (!llm || llm.verdict === null) {
+    if (llm?.status === 'timeout') {
+      return {
+        classification: 'reviewer_timeout',
+        confidence: 'high',
+        modifiedFiles,
+        failingTests,
+        intersection,
+        environmentSignals: [],
+        llmVerdict: null,
+        llmCritique: null,
+        llmStatus: llm.status,
+        llmTaskId: llm.taskId || null,
+        suggestedRejectReason: null,
+      };
+    }
     return {
       classification: 'ambiguous',
       confidence: 'low',
@@ -385,6 +431,8 @@ async function reviewVerifyFailure({
       environmentSignals: [],
       llmVerdict: null,
       llmCritique: null,
+      llmStatus: llm?.status || null,
+      llmTaskId: llm?.taskId || null,
       suggestedRejectReason: null,
     };
   }
@@ -399,6 +447,8 @@ async function reviewVerifyFailure({
       environmentSignals: [],
       llmVerdict: 'no-go',
       llmCritique: llm.critique,
+      llmStatus: llm.status,
+      llmTaskId: llm.taskId || null,
       suggestedRejectReason: 'verify_failed_baseline_unrelated',
     };
   }
@@ -412,6 +462,8 @@ async function reviewVerifyFailure({
     environmentSignals: [],
     llmVerdict: 'go',
     llmCritique: llm.critique,
+    llmStatus: llm.status,
+    llmTaskId: llm.taskId || null,
     suggestedRejectReason: null,
   };
 }
