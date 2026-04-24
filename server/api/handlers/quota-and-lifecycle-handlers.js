@@ -70,10 +70,15 @@ async function handleGetQuotaAutoScale(_req, res, _context = {}) {
     const queueDepthThreshold = serverConfig.getInt('quota_queue_depth_threshold', 3);
     const cooldownSeconds = serverConfig.getInt('quota_cooldown_seconds', 60);
 
-    // Count currently queued codex tasks
+    // Count currently queued codex tasks. Narrow projection — we only read
+    // provider + metadata, so skip the heavy TEXT blobs SELECT * would pull.
     let codexQueueDepth = 0;
     try {
-      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 });
+      const queued = taskCore.listTasks({
+        status: 'queued',
+        limit: 1000,
+        columns: taskCore.TASK_PROVIDER_QUEUE_COLUMNS,
+      });
       const queuedArr = Array.isArray(queued) ? queued : (queued.tasks || []);
       codexQueueDepth = queuedArr.filter(t => {
         if (t.provider === 'codex') return true;
@@ -276,8 +281,10 @@ async function handleShutdown(req, res, _context = {}) {
   if (force) {
     try {
       const taskCore = require('../../db/task-core');
-      const running = taskCore.listTasks({ status: 'running', limit: 1000 }).length;
-      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 }).length;
+      // countTasks runs a single COUNT(*) against the indexed status column —
+      // avoids loading (up to) 1000 full task rows just to read `.length`.
+      const running = taskCore.countTasks({ status: 'running' });
+      const queued = taskCore.countTasks({ status: 'queued' });
       if (running > 0 || queued > 0) {
         const { createGovernanceHooks } = require('../../governance/hooks');
         const governanceRules = require('../../db/governance-rules');
@@ -303,10 +310,13 @@ async function handleShutdown(req, res, _context = {}) {
   if (!force) {
     try {
       const taskCore = require('../../db/task-core');
-      const running = taskCore.listTasks({ status: 'running', limit: 1000 }).length;
-      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 }).length;
-      const pending = taskCore.listTasks({ status: 'pending', limit: 1000 }).length;
-      const blocked = taskCore.listTasks({ status: 'blocked', limit: 1000 }).length;
+      // countTasks does a single COUNT(*) per status against the indexed column —
+      // the old listTasks().length pattern pulled up to 4000 rows (potentially
+      // hundreds of MB of TEXT blobs) just to discard them.
+      const running = taskCore.countTasks({ status: 'running' });
+      const queued = taskCore.countTasks({ status: 'queued' });
+      const pending = taskCore.countTasks({ status: 'pending' });
+      const blocked = taskCore.countTasks({ status: 'blocked' });
       const total = running + queued + pending + blocked;
 
       if (total > 0) {
