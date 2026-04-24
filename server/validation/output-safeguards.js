@@ -110,6 +110,32 @@ function getTaskTags(task) {
   return Array.isArray(parsed) ? parsed : [];
 }
 
+function patchTaskSafeguardMetadata(taskId, updates) {
+  if (!db || typeof db.getTask !== 'function' || typeof db.patchTaskMetadata !== 'function') {
+    return false;
+  }
+
+  try {
+    const task = db.getTask(taskId);
+    const metadata = getTaskMetadata(task);
+    const priorSafeguards = metadata.output_safeguards && typeof metadata.output_safeguards === 'object'
+      ? metadata.output_safeguards
+      : {};
+
+    return db.patchTaskMetadata(taskId, {
+      ...metadata,
+      output_safeguards: {
+        ...priorSafeguards,
+        ...updates,
+        updated_at: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    logSafeguardError(taskId, 'Failed to persist safeguard metadata', err);
+    return false;
+  }
+}
+
 function shouldSkipOutputSafeguards(task) {
   const metadata = getTaskMetadata(task);
   const tags = getTaskTags(task);
@@ -150,7 +176,9 @@ function validateFileSizes(taskId, status, task, db, retryEnabled) {
 
     if (criticalOrErrors.length > 0) {
       logger.info(`[Safeguard] Task ${taskId} has ${criticalOrErrors.length} validation errors`);
-      db.setConfig(`task_${taskId}_validation_status`, 'failed');
+      patchTaskSafeguardMetadata(taskId, {
+        validation_status: 'failed',
+      });
 
       const hasCriticalAutoFail = criticalOrErrors.some(r =>
         r.severity === 'critical' || r.auto_fail === true
@@ -256,8 +284,10 @@ function detectStubImplementations(taskId, status, task, db) {
       : { valid: true, issues: [] };
     if (!placeholderResult.valid) {
       const diagnostics = placeholderResult.issues.join('\n');
-      db.setConfig(`task_${taskId}_validation_status`, 'failed');
-      db.setConfig(`task_${taskId}_validation_issues`, diagnostics);
+      patchTaskSafeguardMetadata(taskId, {
+        validation_status: 'failed',
+        validation_issues: diagnostics,
+      });
       logger.error(`[Safeguard] Placeholder artifacts remain after task ${taskId}:\n${diagnostics}`);
     }
   } catch (err) {
@@ -832,6 +862,7 @@ module.exports = {
   sanitizeOutputForCondition,
   truncateOptionalText,
   shouldSkipOutputSafeguards,
+  patchTaskSafeguardMetadata,
   MAX_SANITIZE_LENGTH,
   SECRET_PATTERNS,
 };

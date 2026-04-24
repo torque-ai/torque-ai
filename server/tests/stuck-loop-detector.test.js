@@ -29,6 +29,29 @@ function insertProject({ name, loopState, lastActionAt }) {
   return id;
 }
 
+function insertBatchTask({ id = randomUUID(), batchId, status = 'running' }) {
+  db.prepare(`
+    INSERT INTO tasks (
+      id,
+      task_description,
+      status,
+      tags,
+      working_directory,
+      created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    'factory batch task',
+    status,
+    JSON.stringify([`factory:batch_id=${batchId}`]),
+    `C:/projects/${id}`,
+    new Date().toISOString(),
+  );
+
+  return id;
+}
+
 beforeAll(() => {
   setupTestDbOnly('stuck-loop-detector');
   db = rawDb();
@@ -104,6 +127,33 @@ describe('detectStuckLoops', () => {
       loopState: 'SENSE',
       lastActionAt: new Date(Date.now() - (5 * 60 * 1000)).toISOString(),
     });
+
+    expect(detectStuckLoops(db)).toEqual([]);
+  });
+
+  it('ignores stale loop rows when the current batch still has non-terminal tasks', () => {
+    const batchId = `batch-${randomUUID()}`;
+    const projectId = randomUUID();
+    db.prepare(`
+      INSERT INTO factory_projects (
+        id,
+        name,
+        path,
+        status,
+        loop_state,
+        loop_batch_id,
+        loop_last_action_at
+      )
+      VALUES (?, ?, ?, 'running', ?, ?, ?)
+    `).run(
+      projectId,
+      'Active Batch Project',
+      `C:/projects/${projectId}`,
+      'EXECUTE',
+      batchId,
+      new Date(Date.now() - (2 * STALL_THRESHOLD_MS)).toISOString(),
+    );
+    insertBatchTask({ batchId, status: 'running' });
 
     expect(detectStuckLoops(db)).toEqual([]);
   });

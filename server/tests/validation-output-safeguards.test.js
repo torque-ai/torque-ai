@@ -13,6 +13,8 @@
  */
 
 const {
+  init,
+  patchTaskSafeguardMetadata,
   sanitizeOutputForCondition,
   truncateOptionalText,
   shouldSkipOutputSafeguards,
@@ -284,6 +286,43 @@ describe('truncateOptionalText', () => {
 
   it('truncates string smoke-test output', () => {
     expect(truncateOptionalText('abcdef', 3)).toBe('abc');
+  });
+});
+
+describe('patchTaskSafeguardMetadata', () => {
+  it('stores safeguard validation state on task metadata instead of config', () => {
+    const patchTaskMetadata = vi.fn().mockReturnValue(true);
+    init({
+      db: {
+        getTask: vi.fn().mockReturnValue({
+          metadata: JSON.stringify({
+            existing: true,
+            output_safeguards: {
+              prior_flag: 'kept',
+            },
+          }),
+        }),
+        patchTaskMetadata,
+      },
+    });
+
+    const result = patchTaskSafeguardMetadata('task-1', {
+      validation_status: 'failed',
+      validation_issues: 'placeholder artifact remained',
+    });
+
+    expect(result).toBe(true);
+    expect(patchTaskMetadata).toHaveBeenCalledWith(
+      'task-1',
+      expect.objectContaining({
+        existing: true,
+        output_safeguards: expect.objectContaining({
+          prior_flag: 'kept',
+          validation_status: 'failed',
+          validation_issues: 'placeholder artifact remained',
+        }),
+      }),
+    );
   });
 });
 

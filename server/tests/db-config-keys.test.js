@@ -11,6 +11,10 @@ describe('db/config-keys', () => {
     expect(VALID_CONFIG_KEYS.has('default_provider')).toBe(true);
     expect(VALID_CONFIG_KEYS.has('max_concurrent')).toBe(true);
     expect(VALID_CONFIG_KEYS.has('ollama_host')).toBe(true);
+    expect(VALID_CONFIG_KEYS.has('ollama_fast_model')).toBe(true);
+    expect(VALID_CONFIG_KEYS.has('ollama_balanced_model')).toBe(true);
+    expect(VALID_CONFIG_KEYS.has('ollama_quality_model')).toBe(true);
+    expect(VALID_CONFIG_KEYS.has('error_feedback_enabled')).toBe(true);
     expect(VALID_CONFIG_KEYS.has('scheduling_mode')).toBe(true);
     expect(VALID_CONFIG_KEYS.has('reject_recovery_enabled')).toBe(true);
   });

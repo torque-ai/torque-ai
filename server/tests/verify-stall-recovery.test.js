@@ -16,6 +16,7 @@ function insertProject({
   loopState,
   pausedAtStage = null,
   lastActionAt,
+  batchId = null,
 }) {
   const id = randomUUID();
   db.prepare(`
@@ -26,15 +27,17 @@ function insertProject({
       status,
       loop_state,
       loop_paused_at_stage,
+      loop_batch_id,
       loop_last_action_at
     )
-    VALUES (?, ?, ?, 'running', ?, ?, ?)
+    VALUES (?, ?, ?, 'running', ?, ?, ?, ?)
   `).run(
     id,
     `Project ${id}`,
     `C:/projects/${id}`,
     loopState,
     pausedAtStage,
+    batchId,
     lastActionAt,
   );
   return id;
@@ -192,6 +195,48 @@ describe('recoverStalledVerifyLoops', () => {
       project_id: projectId,
       attempts: 0,
     }));
+    expect(actions).toEqual([]);
+    expect(retryFactoryVerify).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-retry a stalled VERIFY loop paused behind a stale-branch human gate', async () => {
+    const batchId = `batch-${randomUUID()}`;
+    const projectId = insertProject({
+      loopState: 'PAUSED',
+      pausedAtStage: 'VERIFY',
+      batchId,
+      lastActionAt: new Date(Date.now() - (VERIFY_STALL_THRESHOLD_MS + 60 * 1000)).toISOString(),
+    });
+    const retryFactoryVerify = vi.fn().mockResolvedValue({});
+
+    db.prepare(`
+      INSERT INTO factory_decisions (
+        project_id,
+        stage,
+        actor,
+        action,
+        reasoning,
+        outcome_json,
+        confidence,
+        batch_id,
+        created_at
+      )
+      VALUES (?, 'verify', 'human', 'paused_at_gate', ?, ?, 1, ?, ?)
+    `).run(
+      projectId,
+      'Loop paused awaiting approval for VERIFY.',
+      JSON.stringify({ reason: 'branch_stale_vs_base' }),
+      batchId,
+      new Date().toISOString(),
+    );
+
+    const actions = await recoverStalledVerifyLoops({
+      db,
+      logger: makeLogger(),
+      eventBus: createEventBus(),
+      retryFactoryVerify,
+    });
+
     expect(actions).toEqual([]);
     expect(retryFactoryVerify).not.toHaveBeenCalled();
   });

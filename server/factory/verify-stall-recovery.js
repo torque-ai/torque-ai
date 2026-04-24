@@ -6,6 +6,9 @@ const { isWithinCooldown } = require('./auto-recovery/backoff');
 
 const VERIFY_STALL_THRESHOLD_MS = 45 * 60 * 1000;
 const MAX_RECOVERY_ATTEMPTS = 2;
+const TERMINAL_VERIFY_GATE_REASONS = new Set([
+  'branch_stale_vs_base',
+]);
 
 const inMemoryVerifyRecoveryAttempts = new Map();
 const verifyRecoveryColumnCache = new WeakMap();
@@ -73,6 +76,59 @@ function hasAutoRecoveryColumns(db) {
   }
 }
 
+function parseJsonObject(value) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function getLatestVerifyDecision(db, projectId, batchId = null) {
+  const batchFilter = batchId ? 'AND batch_id = ?' : '';
+  const params = batchId ? [projectId, batchId] : [projectId];
+
+  const row = db.prepare(`
+    SELECT action, outcome_json
+    FROM factory_decisions
+    WHERE project_id = ?
+      AND stage = 'verify'
+      ${batchFilter}
+    ORDER BY id DESC
+    LIMIT 1
+  `).get(...params);
+
+  if (row) {
+    return {
+      action: row.action || null,
+      outcome: parseJsonObject(row.outcome_json),
+    };
+  }
+
+  if (batchId) {
+    return getLatestVerifyDecision(db, projectId, null);
+  }
+
+  return null;
+}
+
+function isTerminalVerifyGate(stalledLoop, db) {
+  const latest = getLatestVerifyDecision(db, stalledLoop.project_id, stalledLoop.batch_id || null);
+  const latestReason = typeof latest?.outcome?.reason === 'string'
+    ? latest.outcome.reason
+    : null;
+
+  return latest?.action === 'branch_stale_rebase_conflict'
+    || (
+      latest?.action === 'paused_at_gate'
+      && TERMINAL_VERIFY_GATE_REASONS.has(latestReason)
+    );
+}
+
 function listStalledVerifyLoops(db, thresholdMs = VERIFY_STALL_THRESHOLD_MS) {
   if (!db || typeof db.prepare !== 'function') {
     throw new Error('recoverStalledVerifyLoops requires a database handle');
@@ -90,7 +146,8 @@ function listStalledVerifyLoops(db, thresholdMs = VERIFY_STALL_THRESHOLD_MS) {
       id AS project_id,
       loop_state,
       loop_paused_at_stage AS paused_at_stage,
-      loop_last_action_at AS last_action_at
+      loop_last_action_at AS last_action_at,
+      loop_batch_id AS batch_id
       ${attemptsSelect}
       ${arSelect}
     FROM factory_projects
@@ -156,6 +213,10 @@ async function recoverStalledVerifyLoops({
   factoryDecisions.setDb(db);
 
   for (const stalledLoop of listStalledVerifyLoops(db)) {
+    if (isTerminalVerifyGate(stalledLoop, db)) {
+      continue;
+    }
+
     if (typeof shouldSkipStalledLoop === 'function') {
       let skipRecovery = false;
       try {
