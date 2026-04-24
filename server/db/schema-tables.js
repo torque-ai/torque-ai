@@ -23,6 +23,7 @@ const VALID_TABLE_NAMES = new Set([
   'audit_trail',
   'auth_configs',
   'auto_rollbacks',
+  'bench_runs',
   'benchmark_results',
   'budget_alerts',
   'build_checks',
@@ -1461,6 +1462,21 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_debug_sessions_task ON debug_sessions(task_id);
       CREATE INDEX IF NOT EXISTS idx_debug_sessions_status ON debug_sessions(status);
       CREATE INDEX IF NOT EXISTS idx_debug_captures_session ON debug_captures(session_id);
+    `);
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS bench_runs (
+        id TEXT PRIMARY KEY,
+        bench_id TEXT NOT NULL,
+        spec_path TEXT NOT NULL,
+        workflow_id TEXT,
+        goal TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        status TEXT,
+        metrics_json TEXT,
+        composite_score REAL
+      );
+      CREATE INDEX IF NOT EXISTS idx_bench_runs_bench ON bench_runs(bench_id);
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS workflows (
