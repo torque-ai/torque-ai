@@ -84,7 +84,17 @@ function parsePositiveInt(value, fallback) {
 
 function getProviderPercentiles(providerId, days) {
   const fromDate = new Date(Date.now() - days * 86400000).toISOString();
-  const rawTasks = taskCore.listTasks ? taskCore.listTasks({ provider: providerId, from_date: fromDate, limit: 1000 }) : [];
+  // This handler only computes duration percentiles — id + started_at + completed_at
+  // is all we need. Without the projection we pull up to 1000 full rows (hundreds
+  // of MB of error_output) just to subtract two timestamps.
+  const rawTasks = taskCore.listTasks
+    ? taskCore.listTasks({
+        provider: providerId,
+        from_date: fromDate,
+        limit: 1000,
+        columns: taskCore.TASK_TIMING_COLUMNS,
+      })
+    : [];
   const taskList = Array.isArray(rawTasks) ? rawTasks : (rawTasks.tasks || []);
   const durations = taskList
     .filter((task) => task?.completed_at && task?.started_at)

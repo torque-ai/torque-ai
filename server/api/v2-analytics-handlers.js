@@ -101,7 +101,9 @@ function buildTimeSeries(days, provider, interval = 'day') {
 }
 
 function getRecentStrategicOperations(limit) {
-  const rawTasks = taskCore.listTasks ? taskCore.listTasks({ limit: limit * 3, order: 'desc' }) : [];
+  const rawTasks = taskCore.listTasks
+    ? taskCore.listTasks({ limit: limit * 3, order: 'desc', columns: taskCore.TASK_LIST_COLUMNS })
+    : [];
   const taskList = Array.isArray(rawTasks) ? rawTasks : (rawTasks.tasks || []);
 
   return taskList.filter((task) => {
@@ -203,19 +205,23 @@ async function handleStuckTasks(req, res) {
   const pendingApprovalThreshold = 15 * 60 * 1000;
   const longRunningThreshold = 30 * 60 * 1000;
 
+  // Rows are returned to the client (.slice(0,10)) so we need display fields,
+  // but not the heavy TEXT blobs — use the standard list projection.
+  const listOpts = (status) => ({ status, limit: 50, columns: taskCore.TASK_LIST_COLUMNS });
+
   const pendingApproval = (taskCore.listTasks
-    ? taskCore.listTasks({ status: 'pending_approval', limit: 50 })
+    ? taskCore.listTasks(listOpts('pending_approval'))
     : []).filter(t => (now - new Date(t.created_at).getTime()) > pendingApprovalThreshold);
 
   const pendingSwitch = (taskCore.listTasks
-    ? taskCore.listTasks({ status: 'pending_provider_switch', limit: 50 })
+    ? taskCore.listTasks(listOpts('pending_provider_switch'))
     : []).filter(t => (now - new Date(t.provider_switched_at || t.created_at).getTime()) > pendingApprovalThreshold);
 
   const longRunning = (taskCore.listTasks
-    ? taskCore.listTasks({ status: 'running', limit: 50 })
+    ? taskCore.listTasks(listOpts('running'))
     : []).filter(t => (now - new Date(t.started_at).getTime()) > longRunningThreshold);
 
-  const waiting = taskCore.listTasks ? taskCore.listTasks({ status: 'waiting', limit: 50 }) : [];
+  const waiting = taskCore.listTasks ? taskCore.listTasks(listOpts('waiting')) : [];
 
   sendSuccess(res, requestId, {
     pending_approval: { count: pendingApproval.length, tasks: pendingApproval.slice(0, 10) },
@@ -487,7 +493,11 @@ async function handleRoutingDecisions(req, res) {
   const query = req.query || {};
   const limit = clampInt(query.limit, 1, 200, 50);
 
-  const rawTasks = taskCore.listTasks ? taskCore.listTasks({ limit: limit * 3, order: 'desc' }) : [];
+  // Narrow projection — we only read routing metadata + a short description slice,
+  // never output/error_output.
+  const rawTasks = taskCore.listTasks
+    ? taskCore.listTasks({ limit: limit * 3, order: 'desc', columns: taskCore.TASK_ROUTING_DECISION_COLUMNS })
+    : [];
   const taskList = Array.isArray(rawTasks) ? rawTasks : (rawTasks.tasks || []);
 
   const decisions = [];
@@ -584,7 +594,11 @@ async function handleQuotaAutoScale(req, res) {
 
     let codexQueueDepth = 0;
     try {
-      const queued = taskCore.listTasks({ status: 'queued', limit: 1000 });
+      const queued = taskCore.listTasks({
+        status: 'queued',
+        limit: 1000,
+        columns: taskCore.TASK_PROVIDER_QUEUE_COLUMNS,
+      });
       const queuedArr = Array.isArray(queued) ? queued : (queued.tasks || []);
       codexQueueDepth = queuedArr.filter(t => {
         if (t.provider === 'codex') return true;

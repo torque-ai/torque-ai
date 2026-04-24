@@ -1005,7 +1005,13 @@ function notifyHostActivityUpdated() {
     }
   } catch { /* best-effort */ }
 
-  const runningTasks = taskCore.listTasks({ status: 'running', limit: 100 });
+  // Broadcast runs off a periodic timer — it's on the dashboard hot path, and we
+  // only need id/ollama_host_id/model to build the GPU-status map.
+  const runningTasks = taskCore.listTasks({
+    status: 'running',
+    limit: 100,
+    columns: taskCore.TASK_HOST_COLUMNS,
+  });
   const taskList = runningTasks.tasks || runningTasks;
   const taskGpuStatus = {};
   for (const t of (Array.isArray(taskList) ? taskList : [])) {
