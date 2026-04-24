@@ -19,7 +19,7 @@ const {
   sendList,
   resolveRequestId,
 } = require('./v2-control-plane');
-const { parseBody } = require('./middleware');
+const { parseBody, sendJson } = require('./middleware');
 
 let _taskManager = null;
 let _remoteAgentRegistry = null;
@@ -527,6 +527,15 @@ function _sanitizeAgent(agent) {
   };
 }
 
+function _parseRuntimeWorkerCapabilities(raw) {
+  try {
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed.filter((value) => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 function _listAgents() {
   const registry = _getRegistry();
   if (!registry) return [];
@@ -552,6 +561,40 @@ async function handleListAgents(req, res) {
   try {
     const agents = _listAgents();
     sendList(res, requestId, agents, agents.length, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+async function handleRuntimeWorkers(req, res) {
+  const requestId = resolveRequestId(req);
+  try {
+    const { defaultContainer } = require('../container');
+    const host = defaultContainer.get('agentRuntimeHost');
+    if (!host?.registry) {
+      return sendError(res, requestId, 'not_initialized', 'Agent runtime host not initialized', 503, {}, req);
+    }
+
+    const dbService = defaultContainer.get('db');
+    const rawDb = dbService && typeof dbService.getDbInstance === 'function'
+      ? dbService.getDbInstance()
+      : dbService;
+    if (!rawDb || typeof rawDb.prepare !== 'function') {
+      return sendError(res, requestId, 'operation_failed', 'Runtime worker registry database unavailable', 500, {}, req);
+    }
+
+    const rows = rawDb.prepare(`
+      SELECT *
+      FROM runtime_workers
+      ORDER BY registered_at DESC, worker_id ASC
+    `).all();
+
+    sendJson(res, {
+      workers: rows.map((row) => ({
+        ...row,
+        capabilities: _parseRuntimeWorkerCapabilities(row.capabilities_json),
+      })),
+    }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
   }
@@ -780,6 +823,7 @@ function createV2InfrastructureHandlers(_deps) {
     handleGetAgent,
     handleAgentHealth,
     handleDeleteAgent,
+    handleRuntimeWorkers,
     handleAddHost,
     handleRefreshModels,
     handleHostActivity,
@@ -819,6 +863,7 @@ module.exports = {
   handleGetAgent,
   handleAgentHealth,
   handleDeleteAgent,
+  handleRuntimeWorkers,
   // Host Management (new)
   handleAddHost,
   handleRefreshModels,

@@ -48,11 +48,45 @@ function verifySecret(stored, provided) {
 class RemoteAgentRegistry {
   /**
    * @param {object} db - better-sqlite3 database instance (must have .prepare())
+   * @param {object} [options]
+   * @param {object|null} [options.runtimeWorkerRegistry]
    */
-  constructor(db) {
+  constructor(db, options = {}) {
     this.db = db;
     /** @type {Map<string, RemoteAgentClient>} */
     this.clients = new Map();
+    this.runtimeWorkerRegistry = options.runtimeWorkerRegistry || null;
+  }
+
+  _syncRuntimeWorker(agent) {
+    if (!this.runtimeWorkerRegistry || typeof this.runtimeWorkerRegistry.register !== 'function' || !agent?.id) {
+      return;
+    }
+
+    const tls = agent.tls === undefined || agent.tls === null ? true : Boolean(agent.tls);
+    const endpoint = `${tls ? 'https' : 'http'}://${agent.host}:${agent.port}`;
+
+    this.runtimeWorkerRegistry.register({
+      workerId: `remote:${agent.id}`,
+      kind: 'remote_agent',
+      displayName: agent.name || agent.id,
+      capabilities: Array.isArray(agent.capabilities) && agent.capabilities.length > 0
+        ? agent.capabilities
+        : [`remote:${agent.id}`],
+      endpoint,
+    });
+  }
+
+  syncRuntimeWorkers() {
+    if (!this.runtimeWorkerRegistry || typeof this.runtimeWorkerRegistry.register !== 'function') {
+      return [];
+    }
+
+    const agents = this.getAll();
+    for (const agent of agents) {
+      this._syncRuntimeWorker(agent);
+    }
+    return agents;
   }
 
   /**
@@ -84,6 +118,7 @@ class RemoteAgentRegistry {
       rejectUnauthorized,
     });
     this.clients.set(id, client);
+    this._syncRuntimeWorker({ id, name, host, port, tls, rejectUnauthorized });
     return { id, name, host, port };
   }
 
@@ -111,6 +146,9 @@ class RemoteAgentRegistry {
   remove(id) {
     this.db.prepare('DELETE FROM remote_agents WHERE id = ?').run(id);
     this.clients.delete(id);
+    if (this.runtimeWorkerRegistry && typeof this.runtimeWorkerRegistry.remove === 'function') {
+      this.runtimeWorkerRegistry.remove(`remote:${id}`);
+    }
   }
 
   /**

@@ -36,12 +36,14 @@ const gpuMetricsServer = require('./scripts/gpu-metrics-server');
 const mcpSse = require('./mcp-sse');
 const { MCPPlatform, isPlatformEnabled } = require('./mcp/platform');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
+const { createHost } = require('./agent-runtime/host');
 const logger = require('./logger').child({ component: 'mcp-stdio' });
 const mcpProtocol = require('./mcp-protocol');
 const timerRegistry = require('./timer-registry');
 const eventBus = require('./event-bus');
 const maintenanceScheduler = require('./maintenance/scheduler');
 const { cleanupStaleGitStatusProcesses } = require('./utils/git');
+const providerRegistry = require('./providers/registry');
 
 // Stored handler ref for shutdown listener deduplication across init() calls
 let _shutdownHandler = null;
@@ -61,6 +63,7 @@ const LOCAL_MCP_DESCRIPTION = 'TORQUE - Task Orchestration System with local LLM
 
 let testRunnerRegistry = null;
 let mcpPlatform = null;
+let agentRuntimeHost = null;
 
 // Single source of truth — shared with mcp-sse.js
 
@@ -78,6 +81,22 @@ let mcpPlatform = null;
 // process running a torque-named script to claim the exact same PID within 30s of reboot).
 const PID_FILE = path.join(db.getDataDir(), 'torque.pid');
 const LOCK_FILE = path.join(db.getDataDir(), 'torque.lock');
+
+function registerInlineProviderWorkers(host) {
+  if (!host?.registry || typeof host.registry.register !== 'function') {
+    return;
+  }
+
+  for (const providerName of providerRegistry.list()) {
+    host.registry.register({
+      workerId: `inline:${providerName}`,
+      kind: 'provider',
+      displayName: providerName,
+      capabilities: [`provider:${providerName}`],
+      endpoint: 'inline',
+    });
+  }
+}
 
 /**
  * Acquire an exclusive startup lock to prevent concurrent instances.
@@ -604,7 +623,7 @@ async function gracefulShutdown(signal) {
     debugLog(`No running tasks - proceeding with shutdown`);
   }
 
-  const performShutdown = () => {
+  const performShutdown = async () => {
     try {
       if (shutdownTimer) {
         clearTimeout(shutdownTimer);
@@ -639,6 +658,14 @@ async function gracefulShutdown(signal) {
       // Stop dashboard and API servers
       dashboard.stop();
       apiServer.stop();
+      if (agentRuntimeHost && typeof agentRuntimeHost.close === 'function') {
+        try {
+          await agentRuntimeHost.close();
+        } catch (hostErr) {
+          debugLog(`agent runtime host shutdown: ${hostErr.message}`);
+        }
+        agentRuntimeHost = null;
+      }
       if (slotPullScheduler && typeof slotPullScheduler.stopHeartbeat === 'function') {
         slotPullScheduler.stopHeartbeat();
       }
@@ -716,12 +743,12 @@ async function gracefulShutdown(signal) {
     }
     shutdownTimer = setTimeout(() => {
       shutdownTimer = null;
-      performShutdown();
+      void performShutdown();
     }, SHUTDOWN_TIMEOUT_MS);
     return;
   }
 
-  performShutdown();
+  await performShutdown();
 }
 
 /**
@@ -1042,6 +1069,17 @@ function init() {
   taskManager.initEarlyDeps();
   taskManager.initSubModules();
   serverConfig.init({ db });
+  if (!agentRuntimeHost) {
+    agentRuntimeHost = createHost({
+      db: rawDb,
+      port: serverConfig.getInt('runtime_port', 3461),
+      logger: logger.child({ component: 'agent-runtime-host' }),
+    });
+  }
+  registerInlineProviderWorkers(agentRuntimeHost);
+  if (!defaultContainer.has('agentRuntimeHost')) {
+    defaultContainer.registerValue('agentRuntimeHost', agentRuntimeHost);
+  }
   // Bump server epoch -- used by await handlers to detect orphaned tasks from crashed servers
   {
     const prevEpoch = parseInt(db.getConfig('server_epoch') || '0', 10);

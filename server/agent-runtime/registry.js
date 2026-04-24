@@ -126,6 +126,21 @@ function createWorkerRegistry({ db }) {
     SET status = 'disconnected'
     WHERE worker_id = ?
   `);
+  const removeStmt = db.prepare(`
+    DELETE FROM runtime_workers
+    WHERE worker_id = ?
+  `);
+  const staleByEndpointStmt = db.prepare(`
+    SELECT worker_id
+    FROM runtime_workers
+    WHERE status != 'disconnected'
+      AND endpoint = ?
+      AND (
+        last_heartbeat_at IS NULL
+        OR (julianday('now') - julianday(last_heartbeat_at)) * 86400 > ?
+      )
+    ORDER BY worker_id ASC
+  `);
   const disconnectMany = db.transaction((workerIds) => {
     for (const workerId of workerIds) {
       disconnectStmt.run(workerId);
@@ -173,18 +188,26 @@ function createWorkerRegistry({ db }) {
     return get(normalizedWorkerId);
   }
 
+  function remove(workerId) {
+    const normalizedWorkerId = normalizeRequiredString(workerId, 'workerId');
+    removeStmt.run(normalizedWorkerId);
+  }
+
   function markUnhealthy(workerId) {
     const normalizedWorkerId = normalizeRequiredString(workerId, 'workerId');
     unhealthyStmt.run(normalizedWorkerId);
     return get(normalizedWorkerId);
   }
 
-  function reapStaleWorkers({ thresholdSeconds }) {
+  function reapStaleWorkers({ thresholdSeconds, endpoint = null }) {
     if (!Number.isFinite(thresholdSeconds) || thresholdSeconds < 0) {
       throw new Error('thresholdSeconds must be a non-negative number');
     }
 
-    const staleWorkerIds = staleStmt.all(thresholdSeconds).map((row) => row.worker_id);
+    const normalizedEndpoint = normalizeOptionalString(endpoint);
+    const staleWorkerIds = normalizedEndpoint
+      ? staleByEndpointStmt.all(normalizedEndpoint, thresholdSeconds).map((row) => row.worker_id)
+      : staleStmt.all(thresholdSeconds).map((row) => row.worker_id);
     if (staleWorkerIds.length > 0) {
       disconnectMany(staleWorkerIds);
     }
@@ -196,6 +219,7 @@ function createWorkerRegistry({ db }) {
     get,
     findByCapability,
     heartbeat,
+    remove,
     markUnhealthy,
     reapStaleWorkers,
   };

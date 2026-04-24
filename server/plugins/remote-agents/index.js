@@ -27,6 +27,11 @@ function resolveRawDb(dbService) {
   return rawDb;
 }
 
+function resolveRuntimeWorkerRegistry(container) {
+  const runtimeHost = getContainerService(container, 'agentRuntimeHost');
+  return runtimeHost && runtimeHost.registry ? runtimeHost.registry : null;
+}
+
 // Module-level singleton set during install() so consumers can access the
 // plugin's shared registry without constructing their own instance.
 let _installedRegistry = null;
@@ -53,8 +58,11 @@ function createPlugin() {
       } catch {}
     }
     db = resolveRawDb(dbService);
-    agentRegistry = new RemoteAgentRegistry(db);
+    agentRegistry = new RemoteAgentRegistry(db, {
+      runtimeWorkerRegistry: resolveRuntimeWorkerRegistry(container),
+    });
     _installedRegistry = agentRegistry;
+    agentRegistry.syncRuntimeWorkers();
 
     testRunnerRegistry = getContainerService(container, 'testRunnerRegistry');
     if (testRunnerRegistry) {

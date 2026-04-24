@@ -165,7 +165,7 @@ function createHost({ db, port, logger = console }) {
   });
 
   const staleReapInterval = setInterval(() => {
-    const staleWorkerIds = registry.reapStaleWorkers({ thresholdSeconds: 60 });
+    const staleWorkerIds = registry.reapStaleWorkers({ thresholdSeconds: 60, endpoint: 'ws' });
     for (const staleWorkerId of staleWorkerIds) {
       const staleSocket = sockets.get(staleWorkerId);
       if (!staleSocket) continue;

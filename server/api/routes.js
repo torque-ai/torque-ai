@@ -115,6 +115,7 @@ const routes = [
   { method: 'GET', path: '/api/provider-scores', tool: 'get_provider_scores', mapQuery: true },
   { method: 'GET', path: '/api/v2/provider-scores', tool: 'get_provider_scores', mapQuery: true },
   { method: 'GET', path: '/api/bootstrap/workstation', handlerName: 'handleBootstrapWorkstation', skipAuth: true },
+  { method: 'GET', path: '/api/runtime/workers', handlerName: 'handleRuntimeWorkers' },
   { method: 'POST', path: '/api/providers/configure', tool: 'configure_provider', mapBody: true },
   { method: 'POST', path: '/api/providers/default', tool: 'set_default_provider', mapBody: true },
   // TDA-10: Legacy Ollama host routes — use /api/v2/hosts/* instead

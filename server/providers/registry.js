@@ -69,6 +69,16 @@ function getProvidersInCategory(category) {
   return PROVIDER_CATEGORIES[category] || [];
 }
 
+function list(options = {}) {
+  const includeSystem = options && options.includeSystem === true;
+  return [
+    ...PROVIDER_CATEGORIES.ollama,
+    ...PROVIDER_CATEGORIES.codex,
+    ...PROVIDER_CATEGORIES.api,
+    ...(includeSystem ? PROVIDER_CATEGORIES.system : []),
+  ];
+}
+
 // ── API Provider Instances (lazy-initialized) ──────────────────────────────
 
 const _instances = {};
@@ -130,6 +140,7 @@ module.exports = {
   isApiProvider,
   isKnownProvider,
   getProvidersInCategory,
+  list,
 
   // Instance management
   registerProviderClass,

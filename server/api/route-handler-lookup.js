@@ -160,6 +160,7 @@ function createRouteHandlerLookup({
     handleV2CpGetAgent: v2InfrastructureHandlers.handleGetAgent,
     handleV2CpAgentHealth: v2InfrastructureHandlers.handleAgentHealth,
     handleV2CpDeleteAgent: v2InfrastructureHandlers.handleDeleteAgent,
+    handleRuntimeWorkers: v2InfrastructureHandlers.handleRuntimeWorkers,
   };
 }
 
