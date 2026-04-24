@@ -492,6 +492,21 @@ export const workflows = {
   get: (id) => requestV2(`/workflows/${id}`),
   tasks: (id) => requestV2(`/workflows/${id}/tasks`),
   history: (id) => requestV2(`/workflows/${id}/history`),
+  query: (id, name, options = {}) => requestV2(`/workflows/${id}/control/query`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+    ...options,
+  }),
+  signal: (id, name, value, options = {}) => requestV2(`/workflows/${id}/control/signal`, {
+    method: 'POST',
+    body: JSON.stringify(value === undefined ? { name } : { name, value }),
+    ...options,
+  }),
+  update: (id, name, value, options = {}) => requestV2(`/workflows/${id}/control/update`, {
+    method: 'POST',
+    body: JSON.stringify(value === undefined ? { name } : { name, value }),
+    ...options,
+  }),
   checkpoints: (id, options = {}) => requestV2(`/workflows/${id}/checkpoints`, options),
   fork: (id, data, options = {}) => requestV2(`/workflows/${id}/fork`, {
     method: 'POST',

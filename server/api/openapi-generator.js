@@ -154,6 +154,19 @@ const COMPONENT_SCHEMAS = {
       skipped: { type: 'integer' },
     },
   },
+  WorkflowControlHandlerMap: {
+    type: 'object',
+    additionalProperties: { type: 'string' },
+  },
+  WorkflowControlHandlers: {
+    type: 'object',
+    properties: {
+      queries: { $ref: '#/components/schemas/WorkflowControlHandlerMap' },
+      signals: { $ref: '#/components/schemas/WorkflowControlHandlerMap' },
+      updates: { $ref: '#/components/schemas/WorkflowControlHandlerMap' },
+    },
+    additionalProperties: true,
+  },
   WorkflowSummary: {
     type: 'object',
     required: ['id', 'status'],
@@ -175,6 +188,7 @@ const COMPONENT_SCHEMAS = {
         type: 'object',
         required: ['cost', 'task_counts', 'tasks'],
         properties: {
+          control_handlers: { $ref: '#/components/schemas/WorkflowControlHandlers' },
           cost: { $ref: '#/components/schemas/WorkflowCostSummary' },
           task_counts: { $ref: '#/components/schemas/WorkflowTaskCounts' },
           tasks: {
@@ -234,6 +248,7 @@ const COMPONENT_SCHEMAS = {
       name: { type: 'string', minLength: 1, maxLength: 200 },
       description: { type: 'string' },
       working_directory: { type: 'string' },
+      control_handlers: { $ref: '#/components/schemas/WorkflowControlHandlers' },
       tasks: {
         type: 'array',
         minItems: 1,

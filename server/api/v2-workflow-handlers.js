@@ -147,6 +147,7 @@ async function handleCreateWorkflow(req, res) {
       priority: body.priority,
       working_directory: body.working_directory,
       tasks: body.tasks,
+      control_handlers: body.control_handlers,
     });
 
     if (result.isError || result.error_code) {

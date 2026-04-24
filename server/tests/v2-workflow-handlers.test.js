@@ -327,6 +327,9 @@ describe('api/v2-workflow-handlers', () => {
           description: 'Release train',
           priority: 5,
           working_directory: 'C:\\repo',
+          control_handlers: {
+            queries: { current_round: 'state.round' },
+          },
           tasks: [{ node_id: 'build', task_description: 'Build binaries' }],
         },
       });
@@ -350,6 +353,9 @@ describe('api/v2-workflow-handlers', () => {
         description: 'Release train',
         priority: 5,
         working_directory: 'C:\\repo',
+        control_handlers: {
+          queries: { current_round: 'state.round' },
+        },
         tasks: [{ node_id: 'build', task_description: 'Build binaries' }],
       });
 

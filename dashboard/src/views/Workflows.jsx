@@ -152,6 +152,280 @@ function formatTaskBlockerSummary(task) {
   return `${blocker.reason || 'Blocked.'}${dependencyHint}`;
 }
 
+function normalizeControlHandlerGroup(group) {
+  if (!group || typeof group !== 'object' || Array.isArray(group)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(group).filter(([name, spec]) => (
+      typeof name === 'string'
+      && name.trim().length > 0
+      && typeof spec === 'string'
+      && spec.trim().length > 0
+    )).map(([name, spec]) => [name.trim(), spec.trim()])
+  );
+}
+
+function normalizeControlHandlers(controlHandlers) {
+  if (!controlHandlers || typeof controlHandlers !== 'object' || Array.isArray(controlHandlers)) {
+    return null;
+  }
+
+  const normalized = {
+    queries: normalizeControlHandlerGroup(controlHandlers.queries),
+    signals: normalizeControlHandlerGroup(controlHandlers.signals),
+    updates: normalizeControlHandlerGroup(controlHandlers.updates),
+  };
+
+  return Object.values(normalized).some((group) => Object.keys(group).length > 0)
+    ? normalized
+    : null;
+}
+
+function parseControlPayloadInput(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ok: true, value: undefined };
+  }
+
+  const looksLikeJson = /^[\[{]/.test(trimmed);
+  const looksLikeJsonPrimitive = /^(true|false|null|-?\d+(\.\d+)?([eE][+-]?\d+)?|".*")$/.test(trimmed);
+  if (looksLikeJson || looksLikeJsonPrimitive) {
+    try {
+      return { ok: true, value: JSON.parse(trimmed) };
+    } catch {
+      return { ok: false, error: 'Control values that look like JSON must be valid JSON.' };
+    }
+  }
+
+  return { ok: true, value: raw };
+}
+
+function formatControlPayload(value) {
+  if (value === undefined) return 'undefined';
+  if (typeof value === 'string') return value;
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function getControlResultError(result) {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+  if (typeof result.error === 'string' && result.error.trim()) {
+    return result.error.trim();
+  }
+  if (Array.isArray(result.errors) && result.errors.length > 0) {
+    return result.errors.join(', ');
+  }
+  return null;
+}
+
+function WorkflowControlPanel({ workflowId, controlHandlers, onRefresh }) {
+  const toast = useToast();
+  const normalizedHandlers = useMemo(
+    () => normalizeControlHandlers(controlHandlers),
+    [controlHandlers]
+  );
+  const [draftValues, setDraftValues] = useState({});
+  const [results, setResults] = useState({});
+  const [activeKey, setActiveKey] = useState(null);
+
+  if (!normalizedHandlers) {
+    return null;
+  }
+
+  const totalHandlers = ['queries', 'signals', 'updates']
+    .reduce((count, groupName) => count + Object.keys(normalizedHandlers[groupName]).length, 0);
+
+  const storeResult = (key, ok, payload) => {
+    setResults((prev) => ({
+      ...prev,
+      [key]: {
+        ok,
+        payload: formatControlPayload(payload),
+      },
+    }));
+  };
+
+  const runQuery = async (name) => {
+    const key = `queries:${name}`;
+    setActiveKey(key);
+    try {
+      const result = await workflowsApi.query(workflowId, name);
+      const error = getControlResultError(result);
+      if (result?.ok === false || error) {
+        storeResult(key, false, error || `Query '${name}' failed.`);
+        return;
+      }
+      storeResult(key, true, Object.prototype.hasOwnProperty.call(result || {}, 'value') ? result.value : result);
+    } catch (err) {
+      const message = err?.message || `Query '${name}' failed.`;
+      storeResult(key, false, message);
+      toast.error(message);
+    } finally {
+      setActiveKey(null);
+    }
+  };
+
+  const runWrite = async (groupName, name) => {
+    const key = `${groupName}:${name}`;
+    const parsed = parseControlPayloadInput(draftValues[key] || '');
+    if (!parsed.ok) {
+      storeResult(key, false, parsed.error);
+      toast.error(parsed.error);
+      return;
+    }
+
+    setActiveKey(key);
+    try {
+      const result = groupName === 'signals'
+        ? await workflowsApi.signal(workflowId, name, parsed.value)
+        : await workflowsApi.update(workflowId, name, parsed.value);
+      const error = getControlResultError(result);
+      if (result?.ok === false || error) {
+        storeResult(key, false, error || `${groupName.slice(0, -1)} '${name}' failed.`);
+        toast.error(error || `${groupName.slice(0, -1)} '${name}' failed.`);
+        return;
+      }
+
+      const payload = Object.prototype.hasOwnProperty.call(result || {}, 'state')
+        ? result.state
+        : result;
+      storeResult(key, true, payload);
+      if (typeof onRefresh === 'function') {
+        await onRefresh();
+      }
+      toast.success(groupName === 'signals'
+        ? `Signal '${name}' sent`
+        : `Update '${name}' applied`);
+    } catch (err) {
+      const message = err?.message || `${groupName.slice(0, -1)} '${name}' failed.`;
+      storeResult(key, false, message);
+      toast.error(message);
+    } finally {
+      setActiveKey(null);
+    }
+  };
+
+  const renderResult = (key) => {
+    const entry = results[key];
+    if (!entry) return null;
+
+    return (
+      <pre className={`mt-2 overflow-auto rounded-md border px-3 py-2 text-[11px] ${
+        entry.ok
+          ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-50'
+          : 'border-rose-400/20 bg-rose-500/10 text-rose-50'
+      }`}>
+        {entry.payload}
+      </pre>
+    );
+  };
+
+  const renderGroup = (groupName, title, description) => {
+    const entries = Object.entries(normalizedHandlers[groupName]);
+
+    return (
+      <section className="rounded-lg border border-slate-700/40 bg-slate-950/40 p-3">
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">{title}</p>
+          <p className="mt-1 text-xs text-slate-400">{description}</p>
+        </div>
+        {entries.length === 0 ? (
+          <p className="text-xs text-slate-500">No {groupName} registered.</p>
+        ) : (
+          <div className="space-y-3">
+            {entries.map(([name, spec]) => {
+              const key = `${groupName}:${name}`;
+              return (
+                <div key={key} className="rounded-md border border-slate-800 bg-slate-900/70 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-mono text-xs text-white">{name}</p>
+                      <p className="mt-1 break-all font-mono text-[11px] text-slate-500">{spec}</p>
+                    </div>
+                    {groupName === 'queries' ? (
+                      <button
+                        type="button"
+                        aria-label={`Run query ${name}`}
+                        onClick={() => runQuery(name)}
+                        disabled={activeKey === key}
+                        className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-100 transition-colors hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {activeKey === key ? 'Running...' : 'Run'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={`${groupName === 'signals' ? 'Send signal' : 'Apply update'} ${name}`}
+                        onClick={() => runWrite(groupName, name)}
+                        disabled={activeKey === key}
+                        className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs font-medium text-cyan-100 transition-colors hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {activeKey === key
+                          ? (groupName === 'signals' ? 'Sending...' : 'Applying...')
+                          : (groupName === 'signals' ? 'Send' : 'Apply')}
+                      </button>
+                    )}
+                  </div>
+                  {groupName !== 'queries' && (
+                    <div className="mt-3">
+                      <label className="mb-2 block text-[11px] uppercase tracking-[0.18em] text-slate-500" htmlFor={key}>
+                        Value
+                      </label>
+                      <textarea
+                        id={key}
+                        aria-label={`Value for ${groupName === 'signals' ? 'signal' : 'update'} ${name}`}
+                        value={draftValues[key] || ''}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          setDraftValues((prev) => ({ ...prev, [key]: nextValue }));
+                        }}
+                        rows={3}
+                        spellCheck={false}
+                        placeholder="Values accept JSON. Plain text is sent as a string."
+                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-cyan-500"
+                      />
+                    </div>
+                  )}
+                  {renderResult(key)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    );
+  };
+
+  return (
+    <div className="mb-3 rounded-lg border border-cyan-400/20 bg-cyan-500/5 p-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Live Controls</p>
+          <p className="mt-1 text-xs text-cyan-50/80">
+            {totalHandlers} handler{totalHandlers !== 1 ? 's' : ''} registered for this workflow.
+          </p>
+        </div>
+        <p className="text-[11px] text-cyan-100/65">
+          Queries are read-only. Signals and updates write through the workflow control plane.
+        </p>
+      </div>
+      <div className="mt-3 grid gap-3 xl:grid-cols-3">
+        {renderGroup('queries', 'Queries', 'Inspect live workflow state without recording a write.')}
+        {renderGroup('signals', 'Signals', 'Fire-and-forget writes that still journal the received signal.')}
+        {renderGroup('updates', 'Updates', 'Synchronous writes that return the updated workflow state.')}
+      </div>
+    </div>
+  );
+}
+
 /** Indented DAG task row inside expanded workflow */
 function DAGTaskRow({ task, depth = 0, onOpenDrawer, now }) {
   const statusInfo = TASK_STATUS_ICONS[task.status] || TASK_STATUS_ICONS.pending;
@@ -227,21 +501,32 @@ function DAGTaskRow({ task, depth = 0, onOpenDrawer, now }) {
 }
 
 /** Expanded workflow detail: loads tasks and renders as DAG graph + table */
-function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, onOpenTimeline, now }) {
+function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, onOpenTimeline, now, workflowTick = 0 }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState('graph'); // 'graph' or 'table'
+
+  const refreshDetail = useCallback(async () => {
+    try {
+      const data = await workflowsApi.get(workflowId);
+      setDetail(data);
+    } catch {
+      // Keep the last known detail visible when a manual refresh fails.
+    }
+  }, [workflowId]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     workflowsApi.get(workflowId).then((data) => {
       if (!cancelled) setDetail(data);
-    }).catch(() => {}).finally(() => {
+    }).catch(() => {
+      if (!cancelled) setDetail(null);
+    }).finally(() => {
       if (!cancelled) setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [workflowId]);
+  }, [workflowId, workflowTick]);
 
   if (loading) {
     return (
@@ -396,6 +681,11 @@ function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, onOpenTimeline, now }) 
               </div>
             </div>
           )}
+          <WorkflowControlPanel
+            workflowId={workflowId}
+            controlHandlers={detail.control_handlers}
+            onRefresh={refreshDetail}
+          />
           {tasksWithDepth.length > 0 ? (
             viewMode === 'graph' ? (
               <WorkflowDAG tasks={tasksWithDepth} onOpenDrawer={onOpenDrawer} />
@@ -432,7 +722,7 @@ function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, onOpenTimeline, now }) 
   );
 }
 
-export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
+export default function Workflows({ onOpenDrawer, relativeTimeTick = 0, workflowTick = 0 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [workflows, setWorkflows] = useState([]);
@@ -745,6 +1035,7 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
                         onOpenDrawer={onOpenDrawer}
                         onOpenTimeline={openTimeline}
                         now={now}
+                        workflowTick={workflowTick}
                       />
                     )}
                   </Fragment>

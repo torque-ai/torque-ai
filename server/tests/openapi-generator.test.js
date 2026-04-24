@@ -481,6 +481,7 @@ describe('generateOpenApiSpec', () => {
       required: ['name', 'tasks'],
       additionalProperties: true,
       properties: expect.objectContaining({
+        control_handlers: { $ref: '#/components/schemas/WorkflowControlHandlers' },
         name: { type: 'string', minLength: 1, maxLength: 200 },
         tasks: {
           type: 'array',

@@ -901,4 +901,35 @@ describe('v2-control-plane workflow response builders', () => {
     });
     expect(mockDb.getWorkflowCostSummary).toHaveBeenCalledWith('wf-3');
   });
+
+  it('buildWorkflowDetailResponse exposes normalized control handlers when present', () => {
+    const controlPlane = loadControlPlane();
+    mockDb.getWorkflowCostSummary.mockReturnValue({
+      total_cost_usd: 0,
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      by_model: [],
+    });
+
+    expect(controlPlane.buildWorkflowDetailResponse(
+      {
+        id: 'wf-4',
+        name: 'Controlled workflow',
+        status: 'running',
+        control_handlers_json: JSON.stringify({
+          queries: { current_round: 'state.round' },
+          signals: { append_log: 'state.logs.append' },
+          updates: { merge_config: 'state.config.merge_object' },
+        }),
+      },
+      [],
+    )).toMatchObject({
+      id: 'wf-4',
+      control_handlers: {
+        queries: { current_round: 'state.round' },
+        signals: { append_log: 'state.logs.append' },
+        updates: { merge_config: 'state.config.merge_object' },
+      },
+    });
+  });
 });

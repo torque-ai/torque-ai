@@ -218,6 +218,60 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function normalizeNamedControlHandlerMap(groupName, value) {
+  if (value === undefined || value === null) {
+    return { ok: true, value: {} };
+  }
+  if (!isPlainObject(value)) {
+    return { ok: false, error: `control_handlers.${groupName} must be an object` };
+  }
+
+  const normalized = {};
+  for (const [rawName, rawSpec] of Object.entries(value)) {
+    const name = typeof rawName === 'string' ? rawName.trim() : '';
+    if (!name) {
+      return {
+        ok: false,
+        error: `control_handlers.${groupName} handler names must be non-empty strings`
+      };
+    }
+    if (typeof rawSpec !== 'string' || rawSpec.trim().length === 0) {
+      return {
+        ok: false,
+        error: `control_handlers.${groupName}.${name} must be a non-empty string`
+      };
+    }
+    normalized[name] = rawSpec.trim();
+  }
+
+  return { ok: true, value: normalized };
+}
+
+function normalizeWorkflowControlHandlers(value) {
+  if (value === undefined || value === null) {
+    return { ok: true, value: null };
+  }
+  if (!isPlainObject(value)) {
+    return { ok: false, error: 'control_handlers must be an object' };
+  }
+
+  const normalized = {};
+  for (const groupName of ['queries', 'signals', 'updates']) {
+    const result = normalizeNamedControlHandlerMap(groupName, value[groupName]);
+    if (!result.ok) {
+      return result;
+    }
+    normalized[groupName] = result.value;
+  }
+
+  return {
+    ok: true,
+    value: Object.values(normalized).some((group) => Object.keys(group).length > 0)
+      ? normalized
+      : null
+  };
+}
+
 function cloneJsonValue(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
@@ -1111,6 +1165,10 @@ function handleCreateWorkflow(args) {
   if (!preCommitReviewConfig.ok) {
     return makeError(ErrorCodes.INVALID_PARAM, preCommitReviewConfig.error);
   }
+  const controlHandlersConfig = normalizeWorkflowControlHandlers(args.control_handlers);
+  if (!controlHandlersConfig.ok) {
+    return makeError(ErrorCodes.INVALID_PARAM, controlHandlersConfig.error);
+  }
 
   const trimmedName = args.name.trim();
   if (!Array.isArray(args.tasks) || args.tasks.length === 0) {
@@ -1185,6 +1243,11 @@ function handleCreateWorkflow(args) {
     );
   }
 
+  const rawDb = getRawDb();
+  if (controlHandlersConfig.value && (!rawDb || typeof rawDb.prepare !== 'function')) {
+    return makeError(ErrorCodes.INTERNAL_ERROR, 'workflow control handler persistence is unavailable');
+  }
+
   const workflowContext = {};
   if (args.routing_template) {
     workflowContext._routing_template = args.routing_template;
@@ -1203,6 +1266,10 @@ function handleCreateWorkflow(args) {
     priority: args.priority,
     context: Object.keys(workflowContext).length > 0 ? workflowContext : undefined
   });
+  if (controlHandlersConfig.value) {
+    rawDb.prepare('UPDATE workflows SET control_handlers_json = ? WHERE id = ?')
+      .run(JSON.stringify(controlHandlersConfig.value), workflowId);
+  }
   // Propagate workflow-level routing_template to seeded tasks that don't have their own
   const seededTasks = args.routing_template
     ? normalizedTasks.tasks.map(t => t.routing_template ? t : { ...t, routing_template: args.routing_template })

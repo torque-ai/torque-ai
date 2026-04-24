@@ -84,6 +84,43 @@ function extractStudyContextSummary(metadata) {
     : null;
 }
 
+function parseWorkflowControlHandlerMap(rawMap) {
+  const parsedMap = typeof rawMap === 'string'
+    ? safeJsonParse(rawMap, null)
+    : rawMap;
+  if (!parsedMap || typeof parsedMap !== 'object' || Array.isArray(parsedMap)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(parsedMap).filter(([name, spec]) => (
+      typeof name === 'string'
+      && name.trim().length > 0
+      && typeof spec === 'string'
+      && spec.trim().length > 0
+    )).map(([name, spec]) => [name.trim(), spec.trim()])
+  );
+}
+
+function parseWorkflowControlHandlers(rawHandlers) {
+  const parsedHandlers = typeof rawHandlers === 'string'
+    ? safeJsonParse(rawHandlers, null)
+    : rawHandlers;
+  if (!parsedHandlers || typeof parsedHandlers !== 'object' || Array.isArray(parsedHandlers)) {
+    return null;
+  }
+
+  const normalized = {
+    queries: parseWorkflowControlHandlerMap(parsedHandlers.queries),
+    signals: parseWorkflowControlHandlerMap(parsedHandlers.signals),
+    updates: parseWorkflowControlHandlerMap(parsedHandlers.updates),
+  };
+
+  return Object.values(normalized).some((group) => Object.keys(group).length > 0)
+    ? normalized
+    : null;
+}
+
 function buildTaskResponse(task) {
   if (!task) return null;
 
@@ -168,6 +205,9 @@ function buildWorkflowDetailResponse(workflow, tasks) {
   if (!base) return null;
 
   const taskList = Array.isArray(tasks) ? tasks : Object.values(tasks || {});
+  const controlHandlers = parseWorkflowControlHandlers(
+    workflow?.control_handlers ?? workflow?.control_handlers_json
+  );
   const cost = typeof costTracking.getWorkflowCostSummary === 'function'
     ? (costTracking.getWorkflowCostSummary(base.id) || {
       total_cost_usd: 0,
@@ -189,6 +229,7 @@ function buildWorkflowDetailResponse(workflow, tasks) {
 
   return {
     ...base,
+    ...(controlHandlers ? { control_handlers: controlHandlers } : {}),
     cost,
     task_counts: counts,
     tasks: taskList.map(t => {

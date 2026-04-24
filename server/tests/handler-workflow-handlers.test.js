@@ -153,6 +153,48 @@ describe('handler:workflow-handlers', () => {
       }));
     });
 
+    it('persists workflow control handlers after create', async () => {
+      const updateControlHandlersRun = vi.fn();
+      const rawDb = {
+        transaction: vi.fn((fn) => () => fn()),
+        prepare: vi.fn((sql) => {
+          if (sql.includes('UPDATE workflows SET control_handlers_json = ? WHERE id = ?')) {
+            return { run: updateControlHandlersRun };
+          }
+          throw new Error(`Unexpected SQL in test: ${sql}`);
+        }),
+      };
+      const fakeDb = {
+        getDbInstance: vi.fn(() => rawDb),
+        createTask: vi.fn(),
+      };
+      const injectedHandlers = handlers.createWorkflowHandlers({ db: fakeDb });
+      vi.spyOn(workflowEngine, 'createWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'findEmptyWorkflowPlaceholder').mockReturnValue(null);
+      vi.spyOn(configCore, 'getConfig').mockReturnValue('30');
+
+      const result = injectedHandlers.handleCreateWorkflow({
+        name: 'Controlled Workflow',
+        tasks: [{ node_id: 'build', task_description: 'Build release' }],
+        control_handlers: {
+          queries: { current_round: 'state.round' },
+          signals: { append_log: 'state.logs.append' },
+          updates: { merge_config: 'state.config.merge_object' },
+        },
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(updateControlHandlersRun).toHaveBeenCalledWith(
+        JSON.stringify({
+          queries: { current_round: 'state.round' },
+          signals: { append_log: 'state.logs.append' },
+          updates: { merge_config: 'state.config.merge_object' },
+        }),
+        expect.any(String),
+      );
+    });
+
     it('rejects invalid pre_commit_review on_block values', async () => {
       const result = handlers.handleCreateWorkflow({
         name: 'Review Workflow',

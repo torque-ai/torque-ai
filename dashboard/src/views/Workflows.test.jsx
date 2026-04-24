@@ -7,6 +7,9 @@ vi.mock('../api', () => ({
   workflows: {
     list: vi.fn(),
     get: vi.fn(),
+    query: vi.fn(),
+    signal: vi.fn(),
+    update: vi.fn(),
   },
 }));
 
@@ -79,6 +82,14 @@ const mockWorkflowDetailV2 = {
   ],
   cost: { total_cost_usd: 0.0075 },
 };
+const mockWorkflowDetailWithControls = {
+  ...mockWorkflowDetailV2,
+  control_handlers: {
+    queries: { current_round: 'state.round' },
+    signals: { append_log: 'state.logs.append' },
+    updates: { merge_config: 'state.config.merge_object' },
+  },
+};
 const localStorageState = {};
 
 function setStorageValue(key, value) {
@@ -104,6 +115,9 @@ function installStorageMock(initialState = {}) {
 describe('Workflows', () => {
   beforeEach(() => {
     workflowsApi.list.mockResolvedValue(mockWorkflows);
+    workflowsApi.query.mockResolvedValue({ ok: true, value: 7 });
+    workflowsApi.signal.mockResolvedValue({ ok: true });
+    workflowsApi.update.mockResolvedValue({ ok: true, state: { mode: 'fast' } });
     installStorageMock();
   });
 
@@ -298,6 +312,42 @@ describe('Workflows', () => {
       expect(screen.getByText('claude-cli')).toBeInTheDocument();
       expect(screen.getByText('gpt-5.1')).toBeInTheDocument();
       expect(screen.getByText('claude-3.7-sonnet')).toBeInTheDocument();
+    });
+  });
+
+  it('renders live controls and dispatches query, signal, and update actions', async () => {
+    workflowsApi.get.mockResolvedValue(mockWorkflowDetailWithControls);
+    renderWithProviders(<Workflows />, { route: '/workflows' });
+
+    await waitFor(() => {
+      expect(screen.getByText('Feature Workflow A')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Feature Workflow A'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Live Controls')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText('Run query current_round'));
+    await waitFor(() => {
+      expect(workflowsApi.query).toHaveBeenCalledWith('wf-1', 'current_round');
+    });
+
+    fireEvent.change(screen.getByLabelText('Value for signal append_log'), {
+      target: { value: 'hello' },
+    });
+    fireEvent.click(screen.getByLabelText('Send signal append_log'));
+    await waitFor(() => {
+      expect(workflowsApi.signal).toHaveBeenCalledWith('wf-1', 'append_log', 'hello');
+    });
+
+    fireEvent.change(screen.getByLabelText('Value for update merge_config'), {
+      target: { value: '{"mode":"fast"}' },
+    });
+    fireEvent.click(screen.getByLabelText('Apply update merge_config'));
+    await waitFor(() => {
+      expect(workflowsApi.update).toHaveBeenCalledWith('wf-1', 'merge_config', { mode: 'fast' });
     });
   });
 });

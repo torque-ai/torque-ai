@@ -83,6 +83,25 @@ const CREW_SCHEMA = {
   required: ['objective', 'roles']
 };
 
+const WORKFLOW_CONTROL_HANDLERS_SCHEMA = {
+  type: 'object',
+  description: 'Named handlers exposing this workflow to live control. queries are read-only; signals are fire-and-forget writes; updates are synchronous tracked writes.',
+  properties: {
+    queries: {
+      type: 'object',
+      additionalProperties: { type: 'string' }
+    },
+    signals: {
+      type: 'object',
+      additionalProperties: { type: 'string' }
+    },
+    updates: {
+      type: 'object',
+      additionalProperties: { type: 'string' }
+    }
+  }
+};
+
 const tools = [
   {
     name: 'duplicate_pipeline',
@@ -311,7 +330,8 @@ const tools = [
             },
             reviewer_provider: { type: 'string' }
           }
-        }
+        },
+        control_handlers: WORKFLOW_CONTROL_HANDLERS_SCHEMA,
       },
       required: ['name', 'tasks']
     }
