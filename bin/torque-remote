@@ -184,8 +184,18 @@ resolve_sync_ref() {
 }
 
 create_local_state_bundle() {
+  # Build a tar bundle delivered to the remote over SSH stdin. Always includes
+  # runner.sh (the body bash runs remotely) so the SSH command line can stay a
+  # tiny cmd.exe-safe bootstrap instead of an escaped multi-line script.
+  # Patches/untracked are added only when capture_local_state=true AND local
+  # state differs from base_ref. Returns "<bundle_path>\n<has_local_state>\n".
+  #
+  # Args: $1 = base ref; $2 = runner.sh body; $3 = capture_local_state ("true"|"false").
   local base_ref="$1"
+  local runner_body="$2"
+  local capture_local_state="${3:-true}"
   local bundle_dir committed_patch worktree_patch untracked_list bundle_tar
+  local has_local_state="false"
 
   bundle_dir="$(make_temp_dir)"
   committed_patch="$bundle_dir/committed.patch"
@@ -193,26 +203,29 @@ create_local_state_bundle() {
   untracked_list="$bundle_dir/untracked.list"
   bundle_tar="$bundle_dir/local-state.tar"
 
-  git diff --binary "$base_ref..HEAD" > "$committed_patch"
-  git diff --binary HEAD > "$worktree_patch"
-  git ls-files --others --exclude-standard -z > "$untracked_list"
+  if [[ "$capture_local_state" == "true" ]]; then
+    git diff --binary "$base_ref..HEAD" > "$committed_patch"
+    git diff --binary HEAD > "$worktree_patch"
+    git ls-files --others --exclude-standard -z > "$untracked_list"
 
-  if [[ ! -s "$committed_patch" && ! -s "$worktree_patch" && ! -s "$untracked_list" ]]; then
-    printf '\n'
-    return 0
+    if [[ -s "$committed_patch" || -s "$worktree_patch" || -s "$untracked_list" ]]; then
+      has_local_state="true"
+    fi
+
+    if [[ -s "$untracked_list" ]]; then
+      tar -cf "$bundle_dir/untracked.tar" --null -T "$untracked_list"
+    fi
   fi
 
-  if [[ -s "$untracked_list" ]]; then
-    tar -cf "$bundle_dir/untracked.tar" --null -T "$untracked_list"
-  fi
+  printf '%s' "$runner_body" > "$bundle_dir/runner.sh"
 
-  local tar_args=(committed.patch worktree.patch)
-  if [[ -f "$bundle_dir/untracked.tar" ]]; then
-    tar_args+=(untracked.tar)
-  fi
+  local tar_args=(runner.sh)
+  [[ -s "$committed_patch" ]] && tar_args+=(committed.patch)
+  [[ -s "$worktree_patch" ]]  && tar_args+=(worktree.patch)
+  [[ -f "$bundle_dir/untracked.tar" ]] && tar_args+=(untracked.tar)
 
   tar -cf "$bundle_tar" -C "$bundle_dir" "${tar_args[@]}"
-  printf '%s\n' "$bundle_tar"
+  printf '%s\n%s\n' "$bundle_tar" "$has_local_state"
 }
 
 trap cleanup_on_exit EXIT
@@ -444,15 +457,6 @@ case "$TRANSPORT" in
           SYNC_REF="$(resolve_sync_ref "")" || die "Could not resolve a remote base ref for '$local_branch'"
         fi
 
-        LOCAL_STATE_BUNDLE="$(create_local_state_bundle "$SYNC_REF")"
-        if [[ -n "$LOCAL_STATE_BUNDLE" ]]; then
-          APPLY_LOCAL_STATE="true"
-          if [[ "$SYNC_REF" != "origin/$local_branch" ]]; then
-            info "Branch '$local_branch' is not on origin; using ${SYNC_REF#origin/} as the remote base and overlaying local worktree state"
-          else
-            info "Overlaying local worktree state on top of ${SYNC_REF#origin/}"
-          fi
-        fi
       fi
 
       SYNC_BRANCH="${SYNC_REF#origin/}"
@@ -464,42 +468,63 @@ case "$TRANSPORT" in
 
     GIT_BASH='C:\progra~1\Git\bin\bash.exe'
     COMMAND_ARGS_LITERAL="$(bash_array_literal COMMAND_ARGS "${COMMAND_ARGS[@]}")"
+
+    # runner.sh body — executed on remote inside the bundle's extracted dir.
+    # Reads local patches/untracked tar (if present in the bundle) and runs the user command.
     REMOTE_RUN_BODY=$(cat <<EOF
 # torque-remote-inline-run
 PROJECT_PATH=$(shell_quote "$REMOTE_PROJECT_PATH")
 SYNC_REF=$(shell_quote "$SYNC_REF")
-APPLY_LOCAL_STATE=$(shell_quote "$APPLY_LOCAL_STATE")
+BUNDLE_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
 $COMMAND_ARGS_LITERAL
 set -euo pipefail
 cd "\$PROJECT_PATH"
-sync_dir=""
+APPLIED_LOCAL_STATE="false"
 cleanup() {
-  if [[ -n "\$sync_dir" && -d "\$sync_dir" ]]; then
-    rm -rf "\$sync_dir"
-  fi
-  if [[ "\$APPLY_LOCAL_STATE" == "true" ]]; then
+  if [[ "\$APPLIED_LOCAL_STATE" == "true" ]]; then
     git reset --hard "\$SYNC_REF" >/dev/null 2>&1 || true
     git clean -fd >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
-if [[ "\$APPLY_LOCAL_STATE" == "true" ]]; then
-  sync_dir="\$(mktemp -d "\${TMPDIR:-/tmp}/torque-remote-sync.XXXXXX")"
-  tar -xf - -C "\$sync_dir"
-  if [[ -s "\$sync_dir/committed.patch" ]]; then
-    git apply --binary "\$sync_dir/committed.patch"
-  fi
-  if [[ -s "\$sync_dir/worktree.patch" ]]; then
-    git apply --binary "\$sync_dir/worktree.patch"
-  fi
-  if [[ -f "\$sync_dir/untracked.tar" ]]; then
-    tar -xf "\$sync_dir/untracked.tar" -C .
-  fi
+if [[ -s "\$BUNDLE_DIR/committed.patch" ]]; then
+  git apply --binary "\$BUNDLE_DIR/committed.patch"
+  APPLIED_LOCAL_STATE="true"
+fi
+if [[ -s "\$BUNDLE_DIR/worktree.patch" ]]; then
+  git apply --binary "\$BUNDLE_DIR/worktree.patch"
+  APPLIED_LOCAL_STATE="true"
+fi
+if [[ -f "\$BUNDLE_DIR/untracked.tar" ]]; then
+  tar -xf "\$BUNDLE_DIR/untracked.tar" -C .
+  APPLIED_LOCAL_STATE="true"
 fi
 "\${COMMAND_ARGS[@]}"
 EOF
 )
-    REMOTE_RUN_COMMAND="\"$GIT_BASH\" -lc $(shell_quote "$REMOTE_RUN_BODY")"
+
+    # Always bundle runner.sh + (maybe) patches/untracked into a tar delivered via SSH stdin.
+    # --branch <ref> explicitly requests the remote ref as-is; don't overlay local state there.
+    if [[ -n "$BRANCH_OVERRIDE" ]]; then
+      CAPTURE_LOCAL_STATE="false"
+    else
+      CAPTURE_LOCAL_STATE="true"
+    fi
+    BUNDLE_OUTPUT="$(create_local_state_bundle "$SYNC_REF" "$REMOTE_RUN_BODY" "$CAPTURE_LOCAL_STATE")"
+    LOCAL_STATE_BUNDLE="$(printf '%s' "$BUNDLE_OUTPUT" | sed -n '1p')"
+    APPLY_LOCAL_STATE="$(printf '%s' "$BUNDLE_OUTPUT" | sed -n '2p')"
+
+    if [[ "$APPLY_LOCAL_STATE" == "true" ]]; then
+      if [[ "$SYNC_REF" != "origin/${local_branch:-}" ]]; then
+        info "Branch '${local_branch:-HEAD}' is not on origin; using ${SYNC_REF#origin/} as the remote base and overlaying local worktree state"
+      else
+        info "Overlaying local worktree state on top of ${SYNC_REF#origin/}"
+      fi
+    fi
+
+    # Minimal cmd.exe-safe bootstrap. No newlines, no internal double quotes, no backslash-escaped
+    # quotes (cmd.exe would mis-parse). Extracts the tar from SSH stdin, runs runner.sh, propagates rc.
+    REMOTE_RUN_COMMAND="\"$GIT_BASH\" -lc \"d=\$(mktemp -d);tar -xf - -C \$d;bash \$d/runner.sh;rc=\$?;rm -rf \$d;exit \$rc\""
     REMOTE_CLEANUP_BODY=$(cat <<EOF
 # torque-remote-failsafe-cleanup
 cd $(shell_quote "$REMOTE_PROJECT_PATH") || exit 0
@@ -514,13 +539,8 @@ EOF
 
     info "Running on $SSH_USER@$SSH_HOST: $COMMAND_DISPLAY"
     set +e
-    if [[ "$APPLY_LOCAL_STATE" == "true" ]]; then
-      run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE"
-    else
-      run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "$REMOTE_RUN_COMMAND"
-    fi
+    run_with_timeout "$TIMEOUT_SECONDS" ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
+      "$REMOTE_RUN_COMMAND" < "$LOCAL_STATE_BUNDLE"
     exit_code=$?
     set -e
 
