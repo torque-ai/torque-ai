@@ -814,6 +814,26 @@ describe('Provider Handlers', () => {
     });
   });
 
+  describe('reset_provider_health', () => {
+    it('resets provider health for all providers', async () => {
+      const result = await safeTool('reset_provider_health', {});
+
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Provider Health Reset');
+      expect(result.structuredData).toEqual(expect.objectContaining({
+        scope: 'all',
+      }));
+    });
+
+    it('rejects blank provider names', async () => {
+      const result = await safeTool('reset_provider_health', { provider: '   ' });
+
+      expect(result.isError).toBe(true);
+      expect(result.error_code).toBe('INVALID_PARAM');
+      expect(getText(result)).toContain('provider must not be empty');
+    });
+  });
+
   // ============================================
   // MEMORY PROTECTION
   // ============================================

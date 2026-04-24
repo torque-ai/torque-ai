@@ -1015,8 +1015,23 @@ function getProviderHealthScore(provider) {
   return Math.max(0, Math.min(1, 1 - (entry.failures / total)));
 }
 
-function resetProviderHealth() {
+function resetProviderHealth(provider) {
+  const providerName = typeof provider === 'string' ? provider.trim() : '';
+  if (providerName) {
+    const existed = _providerHealth.delete(providerName);
+    return {
+      scope: 'provider',
+      provider: providerName,
+      reset_count: existed ? 1 : 0,
+    };
+  }
+
+  const resetCount = _providerHealth.size;
   _providerHealth.clear();
+  return {
+    scope: 'all',
+    reset_count: resetCount,
+  };
 }
 
 
