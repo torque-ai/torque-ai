@@ -1,5 +1,16 @@
 'use strict';
 
+// v2-dispatch.js owns the authoritative table of `handleV2Cp*` handlers for the
+// dashboard-server path (port 3456). api-server.core.js (port 3457) resolves
+// route handlers through ROUTE_HANDLER_LOOKUP, which historically was a
+// parallel hand-maintained table — the drift between the two tables silently
+// 500'd whole endpoint classes (see /api/v2/strategic/operations, /api/v2/quota/*
+// from 2026-04-24). Spreading v2-dispatch's table here makes it the single
+// source of truth for v2 control-plane handlers; the explicit per-handler
+// entries below are kept only for non-v2-Cp handlers (handleV2Inference,
+// handlePiiScan, handleShutdown, etc.) that never lived in v2-dispatch.
+const { V2_CP_HANDLER_LOOKUP } = require('./v2-dispatch');
+
 function createRouteHandlerLookup({
   v2CoreHandlers,
   v2TaskHandlers,
@@ -11,6 +22,13 @@ function createRouteHandlerLookup({
   handleBootstrapWorkstation,
 }) {
   return {
+    // v2 control-plane handlers — single source of truth is v2-dispatch.js.
+    // Adding a new `handleV2Cp*` entry in v2-dispatch.js automatically makes
+    // it resolvable here, so api-server.core (port 3457) and dashboard-server
+    // (port 3456) can never drift on v2 Cp routes again. Explicit entries
+    // below can still override for test/back-compat; spread comes first so
+    // anything later in the object literal wins.
+    ...V2_CP_HANDLER_LOOKUP,
     handleV2Inference: v2CoreHandlers.handleV2Inference,
     handleV2ProviderInference: v2CoreHandlers.handleV2ProviderInference,
     handleV2TaskStatus: v2CoreHandlers.handleV2TaskStatus,
