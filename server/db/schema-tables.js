@@ -1478,11 +1478,13 @@ function createTables(db, logger) {
         started_at TEXT,
         completed_at TEXT,
         context TEXT,
-        priority INTEGER DEFAULT 0
+        priority INTEGER DEFAULT 0,
+        control_handlers_json TEXT
       )
     `);
   ensureTableColumns(db, 'workflows', [
     'priority INTEGER DEFAULT 0',
+    'control_handlers_json TEXT',
     'parent_workflow_id TEXT',
     'fork_checkpoint_id TEXT',
   ]);

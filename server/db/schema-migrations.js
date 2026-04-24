@@ -228,6 +228,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
       // Column already exists
     }
   safeAddColumn('workflows', 'priority INTEGER DEFAULT 0');
+  safeAddColumn('workflows', 'control_handlers_json TEXT');
   try {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_workflows_priority ON workflows(priority)`);
   } catch (e) {

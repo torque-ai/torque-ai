@@ -792,6 +792,12 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS workflow_state',
     ].join('; '),
   },
+  {
+    version: 37,
+    name: 'add_workflow_control_handlers',
+    up: readSqlMigration('037-workflow-control-handlers.sql'),
+    down: 'SELECT 1',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

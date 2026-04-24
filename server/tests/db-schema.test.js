@@ -603,5 +603,9 @@ describe('db/schema.js — applySchema', () => {
     it('workflows has fork_checkpoint_id column', () => {
       expect(getColumnByName('workflows', 'fork_checkpoint_id')).toBeTruthy();
     });
+
+    it('workflows has control_handlers_json column', () => {
+      expect(getColumnByName('workflows', 'control_handlers_json')).toBeTruthy();
+    });
   });
 });

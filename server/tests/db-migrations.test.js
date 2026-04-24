@@ -918,6 +918,17 @@ describe('db/migrations', () => {
       expect(getAppliedVersions(db)).toContain(36);
     });
 
+    it('adds workflow control handlers when applying migration v37 to a minimal schema', () => {
+      createBaseSchema(db);
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 37));
+
+      expect(() => subject.runMigrations(db)).not.toThrow();
+
+      const workflowColumns = getColumnNames(db, 'workflows');
+      expect(workflowColumns).toContain('control_handlers_json');
+      expect(getAppliedVersions(db)).toContain(37);
+    });
+
     it('falls back to split statement execution for multi-statement rollback SQL', () => {
       seedAppliedVersions(db, subject.MIGRATIONS);
       addTemporaryMigration({

@@ -223,6 +223,7 @@ function ensureTestSchema(dbHandle) {
   `);
 
   for (const statement of [
+    'ALTER TABLE workflows ADD COLUMN control_handlers_json TEXT',
     'ALTER TABLE workflows ADD COLUMN parent_workflow_id TEXT',
     'ALTER TABLE workflows ADD COLUMN fork_checkpoint_id TEXT',
   ]) {
