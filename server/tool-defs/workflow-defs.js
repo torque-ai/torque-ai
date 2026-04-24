@@ -463,6 +463,62 @@ const tools = [
     }
   },
   {
+    name: 'workflow_query',
+    description: 'Read-only inspection of a running workflow. Returns a value resolved from workflow state. Does not affect execution or history.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow_id: {
+          type: 'string',
+          description: 'Workflow ID to inspect'
+        },
+        name: {
+          type: 'string',
+          description: 'Name of the registered query handler'
+        }
+      },
+      required: ['workflow_id', 'name']
+    }
+  },
+  {
+    name: 'workflow_signal',
+    description: 'Asynchronous fire-and-forget mutation to a running workflow. Recorded in the journal. Returns immediately.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow_id: {
+          type: 'string',
+          description: 'Workflow ID to signal'
+        },
+        name: {
+          type: 'string',
+          description: 'Name of the registered signal handler'
+        },
+        value: {}
+      },
+      required: ['workflow_id', 'name']
+    }
+  },
+  {
+    name: 'workflow_update',
+    description: 'Synchronous tracked mutation. Blocks until the patch is applied or rejected. Returns the new state on success.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workflow_id: {
+          type: 'string',
+          description: 'Workflow ID to update'
+        },
+        name: {
+          type: 'string',
+          description: 'Name of the registered update handler'
+        },
+        value: {}
+      },
+      required: ['workflow_id', 'name']
+    }
+  },
+  {
     name: 'cancel_workflow',
     description: 'Cancel a workflow and all its pending tasks',
     inputSchema: {

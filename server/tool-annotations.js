@@ -176,6 +176,9 @@ const OVERRIDES = Object.freeze({
   get_governance_rules:            READONLY,
   set_governance_rule_mode:        IDEMPOTENT,
   toggle_governance_rule:          IDEMPOTENT,
+  workflow_query:                  READONLY,
+  workflow_signal:                 Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
+  workflow_update:                 Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
 
   // destructive: deletes, removes, invalidates
   perform_auto_rollback:           Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: false, openWorldHint: false }),

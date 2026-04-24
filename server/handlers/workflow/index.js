@@ -23,6 +23,7 @@ const {
   evaluateWorkflowVisibility,
   getWorkflowRestartGuardError,
   getWorkflowTaskCounts,
+  requireString,
   requireWorkflow,
   ErrorCodes,
   makeError,
@@ -45,6 +46,7 @@ function normalizeWorkflowHandlerDeps(deps = {}) {
   if (hasOwn(deps, 'db')) normalized.db = deps.db;
   if (hasOwn(deps, 'rawDb')) normalized.rawDb = deps.rawDb;
   if (hasOwn(deps, 'taskCore')) normalized.taskCore = deps.taskCore;
+  if (hasOwn(deps, 'workflowControl')) normalized.workflowControl = deps.workflowControl;
   if (hasOwn(deps, 'container')) normalized.container = deps.container;
   return normalized;
 }
@@ -140,6 +142,16 @@ function getTaskCore() {
 
 function getRawDb() {
   return unwrapDb(getDbDependency());
+}
+
+function getWorkflowControl() {
+  if (hasOwn(workflowHandlerDeps, 'workflowControl') && workflowHandlerDeps.workflowControl) {
+    return workflowHandlerDeps.workflowControl;
+  }
+  const workflowControl = getContainerValue('workflowControl');
+  return workflowControl && typeof workflowControl === 'object'
+    ? workflowControl
+    : null;
 }
 
 function withWorkflowHandlerDeps(deps, handler) {
@@ -1722,6 +1734,48 @@ function handleWorkflowStatus(args) {
   };
 }
 
+function handleWorkflowQuery(args = {}) {
+  const workflowIdError = requireString(args, 'workflow_id', 'workflow_id');
+  if (workflowIdError) return workflowIdError;
+  const nameError = requireString(args, 'name', 'name');
+  if (nameError) return nameError;
+
+  const workflowControl = getWorkflowControl();
+  if (!workflowControl || typeof workflowControl.query !== 'function') {
+    return makeError(ErrorCodes.INTERNAL_ERROR, 'workflow control is unavailable');
+  }
+
+  return workflowControl.query(args.workflow_id.trim(), args.name.trim());
+}
+
+function handleWorkflowSignal(args = {}) {
+  const workflowIdError = requireString(args, 'workflow_id', 'workflow_id');
+  if (workflowIdError) return workflowIdError;
+  const nameError = requireString(args, 'name', 'name');
+  if (nameError) return nameError;
+
+  const workflowControl = getWorkflowControl();
+  if (!workflowControl || typeof workflowControl.signal !== 'function') {
+    return makeError(ErrorCodes.INTERNAL_ERROR, 'workflow control is unavailable');
+  }
+
+  return workflowControl.signal(args.workflow_id.trim(), args.name.trim(), args.value);
+}
+
+async function handleWorkflowUpdate(args = {}) {
+  const workflowIdError = requireString(args, 'workflow_id', 'workflow_id');
+  if (workflowIdError) return workflowIdError;
+  const nameError = requireString(args, 'name', 'name');
+  if (nameError) return nameError;
+
+  const workflowControl = getWorkflowControl();
+  if (!workflowControl || typeof workflowControl.update !== 'function') {
+    return makeError(ErrorCodes.INTERNAL_ERROR, 'workflow control is unavailable');
+  }
+
+  return await workflowControl.update(args.workflow_id.trim(), args.name.trim(), args.value);
+}
+
 
 /**
  * Cancel a workflow
@@ -2032,6 +2086,9 @@ function buildWorkflowHandlerExports(deps = workflowHandlerDeps) {
     handleAddWorkflowTask: withWorkflowHandlerDeps(deps, handleAddWorkflowTask),
     handleRunWorkflow: withWorkflowHandlerDeps(deps, handleRunWorkflow),
     handleWorkflowStatus: withWorkflowHandlerDeps(deps, handleWorkflowStatus),
+    handleWorkflowQuery: withWorkflowHandlerDeps(deps, handleWorkflowQuery),
+    handleWorkflowSignal: withWorkflowHandlerDeps(deps, handleWorkflowSignal),
+    handleWorkflowUpdate: withWorkflowHandlerDeps(deps, handleWorkflowUpdate),
     handleCancelWorkflow: withWorkflowHandlerDeps(deps, handleCancelWorkflow),
     handlePauseWorkflow: withWorkflowHandlerDeps(deps, handlePauseWorkflow),
     handleListWorkflows: withWorkflowHandlerDeps(deps, handleListWorkflows),
@@ -2057,6 +2114,9 @@ module.exports = {
   handleAddWorkflowTask,
   handleRunWorkflow,
   handleWorkflowStatus,
+  handleWorkflowQuery,
+  handleWorkflowSignal,
+  handleWorkflowUpdate,
   handleCancelWorkflow,
   handlePauseWorkflow,
   handleListWorkflows,
