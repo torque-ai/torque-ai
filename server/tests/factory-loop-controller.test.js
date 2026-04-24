@@ -776,7 +776,7 @@ describe('factory loop-controller EXECUTE modes', () => {
 
     // Auto-retry kicks in: initial verify + 3 retries = 4 calls total
     // before the factory gives up and auto-rejects the item. Because the
-    // completed batch task let EXECUTE enter VERIFY inline, the advance
+    // completed batch task lets EXECUTE enter VERIFY inline, the advance
     // remains at VERIFY rather than pausing the loop.
     expect(worktreeRunner.verify).toHaveBeenCalledTimes(4);
     expect(verifyAdvance.previous_state).toBe(LOOP_STATES.EXECUTE);
@@ -871,6 +871,77 @@ describe('factory loop-controller EXECUTE modes', () => {
         silent_rerun: 'flag_off',
       }),
     });
+  });
+
+  it('auto-rejects empty-branch verify failures instead of pausing ambiguous', async () => {
+    const { project, workItem } = registerPlanProject();
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const wtPathEmptyBranch = path.join(project.path, '.worktrees', 'feat-factory-empty-branch-rejected');
+    fs.mkdirSync(wtPathEmptyBranch, { recursive: true });
+    const reviewSpy = vi.spyOn(verifyReview, 'reviewVerifyFailure');
+    reviewSpy.mockClear();
+    const worktreeRunner = {
+      createForBatch: vi.fn(async () => ({
+        id: 'vc-worktree-empty-branch-rejected',
+        branch: 'feat/factory-empty-branch-rejected',
+        worktreePath: wtPathEmptyBranch,
+      })),
+      verify: vi.fn(async () => ({
+        passed: false,
+        output: '[empty-branch] Branch feat/factory-empty-branch-rejected has no commits ahead of main; nothing to verify.',
+        stderr: '[empty-branch] Branch feat/factory-empty-branch-rejected has no commits ahead of main; nothing to verify.',
+        durationMs: 12,
+        reason: 'empty_branch',
+      })),
+      mergeToMain: vi.fn(),
+      abandon: vi.fn(),
+    };
+    let submittedTaskCount = 0;
+    routingModule.handleSmartSubmitTask = vi.fn(async () => {
+      submittedTaskCount += 1;
+      const taskId = `empty-branch-rejected-task-${submittedTaskCount}`;
+      insertBatchTask(db, {
+        taskId,
+        batchId,
+        status: 'completed',
+      });
+      return { task_id: taskId };
+    });
+    loopController.setWorktreeRunnerForTests(worktreeRunner);
+
+    await advanceSupervisedPlanProject(project.id);
+    const verifyAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(reviewSpy).not.toHaveBeenCalled();
+    expect(worktreeRunner.verify).toHaveBeenCalledTimes(1);
+    expect(verifyAdvance).toMatchObject({
+      previous_state: LOOP_STATES.EXECUTE,
+      new_state: LOOP_STATES.IDLE,
+      stage_result: expect.objectContaining({
+        status: 'rejected',
+        reason: 'empty_branch_after_execute',
+      }),
+    });
+    expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+      id: workItem.id,
+      status: 'rejected',
+      reject_reason: 'empty_branch_after_execute',
+    });
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'verify_empty_branch_auto_rejected')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        branch: 'feat/factory-empty-branch-rejected',
+      }),
+    });
+    expect(decisions.find((d) => d.action === 'verify_terminal_rejection_terminated')).toMatchObject({
+      outcome: expect.objectContaining({
+        work_item_id: workItem.id,
+        status: 'rejected',
+        reason: 'empty_branch_after_execute',
+      }),
+    });
+    expect(decisions.find((d) => d.action === 'verify_reviewed_ambiguous_paused')).toBeUndefined();
   });
 
   it('pauses VERIFY_FAIL for controlled recovery when the verify reviewer times out', async () => {
