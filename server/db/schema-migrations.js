@@ -117,6 +117,52 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
       logger.debug(`Schema migration (factory_loop_instances backfill): ${e.message}`);
     }
   }
+
+  function dropTaskEventSubscriptionsFk() {
+    // Rebuild task_event_subscriptions without the task_id FK.
+    // The column stores a JSON-serialized array of task IDs (see
+    // server/transports/sse/session.js persistSubscription), not a scalar,
+    // so the FK was never correct and caused silent persist failures whenever
+    // foreign_keys = ON. Drop it in place via the SQLite table-rebuild dance.
+    try {
+      const tableExists = db.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_event_subscriptions'"
+      ).get();
+      if (!tableExists) return;
+
+      const fkInfo = db.prepare("PRAGMA foreign_key_list('task_event_subscriptions')").all();
+      if (!fkInfo || fkInfo.length === 0) return;
+
+      const fkState = db.pragma('foreign_keys', { simple: true });
+      db.pragma('foreign_keys = OFF');
+      try {
+        const rebuildSql = [
+          'BEGIN;',
+          'CREATE TABLE task_event_subscriptions_new (',
+          '  id TEXT PRIMARY KEY,',
+          '  task_id TEXT,',
+          '  event_types TEXT NOT NULL,',
+          '  created_at TEXT NOT NULL,',
+          '  expires_at TEXT,',
+          '  last_poll_at TEXT',
+          ');',
+          'INSERT INTO task_event_subscriptions_new (id, task_id, event_types, created_at, expires_at, last_poll_at)',
+          '  SELECT id, task_id, event_types, created_at, expires_at, last_poll_at FROM task_event_subscriptions;',
+          'DROP TABLE task_event_subscriptions;',
+          'ALTER TABLE task_event_subscriptions_new RENAME TO task_event_subscriptions;',
+          'CREATE INDEX IF NOT EXISTS idx_task_event_subs_task ON task_event_subscriptions(task_id);',
+          'CREATE INDEX IF NOT EXISTS idx_task_event_subs_expires ON task_event_subscriptions(expires_at);',
+          'COMMIT;',
+        ].join('\n');
+        db.exec(rebuildSql);
+      } finally {
+        db.pragma('foreign_keys = ' + (fkState ? 'ON' : 'OFF'));
+      }
+    } catch (e) {
+      logger.debug('Schema migration (task_event_subscriptions FK drop): ' + e.message);
+    }
+  }
+
   // Wrap all migrations in a savepoint so partial failures can be rolled back
   db.exec("SAVEPOINT migration_batch");
   try {
@@ -928,6 +974,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   safeAddColumn('tasks', 'cancel_reason TEXT');
   safeAddColumn('tasks', 'server_epoch INTEGER');
   ensureFactoryLoopInstancesSchema();
+  dropTaskEventSubscriptionsFk();
 
   // scheduled_tasks.name uniqueness: createCronScheduledTask and friends had
   // no dedup, so callers that re-ran on startup (notably the model-freshness
