@@ -161,6 +161,7 @@ const EXPECTED_TABLES = [
   "model_capabilities",
   "model_task_outcomes",
   "remote_agents",
+  "runtime_workers",
   "provider_rate_limits",
   "policy_proof_audit",
   "peek_fixture_catalog",
@@ -421,6 +422,8 @@ const EXPECTED_INDEXES = [
   "idx_model_outcomes_model_type",
   "idx_remote_agents_status",
   "idx_remote_agents_enabled",
+  "idx_runtime_workers_kind",
+  "idx_runtime_workers_status",
   "idx_peek_fixture_catalog_app_type",
   "idx_peek_fixture_catalog_name",
   "idx_peek_fixture_catalog_parent_fixture_id",
@@ -701,6 +704,10 @@ describe('db/schema-tables', () => {
     expect(getColumn('remote_agents', 'max_concurrent')).toMatchObject({ type: 'INTEGER', dflt_value: '3' });
     expect(getColumn('remote_agents', 'tls')).toMatchObject({ type: 'INTEGER', dflt_value: '0' });
     expect(getColumn('remote_agents', 'rejectUnauthorized')).toMatchObject({ type: 'INTEGER', dflt_value: '1' });
+    expect(getColumn('runtime_workers', 'worker_id')).toMatchObject({ type: 'TEXT', pk: 1 });
+    expect(getColumn('runtime_workers', 'kind')).toMatchObject({ type: 'TEXT', notnull: 1 });
+    expect(getColumn('runtime_workers', 'capabilities_json')).toMatchObject({ type: 'TEXT', notnull: 1, dflt_value: "'[]'" });
+    expect(getColumn('runtime_workers', 'status')).toMatchObject({ type: 'TEXT', notnull: 1, dflt_value: "'connected'" });
     expect(getColumn('peek_fixture_catalog', 'id')).toMatchObject({ type: 'INTEGER', pk: 1 });
     expect(getColumn('peek_fixture_catalog', 'app_type')).toMatchObject({ type: 'TEXT', notnull: 1 });
     expect(getColumn('peek_fixture_catalog', 'name')).toMatchObject({ type: 'TEXT', notnull: 1 });

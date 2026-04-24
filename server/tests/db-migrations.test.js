@@ -807,6 +807,19 @@ describe('db/migrations', () => {
       expect(getAppliedVersions(db)).not.toContain(36);
     });
 
+    it('rolls back migration v37 by dropping runtime_workers artifacts and removing its version row', () => {
+      createBaseSchema(db);
+      subject.runMigrations(db);
+      expect(tableExists(db, 'runtime_workers')).toBe(true);
+
+      subject.rollbackMigration(db, 37);
+
+      expect(tableExists(db, 'runtime_workers')).toBe(false);
+      expect(indexExists(db, 'idx_runtime_workers_kind')).toBe(false);
+      expect(indexExists(db, 'idx_runtime_workers_status')).toBe(false);
+      expect(getAppliedVersions(db)).not.toContain(37);
+    });
+
     it('allows a rolled back migration to be reapplied on the next run', () => {
       createBaseSchema(db);
       subject.runMigrations(db);
@@ -916,6 +929,29 @@ describe('db/migrations', () => {
       expect(ref.from).toBe('workflow_id');
       expect(ref.to).toBe('id');
       expect(getAppliedVersions(db)).toContain(36);
+    });
+
+    it('creates runtime_workers when applying migration v37 to a minimal schema', () => {
+      createBaseSchema(db);
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 37));
+
+      expect(() => subject.runMigrations(db)).not.toThrow();
+      expect(tableExists(db, 'runtime_workers')).toBe(true);
+      expect(getColumnNames(db, 'runtime_workers')).toEqual(
+        expect.arrayContaining([
+          'worker_id',
+          'display_name',
+          'kind',
+          'capabilities_json',
+          'endpoint',
+          'status',
+          'last_heartbeat_at',
+          'registered_at',
+        ]),
+      );
+      expect(indexExists(db, 'idx_runtime_workers_kind')).toBe(true);
+      expect(indexExists(db, 'idx_runtime_workers_status')).toBe(true);
+      expect(getAppliedVersions(db)).toContain(37);
     });
 
     it('falls back to split statement execution for multi-statement rollback SQL', () => {

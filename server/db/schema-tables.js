@@ -127,6 +127,7 @@ const VALID_TABLE_NAMES = new Set([
   'release_gates',
   'releases',
   'remote_agents',
+  'runtime_workers',
   'report_exports',
   'resource_estimates',
   'resource_limits',
@@ -3107,6 +3108,20 @@ function createTables(db, logger) {
       );
       CREATE INDEX IF NOT EXISTS idx_remote_agents_status ON remote_agents(status);
       CREATE INDEX IF NOT EXISTS idx_remote_agents_enabled ON remote_agents(enabled);
+    `);
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS runtime_workers (
+        worker_id TEXT PRIMARY KEY,
+        display_name TEXT,
+        kind TEXT NOT NULL,
+        capabilities_json TEXT NOT NULL DEFAULT '[]',
+        endpoint TEXT,
+        status TEXT NOT NULL DEFAULT 'connected',
+        last_heartbeat_at TEXT,
+        registered_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_runtime_workers_kind ON runtime_workers(kind);
+      CREATE INDEX IF NOT EXISTS idx_runtime_workers_status ON runtime_workers(status);
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS provider_rate_limits (

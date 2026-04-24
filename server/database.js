@@ -211,6 +211,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   'provider_config', 'provider_usage', 'provider_scores', 'provider_task_stats',
   'model_capabilities', 'workstations',
   'ollama_hosts', 'remote_agents', 'peek_hosts', 'peek_fixture_catalog', 'pack_registry', 'recovery_metrics',
+  'runtime_workers',
   // Auth
   'api_keys', 'auth_configs', 'connected_accounts',
   // Security
