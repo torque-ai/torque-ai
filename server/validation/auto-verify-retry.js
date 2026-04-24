@@ -89,6 +89,15 @@ function getRouter() {
   return _testRunnerRegistry;
 }
 
+function getActivityRunner() {
+  try {
+    const { defaultContainer } = require('../container');
+    return defaultContainer.get('activityRunner');
+  } catch {
+    return null;
+  }
+}
+
 function getTaskMetadata(task) {
   const metadata = typeof task?.metadata === 'object' ? task.metadata : tryParseJson(task?.metadata);
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
@@ -302,12 +311,46 @@ async function handleAutoVerifyRetry(ctx) {
     return;
   }
 
-  const verifyResult = sandboxConfig.enabled
-    ? await runVerifyCommandInSandbox(task, verifyCommand, sandboxConfig)
-    : await getRouter().runVerifyCommand(verifyCommand, task.working_directory, {
-      timeout: 300000, // 5 minutes — tsc + vitest can be slow on large projects
-      provider,
-    });
+  const verifyTimeoutMs = sandboxConfig.enabled
+    ? sandboxConfig.timeoutMs
+    : serverConfig.getInt('verify_timeout_seconds', 300) * 1000;
+  const executeVerifyCommand = () => (
+    sandboxConfig.enabled
+      ? runVerifyCommandInSandbox(task, verifyCommand, sandboxConfig)
+      : getRouter().runVerifyCommand(verifyCommand, task.working_directory, {
+        timeout: verifyTimeoutMs,
+        provider,
+      })
+  );
+  const activityRunner = getActivityRunner();
+  const verifyActivity = activityRunner && typeof activityRunner.runActivity === 'function'
+    ? await activityRunner.runActivity({
+      workflowId: task.workflow_id || null,
+      taskId,
+      kind: 'verify',
+      name: verifyCommand,
+      input: {
+        command: verifyCommand,
+        cwd: task.working_directory,
+      },
+      fn: executeVerifyCommand,
+      options: {
+        max_attempts: 1,
+        start_to_close_timeout_ms: verifyTimeoutMs,
+      },
+    })
+    : { ok: true, value: await executeVerifyCommand() };
+  const verifyResult = verifyActivity.ok
+    ? verifyActivity.value
+    : {
+      success: false,
+      output: '',
+      error: verifyActivity.error || 'Verify activity failed',
+      exitCode: /timed out/i.test(verifyActivity.error || '') ? 124 : 1,
+      durationMs: verifyTimeoutMs,
+      remote: false,
+      timedOut: /timed out/i.test(verifyActivity.error || ''),
+    };
   logger.info(
     sandboxConfig.enabled
       ? `[auto-verify] Task ${taskId}: ran verify_command in sandbox backend "${verifyResult.sandbox_backend || sandboxConfig.backend}" for project "${project}"`

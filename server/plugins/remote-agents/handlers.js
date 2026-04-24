@@ -3,6 +3,26 @@
 const { ErrorCodes, makeError } = require('../../handlers/error-codes');
 const { createRemoteTestRouter } = require('./remote-test-routing');
 
+function _getActivityRunner() {
+  try {
+    const { defaultContainer } = require('../../container');
+    return defaultContainer.get('activityRunner');
+  } catch {
+    return null;
+  }
+}
+
+function _getExecutionContext(args = {}) {
+  return {
+    taskId: typeof args.__taskId === 'string' && args.__taskId.trim()
+      ? args.__taskId.trim()
+      : null,
+    workflowId: typeof args.__workflowId === 'string' && args.__workflowId.trim()
+      ? args.__workflowId.trim()
+      : null,
+  };
+}
+
 function _hasOwn(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj || {}, key);
 }
@@ -505,41 +525,86 @@ function createHandlers({ agentRegistry, db } = {}) {
       }
 
       const healthyAgent = _findHealthyAgent(agentRegistry);
-      if (!healthyAgent) {
-        const result = _runLocalCommand(commandString, workingDirectory, timeout);
-        return _buildPrefixedToolResult('[local fallback]', result, {
-          command: commandString,
-          working_directory: workingDirectory,
-          warning: 'Remote agent unavailable; command ran locally.',
-        });
-      }
-
-      const client = typeof agentRegistry?.getClient === 'function'
+      const client = healthyAgent && typeof agentRegistry?.getClient === 'function'
         ? agentRegistry.getClient(healthyAgent.id)
         : null;
-      if (!client || typeof client.run !== 'function') {
-        const result = _runLocalCommand(commandString, workingDirectory, timeout);
-        return _buildPrefixedToolResult('[local fallback]', result, {
+      const executeRemoteShell = async () => {
+        if (!healthyAgent || !client || typeof client.run !== 'function') {
+          return {
+            result: _runLocalCommand(commandString, workingDirectory, timeout),
+            agent: null,
+          };
+        }
+
+        const invocation = _buildShellInvocation(commandString);
+        const result = await client.run(invocation.command, invocation.args, {
+          cwd: workingDirectory,
+          timeout,
+        });
+
+        return {
+          result: { ...result, remote: true },
+          agent: {
+            id: healthyAgent.id,
+            name: healthyAgent.name || healthyAgent.id,
+          },
+        };
+      };
+      const { taskId, workflowId } = _getExecutionContext(args);
+      const activityRunner = (taskId || workflowId) ? _getActivityRunner() : null;
+      const activityName = healthyAgent && client && typeof client.run === 'function'
+        ? (healthyAgent.name || healthyAgent.id)
+        : 'local-fallback';
+      const execution = activityRunner && typeof activityRunner.runActivity === 'function'
+        ? await activityRunner.runActivity({
+          workflowId,
+          taskId,
+          kind: 'remote_shell',
+          name: activityName,
+          input: {
+            command: commandString,
+            working_directory: workingDirectory,
+            timeout,
+          },
+          fn: executeRemoteShell,
+          options: {
+            max_attempts: 2,
+            retry_policy: {
+              initial_ms: 500,
+              max_ms: 5000,
+            },
+            start_to_close_timeout_ms: timeout,
+          },
+        })
+        : { ok: true, value: await executeRemoteShell() };
+
+      if (!execution.ok) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Remote execution failed: ${execution.error}. Use local execution as fallback.`,
+          }],
+          isError: true,
+          error_code: ErrorCodes.OPERATION_FAILED.code,
+        };
+      }
+
+      const executionResult = execution.value?.result || execution.value || {};
+      const executionAgent = execution.value?.agent || null;
+
+      if (!executionAgent) {
+        return _buildPrefixedToolResult('[local fallback]', executionResult, {
           command: commandString,
           working_directory: workingDirectory,
           warning: 'Remote agent unavailable; command ran locally.',
         });
       }
 
-      const invocation = _buildShellInvocation(commandString);
-      const result = await client.run(invocation.command, invocation.args, {
-        cwd: workingDirectory,
-        timeout,
-      });
-
-      return _buildPrefixedToolResult(`[remote: ${healthyAgent.name || healthyAgent.id}]`, {
-        ...result,
-        remote: true,
-      }, {
+      return _buildPrefixedToolResult(`[remote: ${executionAgent.name}]`, executionResult, {
         command: commandString,
         working_directory: workingDirectory,
-        agent_id: healthyAgent.id,
-        agent_name: healthyAgent.name || healthyAgent.id,
+        agent_id: executionAgent.id,
+        agent_name: executionAgent.name,
       });
     } catch (err) {
       return {

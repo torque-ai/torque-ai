@@ -547,6 +547,41 @@ function applyTaskExecutionContext(args) {
   return normalizedArgs;
 }
 
+function getActivityRunner() {
+  try {
+    const { defaultContainer } = require('./container');
+    return defaultContainer.get('activityRunner');
+  } catch {
+    return null;
+  }
+}
+
+function readExecutionActivityContext(args) {
+  const taskId = typeof args?.__taskId === 'string' && args.__taskId.trim()
+    ? args.__taskId.trim()
+    : null;
+  const workflowId = typeof args?.__workflowId === 'string' && args.__workflowId.trim()
+    ? args.__workflowId.trim()
+    : null;
+
+  return { taskId, workflowId };
+}
+
+function sanitizeActivityInput(args) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return args || {};
+  }
+
+  const {
+    __taskId,
+    __workflowId,
+    __workflowNodeId,
+    ...input
+  } = args;
+
+  return input;
+}
+
 function resolveHookWorkingDirectory(args, filePath) {
   if (typeof args.working_directory === 'string' && args.working_directory.trim()) {
     return args.working_directory.trim();
@@ -896,9 +931,39 @@ async function handleToolCall(name, args) {
   const handler = routeMap.get(name) || getPluginToolHandler(name);
   if (handler) {
     const effectiveArgs = applyTaskExecutionContext(args);
-    const result = await handler(effectiveArgs);
-    await maybeFireFileWriteHooks(name, effectiveArgs, result);
-    return result;
+    const executeHandler = async () => {
+      const result = await handler(effectiveArgs);
+      await maybeFireFileWriteHooks(name, effectiveArgs, result);
+      return result;
+    };
+    const { taskId, workflowId } = readExecutionActivityContext(effectiveArgs);
+    const runner = (taskId || workflowId) ? getActivityRunner() : null;
+
+    if (!runner || typeof runner.runActivity !== 'function') {
+      return executeHandler();
+    }
+
+    const activityResult = await runner.runActivity({
+      workflowId,
+      taskId,
+      kind: 'mcp_tool',
+      name,
+      input: sanitizeActivityInput(effectiveArgs),
+      fn: executeHandler,
+      options: {
+        max_attempts: 1,
+        start_to_close_timeout_ms: 60000,
+      },
+    });
+
+    if (activityResult.ok) {
+      return activityResult.value;
+    }
+
+    const err = new Error(activityResult.error || `Tool activity failed: ${name}`);
+    err.code = 'ACTIVITY_FAILED';
+    err.activity_id = activityResult.activity_id || null;
+    throw err;
   }
 
   // Throw a proper Error (not a plain object) so the stack trace is preserved.

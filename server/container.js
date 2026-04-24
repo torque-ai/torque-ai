@@ -228,6 +228,27 @@ _defaultContainer.register('runDirManager', ['db'], ({ db }) => {
     promotedDir: path.join(dataDir, 'promoted'),
   });
 });
+_defaultContainer.register('journalWriter', ['db'], ({ db }) => {
+  const { createJournalWriter } = require('./journal/journal-writer');
+  return createJournalWriter({ db: unwrapDb(db) });
+});
+_defaultContainer.register('activityStore', ['db'], ({ db }) => {
+  const { createActivityStore } = require('./db/activity-store');
+  return createActivityStore({ db: unwrapDb(db) });
+});
+_defaultContainer.register(
+  'activityRunner',
+  ['db', 'activityStore', 'journalWriter', 'logger'],
+  ({ db, activityStore, journalWriter, logger: log }) => {
+    const { createActivityRunner } = require('./activities/activity-runner');
+    return createActivityRunner({
+      db: unwrapDb(db),
+      store: activityStore,
+      journal: journalWriter,
+      logger: log,
+    });
+  }
+);
 _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
   const { createProviderScoring } = require('./db/provider-scoring');
   return createProviderScoring({ db: unwrapDb(db) });
