@@ -130,7 +130,40 @@ if ! git -C "${REPO_ROOT}" diff --quiet 2>/dev/null || \
 fi
 
 echo "  Merging ${BRANCH} into main..."
+
+# The main repo's HEAD can drift off `main` — the factory's mergeWorktree and
+# other cutovers run `git checkout <ref>` on the shared repo, and aren't
+# guaranteed to land back on main. If we don't verify here, `git merge`
+# silently merges into whatever branch happens to be checked out and
+# `origin/main` never gets the fix. Documented regression: 2026-04-24
+# feat/fix-dashboard-projection landed on feat/factory-project-routing-template
+# because HEAD was on that branch when cutover ran.
+current_branch=$(git -C "${REPO_ROOT}" symbolic-ref --short HEAD 2>/dev/null || echo "")
+if [ "${current_branch}" != "main" ]; then
+  echo "  Main repo was on '${current_branch}' — switching to main first."
+  git -C "${REPO_ROOT}" checkout main
+  post_switch=$(git -C "${REPO_ROOT}" symbolic-ref --short HEAD 2>/dev/null || echo "")
+  if [ "${post_switch}" != "main" ]; then
+    echo "ERROR: Could not switch to 'main' (still on '${post_switch}'). Aborting cutover."
+    exit 1
+  fi
+fi
+
 git merge "$BRANCH" --no-edit
+
+# Sanity-check: confirm the merge actually landed on main. Catches the next
+# failure mode where someone edits the cutover script and reintroduces a path
+# that leaves us on the wrong branch.
+post_merge_branch=$(git -C "${REPO_ROOT}" symbolic-ref --short HEAD 2>/dev/null || echo "")
+if [ "${post_merge_branch}" != "main" ]; then
+  echo "ERROR: post-merge branch is '${post_merge_branch}', expected 'main'. Refusing to proceed."
+  exit 1
+fi
+if ! git merge-base --is-ancestor "${BRANCH}" main; then
+  echo "ERROR: main does not contain '${BRANCH}' after merge. Cutover failed silently."
+  exit 1
+fi
+
 echo "[ok] Merged"
 
 # Dashboard bundle is served from dashboard/dist/. Only dist/index.html and
