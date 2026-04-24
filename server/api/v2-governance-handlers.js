@@ -1440,6 +1440,68 @@ async function handleScanProject(req, res) {
   }
 }
 
+function resolveProjectIdentifier(payload = {}) {
+  const explicitProject = String(payload.project || '').trim();
+  if (explicitProject) {
+    return explicitProject;
+  }
+
+  const workingDirectory = String(payload.working_directory || '').trim();
+  if (!workingDirectory) {
+    return '';
+  }
+
+  if (typeof projectConfigCore.getProjectFromPath !== 'function') {
+    return '';
+  }
+
+  return projectConfigCore.getProjectFromPath(workingDirectory) || '';
+}
+
+async function handleGetProjectConfig(req, res) {
+  const requestId = resolveRequestId(req);
+  const project = resolveProjectIdentifier(req.query || {});
+
+  if (!project) {
+    return sendError(res, requestId, 'validation_error', 'project or working_directory is required', 400, {}, req);
+  }
+
+  try {
+    const config = projectConfigCore.getProjectConfig(project);
+    sendSuccess(res, requestId, {
+      project,
+      configured: Boolean(config),
+      ...(config || {}),
+    }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
+async function handleSetProjectConfig(req, res) {
+  const requestId = resolveRequestId(req);
+  const body = req.body || await parseBody(req);
+  const project = resolveProjectIdentifier(body || {});
+
+  if (!project) {
+    return sendError(res, requestId, 'validation_error', 'project or working_directory is required', 400, {}, req);
+  }
+
+  try {
+    const updated = projectConfigCore.setProjectConfig(project, {
+      ...body,
+      routing_template_id: body?.routing_template_id === '' ? null : body?.routing_template_id,
+    });
+    sendSuccess(res, requestId, {
+      project,
+      configured: true,
+      ...updated,
+    }, 200, req);
+  } catch (err) {
+    sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
+  }
+}
+
 async function handleGetProjectDefaults(req, res) {
   const requestId = resolveRequestId(req);
   const workingDirectory = (req.query?.working_directory || '').trim();
@@ -1729,6 +1791,8 @@ function createV2GovernanceHandlers(_deps) {
     handleSystemStatus,
     handleListProjects,
     handleScanProject,
+    handleGetProjectConfig,
+    handleSetProjectConfig,
     handleGetProjectDefaults,
     handleSetProjectDefaults,
     handleGetConfig,
@@ -1792,6 +1856,8 @@ module.exports = {
   // Project Config
   handleListProjects,
   handleScanProject,
+  handleGetProjectConfig,
+  handleSetProjectConfig,
   handleGetProjectDefaults,
   handleSetProjectDefaults,
   handleGetConfig,

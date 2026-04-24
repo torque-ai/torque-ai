@@ -89,6 +89,7 @@ describe('project-config core', () => {
         default_provider: 'codex',
         default_model: 'gpt-5.3-codex-spark',
         verify_command: 'npx vitest run',
+        routing_template_id: 'codex-primary',
         auto_fix_enabled: true,
       });
 
@@ -100,6 +101,7 @@ describe('project-config core', () => {
       expect(config.default_provider).toBe('codex');
       expect(config.default_model).toBe('gpt-5.3-codex-spark');
       expect(config.verify_command).toBe('npx vitest run');
+      expect(config.routing_template_id).toBe('codex-primary');
       expect(config.auto_fix_enabled).toBe(1);
     });
 
@@ -144,17 +146,20 @@ describe('project-config core', () => {
         default_provider: 'codex',
         default_model: 'gpt-5.3-codex-spark',
         verify_command: 'npx vitest run',
+        routing_template_id: 'quality-first',
       });
 
       const cleared = db.setProjectConfig('alpha', {
         default_provider: null,
         default_model: null,
         verify_command: null,
+        routing_template_id: null,
       });
 
       expect(cleared.default_provider).toBeNull();
       expect(cleared.default_model).toBeNull();
       expect(cleared.verify_command).toBeNull();
+      expect(cleared.routing_template_id).toBeNull();
     });
 
     it('persists auto_verify_on_completion on the first insert', () => {

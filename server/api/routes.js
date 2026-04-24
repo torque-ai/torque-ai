@@ -854,6 +854,20 @@ const routes = [
   },
   {
     method: 'GET',
+    path: '/api/v2/project-config',
+    tool: 'get_project_config',
+    handlerName: 'handleV2CpGetProjectConfig',
+    middleware: buildV2Middleware(),
+  },
+  {
+    method: 'POST',
+    path: '/api/v2/project-config',
+    tool: 'set_project_config',
+    handlerName: 'handleV2CpSetProjectConfig',
+    middleware: buildV2Middleware(),
+  },
+  {
+    method: 'GET',
     path: '/api/v2/projects/defaults',
     handlerName: 'handleV2CpGetProjectDefaults',
     middleware: buildV2Middleware(),

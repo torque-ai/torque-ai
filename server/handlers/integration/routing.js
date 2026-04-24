@@ -7,6 +7,7 @@ const fs = require('fs');
 const fsPromises = require('node:fs/promises');
 const configCore = require('../../db/config-core');
 const hostManagement = require('../../db/host-management');
+const projectConfigCore = require('../../db/project-config-core');
 const providerRoutingCore = require('../../db/provider-routing-core');
 const taskCore = require('../../db/task-core');
 const workflowEngine = require('../../db/workflow-engine');
@@ -608,6 +609,18 @@ async function handleSmartSubmitTask(args) {
     task_metadata: userTaskMetadata,
     __sessionId,
   } = inputs;
+  let effectiveRoutingTemplate = routing_template || null;
+
+  if (!effectiveRoutingTemplate) {
+    try {
+      const projectDefaults = projectConfigCore.getProjectDefaults(project || working_directory || '');
+      if (projectDefaults?.routing_template_id) {
+        effectiveRoutingTemplate = projectDefaults.routing_template_id;
+      }
+    } catch (err) {
+      logger.debug('[smart-routing] project default routing template lookup failed:', err.message || err);
+    }
+  }
 
   let selectedProvider;
   let routingResult;
@@ -740,7 +753,7 @@ async function handleSmartSubmitTask(args) {
     // Use smart routing (will use freshly updated health status for fallback decisions)
     routingResult = providerRoutingCore.analyzeTaskForRouting(task, working_directory, files, {
       preferFree: !!prefer_free,
-      taskMetadata: routing_template ? { _routing_template: routing_template } : undefined,
+      taskMetadata: effectiveRoutingTemplate ? { _routing_template: effectiveRoutingTemplate } : undefined,
     });
     selectedProvider = routingResult.provider;
 
@@ -1379,7 +1392,7 @@ async function handleSmartSubmitTask(args) {
     routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
     tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
     _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
-    _routing_template: routing_template || undefined,
+    _routing_template: effectiveRoutingTemplate || undefined,
     mcp_session_id: __sessionId || undefined,
     ...buildRoutingScoreMetadata(tierRoutingResult, slotPullIntendedProvider),
   };
@@ -1433,7 +1446,7 @@ async function handleSmartSubmitTask(args) {
         routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
         tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
         _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
-        _routing_template: routing_template || undefined,
+        _routing_template: effectiveRoutingTemplate || undefined,
         mcp_session_id: __sessionId || undefined,
         ...buildRoutingScoreMetadata(routingResult, selectedProvider),
         ...(userTaskMetadata || {}),

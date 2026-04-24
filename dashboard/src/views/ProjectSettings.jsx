@@ -14,6 +14,8 @@ const DEFAULT_FORM_STATE = {
   timeout: '30',
 };
 
+const DEFAULT_ROUTING_TEMPLATE_NAME = 'System Default';
+
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -82,7 +84,16 @@ function normalizeProjectConfig(payload) {
     verifyCommand: data.verify_command ?? '',
     autoFix: toBoolean(data.auto_fix_enabled ?? data.auto_fix),
     timeout: String(timeoutValue ?? 30),
+    routingTemplateId: data.routing_template_id ?? '',
   };
+}
+
+function resolveTemplateName(templateId, templates) {
+  if (!templateId) return DEFAULT_ROUTING_TEMPLATE_NAME;
+  const match = Array.isArray(templates)
+    ? templates.find((template) => template?.id === templateId)
+    : null;
+  return match?.name || 'Unknown template';
 }
 
 function normalizeProviderScores(payload) {
@@ -212,7 +223,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   const [form, setForm] = useState(DEFAULT_FORM_STATE);
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
-  const [activeTemplateName, setActiveTemplateName] = useState('System Default');
+  const [activeTemplateName, setActiveTemplateName] = useState(DEFAULT_ROUTING_TEMPLATE_NAME);
   const [providerScores, setProviderScores] = useState([]);
   const [hasProviderScores, setHasProviderScores] = useState(false);
   const [budgetStatus, setBudgetStatus] = useState(null);
@@ -301,41 +312,48 @@ export default function ProjectSettings({ project: projectProp = '' }) {
     const results = await Promise.allSettled([
       requestV2(`/project-config?project=${encodeURIComponent(projectName)}`),
       routingTemplates.list(),
-      routingTemplates.getActive(),
       loadOptionalProviderScores(),
       loadOptionalBudgetStatus(),
     ]);
 
     if (!mountedRef.current) return;
 
-    const [configResult, templatesResult, activeTemplateResult] = results;
+    const [configResult, templatesResult] = results;
+
+    const templateList = templatesResult.status === 'fulfilled'
+      ? sortTemplates(
+        Array.isArray(templatesResult.value)
+          ? templatesResult.value
+          : templatesResult.value?.items || []
+      )
+      : [];
 
     if (configResult.status === 'fulfilled') {
-      setForm(normalizeProjectConfig(configResult.value));
+      const normalizedConfig = normalizeProjectConfig(configResult.value);
+      setForm({
+        provider: normalizedConfig.provider,
+        model: normalizedConfig.model,
+        verifyCommand: normalizedConfig.verifyCommand,
+        autoFix: normalizedConfig.autoFix,
+        timeout: normalizedConfig.timeout,
+      });
+      setSelectedTemplateId(normalizedConfig.routingTemplateId || '');
+      setActiveTemplateName(resolveTemplateName(normalizedConfig.routingTemplateId, templateList));
     } else {
       setForm(DEFAULT_FORM_STATE);
+      setSelectedTemplateId('');
+      setActiveTemplateName(DEFAULT_ROUTING_TEMPLATE_NAME);
       setLoadError(getErrorMessage(configResult.reason));
     }
 
     if (templatesResult.status === 'fulfilled') {
-      const templateList = sortTemplates(
-        Array.isArray(templatesResult.value)
-          ? templatesResult.value
-          : templatesResult.value?.items || []
-      );
       setTemplates(templateList);
     } else {
       setTemplates([]);
-    }
-
-    if (activeTemplateResult.status === 'fulfilled') {
-      const explicit = Boolean(activeTemplateResult.value?.explicit);
-      const template = activeTemplateResult.value?.template || null;
-      setSelectedTemplateId(explicit ? template?.id || '' : '');
-      setActiveTemplateName(template?.name || 'System Default');
-    } else {
-      setSelectedTemplateId('');
-      setActiveTemplateName('System Default');
+      if (configResult.status === 'fulfilled') {
+        const normalizedConfig = normalizeProjectConfig(configResult.value);
+        setActiveTemplateName(normalizedConfig.routingTemplateId ? 'Unknown template' : DEFAULT_ROUTING_TEMPLATE_NAME);
+      }
     }
 
     setLoading(false);
@@ -423,20 +441,29 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   }, [activeProject, form, loadConfiguredProjects, loadData, toast]);
 
   const handleRoutingSave = useCallback(async () => {
+    if (!activeProject) {
+      toast.warning('Load a project before saving routing');
+      return;
+    }
+
     setSavingRouting(true);
     try {
-      await routingTemplates.setActive({ template_id: selectedTemplateId || null });
-      toast.success(selectedTemplateId ? 'Routing template updated' : 'Routing template reset to System Default');
-      const activeData = await routingTemplates.getActive();
-      if (!mountedRef.current) return;
-      setActiveTemplateName(activeData?.template?.name || 'System Default');
-      setSelectedTemplateId(activeData?.explicit ? activeData?.template?.id || '' : '');
+      await requestV2('/project-config', {
+        method: 'POST',
+        body: JSON.stringify({
+          project: activeProject,
+          routing_template_id: selectedTemplateId || null,
+        }),
+      });
+      toast.success(selectedTemplateId ? `Saved routing template for ${activeProject}` : `Cleared routing template for ${activeProject}`);
+      await loadData(activeProject);
+      await loadConfiguredProjects();
     } catch (error) {
       toast.error(`Failed to save routing template: ${getErrorMessage(error)}`);
     } finally {
       if (mountedRef.current) setSavingRouting(false);
     }
-  }, [selectedTemplateId, toast]);
+  }, [activeProject, loadConfiguredProjects, loadData, selectedTemplateId, toast]);
 
   return (
     <div className="p-6 space-y-6">
@@ -616,7 +643,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
               <div className="mb-5">
                 <h2 className="text-lg font-semibold text-white">Routing Template</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Active now: <span className="text-slate-300">{activeTemplateName}</span>
+                  Saved for this project: <span className="text-slate-300">{activeTemplateName}</span>
                 </p>
               </div>
 

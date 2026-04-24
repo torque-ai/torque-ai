@@ -635,6 +635,62 @@ describe('api/v2-governance-handlers', () => {
     });
   });
 
+  describe('project config handlers', () => {
+    it('handleGetProjectConfig returns structured project config data', async () => {
+      mocks.db.getProjectConfig = vi.fn().mockReturnValue({
+        project: 'alpha',
+        default_provider: 'codex',
+        default_model: 'gpt-5.3-codex-spark',
+        routing_template_id: 'codex-primary',
+        verify_command: 'npm test',
+      });
+      const { req, res } = createMockContext({
+        query: { project: 'alpha' },
+      });
+
+      await handlers.handleGetProjectConfig(req, res);
+
+      expect(mocks.db.getProjectConfig).toHaveBeenCalledWith('alpha');
+      expectSuccessEnvelope(res, {
+        project: 'alpha',
+        configured: true,
+        default_provider: 'codex',
+        default_model: 'gpt-5.3-codex-spark',
+        routing_template_id: 'codex-primary',
+        verify_command: 'npm test',
+      });
+    });
+
+    it('handleSetProjectConfig persists structured project config updates', async () => {
+      mocks.db.setProjectConfig = vi.fn().mockReturnValue({
+        project: 'alpha',
+        default_provider: 'codex',
+        routing_template_id: 'codex-primary',
+      });
+      const { req, res } = createMockContext({
+        parsedBody: {
+          project: 'alpha',
+          default_provider: 'codex',
+          routing_template_id: 'codex-primary',
+        },
+      });
+
+      await handlers.handleSetProjectConfig(req, res);
+
+      expect(mocks.db.setProjectConfig).toHaveBeenCalledWith('alpha', {
+        project: 'alpha',
+        default_provider: 'codex',
+        routing_template_id: 'codex-primary',
+      });
+      expectSuccessEnvelope(res, {
+        project: 'alpha',
+        configured: true,
+        default_provider: 'codex',
+        routing_template_id: 'codex-primary',
+      });
+    });
+  });
+
   describe('project registry handlers', () => {
     it('handleListProjects returns the known project registry as a structured list', async () => {
       const projects = [

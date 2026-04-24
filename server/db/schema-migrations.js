@@ -369,6 +369,7 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   safeAddColumn('project_config', 'default_provider TEXT');
   safeAddColumn('project_config', 'default_model TEXT');
   safeAddColumn('project_config', 'verify_command TEXT');
+  safeAddColumn('project_config', 'routing_template_id TEXT');
   safeAddColumn('project_config', 'auto_fix_enabled INTEGER DEFAULT 0');
   safeAddColumn('project_config', 'test_pattern TEXT');
   safeAddColumn('project_config', 'auto_verify_on_completion INTEGER');

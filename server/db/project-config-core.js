@@ -30,9 +30,11 @@ let db = null;
 let _getTask = null;
 let _recordEvent = null;
 const _dbFunctions = {};
+let _projectConfigRoutingTemplateEnsured = false;
 
 function setDb(dbInstance) {
   db = dbInstance;
+  _projectConfigRoutingTemplateEnsured = false;
   // Forward to cache + validation sub-modules
   projectCache.setDb(dbInstance);
   validationRules.setDb(dbInstance);
@@ -74,6 +76,23 @@ function _initResourceHealth() {
 }
 
 function getDbInstance() { return db; }
+
+function ensureProjectConfigRoutingTemplateColumn() {
+  if (!db || _projectConfigRoutingTemplateEnsured) {
+    return;
+  }
+
+  try {
+    const columns = db.prepare('PRAGMA table_info(project_config)').all();
+    const hasRoutingTemplateId = columns.some((column) => column?.name === 'routing_template_id');
+    if (!hasRoutingTemplateId) {
+      db.exec('ALTER TABLE project_config ADD COLUMN routing_template_id TEXT');
+    }
+    _projectConfigRoutingTemplateEnsured = true;
+  } catch {
+    // Leave the flag unset so a later call can retry once the DB is ready.
+  }
+}
 
 // Proxy helpers for injected functions
 function getTask(...args) { if (!_getTask) return null; return _getTask(...args); }
@@ -611,6 +630,7 @@ function getProjectDefaults(projectOrWorkingDirectory) {
  * Get project configuration
  */
 function getProjectConfig(project) {
+  ensureProjectConfigRoutingTemplateColumn();
   const stmt = db.prepare('SELECT * FROM project_config WHERE project = ?');
   const config = stmt.get(project);
 
@@ -624,6 +644,7 @@ function getProjectConfig(project) {
     config.rollback_on_test_failure = Boolean(config.rollback_on_test_failure);
     config.style_check_enabled = Boolean(config.style_check_enabled);
     config.auto_pr_enabled = Boolean(config.auto_pr_enabled);
+    config.routing_template_id = config.routing_template_id || null;
   }
 
   return config;
@@ -633,6 +654,7 @@ function getProjectConfig(project) {
  * Set project configuration (creates or updates)
  */
 function setProjectConfig(project, config) {
+  ensureProjectConfigRoutingTemplateColumn();
   const now = new Date().toISOString();
 
   const existing = getProjectConfig(project);
@@ -738,6 +760,10 @@ function setProjectConfig(project, config) {
       updates.push('verify_command = ?');
       values.push(config.verify_command);
     }
+    if (config.routing_template_id !== undefined) {
+      updates.push('routing_template_id = ?');
+      values.push(config.routing_template_id || null);
+    }
     if (config.auto_fix_enabled !== undefined) {
       updates.push('auto_fix_enabled = ?');
       values.push(config.auto_fix_enabled ? 1 : 0);
@@ -786,10 +812,10 @@ function setProjectConfig(project, config) {
         test_verification_enabled, test_command, test_timeout, rollback_on_test_failure,
         style_check_enabled, style_check_command, style_check_timeout,
         auto_pr_enabled, auto_pr_base_branch,
-        default_provider, default_model, verify_command, auto_fix_enabled, test_pattern,
+        default_provider, default_model, verify_command, routing_template_id, auto_fix_enabled, test_pattern,
         auto_verify_on_completion, remote_agent_id, remote_project_path, prefer_remote_tests,
         economy_policy, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -818,6 +844,7 @@ function setProjectConfig(project, config) {
       config.default_provider || null,
       config.default_model || null,
       config.verify_command || null,
+      config.routing_template_id || null,
       config.auto_fix_enabled ? 1 : 0,
       config.test_pattern || null,
       config.auto_verify_on_completion !== undefined ? (config.auto_verify_on_completion ? 1 : 0) : null,
@@ -966,6 +993,7 @@ function canProjectStartTask(project) {
  * List all project configurations
  */
 function listProjectConfigs() {
+  ensureProjectConfigRoutingTemplateColumn();
   const stmt = db.prepare('SELECT * FROM project_config ORDER BY project');
   const configs = stmt.all();
 

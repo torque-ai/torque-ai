@@ -4,6 +4,15 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 
 const CHILD_CLOSE_GRACE_MS = 250;
+const NON_CODE_EXTENSIONS = new Set([
+  '.md',
+  '.txt',
+  '.json',
+  '.yaml',
+  '.yml',
+  '.csv',
+  '.toml',
+]);
 
 function spawnTrackedProcessAsync(cmd, args, options = {}, spawnImpl = spawn) {
   return new Promise((resolve) => {
@@ -276,6 +285,32 @@ function defaultCountCommitsAhead({ cwd, baseBranch, branch }) {
   }
 }
 
+function defaultListChangedFiles({ cwd, baseBranch, branch }) {
+  if (!cwd || !baseBranch || !branch) return [];
+  try {
+    if (!fs.existsSync(cwd)) return [];
+    const { execFileSync } = require('child_process');
+    const out = execFileSync(
+      'git',
+      ['diff', '--name-only', `${baseBranch}...${branch}`],
+      { cwd, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] },
+    );
+    return String(out || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch (_e) {
+    void _e;
+    return [];
+  }
+}
+
+function isNonCodeOnlyDiff(files = []) {
+  return Array.isArray(files)
+    && files.length > 0
+    && files.every((file) => NON_CODE_EXTENSIONS.has(require('path').extname(file || '').toLowerCase()));
+}
+
 // Detect the repo's default branch (main/master/custom) from origin/HEAD or
 // fallback to whichever of master/main actually exists locally. Returns 'main'
 // if nothing resolves so callers still get a sensible default.
@@ -308,6 +343,7 @@ function createWorktreeRunner({
   runRemoteVerify = defaultRunRemoteVerify,
   runLocalVerify = defaultRunLocalVerify,
   countCommitsAhead = defaultCountCommitsAhead,
+  listChangedFiles = defaultListChangedFiles,
   logger,
 } = {}) {
   if (!worktreeManager || typeof worktreeManager.createWorktree !== 'function') {
@@ -371,6 +407,29 @@ function createWorktreeRunner({
         timedOut: false,
         durationMs: Date.now() - start,
         reason: 'empty_branch',
+      };
+    }
+
+    const changedFiles = listChangedFiles({ cwd, baseBranch: resolvedBaseBranch, branch });
+    if (isNonCodeOnlyDiff(changedFiles)) {
+      if (logger) {
+        logger.info('factory worktree verify: skipped (non-code-only diff)', {
+          branch,
+          base_branch: resolvedBaseBranch,
+          worktree_path: worktreePath,
+          changed_files: changedFiles,
+        });
+      }
+      return {
+        passed: true,
+        output: `[non-code-only] Branch ${branch} only changes non-code files; skipping verify command.`,
+        stdout: `[non-code-only] ${changedFiles.join(', ')}`,
+        stderr: '',
+        exitCode: 0,
+        error: null,
+        timedOut: false,
+        durationMs: Date.now() - start,
+        reason: 'non_code_only',
       };
     }
 
@@ -485,6 +544,8 @@ module.exports = {
   _internalForTests: {
     CHILD_CLOSE_GRACE_MS,
     buildRemoteVerifyInvocation,
+    defaultListChangedFiles,
+    isNonCodeOnlyDiff,
     spawnTrackedProcessAsync,
     spawnInBashAsync,
     spawnInSystemShellAsync,
