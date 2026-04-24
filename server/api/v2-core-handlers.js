@@ -545,16 +545,49 @@ async function handleV2TaskCancel(_req, res, context = {}, taskId = null, req = 
   }
 
   try {
+    let cancelled = false;
     if (_v2TaskManager) {
-      _v2TaskManager.cancelTask(taskRow.id, 'Task cancelled by request');
+      cancelled = _v2TaskManager.cancelTask(taskRow.id, 'Task cancelled by request');
     } else {
-      updateTaskStatus(taskRow.id, 'cancelled', {
+      const updatedTask = updateTaskStatus(taskRow.id, 'cancelled', {
         error_output: 'Task cancelled by request',
+        cancel_reason: 'user',
       });
+      cancelled = Boolean(updatedTask ? updatedTask.status === 'cancelled' : true);
+    }
+    const cancelledRow = getV2TaskStatusRow(resolvedTaskId);
+    if (!cancelled || !cancelledRow || cancelledRow.status !== 'cancelled') {
+      sendV2Error(
+        res,
+        requestId,
+        'invalid_status',
+        'Task status changed before cancellation could be applied',
+        409,
+        {
+          task_id: taskRow.id,
+          status: normalizeV2InferenceStatus(cancelledRow?.status || taskRow.status),
+        },
+        req,
+      );
+      return;
     }
     recordV2TaskEvent(taskRow.id, 'status', taskRow.status, 'cancelled', {
       request_id: requestId,
     });
+
+    sendV2Success(
+      res,
+      requestId,
+      {
+        task_id: taskRow.id,
+        status: normalizeV2InferenceStatus(cancelledRow.status),
+        provider: taskRow.provider,
+        model: taskRow.model,
+        cancelled: true,
+      },
+      200,
+      req,
+    );
   } catch (err) {
     sendV2Error(
       res,
@@ -567,21 +600,6 @@ async function handleV2TaskCancel(_req, res, context = {}, taskId = null, req = 
     );
     return;
   }
-
-  const cancelledRow = getV2TaskStatusRow(resolvedTaskId);
-  sendV2Success(
-    res,
-    requestId,
-    {
-      task_id: taskRow.id,
-      status: normalizeV2InferenceStatus(cancelledRow?.status || 'cancelled'),
-      provider: taskRow.provider,
-      model: taskRow.model,
-      cancelled: true,
-    },
-    200,
-    req,
-  );
 }
 
 async function handleV2TaskEvents(_req, res, context = {}, taskId = null, req = null) {

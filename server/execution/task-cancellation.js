@@ -135,7 +135,7 @@ function createCancellationHandler({
       return true;
     }
 
-    if (task && (task.status === 'blocked' || task.status === 'pending')) {
+    if (task && (task.status === 'blocked' || task.status === 'pending' || task.status === 'pending_approval')) {
       stallRecoveryAttempts.delete(fullId);
       db.updateTaskStatus(fullId, 'cancelled', {
         error_output: combineErrorForCancel(task.error_output, reason),

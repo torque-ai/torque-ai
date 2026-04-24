@@ -208,7 +208,7 @@ function resetMockDefaults() {
   mockStudyEngine.buildTaskStudyContextEnvelope.mockReturnValue(null);
 
   mockTaskManager.startTask.mockReturnValue({ queued: false });
-  mockTaskManager.cancelTask.mockReturnValue(undefined);
+  mockTaskManager.cancelTask.mockReturnValue(true);
   mockTaskManager.getTaskProgress.mockReturnValue(null);
 
   mockDb.deleteTask.mockReturnValue(undefined);
@@ -780,6 +780,57 @@ describe('api/v2-task-handlers.handleCancelTask', () => {
         status: 'cancelled',
       },
       status: 200,
+      req,
+    });
+  });
+
+  it('cancels a pending approval task when cancellation is applied', async () => {
+    const emitTaskUpdatedSpy = vi.spyOn(eventBus, 'emitTaskUpdated');
+    const req = createReq({
+      params: { task_id: 'task-held' },
+      body: { reason: 'No longer needed' },
+    });
+    const res = createRes();
+
+    mockDb.getTask
+      .mockReturnValueOnce({ id: 'task-held', status: 'pending_approval' })
+      .mockReturnValueOnce({ id: 'task-held', status: 'cancelled' });
+
+    await handlers.handleCancelTask(req, res);
+
+    expect(mockTaskManager.cancelTask).toHaveBeenCalledWith('task-held', 'No longer needed');
+    expect(emitTaskUpdatedSpy).toHaveBeenCalledWith({ taskId: 'task-held', status: 'cancelled' });
+    expect(getLastSuccess().data).toEqual({
+      task_id: 'task-held',
+      cancelled: true,
+      status: 'cancelled',
+    });
+  });
+
+  it('returns 409 when cancelTask reports no state change', async () => {
+    const req = createReq({
+      params: { task_id: 'task-stale' },
+      body: { reason: 'Stop now' },
+    });
+    const res = createRes();
+
+    mockTaskManager.cancelTask.mockReturnValueOnce(false);
+    mockDb.getTask
+      .mockReturnValueOnce({ id: 'task-stale', status: 'pending_approval' })
+      .mockReturnValueOnce({ id: 'task-stale', status: 'pending_approval' });
+
+    await handlers.handleCancelTask(req, res);
+
+    expect(getLastError()).toEqual({
+      res,
+      requestId: 'req-123',
+      code: 'invalid_status',
+      message: 'Task status changed before cancellation could be applied',
+      status: 409,
+      details: {
+        task_id: 'task-stale',
+        status: 'pending_approval',
+      },
       req,
     });
   });
