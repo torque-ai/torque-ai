@@ -363,6 +363,7 @@ const INTERNAL_HANDLER_EXPORTS = new Set([
   'handleFactoryLoopJobStatus',
   'handleAdvanceFactoryLoopInstanceAsync',
   'handleFactoryLoopInstanceJobStatus',
+  'handleBaselineResumeJobStatus',
 ]);
 
 const EXPECTED_ROUTE_COLLISIONS = new Set([
