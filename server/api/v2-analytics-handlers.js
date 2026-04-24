@@ -626,7 +626,12 @@ async function handlePrometheusMetrics(req, res) {
   const requestId = resolveRequestId(req);
   try {
     const toolsModule = require('../tools');
-    const result = toolsModule.callTool('export_metrics_prometheus', {});
+    // tools.js exports handleToolCall (async), not callTool. The old name
+    // was undefined on the module, so every request threw
+    // "toolsModule.callTool is not a function" which the v2 error normalizer
+    // surfaced as provider_unavailable/500 with no log signal — endpoint
+    // had 500'd since the initial public release.
+    const result = await toolsModule.handleToolCall('export_metrics_prometheus', {});
     const text = result?.content?.[0]?.text || '';
     sendSuccess(res, requestId, { format: 'prometheus', metrics: text }, 200, req);
   } catch (err) {

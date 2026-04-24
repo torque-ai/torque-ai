@@ -72,7 +72,7 @@ const mockServerConfig = {
 };
 
 const mockTools = {
-  callTool: vi.fn(),
+  handleToolCall: vi.fn(),
 };
 
 function installCjsModuleMock(modulePath, exportsValue) {
@@ -248,7 +248,7 @@ function resetMockDefaults() {
   mockServerConfig.isOptIn.mockReset().mockReturnValue(false);
   mockServerConfig.getInt.mockReset().mockImplementation((key, fallback) => fallback);
 
-  mockTools.callTool.mockReset().mockReturnValue({ content: [{ text: '' }] });
+  mockTools.handleToolCall.mockReset().mockReturnValue({ content: [{ text: '' }] });
 
   mockParseBody.mockReset().mockResolvedValue({});
   mockSendJson.mockReset().mockImplementation((res, data, status = 200, req = null) => {
@@ -1805,13 +1805,13 @@ describe('api/v2-analytics-handlers', () => {
     it('returns prometheus metrics text via tools module', async () => {
       const res = createMockRes();
 
-      mockTools.callTool.mockReturnValue({
+      mockTools.handleToolCall.mockReturnValue({
         content: [{ text: '# HELP torque_tasks_total\ntorque_tasks_total 42' }],
       });
 
       await handlers.handlePrometheusMetrics(createReq(), res);
 
-      expect(mockTools.callTool).toHaveBeenCalledWith('export_metrics_prometheus', {});
+      expect(mockTools.handleToolCall).toHaveBeenCalledWith('export_metrics_prometheus', {});
       expect(expectSuccess(res)).toEqual({
         format: 'prometheus',
         metrics: '# HELP torque_tasks_total\ntorque_tasks_total 42',
@@ -1821,7 +1821,7 @@ describe('api/v2-analytics-handlers', () => {
     it('returns empty metrics when callTool returns null content', async () => {
       const res = createMockRes();
 
-      mockTools.callTool.mockReturnValue(null);
+      mockTools.handleToolCall.mockReturnValue(null);
 
       await handlers.handlePrometheusMetrics(createReq(), res);
 
@@ -1834,7 +1834,7 @@ describe('api/v2-analytics-handlers', () => {
     it('returns empty metrics when content array is empty', async () => {
       const res = createMockRes();
 
-      mockTools.callTool.mockReturnValue({ content: [] });
+      mockTools.handleToolCall.mockReturnValue({ content: [] });
 
       await handlers.handlePrometheusMetrics(createReq(), res);
 
@@ -1847,7 +1847,7 @@ describe('api/v2-analytics-handlers', () => {
     it('returns 500 when callTool throws', async () => {
       const res = createMockRes();
 
-      mockTools.callTool.mockImplementation(() => {
+      mockTools.handleToolCall.mockImplementation(() => {
         throw new Error('metrics export failed');
       });
 
