@@ -3,7 +3,13 @@
 const path = require('path');
 const { parseSpec, discoverSpecs } = require('../workflow-spec');
 const workflowHandlers = require('./workflow');
-const { ErrorCodes, makeError } = require('./shared');
+const {
+  ErrorCodes,
+  makeError,
+  optionalString,
+  requireArray,
+  requireString,
+} = require('./shared');
 
 function resolveSpecPath(specPath, workingDirectory) {
   if (path.isAbsolute(specPath)) return path.normalize(specPath);
@@ -107,8 +113,51 @@ function handleRunWorkflowSpec(args = {}) {
   };
 }
 
+async function handleBenchWorkflowSpecs(args = {}) {
+  const goalError = requireString(args, 'goal');
+  if (goalError) return goalError;
+
+  const specsError = requireArray(args, 'specs');
+  if (specsError) return specsError;
+
+  const workingDirectoryError = optionalString(args, 'working_directory');
+  if (workingDirectoryError) return workingDirectoryError;
+
+  if (args.specs.length < 2) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'specs must contain at least two workflow spec paths');
+  }
+
+  if (args.specs.some((specPath) => typeof specPath !== 'string' || specPath.trim().length === 0)) {
+    return makeError(ErrorCodes.INVALID_PARAM, 'specs must only contain non-empty string paths');
+  }
+
+  if (args.runs_per_variant !== undefined) {
+    const runsPerVariant = typeof args.runs_per_variant === 'string'
+      ? Number(args.runs_per_variant)
+      : args.runs_per_variant;
+    if (!Number.isInteger(runsPerVariant) || runsPerVariant < 1 || runsPerVariant > 10) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'runs_per_variant must be an integer between 1 and 10');
+    }
+  }
+
+  try {
+    // Lazy-load the runner because it depends on handleRunWorkflowSpec.
+    const { runBench } = require('../bench/runner');
+    const { renderReport } = require('../bench/render-report');
+    const result = await runBench(args);
+    const report = renderReport(result);
+    return {
+      content: [{ type: 'text', text: report }],
+      structuredData: { ...result, report },
+    };
+  } catch (err) {
+    return makeError(ErrorCodes.OPERATION_FAILED, err.message || String(err));
+  }
+}
+
 module.exports = {
   handleListWorkflowSpecs,
   handleValidateWorkflowSpec,
   handleRunWorkflowSpec,
+  handleBenchWorkflowSpecs,
 };

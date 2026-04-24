@@ -47,6 +47,7 @@ TORQUE is configured automatically when you open the project in Claude Code:
 | [Architecture](architecture.md) | System design, module layout, data flow |
 | [Setup Guide](guides/setup.md) | Installation, prerequisites, configuration |
 | [Provider Guide](guides/providers.md) | Provider configuration and routing |
+| [Workflows Guide](guides/workflows.md) | Workflow DAGs, specs, benchmarking, and recovery |
 | [Multi-Host Guide](guides/multi-host.md) | Setting up remote Ollama hosts |
 | [Safeguards](safeguards.md) | Quality gates, validation, rollback |
 | [Tool Reference](api/tool-reference.md) | Complete reference for all ~590 MCP tools |

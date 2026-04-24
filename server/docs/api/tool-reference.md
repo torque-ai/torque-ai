@@ -147,6 +147,15 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 | `instantiate_template` | Create workflow from template |
 | `delete_workflow_template` | Delete template |
 
+### Workflow Specs & Benchmarking
+
+| Tool | Description |
+|------|-------------|
+| `list_workflow_specs` | Discover version-controlled workflow spec files |
+| `validate_workflow_spec` | Parse and validate a workflow spec YAML file |
+| `run_workflow_spec` | Create and run a workflow directly from a spec |
+| `bench_workflow_specs` | Compare multiple workflow specs against the same goal and rank the results |
+
 ### Advanced Workflow
 
 | Tool | Description |

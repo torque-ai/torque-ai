@@ -15,7 +15,12 @@ beforeAll(() => {
 
 afterAll(() => teardownTestDb());
 
-const { handleListWorkflowSpecs, handleValidateWorkflowSpec, handleRunWorkflowSpec } =
+const {
+  handleBenchWorkflowSpecs,
+  handleListWorkflowSpecs,
+  handleValidateWorkflowSpec,
+  handleRunWorkflowSpec,
+} =
   require('../handlers/workflow-spec-handlers');
 
 describe('handleListWorkflowSpecs', () => {
@@ -130,5 +135,36 @@ tasks:
     expect(result.isError).toBeFalsy();
     const tasks = db.getWorkflowTasks(result.structuredData.workflow_id);
     expect(tasks[0].provider).toBe('ollama');
+  });
+});
+
+describe('handleBenchWorkflowSpecs', () => {
+  it('requires a goal', async () => {
+    const result = await handleBenchWorkflowSpecs({
+      specs: ['workflows/a.yaml', 'workflows/b.yaml'],
+    });
+
+    expect(result.isError).toBe(true);
+  });
+
+  it('requires at least two specs', async () => {
+    const result = await handleBenchWorkflowSpecs({
+      goal: 'Compare variants',
+      specs: ['workflows/a.yaml'],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('specs must contain at least two workflow spec paths');
+  });
+
+  it('rejects runs_per_variant outside the supported range', async () => {
+    const result = await handleBenchWorkflowSpecs({
+      goal: 'Compare variants',
+      specs: ['workflows/a.yaml', 'workflows/b.yaml'],
+      runs_per_variant: 11,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('runs_per_variant must be an integer between 1 and 10');
   });
 });

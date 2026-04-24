@@ -54,6 +54,39 @@ const WORKFLOW_SPEC_TOOLS = [
       },
     },
   },
+  {
+    name: 'bench_workflow_specs',
+    description: 'Run multiple workflow specs against the same goal and produce a comparison report.',
+    inputSchema: {
+      type: 'object',
+      required: ['goal', 'specs'],
+      properties: {
+        goal: {
+          type: 'string',
+          description: 'Shared benchmark goal used for every workflow-spec run.',
+        },
+        specs: {
+          type: 'array',
+          description: 'Workflow spec paths to compare. Provide at least two variants.',
+          items: {
+            type: 'string',
+          },
+          minItems: 2,
+        },
+        runs_per_variant: {
+          type: 'integer',
+          description: 'How many sequential runs to execute for each variant.',
+          minimum: 1,
+          maximum: 10,
+          default: 1,
+        },
+        working_directory: {
+          type: 'string',
+          description: 'Project root for resolving relative spec paths.',
+        },
+      },
+    },
+  },
 ];
 
 module.exports = WORKFLOW_SPEC_TOOLS;
