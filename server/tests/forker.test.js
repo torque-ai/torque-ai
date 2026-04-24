@@ -1,6 +1,5 @@
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
 const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const { createForker } = require('../workflow-state/forker');
 const { createCheckpointStore } = require('../workflow-state/checkpoint-store');

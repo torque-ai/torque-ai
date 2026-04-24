@@ -269,7 +269,7 @@ async function detectTruncatedFiles(taskId, status, task, db) {
   return { syntaxScore };
 }
 
-function detectStubImplementations(taskId, status, task, db) {
+function detectStubImplementations(taskId, status, task) {
   if (status !== 'completed' || !task?.working_directory || task?.provider !== 'ollama') return;
 
   try {
@@ -379,7 +379,7 @@ async function runOutputSafeguards(taskId, status, task) {
     syntaxScore = ss;
 
     // 1b. Clean up junk files created by LLM hallucinating filenames
-    detectStubImplementations(taskId, status, task, db);
+    detectStubImplementations(taskId, status, task);
 
     // 2. Check for failure patterns (for both completed and failed tasks)
     const output = task?.output || task?.error_output || '';
