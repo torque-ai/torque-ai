@@ -127,14 +127,14 @@ describe('provider-router', () => {
       expect(providerRouter.getEffectiveGlobalMaxConcurrent()).toBe(12);
     });
 
-    it('returns max of configured and provider sum when auto_compute is on', () => {
+    it('keeps the configured global cap when auto_compute is on', () => {
       configValues.set('max_concurrent', '5');
       configValues.set('max_ollama_concurrent', '8');
       configValues.set('max_codex_concurrent', '6');
       configValues.set('max_api_concurrent', '4');
       boolValues.set('auto_compute_max_concurrent', true);
 
-      expect(providerRouter.getEffectiveGlobalMaxConcurrent()).toBe(18);
+      expect(providerRouter.getEffectiveGlobalMaxConcurrent()).toBe(5);
     });
 
     it('uses db.getEffectiveMaxConcurrent when available', () => {

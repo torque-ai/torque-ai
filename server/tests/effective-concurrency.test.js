@@ -60,7 +60,7 @@ describe('execution/effective-concurrency', () => {
     expect(options.serverConfig.getBool).toHaveBeenCalledWith('auto_compute_max_concurrent');
   });
 
-  it('returns the larger of configured max_concurrent and provider sum when auto_compute is true', () => {
+  it('keeps the configured global cap even when auto_compute is true', () => {
     const options = createOptions({
       configValues: {
         max_ollama_concurrent: 8,
@@ -75,7 +75,10 @@ describe('execution/effective-concurrency', () => {
 
     const result = getEffectiveGlobalMaxConcurrent(options);
 
-    expect(result).toBe(18);
+    expect(result).toBe(10);
+    expect(options.logger.warn).toHaveBeenCalledWith(
+      '[Concurrency] Enabled provider limits sum to 18, but configured max_concurrent=10 is enforced as the global cap.',
+    );
   });
 
   it('uses preRead provider limits instead of calling safeConfigInt for those keys', () => {
@@ -95,12 +98,15 @@ describe('execution/effective-concurrency', () => {
 
     const result = getEffectiveGlobalMaxConcurrent(options);
 
-    expect(result).toBe(15);
+    expect(result).toBe(10);
     expect(options.safeConfigInt).toHaveBeenCalledTimes(1);
     expect(options.safeConfigInt).toHaveBeenCalledWith('max_concurrent', 20);
     expect(options.safeConfigInt).not.toHaveBeenCalledWith('max_ollama_concurrent', 8);
     expect(options.safeConfigInt).not.toHaveBeenCalledWith('max_codex_concurrent', 6);
     expect(options.safeConfigInt).not.toHaveBeenCalledWith('max_api_concurrent', 4);
+    expect(options.logger.warn).toHaveBeenCalledWith(
+      '[Concurrency] Enabled provider limits sum to 15, but configured max_concurrent=10 is enforced as the global cap.',
+    );
   });
 
   it('uses db.getEffectiveMaxConcurrent when it returns a valid positive number', () => {
@@ -150,6 +156,6 @@ describe('execution/effective-concurrency', () => {
 
     const result = getEffectiveGlobalMaxConcurrent(options);
 
-    expect(result).toBe(18);
+    expect(result).toBe(10);
   });
 });

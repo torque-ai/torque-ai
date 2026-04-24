@@ -4,7 +4,8 @@
  * Compute the effective global concurrency limit.
  *
  * This is shared between provider-router and queue-scheduler so both paths
- * use the same fallback and DB-assisted resolution logic.
+ * use the same fallback and DB-assisted resolution logic. The configured
+ * global cap remains authoritative; provider sums are advisory.
  *
  * @param {object} options
  * @param {object} [options.preRead]
@@ -44,9 +45,18 @@ function getEffectiveGlobalMaxConcurrent(options = {}) {
     }
   }
 
-  return autoComputeMaxConcurrent
-    ? Math.max(configuredMaxConcurrent, fallbackProviderSum)
-    : configuredMaxConcurrent;
+  if (
+    autoComputeMaxConcurrent
+    && fallbackProviderSum > configuredMaxConcurrent
+    && logger
+    && typeof logger.warn === 'function'
+  ) {
+    logger.warn(
+      `[Concurrency] Enabled provider limits sum to ${fallbackProviderSum}, but configured max_concurrent=${configuredMaxConcurrent} is enforced as the global cap.`,
+    );
+  }
+
+  return configuredMaxConcurrent;
 }
 
 module.exports = {

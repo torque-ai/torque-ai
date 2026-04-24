@@ -45,7 +45,6 @@ const AUTO_REJECT_REASON_PATTERNS = Object.freeze([
   /^dep_resolver_unresolvable:/i,
 ]);
 const AUTO_UNACTIONABLE_REASON_PATTERNS = Object.freeze([
-  /^zero_diff_across_retries$/i,
   /^branch_stale_vs_base$/i,
   /^branch_stale_vs_master$/i,
 ]);

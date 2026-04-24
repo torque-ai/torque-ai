@@ -61,6 +61,14 @@ function createRejectedWorkItem(projectId, options = {}) {
 function createUnactionableWorkItem(projectId, options = {}) {
   return createTerminalWorkItem(projectId, {
     status: 'unactionable',
+    rejectReason: 'branch_stale_vs_base',
+    ...options,
+  });
+}
+
+function createZeroDiffUnactionableWorkItem(projectId, options = {}) {
+  return createTerminalWorkItem(projectId, {
+    status: 'unactionable',
     rejectReason: 'zero_diff_across_retries',
     ...options,
   });
@@ -196,6 +204,21 @@ describe('rejected work item recovery sweep', () => {
     });
   });
 
+  it('keeps zero-diff unactionable items closed even when reject recovery is enabled', async () => {
+    const project = createRunningDarkProject();
+    const item = createZeroDiffUnactionableWorkItem(project.id);
+    enableRejectRecovery();
+
+    await factoryTick.tickProject(project);
+
+    expect(factoryIntake.getWorkItem(item.id)).toMatchObject({
+      id: item.id,
+      status: 'unactionable',
+      reject_reason: 'zero_diff_across_retries',
+    });
+    expect(countRecoveryDecisions()).toBe(0);
+  });
+
   it('reopens at most one terminal item per project per sweep', async () => {
     const project = createRunningDarkProject();
     const first = createRejectedWorkItem(project.id, {
@@ -216,7 +239,7 @@ describe('rejected work item recovery sweep', () => {
     expect(factoryIntake.getWorkItem(second.id)).toMatchObject({
       id: second.id,
       status: 'unactionable',
-      reject_reason: 'zero_diff_across_retries',
+      reject_reason: 'branch_stale_vs_base',
     });
     expect(countRecoveryDecisions()).toBe(1);
 

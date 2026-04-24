@@ -229,11 +229,11 @@ afterEach(() => {
 });
 
 describe('per-provider effective max_concurrent', () => {
-  it('auto-computes max_concurrent at or above the sum of enabled provider limits', () => {
+  it('keeps the configured max_concurrent as the effective global cap', () => {
     const { core } = loadCore();
 
     expect(core.getEnabledProviderMaxConcurrentSum()).toBe(18);
-    expect(core.getEffectiveMaxConcurrent().effectiveMaxConcurrent).toBe(18);
+    expect(core.getEffectiveMaxConcurrent().effectiveMaxConcurrent).toBe(10);
   });
 
   it('honors the configured global cap when auto_compute_max_concurrent is false', () => {
@@ -283,7 +283,7 @@ describe('per-provider effective max_concurrent', () => {
     const result = core.getEffectiveMaxConcurrent();
 
     expect(result.providerLimitSum).toBe(26);
-    expect(result.effectiveMaxConcurrent).toBe(26);
+    expect(result.effectiveMaxConcurrent).toBe(10);
   });
 
   it('does not count disabled providers toward the effective cap', () => {
@@ -303,17 +303,17 @@ describe('per-provider effective max_concurrent', () => {
     const result = core.getEffectiveMaxConcurrent();
 
     expect(result.providerLimitSum).toBe(14);
-    expect(result.effectiveMaxConcurrent).toBe(14);
+    expect(result.effectiveMaxConcurrent).toBe(10);
   });
 
-  it('logs a warning when auto-compute raises max_concurrent above the configured value', () => {
+  it('logs a warning when enabled provider limits exceed the configured global cap', () => {
     const { core, loggerChild } = loadCore();
 
     const result = core.getEffectiveMaxConcurrent({ logger: loggerChild });
 
-    expect(result.effectiveMaxConcurrent).toBe(18);
+    expect(result.effectiveMaxConcurrent).toBe(10);
     expect(loggerChild.warn).toHaveBeenCalledWith(
-      '[Concurrency] Auto-computed max_concurrent=18 from enabled provider limits (configured=10, provider_sum=18)',
+      '[Concurrency] Enabled provider limits sum to 18, but configured max_concurrent=10 is enforced as the global cap.',
     );
   });
 });

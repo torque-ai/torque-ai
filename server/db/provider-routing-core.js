@@ -357,18 +357,16 @@ function getEffectiveMaxConcurrent(options = {}) {
   const providerLimitSum = options.providerLimitSum !== undefined
     ? parsePositiveInt(options.providerLimitSum, 0)
     : getEnabledProviderMaxConcurrentSum();
-  const effectiveMaxConcurrent = autoComputeMaxConcurrent
-    ? Math.max(configuredMaxConcurrent, providerLimitSum)
-    : configuredMaxConcurrent;
+  const effectiveMaxConcurrent = configuredMaxConcurrent;
 
-  if (autoComputeMaxConcurrent && effectiveMaxConcurrent > configuredMaxConcurrent) {
-    const warningKey = `${configuredMaxConcurrent}:${providerLimitSum}:${effectiveMaxConcurrent}`;
+  if (autoComputeMaxConcurrent && providerLimitSum > configuredMaxConcurrent) {
+    const warningKey = `${configuredMaxConcurrent}:${providerLimitSum}`;
     if (warningKey !== lastEffectiveMaxConcurrentWarningKey) {
       const targetLogger = options.logger && typeof options.logger.warn === 'function'
         ? options.logger
         : logger;
       targetLogger.warn(
-        `[Concurrency] Auto-computed max_concurrent=${effectiveMaxConcurrent} from enabled provider limits (configured=${configuredMaxConcurrent}, provider_sum=${providerLimitSum})`,
+        `[Concurrency] Enabled provider limits sum to ${providerLimitSum}, but configured max_concurrent=${configuredMaxConcurrent} is enforced as the global cap.`,
       );
       lastEffectiveMaxConcurrentWarningKey = warningKey;
     }
