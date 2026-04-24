@@ -33,11 +33,10 @@ function logDecision(db, { project_id, stage, action, reasoning, outcome, confid
 
 function listProjectsToRearm(db) {
   return db.prepare(`
-    SELECT id, name, status, loop_state, loop_paused_at_stage
+    SELECT id, name, status, loop_state, loop_paused_at_stage, auto_recovery_last_action_at
     FROM factory_projects
     WHERE COALESCE(auto_recovery_exhausted, 0) = 1
       AND LOWER(COALESCE(status, '')) = 'running'
-      AND UPPER(COALESCE(loop_state, 'IDLE')) != 'PAUSED'
   `).all();
 }
 
@@ -66,7 +65,20 @@ function createAutoRecoveryEngine({
 
   function rearmRecoveredProjects() {
     const projects = listProjectsToRearm(db);
+    let rearmed = 0;
     for (const project of projects) {
+      const activeProgress = String(project.loop_state || 'IDLE').toUpperCase() !== 'PAUSED';
+      const latestDecision = activeProgress ? null : latestRealDecisionForProject(db, project.id);
+      const latestDecisionAt = Date.parse(latestDecision?.created_at || '');
+      const lastRecoveryAt = Date.parse(project.auto_recovery_last_action_at || '');
+      const hasNewRealDecision = Number.isFinite(latestDecisionAt)
+        && (!Number.isFinite(lastRecoveryAt) || latestDecisionAt > lastRecoveryAt);
+
+      if (!activeProgress && !hasNewRealDecision) {
+        continue;
+      }
+
+      const rearmCause = activeProgress ? 'active_progress' : 'new_real_decision';
       db.prepare(`UPDATE factory_projects
                   SET auto_recovery_attempts = 0,
                       auto_recovery_exhausted = 0,
@@ -77,19 +89,26 @@ function createAutoRecoveryEngine({
         project_id: project.id,
         stage: 'verify',
         action: 'auto_recovery_rearmed',
-        reasoning: `Project resumed active loop state ${project.loop_state || 'IDLE'}; resetting exhausted auto-recovery counters.`,
+        reasoning: activeProgress
+          ? `Project resumed active loop state ${project.loop_state || 'IDLE'}; resetting exhausted auto-recovery counters.`
+          : `Project recorded a newer real decision (${latestDecision?.action || 'unknown'}) after the last auto-recovery attempt; resetting exhausted auto-recovery counters.`,
         outcome: {
           status: project.status,
           loop_state: project.loop_state || null,
           loop_paused_at_stage: project.loop_paused_at_stage || null,
+          rearm_cause: rearmCause,
+          latest_decision_action: latestDecision?.action || null,
+          latest_decision_stage: latestDecision?.stage || null,
         },
       });
       eventBus?.emit?.('factory.auto_recovery.rearmed', {
         project_id: project.id,
         loop_state: project.loop_state || null,
+        rearm_cause: rearmCause,
       });
+      rearmed += 1;
     }
-    return projects.length;
+    return rearmed;
   }
 
   async function recoverOne(project) {

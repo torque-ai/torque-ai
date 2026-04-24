@@ -185,4 +185,59 @@ describe('auto-recovery engine.tick', () => {
     `).get();
     expect(rearmed).toBeDefined();
   });
+
+  it('rearms exhausted paused projects when a newer real decision arrives and retries in the same tick', async () => {
+    db.prepare(`INSERT INTO factory_projects
+                (id, status, loop_state, loop_paused_at_stage, auto_recovery_attempts,
+                 auto_recovery_last_action_at, auto_recovery_exhausted, auto_recovery_last_strategy)
+                VALUES ('p7', 'running', 'PAUSED', 'VERIFY_FAIL', 5,
+                        '2026-04-21T12:30:00Z', 1, 'retry')`).run();
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, created_at)
+                VALUES ('p7', 'verify', 'verifier', 'verify_reviewed_ambiguous_paused', '2026-04-21T12:45:00Z')`).run();
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [],
+      strategies: [{
+        name: 'retry',
+        applicable_categories: ['unknown', 'any'],
+        async run(ctx) {
+          ran.push(ctx.project.id);
+          return { success: true, next_action: 'retry' };
+        },
+      }],
+      nowMs: () => Date.parse('2026-04-21T13:00:00Z'),
+    });
+
+    const summary = await engine.tick();
+
+    expect(summary).toEqual(expect.objectContaining({ attempts: 1, rearmed: 1 }));
+    expect(ran).toEqual(['p7']);
+
+    const project = db.prepare(`
+      SELECT auto_recovery_attempts, auto_recovery_exhausted, auto_recovery_last_strategy
+      FROM factory_projects
+      WHERE id = 'p7'
+    `).get();
+    expect(project).toEqual({
+      auto_recovery_attempts: 1,
+      auto_recovery_exhausted: 0,
+      auto_recovery_last_strategy: 'retry',
+    });
+
+    const rearmed = db.prepare(`
+      SELECT outcome_json
+      FROM factory_decisions
+      WHERE actor = 'auto-recovery' AND action = 'auto_recovery_rearmed'
+      ORDER BY id DESC
+      LIMIT 1
+    `).get();
+    expect(JSON.parse(rearmed.outcome_json)).toMatchObject({
+      rearm_cause: 'new_real_decision',
+      latest_decision_action: 'verify_reviewed_ambiguous_paused',
+      latest_decision_stage: 'verify',
+    });
+  });
 });
