@@ -842,13 +842,46 @@ function updateTaskProgress(id, progress, output = null) {
   stmt.run(...values);
 }
 
+// Whitelist of tasks-table columns selectable via `options.columns`. Guards against
+// SQL injection on a caller-controlled field name; anything outside this set is dropped.
+const LIST_TASKS_ALLOWED_COLUMNS = new Set([
+  'id', 'status', 'task_description', 'working_directory', 'timeout_minutes',
+  'auto_approve', 'priority', 'context', 'output', 'error_output', 'exit_code',
+  'pid', 'progress_percent', 'files_modified', 'created_at', 'started_at',
+  'completed_at', 'retry_count', 'max_retries', 'depends_on', 'template_name',
+  'isolated_workspace', 'provider', 'original_provider', 'provider_switched_at',
+  'git_before_sha', 'git_after_sha', 'git_stash_ref', 'tags', 'project',
+  'mcp_instance_id', 'retry_strategy', 'retry_delay_seconds', 'last_retry_at',
+  'group_id', 'paused_at', 'pause_reason', 'ollama_host_id', 'approval_status',
+  'workflow_id', 'stall_timeout_seconds', 'workflow_node_id', 'claimed_by_agent',
+  'required_capabilities', 'model', 'complexity', 'review_status', 'review_notes',
+  'reviewed_at', 'metadata', 'archived', 'task_metadata', 'partial_output', 'resume_context',
+]);
+
 /**
  * List tasks with optional filtering.
+ *
  * @param {object} options
+ * @param {string[]} [options.columns] - Restrict SELECT to these columns. Opt-in
+ *   projection that avoids pulling multi-MB TEXT blobs (output, error_output,
+ *   context) when callers only need summary fields. Unknown columns are dropped;
+ *   `id` is always included.
  * @returns {Array}
  */
 function listTasks(options = {}) {
-  let query = 'SELECT * FROM tasks';
+  // Column projection — opt-in narrow SELECT for endpoints that don't need heavy
+  // TEXT blobs. Default `SELECT *` preserves existing behaviour for internal callers.
+  let selectClause = 'SELECT *';
+  const requested = Array.isArray(options.columns) ? options.columns : null;
+  if (requested && requested.length > 0) {
+    const projected = requested.filter(c => typeof c === 'string' && LIST_TASKS_ALLOWED_COLUMNS.has(c));
+    if (projected.length > 0) {
+      const cols = projected.includes('id') ? projected : ['id', ...projected];
+      selectClause = `SELECT ${cols.join(', ')}`;
+    }
+  }
+
+  let query = `${selectClause} FROM tasks`;
   const escapeFn = _escapeLikePattern || ((s) => s);
   const { conditions, values } = buildTaskFilterConditions(options, escapeFn);
   query = appendWhereClause(query, conditions);
@@ -888,13 +921,17 @@ function listTasks(options = {}) {
   const stmt = db.prepare(query);
   const rows = stmt.all(...values);
 
-  return rows.map(row => ({
-    ...row,
-    auto_approve: Boolean(row.auto_approve),
-    context: safeJsonParse(row.context, null),
-    files_modified: safeJsonParse(row.files_modified, []),
-    tags: safeJsonParse(row.tags, [])
-  }));
+  // Post-processing is projection-aware: only transform columns that were selected.
+  // When a caller opts into projection, columns they didn't request stay absent
+  // rather than being reintroduced as `undefined` or wrong-typed defaults.
+  return rows.map(row => {
+    const out = { ...row };
+    if ('auto_approve' in row) out.auto_approve = Boolean(row.auto_approve);
+    if ('context' in row) out.context = safeJsonParse(row.context, null);
+    if ('files_modified' in row) out.files_modified = safeJsonParse(row.files_modified, []);
+    if ('tags' in row) out.tags = safeJsonParse(row.tags, []);
+    return out;
+  });
 }
 
 /**

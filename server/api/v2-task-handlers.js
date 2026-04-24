@@ -452,6 +452,18 @@ async function handleListTasks(req, res) {
     ...filters,
     limit,
     offset,
+    // Opt-in column projection — v2 list responses are built by buildTaskResponse,
+    // which only reads these summary fields. Pulling `SELECT *` on a multi-GB
+    // tasks.db drags multi-MB error_output/output/context blobs across every row
+    // just to drop them during serialization — that's the dominant source of
+    // Kanban fan-out latency.
+    columns: [
+      'id', 'status', 'task_description', 'provider', 'model',
+      'working_directory', 'exit_code', 'priority', 'auto_approve',
+      'timeout_minutes', 'progress_percent', 'ollama_host_id',
+      'files_modified', 'created_at', 'started_at', 'completed_at',
+      'original_provider', 'project', 'tags', 'metadata',
+    ],
   });
   const items = tasks.map(buildTaskResponse).filter(Boolean);
   const total = typeof taskCore.countTasks === 'function' ? taskCore.countTasks(filters) : items.length;

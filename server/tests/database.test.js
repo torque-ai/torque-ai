@@ -364,6 +364,47 @@ describe('Database Module', () => {
       expect(tasks.length).toBeLessThanOrEqual(2);
     });
 
+    it('listTasks with columns projection returns only requested fields plus id', () => {
+      const tasks = taskCore.listTasks({
+        project: 'query-test-project',
+        limit: 5,
+        columns: ['status', 'priority', 'task_description'],
+      });
+      expect(tasks.length).toBeGreaterThan(0);
+      for (const task of tasks) {
+        // id is auto-included
+        expect(task).toHaveProperty('id');
+        expect(task).toHaveProperty('status');
+        expect(task).toHaveProperty('priority');
+        expect(task).toHaveProperty('task_description');
+        // Heavy columns not requested -> not present
+        expect(task).not.toHaveProperty('output');
+        expect(task).not.toHaveProperty('error_output');
+        expect(task).not.toHaveProperty('context');
+      }
+    });
+
+    it('listTasks drops unknown columns and falls back to SELECT * when all invalid', () => {
+      const tasks = taskCore.listTasks({
+        project: 'query-test-project',
+        limit: 3,
+        columns: ['nonexistent_column', "' OR 1=1 --"],
+      });
+      // All columns were invalid so projection was skipped — full rows returned
+      expect(tasks.length).toBeGreaterThan(0);
+      expect(tasks[0]).toHaveProperty('created_at');
+      expect(tasks[0]).toHaveProperty('task_description');
+    });
+
+    it('listTasks without columns still parses JSON fields', () => {
+      const tasks = taskCore.listTasks({ project: 'query-test-project', limit: 1 });
+      expect(tasks.length).toBe(1);
+      // tags is stored as TEXT/JSON, should be parsed into an array
+      expect(Array.isArray(tasks[0].tags)).toBe(true);
+      // auto_approve is stored as INTEGER, should be coerced to boolean
+      expect(typeof tasks[0].auto_approve).toBe('boolean');
+    });
+
     it('countTasks returns a number', () => {
       const result = taskCore.countTasks({});
       expect(typeof result).toBe('number');
