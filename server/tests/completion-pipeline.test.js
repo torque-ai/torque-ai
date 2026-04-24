@@ -363,12 +363,31 @@ describe('completion-pipeline', () => {
       expect(mockDeps.db.recordProviderOutcome).toHaveBeenCalledWith('ollama', true);
     });
 
-    it('records failure outcome', () => {
+    it('records provider-native failure outcomes', () => {
       const task = { provider: 'codex' };
 
-      recordProviderHealth(task, false);
+      recordProviderHealth(task, false, {
+        errorOutput: 'authentication failed: invalid api key',
+      });
 
       expect(mockDeps.db.recordProviderOutcome).toHaveBeenCalledWith('codex', false);
+    });
+
+    it('skips orchestration failures', () => {
+      const task = {
+        provider: 'codex',
+        metadata: JSON.stringify({
+          strategic_diagnosis: {
+            reason: 'Task timed out - retry with longer timeout',
+          },
+        }),
+      };
+
+      recordProviderHealth(task, false, {
+        errorOutput: 'Access denied',
+      });
+
+      expect(mockDeps.db.recordProviderOutcome).not.toHaveBeenCalled();
     });
 
     it('skips when task is null', () => {
@@ -489,6 +508,46 @@ describe('completion-pipeline', () => {
           error_type: 'failure',
         }),
       );
+    });
+
+    it('does not record provider health for orchestration failures', async () => {
+      mockDeps.db.getTask.mockReturnValue({
+        ...baseTask,
+        metadata: JSON.stringify({
+          strategic_diagnosis: {
+            reason: 'Task timed out - retry with longer timeout',
+          },
+        }),
+        error_output: 'Access denied',
+      });
+
+      await handlePostCompletion({
+        taskId: 'task-100',
+        code: 1,
+        task: baseTask,
+        status: 'failed',
+        errorOutput: 'Access denied',
+      });
+
+      expect(mockDeps.db.recordProviderOutcome).not.toHaveBeenCalled();
+    });
+
+    it('records provider health for provider-native failures', async () => {
+      mockDeps.db.getTask.mockReturnValue({
+        ...baseTask,
+        metadata: '{}',
+        error_output: 'invalid api key',
+      });
+
+      await handlePostCompletion({
+        taskId: 'task-100',
+        code: 1,
+        task: baseTask,
+        status: 'failed',
+        errorOutput: 'invalid api key',
+      });
+
+      expect(mockDeps.db.recordProviderOutcome).toHaveBeenCalledWith('codex', false);
     });
 
     it('defaults provider to codex when task has no provider', async () => {

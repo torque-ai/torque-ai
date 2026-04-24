@@ -1092,6 +1092,49 @@ describe('integration routing handlers', () => {
       const task = taskFromResult(result);
       expect(task.provider).toBe('claude-cli');
       expect(textOf(result)).toContain('openrouter unhealthy');
+      expect(task.metadata.routing_reason).toContain('Selected openrouter');
+      expect(task.metadata.routing_reason).toContain('openrouter unhealthy');
+      expect(task.metadata.routing_health_gate).toMatchObject({
+        from: 'openrouter',
+        to: 'claude-cli',
+        source: 'provider_fallback_chain',
+      });
+    });
+
+    it('honors routing template chains when health-gating an unhealthy selected provider', async () => {
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'codex',
+        complexity: 'normal',
+        reason: "Template 'Codex Primary': backend -> codex",
+        chain: [
+          { provider: 'codex', model: 'gpt-5.4' },
+          { provider: 'ollama', model: 'qwen2.5-coder:14b' },
+          { provider: 'claude-cli', model: null },
+        ],
+      }));
+      mockDb.isProviderHealthy.mockImplementation((providerName) => providerName !== 'codex');
+      mockDb.getProviderFallbackChain.mockReturnValueOnce(['codex', 'claude-cli', 'ollama-cloud']);
+      mockDb.getProviderHealthScore.mockImplementation((providerName) => {
+        if (providerName === 'claude-cli') return 0.99;
+        if (providerName === 'ollama') return 0.4;
+        return 0.2;
+      });
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Summarize existing scheduler behavior',
+      });
+
+      const task = taskFromResult(result);
+      expect(task.provider).toBe('ollama');
+      expect(task.model).toBe('qwen2.5-coder:14b');
+      expect(task.metadata.routing_reason).toContain("Template 'Codex Primary': backend -> codex");
+      expect(task.metadata.routing_reason).toContain('codex unhealthy');
+      expect(task.metadata.routing_health_gate).toMatchObject({
+        from: 'codex',
+        to: 'ollama',
+        source: 'routing_template_chain',
+      });
+      expect(mockDb.getProviderFallbackChain).not.toHaveBeenCalled();
     });
 
     it('falls back from enabled API providers that do not have API keys configured', async () => {

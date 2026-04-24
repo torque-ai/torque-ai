@@ -612,6 +612,7 @@ async function handleSmartSubmitTask(args) {
   let selectedProvider;
   let routingResult;
   let modRoutingReason = null; // P102: Track modification routing reason for response
+  let healthGateDecision = null;
 
   // D2.2: Single source — getProviderHealthScore() now lives in provider-routing-core.js
   const getProviderHealthScore = (providerName) => {
@@ -634,6 +635,21 @@ async function handleSmartSubmitTask(args) {
     // Defensive: should never reach here since db is always initialized,
     // but return empty to avoid undefined errors.
     return [];
+  };
+
+  const normalizeRoutingCandidate = (candidate) => {
+    if (typeof candidate === 'string') {
+      const providerName = candidate.trim();
+      return providerName ? { providerName, model: null } : null;
+    }
+    const providerName = typeof candidate?.provider === 'string' ? candidate.provider.trim() : '';
+    if (!providerName) {
+      return null;
+    }
+    const modelName = typeof candidate?.model === 'string' && candidate.model.trim()
+      ? candidate.model.trim()
+      : null;
+    return { providerName, model: modelName };
   };
 
   const isProviderConfiguredForRouting = (providerName) => {
@@ -1234,9 +1250,32 @@ async function handleSmartSubmitTask(args) {
 
   // Guard: deprioritize unhealthy cloud providers (skip when user explicitly chose the provider)
   if (!override_provider && typeof providerRoutingCore.isProviderHealthy === 'function' && !providerRoutingCore.isProviderHealthy(selectedProvider)) {
-    const chain = getFallbackProviderChain(selectedProvider);
-    const healthyAlternatives = chain
-      .map((providerName, idx) => ({ providerName, idx, score: getProviderHealthScore(providerName) }))
+    const rawTemplateChain = Array.isArray(routingResult?.chain) ? routingResult.chain : [];
+    const templateChain = rawTemplateChain
+      .map((candidate) => normalizeRoutingCandidate(candidate))
+      .filter(Boolean);
+    const healthGateSource = templateChain.length > 0 ? 'routing_template_chain' : 'provider_fallback_chain';
+    const rawCandidates = healthGateSource === 'routing_template_chain'
+      ? templateChain
+      : (getFallbackProviderChain(selectedProvider) || [])
+        .map((candidate) => normalizeRoutingCandidate(candidate))
+        .filter(Boolean);
+    const seenProviders = new Set([selectedProvider]);
+    const candidatePool = [];
+    for (const candidate of rawCandidates) {
+      if (!candidate?.providerName || seenProviders.has(candidate.providerName)) {
+        continue;
+      }
+      seenProviders.add(candidate.providerName);
+      candidatePool.push(candidate);
+    }
+
+    const healthyAlternatives = candidatePool
+      .map((candidate, idx) => ({
+        ...candidate,
+        idx,
+        score: getProviderHealthScore(candidate.providerName),
+      }))
       .filter((candidate) => {
         if (!candidate.providerName || candidate.providerName === selectedProvider) {
           return false;
@@ -1246,25 +1285,39 @@ async function handleSmartSubmitTask(args) {
         } catch {
           return false;
         }
-      })
-      .sort((a, b) => {
+      });
+
+    if (healthGateSource !== 'routing_template_chain') {
+      healthyAlternatives.sort((a, b) => {
         if (a.score !== b.score) {
           return b.score - a.score;
         }
         return a.idx - b.idx;
       });
+    }
 
     if (healthyAlternatives.length > 0) {
-      const healthyAlt = healthyAlternatives[0].providerName;
+      const healthyAlt = healthyAlternatives[0];
       const prevProvider = selectedProvider;
-      selectedProvider = healthyAlt;
-      taskModel = null;
-      modRoutingReason = `${prevProvider} unhealthy → ${healthyAlt}`;
+      selectedProvider = healthyAlt.providerName;
+      taskModel = healthyAlt.model || null;
+      modRoutingReason = healthGateSource === 'routing_template_chain'
+        ? `${prevProvider} unhealthy → ${healthyAlt.providerName} (template chain)`
+        : `${prevProvider} unhealthy → ${healthyAlt.providerName}`;
+      healthGateDecision = {
+        from: prevProvider,
+        to: healthyAlt.providerName,
+        source: healthGateSource,
+      };
       logger.info(`[SmartRouting] Health gate: ${modRoutingReason}`);
     } else {
       logger.warn(`[SmartRouting] Provider ${selectedProvider} is unhealthy but no healthy alternative available`);
     }
   }
+
+  const effectiveRoutingReason = modRoutingReason
+    ? `${routingResult.reason} [override: ${modRoutingReason}]`
+    : routingResult.reason;
 
   const buildRoutingScoreMetadata = (sourceResult, providerName) => {
     if (!sourceResult || !sourceResult.routing_score_applied || sourceResult.provider !== providerName) {
@@ -1320,7 +1373,8 @@ async function handleSmartSubmitTask(args) {
     split_suggestions: splitSuggestions.length > 0 ? splitSuggestions : undefined,
     requested_model: model || null,
     routing_rule: routingResult.rule ? routingResult.rule.name : null,
-    routing_reason: tierRoutingResult?.reason || routingResult.reason,
+    routing_reason: effectiveRoutingReason,
+    routing_health_gate: healthGateDecision || undefined,
     complexity: complexity,
     routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
     tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
@@ -1373,7 +1427,8 @@ async function handleSmartSubmitTask(args) {
         split_suggestions: splitSuggestions.length > 0 ? splitSuggestions : undefined,
         requested_model: model || null,
         routing_rule: routingResult.rule ? routingResult.rule.name : null,
-        routing_reason: routingResult.reason,
+        routing_reason: effectiveRoutingReason,
+        routing_health_gate: healthGateDecision || undefined,
         complexity: complexity,
         routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
         tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
@@ -1457,7 +1512,8 @@ async function handleSmartSubmitTask(args) {
   output += `| Routing Rule | ${routingResult.rule ? routingResult.rule.name : 'Complexity-based'} |\n`;
   output += `\n### Routing Decision\n`;
   if (modRoutingReason) {
-    output += `**Modification routing:** ${modRoutingReason}\n\n`;
+    output += `${routingResult.reason}\n\n`;
+    output += `**Routing override:** ${modRoutingReason}\n\n`;
   } else {
     output += `${routingResult.reason}\n\n`;
   }
