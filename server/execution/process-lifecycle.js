@@ -602,6 +602,8 @@ function spawnAndTrackProcess(taskId, task, {
               errorOutput: proc.errorOutput,
               baselineCommit: proc.baselineCommit,
               provider: proc.provider,
+              state: proc.state,
+              stateVersion: proc.stateVersion,
               completionDetected: proc.completionDetected,
             }
           : {
@@ -626,6 +628,8 @@ function spawnAndTrackProcess(taskId, task, {
               errorOutput: proc.errorOutput,
               baselineCommit: proc.baselineCommit,
               provider: proc.provider,
+              state: proc.state,
+              stateVersion: proc.stateVersion,
             }
           : {},
       });
@@ -673,6 +677,8 @@ function spawnAndTrackProcess(taskId, task, {
           output: proc?.output || '',
           errorOutput: proc?.errorOutput || '',
           baselineCommit: proc?.baselineCommit || null,
+          state: proc?.state,
+          stateVersion: proc?.stateVersion,
           provider,
         },
       });

@@ -43,6 +43,8 @@ const mockHandlers = {
     handleCancelWorkflow: vi.fn(),
     handleAddWorkflowTask: vi.fn(),
     handleWorkflowHistory: vi.fn(),
+    handleGetWorkflowCheckpoints: vi.fn(),
+    handleForkWorkflow: vi.fn(),
     handleCreateFeatureWorkflow: vi.fn(),
     handlePauseWorkflow: vi.fn(),
     handleResumeWorkflow: vi.fn(),
@@ -532,6 +534,26 @@ describe('v2-dispatch module', () => {
       expect(mockHandlers.infrastructure.handleAgentHealth).toHaveBeenCalledOnce();
       expect(req.params).toEqual({ agent_id: 'agent-7' });
     });
+
+    it('extracts workflow_id for checkpoint routes', async () => {
+      const req = mockReq('GET', '/api/v2/workflows/wf-77/checkpoints');
+      const res = mockRes();
+
+      await v2Dispatch.dispatchV2(req, res);
+
+      expect(mockHandlers.workflows.handleGetWorkflowCheckpoints).toHaveBeenCalledOnce();
+      expect(req.params).toEqual({ workflow_id: 'wf-77' });
+    });
+
+    it('extracts workflow_id for fork routes', async () => {
+      const req = mockReq('POST', '/api/v2/workflows/wf-88/fork');
+      const res = mockRes();
+
+      await v2Dispatch.dispatchV2(req, res);
+
+      expect(mockHandlers.workflows.handleForkWorkflow).toHaveBeenCalledOnce();
+      expect(req.params).toEqual({ workflow_id: 'wf-88' });
+    });
   });
 
   describe('dispatchV2 — query parsing', () => {
@@ -656,6 +678,8 @@ describe('v2-dispatch module', () => {
           'handleV2CpCancelWorkflow',
           'handleV2CpAddWorkflowTask',
           'handleV2CpWorkflowHistory',
+          'handleV2CpGetWorkflowCheckpoints',
+          'handleV2CpForkWorkflow',
           'handleV2CpCreateFeatureWorkflow',
           'handleV2CpPauseWorkflow',
           'handleV2CpResumeWorkflow',

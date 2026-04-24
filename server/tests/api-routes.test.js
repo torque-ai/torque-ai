@@ -49,6 +49,8 @@ const V2_WORKFLOW_HANDLER_NAMES = [
   'handleCancelWorkflow',
   'handleAddWorkflowTask',
   'handleWorkflowHistory',
+  'handleGetWorkflowCheckpoints',
+  'handleForkWorkflow',
   'handleCreateFeatureWorkflow',
   'handlePauseWorkflow',
   'handleResumeWorkflow',
@@ -799,6 +801,13 @@ describe('api/routes route table', () => {
     expect(findStringRoute('GET', '/api/v2/metrics/prometheus').handlerName).toBe('handleV2CpPrometheusMetrics');
   });
 
+  it('registers workflow checkpoint and fork control-plane routes', () => {
+    expect(findRegexRoute('GET', '^\\/api\\/v2\\/workflows\\/([^/]+)\\/checkpoints$').handlerName)
+      .toBe('handleV2CpGetWorkflowCheckpoints');
+    expect(findRegexRoute('POST', '^\\/api\\/v2\\/workflows\\/([^/]+)\\/fork$').handlerName)
+      .toBe('handleV2CpForkWorkflow');
+  });
+
   it('marks study passthrough routes for v2 structured responses', () => {
     expect(findStringRoute('GET', '/api/v2/study/status')).toEqual(expect.objectContaining({
       tool: 'get_study_status',
@@ -1330,6 +1339,41 @@ describe('provider and infrastructure routes', () => {
     });
 
     expect(currentModules.v2WorkflowHandlers.handleAddWorkflowTask).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      expect.objectContaining({
+        params: { workflow_id: 'wf-3' },
+      }),
+      'wf-3',
+      expect.any(Object),
+    );
+  });
+
+  it('dispatches the v2 workflow checkpoints route to the workflow handler', async () => {
+    await dispatchRequest({
+      method: 'GET',
+      url: '/api/v2/workflows/wf-3/checkpoints',
+    });
+
+    expect(currentModules.v2WorkflowHandlers.handleGetWorkflowCheckpoints).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.any(Object),
+      expect.objectContaining({
+        params: { workflow_id: 'wf-3' },
+      }),
+      'wf-3',
+      expect.any(Object),
+    );
+  });
+
+  it('dispatches the v2 workflow fork route to the workflow handler', async () => {
+    await dispatchRequest({
+      method: 'POST',
+      url: '/api/v2/workflows/wf-3/fork',
+      body: { checkpoint_id: 'cp-7' },
+    });
+
+    expect(currentModules.v2WorkflowHandlers.handleForkWorkflow).toHaveBeenCalledWith(
       expect.any(Object),
       expect.any(Object),
       expect.objectContaining({

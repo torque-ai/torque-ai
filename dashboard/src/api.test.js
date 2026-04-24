@@ -508,6 +508,24 @@ describe('api.js', () => {
       await workflows.history('wf-1');
       expect(globalThis.fetch).toHaveBeenCalledWith('/api/v2/workflows/wf-1/history', expect.any(Object));
     });
+
+    it('checkpoints() sends GET to /api/v2/workflows/:id/checkpoints', async () => {
+      globalThis.fetch = mockFetch({ body: [] });
+      await workflows.checkpoints('wf-1');
+      expect(globalThis.fetch).toHaveBeenCalledWith('/api/v2/workflows/wf-1/checkpoints', expect.any(Object));
+    });
+
+    it('fork() sends POST to /api/v2/workflows/:id/fork', async () => {
+      globalThis.fetch = mockFetch({ body: {} });
+      await workflows.fork('wf-1', { checkpoint_id: 'cp-1', state_overrides: { debug: true } });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/workflows/wf-1/fork',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ checkpoint_id: 'cp-1', state_overrides: { debug: true } }),
+        })
+      );
+    });
   });
 
   describe('benchmarks', () => {

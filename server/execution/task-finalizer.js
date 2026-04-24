@@ -20,6 +20,7 @@ const { runPhantomSuccessDetection } = require('../validation/phantom-success-de
 const { parseDiffusionSignal } = require('../diffusion/signal-parser');
 const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
 const { expandApplyTaskDescription } = require('../diffusion/planner');
+const { safeJsonParse } = require('../utils/json');
 const resumeContextUtils = require('../utils/resume-context');
 const { v4: uuidv4 } = require('uuid');
 
@@ -179,6 +180,76 @@ function getRawDbInstance() {
   } catch (_err) {
     return null;
   }
+}
+
+function getCheckpointStore() {
+  if (deps.checkpointStore && typeof deps.checkpointStore.writeCheckpoint === 'function') {
+    return deps.checkpointStore;
+  }
+
+  try {
+    const { defaultContainer } = require('../container');
+    if (
+      defaultContainer
+      && typeof defaultContainer.has === 'function'
+      && defaultContainer.has('checkpointStore')
+      && typeof defaultContainer.get === 'function'
+    ) {
+      return defaultContainer.get('checkpointStore');
+    }
+  } catch (_err) {
+    // Container may be unavailable or not booted in direct-module tests.
+  }
+
+  const rawDb = getRawDbInstance();
+  if (!rawDb) {
+    return null;
+  }
+
+  try {
+    const { createCheckpointStore } = require('../workflow-state/checkpoint-store');
+    return createCheckpointStore({ db: rawDb });
+  } catch (_err) {
+    return null;
+  }
+}
+
+function normalizeWorkflowCheckpointVersion(versionCandidate) {
+  const explicitVersion = Number(versionCandidate);
+  if (Number.isInteger(explicitVersion) && explicitVersion > 0) {
+    return explicitVersion;
+  }
+
+  return 1;
+}
+
+function readWorkflowCheckpointSnapshot(workflowId, fallbackState, versionCandidate) {
+  const fallbackVersion = normalizeWorkflowCheckpointVersion(versionCandidate);
+
+  const rawDb = getRawDbInstance();
+  if (!rawDb || !workflowId) {
+    return {
+      state: fallbackState,
+      version: fallbackVersion,
+    };
+  }
+
+  try {
+    const row = rawDb.prepare('SELECT state_json, version FROM workflow_state WHERE workflow_id = ?').get(workflowId);
+    if (row) {
+      return {
+        state: safeJsonParse(row.state_json, fallbackState),
+        version: normalizeWorkflowCheckpointVersion(row.version),
+      };
+    }
+  } catch (_err) {
+    // workflow_state is not present on every branch yet; fall back below.
+  }
+
+  return {
+    state: fallbackState,
+    version: fallbackVersion,
+  };
 }
 
 function getDurationMsForScoring(task) {
@@ -798,6 +869,35 @@ async function finalizeTask(taskId, options = {}) {
     updateTaskStatus(taskId, ctx.status, statusFields);
 
     ctx.task = deps.db.getTask(taskId) || task;
+    const workflowState = options.state !== undefined ? options.state : procState.state;
+    const workflowStateVersion = options.stateVersion !== undefined
+      ? options.stateVersion
+      : (procState.stateVersion !== undefined ? procState.stateVersion : workflowState?.version);
+    if (ctx.status === 'completed' && ctx.task?.workflow_id) {
+      try {
+        const checkpointStore = getCheckpointStore();
+        const workflowSnapshot = readWorkflowCheckpointSnapshot(
+          ctx.task.workflow_id,
+          workflowState,
+          workflowStateVersion,
+        );
+        if (
+          checkpointStore
+          && typeof checkpointStore.writeCheckpoint === 'function'
+          && workflowSnapshot.state !== undefined
+        ) {
+          checkpointStore.writeCheckpoint({
+            workflowId: ctx.task.workflow_id,
+            stepId: ctx.task.workflow_node_id || ctx.task.node_id || task.workflow_node_id || task.node_id || null,
+            taskId,
+            state: workflowSnapshot.state,
+            version: workflowSnapshot.version,
+          });
+        }
+      } catch (checkpointErr) {
+        logger.info(`[finalizer] Workflow checkpoint capture failed: ${checkpointErr.message}`);
+      }
+    }
     try {
       const { snapshotTaskState } = require('../checkpoints/snapshot');
       // Fire-and-forget — checkpoint must not block finalization

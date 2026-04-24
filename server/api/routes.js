@@ -459,6 +459,24 @@ const routes = [
     }),
   },
   {
+    method: 'GET',
+    path: /^\/api\/v2\/workflows\/([^/]+)\/checkpoints$/,
+    handlerName: 'handleV2CpGetWorkflowCheckpoints',
+    mapParams: ['workflow_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('workflow_id', 'workflow id'),
+    }),
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/workflows\/([^/]+)\/fork$/,
+    handlerName: 'handleV2CpForkWorkflow',
+    mapParams: ['workflow_id'],
+    middleware: buildV2Middleware({
+      params: validateDecodedParamField('workflow_id', 'workflow id'),
+    }),
+  },
+  {
     method: 'POST',
     path: '/api/v2/workflows/feature',
     handlerName: 'handleV2CpCreateFeatureWorkflow',

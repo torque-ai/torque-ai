@@ -30,6 +30,7 @@ function createBaseSchema(conn, options = {}) {
     includeComplexityRouting = true,
     includeFactoryTables = true,
     includeMemories = true,
+    includeWorkflows = true,
     existingModelAffinityColumns = false,
     includeModelFamilyTemplates = true,
     includeModelRegistry = true,
@@ -172,6 +173,28 @@ function createBaseSchema(conn, options = {}) {
         metadata_json TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
         updated_at TEXT
+      );
+    `);
+  }
+
+  if (includeWorkflows) {
+    conn.exec(`
+      CREATE TABLE workflows (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        working_directory TEXT,
+        status TEXT DEFAULT 'pending',
+        template_id TEXT,
+        total_tasks INTEGER DEFAULT 0,
+        completed_tasks INTEGER DEFAULT 0,
+        failed_tasks INTEGER DEFAULT 0,
+        skipped_tasks INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        context TEXT,
+        priority INTEGER DEFAULT 0
       );
     `);
   }
@@ -772,6 +795,18 @@ describe('db/migrations', () => {
       expect(getAppliedVersions(db)).not.toContain(25);
     });
 
+    it('rolls back migration v36 by dropping workflow_state artifacts and removing its version row', () => {
+      createBaseSchema(db);
+      subject.runMigrations(db);
+      expect(tableExists(db, 'workflow_state')).toBe(true);
+
+      subject.rollbackMigration(db, 36);
+
+      expect(tableExists(db, 'workflow_state')).toBe(false);
+      expect(indexExists(db, 'idx_workflow_state_updated')).toBe(false);
+      expect(getAppliedVersions(db)).not.toContain(36);
+    });
+
     it('allows a rolled back migration to be reapplied on the next run', () => {
       createBaseSchema(db);
       subject.runMigrations(db);
@@ -823,6 +858,64 @@ describe('db/migrations', () => {
       expect(indexExists(db, 'idx_spec_history_session')).toBe(true);
       expect(indexExists(db, 'idx_spec_history_agent')).toBe(true);
       expect(getAppliedVersions(db)).toContain(34);
+    });
+
+    it('creates workflow_checkpoints when applying migration v35 to a minimal schema', () => {
+      createBaseSchema(db);
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 35));
+
+      expect(() => subject.runMigrations(db)).not.toThrow();
+      expect(tableExists(db, 'workflow_checkpoints')).toBe(true);
+      expect(getColumnNames(db, 'workflow_checkpoints')).toEqual(
+        expect.arrayContaining([
+          'checkpoint_id',
+          'workflow_id',
+          'step_id',
+          'task_id',
+          'state_json',
+          'state_version',
+          'taken_at',
+        ]),
+      );
+      expect(indexExists(db, 'idx_workflow_checkpoints_wf_time')).toBe(true);
+      expect(indexExists(db, 'idx_workflow_checkpoints_step')).toBe(true);
+
+      const fks = db.prepare("PRAGMA foreign_key_list('workflow_checkpoints')").all();
+      const ref = fks.find((fk) => fk.table === 'workflows');
+      expect(ref).toBeTruthy();
+      expect(ref.from).toBe('workflow_id');
+      expect(ref.to).toBe('id');
+      expect(getAppliedVersions(db)).toContain(35);
+    });
+
+    it('creates workflow_state and workflow fork columns when applying migration v36 to a minimal schema', () => {
+      createBaseSchema(db);
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 36));
+
+      expect(() => subject.runMigrations(db)).not.toThrow();
+      expect(tableExists(db, 'workflow_state')).toBe(true);
+      expect(getColumnNames(db, 'workflow_state')).toEqual(
+        expect.arrayContaining([
+          'workflow_id',
+          'state_json',
+          'schema_json',
+          'reducers_json',
+          'version',
+          'updated_at',
+        ]),
+      );
+      expect(indexExists(db, 'idx_workflow_state_updated')).toBe(true);
+
+      const workflowColumns = getColumnNames(db, 'workflows');
+      expect(workflowColumns).toContain('parent_workflow_id');
+      expect(workflowColumns).toContain('fork_checkpoint_id');
+
+      const fks = db.prepare("PRAGMA foreign_key_list('workflow_state')").all();
+      const ref = fks.find((fk) => fk.table === 'workflows');
+      expect(ref).toBeTruthy();
+      expect(ref.from).toBe('workflow_id');
+      expect(ref.to).toBe('id');
+      expect(getAppliedVersions(db)).toContain(36);
     });
 
     it('falls back to split statement execution for multi-statement rollback SQL', () => {

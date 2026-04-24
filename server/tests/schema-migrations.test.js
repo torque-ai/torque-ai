@@ -59,6 +59,7 @@ describe('db/schema.js — smoke test', () => {
       'config',
       'task_groups',
       'workflows',
+      'workflow_checkpoints',
       'task_dependencies',
       'token_usage',
       'routing_rules',
@@ -489,9 +490,10 @@ describe('db/migrations.js', () => {
     // benchmark_results from migration v6
     expect(tables).toContain('benchmark_results');
     expect(tables).toContain('factory_loop_instances');
+    expect(tables).toContain('workflow_state');
   });
 
-  it('latest factory loop migration is recorded with its schema contract', () => {
+  it('latest migration is recorded as applied', () => {
     const migrations = require('../db/migrations');
     const latestMigration = migrations.MIGRATIONS[migrations.MIGRATIONS.length - 1];
     const conn = getMigrationsDbInstance();
@@ -499,20 +501,54 @@ describe('db/migrations.js', () => {
     const applied = conn.prepare(
       'SELECT version, name FROM schema_migrations WHERE version = ?'
     ).get(latestMigration.version);
-    const workItemColumns = conn.prepare('PRAGMA table_info(factory_work_items)').all().map((c) => c.name);
-    const loopInstanceIndexes = conn.prepare(
-      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name = 'factory_loop_instances' ORDER BY name"
-    ).all().map((row) => row.name);
 
     expect(applied).toEqual({
       version: latestMigration.version,
       name: latestMigration.name,
     });
+  });
+
+  it('factory loop schema contract remains present after later migrations', () => {
+    const conn = getMigrationsDbInstance();
+    const workItemColumns = conn.prepare('PRAGMA table_info(factory_work_items)').all().map((c) => c.name);
+    const loopInstanceIndexes = conn.prepare(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name = 'factory_loop_instances' ORDER BY name"
+    ).all().map((row) => row.name);
     expect(workItemColumns).toContain('claimed_by_instance_id');
     expect(loopInstanceIndexes).toEqual(expect.arrayContaining([
       'idx_factory_loop_instances_project_active',
       'idx_factory_loop_instances_stage_occupancy',
     ]));
+  });
+
+  it('migration v36 adds workflow_state and workflow fork columns', () => {
+    const conn = getMigrationsDbInstance();
+    const workflowStateColumns = conn.prepare('PRAGMA table_info(workflow_state)').all().map((column) => column.name);
+    const workflowColumns = conn.prepare('PRAGMA table_info(workflows)').all().map((column) => column.name);
+    const workflowStateIndexes = conn.prepare(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name = 'workflow_state' ORDER BY name"
+    ).all().map((row) => row.name);
+    const applied = conn.prepare(
+      'SELECT version, name FROM schema_migrations WHERE version = 36'
+    ).get();
+
+    expect(workflowStateColumns).toEqual(expect.arrayContaining([
+      'workflow_id',
+      'state_json',
+      'schema_json',
+      'reducers_json',
+      'version',
+      'updated_at',
+    ]));
+    expect(workflowColumns).toEqual(expect.arrayContaining([
+      'parent_workflow_id',
+      'fork_checkpoint_id',
+    ]));
+    expect(workflowStateIndexes).toContain('idx_workflow_state_updated');
+    expect(applied).toEqual({
+      version: 36,
+      name: 'add_workflow_state_and_fork_columns',
+    });
   });
 
   it('migration v9 adds default_model to ollama_hosts', () => {

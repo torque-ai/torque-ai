@@ -56,7 +56,7 @@ installCjsModuleMock('../api/v2-task-handlers', handlerModule([
 installCjsModuleMock('../api/v2-workflow-handlers', handlerModule([
   'handleCreateWorkflow', 'handleListWorkflows', 'handleGetWorkflow',
   'handleRunWorkflow', 'handleCancelWorkflow', 'handleAddWorkflowTask',
-  'handleWorkflowHistory', 'handleCreateFeatureWorkflow',
+  'handleWorkflowHistory', 'handleGetWorkflowCheckpoints', 'handleForkWorkflow', 'handleCreateFeatureWorkflow',
 ]));
 installCjsModuleMock('../api/v2-governance-handlers', handlerModule([
   'handleListApprovals', 'handleApprovalDecision', 'handleListSchedules',
