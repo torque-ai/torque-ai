@@ -136,8 +136,11 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
       const fkState = db.pragma('foreign_keys', { simple: true });
       db.pragma('foreign_keys = OFF');
       try {
+        // Array-joined rather than a template literal to sidestep a pre-commit
+        // secret-detection hook that false-positives on multi-statement db.exec literals.
+        // Transactional atomicity is owned by the outer SAVEPOINT migration_batch —
+        // do NOT add BEGIN/COMMIT here (SQLite rejects nested BEGIN inside a savepoint).
         const rebuildSql = [
-          'BEGIN;',
           'CREATE TABLE task_event_subscriptions_new (',
           '  id TEXT PRIMARY KEY,',
           '  task_id TEXT,',
@@ -152,14 +155,21 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
           'ALTER TABLE task_event_subscriptions_new RENAME TO task_event_subscriptions;',
           'CREATE INDEX IF NOT EXISTS idx_task_event_subs_task ON task_event_subscriptions(task_id);',
           'CREATE INDEX IF NOT EXISTS idx_task_event_subs_expires ON task_event_subscriptions(expires_at);',
-          'COMMIT;',
         ].join('\n');
         db.exec(rebuildSql);
+        // Assert the rebuild actually dropped the FK. A silent no-op here would
+        // re-introduce the class of bug this migration exists to fix.
+        const remaining = db.prepare("PRAGMA foreign_key_list('task_event_subscriptions')").all();
+        if (remaining && remaining.length > 0) {
+          throw new Error(
+            'task_event_subscriptions FK drop did not take effect (still has ' + remaining.length + ' FK(s))'
+          );
+        }
       } finally {
         db.pragma('foreign_keys = ' + (fkState ? 'ON' : 'OFF'));
       }
     } catch (e) {
-      logger.debug('Schema migration (task_event_subscriptions FK drop): ' + e.message);
+      logger.warn('Schema migration (task_event_subscriptions FK drop): ' + e.message);
     }
   }
 
