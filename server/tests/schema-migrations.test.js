@@ -80,6 +80,7 @@ describe('db/schema.js — smoke test', () => {
       'config',
       'task_groups',
       'workflows',
+      'activities',
       'task_dependencies',
       'token_usage',
       'routing_rules',

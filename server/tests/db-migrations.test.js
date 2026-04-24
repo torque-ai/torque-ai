@@ -918,6 +918,39 @@ describe('db/migrations', () => {
       expect(getAppliedVersions(db)).toContain(36);
     });
 
+    it('creates activities when applying migration v37 to a minimal schema', () => {
+      createBaseSchema(db);
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 37));
+
+      expect(() => subject.runMigrations(db)).not.toThrow();
+      expect(tableExists(db, 'activities')).toBe(true);
+      expect(getColumnNames(db, 'activities')).toEqual(
+        expect.arrayContaining([
+          'activity_id',
+          'workflow_id',
+          'task_id',
+          'kind',
+          'name',
+          'input_json',
+          'status',
+          'attempt',
+          'max_attempts',
+          'start_to_close_timeout_ms',
+          'heartbeat_timeout_ms',
+          'last_heartbeat_at',
+          'result_json',
+          'error_text',
+          'started_at',
+          'completed_at',
+          'created_at',
+        ]),
+      );
+      expect(indexExists(db, 'idx_activities_status_heartbeat')).toBe(true);
+      expect(indexExists(db, 'idx_activities_task')).toBe(true);
+      expect(indexExists(db, 'idx_activities_kind')).toBe(true);
+      expect(getAppliedVersions(db)).toContain(37);
+    });
+
     it('falls back to split statement execution for multi-statement rollback SQL', () => {
       seedAppliedVersions(db, subject.MIGRATIONS);
       addTemporaryMigration({

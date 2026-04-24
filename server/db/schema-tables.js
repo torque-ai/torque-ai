@@ -1,5 +1,6 @@
 const VALID_TABLE_NAMES = new Set([
   'a11y_results',
+  'activities',
   'adaptive_retry_rules',
   'adversarial_reviews',
   'agent_group_members',
@@ -1509,6 +1510,27 @@ function createTables(db, logger) {
       )
     `);
   db.exec(`
+      CREATE TABLE IF NOT EXISTS activities (
+        activity_id TEXT PRIMARY KEY,
+        workflow_id TEXT,
+        task_id TEXT,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        input_json TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempt INTEGER NOT NULL DEFAULT 0,
+        max_attempts INTEGER NOT NULL DEFAULT 1,
+        start_to_close_timeout_ms INTEGER,
+        heartbeat_timeout_ms INTEGER,
+        last_heartbeat_at TEXT,
+        result_json TEXT,
+        error_text TEXT,
+        started_at TEXT,
+        completed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+  db.exec(`
       CREATE TABLE IF NOT EXISTS task_dependencies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         workflow_id TEXT NOT NULL,
@@ -1544,6 +1566,9 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_workflow_checkpoints_wf_time ON workflow_checkpoints(workflow_id, taken_at);
       CREATE INDEX IF NOT EXISTS idx_workflow_checkpoints_step ON workflow_checkpoints(workflow_id, step_id);
       CREATE INDEX IF NOT EXISTS idx_workflow_state_updated ON workflow_state(updated_at);
+      CREATE INDEX IF NOT EXISTS idx_activities_status_heartbeat ON activities(status, last_heartbeat_at);
+      CREATE INDEX IF NOT EXISTS idx_activities_task ON activities(task_id);
+      CREATE INDEX IF NOT EXISTS idx_activities_kind ON activities(kind);
       CREATE INDEX IF NOT EXISTS idx_task_deps_workflow ON task_dependencies(workflow_id);
       CREATE INDEX IF NOT EXISTS idx_task_deps_task ON task_dependencies(task_id);
       CREATE INDEX IF NOT EXISTS idx_task_deps_depends_on ON task_dependencies(depends_on_task_id);
