@@ -5,7 +5,7 @@ import LoadingSkeleton from '../components/LoadingSkeleton';
 import { StarvationBanner } from '../components/StarvationBanner';
 import StatCard from '../components/StatCard';
 import { useToast } from '../components/Toast';
-import { ProjectCard } from './factory/shared';
+import { ProjectCard, ProjectListRow, SelectProjectPrompt } from './factory/shared';
 import { useFactoryShell } from './factory/useFactoryShell';
 
 const FACTORY_TABS = [
@@ -128,22 +128,38 @@ export default function Factory() {
             </div>
           )}
 
-          <div className="grid gap-6 xl:grid-cols-3">
-            {projects.map((project) => (
-              <div key={project.id} className="space-y-3">
-                <StarvationBanner project={project} />
-                <ProjectCard
+          <div className="grid gap-6 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)]">
+            <div className="space-y-1 rounded-2xl border border-slate-700 bg-slate-800/40 p-2">
+              <p className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Projects</p>
+              {projects.map((project) => (
+                <ProjectListRow
+                  key={project.id}
                   project={project}
                   activity={projectActivity[project.id]}
                   selected={outletContext.selectedProjectId === project.id}
-                  busy={activeProjectAction === project.id}
                   onSelect={setSelectedProjectId}
-                  onToggle={handleToggleProject}
-                  onClearAutoRecovery={handleClearAutoRecovery}
-                  clearAutoRecoveryBusy={clearRecoveryProjectId === project.id}
                 />
-              </div>
-            ))}
+              ))}
+            </div>
+            <div className="space-y-3 min-w-0">
+              {outletContext.selectedProject ? (
+                <>
+                  <StarvationBanner project={outletContext.selectedProject} />
+                  <ProjectCard
+                    project={outletContext.selectedProject}
+                    activity={projectActivity[outletContext.selectedProject.id]}
+                    selected
+                    busy={activeProjectAction === outletContext.selectedProject.id}
+                    onSelect={setSelectedProjectId}
+                    onToggle={handleToggleProject}
+                    onClearAutoRecovery={handleClearAutoRecovery}
+                    clearAutoRecoveryBusy={clearRecoveryProjectId === outletContext.selectedProject.id}
+                  />
+                </>
+              ) : (
+                <SelectProjectPrompt message="Select a project from the list to view its radar, badges, and details." />
+              )}
+            </div>
           </div>
 
           <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-2">

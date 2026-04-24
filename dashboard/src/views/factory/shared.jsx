@@ -14,6 +14,17 @@ import {
   truncateText,
 } from './utils';
 
+const LOOP_STATE_PILL_STYLES = {
+  IDLE: 'border-slate-600 bg-slate-800 text-slate-400',
+  PAUSED: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+  STARVED: 'border-rose-500/40 bg-rose-500/10 text-rose-300',
+};
+
+function getLoopStatePillStyle(loopState) {
+  const normalized = String(loopState || 'IDLE').toUpperCase();
+  return LOOP_STATE_PILL_STYLES[normalized] || 'border-blue-500/30 bg-blue-500/10 text-blue-200';
+}
+
 const FACTORY_ALERT_BADGE_LABELS = {
   VERIFY_FAIL_STREAK: 'Verify failures',
   FACTORY_STALLED: 'Factory stalled',
@@ -89,6 +100,48 @@ export function DimensionBar({ dimension, score }) {
         />
       </div>
     </div>
+  );
+}
+
+export function ProjectListRow({ project, selected, onSelect, activity }) {
+  const alertBadge = getFactoryAlertBadge(project.alert_badge);
+  const recoveryExhausted = Number(project.auto_recovery_exhausted) === 1;
+  const loopState = String(project.loop_state || 'IDLE').toUpperCase();
+  const pillLabel = loopState === 'PAUSED' && project.loop_paused_at_stage
+    ? `PAUSED · ${project.loop_paused_at_stage}`
+    : loopState;
+
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={() => onSelect(project.id)}
+      className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors ${
+        selected
+          ? 'border-blue-500/50 bg-blue-500/10 text-white'
+          : 'border-transparent bg-slate-900/30 text-slate-200 hover:border-slate-700 hover:bg-slate-900/60'
+      }`}
+    >
+      <StatusDot status={project.status} />
+      <span className="min-w-0 flex-1 truncate text-sm font-medium">{project.name || project.id}</span>
+      {(alertBadge || recoveryExhausted) && (
+        <span
+          className={`inline-flex h-2 w-2 shrink-0 rounded-full ${recoveryExhausted ? 'bg-rose-400' : 'bg-amber-400'}`}
+          aria-label={recoveryExhausted ? 'Recovery exhausted' : (alertBadge?.label || 'Alert')}
+          title={recoveryExhausted ? 'Auto-recovery exhausted' : alertBadge?.label}
+        />
+      )}
+      {activity?.recentCount > 0 && !alertBadge && !recoveryExhausted && (
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-indigo-300/80">
+          {activity.recentCount}
+        </span>
+      )}
+      <span
+        className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${getLoopStatePillStyle(loopState)}`}
+      >
+        {pillLabel}
+      </span>
+    </button>
   );
 }
 
