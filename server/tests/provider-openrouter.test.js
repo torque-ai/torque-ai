@@ -154,7 +154,7 @@ describe('OpenRouterProvider', () => {
   });
 
   describe('listModels', () => {
-    it('lists free tool-capable model names from OpenRouter metadata', async () => {
+    it('lists free model names from OpenRouter metadata', async () => {
       fetchMock.mockResolvedValue(jsonResponse({
         data: [
           {
@@ -175,7 +175,36 @@ describe('OpenRouterProvider', () => {
         ],
       }));
 
-      await expect(provider.listModels()).resolves.toEqual(['minimax/minimax-m2.5:free']);
+      await expect(provider.listModels()).resolves.toEqual([
+        'minimax/minimax-m2.5:free',
+        'free/no-tools:free',
+      ]);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://openrouter.ai/api/v1/models',
+        expect.objectContaining({
+          headers: { Authorization: 'Bearer openrouter-key' },
+          signal: expect.any(AbortSignal),
+        })
+      );
+    });
+
+    it('can opt into the OpenRouter tools metadata filter', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({
+        data: [
+          {
+            id: 'minimax/minimax-m2.5:free',
+            pricing: { prompt: '0', completion: '0' },
+            supported_parameters: ['tools'],
+          },
+          {
+            id: 'free/no-tools:free',
+            pricing: { prompt: '0', completion: '0' },
+            supported_parameters: ['response_format'],
+          },
+        ],
+      }));
+
+      await expect(provider.listModels({ toolsOnly: true })).resolves.toEqual(['minimax/minimax-m2.5:free']);
       expect(fetchMock).toHaveBeenCalledWith(
         'https://openrouter.ai/api/v1/models?supported_parameters=tools',
         expect.objectContaining({

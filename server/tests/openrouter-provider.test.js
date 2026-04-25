@@ -386,7 +386,7 @@ describe('OpenRouterProvider', () => {
   });
 
   describe('listModels', () => {
-    it('returns free tool-capable model names', async () => {
+    it('returns free model names', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({
@@ -411,7 +411,7 @@ describe('OpenRouterProvider', () => {
       }));
 
       const models = await provider.listModels();
-      expect(models).toEqual(['minimax/minimax-m2.5:free']);
+      expect(models).toEqual(['minimax/minimax-m2.5:free', 'free/no-tools:free']);
     });
   });
 

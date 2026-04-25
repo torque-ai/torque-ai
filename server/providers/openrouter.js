@@ -420,7 +420,7 @@ class OpenRouterProvider extends BaseProvider {
     try {
       const models = await this._fetchModels({
         timeoutMs: options.timeoutMs || 5000,
-        toolsOnly: options.toolsOnly !== false,
+        toolsOnly: options.toolsOnly === true,
         freeOnly: options.freeOnly !== false,
         limit: options.limit || null,
       });
@@ -436,7 +436,7 @@ class OpenRouterProvider extends BaseProvider {
     try {
       const models = await this._fetchModels({
         timeoutMs: options.timeoutMs || 5000,
-        toolsOnly: options.toolsOnly !== false,
+        toolsOnly: options.toolsOnly === true,
         freeOnly: options.freeOnly !== false,
         limit: options.limit || null,
       });
