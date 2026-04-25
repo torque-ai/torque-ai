@@ -436,6 +436,10 @@ export default function Approvals() {
   const toast = useToast();
   const location = useLocation();
   const mountedRef = useRef(true);
+  // Mirror factoryTasks into a ref so the action callbacks can capture an
+  // accurate pre-action snapshot for rollback without taking factoryTasks as
+  // a useCallback dep (which would re-identity the callback every 30s poll).
+  const factoryTasksRef = useRef(factoryTasks);
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const highlightedSource = searchParams.get('source') === 'factory';
   const projectFilter = searchParams.get('project') || '';
@@ -446,6 +450,10 @@ export default function Approvals() {
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    factoryTasksRef.current = factoryTasks;
+  }, [factoryTasks]);
 
   const loadData = useCallback(async () => {
     try {
@@ -570,7 +578,7 @@ export default function Approvals() {
   }
 
   const handleFactoryTaskAction = useCallback(async (task, decision) => {
-    const snapshot = factoryTasks;
+    const snapshot = factoryTasksRef.current;
     const taskId = task.id;
     const batchId = getTaskTagValue(task, 'factory:batch_id');
 
@@ -599,10 +607,10 @@ export default function Approvals() {
         setFactoryActionInProgress(null);
       }
     }
-  }, [factoryTasks, toast]);
+  }, [toast]);
 
   const handleFactoryBatchAction = useCallback(async (batch, decision) => {
-    const snapshot = factoryTasks;
+    const snapshot = factoryTasksRef.current;
     const taskIds = batch.tasks.map((task) => task.id);
 
     setFactoryActionInProgress({
@@ -634,7 +642,7 @@ export default function Approvals() {
         setFactoryActionInProgress(null);
       }
     }
-  }, [factoryTasks, toast]);
+  }, [toast]);
 
   const approvedToday = history.filter((h) => {
     if (h.decision !== 'approved') return false;

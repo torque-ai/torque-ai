@@ -4,6 +4,12 @@ import RoutingTemplates from './RoutingTemplates';
 
 vi.mock('../api', () => ({
   requestV2: vi.fn().mockResolvedValue({}),
+  providers: {
+    list: vi.fn().mockResolvedValue([
+      { id: 'ollama' }, { id: 'codex' }, { id: 'codex-spark' },
+      { id: 'claude-cli' }, { id: 'anthropic' }, { id: 'deepinfra' },
+    ]),
+  },
   routingTemplates: {
     list: vi.fn().mockResolvedValue({
       items: [
