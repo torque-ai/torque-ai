@@ -13,6 +13,7 @@ server/tasks.db-wal
 server/tasks.db-shm
 
 # TORQUE runtime data (created when data-dir defaults to server/)
+secret.key
 server/torque.db
 server/torque.db-wal
 server/torque.db-shm

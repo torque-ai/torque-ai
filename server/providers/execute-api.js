@@ -64,7 +64,10 @@ function resolveOpenRouterRoleModels() {
 
 function getRetryableStatus(error) {
   if (!error) return null;
-  return error.status || error?.response?.status || error.code || error.errno;
+  const rawStatus = error.status ?? error?.response?.status;
+  const rawNumber = rawStatus != null ? Number(rawStatus) : null;
+  if (rawNumber != null && !Number.isNaN(rawNumber)) return rawNumber;
+  return error.status || error?.response?.status || error.code || error.errno || null;
 }
 
 function isRetryableProviderError(error) {
@@ -83,9 +86,63 @@ function isRetryableProviderError(error) {
 }
 
 function getRetryAfterFromError(error) {
-  if (!error?.message) return null;
-  const match = error.message.match(/retry_after_seconds=(\d+)/);
-  return match ? parseInt(match[1], 10) : null;
+  if (!error) return null;
+  const message = (error.message == null ? '' : String(error.message));
+
+  function parseSeconds(value) {
+    if (value == null) return null;
+    const numeric = Number.parseInt(String(value).trim(), 10);
+    if (Number.isFinite(numeric) && numeric >= 0) return numeric;
+
+    const timestamp = Date.parse(String(value).trim());
+    if (Number.isFinite(timestamp)) {
+      const deltaSeconds = Math.ceil((timestamp - Date.now()) / 1000);
+      return deltaSeconds > 0 ? deltaSeconds : 0;
+    }
+
+    return null;
+  }
+
+  function readHeader(headers, headerName) {
+    if (!headers) return null;
+    if (typeof headers.get === 'function') {
+      return headers.get(headerName) || headers.get(headerName.toLowerCase());
+    }
+    const raw = headers[headerName] || headers[headerName.toLowerCase()];
+    if (typeof raw === 'string' || typeof raw === 'number') return String(raw);
+    if (raw && typeof raw === 'object' && typeof raw[headerName] === 'string') return raw[headerName];
+    const lower = String(headerName).toLowerCase();
+    for (const [key, value] of Object.entries(headers)) {
+      if (String(key).toLowerCase() === lower) return value != null ? String(value) : null;
+    }
+    return null;
+  }
+
+  const candidatePairs = [
+    () => parseSeconds((message.match(/retry_after_seconds=(\d+)/i) || [])[1]),
+    () => parseSeconds((message.match(/retry[-_ ]after(?: seconds)?=([0-9]+(?:\.[0-9]+)?)/i) || [])[1]),
+    () => parseSeconds(error.retry_after_seconds),
+    () => parseSeconds(error.retry_after),
+    () => parseSeconds(error.retryAfter),
+    () => parseSeconds(readHeader(error.headers, 'Retry-After')),
+    () => parseSeconds(readHeader(error.response?.headers, 'Retry-After')),
+    () => parseSeconds(readHeader(error.response?.headers, 'retry-after')),
+    () => parseSeconds(error.response?.retry_after_seconds),
+    () => parseSeconds(error.response?.retryAfter),
+    () => parseSeconds(error.response?.error?.retry_after_seconds),
+    () => parseSeconds(error.response?.error?.retryAfter),
+    () => {
+      const responseBody = error.response?.data || error.response?.body || error.body || error.data || {};
+      return parseSeconds(responseBody.retry_after_seconds || responseBody.retry_after || responseBody.retryAfter);
+    },
+  ];
+
+  for (const next of candidatePairs) {
+    const parsed = next();
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  return null;
 }
 
 async function delay(ms) {
@@ -666,13 +723,13 @@ async function executeApiProvider(task, provider) {
 
     logger.info(`API provider task failed`, { taskId, provider: provider.name, error: redactSecrets(err.message) });
 
-    // Record rate limit to quota quota tracker for cooldown
-    const is429 = err.message && (err.message.includes('(429)') || err.message.includes('rate_limit'));
+    // Record rate limit to quota tracker for cooldown
+    const retryStatus = getRetryableStatus(err);
+    const is429 = retryStatus === 429;
     if (is429 && typeof _getFreeQuotaTracker === 'function') {
       try {
         const tracker = _getFreeQuotaTracker();
-        const retryMatch = err.message.match(/retry_after_seconds=(\d+)/);
-        const retryAfter = retryMatch ? parseInt(retryMatch[1], 10) : null;
+        const retryAfter = getRetryAfterFromError(err);
         tracker.recordRateLimit(provider.name, retryAfter);
       } catch { /* non-fatal */ }
     }

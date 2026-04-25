@@ -25,6 +25,42 @@ const FALLBACK_MODELS = [];
 const DEFAULT_COOLDOWN_SECONDS = 60;
 const MAX_FETCH_PAGES = 10;
 
+function readHeaderValue(headers, name) {
+  if (!headers) return null;
+  if (typeof headers.get === 'function') {
+    return headers.get(name) || headers.get(name.toLowerCase());
+  }
+
+  const direct = headers[name];
+  if (direct != null) return String(direct);
+
+  const lowerName = String(name).toLowerCase();
+  const lowerValue = headers[lowerName];
+  if (lowerValue != null) return String(lowerValue);
+
+  for (const [key, value] of Object.entries(headers)) {
+    if (String(key).toLowerCase() === lowerName) return value != null ? String(value) : null;
+  }
+  return null;
+}
+
+function parseRetryAfterSeconds(value) {
+  if (value == null) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+
+  const parsed = Number.parseInt(trimmed, 10);
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+
+  const timestamp = Date.parse(trimmed);
+  if (Number.isFinite(timestamp)) {
+    const deltaSeconds = Math.ceil((timestamp - Date.now()) / 1000);
+    return deltaSeconds > 0 ? deltaSeconds : 0;
+  }
+
+  return null;
+}
+
 function toAbsoluteUrl(baseUrl, relativePath) {
   try {
     return new URL(relativePath, baseUrl).toString();
@@ -172,39 +208,53 @@ class OpenRouterProvider extends BaseProvider {
     return err?.message?.includes('(429)') || err?.message?.includes('rate_limit') || err?.message?.includes('rate-limited');
   }
 
+  getRetryAfterSeconds(response) {
+    return parseRetryAfterSeconds(readHeaderValue(response?.headers, 'Retry-After'));
+  }
+
   _parseRetryAfter(errMessage) {
     if (!errMessage) return null;
     const message = typeof errMessage === 'string' ? errMessage : String(errMessage?.message || '');
     const match = message.match(/retry_after_seconds=(\d+)/);
     if (match) return parseInt(match[1], 10);
 
-    const readHeaderValue = (headers, name) => {
-      if (!headers) return null;
-      if (typeof headers.get === 'function') {
-        return headers.get(name) || headers.get(name.toLowerCase());
-      }
-      if (typeof headers[name] === 'string') return headers[name];
-      if (typeof headers[name.toLowerCase()] === 'string') return headers[name.toLowerCase()];
-      return null;
-    };
-
     if (errMessage && typeof errMessage === 'object') {
       const headerValue = readHeaderValue(errMessage.headers, 'Retry-After');
-      if (headerValue) {
-        const parsed = Number.parseInt(headerValue, 10);
-        return Number.isNaN(parsed) ? null : parsed;
-      }
+      if (headerValue) return parseRetryAfterSeconds(headerValue);
+
+      const responseHeaderValue = readHeaderValue(errMessage.response?.headers, 'Retry-After');
+      if (responseHeaderValue) return parseRetryAfterSeconds(responseHeaderValue);
+
       if (errMessage.retry_after_seconds !== undefined && errMessage.retry_after_seconds !== null) {
-        const parsed = Number.parseInt(errMessage.retry_after_seconds, 10);
-        return Number.isNaN(parsed) ? null : parsed;
+        return parseRetryAfterSeconds(errMessage.retry_after_seconds);
       }
       if (errMessage.retry_after !== undefined && errMessage.retry_after !== null) {
-        const parsed = Number.parseInt(errMessage.retry_after, 10);
-        return Number.isNaN(parsed) ? null : parsed;
+        return parseRetryAfterSeconds(errMessage.retry_after);
       }
       if (errMessage.retryAfter !== undefined && errMessage.retryAfter !== null) {
-        const parsed = Number.parseInt(errMessage.retryAfter, 10);
-        return Number.isNaN(parsed) ? null : parsed;
+        return parseRetryAfterSeconds(errMessage.retryAfter);
+      }
+
+      const responseBody = errMessage.response?.data || errMessage.response?.body || errMessage.body || errMessage.data || {};
+      if (responseBody.retry_after_seconds !== undefined && responseBody.retry_after_seconds !== null) {
+        return parseRetryAfterSeconds(responseBody.retry_after_seconds);
+      }
+      if (responseBody.retry_after !== undefined && responseBody.retry_after !== null) {
+        return parseRetryAfterSeconds(responseBody.retry_after);
+      }
+      if (responseBody.retryAfter !== undefined && responseBody.retryAfter !== null) {
+        return parseRetryAfterSeconds(responseBody.retryAfter);
+      }
+
+      const nestedError = errMessage.response?.error || {};
+      if (nestedError.retry_after_seconds !== undefined && nestedError.retry_after_seconds !== null) {
+        return parseRetryAfterSeconds(nestedError.retry_after_seconds);
+      }
+      if (nestedError.retry_after !== undefined && nestedError.retry_after !== null) {
+        return parseRetryAfterSeconds(nestedError.retry_after);
+      }
+      if (nestedError.retryAfter !== undefined && nestedError.retryAfter !== null) {
+        return parseRetryAfterSeconds(nestedError.retryAfter);
       }
     }
 

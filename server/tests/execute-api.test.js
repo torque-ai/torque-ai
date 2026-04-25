@@ -253,6 +253,34 @@ describe('execute-api.js', () => {
       expect(mod.getRetryAfterFromError(new Error('no retry info'))).toBeNull();
       expect(mod.getRetryAfterFromError(null)).toBeNull();
     });
+
+    it('extracts retry-after metadata from headers and nested response fields', () => {
+      const { mod } = loadSubject();
+
+      expect(mod.getRetryAfterFromError({
+        message: 'OpenRouter API error (429): rate limited',
+        headers: {
+          get: (name) => (name === 'Retry-After' ? '17' : null),
+        },
+      })).toBe(17);
+
+      expect(mod.getRetryAfterFromError({
+        status: 429,
+        response: {
+          headers: {
+            get: (name) => (name === 'retry-after' ? '18' : null),
+          },
+        },
+      })).toBe(18);
+
+      expect(mod.getRetryAfterFromError({
+        message: 'OpenRouter API error',
+        response: {
+          status: 429,
+          data: { retry_after_seconds: 21 },
+        },
+      })).toBe(21);
+    });
   });
 
   describe('delay', () => {
@@ -849,6 +877,46 @@ describe('execute-api.js', () => {
       expect(deps.readTask(task.id).completed_at).toEqual(expect.any(String));
       expect(deps.dashboard.notifyTaskUpdated).toHaveBeenCalledTimes(2);
       expect(deps.processQueue).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses parsed header retry-after metadata when tracking provider 429 cooldowns', async () => {
+      const { mod } = loadSubject();
+      const task = makeTask();
+      const deps = makeDeps([task]);
+      const tracker = {
+        recordUsage: vi.fn(),
+        recordLatency: vi.fn(),
+        recordRateLimit: vi.fn(),
+      };
+      const providerError = Object.assign(
+        new Error('OpenRouter API error'),
+        {
+          status: 429,
+          headers: {
+            get: (name) => (name === 'Retry-After' || name === 'retry-after' ? '24' : null),
+          },
+        }
+      );
+      const provider = makeProvider({
+        name: 'openrouter',
+        submit: vi.fn(async () => {
+          throw providerError;
+        }),
+      });
+      const timeoutStub = stubImmediateTimeouts();
+
+      mod.init(deps);
+      mod.setFreeQuotaTracker(() => tracker);
+
+      try {
+        await mod.executeApiProvider(task, provider);
+      } finally {
+        timeoutStub.restore();
+      }
+
+      expect(provider.submit).toHaveBeenCalledTimes(3);
+      expect(timeoutStub.delays).toEqual([24000, 24000]);
+      expect(tracker.recordRateLimit).toHaveBeenCalledWith('openrouter', 24);
     });
 
     it('requeues ordinary free-provider failures to codex when codex is enabled and healthy', async () => {

@@ -489,10 +489,24 @@ describe('OpenRouterProvider', () => {
         message: 'OpenRouter API error (429): limited',
         retry_after_seconds: 15,
       };
+      const errorWithResponseBodyField = {
+        message: 'OpenRouter API error (429): limited',
+        response: {
+          data: { retry_after: '30' },
+        },
+      };
+      const errorWithEpoch = {
+        message: 'OpenRouter API error (429): limited',
+        headers: {
+          get: () => new Date(Date.now() + 24000).toUTCString(),
+        },
+      };
 
       expect(provider._parseRetryAfter(errorWithHeader)).toBe(18);
       expect(provider._parseRetryAfter(errorWithCamelCaseHeader)).toBe(21);
       expect(provider._parseRetryAfter(errorWithField)).toBe(15);
+      expect(provider._parseRetryAfter(errorWithResponseBodyField)).toBe(30);
+      expect(Number.isInteger(provider._parseRetryAfter(errorWithEpoch))).toBe(true);
       expect(provider._parseRetryAfter('OpenRouter error without retry info')).toBeNull();
     });
 
