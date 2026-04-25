@@ -28,6 +28,10 @@
       "description": "Task priority (higher = processed first when queued)",
       "default": 0
     },
+    "concurrency_key": {
+      "type": "string",
+      "description": "Optional grouping key for concurrency control. Tasks sharing a key are limited per concurrency_limits config (e.g., \"tenant:acme\" or \"repo:hot\")."
+    },
     "provider": {
       "type": "string",
       "description": "Execution provider (codex, claude-cli, ollama, anthropic, deepinfra, groq, hyperbolic). Defaults to configured default provider.",

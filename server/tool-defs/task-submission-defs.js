@@ -43,6 +43,10 @@ module.exports = [
           "description": "Task priority (higher = processed first when queued)",
           "default": 0
         },
+        "concurrency_key": {
+          "type": "string",
+          "description": "Optional grouping key for concurrency control. Tasks sharing a key are limited per concurrency_limits config (e.g., \"tenant:acme\" or \"repo:hot\")."
+        },
         "auto_route": {
           "type": "boolean",
           "description": "Enable smart provider routing based on task complexity (default: true). Set false to use explicit provider.",

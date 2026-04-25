@@ -218,6 +218,10 @@ _defaultContainer.register('actionRegistry', [], () => createActionRegistry());
 _defaultContainer.register('constructionCache', ['db'], ({ db }) => createConstructionCache({ db: unwrapDb(db) }));
 _defaultContainer.register('executor', ['actionRegistry'], ({ actionRegistry }) => createExecutor({ registry: actionRegistry }));
 _defaultContainer.register('registeredSpecialists', [], () => ({}));
+_defaultContainer.register('concurrencyKeys', ['db'], ({ db }) => {
+  const { createConcurrencyKeys } = require('./scheduling/concurrency-keys');
+  return createConcurrencyKeys({ db: unwrapDb(db) });
+});
 _defaultContainer.register('runDirManager', ['db'], ({ db }) => {
   const dataDir = typeof db.getDataDir === 'function'
     ? db.getDataDir()

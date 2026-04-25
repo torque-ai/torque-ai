@@ -351,6 +351,7 @@ function extractSmartSubmitInputs(args) {
     model,
     timeout_minutes,
     priority,
+    concurrency_key,
     provider,
     override_provider: legacyOverrideProvider,
     tuning,
@@ -394,6 +395,9 @@ function extractSmartSubmitInputs(args) {
       ),
     };
   }
+  if (concurrency_key !== undefined && concurrency_key !== null && typeof concurrency_key !== 'string') {
+    return { error: makeError(ErrorCodes.INVALID_PARAM, 'concurrency_key must be a string') };
+  }
   if (working_directory) {
     try {
       let rawDb;
@@ -427,6 +431,7 @@ function extractSmartSubmitInputs(args) {
     model,
     timeout_minutes,
     priority,
+    concurrency_key: typeof concurrency_key === 'string' && concurrency_key.trim() ? concurrency_key.trim() : null,
     override_provider,
     tuning: tuningOverrides,
     estimatedTokens,
@@ -637,6 +642,7 @@ async function handleSmartSubmitTask(args) {
     model,
     timeout_minutes,
     priority,
+    concurrency_key: concurrencyKey,
     override_provider,
     tuning: tuningOverrides,
     estimatedTokens,
@@ -969,6 +975,7 @@ async function handleSmartSubmitTask(args) {
           model: subtaskModel,
           timeout_minutes: effectiveTimeout,
           priority: priority || 0,
+          concurrency_key: concurrencyKey,
           complexity: 'normal',
           workflow_id: workflowId,
           workflow_node_id: nodeId,
@@ -1150,6 +1157,7 @@ async function handleSmartSubmitTask(args) {
             model: subtaskModel,
             timeout_minutes: effectiveTimeout,
             priority: priority || 0,
+            concurrency_key: concurrencyKey,
             complexity: 'normal',
             workflow_id: workflowId,
             workflow_node_id: nodeId,
@@ -1495,6 +1503,7 @@ async function handleSmartSubmitTask(args) {
       model: taskModel,
       timeout_minutes: effectiveTimeout,
       priority: priority || 0,
+      concurrency_key: concurrencyKey,
       complexity: complexity,
       review_status: reviewStatus,
       ollama_host_id: routingResult.selectedHost || routingResult.hostId || null,
@@ -1512,6 +1521,7 @@ async function handleSmartSubmitTask(args) {
       model: taskModel,
       timeout_minutes: effectiveTimeout,
       priority: priority || 0,
+      concurrency_key: concurrencyKey,
       complexity: complexity,
       review_status: reviewStatus,
       ollama_host_id: routingResult.selectedHost || routingResult.hostId || null,

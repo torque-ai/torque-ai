@@ -21,6 +21,16 @@ function normalizeLimit(value) {
   return max;
 }
 
+function normalizeActiveStates(options = {}) {
+  if (!Array.isArray(options.activeStates) || options.activeStates.length === 0) {
+    return ACTIVE_STATES;
+  }
+  const states = options.activeStates
+    .map((status) => String(status || '').trim())
+    .filter(Boolean);
+  return states.length > 0 ? states : ACTIVE_STATES;
+}
+
 function createConcurrencyKeys({ db } = {}) {
   assertDb(db);
 
@@ -76,29 +86,30 @@ function createConcurrencyKeys({ db } = {}) {
     return null;
   }
 
-  function countActive(key) {
+  function countActive(key, options = {}) {
     const concurrencyKey = normalizeKey(key);
     if (!concurrencyKey) return 0;
 
-    const placeholders = ACTIVE_STATES.map(() => '?').join(',');
+    const activeStates = normalizeActiveStates(options);
+    const placeholders = activeStates.map(() => '?').join(',');
     const row = db.prepare(`
       SELECT COUNT(*) AS n
       FROM tasks
       WHERE concurrency_key = ?
         AND status IN (${placeholders})
-    `).get(concurrencyKey, ...ACTIVE_STATES);
+    `).get(concurrencyKey, ...activeStates);
 
     return Number(row?.n || 0);
   }
 
-  function canReserve(key) {
+  function canReserve(key, options = {}) {
     const concurrencyKey = normalizeKey(key);
     if (!concurrencyKey) return true;
 
     const limit = resolveLimit(concurrencyKey);
     if (limit === null) return true;
 
-    return countActive(concurrencyKey) < limit;
+    return countActive(concurrencyKey, options) < limit;
   }
 
   return { setLimit, removeLimit, listLimits, resolveLimit, countActive, canReserve };

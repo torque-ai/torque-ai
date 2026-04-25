@@ -321,6 +321,7 @@ function handleSubmitTask(args) {
       tuning: args.tuning,
       routing_template: args.routing_template,
       version_intent: args.version_intent,
+      concurrency_key: args.concurrency_key,
       __sessionId: args.__sessionId,
     });
   }
@@ -361,6 +362,9 @@ function handleSubmitTask(args) {
   if (args.priority !== undefined && typeof args.priority !== 'number') {
     return makeError(ErrorCodes.INVALID_PARAM, 'priority must be a number');
   }
+  if (args.concurrency_key !== undefined && args.concurrency_key !== null && typeof args.concurrency_key !== 'string') {
+    return makeError(ErrorCodes.INVALID_PARAM, 'concurrency_key must be a string');
+  }
 
   const taskId = uuidv4();
   const defaultTimeout = serverConfig.getInt('default_timeout', 30);
@@ -390,6 +394,9 @@ function handleSubmitTask(args) {
   const timeout = args.timeout_minutes ?? providerTimeout;
   const taskDescription = args.task.trim();
   const model = args.model || null;
+  const concurrencyKey = typeof args.concurrency_key === 'string' && args.concurrency_key.trim()
+    ? args.concurrency_key.trim()
+    : null;
   const schedulingMode = configCore.getConfig ? (configCore.getConfig('scheduling_mode') || 'legacy') : 'legacy';
   const useTierList = schedulingMode === 'slot-pull';
   const routingFiles = Array.isArray(args.files) ? args.files.filter(f => typeof f === 'string') : [];
@@ -532,6 +539,7 @@ function handleSubmitTask(args) {
         priority: args.priority || 0,
         provider: args.provider ? providerName : null,
         model: model,  // null = use provider's default model
+        concurrency_key: concurrencyKey,
         metadata: JSON.stringify(metadata)
       });
     } else {
@@ -547,6 +555,7 @@ function handleSubmitTask(args) {
         priority: args.priority || 0,
         provider: args.provider ? providerName : null,  // preserve user override; null = deferred assignment by tryClaimTaskSlot
         model: model,  // null = use provider's default model
+        concurrency_key: concurrencyKey,
         metadata: JSON.stringify(metadata)
       });
     }

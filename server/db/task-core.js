@@ -39,7 +39,7 @@ const ALLOWED_TASK_COLUMNS = new Set([
   'workflow_node_id', 'claimed_by_agent', 'required_capabilities', 'ollama_host_id',
   'provider', 'model', 'original_provider', 'provider_switched_at',
   'mcp_instance_id', 'complexity', 'metadata', 'task_metadata',
-  'partial_output', 'resume_context'
+  'partial_output', 'resume_context', 'concurrency_key'
 ]);
 
 const TERMINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled', 'skipped']);
@@ -335,14 +335,17 @@ function createTask(task) {
   }
   const resumeContextStr = serializeTaskJsonColumnValue(task.resume_context);
   const status = task.status || 'pending';
+  const concurrencyKey = typeof task.concurrency_key === 'string' && task.concurrency_key.trim()
+    ? task.concurrency_key.trim()
+    : null;
 
   const stmt = db.prepare(`
     INSERT INTO tasks (
       id, status, task_description, working_directory,
       timeout_minutes, auto_approve, priority, context, created_at,
       max_retries, depends_on, template_name, isolated_workspace, approval_status, tags, project, provider, model,
-      complexity, review_status, ollama_host_id, original_provider, provider_switched_at, metadata, workflow_id, workflow_node_id, stall_timeout_seconds, server_epoch, resume_context
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      complexity, review_status, ollama_host_id, original_provider, provider_switched_at, metadata, concurrency_key, workflow_id, workflow_node_id, stall_timeout_seconds, server_epoch, resume_context
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   try {
@@ -372,6 +375,7 @@ function createTask(task) {
         originalProvider,
         null, // provider_switched_at
         metadataStr,
+        concurrencyKey,
         task.workflow_id || null,
         task.workflow_node_id || null,
         task.stall_timeout_seconds ?? null,
@@ -984,7 +988,7 @@ function listQueuedTasksLightweight(limit = 1000) {
            t.created_at, t.working_directory, t.timeout_minutes, t.auto_approve,
            t.retry_count, t.max_retries, t.depends_on, t.approval_status,
            t.ollama_host_id, t.stall_timeout_seconds, t.metadata, t.tags,
-           COALESCE(w.priority, 0) as workflow_priority
+           t.concurrency_key, COALESCE(w.priority, 0) as workflow_priority
     FROM tasks t
     LEFT JOIN workflows w ON t.workflow_id = w.id
     WHERE t.status = 'queued'

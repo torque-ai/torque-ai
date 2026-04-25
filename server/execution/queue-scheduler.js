@@ -86,6 +86,30 @@ function notifyDashboard(taskId, updates = {}) {
   }
 }
 
+function getConcurrencyKeys() {
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('concurrencyKeys')) {
+      return defaultContainer.get('concurrencyKeys');
+    }
+  } catch (err) {
+    logger.debug(`[queue] concurrencyKeys unavailable: ${err.message || err}`);
+  }
+  return null;
+}
+
+function shouldSkipTaskForConcurrencyKey(task) {
+  const key = typeof task?.concurrency_key === 'string' ? task.concurrency_key.trim() : '';
+  if (!key) return false;
+  const concurrencyKeys = getConcurrencyKeys();
+  if (!concurrencyKeys || typeof concurrencyKeys.canReserve !== 'function') return false;
+  if (concurrencyKeys.canReserve(key, { activeStates: ['running'] })) return false;
+
+  const taskId = task.id || task.task_id || 'unknown';
+  logger.debug(`[queue] concurrency key full, skipping task ${taskId}: ${key}`);
+  return true;
+}
+
 /**
  * Initialize dependencies for this module.
  * @param {Object} deps
@@ -848,6 +872,9 @@ function processQueueInternal(options = {}) {
     if (shouldSkipTaskForApproval(task)) {
       continue;
     }
+    if (shouldSkipTaskForConcurrencyKey(task)) {
+      continue;
+    }
 
     if (runningOllama + ollamaStarted >= maxOllamaConcurrent) break;
     const effectiveOllamaProvider = task._effectiveProvider || task.provider;
@@ -925,6 +952,9 @@ function processQueueInternal(options = {}) {
       if (shouldSkipTaskForApproval(codexTask)) {
         continue;
       }
+      if (shouldSkipTaskForConcurrencyKey(codexTask)) {
+        continue;
+      }
 
       if (runningCodex + codexStarted >= maxCodexConcurrent) {
         // Codex slots full — try overflow to local LLM or quota
@@ -971,6 +1001,9 @@ function processQueueInternal(options = {}) {
   const runningApi = providerCounts.api;
   for (const task of apiTasks) {
     if (shouldSkipTaskForApproval(task)) {
+      continue;
+    }
+    if (shouldSkipTaskForConcurrencyKey(task)) {
       continue;
     }
 
@@ -1048,6 +1081,9 @@ function processQueueInternal(options = {}) {
       }
 
       if (shouldSkipTaskForApproval(nextTask)) {
+        canStart = false;
+      }
+      if (shouldSkipTaskForConcurrencyKey(nextTask)) {
         canStart = false;
       }
 

@@ -21,6 +21,9 @@
     "priority": {
       "type": "number"
     },
+    "concurrency_key": {
+      "type": "string"
+    },
     "provider": {
       "type": "string"
     },

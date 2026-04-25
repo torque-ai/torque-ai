@@ -78,6 +78,7 @@ function mapTaskToolCall(toolName, args) {
           timeout_minutes: payload.timeout_minutes,
           auto_approve: payload.auto_approve,
           priority: payload.priority,
+          concurrency_key: payload.concurrency_key,
           provider: payload.provider,
           model: payload.model,
         },

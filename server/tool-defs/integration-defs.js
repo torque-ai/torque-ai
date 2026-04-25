@@ -485,6 +485,10 @@ const tools = [
           type: 'number',
           description: 'Task priority (higher = more important)'
         },
+        concurrency_key: {
+          type: 'string',
+          description: 'Optional grouping key for concurrency control. Tasks sharing a key are limited per concurrency_limits config (e.g., "tenant:acme" or "repo:hot").'
+        },
         override_provider: {
           type: 'string',
           description: 'Force a specific provider, bypassing smart routing'

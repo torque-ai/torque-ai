@@ -81,6 +81,29 @@ function parseTaskMeta(task) {
   return normalizeMetadata(task?.metadata);
 }
 
+function getConcurrencyKeys() {
+  try {
+    const { defaultContainer } = require('../container');
+    if (defaultContainer && typeof defaultContainer.has === 'function' && defaultContainer.has('concurrencyKeys')) {
+      return defaultContainer.get('concurrencyKeys');
+    }
+  } catch (err) {
+    logger.debug('concurrencyKeys unavailable: ' + (err.message || err));
+  }
+  return null;
+}
+
+function shouldSkipTaskForConcurrencyKey(task) {
+  const key = typeof task?.concurrency_key === 'string' ? task.concurrency_key.trim() : '';
+  if (!key) return false;
+  const concurrencyKeys = getConcurrencyKeys();
+  if (!concurrencyKeys || typeof concurrencyKeys.canReserve !== 'function') return false;
+  if (concurrencyKeys.canReserve(key, { activeStates: ['running'] })) return false;
+
+  logger.debug('concurrency key full, skipping task ' + (task.id || task.task_id || 'unknown') + ': ' + key);
+  return true;
+}
+
 function getUnassignedQueuedTasks(limit = 200) {
   if (!_db) return [];
   try {
@@ -106,6 +129,7 @@ function findBestTaskForProvider(provider, excludeIds) {
     const qualityTier = meta.quality_tier || 'normal';
     if (eligible.length > 0 && !eligible.includes(provider)) continue;
     if (!required.every(r => providerCaps.has(r))) continue;
+    if (shouldSkipTaskForConcurrencyKey(task)) continue;
     if (!capabilities.passesQualityGate(band, qualityTier)) {
       const createdAt = task.created_at ? new Date(task.created_at).getTime() : Date.now();
       const age = Date.now() - createdAt;
