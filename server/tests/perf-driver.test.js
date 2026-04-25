@@ -45,8 +45,8 @@ describe('perf driver', () => {
     const result = await runMetric(metric);
     expect(seen).toEqual(['raw', 'parsed']);
     expect(result.byVariant).toEqual({
-      raw: { median: 10, runs: 1 },
-      parsed: { median: 20, runs: 1 }
+      raw: { median: 10, p95: 10, runs: 1 },
+      parsed: { median: 20, p95: 20, runs: 1 }
     });
   });
 });

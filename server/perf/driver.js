@@ -49,8 +49,7 @@ async function runMetric(metric) {
     const byVariant = {};
     for (const variant of metric.variants) {
       const r = await runVariant(metric, variant);
-      byVariant[variant] = { median: r.median, runs: r.runs };
-      if (r.p95 !== null && r.p95 !== r.median) byVariant[variant].p95 = r.p95;
+      byVariant[variant] = { median: r.median, p95: r.p95, runs: r.runs };
     }
     return { id: metric.id, runs: metric.runs, warmup: metric.warmup, byVariant };
   }
