@@ -792,6 +792,19 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS workflow_state',
     ].join('; '),
   },
+  {
+    version: 37,
+    name: 'add_asset_model',
+    up: readSqlMigration('037-asset-model.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_asset_checks_asset_time',
+      'DROP INDEX IF EXISTS idx_materializations_asset_time',
+      'DROP TABLE IF EXISTS asset_dependencies',
+      'DROP TABLE IF EXISTS asset_checks',
+      'DROP TABLE IF EXISTS asset_materializations',
+      'DROP TABLE IF EXISTS assets',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
