@@ -136,15 +136,39 @@ PHASE_TIMEOUT_SECS="${PRE_PUSH_PHASE_TIMEOUT_SECS:-600}"
 # file-load (see is_file_load_only_flake). Exports RETRIED_OUTPUT and
 # RETRIED_EXIT so the caller can evaluate the final result.
 #
-# Output is streamed to the user's terminal via tee while also being
-# captured to a tempfile for the retry/failure analysis below. The
-# previous design used `RETRIED_OUTPUT=$(eval ... 2>&1)` which buffered
-# all output until the subshell exited — silently hiding 5-20 minutes of
-# remote test progress, and (worse) deadlocking on Git Bash + Windows
-# when ssh's stdio fds were held open past the inner command's exit (the
-# `$(...)` parent waits forever for EOF on the captured pipe). PIPESTATUS[0]
-# preserves the inner exit code so tee's success doesn't mask a real
-# test failure.
+# Streams output to the user's terminal in real time AND captures it to a
+# tempfile for the retry/failure analysis below. We deliberately do NOT
+# pipe the command into `tee`: on Git Bash + Windows, ssh leaks its stdio
+# handles to a child process that doesn't release them, so `tee` never
+# sees EOF on its stdin pipe and hangs indefinitely after the gate has
+# already finished printing `[gate-end] dash_exit=N serv_exit=M`. The leak
+# is invisible because `eval`/`ssh`/`torque-remote` have all exited — the
+# only proof is `ps -ef` showing a stranded `tee`.
+#
+# Workaround: redirect the command to the tempfile in the background, and
+# have a sibling `tail -f --pid=<eval-pid>` stream the file to stdout.
+# `tail --pid` exits when the writer dies, so the streamer never outlives
+# the work. The tempfile is the canonical capture; PIPESTATUS doesn't
+# enter the picture.
+#
+# Background+wait also gives the inner command its own process group, so
+# the tempfile redirect terminates cleanly the moment `wait $CMD_PID`
+# returns — no fd inheritance up the chain.
+run_with_flake_retry_inner() {
+  local cmd="$1"
+  local tmp="$2"
+  local cmd_pid tail_pid
+  : > "$tmp"
+  eval "$cmd" > "$tmp" 2>&1 &
+  cmd_pid=$!
+  tail -f --pid="$cmd_pid" "$tmp" &
+  tail_pid=$!
+  wait "$cmd_pid"
+  RETRIED_EXIT=$?
+  # tail should have self-exited via --pid; reap defensively.
+  wait "$tail_pid" 2>/dev/null || true
+}
+
 run_with_flake_retry() {
   local label="$1"
   local cmd="$2"
@@ -152,16 +176,14 @@ run_with_flake_retry() {
   tmp=$(mktemp -t prepush.XXXXXX)
 
   set +e
-  eval "$cmd" 2>&1 | tee "$tmp"
-  RETRIED_EXIT=${PIPESTATUS[0]}
+  run_with_flake_retry_inner "$cmd" "$tmp"
   set -e
   RETRIED_OUTPUT=$(<"$tmp")
 
   if [ "$RETRIED_EXIT" -ne 0 ] && is_file_load_only_flake "$RETRIED_OUTPUT"; then
     echo "[pre-push] $label: file-load flake detected (0 test failures, N file-load failures) — retrying once..."
     set +e
-    eval "$cmd" 2>&1 | tee "$tmp"
-    RETRIED_EXIT=${PIPESTATUS[0]}
+    run_with_flake_retry_inner "$cmd" "$tmp"
     set -e
     RETRIED_OUTPUT=$(<"$tmp")
   fi
