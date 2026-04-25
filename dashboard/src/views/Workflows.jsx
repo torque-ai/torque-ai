@@ -495,13 +495,15 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
 
   useEffect(() => {
     loadWorkflows();
-    // Auto-refresh every 30s for running workflows
+    // Skip the auto-refresh loop entirely when the filter is a terminal status —
+    // completed/failed workflows don't transition, so 30s polling is pure waste.
+    if (statusFilter === 'completed' || statusFilter === 'failed') return undefined;
     const id = setInterval(() => {
       if (document.hidden) return;
       loadWorkflows();
     }, 30000);
     return () => clearInterval(id);
-  }, [loadWorkflows]);
+  }, [loadWorkflows, statusFilter]);
 
   // Summary statistics
   const summaryStats = useMemo(() => {
