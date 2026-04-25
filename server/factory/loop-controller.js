@@ -6461,8 +6461,16 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
   if (batchIdForGate) {
     const batchTasks = listTasksForFactoryBatch(batchIdForGate);
     if (batchTasks.length > 0) {
+      // Match TERMINAL_TASK_STATUSES from db/task-core.js:
+      // completed, failed, cancelled, skipped. Without `skipped` here a
+      // workflow whose dependency chain short-circuits (every subtask marked
+      // `skipped`) loops forever between paused_at_gate and auto-recovery's
+      // retry — seen on DLPhone item #708 where 16 auto-decomposed subtasks
+      // all ended in `skipped` and the gate never auto-cleared. `shipped` is
+      // a work-item status (CLOSED_WORK_ITEM_STATUSES), not a task status —
+      // kept in the list defensively in case a future code path reuses it.
       const nonTerminal = batchTasks.filter(
-        (t) => !['completed', 'shipped', 'cancelled', 'failed'].includes(t.status),
+        (t) => !['completed', 'shipped', 'cancelled', 'failed', 'skipped'].includes(t.status),
       );
       if (nonTerminal.length > 0) {
         safeLogDecision({
