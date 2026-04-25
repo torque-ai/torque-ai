@@ -18,6 +18,7 @@ const Providers = lazy(() => import('./views/Providers'));
 const WorkflowsHub = lazy(() => import('./views/WorkflowsHub'));
 const WorkflowTimeline = lazy(() => import('./views/WorkflowTimeline'));
 const WorkflowSpecs = lazy(() => import('./views/WorkflowSpecs'));
+const AssetGraph = lazy(() => import('./views/AssetGraph'));
 const InfrastructureHub = lazy(() => import('./views/InfrastructureHub'));
 const OperationsHub = lazy(() => import('./views/OperationsHub'));
 const Approvals = lazy(() => import('./views/Approvals'));
@@ -302,6 +303,8 @@ function AppInner() {
               <Route path="workflows/:id/timeline" element={<WorkflowTimeline />} />
               <Route path="workflows" element={<WorkflowsHub onOpenDrawer={openDrawer} workflowTick={workflowTick} tasksTick={tasksTick} relativeTimeTick={relativeTimeTick} />} />
               <Route path="workflow-specs" element={<WorkflowSpecs />} />
+              <Route path="assets" element={<AssetGraph />} />
+              <Route path="assets/:key" element={<AssetGraph />} />
               <Route path="providers" element={<Providers statsVersion={statsVersion} tasksTick={tasksTick} />} />
               <Route path="infrastructure" element={<InfrastructureHub hostActivity={hostActivity} />} />
               <Route path="operations" element={<OperationsHub />} />

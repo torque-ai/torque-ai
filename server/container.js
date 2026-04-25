@@ -228,6 +228,14 @@ _defaultContainer.register('runDirManager', ['db'], ({ db }) => {
     promotedDir: path.join(dataDir, 'promoted'),
   });
 });
+_defaultContainer.register('assetStore', ['db'], ({ db }) => {
+  const { createAssetStore } = require('./assets/asset-store');
+  return createAssetStore({ db: unwrapDb(db) });
+});
+_defaultContainer.register('assetChecks', ['db'], ({ db }) => {
+  const { createAssetChecks } = require('./assets/asset-checks');
+  return createAssetChecks({ db: unwrapDb(db) });
+});
 _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
   const { createProviderScoring } = require('./db/provider-scoring');
   return createProviderScoring({ db: unwrapDb(db) });

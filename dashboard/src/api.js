@@ -522,6 +522,15 @@ export const workflows = {
   }),
 };
 
+export const assets = {
+  list: (options = {}) => _fetch('/api/assets', options).then((d) => d.assets || []),
+  get: (assetKey, options = {}) => _fetch(`/api/assets/${encodeURIComponent(assetKey)}`, options),
+  materializations: (assetKey, options = {}) => (
+    _fetch(`/api/assets/${encodeURIComponent(assetKey)}/materializations`, options)
+      .then((d) => d.materializations || [])
+  ),
+};
+
 // ─── Workflow spec endpoints (v2) ──────────────────────────────────────────
 
 export const workflowSpecs = {
@@ -735,4 +744,4 @@ export const factory = {
   recordCorrection: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/corrections`, { method: 'POST', body: JSON.stringify(data), ...opts }),
 };
 
-export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, workflowSpecs, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory };
+export default { tasks, providers, stats, planProjects, hosts, peekHosts, budget, schedules, study, taskLogs, system, instances, projectTuning, benchmarks, workflows, workflowSpecs, assets, approvals, governance, coordination, versionControl, strategic, routingTemplates, factory };

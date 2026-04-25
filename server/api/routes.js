@@ -4,6 +4,7 @@ const logger = require('../logger').child({ component: 'routes' });
 const providerRoutingCore = require('../db/provider-routing-core');
 const { validateInferenceRequest } = require('./v2-schemas');
 const { requestId, validateRequest } = require('./v2-middleware');
+const { ASSET_ROUTES } = require('./routes/assets');
 
 function buildV2Middleware(schema = {}) {
   return [requestId, validateRequest(schema)];
@@ -70,6 +71,7 @@ function handleOpenApiSpec(req, res) {
 
 const routes = [
   { method: 'GET', path: '/api/openapi.json', handler: handleOpenApiSpec, handlerName: 'handleOpenApiSpec', skipAuth: true },
+  ...ASSET_ROUTES,
   // Tasks
   // NOTE (M5): Task data is accessible to any authenticated client on this server.
   // TORQUE is designed for single-user or trusted-team deployments.

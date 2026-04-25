@@ -11,6 +11,7 @@ const ROUTE_NAMES = {
   '/history': 'History',
   '/workflows': 'Workflows',
   '/workflow-specs': 'Specs',
+  '/assets': 'Assets',
   '/providers': 'Providers',
   '/infrastructure': 'Infrastructure',
   '/operations': 'Operations',
@@ -31,6 +32,10 @@ function getRouteName(pathname) {
 
   if (/^\/workflows\/[^/]+\/timeline$/i.test(pathname)) {
     return 'Workflow Timeline';
+  }
+
+  if (/^\/assets\/[^/]+$/i.test(pathname)) {
+    return 'Asset Detail';
   }
 
   return '';
@@ -83,6 +88,15 @@ const WorkflowIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
       d="M4 6h4m-4 0a2 2 0 110-4 2 2 0 010 4zm0 0v6m0 0a2 2 0 100 4 2 2 0 000-4zm12-6h4m-4 0a2 2 0 110-4 2 2 0 010 4zm0 0v6m0 0a2 2 0 100 4 2 2 0 000-4zm-6-6h4m-4 0a2 2 0 110-4 2 2 0 010 4zm0 0v12m0 0a2 2 0 100 4 2 2 0 000-4z" />
+  </svg>
+);
+
+const AssetIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M7 7h.01M4 4h6l8 8a2 2 0 010 2.828l-3.172 3.172a2 2 0 01-2.828 0L4 10V4z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+      d="M14 6l4 4m-2-6l4 4" />
   </svg>
 );
 
@@ -160,6 +174,7 @@ const navItems = [
   { to: '/history', icon: HistoryIcon, label: 'History' },
   { to: '/workflows', icon: WorkflowIcon, label: 'Workflows' },
   { to: '/workflow-specs', icon: FolderIcon, label: 'Specs' },
+  { to: '/assets', icon: AssetIcon, label: 'Assets' },
   { to: '/providers', icon: ChartIcon, label: 'Providers' },
   { to: '/infrastructure', icon: HostIcon, label: 'Infrastructure' },
   { to: '/operations', icon: StrategicIcon, label: 'Operations' },

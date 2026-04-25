@@ -61,6 +61,7 @@ const tasks = require('./routes/tasks');
 const infrastructure = require('./routes/infrastructure');
 const analytics = require('./routes/analytics');
 const admin = require('./routes/admin');
+const assets = require('../api/routes/assets');
 const governanceHandlers = require('../handlers/governance-handlers');
 const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 
@@ -903,6 +904,11 @@ async function handleMergeVersionControlWorktreeRoute(req, res, _query, worktree
  * Order matters for overlapping patterns — more specific patterns must come first.
  */
 const routes = [
+  // --- Assets ---
+  { method: 'GET', pattern: /^\/api\/assets$/, handler: assets.handleListAssets },
+  { method: 'GET', pattern: /^\/api\/assets\/([^/]+)\/materializations$/, handler: assets.handleListAssetMaterializations },
+  { method: 'GET', pattern: /^\/api\/assets\/([^/]+)$/, handler: assets.handleGetAsset },
+
   // --- Tasks --- (compat: v2 equivalents at /api/v2/tasks)
   { method: 'GET',  pattern: /^\/api\/tasks$/,                                                       handler: tasks.handleListTasks, compat: true },
   { method: 'GET',  pattern: /^\/api\/tasks\/([^/]+)\/diff$/,                                        handler: tasks.handleTaskDiff, compat: true },
