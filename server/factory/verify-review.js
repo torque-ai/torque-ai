@@ -14,7 +14,14 @@ const childProcess = require('node:child_process');
   } catch (_e) { void _e; }
 })();
 
-const LLM_TIMEOUT_MS = 5 * 60_000;
+const DEFAULT_LLM_TIMEOUT_MS = 10 * 60_000;
+function readEnvTimeoutMs() {
+  const raw = process.env.TORQUE_VERIFY_REVIEWER_TIMEOUT_MS;
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+const LLM_TIMEOUT_MS = readEnvTimeoutMs() || DEFAULT_LLM_TIMEOUT_MS;
 const ENVIRONMENT_EXIT_CODES = new Set([127, 126, 124]);
 const ENVIRONMENT_STDERR_PATTERNS = [
   /\bEPERM\b/,

@@ -9,9 +9,37 @@ describe('verify-review module exports', () => {
     expect(typeof mod.parseFailingTests).toBe('function');
     expect(typeof mod.getModifiedFiles).toBe('function');
     expect(typeof mod.runLlmTiebreak).toBe('function');
-    expect(mod.LLM_TIMEOUT_MS).toBe(300_000);
+    expect(mod.LLM_TIMEOUT_MS).toBe(600_000);
     expect(mod.ENVIRONMENT_EXIT_CODES).toBeInstanceOf(Set);
     expect(Array.isArray(mod.ENVIRONMENT_STDERR_PATTERNS)).toBe(true);
+  });
+
+  it('honors TORQUE_VERIFY_REVIEWER_TIMEOUT_MS env override at module load', () => {
+    const original = process.env.TORQUE_VERIFY_REVIEWER_TIMEOUT_MS;
+    process.env.TORQUE_VERIFY_REVIEWER_TIMEOUT_MS = '900000';
+    delete require.cache[require.resolve('../factory/verify-review')];
+    try {
+      const mod = require('../factory/verify-review');
+      expect(mod.LLM_TIMEOUT_MS).toBe(900_000);
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_TIMEOUT_MS;
+      else process.env.TORQUE_VERIFY_REVIEWER_TIMEOUT_MS = original;
+      delete require.cache[require.resolve('../factory/verify-review')];
+    }
+  });
+
+  it('ignores invalid TORQUE_VERIFY_REVIEWER_TIMEOUT_MS values and falls back to default', () => {
+    const original = process.env.TORQUE_VERIFY_REVIEWER_TIMEOUT_MS;
+    process.env.TORQUE_VERIFY_REVIEWER_TIMEOUT_MS = 'not-a-number';
+    delete require.cache[require.resolve('../factory/verify-review')];
+    try {
+      const mod = require('../factory/verify-review');
+      expect(mod.LLM_TIMEOUT_MS).toBe(600_000);
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_TIMEOUT_MS;
+      else process.env.TORQUE_VERIFY_REVIEWER_TIMEOUT_MS = original;
+      delete require.cache[require.resolve('../factory/verify-review')];
+    }
   });
 });
 
