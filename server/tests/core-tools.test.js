@@ -104,6 +104,12 @@ describe('CORE_TOOL_NAMES (Tier 1)', () => {
     );
   });
 
+  it('includes local LLM tuning controls needed by factory automation', () => {
+    expect(CORE_TOOL_NAMES).toEqual(
+      expect.arrayContaining(['list_ollama_hosts', 'list_ollama_models', 'manage_host', 'manage_tuning', 'run_benchmark']),
+    );
+  });
+
   it('all core tools have matching tool definitions', () => {
     const defNames = getToolDefinitionNames();
     const defSet = new Set(defNames);

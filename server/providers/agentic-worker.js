@@ -136,6 +136,10 @@ async function main() {
     parentPort.postMessage({ type: 'toolCall', name, args, result: execResult.result, durationMs });
   };
 
+  const onChunk = (text) => {
+    if (text) parentPort.postMessage({ type: 'chunk', text });
+  };
+
   try {
     const result = await runAgenticLoop({
       adapter,
@@ -153,6 +157,7 @@ async function main() {
       signal: controller.signal,
       onProgress,
       onToolCall,
+      onChunk,
     });
 
     parentPort.postMessage({

@@ -24,6 +24,8 @@ const TIER_1 = [
   'workflow_status', 'list_workflows',
   // Project config
   'scan_project', 'set_project_defaults', 'get_project_defaults',
+  // Local LLM operations needed for autonomous factory tuning
+  'list_ollama_hosts', 'list_ollama_models', 'manage_host', 'manage_tuning', 'run_benchmark',
   // CI Watcher
   'await_ci_run', 'list_ci_runs', 'ci_run_status',
   'diagnose_ci_failure', 'watch_ci_repo', 'stop_ci_watch',
@@ -40,10 +42,8 @@ const TIER_1 = [
 
 const TIER_2 = [
   // Host management (legacy aliases — manage_host is preferred for new code)
-  'add_ollama_host', 'list_ollama_hosts',
+  'add_ollama_host',
   // Unified management tools (replaces individual host/tuning/webhook tools)
-  'manage_host',
-  'manage_tuning',
   'manage_webhook',
   // Legacy task aliases (backward compat — task_info is preferred)
   'smart_submit_task', 'check_status', 'get_result', 'get_progress',
