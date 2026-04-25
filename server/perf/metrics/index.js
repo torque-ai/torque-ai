@@ -1,5 +1,7 @@
 'use strict';
 
+// Metric modules will register themselves here as they are added.
+// Each metric module exports: { id, name, category, runs, warmup, units, run() }
 const metrics = [];
 
 function register(metric) {
