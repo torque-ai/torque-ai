@@ -398,6 +398,36 @@ describe('runAgenticLoop — context budget truncation', () => {
 // ---------------------------------------------------------------------------
 
 describe('runAgenticLoop — parse failure recovery', () => {
+  it('executes OpenRouter action/parameters JSON as a parsed tool call', async () => {
+    const adapter = mockAdapter([
+      textResponse(JSON.stringify({
+        action: 'list_directory',
+        parameters: { path: '.' },
+      })),
+      textResponse('Observed package.json and src. No edits were made.'),
+    ]);
+    const calls = [];
+    const executor = {
+      execute: (name, args) => {
+        calls.push({ name, args });
+        return { result: 'package.json\nsrc\ntests', metadata: {} };
+      },
+      changedFiles: new Set(),
+    };
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'sys',
+      taskPrompt: 'Read-only list directory.',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+    });
+
+    expect(calls).toEqual([{ name: 'list_directory', args: { path: '.' } }]);
+    expect(result.toolLog).toHaveLength(1);
+    expect(result.output).toContain('Observed package.json');
+  });
+
   it('injects correction message when response contains "name" but no valid tool call, then treats next response as final', async () => {
     // First response: malformed JSON with "name" in content but no parseable tool call
     const malformedResponse = {

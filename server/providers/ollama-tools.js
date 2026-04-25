@@ -1168,6 +1168,29 @@ function findJsonObjectEnd(text, startIndex) {
   return -1;
 }
 
+const PARSEABLE_TOOL_NAMES = new Set([
+  'read_file',
+  'write_file',
+  'edit_file',
+  'replace_lines',
+  'search_files',
+  'list_directory',
+  'run_command',
+]);
+
+function normalizeJsonToolCall(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const rawName = parsed.name || parsed.action || parsed.tool || parsed.tool_name || parsed.function;
+  const name = typeof rawName === 'string' ? rawName.trim() : '';
+  if (!PARSEABLE_TOOL_NAMES.has(name)) return null;
+
+  const rawArgs = parsed.arguments ?? parsed.parameters ?? parsed.args ?? parsed.params ?? {};
+  const args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
+    ? rawArgs
+    : {};
+  return { id: parsed.id, name, arguments: args };
+}
+
 /**
  * Parse tool calls from model response.
  * Handles structured tool_calls field, <tool_call> XML tags, raw JSON in content,
@@ -1179,7 +1202,7 @@ function findJsonObjectEnd(text, startIndex) {
  *   3. OpenRouter/free pseudo XML tags (<tool_name>...</tool_name>, <tool_name ... />, <invoke ...>)
  *   4. Bracketed pseudo calls ([TOOL_CALL] ... [/TOOL_CALL], [TOOL_CALLS]tool[ARGS]{...})
  *   5. Function-like pseudo calls (tool_name({path, value}))
- *   6. Raw JSON object with "name" key
+ *   6. Raw JSON object with "name"/"arguments" or "action"/"parameters"
  *   7. JSON in markdown code blocks
  *
  * @param {Object} message - The assistant message from Ollama
@@ -1330,15 +1353,16 @@ function parseToolCalls(message) {
   // Priority 3: Raw JSON object or array with "name" and "arguments" keys
   try {
     const parsed = JSON.parse(content);
-    // Single object: {"name": "...", "arguments": {...}}
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.name && typeof parsed.name === 'string') {
-      return [{ id: parsed.id, name: parsed.name, arguments: parsed.arguments || {} }];
+    // Single object: {"name": "...", "arguments": {...}} or
+    // OpenRouter pseudo-call: {"action": "...", "parameters": {...}}
+    const singleCall = normalizeJsonToolCall(parsed);
+    if (singleCall) {
+      return [singleCall];
     }
     // Array of objects: [{"name": "...", "arguments": {...}}, ...]
-    if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].name) {
-      return parsed.filter(tc => tc.name && typeof tc.name === 'string').map(tc => ({
-        id: tc.id, name: tc.name, arguments: tc.arguments || {},
-      }));
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      const calls = parsed.map(normalizeJsonToolCall).filter(Boolean);
+      if (calls.length > 0) return calls;
     }
   } catch {
     // Priority 3b: Newline-separated JSON objects (models that emit multiple tool
@@ -1349,9 +1373,8 @@ function parseToolCalls(message) {
       for (const line of lines) {
         try {
           const parsed = JSON.parse(line);
-          if (parsed.name && typeof parsed.name === 'string') {
-            ndjsonCalls.push({ id: parsed.id, name: parsed.name, arguments: parsed.arguments || {} });
-          }
+          const call = normalizeJsonToolCall(parsed);
+          if (call) ndjsonCalls.push(call);
         } catch { /* skip malformed */ }
       }
       if (ndjsonCalls.length > 0) return ndjsonCalls;
@@ -1364,8 +1387,11 @@ function parseToolCalls(message) {
   while ((match = codeBlockRegex.exec(content)) !== null) {
     try {
       const parsed = JSON.parse(match[1].trim());
-      if (parsed.name && typeof parsed.name === 'string') {
-        codeMatches.push({ name: parsed.name, arguments: parsed.arguments || {} });
+      const call = normalizeJsonToolCall(parsed);
+      if (call) {
+        codeMatches.push(call);
+      } else if (Array.isArray(parsed)) {
+        codeMatches.push(...parsed.map(normalizeJsonToolCall).filter(Boolean));
       }
     } catch { /* skip */ }
   }
