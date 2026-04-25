@@ -515,7 +515,22 @@ describe('search_files (pure Node.js)', () => {
     writeFile(dir, 'file.txt', 'hello world');
     const { execute } = createToolExecutor(dir);
     const res = execute('search_files', { pattern: 'a'.repeat(201), path: dir });
-    expect(res).toEqual({ error: 'Unsafe regex pattern' });
+    expect(res.error).toBe(true);
+    expect(res.result).toMatch(/unsafe regex pattern/i);
+  });
+
+  it('treats glob-like search patterns as file path searches', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'tests/unit/parser.test.ts', 'describe parser');
+    writeFile(dir, 'tests/fixtures/sample.txt', 'fixture');
+    writeFile(dir, 'src/parser.ts', 'export const parser = true;');
+    const { execute } = createToolExecutor(dir);
+    const res = execute('search_files', { pattern: 'tests/**/*', path: dir });
+    expect(res.error).not.toBe(true);
+    expect(res.result).toContain('File path matches');
+    expect(res.result).toContain('tests/unit/parser.test.ts');
+    expect(res.result).toContain('tests/fixtures/sample.txt');
+    expect(res.result).not.toContain('src/parser.ts');
   });
 
   it('blocks searches outside the task read allowlist', () => {

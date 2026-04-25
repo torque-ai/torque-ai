@@ -153,6 +153,7 @@ function buildOutputSummary(finalOutput, toolLog, changedFiles) {
  * @param {number} [params.maxIterations] - Max loop iterations (default MAX_ITERATIONS)
  * @param {number} [params.contextBudget] - Max estimated tokens before truncation (default 16000)
  * @param {number|null} [params.actionlessIterationLimit] - Stop after this many consecutive no-action iterations on modification tasks
+ * @param {boolean} [params.requireToolUseBeforeFinal] - Require at least one tool call before accepting a final answer
  * @param {Function} [params.onProgress] - (iteration, maxIter, lastTool) => void
  * @param {Function} [params.onToolCall] - (name, args, result) => void — for dashboard
  * @param {Function} [params.onChunk] - (text) => void — streamed model output heartbeat
@@ -171,6 +172,7 @@ async function runAgenticLoop({
   maxIterations = MAX_ITERATIONS,
   contextBudget = DEFAULT_CONTEXT_BUDGET,
   actionlessIterationLimit = null,
+  requireToolUseBeforeFinal = false,
   promptInjectedTools = false, // When true, tool results sent as user messages with [TOOL_RESULTS] format
   onProgress,
   onToolCall,
@@ -226,6 +228,10 @@ async function runAgenticLoop({
 
   // Empty summary retry: track if we already prompted for a summary
   let emptySummaryRetried = false;
+
+  // Evidence retry: for provider/task combinations where a no-tool answer is
+  // likely hallucinated, require the model to inspect the workspace once.
+  let toolEvidenceRetried = false;
 
   // Early termination flag — set inside inner loops to break the outer loop
   let earlyStop = false;
@@ -368,6 +374,25 @@ async function runAgenticLoop({
         emptySummaryRetried = true;
         continue; // one retry
       }
+
+      if (requireToolUseBeforeFinal && toolLog.length === 0 && content.trim()) {
+        if (!toolEvidenceRetried) {
+          logger.info('[Agentic] Final answer without tool evidence — injecting evidence requirement');
+          messages.push({ role: 'assistant', content });
+          messages.push({
+            role: 'user',
+            content: 'You answered without using the available repository tools. For this task, first call at least one read-only tool such as list_directory with {"path":"."}, read_file, or search_files, then give a final answer based only on the tool results. Do not answer from memory or assumptions.',
+          });
+          toolEvidenceRetried = true;
+          continue;
+        }
+
+        finalOutput = 'Task stopped: model answered without using required repository tools.';
+        stopReason = 'missing_tool_evidence';
+        logger.warn('[Agentic] Model answered without required tool evidence after retry — stopping');
+        break;
+      }
+
       // Incomplete task nudge: if the task asks to create/add/write files but the model
       // only called read-only tools (list_directory, read_file, search_files) and is now
       // declaring itself "done" with a text response, nudge it to actually complete the work.

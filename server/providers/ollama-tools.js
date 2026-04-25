@@ -233,6 +233,7 @@ const TOOL_DEFINITIONS = [
           pattern: { type: 'string', description: 'Text or regex pattern to search for' },
           path: { type: 'string', description: 'Directory to search in (default: working directory)' },
           glob: { type: 'string', description: 'File extension filter, e.g. "*.cs" or "*.ts" (optional)' },
+          max_matches: { type: 'number', description: 'Maximum matches to return, 1-100 (optional, default 50)' },
         },
         required: ['pattern'],
       },
@@ -383,6 +384,73 @@ function matchGlob(filename, globPattern) {
   }
   // Fall back to exact match (e.g. "package.json")
   return filename === globPattern;
+}
+
+function isLikelyFileGlob(pattern) {
+  return typeof pattern === 'string'
+    && /[*?]/.test(pattern)
+    && /[\\/]|^\*\.[A-Za-z0-9]+$|test|spec|package|config|readme/i.test(pattern);
+}
+
+function globToRegex(pattern) {
+  const normalized = String(pattern || '').replace(/\\/g, '/');
+  let source = '';
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i];
+    if (ch === '*') {
+      if (normalized[i + 1] === '*') {
+        const slashAfter = normalized[i + 2] === '/';
+        source += slashAfter ? '(?:.*/)?' : '.*';
+        i += slashAfter ? 2 : 1;
+      } else {
+        source += '[^/]*';
+      }
+    } else if (ch === '?') {
+      source += '[^/]';
+    } else {
+      source += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  return new RegExp(`^${source}$`, process.platform === 'win32' ? 'i' : '');
+}
+
+function findFilesByGlob(dir, globPattern, results, maxMatches, baseDir = dir, visited = new Set()) {
+  if (results.length >= maxMatches) return;
+  let realDir;
+  try { realDir = fs.realpathSync(dir); } catch { return; }
+  if (visited.has(realDir)) return;
+  visited.add(realDir);
+
+  let matcher;
+  try {
+    matcher = globToRegex(globPattern);
+  } catch {
+    return;
+  }
+  const normalizedPattern = String(globPattern || '').replace(/\\/g, '/');
+  const patternHasPath = normalizedPattern.includes('/');
+
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (results.length >= maxMatches) break;
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'bin' || entry.name === 'obj' || entry.name === 'dist' || entry.name === 'build') continue;
+      findFilesByGlob(fullPath, globPattern, results, maxMatches, baseDir, visited);
+    } else if (entry.isFile()) {
+      const relativePath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+      const target = patternHasPath ? relativePath : entry.name;
+      if (matcher.test(target)) {
+        results.push(relativePath);
+      }
+    }
+  }
 }
 
 /**
@@ -974,9 +1042,22 @@ function createToolExecutor(workingDir, options = {}) {
             };
           }
           const globFilter = args.glob || '*';
+          const maxMatches = Number.isFinite(Number(args.max_matches))
+            ? Math.max(1, Math.min(100, Math.trunc(Number(args.max_matches))))
+            : 50;
+
+          if (isLikelyFileGlob(args.pattern)) {
+            const pathMatches = [];
+            findFilesByGlob(resolvedPath, args.pattern, pathMatches, maxMatches);
+            if (pathMatches.length > 0) {
+              return {
+                result: `File path matches for glob-like pattern "${args.pattern}":\n${pathMatches.join('\n')}`,
+              };
+            }
+          }
 
           if (!isSafeRegex(args.pattern)) {
-            return { error: 'Unsafe regex pattern' };
+            return { result: `Error: Unsafe regex pattern: ${args.pattern}`, error: true };
           }
 
           let regex;
@@ -987,7 +1068,7 @@ function createToolExecutor(workingDir, options = {}) {
           }
 
           const results = [];
-          searchRecursive(resolvedPath, regex, globFilter, results, 100);
+          searchRecursive(resolvedPath, regex, globFilter, results, maxMatches);
 
           if (results.length === 0) return { result: 'No matches found.' };
           return { result: truncateOutput(results.join('\n')) };

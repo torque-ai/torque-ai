@@ -115,6 +115,63 @@ describe('runAgenticLoop — no tool calls (single iteration)', () => {
     expect(result.toolLog).toHaveLength(0);
     expect(Array.isArray(result.changedFiles)).toBe(true);
   });
+
+  it('requires a tool call before final output when evidence guard is enabled', async () => {
+    const adapter = mockAdapter([
+      textResponse('The repository is a .NET solution.'),
+      {
+        message: {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'list_directory', arguments: JSON.stringify({ path: '.' }) },
+          }],
+        },
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      },
+      textResponse('Observed package.json from tool results.'),
+    ]);
+    const executor = mockToolExecutor({
+      list_directory: { result: 'package.json\nsrc\ntests', metadata: {} },
+    });
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'You are a helpful assistant.',
+      taskPrompt: 'Inspect the repository.',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+      requireToolUseBeforeFinal: true,
+    });
+
+    expect(result.output).toContain('Observed package.json');
+    expect(result.output).not.toContain('The repository is a .NET solution.');
+    expect(result.toolLog).toHaveLength(1);
+    expect(result.toolLog[0].name).toBe('list_directory');
+  });
+
+  it('stops instead of accepting a second no-tool final when evidence guard is enabled', async () => {
+    const adapter = mockAdapter([
+      textResponse('The repository is a .NET solution.'),
+      textResponse('Still answering without tools.'),
+    ]);
+    const executor = mockToolExecutor();
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'You are a helpful assistant.',
+      taskPrompt: 'Inspect the repository.',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+      requireToolUseBeforeFinal: true,
+    });
+
+    expect(result.output).toContain('model answered without using required repository tools');
+    expect(result.stopReason).toBe('missing_tool_evidence');
+    expect(result.toolLog).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

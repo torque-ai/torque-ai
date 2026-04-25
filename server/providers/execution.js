@@ -558,6 +558,12 @@ function buildAgenticTaskPrompt(task, workingDir, budgetChars, agenticPolicy = n
   return preStuffFileContents(taskDescription, workingDir, budgetChars);
 }
 
+function shouldRequireToolEvidence(provider, task, workingDir) {
+  return provider === 'openrouter'
+    && !!workingDir
+    && !!String(task?.task_description || '').trim();
+}
+
 function isSafeRelativeProposalPath(workingDir, filePath) {
   if (typeof filePath !== 'string' || !filePath.trim()) return false;
   if (path.isAbsolute(filePath)) return false;
@@ -2148,6 +2154,7 @@ async function runAgenticPipeline({
     maxIterations: agenticPolicy.maxIterations || maxIterations,
     contextBudget,
     actionlessIterationLimit: agenticPolicy.actionlessIterationLimit,
+    requireToolUseBeforeFinal: shouldRequireToolEvidence(adapterOptions?.providerName, task, workingDir),
     onProgress: (iteration, max, lastTool) => {
       const pct = Math.min(85, 10 + Math.floor((iteration / max) * 75));
       try {
@@ -2888,6 +2895,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           maxIterations,
           contextBudget: PROVIDER_CONTEXT_BUDGETS[entry.provider] || contextBudget,
           promptInjectedTools: needsPromptInjection(entry.model || ''),
+          requireToolUseBeforeFinal: shouldRequireToolEvidence(entry.provider, task, workingDir),
           commandMode: agenticPolicy.commandMode,
           commandAllowlist: agenticPolicy.commandAllowlist,
           toolAllowlist: agenticPolicy.toolAllowlist,
@@ -2926,6 +2934,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         maxIterations,
         contextBudget,
         promptInjectedTools: false,
+        requireToolUseBeforeFinal: shouldRequireToolEvidence(provider, task, workingDir),
         commandMode: agenticPolicy.commandMode,
         commandAllowlist: agenticPolicy.commandAllowlist,
         toolAllowlist: agenticPolicy.toolAllowlist,
