@@ -1081,6 +1081,7 @@ describe('providers/execution agentic fixes', () => {
     expect(updated.status).toBe('completed');
     expect(updated.provider).toBe('ollama-cloud');
     expect(updated.output).toContain('--- Proposal Apply ---');
+    expect(updated.files_modified).toEqual(['tools/validate_unity_host_join_smoke.py']);
     expect(fs.readFileSync(path.join(workingDir, 'tools/validate_unity_host_join_smoke.py'), 'utf-8'))
       .toBe('print("ok")\n');
     const completionMetadata = JSON.parse(updated.task_metadata);

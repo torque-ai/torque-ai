@@ -2748,6 +2748,7 @@ async function executeOllamaTaskWithAgentic(task) {
         error_output: failureMessage,
         exit_code: 1,
         progress_percent: 100,
+        files_modified: result?.changedFiles || [],
         completed_at: completedAt,
         task_metadata: JSON.stringify({
           agentic_log: result.toolLog,
@@ -2772,6 +2773,7 @@ async function executeOllamaTaskWithAgentic(task) {
       output: result.output,
       exit_code: 0,
       progress_percent: 100,
+      files_modified: result?.changedFiles || [],
       completed_at: completedAt,
       task_metadata: JSON.stringify({
         agentic_log: result.toolLog,
@@ -3301,6 +3303,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         exit_code: 1,
         progress_percent: 100,
         model: result?.model || model || null,
+        files_modified: result?.changedFiles || [],
         completed_at: completedAt,
         task_metadata: JSON.stringify({
           agentic_log: result.toolLog,
@@ -3335,6 +3338,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       exit_code: 0,
       progress_percent: 100,
       model: result?.model || model || null,
+      files_modified: result?.changedFiles || [],
       completed_at: completedAt,
       task_metadata: JSON.stringify({
         agentic_log: result.toolLog,

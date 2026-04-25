@@ -1416,24 +1416,31 @@ describe('factory loop-controller EXECUTE modes', () => {
     const { project, workItem } = registerPlanProject();
     db.prepare('ALTER TABLE factory_worktrees ADD COLUMN owning_task_id TEXT').run();
     const targetBranch = `feat/factory-${workItem.id}-dry-run-plan-item`;
+    const worktreePath = path.join(project.path, '.worktrees', 'feat-live-owner');
+    fs.mkdirSync(worktreePath, { recursive: true });
     const existing = factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
       batch_id: `factory-${project.id}-${workItem.id}`,
       vc_worktree_id: 'vc-live-owner',
       branch: targetBranch,
-      worktree_path: path.join(project.path, '.worktrees', 'feat-live-owner'),
+      worktree_path: worktreePath,
     });
     factoryWorktrees.setOwningTask(existing.id, 'task-live-owner');
+    let ownerStatus = 'running';
     taskCore.getTask = vi.fn((taskId) => ({
       id: taskId,
-      status: taskId === 'task-live-owner' ? 'running' : 'completed',
+      status: taskId === 'task-live-owner' ? ownerStatus : 'completed',
       error_output: null,
     }));
 
     const worktreeRunner = {
       createForBatch: vi.fn(),
-      verify: vi.fn(),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 12,
+      })),
       mergeToMain: vi.fn(),
       abandon: vi.fn(),
     };
@@ -1452,10 +1459,23 @@ describe('factory loop-controller EXECUTE modes', () => {
       factory_worktree_id: existing.id,
       owning_task_id: 'task-live-owner',
     });
+    expect(executeAdvance.paused_at_stage).toBe(LOOP_STATES.EXECUTE);
     expect(db.prepare('SELECT status FROM factory_worktrees WHERE id = ?').get(existing.id).status).toBe('active');
+
+    ownerStatus = 'completed';
+    const resumedAdvance = await loopController.advanceLoopForProject(project.id);
+
+    expect(worktreeRunner.createForBatch).not.toHaveBeenCalled();
+    expect(worktreeRunner.abandon).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: worktreePath,
+    }));
+    expect(resumedAdvance.new_state).toBe(LOOP_STATES.VERIFY);
+    expect(resumedAdvance.paused_at_stage).toBeNull();
 
     const decisions = listDecisionRows(db, project.id);
     expect(decisions.find((d) => d.action === 'worktree_reclaim_skipped_live_owner')).toBeTruthy();
+    expect(decisions.find((d) => d.action === 'execute_wait_owner_completed')).toBeTruthy();
   });
 
   it('reuses an active worktree owned by a completed task instead of reclaiming it', async () => {

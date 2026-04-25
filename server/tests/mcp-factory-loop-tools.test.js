@@ -44,7 +44,7 @@ const FACTORY_LOOP_TOOLS = [
     required: ['project', 'stage'],
     properties: {
       project: { type: 'string' },
-      stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'] },
+      stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'EXECUTE', 'VERIFY', 'LEARN'] },
     },
   },
   {
@@ -102,7 +102,7 @@ const FACTORY_LOOP_TOOLS = [
     required: ['instance', 'stage'],
     properties: {
       instance: { type: 'string' },
-      stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'] },
+      stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'EXECUTE', 'VERIFY', 'LEARN'] },
     },
   },
   {
@@ -111,7 +111,7 @@ const FACTORY_LOOP_TOOLS = [
     required: ['instance', 'stage'],
     properties: {
       instance: { type: 'string' },
-      stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'] },
+      stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'EXECUTE', 'VERIFY', 'LEARN'] },
     },
   },
   {

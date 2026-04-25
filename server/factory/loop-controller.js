@@ -1193,6 +1193,102 @@ function getLatestStageDecision(project_id, stage) {
   }
 }
 
+function getLatestExecuteLiveOwnerWaitDecision(project_id, batchId = null) {
+  const db = database.getDbInstance();
+  if (!db || !project_id) {
+    return null;
+  }
+
+  try {
+    const params = [project_id];
+    let batchClause = '';
+    if (batchId) {
+      batchClause = 'AND batch_id = ?';
+      params.push(batchId);
+    }
+    const row = db.prepare(`
+      SELECT id, stage, actor, action, reasoning, inputs_json, outcome_json, batch_id
+      FROM factory_decisions
+      WHERE project_id = ?
+        AND stage = 'execute'
+        AND action = 'worktree_reclaim_skipped_live_owner'
+        ${batchClause}
+      ORDER BY id DESC
+      LIMIT 1
+    `).get(...params);
+
+    return hydrateDecisionRow(row);
+  } catch (error) {
+    logger.debug({ err: error.message, project_id, batch_id: batchId }, 'Unable to inspect execute live-owner wait decision');
+    return null;
+  }
+}
+
+function maybeClearCompletedExecuteOwnerWait(project, instance) {
+  if (getPausedAtStage(instance) !== LOOP_STATES.EXECUTE) {
+    return null;
+  }
+
+  const latestExecuteDecision = getLatestExecuteLiveOwnerWaitDecision(project.id, instance.batch_id || null);
+  if (!latestExecuteDecision) {
+    return null;
+  }
+
+  const owningTaskId = latestExecuteDecision?.outcome?.owning_task_id || null;
+  if (!owningTaskId) {
+    return null;
+  }
+
+  let owningTask = null;
+  try {
+    const taskCore = require('../db/task-core');
+    owningTask = typeof taskCore.getTask === 'function' ? taskCore.getTask(owningTaskId) : null;
+  } catch (error) {
+    logger.debug({ err: error.message, task_id: owningTaskId }, 'Unable to inspect execute wait owner task');
+  }
+
+  const owningStatus = String(owningTask?.status || '').toLowerCase();
+  if (owningTask && LIVE_WORKTREE_OWNER_STATUSES.has(owningStatus)) {
+    return {
+      waiting: true,
+      owning_task_id: owningTaskId,
+      owning_status: owningStatus,
+    };
+  }
+
+  const updated = updateInstanceAndSync(instance.id, {
+    paused_at_stage: null,
+    last_action_at: nowIso(),
+  });
+
+  safeLogDecision({
+    project_id: project.id,
+    stage: LOOP_STATES.EXECUTE,
+    actor: 'executor',
+    action: 'execute_wait_owner_completed',
+    reasoning: 'Cleared EXECUTE wait because the previously live owning task is no longer active.',
+    inputs: {
+      instance_id: instance.id,
+      previous_paused_at_stage: LOOP_STATES.EXECUTE,
+      owning_task_id: owningTaskId,
+    },
+    outcome: {
+      owning_task_id: owningTaskId,
+      owning_status: owningStatus || null,
+      new_state: getCurrentLoopState(updated),
+    },
+    confidence: 1,
+    batch_id: updated.batch_id || null,
+  });
+
+  return {
+    cleared: true,
+    instance: updated,
+    owning_task_id: owningTaskId,
+    owning_status: owningStatus || null,
+  };
+}
+
 function getLatestExecutionDecisionForWorkItem(project_id, workItemId) {
   const db = database.getDbInstance();
   if (!db || !project_id || !workItemId) {
@@ -8055,6 +8151,30 @@ async function runAdvanceLoop(instance_id) {
       stage_result: null,
       reason: moved.blocked ? 'stage_occupied' : 'stage_ready',
     };
+  }
+
+  if (pausedAtStage === LOOP_STATES.EXECUTE) {
+    const executeWait = maybeClearCompletedExecuteOwnerWait(project, instance);
+    if (executeWait?.waiting) {
+      return {
+        project_id: project.id,
+        instance_id: instance.id,
+        previous_state: previousState,
+        new_state: currentState,
+        paused_at_stage: pausedAtStage,
+        stage_result: {
+          status: 'waiting',
+          reason: 'active_worktree_owner_running',
+          owning_task_id: executeWait.owning_task_id,
+          owning_status: executeWait.owning_status,
+        },
+        reason: 'active worktree owner still running',
+      };
+    }
+    if (executeWait?.cleared) {
+      instance = executeWait.instance;
+      pausedAtStage = null;
+    }
   }
 
   if (pausedAtStage) {

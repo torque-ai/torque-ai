@@ -482,7 +482,7 @@ const tools = [
       type: 'object',
       properties: {
         project: { type: 'string', description: 'Project ID or path' },
-        stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'], description: 'The stage to approve' },
+        stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'EXECUTE', 'VERIFY', 'LEARN'], description: 'The stage to approve' },
       },
       required: ['project', 'stage'],
     },
@@ -650,7 +650,7 @@ const tools = [
       type: 'object',
       properties: {
         instance: { type: 'string', description: 'Factory loop instance UUID' },
-        stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'], description: 'The stage to approve' },
+        stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'EXECUTE', 'VERIFY', 'LEARN'], description: 'The stage to approve' },
       },
       required: ['instance', 'stage'],
     },
@@ -662,7 +662,7 @@ const tools = [
       type: 'object',
       properties: {
         instance: { type: 'string', description: 'Factory loop instance UUID' },
-        stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'VERIFY', 'LEARN'], description: 'The stage to reject' },
+        stage: { type: 'string', enum: ['PRIORITIZE', 'PLAN', 'EXECUTE', 'VERIFY', 'LEARN'], description: 'The stage to reject' },
       },
       required: ['instance', 'stage'],
     },

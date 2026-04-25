@@ -365,4 +365,33 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
       }),
     });
   });
+
+  it('resumes a paused EXECUTE gate at EXECUTE', () => {
+    const { project } = registerPlanProject();
+
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.PAUSED,
+      loop_paused_at_stage: LOOP_STATES.EXECUTE,
+    });
+
+    const approved = loopController.approveGateForProject(project.id, LOOP_STATES.EXECUTE);
+
+    expect(approved).toMatchObject({
+      project_id: project.id,
+      state: LOOP_STATES.EXECUTE,
+    });
+    expect(loopController.getLoopStateForProject(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_paused_at_stage: null,
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((row) => row.action === 'gate_approved')).toMatchObject({
+      stage: 'execute',
+      outcome: expect.objectContaining({
+        approved_stage: LOOP_STATES.EXECUTE,
+        to_state: LOOP_STATES.EXECUTE,
+      }),
+    });
+  });
 });
