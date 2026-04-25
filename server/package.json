@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node index.js",
     "test": "vitest run --config vitest.config.js",
+    "perf": "node perf/run-perf.js",
     "test:unit": "vitest run --reporter=verbose tests/db-*.test.js tests/handler-*.test.js tests/validation-*.test.js tests/error-*.test.js",
     "test:integration": "vitest run --reporter=verbose tests/e2e-*.test.js tests/close-handler-*.test.js tests/task-operations.test.js",
     "test:integration:rest": "vitest run --reporter=verbose tests/rest-provider-host-routes.integration.test.js tests/rest-v2-inference-tasks.integration.test.js tests/rest-v2-async-lifecycle.integration.test.js tests/rest-v2-concurrency.integration.test.js",

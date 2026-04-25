@@ -112,3 +112,7 @@ drafts/
 /tmp_google_ai_*.js
 /tmp_ollama_*.js
 .torque-checkpoints/
+
+# Perf harness — last run is local-only; baseline.json IS committed
+server/perf/last-run.json
+server/perf/bypass-audit.log
