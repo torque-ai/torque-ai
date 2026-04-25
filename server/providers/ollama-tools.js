@@ -601,6 +601,12 @@ function createToolExecutor(workingDir, options = {}) {
         }
 
         case 'write_file': {
+          if (typeof args.path !== 'string' || args.path.trim() === '') {
+            return {
+              result: 'Error: write_file requires a non-empty string path argument. Example: write_file({"path":"src/file.js","content":"..."})',
+              error: true,
+            };
+          }
           if (typeof args.content !== 'string') {
             return { result: null, error: 'content must be a string' };
           }
@@ -628,6 +634,24 @@ function createToolExecutor(workingDir, options = {}) {
         }
 
         case 'edit_file': {
+          if (typeof args.path !== 'string' || args.path.trim() === '') {
+            return {
+              result: 'Error: edit_file requires a non-empty string path argument. Example: edit_file({"path":"src/file.js","old_text":"text to replace","new_text":"replacement"})',
+              error: true,
+            };
+          }
+          if (typeof args.old_text !== 'string' || args.old_text.length === 0) {
+            return {
+              result: 'Error: edit_file requires a non-empty string old_text argument that exactly matches existing file content.',
+              error: true,
+            };
+          }
+          if (typeof args.new_text !== 'string') {
+            return {
+              result: 'Error: edit_file requires a string new_text argument. Use an empty string only when deleting matched text.',
+              error: true,
+            };
+          }
           const { resolvedPath, allowed } = resolveSafePath(args.path, workingDir);
           if (!allowed) {
             return {
@@ -850,6 +874,18 @@ function createToolExecutor(workingDir, options = {}) {
         }
 
         case 'replace_lines': {
+          if (typeof args.path !== 'string' || args.path.trim() === '') {
+            return {
+              result: 'Error: replace_lines requires a non-empty string path argument. Example: replace_lines({"path":"src/file.js","start_line":10,"end_line":12,"new_text":"replacement"})',
+              error: true,
+            };
+          }
+          if (typeof args.new_text !== 'string') {
+            return {
+              result: 'Error: replace_lines requires a string new_text argument.',
+              error: true,
+            };
+          }
           const { resolvedPath, allowed } = resolveSafePath(args.path, workingDir);
           if (!allowed) {
             return { result: `Error: path resolves outside working directory: ${resolvedPath}`, error: true };

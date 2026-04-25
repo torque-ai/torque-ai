@@ -392,6 +392,20 @@ describe('edit_file match semantics', () => {
     expect(res.result).toMatch(/not found/i);
   });
 
+  it('returns actionable errors for missing required arguments', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'test.txt', 'hello');
+    const { execute } = createToolExecutor(dir);
+
+    const missingPath = execute('edit_file', { old_text: 'hello', new_text: 'hi' });
+    expect(missingPath.error).toBe(true);
+    expect(missingPath.result).toContain('edit_file requires a non-empty string path argument');
+
+    const missingOldText = execute('edit_file', { path: 'test.txt', new_text: 'hi' });
+    expect(missingOldText.error).toBe(true);
+    expect(missingOldText.result).toContain('edit_file requires a non-empty string old_text argument');
+  });
+
   it('adds edited file to changedFiles', () => {
     const dir = makeTempDir();
     writeFile(dir, 'track.txt', 'original text');
