@@ -28,6 +28,15 @@ function normalizeBoolean(value, defaultValue = true) {
   return defaultValue;
 }
 
+function normalizeTimestamp(value) {
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString();
+  }
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = Date.parse(value.trim());
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
 function normalizeProviderList(value) {
   const raw = Array.isArray(value)
     ? value
@@ -262,6 +271,17 @@ function resolveLanePolicy(project, options = {}) {
   const requireClassifiedFallback = hasRequireClassifiedOverride
     ? normalizeBoolean(options.require_classified_fallback ?? options.requireClassifiedFallback, true)
     : normalizeBoolean(laneConfig.require_classified_fallback ?? laneConfig.requireClassifiedFallback, true);
+  const effectiveSince = normalizeTimestamp(
+    options.effective_since
+      ?? options.effectiveSince
+      ?? options.since
+      ?? laneConfig.effective_since
+      ?? laneConfig.effectiveSince
+      ?? laneConfig.enforced_at
+      ?? laneConfig.enforcedAt
+      ?? laneConfig.enabled_at
+      ?? laneConfig.enabledAt
+  );
 
   let expectedProvider = expectedFromRequest || expectedFromConfig || null;
   let source = expectedProvider ? (expectedFromRequest ? 'request' : 'project_config') : 'unconfigured';
@@ -275,6 +295,7 @@ function resolveLanePolicy(project, options = {}) {
     allowed_fallback_providers: allowedFallbacks,
     allowed_providers: policyProviders,
     require_classified_fallback: requireClassifiedFallback,
+    effective_since: effectiveSince,
     source,
   };
 }
@@ -361,7 +382,7 @@ function evaluateGuard(tasks, policy) {
   };
 }
 
-function queryTaskRows(db, project, limit) {
+function queryTaskRows(db, project, limit, effectiveSince = null) {
   const hasTaskMetadata = hasColumn(db, 'tasks', 'task_metadata');
   const selectTaskMetadata = hasTaskMetadata ? 'task_metadata' : 'NULL AS task_metadata';
   const conditions = [];
@@ -391,6 +412,11 @@ function queryTaskRows(db, project, limit) {
   if (conditions.length === 0) {
     return [];
   }
+  const filters = [`(${conditions.map((condition) => `(${condition})`).join(' OR ')})`];
+  if (effectiveSince) {
+    filters.push("COALESCE(created_at, '') >= @effectiveSince");
+    params.effectiveSince = effectiveSince;
+  }
 
   return db.prepare(`
     SELECT
@@ -398,13 +424,26 @@ function queryTaskRows(db, project, limit) {
       working_directory, created_at, started_at, completed_at, files_modified,
       task_description, output, error_output
     FROM tasks
-    WHERE ${conditions.map((condition) => `(${condition})`).join(' OR ')}
+    WHERE ${filters.join(' AND ')}
     ORDER BY COALESCE(created_at, '') DESC, id DESC
     LIMIT @limit
   `).all(params);
 }
 
-function buildProviderLaneAudit({ project, db, limit, expected_provider, expectedProvider, allowed_fallback_providers, allowedFallbackProviders, require_classified_fallback, requireClassifiedFallback } = {}) {
+function buildProviderLaneAudit({
+  project,
+  db,
+  limit,
+  expected_provider,
+  expectedProvider,
+  allowed_fallback_providers,
+  allowedFallbackProviders,
+  require_classified_fallback,
+  requireClassifiedFallback,
+  effective_since,
+  effectiveSince,
+  since,
+} = {}) {
   if (!project || typeof project !== 'object') {
     throw new Error('project is required');
   }
@@ -421,8 +460,11 @@ function buildProviderLaneAudit({ project, db, limit, expected_provider, expecte
     allowedFallbackProviders,
     require_classified_fallback,
     requireClassifiedFallback,
+    effective_since,
+    effectiveSince,
+    since,
   });
-  const rows = queryTaskRows(dbHandle, project, resolvedLimit);
+  const rows = queryTaskRows(dbHandle, project, resolvedLimit, policy.effective_since);
   const tasks = rows.map((row) => normalizeTaskRow(row, project));
   const summary = summarizeTasks(tasks);
   const guard = evaluateGuard(tasks, policy);
@@ -437,6 +479,7 @@ function buildProviderLaneAudit({ project, db, limit, expected_provider, expecte
     window: {
       limit: resolvedLimit,
       returned_tasks: tasks.length,
+      effective_since: policy.effective_since,
     },
     summary,
     guard,
@@ -448,6 +491,7 @@ module.exports = {
   buildProviderLaneAudit,
   _internalForTests: {
     normalizeProviderList,
+    normalizeTimestamp,
     normalizeTaskRow,
     resolveLanePolicy,
     evaluateGuard,
