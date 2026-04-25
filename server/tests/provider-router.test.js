@@ -307,6 +307,87 @@ describe('provider-router', () => {
         ],
       }));
     });
+
+    it('does not budget-overflow an agentic handoff target back away from codex', () => {
+      mockParseTaskMetadata.mockReturnValue({
+        smart_routing: true,
+        provider_selection_locked: true,
+        provider_selection_lock_reason: 'agentic_handoff',
+        agentic_handoff: true,
+        requested_provider: 'codex',
+        original_requested_provider: 'ollama-cloud',
+      });
+      mockDb.isBudgetExceeded.mockReturnValue({ exceeded: true, warning: false });
+      mockDb.listOllamaHosts.mockReturnValue([{ id: 'host-1', enabled: true, status: 'healthy' }]);
+
+      const task = {
+        provider: 'codex',
+        metadata: {},
+        task_description: 'Apply ollama-cloud button-up edits',
+      };
+
+      const result = providerRouter.resolveProviderRouting(task, 'task-handoff');
+
+      expect(result.provider).toBe('codex');
+      expect(result.switchReason).toBeNull();
+      expect(mockDb.isBudgetExceeded).not.toHaveBeenCalled();
+      expect(mockDb.patchTaskMetadata).toHaveBeenCalledWith('task-handoff', expect.objectContaining({
+        requested_provider: 'codex',
+        original_requested_provider: 'ollama-cloud',
+        intended_provider: 'codex',
+        provider_decision_trace: expect.objectContaining({
+          selected_provider: 'codex',
+          requested_provider: 'codex',
+          user_provider_override: false,
+          provider_selection_locked: true,
+          provider_selection_lock_reason: 'agentic_handoff',
+          agentic_handoff: true,
+          cause: 'agentic_handoff',
+          fallback_candidates: [],
+        }),
+      }));
+    });
+
+    it('preserves routing-template health-gate fallback identity without treating it as a user override', () => {
+      mockParseTaskMetadata.mockReturnValue({
+        smart_routing: true,
+        _routing_template: 'preset-ollama-cloud-primary',
+        routing_health_gate: {
+          from: 'ollama-cloud',
+          to: 'codex',
+          source: 'routing_template_chain',
+        },
+        requested_provider: 'codex',
+        original_requested_provider: 'ollama-cloud',
+      });
+      mockDb.isBudgetExceeded.mockReturnValue({ exceeded: true, warning: false });
+      mockDb.listOllamaHosts.mockReturnValue([{ id: 'host-1', enabled: true, status: 'healthy' }]);
+
+      const task = {
+        provider: 'codex',
+        metadata: {},
+        task_description: 'Fail packaged config parity with one sorted diagnostic',
+      };
+
+      const result = providerRouter.resolveProviderRouting(task, 'task-template-health');
+
+      expect(result.provider).toBe('codex');
+      expect(result.switchReason).toBeNull();
+      expect(mockDb.isBudgetExceeded).not.toHaveBeenCalled();
+      expect(mockDb.patchTaskMetadata).toHaveBeenCalledWith('task-template-health', expect.objectContaining({
+        requested_provider: 'codex',
+        original_requested_provider: 'ollama-cloud',
+        intended_provider: 'codex',
+        provider_decision_trace: expect.objectContaining({
+          selected_provider: 'codex',
+          user_provider_override: false,
+          provider_selection_locked: true,
+          provider_selection_lock_reason: 'routing_template_health_gate',
+          routing_template: 'preset-ollama-cloud-primary',
+          cause: 'routing_template_health_gate',
+        }),
+      }));
+    });
   });
 
   describe('getProviderSlotLimits', () => {

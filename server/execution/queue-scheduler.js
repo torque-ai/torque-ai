@@ -222,6 +222,15 @@ function resolveEffectiveProvider(task) {
   return '';
 }
 
+function hasProviderSelectionLock(metadata = {}) {
+  return Boolean(
+    metadata.user_provider_override
+    || metadata.provider_selection_locked
+    || metadata.agentic_handoff
+    || metadata._routing_template
+  );
+}
+
 function getFileLockWaitUntilMs(task) {
   const metadata = normalizeMetadata(task?.metadata);
   const wait = metadata[FILE_LOCK_WAIT_METADATA_KEY];
@@ -512,11 +521,9 @@ function attemptFreeProviderOverflow(codexTasks, capacity = {}) {
   for (let i = codexTasks.length - 1; i >= 0; i--) {
     const task = codexTasks[i];
     try {
-      if (task?.user_provider_override) continue;
-
       const metadata = normalizeMetadata(task.metadata);
 
-      if (metadata.user_provider_override) continue;
+      if (task?.user_provider_override || hasProviderSelectionLock(metadata)) continue;
       if (!metadata.smart_routing && !metadata.auto_routed) continue;
 
       const taskComplexity = metadata.complexity || 'normal';
@@ -573,8 +580,8 @@ function attemptCodexOverflow(codexTask) {
   try {
     const metadata = normalizeMetadata(codexTask.metadata);
 
-    if (metadata.user_provider_override) {
-      logger.info(`processQueue: skipping overflow for user-override Codex task ${codexTask.id.slice(0,8)}`);
+    if (hasProviderSelectionLock(metadata)) {
+      logger.info(`processQueue: skipping overflow for provider-locked Codex task ${codexTask.id.slice(0,8)}`);
       return false;
     }
 

@@ -248,6 +248,15 @@ function normalizeFilesModifiedField(value) {
   return normalized;
 }
 
+function hasProviderSelectionLock(metadata = {}) {
+  return Boolean(
+    metadata.user_provider_override
+    || metadata.provider_selection_locked
+    || metadata.agentic_handoff
+    || metadata._routing_template
+  );
+}
+
 // ============================================================
 // Core task CRUD
 // ============================================================
@@ -568,19 +577,19 @@ function updateTaskStatus(id, status, additionalFields = {}) {
   }
 
   // When requeuing a task, clear the provider so routing can re-evaluate.
-  // BUG-001 fix: preserve the provider when the user (or workflow node) explicitly
-  // requested it — clearing it would discard the user_provider_override intent and
-  // let smart-routing reassign the task to a different provider.
+  // BUG-001 fix: preserve the provider when there is explicit provider intent
+  // (user override, routing template, or runtime handoff). Clearing it would
+  // discard the selected provider and let smart-routing reassign the task.
   if (status === 'queued' && !Object.prototype.hasOwnProperty.call(additionalFields, 'provider') && !additionalFields._preserveProvider) {
-    let hasUserOverride = false;
+    let hasProviderIntent = false;
     try {
       const row = db.prepare('SELECT metadata FROM tasks WHERE id = ?').get(id);
       if (row && row.metadata) {
         const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
-        hasUserOverride = !!meta.user_provider_override;
+        hasProviderIntent = hasProviderSelectionLock(meta);
       }
     } catch (_e) { /* non-fatal — fall through to clear */ }
-    if (!hasUserOverride) {
+    if (!hasProviderIntent) {
       additionalFields.provider = null;
     }
   }
@@ -776,9 +785,9 @@ function requeueTaskAfterAttemptedStart(id, additionalFields = {}) {
     };
   }
 
-  // For user-override tasks, preserve the provider column so the queue scheduler
+  // For provider-intent tasks, preserve the provider column so the queue scheduler
   // can start them correctly. Clearing to null causes the task to go through
-  // late-bind smart routing which ignores the user's explicit choice.
+  // late-bind smart routing which ignores the selected provider.
   // The updateTaskStatus auto-clear at status='queued' also checks this, but
   // only when provider is NOT explicitly passed — so we must omit it here
   // rather than pass null.
@@ -787,7 +796,7 @@ function requeueTaskAfterAttemptedStart(id, additionalFields = {}) {
   try {
     const task = getTask(id);
     const meta = normalizeMetadataObject(task?.metadata);
-    if (meta.user_provider_override && task?.provider) {
+    if (hasProviderSelectionLock(meta) && task?.provider) {
       requeueProvider = task.provider;
       shouldOmitProvider = false;
     }

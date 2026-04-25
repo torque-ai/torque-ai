@@ -175,16 +175,58 @@ async function tryCreateAutoPR(taskId, task, workingDir, projectConfig) {
   }
 }
 
+function getProviderIntentInfo(taskMeta = {}) {
+  if (taskMeta.user_provider_override) {
+    return {
+      locked: true,
+      cause: 'user_override',
+      reason: 'Explicit provider override',
+      label: 'User-override',
+      lockReason: 'user_provider_override',
+    };
+  }
+
+  if (taskMeta.provider_selection_locked || taskMeta.agentic_handoff) {
+    return {
+      locked: true,
+      cause: 'agentic_handoff',
+      reason: 'Agentic handoff target',
+      label: 'Agentic handoff',
+      lockReason: taskMeta.provider_selection_lock_reason || 'agentic_handoff',
+    };
+  }
+
+  if (taskMeta._routing_template) {
+    const healthGate = taskMeta.routing_health_gate;
+    return {
+      locked: true,
+      cause: healthGate ? 'routing_template_health_gate' : 'routing_template',
+      reason: healthGate ? 'Routing template health-gate selection' : 'Routing template selection',
+      label: healthGate ? 'Routing-template health-gate' : 'Routing-template',
+      lockReason: healthGate ? 'routing_template_health_gate' : 'routing_template',
+    };
+  }
+
+  return {
+    locked: false,
+    cause: 'requested_provider',
+    reason: 'Requested/default provider',
+    label: 'Requested/default',
+    lockReason: null,
+  };
+}
+
 function buildProviderDecisionTrace(task, taskMeta, requestedProvider, chosenProvider, selectedCandidate, fallbackCandidates, blockedProviders, switchReason) {
   const now = new Date().toISOString();
   const normalizedRequestedProvider = typeof requestedProvider === 'string' ? requestedProvider.trim().toLowerCase() : null;
   const normalizedChosenProvider = typeof chosenProvider === 'string' ? chosenProvider.trim().toLowerCase() : null;
   const blocked = blockedProviders instanceof Set ? blockedProviders : new Set();
   const isUserOverride = Boolean(taskMeta.user_provider_override);
+  const intentInfo = getProviderIntentInfo(taskMeta);
   const selectionReason = switchReason
     || selectedCandidate?.reason
-    || (isUserOverride ? 'Explicit provider override' : 'Requested/default provider selected');
-  const selectionCause = selectedCandidate?.cause || (isUserOverride ? 'user_override' : 'requested_provider');
+    || (intentInfo.locked ? intentInfo.reason : 'Requested/default provider selected');
+  const selectionCause = selectedCandidate?.cause || intentInfo.cause;
   const candidateEntries = Array.isArray(fallbackCandidates)
     ? fallbackCandidates
       .map((candidate) => {
@@ -217,6 +259,10 @@ function buildProviderDecisionTrace(task, taskMeta, requestedProvider, chosenPro
     original_provider: task?.original_provider || taskMeta.original_provider || null,
     intended_provider: normalizedChosenProvider,
     user_provider_override: isUserOverride,
+    provider_selection_locked: intentInfo.locked,
+    provider_selection_lock_reason: intentInfo.lockReason,
+    agentic_handoff: Boolean(taskMeta.agentic_handoff),
+    routing_template: taskMeta._routing_template || null,
     auto_routed: Boolean(taskMeta.auto_routed),
     selected_at: now,
     selection_reason: selectionReason,
@@ -239,25 +285,27 @@ function resolveProviderRouting(task, taskId) {
   const requestedProvider = task.provider || taskMeta.intended_provider || _db.getDefaultProvider() || 'codex';
   const normalizedRequestedProvider = normalizeProviderOverride(task, requestedProvider, taskId);
   const paidProviders = new Set(['anthropic', 'groq', 'codex', 'claude-cli']);
-  const isUserOverride = taskMeta.user_provider_override;
+  const intentInfo = getProviderIntentInfo(taskMeta);
+  const isUserOverride = Boolean(taskMeta.user_provider_override);
+  const hasProviderSelectionLock = intentInfo.locked;
 
   // TDA-01 sovereign intent: when the user (or workflow) explicitly specified a provider,
   // skip all routing template evaluation and budget-based rerouting. The explicit provider
   // choice takes absolute precedence. Only budget-exceeded + user-override logs a warning.
-  if (isUserOverride && task.provider) {
-    logger.info(`[Routing] User-override provider '${normalizedRequestedProvider}' for task ${taskId} — skipping template routing (TDA-01)`);
+  if (hasProviderSelectionLock && task.provider) {
+    logger.info(`[Routing] ${intentInfo.label} provider '${normalizedRequestedProvider}' for task ${taskId} — skipping template/budget fallback (TDA-01)`);
   }
 
   const fallbackCandidates = [{
     provider: normalizedRequestedProvider,
     switchReason: null,
     role: 'primary',
-    reason: isUserOverride ? 'Explicit provider override' : 'Requested/default provider',
-    cause: isUserOverride ? 'user_override' : 'requested_provider',
+    reason: hasProviderSelectionLock ? intentInfo.reason : 'Requested/default provider',
+    cause: hasProviderSelectionLock ? intentInfo.cause : 'requested_provider',
   }];
-  if (!isUserOverride && paidProviders.has(normalizedRequestedProvider)) {
+  if (!hasProviderSelectionLock && paidProviders.has(normalizedRequestedProvider)) {
     const budgetStatus = _db.isBudgetExceeded(normalizedRequestedProvider);
-    if (budgetStatus.exceeded && !isUserOverride) {
+    if (budgetStatus.exceeded) {
       const ollamaHosts = _db.listOllamaHosts().filter(h => h.enabled && h.status === 'healthy');
       if (ollamaHosts.length > 0) {
         logger.info(`[Routing] Budget exceeded for ${normalizedRequestedProvider}, auto-routing to ollama for task ${taskId}`);
@@ -271,11 +319,9 @@ function resolveProviderRouting(task, taskId) {
       } else {
         logger.info(`[Routing] Budget exceeded for ${normalizedRequestedProvider} but no healthy Ollama hosts — proceeding with ${normalizedRequestedProvider}`);
       }
-    } else if (budgetStatus.exceeded && isUserOverride) {
-      logger.info(`[Routing] Budget exceeded for ${normalizedRequestedProvider} but user explicitly requested it — proceeding for task ${taskId}`);
     } else if (budgetStatus.warning) {
       // P-overflow: Only reroute on budget-warning if task was smart-routed (not user-overridden).
-      if (taskMeta.smart_routing && !isUserOverride) {
+      if (taskMeta.smart_routing) {
         const desc = (task.task_description || '').toLowerCase();
         const isNonCritical = /\b(document|comment|explain|summarize|review|test|boilerplate|format)\b/.test(desc);
         if (isNonCritical) {

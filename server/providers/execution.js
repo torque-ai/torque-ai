@@ -538,22 +538,40 @@ function resolveAgenticHandoffTarget({
   return null;
 }
 
-function buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason) {
+function buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason, options = {}) {
   const existingMetadata = normalizeTaskMetadata(task);
+  const sourceProvider = normalizeProviderName(task?.provider || existingMetadata.intended_provider || existingMetadata.requested_provider);
+  const targetProvider = normalizeProviderName(targetEntry.provider) || targetEntry.provider;
+  const originalUserOverride = Boolean(existingMetadata.user_provider_override || existingMetadata.original_user_provider_override);
+  const handoffMode = options.mode || 'button_up';
   const metadata = {
     ...existingMetadata,
-    user_provider_override: true,
-    intended_provider: targetEntry.provider,
-    requested_provider: targetEntry.provider,
+    user_provider_override: false,
+    ...(originalUserOverride ? { original_user_provider_override: true } : {}),
+    provider_selection_locked: true,
+    provider_selection_lock_reason: 'agentic_handoff',
+    agentic_handoff: true,
+    agentic_handoff_mode: handoffMode,
+    agentic_handoff_from: sourceProvider || task?.provider || null,
+    agentic_handoff_to: targetProvider,
+    agentic_handoff_target_model: targetEntry.model || null,
+    agentic_button_up: handoffMode === 'button_up' || undefined,
+    fallback_provider: targetProvider,
+    fallback_from_provider: sourceProvider || task?.provider || null,
+    fallback_reason: reason,
+    intended_provider: targetProvider,
+    requested_provider: targetProvider,
     requested_model: targetEntry.model || null,
-    eligible_providers: [targetEntry.provider],
-    agentic_handoff_from: task?.provider || null,
+    eligible_providers: [targetProvider],
     agentic_handoff_reason: reason,
     agentic_handoff_at: new Date().toISOString(),
   };
 
-  if (!metadata.original_requested_provider && existingMetadata.requested_provider) {
-    metadata.original_requested_provider = existingMetadata.requested_provider;
+  if (!metadata.original_requested_provider) {
+    metadata.original_requested_provider = existingMetadata.requested_provider
+      || sourceProvider
+      || task?.provider
+      || targetProvider;
   }
 
   if (Array.isArray(remainingChain) && remainingChain.length > 1) {
@@ -609,7 +627,7 @@ function resolveProposalApplyTarget(task, db) {
 }
 
 function buildProposalApplyHandoffPatch(task, targetEntry, remainingChain, reason, proposalResult, sourceResult) {
-  const patch = buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason);
+  const patch = buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason, { mode: 'proposal_apply' });
   const originalMetadata = normalizeTaskMetadata(task);
   const metadata = {
     ...patch.metadata,

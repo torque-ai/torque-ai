@@ -340,7 +340,15 @@ describe('providers/execution agentic fixes', () => {
     expect(updated.status).toBe('queued');
     expect(updated.provider).toBe('codex');
     expect(updated.model).toBeNull();
-    expect(updated.metadata.user_provider_override).toBe(true);
+    expect(updated.metadata.user_provider_override).toBe(false);
+    expect(updated.metadata.provider_selection_locked).toBe(true);
+    expect(updated.metadata.provider_selection_lock_reason).toBe('agentic_handoff');
+    expect(updated.metadata.agentic_handoff).toBe(true);
+    expect(updated.metadata.agentic_handoff_mode).toBe('button_up');
+    expect(updated.metadata.agentic_handoff_from).toBe('ollama-cloud');
+    expect(updated.metadata.agentic_handoff_to).toBe('codex');
+    expect(updated.metadata.fallback_provider).toBe('codex');
+    expect(updated.metadata.original_requested_provider).toBe('ollama-cloud');
     expect(updated.metadata.requested_provider).toBe('codex');
     expect(updated.metadata.agentic_handoff_reason).toContain('Agentic no-op');
     expect(safeUpdateTaskStatus).not.toHaveBeenCalledWith(
@@ -519,6 +527,13 @@ describe('providers/execution agentic fixes', () => {
     expect(updated.metadata.proposal_apply_parse_status).toBe('valid');
     expect(updated.metadata.proposal_compute_output.file_edits).toHaveLength(1);
     expect(updated.metadata.original_task_description).toBe(originalTask);
+    expect(updated.metadata.user_provider_override).toBe(false);
+    expect(updated.metadata.provider_selection_locked).toBe(true);
+    expect(updated.metadata.provider_selection_lock_reason).toBe('agentic_handoff');
+    expect(updated.metadata.agentic_handoff).toBe(true);
+    expect(updated.metadata.agentic_handoff_mode).toBe('proposal_apply');
+    expect(updated.metadata.agentic_handoff_from).toBe('ollama-cloud');
+    expect(updated.metadata.agentic_handoff_to).toBe('codex');
     expect(updated.metadata.agentic_allowed_tools).toBeUndefined();
     expect(updated.metadata.ollama_cloud_repo_write_mode).toBeUndefined();
     expect(safeUpdateTaskStatus).not.toHaveBeenCalledWith(
@@ -591,7 +606,15 @@ describe('providers/execution agentic fixes', () => {
     const updated = tasks.get(task.id);
     expect(updated.status).toBe('queued');
     expect(updated.provider).toBe('codex');
-    expect(updated.metadata.user_provider_override).toBe(true);
+    expect(updated.metadata.user_provider_override).toBe(false);
+    expect(updated.metadata.provider_selection_locked).toBe(true);
+    expect(updated.metadata.provider_selection_lock_reason).toBe('agentic_handoff');
+    expect(updated.metadata.agentic_handoff).toBe(true);
+    expect(updated.metadata.agentic_handoff_mode).toBe('button_up');
+    expect(updated.metadata.agentic_handoff_from).toBe('ollama-cloud');
+    expect(updated.metadata.agentic_handoff_to).toBe('codex');
+    expect(updated.metadata.fallback_provider).toBe('codex');
+    expect(updated.metadata.original_requested_provider).toBe('ollama-cloud');
     expect(updated.metadata.requested_provider).toBe('codex');
     expect(updated.metadata.agentic_handoff_reason).toContain('failed');
   });
