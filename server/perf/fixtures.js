@@ -47,6 +47,9 @@ function buildFixture(opts = {}) {
   // tasks.server_epoch — required by createTask (added by schema-migrations.js)
   safeAddCol('tasks', 'server_epoch INTEGER');
 
+  // tasks.archived — queried by listTasks WHERE archived = 0 (buildTaskFilterConditions default)
+  safeAddCol('tasks', 'archived INTEGER DEFAULT 0');
+
   // token_usage.project — queried by getProjectStats WHERE project = ?
   safeAddCol('token_usage', 'project TEXT');
 
