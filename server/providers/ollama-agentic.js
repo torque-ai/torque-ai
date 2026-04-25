@@ -15,14 +15,35 @@ const crypto = require('crypto');
 const logger = require('../logger').child({ component: 'ollama-agentic' });
 const { parseToolCalls } = require('./ollama-tools');
 
-const MAX_ITERATIONS = 15;
+// Read a positive integer from an env var, falling back to the provided
+// default when the value is missing, malformed, or non-positive. Operators
+// can tune all four agentic-loop budgets without code changes:
+//   TORQUE_AGENTIC_MAX_ITERATIONS
+//   TORQUE_AGENTIC_CONTEXT_BUDGET
+//   TORQUE_AGENTIC_MAX_READ_ONLY_ITERATIONS
+//   TORQUE_AGENTIC_MAX_EDIT_FAILURE_RECOVERIES
+function envPositiveInt(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : fallback;
+}
+
+// Defaults bumped from the original (15, 16000, 5, 2) on 2026-04-25 once
+// free factory routing started running multi-file edit work through the
+// agentic loop. The original budgets were sized for 32B-class models with
+// 16K context; modern free providers (cerebras qwen-3-235b @ 128K,
+// ollama-cloud kimi-k2 @ ~200K, gpt-oss-120b @ 131K) have headroom that
+// the loop was leaving on the floor — and free models genuinely need more
+// rounds than Codex's internal loop to converge on multi-file edits.
+const MAX_ITERATIONS = envPositiveInt('TORQUE_AGENTIC_MAX_ITERATIONS', 25);
 const MAX_TOTAL_OUTPUT_CHARS = 512 * 1024; // 512KB total conversation log
-const DEFAULT_CONTEXT_BUDGET = 16000;      // ~16k tokens (rough: chars / 4)
+const DEFAULT_CONTEXT_BUDGET = envPositiveInt('TORQUE_AGENTIC_CONTEXT_BUDGET', 64000); // ~64k tokens (rough: chars / 4)
 const ARGUMENTS_PREVIEW_MAX = 500;
 const RESULT_PREVIEW_MAX = 500;
 const READ_ONLY_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
 const ACTION_TOOLS = new Set(['write_file', 'edit_file', 'replace_lines', 'run_command']);
-const DEFAULT_MAX_READ_ONLY_ITERATIONS = 5;
+const DEFAULT_MAX_READ_ONLY_ITERATIONS = envPositiveInt('TORQUE_AGENTIC_MAX_READ_ONLY_ITERATIONS', 5);
 
 function buildProposalOutputCorrectionPrompt() {
   return [
@@ -237,9 +258,14 @@ async function runAgenticLoop({
   let readOnlyNudgeInjected = false;
   let actionlessIterations = 0;
 
-  // Edit failure recovery: guide model to re-read file after failed edits
+  // Edit failure recovery: guide model to re-read file after failed edits.
+  // Bumped from 2 to 3 on 2026-04-25 — free models (especially smaller ones
+  // like llama3.1-8b, zai-glm-4.7) fumble edit_file's old_text exact-match
+  // contract more often than Codex; the third retry is cheap and catches
+  // the case where re-reading the file the second time finally lets the
+  // model pick a unique anchor.
   let editFailureRecoveryCount = 0;
-  const MAX_EDIT_FAILURE_RECOVERIES = 2;
+  const MAX_EDIT_FAILURE_RECOVERIES = envPositiveInt('TORQUE_AGENTIC_MAX_EDIT_FAILURE_RECOVERIES', 3);
 
   // Parse failure recovery: track if we already injected a correction
   let parseFailureCorrectionInjected = false;
@@ -732,4 +758,6 @@ module.exports = {
   runAgenticLoop,
   truncateOldestToolResults,
   MAX_ITERATIONS,
+  DEFAULT_CONTEXT_BUDGET,
+  DEFAULT_MAX_READ_ONLY_ITERATIONS,
 };

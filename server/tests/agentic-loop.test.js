@@ -968,6 +968,73 @@ describe('MAX_ITERATIONS export', () => {
     expect(Number.isInteger(MAX_ITERATIONS)).toBe(true);
   });
 
+  it('defaults to 25 when no env override is set', () => {
+    const original = process.env.TORQUE_AGENTIC_MAX_ITERATIONS;
+    delete process.env.TORQUE_AGENTIC_MAX_ITERATIONS;
+    delete require.cache[require.resolve('../providers/ollama-agentic')];
+    try {
+      const mod = require('../providers/ollama-agentic');
+      expect(mod.MAX_ITERATIONS).toBe(25);
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_AGENTIC_MAX_ITERATIONS;
+      else process.env.TORQUE_AGENTIC_MAX_ITERATIONS = original;
+      delete require.cache[require.resolve('../providers/ollama-agentic')];
+    }
+  });
+
+  it('honors TORQUE_AGENTIC_MAX_ITERATIONS env override', () => {
+    const original = process.env.TORQUE_AGENTIC_MAX_ITERATIONS;
+    process.env.TORQUE_AGENTIC_MAX_ITERATIONS = '40';
+    delete require.cache[require.resolve('../providers/ollama-agentic')];
+    try {
+      const mod = require('../providers/ollama-agentic');
+      expect(mod.MAX_ITERATIONS).toBe(40);
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_AGENTIC_MAX_ITERATIONS;
+      else process.env.TORQUE_AGENTIC_MAX_ITERATIONS = original;
+      delete require.cache[require.resolve('../providers/ollama-agentic')];
+    }
+  });
+
+  it('ignores invalid env values and falls back to default', () => {
+    const original = process.env.TORQUE_AGENTIC_MAX_ITERATIONS;
+    process.env.TORQUE_AGENTIC_MAX_ITERATIONS = 'not-a-number';
+    delete require.cache[require.resolve('../providers/ollama-agentic')];
+    try {
+      const mod = require('../providers/ollama-agentic');
+      expect(mod.MAX_ITERATIONS).toBe(25);
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_AGENTIC_MAX_ITERATIONS;
+      else process.env.TORQUE_AGENTIC_MAX_ITERATIONS = original;
+      delete require.cache[require.resolve('../providers/ollama-agentic')];
+    }
+  });
+
+  it('DEFAULT_CONTEXT_BUDGET defaults to 64000 and honors env override', () => {
+    const original = process.env.TORQUE_AGENTIC_CONTEXT_BUDGET;
+    delete process.env.TORQUE_AGENTIC_CONTEXT_BUDGET;
+    delete require.cache[require.resolve('../providers/ollama-agentic')];
+    try {
+      const mod = require('../providers/ollama-agentic');
+      expect(mod.DEFAULT_CONTEXT_BUDGET).toBe(64000);
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_AGENTIC_CONTEXT_BUDGET;
+      else process.env.TORQUE_AGENTIC_CONTEXT_BUDGET = original;
+      delete require.cache[require.resolve('../providers/ollama-agentic')];
+    }
+
+    process.env.TORQUE_AGENTIC_CONTEXT_BUDGET = '128000';
+    delete require.cache[require.resolve('../providers/ollama-agentic')];
+    try {
+      const mod = require('../providers/ollama-agentic');
+      expect(mod.DEFAULT_CONTEXT_BUDGET).toBe(128000);
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_AGENTIC_CONTEXT_BUDGET;
+      else process.env.TORQUE_AGENTIC_CONTEXT_BUDGET = original;
+      delete require.cache[require.resolve('../providers/ollama-agentic')];
+    }
+  });
+
   it('defaults are respected when maxIterations is not provided', async () => {
     // Just verify the loop runs without throwing when using defaults
     const adapter = mockAdapter([textResponse('done')]);
