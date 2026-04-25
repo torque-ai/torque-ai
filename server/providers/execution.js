@@ -515,6 +515,9 @@ Rules:
 - Use "type": "create", "old_text": "", and "new_text" equal to the full file content for a new file.
 - Use "type": "replace" for edits to existing files. old_text must be an exact substring when the file exists.
 - Use "type": "delete" and "new_text": "" only for deletions.
+- Deterministic apply processes operations in order. If two edits touch the same method, class, or nearby block, combine them into one larger replace operation instead of returning overlapping old_text snippets.
+- For each replace/delete operation, old_text must be unique in the current file before that operation is applied. Do not reuse old_text from the pre-edit version after an earlier operation has changed the same region.
+- Prefer one complete function/class replacement over many small replacements when changing signatures, properties, enums, or call sites inside the same symbol.
 - Keep paths relative to the working directory.
 - Include only the files required by the original task.
 
@@ -825,10 +828,18 @@ function buildProposalApplyHandoffPatch(task, targetEntry, remainingChain, reaso
     proposal_apply_parse_status: 'valid',
     proposal_apply_from: sourceResult?.provider || task?.provider || null,
     proposal_apply_source_model: sourceResult?.model || task?.model || null,
+    proposal_apply_mode: 'provider_handoff',
     proposal_apply_warnings: proposalResult.warnings || [],
     proposal_compute_output: proposalResult.computeOutput,
     original_task_description: originalMetadata.original_task_description || task?.task_description || '',
   };
+  const deterministicFailureReason = sourceResult?.deterministic_apply_failure_reason
+    || sourceResult?.deterministicApplyFailureReason
+    || null;
+  if (deterministicFailureReason) {
+    metadata.proposal_apply_deterministic_apply_failed = true;
+    metadata.proposal_apply_deterministic_failure_reason = deterministicFailureReason;
+  }
 
   delete metadata.ollama_cloud_repo_write_mode;
   delete metadata.cloud_repo_write_mode;
@@ -2972,6 +2983,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
             const proposalHandoff = requeueAgenticTaskForProposalApply(db, taskId, currentTask, proposalResult, {
               provider: sourceProvider,
               model: sourceModel,
+              deterministic_apply_failure_reason: deterministicApply.reason || null,
             }, proposalReason);
             if (proposalHandoff.requeued) {
               logger.info(`[Agentic] API task ${taskId} requeued to ${proposalHandoff.target.entry.provider}${proposalHandoff.target.entry.model ? `/${proposalHandoff.target.entry.model}` : ''} for proposal apply`);

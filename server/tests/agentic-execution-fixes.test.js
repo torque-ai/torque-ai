@@ -927,7 +927,11 @@ describe('providers/execution agentic fixes', () => {
     expect(updated.status).toBe('queued');
     expect(updated.provider).toBe('codex');
     expect(updated.metadata.proposal_apply).toBe(true);
+    expect(updated.metadata.proposal_apply_mode).toBe('provider_handoff');
     expect(updated.metadata.agentic_handoff_mode).toBe('proposal_apply');
+    expect(updated.metadata.proposal_apply_deterministic_apply_failed).toBe(true);
+    expect(updated.metadata.proposal_apply_deterministic_failure_reason)
+      .toContain('exact old_text was not found');
     expect(fs.readFileSync(path.join(workingDir, 'tools/existing.py'), 'utf-8'))
       .toBe('print("current")\n');
   });
