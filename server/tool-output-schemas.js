@@ -19,7 +19,7 @@ const OUTPUT_SCHEMAS = {
         type: 'object',
         properties: {
           id: { type: 'string' },
-          status: { type: 'string', enum: ['pending', 'queued', 'running', 'completed', 'failed', 'cancelled'] },
+          status: { type: 'string', enum: ['pending', 'queued', 'running', 'completed', 'failed', 'cancelled', 'waiting', 'pending_approval', 'pending_provider_switch', 'retry_scheduled', 'skipped', 'blocked'] },
           provider: { type: 'string' },
           model: { type: 'string' },
           progress: { type: 'number' },

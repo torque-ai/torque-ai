@@ -105,9 +105,15 @@ module.exports = [
             "running",
             "completed",
             "failed",
-            "cancelled"
+            "cancelled",
+            "waiting",
+            "pending_approval",
+            "pending_provider_switch",
+            "retry_scheduled",
+            "skipped",
+            "blocked"
           ],
-          "description": "Filter by status"
+          "description": "Filter by status. Beyond the standard pending/queued/running/completed/failed/cancelled, the runtime also uses waiting (workflow dependency unmet), pending_approval (held for human gate), pending_provider_switch (mid-fallback after a quota/health failure), retry_scheduled (queued for adaptive retry), skipped (workflow short-circuit), and blocked (cannot promote)."
         },
         "tags": {
           "type": "array",
