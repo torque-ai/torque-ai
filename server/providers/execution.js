@@ -537,6 +537,87 @@ function validateProposalApplyOutput(output, workingDir) {
   };
 }
 
+function countExactOccurrences(content, searchText) {
+  if (typeof content !== 'string' || typeof searchText !== 'string' || searchText.length === 0) {
+    return 0;
+  }
+  let count = 0;
+  let offset = 0;
+  while (offset < content.length) {
+    const index = content.indexOf(searchText, offset);
+    if (index === -1) break;
+    count += 1;
+    offset = index + searchText.length;
+  }
+  return count;
+}
+
+function applyProposalEditsDeterministically(computeOutput, workingDir) {
+  const fs = require('fs');
+  const staged = new Map();
+  const changedFiles = [];
+  let operationCount = 0;
+
+  for (const edit of computeOutput?.file_edits || []) {
+    if (!isSafeRelativeProposalPath(workingDir, edit.file)) {
+      return { applied: false, reason: `${edit?.file || '(unknown file)'}: unsafe path` };
+    }
+
+    const relativePath = edit.file.replace(/\\/g, '/');
+    const absolutePath = path.resolve(workingDir, relativePath);
+    let content = staged.has(absolutePath)
+      ? staged.get(absolutePath)
+      : (fs.existsSync(absolutePath) ? fs.readFileSync(absolutePath, 'utf-8') : null);
+
+    for (const operation of edit.operations || []) {
+      const type = String(operation?.type || 'replace').trim().toLowerCase();
+      const oldText = operation?.old_text ?? '';
+      const newText = operation?.new_text ?? '';
+
+      if (type === 'create' || oldText === '') {
+        content = String(newText);
+        operationCount += 1;
+        continue;
+      }
+
+      if (type !== 'replace' && type !== 'delete') {
+        return { applied: false, reason: `${relativePath}: unsupported operation type '${type}'` };
+      }
+      if (content === null) {
+        return { applied: false, reason: `${relativePath}: file does not exist` };
+      }
+
+      const replacementText = type === 'delete' ? '' : String(newText);
+      const occurrences = countExactOccurrences(content, String(oldText));
+      if (occurrences === 0) {
+        return { applied: false, reason: `${relativePath}: exact old_text was not found` };
+      }
+      if (occurrences > 1) {
+        return { applied: false, reason: `${relativePath}: exact old_text matched ${occurrences} times` };
+      }
+
+      content = content.replace(String(oldText), replacementText);
+      operationCount += 1;
+    }
+
+    staged.set(absolutePath, content);
+  }
+
+  for (const [absolutePath, nextContent] of staged.entries()) {
+    const previousContent = fs.existsSync(absolutePath) ? fs.readFileSync(absolutePath, 'utf-8') : null;
+    if (previousContent === nextContent) continue;
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, nextContent, 'utf-8');
+    changedFiles.push(path.relative(workingDir, absolutePath).replace(/\\/g, '/'));
+  }
+
+  if (changedFiles.length === 0) {
+    return { applied: false, reason: 'proposal edits produced no file changes' };
+  }
+
+  return { applied: true, changedFiles, operationCount };
+}
+
 function buildProposalApplyTaskDescription(computeOutput, workingDir, originalTaskDescription) {
   const sections = [];
   for (const edit of computeOutput.file_edits || []) {
@@ -2777,28 +2858,66 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
 
     const shouldEscalateNoOp = shouldEscalateNoOpAgenticResult(task, result);
     let proposalApplySkipReason = '';
+    let proposalAppliedDeterministically = false;
+    let proposalApplyCompletionMetadata = null;
     if (shouldEscalateNoOp) {
       const currentTask = db.getTask(taskId) || task;
       if (shouldUseProposalApplyMode(currentTask, agenticPolicy)) {
         const proposalResult = validateProposalApplyOutput(result?.output || '', currentTask.working_directory || workingDir);
         if (proposalResult.valid) {
-          const proposalReason = `Proposal/apply handoff from ${(result?.provider || provider)}/${result?.model || model || 'default'}: ${proposalResult.computeOutput.file_edits.length} file edit proposal(s)`;
-          const proposalHandoff = requeueAgenticTaskForProposalApply(db, taskId, currentTask, proposalResult, {
-            provider: result?.provider || provider,
-            model: result?.model || model || null,
-          }, proposalReason);
-          if (proposalHandoff.requeued) {
-            logger.info(`[Agentic] API task ${taskId} requeued to ${proposalHandoff.target.entry.provider}${proposalHandoff.target.entry.model ? `/${proposalHandoff.target.entry.model}` : ''} for proposal apply`);
-            return;
+          const sourceProvider = result?.provider || provider;
+          const sourceModel = result?.model || model || null;
+          const deterministicApply = applyProposalEditsDeterministically(
+            proposalResult.computeOutput,
+            currentTask.working_directory || workingDir
+          );
+
+          if (deterministicApply.applied) {
+            proposalAppliedDeterministically = true;
+            result.changedFiles = mergeChangedFiles(result?.changedFiles, deterministicApply.changedFiles);
+            result.output = `${result?.output || ''}\n\n--- Proposal Apply ---\nApplied ${deterministicApply.operationCount} exact edit operation(s) from ${sourceProvider}/${sourceModel || 'default'} to ${deterministicApply.changedFiles.length} file(s): ${deterministicApply.changedFiles.join(', ')}`;
+            proposalApplyCompletionMetadata = {
+              proposal_apply: true,
+              proposal_apply_mode: 'deterministic',
+              proposal_apply_parse_status: 'valid',
+              proposal_apply_from: sourceProvider,
+              proposal_apply_source_model: sourceModel,
+              proposal_apply_warnings: proposalResult.warnings || [],
+              proposal_apply_operation_count: deterministicApply.operationCount,
+              proposal_compute_output: proposalResult.computeOutput,
+              original_task_description: normalizeTaskMetadata(currentTask).original_task_description || currentTask?.task_description || '',
+            };
+
+            if (snapshot && snapshot.isGitRepo) {
+              const safetyMode = serverConfig.get('agentic_git_safety') || 'on';
+              const mode = safetyMode === 'on' ? 'enforce' : safetyMode === 'warn' ? 'warn' : 'off';
+              const gitReport = checkAndRevert(currentTask.working_directory || workingDir, snapshot, currentTask.task_description, mode, buildGitSafetyOptions(agenticPolicy));
+              completionGitReport = gitReport;
+              if (gitReport.report) {
+                result.output += '\n\n--- Git Safety ---\n' + gitReport.report;
+              }
+            }
+          } else {
+            const proposalReason = `Proposal/apply handoff from ${sourceProvider}/${sourceModel || 'default'}: ${proposalResult.computeOutput.file_edits.length} file edit proposal(s)`;
+            const proposalHandoff = requeueAgenticTaskForProposalApply(db, taskId, currentTask, proposalResult, {
+              provider: sourceProvider,
+              model: sourceModel,
+            }, proposalReason);
+            if (proposalHandoff.requeued) {
+              logger.info(`[Agentic] API task ${taskId} requeued to ${proposalHandoff.target.entry.provider}${proposalHandoff.target.entry.model ? `/${proposalHandoff.target.entry.model}` : ''} for proposal apply`);
+              return;
+            }
+            proposalApplySkipReason = deterministicApply.reason
+              ? `deterministic proposal apply failed: ${deterministicApply.reason}`
+              : (proposalHandoff.reason || 'proposal apply handoff unavailable');
           }
-          proposalApplySkipReason = proposalHandoff.reason || 'proposal apply handoff unavailable';
         } else {
           proposalApplySkipReason = proposalResult.reason || 'proposal parse failed';
         }
       }
     }
 
-    const handoffTarget = shouldEscalateNoOp
+    const handoffTarget = shouldEscalateNoOp && !proposalAppliedDeterministically
       ? resolveAgenticHandoffTarget({
           task: db.getTask(taskId) || task,
           chain,
@@ -2863,6 +2982,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         task_metadata: JSON.stringify({
           agentic_log: result.toolLog,
           agentic_token_usage: result.tokenUsage,
+          ...(proposalApplyCompletionMetadata || {}),
           agentic_failure_reason: failureMessage,
           ...(revertResult ? { agentic_reverted_changes: revertResult.reverted, agentic_revert_report: revertResult.report } : {}),
           ...(result.chainPosition ? { chain_provider: result.provider, chain_position: result.chainPosition } : {}),
@@ -2888,6 +3008,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       task_metadata: JSON.stringify({
         agentic_log: result.toolLog,
         agentic_token_usage: result.tokenUsage,
+        ...(proposalApplyCompletionMetadata || {}),
         ...(result.chainPosition ? { chain_provider: result.provider, chain_position: result.chainPosition } : {}),
       }),
     });

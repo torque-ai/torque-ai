@@ -571,7 +571,7 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 
-  it('requeues valid ollama-cloud proposal output to codex as an apply task', async () => {
+  it('applies valid ollama-cloud proposal output without a codex apply task', async () => {
     const { mod, configMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));
 
@@ -654,28 +654,119 @@ describe('providers/execution agentic fixes', () => {
     await mod.executeApiProvider(task, { name: 'ollama-cloud' });
 
     const updated = tasks.get(task.id);
-    expect(updated.status).toBe('queued');
-    expect(updated.provider).toBe('codex');
-    expect(updated.task_description).toContain('Apply the following repository edits');
-    expect(updated.task_description).toContain('Create or overwrite this file');
-    expect(updated.metadata.proposal_apply).toBe(true);
-    expect(updated.metadata.proposal_apply_parse_status).toBe('valid');
-    expect(updated.metadata.proposal_compute_output.file_edits).toHaveLength(1);
-    expect(updated.metadata.original_task_description).toBe(originalTask);
-    expect(updated.metadata.user_provider_override).toBe(false);
-    expect(updated.metadata.provider_selection_locked).toBe(true);
-    expect(updated.metadata.provider_selection_lock_reason).toBe('agentic_handoff');
-    expect(updated.metadata.agentic_handoff).toBe(true);
-    expect(updated.metadata.agentic_handoff_mode).toBe('proposal_apply');
-    expect(updated.metadata.agentic_handoff_from).toBe('ollama-cloud');
-    expect(updated.metadata.agentic_handoff_to).toBe('codex');
-    expect(updated.metadata.agentic_allowed_tools).toBeUndefined();
-    expect(updated.metadata.ollama_cloud_repo_write_mode).toBeUndefined();
-    expect(safeUpdateTaskStatus).not.toHaveBeenCalledWith(
+    expect(updated.status).toBe('completed');
+    expect(updated.provider).toBe('ollama-cloud');
+    expect(updated.output).toContain('--- Proposal Apply ---');
+    expect(fs.readFileSync(path.join(workingDir, 'tools/validate_unity_host_join_smoke.py'), 'utf-8'))
+      .toBe('print("ok")\n');
+    const completionMetadata = JSON.parse(updated.task_metadata);
+    expect(completionMetadata.proposal_apply).toBe(true);
+    expect(completionMetadata.proposal_apply_mode).toBe('deterministic');
+    expect(completionMetadata.proposal_apply_parse_status).toBe('valid');
+    expect(completionMetadata.proposal_compute_output.file_edits).toHaveLength(1);
+    expect(completionMetadata.original_task_description).toBe(originalTask);
+    expect(completionMetadata.proposal_apply_from).toBe('ollama-cloud');
+    expect(completionMetadata.proposal_apply_operation_count).toBe(1);
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
       task.id,
       'completed',
-      expect.anything(),
+      expect.objectContaining({
+        exit_code: 0,
+        progress_percent: 100,
+      }),
     );
+  });
+
+  it('falls back to codex proposal apply when exact deterministic apply is unsafe', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));
+
+    const workingDir = makeTempDir();
+    fs.mkdirSync(path.join(workingDir, 'tools'), { recursive: true });
+    fs.writeFileSync(path.join(workingDir, 'tools/existing.py'), 'print("current")\n', 'utf-8');
+    const task = {
+      id: 'task-api-proposal-apply-fallback',
+      provider: 'ollama-cloud',
+      model: null,
+      task_description: 'Update tools/existing.py',
+      working_directory: workingDir,
+      timeout_minutes: 1,
+      metadata: JSON.stringify({
+        _routing_chain: [
+          { provider: 'ollama-cloud', model: 'kimi-k2:1t' },
+          { provider: 'codex' },
+        ],
+        file_paths: ['tools/existing.py'],
+        ollama_cloud_repo_write_mode: 'proposal_apply',
+        proposal_apply_provider: 'codex',
+        agentic_allowed_tools: ['read_file', 'list_directory', 'search_files'],
+      }),
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: JSON.stringify({
+            file_edits: [
+              {
+                file: 'tools/existing.py',
+                operations: [
+                  {
+                    type: 'replace',
+                    old_text: 'print("missing")\n',
+                    new_text: 'print("updated")\n',
+                  },
+                ],
+              },
+            ],
+          }),
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 40 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    await mod.executeApiProvider(task, { name: 'ollama-cloud' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('queued');
+    expect(updated.provider).toBe('codex');
+    expect(updated.metadata.proposal_apply).toBe(true);
+    expect(updated.metadata.agentic_handoff_mode).toBe('proposal_apply');
+    expect(fs.readFileSync(path.join(workingDir, 'tools/existing.py'), 'utf-8'))
+      .toBe('print("current")\n');
   });
 
   it('requeues ollama-cloud failures to codex when the next chain entry requires CLI execution', async () => {
