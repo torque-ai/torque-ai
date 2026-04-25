@@ -174,6 +174,96 @@ describe('submitFactoryInternalTask', () => {
     }));
   });
 
+  it('inherits the target project routing template for factory-internal tasks', async () => {
+    const database = require('../database');
+    const projectConfigCore = require('../db/project-config-core');
+    vi.spyOn(database, 'getDbInstance').mockReturnValue({
+      prepare: vi.fn(() => ({
+        get: vi.fn(() => ({
+          id: 'project-42',
+          name: 'DLPhone',
+          path: 'C:/Projects/DLPhone',
+          status: 'running',
+        })),
+      })),
+    });
+    vi.spyOn(projectConfigCore, 'getProjectDefaults').mockImplementation((candidate) => {
+      if (candidate !== 'DLPhone') return null;
+      return {
+        project: 'DLPhone',
+        routing_template_id: 'preset-ollama-cloud-primary',
+        default_provider: 'codex',
+        default_model: 'gpt-5.4',
+      };
+    });
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-1' });
+
+    await submitFactoryInternalTask({
+      task: 'review verify failure',
+      working_directory: 'C:/Projects/DLPhone/.worktrees/fea-123',
+      kind: 'plan_generation',
+      project_id: 'project-42',
+      work_item_id: 7,
+    });
+
+    const submitted = mockHandleSmartSubmitTask.mock.calls[0][0];
+    expect(submitted.project).toBe('factory-plan');
+    expect(submitted.provider).toBeUndefined();
+    expect(submitted.model).toBeUndefined();
+    expect(submitted.routing_template).toBe('preset-ollama-cloud-primary');
+    expect(submitted.tags).toContain('factory:target_project=DLPhone');
+    expect(submitted.task_metadata).toEqual(expect.objectContaining({
+      target_project: 'DLPhone',
+      target_project_path: 'C:/Projects/DLPhone',
+      inherited_routing_template: 'preset-ollama-cloud-primary',
+      inherited_routing_template_from_project: 'DLPhone',
+    }));
+  });
+
+  it('inherits the target project default provider when no routing template is configured', async () => {
+    const database = require('../database');
+    const projectConfigCore = require('../db/project-config-core');
+    vi.spyOn(database, 'getDbInstance').mockReturnValue({
+      prepare: vi.fn(() => ({
+        get: vi.fn(() => ({
+          id: 'project-99',
+          name: 'StateTrace',
+          path: 'C:/Projects/StateTrace',
+          status: 'running',
+        })),
+      })),
+    });
+    vi.spyOn(projectConfigCore, 'getProjectDefaults').mockImplementation((candidate) => {
+      if (candidate !== 'StateTrace') return null;
+      return {
+        project: 'StateTrace',
+        routing_template_id: null,
+        default_provider: 'ollama',
+        default_model: 'qwen3-coder:30b',
+      };
+    });
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-2' });
+
+    await submitFactoryInternalTask({
+      task: 'generate plan',
+      working_directory: 'C:/Projects/StateTrace',
+      kind: 'plan_generation',
+      project_id: 'project-99',
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'ollama',
+      model: 'qwen3-coder:30b',
+      task_metadata: expect.objectContaining({
+        target_project: 'StateTrace',
+        inherited_provider: 'ollama',
+        inherited_provider_from_project: 'StateTrace',
+      }),
+    }));
+  });
+
   it('returns the task_id from the submitter response', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'internal-task-9' });

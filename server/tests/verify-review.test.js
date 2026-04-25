@@ -473,7 +473,7 @@ describe('runLlmTiebreak', () => {
     });
     expect(submit).toHaveBeenCalledWith(expect.objectContaining({
       working_directory: '/repo/.worktrees/feat-factory-1',
-      timeout_minutes: 5,
+      timeout_minutes: 10,
     }));
   });
 

@@ -25,35 +25,118 @@ function normalizeOptionalString(value) {
   return trimmed || null;
 }
 
-function readProjectStatusFromDb(project_id) {
+function ignoredSchemaLookupError(error) {
+  const message = String(error?.message || '');
+  return message.includes('no such table') || message.includes('no such column');
+}
+
+function readFactoryProject(project_id) {
   if (!project_id) return null;
 
   try {
     const database = require('../database');
     const db = database.getDbInstance?.();
     if (db && typeof db.prepare === 'function') {
-      const row = db.prepare('SELECT status FROM factory_projects WHERE id = ?').get(project_id);
-      if (row && typeof row.status === 'string') {
-        return row.status;
+      const row = db.prepare('SELECT id, name, path, status FROM factory_projects WHERE id = ?').get(project_id);
+      if (row) {
+        return row;
       }
     }
   } catch (error) {
-    if (!String(error?.message || '').includes('no such table')) {
+    if (!ignoredSchemaLookupError(error)) {
       throw error;
     }
   }
 
   try {
     const factoryHealth = require('../db/factory-health');
-    const project = factoryHealth.getProject(project_id);
-    return project?.status || null;
+    return factoryHealth.getProject(project_id) || null;
   } catch (_error) {
     return null;
   }
 }
 
-function assertProjectAcceptsInternalTasks(project_id) {
-  const status = readProjectStatusFromDb(project_id);
+function getProjectDefaults(candidate) {
+  const normalized = normalizeOptionalString(candidate);
+  if (!normalized) return null;
+
+  try {
+    const projectConfigCore = require('../db/project-config-core');
+    if (typeof projectConfigCore.getProjectDefaults === 'function') {
+      return projectConfigCore.getProjectDefaults(normalized) || null;
+    }
+    if (typeof projectConfigCore.getProjectConfig === 'function') {
+      return projectConfigCore.getProjectConfig(normalized) || null;
+    }
+  } catch (error) {
+    if (!ignoredSchemaLookupError(error)) {
+      throw error;
+    }
+  }
+
+  return null;
+}
+
+function resolveTargetProjectDefaults(targetProject, workingDirectory) {
+  if (!targetProject) {
+    return null;
+  }
+
+  const candidates = [
+    targetProject?.name,
+    targetProject?.path,
+    workingDirectory,
+  ];
+
+  for (const candidate of candidates) {
+    const defaults = getProjectDefaults(candidate);
+    if (defaults) {
+      return {
+        ...defaults,
+        resolved_from: candidate,
+      };
+    }
+  }
+
+  return null;
+}
+
+function resolveInheritedRoutingIntent({
+  targetProject,
+  workingDirectory,
+  requestedProvider,
+  requestedRoutingTemplate,
+}) {
+  const defaults = resolveTargetProjectDefaults(targetProject, workingDirectory);
+  if (!defaults) {
+    return {
+      defaults: null,
+      provider: null,
+      routingTemplate: null,
+      model: null,
+    };
+  }
+
+  const routingTemplate = requestedRoutingTemplate
+    ? null
+    : normalizeOptionalString(defaults.routing_template_id);
+  const provider = requestedProvider || requestedRoutingTemplate || routingTemplate
+    ? null
+    : normalizeOptionalString(defaults.default_provider);
+  const model = provider
+    ? normalizeOptionalString(defaults.default_model)
+    : null;
+
+  return {
+    defaults,
+    provider,
+    routingTemplate,
+    model,
+  };
+}
+
+function assertProjectAcceptsInternalTasks(project_id, targetProject = null) {
+  const status = targetProject?.status || readFactoryProject(project_id)?.status || null;
   if (status === 'paused') {
     throw new Error(`Factory project is paused: ${project_id}; internal task submission blocked`);
   }
@@ -77,14 +160,25 @@ async function submitFactoryInternalTask({
 }) {
   const resolvedWorkingDirectory = requireWorkingDirectory(working_directory);
   const resolvedKind = requireKnownKind(kind);
-  assertProjectAcceptsInternalTasks(project_id);
+  const targetProject = readFactoryProject(project_id);
+  assertProjectAcceptsInternalTasks(project_id, targetProject);
   const project = PROJECT_BY_KIND[resolvedKind];
   const requestedProvider = normalizeOptionalString(provider);
   const requestedRoutingTemplate = normalizeOptionalString(routing_template);
+  const inheritedIntent = resolveInheritedRoutingIntent({
+    targetProject,
+    workingDirectory: resolvedWorkingDirectory,
+    requestedProvider,
+    requestedRoutingTemplate,
+  });
+  const effectiveProvider = requestedProvider || inheritedIntent.provider;
+  const effectiveRoutingTemplate = requestedRoutingTemplate || inheritedIntent.routingTemplate;
+  const effectiveModel = inheritedIntent.model;
   const tags = [
     'factory:internal',
     `factory:${resolvedKind}`,
     `factory:project_id=${project_id}`,
+    ...(targetProject?.name ? [`factory:target_project=${targetProject.name}`] : []),
     ...(work_item_id ? [`factory:work_item_id=${work_item_id}`] : []),
     ...(Array.isArray(extra_tags) ? extra_tags : []),
   ];
@@ -92,9 +186,19 @@ async function submitFactoryInternalTask({
     factory_internal: true,
     kind: resolvedKind,
     project_id,
+    ...(targetProject?.name ? { target_project: targetProject.name } : {}),
+    ...(targetProject?.path ? { target_project_path: targetProject.path } : {}),
     ...(work_item_id ? { work_item_id } : {}),
     ...(requestedProvider ? { requested_provider: requestedProvider } : {}),
     ...(requestedRoutingTemplate ? { requested_routing_template: requestedRoutingTemplate } : {}),
+    ...(!requestedRoutingTemplate && inheritedIntent.routingTemplate ? {
+      inherited_routing_template: inheritedIntent.routingTemplate,
+      inherited_routing_template_from_project: inheritedIntent.defaults?.project || targetProject?.name || null,
+    } : {}),
+    ...(!requestedProvider && inheritedIntent.provider ? {
+      inherited_provider: inheritedIntent.provider,
+      inherited_provider_from_project: inheritedIntent.defaults?.project || targetProject?.name || null,
+    } : {}),
     ...(extra_metadata || {}),
   };
 
@@ -103,8 +207,9 @@ async function submitFactoryInternalTask({
     task,
     project,
     working_directory: resolvedWorkingDirectory,
-    ...(requestedProvider ? { provider: requestedProvider } : {}),
-    ...(requestedRoutingTemplate ? { routing_template: requestedRoutingTemplate } : {}),
+    ...(effectiveProvider ? { provider: effectiveProvider } : {}),
+    ...(effectiveModel ? { model: effectiveModel } : {}),
+    ...(effectiveRoutingTemplate ? { routing_template: effectiveRoutingTemplate } : {}),
     ...(prefer_free !== undefined ? { prefer_free } : {}),
     ...(context_stuff !== undefined ? { context_stuff } : {}),
     ...(context_depth !== undefined ? { context_depth } : {}),
