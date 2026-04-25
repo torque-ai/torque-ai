@@ -24,6 +24,22 @@ const READ_ONLY_TOOLS = new Set(['read_file', 'list_directory', 'search_files'])
 const ACTION_TOOLS = new Set(['write_file', 'edit_file', 'replace_lines', 'run_command']);
 const DEFAULT_MAX_READ_ONLY_ITERATIONS = 5;
 
+function buildProposalOutputCorrectionPrompt() {
+  return [
+    'This task is in proposal-apply mode. Do not use write_file, edit_file, replace_lines, or run_command.',
+    'Based on the repository facts you already read, return ONLY valid JSON now.',
+    'The response must start with {"file_edits":[ and contain one or more exact edit operations.',
+    'Use this shape:',
+    '{"file_edits":[{"file":"relative/path.ext","operations":[{"type":"replace","old_text":"exact current text","new_text":"exact replacement text"}]}]}',
+    'For new files use type "create", old_text "", and new_text equal to the full file content.',
+    'Do not include Markdown, commentary, apologies, or a summary.',
+  ].join(' ');
+}
+
+function contentLooksLikeProposalOutput(content) {
+  return typeof content === 'string' && /"file_edits"\s*:/.test(content);
+}
+
 /**
  * Build an arguments preview for the tool log.
  * For write_file, store path + content hash + byte count instead of raw content.
@@ -154,6 +170,7 @@ function buildOutputSummary(finalOutput, toolLog, changedFiles) {
  * @param {number} [params.contextBudget] - Max estimated tokens before truncation (default 16000)
  * @param {number|null} [params.actionlessIterationLimit] - Stop after this many consecutive no-action iterations on modification tasks
  * @param {boolean} [params.requireToolUseBeforeFinal] - Require at least one tool call before accepting a final answer
+ * @param {boolean} [params.proposalOutputMode] - Read-only proposal mode that must end with file_edits JSON
  * @param {Function} [params.onProgress] - (iteration, maxIter, lastTool) => void
  * @param {Function} [params.onToolCall] - (name, args, result) => void — for dashboard
  * @param {Function} [params.onChunk] - (text) => void — streamed model output heartbeat
@@ -173,6 +190,7 @@ async function runAgenticLoop({
   contextBudget = DEFAULT_CONTEXT_BUDGET,
   actionlessIterationLimit = null,
   requireToolUseBeforeFinal = false,
+  proposalOutputMode = false,
   promptInjectedTools = false, // When true, tool results sent as user messages with [TOOL_RESULTS] format
   onProgress,
   onToolCall,
@@ -228,6 +246,10 @@ async function runAgenticLoop({
 
   // Empty summary retry: track if we already prompted for a summary
   let emptySummaryRetried = false;
+
+  // Proposal-output retry: read-only proposal tasks should finish by emitting
+  // file_edits JSON, not by asking for write tools they deliberately lack.
+  let proposalOutputRetried = false;
 
   // Evidence retry: for provider/task combinations where a no-tool answer is
   // likely hallucinated, require the model to inspect the workspace once.
@@ -373,7 +395,9 @@ async function runAgenticLoop({
         });
         messages.push({
           role: 'user',
-          content: 'You called tools but did not provide a summary. Please summarize your findings based on the tool results above. Include the actual data returned by the tools.',
+          content: proposalOutputMode
+            ? buildProposalOutputCorrectionPrompt()
+            : 'You called tools but did not provide a summary. Please summarize your findings based on the tool results above. Include the actual data returned by the tools.',
         });
         emptySummaryRetried = true;
         continue; // one retry
@@ -412,9 +436,28 @@ async function runAgenticLoop({
         messages.push({ role: 'assistant', content });
         messages.push({
           role: 'user',
-          content: 'This is already a read-only inspection task. Do not discuss creating or modifying files. Summarize the observed repository facts from the tool results above, including concrete file paths and commands if observed.',
+          content: proposalOutputMode
+            ? buildProposalOutputCorrectionPrompt()
+            : 'This is already a read-only inspection task. Do not discuss creating or modifying files. Summarize the observed repository facts from the tool results above, including concrete file paths and commands if observed.',
         });
         readOnlyRefusalRetried = true;
+        continue;
+      }
+
+      if (
+        proposalOutputMode
+        && toolLog.length > 0
+        && content.trim()
+        && !contentLooksLikeProposalOutput(content)
+        && !proposalOutputRetried
+      ) {
+        logger.info('[Agentic] Proposal mode final response did not contain file_edits JSON — injecting correction prompt');
+        messages.push({ role: 'assistant', content });
+        messages.push({
+          role: 'user',
+          content: buildProposalOutputCorrectionPrompt(),
+        });
+        proposalOutputRetried = true;
         continue;
       }
 
@@ -424,7 +467,7 @@ async function runAgenticLoop({
       // This catches the pattern where cheap LLMs describe what they would do instead of doing it.
       const hasWriteTools = toolLog.some(t => ['write_file', 'edit_file', 'run_command'].includes(t.name));
       const taskMentionsCreation = /\b(create|add|write|implement|generate)\b/i.test(taskPrompt);
-      if (!hasWriteTools && taskMentionsCreation && toolLog.length > 0 && toolLog.length <= 3 && !emptySummaryRetried) {
+      if (!proposalOutputMode && !hasWriteTools && taskMentionsCreation && toolLog.length > 0 && toolLog.length <= 3 && !emptySummaryRetried) {
         logger.info(`[Agentic] Task mentions file creation but only read-only tools used (${toolLog.length} calls) — nudging to complete`);
         messages.push({ role: 'assistant', content });
         messages.push({
@@ -631,12 +674,16 @@ async function runAgenticLoop({
           logger.warn(`[Agentic] ${readOnlyIterations} consecutive no-progress iterations on modification task — nudging model to act`);
           messages.push({
             role: 'user',
-            content: 'You have spent multiple iterations without making successful changes. You MUST now use write_file or edit_file to make the changes described in the task. If edit_file fails, re-read the file first to see its current content. If you cannot determine what to change, summarize what you found and stop.',
+            content: proposalOutputMode
+              ? buildProposalOutputCorrectionPrompt()
+              : 'You have spent multiple iterations without making successful changes. You MUST now use write_file or edit_file to make the changes described in the task. If edit_file fails, re-read the file first to see its current content. If you cannot determine what to change, summarize what you found and stop.',
           });
           readOnlyNudgeInjected = true;
         } else if (readOnlyIterations >= DEFAULT_MAX_READ_ONLY_ITERATIONS + 2) {
-          finalOutput = `Task stopped: ${readOnlyIterations} consecutive iterations with no successful file modifications.`;
-          stopReason = 'no_progress';
+          finalOutput = proposalOutputMode
+            ? 'Task stopped: proposal mode did not return file_edits JSON after repeated read-only iterations.'
+            : `Task stopped: ${readOnlyIterations} consecutive iterations with no successful file modifications.`;
+          stopReason = proposalOutputMode ? 'proposal_no_file_edits' : 'no_progress';
           logger.warn(`[Agentic] No-progress spin limit reached — stopping`);
           earlyStop = true;
         }
