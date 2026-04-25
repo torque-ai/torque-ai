@@ -758,7 +758,7 @@ function spawnAndTrackProcess(taskId, task, {
     procRef.timeoutHandle = setTimeout(() => {
       try {
         if (deps.runningProcesses.has(taskId)) {
-          deps.cancelTask(taskId, 'Timeout exceeded');
+          deps.cancelTask(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
         }
       } catch (err) {
         logger.info(`[TaskManager] Error in timeout callback for ${taskId}: ${err.message}`);

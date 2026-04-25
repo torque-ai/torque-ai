@@ -244,11 +244,27 @@ describe('task-cancellation', () => {
 
       expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(
         fullId,
-        'cancelled',
+        'failed',
         expect.objectContaining({ cancel_reason: 'timeout' })
       );
       expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, expectedWebhook);
       expect(mockDispatchTaskEvent).toHaveBeenCalledWith(expectedWebhook, expect.any(Object));
+    });
+
+    it('fails internally classified cleanup cancellations instead of marking them cancelled', () => {
+      const fullId = 'internal-policy-task';
+      deps.db.resolveTaskId.mockReturnValue(fullId);
+      deps.db.getTask.mockReturnValue({ id: fullId, status: 'queued' });
+
+      const result = handler.cancelTask(fullId, 'Blocked by policy', { cancel_reason: 'policy_block' });
+
+      expect(result).toBe(true);
+      expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(fullId, 'failed', {
+        error_output: 'Blocked by policy',
+        cancel_reason: 'policy_block',
+      });
+      expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, 'failed');
+      expect(mockDispatchTaskEvent).toHaveBeenCalledWith('failed', expect.any(Object));
     });
 
     it('cancels queued tasks without process kill', () => {

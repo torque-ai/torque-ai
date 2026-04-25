@@ -1517,10 +1517,9 @@ function unblockTask(taskId) {
 function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDepth = 0) {
   switch (action) {
     case 'cancel':
-      // Cancel this task and propagate cancellation to all dependents
-      clearTaskBlockerSnapshot(taskId, { status: 'cancelled', additionalFields: {
-        error_output: 'Cancelled due to dependency failure',
-        cancel_reason: 'workflow_cascade',
+      // Fail this task and propagate the dependency failure to all dependents.
+      clearTaskBlockerSnapshot(taskId, { status: 'failed', additionalFields: {
+        error_output: 'Failed due to dependency failure',
       } });
       cancelDependentTasks(taskId, workflowId, 'Dependency cancelled');
       break;
@@ -1578,9 +1577,9 @@ function applyFailureAction(taskId, action, alternateTaskId, workflowId, _skipDe
 }
 
 /**
- * Cancel all tasks that depend on a cancelled/failed task (recursive).
+ * Fail all tasks that depend on a cancelled/failed task (recursive).
  * Running tasks are terminated via cancelTask(); pending/blocked/queued tasks
- * are marked cancelled directly. Already-terminal tasks are skipped.
+ * are marked failed directly. Already-terminal tasks are skipped.
  * @param {string} taskId - Task ID that failed/cancelled
  * @param {string} workflowId - Workflow ID
  * @param {string} reason - Cancellation reason
@@ -1606,9 +1605,8 @@ function cancelDependentTasks(taskId, workflowId, reason, visited = new Set()) {
         logger.info(`cancelDependentTasks: failed to cancel running task ${depTaskId}: ${err.message}`);
       }
     } else if (['pending', 'blocked', 'queued', 'pending_provider_switch'].includes(task.status)) {
-      clearTaskBlockerSnapshot(depTaskId, { status: 'cancelled', additionalFields: {
+      clearTaskBlockerSnapshot(depTaskId, { status: 'failed', additionalFields: {
         error_output: reason,
-        cancel_reason: 'workflow_cascade',
       } });
     } else {
       // Already in terminal state — skip

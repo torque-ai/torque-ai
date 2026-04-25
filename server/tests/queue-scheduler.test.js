@@ -391,7 +391,7 @@ describe('Queue Scheduler', () => {
       expect(mocks.safeStartTask).not.toHaveBeenCalled();
     });
 
-    it('cancels tasks older than queue TTL', () => {
+    it('fails tasks older than queue TTL', () => {
       const now = 2000000;
       const expiredTask = { id: 'expired-task', provider: 'ollama', created_at: new Date(now - 20 * 60000).toISOString() };
       const expectedCutoff = new Date(now - 10 * 60000).toISOString();
@@ -416,18 +416,17 @@ describe('Queue Scheduler', () => {
       scheduler.processQueueInternal();
 
       // Source uses db.updateTaskStatus instead of raw prepare/run
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('expired-task', 'cancelled', {
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('expired-task', 'failed', {
         error_output: 'Expired: exceeded queue TTL',
-        cancel_reason: 'queue_ttl',
       });
       expect(mocks.notifyDashboard).toHaveBeenCalledWith('expired-task', {
-        status: 'cancelled',
+        status: 'failed',
         error_output: 'Expired: exceeded queue TTL',
       });
       expect(mockDb.getExpiredQueuedTasks).toHaveBeenCalledWith(expectedCutoff);
       expect(emitSpy).toHaveBeenCalledWith({
         taskId: 'expired-task',
-        type: 'cancelled',
+        type: 'failed',
         reason: 'queue_ttl_expired',
       });
 
