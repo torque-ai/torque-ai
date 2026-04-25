@@ -1140,7 +1140,7 @@ function findJsonObjectEnd(text, startIndex) {
  * Priority order:
  *   1. Structured tool_calls field (OpenAI-format)
  *   2. <tool_call> XML tags (Qwen2.5 native format)
- *   3. OpenRouter/free pseudo XML tags (<tool_name ... />, <invoke ...>)
+ *   3. OpenRouter/free pseudo XML tags (<tool_name>...</tool_name>, <tool_name ... />, <invoke ...>)
  *   4. Bracketed pseudo calls ([TOOL_CALL] ... [/TOOL_CALL], [TOOL_CALLS]tool[ARGS]{...})
  *   5. Function-like pseudo calls (tool_name({path, value}))
  *   6. Raw JSON object with "name" key
@@ -1195,7 +1195,26 @@ function parseToolCalls(message) {
   }
   if (funcMatches.length > 0) return funcMatches;
 
-  // Priority 2c: Self-closing XML-ish tool tags emitted by some OpenRouter free models.
+  // Priority 2c: Nested tool tags emitted by some Minimax/OpenRouter responses.
+  // Format: <list_directory><path>C:\repo</path></list_directory>
+  const nestedToolRegex = /<(read_file|write_file|edit_file|replace_lines|search_files|list_directory|run_command)>([\s\S]*?)<\/\1>/gi;
+  const nestedToolMatches = [];
+  while ((match = nestedToolRegex.exec(content)) !== null) {
+    const name = match[1];
+    const args = {};
+    const body = match[2] || '';
+    const paramRegex = /<([A-Za-z_][\w-]*)>\s*([\s\S]*?)\s*<\/\1>/g;
+    let paramMatch;
+    while ((paramMatch = paramRegex.exec(body)) !== null) {
+      args[paramMatch[1]] = decodeXmlEntities((paramMatch[2] || '').trim());
+    }
+    if (name && Object.keys(args).length > 0) {
+      nestedToolMatches.push({ name, arguments: args });
+    }
+  }
+  if (nestedToolMatches.length > 0) return nestedToolMatches;
+
+  // Priority 2d: Self-closing XML-ish tool tags emitted by some OpenRouter free models.
   // Format: <list_directory path="C:\repo" />
   const directTagRegex = /<(read_file|write_file|edit_file|replace_lines|search_files|list_directory|run_command)\b([^>]*)\/?>/gi;
   const directTagMatches = [];
@@ -1213,7 +1232,7 @@ function parseToolCalls(message) {
   }
   if (directTagMatches.length > 0) return directTagMatches;
 
-  // Priority 2d: Minimax/OpenRouter invoke tags.
+  // Priority 2e: Minimax/OpenRouter invoke tags.
   // Format: <invoke name="list_directory"><parameter name="path">C:\repo</parameter></invoke>
   const invokeTagRegex = /<invoke\s+name\s*=\s*(?:"([^"]+)"|'([^']+)')\s*>([\s\S]*?)<\/invoke>/gi;
   const invokeMatches = [];
@@ -1232,7 +1251,7 @@ function parseToolCalls(message) {
   }
   if (invokeMatches.length > 0) return invokeMatches;
 
-  // Priority 2e: Bracketed pseudo calls emitted by some OpenRouter-routed models.
+  // Priority 2f: Bracketed pseudo calls emitted by some OpenRouter-routed models.
   // Format: [TOOL_CALL] {tool => "list_directory", args => { --path "C:\repo" }} [/TOOL_CALL]
   const bracketToolCallRegex = /\[TOOL_CALL\]([\s\S]*?)\[\/TOOL_CALL\]/gi;
   const bracketMatches = [];
@@ -1260,7 +1279,7 @@ function parseToolCalls(message) {
   }
   if (bracketMatches.length > 0) return bracketMatches;
 
-  // Priority 2f: Function-like pseudo calls emitted as plain text by routed free models.
+  // Priority 2g: Function-like pseudo calls emitted as plain text by routed free models.
   // Format examples: read_file({path, C:\repo\}) or list_directory({"path":"."})
   const pseudoFunctionRegex = /\b(read_file|write_file|edit_file|replace_lines|search_files|list_directory|run_command)\s*\(\s*(\{[\s\S]*?\})\s*\)/gi;
   const pseudoFunctionMatches = [];
