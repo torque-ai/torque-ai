@@ -494,6 +494,27 @@ describe('OpenRouterProvider', () => {
       expect(provider._parseRetryAfter('error without retry info')).toBeNull();
     });
 
+    it('_parseRetryAfter reads headers and numeric fields from error objects', () => {
+      expect(provider._parseRetryAfter({
+        message: 'OpenRouter API error (429)',
+        headers: {
+          get: (name) => (name === 'Retry-After' ? '12' : null),
+        },
+      })).toBe(12);
+
+      expect(provider._parseRetryAfter({
+        message: 'OpenRouter API error (429)',
+        headers: {
+          get: (name) => (name === 'retry-after' ? '9' : null),
+        },
+      })).toBe(9);
+
+      expect(provider._parseRetryAfter({
+        message: 'OpenRouter API error (429)',
+        retry_after_seconds: 14,
+      })).toBe(14);
+    });
+
     it('submit reports fallback model in usage', async () => {
       // Inject test fallback models since FALLBACK_MODELS is empty (model-agnostic)
       FALLBACK_MODELS.push('test-fallback:free');

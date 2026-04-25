@@ -23,6 +23,59 @@ const FALLBACK_MODELS = [];
 
 /** Default cooldown when no Retry-After header (seconds) */
 const DEFAULT_COOLDOWN_SECONDS = 60;
+const MAX_FETCH_PAGES = 10;
+
+function toAbsoluteUrl(baseUrl, relativePath) {
+  try {
+    return new URL(relativePath, baseUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
+function extractNextPageToken(data) {
+  if (!data || typeof data !== 'object') return null;
+  const raw = (
+    data.next
+    || data.nextPage
+    || data.next_page
+    || data.nextCursor
+    || data.next_cursor
+    || data.page
+    || data.cursor
+    || data.after
+    || data?.links?.next
+  );
+  if (!raw) return null;
+  if (typeof raw === 'object' && raw !== null) {
+    if (typeof raw.url === 'string' && raw.url.trim()) return raw.url.trim();
+    if (typeof raw.next === 'string' && raw.next.trim()) return raw.next.trim();
+    if (typeof raw.page === 'number' && Number.isFinite(raw.page)) return String(Math.trunc(raw.page));
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) return String(Math.trunc(raw));
+  if (typeof raw === 'string') return raw.trim();
+  return null;
+}
+
+function nextPageToUrl(currentUrl, nextToken) {
+  if (!nextToken || !currentUrl) return null;
+
+  if (/^https?:\/\//i.test(nextToken) || nextToken.startsWith('/')) {
+    return toAbsoluteUrl(String(currentUrl), nextToken);
+  }
+
+  if (nextToken.includes('?') || nextToken.includes('&') || nextToken.includes('=')) {
+    return toAbsoluteUrl(String(currentUrl), nextToken);
+  }
+
+  const nextUrl = new URL(String(currentUrl));
+  if (/^\d+$/.test(nextToken)) {
+    nextUrl.searchParams.set('page', nextToken);
+  } else {
+    nextUrl.searchParams.set('cursor', nextToken);
+  }
+  return nextUrl.toString();
+}
 
 function parseZeroPrice(value) {
   if (value === 0) return true;
@@ -120,8 +173,42 @@ class OpenRouterProvider extends BaseProvider {
   }
 
   _parseRetryAfter(errMessage) {
-    const match = errMessage?.match(/retry_after_seconds=(\d+)/);
-    return match ? parseInt(match[1], 10) : null;
+    if (!errMessage) return null;
+    const message = typeof errMessage === 'string' ? errMessage : String(errMessage?.message || '');
+    const match = message.match(/retry_after_seconds=(\d+)/);
+    if (match) return parseInt(match[1], 10);
+
+    const readHeaderValue = (headers, name) => {
+      if (!headers) return null;
+      if (typeof headers.get === 'function') {
+        return headers.get(name) || headers.get(name.toLowerCase());
+      }
+      if (typeof headers[name] === 'string') return headers[name];
+      if (typeof headers[name.toLowerCase()] === 'string') return headers[name.toLowerCase()];
+      return null;
+    };
+
+    if (errMessage && typeof errMessage === 'object') {
+      const headerValue = readHeaderValue(errMessage.headers, 'Retry-After');
+      if (headerValue) {
+        const parsed = Number.parseInt(headerValue, 10);
+        return Number.isNaN(parsed) ? null : parsed;
+      }
+      if (errMessage.retry_after_seconds !== undefined && errMessage.retry_after_seconds !== null) {
+        const parsed = Number.parseInt(errMessage.retry_after_seconds, 10);
+        return Number.isNaN(parsed) ? null : parsed;
+      }
+      if (errMessage.retry_after !== undefined && errMessage.retry_after !== null) {
+        const parsed = Number.parseInt(errMessage.retry_after, 10);
+        return Number.isNaN(parsed) ? null : parsed;
+      }
+      if (errMessage.retryAfter !== undefined && errMessage.retryAfter !== null) {
+        const parsed = Number.parseInt(errMessage.retryAfter, 10);
+        return Number.isNaN(parsed) ? null : parsed;
+      }
+    }
+
+    return null;
   }
 
   // ── Core request methods (single model, no fallback) ───────────────
@@ -178,7 +265,12 @@ class OpenRouterProvider extends BaseProvider {
         const retryAfterSeconds = this.getRetryAfterSeconds(response);
         let message = `OpenRouter API error (${response.status}): ${errorBody}`;
         if (retryAfterSeconds !== null) message += ` retry_after_seconds=${retryAfterSeconds}`;
-        throw new Error(message);
+        const error = new Error(message);
+        error.name = 'OpenRouterError';
+        error.status = response.status;
+        if (retryAfterSeconds !== null) error.retry_after_seconds = retryAfterSeconds;
+        error.headers = response.headers || null;
+        throw error;
       }
 
       const result = await response.json();
@@ -257,7 +349,12 @@ class OpenRouterProvider extends BaseProvider {
         const retryAfterSeconds = this.getRetryAfterSeconds(response);
         let message = `OpenRouter streaming error (${response.status}): ${errorBody}`;
         if (retryAfterSeconds !== null) message += ` retry_after_seconds=${retryAfterSeconds}`;
-        throw new Error(message);
+        const error = new Error(message);
+        error.name = 'OpenRouterError';
+        error.status = response.status;
+        if (retryAfterSeconds !== null) error.retry_after_seconds = retryAfterSeconds;
+        error.headers = response.headers || null;
+        throw error;
       }
 
       let fullOutput = '';
@@ -346,7 +443,7 @@ class OpenRouterProvider extends BaseProvider {
         } catch (err) {
           if (err.name === 'AbortError') throw err;
           if (this._is429(err)) {
-            const retryAfter = this._parseRetryAfter(err.message);
+            const retryAfter = this._parseRetryAfter(err);
             this._cooldownModel(candidateModel, retryAfter || DEFAULT_COOLDOWN_SECONDS);
             logger.info(`OpenRouter model ${candidateModel} rate-limited, trying fallback`, { retryAfter });
             lastError = err;
@@ -394,7 +491,7 @@ class OpenRouterProvider extends BaseProvider {
         } catch (err) {
           if (err.name === 'AbortError') throw err;
           if (this._is429(err)) {
-            const retryAfter = this._parseRetryAfter(err.message);
+            const retryAfter = this._parseRetryAfter(err);
             this._cooldownModel(candidateModel, retryAfter || DEFAULT_COOLDOWN_SECONDS);
             logger.info(`OpenRouter model ${candidateModel} rate-limited, trying fallback`, { retryAfter });
             lastError = err;
@@ -420,7 +517,7 @@ class OpenRouterProvider extends BaseProvider {
       return { available: false, models: [], error: 'No API key configured' };
     }
     try {
-      const models = await this._fetchModels({ timeoutMs: 5000, limit: 50 });
+      const models = await this._fetchModels({ timeoutMs: 5000 });
       if (!models) return { available: true, models: [{ model_name: this.defaultModel }] };
       return { available: true, models };
     } catch (err) {
@@ -469,29 +566,59 @@ class OpenRouterProvider extends BaseProvider {
 
   async _fetchModels({ timeoutMs = 5000, toolsOnly = false, freeOnly = false, limit = null } = {}) {
     const baseUrl = String(this.baseUrl || '').replace(/\/+$/, '');
-    const url = new URL(`${baseUrl}/v1/models`);
-    if (toolsOnly) url.searchParams.set('supported_parameters', 'tools');
+    const seenUrls = new Set();
+    const allModels = [];
+    let nextUrl = `${baseUrl}/v1/models`;
+    if (toolsOnly) {
+      const initialUrl = new URL(nextUrl);
+      initialUrl.searchParams.set('supported_parameters', 'tools');
+      nextUrl = initialUrl.toString();
+    }
 
     const controller = new AbortController();
     const timeoutId = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
     try {
-      const headers = this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {};
-      const response = await fetch(url.toString(), {
-        headers,
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`API returned ${response.status}`);
+      let pageNumber = 0;
+      while (nextUrl) {
+        if (pageNumber >= MAX_FETCH_PAGES || seenUrls.has(nextUrl)) break;
+        pageNumber += 1;
+        seenUrls.add(nextUrl);
+
+        const headers = this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {};
+        const response = await fetch(nextUrl, {
+          headers,
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`API returned ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!Array.isArray(data?.data)) return null;
+        const pageModels = data.data
+          .map(normalizeOpenRouterModel)
+          .filter(m => m.model_name);
+        allModels.push(...pageModels);
+
+        const nextPageToken = extractNextPageToken(data);
+        if (!nextPageToken) break;
+        nextUrl = nextPageToUrl(nextUrl, nextPageToken);
       }
 
-      const data = await response.json();
-      if (!Array.isArray(data?.data)) return null;
+      if (allModels.length === 0) return [];
 
-      let models = data.data
-        .map(normalizeOpenRouterModel)
-        .filter(m => m.model_name);
+      const uniqueModels = [];
+      const seenModels = new Set();
+      for (const model of allModels) {
+        if (!model?.model_name) continue;
+        if (!seenModels.has(model.model_name)) {
+          seenModels.add(model.model_name);
+          uniqueModels.push(model);
+        }
+      }
 
+      let models = uniqueModels;
       if (freeOnly) models = models.filter(m => m.free);
       if (toolsOnly) models = models.filter(m => m.supports_tools);
       if (Number.isFinite(limit) && limit > 0) models = models.slice(0, limit);

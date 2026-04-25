@@ -5,12 +5,14 @@ const LOGGER_PATH = require.resolve('../logger');
 const SANITIZE_PATH = require.resolve('../utils/sanitize');
 const CONTEXT_STUFFING_PATH = require.resolve('../utils/context-stuffing');
 const STUDY_ENGINE_PATH = require.resolve('../integrations/codebase-study-engine');
+const MODEL_ROLES_PATH = require.resolve('../db/model-roles');
 
 const ORIGINAL_CACHE_ENTRIES = new Map([
   [LOGGER_PATH, require.cache[LOGGER_PATH]],
   [SANITIZE_PATH, require.cache[SANITIZE_PATH]],
   [CONTEXT_STUFFING_PATH, require.cache[CONTEXT_STUFFING_PATH]],
   [STUDY_ENGINE_PATH, require.cache[STUDY_ENGINE_PATH]],
+  [MODEL_ROLES_PATH, require.cache[MODEL_ROLES_PATH]],
 ]);
 
 let nextTaskId = 0;
@@ -57,11 +59,20 @@ function loadSubject(options = {}) {
     applyStudyContextPrompt: options.applyStudyContextPrompt
       || vi.fn((taskDescription) => taskDescription),
   };
+  const modelRolesMock = options.modelRoles || null;
 
   installMock(LOGGER_PATH, loggerMock);
   installMock(SANITIZE_PATH, sanitizeMock);
   installMock(CONTEXT_STUFFING_PATH, contextStuffingMock);
   installMock(STUDY_ENGINE_PATH, studyEngineMock);
+  if (modelRolesMock) {
+    installMock(MODEL_ROLES_PATH, modelRolesMock);
+  } else if (options.modelRoles === null) {
+    delete require.cache[MODEL_ROLES_PATH];
+  } else if (!require.cache[MODEL_ROLES_PATH]) {
+    // Keep real module cache state unless explicitly mocked.
+    delete require.cache[MODEL_ROLES_PATH];
+  }
   delete require.cache[SUBJECT_PATH];
 
   return {
@@ -71,6 +82,7 @@ function loadSubject(options = {}) {
     sanitizeMock,
     contextStuffingMock,
     studyEngineMock,
+    modelRolesMock,
   };
 }
 
@@ -559,6 +571,53 @@ describe('execute-api.js', () => {
           signal: expect.any(Object),
         }),
       );
+    });
+
+    it('falls back to openrouter role models when task.model is null', async () => {
+      const modelRolesMock = {
+        getModelForRole: vi.fn((provider, role) => {
+          const roleMap = {
+            default: 'minimax/minimax-m2.5:free',
+            fallback: 'qwen/qwen3-coder:free',
+            balanced: null,
+            fast: null,
+            quality: null,
+          };
+          return roleMap[role];
+        }),
+      };
+      const { mod } = loadSubject({ modelRoles: modelRolesMock });
+      const task = makeTask({
+        model: null,
+        metadata: { fallbackModels: ['custom/openrouter-fallback:free'] },
+      });
+      const deps = makeDeps([task]);
+      const provider = makeProvider({
+        submit: vi.fn(async () => ({
+          output: 'selected from role',
+          usage: { tokens: 12, prompt_tokens: 8, completion_tokens: 4 },
+        })),
+      });
+
+      mod.init(deps);
+      await mod.executeApiProvider(task, provider);
+
+      expect(provider.submit).toHaveBeenCalledWith(
+        'Write comprehensive tests',
+        'custom/openrouter-fallback:free',
+        expect.objectContaining({
+          fallbackModels: [
+            'custom/openrouter-fallback:free',
+            'minimax/minimax-m2.5:free',
+            'qwen/qwen3-coder:free',
+          ],
+        }),
+      );
+      expect(modelRolesMock.getModelForRole).toHaveBeenCalledTimes(5);
+      expect(deps.readTask(task.id)).toMatchObject({
+        status: 'completed',
+        model: 'custom/openrouter-fallback:free',
+      });
     });
 
     it('uses submitStream for streaming providers and forwards chunks to the stream store and dashboard', async () => {

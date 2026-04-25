@@ -33,6 +33,34 @@ let _getFreeQuotaTracker = null;
 let _recordTaskStartedAuditEvent = null;
 let _handleWorkflowTermination = null;
 const FREE_PROVIDER_SET = new Set(FREE_PROVIDERS);
+const OPENROUTER_PROVIDER_ROLES = ['default', 'fallback', 'balanced', 'fast', 'quality'];
+
+function dedupeValues(values) {
+  const seen = new Set();
+  return values.filter((value) => {
+    if (typeof value !== 'string') return false;
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
+
+function resolveOpenRouterRoleModels() {
+  try {
+    const modelRoles = require('../db/model-roles');
+    const roleModels = OPENROUTER_PROVIDER_ROLES.map((role) => {
+      try {
+        return modelRoles.getModelForRole('openrouter', role);
+      } catch {
+        return null;
+      }
+    });
+    return dedupeValues(roleModels);
+  } catch {
+    return [];
+  }
+}
 
 function getRetryableStatus(error) {
   if (!error) return null;
@@ -204,6 +232,17 @@ function buildProviderExecutionOptions(task, controller, extra = {}) {
   // the provider adapter. Today only the cerebras adapter consumes these
   // (JSON mode, system prompt, top_p), but the passthrough is generic
   // so other API adapters can opt in without re-plumbing.
+  if (task?.provider === 'openrouter') {
+    const roleModels = resolveOpenRouterRoleModels();
+    if (roleModels.length > 0) {
+      options.fallbackModels = dedupeValues([
+        ...Array.isArray(options.fallbackModels) ? options.fallbackModels : [],
+        ...(metadata.fallbackModels || []).filter((item) => typeof item === 'string'),
+        ...roleModels,
+      ]);
+    }
+  }
+
   if (metadata.response_format !== undefined) {
     options.responseFormat = metadata.response_format;
   }
@@ -361,7 +400,7 @@ async function enrichTaskDescription(task) {
  */
 async function executeApiProvider(task, provider) {
   const taskId = task.id;
-  const model = task.model || null;
+  let model = task.model || null;
   const controller = new AbortController();
   // Hoisted so the catch block can reference it even if an error occurs before
   // the clone is created (e.g., during context stuffing or status updates).
@@ -377,7 +416,8 @@ async function executeApiProvider(task, provider) {
 
     // Persist resolved model so performance tracking works (model may be null on the task
     // if smart routing didn't set it — the provider resolves a default internally)
-    const resolvedModel = model || (provider.defaultModel ? provider.defaultModel : null);
+    const resolvedModelFromProvider = provider.defaultModel ? provider.defaultModel : null;
+    let resolvedModel = model || resolvedModelFromProvider;
     db.updateTaskStatus(taskId, 'running', {
       started_at: new Date().toISOString(),
       ...(resolvedModel ? { model: resolvedModel } : {}),
@@ -432,6 +472,11 @@ async function executeApiProvider(task, provider) {
     // both success and failure paths.
     startTimeMs = Date.now();
     const providerOptions = buildProviderExecutionOptions(taskClone, controller);
+    if (provider.name === 'openrouter' && !resolvedModel && Array.isArray(providerOptions.fallbackModels) && providerOptions.fallbackModels.length > 0) {
+      resolvedModel = providerOptions.fallbackModels[0];
+      model = resolvedModel;
+      db.updateTaskStatus(taskId, 'running', { model: resolvedModel });
+    }
 
     if (provider.supportsStreaming) {
       // Use streaming path — pipe tokens to stream chunks + dashboard

@@ -408,7 +408,7 @@ describe('OpenRouterProvider', () => {
       });
     });
 
-    it('probes the models endpoint, filters falsy ids, and limits the result to 50 models', async () => {
+    it('probes all pages, filters falsy ids, and returns available models', async () => {
       const models = Array.from({ length: 55 }, (_, index) => ({ id: `model-${index}` }));
       models.splice(10, 0, { id: '' }, { id: null });
       fetchMock.mockResolvedValue(jsonResponse({ data: models }));
@@ -417,7 +417,7 @@ describe('OpenRouterProvider', () => {
 
       expect(result).toEqual({
         available: true,
-        models: Array.from({ length: 50 }, (_, index) => ({
+        models: Array.from({ length: 55 }, (_, index) => ({
           model_name: `model-${index}`,
           id: `model-${index}`,
           name: null,
@@ -430,6 +430,8 @@ describe('OpenRouterProvider', () => {
           supports_tools: false,
         })),
       });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith(
         'https://openrouter.ai/api/v1/models',
         expect.objectContaining({
@@ -439,7 +441,62 @@ describe('OpenRouterProvider', () => {
       );
     });
 
-    it('falls back to the default model when the response shape has no data array', async () => {
+    it('fetches additional pages from OpenRouter models pagination', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({
+          data: [
+            { id: 'google/gemma-3-12b-it:free', pricing: { prompt: '0', completion: '0' } },
+            { id: 'meta/llama-paid', pricing: { prompt: '0.1', completion: '0.2' } },
+          ],
+          next: 'https://openrouter.ai/api/v1/models?page=2',
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          data: [
+            { id: 'qwen/qwen2.5-coder:free', pricing: { prompt: '0', completion: '0' } },
+            { id: 'google/gemma-3-12b-it:free', pricing: { prompt: '0', completion: '0' } },
+          ],
+        }));
+
+      const result = await provider.checkHealth();
+
+      expect(result.available).toBe(true);
+      expect(result.models).toHaveLength(3);
+      expect(result.models).toMatchObject([
+        { model_name: 'google/gemma-3-12b-it:free', free: true },
+        { model_name: 'meta/llama-paid', free: false },
+        { model_name: 'qwen/qwen2.5-coder:free', free: true },
+      ]);
+      expect(fetchMock).toHaveBeenNthCalledWith(1, 'https://openrouter.ai/api/v1/models', expect.any(Object));
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'https://openrouter.ai/api/v1/models?page=2',
+        expect.any(Object)
+      );
+    });
+
+    it('parses retry-after metadata from headers or numeric fields on error objects', () => {
+      const errorWithHeader = new Error('OpenRouter API error (429): limited');
+      errorWithHeader.headers = {
+        get: (name) => (name === 'Retry-After' ? '18' : null),
+      };
+      const errorWithCamelCaseHeader = {
+        message: 'OpenRouter API error (429): limited',
+        headers: {
+          get: (name) => (name.toLowerCase() === 'retry-after' ? '21' : null),
+        },
+      };
+      const errorWithField = {
+        message: 'OpenRouter API error (429): limited',
+        retry_after_seconds: 15,
+      };
+
+      expect(provider._parseRetryAfter(errorWithHeader)).toBe(18);
+      expect(provider._parseRetryAfter(errorWithCamelCaseHeader)).toBe(21);
+      expect(provider._parseRetryAfter(errorWithField)).toBe(15);
+      expect(provider._parseRetryAfter('OpenRouter error without retry info')).toBeNull();
+    });
+
+    it('returns fallback default model when response shape has no data array', async () => {
       fetchMock.mockResolvedValue(jsonResponse({ unexpected: true }));
 
       await expect(provider.checkHealth()).resolves.toEqual({

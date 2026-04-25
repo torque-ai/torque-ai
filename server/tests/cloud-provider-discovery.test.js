@@ -248,7 +248,7 @@ describe('OpenRouterProvider.checkHealth()', () => {
     expect(health.models[0].model_name).toBe('arcee-ai/trinity-large-preview:free');
   });
 
-  it('limits to 50 models and preserves context_length', async () => {
+  it('returns all paged models and preserves context_length', async () => {
     const manyModels = Array.from({ length: 60 }, (_, i) => ({
       id: `model-${i}`,
       context_length: 8192,
@@ -257,7 +257,7 @@ describe('OpenRouterProvider.checkHealth()', () => {
     const p = new OpenRouterProvider({ apiKey: 'test-key' });
     const health = await p.checkHealth();
 
-    expect(health.models).toHaveLength(50);
+    expect(health.models).toHaveLength(60);
     expect(health.models[0].context_window).toBe(8192);
   });
 
