@@ -182,12 +182,48 @@ function getPendingApprovalTasksForBatch(batchId) {
 // getPendingSwitchTargetProvider and getPendingSwitchOriginalProvider removed —
 // they were defined but never referenced. Restore from git history if needed.
 
+const RETRY_METADATA_PRESERVE_KEYS = Object.freeze([
+  '_routing_chain',
+  '_routing_template',
+  'agentic_allowed_tools',
+  'agentic_tool_allowlist',
+  'allowed_tools',
+  'cloud_repo_write_mode',
+  'context_files',
+  'context_scan_reasons',
+  'factory_internal',
+  'inherited_provider',
+  'inherited_provider_from_project',
+  'inherited_routing_template',
+  'inherited_routing_template_from_project',
+  'kind',
+  'needs_review',
+  'ollama_cloud_repo_write_mode',
+  'project_id',
+  'proposal_apply_model',
+  'proposal_apply_provider',
+  'provider_lane_policy',
+  'required_modified_paths',
+  'target_project',
+  'target_project_path',
+  'work_item_id',
+]);
+
 function buildRetryMetadata(task, retryOfTaskId) {
   const taskMetadata = parseTaskMetadata(task);
-  const retryMetadata = { retry_of: retryOfTaskId };
-  if (typeof taskMetadata._routing_template === 'string' && taskMetadata._routing_template.trim()) {
-    retryMetadata._routing_template = taskMetadata._routing_template.trim();
+  const retryMetadata = {};
+  for (const key of RETRY_METADATA_PRESERVE_KEYS) {
+    if (taskMetadata[key] !== undefined) {
+      retryMetadata[key] = taskMetadata[key];
+    }
   }
+  if (typeof retryMetadata._routing_template === 'string') {
+    retryMetadata._routing_template = retryMetadata._routing_template.trim();
+    if (!retryMetadata._routing_template) {
+      delete retryMetadata._routing_template;
+    }
+  }
+  retryMetadata.retry_of = retryOfTaskId;
   // Preserve user_provider_override only when the original task was explicitly
   // user-routed. Smart-routed tasks that ended up on a non-default provider
   // should NOT lock to that provider on retry.
@@ -816,6 +852,8 @@ async function handleRetryTask(req, res) {
       timeout_minutes: task.timeout_minutes,
       auto_approve: task.auto_approve,
       priority: task.priority || 0,
+      project: task.project || null,
+      tags: Array.isArray(task.tags) ? task.tags : [],
       provider: hasTemplateRetryIntent ? retryProvider : null,
       model: task.model,
       metadata: JSON.stringify(retryMetadata),

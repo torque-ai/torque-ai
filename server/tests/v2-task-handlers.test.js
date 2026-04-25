@@ -958,6 +958,8 @@ describe('api/v2-task-handlers.handleRetryTask', () => {
         timeout_minutes: 20,
         auto_approve: true,
         priority: 2,
+        project: null,
+        tags: [],
         provider: null,
         model: 'gpt-5',
         // Smart-routed tasks (no user_provider_override) get intended_provider: null
@@ -1034,6 +1036,79 @@ describe('api/v2-task-handlers.handleRetryTask', () => {
       intended_provider: 'ollama-cloud',
     });
     expect(mockTaskManager.startTask).toHaveBeenCalledWith('retry-template-1');
+  });
+
+  it('preserves factory internal metadata and project lane policy on retry', async () => {
+    const req = createReq({ params: { task_id: 'failed-factory-plan' } });
+    const res = createRes();
+
+    mockUuidV4.mockReturnValueOnce('retry-factory-plan-1');
+    mockTaskManager.startTask.mockReturnValue({ queued: true });
+    mockDb.getTask
+      .mockReturnValueOnce({
+        id: 'failed-factory-plan',
+        status: 'failed',
+        task_description: 'Retry factory plan generation',
+        working_directory: '/repo',
+        timeout_minutes: 20,
+        auto_approve: false,
+        priority: 2,
+        provider: 'ollama-cloud',
+        model: 'mistral-large-3:675b',
+        project: 'factory-plan',
+        tags: ['factory:internal', 'factory:plan_generation', 'factory:target_project=DLPhone'],
+        metadata: JSON.stringify({
+          _routing_template: 'preset-ollama-cloud-primary',
+          factory_internal: true,
+          kind: 'plan_generation',
+          project_id: 'project-1',
+          target_project: 'DLPhone',
+          target_project_path: 'C:/repo',
+          work_item_id: 893,
+          provider_lane_policy: {
+            expected_provider: 'ollama-cloud',
+            allowed_fallback_providers: [],
+            enforce_handoffs: true,
+          },
+          ollama_cloud_repo_write_mode: 'proposal_apply',
+          proposal_apply_provider: 'codex',
+          agentic_allowed_tools: ['read_file', 'list_directory', 'search_files'],
+          provider_decision_trace: { selected_provider: 'ollama-cloud' },
+          run_dir: 'stale-run-dir',
+        }),
+      })
+      .mockReturnValueOnce({
+        id: 'retry-factory-plan-1',
+        status: 'queued',
+      });
+
+    await handlers.handleRetryTask(req, res);
+
+    const created = mockDb.createTask.mock.calls[0][0];
+    expect(created.project).toBe('factory-plan');
+    expect(created.tags).toEqual(['factory:internal', 'factory:plan_generation', 'factory:target_project=DLPhone']);
+    const metadata = parseJson(created.metadata);
+    expect(metadata).toMatchObject({
+      retry_of: 'failed-factory-plan',
+      _routing_template: 'preset-ollama-cloud-primary',
+      factory_internal: true,
+      kind: 'plan_generation',
+      project_id: 'project-1',
+      target_project: 'DLPhone',
+      target_project_path: 'C:/repo',
+      work_item_id: 893,
+      provider_lane_policy: {
+        expected_provider: 'ollama-cloud',
+        allowed_fallback_providers: [],
+        enforce_handoffs: true,
+      },
+      ollama_cloud_repo_write_mode: 'proposal_apply',
+      proposal_apply_provider: 'codex',
+      agentic_allowed_tools: ['read_file', 'list_directory', 'search_files'],
+      intended_provider: 'ollama-cloud',
+    });
+    expect(metadata.provider_decision_trace).toBeUndefined();
+    expect(metadata.run_dir).toBeUndefined();
   });
 
   it('returns 400 for a non-retryable task status', async () => {
