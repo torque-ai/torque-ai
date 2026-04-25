@@ -8,3 +8,4 @@ require('../metrics').register(require('./mcp-task-info'));
 require('../metrics').register(require('./sse-dispatch'));
 require('../metrics').register(require('./db-factory-cost-summary'));
 require('../metrics').register(require('./db-project-stats'));
+require('../metrics').register(require('./db-list-tasks'));
