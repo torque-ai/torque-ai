@@ -350,6 +350,84 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 
+  it('does not requeue read-only openrouter reports that mention forbidden edit verbs', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
+
+    const task = {
+      id: 'task-openrouter-readonly-report',
+      provider: 'openrouter',
+      model: 'openrouter/free',
+      task_description: 'This is read-only: do not edit, create, delete, move, or format any files. Inspect the NetSim repository and report what you find.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: JSON.stringify({
+        _routing_chain: [
+          { provider: 'openrouter', model: 'openrouter/free' },
+          { provider: 'codex' },
+        ],
+        file_paths: ['package.json'],
+      }),
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'NetSim report: package.json is present.',
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 12, completion_tokens: 8 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    await mod.executeApiProvider(task, { name: 'openrouter' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('completed');
+    expect(updated.provider).toBe('openrouter');
+    expect(updated.output).toContain('NetSim report');
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'completed',
+      expect.objectContaining({
+        exit_code: 0,
+        progress_percent: 100,
+      }),
+    );
+  });
+
   it('requeues valid ollama-cloud proposal output to codex as an apply task', async () => {
     const { mod, configMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));

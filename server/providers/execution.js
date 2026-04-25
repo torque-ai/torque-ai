@@ -243,6 +243,24 @@ function normalizeTaskMetadata(task) {
     : {};
 }
 
+function isTruthyMetadataFlag(value) {
+  return value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true';
+}
+
+function taskExplicitlyReadOnly(taskDescription, metadata) {
+  if (
+    isTruthyMetadataFlag(metadata.read_only)
+    || isTruthyMetadataFlag(metadata.readOnly)
+    || isTruthyMetadataFlag(metadata.agentic_read_only)
+  ) {
+    return true;
+  }
+
+  return /\bread[-\s]?only\b/i.test(taskDescription)
+    || /\b(?:do not|don't)\s+(?:edit|create|delete|modify|write|move|format|change|update)\b[^.!\n\r]*\bfiles?\b/i.test(taskDescription)
+    || /\bno\s+(?:file\s+)?(?:edits?|changes?|writes?|modifications?)\b/i.test(taskDescription);
+}
+
 function normalizeProviderName(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
@@ -318,6 +336,10 @@ function taskLikelyRequiresFileChanges(task) {
   if (metadata.diffusion_role === 'compute') return false;
 
   const taskDescription = String(task?.task_description || '');
+  if (taskExplicitlyReadOnly(taskDescription, metadata)) {
+    return false;
+  }
+
   if (/\b(create|add|write|implement|generate|edit|modify|change|update|refactor|rename|fix|remove|delete|replace)\b/i.test(taskDescription)) {
     return true;
   }
