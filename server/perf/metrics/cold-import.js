@@ -26,12 +26,16 @@ async function run(ctx) {
     const start = process.hrtime.bigint();
     require(${JSON.stringify(target)});
     const elapsed = Number(process.hrtime.bigint() - start) / 1e6;
-    process.stdout.write(elapsed.toFixed(3));
+    process.stderr.write('ELAPSED:' + elapsed.toFixed(3));
   `], { encoding: 'utf8' });
   if (child.status !== 0) {
     throw new Error(`cold-import child failed (variant=${ctx.variant}): ${child.stderr}`);
   }
-  return { value: parseFloat(child.stdout) };
+  // Parse the sentinel from stderr so stdout noise (e.g. [data-dir] banners)
+  // does not corrupt the measurement.
+  const m = child.stderr.match(/ELAPSED:([\d.]+)/);
+  if (!m) throw new Error(`cold-import: no ELAPSED sentinel in stderr (variant=${ctx.variant})`);
+  return { value: parseFloat(m[1]) };
 }
 
 module.exports = {
