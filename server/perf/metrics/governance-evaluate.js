@@ -12,13 +12,15 @@ const { buildFixture } = require('../fixtures');
 // Measuring only task_submit would miss checkDiffAfterCodex (git diff HEAD)
 // which fires at pre-verify for codex tasks.
 //
-// The seeded rule set activates the git-subprocess checkers that Phase 1
-// (sync I/O migration) will speed up:
-//   - checkPushedBeforeRemote  (task_submit): git log origin/main..HEAD
-//     -> requires metadata.remote_execution=true to skip the early return
-//   - checkRequireWorktree     (task_submit): git branch + git worktree list
-//   - checkDiffAfterCodex      (pre-verify) : git diff --stat HEAD
-//     -> requires provider='codex' to skip the provider guard
+// IMPORTANT: Each rule below is seeded on the stage the metric will query — NOT
+// the production stage assignment. The goal is to exercise each git-subprocess
+// checker (Phase 1's primary cost driver) regardless of where production installs
+// the rule. For example, `require-push-before-remote` lives on `task_pre_execute`
+// in production but is seeded here on `task_submit` so it fires during
+// evaluate('task_submit', ...). Same pattern for `verify-diff-after-codex`
+// (production: `task_complete`; here: `pre-verify`). The measurement is valid
+// because the checker functions are stage-agnostic — they probe git state
+// regardless of stage.
 //
 // After Phase 1 ships, these will be truly async. The median should drop from
 // 50-500ms down to <5ms. This metric is the primary Phase 1 signal.
@@ -73,7 +75,7 @@ function lazyLoad() {
       config: '{}',
     },
     {
-      id: 'require-worktree',
+      id: 'require-worktree-for-features',
       stage: 'task_submit',
       mode: 'warn',
       checker_id: 'checkRequireWorktree',
