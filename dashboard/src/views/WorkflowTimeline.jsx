@@ -58,8 +58,10 @@ export default function WorkflowTimeline() {
       .catch((err) => {
         if (cancelled) return;
         console.error('Failed to load workflow checkpoints:', err);
-        setCheckpoints([]);
-        setSelected(null);
+        // Don't wipe the prior checkpoint list on a transient fetch error —
+        // the toast surfaces the failure and the user keeps seeing useful
+        // data while they retry. The no-id branch above still clears the
+        // list when navigating away from a workflow.
         toast.error(err?.message || 'Failed to load workflow checkpoints');
       })
       .finally(() => {

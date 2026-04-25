@@ -391,7 +391,16 @@ function buildChartData(history, metric = 'requests') {
 
 export default function Providers({ statsVersion, tasksTick }) {
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  // Tracks deferred reload timers (e.g. handleSetApiKey schedules retries
+  // at 5s + 15s for the health check to settle). Without this, navigating
+  // away mid-wait leaves the timers firing into a no-op (mountedRef guards
+  // the loadData call, but the timer itself isn't reaped).
+  const reloadTimersRef = useRef(new Set());
+  useEffect(() => () => {
+    mountedRef.current = false;
+    for (const id of reloadTimersRef.current) clearTimeout(id);
+    reloadTimersRef.current.clear();
+  }, []);
   const [providersList, setProvidersList] = useState([]);
   const [timeSeries, setTimeSeries] = useState([]);
   const [usageHistory, setUsageHistory] = useState([]);
@@ -529,9 +538,18 @@ export default function Providers({ statsVersion, tasksTick }) {
       await providerCrud.setApiKey(providerName, apiKey);
       addToast.success('API key saved');
       loadData();
-      // Re-fetch after health check has time to complete
-      setTimeout(() => { if (mountedRef.current) loadData(); }, 5000);
-      setTimeout(() => { if (mountedRef.current) loadData(); }, 15000);
+      // Re-fetch after health check has time to complete. Track the timer
+      // ids so unmount can cancel pending retries instead of letting them
+      // fire and silently no-op via mountedRef.
+      const scheduleRefetch = (delay) => {
+        const id = setTimeout(() => {
+          reloadTimersRef.current.delete(id);
+          if (mountedRef.current) loadData();
+        }, delay);
+        reloadTimersRef.current.add(id);
+      };
+      scheduleRefetch(5000);
+      scheduleRefetch(15000);
     } catch (err) {
       addToast.error(`Failed to save key: ${err.message}`);
     }
