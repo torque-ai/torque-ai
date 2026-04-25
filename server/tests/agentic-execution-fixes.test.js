@@ -837,6 +837,164 @@ describe('providers/execution agentic fixes', () => {
     }));
   });
 
+  it('fails read-only openrouter reports when the agentic loop stops for missing tool evidence', async () => {
+    const { mod, configMock, providerModelScoresMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
+
+    const task = {
+      id: 'task-openrouter-missing-tool-evidence',
+      provider: 'openrouter',
+      model: 'openrouter/free',
+      task_description: 'Read-only inspection. Use repository tools and report facts only.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([{
+        type: 'result',
+        output: 'Task stopped: model answered without using required repository tools.',
+        stopReason: 'missing_tool_evidence',
+        toolLog: [],
+        tokenUsage: { prompt_tokens: 12, completion_tokens: 8 },
+        changedFiles: [],
+        iterations: 2,
+      }])
+    );
+
+    await mod.executeApiProvider(task, { name: 'openrouter' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('failed');
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'failed',
+      expect.objectContaining({
+        exit_code: 1,
+        error_output: expect.stringContaining('missing_tool_evidence'),
+      }),
+    );
+    expect(safeUpdateTaskStatus).not.toHaveBeenCalledWith(
+      task.id,
+      'completed',
+      expect.anything(),
+    );
+    expect(providerModelScoresMock.recordModelTaskOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'openrouter',
+      modelName: 'openrouter/free',
+      success: false,
+      stopReason: 'missing_tool_evidence',
+    }));
+  });
+
+  it('fails read-only openrouter reports when the agentic loop stops for consecutive tool errors', async () => {
+    const { mod, configMock, providerModelScoresMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
+
+    const task = {
+      id: 'task-openrouter-consecutive-tool-errors',
+      provider: 'openrouter',
+      model: 'openrouter/free',
+      task_description: 'Read-only inspection. Use repository tools and report facts only.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([{
+        type: 'result',
+        output: 'Task stopped: consecutive errors from read_file after 2 iterations.',
+        stopReason: 'consecutive_tool_errors',
+        toolLog: [{ name: 'read_file', error: true }],
+        tokenUsage: { prompt_tokens: 12, completion_tokens: 8 },
+        changedFiles: [],
+        iterations: 2,
+      }])
+    );
+
+    await mod.executeApiProvider(task, { name: 'openrouter' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('failed');
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'failed',
+      expect.objectContaining({
+        exit_code: 1,
+        error_output: expect.stringContaining('consecutive_tool_errors'),
+      }),
+    );
+    expect(safeUpdateTaskStatus).not.toHaveBeenCalledWith(
+      task.id,
+      'completed',
+      expect.anything(),
+    );
+    expect(providerModelScoresMock.recordModelTaskOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'openrouter',
+      modelName: 'openrouter/free',
+      success: false,
+      stopReason: 'consecutive_tool_errors',
+    }));
+  });
+
   it('applies valid ollama-cloud proposal output without a codex apply task', async () => {
     const { mod, configMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));

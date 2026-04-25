@@ -358,7 +358,12 @@ function executeScheduledTask(schedule, options = {}) {
     const runWorkflowSpec = getWorkflowSpecRunner(options);
     let runResult;
     try {
-      runResult = runWorkflowSpec({ spec_path: schedule.spec_path });
+      const workflowSpecArgs = { spec_path: schedule.spec_path };
+      const workflowSpecWorkingDir = config.working_directory || schedule.working_directory || null;
+      if (workflowSpecWorkingDir) {
+        workflowSpecArgs.working_directory = workflowSpecWorkingDir;
+      }
+      runResult = runWorkflowSpec(workflowSpecArgs);
     } catch (error) {
       db.markScheduledTaskRun(schedule.id, {
         execution_type: 'workflow',

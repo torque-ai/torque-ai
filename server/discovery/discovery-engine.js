@@ -4,6 +4,7 @@ const logger = require('../logger').child({ component: 'discovery-engine' });
 const { assignRolesForProvider } = require('./auto-role-assigner');
 const { applyHeuristicCapabilities } = require('./heuristic-capabilities');
 const registry = require('../models/registry');
+const serverConfig = require('../config');
 
 /**
  * Post-discovery processing: apply heuristic capabilities + auto-assign roles.
@@ -16,6 +17,7 @@ const registry = require('../models/registry');
  */
 function runPostDiscovery(db, provider, syncResult) {
   let capabilitiesSet = 0;
+  const normalizedProvider = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
 
   // Apply heuristic capabilities for new models
   for (const model of (syncResult?.new || [])) {
@@ -31,13 +33,17 @@ function runPostDiscovery(db, provider, syncResult) {
 
   // Auto-assign roles
   let rolesAssigned = [];
-  try {
-    rolesAssigned = assignRolesForProvider(db, provider);
-    if (rolesAssigned.length > 0) {
-      logger.info(`Auto-assigned roles for ${provider}: ${rolesAssigned.map(r => `${r.role}=${r.model}`).join(', ')}`);
+  if (normalizedProvider !== 'openrouter') {
+    try {
+      rolesAssigned = assignRolesForProvider(db, provider);
+      if (rolesAssigned.length > 0) {
+        logger.info(`Auto-assigned roles for ${provider}: ${rolesAssigned.map(r => `${r.role}=${r.model}`).join(', ')}`);
+      }
+    } catch (err) {
+      logger.warn(`Failed to auto-assign roles for ${provider}: ${err.message}`);
     }
-  } catch (err) {
-    logger.warn(`Failed to auto-assign roles for ${provider}: ${err.message}`);
+  } else {
+    logger.info('Skipping generic role assignment for openrouter; roles come from live-pass scout candidates');
   }
 
   return { capabilities_set: capabilitiesSet, roles_assigned: rolesAssigned };
@@ -92,18 +98,29 @@ async function discoverFromAdapter(db, adapter, provider, hostId) {
   if (provider === 'openrouter') {
     try {
       const { runOpenRouterScout } = require('./openrouter-scout');
-      scoutResult = await runOpenRouterScout({ db, models, smokeLimit: 0 });
+      const smokeLimit = Math.max(0, serverConfig.getInt('openrouter_discovery_smoke_limit', 3));
+      const requireLivePass = serverConfig.getBool('openrouter_role_require_live_pass', true);
+      scoutResult = await runOpenRouterScout({
+        db,
+        models,
+        smokeLimit,
+        requireLivePass,
+      });
     } catch (err) {
       logger.warn(`OpenRouter scout failed: ${err.message}`);
     }
   }
+
+  const rolesAssigned = provider === 'openrouter'
+    ? (scoutResult?.roles_assigned || [])
+    : postResult.roles_assigned;
 
   return {
     discovered: models.length,
     new: syncResult.new.length,
     updated: syncResult.updated.length,
     removed: syncResult.removed.length,
-    roles_assigned: postResult.roles_assigned,
+    roles_assigned: rolesAssigned,
     capabilities_set: postResult.capabilities_set,
     ...(scoutResult ? { openrouter_scout: scoutResult } : {}),
   };
