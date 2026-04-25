@@ -363,6 +363,50 @@ function shouldEscalateNoOpAgenticResult(task, result) {
   );
 }
 
+function buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, maxIterations, provider, model) {
+  if (!taskLikelyRequiresFileChanges(task)) return null;
+
+  const stopReason = String(result?.stopReason || '').trim();
+  const output = String(result?.output || '');
+  const reachedMaxIterations = stopReason === 'max_iterations'
+    || /Task reached maximum iterations/i.test(output);
+  const nonConvergedStopReasons = new Set([
+    'actionless_iterations',
+    'consecutive_tool_errors',
+    'max_iterations',
+    'no_progress',
+    'output_limit',
+    'stuck_loop',
+  ]);
+
+  if (!reachedMaxIterations && !nonConvergedStopReasons.has(stopReason)) {
+    return null;
+  }
+
+  const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  if (reachedMaxIterations && !coerceOptionalBoolean(metadata.agentic_fail_on_max_iterations, true)) {
+    return null;
+  }
+  if (!reachedMaxIterations && !coerceOptionalBoolean(metadata.agentic_fail_on_non_convergence, true)) {
+    return null;
+  }
+
+  const toolCount = Array.isArray(result?.toolLog) ? result.toolLog.length : 0;
+  const changedFileCount = Array.isArray(result?.changedFiles) ? result.changedFiles.length : 0;
+  const iterationBudget = Number.isFinite(maxIterations) && maxIterations > 0
+    ? maxIterations
+    : (Number.isFinite(result?.iterations) ? result.iterations : 'unknown');
+  const reason = reachedMaxIterations
+    ? `exhausted its iteration budget (${iterationBudget}) without converging`
+    : `stopped before convergence (${stopReason || 'unknown reason'})`;
+  const providerLabel = `${provider || result?.provider || 'agentic'}/${model || result?.model || 'default'}`;
+
+  return {
+    message: `Agentic task from ${providerLabel} ${reason}. ${toolCount} tool calls, ${changedFileCount} files changed.`,
+    verificationCommand: resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
+  };
+}
+
 function isProposalApplyMode(task, agenticPolicy = null) {
   const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
   return metadata.ollama_cloud_repo_write_mode === PROPOSAL_APPLY_MODE
@@ -2239,13 +2283,16 @@ async function executeOllamaTaskWithAgentic(task) {
       gitReport,
       { changedFilesOverride: reviewedChangedFiles }
     );
-    const noOpCompletionFailure = !strictCompletionFailure && shouldEscalateNoOpAgenticResult(task, result)
+    const incompleteCompletionFailure = !strictCompletionFailure
+      ? buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, maxIterations, provider, resolvedModel)
+      : null;
+    const noOpCompletionFailure = !strictCompletionFailure && !incompleteCompletionFailure && shouldEscalateNoOpAgenticResult(task, result)
       ? {
           message: `Agentic no-op from ${provider}/${resolvedModel}: ${(result?.toolLog || []).length} tool calls, ${(result?.changedFiles || []).length} files changed`,
           verificationCommand: resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
         }
       : null;
-    const completionFailure = strictCompletionFailure || noOpCompletionFailure;
+    const completionFailure = strictCompletionFailure || incompleteCompletionFailure || noOpCompletionFailure;
     const revertResult = completionFailure
       ? maybeRevertFailedAgenticChanges(task, workingDir, agenticPolicy, snapshot, result)
       : null;
@@ -2693,7 +2740,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       maxIterations,
       result?.gitReport || completionGitReport,
       { changedFilesOverride: reviewedChangedFiles }
-    );
+    ) || buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, maxIterations, provider, model);
     const revertResult = completionFailure
       ? maybeRevertFailedAgenticChanges(task, workingDir, agenticPolicy, snapshot, result)
       : null;
