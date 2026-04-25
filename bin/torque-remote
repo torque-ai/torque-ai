@@ -525,7 +525,13 @@ case "$TRANSPORT" in
       # stash, and working-tree edits untouched.
       SYNC_BOOTSTRAP=""
       if [[ -n "$REMOTE_TEST_WORKTREE_SUBDIR" ]]; then
-        SYNC_BOOTSTRAP="cd \"$REMOTE_PROJECT_PATH\" && git worktree list --porcelain | grep -Fxq \"worktree $EFFECTIVE_REMOTE_PROJECT_PATH\" || git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF && "
+        # CMD-compatible bootstrap. The ssh command runs in CMD on Windows
+        # (no grep, no test, no posix). Use CMD's `if not exist DIR (...)`
+        # to short-circuit when the worktree already exists; first run does
+        # the `git worktree add` from main checkout. `2>nul` swallows any
+        # "already used" message in the rare case dir exists but git's
+        # metadata is stale.
+        SYNC_BOOTSTRAP="if not exist \"$EFFECTIVE_REMOTE_PROJECT_PATH\\.git\" (cd \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>nul) && "
       fi
       ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
         "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git fetch origin && git checkout --force $SYNC_BRANCH && git reset --hard $SYNC_REF" \
