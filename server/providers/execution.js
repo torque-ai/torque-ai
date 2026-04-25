@@ -357,7 +357,10 @@ function shouldEscalateNoOpAgenticResult(task, result) {
   if (changedFileCount > 0) return false;
   if (toolCount === 0) return true;
 
-  return !(result.toolLog || []).some((entry) => ['write_file', 'edit_file', 'replace_lines'].includes(entry?.name));
+  return !(result.toolLog || []).some((entry) =>
+    ['write_file', 'edit_file', 'replace_lines'].includes(entry?.name)
+    && entry?.error !== true
+  );
 }
 
 function isProposalApplyMode(task, agenticPolicy = null) {
