@@ -24,6 +24,41 @@ const FALLBACK_MODELS = [];
 /** Default cooldown when no Retry-After header (seconds) */
 const DEFAULT_COOLDOWN_SECONDS = 60;
 
+function parseZeroPrice(value) {
+  if (value === 0) return true;
+  if (value === null || value === undefined || value === '') return false;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric === 0;
+}
+
+function supportsTools(model) {
+  return Array.isArray(model?.supported_parameters)
+    && model.supported_parameters.includes('tools');
+}
+
+function isFreeOpenRouterModel(model) {
+  if (typeof model?.id === 'string' && model.id.endsWith(':free')) return true;
+  const pricing = model?.pricing;
+  if (!pricing || typeof pricing !== 'object') return false;
+  return parseZeroPrice(pricing.prompt) && parseZeroPrice(pricing.completion);
+}
+
+function normalizeOpenRouterModel(model) {
+  const id = model?.id || null;
+  return {
+    model_name: id,
+    id,
+    name: model?.name || null,
+    owned_by: model?.owned_by || model?.architecture?.modality || null,
+    context_window: model?.context_length || model?.context_window || null,
+    created: model?.created || null,
+    pricing: model?.pricing || null,
+    supported_parameters: Array.isArray(model?.supported_parameters) ? model.supported_parameters : [],
+    free: isFreeOpenRouterModel(model),
+    supports_tools: supportsTools(model),
+  };
+}
+
 class OpenRouterProvider extends BaseProvider {
   constructor(config = {}) {
     super({ name: 'openrouter', ...config });
@@ -371,25 +406,8 @@ class OpenRouterProvider extends BaseProvider {
       return { available: false, models: [], error: 'No API key configured' };
     }
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      const response = await fetch(`${this.baseUrl}/v1/models`, {
-        headers: { 'Authorization': `Bearer ${this.apiKey}` },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (!response.ok) {
-        return { available: false, models: [], error: `API returned ${response.status}` };
-      }
-      const data = await response.json();
-      const models = Array.isArray(data?.data)
-        ? data.data.map(m => ({
-            model_name: m.id,
-            id: m.id,
-            owned_by: m.owned_by || null,
-            context_window: m.context_length || m.context_window || null,
-          })).filter(m => m.model_name).slice(0, 50)
-        : [{ model_name: this.defaultModel }];
+      const models = await this._fetchModels({ timeoutMs: 5000, limit: 50 });
+      if (!models) return { available: true, models: [{ model_name: this.defaultModel }] };
       return { available: true, models };
     } catch (err) {
       const msg = err.name === 'AbortError' ? 'Health check timed out (5s)' : err.message;
@@ -397,8 +415,82 @@ class OpenRouterProvider extends BaseProvider {
     }
   }
 
-  async listModels() {
-    return [];
+  async listModels(options = {}) {
+    if (!this.apiKey) return [];
+    try {
+      const models = await this._fetchModels({
+        timeoutMs: options.timeoutMs || 5000,
+        toolsOnly: options.toolsOnly !== false,
+        freeOnly: options.freeOnly !== false,
+        limit: options.limit || null,
+      });
+      return (models || []).map(m => m.model_name).filter(Boolean);
+    } catch (err) {
+      logger.debug(`[openrouter] listModels failed: ${err.message}`);
+      return [];
+    }
+  }
+
+  async discoverModels(options = {}) {
+    if (!this.apiKey) return { provider: this.name, models: [] };
+    try {
+      const models = await this._fetchModels({
+        timeoutMs: options.timeoutMs || 5000,
+        toolsOnly: options.toolsOnly !== false,
+        freeOnly: options.freeOnly !== false,
+        limit: options.limit || null,
+      });
+      return { provider: this.name, models: models || [] };
+    } catch (err) {
+      logger.debug(`[openrouter] discoverModels failed: ${err.message}`);
+      return { provider: this.name, models: [] };
+    }
+  }
+
+  getDefaultTuning(_model) {
+    return {
+      temperature: 0.15,
+      top_p: 0.8,
+      num_predict: 1200,
+    };
+  }
+
+  async _fetchModels({ timeoutMs = 5000, toolsOnly = false, freeOnly = false, limit = null } = {}) {
+    if (!this.apiKey) {
+      throw new Error('No API key configured');
+    }
+
+    const baseUrl = String(this.baseUrl || '').replace(/\/+$/, '');
+    const url = new URL(`${baseUrl}/v1/models`);
+    if (toolsOnly) url.searchParams.set('supported_parameters', 'tools');
+
+    const controller = new AbortController();
+    const timeoutId = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
+    try {
+      const response = await fetch(url.toString(), {
+        headers: { 'Authorization': `Bearer ${this.apiKey}` },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!Array.isArray(data?.data)) return null;
+
+      let models = data.data
+        .map(normalizeOpenRouterModel)
+        .filter(m => m.model_name);
+
+      if (freeOnly) models = models.filter(m => m.free);
+      if (toolsOnly) models = models.filter(m => m.supports_tools);
+      if (Number.isFinite(limit) && limit > 0) models = models.slice(0, limit);
+
+      return models;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
   }
 
   _buildPrompt(task, options) {

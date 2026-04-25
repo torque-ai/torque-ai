@@ -169,6 +169,9 @@ function loadSubject(overrides = {}) {
     findBestAvailableModel: vi.fn(() => TEST_MODELS.DEFAULT),
     resolveOllamaModel: vi.fn((task) => task.model || TEST_MODELS.DEFAULT),
   };
+  const registryMock = {
+    selectBestApprovedModel: vi.fn(() => null),
+  };
 
   installMock(LOGGER_PATH, loggerMock);
   installMock(CONFIG_PATH, configMock);
@@ -183,7 +186,7 @@ function loadSubject(overrides = {}) {
   installMock(GOOGLE_CHAT_PATH, {});
   installMock(PROVIDER_CONFIG_PATH, providerConfigMock);
   installMock(OLLAMA_SHARED_PATH, ollamaSharedMock);
-  installMock(REGISTRY_PATH, { selectBestApprovedModel: vi.fn(() => null) });
+  installMock(REGISTRY_PATH, registryMock);
   installMock(ROUTING_CORE_PATH, { recordProviderOutcome: vi.fn() });
   installMock(OLLAMA_AGENTIC_PATH, { runAgenticLoop: vi.fn() });
 
@@ -199,6 +202,7 @@ function loadSubject(overrides = {}) {
     capabilityMock,
     providerConfigMock,
     ollamaSharedMock,
+    registryMock,
     ...overrides,
   };
 }
@@ -235,6 +239,7 @@ function writeFile(dir, relPath, content) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   restoreModuleCache();
   for (const dir of tempDirs) {
@@ -269,6 +274,136 @@ describe('providers/execution agentic fixes', () => {
 
     expect(gitSafetyMock.checkAndRevert).toHaveBeenCalled();
     expect(gitSafetyMock.checkAndRevert.mock.calls.every(([, , description]) => description === task.task_description)).toBe(true);
+  });
+
+  it('falls back when an OpenRouter agentic attempt produces no first response', async () => {
+    vi.useFakeTimers();
+
+    const { mod, configMock } = loadSubject();
+    configMock.get.mockImplementation((key) => (
+      key === 'openrouter_agentic_first_response_timeout_seconds' ? '1' : null
+    ));
+
+    const runningProcesses = new Map();
+    runningProcesses.stallAttempts = new Map();
+    mod.init({ runningProcesses });
+
+    const workers = [];
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker() {
+      const emitter = new EventEmitter();
+      const index = workers.length;
+      this.postMessage = vi.fn((msg) => {
+        if (index === 0 && msg?.type === 'abort') {
+          queueMicrotask(() => emitter.emit('message', { type: 'error', message: 'aborted' }));
+        }
+      });
+      this.terminate = vi.fn(() => Promise.resolve(1));
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      workers.push({ emitter, worker: this });
+
+      if (index === 1) {
+        queueMicrotask(() => emitter.emit('message', {
+          type: 'result',
+          output: 'second provider completed',
+          toolLog: [],
+          tokenUsage: {},
+          changedFiles: [],
+          iterations: 1,
+        }));
+      }
+    });
+
+    const task = {
+      id: 'task-openrouter-first-response-timeout',
+      task_description: 'Read only inspect',
+      working_directory: 'C:/repo',
+    };
+    const chain = [
+      { provider: 'openrouter', model: 'silent/free:free' },
+      { provider: 'cerebras', model: 'fast-model' },
+    ];
+
+    const resultPromise = mod.executeWithFallback(task, chain, buildWorkerConfig, {});
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const result = await resultPromise;
+
+    expect(workers).toHaveLength(2);
+    expect(workers[0].worker.postMessage).toHaveBeenCalledWith({ type: 'abort' });
+    expect(result.provider).toBe('cerebras');
+    expect(result.output).toBe('second provider completed');
+    expect(runningProcesses.has(task.id)).toBe(false);
+  });
+
+  it('resolves an omitted OpenRouter template model from the approved registry', async () => {
+    const { mod, configMock, registryMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
+    registryMock.selectBestApprovedModel.mockImplementation((provider) => (
+      provider === 'openrouter' ? { model_name: 'minimax/minimax-m2.5:free' } : null
+    ));
+
+    const task = {
+      id: 'task-openrouter-registry-model',
+      provider: 'openrouter',
+      model: null,
+      task_description: 'Read-only inspect package metadata.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: JSON.stringify({ read_only: true }),
+    };
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus: vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch)),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    let workerData;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      workerData = options.workerData;
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      queueMicrotask(() => emitter.emit('message', {
+        type: 'result',
+        output: 'registry model completed',
+        toolLog: [],
+        tokenUsage: {},
+        changedFiles: [],
+        iterations: 1,
+      }));
+    });
+
+    await mod.executeApiProvider(task, { name: 'openrouter' });
+
+    expect(registryMock.selectBestApprovedModel).toHaveBeenCalledWith('openrouter');
+    expect(workerData.adapterOptions).toMatchObject({
+      providerName: 'openrouter',
+      model: 'minimax/minimax-m2.5:free',
+    });
+    expect(tasks.get(task.id).status).toBe('completed');
   });
 
   it('requeues no-op ollama-cloud agentic tasks to codex for button-up', async () => {

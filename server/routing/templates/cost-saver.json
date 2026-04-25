@@ -39,7 +39,7 @@
     "simple_generation": [
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "groq", "model": "qwen/qwen3-32b"},
-      {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-30b-a3b:free"}
+      {"provider": "openrouter"}
     ],
     "plan_generation": [
       {"provider": "ollama"},
@@ -54,7 +54,7 @@
       {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
       {"provider": "google-ai", "model": "gemini-2.5-flash"},
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
-      {"provider": "openrouter", "model": "nvidia/nemotron-3-nano-30b-a3b:free"},
+      {"provider": "openrouter"},
       {"provider": "codex"}
     ]
   },

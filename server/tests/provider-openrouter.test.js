@@ -154,8 +154,82 @@ describe('OpenRouterProvider', () => {
   });
 
   describe('listModels', () => {
-    it('returns empty array', async () => {
-      await expect(provider.listModels()).resolves.toEqual([]);
+    it('lists free tool-capable model names from OpenRouter metadata', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({
+        data: [
+          {
+            id: 'minimax/minimax-m2.5:free',
+            pricing: { prompt: '0', completion: '0' },
+            supported_parameters: ['tools', 'response_format'],
+          },
+          {
+            id: 'paid/model',
+            pricing: { prompt: '0.1', completion: '0.2' },
+            supported_parameters: ['tools'],
+          },
+          {
+            id: 'free/no-tools:free',
+            pricing: { prompt: '0', completion: '0' },
+            supported_parameters: ['response_format'],
+          },
+        ],
+      }));
+
+      await expect(provider.listModels()).resolves.toEqual(['minimax/minimax-m2.5:free']);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://openrouter.ai/api/v1/models?supported_parameters=tools',
+        expect.objectContaining({
+          headers: { Authorization: 'Bearer openrouter-key' },
+          signal: expect.any(AbortSignal),
+        })
+      );
+    });
+
+    it('returns an empty array when the API key is missing', async () => {
+      const noKeyProvider = new OpenRouterProvider({ apiKey: '' });
+
+      await expect(noKeyProvider.listModels()).resolves.toEqual([]);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('discoverModels', () => {
+    it('discovers free tool-capable model metadata', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({
+        data: [
+          {
+            id: 'google/gemma-3-12b-it:free',
+            name: 'Gemma 3 12B',
+            owned_by: 'google',
+            context_length: 32768,
+            pricing: { prompt: '0', completion: '0' },
+            supported_parameters: ['tools'],
+          },
+          {
+            id: 'meta/llama-paid',
+            pricing: { prompt: '0.01', completion: '0.01' },
+            supported_parameters: ['tools'],
+          },
+        ],
+      }));
+
+      const result = await provider.discoverModels();
+
+      expect(result.provider).toBe('openrouter');
+      expect(result.models).toEqual([
+        {
+          model_name: 'google/gemma-3-12b-it:free',
+          id: 'google/gemma-3-12b-it:free',
+          name: 'Gemma 3 12B',
+          owned_by: 'google',
+          context_window: 32768,
+          created: null,
+          pricing: { prompt: '0', completion: '0' },
+          supported_parameters: ['tools'],
+          free: true,
+          supports_tools: true,
+        },
+      ]);
     });
   });
 
@@ -295,8 +369,14 @@ describe('OpenRouterProvider', () => {
         models: Array.from({ length: 50 }, (_, index) => ({
           model_name: `model-${index}`,
           id: `model-${index}`,
+          name: null,
           owned_by: null,
           context_window: null,
+          created: null,
+          pricing: null,
+          supported_parameters: [],
+          free: false,
+          supports_tools: false,
         })),
       });
       expect(fetchMock).toHaveBeenCalledWith(

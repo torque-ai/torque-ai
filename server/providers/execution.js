@@ -196,6 +196,22 @@ function resolveApiKey(provider) {
   return serverConfig.getApiKey(provider);
 }
 
+function resolveApiProviderModel(provider, requestedModel = null) {
+  const explicitModel = typeof requestedModel === 'string' ? requestedModel.trim() : requestedModel;
+  if (explicitModel) return explicitModel;
+
+  const defaultModel = PROVIDER_DEFAULT_MODEL[provider];
+  if (defaultModel) return defaultModel;
+
+  try {
+    const registry = require('../models/registry');
+    const best = registry.selectBestApprovedModel(provider);
+    if (best?.model_name) return best.model_name;
+  } catch { /* registry may not be initialized in tests or early startup */ }
+
+  return '';
+}
+
 /**
  * Build the platform-aware agentic system prompt.
  *
@@ -1729,6 +1745,12 @@ function touchTrackedAgenticWorker(taskId, mutate) {
   entry.lastOutputAt = Date.now();
 }
 
+function clearTrackedAgenticStartupTimeout(entry) {
+  if (!entry?.startupTimeoutHandle) return;
+  clearTimeout(entry.startupTimeoutHandle);
+  entry.startupTimeoutHandle = null;
+}
+
 function buildTrackedAgenticCallbacks(taskId, callbacks = {}) {
   return {
     onProgress: (msg) => {
@@ -1740,12 +1762,14 @@ function buildTrackedAgenticCallbacks(taskId, callbacks = {}) {
     },
     onToolCall: (msg) => {
       touchTrackedAgenticWorker(taskId, (entry) => {
+        clearTrackedAgenticStartupTimeout(entry);
         appendTrackedOutput(entry, `[tool:${msg.name}] `);
       });
       callbacks.onToolCall?.(msg);
     },
     onChunk: (msg) => {
       touchTrackedAgenticWorker(taskId, (entry) => {
+        clearTrackedAgenticStartupTimeout(entry);
         appendTrackedOutput(entry, msg.text || '');
       });
       callbacks.onChunk?.(msg);
@@ -1764,6 +1788,7 @@ function trackAgenticWorkerTask(taskId, {
   workingDir = null,
   timeoutHandle = null,
   timeoutMs = null,
+  firstResponseTimeoutMs = null,
 }) {
   const runningProcesses = getAgenticRunningProcesses();
   const worker = workerHandle?.worker;
@@ -1796,7 +1821,29 @@ function trackAgenticWorkerTask(taskId, {
     workingDirectory: workingDir,
     isAgenticWorker: true,
     timeoutMs,
+    firstResponseTimeoutMs,
   };
+
+  const trackerState = {
+    firstResponseTimedOut: false,
+    timeoutMessage: null,
+  };
+
+  if (Number.isFinite(firstResponseTimeoutMs) && firstResponseTimeoutMs > 0) {
+    procRecord.startupTimeoutHandle = setTimeout(() => {
+      const current = runningProcesses.get(taskId);
+      if (current !== procRecord) return;
+
+      const timeoutSeconds = Math.ceil(firstResponseTimeoutMs / 1000);
+      trackerState.firstResponseTimedOut = true;
+      trackerState.timeoutMessage = `Agentic worker timed out after ${timeoutSeconds}s without model output or tool calls`;
+      current.errorOutput = trackerState.timeoutMessage;
+      current.output = current.output || `[Agentic: waiting on ${provider || 'provider'}${model ? ` ${model}` : ''}]`;
+      try { abortController?.abort?.(); } catch { /* ignore */ }
+      try { workerHandle.abort?.(); } catch { /* ignore */ }
+    }, firstResponseTimeoutMs);
+    procRecord.startupTimeoutHandle.unref?.();
+  }
 
   procRecord.silentHeartbeatHandle = setInterval(() => {
     const current = runningProcesses.get(taskId);
@@ -1811,7 +1858,7 @@ function trackAgenticWorkerTask(taskId, {
 
   runningProcesses.set(taskId, procRecord);
 
-  return () => {
+  const cleanup = () => {
     const current = runningProcesses.get(taskId);
     if (current === procRecord) {
       if (current.timeoutHandle) clearTimeout(current.timeoutHandle);
@@ -1825,6 +1872,28 @@ function trackAgenticWorkerTask(taskId, {
     if (originalKill) worker.kill = originalKill;
     else delete worker.kill;
   };
+  cleanup.getState = () => trackerState;
+  return cleanup;
+}
+
+function normalizeAgenticWorkerError(error, cleanupTrackedWorker) {
+  const state = cleanupTrackedWorker?.getState?.();
+  if (!state?.firstResponseTimedOut) return error;
+  const timeoutError = new Error(state.timeoutMessage || 'Agentic worker first response timed out');
+  timeoutError.name = 'AgenticFirstResponseTimeoutError';
+  timeoutError.cause = error;
+  return timeoutError;
+}
+
+function resolveAgenticFirstResponseTimeoutMs(provider) {
+  if (provider !== 'openrouter') return null;
+  const serverConfig = require('../config');
+  const raw = serverConfig.get('openrouter_agentic_first_response_timeout_seconds')
+    || serverConfig.get('agentic_first_response_timeout_seconds')
+    || '180';
+  const seconds = parseInt(raw, 10);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return seconds * 1000;
 }
 
 /**
@@ -2424,7 +2493,7 @@ async function executeOllamaTaskWithAgentic(task) {
 async function executeApiProviderWithAgentic(task, providerInstance) {
   const serverConfig = require('../config');
   const provider = task.provider || '';
-  const model = task.model || PROVIDER_DEFAULT_MODEL[provider] || '';
+  const model = resolveApiProviderModel(provider, task.model);
   logger.debug(`[API-WRAP] provider=${provider} model=${model} taskId=${task.id}`);
 
   // Check capability
@@ -2620,7 +2689,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
             host: PROVIDER_HOST_MAP[entry.provider] || '',
             apiKey: resolveApiKey(entry.provider),
             providerName: entry.provider,
-            model: entry.model || PROVIDER_DEFAULT_MODEL[entry.provider] || '',
+            model: resolveApiProviderModel(entry.provider, entry.model),
             temperature: 0.3,
           },
           systemPrompt,
@@ -2685,6 +2754,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         workingDir,
         timeoutHandle,
         timeoutMs,
+        firstResponseTimeoutMs: resolveAgenticFirstResponseTimeoutMs(provider),
       });
 
       // Wire abort: forward AbortController.abort() → worker abort message
@@ -2917,27 +2987,28 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     }
 
   } catch (error) {
+    const handledError = normalizeAgenticWorkerError(error, cleanupTrackedWorker);
     const currentTask = db.getTask(taskId) || task;
     const handoffTarget = resolveAgenticHandoffTarget({
       task: currentTask,
       chain,
       db,
-      currentProvider: error.agenticFailedProvider || provider,
-      currentModel: error.agenticFailedModel || model || null,
-      currentChainPosition: error.agenticChainPosition || null,
-      preferredTarget: error.agenticHandoffTarget || null,
+      currentProvider: handledError.agenticFailedProvider || provider,
+      currentModel: handledError.agenticFailedModel || model || null,
+      currentChainPosition: handledError.agenticChainPosition || null,
+      preferredTarget: handledError.agenticHandoffTarget || null,
     });
     if (handoffTarget) {
-      const reason = error.agenticHandoffReason
-        || `Agentic provider ${(error.agenticFailedProvider || provider)}/${error.agenticFailedModel || model || 'default'} failed: ${error.message}`;
+      const reason = handledError.agenticHandoffReason
+        || `Agentic provider ${(handledError.agenticFailedProvider || provider)}/${handledError.agenticFailedModel || model || 'default'} failed: ${handledError.message}`;
       requeueAgenticTaskForHandoff(db, taskId, currentTask, handoffTarget.entry, handoffTarget.remainingChain, reason);
-      logger.info(`[Agentic] API task ${taskId} requeued to ${handoffTarget.entry.provider}${handoffTarget.entry.model ? `/${handoffTarget.entry.model}` : ''} after provider failure: ${error.message}`);
+      logger.info(`[Agentic] API task ${taskId} requeued to ${handoffTarget.entry.provider}${handoffTarget.entry.model ? `/${handoffTarget.entry.model}` : ''} after provider failure: ${handledError.message}`);
       return;
     }
 
-    logger.info(`[Agentic] API task ${taskId} failed: ${error.message}`);
+    logger.info(`[Agentic] API task ${taskId} failed: ${handledError.message}`);
     safeUpdateTaskStatus(taskId, 'failed', {
-      error_output: error.message,
+      error_output: handledError.message,
       exit_code: 1,
       completed_at: new Date().toISOString(),
     });
@@ -3025,8 +3096,9 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
   for (let i = 0; i < chain.length; i++) {
     const entry = chain[i];
     const config = buildWorkerConfig(entry);
+    const resolvedModel = config?.adapterOptions?.model || entry.model || null;
 
-    logger.info(`[Routing] Trying ${entry.provider}/${entry.model || 'default'} (${i + 1}/${chain.length})`);
+    logger.info(`[Routing] Trying ${entry.provider}/${resolvedModel || 'default'} (${i + 1}/${chain.length})`);
 
     let workerHandle;
     let cleanupTrackedWorker = null;
@@ -3035,9 +3107,10 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
       cleanupTrackedWorker = trackAgenticWorkerTask(task.id, {
         workerHandle,
         provider: entry.provider,
-        model: entry.model || null,
+        model: resolvedModel,
         workingDir,
         timeoutMs: config.timeoutMs,
+        firstResponseTimeoutMs: resolveAgenticFirstResponseTimeoutMs(entry.provider),
       });
       const result = await workerHandle.promise;
       let gitReport = null;
@@ -3054,10 +3127,11 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
       // Record success
       try { recordProviderOutcome(entry.provider, true); } catch { /* non-critical */ }
 
-      return { ...result, provider: entry.provider, model: entry.model, chainPosition: i + 1, gitReport };
+      return { ...result, provider: entry.provider, model: resolvedModel, chainPosition: i + 1, gitReport };
 
     } catch (error) {
-      lastError = error;
+      const handledError = normalizeAgenticWorkerError(error, cleanupTrackedWorker);
+      lastError = handledError;
 
       // Terminate the stuck worker
       if (workerHandle) try { workerHandle.terminate(); } catch { /* ignore */ }
@@ -3072,24 +3146,24 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
 
       const nextEntry = chain[i + 1];
       if (nextEntry && !isAgenticWorkerCompatibleProvider(nextEntry.provider)) {
-        const handoffError = new Error(`Provider ${entry.provider}/${entry.model || 'default'} failed; handoff to ${nextEntry.provider} is required`);
+        const handoffError = new Error(`Provider ${entry.provider}/${resolvedModel || 'default'} failed; handoff to ${nextEntry.provider} is required`);
         handoffError.agenticHandoffTarget = nextEntry;
-        handoffError.agenticHandoffReason = `Provider ${entry.provider}/${entry.model || 'default'} failed: ${error.message}`;
+        handoffError.agenticHandoffReason = `Provider ${entry.provider}/${resolvedModel || 'default'} failed: ${handledError.message}`;
         handoffError.agenticChainPosition = i + 1;
         handoffError.agenticFailedProvider = entry.provider;
-        handoffError.agenticFailedModel = entry.model || null;
+        handoffError.agenticFailedModel = resolvedModel;
         throw handoffError;
       }
 
-      if (!isRetryableError(error) || i === chain.length - 1) {
-        error.agenticChainPosition = i + 1;
-        error.agenticFailedProvider = entry.provider;
-        error.agenticFailedModel = entry.model || null;
-        logger.info(`[Routing] ${entry.provider} failed (non-retryable or last in chain): ${error.message}`);
-        throw error;
+      if (!isRetryableError(handledError) || i === chain.length - 1) {
+        handledError.agenticChainPosition = i + 1;
+        handledError.agenticFailedProvider = entry.provider;
+        handledError.agenticFailedModel = resolvedModel;
+        logger.info(`[Routing] ${entry.provider} failed (non-retryable or last in chain): ${handledError.message}`);
+        throw handledError;
       }
 
-      logger.info(`[Routing] Fallback: ${entry.provider}/${entry.model || 'default'} failed (${error.message.slice(0, 80)}), trying next (${i + 2}/${chain.length})`);
+      logger.info(`[Routing] Fallback: ${entry.provider}/${resolvedModel || 'default'} failed (${handledError.message.slice(0, 80)}), trying next (${i + 2}/${chain.length})`);
     } finally {
       cleanupTrackedWorker?.();
     }

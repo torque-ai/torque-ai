@@ -346,8 +346,30 @@ describe('OpenRouterProvider', () => {
       const health = await provider.checkHealth();
       expect(health.available).toBe(true);
       expect(health.models).toEqual([
-        { model_name: 'model-a', id: 'model-a', owned_by: null, context_window: null },
-        { model_name: 'model-b', id: 'model-b', owned_by: null, context_window: null },
+        {
+          model_name: 'model-a',
+          id: 'model-a',
+          name: null,
+          owned_by: null,
+          context_window: null,
+          created: null,
+          pricing: null,
+          supported_parameters: [],
+          free: false,
+          supports_tools: false,
+        },
+        {
+          model_name: 'model-b',
+          id: 'model-b',
+          name: null,
+          owned_by: null,
+          context_window: null,
+          created: null,
+          pricing: null,
+          supported_parameters: [],
+          free: false,
+          supports_tools: false,
+        },
       ]);
     });
 
@@ -364,9 +386,32 @@ describe('OpenRouterProvider', () => {
   });
 
   describe('listModels', () => {
-    it('returns empty array', async () => {
+    it('returns free tool-capable model names', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          data: [
+            {
+              id: 'minimax/minimax-m2.5:free',
+              pricing: { prompt: '0', completion: '0' },
+              supported_parameters: ['tools'],
+            },
+            {
+              id: 'paid/model',
+              pricing: { prompt: '0.01', completion: '0.01' },
+              supported_parameters: ['tools'],
+            },
+            {
+              id: 'free/no-tools:free',
+              pricing: { prompt: '0', completion: '0' },
+              supported_parameters: ['response_format'],
+            },
+          ],
+        }),
+      }));
+
       const models = await provider.listModels();
-      expect(models).toEqual([]);
+      expect(models).toEqual(['minimax/minimax-m2.5:free']);
     });
   });
 
