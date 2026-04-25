@@ -104,6 +104,26 @@ describe('submitFactoryInternalTask', () => {
     }));
   });
 
+  it('accepts kind=verify_review and routes it under factory-plan', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'review-task-1' });
+
+    await submitFactoryInternalTask({
+      task: 'review work',
+      working_directory: '/review-repo',
+      kind: 'verify_review',
+      project_id: 'project-3',
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      project: 'factory-plan',
+      working_directory: '/review-repo',
+      task_metadata: expect.objectContaining({
+        kind: 'verify_review',
+      }),
+    }));
+  });
+
   it('builds tags and passes internal metadata to the submitter', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'plan-task-1' });

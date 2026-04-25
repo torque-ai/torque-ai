@@ -193,6 +193,17 @@ async function getModifiedFiles(workingDirectory, worktreeBranch, mergeBase) {
   });
 }
 
+// The reviewer is a structured yes/no judgment ("does this diff explain
+// those failures?"). Cerebras/groq deliver JSON in ~1-3s vs Codex's
+// ~5-10min for the same task. Override via env for ops flexibility:
+// empty string opts back into smart routing (legacy behavior).
+function readReviewerProvider() {
+  const raw = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+  if (raw === undefined) return 'cerebras';
+  const trimmed = String(raw).trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, workingDirectory, verifyOutput, timeoutMs = LLM_TIMEOUT_MS }) {
   const { submitFactoryInternalTask } = require('./internal-task-submit');
   const { handleAwaitTask } = require('../handlers/workflow/await');
@@ -201,14 +212,25 @@ async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, 
   const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem, verifyOutput });
   let taskId;
   const timeoutMinutes = timeoutMinutesForMs(timeoutMs);
+  const reviewerProvider = readReviewerProvider();
   try {
     const submitResult = await submitFactoryInternalTask({
       task: prompt,
       working_directory: workingDirectory || project?.path || process.cwd(),
-      kind: 'plan_generation',
+      kind: 'verify_review',
       project_id: project?.id,
       work_item_id: workItem?.id,
       timeout_minutes: timeoutMinutes,
+      // The prompt already contains all needed context (failing tests,
+      // modified files, verify excerpt). Skip context-stuffing so the
+      // model focuses on the verdict instead of re-deriving it from
+      // scanned project files.
+      context_stuff: false,
+      // prefer_free=true gives cerebras → groq → google-ai → openrouter
+      // fallback if the primary provider is unhealthy. Avoids paying
+      // Codex prices for what a fast free model handles in seconds.
+      prefer_free: true,
+      ...(reviewerProvider ? { provider: reviewerProvider } : {}),
     });
     taskId = submitResult?.task_id || null;
   } catch (_e) {
