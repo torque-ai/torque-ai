@@ -83,4 +83,45 @@ module.exports = [
     match: { stage: 'verify', action: 'worktree_verify_failed' },
     suggested_strategies: ['retry', 'escalate'],
   },
+  {
+    // VERIFY paused waiting on non-terminal batch tasks. With factory-tick
+    // auto-clear (commit 5275d2c1) and the `skipped`-as-terminal fix
+    // (commit fac72c3f), this normally heals on its own once the batch
+    // turns fully terminal. The rule still fires so the decision log shows
+    // a deterministic category instead of "unknown", and so retry (now
+    // stage-aware → retryFactoryVerify on VERIFY) re-checks the gate after
+    // recovery rather than waiting for the next factory tick.
+    name: 'verify_batch_tasks_not_terminal',
+    category: 'transient',
+    priority: 70,
+    confidence: 0.7,
+    match_fn: (d) => {
+      if (!d || d.stage !== 'verify') return false;
+      if (d.action === 'waiting_for_batch_tasks') return true;
+      if (d.action === 'paused_at_gate') {
+        const reason = d.outcome?.reason || '';
+        return reason === 'batch_tasks_not_terminal';
+      }
+      return false;
+    },
+    suggested_strategies: ['retry', 'escalate'],
+  },
+  {
+    // EXECUTE-stage exception catch-all. Mirrors verify_fail_unclassified
+    // for the EXECUTE side. Most execute_exception decisions today are
+    // transient (codex hiccup, fs ENOENT, smart_submit anomalies); the
+    // first move is retry — which after the stage-aware fix (commit
+    // 5ac34709) calls approveGate on EXECUTE pause and lets the loop tick
+    // re-enter EXECUTE. If progress isn't made, reject_and_advance moves
+    // past the offending work item; escalate is the final fallback.
+    // Without this rule the classifier labels execute_exception "unknown"
+    // with confidence 0 (still picks retry by default, but yields no
+    // signal in the decision log).
+    name: 'execute_exception_unclassified',
+    category: 'unknown',
+    priority: 10,
+    confidence: 0.3,
+    match: { stage: 'execute', action: 'execute_exception' },
+    suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+  },
 ];
