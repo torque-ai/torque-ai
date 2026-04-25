@@ -6,6 +6,8 @@ const { parsePlanFile, extractVerifyCommand } = require('./plan-parser');
 
 const FILE_PATH_RE = /(?:^|[\s"'`(])((?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+)(?=$|[\s"'`),:])/gm;
 const EXECUTION_MODES = new Set(['live', 'suppress', 'pending_approval']);
+const LIVE_REUSABLE_STATUSES = new Set(['pending', 'queued', 'running']);
+const APPROVAL_REUSABLE_STATUSES = new Set(['pending_approval', 'pending', 'queued', 'running']);
 
 function buildTaskPrompt(task, planTitle) {
   const lines = [`Plan: ${planTitle}`, `Task ${task.task_number}: ${task.task_title}`, ''];
@@ -110,7 +112,17 @@ function normalizeExecutionMode(executionMode, dryRun) {
   return dryRun ? 'suppress' : 'live';
 }
 
-function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunTask = null }) {
+function isReusableTaskActiveForMode(status, mode) {
+  if (mode === 'live') {
+    return LIVE_REUSABLE_STATUSES.has(status);
+  }
+  if (mode === 'pending_approval') {
+    return APPROVAL_REUSABLE_STATUSES.has(status);
+  }
+  return false;
+}
+
+function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projectDefaults = {}, onDryRunTask = null }) {
   async function execute({
     plan_path,
     project,
@@ -164,6 +176,74 @@ function createPlanExecutor({ submit, awaitTask, projectDefaults = {}, onDryRunT
             simulated: true,
           });
         }
+        continue;
+      }
+
+      const reusableTask = typeof findReusableTask === 'function'
+        ? await findReusableTask({
+            plan_path,
+            plan_title: parsed.title,
+            task,
+            project,
+            working_directory,
+            version_intent,
+            execution_mode: mode,
+            file_paths,
+          })
+        : null;
+
+      if (reusableTask?.task_id && reusableTask.status === 'completed') {
+        const verification = verifyCompletedTaskArtifacts(task, working_directory);
+        if (verification.trust) {
+          logger.info(`reusing completed task ${reusableTask.task_id} for already-landed plan task ${task.task_number}`);
+          tickTaskInFile(plan_path, task.task_number);
+          completed_tasks.push(task.task_number);
+          continue;
+        }
+
+        logger.warn(`completed task ${reusableTask.task_id} for plan task ${task.task_number} has missing artifacts — resubmitting`, {
+          plan_path,
+          task_number: task.task_number,
+          missing_paths: verification.missing,
+        });
+      }
+
+      if (reusableTask?.task_id && isReusableTaskActiveForMode(reusableTask.status, mode)) {
+        logger.info(`reusing active task ${reusableTask.task_id} for plan task ${task.task_number}`);
+        if (mode === 'pending_approval') {
+          task_count += 1;
+          submitted_tasks.push({ task_number: task.task_number, task_id: reusableTask.task_id });
+          if (typeof onDryRunTask === 'function') {
+            await onDryRunTask({
+              plan_path,
+              plan_title: parsed.title,
+              task,
+              prompt,
+              file_paths,
+              execution_mode: mode,
+              simulated: false,
+              initial_status: reusableTask.status,
+              submitted_task_id: reusableTask.task_id,
+              reused_task: true,
+            });
+          }
+          continue;
+        }
+
+        const reusedResult = await awaitTask({
+          task_id: reusableTask.task_id,
+          verify_command,
+          commit_message: task.commit_message || `feat: plan task ${task.task_number}`,
+          working_directory,
+        });
+
+        if (reusedResult.status !== 'completed' || (reusedResult.verify_status && reusedResult.verify_status !== 'passed')) {
+          failed_task = task.task_number;
+          logger.warn(`reused task ${task.task_number} failed: ${reusedResult.error || reusedResult.verify_status}`);
+          break;
+        }
+        tickTaskInFile(plan_path, task.task_number);
+        completed_tasks.push(task.task_number);
         continue;
       }
 

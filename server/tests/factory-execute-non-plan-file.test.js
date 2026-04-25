@@ -349,7 +349,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     const generatedDecision = decisions.find((row) => row.action === 'plan_generated');
     expect(generatedDecision).toMatchObject({
       stage: 'execute',
-      reasoning: 'generated plan via Codex for non-plan-file work item',
+      reasoning: 'generated plan via auto-router for non-plan-file work item',
       inputs: expect.objectContaining({
         work_item_id: workItem.id,
         plan_path: null,
@@ -357,7 +357,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       outcome: expect.objectContaining({
         work_item_id: workItem.id,
         plan_path: expectedPlanPath,
-        generator: 'codex',
+        generator: 'auto-router',
         generation_task_id: 'plan-gen-task',
       }),
     });
@@ -390,7 +390,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
       }),
       outcome: expect.objectContaining({
         reason: 'no description',
-        generator: 'codex',
+        generator: 'auto-router',
         generation_task_id: null,
         work_item_id: workItem.id,
         plan_path: null,
