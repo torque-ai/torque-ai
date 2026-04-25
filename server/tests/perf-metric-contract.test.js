@@ -1,30 +1,37 @@
 'use strict';
 
+const r = require('../perf/metrics');
+
 describe('perf metric registry contract', () => {
   beforeEach(() => {
-    delete require.cache[require.resolve('../perf/metrics')];
+    r._reset();
   });
 
   it('rejects metric without id', () => {
-    const r = require('../perf/metrics');
     expect(() => r.register({ run: () => 0 })).toThrow(/metric\.id required/);
   });
 
   it('rejects metric without run()', () => {
-    const r = require('../perf/metrics');
     expect(() => r.register({ id: 'foo' })).toThrow(/metric\.run/);
   });
 
   it('rejects duplicate id', () => {
-    const r = require('../perf/metrics');
     r.register({ id: 'foo', run: () => 0 });
     expect(() => r.register({ id: 'foo', run: () => 0 })).toThrow(/duplicate metric id/);
   });
 
   it('list() returns registered metrics in insertion order', () => {
-    const r = require('../perf/metrics');
     r.register({ id: 'a', name: 'A', category: 'cat', run: () => 0 });
     r.register({ id: 'b', name: 'B', category: 'cat', run: () => 0 });
     expect(r.list().map((m) => m.id)).toEqual(['a', 'b']);
+  });
+
+  it('list() returns a copy — caller mutation does not affect registry', () => {
+    r.register({ id: 'a', run: () => 0 });
+    const snapshot = r.list();
+    snapshot.push({ id: 'rogue', run: () => 0 });
+    snapshot[0].id = 'mutated';
+    expect(r.list().length).toBe(1);
+    expect(r.list()[0].id).toBe('a');
   });
 });

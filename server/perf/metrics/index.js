@@ -21,4 +21,10 @@ function list() {
   return metrics.slice();
 }
 
-module.exports = { register, list };
+// Test-only: drop all registered metrics so each test starts clean.
+// Production code should never call this.
+function _reset() {
+  metrics.length = 0;
+}
+
+module.exports = { register, list, _reset };
