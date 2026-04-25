@@ -624,7 +624,7 @@ describe('providers/execution agentic fixes', () => {
 
     vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
       createWorkerCtor([
-        { type: 'result', output: 'done', toolLog: [], tokenUsage: {}, changedFiles: [], iterations: 1 },
+        { type: 'result', output: 'done', toolLog: [], tokenUsage: {}, changedFiles: ['src/fixed.js'], iterations: 1 },
       ])
     );
 
@@ -718,6 +718,77 @@ describe('providers/execution agentic fixes', () => {
     await taskPromise;
 
     expect(runningProcesses.has('task-ollama')).toBe(false);
+  });
+
+  it('marks Ollama agentic modification tasks failed when the model changes no files', async () => {
+    const { mod } = loadSubject();
+    const workerControl = createDeferredWorkerControl();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const runningProcesses = new Map();
+    runningProcesses.stallAttempts = new Map();
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses,
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(workerControl.WorkerCtor);
+
+    const taskPromise = mod.executeOllamaTask({
+      id: 'task-ollama-noop',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Add focused parser test coverage',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    workerControl.latest().emitMessage({
+      type: 'result',
+      output: 'I would add the test file with the following contents.',
+      toolLog: [],
+      tokenUsage: {},
+      changedFiles: [],
+      iterations: 1,
+    });
+
+    await taskPromise;
+
+    expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(
+      'task-ollama-noop',
+      'failed',
+      expect.objectContaining({
+        exit_code: 1,
+        error_output: expect.stringContaining('Agentic no-op from ollama'),
+      }),
+    );
+    expect(deps.safeUpdateTaskStatus).not.toHaveBeenCalledWith(
+      'task-ollama-noop',
+      'completed',
+      expect.anything(),
+    );
   });
 
   it('derives worker policy from task metadata and NEXT_TASK.md', async () => {

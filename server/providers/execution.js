@@ -2227,7 +2227,7 @@ async function executeOllamaTaskWithAgentic(task) {
     const reviewedChangedFiles = sessionLogTarget
       ? mergeChangedFiles(result?.changedFiles, [sessionLogTarget.absolutePath])
       : mergeChangedFiles(result?.changedFiles);
-    const completionFailure = evaluateAgenticCompletion(
+    const strictCompletionFailure = evaluateAgenticCompletion(
       task,
       workingDir,
       agenticPolicy,
@@ -2236,6 +2236,13 @@ async function executeOllamaTaskWithAgentic(task) {
       gitReport,
       { changedFilesOverride: reviewedChangedFiles }
     );
+    const noOpCompletionFailure = !strictCompletionFailure && shouldEscalateNoOpAgenticResult(task, result)
+      ? {
+          message: `Agentic no-op from ${provider}/${resolvedModel}: ${(result?.toolLog || []).length} tool calls, ${(result?.changedFiles || []).length} files changed`,
+          verificationCommand: resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
+        }
+      : null;
+    const completionFailure = strictCompletionFailure || noOpCompletionFailure;
     const revertResult = completionFailure
       ? maybeRevertFailedAgenticChanges(task, workingDir, agenticPolicy, snapshot, result)
       : null;
