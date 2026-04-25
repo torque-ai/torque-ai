@@ -1190,6 +1190,97 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 
+  it('reverts partial edits when Ollama agentic tasks fail by non-convergence', async () => {
+    const { mod, gitSafetyMock } = loadSubject();
+    const workerControl = createDeferredWorkerControl();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const workDir = makeTempDir();
+    const snapshot = { isGitRepo: true, dirtyFiles: new Set(), untrackedFiles: new Set() };
+    gitSafetyMock.captureSnapshot.mockReturnValue(snapshot);
+    gitSafetyMock.checkAndRevert.mockReturnValue({ reverted: [], kept: [], report: '' });
+    gitSafetyMock.revertScopedChanges.mockReturnValue({
+      reverted: ['Modules/Tests/Parser.Vendors.Tests.ps1'],
+      kept: [],
+      report: 'Reverted Modules/Tests/Parser.Vendors.Tests.ps1',
+    });
+
+    const runningProcesses = new Map();
+    runningProcesses.stallAttempts = new Map();
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running' })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses,
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(workerControl.WorkerCtor);
+
+    const taskPromise = mod.executeOllamaTask({
+      id: 'task-ollama-revert-non-converged',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Add focused parser test coverage',
+      working_directory: workDir,
+      timeout_minutes: 1,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    workerControl.latest().emitMessage({
+      type: 'result',
+      output: 'Task reached maximum iterations (10). 10 tool calls executed.',
+      toolLog: [
+        { name: 'read_file', error: false },
+        { name: 'edit_file', error: false },
+        { name: 'edit_file', error: true },
+      ],
+      tokenUsage: {},
+      changedFiles: ['Modules/Tests/Parser.Vendors.Tests.ps1'],
+      iterations: 10,
+      stopReason: 'max_iterations',
+    });
+
+    await taskPromise;
+
+    expect(gitSafetyMock.revertScopedChanges).toHaveBeenCalledWith(
+      workDir,
+      snapshot,
+      ['Modules/Tests/Parser.Vendors.Tests.ps1'],
+    );
+
+    const failureCall = deps.safeUpdateTaskStatus.mock.calls.find(
+      ([taskId, status]) => taskId === 'task-ollama-revert-non-converged' && status === 'failed'
+    );
+    expect(failureCall).toBeTruthy();
+    expect(failureCall[2]).toEqual(expect.objectContaining({
+      exit_code: 1,
+      error_output: expect.stringContaining('Reverted Modules/Tests/Parser.Vendors.Tests.ps1'),
+    }));
+
+    const metadata = JSON.parse(failureCall[2].task_metadata);
+    expect(metadata.agentic_reverted_changes).toEqual(['Modules/Tests/Parser.Vendors.Tests.ps1']);
+    expect(metadata.agentic_revert_report).toBe('Reverted Modules/Tests/Parser.Vendors.Tests.ps1');
+  });
+
   it('derives worker policy from task metadata and NEXT_TASK.md', async () => {
     const { mod } = loadSubject();
     const host = { id: 'host-1', url: 'http://ollama-host:11434' };

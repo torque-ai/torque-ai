@@ -365,6 +365,26 @@ function taskLikelyRequiresFileChanges(task) {
   return filePaths.length > 0 || requiredPaths.length > 0;
 }
 
+const NON_CONVERGED_AGENTIC_STOP_REASONS = new Set([
+  'actionless_iterations',
+  'consecutive_tool_errors',
+  'max_iterations',
+  'no_progress',
+  'output_limit',
+  'stuck_loop',
+]);
+
+function didAgenticReachMaxIterations(result) {
+  const stopReason = String(result?.stopReason || '').trim();
+  const output = String(result?.output || '');
+  return stopReason === 'max_iterations' || /Task reached maximum iterations/i.test(output);
+}
+
+function isNonConvergedAgenticResult(result) {
+  const stopReason = String(result?.stopReason || '').trim();
+  return didAgenticReachMaxIterations(result) || NON_CONVERGED_AGENTIC_STOP_REASONS.has(stopReason);
+}
+
 function shouldEscalateNoOpAgenticResult(task, result) {
   if (!taskLikelyRequiresFileChanges(task)) return false;
 
@@ -383,19 +403,9 @@ function buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, 
   if (!taskLikelyRequiresFileChanges(task)) return null;
 
   const stopReason = String(result?.stopReason || '').trim();
-  const output = String(result?.output || '');
-  const reachedMaxIterations = stopReason === 'max_iterations'
-    || /Task reached maximum iterations/i.test(output);
-  const nonConvergedStopReasons = new Set([
-    'actionless_iterations',
-    'consecutive_tool_errors',
-    'max_iterations',
-    'no_progress',
-    'output_limit',
-    'stuck_loop',
-  ]);
+  const reachedMaxIterations = didAgenticReachMaxIterations(result);
 
-  if (!reachedMaxIterations && !nonConvergedStopReasons.has(stopReason)) {
+  if (!isNonConvergedAgenticResult(result)) {
     return null;
   }
 
@@ -1569,17 +1579,23 @@ function buildGitSafetyOptions(agenticPolicy) {
   };
 }
 
-function shouldRevertFailedAgenticChanges(task, agenticPolicy) {
+function shouldRevertFailedAgenticChanges(task, agenticPolicy, result = null) {
   const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  if (metadata.agentic_revert_changes_on_failure !== undefined && metadata.agentic_revert_changes_on_failure !== null) {
+    return coerceOptionalBoolean(metadata.agentic_revert_changes_on_failure, false);
+  }
+  if (isNonConvergedAgenticResult(result) && taskLikelyRequiresFileChanges(task)) {
+    return true;
+  }
   const strictExecution = coerceOptionalBoolean(
     metadata.agentic_strict_completion,
     coerceOptionalBoolean(metadata.agentic_constraints_from_next_task, false),
   );
-  return coerceOptionalBoolean(metadata.agentic_revert_changes_on_failure, strictExecution);
+  return strictExecution;
 }
 
 function maybeRevertFailedAgenticChanges(task, workingDir, agenticPolicy, snapshot, result) {
-  if (!shouldRevertFailedAgenticChanges(task, agenticPolicy)) {
+  if (!shouldRevertFailedAgenticChanges(task, agenticPolicy, result)) {
     return null;
   }
   if (!snapshot?.isGitRepo) {
