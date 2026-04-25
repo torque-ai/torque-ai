@@ -361,6 +361,103 @@ describe('factory pause enforcement', () => {
     });
   });
 
+  it('cancels orphan factory-internal target-project tasks when the project is idle with no open work', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: false });
+    taskCore.createTask({
+      id: 'task-orphan-internal-idle',
+      status: 'running',
+      project: 'factory-architect',
+      provider: 'codex',
+      task_description: 'stale orphan architect handoff',
+      working_directory: project.path,
+      tags: [
+        'factory:internal',
+        'factory:architect_cycle',
+        `factory:project_id=${project.id}`,
+        `factory:target_project=${project.name}`,
+      ],
+      metadata: {
+        factory_internal: true,
+        kind: 'architect_cycle',
+        project_id: project.id,
+        target_project: project.name,
+        agentic_handoff_from: 'ollama-cloud',
+        agentic_handoff_to: 'codex',
+      },
+    });
+    const taskManager = {
+      cancelTask: vi.fn((taskId, _reason, options) => {
+        taskCore.updateTaskStatus(taskId, options.terminal_status || 'cancelled', {
+          cancel_reason: options.cancel_reason,
+        });
+        return true;
+      }),
+    };
+
+    const result = await factoryTick._internalForTests.cancelOrphanInternalTasksForIdleProject(
+      project,
+      { cancelGraceMs: 0, taskCore, taskManager },
+    );
+
+    expect(result.cancelled_task_ids).toEqual(['task-orphan-internal-idle']);
+    expect(taskManager.cancelTask).toHaveBeenCalledWith(
+      'task-orphan-internal-idle',
+      expect.stringContaining('no open work items or active loop instances'),
+      expect.objectContaining({
+        cancel_reason: 'factory_orphan_internal_idle',
+        terminal_status: 'skipped',
+      }),
+    );
+    expect(taskCore.getTask('task-orphan-internal-idle')).toMatchObject({
+      status: 'skipped',
+    });
+  });
+
+  it('keeps orphan factory-internal tasks when open work still exists', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: false });
+    factoryIntake.createWorkItem({
+      project_id: project.id,
+      title: 'Open item',
+      description: 'A legitimate prioritize cycle may still need the architect task.',
+      status: 'pending',
+    });
+    taskCore.createTask({
+      id: 'task-orphan-internal-with-open-work',
+      status: 'running',
+      project: 'factory-architect',
+      provider: 'codex',
+      task_description: 'active architect cycle',
+      working_directory: project.path,
+      tags: [
+        'factory:internal',
+        'factory:architect_cycle',
+        `factory:project_id=${project.id}`,
+        `factory:target_project=${project.name}`,
+      ],
+      metadata: {
+        factory_internal: true,
+        kind: 'architect_cycle',
+        project_id: project.id,
+        target_project: project.name,
+      },
+    });
+    const taskManager = { cancelTask: vi.fn() };
+
+    const result = await factoryTick._internalForTests.cancelOrphanInternalTasksForIdleProject(
+      project,
+      { cancelGraceMs: 0, taskCore, taskManager },
+    );
+
+    expect(result).toMatchObject({
+      cancelled_task_ids: [],
+      skipped_reason: 'open_work_items',
+    });
+    expect(taskManager.cancelTask).not.toHaveBeenCalled();
+    expect(taskCore.getTask('task-orphan-internal-with-open-work')).toMatchObject({
+      status: 'running',
+    });
+  });
+
   it('allows internal task submission for a running project', async () => {
     const project = registerFactoryProject({ status: 'running', autoContinue: false });
     const { submitFactoryInternalTask } = require('../factory/internal-task-submit');
