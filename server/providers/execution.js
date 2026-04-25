@@ -438,6 +438,28 @@ const NON_CONVERGED_AGENTIC_STOP_REASONS = new Set([
   'stuck_loop',
 ]);
 
+const HARD_FAIL_AGENTIC_STOP_REASONS = new Set([
+  'consecutive_tool_errors',
+  'missing_tool_evidence',
+]);
+
+function inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, result) {
+  const stopReason = String(result?.stopReason || '').trim();
+  if (!HARD_FAIL_AGENTIC_STOP_REASONS.has(stopReason)) {
+    return null;
+  }
+
+  const taskKind = taskLikelyRequiresFileChanges(task) ? 'modification' : 'inspection';
+  const reason = stopReason === 'missing_tool_evidence'
+    ? 'stopped without required repository tool evidence'
+    : 'stopped after repeated tool execution errors';
+
+  return {
+    message: `Agentic ${taskKind} task ${reason} (${stopReason}).`,
+    verificationCommand: resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
+  };
+}
+
 function didAgenticReachMaxIterations(result) {
   const stopReason = String(result?.stopReason || '').trim();
   const output = String(result?.output || '');
@@ -1757,6 +1779,9 @@ function inspectRequiredModifiedPaths(changedFiles, requiredPaths, workingDir) {
 
 function evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxIterations, gitReport, options = {}) {
   const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  const hardStopFailure = inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, result);
+  if (hardStopFailure) return hardStopFailure;
+
   const strictExecution = coerceOptionalBoolean(
     metadata.agentic_strict_completion,
     coerceOptionalBoolean(metadata.agentic_constraints_from_next_task, false),

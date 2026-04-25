@@ -25,6 +25,8 @@ const { TEST_MODELS } = require('./test-helpers');
 
 const REGISTRY_PATH = require.resolve('../models/registry');
 const ENGINE_PATH = require.resolve('../discovery/discovery-engine');
+const OPENROUTER_SCOUT_PATH = require.resolve('../discovery/openrouter-scout');
+const CONFIG_PATH = require.resolve('../config');
 
 function installMock(resolvedPath, exportsValue) {
   require.cache[resolvedPath] = {
@@ -46,9 +48,15 @@ function makeRegistryMock() {
   };
 }
 
-function loadEngine(registryMock) {
+function loadEngine(registryMock, extraMocks = {}) {
   clearModule(ENGINE_PATH);
   installMock(REGISTRY_PATH, registryMock);
+  if (extraMocks.openrouterScout) {
+    installMock(OPENROUTER_SCOUT_PATH, extraMocks.openrouterScout);
+  }
+  if (extraMocks.config) {
+    installMock(CONFIG_PATH, extraMocks.config);
+  }
   return require('../discovery/discovery-engine');
 }
 
@@ -194,6 +202,17 @@ describe('runPostDiscovery', () => {
     expect(result.capabilities_set).toBe(0);
     expect(result.roles_assigned).toEqual([]);
   });
+
+  it('skips generic auto-role assignment for openrouter so scout policy owns role updates', () => {
+    const db = makeDb();
+    seedApprovedModel(db, 'openrouter', 'minimax/minimax-m2.5:free', 28);
+    const syncResult = {
+      new: [{ model_name: 'minimax/minimax-m2.5:free', family: 'qwen3' }],
+    };
+
+    const result = runPostDiscovery(db, 'openrouter', syncResult);
+    expect(result.roles_assigned).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -224,6 +243,8 @@ describe('discoverFromAdapter', () => {
     // Restore real registry in cache so other test files are not affected
     clearModule(ENGINE_PATH);
     clearModule(REGISTRY_PATH);
+    clearModule(OPENROUTER_SCOUT_PATH);
+    clearModule(CONFIG_PATH);
   });
 
   it('calls adapter.discoverModels() and feeds models to registry', async () => {
@@ -394,5 +415,45 @@ describe('discoverFromAdapter', () => {
     registryMock.syncModelsFromHealthCheck.mockReturnValue({ new: [], updated: models, removed: [] });
     await discoverFromAdapter(db, adapter, 'ollama', 'my-host-id');
     expect(registryMock.syncModelsFromHealthCheck).toHaveBeenCalledWith('ollama', 'my-host-id', models);
+  });
+
+  it('uses OpenRouter scout roles with live-pass config for openrouter discovery', async () => {
+    const openrouterScoutMock = {
+      runOpenRouterScout: vi.fn().mockResolvedValue({
+        provider: 'openrouter',
+        scored: 1,
+        roles_assigned: [{ role: 'default', model: 'scouted/default:free' }],
+        top_models: [],
+      }),
+    };
+    const configMock = {
+      getInt: vi.fn((key, fallback) => (key === 'openrouter_discovery_smoke_limit' ? 5 : fallback)),
+      getBool: vi.fn((key, fallback) => (key === 'openrouter_role_require_live_pass' ? true : fallback)),
+    };
+    const engine = loadEngine(registryMock, {
+      openrouterScout: openrouterScoutMock,
+      config: configMock,
+    });
+    discoverFromAdapter = engine.discoverFromAdapter;
+
+    const models = [{ model_name: 'minimax/minimax-m2.5:free', family: 'qwen3' }];
+    const adapter = {
+      discoverModels: vi.fn().mockResolvedValue({ models, provider: 'openrouter' }),
+    };
+    registryMock.syncModelsFromHealthCheck.mockReturnValue({
+      new: models,
+      updated: [],
+      removed: [],
+    });
+
+    const result = await discoverFromAdapter(db, adapter, 'openrouter', null);
+
+    expect(openrouterScoutMock.runOpenRouterScout).toHaveBeenCalledWith(expect.objectContaining({
+      db,
+      models,
+      smokeLimit: 5,
+      requireLivePass: true,
+    }));
+    expect(result.roles_assigned).toEqual([{ role: 'default', model: 'scouted/default:free' }]);
   });
 });

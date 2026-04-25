@@ -1,0 +1,21 @@
+version: 1
+name: openrouter-netsim-canary
+description: Read-only OpenRouter canary against NetSim to validate live tool-calling and free-model routing.
+project: netsim
+version_intent: internal
+tasks:
+  - node_id: canary_readonly_scan
+    task: |
+      Read-only canary check for TORQUE OpenRouter routing.
+
+      Use repository tools to:
+      1) list_directory at "."
+      2) read_file for "package.json"
+      3) report scripts and top-level metadata observed
+
+      Do not create, edit, delete, move, or format files.
+      Return only observed facts from tool results.
+    provider: openrouter
+    tags: [canary, openrouter, netsim, read-only]
+    timeout_minutes: 10
+    auto_approve: true

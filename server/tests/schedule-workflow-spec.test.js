@@ -83,6 +83,40 @@ describe('schedule-runner workflow_spec payloads', () => {
     });
   });
 
+  it('forwards configured working_directory into the workflow spec runner', async () => {
+    const runWorkflowSpec = vi.fn(() => ({
+      workflow_id: 'wf-from-spec',
+      structuredData: {
+        workflow_id: 'wf-from-spec',
+      },
+      content: [{ type: 'text', text: '## Workflow Started' }],
+    }));
+
+    const { executeScheduledTask } = loadFresh('../execution/schedule-runner');
+    const schedule = {
+      id: 'schedule-workflow-spec-1b',
+      name: 'Nightly spec workflow with wd',
+      payload_kind: 'workflow_spec',
+      spec_path: 'workflows/nightly.yaml',
+      schedule_type: 'cron',
+      task_config: {
+        working_directory: 'C:\\repos\\NetSim',
+      },
+    };
+
+    await executeScheduledTask(schedule, {
+      db,
+      debugLog,
+      logger,
+      runWorkflowSpec,
+    });
+
+    expect(runWorkflowSpec).toHaveBeenCalledWith({
+      spec_path: 'workflows/nightly.yaml',
+      working_directory: 'C:\\repos\\NetSim',
+    });
+  });
+
   it('skips workflow_spec schedules that omit spec_path', async () => {
     const runWorkflowSpec = vi.fn();
 

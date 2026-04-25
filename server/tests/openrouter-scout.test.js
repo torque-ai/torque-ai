@@ -76,15 +76,28 @@ describe('openrouter-scout', () => {
     expect(scores[0].score).toBeGreaterThan(scoreOpenRouterModel({ id: 'paid/model' }).score);
   });
 
-  it('upserts scores and assigns OpenRouter roles from approved scored models', async () => {
+  it('upserts scores and assigns OpenRouter roles from approved models with live pass signals', async () => {
     db = makeDb();
     insertApproved(db, 'minimax/minimax-m2.5:free');
     insertApproved(db, 'google/gemma-4-26b-a4b-it:free');
     insertApproved(db, 'liquid/lfm-2.5-1.2b-thinking:free');
+    const chatCompletion = vi.fn(async () => ({
+      message: {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{
+          type: 'function',
+          function: { name: 'list_directory', arguments: { path: '.' } },
+        }],
+      },
+      usage: {},
+    }));
 
     const result = await runOpenRouterScout({
       db,
-      smokeLimit: 0,
+      apiKey: 'openrouter-key',
+      chatCompletion,
+      smokeLimit: 3,
       models: [
         {
           id: 'minimax/minimax-m2.5:free',
@@ -112,8 +125,48 @@ describe('openrouter-scout', () => {
 
     expect(result.scored).toBe(3);
     expect(rows).toHaveLength(3);
+    expect(result.live_pass_required).toBe(true);
+    expect(chatCompletion).toHaveBeenCalledTimes(3);
     expect(roles.map((row) => row.role)).toEqual(expect.arrayContaining(['default', 'fallback', 'fast', 'quality', 'balanced']));
-    expect(roles.find((row) => row.role === 'default').model_name).toBe('minimax/minimax-m2.5:free');
+    expect([
+      'minimax/minimax-m2.5:free',
+      'google/gemma-4-26b-a4b-it:free',
+      'liquid/lfm-2.5-1.2b-thinking:free',
+    ]).toContain(roles.find((row) => row.role === 'default').model_name);
+  });
+
+  it('requires live pass signals by default for role assignment', () => {
+    db = makeDb();
+    insertApproved(db, 'minimax/minimax-m2.5:free');
+
+    const assignments = assignOpenRouterRoles(db, [{
+      provider: 'openrouter',
+      model_name: 'minimax/minimax-m2.5:free',
+      score: 92,
+      smoke_status: 'metadata_pass',
+      rate_limited: 0,
+      tool_call_ok: 1,
+    }]);
+
+    expect(assignments).toEqual([]);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM model_roles').get().count).toBe(0);
+  });
+
+  it('can disable live pass gating for emergency metadata-only assignments', () => {
+    db = makeDb();
+    insertApproved(db, 'minimax/minimax-m2.5:free');
+
+    const assignments = assignOpenRouterRoles(db, [{
+      provider: 'openrouter',
+      model_name: 'minimax/minimax-m2.5:free',
+      score: 92,
+      smoke_status: 'metadata_pass',
+      rate_limited: 0,
+      tool_call_ok: 1,
+    }], { requireLivePass: false });
+
+    expect(assignments.length).toBeGreaterThan(0);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM model_roles').get().count).toBeGreaterThan(0);
   });
 
   it('uses live smoke results when requested', async () => {

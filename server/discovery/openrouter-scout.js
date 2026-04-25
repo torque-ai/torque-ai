@@ -194,11 +194,17 @@ function hasApprovedModel(db, provider, modelName) {
   }
 }
 
-function roleCandidateRows(db, scoredRows, minScore) {
+function hasLivePassSignal(row) {
+  return row?.smoke_status === 'pass' && row?.rate_limited !== 1;
+}
+
+function roleCandidateRows(db, scoredRows, minScore, options = {}) {
+  const requireLivePass = options.requireLivePass !== false;
   return scoredRows
     .filter((row) => row.score >= minScore)
     .filter((row) => row.rate_limited !== 1)
     .filter((row) => row.smoke_status !== 'fail' && row.smoke_status !== 'rate_limited' && row.smoke_status !== 'metadata_skip')
+    .filter((row) => !requireLivePass || hasLivePassSignal(row))
     .filter((row) => hasApprovedModel(db, PROVIDER, row.model_name));
 }
 
@@ -220,7 +226,8 @@ function setRole(db, role, row) {
 
 function assignOpenRouterRoles(db, scoredRows, options = {}) {
   const minScore = Number.isFinite(Number(options.minScore)) ? Number(options.minScore) : DEFAULT_MIN_ROLE_SCORE;
-  const candidates = roleCandidateRows(db, scoredRows, minScore);
+  const requireLivePass = options.requireLivePass !== false;
+  const candidates = roleCandidateRows(db, scoredRows, minScore, { requireLivePass });
   if (candidates.length === 0) return [];
 
   const byScore = [...candidates].sort((a, b) => b.score - a.score || a.model_name.localeCompare(b.model_name));
@@ -385,7 +392,10 @@ async function runOpenRouterScout(options = {}) {
   const stored = providerModelScores.upsertModelScores(scored, { preserveLiveOutcome: true });
   const rolesAssigned = options.assignRoles === false || !db
     ? []
-    : assignOpenRouterRoles(db, stored, { minScore: options.minRoleScore });
+    : assignOpenRouterRoles(db, stored, {
+      minScore: options.minRoleScore,
+      requireLivePass: options.requireLivePass,
+    });
 
   if (rolesAssigned.length > 0) {
     logger.info(`OpenRouter scout assigned roles: ${rolesAssigned.map((row) => `${row.role}=${row.model}`).join(', ')}`);
@@ -395,6 +405,7 @@ async function runOpenRouterScout(options = {}) {
     provider: PROVIDER,
     scored: stored.length,
     roles_assigned: rolesAssigned,
+    live_pass_required: options.requireLivePass !== false,
     top_models: stored.slice(0, 5).map((row) => ({
       model_name: row.model_name,
       score: row.score,
