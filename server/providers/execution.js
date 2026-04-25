@@ -3376,6 +3376,7 @@ function recordOpenRouterModelTaskOutcome({
       toolCount: toolLog.length,
       readOnly: taskExplicitlyReadOnly(task?.task_description || '', metadata),
       durationMs: getTaskDurationMs(task),
+      output: result?.output ? String(result.output).slice(0, 4000) : null,
       error: error ? String(error.message || error).slice(0, 2000) : null,
     });
   } catch (err) {

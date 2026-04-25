@@ -138,6 +138,53 @@ function parseMetadataJson(value) {
   }
 }
 
+function isMetadataOnlyRefresh(row) {
+  const status = String(row?.smoke_status || '').trim();
+  const reason = String(row?.score_reason || '').trim();
+  return status.startsWith('metadata') && !/\blive[_ -]/i.test(reason);
+}
+
+function mergeMetadataPreservingOutcome(incomingMetadataJson, existingMetadataJson) {
+  const incomingMetadata = parseMetadataJson(incomingMetadataJson);
+  const existingMetadata = parseMetadataJson(existingMetadataJson);
+  const merged = { ...existingMetadata, ...incomingMetadata };
+  if (existingMetadata.last_task_outcome) {
+    merged.last_task_outcome = existingMetadata.last_task_outcome;
+  }
+  return normalizeMetadataJson(merged);
+}
+
+function mergeExistingLiveOutcome(row, existing) {
+  if (!existing || !isMetadataOnlyRefresh(row)) return row;
+
+  const existingMetadata = parseMetadataJson(existing.metadata_json);
+  const lastOutcome = existingMetadata.last_task_outcome;
+  const hasLivePenalty = existing.rate_limited === 1
+    || existing.smoke_status === 'rate_limited'
+    || existing.smoke_status === 'fail'
+    || lastOutcome?.success === false
+    || Number(lastOutcome?.delta) < 0;
+
+  if (!hasLivePenalty) {
+    return {
+      ...row,
+      metadata_json: mergeMetadataPreservingOutcome(row.metadata_json, existing.metadata_json),
+    };
+  }
+
+  return {
+    ...row,
+    score: Math.min(row.score, normalizeScore(existing.score)),
+    score_reason: existing.score_reason || row.score_reason,
+    smoke_status: existing.smoke_status || row.smoke_status,
+    tool_call_ok: existing.tool_call_ok === 0 ? 0 : row.tool_call_ok,
+    read_only_ok: existing.read_only_ok === 0 ? 0 : row.read_only_ok,
+    rate_limited: existing.rate_limited === 1 ? 1 : row.rate_limited,
+    error: existing.error || row.error,
+    metadata_json: mergeMetadataPreservingOutcome(row.metadata_json, existing.metadata_json),
+  };
+}
+
 function normalizeRecord(record) {
   return {
     provider: normalizeRequiredString('provider', record?.provider),
@@ -156,9 +203,19 @@ function normalizeRecord(record) {
   };
 }
 
-function upsertModelScore(record) {
+function upsertModelScore(record, options = {}) {
   const db = getDb();
-  const row = normalizeRecord(record);
+  let row = normalizeRecord(record);
+  if (options.preserveLiveOutcome === true || options.preserve_live_outcome === true) {
+    const existing = db.prepare(`
+      SELECT *
+      FROM provider_model_scores
+      WHERE provider = ?
+        AND model_name = ?
+      LIMIT 1
+    `).get(row.provider, row.model_name);
+    row = mergeExistingLiveOutcome(row, existing);
+  }
 
   db.prepare(`
     INSERT INTO provider_model_scores (
@@ -198,10 +255,10 @@ function upsertModelScore(record) {
   return row;
 }
 
-function upsertModelScores(records) {
+function upsertModelScores(records, options = {}) {
   const rows = Array.isArray(records) ? records : [];
   const db = getDb();
-  const write = db.transaction((items) => items.map((item) => upsertModelScore(item)));
+  const write = db.transaction((items) => items.map((item) => upsertModelScore(item, options)));
   return write(rows);
 }
 
@@ -266,15 +323,48 @@ function countToolErrors(toolLog) {
   return toolLog.filter((entry) => entry && (entry.error === true || entry.ok === false)).length;
 }
 
-function isRateLimitOutcome(record) {
-  const text = [
+function outcomeText(record) {
+  return [
     record?.error,
     record?.error_output,
     record?.errorOutput,
+    record?.output,
+    record?.output_text,
+    record?.outputText,
     record?.stopReason,
     record?.scoreReason,
   ].filter(Boolean).join('\n');
+}
+
+function isRateLimitOutcome(record) {
+  const text = outcomeText(record);
   return /\b(429|rate[_ -]?limit|too many requests|quota)\b/i.test(text);
+}
+
+function inferStopReason(record, { readOnly, toolCount, toolErrorCount }) {
+  const explicit = String(record?.stopReason || record?.stop_reason || '').trim();
+  if (explicit) return explicit;
+
+  const text = outcomeText(record);
+  if (/without using required repository tools|missing tool evidence|required repository tools/i.test(text)) {
+    return 'missing_tool_evidence';
+  }
+  if (/consecutive errors|tool errors/i.test(text)) {
+    return 'consecutive_tool_errors';
+  }
+  if (/maximum iterations|max[_ -]?iterations|iteration budget/i.test(text)) {
+    return 'max_iterations';
+  }
+  if (/no successful file modifications|no progress|actionless/i.test(text)) {
+    return 'no_progress';
+  }
+  if (readOnly && toolCount === 0) {
+    return 'missing_tool_evidence';
+  }
+  if (toolCount > 0 && toolErrorCount >= toolCount) {
+    return 'consecutive_tool_errors';
+  }
+  return '';
 }
 
 function getLiveOutcomeDelta({ success, stopReason, rateLimited, toolCount, readOnly }) {
@@ -303,13 +393,22 @@ function recordModelTaskOutcome(record = {}) {
   const modelName = normalizeRequiredString('model_name', record.model_name || record.modelName);
   const existing = getModelScore(provider, modelName);
   const existingScore = Number.isFinite(Number(existing?.score)) ? Number(existing.score) : 50;
-  const success = record.success === true || record.status === 'completed';
-  const stopReason = String(record.stopReason || record.stop_reason || '').trim();
   const toolLog = Array.isArray(record.toolLog) ? record.toolLog : [];
   const toolCount = normalizeNullableInteger(record.toolCount) ?? toolLog.length;
   const toolErrorCount = normalizeNullableInteger(record.toolErrorCount) ?? countToolErrors(toolLog);
   const readOnly = normalizeBooleanInteger(record.readOnly ?? record.read_only) === 1;
   const rateLimited = isRateLimitOutcome(record);
+  const stopReason = inferStopReason(record, { readOnly, toolCount, toolErrorCount });
+  const forcedFailure = rateLimited || [
+    'missing_tool_evidence',
+    'consecutive_tool_errors',
+    'output_limit',
+    'max_iterations',
+    'stuck_loop',
+    'no_progress',
+    'actionless_iterations',
+  ].includes(stopReason);
+  const success = !forcedFailure && (record.success === true || record.status === 'completed');
   const delta = getLiveOutcomeDelta({ success, stopReason, rateLimited, toolCount, readOnly });
   const score = clampScore(existingScore + delta);
   const existingMetadata = parseMetadataJson(existing?.metadata_json);
@@ -333,7 +432,7 @@ function recordModelTaskOutcome(record = {}) {
       ? (success && toolCount > 0 ? 1 : 0)
       : (existing?.read_only_ok ?? 0),
     rate_limited: rateLimited ? 1 : 0,
-    error: record.error || record.error_output || record.errorOutput || null,
+    error: record.error || record.error_output || record.errorOutput || (!success ? outcomeText(record).slice(0, 2000) : null),
     metadata: {
       ...existingMetadata,
       last_task_outcome: {

@@ -149,6 +149,48 @@ describe('openrouter-scout', () => {
     expect(row).toMatchObject({ smoke_status: 'pass', tool_call_ok: 1 });
   });
 
+  it('does not erase live task penalties during metadata-only scout refreshes', async () => {
+    db = makeDb();
+    insertApproved(db, 'busy/free:free');
+
+    await runOpenRouterScout({
+      db,
+      smokeLimit: 0,
+      models: [{
+        id: 'busy/free:free',
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: ['tools'],
+        context_length: 65536,
+      }],
+    });
+
+    const providerModelScores = require('../db/provider-model-scores');
+    providerModelScores.recordModelTaskOutcome({
+      provider: 'openrouter',
+      modelName: 'busy/free:free',
+      success: false,
+      error: 'OpenAI API error (429): rate limit exceeded',
+    });
+
+    await runOpenRouterScout({
+      db,
+      smokeLimit: 0,
+      models: [{
+        id: 'busy/free:free',
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: ['tools'],
+        context_length: 65536,
+      }],
+    });
+
+    const row = db.prepare('SELECT score, smoke_status, rate_limited, metadata_json FROM provider_model_scores WHERE model_name = ?')
+      .get('busy/free:free');
+    expect(row.score).toBeLessThan(100);
+    expect(row.smoke_status).toBe('rate_limited');
+    expect(row.rate_limited).toBe(1);
+    expect(JSON.parse(row.metadata_json).last_task_outcome.success).toBe(false);
+  });
+
   it('does not assign roles to unapproved scored models', () => {
     db = makeDb();
     db.prepare(`

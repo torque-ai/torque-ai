@@ -99,4 +99,70 @@ describe('provider-model-scores live outcomes', () => {
     expect(row.smoke_status).toBe('rate_limited');
     expect(row.rate_limited).toBe(1);
   });
+
+  it('infers no-tool read-only completions as missing tool evidence failures', () => {
+    providerModelScores.upsertModelScore({
+      provider: 'openrouter',
+      model_name: 'silent/free:free',
+      score: 94,
+      smoke_status: 'metadata_pass',
+      read_only_ok: 1,
+    });
+
+    const row = providerModelScores.recordModelTaskOutcome({
+      provider: 'openrouter',
+      modelName: 'silent/free:free',
+      success: true,
+      readOnly: true,
+      toolLog: [],
+      output: 'Task stopped: model answered without using required repository tools.',
+    });
+
+    expect(row.score).toBe(74);
+    expect(row.smoke_status).toBe('fail');
+    expect(row.read_only_ok).toBe(0);
+    expect(JSON.parse(row.metadata_json).last_task_outcome).toMatchObject({
+      success: false,
+      stop_reason: 'missing_tool_evidence',
+      tool_count: 0,
+      delta: -20,
+    });
+  });
+
+  it('preserves live task penalties when metadata scout rows refresh', () => {
+    providerModelScores.upsertModelScore({
+      provider: 'openrouter',
+      model_name: 'busy/free:free',
+      score: 76,
+      smoke_status: 'metadata_pass',
+      metadata: { id: 'busy/free:free' },
+    });
+    providerModelScores.recordModelTaskOutcome({
+      provider: 'openrouter',
+      modelName: 'busy/free:free',
+      success: false,
+      error: 'OpenAI API error (429): rate limit exceeded',
+    });
+
+    const row = providerModelScores.upsertModelScore({
+      provider: 'openrouter',
+      model_name: 'busy/free:free',
+      score: 100,
+      smoke_status: 'metadata_pass',
+      score_reason: 'free,tools_metadata,context_65536',
+      metadata: { id: 'busy/free:free', context_window: 65536 },
+    }, { preserveLiveOutcome: true });
+
+    expect(row.score).toBe(41);
+    expect(row.smoke_status).toBe('rate_limited');
+    expect(row.rate_limited).toBe(1);
+    expect(JSON.parse(row.metadata_json)).toMatchObject({
+      id: 'busy/free:free',
+      context_window: 65536,
+      last_task_outcome: {
+        success: false,
+        stop_reason: null,
+      },
+    });
+  });
 });

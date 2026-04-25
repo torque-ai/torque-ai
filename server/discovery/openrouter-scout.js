@@ -382,7 +382,7 @@ async function runOpenRouterScout(options = {}) {
   let scored = scoreOpenRouterModels(models || [], { limit: options.limit || DEFAULT_LIMIT });
   scored = await applyLiveSmoke(scored, options);
 
-  const stored = providerModelScores.upsertModelScores(scored);
+  const stored = providerModelScores.upsertModelScores(scored, { preserveLiveOutcome: true });
   const rolesAssigned = options.assignRoles === false || !db
     ? []
     : assignOpenRouterRoles(db, stored, { minScore: options.minRoleScore });
