@@ -1012,7 +1012,7 @@ const _LEGACY_EXPORT_MODULES = [
     'clearModelRole', 'getModelForRole', 'listModelRoles', 'setModelRole',
   ] },
   { name: 'providerModelScores', exports: [
-    'getModelScore', 'getTopModelScores', 'listModelScores', 'upsertModelScore', 'upsertModelScores',
+    'getModelScore', 'getTopModelScores', 'listModelScores', 'recordModelTaskOutcome', 'upsertModelScore', 'upsertModelScores',
   ] },
   { name: 'taskCore', exports: [
     'archiveOldTasks', 'claimSlotAtomic', 'clearProviderIfNotRunning', 'countTasks', 'countTasksByStatus', 'createTask',

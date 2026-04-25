@@ -24,6 +24,7 @@ const OLLAMA_SHARED_PATH = require.resolve('../providers/ollama-shared');
 const REGISTRY_PATH = require.resolve('../models/registry');
 const MODEL_ROLES_PATH = require.resolve('../db/model-roles');
 const ROUTING_CORE_PATH = require.resolve('../db/provider-routing-core');
+const PROVIDER_MODEL_SCORES_PATH = require.resolve('../db/provider-model-scores');
 const OLLAMA_AGENTIC_PATH = require.resolve('../providers/ollama-agentic');
 
 const TRACKED_CACHE_PATHS = [
@@ -44,6 +45,7 @@ const TRACKED_CACHE_PATHS = [
   REGISTRY_PATH,
   MODEL_ROLES_PATH,
   ROUTING_CORE_PATH,
+  PROVIDER_MODEL_SCORES_PATH,
   OLLAMA_AGENTIC_PATH,
 ];
 
@@ -184,6 +186,10 @@ function loadSubject(overrides = {}) {
   const modelRolesMock = overrides.modelRolesMock || {
     getModelForRole: vi.fn(() => null),
   };
+  const providerModelScoresMock = overrides.providerModelScoresMock || {
+    init: vi.fn(),
+    recordModelTaskOutcome: vi.fn(),
+  };
 
   installMock(LOGGER_PATH, loggerMock);
   installMock(CONFIG_PATH, configMock);
@@ -201,6 +207,7 @@ function loadSubject(overrides = {}) {
   installMock(REGISTRY_PATH, registryMock);
   installMock(MODEL_ROLES_PATH, modelRolesMock);
   installMock(ROUTING_CORE_PATH, { recordProviderOutcome: vi.fn() });
+  installMock(PROVIDER_MODEL_SCORES_PATH, providerModelScoresMock);
   installMock(OLLAMA_AGENTIC_PATH, { runAgenticLoop: vi.fn() });
 
   delete require.cache[SUBJECT_PATH];
@@ -217,6 +224,7 @@ function loadSubject(overrides = {}) {
     ollamaSharedMock,
     registryMock,
     modelRolesMock,
+    providerModelScoresMock,
     ...overrides,
   };
 }
@@ -664,7 +672,7 @@ describe('providers/execution agentic fixes', () => {
   });
 
   it('does not requeue read-only openrouter reports that mention forbidden edit verbs', async () => {
-    const { mod, configMock } = loadSubject();
+    const { mod, configMock, providerModelScoresMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
 
     const task = {
@@ -739,6 +747,13 @@ describe('providers/execution agentic fixes', () => {
         progress_percent: 100,
       }),
     );
+    expect(providerModelScoresMock.recordModelTaskOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'openrouter',
+      modelName: 'openrouter/free',
+      success: true,
+      readOnly: true,
+      toolCount: 0,
+    }));
   });
 
   it('applies valid ollama-cloud proposal output without a codex apply task', async () => {

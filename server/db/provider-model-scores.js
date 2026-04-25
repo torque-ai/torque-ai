@@ -128,6 +128,16 @@ function normalizeMetadataJson(value) {
   }
 }
 
+function parseMetadataJson(value) {
+  if (!value || typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function normalizeRecord(record) {
   return {
     provider: normalizeRequiredString('provider', record?.provider),
@@ -251,11 +261,100 @@ function getModelScore(provider, modelName) {
   ) || null;
 }
 
+function countToolErrors(toolLog) {
+  if (!Array.isArray(toolLog)) return 0;
+  return toolLog.filter((entry) => entry && (entry.error === true || entry.ok === false)).length;
+}
+
+function isRateLimitOutcome(record) {
+  const text = [
+    record?.error,
+    record?.error_output,
+    record?.errorOutput,
+    record?.stopReason,
+    record?.scoreReason,
+  ].filter(Boolean).join('\n');
+  return /\b(429|rate[_ -]?limit|too many requests|quota)\b/i.test(text);
+}
+
+function getLiveOutcomeDelta({ success, stopReason, rateLimited, toolCount, readOnly }) {
+  if (rateLimited) return -35;
+  if (success) {
+    let delta = 4;
+    if (toolCount > 0) delta += 4;
+    else delta -= readOnly ? 8 : 3;
+    return delta;
+  }
+
+  const normalizedReason = String(stopReason || '').trim();
+  if (normalizedReason === 'missing_tool_evidence') return -20;
+  if (normalizedReason === 'consecutive_tool_errors') return -18;
+  if (normalizedReason === 'output_limit') return -14;
+  if (['max_iterations', 'stuck_loop', 'no_progress', 'actionless_iterations'].includes(normalizedReason)) return -12;
+  return -8;
+}
+
+function clampScore(value) {
+  return normalizeScore(value);
+}
+
+function recordModelTaskOutcome(record = {}) {
+  const provider = normalizeRequiredString('provider', record.provider);
+  const modelName = normalizeRequiredString('model_name', record.model_name || record.modelName);
+  const existing = getModelScore(provider, modelName);
+  const existingScore = Number.isFinite(Number(existing?.score)) ? Number(existing.score) : 50;
+  const success = record.success === true || record.status === 'completed';
+  const stopReason = String(record.stopReason || record.stop_reason || '').trim();
+  const toolLog = Array.isArray(record.toolLog) ? record.toolLog : [];
+  const toolCount = normalizeNullableInteger(record.toolCount) ?? toolLog.length;
+  const toolErrorCount = normalizeNullableInteger(record.toolErrorCount) ?? countToolErrors(toolLog);
+  const readOnly = normalizeBooleanInteger(record.readOnly ?? record.read_only) === 1;
+  const rateLimited = isRateLimitOutcome(record);
+  const delta = getLiveOutcomeDelta({ success, stopReason, rateLimited, toolCount, readOnly });
+  const score = clampScore(existingScore + delta);
+  const existingMetadata = parseMetadataJson(existing?.metadata_json);
+  const smokeStatus = rateLimited ? 'rate_limited' : success ? 'pass' : 'fail';
+  const scoreReason = rateLimited
+    ? 'live task outcome: rate limited'
+    : `live task outcome: ${success ? 'success' : 'failure'}${stopReason ? ` (${stopReason})` : ''}`;
+
+  return upsertModelScore({
+    provider,
+    model_name: modelName,
+    score,
+    score_reason: scoreReason,
+    smoke_status: smokeStatus,
+    latency_ms: normalizeNullableInteger(record.durationMs ?? record.duration_ms) ?? existing?.latency_ms ?? null,
+    first_response_ms: normalizeNullableInteger(record.firstResponseMs ?? record.first_response_ms) ?? existing?.first_response_ms ?? null,
+    tool_call_ok: success && toolCount > 0
+      ? 1
+      : (stopReason === 'missing_tool_evidence' ? 0 : existing?.tool_call_ok ?? 0),
+    read_only_ok: readOnly
+      ? (success && toolCount > 0 ? 1 : 0)
+      : (existing?.read_only_ok ?? 0),
+    rate_limited: rateLimited ? 1 : 0,
+    error: record.error || record.error_output || record.errorOutput || null,
+    metadata: {
+      ...existingMetadata,
+      last_task_outcome: {
+        success,
+        stop_reason: stopReason || null,
+        tool_count: toolCount,
+        tool_error_count: toolErrorCount,
+        read_only: readOnly,
+        delta,
+        recorded_at: new Date().toISOString(),
+      },
+    },
+  });
+}
+
 module.exports = {
   init,
   setDb,
   upsertModelScore,
   upsertModelScores,
+  recordModelTaskOutcome,
   listModelScores,
   getTopModelScores,
   getModelScore,
