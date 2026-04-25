@@ -737,6 +737,26 @@ describe('parseToolCalls', () => {
     expect(calls[0].arguments).toEqual({ path: 'C:\\repo\\NetSim' });
   });
 
+  it('parses bracketed local Ollama pseudo tool calls', () => {
+    const message = {
+      content: 'I will inspect the tests.[TOOL_CALLS]list_directory[ARGS]{"path":"Modules/Tests"}',
+    };
+    const calls = parseToolCalls(message);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('list_directory');
+    expect(calls[0].arguments).toEqual({ path: 'Modules/Tests' });
+  });
+
+  it('parses bracketed pseudo tool calls with braces in string arguments', () => {
+    const message = {
+      content: '[TOOL_CALLS]write_file[ARGS]{"path":"notes.txt","content":"keep {literal} braces"}',
+    };
+    const calls = parseToolCalls(message);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('write_file');
+    expect(calls[0].arguments).toEqual({ path: 'notes.txt', content: 'keep {literal} braces' });
+  });
+
   it('parses plain function-like pseudo tool calls', () => {
     const message = {
       content: 'read_file({path, C:\\repo\\NetSim\\})',

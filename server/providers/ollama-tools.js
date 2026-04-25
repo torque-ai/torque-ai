@@ -1100,6 +1100,38 @@ function parseBracketToolCall(raw) {
   return Object.keys(args).length > 0 ? { name, arguments: args } : null;
 }
 
+function findJsonObjectEnd(text, startIndex) {
+  let depth = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = startIndex; i < text.length; i++) {
+    const char = text[i];
+
+    if (inString) {
+      if (escapeNext) {
+        escapeNext = false;
+      } else if (char === '\\') {
+        escapeNext = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === '{') {
+      depth++;
+    } else if (char === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+
+  return -1;
+}
+
 /**
  * Parse tool calls from model response.
  * Handles structured tool_calls field, <tool_call> XML tags, raw JSON in content,
@@ -1109,7 +1141,7 @@ function parseBracketToolCall(raw) {
  *   1. Structured tool_calls field (OpenAI-format)
  *   2. <tool_call> XML tags (Qwen2.5 native format)
  *   3. OpenRouter/free pseudo XML tags (<tool_name ... />, <invoke ...>)
- *   4. Bracketed pseudo calls ([TOOL_CALL] ... [/TOOL_CALL])
+ *   4. Bracketed pseudo calls ([TOOL_CALL] ... [/TOOL_CALL], [TOOL_CALLS]tool[ARGS]{...})
  *   5. Function-like pseudo calls (tool_name({path, value}))
  *   6. Raw JSON object with "name" key
  *   7. JSON in markdown code blocks
@@ -1207,6 +1239,24 @@ function parseToolCalls(message) {
   while ((match = bracketToolCallRegex.exec(content)) !== null) {
     const parsed = parseBracketToolCall(match[1]);
     if (parsed) bracketMatches.push(parsed);
+  }
+
+  // Also handle local Ollama bracketed pseudo calls.
+  // Format: [TOOL_CALLS]list_directory[ARGS]{"path":"Modules/Tests"}
+  const bracketToolRegex = /\[TOOL_CALLS\]\s*(read_file|write_file|edit_file|replace_lines|search_files|list_directory|run_command)\s*\[ARGS\]\s*/gi;
+  while ((match = bracketToolRegex.exec(content)) !== null) {
+    const name = match[1];
+    const jsonStart = content.indexOf('{', bracketToolRegex.lastIndex);
+    if (jsonStart === -1) continue;
+
+    const jsonEnd = findJsonObjectEnd(content, jsonStart);
+    if (jsonEnd === -1) continue;
+
+    const parsedArgs = parsePseudoObjectArguments(content.slice(jsonStart, jsonEnd + 1));
+    if (parsedArgs) {
+      bracketMatches.push({ name, arguments: parsedArgs });
+    }
+    bracketToolRegex.lastIndex = jsonEnd + 1;
   }
   if (bracketMatches.length > 0) return bracketMatches;
 
