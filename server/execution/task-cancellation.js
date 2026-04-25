@@ -65,7 +65,8 @@ function createCancellationHandler({
   }
 
   function cancelTask(taskId, reason = 'Cancelled by user', options = {}) {
-    const cancelReason = options.cancel_reason || 'user';
+    const reasonText = String(reason || '').toLowerCase();
+    const cancelReason = options.cancel_reason || (reasonText.includes('timeout') ? 'timeout' : 'user');
     const fullId = db.resolveTaskId(taskId);
     if (!fullId) {
       throw new Error(`No task found matching ID prefix: ${taskId}`);
