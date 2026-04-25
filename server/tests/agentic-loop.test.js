@@ -428,6 +428,68 @@ describe('runAgenticLoop — parse failure recovery', () => {
     expect(result.output).toContain('Observed package.json');
   });
 
+  it('executes nested OpenRouter command JSON as a parsed tool call', async () => {
+    const adapter = mockAdapter([
+      textResponse(JSON.stringify({
+        command: {
+          action: 'list_directory',
+          parameters: { path: 'src' },
+        },
+      })),
+      textResponse('Observed source files.'),
+    ]);
+    const calls = [];
+    const executor = {
+      execute: (name, args) => {
+        calls.push({ name, args });
+        return { result: 'index.js\nproviders', metadata: {} };
+      },
+      changedFiles: new Set(),
+    };
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'sys',
+      taskPrompt: 'Read-only list src.',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+    });
+
+    expect(calls).toEqual([{ name: 'list_directory', args: { path: 'src' } }]);
+    expect(result.toolLog).toHaveLength(1);
+    expect(result.output).toContain('Observed source files');
+  });
+
+  it('normalizes OpenRouter search_files query parameter to pattern', async () => {
+    const adapter = mockAdapter([
+      textResponse(JSON.stringify({
+        action: 'search_files',
+        parameters: { query: 'parser', path: '.' },
+      })),
+      textResponse('Observed parser matches.'),
+    ]);
+    const calls = [];
+    const executor = {
+      execute: (name, args) => {
+        calls.push({ name, args });
+        return { result: 'src/parser.js:1: parser', metadata: {} };
+      },
+      changedFiles: new Set(),
+    };
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'sys',
+      taskPrompt: 'Search for parser.',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+    });
+
+    expect(calls).toEqual([{ name: 'search_files', args: { path: '.', pattern: 'parser' } }]);
+    expect(result.toolLog).toHaveLength(1);
+    expect(result.output).toContain('Observed parser matches');
+  });
+
   it('injects correction message when response contains "name" but no valid tool call, then treats next response as final', async () => {
     // First response: malformed JSON with "name" in content but no parseable tool call
     const malformedResponse = {

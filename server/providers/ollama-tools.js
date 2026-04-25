@@ -1180,6 +1180,12 @@ const PARSEABLE_TOOL_NAMES = new Set([
 
 function normalizeJsonToolCall(parsed) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const wrapped = parsed.command || parsed.tool_call || parsed.toolCall || parsed.call || parsed.function_call;
+  if (wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)) {
+    const normalized = normalizeJsonToolCall(wrapped);
+    if (normalized) return { ...normalized, id: parsed.id ?? normalized.id };
+  }
+
   const rawName = parsed.name || parsed.action || parsed.tool || parsed.tool_name || parsed.function;
   const name = typeof rawName === 'string' ? rawName.trim() : '';
   if (!PARSEABLE_TOOL_NAMES.has(name)) return null;
@@ -1188,6 +1194,10 @@ function normalizeJsonToolCall(parsed) {
   const args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
     ? rawArgs
     : {};
+  if (name === 'search_files' && typeof args.pattern !== 'string' && typeof args.query === 'string') {
+    args.pattern = args.query;
+    delete args.query;
+  }
   return { id: parsed.id, name, arguments: args };
 }
 
