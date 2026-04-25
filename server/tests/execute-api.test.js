@@ -6,6 +6,7 @@ const SANITIZE_PATH = require.resolve('../utils/sanitize');
 const CONTEXT_STUFFING_PATH = require.resolve('../utils/context-stuffing');
 const STUDY_ENGINE_PATH = require.resolve('../integrations/codebase-study-engine');
 const MODEL_ROLES_PATH = require.resolve('../db/model-roles');
+const PROVIDER_MODEL_SCORES_PATH = require.resolve('../db/provider-model-scores');
 
 const ORIGINAL_CACHE_ENTRIES = new Map([
   [LOGGER_PATH, require.cache[LOGGER_PATH]],
@@ -13,6 +14,7 @@ const ORIGINAL_CACHE_ENTRIES = new Map([
   [CONTEXT_STUFFING_PATH, require.cache[CONTEXT_STUFFING_PATH]],
   [STUDY_ENGINE_PATH, require.cache[STUDY_ENGINE_PATH]],
   [MODEL_ROLES_PATH, require.cache[MODEL_ROLES_PATH]],
+  [PROVIDER_MODEL_SCORES_PATH, require.cache[PROVIDER_MODEL_SCORES_PATH]],
 ]);
 
 let nextTaskId = 0;
@@ -60,6 +62,7 @@ function loadSubject(options = {}) {
       || vi.fn((taskDescription) => taskDescription),
   };
   const modelRolesMock = options.modelRoles || null;
+  const providerModelScoresMock = options.providerModelScores || null;
 
   installMock(LOGGER_PATH, loggerMock);
   installMock(SANITIZE_PATH, sanitizeMock);
@@ -73,6 +76,13 @@ function loadSubject(options = {}) {
     // Keep real module cache state unless explicitly mocked.
     delete require.cache[MODEL_ROLES_PATH];
   }
+  if (providerModelScoresMock) {
+    installMock(PROVIDER_MODEL_SCORES_PATH, providerModelScoresMock);
+  } else if (options.providerModelScores === null) {
+    delete require.cache[PROVIDER_MODEL_SCORES_PATH];
+  } else if (!require.cache[PROVIDER_MODEL_SCORES_PATH]) {
+    delete require.cache[PROVIDER_MODEL_SCORES_PATH];
+  }
   delete require.cache[SUBJECT_PATH];
 
   return {
@@ -83,6 +93,7 @@ function loadSubject(options = {}) {
     contextStuffingMock,
     studyEngineMock,
     modelRolesMock,
+    providerModelScoresMock,
   };
 }
 
@@ -639,6 +650,73 @@ describe('execute-api.js', () => {
             'minimax/minimax-m2.5:free',
             'qwen/qwen3-coder:free',
           ],
+        }),
+      );
+      expect(modelRolesMock.getModelForRole).toHaveBeenCalledTimes(5);
+      expect(deps.readTask(task.id)).toMatchObject({
+        status: 'completed',
+        model: 'custom/openrouter-fallback:free',
+      });
+    });
+
+    it('adds scored free openrouter fallback models to openrouter fallback list', async () => {
+      const modelRolesMock = {
+        getModelForRole: vi.fn((provider, role) => {
+          const roleMap = {
+            default: null,
+            fallback: null,
+            balanced: null,
+            fast: null,
+            quality: null,
+          };
+          return roleMap[role];
+        }),
+      };
+      const providerModelScoresMock = {
+        init: vi.fn(),
+        getTopModelScores: vi.fn(() => [
+          { model_name: 'top/paid:premium', metadata_json: JSON.stringify({ free: false }) },
+          { model_name: 'top/fast:free', metadata_json: JSON.stringify({ free: false }) },
+          { model_name: 'top/scored:free', metadata_json: '{}' },
+        ]),
+      };
+      const { mod } = loadSubject({
+        modelRoles: modelRolesMock,
+        providerModelScores: providerModelScoresMock,
+      });
+      const task = makeTask({
+        model: null,
+        metadata: { fallbackModels: ['custom/openrouter-fallback:free'] },
+      });
+      const deps = makeDeps([task]);
+      deps.db.prepare = vi.fn();
+      const provider = makeProvider({
+        submit: vi.fn(async () => ({
+          output: 'selected from role',
+          usage: { tokens: 12, prompt_tokens: 8, completion_tokens: 4 },
+        })),
+      });
+
+      mod.init(deps);
+      await mod.executeApiProvider(task, provider);
+
+      expect(provider.submit).toHaveBeenCalledWith(
+        'Write comprehensive tests',
+        'custom/openrouter-fallback:free',
+        expect.objectContaining({
+          fallbackModels: [
+            'custom/openrouter-fallback:free',
+            'top/fast:free',
+            'top/scored:free',
+          ],
+        }),
+      );
+      expect(providerModelScoresMock.getTopModelScores).toHaveBeenCalledWith(
+        'openrouter',
+        expect.objectContaining({
+          rateLimited: false,
+          minScore: 0,
+          limit: 8,
         }),
       );
       expect(modelRolesMock.getModelForRole).toHaveBeenCalledTimes(5);

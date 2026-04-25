@@ -79,6 +79,7 @@ const AGENTIC_CLOUD_TO_CODEX_FALLBACKS = new Set(['google-ai', 'groq', 'openrout
 const PROPOSAL_APPLY_MODE = 'proposal_apply';
 const PROPOSAL_MODE_READ_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
 const FACTORY_INTERNAL_STRUCTURED_KINDS = new Set(['architect_cycle', 'plan_generation', 'verify_review']);
+const OPENROUTER_FALLBACK_SCORE_LIMIT = 8;
 
 // ── Deps captured at init time for the agentic wrapper ────────────────
 let _agenticDeps = null;
@@ -237,6 +238,70 @@ function resolveProviderRoleModel(provider, role) {
   }
 }
 
+function parseProviderModelMetadata(value) {
+  if (typeof value !== 'string' || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isFreeOpenRouterModelCandidate(modelName, metadataJson) {
+  if (/:free$/i.test(modelName)) return true;
+  const metadata = parseProviderModelMetadata(metadataJson);
+  return metadata.free === true || metadata.free === 1 || metadata.free === '1';
+}
+
+function getTopScoredOpenRouterFallbackModels(limit = OPENROUTER_FALLBACK_SCORE_LIMIT) {
+  const agenticDb = _agenticDeps?.db;
+  if (!agenticDb || typeof agenticDb.prepare !== 'function') return [];
+  const hasSqliteHandle = typeof agenticDb.exec === 'function';
+
+  try {
+    const providerModelScores = require('../db/provider-model-scores');
+    if (hasSqliteHandle && typeof providerModelScores.init === 'function') {
+      try {
+        providerModelScores.init(agenticDb);
+      } catch {
+        return [];
+      }
+    }
+
+    const fetchTopModels = providerModelScores.getTopModelScores || providerModelScores.listModelScores;
+    if (typeof fetchTopModels !== 'function') return [];
+
+    const topRows = fetchTopModels.call(providerModelScores, 'openrouter', {
+      rateLimited: false,
+      limit: Math.max(1, Number.isFinite(Number(limit)) ? Number(limit) : OPENROUTER_FALLBACK_SCORE_LIMIT),
+    }) || [];
+
+    const scoredRows = topRows
+      .map((row) => ({
+        model: typeof row?.model_name === 'string' ? row.model_name.trim() : '',
+        metadataJson: row?.metadata_json || row?.metadata,
+      }))
+      .filter(({ model }) => model);
+
+    const scoredCandidates = [...new Set(scoredRows.map(({ model }) => model))];
+    if (scoredCandidates.length === 0) return [];
+
+    const freeCandidates = scoredRows
+      .filter(({ model, metadataJson }) => isFreeOpenRouterModelCandidate(model, metadataJson))
+      .map(({ model }) => model);
+
+    const fallbackCandidates = (freeCandidates.length > 0 ? freeCandidates : scoredCandidates);
+    return [...new Set(fallbackCandidates)]
+      .filter((model) => typeof model === 'string' && model.trim())
+      .slice(0, Math.max(1, Number.isFinite(Number(limit)) ? Number(limit) : OPENROUTER_FALLBACK_SCORE_LIMIT))
+      .map((model) => model.trim());
+  } catch (err) {
+    logger.debug(`[Agentic OpenRouter Fallback] Failed to fetch scored models: ${err.message}`);
+    return [];
+  }
+}
+
 function buildOpenRouterModelFallbackChain(provider, primaryModel) {
   if (provider !== 'openrouter') return null;
 
@@ -252,6 +317,9 @@ function buildOpenRouterModelFallbackChain(provider, primaryModel) {
   add(primaryModel);
   for (const role of ['fallback', 'balanced', 'fast', 'quality']) {
     add(resolveProviderRoleModel('openrouter', role));
+  }
+  for (const model of getTopScoredOpenRouterFallbackModels(OPENROUTER_FALLBACK_SCORE_LIMIT)) {
+    add(model);
   }
 
   return chain.length > 1 ? chain : null;
