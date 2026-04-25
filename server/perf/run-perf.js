@@ -3,6 +3,7 @@
 
 const path = require('path');
 const registry = require('./metrics');
+require('./metrics/all'); // registers all metric modules
 const report = require('./report');
 
 const args = process.argv.slice(2);
