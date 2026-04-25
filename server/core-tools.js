@@ -74,6 +74,7 @@ const TIER_2 = [
   'create_work_item', 'list_work_items', 'update_work_item', 'reject_work_item', 'intake_from_findings', 'scan_plans_directory', 'execute_plan_file', 'get_plan_execution_status', 'list_plan_intake_items', 'poll_github_issues', 'architect_log',
   // Factory loop
   'reset_factory_loop', 'start_factory_loop', 'await_factory_loop', 'advance_factory_loop', 'approve_factory_gate', 'retry_factory_verify', 'resume_project_baseline_fixed', 'factory_loop_status',
+  'factory_provider_lane_audit',
   'list_recovery_strategies', 'get_recovery_history', 'clear_auto_recovery', 'trigger_auto_recovery',
   'list_factory_loop_instances', 'factory_loop_instance_status', 'start_factory_loop_instance', 'advance_factory_loop_instance',
   'approve_factory_gate_instance', 'reject_factory_gate_instance', 'retry_factory_verify_instance', 'terminate_factory_loop_instance',

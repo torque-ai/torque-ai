@@ -24,6 +24,7 @@ const { createShippedDetector } = require('../factory/shipped-detector');
 const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory/feedback');
 const { buildProjectCostSummary, getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
 const { getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
+const { buildProviderLaneAudit } = require('../factory/provider-lane-audit');
 const notifications = require('../factory/notifications');
 const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'factory-handlers' });
@@ -1919,6 +1920,19 @@ async function handleDecisionLog(args) {
   return jsonResponse({ decisions, stats });
 }
 
+async function handleFactoryProviderLaneAudit(args) {
+  const project = resolveProject(args.project);
+  const audit = buildProviderLaneAudit({
+    project,
+    db: database(),
+    limit: args.limit,
+    expected_provider: args.expected_provider,
+    allowed_fallback_providers: args.allowed_fallback_providers,
+    require_classified_fallback: args.require_classified_fallback,
+  });
+  return jsonResponse(audit);
+}
+
 async function handleFactoryNotifications(args) {
   const project = resolveProject(args.project);
   if (args.action === 'test') {
@@ -1994,6 +2008,7 @@ module.exports = {
   handleRecordCorrection,
   handleFactoryCostMetrics,
   handleDecisionLog,
+  handleFactoryProviderLaneAudit,
   handleFactoryNotifications,
   handleFactoryDigest,
 };

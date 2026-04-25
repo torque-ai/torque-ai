@@ -81,6 +81,14 @@ function coerceFactoryBoolean(value) {
   return undefined;
 }
 
+function parseFactoryCsvList(value) {
+  const raw = Array.isArray(value) ? value : (value === undefined || value === null ? [] : [value]);
+  return raw
+    .flatMap((entry) => String(entry || '').split(','))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 async function readFactoryBody(req) {
   return Object.prototype.hasOwnProperty.call(req, 'body')
     ? req.body
@@ -395,6 +403,29 @@ const FACTORY_V2_ROUTES = [
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/corrections$/, tool: 'record_correction', mapParams: ['project'], mapBody: true },
   // Observability
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/decisions$/, tool: 'decision_log', mapParams: ['project'], mapQuery: true },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/provider-lane$/,
+    tool: 'factory_provider_lane_audit',
+    mapParams: ['project'],
+    mapQuery: true,
+    handlerName: 'handleFactoryProviderLaneAudit',
+    handler: async (req, res, context) => sendFactoryRouteHandlerResponse(
+      req,
+      res,
+      context,
+      factoryHandlers.handleFactoryProviderLaneAudit,
+      async () => ({
+        project: req.params.project,
+        limit: req.query?.limit === undefined ? undefined : Number.parseInt(req.query.limit, 10),
+        expected_provider: req.query?.expected_provider,
+        allowed_fallback_providers: req.query?.allowed_fallback_providers === undefined
+          ? undefined
+          : parseFactoryCsvList(req.query.allowed_fallback_providers),
+        require_classified_fallback: coerceFactoryBoolean(req.query?.require_classified_fallback),
+      }),
+    ),
+  },
   {
     method: 'GET',
     path: /^\/api\/v2\/factory\/projects\/([^/]+)\/recovery_history$/,
