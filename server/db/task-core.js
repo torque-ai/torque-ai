@@ -566,10 +566,11 @@ function updateTaskStatus(id, status, additionalFields = {}) {
     ? additionalFields._provider_switch_reason
     : null;
   delete additionalFields._provider_switch_reason;
-  // Persist cancel_reason when cancelling a task
-  const cancelReason = additionalFields.cancel_reason || null;
+  // Persist cancel_reason when cancelling a task.
+  // Default to a non-null value so cancelled rows always carry a reason.
+  const cancelReason = additionalFields.cancel_reason || 'unknown';
   delete additionalFields.cancel_reason;
-  if (status === 'cancelled' && cancelReason) {
+  if (status === 'cancelled') {
     additionalFields.cancel_reason = cancelReason;
   }
   if (Object.prototype.hasOwnProperty.call(additionalFields, 'provider')) {

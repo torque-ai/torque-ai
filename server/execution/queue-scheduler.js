@@ -747,7 +747,10 @@ function processQueueInternal(options = {}) {
 
     for (const task of expired) {
       try {
-        db.updateTaskStatus(task.id, 'cancelled', { error_output: 'Expired: exceeded queue TTL' });
+        db.updateTaskStatus(task.id, 'cancelled', {
+          error_output: 'Expired: exceeded queue TTL',
+          cancel_reason: 'queue_ttl',
+        });
         notifyDashboard(task.id, { status: 'cancelled', error_output: 'Expired: exceeded queue TTL' });
         logger.info(`[queue] Task ${task.id} expired after ${queueTtlMinutes} minutes in queue`);
         eventBus.emitTaskEvent({ taskId: task.id, type: 'cancelled', reason: 'queue_ttl_expired' });

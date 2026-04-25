@@ -504,6 +504,7 @@ describe('scheduling-automation module', () => {
       expect(rejectedTask.approval_status).toBe('rejected');
       expect(rejectedTask.status).toBe('cancelled');
       expect(rejectedTask.error_output).toBe('Approval rejected by reviewer: needs fixes');
+      expect(rejectedTask.cancel_reason).toBe('human_rejected');
 
       expect(() => mod.rejectApproval(task.id, 'other')).toThrow(/not pending/i);
     });

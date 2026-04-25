@@ -922,6 +922,7 @@ async function handleDeletePlanProject(req, res) {
             logger.debug("task handler error", { err: err.message });
             taskCore.updateTaskStatus(task.task_id, 'cancelled', {
               error_output: 'Plan project deleted',
+              cancel_reason: 'user',
             });
           }
         }

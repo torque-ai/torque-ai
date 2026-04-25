@@ -390,6 +390,9 @@ describe('task-metadata module', () => {
     expect(db.getTask(running.id).status).toBe('cancelled');
     expect(db.getTask(failed.id).status).toBe('failed');
     expect(db.getTask(pending.id).completed_at).toBeTruthy();
+    expect(db.getTask(pending.id).cancel_reason).toBe('user');
+    expect(db.getTask(queued.id).cancel_reason).toBe('user');
+    expect(db.getTask(running.id).cancel_reason).toBe('user');
   });
 
   it('batchCancelTasks applies status, tags, and olderThan filters', () => {
@@ -410,8 +413,18 @@ describe('task-metadata module', () => {
 
     expect(cancelled).toBe(1);
     expect(db.getTask(oldMatch.id).status).toBe('cancelled');
+    expect(db.getTask(oldMatch.id).cancel_reason).toBe('user');
     expect(db.getTask(newMatch.id).status).toBe('queued');
     expect(db.getTask(wrongStatus.id).status).toBe('running');
+  });
+
+  it('batchCancelTasks accepts override cancel reason', () => {
+    const pending = mkTask({ status: 'pending' });
+    const cancelled = mod.batchCancelTasks({ cancel_reason: 'manual_halt' });
+
+    expect(cancelled).toBe(1);
+    expect(db.getTask(pending.id).status).toBe('cancelled');
+    expect(db.getTask(pending.id).cancel_reason).toBe('manual_halt');
   });
 
   it('getRetryableTasks returns failed/cancelled tasks and parses tags safely', () => {

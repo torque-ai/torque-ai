@@ -421,14 +421,18 @@ function tryStallRecovery(taskId, activity) {
   if (recovery.attempts >= maxAttempts) {
     logger.info(`[StallRecovery] Task ${taskId} exceeded max recovery attempts (${maxAttempts}) - stall recovery exhausted`);
     _stallRecoveryAttempts.delete(taskId);
-    _cancelTask(taskId, `Stall recovery exhausted after ${recovery.attempts} attempts - no output for ${activity.lastActivitySeconds}s`);
+    _cancelTask(
+      taskId,
+      `Stall recovery exhausted after ${recovery.attempts} attempts - no output for ${activity.lastActivitySeconds}s`,
+      { cancel_reason: 'fallback_retry_exhausted' },
+    );
     return false;
   }
 
   const task = db.getTask(taskId);
   if (!task) {
     logger.info(`[StallRecovery] Task ${taskId} not found in database - cancelling`);
-    _cancelTask(taskId, 'Task not found');
+    _cancelTask(taskId, 'Task not found', { cancel_reason: 'task_not_found' });
     return false;
   }
 

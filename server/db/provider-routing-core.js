@@ -727,6 +727,7 @@ function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440) {
   const staleQueued = db.prepare(`
     UPDATE tasks
     SET status = 'cancelled',
+        cancel_reason = 'stale_session_cleanup',
         completed_at = ?,
         error_output = COALESCE(error_output || char(10), '') || 'Task cancelled: queued too long (stale session cleanup)'
     WHERE status = 'queued'

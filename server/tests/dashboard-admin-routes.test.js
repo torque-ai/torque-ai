@@ -578,6 +578,7 @@ describe('dashboard/routes/admin', () => {
     expect(mockTaskManager.cancelTask).toHaveBeenCalledTimes(3);
     expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-2', 'cancelled', {
       error_output: 'Plan project deleted',
+      cancel_reason: 'user',
     });
     expect(mockDb.deletePlanProject).toHaveBeenCalledWith('project-9');
     expect(res.payload).toEqual({ success: true, message: 'Project deleted' });

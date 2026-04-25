@@ -416,7 +416,10 @@ describe('Queue Scheduler', () => {
       scheduler.processQueueInternal();
 
       // Source uses db.updateTaskStatus instead of raw prepare/run
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('expired-task', 'cancelled', { error_output: 'Expired: exceeded queue TTL' });
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('expired-task', 'cancelled', {
+        error_output: 'Expired: exceeded queue TTL',
+        cancel_reason: 'queue_ttl',
+      });
       expect(mocks.notifyDashboard).toHaveBeenCalledWith('expired-task', {
         status: 'cancelled',
         error_output: 'Expired: exceeded queue TTL',

@@ -355,6 +355,7 @@ function handleDeletePlanProject(req, res, query, projectId) {
       } catch {
         taskCore.updateTaskStatus(task.task_id, 'cancelled', {
           error_output: 'Plan project deleted',
+          cancel_reason: 'user',
         });
       }
     }

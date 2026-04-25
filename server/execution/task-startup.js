@@ -981,10 +981,13 @@ function evaluateClaimedStartupPolicy({
 
   const cancelReason = `[Policy] ${describePolicyBlock(preExecutePolicyResult, 'pre-execute')}`;
   try {
-    cancelBlockedTask(taskId, cancelReason);
+    cancelBlockedTask(taskId, cancelReason, { cancel_reason: 'policy_block' });
   } catch (cancelErr) {
     log.info(`[Policy] Failed to cancel blocked task ${taskId}: ${cancelErr.message}`);
-    updateTaskStatus(taskId, 'cancelled', { error_output: cancelReason });
+    updateTaskStatus(taskId, 'cancelled', {
+      error_output: cancelReason,
+      cancel_reason: 'policy_block',
+    });
   }
   resourceLifecycle.releaseForPolicyBlock(cancelReason);
   try { notifyTaskUpdated(taskId); } catch { /* non-critical */ }
@@ -1279,10 +1282,13 @@ function evaluateClaimedPolicyForStartup({
 
   const cancelReason = `[Governance] ${guardResult.message}`;
   try {
-    cancelTask(taskId, cancelReason);
+    cancelTask(taskId, cancelReason, { cancel_reason: 'policy_block' });
   } catch (cancelErr) {
     logger.info(`[Governance] Failed to cancel blocked task ${taskId}: ${cancelErr.message}`);
-    safeUpdateTaskStatus(taskId, 'cancelled', { error_output: cancelReason });
+    safeUpdateTaskStatus(taskId, 'cancelled', {
+      error_output: cancelReason,
+      cancel_reason: 'policy_block',
+    });
   }
   startupResources.releaseForPolicyBlock(cancelReason);
   try { dashboard.notifyTaskUpdated(taskId); } catch { /* non-critical */ }

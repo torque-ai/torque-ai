@@ -1008,6 +1008,7 @@ describe('dashboard/admin handlers', () => {
       expect(mockTaskManager.cancelTask).toHaveBeenCalledWith('task-2', 'Plan project deleted');
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-2', 'cancelled', {
         error_output: 'Plan project deleted',
+        cancel_reason: 'user',
       });
       expect(mockDb.deletePlanProject).toHaveBeenCalledWith('p1');
       expect(res.payload).toEqual({ success: true, message: 'Project deleted' });

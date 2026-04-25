@@ -593,7 +593,10 @@ function handleApplyIntervention(args) {
   let result = { success: false, message: 'Unknown intervention type' };
   try {
     if (intervention_type === 'cancel') {
-      taskCore.updateTaskStatus(task_id, 'cancelled', { error_output: `Cancelled via intervention: ${JSON.stringify(parameters || {})}` });
+      taskCore.updateTaskStatus(task_id, 'cancelled', {
+        error_output: `Cancelled via intervention: ${JSON.stringify(parameters || {})}`,
+        cancel_reason: 'user',
+      });
       result = { success: true, message: 'Task cancelled' };
     } else if (intervention_type === 'requeue') {
       taskCore.updateTaskStatus(task_id, 'queued', { pid: null, started_at: null });
