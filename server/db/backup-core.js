@@ -27,6 +27,12 @@ let _getDataDir = null;
 let _setDb = null;         // callback to update database.js's `db` reference
 let _isDbClosed = null;
 
+const DEFAULT_PRE_STARTUP_BACKUP_KEEP = 1;
+const DEFAULT_PRE_SHUTDOWN_BACKUP_KEEP = 2;
+const DEFAULT_PERIODIC_BACKUP_KEEP = 3;
+const DEFAULT_TOTAL_BACKUP_MAX_BYTES = 12 * 1024 * 1024 * 1024;
+const PERIODIC_BACKUP_PATTERN = /^torque-(backup-)?\d{4}-\d{2}-\d{2}T/;
+
 function setDb(dbInstance) {
   _db = dbInstance;
 }
@@ -129,6 +135,177 @@ function writeLiveDatabaseBackupWithHash(backupPath) {
   return writeDatabaseHandleBackupWithHash(_db, backupPath);
 }
 
+function parseNonNegativeInt(value, fallback) {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readConfigValue(key) {
+  if (!_getConfig) return null;
+  try {
+    return _getConfig(key);
+  } catch {
+    return null;
+  }
+}
+
+function getBackupRetentionConfig(options = {}) {
+  return {
+    preStartupKeep: parseNonNegativeInt(
+      options.preStartupKeep ?? readConfigValue('backup_pre_startup_max_count'),
+      DEFAULT_PRE_STARTUP_BACKUP_KEEP
+    ),
+    preShutdownKeep: parseNonNegativeInt(
+      options.preShutdownKeep ?? readConfigValue('backup_pre_shutdown_max_count'),
+      DEFAULT_PRE_SHUTDOWN_BACKUP_KEEP
+    ),
+    periodicKeep: parseNonNegativeInt(
+      options.periodicKeep ?? readConfigValue('backup_max_count'),
+      DEFAULT_PERIODIC_BACKUP_KEEP
+    ),
+    totalMaxBytes: parsePositiveInt(
+      options.totalMaxBytes ?? readConfigValue('backup_total_max_bytes'),
+      DEFAULT_TOTAL_BACKUP_MAX_BYTES
+    ),
+    reserveBytes: parseNonNegativeInt(options.reserveBytes, 0),
+  };
+}
+
+function classifyManagedBackup(name) {
+  if (!name.endsWith('.db')) return null;
+  if (name.startsWith('torque-pre-startup-')) return 'preStartup';
+  if (name.startsWith('torque-pre-shutdown-')) return 'preShutdown';
+  if (name.startsWith('torque-pre-provider')) return null;
+  if (PERIODIC_BACKUP_PATTERN.test(name)) return 'periodic';
+  return null;
+}
+
+function compareBackupAgeAsc(a, b) {
+  if (a.mtimeMs !== b.mtimeMs) return a.mtimeMs - b.mtimeMs;
+  return a.name.localeCompare(b.name);
+}
+
+function listManagedBackupEntries(backupDir) {
+  if (!fs.existsSync(backupDir)) return [];
+
+  return fs.readdirSync(backupDir)
+    .map((name) => {
+      const category = classifyManagedBackup(name);
+      if (!category) return null;
+      const fullPath = path.join(backupDir, name);
+      try {
+        const stats = fs.statSync(fullPath);
+        const mtimeMs = stats.mtime instanceof Date ? stats.mtime.getTime() : 0;
+        return {
+          name,
+          path: fullPath,
+          category,
+          size: Number.isFinite(stats.size) ? stats.size : 0,
+          mtimeMs,
+          deleted: false,
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort(compareBackupAgeAsc);
+}
+
+function removeBackupEntry(entry, deleted) {
+  if (!entry || entry.deleted) return false;
+
+  let removed = false;
+  try {
+    fs.unlinkSync(entry.path);
+    removed = true;
+  } catch {
+    return false;
+  }
+
+  for (const sidecarPath of [
+    entry.path + '.sha256',
+    entry.path + '-journal',
+    entry.path + '-wal',
+    entry.path + '-shm',
+  ]) {
+    try { fs.unlinkSync(sidecarPath); } catch {}
+  }
+
+  entry.deleted = true;
+  if (removed) {
+    deleted.push(entry.path);
+    logger.info(`[backup] Removed old backup: ${entry.name}`);
+  }
+  return removed;
+}
+
+function getLiveDatabaseSizeEstimate() {
+  if (!_getDbPath) return 0;
+  try {
+    return fs.statSync(_getDbPath()).size;
+  } catch {
+    return 0;
+  }
+}
+
+function pruneManagedBackups(options = {}) {
+  const backupDir = resolveManagedBackupsDir(options.dir || options.backupDir || getBackupsDir());
+  if (!fs.existsSync(backupDir)) return [];
+
+  const retention = getBackupRetentionConfig(options);
+  const entries = listManagedBackupEntries(backupDir);
+  const deleted = [];
+  const keepByCategory = {
+    preStartup: retention.preStartupKeep,
+    preShutdown: retention.preShutdownKeep,
+    periodic: retention.periodicKeep,
+  };
+
+  for (const [category, keepCount] of Object.entries(keepByCategory)) {
+    const categoryEntries = entries
+      .filter((entry) => entry.category === category && !entry.deleted)
+      .sort(compareBackupAgeAsc);
+    const excessCount = categoryEntries.length - keepCount;
+    for (let i = 0; i < excessCount; i++) {
+      removeBackupEntry(categoryEntries[i], deleted);
+    }
+  }
+
+  let totalBytes = entries
+    .filter((entry) => !entry.deleted)
+    .reduce((sum, entry) => sum + entry.size, 0);
+
+  while (totalBytes + retention.reserveBytes > retention.totalMaxBytes) {
+    const categoryCounts = entries
+      .filter((entry) => !entry.deleted)
+      .reduce((counts, entry) => {
+        counts[entry.category] = (counts[entry.category] || 0) + 1;
+        return counts;
+      }, {});
+
+    let candidate = entries
+      .filter((entry) => !entry.deleted && categoryCounts[entry.category] > 1)
+      .sort(compareBackupAgeAsc)[0];
+
+    if (!candidate) {
+      candidate = entries
+        .filter((entry) => !entry.deleted)
+        .sort(compareBackupAgeAsc)[0];
+    }
+
+    if (!candidate || !removeBackupEntry(candidate, deleted)) break;
+    totalBytes -= candidate.size;
+  }
+
+  return deleted;
+}
+
 function backupDatabase(destPath) {
   if (!_db) throw new Error('Database not initialized');
 
@@ -148,12 +325,11 @@ function backupDatabase(destPath) {
 function startBackupScheduler(intervalMs = 3600000) {
   stopBackupScheduler();
 
-  // Default max backups lowered from 24 → 6. On a mature install the DB can be
-  // multi-GB; 24 × 3.7 GB observed 2026-04-24 = 89 GB of just periodic
-  // backups on disk. Six hourly snapshots still gives ~6 hours of rollback
-  // window while keeping disk footprint bounded. Override via
+  // Default max backups lowered from 24. On a mature install the DB can be
+  // multi-GB, so generated backups are also bounded by a global byte cap.
+  // Override periodic retention via
   // `backup_max_count` config.
-  const maxBackups = parseInt((_getConfig && _getConfig('backup_max_count')) || '6', 10);
+  const maxBackups = parseNonNegativeInt(readConfigValue('backup_max_count'), DEFAULT_PERIODIC_BACKUP_KEEP);
   const backupDir = path.join(getDataDir(), 'backups');
 
   _backupTimer = setInterval(() => {
@@ -161,6 +337,11 @@ function startBackupScheduler(intervalMs = 3600000) {
       if (!_db || (_isDbClosed && _isDbClosed())) return;
 
       fs.mkdirSync(backupDir, { recursive: true });
+      pruneManagedBackups({
+        dir: backupDir,
+        reserveBytes: getLiveDatabaseSizeEstimate(),
+        periodicKeep: maxBackups,
+      });
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const backupPath = path.join(backupDir, `torque-${timestamp}.db`);
@@ -177,24 +358,7 @@ function startBackupScheduler(intervalMs = 3600000) {
       }
 
       logger.info(`[backup] Database backed up to ${backupPath} (${size} bytes)`);
-
-      // Only prune periodic backups, NOT pre-shutdown/pre-startup/pre-provider
-      // (each has its own retention path). Match both legacy `torque-backup-*`
-      // and current `torque-YYYY-*` naming — an earlier pattern left behind
-      // 23 unprunable `torque-backup-*` files when the naming changed.
-      const PERIODIC_BACKUP_PATTERN = /^torque-(backup-)?\d{4}-\d{2}-\d{2}T/;
-      const files = fs.readdirSync(backupDir)
-        .filter(f => PERIODIC_BACKUP_PATTERN.test(f) && f.endsWith('.db')
-          && !f.includes('pre-shutdown') && !f.includes('pre-startup')
-          && !f.includes('pre-provider'))
-        .sort()
-        .reverse();
-
-      for (let i = maxBackups; i < files.length; i++) {
-        fs.unlinkSync(path.join(backupDir, files[i]));
-        try { fs.unlinkSync(path.join(backupDir, files[i] + '.sha256')); } catch {}
-        logger.info(`[backup] Removed old backup: ${files[i]}`);
-      }
+      pruneManagedBackups({ dir: backupDir, periodicKeep: maxBackups });
     } catch (err) {
       logger.warn(`[backup] Backup failed: ${err.message}`);
     }
@@ -382,6 +546,10 @@ function takePreShutdownBackup() {
   try {
     const backupDir = path.join(getDataDir(), 'backups');
     fs.mkdirSync(backupDir, { recursive: true });
+    pruneManagedBackups({
+      dir: backupDir,
+      reserveBytes: getLiveDatabaseSizeEstimate(),
+    });
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = path.join(backupDir, `torque-pre-shutdown-${timestamp}.db`);
@@ -397,20 +565,7 @@ function takePreShutdownBackup() {
     }
 
     logger.info(`[backup] Pre-shutdown backup saved: ${backupPath} (${size} bytes)`);
-
-    // Keep only the last 5 pre-shutdown backups
-    const preShutdownFiles = fs.readdirSync(backupDir)
-      .filter(f => f.startsWith('torque-pre-shutdown-') && f.endsWith('.db'))
-      .sort()
-      .reverse();
-
-    for (let i = 5; i < preShutdownFiles.length; i++) {
-      try {
-        fs.unlinkSync(path.join(backupDir, preShutdownFiles[i]));
-        // Also remove the sha256 file
-        try { fs.unlinkSync(path.join(backupDir, preShutdownFiles[i] + '.sha256')); } catch {}
-      } catch {}
-    }
+    pruneManagedBackups({ dir: backupDir });
 
     return { path: backupPath, size };
   } catch (err) {
@@ -433,6 +588,7 @@ function createBackupCore({ db: dbInstance, internals }) {
     restoreDatabase,
     listBackups,
     cleanupOldBackups,
+    pruneManagedBackups,
   };
 }
 
@@ -448,6 +604,7 @@ module.exports = {
   restoreDatabase,
   listBackups,
   cleanupOldBackups,
+  pruneManagedBackups,
   getBackupsDir,
   writeDatabaseHandleBackupWithHash,
 };

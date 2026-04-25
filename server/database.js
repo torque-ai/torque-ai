@@ -536,6 +536,9 @@ function init() {
     try {
       const backupDir = path.join(DATA_DIR, 'backups');
       fs.mkdirSync(backupDir, { recursive: true });
+      let reserveBytes = 0;
+      try { reserveBytes = fs.statSync(DB_PATH).size; } catch {}
+      backupCore.pruneManagedBackups({ dir: backupDir, reserveBytes });
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const backupPath = path.join(backupDir, `torque-pre-startup-${timestamp}.db`);
 
@@ -544,16 +547,7 @@ function init() {
 
       if (size > 100000) { // Only keep if DB has meaningful data (>100KB)
         logger.info(`[backup] Pre-startup backup: ${backupPath} (${size} bytes, streamed hash)`);
-
-        // Keep only last 3 pre-startup backups
-        const preStartupFiles = fs.readdirSync(backupDir)
-          .filter(f => f.startsWith('torque-pre-startup-') && f.endsWith('.db'))
-          .sort()
-          .reverse();
-        for (let i = 3; i < preStartupFiles.length; i++) {
-          try { fs.unlinkSync(path.join(backupDir, preStartupFiles[i])); } catch {}
-          try { fs.unlinkSync(path.join(backupDir, preStartupFiles[i] + '.sha256')); } catch {}
-        }
+        backupCore.pruneManagedBackups({ dir: backupDir });
       } else {
         try { fs.unlinkSync(backupPath); } catch {}
         try { fs.unlinkSync(backupPath + '.sha256'); } catch {}
@@ -971,7 +965,7 @@ const _LEGACY_EXPORT_MODULES = [
   ] },
   { name: 'backupCore', exports: [
     'backupDatabase', 'cleanupOldBackups', 'getBackupsDir', 'getDbInstance', 'listBackups', 'restoreDatabase',
-    'startBackupScheduler', 'stopBackupScheduler', 'takePreShutdownBackup',
+    'pruneManagedBackups', 'startBackupScheduler', 'stopBackupScheduler', 'takePreShutdownBackup',
   ] },
   { name: 'emailPeek', exports: [
     'getDefaultPeekHost', 'getEmailNotification', 'getFailoverEvents', 'getPeekHost', 'listEmailNotifications', 'listPeekHosts',

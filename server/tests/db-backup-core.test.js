@@ -808,4 +808,108 @@ describe('db/backup-core', () => {
     expect(fs.unlinkSync).toHaveBeenNthCalledWith(2, oldTwo);
     expect(deleted).toEqual([oldOne]);
   });
+
+  it('prunes generated backups by category and removes sidecars', () => {
+    const { subject, fs } = loadSubject();
+    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
+    const oldShutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-01T00-00-00-000Z.db');
+    const midShutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-02T00-00-00-000Z.db');
+    const keepShutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-03T00-00-00-000Z.db');
+    const statsByPath = new Map([
+      [oldShutdown, { size: 10, mtime: new Date('2026-01-01T00:00:00.000Z') }],
+      [midShutdown, { size: 10, mtime: new Date('2026-01-02T00:00:00.000Z') }],
+      [keepShutdown, { size: 10, mtime: new Date('2026-01-03T00:00:00.000Z') }],
+    ]);
+
+    fs.existsSync.mockReturnValue(true);
+    fs.readdirSync.mockReturnValue([
+      path.basename(oldShutdown),
+      path.basename(midShutdown),
+      path.basename(keepShutdown),
+    ]);
+    fs.statSync.mockImplementation((fullPath) => statsByPath.get(fullPath));
+
+    const deleted = subject.pruneManagedBackups({
+      dir: backupDir,
+      preShutdownKeep: 1,
+      preStartupKeep: 5,
+      periodicKeep: 5,
+      totalMaxBytes: 1024 * 1024,
+    });
+
+    expect(deleted).toEqual([oldShutdown, midShutdown]);
+    expect(fs.unlinkSync).toHaveBeenCalledWith(oldShutdown);
+    expect(fs.unlinkSync).toHaveBeenCalledWith(oldShutdown + '.sha256');
+    expect(fs.unlinkSync).toHaveBeenCalledWith(oldShutdown + '-journal');
+    expect(fs.unlinkSync).toHaveBeenCalledWith(midShutdown);
+    expect(fs.unlinkSync).toHaveBeenCalledWith(midShutdown + '.sha256');
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(keepShutdown);
+  });
+
+  it('reserves space for the next backup before enforcing the total cap', () => {
+    const { subject, fs } = loadSubject();
+    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
+    const periodic = path.join(backupDir, 'torque-2026-01-01T00-00-00-000Z.db');
+    const shutdown = path.join(backupDir, 'torque-pre-shutdown-2026-01-02T00-00-00-000Z.db');
+    const startup = path.join(backupDir, 'torque-pre-startup-2026-01-03T00-00-00-000Z.db');
+    const protectedProvider = path.join(backupDir, 'torque-pre-provider-removal-2026-01-01T00-00-00-000Z.db');
+    const manual = path.join(backupDir, 'manual.db');
+    const statsByPath = new Map([
+      [periodic, { size: 45, mtime: new Date('2026-01-01T00:00:00.000Z') }],
+      [shutdown, { size: 45, mtime: new Date('2026-01-02T00:00:00.000Z') }],
+      [startup, { size: 45, mtime: new Date('2026-01-03T00:00:00.000Z') }],
+      [protectedProvider, { size: 500, mtime: new Date('2026-01-01T00:00:00.000Z') }],
+      [manual, { size: 500, mtime: new Date('2026-01-01T00:00:00.000Z') }],
+    ]);
+
+    fs.existsSync.mockReturnValue(true);
+    fs.readdirSync.mockReturnValue([
+      path.basename(periodic),
+      path.basename(shutdown),
+      path.basename(startup),
+      path.basename(protectedProvider),
+      path.basename(manual),
+    ]);
+    fs.statSync.mockImplementation((fullPath) => statsByPath.get(fullPath));
+
+    const deleted = subject.pruneManagedBackups({
+      dir: backupDir,
+      reserveBytes: 45,
+      totalMaxBytes: 135,
+      preShutdownKeep: 5,
+      preStartupKeep: 5,
+      periodicKeep: 5,
+    });
+
+    expect(deleted).toEqual([periodic]);
+    expect(fs.unlinkSync).toHaveBeenCalledWith(periodic);
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(shutdown);
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(startup);
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(protectedProvider);
+    expect(fs.unlinkSync).not.toHaveBeenCalledWith(manual);
+  });
+
+  it('leaves protected and manual backups alone even when the cap is low', () => {
+    const { subject, fs } = loadSubject();
+    const backupDir = path.join('C:\\mock-home', '.torque', 'backups');
+    const protectedProvider = path.join(backupDir, 'torque-pre-provider-removal-2026-01-01T00-00-00-000Z.db');
+    const manual = path.join(backupDir, 'manual.db');
+    const statsByPath = new Map([
+      [protectedProvider, { size: 500, mtime: new Date('2026-01-01T00:00:00.000Z') }],
+      [manual, { size: 500, mtime: new Date('2026-01-01T00:00:00.000Z') }],
+    ]);
+
+    fs.existsSync.mockReturnValue(true);
+    fs.readdirSync.mockReturnValue([path.basename(protectedProvider), path.basename(manual)]);
+    fs.statSync.mockImplementation((fullPath) => statsByPath.get(fullPath));
+
+    const deleted = subject.pruneManagedBackups({
+      dir: backupDir,
+      reserveBytes: 100,
+      totalMaxBytes: 1,
+    });
+
+    expect(deleted).toEqual([]);
+    expect(fs.unlinkSync).not.toHaveBeenCalled();
+  });
 });
