@@ -34,6 +34,7 @@ let _recordTaskStartedAuditEvent = null;
 let _handleWorkflowTermination = null;
 const FREE_PROVIDER_SET = new Set(FREE_PROVIDERS);
 const OPENROUTER_PROVIDER_ROLES = ['default', 'fallback', 'balanced', 'fast', 'quality'];
+const OPENROUTER_FALLBACK_SCORE_LIMIT = 8;
 
 function dedupeValues(values) {
   const seen = new Set();
@@ -44,6 +45,65 @@ function dedupeValues(values) {
     seen.add(normalized);
     return true;
   });
+}
+
+function parseProviderModelMetadata(value) {
+  if (typeof value !== 'string' || !value.trim()) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isFreeOpenRouterModelCandidate(modelName, metadataJson) {
+  if (/:free$/i.test(modelName)) return true;
+  const metadata = parseProviderModelMetadata(metadataJson);
+  return metadata.free === true || metadata.free === 1 || metadata.free === '1';
+}
+
+function getTopScoredOpenRouterFallbackModels(options = {}) {
+  if (!db || typeof db.prepare !== 'function') return [];
+  const hasSqliteHandle = typeof db.exec === 'function';
+
+  const limit = Math.max(1, Number.isFinite(Number(options.limit)) ? Number(options.limit) : OPENROUTER_FALLBACK_SCORE_LIMIT);
+  try {
+    const providerModelScores = require('../db/provider-model-scores');
+    if (hasSqliteHandle && typeof providerModelScores.init === 'function') {
+      try {
+        providerModelScores.init(db);
+      } catch {
+        return [];
+      }
+    }
+
+    const fetchTopModels = providerModelScores.getTopModelScores || providerModelScores.listModelScores;
+    if (typeof fetchTopModels !== 'function') return [];
+
+    const rows = fetchTopModels.call(providerModelScores, 'openrouter', {
+      rateLimited: false,
+      limit,
+      minScore: options.minScore,
+    }) || [];
+    const scoredRows = rows
+      .map((row) => ({
+        model: typeof row?.model_name === 'string' ? row.model_name.trim() : '',
+        metadataJson: row?.metadata_json || row?.metadata,
+      }))
+      .filter(({ model }) => typeof model === 'string' && model.length > 0);
+    const scoredCandidates = dedupeValues(scoredRows.map(({ model }) => model));
+    const freeCandidates = dedupeValues(scoredRows
+      .filter(({ model, metadataJson }) => isFreeOpenRouterModelCandidate(model, metadataJson))
+      .map(({ model }) => model));
+
+    if (scoredCandidates.length === 0) return [];
+    const fallbackCandidates = (freeCandidates.length > 0 ? freeCandidates : scoredCandidates);
+    return fallbackCandidates.slice(0, limit);
+  } catch (err) {
+    logger.debug(`openrouter fallback score lookup failed: ${err.message}`);
+    return [];
+  }
 }
 
 function resolveOpenRouterRoleModels() {
@@ -291,12 +351,18 @@ function buildProviderExecutionOptions(task, controller, extra = {}) {
   // so other API adapters can opt in without re-plumbing.
   if (task?.provider === 'openrouter') {
     const roleModels = resolveOpenRouterRoleModels();
-    if (roleModels.length > 0) {
-      options.fallbackModels = dedupeValues([
-        ...Array.isArray(options.fallbackModels) ? options.fallbackModels : [],
-        ...(metadata.fallbackModels || []).filter((item) => typeof item === 'string'),
-        ...roleModels,
-      ]);
+    const scoredFallbackModels = getTopScoredOpenRouterFallbackModels({
+      limit: OPENROUTER_FALLBACK_SCORE_LIMIT,
+      minScore: 0,
+    });
+    const candidateFallbackModels = [
+      ...Array.isArray(options.fallbackModels) ? options.fallbackModels : [],
+      ...(metadata.fallbackModels || []).filter((item) => typeof item === 'string'),
+      ...roleModels,
+      ...scoredFallbackModels,
+    ];
+    if (candidateFallbackModels.length > 0) {
+      options.fallbackModels = dedupeValues(candidateFallbackModels);
     }
   }
 
