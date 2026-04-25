@@ -29,6 +29,7 @@ const activeTimers = new Map(); // project_id → intervalId
 const ACTIVE_FACTORY_TASK_STATUSES = Object.freeze(['queued', 'running', 'pending', 'blocked', 'retry_scheduled']);
 const CLOSED_FACTORY_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected', 'unactionable']);
 const TERMINAL_FACTORY_BATCH_TASK_STATUSES = new Set(['completed', 'shipped', 'cancelled', 'failed', 'skipped']);
+const ORPHAN_INTERNAL_FACTORY_PROJECTS = new Set(['factory-architect', 'factory-plan']);
 const DEFAULT_TASK_CANCEL_GRACE_MS = Math.max(
   0,
   Number.parseInt(process.env.TORQUE_FACTORY_VERIFY_CANCEL_GRACE_MS || '5500', 10) || 0,
@@ -89,11 +90,52 @@ function getTaskTags(task) {
   }
 }
 
+function getTaskMetadata(task) {
+  if (task?.metadata && typeof task.metadata === 'object' && !Array.isArray(task.metadata)) {
+    return task.metadata;
+  }
+  if (typeof task?.metadata !== 'string' || task.metadata.trim() === '') return {};
+  try {
+    const parsed = JSON.parse(task.metadata);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function getFactoryProjectIdFromTask(task) {
+  const tags = getTaskTags(task);
+  const tag = tags.find((entry) => /^factory:project_id=.+/.test(entry));
+  if (tag) {
+    const value = tag.slice('factory:project_id='.length).trim();
+    if (value) return value;
+  }
+
+  const metadata = getTaskMetadata(task);
+  return typeof metadata.project_id === 'string' && metadata.project_id.trim()
+    ? metadata.project_id.trim()
+    : null;
+}
+
 function getFactoryWorkItemIdFromTask(task) {
   const tag = getTaskTags(task).find((entry) => /^factory:work_item_id=\d+$/.test(entry));
-  if (!tag) return null;
-  const value = Number(tag.slice('factory:work_item_id='.length));
-  return Number.isFinite(value) ? value : null;
+  if (tag) {
+    const value = Number(tag.slice('factory:work_item_id='.length));
+    return Number.isFinite(value) ? value : null;
+  }
+
+  const metadata = getTaskMetadata(task);
+  const value = Number(metadata.work_item_id);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function isFactoryInternalTaskForProject(task, projectId) {
+  const tags = getTaskTags(task);
+  const metadata = getTaskMetadata(task);
+  const factoryProjectId = getFactoryProjectIdFromTask(task);
+  return factoryProjectId === projectId
+    && (tags.includes('factory:internal') || metadata.factory_internal === true)
+    && ORPHAN_INTERNAL_FACTORY_PROJECTS.has(task?.project);
 }
 
 function taskMatchesFactoryInstance(task, instance) {
@@ -157,7 +199,9 @@ function appendCancelError(task, reason) {
 }
 
 function terminalStatusForFactoryCancel(cancelReason) {
-  return cancelReason === 'factory_closed_work_item' ? 'skipped' : 'failed';
+  return cancelReason === 'factory_closed_work_item' || cancelReason === 'factory_orphan_internal_idle'
+    ? 'skipped'
+    : 'failed';
 }
 
 function appendSkippedError(task, reason) {
@@ -343,6 +387,69 @@ async function cancelClosedFactoryWorkItemTasks(project_id, options = {}) {
     cancelled_task_ids: cancelledTaskIds,
     failed_cancellations: failedCancellations,
     closed_work_item_ids: Array.from(closedWorkItemIds),
+  };
+}
+
+async function cancelOrphanInternalTasksForIdleProject(project, options = {}) {
+  const projectId = project?.id;
+  if (!projectId) {
+    return { cancelled_task_ids: [], failed_cancellations: [], skipped_reason: 'missing_project_id' };
+  }
+
+  const openItems = factoryIntake.listOpenWorkItems({ project_id: projectId, limit: 1 });
+  if (openItems.length > 0) {
+    return { cancelled_task_ids: [], failed_cancellations: [], skipped_reason: 'open_work_items' };
+  }
+
+  const activeInstances = factoryLoopInstances.listInstances({
+    project_id: projectId,
+    active_only: true,
+  });
+  if (activeInstances.length > 0) {
+    return { cancelled_task_ids: [], failed_cancellations: [], skipped_reason: 'active_loop_instances' };
+  }
+
+  const taskCore = resolveTaskCore(options.taskCore);
+  const taskManager = resolveTaskManager(options.taskManager);
+  const candidates = taskCore.listTasks({
+    statuses: ACTIVE_FACTORY_TASK_STATUSES,
+    tags: ['factory:internal', `factory:project_id=${projectId}`],
+    limit: 10000,
+    includeArchived: true,
+  }).filter((task) => (
+    isFactoryInternalTaskForProject(task, projectId)
+    && !getFactoryWorkItemIdFromTask(task)
+  ));
+
+  const cancelledTaskIds = [];
+  const failedCancellations = [];
+  const reason = `Factory cancelled orphan internal task for idle project ${projectId}: no open work items or active loop instances`;
+
+  for (const task of candidates) {
+    const result = cancelFactoryTask(task, reason, {
+      taskCore,
+      taskManager,
+      cancelReason: 'factory_orphan_internal_idle',
+    });
+    if (result.cancelled) {
+      cancelledTaskIds.push(task.id);
+    } else {
+      failedCancellations.push({ task_id: task.id, error: result.error || 'cancel_failed' });
+    }
+  }
+
+  if (cancelledTaskIds.length > 0) {
+    await sleep(options.cancelGraceMs ?? DEFAULT_TASK_CANCEL_GRACE_MS);
+    logger.warn('Factory tick cancelled orphan internal tasks for idle project', {
+      event: 'factory_orphan_internal_tasks_cancelled',
+      project_id: projectId,
+      cancelled_tasks: cancelledTaskIds.length,
+    });
+  }
+
+  return {
+    cancelled_task_ids: cancelledTaskIds,
+    failed_cancellations: failedCancellations,
   };
 }
 
@@ -585,6 +692,15 @@ async function tickProject(project) {
       await cancelClosedFactoryWorkItemTasks(project.id);
     } catch (err) {
       logger.debug('Factory tick: closed work item task cleanup failed', {
+        project_id: project.id,
+        err: err.message,
+      });
+    }
+
+    try {
+      await cancelOrphanInternalTasksForIdleProject(freshProject || project);
+    } catch (err) {
+      logger.debug('Factory tick: orphan internal task cleanup failed', {
         project_id: project.id,
         err: err.message,
       });
@@ -919,6 +1035,7 @@ module.exports = {
   tickProject,
   _internalForTests: {
     cancelClosedFactoryWorkItemTasks,
+    cancelOrphanInternalTasksForIdleProject,
     cancelFactoryTasksForInstance,
     resolveUnrecoverableVerifyLoop,
     maybeStartAutoAdvanceLoop,
