@@ -792,6 +792,15 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS workflow_state',
     ].join('; '),
   },
+  {
+    version: 37,
+    name: 'add_concurrency_keys',
+    up: readSqlMigration('037-concurrency-keys.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_tasks_concurrency_key',
+      'DROP TABLE IF EXISTS concurrency_limits',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

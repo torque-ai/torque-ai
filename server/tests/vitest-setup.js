@@ -140,6 +140,23 @@ function ensureTestSchema(dbHandle) {
     // Column already exists in this test database variant.
   }
 
+  try {
+    dbHandle.exec(`ALTER TABLE tasks ADD COLUMN concurrency_key TEXT`);
+  } catch {
+    // Column already exists in this test database variant.
+  }
+
+  dbHandle.exec(`
+    CREATE INDEX IF NOT EXISTS idx_tasks_concurrency_key
+    ON tasks(concurrency_key, status);
+
+    CREATE TABLE IF NOT EXISTS concurrency_limits (
+      key_pattern TEXT PRIMARY KEY,
+      max_concurrent INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+  `);
+
   dbHandle.exec(`
     CREATE TABLE IF NOT EXISTS host_credentials (
       id TEXT PRIMARY KEY,

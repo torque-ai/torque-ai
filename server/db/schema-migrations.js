@@ -1014,6 +1014,23 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
 
   // Resume context for failed task retries
   safeAddColumn('tasks', 'resume_context TEXT');
+  safeAddColumn('tasks', 'concurrency_key TEXT');
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_concurrency_key ON tasks(concurrency_key, status)`);
+  } catch (e) {
+    logger.debug(`Schema migration (tasks concurrency key index): ${e.message}`);
+  }
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS concurrency_limits (
+        key_pattern TEXT PRIMARY KEY,
+        max_concurrent INTEGER NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (concurrency_limits): ${e.message}`);
+  }
   try {
     db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_resubmitted_from_active

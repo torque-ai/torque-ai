@@ -38,6 +38,7 @@ const VALID_TABLE_NAMES = new Set([
   'config',
   'config_baselines',
   'config_drift_results',
+  'concurrency_limits',
   'connected_accounts',
   'construction_cache',
   'coordination_events',
@@ -519,7 +520,8 @@ function createTables(db, logger) {
         git_before_sha TEXT,
         git_after_sha TEXT,
         git_stash_ref TEXT,
-        resume_context TEXT
+        resume_context TEXT,
+        concurrency_key TEXT
       )
     `);
   try {
@@ -527,6 +529,18 @@ function createTables(db, logger) {
   } catch {
     // Column already exists — safe to ignore
   }
+  try {
+    rawDb.exec('ALTER TABLE tasks ADD COLUMN concurrency_key TEXT');
+  } catch {
+    // Column already exists — safe to ignore
+  }
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS concurrency_limits (
+        key_pattern TEXT PRIMARY KEY,
+        max_concurrent INTEGER NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS plan_projects (
         id TEXT PRIMARY KEY,
@@ -588,6 +602,7 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_tasks_provider_completed ON tasks(provider, completed_at);
       CREATE INDEX IF NOT EXISTS idx_tasks_status_completed ON tasks(status, completed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_tasks_workflow ON tasks(workflow_id);
+      CREATE INDEX IF NOT EXISTS idx_tasks_concurrency_key ON tasks(concurrency_key, status);
     `);
   db.exec(`
       CREATE TABLE IF NOT EXISTS pipelines (
