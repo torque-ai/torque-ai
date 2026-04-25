@@ -117,6 +117,7 @@ describe('OpenRouterProvider', () => {
       expect(provider.apiKey).toBe('openrouter-key');
       expect(provider.baseUrl).toBe('https://openrouter.ai/api');
       expect(provider.defaultModel).toBeNull();
+      expect(provider.fallbackModels).toEqual([]);
       expect(provider.maxConcurrent).toBe(3);
       expect(provider.activeTasks).toBe(0);
       expect(provider.hasCapacity()).toBe(true);
@@ -137,12 +138,14 @@ describe('OpenRouterProvider', () => {
         apiKey: 'custom-key',
         baseUrl: 'http://localhost:4100/openrouter',
         defaultModel: 'google/gemma-3-12b-it:free',
+        fallbackModels: ['minimax/minimax-m2.5:free'],
         maxConcurrent: 7,
       });
 
       expect(customProvider.apiKey).toBe('custom-key');
       expect(customProvider.baseUrl).toBe('http://localhost:4100/openrouter');
       expect(customProvider.defaultModel).toBe('google/gemma-3-12b-it:free');
+      expect(customProvider.fallbackModels).toEqual(['minimax/minimax-m2.5:free']);
       expect(customProvider.maxConcurrent).toBe(7);
     });
   });
@@ -357,21 +360,25 @@ describe('OpenRouterProvider', () => {
       });
 
       it('_getFallbackCandidates keeps the requested model first without duplication', () => {
-        const candidates = provider._getFallbackCandidates('some-model:free');
+        const candidates = provider._getFallbackCandidates('some-model:free', {
+          fallbackModels: ['some-model:free', 'backup-model:free'],
+        });
 
         expect(candidates[0]).toBe('some-model:free');
         expect(candidates.filter((model) => model === 'some-model:free')).toHaveLength(1);
-        // With empty FALLBACK_MODELS, only the requested model is returned
-        expect(candidates.length).toBe(1);
+        expect(candidates).toEqual(['some-model:free', 'backup-model:free']);
       });
 
-      it('_getFallbackCandidates still returns the requested model even when cooled down', () => {
+      it('_getFallbackCandidates still returns the requested model even when cooled down and skips cooled fallbacks', () => {
         provider._cooldownModel('custom/requested-model', 30);
+        provider._cooldownModel('custom/fallback-model', 30);
 
-        const candidates = provider._getFallbackCandidates('custom/requested-model');
+        const candidates = provider._getFallbackCandidates('custom/requested-model', {
+          fallbackModels: ['custom/fallback-model', 'custom/healthy-model'],
+        });
 
         expect(candidates[0]).toBe('custom/requested-model');
-        expect(candidates.length).toBe(1);
+        expect(candidates).toEqual(['custom/requested-model', 'custom/healthy-model']);
       });
 
       it.each([
@@ -625,6 +632,35 @@ describe('OpenRouterProvider', () => {
 
       await expect(configuredProvider.submit('task', null, {})).rejects.toThrow(/429/);
       expect(configuredProvider._modelCooldowns.get('test/model:free')).toBe(Date.now() + 12_000);
+    });
+
+    it('tries configured fallback models after a 429 and returns the successful fallback', async () => {
+      const fallbackProvider = new OpenRouterProvider({
+        apiKey: 'openrouter-key',
+        defaultModel: 'primary/model:free',
+        fallbackModels: ['fallback/model:free'],
+      });
+      fetchMock
+        .mockResolvedValueOnce(textResponse(429, 'rate limited', {
+          get: (name) => (
+            name === 'Retry-After' || name === 'retry-after'
+              ? '10'
+              : null
+          ),
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+          choices: [{ message: { content: 'fallback response' } }],
+          usage: { total_tokens: 3 },
+        }));
+
+      const result = await fallbackProvider.submit('task', null, {});
+      const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+      const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+
+      expect(firstBody.model).toBe('primary/model:free');
+      expect(secondBody.model).toBe('fallback/model:free');
+      expect(result.output).toBe('fallback response');
+      expect(result.usage.model).toBe('fallback/model:free');
     });
 
     it('returns timeout status when fetch rejects with AbortError', async () => {

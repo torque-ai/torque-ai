@@ -88,6 +88,15 @@ async function discoverFromAdapter(db, adapter, provider, hostId) {
 
   // Post-discovery processing
   const postResult = runPostDiscovery(db, provider, syncResult);
+  let scoutResult = null;
+  if (provider === 'openrouter') {
+    try {
+      const { runOpenRouterScout } = require('./openrouter-scout');
+      scoutResult = await runOpenRouterScout({ db, models, smokeLimit: 0 });
+    } catch (err) {
+      logger.warn(`OpenRouter scout failed: ${err.message}`);
+    }
+  }
 
   return {
     discovered: models.length,
@@ -96,6 +105,7 @@ async function discoverFromAdapter(db, adapter, provider, hostId) {
     removed: syncResult.removed.length,
     roles_assigned: postResult.roles_assigned,
     capabilities_set: postResult.capabilities_set,
+    ...(scoutResult ? { openrouter_scout: scoutResult } : {}),
   };
 }
 

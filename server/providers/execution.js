@@ -200,6 +200,12 @@ function resolveApiProviderModel(provider, requestedModel = null) {
   const explicitModel = typeof requestedModel === 'string' ? requestedModel.trim() : requestedModel;
   if (explicitModel) return explicitModel;
 
+  try {
+    const modelRoles = require('../db/model-roles');
+    const roleModel = modelRoles.getModelForRole(provider, 'default');
+    if (roleModel) return roleModel;
+  } catch { /* role store may not be initialized in tests or early startup */ }
+
   const defaultModel = PROVIDER_DEFAULT_MODEL[provider];
   if (defaultModel) return defaultModel;
 
@@ -210,6 +216,35 @@ function resolveApiProviderModel(provider, requestedModel = null) {
   } catch { /* registry may not be initialized in tests or early startup */ }
 
   return '';
+}
+
+function resolveProviderRoleModel(provider, role) {
+  try {
+    const modelRoles = require('../db/model-roles');
+    return modelRoles.getModelForRole(provider, role) || null;
+  } catch {
+    return null;
+  }
+}
+
+function buildOpenRouterModelFallbackChain(provider, primaryModel) {
+  if (provider !== 'openrouter') return null;
+
+  const seen = new Set();
+  const chain = [];
+  const add = (modelName) => {
+    const normalized = typeof modelName === 'string' ? modelName.trim() : '';
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    chain.push({ provider: 'openrouter', model: normalized });
+  };
+
+  add(primaryModel);
+  for (const role of ['fallback', 'balanced', 'fast', 'quality']) {
+    add(resolveProviderRoleModel('openrouter', role));
+  }
+
+  return chain.length > 1 ? chain : null;
 }
 
 /**
@@ -241,6 +276,7 @@ RULES:
 ${platformRule}
 11. INDENTATION: When editing code, match the file's existing indentation EXACTLY. Read the file first to see its indent style (spaces/tabs and width). Your new_text must use the same indentation as the surrounding code.
 12. SEARCH: Use search_files and list_directory for finding files and content. NEVER use find, grep, or rg via run_command — they are slow and may timeout on large projects.
+13. READ-ONLY FINAL ANSWERS: If the task asks to inspect, list, summarize, report, scout, or otherwise read only, do not ask what to create or modify. Report the observed tool results and state that no edits were made.
 
 Working directory: ${workingDir}`;
 }
@@ -486,9 +522,12 @@ Working directory: ${workingDir}`;
 }
 
 function buildAgenticTaskPrompt(task, workingDir, budgetChars, agenticPolicy = null) {
-  const taskDescription = shouldUseProposalApplyMode(task, agenticPolicy)
+  let taskDescription = shouldUseProposalApplyMode(task, agenticPolicy)
     ? buildProposalApplyComputePrompt(task.task_description, workingDir)
     : task.task_description;
+  if (agenticPolicy?.readOnly) {
+    taskDescription += '\n\nRead-only completion rule: inspect with read tools only, do not create or modify files, and finish by reporting observed facts from the tools. Do not ask what should be created.';
+  }
   return preStuffFileContents(taskDescription, workingDir, budgetChars);
 }
 
@@ -1107,6 +1146,7 @@ function buildTaskAgenticPolicy(task, workingDir, serverConfig) {
 
   return {
     metadata,
+    readOnly: taskExplicitlyReadOnly(task.task_description || '', metadata),
     readAllowlist,
     writeAllowlist,
     writeAfterReadPaths,
@@ -1689,6 +1729,9 @@ function evaluateAgenticCompletion(task, workingDir, agenticPolicy, result, maxI
 
 function appendTaskPolicyGuidance(systemPrompt, agenticPolicy) {
   const guidance = [];
+  if (agenticPolicy?.readOnly) {
+    guidance.push('This is a read-only task. Do not create, edit, delete, move, or format files; answer with the observed facts from read tools.');
+  }
   if (Array.isArray(agenticPolicy.readAllowlist) && agenticPolicy.readAllowlist.length > 0) {
     guidance.push(`Read scope is restricted to: ${agenticPolicy.readAllowlist.join(', ')}`);
   }
@@ -1804,6 +1847,12 @@ function spawnAgenticWorker(config, callbacks = {}) {
           try {
             const { getQuotaStore } = require('../db/provider-quotas');
             getQuotaStore().updateFromHeaders(msg.provider, msg.headers);
+          } catch { /* non-critical */ }
+          break;
+        case 'quota429':
+          try {
+            const { getQuotaStore } = require('../db/provider-quotas');
+            getQuotaStore().record429(msg.provider);
           } catch { /* non-critical */ }
           break;
         case 'result': settled = true; resolve(msg); break;
@@ -2678,6 +2727,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   db.updateTaskStatus(taskId, 'running', {
     started_at: new Date().toISOString(),
     progress_percent: 10,
+    model,
   });
   dashboard.notifyTaskUpdated(taskId);
 
@@ -2731,6 +2781,10 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {});
       chain = meta._routing_chain;
     } catch { /* ignore parse errors */ }
+    if (!Array.isArray(chain) || chain.length <= 1) {
+      const openRouterChain = buildOpenRouterModelFallbackChain(provider, model);
+      if (openRouterChain) chain = openRouterChain;
+    }
 
     // Shared callbacks for both single-provider and fallback-chain paths
     const workerCallbacks = {
@@ -2994,6 +3048,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         error_output: failureMessage,
         exit_code: 1,
         progress_percent: 100,
+        model: result?.model || model || null,
         completed_at: completedAt,
         task_metadata: JSON.stringify({
           agentic_log: result.toolLog,
@@ -3020,6 +3075,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       output: result.output || '',
       exit_code: 0,
       progress_percent: 100,
+      model: result?.model || model || null,
       completed_at: completedAt,
       task_metadata: JSON.stringify({
         agentic_log: result.toolLog,
