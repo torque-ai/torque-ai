@@ -35,6 +35,10 @@ const {
   serializeSnapshot,
 } = require('./agentic-git-safety');
 const { resolveOllamaModel } = require('./ollama-shared');
+const {
+  isProviderLaneHandoffAllowed,
+  providerLaneHandoffBlockReason,
+} = require('../factory/provider-lane-policy');
 
 const { acquireHostLock } = require('./host-mutex');
 const ollamaChatAdapter = require('./adapters/ollama-chat');
@@ -737,28 +741,60 @@ function resolveAgenticHandoffTarget({
   preferredTarget = null,
 }) {
   if (preferredTarget?.provider) {
-    return {
+    return enforceProviderLaneForHandoff(task, {
       entry: preferredTarget,
       remainingChain: Array.isArray(chain) && Number.isInteger(currentChainPosition) && currentChainPosition >= 1
         ? chain.slice(currentChainPosition)
         : [preferredTarget],
-    };
+    });
   }
 
   const chainTarget = getNextAgenticChainTarget(chain, currentProvider, currentModel, currentChainPosition);
   if (chainTarget?.entry?.provider) {
-    return chainTarget;
+    return enforceProviderLaneForHandoff(task, chainTarget);
   }
 
   const normalizedProvider = normalizeProviderName(currentProvider || task?.provider);
   if (AGENTIC_CLOUD_TO_CODEX_FALLBACKS.has(normalizedProvider) && isProviderEnabledAndHealthyForHandoff(db, 'codex')) {
-    return {
+    return enforceProviderLaneForHandoff(task, {
       entry: { provider: 'codex', model: null },
       remainingChain: [{ provider: 'codex' }],
-    };
+    });
   }
 
   return null;
+}
+
+function enforceProviderLaneForHandoff(task, target) {
+  const provider = target?.entry?.provider;
+  if (!provider || isProviderLaneHandoffAllowed(normalizeTaskMetadata(task), provider)) {
+    return target;
+  }
+  logger.info(`[Agentic] ${providerLaneHandoffBlockReason(normalizeTaskMetadata(task), provider)}`);
+  return null;
+}
+
+function resolveProviderLaneHandoffBlockReason({
+  task,
+  chain,
+  currentProvider,
+  currentModel,
+  currentChainPosition = null,
+  preferredTarget = null,
+}) {
+  const metadata = normalizeTaskMetadata(task);
+  let targetProvider = normalizeProviderName(preferredTarget?.provider);
+  if (!targetProvider) {
+    const chainTarget = getNextAgenticChainTarget(chain, currentProvider, currentModel, currentChainPosition);
+    targetProvider = normalizeProviderName(chainTarget?.entry?.provider);
+  }
+  if (!targetProvider) {
+    const normalizedProvider = normalizeProviderName(currentProvider || task?.provider);
+    if (AGENTIC_CLOUD_TO_CODEX_FALLBACKS.has(normalizedProvider)) {
+      targetProvider = 'codex';
+    }
+  }
+  return targetProvider ? providerLaneHandoffBlockReason(metadata, targetProvider) : null;
 }
 
 function buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason, options = {}) {
@@ -834,10 +870,10 @@ function resolveProposalApplyTarget(task, db) {
   const preferredProvider = normalizeProviderName(metadata.proposal_apply_provider || 'codex') || 'codex';
   const preferredModel = normalizeOptionalModel(metadata.proposal_apply_model);
   if (preferredProvider && isProviderEnabledAndHealthyForHandoff(db, preferredProvider)) {
-    return {
+    return enforceProviderLaneForHandoff(task, {
       entry: { provider: preferredProvider, model: preferredModel },
       remainingChain: [{ provider: preferredProvider, ...(preferredModel ? { model: preferredModel } : {}) }],
-    };
+    });
   }
 
   return resolveAgenticHandoffTarget({
@@ -895,7 +931,13 @@ function requeueAgenticTaskForProposalApply(db, taskId, task, proposalResult, so
   }
   const target = resolveProposalApplyTarget(task, db);
   if (!target?.entry?.provider) {
-    return { requeued: false, reason: 'no proposal apply provider available' };
+    const metadata = normalizeTaskMetadata(task);
+    const preferredProvider = normalizeProviderName(metadata.proposal_apply_provider || 'codex') || 'codex';
+    return {
+      requeued: false,
+      reason: providerLaneHandoffBlockReason(metadata, preferredProvider)
+        || 'no proposal apply provider available',
+    };
   }
 
   const patch = buildProposalApplyHandoffPatch(task, target.entry, target.remainingChain, reason, proposalResult, sourceResult);
@@ -3061,6 +3103,41 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       logger.info(`[Agentic] API task ${taskId} requeued to ${handoffTarget.entry.provider}${handoffTarget.entry.model ? `/${handoffTarget.entry.model}` : ''} after no-op result from ${result?.provider || provider}`);
       return;
     }
+    if (shouldEscalateNoOp && !proposalAppliedDeterministically) {
+      const currentTask = db.getTask(taskId) || task;
+      const laneBlockReason = resolveProviderLaneHandoffBlockReason({
+        task: currentTask,
+        chain,
+        currentProvider: result?.provider || provider,
+        currentModel: result?.model || model || null,
+        currentChainPosition: result?.chainPosition || (Array.isArray(chain) && chain.length > 1 ? 1 : null),
+      });
+      if (laneBlockReason) {
+        const reason = `Agentic no-op from ${(result?.provider || provider)}/${result?.model || model || 'default'}: ${(result?.toolLog || []).length} tool calls, ${(result?.changedFiles || []).length} files changed${proposalApplySkipReason ? `; proposal apply skipped: ${proposalApplySkipReason}` : ''}; ${laneBlockReason}`;
+        recordOpenRouterModelTaskOutcome({
+          task: currentTask,
+          provider: result?.provider || provider,
+          model: result?.model || model || null,
+          success: false,
+          result,
+          stopReason: result?.stopReason || 'agentic_noop_lane_blocked',
+          error: reason,
+        });
+        safeUpdateTaskStatus(taskId, 'failed', {
+          error_output: reason,
+          exit_code: 1,
+          completed_at: new Date().toISOString(),
+        });
+        logger.info(`[Agentic] API task ${taskId} failed after no-op because ${laneBlockReason}`);
+        try {
+          const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+          dispatchTaskEvent('failed', db.getTask(taskId));
+        } catch (dispatchErr) {
+          logger.debug(`[EventDispatch] Failed to dispatch lane-blocked no-op event: ${dispatchErr.message}`);
+        }
+        return;
+      }
+    }
 
     const sessionLogTarget = resolveAgenticSessionLogTarget(task, workingDir, agenticPolicy);
     const reviewedChangedFiles = sessionLogTarget
@@ -3283,6 +3360,17 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     }
 
     logger.info(`[Agentic] API task ${taskId} failed: ${handledError.message}`);
+    const laneBlockReason = resolveProviderLaneHandoffBlockReason({
+      task: currentTask,
+      chain,
+      currentProvider: handledError.agenticFailedProvider || provider,
+      currentModel: handledError.agenticFailedModel || model || null,
+      currentChainPosition: handledError.agenticChainPosition || null,
+      preferredTarget: handledError.agenticHandoffTarget || null,
+    });
+    const failureMessage = laneBlockReason
+      ? `${handledError.message}; ${laneBlockReason}`
+      : handledError.message;
     if (!handledError.agenticFailedProvider) {
       recordOpenRouterModelTaskOutcome({
         task: currentTask,
@@ -3294,7 +3382,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       });
     }
     safeUpdateTaskStatus(taskId, 'failed', {
-      error_output: handledError.message,
+      error_output: failureMessage,
       exit_code: 1,
       completed_at: new Date().toISOString(),
     });

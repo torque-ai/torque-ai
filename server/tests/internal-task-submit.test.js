@@ -184,6 +184,13 @@ describe('submitFactoryInternalTask', () => {
           name: 'DLPhone',
           path: 'C:/Projects/DLPhone',
           status: 'running',
+          config_json: JSON.stringify({
+            provider_lane_policy: {
+              expected_provider: 'ollama-cloud',
+              allowed_fallback_providers: [],
+              enforce_handoffs: true,
+            },
+          }),
         })),
       })),
     });
@@ -218,6 +225,12 @@ describe('submitFactoryInternalTask', () => {
       target_project_path: 'C:/Projects/DLPhone',
       inherited_routing_template: 'preset-ollama-cloud-primary',
       inherited_routing_template_from_project: 'DLPhone',
+      provider_lane_policy: {
+        expected_provider: 'ollama-cloud',
+        allowed_fallback_providers: [],
+        allowed_providers: [],
+        enforce_handoffs: true,
+      },
     }));
   });
 

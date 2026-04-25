@@ -26,6 +26,7 @@ const { createPlanFileIntake } = require('./plan-file-intake');
 const { createPlanReviewer, selectReviewers } = require('./plan-reviewer');
 const { createShippedDetector } = require('./shipped-detector');
 const { createWorktreeRunner, detectDefaultBranch } = require('./worktree-runner');
+const { buildProviderLaneTaskMetadata } = require('./provider-lane-policy');
 const { createWorktreeManager } = require('../plugins/version-control/worktree-manager');
 const eventBus = require('../event-bus');
 const logger = require('../logger').child({ component: 'loop-controller' });
@@ -5386,6 +5387,10 @@ async function executePlanFileStage(project, instance, workItem) {
       const result = await handleSmartSubmitTask({
         ...args,
         tags: [...new Set(tags)],
+        task_metadata: {
+          ...buildProviderLaneTaskMetadata(project || {}),
+          ...(args.task_metadata || {}),
+        },
       });
       // smart_submit_task may auto-decompose a complex task into a sequenced
       // workflow when the target file is large enough (see routing.js
