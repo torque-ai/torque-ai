@@ -39,7 +39,7 @@
     "js-yaml": "^4.1.1",
     "tree-sitter-wasms": "^0.1.13",
     "undici": "^7.24.4",
-    "uuid": "^13.0.0",
+    "uuid": "^14.0.0",
     "web-tree-sitter": "^0.26.8",
     "ws": "^8.19.0"
   },
