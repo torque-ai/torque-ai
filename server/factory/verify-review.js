@@ -193,12 +193,12 @@ async function getModifiedFiles(workingDirectory, worktreeBranch, mergeBase) {
   });
 }
 
-async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, workingDirectory, timeoutMs = LLM_TIMEOUT_MS }) {
+async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, workingDirectory, verifyOutput, timeoutMs = LLM_TIMEOUT_MS }) {
   const { submitFactoryInternalTask } = require('./internal-task-submit');
   const { handleAwaitTask } = require('../handlers/workflow/await');
   const taskCore = require('../db/task-core');
 
-  const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem });
+  const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem, verifyOutput });
   let taskId;
   const timeoutMinutes = timeoutMinutesForMs(timeoutMs);
   try {
@@ -258,19 +258,44 @@ async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, 
   }
 }
 
-function buildTiebreakPrompt({ failingTests, modifiedFiles, workItem }) {
+const VERIFY_EXCERPT_MAX_CHARS = 3000;
+const WORK_ITEM_DESCRIPTION_MAX_CHARS = 800;
+
+function extractVerifyExcerpt(verifyOutput) {
+  if (!verifyOutput) return '';
+  const normalized = normalizeVerifyOutput(verifyOutput);
+  const combined = (normalized.combined || '').trim();
+  if (!combined) return '';
+  if (combined.length <= VERIFY_EXCERPT_MAX_CHARS) return combined;
+  return `[...truncated...]\n${combined.slice(-VERIFY_EXCERPT_MAX_CHARS)}`;
+}
+
+function truncateForPrompt(value, max) {
+  const s = typeof value === 'string' ? value : '';
+  if (s.length <= max) return s;
+  return `${s.slice(0, max)}\n[...truncated...]`;
+}
+
+function buildTiebreakPrompt({ failingTests, modifiedFiles, workItem, verifyOutput }) {
+  const description = truncateForPrompt(workItem?.description, WORK_ITEM_DESCRIPTION_MAX_CHARS) || '(none)';
+  const verifyExcerpt = extractVerifyExcerpt(verifyOutput);
   return `You are a quality reviewer for a software factory's verify step.
 
 The factory ran a work item's task on a feature branch. The verify command (test runner) exited non-zero. Before burning another retry cycle, I need to know whether the failing tests were caused by this task's diff or by a pre-existing broken baseline.
 
 Work item title: ${workItem?.title || '(none)'}
-Work item description: ${workItem?.description || '(none)'}
+Work item description: ${description}
 
 Failing test file paths:
 ${failingTests.map((p) => `  - ${p}`).join('\n') || '  (none parsed)'}
 
 Files modified by the diff:
 ${modifiedFiles.map((p) => `  - ${p}`).join('\n') || '  (none)'}
+
+Verify command output (tail, ~3KB):
+\`\`\`
+${verifyExcerpt || '(none captured)'}
+\`\`\`
 
 Return ONLY valid JSON in this exact shape:
 {"verdict":"go"|"no-go","critique":"one sentence explaining the verdict"}
@@ -410,6 +435,7 @@ async function reviewVerifyFailure({
     workItem,
     project,
     workingDirectory,
+    verifyOutput,
     timeoutMs: options.llmTimeoutMs,
   });
 
@@ -485,4 +511,6 @@ module.exports = {
   getModifiedFiles,
   runLlmTiebreak,
   reviewVerifyFailure,
+  buildTiebreakPrompt,
+  extractVerifyExcerpt,
 };

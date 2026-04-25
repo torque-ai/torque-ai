@@ -9,6 +9,8 @@ describe('verify-review module exports', () => {
     expect(typeof mod.parseFailingTests).toBe('function');
     expect(typeof mod.getModifiedFiles).toBe('function');
     expect(typeof mod.runLlmTiebreak).toBe('function');
+    expect(typeof mod.buildTiebreakPrompt).toBe('function');
+    expect(typeof mod.extractVerifyExcerpt).toBe('function');
     expect(mod.LLM_TIMEOUT_MS).toBe(600_000);
     expect(mod.ENVIRONMENT_EXIT_CODES).toBeInstanceOf(Set);
     expect(Array.isArray(mod.ENVIRONMENT_STDERR_PATTERNS)).toBe(true);
@@ -491,6 +493,79 @@ describe('runLlmTiebreak', () => {
       project: { id: 'p', path: '/tmp/p' },
     });
     expect(r).toEqual({ verdict: null, critique: null, status: 'invalid_output', taskId: 't4' });
+  });
+
+  it('forwards verifyOutput tail into the submitted prompt', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-verify' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    await runLlmTiebreak({
+      failingTests: [],
+      modifiedFiles: ['simtests/Foo.cs'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+      verifyOutput: { exitCode: 1, stdout: '[xUnit.net 00:00:01.99]   SimCore.Tests.FooBar.Method [FAIL]\n  Expected: 42\n  Actual:   17', stderr: '' },
+    });
+    const submittedPrompt = submit.mock.calls[0][0].task;
+    expect(submittedPrompt).toContain('Verify command output');
+    expect(submittedPrompt).toContain('FooBar.Method [FAIL]');
+    expect(submittedPrompt).toContain('Expected: 42');
+  });
+
+  it('truncates oversize work item descriptions in the prompt', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-trunc' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    const longDescription = 'X'.repeat(5000);
+    await runLlmTiebreak({
+      failingTests: [],
+      modifiedFiles: ['src/foo.ts'],
+      workItem: { id: 1, title: 'w', description: longDescription },
+      project: { id: 'p', path: '/tmp/p' },
+      verifyOutput: { exitCode: 1, stdout: 'fail', stderr: '' },
+    });
+    const submittedPrompt = submit.mock.calls[0][0].task;
+    expect(submittedPrompt).toContain('[...truncated...]');
+    expect(submittedPrompt.length).toBeLessThan(longDescription.length);
+  });
+});
+
+describe('extractVerifyExcerpt', () => {
+  const { extractVerifyExcerpt } = require('../factory/verify-review');
+
+  it('returns empty string for missing or empty input', () => {
+    expect(extractVerifyExcerpt(null)).toBe('');
+    expect(extractVerifyExcerpt(undefined)).toBe('');
+    expect(extractVerifyExcerpt({ stdout: '', stderr: '' })).toBe('');
+  });
+
+  it('returns combined output untouched when under the limit', () => {
+    const out = extractVerifyExcerpt({ stdout: 'short stdout', stderr: 'short stderr' });
+    expect(out).toContain('short stdout');
+    expect(out).toContain('short stderr');
+    expect(out).not.toContain('[...truncated...]');
+  });
+
+  it('keeps only the tail when combined output exceeds the limit', () => {
+    const big = 'A'.repeat(4000) + '\nFINAL_FAILURE_LINE';
+    const out = extractVerifyExcerpt({ stdout: big, stderr: '' });
+    expect(out.startsWith('[...truncated...]')).toBe(true);
+    expect(out).toContain('FINAL_FAILURE_LINE');
+    expect(out.length).toBeLessThan(big.length);
   });
 });
 
