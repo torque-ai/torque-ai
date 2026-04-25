@@ -22,6 +22,25 @@
 const http = require('http');
 const https = require('https');
 
+function recordProvider429(providerName) {
+  if (!providerName) return;
+  try {
+    const { parentPort } = require('worker_threads');
+    if (parentPort) {
+      parentPort.postMessage({ type: 'quota429', provider: providerName });
+    }
+  } catch {
+    // Fall through to direct quota store update.
+  }
+
+  try {
+    const { getQuotaStore } = require('../../db/provider-quotas');
+    getQuotaStore().record429(providerName);
+  } catch {
+    // Quota telemetry is best-effort.
+  }
+}
+
 /**
  * Send a single chat completion request to an OpenAI-compatible endpoint and
  * collect the streamed SSE result.
@@ -128,6 +147,10 @@ function chatCompletion({ host, apiKey, model, providerName: _providerName, mess
               }
             }
           } catch {}
+
+          if (res.statusCode === 429) {
+            recordProvider429(providerName);
+          }
 
           try {
             if (!useStreaming) {
@@ -236,6 +259,10 @@ function chatCompletion({ host, apiKey, model, providerName: _providerName, mess
               });
             }
           } catch (parseError) {
+            if (res.statusCode && res.statusCode >= 400) {
+              reject(new Error(`OpenAI API error (${res.statusCode}): ${rawData || parseError.message}`));
+              return;
+            }
             reject(new Error(`Failed to parse OpenAI response: ${parseError.message}`));
           }
         });

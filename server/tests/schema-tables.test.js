@@ -102,6 +102,7 @@ const EXPECTED_TABLES = [
   "email_notifications",
   "provider_config",
   "provider_scores",
+  "provider_model_scores",
   "provider_usage",
   "routing_rules",
   "ollama_hosts",
@@ -419,6 +420,8 @@ const EXPECTED_INDEXES = [
   "idx_provider_usage_transport",
   "idx_provider_usage_failure_reason",
   "idx_model_outcomes_model_type",
+  "idx_provider_model_scores_provider_score",
+  "idx_provider_model_scores_status",
   "idx_remote_agents_status",
   "idx_remote_agents_enabled",
   "idx_peek_fixture_catalog_app_type",
@@ -589,6 +592,21 @@ describe('db/schema-tables', () => {
     expect(columns).toContain('trusted');
     expect(indexes).toContain('idx_provider_scores_composite');
     expect(indexes).toContain('idx_provider_scores_trusted');
+  });
+
+  it('provider_model_scores table exists with expected indexes', () => {
+    createTables(db, logger);
+
+    const columns = getColumns('provider_model_scores').map((column) => column.name);
+    const indexes = getIndexNames();
+
+    expect(columns).toContain('provider');
+    expect(columns).toContain('model_name');
+    expect(columns).toContain('score');
+    expect(columns).toContain('smoke_status');
+    expect(columns).toContain('rate_limited');
+    expect(indexes).toContain('idx_provider_model_scores_provider_score');
+    expect(indexes).toContain('idx_provider_model_scores_status');
   });
 
   it('ensureAuditLogChainColumns adds columns to audit_log table', () => {

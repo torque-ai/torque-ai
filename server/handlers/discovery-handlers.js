@@ -33,6 +33,17 @@ function formatDiscoveryResult(provider, result) {
   if (result.roles_assigned && result.roles_assigned.length > 0) {
     out += `\n**Roles assigned:** ${result.roles_assigned.map(r => `${r.role}=${r.model}`).join(', ')}`;
   }
+  if (result.openrouter_scout) {
+    out += `\n\n**OpenRouter scout:** scored ${result.openrouter_scout.scored} model(s)`;
+    const scoutRoles = result.openrouter_scout.roles_assigned || [];
+    if (scoutRoles.length > 0) {
+      out += `; roles ${scoutRoles.map(r => `${r.role}=${r.model}`).join(', ')}`;
+    }
+    const topModels = result.openrouter_scout.top_models || [];
+    if (topModels.length > 0) {
+      out += `\nTop scored: ${topModels.map(m => `${m.model_name} (${m.score})`).join(', ')}`;
+    }
+  }
   return out;
 }
 

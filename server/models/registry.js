@@ -330,15 +330,30 @@ function listModels(filters = {}) {
 function listModelSummaries(filters = {}) {
   const provider = filters?.provider;
   const params = [];
+  const includeProviderModelScores = hasTable('provider_model_scores');
+  const scoreColumns = includeProviderModelScores
+    ? `,
+           pms.score AS provider_model_score,
+           pms.smoke_status AS provider_model_smoke_status,
+           pms.latency_ms AS provider_model_latency_ms,
+           pms.tool_call_ok AS provider_model_tool_call_ok,
+           pms.rate_limited AS provider_model_rate_limited,
+           pms.checked_at AS provider_model_checked_at`
+    : '';
+  const scoreJoin = includeProviderModelScores
+    ? 'LEFT JOIN provider_model_scores pms ON r.provider = pms.provider AND r.model_name = pms.model_name'
+    : '';
 
   let sql = `
     SELECT r.model_name, r.provider, r.family, r.parameter_size_b, r.status,
            r.last_seen_at, r.probe_status,
            c.cap_hashline, c.cap_agentic, c.cap_file_creation, c.cap_multi_file,
            mr.role
+           ${scoreColumns}
     FROM model_registry r
     LEFT JOIN model_capabilities c ON r.model_name = c.model_name
     LEFT JOIN model_roles mr ON r.provider = mr.provider AND r.model_name = mr.model_name
+    ${scoreJoin}
   `;
 
   if (provider) {
@@ -418,6 +433,27 @@ function rankApprovedModel(row, complexity) {
   return (quality * 0.85) + (normalizedSize * 0.15);
 }
 
+function rankProviderModelScore(row) {
+  const score = Number(row.provider_model_score);
+  if (!Number.isFinite(score)) return null;
+  if (Number(row.provider_model_rate_limited) === 1) return -1;
+
+  const normalizedScore = Math.max(0, Math.min(score, 100)) / 100;
+  const status = String(row.provider_model_smoke_status || '');
+  let statusBonus = 0;
+  if (status === 'pass') statusBonus = 0.18;
+  else if (status === 'metadata_pass') statusBonus = 0.1;
+  else if (status === 'metadata_review') statusBonus = 0.03;
+  else if (status === 'fail' || status === 'rate_limited' || status === 'metadata_skip') statusBonus = -0.35;
+
+  const latency = Number(row.provider_model_latency_ms);
+  const latencyPenalty = Number.isFinite(latency) && latency > 0
+    ? Math.min(0.08, latency / 120000)
+    : 0;
+
+  return normalizedScore + statusBonus - latencyPenalty;
+}
+
 function selectBestApprovedModel(provider, complexity) {
   const normalizedProvider = normalizeRequiredString('provider', provider);
   const database = getDb();
@@ -433,6 +469,20 @@ function selectBestApprovedModel(provider, complexity) {
     `).get(normalizedProvider) || null;
   }
 
+  const scoreJoin = hasTable('provider_model_scores')
+    ? `
+    LEFT JOIN provider_model_scores pms
+      ON pms.provider = mr.provider
+     AND pms.model_name = mr.model_name`
+    : '';
+  const scoreColumns = hasTable('provider_model_scores')
+    ? `,
+      pms.score AS provider_model_score,
+      pms.smoke_status AS provider_model_smoke_status,
+      pms.latency_ms AS provider_model_latency_ms,
+      pms.rate_limited AS provider_model_rate_limited`
+    : '';
+
   const rows = database.prepare(`
     SELECT
       mr.model_name,
@@ -446,9 +496,11 @@ function selectBestApprovedModel(provider, complexity) {
       mc.score_reasoning,
       mc.score_docs,
       mc.param_size_b
+      ${scoreColumns}
     FROM model_registry mr
     LEFT JOIN model_capabilities mc
       ON mc.model_name = mr.model_name
+    ${scoreJoin}
     WHERE mr.status = 'approved'
       AND mr.provider = ?
     ORDER BY COALESCE(mr.last_seen_at, mr.first_seen_at, '') DESC, mr.model_name ASC
@@ -457,6 +509,13 @@ function selectBestApprovedModel(provider, complexity) {
   if (rows.length === 0) return null;
 
   rows.sort((a, b) => {
+    const providerScoreA = rankProviderModelScore(a);
+    const providerScoreB = rankProviderModelScore(b);
+    if (providerScoreA !== null || providerScoreB !== null) {
+      const providerScoreDiff = (providerScoreB ?? -1) - (providerScoreA ?? -1);
+      if (providerScoreDiff !== 0) return providerScoreDiff;
+    }
+
     const scoreDiff = rankApprovedModel(b, complexity) - rankApprovedModel(a, complexity);
     if (scoreDiff !== 0) return scoreDiff;
 

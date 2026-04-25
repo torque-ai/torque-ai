@@ -112,6 +112,7 @@ const VALID_TABLE_NAMES = new Set([
   'provider_health_history',
   'provider_performance',
   'provider_rate_limits',
+  'provider_model_scores',
   'provider_scores',
   'provider_task_stats',
   'provider_usage',
@@ -2472,6 +2473,27 @@ function createTables(db, logger) {
       );
       CREATE INDEX IF NOT EXISTS idx_provider_scores_composite ON provider_scores(composite_score DESC);
       CREATE INDEX IF NOT EXISTS idx_provider_scores_trusted ON provider_scores(trusted, composite_score DESC);
+
+      CREATE TABLE IF NOT EXISTS provider_model_scores (
+        provider TEXT NOT NULL,
+        model_name TEXT NOT NULL,
+        score REAL DEFAULT 0,
+        score_reason TEXT,
+        smoke_status TEXT DEFAULT 'metadata',
+        latency_ms INTEGER,
+        first_response_ms INTEGER,
+        tool_call_ok INTEGER DEFAULT 0,
+        read_only_ok INTEGER DEFAULT 0,
+        rate_limited INTEGER DEFAULT 0,
+        error TEXT,
+        metadata_json TEXT,
+        checked_at TEXT NOT NULL,
+        PRIMARY KEY (provider, model_name)
+      );
+      CREATE INDEX IF NOT EXISTS idx_provider_model_scores_provider_score
+        ON provider_model_scores(provider, score DESC, checked_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_provider_model_scores_status
+        ON provider_model_scores(provider, smoke_status, rate_limited, score DESC);
     
       -- Cost budgets and alerts
       CREATE TABLE IF NOT EXISTS cost_budgets (

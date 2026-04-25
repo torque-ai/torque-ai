@@ -59,6 +59,7 @@ const _LAZY_MODULE_DEFINITIONS = [
   { name: 'auditStore', path: './db/audit-store' },
   { name: 'ciCache', path: './db/ci-cache' },
   { name: 'modelRoles', path: './db/model-roles' },
+  { name: 'providerModelScores', path: './db/provider-model-scores' },
   { name: 'taskCore', path: './db/task-core' },
   { name: 'configCore', path: './db/config-core' },
   { name: 'factoryHealth', path: './db/factory-health' },
@@ -139,6 +140,7 @@ const policyEvaluationStore = _lazyModule('policyEvaluationStore');
 const auditStore = _lazyModule('auditStore');
 const ciCache = _lazyModule('ciCache');
 const modelRoles = _lazyModule('modelRoles');
+const providerModelScores = _lazyModule('providerModelScores');
 const taskCore = _lazyModule('taskCore');
 const configCore = _lazyModule('configCore');
 const factoryHealth = _lazyModule('factoryHealth');
@@ -208,7 +210,7 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   // Resources & usage
   'resource_usage', 'resource_limits', 'resource_estimates',
   // Providers
-  'provider_config', 'provider_usage', 'provider_scores', 'provider_task_stats',
+  'provider_config', 'provider_usage', 'provider_scores', 'provider_model_scores', 'provider_task_stats',
   'model_capabilities', 'workstations',
   'ollama_hosts', 'remote_agents', 'peek_hosts', 'peek_fixture_catalog', 'pack_registry', 'recovery_metrics',
   // Auth
@@ -376,6 +378,7 @@ function _wireAllModules() {
   inboundWebhooks.createInboundWebhooks({ db });
   ciCache.createCiCache({ db });
   modelRoles.createModelRoles({ db });
+  providerModelScores.init(db);
   factoryHealth.setDb(db);
   factoryIntake.setDb(db);
   factoryArchitect.setDb(db);
@@ -1013,6 +1016,9 @@ const _LEGACY_EXPORT_MODULES = [
   ] },
   { name: 'modelRoles', exports: [
     'clearModelRole', 'getModelForRole', 'listModelRoles', 'setModelRole',
+  ] },
+  { name: 'providerModelScores', exports: [
+    'getModelScore', 'getTopModelScores', 'listModelScores', 'upsertModelScore', 'upsertModelScores',
   ] },
   { name: 'taskCore', exports: [
     'archiveOldTasks', 'claimSlotAtomic', 'clearProviderIfNotRunning', 'countTasks', 'countTasksByStatus', 'createTask',

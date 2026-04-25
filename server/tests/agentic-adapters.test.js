@@ -557,6 +557,29 @@ describe('openai-chat adapter — chatCompletion', () => {
       })
     ).rejects.toThrow('API key required for OpenAI-compatible provider');
   });
+
+  it('records provider cooldown telemetry on 429 responses', async () => {
+    const { getQuotaStore } = require('../db/provider-quotas');
+    requestHandler = (_req, res) => {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: { code: 429, message: 'rate limited' },
+      }));
+    };
+
+    await expect(openaiChatCompletion({
+      host,
+      apiKey: 'sk-test-key',
+      model: 'openrouter/free',
+      providerName: 'openrouter',
+      messages: [{ role: 'user', content: 'hello' }],
+    })).rejects.toThrow(/rate limited/);
+
+    expect(getQuotaStore().getQuota('openrouter')).toMatchObject({
+      provider: 'openrouter',
+      status: 'red',
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

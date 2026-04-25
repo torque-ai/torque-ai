@@ -22,6 +22,7 @@ const CONFIG_PATH = require.resolve('../config');
 const PROVIDER_CONFIG_PATH = require.resolve('../providers/config');
 const OLLAMA_SHARED_PATH = require.resolve('../providers/ollama-shared');
 const REGISTRY_PATH = require.resolve('../models/registry');
+const MODEL_ROLES_PATH = require.resolve('../db/model-roles');
 const ROUTING_CORE_PATH = require.resolve('../db/provider-routing-core');
 const OLLAMA_AGENTIC_PATH = require.resolve('../providers/ollama-agentic');
 
@@ -41,6 +42,7 @@ const TRACKED_CACHE_PATHS = [
   PROVIDER_CONFIG_PATH,
   OLLAMA_SHARED_PATH,
   REGISTRY_PATH,
+  MODEL_ROLES_PATH,
   ROUTING_CORE_PATH,
   OLLAMA_AGENTIC_PATH,
 ];
@@ -172,6 +174,9 @@ function loadSubject(overrides = {}) {
   const registryMock = {
     selectBestApprovedModel: vi.fn(() => null),
   };
+  const modelRolesMock = overrides.modelRolesMock || {
+    getModelForRole: vi.fn(() => null),
+  };
 
   installMock(LOGGER_PATH, loggerMock);
   installMock(CONFIG_PATH, configMock);
@@ -187,6 +192,7 @@ function loadSubject(overrides = {}) {
   installMock(PROVIDER_CONFIG_PATH, providerConfigMock);
   installMock(OLLAMA_SHARED_PATH, ollamaSharedMock);
   installMock(REGISTRY_PATH, registryMock);
+  installMock(MODEL_ROLES_PATH, modelRolesMock);
   installMock(ROUTING_CORE_PATH, { recordProviderOutcome: vi.fn() });
   installMock(OLLAMA_AGENTIC_PATH, { runAgenticLoop: vi.fn() });
 
@@ -203,6 +209,7 @@ function loadSubject(overrides = {}) {
     providerConfigMock,
     ollamaSharedMock,
     registryMock,
+    modelRolesMock,
     ...overrides,
   };
 }
@@ -403,6 +410,162 @@ describe('providers/execution agentic fixes', () => {
       providerName: 'openrouter',
       model: 'minimax/minimax-m2.5:free',
     });
+    expect(workerData.taskPrompt).toContain('Read-only completion rule');
+    expect(tasks.get(task.id).status).toBe('completed');
+  });
+
+  it('resolves an omitted OpenRouter model from the default model role before registry fallback', async () => {
+    const modelRolesMock = {
+      getModelForRole: vi.fn((provider, role) => (
+        provider === 'openrouter' && role === 'default'
+          ? 'scouted/default:free'
+          : null
+      )),
+    };
+    const { mod, configMock, registryMock } = loadSubject({ modelRolesMock });
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
+
+    const task = {
+      id: 'task-openrouter-role-model',
+      provider: 'openrouter',
+      model: null,
+      task_description: 'Read-only inspect package metadata.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: JSON.stringify({ read_only: true }),
+    };
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const next = { ...(tasks.get(taskId) || { id: taskId }), ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus: vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch)),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    let workerData;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      workerData = options.workerData;
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      queueMicrotask(() => emitter.emit('message', {
+        type: 'result',
+        output: 'role model completed',
+        toolLog: [],
+        tokenUsage: {},
+        changedFiles: [],
+        iterations: 1,
+      }));
+    });
+
+    await mod.executeApiProvider(task, { name: 'openrouter' });
+
+    expect(registryMock.selectBestApprovedModel).not.toHaveBeenCalled();
+    expect(workerData.adapterOptions.model).toBe('scouted/default:free');
+    expect(tasks.get(task.id).model).toBe('scouted/default:free');
+  });
+
+  it('builds an OpenRouter same-provider model fallback chain from model roles', async () => {
+    vi.useFakeTimers();
+    const modelRolesMock = {
+      getModelForRole: vi.fn((provider, role) => {
+        if (provider !== 'openrouter') return null;
+        if (role === 'fallback') return 'scouted/fallback:free';
+        if (role === 'balanced') return 'scouted/balanced:free';
+        return null;
+      }),
+    };
+    const { mod, configMock } = loadSubject({ modelRolesMock });
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
+    configMock.get.mockImplementation((key) => (
+      key === 'openrouter_agentic_first_response_timeout_seconds' ? '1' : null
+    ));
+
+    const task = {
+      id: 'task-openrouter-model-fallback',
+      provider: 'openrouter',
+      model: 'scouted/default:free',
+      task_description: 'Read-only inspect.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: JSON.stringify({ read_only: true }),
+    };
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const next = { ...(tasks.get(taskId) || { id: taskId }), ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus: vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch)),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    const workerModels = [];
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      const model = options.workerData.adapterOptions.model;
+      workerModels.push(model);
+      this.postMessage = vi.fn((msg) => {
+        if (msg?.type === 'abort') {
+          queueMicrotask(() => emitter.emit('message', { type: 'error', message: 'aborted' }));
+        }
+      });
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      if (model === 'scouted/fallback:free') {
+        queueMicrotask(() => emitter.emit('message', {
+          type: 'result',
+          output: 'fallback model completed',
+          toolLog: [],
+          tokenUsage: {},
+          changedFiles: [],
+          iterations: 1,
+        }));
+      }
+    });
+
+    const resultPromise = mod.executeApiProvider(task, { name: 'openrouter' });
+    await vi.advanceTimersByTimeAsync(1000);
+    await resultPromise;
+
+    expect(workerModels).toEqual(['scouted/default:free', 'scouted/fallback:free']);
     expect(tasks.get(task.id).status).toBe('completed');
   });
 

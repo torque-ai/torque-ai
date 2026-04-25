@@ -299,6 +299,29 @@ function ensureTestSchema(dbHandle) {
     // success_metrics may not exist in very small ad-hoc fixtures.
   }
 
+  dbHandle.exec(`
+    CREATE TABLE IF NOT EXISTS provider_model_scores (
+      provider TEXT NOT NULL,
+      model_name TEXT NOT NULL,
+      score REAL DEFAULT 0,
+      score_reason TEXT,
+      smoke_status TEXT DEFAULT 'metadata',
+      latency_ms INTEGER,
+      first_response_ms INTEGER,
+      tool_call_ok INTEGER DEFAULT 0,
+      read_only_ok INTEGER DEFAULT 0,
+      rate_limited INTEGER DEFAULT 0,
+      error TEXT,
+      metadata_json TEXT,
+      checked_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (provider, model_name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_provider_model_scores_provider_score
+      ON provider_model_scores(provider, score DESC, checked_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_provider_model_scores_status
+      ON provider_model_scores(provider, smoke_status, rate_limited, score DESC);
+  `);
+
   // model_capabilities: add columns from migrations that newer code expects
   for (const col of [
     'can_create_files INTEGER DEFAULT 1',

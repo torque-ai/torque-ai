@@ -65,6 +65,7 @@ class OpenRouterProvider extends BaseProvider {
     this.apiKey = config.apiKey || process.env.OPENROUTER_API_KEY;
     this.baseUrl = config.baseUrl || 'https://openrouter.ai/api';
     this.defaultModel = config.defaultModel || null;
+    this.fallbackModels = Array.isArray(config.fallbackModels) ? config.fallbackModels.filter(Boolean) : [];
     /** @type {Map<string, number>} model -> cooldown expiry (epoch ms) */
     this._modelCooldowns = new Map();
   }
@@ -90,12 +91,25 @@ class OpenRouterProvider extends BaseProvider {
    * Build fallback candidate list: requested model first, then remaining
    * fallback models (skipping cooled-down ones).
    */
-  _getFallbackCandidates(requestedModel) {
-    const candidates = [requestedModel];
-    for (const m of FALLBACK_MODELS) {
+  _getFallbackCandidates(requestedModel, options = {}) {
+    const candidates = [];
+    const add = (model) => {
+      if (model === undefined || model === '') return;
+      if (model === null && model !== requestedModel) return;
+      if (candidates.includes(model)) return;
+      if (model !== requestedModel && this._isModelCooledDown(model)) return;
+      candidates.push(model);
+    };
+
+    add(requestedModel);
+    const configuredFallbacks = [
+      ...(Array.isArray(options.fallbackModels) ? options.fallbackModels : []),
+      ...this.fallbackModels,
+      ...FALLBACK_MODELS,
+    ];
+    for (const m of configuredFallbacks) {
       if (m === requestedModel) continue;
-      if (this._isModelCooledDown(m)) continue;
-      candidates.push(m);
+      add(m);
     }
     return candidates;
   }
@@ -317,7 +331,7 @@ class OpenRouterProvider extends BaseProvider {
 
     try {
       const requestedModel = model || this.defaultModel;
-      const candidates = this._getFallbackCandidates(requestedModel);
+      const candidates = this._getFallbackCandidates(requestedModel, options);
       const prompt = this._buildPrompt(task, options);
       let lastError;
 
@@ -365,7 +379,7 @@ class OpenRouterProvider extends BaseProvider {
 
     try {
       const requestedModel = model || this.defaultModel;
-      const candidates = this._getFallbackCandidates(requestedModel);
+      const candidates = this._getFallbackCandidates(requestedModel, options);
       const prompt = this._buildPrompt(task, options);
       let lastError;
 
