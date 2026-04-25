@@ -172,6 +172,29 @@ describe('runAgenticLoop — no tool calls (single iteration)', () => {
     expect(result.stopReason).toBe('missing_tool_evidence');
     expect(result.toolLog).toHaveLength(0);
   });
+
+  it('nudges read-only tasks that end with write-refusal boilerplate after tool use', async () => {
+    const adapter = mockAdapter([
+      toolCallResponse('list_directory', { path: '.' }),
+      textResponse('I am unable to create or modify any files. This is read-only.'),
+      textResponse('Observed package.json, README.md, src, and tests.'),
+    ]);
+    const executor = mockToolExecutor({
+      list_directory: { result: 'package.json\nREADME.md\nsrc\ntests', metadata: {} },
+    });
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'You are a helpful assistant.',
+      taskPrompt: 'Read-only repository inspection. Do not create, edit, write, or delete files.',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+    });
+
+    expect(result.output).toContain('Observed package.json');
+    expect(result.output).not.toContain('unable to create');
+    expect(result.toolLog).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

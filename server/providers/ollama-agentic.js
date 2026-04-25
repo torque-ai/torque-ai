@@ -233,6 +233,10 @@ async function runAgenticLoop({
   // likely hallucinated, require the model to inspect the workspace once.
   let toolEvidenceRetried = false;
 
+  // Read-only refusal retry: free/tool-light models sometimes inspect correctly
+  // and then answer as if the user asked them to create files.
+  let readOnlyRefusalRetried = false;
+
   // Early termination flag — set inside inner loops to break the outer loop
   let earlyStop = false;
 
@@ -391,6 +395,27 @@ async function runAgenticLoop({
         stopReason = 'missing_tool_evidence';
         logger.warn('[Agentic] Model answered without required tool evidence after retry — stopping');
         break;
+      }
+
+      const readOnlyInspectionTask = /\bread[- ]only\b/i.test(taskPrompt)
+        || /\bdo not (create|modify|edit|write|delete)\b/i.test(taskPrompt);
+      const looksLikeReadOnlyRefusal = /\b(unable|can't|cannot|can only)\b[\s\S]{0,120}\b(create|modify|edit|write|delete)\b/i.test(content)
+        || /\bprovide (?:the )?details of what files\b/i.test(content)
+        || /\bwhat should be created\b/i.test(content);
+      if (
+        readOnlyInspectionTask
+        && toolLog.length > 0
+        && looksLikeReadOnlyRefusal
+        && !readOnlyRefusalRetried
+      ) {
+        logger.info('[Agentic] Read-only task ended with write-refusal boilerplate — injecting summary prompt');
+        messages.push({ role: 'assistant', content });
+        messages.push({
+          role: 'user',
+          content: 'This is already a read-only inspection task. Do not discuss creating or modifying files. Summarize the observed repository facts from the tool results above, including concrete file paths and commands if observed.',
+        });
+        readOnlyRefusalRetried = true;
+        continue;
       }
 
       // Incomplete task nudge: if the task asks to create/add/write files but the model
