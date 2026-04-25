@@ -1077,6 +1077,29 @@ function parsePseudoObjectArguments(raw) {
   return Object.keys(args).length > 0 ? args : null;
 }
 
+function parseBracketToolCall(raw) {
+  const text = String(raw || '').trim();
+  const nameMatch = text.match(/\b(?:tool|name)\s*=>\s*(?:"([^"]+)"|'([^']+)'|([A-Za-z_][\w-]*))/i);
+  const name = nameMatch?.[1] || nameMatch?.[2] || nameMatch?.[3];
+  if (!name) return null;
+
+  const args = {};
+  const dashParamRegex = /--([A-Za-z_][\w-]*)\s+(?:"([^"]*)"|'([^']*)'|([^\s\r\n}]+))/g;
+  let paramMatch;
+  while ((paramMatch = dashParamRegex.exec(text)) !== null) {
+    args[paramMatch[1]] = stripPseudoValue(paramMatch[2] ?? paramMatch[3] ?? paramMatch[4] ?? '');
+  }
+
+  const arrowParamRegex = /\b([A-Za-z_][\w-]*)\s*=>\s*(?:"([^"]*)"|'([^']*)'|([^\s,\r\n}]+))/g;
+  while ((paramMatch = arrowParamRegex.exec(text)) !== null) {
+    const key = paramMatch[1];
+    if (key === 'tool' || key === 'name' || key === 'args') continue;
+    args[key] = stripPseudoValue(paramMatch[2] ?? paramMatch[3] ?? paramMatch[4] ?? '');
+  }
+
+  return Object.keys(args).length > 0 ? { name, arguments: args } : null;
+}
+
 /**
  * Parse tool calls from model response.
  * Handles structured tool_calls field, <tool_call> XML tags, raw JSON in content,
@@ -1086,9 +1109,10 @@ function parsePseudoObjectArguments(raw) {
  *   1. Structured tool_calls field (OpenAI-format)
  *   2. <tool_call> XML tags (Qwen2.5 native format)
  *   3. OpenRouter/free pseudo XML tags (<tool_name ... />, <invoke ...>)
- *   4. Function-like pseudo calls (tool_name({path, value}))
- *   5. Raw JSON object with "name" key
- *   6. JSON in markdown code blocks
+ *   4. Bracketed pseudo calls ([TOOL_CALL] ... [/TOOL_CALL])
+ *   5. Function-like pseudo calls (tool_name({path, value}))
+ *   6. Raw JSON object with "name" key
+ *   7. JSON in markdown code blocks
  *
  * @param {Object} message - The assistant message from Ollama
  * @returns {Array<{name: string, arguments: Object}>}
@@ -1176,7 +1200,17 @@ function parseToolCalls(message) {
   }
   if (invokeMatches.length > 0) return invokeMatches;
 
-  // Priority 2e: Function-like pseudo calls emitted as plain text by routed free models.
+  // Priority 2e: Bracketed pseudo calls emitted by some OpenRouter-routed models.
+  // Format: [TOOL_CALL] {tool => "list_directory", args => { --path "C:\repo" }} [/TOOL_CALL]
+  const bracketToolCallRegex = /\[TOOL_CALL\]([\s\S]*?)\[\/TOOL_CALL\]/gi;
+  const bracketMatches = [];
+  while ((match = bracketToolCallRegex.exec(content)) !== null) {
+    const parsed = parseBracketToolCall(match[1]);
+    if (parsed) bracketMatches.push(parsed);
+  }
+  if (bracketMatches.length > 0) return bracketMatches;
+
+  // Priority 2f: Function-like pseudo calls emitted as plain text by routed free models.
   // Format examples: read_file({path, C:\repo\}) or list_directory({"path":"."})
   const pseudoFunctionRegex = /\b(read_file|write_file|edit_file|replace_lines|search_files|list_directory|run_command)\s*\(\s*(\{[\s\S]*?\})\s*\)/gi;
   const pseudoFunctionMatches = [];

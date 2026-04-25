@@ -721,6 +721,22 @@ describe('parseToolCalls', () => {
     expect(calls[0].arguments).toEqual({ path: 'C:\\repo\\NetSim' });
   });
 
+  it('parses bracketed OpenRouter pseudo tool calls', () => {
+    const message = {
+      content: [
+        '[TOOL_CALL]',
+        '{tool => "list_directory", args => {',
+        '  --path "C:\\repo\\NetSim"',
+        '}}',
+        '[/TOOL_CALL]',
+      ].join('\n'),
+    };
+    const calls = parseToolCalls(message);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('list_directory');
+    expect(calls[0].arguments).toEqual({ path: 'C:\\repo\\NetSim' });
+  });
+
   it('parses plain function-like pseudo tool calls', () => {
     const message = {
       content: 'read_file({path, C:\\repo\\NetSim\\})',
