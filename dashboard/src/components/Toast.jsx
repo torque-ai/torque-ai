@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useMemo, useRef } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 
 const ToastContext = createContext(null);
 
@@ -27,6 +27,19 @@ export function ToastProvider({ children }) {
     info: (msg) => addToast(msg, 'info', 4000),
     warning: (msg) => addToast(msg, 'warning', 4500),
   }), [addToast]);
+
+  // Clear all pending auto-dismiss timers on unmount. Without this, a toast
+  // fired moments before unmount leaks its setTimeout — e.g. a load-error
+  // toast on a route that unmounts before its 5s dismiss elapses.
+  useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const id of Object.keys(timers)) {
+        clearTimeout(timers[id]);
+        delete timers[id];
+      }
+    };
+  }, []);
 
   return (
     <ToastContext.Provider value={toast}>
