@@ -200,6 +200,23 @@ function buildProviderExecutionOptions(task, controller, extra = {}) {
     }
   }
 
+  // Forward structured-output and prompting hints from task metadata to
+  // the provider adapter. Today only the cerebras adapter consumes these
+  // (JSON mode, system prompt, top_p), but the passthrough is generic
+  // so other API adapters can opt in without re-plumbing.
+  if (metadata.response_format !== undefined) {
+    options.responseFormat = metadata.response_format;
+  }
+  if (typeof metadata.system_prompt === 'string' && metadata.system_prompt.trim() !== '') {
+    options.systemPrompt = metadata.system_prompt;
+  }
+  if (metadata.max_tokens !== undefined && Number.isFinite(Number(metadata.max_tokens))) {
+    options.maxTokens = Number(metadata.max_tokens);
+  }
+  if (metadata.tuning && typeof metadata.tuning === 'object') {
+    options.tuning = { ...(options.tuning || {}), ...metadata.tuning };
+  }
+
   return options;
 }
 

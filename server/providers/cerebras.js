@@ -10,12 +10,92 @@ const { MAX_STREAMING_OUTPUT } = require('../constants');
 const { buildErrorMessage } = require('./shared');
 const logger = require('../logger');
 
+// Models known to be available on Cerebras Cloud (mirrored in listModels).
+// Used to validate operator overrides — invalid values silently fall back
+// to the general default rather than send an unknown model to the API.
+const CEREBRAS_KNOWN_MODELS = new Set([
+  'llama3.1-8b',
+  'qwen-3-235b-a22b-instruct-2507',
+  'gpt-oss-120b',
+  'zai-glm-4.7',
+]);
+
 class CerebrasProvider extends BaseProvider {
   constructor(config = {}) {
     super({ name: 'cerebras', ...config });
     this.apiKey = config.apiKey || process.env.CEREBRAS_API_KEY;
     this.baseUrl = config.baseUrl || 'https://api.cerebras.ai';
-    this.defaultModel = config.defaultModel || 'qwen-3-235b-a22b-instruct-2507';
+    // The general-purpose default. Used when no model is specified AND
+    // the task isn't requesting structured (JSON) output. Overridable via
+    // CEREBRAS_DEFAULT_MODEL — falls back to qwen-3-235b for strong
+    // reasoning/coding when an unknown env value is given.
+    const envDefault = process.env.CEREBRAS_DEFAULT_MODEL;
+    this.defaultModel = config.defaultModel
+      || (envDefault && CEREBRAS_KNOWN_MODELS.has(envDefault) ? envDefault : null)
+      || 'qwen-3-235b-a22b-instruct-2507';
+    // The structured-output default. Yes/no JSON verdicts and similar
+    // tasks don't need a 235B MoE — a small fast model returns the same
+    // verdict in <1s. Override via CEREBRAS_STRUCTURED_MODEL.
+    const envStructured = process.env.CEREBRAS_STRUCTURED_MODEL;
+    this.structuredModel = config.structuredModel
+      || (envStructured && CEREBRAS_KNOWN_MODELS.has(envStructured) ? envStructured : null)
+      || 'zai-glm-4.7';
+  }
+
+  /**
+   * Pick a model when the caller didn't specify one. Routes structured-
+   * output tasks (JSON mode) to the smaller/faster structured model;
+   * everything else goes to the general default.
+   */
+  _selectDefaultModel(options = {}) {
+    if (this._isJsonModeRequested(options)) return this.structuredModel;
+    return this.defaultModel;
+  }
+
+  _isJsonModeRequested(options = {}) {
+    const rf = options.responseFormat;
+    if (rf === 'json_object' || rf === 'json') return true;
+    if (rf && typeof rf === 'object' && rf.type === 'json_object') return true;
+    return false;
+  }
+
+  /**
+   * Build the request body shared by submit/submitStream. Centralizes
+   * JSON-mode handling, system-prompt separation, and temperature
+   * defaults so both code paths stay in lockstep.
+   */
+  _buildRequestBody(task, options, { stream = false, model } = {}) {
+    const messages = [];
+    if (typeof options.systemPrompt === 'string' && options.systemPrompt.trim() !== '') {
+      messages.push({ role: 'system', content: options.systemPrompt });
+    }
+    messages.push({ role: 'user', content: this._buildPrompt(task, options) });
+
+    const body = {
+      model,
+      messages,
+      max_tokens: options.maxTokens || 4096,
+    };
+    if (stream) body.stream = true;
+
+    const jsonMode = this._isJsonModeRequested(options);
+    if (jsonMode) {
+      body.response_format = { type: 'json_object' };
+    }
+
+    if (options.tuning?.temperature !== undefined) {
+      body.temperature = options.tuning.temperature;
+    } else if (jsonMode) {
+      // JSON-mode default: deterministic. Markdown wrap-around and key
+      // ordering drift come from temperature; for structured verdicts
+      // they're noise, never signal.
+      body.temperature = 0;
+    }
+    if (options.tuning?.top_p !== undefined) {
+      body.top_p = options.tuning.top_p;
+    }
+
+    return body;
   }
 
   async submit(task, model, options = {}) {
@@ -29,7 +109,7 @@ class CerebrasProvider extends BaseProvider {
     let abortHandler;
 
     try {
-      const selectedModel = model || this.defaultModel;
+      const selectedModel = model || this._selectDefaultModel(options);
       const timeout = (options.timeout || 30) * 60 * 1000;
 
       const controller = new AbortController();
@@ -41,18 +121,7 @@ class CerebrasProvider extends BaseProvider {
         if (options.signal.aborted) controller.abort();
       }
 
-      const body = {
-        model: selectedModel,
-        messages: [{
-          role: 'user',
-          content: this._buildPrompt(task, options),
-        }],
-        max_tokens: options.maxTokens || 4096,
-      };
-
-      if (options.tuning?.temperature !== undefined) {
-        body.temperature = options.tuning.temperature;
-      }
+      const body = this._buildRequestBody(task, options, { model: selectedModel });
 
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',
@@ -123,7 +192,7 @@ class CerebrasProvider extends BaseProvider {
     let reader;
 
     try {
-      const selectedModel = model || this.defaultModel;
+      const selectedModel = model || this._selectDefaultModel(options);
       const timeout = (options.timeout || 30) * 60 * 1000;
 
       const controller = new AbortController();
@@ -135,16 +204,7 @@ class CerebrasProvider extends BaseProvider {
         if (options.signal.aborted) controller.abort();
       }
 
-      const body = {
-        model: selectedModel,
-        messages: [{ role: 'user', content: this._buildPrompt(task, options) }],
-        max_tokens: options.maxTokens || 4096,
-        stream: true,
-      };
-
-      if (options.tuning?.temperature !== undefined) {
-        body.temperature = options.tuning.temperature;
-      }
+      const body = this._buildRequestBody(task, options, { stream: true, model: selectedModel });
 
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
         method: 'POST',

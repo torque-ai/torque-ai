@@ -129,7 +129,146 @@ describe('CerebrasProvider', () => {
       expect(envProvider.apiKey).toBe('env-cerebras-key');
       expect(envProvider.baseUrl).toBe('https://api.cerebras.ai');
       expect(envProvider.defaultModel).toBe('qwen-3-235b-a22b-instruct-2507');
+      expect(envProvider.structuredModel).toBe('zai-glm-4.7');
       expect(envProvider.supportsStreaming).toBe(true);
+    });
+
+    it('honors CEREBRAS_DEFAULT_MODEL and CEREBRAS_STRUCTURED_MODEL env overrides', () => {
+      const origDefault = process.env.CEREBRAS_DEFAULT_MODEL;
+      const origStructured = process.env.CEREBRAS_STRUCTURED_MODEL;
+      process.env.CEREBRAS_DEFAULT_MODEL = 'gpt-oss-120b';
+      process.env.CEREBRAS_STRUCTURED_MODEL = 'llama3.1-8b';
+      try {
+        const p = new CerebrasProvider({ apiKey: 'k' });
+        expect(p.defaultModel).toBe('gpt-oss-120b');
+        expect(p.structuredModel).toBe('llama3.1-8b');
+      } finally {
+        if (origDefault === undefined) delete process.env.CEREBRAS_DEFAULT_MODEL;
+        else process.env.CEREBRAS_DEFAULT_MODEL = origDefault;
+        if (origStructured === undefined) delete process.env.CEREBRAS_STRUCTURED_MODEL;
+        else process.env.CEREBRAS_STRUCTURED_MODEL = origStructured;
+      }
+    });
+
+    it('rejects unknown env-provided model names and falls back to built-in defaults', () => {
+      const origDefault = process.env.CEREBRAS_DEFAULT_MODEL;
+      process.env.CEREBRAS_DEFAULT_MODEL = 'definitely-not-a-real-model';
+      try {
+        const p = new CerebrasProvider({ apiKey: 'k' });
+        expect(p.defaultModel).toBe('qwen-3-235b-a22b-instruct-2507');
+      } finally {
+        if (origDefault === undefined) delete process.env.CEREBRAS_DEFAULT_MODEL;
+        else process.env.CEREBRAS_DEFAULT_MODEL = origDefault;
+      }
+    });
+  });
+
+  describe('JSON-mode and structured-output routing', () => {
+    it('routes JSON-mode tasks to the structured (small/fast) model and sets response_format', async () => {
+      globalThis.fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: '{"verdict":"go"}' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        }),
+      });
+
+      await provider.submit('verdict?', null, {
+        responseFormat: 'json_object',
+      });
+
+      const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+      expect(body.model).toBe('zai-glm-4.7');
+      expect(body.response_format).toEqual({ type: 'json_object' });
+      expect(body.temperature).toBe(0);
+    });
+
+    it('accepts the OpenAI-shaped responseFormat object form', async () => {
+      globalThis.fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '{}' } }], usage: {} }),
+      });
+
+      await provider.submit('verdict?', null, {
+        responseFormat: { type: 'json_object' },
+      });
+
+      const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+      expect(body.response_format).toEqual({ type: 'json_object' });
+      expect(body.model).toBe('zai-glm-4.7');
+    });
+
+    it('honors an explicit model override even when JSON mode is requested', async () => {
+      globalThis.fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '{}' } }], usage: {} }),
+      });
+
+      await provider.submit('verdict?', 'gpt-oss-120b', {
+        responseFormat: 'json_object',
+      });
+
+      const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+      expect(body.model).toBe('gpt-oss-120b');
+      expect(body.response_format).toEqual({ type: 'json_object' });
+    });
+
+    it('honors an explicit temperature even in JSON mode', async () => {
+      globalThis.fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '{}' } }], usage: {} }),
+      });
+
+      await provider.submit('verdict?', null, {
+        responseFormat: 'json_object',
+        tuning: { temperature: 0.4 },
+      });
+
+      const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+      expect(body.temperature).toBe(0.4);
+    });
+
+    it('does not set response_format or change model when JSON mode is not requested', async () => {
+      globalThis.fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'ok' } }], usage: {} }),
+      });
+
+      await provider.submit('do code stuff', null, {});
+
+      const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+      expect(body.model).toBe('qwen-3-235b-a22b-instruct-2507');
+      expect(body.response_format).toBeUndefined();
+      // Temperature is not set when no JSON mode and no explicit override —
+      // the API uses its own default.
+      expect(body.temperature).toBeUndefined();
+    });
+
+    it('separates systemPrompt into a system message when provided', async () => {
+      globalThis.fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'ok' } }], usage: {} }),
+      });
+
+      await provider.submit('user task', null, {
+        systemPrompt: 'You are a verifier.',
+      });
+
+      const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+      expect(body.messages[0]).toEqual({ role: 'system', content: 'You are a verifier.' });
+      expect(body.messages[1].role).toBe('user');
+    });
+
+    it('forwards tuning.top_p when provided', async () => {
+      globalThis.fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'ok' } }], usage: {} }),
+      });
+
+      await provider.submit('task', null, { tuning: { top_p: 0.9 } });
+
+      const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+      expect(body.top_p).toBe(0.9);
     });
   });
 
