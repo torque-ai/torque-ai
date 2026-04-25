@@ -1036,6 +1036,92 @@ describe('providers/execution agentic fixes', () => {
       .toContain('tools/existing.py: applied replacement after line-ending normalization');
   });
 
+  it('does not treat factory architect JSON output as repo-write proposal output', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));
+
+    const workingDir = makeTempDir();
+    const task = {
+      id: 'task-api-architect-proposal-scope',
+      provider: 'ollama-cloud',
+      model: null,
+      task_description: 'Create an implementation backlog. Return JSON only.',
+      working_directory: workingDir,
+      timeout_minutes: 1,
+      metadata: JSON.stringify({
+        _routing_chain: [
+          { provider: 'ollama-cloud', model: 'mistral-large-3:675b' },
+          { provider: 'codex' },
+        ],
+        factory_internal: true,
+        kind: 'architect_cycle',
+        target_project: 'DLPhone',
+        ollama_cloud_repo_write_mode: 'proposal_apply',
+        proposal_apply_provider: 'codex',
+        provider_lane_policy: {
+          expected_provider: 'ollama-cloud',
+          allowed_fallback_providers: [],
+          enforce_handoffs: true,
+        },
+        agentic_allowed_tools: ['read_file', 'list_directory', 'search_files'],
+      }),
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: JSON.stringify({
+            reasoning: 'Rank first-run smoke coverage first.',
+            backlog: [],
+            flags: [],
+          }),
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 40 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    await mod.executeApiProvider(task, { name: 'ollama-cloud' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('completed');
+    expect(updated.provider).toBe('ollama-cloud');
+    expect(updated.output).toContain('Rank first-run smoke coverage first');
+    expect(updated.error_output).toBeUndefined();
+  });
+
   it('falls back to codex proposal apply when exact deterministic apply is unsafe', async () => {
     const { mod, configMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));

@@ -78,6 +78,7 @@ const AGENTIC_WORKER_UNSUPPORTED_PROVIDERS = new Set(['codex', 'codex-spark', 'c
 const AGENTIC_CLOUD_TO_CODEX_FALLBACKS = new Set(['google-ai', 'groq', 'openrouter', 'ollama-cloud', 'cerebras']);
 const PROPOSAL_APPLY_MODE = 'proposal_apply';
 const PROPOSAL_MODE_READ_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
+const FACTORY_INTERNAL_STRUCTURED_KINDS = new Set(['architect_cycle', 'plan_generation', 'verify_review']);
 
 // ── Deps captured at init time for the agentic wrapper ────────────────
 let _agenticDeps = null;
@@ -414,6 +415,9 @@ function getNextAgenticChainTarget(chain, currentProvider, currentModel, current
 function taskLikelyRequiresFileChanges(task) {
   const metadata = normalizeTaskMetadata(task);
   if (metadata.diffusion_role === 'compute') return false;
+  if (metadata.factory_internal === true && FACTORY_INTERNAL_STRUCTURED_KINDS.has(String(metadata.kind || '').trim().toLowerCase())) {
+    return false;
+  }
 
   const taskDescription = String(task?.task_description || '');
   if (taskExplicitlyReadOnly(taskDescription, metadata)) {
