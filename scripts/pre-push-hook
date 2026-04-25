@@ -167,6 +167,24 @@ run_with_flake_retry_inner() {
   RETRIED_EXIT=$?
   # tail should have self-exited via --pid; reap defensively.
   wait "$tail_pid" 2>/dev/null || true
+
+  # Wait for the tempfile to stop growing. On Git Bash + Windows, `wait`
+  # can return as soon as the eval subshell exits, but the OS may still be
+  # flushing the final stdio writes from the redirect. Without this quiesce
+  # loop the caller can read an incomplete `$tmp` that's missing the last
+  # few lines — including `[gate-end] dash_exit=N serv_exit=M` printed by
+  # the parallel-gate heredoc. When that marker is missing the failure
+  # attribution falls back to combined_exit and reports the wrong phase
+  # ("Dashboard tests failed" when server actually failed). Bounded at
+  # 5 iterations × 200ms = 1 s worst case to keep the hook snappy.
+  local size_a size_b iter
+  size_a=$(wc -c < "$tmp" 2>/dev/null || echo 0)
+  for iter in 1 2 3 4 5; do
+    sleep 0.2
+    size_b=$(wc -c < "$tmp" 2>/dev/null || echo 0)
+    [ "$size_a" = "$size_b" ] && break
+    size_a="$size_b"
+  done
 }
 
 run_with_flake_retry() {
