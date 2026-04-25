@@ -727,8 +727,14 @@ describe('Schedules', () => {
       expect(studyApi.getProfileOverride).toHaveBeenCalledWith({ working_directory: 'C:/Projects/MyApp' });
     });
     const overrideField = within(dialog).getByLabelText('Override JSON');
+    const loadTemplateButton = within(dialog).getByRole('button', { name: 'Load Template' });
 
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Load Template' }));
+    await waitFor(() => {
+      expect(loadTemplateButton).not.toBeDisabled();
+      expect(overrideField.value).toContain('"runtime": 10');
+    });
+
+    fireEvent.click(loadTemplateButton);
     await waitFor(() => {
       expect(overrideField.value).toContain('"subsystem_definitions": []');
     });
