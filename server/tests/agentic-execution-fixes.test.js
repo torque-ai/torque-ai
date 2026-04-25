@@ -350,6 +350,106 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 
+  it('requeues valid ollama-cloud proposal output to codex as an apply task', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));
+
+    const workingDir = makeTempDir();
+    const originalTask = 'Create tools/validate_unity_host_join_smoke.py';
+    const task = {
+      id: 'task-api-proposal-apply',
+      provider: 'ollama-cloud',
+      model: null,
+      task_description: originalTask,
+      working_directory: workingDir,
+      timeout_minutes: 1,
+      metadata: JSON.stringify({
+        _routing_chain: [
+          { provider: 'ollama-cloud', model: 'kimi-k2:1t' },
+          { provider: 'codex' },
+        ],
+        file_paths: ['tools/validate_unity_host_join_smoke.py'],
+        ollama_cloud_repo_write_mode: 'proposal_apply',
+        proposal_apply_provider: 'codex',
+        agentic_allowed_tools: ['read_file', 'list_directory', 'search_files'],
+      }),
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: JSON.stringify({
+            file_edits: [
+              {
+                file: 'tools/validate_unity_host_join_smoke.py',
+                operations: [
+                  {
+                    type: 'create',
+                    old_text: '',
+                    new_text: 'print("ok")\n',
+                  },
+                ],
+              },
+            ],
+          }),
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 40 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    await mod.executeApiProvider(task, { name: 'ollama-cloud' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('queued');
+    expect(updated.provider).toBe('codex');
+    expect(updated.task_description).toContain('Apply the following repository edits');
+    expect(updated.task_description).toContain('Create or overwrite this file');
+    expect(updated.metadata.proposal_apply).toBe(true);
+    expect(updated.metadata.proposal_apply_parse_status).toBe('valid');
+    expect(updated.metadata.proposal_compute_output.file_edits).toHaveLength(1);
+    expect(updated.metadata.original_task_description).toBe(originalTask);
+    expect(updated.metadata.agentic_allowed_tools).toBeUndefined();
+    expect(updated.metadata.ollama_cloud_repo_write_mode).toBeUndefined();
+    expect(safeUpdateTaskStatus).not.toHaveBeenCalledWith(
+      task.id,
+      'completed',
+      expect.anything(),
+    );
+  });
+
   it('requeues ollama-cloud failures to codex when the next chain entry requires CLI execution', async () => {
     const { mod, configMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));

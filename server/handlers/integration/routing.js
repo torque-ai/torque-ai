@@ -21,6 +21,7 @@ const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-s
 const { resolveOllamaModel } = require('../../providers/ollama-shared');
 const { shouldDecompose, decomposeTask: buildDecomposedTasks, GUIDED_FILE_THRESHOLD, GUIDED_MIN_FUNCTIONS } = require('../../execution/task-decomposition');
 const { enforceVersionIntentForProject } = require('../../versioning/version-intent');
+const { buildOllamaCloudProposalApplyMetadata } = require('../../routing/ollama-cloud-proposal-policy');
 const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
 const { getProviderCapabilities } = require('../../db/provider-capabilities');
@@ -1415,6 +1416,14 @@ async function handleSmartSubmitTask(args) {
       routing_score: sourceResult.routing_score || null,
     };
   };
+  const proposalApplyMetadata = buildOllamaCloudProposalApplyMetadata({
+    taskDescription: task,
+    files,
+    selectedProvider,
+    routingChain: routingResult.chain,
+    routingTemplate: effectiveRoutingTemplate,
+    userTaskMetadata,
+  });
 
   const schedulingMode = configCore.getConfig ? (configCore.getConfig('scheduling_mode') || 'legacy') : 'legacy';
   const useTierList = schedulingMode === 'slot-pull';
@@ -1469,6 +1478,8 @@ async function handleSmartSubmitTask(args) {
     _routing_template: effectiveRoutingTemplate || undefined,
     mcp_session_id: __sessionId || undefined,
     ...buildRoutingScoreMetadata(tierRoutingResult, slotPullIntendedProvider),
+    ...(userTaskMetadata || {}),
+    ...proposalApplyMetadata,
   };
   const initialTaskStatus = normalizeInitialTaskStatus(args.initial_status);
 
@@ -1524,6 +1535,7 @@ async function handleSmartSubmitTask(args) {
         mcp_session_id: __sessionId || undefined,
         ...buildRoutingScoreMetadata(routingResult, selectedProvider),
         ...(userTaskMetadata || {}),
+        ...proposalApplyMetadata,
       })
     });
   }

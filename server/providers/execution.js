@@ -67,6 +67,8 @@ const PROVIDER_DEFAULT_MODEL = {
 
 const AGENTIC_WORKER_UNSUPPORTED_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk']);
 const AGENTIC_CLOUD_TO_CODEX_FALLBACKS = new Set(['google-ai', 'groq', 'openrouter', 'ollama-cloud', 'cerebras']);
+const PROPOSAL_APPLY_MODE = 'proposal_apply';
+const PROPOSAL_MODE_READ_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
 
 // ── Deps captured at init time for the agentic wrapper ────────────────
 let _agenticDeps = null;
@@ -336,6 +338,147 @@ function shouldEscalateNoOpAgenticResult(task, result) {
   return !(result.toolLog || []).some((entry) => ['write_file', 'edit_file', 'replace_lines'].includes(entry?.name));
 }
 
+function isProposalApplyMode(task, agenticPolicy = null) {
+  const metadata = agenticPolicy?.metadata || normalizeTaskMetadata(task);
+  return metadata.ollama_cloud_repo_write_mode === PROPOSAL_APPLY_MODE
+    || metadata.cloud_repo_write_mode === PROPOSAL_APPLY_MODE;
+}
+
+function proposalModeHasReadOnlyTools(agenticPolicy) {
+  const tools = normalizeStringList(agenticPolicy?.toolAllowlist);
+  return tools.length > 0 && tools.every((toolName) => PROPOSAL_MODE_READ_TOOLS.has(toolName));
+}
+
+function shouldUseProposalApplyMode(task, agenticPolicy = null) {
+  return isProposalApplyMode(task, agenticPolicy)
+    && taskLikelyRequiresFileChanges(task)
+    && proposalModeHasReadOnlyTools(agenticPolicy);
+}
+
+function buildProposalApplyComputePrompt(taskDescription, workingDir) {
+  return `You are the proposal phase for a repository-writing task.
+
+Do not modify files. Inspect or reason about the requested change, then return exact edit instructions for a separate apply agent.
+
+## Original Task
+${taskDescription}
+
+## Output Format
+Output ONLY a JSON object, with no Markdown fence and no explanation:
+{
+  "file_edits": [
+    {
+      "file": "relative/path/to/file.ext",
+      "operations": [
+        {
+          "type": "replace",
+          "old_text": "exact text to find",
+          "new_text": "exact replacement text"
+        }
+      ]
+    }
+  ]
+}
+
+Rules:
+- Use "type": "create", "old_text": "", and "new_text" equal to the full file content for a new file.
+- Use "type": "replace" for edits to existing files. old_text must be an exact substring when the file exists.
+- Use "type": "delete" and "new_text": "" only for deletions.
+- Keep paths relative to the working directory.
+- Include only the files required by the original task.
+
+Working directory: ${workingDir}`;
+}
+
+function buildAgenticTaskPrompt(task, workingDir, budgetChars, agenticPolicy = null) {
+  const taskDescription = shouldUseProposalApplyMode(task, agenticPolicy)
+    ? buildProposalApplyComputePrompt(task.task_description, workingDir)
+    : task.task_description;
+  return preStuffFileContents(taskDescription, workingDir, budgetChars);
+}
+
+function isSafeRelativeProposalPath(workingDir, filePath) {
+  if (typeof filePath !== 'string' || !filePath.trim()) return false;
+  if (path.isAbsolute(filePath)) return false;
+  const base = path.resolve(workingDir || process.cwd());
+  const resolved = path.resolve(base, filePath);
+  const relative = path.relative(base, resolved);
+  return !!relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function validateProposalApplyOutput(output, workingDir) {
+  const { parseComputeOutput, validateComputeSchema, semanticValidateEdits } = require('../diffusion/compute-output-parser');
+  const parsed = parseComputeOutput(output || '');
+  if (!parsed) {
+    return { valid: false, reason: 'no file_edits JSON found' };
+  }
+
+  const validation = validateComputeSchema(parsed);
+  if (!validation.valid) {
+    return { valid: false, reason: validation.errors.join('; ') };
+  }
+
+  const fs = require('fs');
+  const semantic = semanticValidateEdits(parsed, (filePath) => {
+    const fullPath = path.resolve(workingDir, filePath);
+    return fs.readFileSync(fullPath, 'utf-8');
+  });
+
+  const warnings = semantic.warnings || [];
+  const fileEdits = [];
+  for (const edit of semantic.file_edits || []) {
+    if (!isSafeRelativeProposalPath(workingDir, edit.file)) {
+      warnings.push(`${edit.file}: skipped unsafe path`);
+      continue;
+    }
+    const operations = Array.isArray(edit.operations)
+      ? edit.operations.filter((operation) => operation && operation.old_text !== undefined && operation.new_text !== undefined)
+      : [];
+    if (operations.length === 0) {
+      warnings.push(`${edit.file}: skipped empty operations`);
+      continue;
+    }
+    fileEdits.push({ ...edit, operations });
+  }
+
+  if (fileEdits.length === 0) {
+    return { valid: false, reason: 'proposal contained no safe file edits', warnings };
+  }
+
+  return {
+    valid: true,
+    computeOutput: { ...parsed, file_edits: fileEdits },
+    warnings,
+  };
+}
+
+function buildProposalApplyTaskDescription(computeOutput, workingDir, originalTaskDescription) {
+  const sections = [];
+  for (const edit of computeOutput.file_edits || []) {
+    sections.push(`### File: ${edit.file}`);
+    for (const op of edit.operations || []) {
+      const type = typeof op.type === 'string' ? op.type.toLowerCase() : 'replace';
+      if (type === 'create' || op.old_text === '') {
+        sections.push(`Create or overwrite this file with the exact content below:\n\`\`\`\n${op.new_text || ''}\n\`\`\``);
+      } else if (type === 'delete' || op.new_text === '') {
+        sections.push(`Delete the following exact block:\n\`\`\`\n${op.old_text}\n\`\`\``);
+      } else {
+        sections.push(`Replace this exact block:\n\`\`\`\n${op.old_text}\n\`\`\`\nWith this exact block:\n\`\`\`\n${op.new_text}\n\`\`\``);
+      }
+    }
+  }
+
+  return `Apply the following repository edits drafted by the proposal phase.
+Make only the listed edits. If an exact replacement block is not found, re-read the target file and apply the smallest equivalent edit.
+
+## Original Task
+${originalTaskDescription}
+
+${sections.join('\n\n')}
+
+Working directory: ${workingDir}`;
+}
+
 function resolveAgenticHandoffTarget({
   task,
   chain,
@@ -418,6 +561,72 @@ function requeueAgenticTaskForHandoff(db, taskId, task, targetEntry, remainingCh
 
   const patch = buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason);
   return db.updateTaskStatus(taskId, 'queued', patch);
+}
+
+function resolveProposalApplyTarget(task, db) {
+  const metadata = normalizeTaskMetadata(task);
+  const preferredProvider = normalizeProviderName(metadata.proposal_apply_provider || 'codex') || 'codex';
+  const preferredModel = normalizeOptionalModel(metadata.proposal_apply_model);
+  if (preferredProvider && isProviderEnabledAndHealthyForHandoff(db, preferredProvider)) {
+    return {
+      entry: { provider: preferredProvider, model: preferredModel },
+      remainingChain: [{ provider: preferredProvider, ...(preferredModel ? { model: preferredModel } : {}) }],
+    };
+  }
+
+  return resolveAgenticHandoffTarget({
+    task,
+    chain: metadata._routing_chain,
+    db,
+    currentProvider: task?.provider,
+    currentModel: task?.model || null,
+  });
+}
+
+function buildProposalApplyHandoffPatch(task, targetEntry, remainingChain, reason, proposalResult, sourceResult) {
+  const patch = buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason);
+  const originalMetadata = normalizeTaskMetadata(task);
+  const metadata = {
+    ...patch.metadata,
+    proposal_apply: true,
+    proposal_apply_parse_status: 'valid',
+    proposal_apply_from: sourceResult?.provider || task?.provider || null,
+    proposal_apply_source_model: sourceResult?.model || task?.model || null,
+    proposal_apply_warnings: proposalResult.warnings || [],
+    proposal_compute_output: proposalResult.computeOutput,
+    original_task_description: originalMetadata.original_task_description || task?.task_description || '',
+  };
+
+  delete metadata.ollama_cloud_repo_write_mode;
+  delete metadata.cloud_repo_write_mode;
+  delete metadata.agentic_allowed_tools;
+  delete metadata.agentic_tool_allowlist;
+  delete metadata.allowed_tools;
+  delete metadata.tool_allowlist;
+
+  return {
+    ...patch,
+    task_description: buildProposalApplyTaskDescription(
+      proposalResult.computeOutput,
+      task?.working_directory || process.cwd(),
+      task?.task_description || ''
+    ),
+    metadata,
+  };
+}
+
+function requeueAgenticTaskForProposalApply(db, taskId, task, proposalResult, sourceResult, reason) {
+  if (!db || typeof db.updateTaskStatus !== 'function') {
+    throw new Error(`Cannot hand off task ${taskId}: database updateTaskStatus is unavailable`);
+  }
+  const target = resolveProposalApplyTarget(task, db);
+  if (!target?.entry?.provider) {
+    return { requeued: false, reason: 'no proposal apply provider available' };
+  }
+
+  const patch = buildProposalApplyHandoffPatch(task, target.entry, target.remainingChain, reason, proposalResult, sourceResult);
+  db.updateTaskStatus(taskId, 'queued', patch);
+  return { requeued: true, target };
 }
 
 function normalizeStringList(value) {
@@ -2301,7 +2510,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
             temperature: 0.3,
           },
           systemPrompt,
-          taskPrompt: preStuffFileContents(task.task_description, workingDir, (PROVIDER_CONTEXT_BUDGETS[entry.provider] || contextBudget) * 3),
+          taskPrompt: buildAgenticTaskPrompt(task, workingDir, (PROVIDER_CONTEXT_BUDGETS[entry.provider] || contextBudget) * 3, agenticPolicy),
           workingDir,
           timeoutMs,
           maxIterations,
@@ -2339,7 +2548,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           temperature: 0.3,
         },
         systemPrompt,
-        taskPrompt: preStuffFileContents(task.task_description, workingDir, contextBudget * 3),
+        taskPrompt: buildAgenticTaskPrompt(task, workingDir, contextBudget * 3, agenticPolicy),
         workingDir,
         timeoutMs,
         maxIterations,
@@ -2381,7 +2590,30 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       }
     }
 
-    const handoffTarget = shouldEscalateNoOpAgenticResult(task, result)
+    const shouldEscalateNoOp = shouldEscalateNoOpAgenticResult(task, result);
+    let proposalApplySkipReason = '';
+    if (shouldEscalateNoOp) {
+      const currentTask = db.getTask(taskId) || task;
+      if (shouldUseProposalApplyMode(currentTask, agenticPolicy)) {
+        const proposalResult = validateProposalApplyOutput(result?.output || '', currentTask.working_directory || workingDir);
+        if (proposalResult.valid) {
+          const proposalReason = `Proposal/apply handoff from ${(result?.provider || provider)}/${result?.model || model || 'default'}: ${proposalResult.computeOutput.file_edits.length} file edit proposal(s)`;
+          const proposalHandoff = requeueAgenticTaskForProposalApply(db, taskId, currentTask, proposalResult, {
+            provider: result?.provider || provider,
+            model: result?.model || model || null,
+          }, proposalReason);
+          if (proposalHandoff.requeued) {
+            logger.info(`[Agentic] API task ${taskId} requeued to ${proposalHandoff.target.entry.provider}${proposalHandoff.target.entry.model ? `/${proposalHandoff.target.entry.model}` : ''} for proposal apply`);
+            return;
+          }
+          proposalApplySkipReason = proposalHandoff.reason || 'proposal apply handoff unavailable';
+        } else {
+          proposalApplySkipReason = proposalResult.reason || 'proposal parse failed';
+        }
+      }
+    }
+
+    const handoffTarget = shouldEscalateNoOp
       ? resolveAgenticHandoffTarget({
           task: db.getTask(taskId) || task,
           chain,
@@ -2393,7 +2625,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       : null;
     if (handoffTarget) {
       const currentTask = db.getTask(taskId) || task;
-      const reason = `Agentic no-op from ${(result?.provider || provider)}/${result?.model || model || 'default'}: ${(result?.toolLog || []).length} tool calls, ${(result?.changedFiles || []).length} files changed`;
+      const reason = `Agentic no-op from ${(result?.provider || provider)}/${result?.model || model || 'default'}: ${(result?.toolLog || []).length} tool calls, ${(result?.changedFiles || []).length} files changed${proposalApplySkipReason ? `; proposal apply skipped: ${proposalApplySkipReason}` : ''}`;
       requeueAgenticTaskForHandoff(db, taskId, currentTask, handoffTarget.entry, handoffTarget.remainingChain, reason);
       logger.info(`[Agentic] API task ${taskId} requeued to ${handoffTarget.entry.provider}${handoffTarget.entry.model ? `/${handoffTarget.entry.model}` : ''} after no-op result from ${result?.provider || provider}`);
       return;
