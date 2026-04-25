@@ -9,32 +9,45 @@ const report = require('./report');
 const args = process.argv.slice(2);
 const outDir = process.env.PERF_OUT_DIR || path.join(__dirname);
 
-function run() {
+async function run() {
   if (args.includes('--metrics-list')) {
     const all = registry.list();
-    if (all.length === 0) {
-      console.log('No metrics registered yet.');
-      return 0;
-    }
-    for (const m of all) {
-      console.log(`${m.id}\t${m.category}\t${m.name}`);
-    }
+    if (all.length === 0) { console.log('No metrics registered yet.'); return 0; }
+    for (const m of all) console.log(`${m.id}\t${m.category}\t${m.name}`);
     return 0;
   }
 
   if (process.env.PERF_SMOKE === '1') {
-    const payload = {
-      captured_at: new Date().toISOString(),
-      env: report.captureEnv(),
-      metrics: {}
-    };
+    const payload = { captured_at: new Date().toISOString(), env: report.captureEnv(), metrics: {} };
     const target = report.writeLastRun(outDir, payload);
     console.log(`smoke run wrote ${target}`);
     return 0;
   }
 
-  console.log('No metrics registered. Add metric modules under server/perf/metrics/ and require them from run-perf.js.');
+  const all = registry.list();
+  if (all.length === 0) {
+    console.log('No metrics registered. Add metric modules under server/perf/metrics/.');
+    return 0;
+  }
+
+  const driver = require('./driver');
+  const results = {};
+  for (const metric of all) {
+    process.stdout.write(`measuring ${metric.id}... `);
+    const r = await driver.runMetric(metric);
+    results[metric.id] = r;
+    if (r.byVariant) {
+      const summary = Object.entries(r.byVariant).map(([k, v]) => `${k}=${v.median.toFixed(2)}`).join(' ');
+      console.log(summary);
+    } else {
+      console.log(`median=${r.median.toFixed(2)}${r.p95 ? ` p95=${r.p95.toFixed(2)}` : ''}`);
+    }
+  }
+
+  const payload = { captured_at: new Date().toISOString(), env: report.captureEnv(), metrics: results };
+  const target = report.writeLastRun(outDir, payload);
+  console.log(`wrote ${target}`);
   return 0;
 }
 
-process.exitCode = run();
+run().then((code) => process.exit(code), (err) => { console.error('perf run failed:', err); process.exit(2); });
