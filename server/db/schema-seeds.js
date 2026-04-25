@@ -424,6 +424,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   setConfigDefault('auto_archive_days', '30');
   setConfigDefault('auto_archive_status', 'completed,failed,cancelled');
   setConfigDefault('cleanup_log_days', '30');
+  setConfigDefault('cleanup_event_days', '7');
   setConfigDefault('cleanup_stream_days', '7');
   setConfigDefault('file_baseline_enabled', '1');
   setConfigDefault('syntax_validation_enabled', '1');

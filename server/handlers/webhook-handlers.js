@@ -15,6 +15,7 @@ const providerRoutingCore = require('../db/provider-routing-core');
 const schedulingAutomation = require('../db/scheduling-automation');
 const taskMetadata = require('../db/task-metadata');
 const webhooksStreaming = require('../db/webhooks-streaming');
+const resourceHealth = require('../db/resource-health');
 const serverConfig = require('../config');
 const logger = require('../logger').child({ component: 'webhook-handlers' });
 const { TASK_TIMEOUTS } = require('../constants');
@@ -967,8 +968,17 @@ function handleRunMaintenance(args) {
     };
   }
 
+  const runAll = taskType === 'all';
+  const addResult = (label, fn) => {
+    try {
+      results.push(`${label}: ${fn()}`);
+    } catch (err) {
+      results.push(`${label}: failed (${err.message})`);
+    }
+  };
+
   // Run maintenance immediately
-  if (taskType === 'all' || taskType === 'archive_old_tasks') {
+  if (runAll || taskType === 'archive_old_tasks') {
     const days = serverConfig.getInt('auto_archive_days', 0);
     if (days > 0) {
       const statuses = getAutoArchiveStatuses();
@@ -979,18 +989,64 @@ function handleRunMaintenance(args) {
     }
   }
 
-  if (taskType === 'all' || taskType === 'cleanup_logs') {
+  if (runAll || taskType === 'cleanup_logs') {
     const days = serverConfig.getInt('cleanup_log_days', 0);
+    const streamDays = serverConfig.getInt('cleanup_stream_days', days || 7);
+    const eventDays = serverConfig.getInt('cleanup_event_days', days || 7);
     if (days > 0) {
-      projectConfigCore.cleanupHealthHistory(days * 24);
-      webhooksStreaming.cleanupWebhookLogs(days);
-      results.push(`Cleaned up logs older than ${days} days`);
+      addResult('Health cleanup', () => `${projectConfigCore.cleanupHealthHistory(days * 24)} row(s) older than ${days} day(s)`);
+      addResult('Webhook cleanup', () => `${webhooksStreaming.cleanupWebhookLogs(days)} row(s) older than ${days} day(s)`);
+      addResult('Analytics cleanup', () => `${webhooksStreaming.cleanupAnalytics(days)} row(s) older than ${days} day(s)`);
+      addResult('Coordination cleanup', () => `${webhooksStreaming.cleanupCoordinationEvents(days)} row(s) older than ${days} day(s)`);
     } else {
       results.push('Log cleanup: skipped (disabled)');
     }
+    if (streamDays > 0) {
+      addResult('Stream cleanup', () => `${webhooksStreaming.cleanupStreamData(streamDays)} stream(s) older than ${streamDays} day(s)`);
+    }
+    if (eventDays > 0) {
+      addResult('Task event cleanup', () => `${webhooksStreaming.cleanupEventData(eventDays)} row(s) older than ${eventDays} day(s)`);
+    }
+    addResult('Webhook retry cleanup', () => `${webhooksStreaming.cleanupStaleWebhookRetries(7)} row(s) older than 7 day(s)`);
   }
 
-  if (taskType === 'all' || taskType === 'aggregate_metrics') {
+  if (runAll || taskType === 'cleanup_stale_tasks') {
+    const staleRunningMin = serverConfig.getInt('stale_running_minutes', 60);
+    const staleQueuedMin = serverConfig.getInt('stale_queued_minutes', 120);
+    addResult('Stale task cleanup', () => {
+      const stale = providerRoutingCore.cleanupStaleTasks(staleRunningMin, staleQueuedMin);
+      return `${stale.total} task(s) (${stale.running_cleaned} running, ${stale.queued_cleaned} queued)`;
+    });
+  }
+
+  if (runAll || taskType === 'prune_old_tasks') {
+    const maxRetained = serverConfig.getInt('task_retention_count', 5000);
+    addResult('Task prune', () => `${providerRoutingCore.pruneOldTasks(maxRetained).pruned} task(s), retaining ${maxRetained}`);
+  }
+
+  if (runAll || taskType === 'purge_task_output') {
+    const retentionDays = serverConfig.getInt('task_output_retention_days', 30);
+    if (retentionDays > 0) {
+      addResult('Task output purge', () => `${taskCore.purgeOldTaskOutput(retentionDays)} task(s) older than ${retentionDays} day(s)`);
+    } else {
+      results.push('Task output purge: skipped (disabled)');
+    }
+  }
+
+  if (runAll || taskType === 'enforce_limits') {
+    addResult('Event table limits', () => `${webhooksStreaming.enforceEventTableLimits()} row(s)`);
+    addResult('Webhook log limits', () => `${webhooksStreaming.enforceWebhookLogLimits()} row(s)`);
+  }
+
+  if (taskType === 'vacuum_database') {
+    addResult('Database vacuum', () => {
+      const result = resourceHealth.vacuum();
+      if (!result.success) return `failed (${result.error})`;
+      return `${result.sizeBefore} bytes -> ${result.sizeAfter} bytes`;
+    });
+  }
+
+  if (runAll || taskType === 'aggregate_metrics') {
     const metrics = eventTracking.aggregateSuccessMetrics('day');
     results.push(`Aggregated metrics for ${metrics.length} projects`);
   }

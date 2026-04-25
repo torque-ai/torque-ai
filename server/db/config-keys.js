@@ -52,6 +52,7 @@ const VALID_CONFIG_KEYS = new Set([
   'continuous_batch_working_directory',
   'continuous_batch_step_providers',
   'cost_tracking_enabled',
+  'cleanup_event_days',
   'cleanup_log_days',
   'cleanup_stream_days',
   'cerebras_api_key',

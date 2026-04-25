@@ -70,6 +70,8 @@ const REGISTRY = {
   // Maintenance
   auto_archive_days:       { default: 30,    type: 'int' },
   cleanup_log_days:        { default: 7,     type: 'int' },
+  cleanup_event_days:      { default: 7,     type: 'int' },
+  cleanup_stream_days:     { default: 7,     type: 'int' },
   queue_task_ttl_minutes:  { default: 0,     type: 'int' },
 
   // Timeouts

@@ -162,10 +162,24 @@ function startMaintenanceScheduler(opts = {}) {
       // Unconditional growth table purge — trim high-volume tables regardless
       // of cleanup_log_days setting to prevent unbounded DB growth
       try {
+        const streamCleanupDays = serverConfig.getInt('cleanup_stream_days', 7);
+        const eventCleanupDays = serverConfig.getInt('cleanup_event_days', serverConfig.getInt('cleanup_log_days', 30));
+        let streamRows = 0;
+        let eventRows = 0;
+        let limitRows = 0;
+        if (streamCleanupDays > 0 && typeof db.cleanupStreamData === 'function') {
+          streamRows = db.cleanupStreamData(streamCleanupDays);
+        }
+        if (eventCleanupDays > 0 && typeof db.cleanupEventData === 'function') {
+          eventRows = db.cleanupEventData(eventCleanupDays);
+        }
+        if (typeof db.enforceEventTableLimits === 'function') {
+          limitRows = db.enforceEventTableLimits();
+        }
         if (db.purgeGrowthTables) {
           const purged = db.purgeGrowthTables();
-          if (purged.coordination_events > 0 || purged.health_status > 0 || purged.task_file_writes > 0) {
-            debugLog(`Growth table purge: coordination_events=${purged.coordination_events}, health_status=${purged.health_status}, task_file_writes=${purged.task_file_writes}`);
+          if (purged.coordination_events > 0 || purged.health_status > 0 || purged.task_file_writes > 0 || streamRows > 0 || eventRows > 0 || limitRows > 0) {
+            debugLog(`Growth table purge: coordination_events=${purged.coordination_events}, health_status=${purged.health_status}, task_file_writes=${purged.task_file_writes}, stream_data=${streamRows}, task_events=${eventRows}, table_limits=${limitRows}`);
           }
         }
       } catch (purgeErr) {
@@ -361,12 +375,19 @@ function runMaintenanceTask(taskType) {
 
       case 'cleanup_logs': {
         const cleanupDays = serverConfig.getInt('cleanup_log_days', 0);
+        const streamCleanupDays = serverConfig.getInt('cleanup_stream_days', cleanupDays);
+        const eventCleanupDays = serverConfig.getInt('cleanup_event_days', cleanupDays);
         if (cleanupDays > 0) {
           runSafe('cleanupHealthHistory', () => db.cleanupHealthHistory(cleanupDays * 24));
           runSafe('cleanupWebhookLogs', () => db.cleanupWebhookLogs(cleanupDays));
-          runSafe('cleanupStreamData', () => db.cleanupStreamData(cleanupDays));
           runSafe('cleanupAnalytics', () => db.cleanupAnalytics(cleanupDays));
           runSafe('cleanupCoordinationEvents', () => db.cleanupCoordinationEvents(cleanupDays));
+        }
+        if (streamCleanupDays > 0) {
+          runSafe('cleanupStreamData', () => db.cleanupStreamData(streamCleanupDays));
+        }
+        if (eventCleanupDays > 0) {
+          runSafe('cleanupEventData', () => db.cleanupEventData(eventCleanupDays));
         }
         // Always clean up stale webhook retries (7 day default)
         runSafe('cleanupStaleWebhookRetries', () => db.cleanupStaleWebhookRetries(7));

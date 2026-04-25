@@ -747,6 +747,27 @@ describe('webhooks-streaming db module', () => {
       expect(analyticsCount).toBe(99000);
       expect(coordCount).toBe(49500);
     });
+
+    it('enforceEventTableLimits trims stream chunks and task events above hard limits', () => {
+      const task = makeTask();
+      const streamId = mod.createTaskStream(task.id, 'output');
+      seedStreamChunks(streamId, 6);
+      for (let i = 0; i < 5; i += 1) {
+        mod.recordTaskEvent(task.id, 'progress', String(i), String(i + 1), { pct: i + 1 });
+      }
+
+      const deleted = mod.enforceEventTableLimits({
+        maxStreamChunks: 3,
+        maxTaskEvents: 2,
+      });
+      const conn = rawDb();
+      const chunkCount = conn.prepare('SELECT COUNT(*) AS c FROM stream_chunks').get().c;
+      const eventCount = conn.prepare('SELECT COUNT(*) AS c FROM task_events').get().c;
+
+      expect(deleted).toBe(7);
+      expect(chunkCount).toBe(3);
+      expect(eventCount).toBe(2);
+    });
   });
 
   describe('checkpoints and pause', () => {

@@ -578,6 +578,18 @@ function truncateBuffer(buffer) {
 const MAX_STREAM_CHUNKS = 10000;        // Maximum chunks per stream
 const MAX_STREAM_SIZE_BYTES = 10 * 1024 * 1024; // 10MB per stream
 const MAX_CHUNK_SIZE_BYTES = 64 * 1024; // 64KB per chunk
+const MAX_TOTAL_STREAM_CHUNKS = 100000;
+const MAX_TASK_EVENTS = 100000;
+
+function boundedLimit(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.floor(parsed));
+}
+
+function overflowDeleteCount(count, limit, buffer) {
+  return Math.min(count, count - limit + Math.min(buffer, Math.floor(Math.max(limit, 0) * 0.01)));
+}
 
 /**
  * Add a chunk to a stream
@@ -778,6 +790,17 @@ function cleanupStreamData(daysToKeep = 7) {
     )
   `);
   chunksStmt.run(cutoffDate);
+
+  // Some historical rows can survive without a task_streams parent after
+  // interrupted startups or older cleanup bugs. Bound those by their own
+  // timestamp so stream_chunks cannot grow forever.
+  try {
+    db.prepare(`
+      DELETE FROM stream_chunks
+      WHERE timestamp < ?
+        AND stream_id NOT IN (SELECT id FROM task_streams)
+    `).run(cutoffDate);
+  } catch (_e) { void _e; }
 
   const streamsStmt = db.prepare(`
     DELETE FROM task_streams WHERE created_at < ?
@@ -1038,13 +1061,17 @@ const MAX_COORDINATION_EVENTS = 50000;
  * Enforce hard limits on event table sizes
  * Removes oldest records when tables exceed limits
  */
-function enforceEventTableLimits() {
+function enforceEventTableLimits(options = {}) {
   let deleted = 0;
+  const maxAnalyticsRecords = boundedLimit(options.maxAnalyticsRecords, MAX_ANALYTICS_RECORDS);
+  const maxCoordinationEvents = boundedLimit(options.maxCoordinationEvents, MAX_COORDINATION_EVENTS);
+  const maxStreamChunks = boundedLimit(options.maxStreamChunks, MAX_TOTAL_STREAM_CHUNKS);
+  const maxTaskEvents = boundedLimit(options.maxTaskEvents, MAX_TASK_EVENTS);
 
   // Check analytics table size
   const analyticsCount = db.prepare('SELECT COUNT(*) as count FROM analytics').get().count;
-  if (analyticsCount > MAX_ANALYTICS_RECORDS) {
-    const toDelete = analyticsCount - MAX_ANALYTICS_RECORDS + 1000; // Delete extra 1000 for buffer
+  if (analyticsCount > maxAnalyticsRecords) {
+    const toDelete = overflowDeleteCount(analyticsCount, maxAnalyticsRecords, 1000);
     const result = db.prepare(`
       DELETE FROM analytics WHERE id IN (
         SELECT id FROM analytics ORDER BY timestamp ASC LIMIT ?
@@ -1055,11 +1082,33 @@ function enforceEventTableLimits() {
 
   // Check coordination_events table size
   const coordCount = db.prepare('SELECT COUNT(*) as count FROM coordination_events').get().count;
-  if (coordCount > MAX_COORDINATION_EVENTS) {
-    const toDelete = coordCount - MAX_COORDINATION_EVENTS + 500; // Delete extra 500 for buffer
+  if (coordCount > maxCoordinationEvents) {
+    const toDelete = overflowDeleteCount(coordCount, maxCoordinationEvents, 500);
     const result = db.prepare(`
       DELETE FROM coordination_events WHERE id IN (
         SELECT id FROM coordination_events ORDER BY created_at ASC LIMIT ?
+      )
+    `).run(toDelete);
+    deleted += result.changes;
+  }
+
+  const streamChunkCount = db.prepare('SELECT COUNT(*) as count FROM stream_chunks').get().count;
+  if (streamChunkCount > maxStreamChunks) {
+    const toDelete = overflowDeleteCount(streamChunkCount, maxStreamChunks, 1000);
+    const result = db.prepare(`
+      DELETE FROM stream_chunks WHERE id IN (
+        SELECT id FROM stream_chunks ORDER BY timestamp ASC, id ASC LIMIT ?
+      )
+    `).run(toDelete);
+    deleted += result.changes;
+  }
+
+  const taskEventCount = db.prepare('SELECT COUNT(*) as count FROM task_events').get().count;
+  if (taskEventCount > maxTaskEvents) {
+    const toDelete = overflowDeleteCount(taskEventCount, maxTaskEvents, 1000);
+    const result = db.prepare(`
+      DELETE FROM task_events WHERE id IN (
+        SELECT id FROM task_events ORDER BY created_at ASC, id ASC LIMIT ?
       )
     `).run(toDelete);
     deleted += result.changes;

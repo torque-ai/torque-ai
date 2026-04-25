@@ -246,7 +246,7 @@ const tools = [
       properties: {
         task_type: {
           type: 'string',
-          enum: ['archive_old_tasks', 'cleanup_logs', 'aggregate_metrics', 'all'],
+          enum: ['archive_old_tasks', 'cleanup_logs', 'cleanup_stale_tasks', 'prune_old_tasks', 'purge_task_output', 'enforce_limits', 'vacuum_database', 'aggregate_metrics', 'all'],
           description: 'Type of maintenance to run (default: all)'
         },
         schedule: {

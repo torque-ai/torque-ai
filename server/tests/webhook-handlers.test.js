@@ -429,6 +429,8 @@ describe('Webhook Handlers', () => {
     it('runs specific task type (cleanup_logs)', async () => {
       const result = await safeTool('run_maintenance', { task_type: 'cleanup_logs' });
       expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Stream cleanup');
+      expect(getText(result)).toContain('Task event cleanup');
     });
 
     it('runs specific task type (aggregate_metrics)', async () => {
@@ -645,16 +647,27 @@ describe('Webhook Handlers', () => {
   describe('run_maintenance — extended', () => {
     it('runs cleanup_stale_tasks', async () => {
       const result = await safeTool('run_maintenance', { task_type: 'cleanup_stale_tasks' });
-      expect(result.isError).toBeTruthy();
-      expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
-      expect(getText(result)).toContain('Parameter "task_type" must be one of [archive_old_tasks, cleanup_logs, aggregate_metrics, all], got "cleanup_stale_tasks"');
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Stale task cleanup');
+    });
+
+    it('runs purge_task_output', async () => {
+      const result = await safeTool('run_maintenance', { task_type: 'purge_task_output' });
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Task output purge');
+    });
+
+    it('runs enforce_limits', async () => {
+      const result = await safeTool('run_maintenance', { task_type: 'enforce_limits' });
+      expect(result.isError).toBeFalsy();
+      expect(getText(result)).toContain('Event table limits');
     });
 
     it('runs update_metrics', async () => {
       const result = await safeTool('run_maintenance', { task_type: 'update_metrics' });
       expect(result.isError).toBeTruthy();
       expect(getText(result)).toContain('Validation failed for 1 parameter(s):');
-      expect(getText(result)).toContain('Parameter "task_type" must be one of [archive_old_tasks, cleanup_logs, aggregate_metrics, all], got "update_metrics"');
+      expect(getText(result)).toContain('got "update_metrics"');
     });
 
     it('runs with schedule disabled', async () => {
