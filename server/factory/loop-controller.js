@@ -5141,7 +5141,24 @@ async function executePlanFileStage(project, instance, workItem) {
         ...args,
         tags: [...new Set(tags)],
       });
-      if (!result?.task_id) {
+      // smart_submit_task may auto-decompose a complex task into a sequenced
+      // workflow when the target file is large enough (see routing.js
+      // GUIDED_FILE_THRESHOLD path). In that case the result has no top-level
+      // task_id but does have workflow_id + task_ids — the subtasks form a
+      // dependency chain (each depends on the previous), so awaiting the
+      // terminal subtask awaits the whole chain. Without this branch the
+      // executor previously threw the success-payload markdown as an
+      // execute_exception and the factory paused at EXECUTE.
+      let trackedTaskId = result?.task_id || null;
+      if (!trackedTaskId && result?.workflow_id && Array.isArray(result.task_ids) && result.task_ids.length > 0) {
+        trackedTaskId = result.task_ids[result.task_ids.length - 1];
+        logger.info('factory submit: smart_submit_task auto-decomposed into workflow', {
+          workflow_id: result.workflow_id,
+          subtask_count: result.task_ids.length,
+          terminal_task_id: trackedTaskId,
+        });
+      }
+      if (!trackedTaskId) {
         throw new Error(result?.content?.[0]?.text || 'smart_submit_task did not return task_id');
       }
       // Record the task as the worktree's current owner so the pre-reclaim
@@ -5150,16 +5167,16 @@ async function executePlanFileStage(project, instance, workItem) {
       // fall through without owner tracking).
       if (worktreeRecord && worktreeRecord.id) {
         try {
-          factoryWorktrees.setOwningTask(worktreeRecord.id, result.task_id);
+          factoryWorktrees.setOwningTask(worktreeRecord.id, trackedTaskId);
         } catch (ownErr) {
           logger.warn('factory worktree: setOwningTask failed', {
             factory_worktree_id: worktreeRecord.id,
-            task_id: result.task_id,
+            task_id: trackedTaskId,
             err: ownErr && ownErr.message,
           });
         }
       }
-      return { task_id: result.task_id };
+      return { task_id: trackedTaskId };
     },
     awaitTask: (args) => awaitTaskToStructuredResult(handleAwaitTask, taskCore, args),
     projectDefaults: project.config || {},
