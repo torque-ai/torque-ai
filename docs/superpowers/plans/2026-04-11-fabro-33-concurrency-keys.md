@@ -226,7 +226,7 @@ Commit: `feat(concurrency): scheduler honors concurrency_key quotas`.
 
 ## Task 3: Admin REST + dashboard limit editor
 
-- [ ] **Step 1: REST**
+- [x] **Step 1: REST**
 
 In `server/api/routes/admin.js`:
 
@@ -258,7 +258,7 @@ router.delete('/concurrency/limit/:pattern', (req, res) => {
 });
 ```
 
-- [ ] **Step 2: Dashboard panel**
+- [x] **Step 2: Dashboard panel**
 
 Add a "Concurrency" section to the existing admin/operations view in the dashboard with:
 - Table of `key_pattern, max_concurrent, active_count, % used`
