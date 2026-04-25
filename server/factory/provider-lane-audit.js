@@ -409,7 +409,10 @@ function buildProviderLaneAudit({ project, db, limit, expected_provider, expecte
     throw new Error('project is required');
   }
 
-  const dbHandle = db || database();
+  const dbHandle = db || database.getDbInstance();
+  if (!dbHandle) {
+    throw new Error('database handle is unavailable');
+  }
   const resolvedLimit = normalizeLimit(limit);
   const policy = resolveLanePolicy(project, {
     expected_provider,

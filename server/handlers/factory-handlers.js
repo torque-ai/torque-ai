@@ -1924,7 +1924,7 @@ async function handleFactoryProviderLaneAudit(args) {
   const project = resolveProject(args.project);
   const audit = buildProviderLaneAudit({
     project,
-    db: database(),
+    db: database.getDbInstance(),
     limit: args.limit,
     expected_provider: args.expected_provider,
     allowed_fallback_providers: args.allowed_fallback_providers,
