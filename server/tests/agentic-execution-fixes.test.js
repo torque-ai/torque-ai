@@ -3081,7 +3081,7 @@ describe('providers/execution agentic fixes', () => {
     expect(workerSpy).toHaveBeenCalled();
     expect(db.selectOllamaHostForModel).toHaveBeenCalledWith(TEST_MODELS.DEFAULT);
     expect(db.tryReserveHostSlot).toHaveBeenCalledWith('host-1', TEST_MODELS.DEFAULT);
-    expect(capturedWorkerData.maxIterations).toBe(15);
+    expect(capturedWorkerData.maxIterations).toBe(25);
     expect(capturedWorkerData.actionlessIterationLimit).toBeNull();
   });
 
