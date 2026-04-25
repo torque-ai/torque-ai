@@ -370,6 +370,16 @@ SSH_USER=""
 SSH_KEY_PATH=""
 DEFAULT_PROJECT_PATH=""
 REMOTE_PROJECT_PATH=""
+# When set (relative path under REMOTE_PROJECT_PATH), torque-remote runs the
+# user command inside a dedicated git worktree at that subpath instead of
+# in the main checkout. Isolates concurrent Codex/local sessions on the
+# remote that commit to the same repo from being clobbered by sync's
+# `git reset --hard`. Bootstrapped on first use; node_modules live AT the
+# subpath, so the operator must `npm ci` (in dashboard/ and server/)
+# inside the worktree once after bootstrap. Disabled by default — opt in
+# via .torque-remote.local.json:
+#   { "remote_test_worktree_subdir": ".worktrees/torque-remote-tests" }
+REMOTE_TEST_WORKTREE_SUBDIR=""
 
 # Global local config
 GLOBAL_LOCAL="$HOME/.torque-remote.local.json"
@@ -378,20 +388,37 @@ if [[ -f "$GLOBAL_LOCAL" ]]; then
   SSH_USER=$(json_get "$GLOBAL_LOCAL" '.user')
   SSH_KEY_PATH=$(json_get "$GLOBAL_LOCAL" '.key_path')
   DEFAULT_PROJECT_PATH=$(json_get "$GLOBAL_LOCAL" '.default_project_path')
+  v=$(json_get "$GLOBAL_LOCAL" '.remote_test_worktree_subdir'); [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_SUBDIR="$v"
 fi
 
 # Per-project local override
 PROJECT_LOCAL="$PROJECT_ROOT/.torque-remote.local.json"
 if [[ -f "$PROJECT_LOCAL" ]]; then
-  v=$(json_get "$PROJECT_LOCAL" '.host');                [[ -n "$v" ]] && SSH_HOST="$v"
-  v=$(json_get "$PROJECT_LOCAL" '.user');                [[ -n "$v" ]] && SSH_USER="$v"
-  v=$(json_get "$PROJECT_LOCAL" '.key_path');            [[ -n "$v" ]] && SSH_KEY_PATH="$v"
-  v=$(json_get "$PROJECT_LOCAL" '.remote_project_path'); [[ -n "$v" ]] && REMOTE_PROJECT_PATH="$v"
+  v=$(json_get "$PROJECT_LOCAL" '.host');                       [[ -n "$v" ]] && SSH_HOST="$v"
+  v=$(json_get "$PROJECT_LOCAL" '.user');                       [[ -n "$v" ]] && SSH_USER="$v"
+  v=$(json_get "$PROJECT_LOCAL" '.key_path');                   [[ -n "$v" ]] && SSH_KEY_PATH="$v"
+  v=$(json_get "$PROJECT_LOCAL" '.remote_project_path');        [[ -n "$v" ]] && REMOTE_PROJECT_PATH="$v"
+  v=$(json_get "$PROJECT_LOCAL" '.remote_test_worktree_subdir'); [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_SUBDIR="$v"
 fi
 
 # Derive remote project path if not explicitly set
 if [[ -z "$REMOTE_PROJECT_PATH" && -n "$DEFAULT_PROJECT_PATH" ]]; then
   REMOTE_PROJECT_PATH="${DEFAULT_PROJECT_PATH}\\${PROJECT_NAME}"
+fi
+
+# When REMOTE_TEST_WORKTREE_SUBDIR is configured, all sync/test/cleanup
+# operations run in the worktree at <REMOTE_PROJECT_PATH>/<SUBDIR> instead
+# of the main checkout. Codex sessions running directly on the remote
+# workstation can keep their main checkout (with WIP commits, stashes,
+# working-tree edits) without being clobbered by torque-remote's
+# `git reset --hard`. The bootstrap step in the sync block creates the
+# worktree if missing.
+EFFECTIVE_REMOTE_PROJECT_PATH="$REMOTE_PROJECT_PATH"
+if [[ -n "$REMOTE_TEST_WORKTREE_SUBDIR" && -n "$REMOTE_PROJECT_PATH" ]]; then
+  case "$REMOTE_PROJECT_PATH" in
+    *\\) EFFECTIVE_REMOTE_PROJECT_PATH="${REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUBDIR}" ;;
+    *)   EFFECTIVE_REMOTE_PROJECT_PATH="${REMOTE_PROJECT_PATH}\\${REMOTE_TEST_WORKTREE_SUBDIR}" ;;
+  esac
 fi
 
 # ---- Command to run ----
@@ -491,8 +518,17 @@ case "$TRANSPORT" in
 
       SYNC_BRANCH="${SYNC_REF#origin/}"
       info "Syncing $SYNC_BRANCH on remote..."
+      # When the test-worktree subdir is configured, ensure the worktree
+      # exists before sync. We register it from the MAIN checkout (the only
+      # place git's worktree metadata lives) and then the sync below runs
+      # entirely inside the worktree, leaving the main checkout's HEAD,
+      # stash, and working-tree edits untouched.
+      SYNC_BOOTSTRAP=""
+      if [[ -n "$REMOTE_TEST_WORKTREE_SUBDIR" ]]; then
+        SYNC_BOOTSTRAP="cd \"$REMOTE_PROJECT_PATH\" && git worktree list --porcelain | grep -Fxq \"worktree $EFFECTIVE_REMOTE_PROJECT_PATH\" || git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF && "
+      fi
       ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "cd \"$REMOTE_PROJECT_PATH\" && git fetch origin && git checkout --force $SYNC_BRANCH && git reset --hard $SYNC_REF" \
+        "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git fetch origin && git checkout --force $SYNC_BRANCH && git reset --hard $SYNC_REF" \
         2>&1 | tee -a /tmp/torque-remote-sync.log | grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || warn "Sync failed — remote may have stale code (see /tmp/torque-remote-sync.log)"
     fi
 
@@ -503,7 +539,7 @@ case "$TRANSPORT" in
     # Reads local patches/untracked tar (if present in the bundle) and runs the user command.
     REMOTE_RUN_BODY=$(cat <<EOF
 # torque-remote-inline-run
-PROJECT_PATH=$(shell_quote "$REMOTE_PROJECT_PATH")
+PROJECT_PATH=$(shell_quote "$EFFECTIVE_REMOTE_PROJECT_PATH")
 SYNC_REF=$(shell_quote "$SYNC_REF")
 BUNDLE_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
 $COMMAND_ARGS_LITERAL
@@ -557,7 +593,7 @@ EOF
     REMOTE_RUN_COMMAND="\"$GIT_BASH\" -lc \"d=\$(mktemp -d);tar -xf - -C \$d;bash \$d/runner.sh;rc=\$?;rm -rf \$d;exit \$rc\""
     REMOTE_CLEANUP_BODY=$(cat <<EOF
 # torque-remote-failsafe-cleanup
-cd $(shell_quote "$REMOTE_PROJECT_PATH") || exit 0
+cd $(shell_quote "$EFFECTIVE_REMOTE_PROJECT_PATH") || exit 0
 if [[ $(shell_quote "$APPLY_LOCAL_STATE") == 'true' ]]; then
   git reset --hard $(shell_quote "$SYNC_REF") >/dev/null 2>&1 || true
   git clean -fd >/dev/null 2>&1 || true
