@@ -64,6 +64,42 @@ describe('auto-recovery-core day-one rules', () => {
     expect(r.matched_rule).toBe('verify_fail_unclassified');
   });
 
+  it('classifies VERIFY waiting_for_batch_tasks as transient (not unknown)', () => {
+    const r = classifier.classify({
+      stage: 'verify',
+      action: 'waiting_for_batch_tasks',
+      reasoning: 'VERIFY waiting for 16 non-terminal batch task(s) to finish before remote verify.',
+      outcome: { batch_id: 'factory-x-708', pending_count: 16, pending_statuses: ['skipped', 'skipped'] },
+    });
+    expect(r.category).toBe('transient');
+    expect(r.matched_rule).toBe('verify_batch_tasks_not_terminal');
+    expect(r.suggested_strategies[0]).toBe('retry');
+  });
+
+  it('classifies VERIFY paused_at_gate(reason=batch_tasks_not_terminal) via the same rule', () => {
+    const r = classifier.classify({
+      stage: 'verify',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting approval for VERIFY.',
+      outcome: { reason: 'batch_tasks_not_terminal', from_state: 'VERIFY', to_state: 'PAUSED' },
+    });
+    expect(r.matched_rule).toBe('verify_batch_tasks_not_terminal');
+    expect(r.category).toBe('transient');
+  });
+
+  it('classifies an EXECUTE-stage execute_exception as unknown but with a rule attached', () => {
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'execute_exception',
+      reasoning: 'Plan executor threw: smart_submit_task did not return task_id',
+      outcome: { error: 'plan executor threw', paused_at_stage: 'EXECUTE', next_state: 'PAUSED' },
+    });
+    expect(r.matched_rule).toBe('execute_exception_unclassified');
+    expect(r.category).toBe('unknown');
+    expect(r.suggested_strategies[0]).toBe('retry');
+    expect(r.suggested_strategies).toContain('reject_and_advance');
+  });
+
   it('classifies reviewer timeout pauses as provider overload and prefers a fresh-session retry', () => {
     const r = classifier.classify({
       stage: 'verify',
