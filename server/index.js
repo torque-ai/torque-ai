@@ -1262,8 +1262,12 @@ function init() {
         || taskHasFactoryTag(task)
         || taskHasRunningWorkflow(task);
     };
-    const markStartupOrphanCancelled = (task, updates) => {
-      db.updateTaskStatus(task.id, 'cancelled', { ...updates, cancel_reason: 'orphan_cleanup' });
+    const markStartupOrphanFailed = (task, updates) => {
+      db.updateTaskStatus(task.id, 'failed', {
+        ...updates,
+        error_output: `${updates?.error_output || ''}\n[startup-orphan-cleanup] marked failed by restart`,
+        cancel_reason: null,
+      });
       if (task.ollama_host_id) {
         try { db.decrementHostTasks(task.ollama_host_id); } catch { /* host may not exist */ }
       }
@@ -1283,7 +1287,7 @@ function init() {
       const maxRetries = task.max_retries != null ? task.max_retries : 2;
 
       if (retryCount >= maxRetries) {
-        markStartupOrphanCancelled(task, {
+        markStartupOrphanFailed(task, {
           error_output: `${reason} (max retries exhausted: ${retryCount}/${maxRetries})`,
           completed_at: new Date().toISOString()
         });
@@ -1356,7 +1360,7 @@ function init() {
             }
             orphansCleaned++;
           } else {
-            markStartupOrphanCancelled(task, {
+            markStartupOrphanFailed(task, {
               error_output: `Task orphaned — owning instance ${task.mcp_instance_id} is no longer alive (max retries exhausted)`,
               completed_at: new Date().toISOString()
             });

@@ -438,9 +438,8 @@ describe('Orphan Cleanup', () => {
 
       orphanCleanup.checkStaleRunningTasks();
       // Not in runningProcesses, so should update DB directly
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-old', 'cancelled', expect.objectContaining({
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-old', 'failed', expect.objectContaining({
         error_output: expect.stringContaining('exceeded'),
-        cancel_reason: 'timeout',
       }));
     });
 
@@ -570,8 +569,7 @@ describe('Orphan Cleanup', () => {
 
       orphanCleanup.checkStaleRunningTasks();
 
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-dead-owner-maxed', 'cancelled', expect.objectContaining({
-        cancel_reason: 'orphan_cleanup',
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-dead-owner-maxed', 'failed', expect.objectContaining({
         mcp_instance_id: null,
         error_output: expect.stringContaining('max retries exhausted'),
       }));

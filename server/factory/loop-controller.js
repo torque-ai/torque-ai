@@ -5024,6 +5024,27 @@ async function executePlanFileStage(project, instance, workItem) {
                 }
                 await new Promise((resolveWait) => setTimeout(resolveWait, 250));
               }
+              const latestOwner = taskCore.getTask(stale.owningTaskId);
+              if (latestOwner && !['completed', 'failed', 'cancelled', 'skipped'].includes(latestOwner.status)) {
+                const retryCount = Number(latestOwner.retry_count || 0);
+                const maxRetries = Number(
+                  latestOwner.max_retries != null ? latestOwner.max_retries : 2,
+                );
+                if (retryCount < maxRetries) {
+                  taskCore.updateTaskStatus(stale.owningTaskId, 'queued', {
+                    error_output: `Task requeued for reclaim cleanup retry (attempt ${retryCount + 1}/${maxRetries})`,
+                    retry_count: retryCount + 1,
+                    mcp_instance_id: null,
+                    provider: null,
+                    ollama_host_id: null,
+                  });
+                } else {
+                  taskCore.updateTaskStatus(stale.owningTaskId, 'failed', {
+                    error_output: `Task could not be reclaimed for worktree ownership cleanup (attempt ${retryCount}/${maxRetries})`,
+                    completed_at: new Date().toISOString(),
+                  });
+                }
+              }
             }
           } catch (ownershipErr) {
             logger.warn('factory worktree: owning-task check failed; proceeding with reclaim', {

@@ -156,6 +156,51 @@ function appendCancelError(task, reason) {
   return `${prefix}[factory] ${reason}`;
 }
 
+function appendSkippedError(task, reason) {
+  const prefix = task?.error_output ? `${task.error_output}\n` : '';
+  return `${prefix}${reason}`;
+}
+
+function remapTaskToSkippedAfterCancellation(task, { taskCore, reason }) {
+  const mappedReason = `${reason} (mapped from factory_closed_work_item)`;
+  const updates = {
+    error_output: appendSkippedError(task, mappedReason),
+    completed_at: new Date().toISOString(),
+  };
+
+  try {
+    const updated = taskCore.updateTaskStatus(task.id, 'skipped', {
+      ...updates,
+      _softFail: true,
+    });
+    if (updated?.status === 'skipped') return true;
+  } catch (err) {
+    logger.warn('factory tick: failed direct skipped remap (phase 1)', {
+      task_id: task.id,
+      err: err && err.message,
+    });
+  }
+
+  try {
+    const db = require('../database').getDbInstance();
+    if (!db) return false;
+    const result = db.prepare('UPDATE tasks SET status = ?, error_output = ?, completed_at = ?, cancel_reason = NULL WHERE id = ?')
+      .run('skipped', updates.error_output, updates.completed_at, task.id);
+    if (result.changes > 0) {
+      const { eventBus } = require('../event-bus');
+      eventBus.emitQueueChanged();
+      return true;
+    }
+  } catch (fallbackErr) {
+    logger.warn('factory tick: failed direct DB remap to skipped', {
+      task_id: task.id,
+      err: fallbackErr && fallbackErr.message,
+    });
+  }
+
+  return false;
+}
+
 function cancelFactoryTask(task, reason, { taskCore, taskManager, cancelReason }) {
   if (!task || !task.id) {
     return { cancelled: false, error: 'missing_task_id' };
@@ -256,6 +301,23 @@ async function cancelClosedFactoryWorkItemTasks(project_id, options = {}) {
     if (result.cancelled) {
       cancelledTaskIds.push(task.id);
       closedWorkItemIds.add(workItemId);
+      try {
+        const latest = taskCore.getTask(task.id);
+        if (latest && !['completed', 'failed', 'skipped'].includes(latest.status)) {
+          const mapped = remapTaskToSkippedAfterCancellation(latest, { taskCore, reason });
+          if (!mapped) {
+            logger.warn('factory tick: direct skip remap reported failure after cancellation', {
+              task_id: task.id,
+            });
+          }
+        }
+      } catch (markErr) {
+        logger.warn('factory tick: failed to map cancelled task to skipped', {
+          task_id: task.id,
+          work_item_id: workItemId,
+          err: markErr && markErr.message,
+        });
+      }
     } else {
       failedCancellations.push({ task_id: task.id, work_item_id: workItemId, error: result.error || 'cancel_failed' });
     }

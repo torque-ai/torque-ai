@@ -813,10 +813,10 @@ function cleanupStaleRestartBarriers() {
       if (activeHandoff && activeHandoff.barrier_id === b.id) {
         continue;
       }
-      taskCore.updateTaskStatus(b.id, 'cancelled', {
-        error_output: 'Stale restart barrier — server restarted before drain completed',
+      taskCore.updateTaskStatus(b.id, 'failed', {
+        error_output: '[startup-cleanup] Stale restart barrier — server restarted before drain completed',
         completed_at: new Date().toISOString(),
-        cancel_reason: 'stale_barrier',
+        cancel_reason: null,
       });
       cleanedCount += 1;
     }
