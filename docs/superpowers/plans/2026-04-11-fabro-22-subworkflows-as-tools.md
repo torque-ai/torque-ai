@@ -277,7 +277,7 @@ default: {
 
 ## Task 4: Docs + restart + smoke
 
-- [ ] **Step 1: Docs**
+- [x] **Step 1: Docs**
 
 Create `docs/subworkflows.md`:
 
