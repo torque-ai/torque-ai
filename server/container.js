@@ -301,6 +301,10 @@ _defaultContainer.register('autoRecoveryServices', ['db', 'eventBus', 'logger'],
         if (!loopController) throw new Error('factory loop controller unavailable');
         return loopController.rejectGateForProject(project_id, stage);
       },
+      approveGate: async ({ project_id, stage }) => {
+        if (!loopController) throw new Error('factory loop controller unavailable');
+        return loopController.approveGateForProject(project_id, stage);
+      },
       startLoop: async ({ project_id, auto_advance }) => {
         if (!loopController) throw new Error('factory loop controller unavailable');
         return auto_advance
