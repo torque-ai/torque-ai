@@ -37,14 +37,24 @@ function buildFixture(opts = {}) {
   // model_registry, routing_templates) that only exist in a seeded production DB.
   createTables(db, nullLogger);
 
-  // Patch tasks table for migration-added columns that aren't in the base
-  // CREATE TABLE statement. createTask requires these. Wrapped in try/catch so
-  // we silently no-op if the base schema already includes them in the future.
-  try {
-    db.exec('ALTER TABLE tasks ADD COLUMN server_epoch INTEGER');
-  } catch (_e) {
-    // column already exists — fine
-  }
+  // Patch migration-added columns that aren't in the base CREATE TABLE statements.
+  // Wrapped in try/catch so we silently no-op if the base schema already includes
+  // them in the future. This mirrors what schema-migrations.js does via safeAddColumn.
+  const safeAddCol = (table, colDef) => {
+    try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${colDef}`); } catch (_e) { /* already exists */ }
+  };
+
+  // tasks.server_epoch — required by createTask (added by schema-migrations.js)
+  safeAddCol('tasks', 'server_epoch INTEGER');
+
+  // token_usage.project — queried by getProjectStats WHERE project = ?
+  safeAddCol('token_usage', 'project TEXT');
+
+  // pipelines.project — queried by getProjectStats WHERE project = ?
+  safeAddCol('pipelines', 'project TEXT');
+
+  // scheduled_tasks.project — queried by getProjectStats WHERE project = ?
+  safeAddCol('scheduled_tasks', 'project TEXT');
 
   const insertTask = db.prepare(
     `INSERT INTO tasks (id, project, status, task_description, created_at, tags, files_modified, context)
