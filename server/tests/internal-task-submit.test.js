@@ -297,6 +297,56 @@ describe('submitFactoryInternalTask', () => {
     }));
   });
 
+  it('inherits a strict provider-lane expected provider when no routing defaults are configured', async () => {
+    const database = require('../database');
+    const projectConfigCore = require('../db/project-config-core');
+    vi.spyOn(database, 'getDbInstance').mockReturnValue({
+      prepare: vi.fn(() => ({
+        get: vi.fn(() => ({
+          id: 'project-lane-only',
+          name: 'DLPhone',
+          path: 'C:/Projects/DLPhone',
+          status: 'running',
+          config_json: JSON.stringify({
+            provider_lane_policy: {
+              expected_provider: 'ollama-cloud',
+              allowed_fallback_providers: [],
+              enforce_handoffs: true,
+            },
+          }),
+        })),
+      })),
+    });
+    vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue(null);
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'verify-review-lane' });
+
+    await submitFactoryInternalTask({
+      task: 'review verify failure',
+      working_directory: 'C:/Projects/DLPhone/.worktrees/feat-893',
+      kind: 'verify_review',
+      project_id: 'project-lane-only',
+      work_item_id: 893,
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'ollama-cloud',
+      task_metadata: expect.objectContaining({
+        target_project: 'DLPhone',
+        inherited_provider: 'ollama-cloud',
+        inherited_provider_from_project: 'DLPhone',
+        inherited_provider_source: 'provider_lane_policy',
+        user_provider_override: false,
+        provider_lane_policy: {
+          expected_provider: 'ollama-cloud',
+          allowed_fallback_providers: [],
+          allowed_providers: [],
+          enforce_handoffs: true,
+        },
+      }),
+    }));
+  });
+
   it('returns the task_id from the submitter response', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'internal-task-9' });

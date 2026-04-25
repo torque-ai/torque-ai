@@ -575,6 +575,49 @@ describe('runLlmTiebreak', () => {
     }
   });
 
+  it('defers verify_review provider selection to target project routing when a provider lane is configured', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-lane' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+    });
+    const original = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      await runLlmTiebreak({
+        failingTests: ['tests/foo.py'],
+        modifiedFiles: ['src/bar.ts'],
+        workItem: { id: 1, title: 'w', description: 'd' },
+        project: {
+          id: 'p',
+          path: '/tmp/p',
+          config_json: JSON.stringify({
+            provider_lane_policy: {
+              expected_provider: 'ollama-cloud',
+              allowed_fallback_providers: [],
+              enforce_handoffs: true,
+            },
+          }),
+        },
+      });
+      const call = submit.mock.calls[0][0];
+      expect(call.provider).toBeUndefined();
+      expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'verify_review',
+        prefer_free: true,
+        context_stuff: false,
+      }));
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+      else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = original;
+    }
+  });
+
   it('honors TORQUE_VERIFY_REVIEWER_PROVIDER env override', async () => {
     const submit = vi.fn().mockResolvedValue({ task_id: 't-env' });
     installMocks({

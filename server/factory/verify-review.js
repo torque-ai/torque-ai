@@ -1,6 +1,7 @@
 'use strict';
 
 const childProcess = require('node:child_process');
+const { getProviderLanePolicyFromProject } = require('./provider-lane-policy');
 
 // Register built-in dep-resolver adapters on module load. Idempotent —
 // the registry holds a Map keyed by manager name.
@@ -194,14 +195,27 @@ async function getModifiedFiles(workingDirectory, worktreeBranch, mergeBase) {
 }
 
 // The reviewer is a structured yes/no judgment ("does this diff explain
-// those failures?"). Cerebras/groq deliver JSON in ~1-3s vs Codex's
-// ~5-10min for the same task. Override via env for ops flexibility:
-// empty string opts back into smart routing (legacy behavior).
-function readReviewerProvider() {
+// those failures?"). For ordinary projects, Cerebras/groq deliver JSON in
+// ~1-3s vs Codex's ~5-10min for the same task. Lane-locked projects must
+// inherit their target routing instead of letting this helper drift providers.
+// Override via env for ops flexibility; empty string opts back into smart routing.
+function readReviewerProviderOverride() {
   const raw = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
-  if (raw === undefined) return 'cerebras';
+  if (raw === undefined) return undefined;
   const trimmed = String(raw).trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveReviewerProvider(project) {
+  const envOverride = readReviewerProviderOverride();
+  if (envOverride !== undefined) return envOverride;
+
+  const lanePolicy = getProviderLanePolicyFromProject(project || {});
+  if (lanePolicy?.expected_provider) {
+    return null;
+  }
+
+  return 'cerebras';
 }
 
 // Reinforces the JSON-shape contract when the first attempt produced
@@ -296,7 +310,7 @@ async function submitAndParseTiebreak({ prompt, workingDirectory, project, workI
 
 async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, workingDirectory, verifyOutput, timeoutMs = LLM_TIMEOUT_MS }) {
   const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem, verifyOutput });
-  const reviewerProvider = readReviewerProvider();
+  const reviewerProvider = resolveReviewerProvider(project);
   const args = { workingDirectory, project, workItem, timeoutMs, reviewerProvider };
 
   const first = await module.exports.submitAndParseTiebreak({ ...args, prompt });

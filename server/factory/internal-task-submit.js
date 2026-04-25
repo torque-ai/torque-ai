@@ -1,6 +1,9 @@
 'use strict';
 
-const { buildProviderLaneTaskMetadata } = require('./provider-lane-policy');
+const {
+  buildProviderLaneTaskMetadata,
+  getProviderLanePolicyFromProject,
+} = require('./provider-lane-policy');
 
 const PROJECT_BY_KIND = Object.freeze({
   architect_cycle: 'factory-architect',
@@ -8,8 +11,8 @@ const PROJECT_BY_KIND = Object.freeze({
   // verify_review is a structured yes/no verdict task (does this diff
   // explain those test failures?). Lives in factory-plan for billing
   // grouping but exists as a distinct kind so the verify-review path can
-  // route to a fast/cheap provider (cerebras/groq) instead of inheriting
-  // plan_generation's Codex/xhigh routing.
+  // use a fast/cheap reviewer for ordinary projects while still inheriting
+  // target project lane routing when that lane is configured.
   verify_review: 'factory-plan',
 });
 
@@ -115,23 +118,29 @@ function resolveInheritedRoutingIntent({
   requestedProvider,
   requestedRoutingTemplate,
 }) {
+  const lanePolicy = getProviderLanePolicyFromProject(targetProject || {});
+  const laneProvider = !requestedProvider && !requestedRoutingTemplate
+    ? normalizeOptionalString(lanePolicy?.expected_provider)
+    : null;
   const defaults = resolveTargetProjectDefaults(targetProject, workingDirectory);
   if (!defaults) {
     return {
       defaults: null,
-      provider: null,
+      provider: laneProvider,
       routingTemplate: null,
       model: null,
+      providerSource: laneProvider ? 'provider_lane_policy' : null,
     };
   }
 
   const routingTemplate = requestedRoutingTemplate
     ? null
     : normalizeOptionalString(defaults.routing_template_id);
+  const defaultProvider = normalizeOptionalString(defaults.default_provider);
   const provider = requestedProvider || requestedRoutingTemplate || routingTemplate
     ? null
-    : normalizeOptionalString(defaults.default_provider);
-  const model = provider
+    : (laneProvider || defaultProvider);
+  const model = provider && provider === defaultProvider
     ? normalizeOptionalString(defaults.default_model)
     : null;
 
@@ -140,6 +149,9 @@ function resolveInheritedRoutingIntent({
     provider,
     routingTemplate,
     model,
+    providerSource: provider
+      ? (laneProvider && provider === laneProvider ? 'provider_lane_policy' : 'project_defaults')
+      : null,
   };
 }
 
@@ -206,6 +218,8 @@ async function submitFactoryInternalTask({
     ...(!requestedProvider && inheritedIntent.provider ? {
       inherited_provider: inheritedIntent.provider,
       inherited_provider_from_project: inheritedIntent.defaults?.project || targetProject?.name || null,
+      inherited_provider_source: inheritedIntent.providerSource || 'project_defaults',
+      user_provider_override: false,
     } : {}),
     ...buildProviderLaneTaskMetadata(targetProject || {}),
     ...(extra_metadata || {}),
