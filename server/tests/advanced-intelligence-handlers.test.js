@@ -841,7 +841,10 @@ describe('server/handlers/advanced/intelligence', () => {
       [
         'cancel',
         { status: 'running' },
-        { error_output: 'Cancelled via intervention: {"reason":"manual-stop"}' },
+        {
+          error_output: 'Cancelled via intervention: {"reason":"manual-stop"}',
+          cancel_reason: 'user',
+        },
         { intervention_type: 'cancel', parameters: { reason: 'manual-stop' } },
         'Task cancelled',
       ],

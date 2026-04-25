@@ -411,6 +411,7 @@ function rejectApproval(taskId, rejectedBy, comment = null) {
       SET
         approval_status = 'rejected',
         status = CASE WHEN status IN ('pending', 'queued') THEN 'cancelled' ELSE status END,
+        cancel_reason = CASE WHEN status IN ('pending', 'queued') THEN 'human_rejected' ELSE cancel_reason END,
         error_output = CASE WHEN status IN ('pending', 'queued') THEN ? ELSE error_output END
       WHERE id = ?
     `).run(rejectionMessage, taskId);

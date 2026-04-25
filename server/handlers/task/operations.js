@@ -710,6 +710,9 @@ function handleBatchCancel(args) {
   if (args.provider) {
     options.provider = args.provider;
   }
+  if (typeof args.cancel_reason === 'string' && args.cancel_reason.trim()) {
+    options.cancel_reason = args.cancel_reason.trim();
+  }
 
   // Create bulk operation record
   const operationId = uuidv4();

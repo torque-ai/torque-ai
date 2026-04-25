@@ -565,6 +565,7 @@ describe('api/v2-governance-handlers.handleDeletePlanProject', () => {
 
     expect(mockTaskCore.updateTaskStatus).toHaveBeenCalledWith('task-1', 'cancelled', {
       error_output: 'Plan project deleted',
+      cancel_reason: 'user',
     });
     expect(mockDb.deletePlanProject).toHaveBeenCalledWith('plan-3');
     expect(res.statusCode).toBe(200);

@@ -994,6 +994,7 @@ describe('api/v2-governance-handlers', () => {
 
         expect(mocks.db.updateTaskStatus).toHaveBeenCalledWith('task-1', 'cancelled', {
           error_output: 'Plan project deleted',
+          cancel_reason: 'user',
         });
         expect(mocks.db.deletePlanProject).toHaveBeenCalledWith('plan-2');
         expectSuccessEnvelope(res, {

@@ -449,6 +449,10 @@ module.exports = [
         "provider": {
           "type": "string",
           "description": "Cancel tasks using this provider (e.g., \"codex\", \"ollama\", \"claude-cli\")"
+        },
+        "cancel_reason": {
+          "type": "string",
+          "description": "Optional cancellation reason for bulk-canceled tasks"
         }
       },
       "required": []

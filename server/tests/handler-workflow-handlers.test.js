@@ -916,9 +916,15 @@ describe('handler:workflow-handlers', () => {
       });
 
       expect(taskManager.cancelTask).toHaveBeenCalledWith('run-1', 'Superseded');
-      expect(updateTaskStatusSpy).toHaveBeenCalledWith('pen-1', 'cancelled');
-      expect(updateTaskStatusSpy).toHaveBeenCalledWith('blk-1', 'cancelled');
-      expect(updateTaskStatusSpy).toHaveBeenCalledWith('que-1', 'cancelled');
+      expect(updateTaskStatusSpy).toHaveBeenCalledWith('pen-1', 'cancelled', expect.objectContaining({
+        cancel_reason: 'user',
+      }));
+      expect(updateTaskStatusSpy).toHaveBeenCalledWith('blk-1', 'cancelled', expect.objectContaining({
+        cancel_reason: 'user',
+      }));
+      expect(updateTaskStatusSpy).toHaveBeenCalledWith('que-1', 'cancelled', expect.objectContaining({
+        cancel_reason: 'user',
+      }));
       expect(updateWorkflowSpy).toHaveBeenCalledWith('wf-1', expect.objectContaining({
         status: 'cancelled',
         completed_at: expect.any(String)

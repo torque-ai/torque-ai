@@ -745,6 +745,7 @@ describe('provider-routing module', () => {
 
       expect(taskCore.getTask(runningId).status).toBe('failed');
       expect(taskCore.getTask(queuedId).status).toBe('cancelled');
+      expect(taskCore.getTask(queuedId).cancel_reason).toBe('stale_session_cleanup');
     });
 
     it('cleanupStaleTasks handles running tasks with null started_at', () => {

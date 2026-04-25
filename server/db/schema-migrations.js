@@ -1001,6 +1001,19 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
   // Await restart recovery: structured cancel reason + server epoch
   safeAddColumn('tasks', 'cancel_reason TEXT');
   safeAddColumn('tasks', 'server_epoch INTEGER');
+  try {
+    const backfilled = db.prepare(`
+      UPDATE tasks
+      SET cancel_reason = 'legacy_unknown'
+      WHERE status = 'cancelled'
+        AND (cancel_reason IS NULL OR cancel_reason = '')
+    `).run();
+    if (backfilled.changes > 0) {
+      logger.debug(`[DB] Backfilled cancel_reason for ${backfilled.changes} pre-existing cancelled tasks.`);
+    }
+  } catch (e) {
+    logger.debug(`Schema migration (cancel_reason backfill): ${e.message}`);
+  }
   ensureFactoryLoopInstancesSchema();
   dropTaskEventSubscriptionsFk();
 

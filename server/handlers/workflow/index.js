@@ -1798,7 +1798,7 @@ function handleCancelWorkflow(args) {
       if (currentStatus === 'running') {
         taskManager.cancelTask(task.id, args.reason || 'Workflow cancelled');
       } else {
-        getTaskCore().updateTaskStatus(task.id, 'cancelled');
+        getTaskCore().updateTaskStatus(task.id, 'cancelled', { cancel_reason: 'user' });
       }
       cancelled++;
     }

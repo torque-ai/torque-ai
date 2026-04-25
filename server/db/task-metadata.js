@@ -537,8 +537,11 @@ function getTagStats() {
  * @returns {number} Number of tasks cancelled.
  */
 function batchCancelTasks(options = {}) {
+  const cancelReason = typeof options.cancel_reason === 'string' && options.cancel_reason.trim().length > 0
+    ? options.cancel_reason.trim()
+    : 'user';
   const conditions = [];
-  const values = [new Date().toISOString()];
+  const values = [cancelReason, new Date().toISOString()];
 
   // Status condition
   if (options.status) {
@@ -567,7 +570,7 @@ function batchCancelTasks(options = {}) {
     values.push(options.provider);
   }
 
-  const query = "UPDATE tasks SET status = 'cancelled', completed_at = ? WHERE " + conditions.join(' AND ');
+  const query = "UPDATE tasks SET status = 'cancelled', cancel_reason = ?, completed_at = ? WHERE " + conditions.join(' AND ');
   const stmt = db.prepare(query);
   const result = stmt.run(...values);
   return result.changes;
