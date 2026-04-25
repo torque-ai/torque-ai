@@ -2390,6 +2390,47 @@ function recoverStarvedInstanceForAdvance(project, instance) {
   };
 }
 
+function summarizeStarvationRecovery(result) {
+  if (!result) {
+    return null;
+  }
+
+  return {
+    recovered: !!result.recovered,
+    reason: result.reason || null,
+    forced: result.forced === true,
+    trigger: result.trigger || null,
+    scout_task_id: result.scout?.task_id || result.scout?.id || null,
+    created_count: result.created_count ?? null,
+    open_work_items: result.open_work_items ?? null,
+  };
+}
+
+async function triggerImmediateStarvationRecovery(project, trigger) {
+  if (!project || project.loop_state !== LOOP_STATES.STARVED) {
+    return null;
+  }
+
+  try {
+    const container = require('../container').defaultContainer;
+    const starvationRecovery = container.get('starvationRecovery');
+    if (!starvationRecovery || typeof starvationRecovery.maybeRecover !== 'function') {
+      return null;
+    }
+    return await starvationRecovery.maybeRecover(project, {
+      force: true,
+      trigger,
+    });
+  } catch (err) {
+    logger.warn('Immediate STARVED recovery failed', {
+      project_id: project?.id,
+      trigger,
+      err: err.message,
+    });
+    return null;
+  }
+}
+
 function countRunningLoopItems(project_id) {
   try {
     return getActiveInstances(project_id)
@@ -8119,6 +8160,40 @@ async function runAdvanceLoop(instance_id) {
       };
     }
 
+    const recovery = await triggerImmediateStarvationRecovery({
+      ...project,
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: instance.last_action_at || project.loop_last_action_at,
+    }, 'manual_advance');
+    if (recovery?.recovered) {
+      const latestInstance = getInstanceOrThrow(instance.id);
+      return {
+        project_id: project.id,
+        instance_id: latestInstance.id,
+        previous_state: previousState,
+        new_state: getCurrentLoopState(latestInstance),
+        paused_at_stage: getPausedAtStage(latestInstance),
+        stage_result: {
+          recovered_from_state: LOOP_STATES.STARVED,
+          starvation_recovery: summarizeStarvationRecovery(recovery),
+        },
+        reason: recovery.reason || 'starvation_recovered',
+      };
+    }
+    if (recovery?.reason === 'scout_submitted_waiting_for_intake') {
+      return {
+        project_id: project.id,
+        instance_id: instance.id,
+        previous_state: previousState,
+        new_state: LOOP_STATES.STARVED,
+        paused_at_stage: null,
+        stage_result: {
+          starvation_recovery: summarizeStarvationRecovery(recovery),
+        },
+        reason: 'starvation_recovery_scout_submitted',
+      };
+    }
+
     return {
       project_id: project.id,
       instance_id: instance.id,
@@ -8610,12 +8685,6 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
 
   if (currentState === LOOP_STATES.IDLE) {
     throw new Error('Loop not started for this project');
-  }
-  if (currentState === LOOP_STATES.STARVED) {
-    const openWorkItems = countOpenWorkItems(project.id);
-    if (openWorkItems <= 0) {
-      throw new Error('Loop is starved — replenish intake before advancing');
-    }
   }
 
   if (getPausedAtStage(instance) && !isReadyForStage(getPausedAtStage(instance))) {

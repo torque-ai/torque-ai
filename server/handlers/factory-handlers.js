@@ -25,6 +25,7 @@ const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory
 const { buildProjectCostSummary, getCostPerCycle, getCostPerHealthPoint, getProviderEfficiency } = require('../factory/cost-metrics');
 const { getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
 const { buildProviderLaneAudit } = require('../factory/provider-lane-audit');
+const { LOOP_STATES } = require('../factory/loop-states');
 const notifications = require('../factory/notifications');
 const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'factory-handlers' });
@@ -110,7 +111,48 @@ function normalizeBaselineResumeJob(job) {
     message: job.message || null,
     error: job.error || null,
     preview_output: job.preview_output || null,
+    starvation_recovery: job.starvation_recovery || null,
   };
+}
+
+function summarizeStarvationRecovery(result) {
+  if (!result) {
+    return null;
+  }
+
+  return {
+    recovered: !!result.recovered,
+    reason: result.reason || null,
+    forced: result.forced === true,
+    trigger: result.trigger || null,
+    scout_task_id: result.scout?.task_id || result.scout?.id || null,
+    created_count: result.created_count ?? null,
+    open_work_items: result.open_work_items ?? null,
+  };
+}
+
+async function triggerBaselineStarvationRecovery(project) {
+  if (!project || project.loop_state !== LOOP_STATES.STARVED) {
+    return null;
+  }
+
+  try {
+    const { defaultContainer } = require('../container');
+    const starvationRecovery = defaultContainer.get('starvationRecovery');
+    if (!starvationRecovery || typeof starvationRecovery.maybeRecover !== 'function') {
+      return null;
+    }
+    return await starvationRecovery.maybeRecover(project, {
+      force: true,
+      trigger: 'baseline_resume',
+    });
+  } catch (err) {
+    logger.warn('Baseline resume STARVED recovery failed', {
+      project_id: project?.id,
+      err: err.message,
+    });
+    return null;
+  }
 }
 
 function trimBaselineResumeJobs(projectId) {
@@ -1469,6 +1511,8 @@ async function executeBaselineResumeProbe({
       const updated = factoryHealth.getProject(projectRow.id);
       const factoryTick = require('../factory/factory-tick');
       factoryTick.startTick(updated);
+      const recovery = await triggerBaselineStarvationRecovery(updated);
+      job.starvation_recovery = summarizeStarvationRecovery(recovery);
     } catch (_e) {
       void _e; /* factory-tick not loaded */
     }

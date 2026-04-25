@@ -213,6 +213,70 @@ describe('handleResumeProjectBaselineFixed', () => {
     expect(cfg.baseline_broken_since).toBeNull();
   });
 
+  it('kicks immediate starvation recovery when a baseline-fixed project is STARVED', async () => {
+    const projectId = seedPausedBaselineProject(db, { probeAttempts: 0 });
+    db.prepare(`
+      UPDATE factory_projects
+      SET loop_state = 'STARVED',
+          loop_last_action_at = ?
+      WHERE id = ?
+    `).run(new Date().toISOString(), projectId);
+
+    const projectConfigCore = require('../db/project-config-core');
+    vi.spyOn(projectConfigCore, 'getProjectDefaults').mockReturnValue({ verify_command: 'npm test' });
+    const baselineProbe = require('../factory/baseline-probe');
+    vi.spyOn(baselineProbe, 'probeProjectBaseline').mockResolvedValue({
+      passed: true, exitCode: 0, output: 'all green', durationMs: 4321, error: null,
+    });
+    const { defaultContainer } = require('../container');
+    const maybeRecover = vi.fn().mockResolvedValue({
+      recovered: false,
+      reason: 'scout_submitted_waiting_for_intake',
+      scout: { task_id: 'scout-1' },
+      forced: true,
+      trigger: 'baseline_resume',
+    });
+    const getSpy = vi.spyOn(defaultContainer, 'get').mockImplementation((name) => {
+      if (name === 'starvationRecovery') {
+        return { maybeRecover };
+      }
+      throw new Error(`unexpected container service: ${name}`);
+    });
+    const {
+      handleResumeProjectBaselineFixed,
+      handleBaselineResumeJobStatus,
+    } = require('../handlers/factory-handlers');
+
+    try {
+      const r = await handleResumeProjectBaselineFixed({ project: projectId });
+      const job = r.structuredData;
+
+      await vi.waitFor(async () => {
+        const statusAfterRun = await handleBaselineResumeJobStatus({ project: projectId, job_id: job.job_id });
+        expect(statusAfterRun.structuredData).toMatchObject({
+          status: 'completed',
+          project_resumed: true,
+          starvation_recovery: {
+            recovered: false,
+            reason: 'scout_submitted_waiting_for_intake',
+            forced: true,
+            trigger: 'baseline_resume',
+            scout_task_id: 'scout-1',
+          },
+        });
+      });
+      expect(maybeRecover).toHaveBeenCalledWith(expect.objectContaining({
+        id: projectId,
+        loop_state: 'STARVED',
+      }), {
+        force: true,
+        trigger: 'baseline_resume',
+      });
+    } finally {
+      getSpy.mockRestore();
+    }
+  });
+
   it('returns error + preserves flag when probe still fails', async () => {
     const projectId = seedPausedBaselineProject(db, { probeAttempts: 0 });
     const projectConfigCore = require('../db/project-config-core');

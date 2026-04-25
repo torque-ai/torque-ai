@@ -88,21 +88,31 @@ function createStarvationRecovery({
     });
   }
 
-  async function maybeRecover(project) {
+  async function maybeRecover(project, options = {}) {
     if (!project || project.loop_state !== LOOP_STATES.STARVED) {
       return { recovered: false, reason: 'not_starved' };
     }
+
+    const force = options.force === true || options.skipDwell === true;
+    const trigger = typeof options.trigger === 'string' && options.trigger.trim()
+      ? options.trigger.trim()
+      : null;
+    const context = {
+      ...(force ? { forced: true } : {}),
+      ...(trigger ? { trigger } : {}),
+    };
 
     const initialOpenCount = await openWorkItemCount(project);
     if (initialOpenCount > 0) {
       return moveToSense(project, 'open_intake_available', {
         open_work_items: initialOpenCount,
+        ...context,
       });
     }
 
     const lastActionMs = parseLastActionMs(project.loop_last_action_at);
     const elapsedMs = lastActionMs === null ? Infinity : now() - lastActionMs;
-    if (elapsedMs < dwellMs) {
+    if (!force && elapsedMs < dwellMs) {
       return {
         recovered: false,
         reason: 'dwell_not_elapsed',
@@ -128,6 +138,7 @@ function createStarvationRecovery({
       return moveToSense(project, 'scout_findings_ingested', {
         created_count: createdFromFindings,
         findings_ingest: findingsIngest,
+        ...context,
       });
     }
 
@@ -149,6 +160,7 @@ function createStarvationRecovery({
         created_count: createdFromScoutOutputs,
         scout_output_ingest: scoutOutputIngest,
         findings_ingest: findingsIngest,
+        ...context,
       });
     }
 
@@ -158,6 +170,7 @@ function createStarvationRecovery({
         open_work_items: postIngestOpenCount,
         findings_ingest: findingsIngest,
         scout_output_ingest: scoutOutputIngest,
+        ...context,
       });
     }
 
@@ -194,6 +207,7 @@ function createStarvationRecovery({
         recovered: false,
         reason: 'scout_submission_failed',
         scout,
+        ...context,
       };
     }
 
@@ -205,6 +219,7 @@ function createStarvationRecovery({
       scout,
       findings_ingest: findingsIngest,
       scout_output_ingest: scoutOutputIngest,
+      ...context,
     };
   }
 

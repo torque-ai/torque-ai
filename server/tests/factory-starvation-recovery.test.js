@@ -48,6 +48,41 @@ describe('factory starvation recovery', () => {
     expect(updateLoopState).not.toHaveBeenCalled();
   });
 
+  it('can bypass dwell when an explicit recovery trigger asks for immediate scout seeding', async () => {
+    const submitScout = vi.fn().mockResolvedValue({ task_id: 'task-1' });
+    const updateLoopState = vi.fn().mockResolvedValue({});
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      dwellMs: 1000,
+      now: () => Date.parse('2026-04-22T12:00:00.500Z'),
+    });
+
+    const result = await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-04-22T12:00:00.000Z',
+    }, {
+      force: true,
+      trigger: 'manual_advance',
+    });
+
+    expect(result).toMatchObject({
+      recovered: false,
+      reason: 'scout_submitted_waiting_for_intake',
+      scout: { task_id: 'task-1' },
+      forced: true,
+      trigger: 'manual_advance',
+    });
+    expect(submitScout).toHaveBeenCalledTimes(1);
+    expect(updateLoopState).toHaveBeenCalledWith('project-1', expect.objectContaining({
+      loop_state: LOOP_STATES.STARVED,
+    }));
+  });
+
   it('moves STARVED projects back to SENSE immediately when intake is available', async () => {
     const submitScout = vi.fn();
     const updateLoopState = vi.fn().mockResolvedValue({});

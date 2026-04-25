@@ -20,6 +20,7 @@ const branchFreshness = require('../factory/branch-freshness');
 const loopController = require('../factory/loop-controller');
 const verifyReview = require('../factory/verify-review');
 const { LOOP_STATES } = require('../factory/loop-states');
+const { defaultContainer } = require('../container');
 
 const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
 const originalHandleAwaitTask = awaitModule.handleAwaitTask;
@@ -1868,8 +1869,21 @@ describe('factory loop-controller EXECUTE modes', () => {
       new_state: LOOP_STATES.STARVED,
       reason: 'loop_starved',
     });
-    expect(() => loopController.advanceLoopAsync(started.instance_id, { autoAdvance: true }))
-      .toThrow(/starved/i);
+    const descriptor = loopController.advanceLoopAsync(started.instance_id, { autoAdvance: true });
+    expect(descriptor).toMatchObject({
+      current_state: LOOP_STATES.STARVED,
+      status: 'running',
+      error: null,
+    });
+    await vi.waitFor(() => {
+      const completed = loopController.getLoopAdvanceJobStatusForProject(project.id, descriptor.job_id);
+      expect(completed).toMatchObject({
+        status: 'completed',
+        new_state: LOOP_STATES.STARVED,
+        reason: 'loop_starved',
+        error: null,
+      });
+    });
 
     const result = await loopController.awaitFactoryLoop(project.id, {
       heartbeat_minutes: 0.02,
@@ -1885,6 +1899,59 @@ describe('factory loop-controller EXECUTE modes', () => {
         loop_state: LOOP_STATES.STARVED,
       },
     });
+  });
+
+  it('submits an immediate recovery scout when STARVED advance has no intake', async () => {
+    const { project, workItem } = registerPlanProject();
+    factoryIntake.updateWorkItem(workItem.id, { status: 'completed' });
+    const started = loopController.startLoopForProject(project.id);
+    factoryLoopInstances.updateInstance(started.instance_id, {
+      loop_state: LOOP_STATES.STARVED,
+      paused_at_stage: null,
+      last_action_at: new Date().toISOString(),
+    });
+
+    const maybeRecover = vi.fn().mockResolvedValue({
+      recovered: false,
+      reason: 'scout_submitted_waiting_for_intake',
+      scout: { task_id: 'scout-1' },
+      forced: true,
+      trigger: 'manual_advance',
+    });
+    const getSpy = vi.spyOn(defaultContainer, 'get').mockImplementation((name) => {
+      if (name === 'starvationRecovery') {
+        return { maybeRecover };
+      }
+      throw new Error(`unexpected container service: ${name}`);
+    });
+
+    try {
+      const advanceResult = await loopController.advanceLoop(started.instance_id);
+
+      expect(maybeRecover).toHaveBeenCalledWith(expect.objectContaining({
+        id: project.id,
+        loop_state: LOOP_STATES.STARVED,
+      }), {
+        force: true,
+        trigger: 'manual_advance',
+      });
+      expect(advanceResult).toMatchObject({
+        previous_state: LOOP_STATES.STARVED,
+        new_state: LOOP_STATES.STARVED,
+        reason: 'starvation_recovery_scout_submitted',
+        stage_result: {
+          starvation_recovery: {
+            recovered: false,
+            reason: 'scout_submitted_waiting_for_intake',
+            forced: true,
+            trigger: 'manual_advance',
+            scout_task_id: 'scout-1',
+          },
+        },
+      });
+    } finally {
+      getSpy.mockRestore();
+    }
   });
 
   it('recovers STARVED loop advance when intake has been replenished', async () => {
