@@ -540,6 +540,41 @@ function triggerStrategicHooks(ctx) {
   }
 }
 
+function normalizeTaskTags(rawTags) {
+  if (Array.isArray(rawTags)) {
+    return rawTags.filter((tag) => typeof tag === 'string' && tag.trim());
+  }
+  if (typeof rawTags === 'string' && rawTags.trim()) {
+    const parsed = safeJsonParse(rawTags, []);
+    return Array.isArray(parsed)
+      ? parsed.filter((tag) => typeof tag === 'string' && tag.trim())
+      : [];
+  }
+  return [];
+}
+
+function triggerExperienceRecording(ctx) {
+  try {
+    if (ctx?.status !== 'completed') return;
+
+    const tags = normalizeTaskTags(ctx.task?.tags);
+    const verifyOk = tags.includes('tests:pass') || !tags.some((tag) => tag.startsWith('tests:'));
+    if (!verifyOk) return;
+
+    const { recordExperience } = require('../experience/store');
+    Promise.resolve().then(() => recordExperience({
+      project: ctx.task?.project,
+      task_description: ctx.task?.task_description,
+      output_summary: (ctx.output || '').slice(0, 2000),
+      files_modified: ctx.filesModified,
+      provider: ctx.task?.provider,
+      success_score: 1.0,
+    })).catch((err) => logger.info(`[experience] record failed: ${err.message}`));
+  } catch {
+    // non-critical
+  }
+}
+
 function recordProviderPerformance(ctx) {
   try {
     const provider = ctx?.task?.provider;
@@ -934,6 +969,8 @@ async function finalizeTask(taskId, options = {}) {
         }
       }
     } catch (_e) { /* non-critical */ }
+
+    triggerExperienceRecording(ctx);
 
     if (typeof deps.handlePostCompletion === 'function') {
       try {

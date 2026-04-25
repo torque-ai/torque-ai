@@ -300,6 +300,63 @@ describe('task-startup', () => {
     );
   });
 
+  it('injects related experiences into the execution prompt without rewriting the stored task description', async () => {
+    const storePath = require.resolve('../experience/store');
+    const originalStore = require.cache[storePath];
+    const findRelatedExperiences = vi.fn(async () => ([
+      {
+        task_description: 'Refactor the finalizer to persist successful experience memory',
+        output_summary: 'Recorded successful tasks after verification passed.',
+        files_modified: ['server/execution/task-finalizer.js', 'server/experience/store.js'],
+        provider: 'codex',
+        similarity: 0.812,
+      },
+    ]));
+    installCjsModuleMock('../experience/store', { findRelatedExperiences });
+
+    try {
+      const task = createTask({
+        project: 'torque-public',
+        task_description: 'Hook experience retrieval into startup',
+      });
+      const ctx = loadTaskStartup({ task });
+
+      const result = await ctx.module.startTask(task.id);
+
+      expect(result).toEqual({ queued: false, started: true });
+      expect(findRelatedExperiences).toHaveBeenCalledWith({
+        project: 'torque-public',
+        task_description: 'Hook experience retrieval into startup',
+        top_k: 3,
+        min_similarity: 0.4,
+      });
+      expect(ctx.deps.buildCodexCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          task_description: 'Hook experience retrieval into startup',
+          execution_description: expect.stringContaining('## Related past experiences (similar tasks that succeeded)'),
+        }),
+        expect.any(Object),
+        '',
+        [],
+      );
+      expect(ctx.deps.buildCodexCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          execution_description: expect.stringContaining('Refactor the finalizer to persist successful experience memory'),
+        }),
+        expect.any(Object),
+        '',
+        [],
+      );
+      expect(ctx.tasks.get(task.id)?.task_description).toBe('Hook experience retrieval into startup');
+    } finally {
+      if (originalStore) {
+        require.cache[storePath] = originalStore;
+      } else {
+        delete require.cache[storePath];
+      }
+    }
+  });
+
   it('startTask calls runPreflightChecks and proceeds to execution on success', async () => {
     const task = createTask({ working_directory: 'C:/valid-repo' });
     const ctx = loadTaskStartup({ task });

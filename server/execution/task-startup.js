@@ -215,7 +215,11 @@ function formatResolvedMentionContext(result) {
 }
 
 async function buildExecutionDescriptionWithMentions(task, taskId) {
-  const description = typeof task?.task_description === 'string' ? task.task_description : '';
+  const description = typeof task?.execution_description === 'string' && task.execution_description.trim()
+    ? task.execution_description
+    : typeof task?.task_description === 'string'
+      ? task.task_description
+      : '';
   if (!description.trim()) {
     return description;
   }
@@ -255,6 +259,46 @@ async function buildExecutionDescriptionWithMentions(task, taskId) {
     return `${resolvedBlocks.join('\n\n')}\n\n---\n\n${description}`;
   } catch (err) {
     logger.info(`[MentionContext] Non-fatal mention resolution error for task ${taskId}: ${err.message}`);
+    return description;
+  }
+}
+
+async function buildExecutionDescriptionWithRelatedExperiences(task) {
+  const description = typeof task?.task_description === 'string' ? task.task_description : '';
+  if (!description.trim() || !task?.project) {
+    return description;
+  }
+
+  try {
+    const { findRelatedExperiences } = require('../experience/store');
+    const related = await findRelatedExperiences({
+      project: task.project,
+      task_description: task.task_description,
+      top_k: 3,
+      min_similarity: 0.4,
+    });
+
+    if (!Array.isArray(related) || related.length === 0) {
+      return description;
+    }
+
+    const block = '\n\n## Related past experiences (similar tasks that succeeded)\n\n'
+      + related.map((relatedTask, index) => {
+        const provider = typeof relatedTask?.provider === 'string' && relatedTask.provider.trim()
+          ? relatedTask.provider
+          : 'unknown';
+        const resultSummary = typeof relatedTask?.output_summary === 'string'
+          ? relatedTask.output_summary.slice(0, 500)
+          : '';
+        const filesTouched = Array.isArray(relatedTask?.files_modified)
+          ? relatedTask.files_modified.join(', ')
+          : '';
+        return `### Past task ${index + 1} (similarity ${relatedTask.similarity}, ran on ${provider})\n${relatedTask.task_description}\nResult: ${resultSummary}\nFiles touched: ${filesTouched}`;
+      }).join('\n\n');
+
+    return description + block;
+  } catch (err) {
+    logger.info(`[experience] retrieval failed: ${err.message}`);
     return description;
   }
 }
@@ -1297,7 +1341,10 @@ function evaluateClaimedPolicyForStartup({
 }
 
 async function buildStartupExecutionTask(task, taskId) {
-  const executionDescription = await buildExecutionDescriptionWithMentions(task, taskId);
+  const executionDescription = await buildExecutionDescriptionWithMentions({
+    ...task,
+    execution_description: await buildExecutionDescriptionWithRelatedExperiences(task),
+  }, taskId);
   return executionDescription === task.task_description
     ? task
     : { ...task, execution_description: executionDescription };

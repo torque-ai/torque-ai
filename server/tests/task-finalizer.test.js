@@ -16,6 +16,16 @@ const resumeContext = require('../utils/resume-context');
 const { createMockChild } = require('./mocks/process-mock');
 const { TEST_MODELS } = require('./test-helpers');
 
+function installCjsModuleMock(modulePath, exportsValue) {
+  const resolved = require.resolve(modulePath);
+  require.cache[resolved] = {
+    id: resolved,
+    filename: resolved,
+    loaded: true,
+    exports: exportsValue,
+  };
+}
+
 function createTaskDb(overrides = {}) {
   const taskId = overrides.id || 'task-001';
   const tasks = new Map([
@@ -256,6 +266,76 @@ describe('task-finalizer', () => {
     expect(storedTask.metadata.finalization.final_exit_code).toBe(1);
     expect(storedTask.metadata.finalization.validation_stage_outcomes.auto_validation.outcome).toBe('status:failed');
     expect(handlePostCompletion).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed', code: 1 }));
+  });
+
+  it('records successful verified tasks into the experience store without blocking finalization', async () => {
+    const storePath = require.resolve('../experience/store');
+    const originalStore = require.cache[storePath];
+    const recordExperience = vi.fn(async () => {});
+    installCjsModuleMock('../experience/store', { recordExperience });
+
+    try {
+      const dbBundle = createTaskDb({
+        project: 'torque-public',
+        tags: ['tests:pass'],
+      });
+      initFinalizer({ dbBundle });
+
+      const result = await finalizer.finalizeTask(dbBundle.taskId, {
+        exitCode: 0,
+        output: 'implemented experience hook',
+        errorOutput: '',
+        filesModified: ['server/execution/task-finalizer.js'],
+      });
+
+      expect(result.finalized).toBe(true);
+      await flushMicrotasksUntil(() => recordExperience.mock.calls.length > 0);
+      expect(recordExperience).toHaveBeenCalledWith({
+        project: 'torque-public',
+        task_description: 'Finalize task',
+        output_summary: 'implemented experience hook',
+        files_modified: ['server/execution/task-finalizer.js'],
+        provider: 'codex',
+        success_score: 1.0,
+      });
+    } finally {
+      if (originalStore) {
+        require.cache[storePath] = originalStore;
+      } else {
+        delete require.cache[storePath];
+      }
+    }
+  });
+
+  it('skips experience recording when verification tags indicate test failure', async () => {
+    const storePath = require.resolve('../experience/store');
+    const originalStore = require.cache[storePath];
+    const recordExperience = vi.fn(async () => {});
+    installCjsModuleMock('../experience/store', { recordExperience });
+
+    try {
+      const dbBundle = createTaskDb({
+        project: 'torque-public',
+        tags: ['tests:fail:3'],
+      });
+      initFinalizer({ dbBundle });
+
+      const result = await finalizer.finalizeTask(dbBundle.taskId, {
+        exitCode: 0,
+        output: 'implemented experience hook',
+        errorOutput: '',
+      });
+
+      expect(result.finalized).toBe(true);
+      await flushMicrotasksUntil(() => recordExperience.mock.calls.length > 0, 5);
+      expect(recordExperience).not.toHaveBeenCalled();
+    } finally {
+      if (originalStore) {
+        require.cache[storePath] = originalStore;
+      } else {
+        delete require.cache[storePath];
+      }
+    }
   });
 
   it('reclassifies Codex phantom success as failed before post-completion hooks', async () => {
