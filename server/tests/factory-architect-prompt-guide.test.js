@@ -19,15 +19,8 @@ const factoryDecisions = require('../db/factory-decisions');
 const factoryHealth = require('../db/factory-health');
 const factoryIntake = require('../db/factory-intake');
 const factoryLoopInstances = require('../db/factory-loop-instances');
-const routingModule = require('../handlers/integration/routing');
-const awaitModule = require('../handlers/workflow/await');
-const taskCore = require('../db/task-core');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
-
-const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
-const originalHandleAwaitTask = awaitModule.handleAwaitTask;
-const originalGetTask = taskCore.getTask;
 
 function createFactoryTables(db) {
   db.exec(`
@@ -183,25 +176,6 @@ describe('factory architect plan lint integration', () => {
     createPlanExecutorMock.mockImplementation(() => ({
       execute: vi.fn(),
     }));
-    routingModule.handleSmartSubmitTask = vi.fn(async () => ({ task_id: 'plan-gen-task' }));
-    awaitModule.handleAwaitTask = vi.fn(async () => ({ content: [{ type: 'text', text: 'awaited' }] }));
-    taskCore.getTask = vi.fn((taskId) => ({
-      id: taskId,
-      status: 'completed',
-      output: [
-        '# Invalid Auto Plan',
-        '',
-        '**Goal:** Add a new test.',
-        '**Tech Stack:** Node.js, Vitest',
-        '',
-        '## Task 1: Author the test',
-        '',
-        '- [ ] **Step 1: Add coverage**',
-        '',
-        '    const { test, expect } = require(\'vitest\');',
-      ].join('\n'),
-      error_output: null,
-    }));
   });
 
   afterEach(() => {
@@ -210,9 +184,6 @@ describe('factory architect plan lint integration', () => {
     factoryIntake.setDb(null);
     factoryLoopInstances.setDb(null);
     factoryDecisions.setDb(null);
-    routingModule.handleSmartSubmitTask = originalHandleSmartSubmitTask;
-    awaitModule.handleAwaitTask = originalHandleAwaitTask;
-    taskCore.getTask = originalGetTask;
     loopController.setWorktreeRunnerForTests(null);
     if (tempDir && fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -240,12 +211,46 @@ describe('factory architect plan lint integration', () => {
       description: 'Generate a plan that accidentally uses banned Vitest imports.',
       requestor: 'test',
     });
+    const planPath = path.join(
+      projectDir,
+      'docs',
+      'superpowers',
+      'plans',
+      'auto-generated',
+      `${workItem.id}-author-a-bad-test-plan.md`,
+    );
+    fs.mkdirSync(path.dirname(planPath), { recursive: true });
+    fs.writeFileSync(planPath, [
+      '# Invalid Auto Plan',
+      '',
+      '**Goal:** Add a new test.',
+      '**Tech Stack:** Node.js, Vitest',
+      '',
+      '## Task 1: Author the test',
+      '',
+      '- [ ] **Step 1: Add coverage**',
+      '',
+      '```js',
+      'const { test, expect } = require(\'vitest\');',
+      '```',
+    ].join('\n'), 'utf8');
 
     factoryIntake.updateWorkItem(workItem.id, { status: 'planned' });
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: 'plan-lint-test-batch',
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      work_item_id: workItem.id,
+      batch_id: 'plan-lint-test-batch',
+    });
     factoryHealth.updateProject(project.id, {
+      status: 'running',
       loop_state: LOOP_STATES.EXECUTE,
       loop_paused_at_stage: null,
-      loop_batch_id: null,
+      loop_batch_id: 'plan-lint-test-batch',
     });
 
     const result = await loopController.advanceLoopForProject(project.id);
