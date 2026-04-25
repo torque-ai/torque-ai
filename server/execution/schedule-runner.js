@@ -96,6 +96,17 @@ function getWorkflowSpecRunner(options) {
   };
 }
 
+function getWorkflowRunner(options) {
+  if (typeof options?.runWorkflow === 'function') {
+    return options.runWorkflow;
+  }
+
+  return (workflowId, _originMetadata) => {
+    const workflowHandler = require('../handlers/workflow/index');
+    return workflowHandler.handleRunWorkflow({ workflow_id: workflowId });
+  };
+}
+
 function getScheduledTaskReader(options, db) {
   if (typeof options?.getScheduledTask === 'function') {
     return options.getScheduledTask;
@@ -406,12 +417,65 @@ function executeScheduledTask(schedule, options = {}) {
       || runResult?.structuredData?.workflow_id
       || null;
 
+    if (!workflowId) {
+      const errorMessage = `Failed to resolve workflow id while running workflow spec ${schedule.spec_path}`;
+      db.markScheduledTaskRun(schedule.id, {
+        execution_type: 'workflow',
+        status: 'failed',
+        summary: errorMessage,
+        details: {
+          spec_path: schedule.spec_path,
+        },
+      });
+      throw new Error(errorMessage);
+    }
+
+    const workflowRunner = getWorkflowRunner(options);
+    const workflowRunResult = workflowRunner(workflowId, originMetadata);
+    if (workflowRunResult?.isError || workflowRunResult?.error_code) {
+      const errorMessage = extractErrorMessage(workflowRunResult, `Failed to run workflow ${workflowId}`);
+      if (/already running/i.test(errorMessage)) {
+        db.markScheduledTaskRun(schedule.id, {
+          execution_type: 'workflow',
+          status: 'skipped',
+          skip_reason: 'workflow_running',
+          summary: `Workflow ${workflowId} already running`,
+          details: {
+            workflow_status: 'running',
+            workflow_id: workflowId,
+            spec_path: schedule.spec_path,
+          },
+        });
+        debugLog(`Skipped scheduled workflow spec "${schedule.name}" because workflow ${workflowId} is already running`);
+        return {
+          started: false,
+          skipped: true,
+          execution_type: 'workflow',
+          workflow_id: workflowId,
+          spec_path: schedule.spec_path,
+          schedule_id: schedule.id,
+          schedule_name: schedule.name,
+          schedule_consumed: scheduleConsumed,
+          skip_reason: 'workflow_running',
+        };
+      }
+
+      db.markScheduledTaskRun(schedule.id, {
+        execution_type: 'workflow',
+        status: 'failed',
+        summary: errorMessage,
+        details: {
+          workflow_id: workflowId,
+          spec_path: schedule.spec_path,
+        },
+      });
+      throw new Error(errorMessage);
+    }
+
     db.markScheduledTaskRun(schedule.id, {
       execution_type: 'workflow',
       status: 'completed',
-      summary: workflowId
-        ? `Workflow ${workflowId} started`
-        : `Workflow spec ${schedule.spec_path} started`,
+      summary: `Workflow ${workflowId} started`,
       details: {
         workflow_status: 'running',
         workflow_id: workflowId,
@@ -419,11 +483,7 @@ function executeScheduledTask(schedule, options = {}) {
       },
     });
 
-    debugLog(
-      workflowId
-        ? `Executed scheduled workflow spec "${schedule.name}" -> workflow ${workflowId}`
-        : `Executed scheduled workflow spec "${schedule.name}" -> spec ${schedule.spec_path}`
-    );
+    debugLog(`Executed scheduled workflow spec "${schedule.name}" -> workflow ${workflowId}`);
     return {
       started: true,
       execution_type: 'workflow',
@@ -599,12 +659,7 @@ function executeScheduledTask(schedule, options = {}) {
         };
       }
 
-      const workflowRunner = typeof options.runWorkflow === 'function'
-        ? options.runWorkflow
-        : (workflowId) => {
-          const workflowHandler = require('../handlers/workflow/index');
-          return workflowHandler.handleRunWorkflow({ workflow_id: workflowId });
-        };
+      const workflowRunner = getWorkflowRunner(options);
       const workflowCloner = typeof options.cloneWorkflow === 'function'
         ? options.cloneWorkflow
         : (cloneArgs) => {

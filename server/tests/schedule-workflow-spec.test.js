@@ -39,6 +39,9 @@ describe('schedule-runner workflow_spec payloads', () => {
       },
       content: [{ type: 'text', text: '## Workflow Started' }],
     }));
+    const runWorkflow = vi.fn(() => ({
+      content: [{ type: 'text', text: 'Workflow started' }],
+    }));
 
     const { executeScheduledTask } = loadFresh('../execution/schedule-runner');
     const schedule = {
@@ -55,11 +58,18 @@ describe('schedule-runner workflow_spec payloads', () => {
       debugLog,
       logger,
       runWorkflowSpec,
+      runWorkflow,
     });
 
     expect(runWorkflowSpec).toHaveBeenCalledWith({
       spec_path: 'C:\\repo\\workflows\\nightly.yaml',
     });
+    expect(runWorkflow).toHaveBeenCalledWith('wf-from-spec', expect.objectContaining({
+      scheduled_by: 'schedule-workflow-spec-1',
+      schedule_name: 'Nightly spec workflow',
+      schedule_type: 'cron',
+      scheduled: true,
+    }));
     expect(db.createTask).not.toHaveBeenCalled();
     expect(db.markScheduledTaskRun).toHaveBeenCalledWith('schedule-workflow-spec-1', expect.objectContaining({
       execution_type: 'workflow',
@@ -91,6 +101,9 @@ describe('schedule-runner workflow_spec payloads', () => {
       },
       content: [{ type: 'text', text: '## Workflow Started' }],
     }));
+    const runWorkflow = vi.fn(() => ({
+      content: [{ type: 'text', text: 'Workflow started' }],
+    }));
 
     const { executeScheduledTask } = loadFresh('../execution/schedule-runner');
     const schedule = {
@@ -109,12 +122,19 @@ describe('schedule-runner workflow_spec payloads', () => {
       debugLog,
       logger,
       runWorkflowSpec,
+      runWorkflow,
     });
 
     expect(runWorkflowSpec).toHaveBeenCalledWith({
       spec_path: 'workflows/nightly.yaml',
       working_directory: 'C:\\repos\\NetSim',
     });
+    expect(runWorkflow).toHaveBeenCalledWith('wf-from-spec', expect.objectContaining({
+      scheduled_by: 'schedule-workflow-spec-1b',
+      schedule_name: 'Nightly spec workflow with wd',
+      schedule_type: 'cron',
+      scheduled: true,
+    }));
   });
 
   it('skips workflow_spec schedules that omit spec_path', async () => {
@@ -158,5 +178,80 @@ describe('schedule-runner workflow_spec payloads', () => {
       schedule_consumed: false,
       skip_reason: 'workflow_spec_missing_path',
     });
+  });
+
+  it('fails workflow_spec schedules when the spec runner does not return a workflow id', async () => {
+    const runWorkflowSpec = vi.fn(() => ({
+      content: [{ type: 'text', text: 'Workflow created' }],
+      structuredData: {},
+    }));
+    const runWorkflow = vi.fn();
+
+    const { executeScheduledTask } = loadFresh('../execution/schedule-runner');
+    const schedule = {
+      id: 'schedule-workflow-spec-3',
+      name: 'Missing workflow id',
+      payload_kind: 'workflow_spec',
+      spec_path: 'C:\\repo\\workflows\\nightly.yaml',
+      schedule_type: 'cron',
+      task_config: {},
+    };
+
+    expect(() => executeScheduledTask(schedule, {
+      db,
+      debugLog,
+      logger,
+      runWorkflowSpec,
+      runWorkflow,
+    })).toThrow('Failed to resolve workflow id while running workflow spec C:\\repo\\workflows\\nightly.yaml');
+
+    expect(runWorkflow).not.toHaveBeenCalled();
+    expect(db.markScheduledTaskRun).toHaveBeenCalledWith('schedule-workflow-spec-3', expect.objectContaining({
+      execution_type: 'workflow',
+      status: 'failed',
+      summary: 'Failed to resolve workflow id while running workflow spec C:\\repo\\workflows\\nightly.yaml',
+      details: expect.objectContaining({
+        spec_path: 'C:\\repo\\workflows\\nightly.yaml',
+      }),
+    }));
+  });
+
+  it('fails workflow_spec schedules when workflow run fails', async () => {
+    const runWorkflowSpec = vi.fn(() => ({
+      workflow_id: 'wf-from-spec',
+      content: [{ type: 'text', text: 'Workflow created' }],
+    }));
+    const runWorkflow = vi.fn(() => ({
+      isError: true,
+      content: [{ type: 'text', text: 'workflow start failed' }],
+    }));
+
+    const { executeScheduledTask } = loadFresh('../execution/schedule-runner');
+    const schedule = {
+      id: 'schedule-workflow-spec-4',
+      name: 'Workflow start failure',
+      payload_kind: 'workflow_spec',
+      spec_path: 'C:\\repo\\workflows\\nightly.yaml',
+      schedule_type: 'cron',
+      task_config: {},
+    };
+
+    expect(() => executeScheduledTask(schedule, {
+      db,
+      debugLog,
+      logger,
+      runWorkflowSpec,
+      runWorkflow,
+    })).toThrow('workflow start failed');
+
+    expect(db.markScheduledTaskRun).toHaveBeenCalledWith('schedule-workflow-spec-4', expect.objectContaining({
+      execution_type: 'workflow',
+      status: 'failed',
+      summary: 'workflow start failed',
+      details: expect.objectContaining({
+        workflow_id: 'wf-from-spec',
+        spec_path: 'C:\\repo\\workflows\\nightly.yaml',
+      }),
+    }));
   });
 });
