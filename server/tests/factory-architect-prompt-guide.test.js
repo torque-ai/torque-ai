@@ -253,11 +253,11 @@ describe('factory architect plan lint integration', () => {
       loop_batch_id: 'plan-lint-test-batch',
     });
 
-    const result = await loopController.advanceLoopForProject(project.id);
+    const result = await loopController.executeNonPlanFileStage(project, instance, workItem);
     const decisions = listDecisionRows(db, project.id);
     const lintRejected = decisions.find((row) => row.action === 'plan_lint_rejected');
 
-    expect(result.new_state).toBe(LOOP_STATES.EXECUTE);
+    expect(result.next_state).toBe(LOOP_STATES.PAUSED);
     expect(result.paused_at_stage).toBe(LOOP_STATES.PLAN_REVIEW);
     expect(result.stage_result).toMatchObject({
       status: 'paused',
