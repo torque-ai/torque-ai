@@ -348,6 +348,40 @@ describe('provider-router', () => {
       }));
     });
 
+    it('does not auto-fallback for template-bound tasks when budget is exceeded', () => {
+      mockParseTaskMetadata.mockReturnValue({
+        auto_routed: true,
+        _routing_template: 'dlphone-template',
+      });
+      mockDb.isBudgetExceeded.mockReturnValue({ exceeded: true, warning: false });
+      mockDb.listOllamaHosts.mockReturnValue([{ id: 'host-1', enabled: true, status: 'healthy' }]);
+
+      const task = {
+        provider: 'codex',
+        metadata: {},
+        task_description: 'Improve unit test quality in docs modules',
+      };
+
+      const result = providerRouter.resolveProviderRouting(task, 'task-template-budget');
+
+      expect(result.provider).toBe('codex');
+      expect(result.switchReason).toBeNull();
+      expect(mockDb.isBudgetExceeded).not.toHaveBeenCalled();
+      expect(mockDb.patchTaskMetadata).toHaveBeenCalledWith(
+        'task-template-budget',
+        expect.objectContaining({
+          _routing_template: 'dlphone-template',
+          requested_provider: 'codex',
+          intended_provider: 'codex',
+          provider_decision_trace: expect.objectContaining({
+            selected_provider: 'codex',
+            fallback_candidates: [],
+            switch_reason: null,
+          }),
+        }),
+      );
+    });
+
     it('preserves routing-template health-gate fallback identity without treating it as a user override', () => {
       mockParseTaskMetadata.mockReturnValue({
         smart_routing: true,

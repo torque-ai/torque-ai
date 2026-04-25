@@ -148,6 +148,23 @@ describe('runtime fallback guards respect user_provider_override', () => {
     expect(task.provider).toBe('ollama');
   });
 
+  it('respects routing template intent even when ollama is unreachable', async () => {
+    await setup();
+
+    providerRoutingCore.updateProvider('ollama', { enabled: 1 });
+    helpers.registerMockHost(db, 'http://127.0.0.1:19817', ['codellama:latest'], { name: 'template-review-runtime' });
+
+    const taskId = createTask({
+      provider: 'ollama',
+      task_description: 'review the code and report any bugs found',
+      metadata: JSON.stringify({ _routing_template: 'preset-local-ollama' }),
+    });
+
+    await tm.startTask(taskId);
+    const task = taskCore.getTask(taskId);
+    expect(task.provider).toBe('ollama');
+  });
+
   it('leaves no-file-change handling as a no-op when user_provider_override is set', async () => {
     await setup();
     const fallbackRetry = require('../execution/fallback-retry');
@@ -194,6 +211,30 @@ describe('runtime fallback guards respect user_provider_override', () => {
       model: 'claude-3-haiku',
       task_description: 'review the API integration for edge cases',
       metadata: JSON.stringify({ user_provider_override: true }),
+    });
+
+    await expect(() => tm.startTask(taskId)).rejects.toThrow(/no registered instance/);
+
+    const task = taskCore.getTask(taskId);
+    expect(task.provider).toBe('anthropic');
+    expect(mockState.spawnAndTrackProcess).not.toHaveBeenCalled();
+  });
+
+  it('throws instead of falling back when a template-bound API provider has no registered instance', async () => {
+    await setup({
+      getProviderInstanceOverride: (actualProviderRegistry, name) => {
+        if (name === 'anthropic') return null;
+        return actualProviderRegistry.getProviderInstance(name);
+      },
+    });
+
+    providerRoutingCore.updateProvider('anthropic', { enabled: 1 });
+
+    const taskId = createTask({
+      provider: 'anthropic',
+      model: 'claude-3-haiku',
+      task_description: 'review the API integration for edge cases',
+      metadata: JSON.stringify({ _routing_template: 'preset-ollama-cloud-primary' }),
     });
 
     await expect(() => tm.startTask(taskId)).rejects.toThrow(/no registered instance/);

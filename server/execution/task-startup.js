@@ -1345,7 +1345,11 @@ function fallbackMissingApiProviderToCodex({
 }) {
   const originalProvider = provider;
   const errorMessage = `Provider "${originalProvider}" has no registered instance`;
-  if (taskMetadata.user_provider_override) {
+  const effectiveTaskMetadata = {
+    ...parseTaskMetadata(task?.metadata),
+    ...(taskMetadata || {}),
+  };
+  if (effectiveTaskMetadata.user_provider_override || effectiveTaskMetadata._routing_template) {
     logger.error(`[startTask] ${errorMessage}`);
     failTaskForInvalidProvider(taskId, originalProvider, errorMessage);
     throw new Error(errorMessage);

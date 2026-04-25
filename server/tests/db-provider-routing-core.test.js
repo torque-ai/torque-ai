@@ -362,6 +362,11 @@ describe('db/provider-routing-core', () => {
       expect(() => core.setProviderFallbackChain(provider, ['no-such-provider'])).toThrow(/unknown provider/i);
     });
 
+    it('uses default ollama-cloud fallback chain without codex', () => {
+      core.setProviderScoring(null);
+      expect(core.getProviderFallbackChain('ollama-cloud')).toEqual(['cerebras', 'deepinfra', 'claude-cli']);
+    });
+
     it('getNextFallbackProvider skips already tried providers from failover_events', () => {
       const taskId = createTask({ status: 'failed', provider: 'codex', original_provider: 'codex' });
       core.setProviderFallbackChain('codex', ['claude-cli', 'ollama']);
@@ -573,6 +578,26 @@ describe('db/provider-routing-core', () => {
 
       expect(result.provider).toBe('codex');
       expect(result.reason).toContain(`Task template '${name}'`);
+    });
+
+    it('preserves task template-bound ollama routing when Ollama is unhealthy', () => {
+      const name = `Task Template Keeps Ollama ${testSuffix}`;
+      templateStore.createTemplate({
+        name,
+        rules: validTemplateRules({ default: 'ollama' }),
+      });
+
+      core.setOllamaHealthy(false);
+      const result = core.analyzeTaskForRouting(
+        'Large code generation with context',
+        os.tmpdir(),
+        ['src/app.js'],
+        { taskMetadata: { _routing_template: name } },
+      );
+
+      expect(result.provider).toBe('ollama');
+      expect(result.reason).toContain(`Task template '${name}'`);
+      expect(result.fallbackApplied).toBeUndefined();
     });
 
     it('uses task-level template when _routing_template matches by name for a specific category', () => {

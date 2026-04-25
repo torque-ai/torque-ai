@@ -577,19 +577,23 @@ function updateTaskStatus(id, status, additionalFields = {}) {
   }
 
   // When requeuing a task, clear the provider so routing can re-evaluate.
-  // BUG-001 fix: preserve the provider when there is explicit provider intent
-  // (user override, routing template, or runtime handoff). Clearing it would
-  // discard the selected provider and let smart-routing reassign the task.
-  if (status === 'queued' && !Object.prototype.hasOwnProperty.call(additionalFields, 'provider') && !additionalFields._preserveProvider) {
+  // Preserve explicit provider intent (user override, routing template, or
+  // runtime handoff); clearing it would let smart routing reassign the task.
+  if (status === 'queued' && !additionalFields._preserveProvider) {
+    const hasProviderPatch = Object.prototype.hasOwnProperty.call(additionalFields, 'provider');
     let hasProviderIntent = false;
+    let currentProvider = null;
     try {
-      const row = db.prepare('SELECT metadata FROM tasks WHERE id = ?').get(id);
-      if (row && row.metadata) {
+      const row = db.prepare('SELECT provider, metadata FROM tasks WHERE id = ?').get(id);
+      currentProvider = row?.provider || null;
+      if (row?.metadata) {
         const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
         hasProviderIntent = hasProviderSelectionLock(meta);
       }
     } catch (_e) { /* non-fatal — fall through to clear */ }
-    if (!hasProviderIntent) {
+    if (hasProviderPatch && additionalFields.provider === null && hasProviderIntent && currentProvider) {
+      additionalFields.provider = currentProvider;
+    } else if (!hasProviderPatch && !hasProviderIntent) {
       additionalFields.provider = null;
     }
   }

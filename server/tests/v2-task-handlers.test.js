@@ -987,6 +987,55 @@ describe('api/v2-task-handlers.handleRetryTask', () => {
     }
   });
 
+  it('preserves routing template intent when retrying a failed task', async () => {
+    const req = createReq({ params: { task_id: 'failed-template' } });
+    const res = createRes();
+
+    mockUuidV4.mockReturnValueOnce('retry-template-1');
+    mockTaskManager.startTask.mockReturnValue({ queued: true });
+    mockDb.getTask
+      .mockReturnValueOnce({
+        id: 'failed-template',
+        status: 'failed',
+        task_description: 'Retry template-bound task',
+        working_directory: '/repo',
+        timeout_minutes: 20,
+        auto_approve: true,
+        priority: 2,
+        provider: 'ollama-cloud',
+        metadata: JSON.stringify({
+          _routing_template: 'preset-ollama-cloud-primary',
+          intended_provider: 'ollama-cloud',
+        }),
+      })
+      .mockReturnValueOnce({
+        id: 'retry-template-1',
+        status: 'queued',
+        task_description: 'Retry template-bound task',
+        working_directory: '/repo',
+        timeout_minutes: 20,
+        auto_approve: true,
+        priority: 2,
+        provider: 'ollama-cloud',
+        metadata: JSON.stringify({
+          retry_of: 'failed-template',
+          _routing_template: 'preset-ollama-cloud-primary',
+          intended_provider: 'ollama-cloud',
+        }),
+      });
+
+    await handlers.handleRetryTask(req, res);
+
+    const created = mockDb.createTask.mock.calls[0][0];
+    expect(created.provider).toBe('ollama-cloud');
+    expect(parseJson(created.metadata)).toEqual({
+      retry_of: 'failed-template',
+      _routing_template: 'preset-ollama-cloud-primary',
+      intended_provider: 'ollama-cloud',
+    });
+    expect(mockTaskManager.startTask).toHaveBeenCalledWith('retry-template-1');
+  });
+
   it('returns 400 for a non-retryable task status', async () => {
     mockDb.getTask.mockReturnValue({
       id: 'task-complete',
