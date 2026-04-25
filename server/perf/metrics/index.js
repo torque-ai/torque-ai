@@ -14,7 +14,7 @@ function register(metric) {
   if (metrics.some((m) => m.id === metric.id)) {
     throw new Error(`register(): duplicate metric id ${metric.id}`);
   }
-  metrics.push(metric);
+  metrics.push(Object.freeze(Object.assign({}, metric)));
 }
 
 function list() {
