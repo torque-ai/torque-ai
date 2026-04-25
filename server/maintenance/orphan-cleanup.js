@@ -240,7 +240,7 @@ function checkStaleRunningTasks() {
       const isTrackedLocally = runningProcesses.has(task.id);
       const retryCount = task.retry_count || 0;
       const maxRetries = task.max_retries != null ? task.max_retries : 2;
-      const requeueOrCancelDeadOwner = (reason) => {
+      const requeueOrFailDeadOwner = (reason) => {
         if (retryCount < maxRetries) {
           logger.info(`[Stale Check] ${reason} - requeueing ${task.id} (attempt ${retryCount + 1}/${maxRetries})`);
           db.updateTaskStatus(task.id, 'queued', {
@@ -251,10 +251,9 @@ function checkStaleRunningTasks() {
             ollama_host_id: null,
           });
         } else {
-          logger.info(`[Stale Check] ${reason} - cancelling ${task.id} (max retries exhausted: ${retryCount}/${maxRetries})`);
-          db.updateTaskStatus(task.id, 'cancelled', {
+          logger.info(`[Stale Check] ${reason} - failing ${task.id} (max retries exhausted: ${retryCount}/${maxRetries})`);
+          db.updateTaskStatus(task.id, 'failed', {
             error_output: `${reason} (max retries exhausted: ${retryCount}/${maxRetries})`,
-            cancel_reason: 'orphan_cleanup',
             completed_at: new Date().toISOString(),
             mcp_instance_id: null,
             ollama_host_id: null,
@@ -270,11 +269,11 @@ function checkStaleRunningTasks() {
       if (task.mcp_instance_id) {
         if (currentInstanceId && task.mcp_instance_id === currentInstanceId) {
           if (!isTrackedLocally) {
-            requeueOrCancelDeadOwner(`Task orphaned — current instance ${task.mcp_instance_id} has no tracked process`);
+            requeueOrFailDeadOwner(`Task orphaned — current instance ${task.mcp_instance_id} has no tracked process`);
             continue;
           }
         } else if (typeof isInstanceAlive === 'function' && !isInstanceAlive(task.mcp_instance_id)) {
-          requeueOrCancelDeadOwner(`Task orphaned — owning instance ${task.mcp_instance_id} is no longer alive`);
+          requeueOrFailDeadOwner(`Task orphaned — owning instance ${task.mcp_instance_id} is no longer alive`);
           continue;
         }
       }
@@ -284,16 +283,25 @@ function checkStaleRunningTasks() {
 
       if (elapsedMs > timeoutMs) {
         const elapsedMin = Math.round(elapsedMs / 60000);
-        logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${task.timeout_minutes || 480}min) - cancelling`);
+        logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${task.timeout_minutes || 480}min) - failing`);
 
         // Cancel via cancelTask if process is tracked, otherwise update DB directly
         if (runningProcesses.has(task.id)) {
           cancelTask(task.id, 'Timeout exceeded (stale check)', { cancel_reason: 'timeout' });
+          db.updateTaskStatus(task.id, 'failed', {
+            error_output: `Auto-failed: Task exceeded ${task.timeout_minutes || 480} minute timeout (detected by stale check)`,
+            completed_at: new Date().toISOString(),
+            mcp_instance_id: null,
+            provider: null,
+            ollama_host_id: null,
+          });
         } else {
           // Process not tracked (server restarted) - update DB directly
-          db.updateTaskStatus(task.id, 'cancelled', {
-            error_output: `Auto-cancelled: Task exceeded ${task.timeout_minutes || 480} minute timeout (detected by stale check)`,
-            cancel_reason: 'timeout',
+          db.updateTaskStatus(task.id, 'failed', {
+            error_output: `Auto-failed: Task exceeded ${task.timeout_minutes || 480} minute timeout (detected by stale check)`,
+            completed_at: new Date().toISOString(),
+            mcp_instance_id: null,
+            ollama_host_id: null,
           });
           // Reconcile again after direct DB update to fix host counts
           try {

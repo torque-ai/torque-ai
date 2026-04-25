@@ -152,23 +152,20 @@ function failMissingWorkingDirectory({ original, metadata, taskCore, rawDb, logg
     missing_working_directory: original.working_directory,
   };
 
-  if (original.status === 'cancelled') {
-    rawDb.prepare(`
-      UPDATE tasks
-      SET cancel_reason = ?, error_output = ?, completed_at = ?, metadata = ?
-      WHERE id = ?
-    `).run(
-      'missing_working_directory',
-      errorOutput,
-      completedAt,
-      JSON.stringify(nextMetadata),
-      original.id,
-    );
-  } else {
-    taskCore.updateTaskStatus(original.id, 'failed', {
-      error_output: errorOutput,
-      completed_at: completedAt,
-    });
+  try {
+    if (original.status === 'cancelled') {
+      rawDb.prepare(`
+        UPDATE tasks
+        SET status = 'failed', cancel_reason = NULL, error_output = ?, completed_at = ?, metadata = ?
+        WHERE id = ?
+      `).run(errorOutput, completedAt, JSON.stringify(nextMetadata), original.id);
+    } else {
+      taskCore.updateTaskStatus(original.id, 'failed', {
+        error_output: errorOutput,
+        completed_at: completedAt,
+      });
+    }
+  } finally {
     patchOriginalMetadata(taskCore, rawDb, original.id, nextMetadata);
   }
 
@@ -319,14 +316,21 @@ function reconcileOrphanedTasksOnStartup({
         continue;
       }
 
-      if (original.status !== 'cancelled') {
-        taskCore.updateTaskStatus(original.id, 'cancelled', {
-          cancel_reason: 'server_restart',
-          error_output: `${original.error_output || ''}\n[startup-reconciler] task cancelled by server restart`,
-          completed_at: new Date().toISOString(),
+      const failedOutput = `${original.error_output || ''}\n[startup-reconciler] task marked failed by server restart`;
+      const completedAt = new Date().toISOString();
+      if (original.status === 'cancelled') {
+        rawDb.prepare(`
+          UPDATE tasks
+          SET status = 'failed', cancel_reason = NULL, error_output = ?, completed_at = ?
+          WHERE id = ?
+        `).run(failedOutput, completedAt, original.id);
+      } else {
+        taskCore.updateTaskStatus(original.id, 'failed', {
+          error_output: failedOutput,
+          completed_at: completedAt,
         });
-        actions.cancelled++;
       }
+      actions.cancelled++;
 
       if (!eligible) {
         continue;

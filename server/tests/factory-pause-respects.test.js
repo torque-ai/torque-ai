@@ -349,8 +349,8 @@ describe('factory pause enforcement', () => {
     expect(result.cancelled_task_ids).toEqual(['task-closed-work-item']);
     expect(taskManager.cancelTask).toHaveBeenCalledTimes(1);
     expect(taskCore.getTask('task-closed-work-item')).toMatchObject({
-      status: 'cancelled',
-      cancel_reason: 'factory_closed_work_item',
+      status: 'skipped',
+      cancel_reason: null,
     });
     expect(taskCore.getTask('task-active-work-item')).toMatchObject({
       status: 'running',
