@@ -1,5 +1,7 @@
 'use strict';
 
+const { buildProviderLaneTaskMetadata } = require('./provider-lane-policy');
+
 const PROJECT_BY_KIND = Object.freeze({
   architect_cycle: 'factory-architect',
   plan_generation: 'factory-plan',
@@ -37,7 +39,7 @@ function readFactoryProject(project_id) {
     const database = require('../database');
     const db = database.getDbInstance?.();
     if (db && typeof db.prepare === 'function') {
-      const row = db.prepare('SELECT id, name, path, status FROM factory_projects WHERE id = ?').get(project_id);
+      const row = db.prepare('SELECT id, name, path, status, config_json FROM factory_projects WHERE id = ?').get(project_id);
       if (row) {
         return row;
       }
@@ -199,6 +201,7 @@ async function submitFactoryInternalTask({
       inherited_provider: inheritedIntent.provider,
       inherited_provider_from_project: inheritedIntent.defaults?.project || targetProject?.name || null,
     } : {}),
+    ...buildProviderLaneTaskMetadata(targetProject || {}),
     ...(extra_metadata || {}),
   };
 

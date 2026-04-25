@@ -671,6 +671,87 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 
+  it('fails no-op ollama-cloud tasks instead of handing off when provider lane blocks codex', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));
+
+    const task = {
+      id: 'task-api-noop-lane-block',
+      provider: 'ollama-cloud',
+      model: null,
+      task_description: 'Create tools/validate_unity_host_join_smoke.py',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: JSON.stringify({
+        _routing_chain: [
+          { provider: 'ollama-cloud', model: 'kimi-k2:1t' },
+          { provider: 'codex' },
+        ],
+        file_paths: ['tools/validate_unity_host_join_smoke.py'],
+        provider_lane_policy: {
+          expected_provider: 'ollama-cloud',
+          allowed_fallback_providers: [],
+          enforce_handoffs: true,
+        },
+      }),
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'I would create the validator and tests.',
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 12, completion_tokens: 8 },
+          changedFiles: [],
+          iterations: 2,
+        },
+      ])
+    );
+
+    await mod.executeApiProvider(task, { name: 'ollama-cloud' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('failed');
+    expect(updated.provider).toBe('ollama-cloud');
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'failed',
+      expect.objectContaining({
+        exit_code: 1,
+      }),
+    );
+  });
+
   it('does not requeue read-only openrouter reports that mention forbidden edit verbs', async () => {
     const { mod, configMock, providerModelScoresMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
@@ -954,6 +1035,102 @@ describe('providers/execution agentic fixes', () => {
     expect(updated.metadata.proposal_apply_deterministic_apply_failed).toBe(true);
     expect(updated.metadata.proposal_apply_deterministic_failure_reason)
       .toContain('exact old_text was not found');
+    expect(fs.readFileSync(path.join(workingDir, 'tools/existing.py'), 'utf-8'))
+      .toBe('print("current")\n');
+  });
+
+  it('does not fall back to codex proposal apply when provider lane forbids fallback', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));
+
+    const workingDir = makeTempDir();
+    fs.mkdirSync(path.join(workingDir, 'tools'), { recursive: true });
+    fs.writeFileSync(path.join(workingDir, 'tools/existing.py'), 'print("current")\n', 'utf-8');
+    const task = {
+      id: 'task-api-proposal-apply-lane-block',
+      provider: 'ollama-cloud',
+      model: null,
+      task_description: 'Update tools/existing.py',
+      working_directory: workingDir,
+      timeout_minutes: 1,
+      metadata: JSON.stringify({
+        _routing_chain: [
+          { provider: 'ollama-cloud', model: 'kimi-k2:1t' },
+          { provider: 'codex' },
+        ],
+        file_paths: ['tools/existing.py'],
+        ollama_cloud_repo_write_mode: 'proposal_apply',
+        proposal_apply_provider: 'codex',
+        provider_lane_policy: {
+          expected_provider: 'ollama-cloud',
+          allowed_fallback_providers: [],
+          enforce_handoffs: true,
+        },
+        agentic_allowed_tools: ['read_file', 'list_directory', 'search_files'],
+      }),
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: JSON.stringify({
+            file_edits: [
+              {
+                file: 'tools/existing.py',
+                operations: [
+                  {
+                    type: 'replace',
+                    old_text: 'print("missing")\n',
+                    new_text: 'print("updated")\n',
+                  },
+                ],
+              },
+            ],
+          }),
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 40 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    await mod.executeApiProvider(task, { name: 'ollama-cloud' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('failed');
+    expect(updated.provider).toBe('ollama-cloud');
+    expect(updated.error_output).toContain('provider lane policy blocked handoff to codex');
     expect(fs.readFileSync(path.join(workingDir, 'tools/existing.py'), 'utf-8'))
       .toBe('print("current")\n');
   });
