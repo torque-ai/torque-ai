@@ -10,3 +10,4 @@ require('../metrics').register(require('./db-factory-cost-summary'));
 require('../metrics').register(require('./db-project-stats'));
 require('../metrics').register(require('./db-list-tasks'));
 require('../metrics').register(require('./db-budget-threshold'));
+require('../metrics').register(require('./cold-import'));
