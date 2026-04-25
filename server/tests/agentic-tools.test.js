@@ -695,6 +695,42 @@ describe('parseToolCalls', () => {
     expect(calls[1].arguments.path).toBe('b.txt');
   });
 
+  it('parses OpenRouter free self-closing tool tags', () => {
+    const message = {
+      content: 'I will inspect the root.\n\n<list_directory path="C:\\repo\\NetSim" />',
+    };
+    const calls = parseToolCalls(message);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('list_directory');
+    expect(calls[0].arguments).toEqual({ path: 'C:\\repo\\NetSim' });
+  });
+
+  it('parses Minimax invoke pseudo tool calls', () => {
+    const message = {
+      content: [
+        '<minimax:tool_call>',
+        '<invoke name="list_directory">',
+        '<parameter name="path">C:\\repo\\NetSim</parameter>',
+        '</invoke>',
+        '</minimax:tool_call>',
+      ].join('\n'),
+    };
+    const calls = parseToolCalls(message);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('list_directory');
+    expect(calls[0].arguments).toEqual({ path: 'C:\\repo\\NetSim' });
+  });
+
+  it('parses plain function-like pseudo tool calls', () => {
+    const message = {
+      content: 'read_file({path, C:\\repo\\NetSim\\})',
+    };
+    const calls = parseToolCalls(message);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('read_file');
+    expect(calls[0].arguments).toEqual({ path: 'C:\\repo\\NetSim\\' });
+  });
+
   it('parses raw JSON object in content', () => {
     const message = {
       content: '{"name":"run_command","arguments":{"command":"npm test"}}',

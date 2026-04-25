@@ -1028,6 +1028,55 @@ function executeTool(toolName, args, workingDir, options = {}) {
   return result;
 }
 
+function decodeXmlEntities(value) {
+  return String(value || '')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function stripPseudoValue(value) {
+  let trimmed = String(value || '').trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    || (trimmed.startsWith('`') && trimmed.endsWith('`'))
+  ) {
+    trimmed = trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function parsePseudoObjectArguments(raw) {
+  const text = String(raw || '').trim();
+  if (!text.startsWith('{') || !text.endsWith('}')) return null;
+
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    // Continue to permissive parser below.
+  }
+
+  const body = text.slice(1, -1).trim();
+  if (!body) return {};
+
+  const singlePair = body.match(/^([A-Za-z_][\w-]*)\s*[:,]\s*([\s\S]+)$/);
+  if (singlePair) {
+    return { [singlePair[1]]: stripPseudoValue(singlePair[2]) };
+  }
+
+  const args = {};
+  const pairRegex = /([A-Za-z_][\w-]*)\s*:\s*("[^"]*"|'[^']*'|`[^`]*`|[^,]+)(?:,|$)/g;
+  let match;
+  while ((match = pairRegex.exec(body)) !== null) {
+    args[match[1]] = stripPseudoValue(match[2]);
+  }
+  return Object.keys(args).length > 0 ? args : null;
+}
+
 /**
  * Parse tool calls from model response.
  * Handles structured tool_calls field, <tool_call> XML tags, raw JSON in content,
@@ -1036,8 +1085,10 @@ function executeTool(toolName, args, workingDir, options = {}) {
  * Priority order:
  *   1. Structured tool_calls field (OpenAI-format)
  *   2. <tool_call> XML tags (Qwen2.5 native format)
- *   3. Raw JSON object with "name" key
- *   4. JSON in markdown code blocks
+ *   3. OpenRouter/free pseudo XML tags (<tool_name ... />, <invoke ...>)
+ *   4. Function-like pseudo calls (tool_name({path, value}))
+ *   5. Raw JSON object with "name" key
+ *   6. JSON in markdown code blocks
  *
  * @param {Object} message - The assistant message from Ollama
  * @returns {Array<{name: string, arguments: Object}>}
@@ -1087,6 +1138,55 @@ function parseToolCalls(message) {
     if (name) funcMatches.push({ name, arguments: args });
   }
   if (funcMatches.length > 0) return funcMatches;
+
+  // Priority 2c: Self-closing XML-ish tool tags emitted by some OpenRouter free models.
+  // Format: <list_directory path="C:\repo" />
+  const directTagRegex = /<(read_file|write_file|edit_file|replace_lines|search_files|list_directory|run_command)\b([^>]*)\/?>/gi;
+  const directTagMatches = [];
+  while ((match = directTagRegex.exec(content)) !== null) {
+    const name = match[1];
+    const attrs = {};
+    const attrRegex = /([A-Za-z_][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+    let attrMatch;
+    while ((attrMatch = attrRegex.exec(match[2] || '')) !== null) {
+      attrs[attrMatch[1]] = decodeXmlEntities(attrMatch[2] ?? attrMatch[3] ?? '');
+    }
+    if (name && Object.keys(attrs).length > 0) {
+      directTagMatches.push({ name, arguments: attrs });
+    }
+  }
+  if (directTagMatches.length > 0) return directTagMatches;
+
+  // Priority 2d: Minimax/OpenRouter invoke tags.
+  // Format: <invoke name="list_directory"><parameter name="path">C:\repo</parameter></invoke>
+  const invokeTagRegex = /<invoke\s+name\s*=\s*(?:"([^"]+)"|'([^']+)')\s*>([\s\S]*?)<\/invoke>/gi;
+  const invokeMatches = [];
+  while ((match = invokeTagRegex.exec(content)) !== null) {
+    const name = match[1] || match[2];
+    const body = match[3] || '';
+    const args = {};
+    const paramRegex = /<parameter\s+name\s*=\s*(?:"([^"]+)"|'([^']+)')\s*>([\s\S]*?)<\/parameter>/gi;
+    let paramMatch;
+    while ((paramMatch = paramRegex.exec(body)) !== null) {
+      args[paramMatch[1] || paramMatch[2]] = decodeXmlEntities((paramMatch[3] || '').trim());
+    }
+    if (name && Object.keys(args).length > 0) {
+      invokeMatches.push({ name, arguments: args });
+    }
+  }
+  if (invokeMatches.length > 0) return invokeMatches;
+
+  // Priority 2e: Function-like pseudo calls emitted as plain text by routed free models.
+  // Format examples: read_file({path, C:\repo\}) or list_directory({"path":"."})
+  const pseudoFunctionRegex = /\b(read_file|write_file|edit_file|replace_lines|search_files|list_directory|run_command)\s*\(\s*(\{[\s\S]*?\})\s*\)/gi;
+  const pseudoFunctionMatches = [];
+  while ((match = pseudoFunctionRegex.exec(content)) !== null) {
+    const parsedArgs = parsePseudoObjectArguments(match[2]);
+    if (parsedArgs) {
+      pseudoFunctionMatches.push({ name: match[1], arguments: parsedArgs });
+    }
+  }
+  if (pseudoFunctionMatches.length > 0) return pseudoFunctionMatches;
 
   // Priority 3: Raw JSON object or array with "name" and "arguments" keys
   try {

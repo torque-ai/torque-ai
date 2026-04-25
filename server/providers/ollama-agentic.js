@@ -307,8 +307,18 @@ async function runAgenticLoop({
       tokenUsage.completion_tokens += response.usage.completion_tokens || 0;
     }
 
-    // Parse tool calls (handles structured + JSON + XML formats)
+    // Parse tool calls (handles structured + JSON + XML/pseudo-call formats)
     const toolCalls = parseToolCalls(assistantMessage);
+    const nativeToolCalls = Array.isArray(assistantMessage.tool_calls)
+      ? assistantMessage.tool_calls
+      : [];
+    if (toolCalls.length > 0) {
+      for (let i = 0; i < toolCalls.length; i++) {
+        if (!toolCalls[i].id) {
+          toolCalls[i].id = `call_parsed_${iterations + 1}_${i + 1}`;
+        }
+      }
+    }
 
     if (toolCalls.length === 0) {
       const content = assistantMessage.content || '';
@@ -408,23 +418,25 @@ async function runAgenticLoop({
         content: assistantMessage.content || '',
       });
     } else {
-      // Standard: normalize tool_calls — only standard fields, re-stringify arguments
-      // (APIs reject unknown fields like 'index' inside function, and require arguments as string)
-      const rawToolCalls = assistantMessage.tool_calls
-        ? assistantMessage.tool_calls.map(tc => ({
-            id: tc.id,
-            type: tc.type || 'function',
-            function: {
-              name: tc.function.name,
-              arguments: typeof tc.function.arguments === 'string'
-                ? tc.function.arguments
-                : JSON.stringify(tc.function.arguments),
-            },
-          }))
+      // Standard: normalize tool_calls — only standard fields, re-stringify arguments.
+      // For parsed text/XML pseudo-calls, synthesize OpenAI-style tool_calls so the
+      // following tool role messages are valid for OpenAI-compatible APIs.
+      const rawToolCalls = toolCalls.length > 0
+        ? toolCalls.map((tc, index) => {
+            const native = nativeToolCalls[index];
+            return {
+              id: tc.id,
+              type: native?.type || 'function',
+              function: {
+                name: tc.name,
+                arguments: JSON.stringify(tc.arguments || {}),
+              },
+            };
+          })
         : undefined;
       messages.push({
         role: 'assistant',
-        content: assistantMessage.content || '',
+        content: nativeToolCalls.length > 0 ? (assistantMessage.content || '') : '',
         ...(rawToolCalls ? { tool_calls: rawToolCalls } : {}),
       });
     }

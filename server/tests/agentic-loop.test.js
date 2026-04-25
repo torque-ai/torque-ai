@@ -146,6 +146,53 @@ describe('runAgenticLoop — tool call then final response', () => {
     expect(result.output).toContain('Done.');
   });
 
+  it('synthesizes OpenAI tool call messages for parsed pseudo tool calls', async () => {
+    const adapterCalls = [];
+    const responses = [
+      textResponse('<list_directory path="." />'),
+      textResponse('Directory listed. Done.'),
+    ];
+    const adapter = {
+      chatCompletion: async (params) => {
+        adapterCalls.push(params);
+        return responses[Math.min(adapterCalls.length - 1, responses.length - 1)];
+      },
+    };
+    const executor = mockToolExecutor({
+      list_directory: { result: 'hello.txt', metadata: {} },
+    });
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'sys',
+      taskPrompt: 'list files',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+      maxIterations: 3,
+    });
+
+    expect(result.toolLog).toHaveLength(1);
+    expect(result.toolLog[0].name).toBe('list_directory');
+    expect(adapterCalls).toHaveLength(2);
+    const secondMessages = adapterCalls[1].messages;
+    const assistantToolMessage = secondMessages.find((message) => message.role === 'assistant' && message.tool_calls);
+    const toolResultMessage = secondMessages.find((message) => message.role === 'tool');
+    expect(assistantToolMessage.tool_calls[0]).toMatchObject({
+      id: 'call_parsed_1_1',
+      type: 'function',
+      function: {
+        name: 'list_directory',
+        arguments: '{"path":"."}',
+      },
+    });
+    expect(toolResultMessage).toMatchObject({
+      role: 'tool',
+      tool_call_id: 'call_parsed_1_1',
+      content: 'hello.txt',
+    });
+    expect(result.output).toContain('Done.');
+  });
+
   it('tool log entry has expected shape', async () => {
     const adapter = mockAdapter([
       toolCallResponse('read_file', { path: 'foo.txt' }),
