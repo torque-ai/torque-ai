@@ -567,6 +567,28 @@ describe('runAgenticLoop — callbacks', () => {
     expect(toolCallLog[0].name).toBe('read_file');
     expect(toolCallLog[0].execResult.result).toBe('file content');
   });
+
+  it('passes onChunk through to the adapter for streaming heartbeats', async () => {
+    const chunks = [];
+    const adapter = {
+      chatCompletion: async ({ onChunk }) => {
+        onChunk?.('working');
+        return textResponse('Done.');
+      },
+    };
+    const executor = mockToolExecutor();
+
+    await runAgenticLoop({
+      adapter,
+      systemPrompt: 'sys',
+      taskPrompt: 'task',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+      onChunk: (text) => chunks.push(text),
+    });
+
+    expect(chunks).toEqual(['working']);
+  });
 });
 
 // ---------------------------------------------------------------------------

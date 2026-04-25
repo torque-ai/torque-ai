@@ -155,6 +155,7 @@ function buildOutputSummary(finalOutput, toolLog, changedFiles) {
  * @param {number|null} [params.actionlessIterationLimit] - Stop after this many consecutive no-action iterations on modification tasks
  * @param {Function} [params.onProgress] - (iteration, maxIter, lastTool) => void
  * @param {Function} [params.onToolCall] - (name, args, result) => void — for dashboard
+ * @param {Function} [params.onChunk] - (text) => void — streamed model output heartbeat
  * @param {AbortSignal} [params.signal] - Abort signal
  * @returns {Promise<{ output: string, toolLog: Array, changedFiles: string[], iterations: number, tokenUsage: Object }>}
  */
@@ -173,6 +174,7 @@ async function runAgenticLoop({
   promptInjectedTools = false, // When true, tool results sent as user messages with [TOOL_RESULTS] format
   onProgress,
   onToolCall,
+  onChunk,
   signal,
 }) {
   const messages = [
@@ -272,6 +274,7 @@ async function runAgenticLoop({
           tools: tools && tools.length > 0 ? tools : undefined,
           timeoutMs: timeoutMs || 120000,
           signal,
+          onChunk,
           ...(options || {}),
         });
         break; // success

@@ -28,6 +28,7 @@
  *   editFormat           — hashline/hashline-lite/diff etc.
  *   completionDetected   — boolean
  *   completionGraceHandle — setTimeout handle for grace period
+ *   silentHeartbeatHandle — setInterval handle for worker silence heartbeats
  *   lastProgress         — last reported progress percentage
  *   baselineCommit       — git SHA before task started
  *   workingDirectory     — task working directory
@@ -142,6 +143,7 @@ class ProcessTracker extends Map {
     if (entry.timeoutHandle) clearTimeout(entry.timeoutHandle);
     if (entry.startupTimeoutHandle) clearTimeout(entry.startupTimeoutHandle);
     if (entry.completionGraceHandle) clearTimeout(entry.completionGraceHandle);
+    if (entry.silentHeartbeatHandle) clearInterval(entry.silentHeartbeatHandle);
     return this.delete(taskId);
   }
 

@@ -1667,6 +1667,8 @@ function buildTrackedAgenticCallbacks(taskId, callbacks = {}) {
   };
 }
 
+const AGENTIC_WORKER_SILENT_HEARTBEAT_MS = 60 * 1000;
+
 function trackAgenticWorkerTask(taskId, {
   workerHandle,
   abortController = null,
@@ -1674,6 +1676,7 @@ function trackAgenticWorkerTask(taskId, {
   model = null,
   workingDir = null,
   timeoutHandle = null,
+  timeoutMs = null,
 }) {
   const runningProcesses = getAgenticRunningProcesses();
   const worker = workerHandle?.worker;
@@ -1705,7 +1708,19 @@ function trackAgenticWorkerTask(taskId, {
     model,
     workingDirectory: workingDir,
     isAgenticWorker: true,
+    timeoutMs,
   };
+
+  procRecord.silentHeartbeatHandle = setInterval(() => {
+    const current = runningProcesses.get(taskId);
+    if (current !== procRecord) {
+      clearInterval(procRecord.silentHeartbeatHandle);
+      return;
+    }
+    current.lastOutputAt = Date.now();
+    current.output = current.output || `[Agentic: waiting on ${provider || 'provider'}${model ? ` ${model}` : ''}]`;
+  }, AGENTIC_WORKER_SILENT_HEARTBEAT_MS);
+  procRecord.silentHeartbeatHandle.unref?.();
 
   runningProcesses.set(taskId, procRecord);
 
@@ -1715,6 +1730,7 @@ function trackAgenticWorkerTask(taskId, {
       if (current.timeoutHandle) clearTimeout(current.timeoutHandle);
       if (current.startupTimeoutHandle) clearTimeout(current.startupTimeoutHandle);
       if (current.completionGraceHandle) clearTimeout(current.completionGraceHandle);
+      if (current.silentHeartbeatHandle) clearInterval(current.silentHeartbeatHandle);
       runningProcesses.delete(taskId);
       runningProcesses.stallAttempts?.delete?.(taskId);
     }
@@ -2165,6 +2181,7 @@ async function executeOllamaTaskWithAgentic(task) {
       model: resolvedModel,
       workingDir,
       timeoutHandle,
+      timeoutMs,
     });
 
     // Wire abort: forward AbortController.abort() → worker abort message
@@ -2570,6 +2587,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         model,
         workingDir,
         timeoutHandle,
+        timeoutMs,
       });
 
       // Wire abort: forward AbortController.abort() → worker abort message
@@ -2922,6 +2940,7 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
         provider: entry.provider,
         model: entry.model || null,
         workingDir,
+        timeoutMs: config.timeoutMs,
       });
       const result = await workerHandle.promise;
       let gitReport = null;

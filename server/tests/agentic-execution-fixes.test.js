@@ -623,7 +623,9 @@ describe('providers/execution agentic fixes', () => {
       model: TEST_MODELS.DEFAULT,
       workingDirectory: 'C:/repo',
       isAgenticWorker: true,
+      timeoutMs: 60000,
     }));
+    expect(runningProcesses.get('task-ollama').silentHeartbeatHandle).toBeTruthy();
     expect(typeof runningProcesses.get('task-ollama').process.kill).toBe('function');
 
     workerControl.latest().emitMessage({
