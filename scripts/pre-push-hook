@@ -124,22 +124,38 @@ is_file_load_only_flake() {
 # Run a test command with one auto-retry if the only failure shape is
 # file-load (see is_file_load_only_flake). Exports RETRIED_OUTPUT and
 # RETRIED_EXIT so the caller can evaluate the final result.
+#
+# Output is streamed to the user's terminal via tee while also being
+# captured to a tempfile for the retry/failure analysis below. The
+# previous design used `RETRIED_OUTPUT=$(eval ... 2>&1)` which buffered
+# all output until the subshell exited — silently hiding 5-20 minutes of
+# remote test progress, and (worse) deadlocking on Git Bash + Windows
+# when ssh's stdio fds were held open past the inner command's exit (the
+# `$(...)` parent waits forever for EOF on the captured pipe). PIPESTATUS[0]
+# preserves the inner exit code so tee's success doesn't mask a real
+# test failure.
 run_with_flake_retry() {
   local label="$1"
   local cmd="$2"
+  local tmp
+  tmp=$(mktemp -t prepush.XXXXXX)
 
   set +e
-  RETRIED_OUTPUT=$(eval "$cmd" 2>&1)
-  RETRIED_EXIT=$?
+  eval "$cmd" 2>&1 | tee "$tmp"
+  RETRIED_EXIT=${PIPESTATUS[0]}
   set -e
+  RETRIED_OUTPUT=$(<"$tmp")
 
   if [ "$RETRIED_EXIT" -ne 0 ] && is_file_load_only_flake "$RETRIED_OUTPUT"; then
     echo "[pre-push] $label: file-load flake detected (0 test failures, N file-load failures) — retrying once..."
     set +e
-    RETRIED_OUTPUT=$(eval "$cmd" 2>&1)
-    RETRIED_EXIT=$?
+    eval "$cmd" 2>&1 | tee "$tmp"
+    RETRIED_EXIT=${PIPESTATUS[0]}
     set -e
+    RETRIED_OUTPUT=$(<"$tmp")
   fi
+
+  rm -f "$tmp"
 }
 
 # Disposable ref under refs/heads/pre-push-gate/. Includes the local sha so
