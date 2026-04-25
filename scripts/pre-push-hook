@@ -89,6 +89,13 @@ strip_ansi() {
   sed $'s/\x1b\\[[0-9;]*m//g'
 }
 
+# Strip the `[dash] `/`[serv] ` line prefix added when both phases run in
+# parallel inside a single SSH session. Lines without the prefix pass
+# through untouched, so this is safe to apply to any output.
+strip_phase_prefix() {
+  sed -E 's/^\[(dash|serv)\] //'
+}
+
 # vitest prints two summary lines:
 #   Test Files  1 failed | 890 passed | 4 skipped (895)
 #   Tests       18564 passed | 27 skipped | 10 todo (18601)
@@ -98,7 +105,7 @@ strip_ansi() {
 # silently let pushes through with a red test file.
 tests_have_failures() {
   local output="$1"
-  echo "$output" | strip_ansi | grep -qE '^[[:space:]]*(Test Files|Tests)[[:space:]].*failed'
+  echo "$output" | strip_ansi | strip_phase_prefix | grep -qE '^[[:space:]]*(Test Files|Tests)[[:space:]].*failed'
 }
 
 # Distinguishes real test failures (tests that ran and asserted wrong) from
@@ -109,7 +116,7 @@ tests_have_failures() {
 is_file_load_only_flake() {
   local output="$1"
   local plain
-  plain=$(echo "$output" | strip_ansi)
+  plain=$(echo "$output" | strip_ansi | strip_phase_prefix)
   # "Tests  N failed" means real assertion failures — not a flake
   if echo "$plain" | grep -qE '^[[:space:]]*Tests[[:space:]]+[0-9]+ failed'; then
     return 1
@@ -121,25 +128,38 @@ is_file_load_only_flake() {
   return 1
 }
 
+# Per-phase timeout caps pathological SSH stalls. Empirically, dashboard
+# completes in ~1m and server in ~2.5m, so 10min is a generous safety net.
+PHASE_TIMEOUT_SECS="${PRE_PUSH_PHASE_TIMEOUT_SECS:-600}"
+
 # Run a test command with one auto-retry if the only failure shape is
-# file-load (see is_file_load_only_flake). Exports RETRIED_OUTPUT and
-# RETRIED_EXIT so the caller can evaluate the final result.
+# file-load (see is_file_load_only_flake). Output is tee'd to a tempfile
+# AND to stdout in real time so the user sees vitest progress as it
+# happens rather than ~10min of buffered silence.
+# Exports RETRIED_OUTPUT and RETRIED_EXIT so the caller can evaluate the
+# final result.
 run_with_flake_retry() {
   local label="$1"
   local cmd="$2"
+  local logfile
+  logfile=$(mktemp)
 
   set +e
-  RETRIED_OUTPUT=$(eval "$cmd" 2>&1)
-  RETRIED_EXIT=$?
+  eval "$cmd" 2>&1 | tee "$logfile"
+  RETRIED_EXIT=${PIPESTATUS[0]}
+  RETRIED_OUTPUT=$(cat "$logfile")
   set -e
 
   if [ "$RETRIED_EXIT" -ne 0 ] && is_file_load_only_flake "$RETRIED_OUTPUT"; then
     echo "[pre-push] $label: file-load flake detected (0 test failures, N file-load failures) — retrying once..."
     set +e
-    RETRIED_OUTPUT=$(eval "$cmd" 2>&1)
-    RETRIED_EXIT=$?
+    eval "$cmd" 2>&1 | tee "$logfile"
+    RETRIED_EXIT=${PIPESTATUS[0]}
+    RETRIED_OUTPUT=$(cat "$logfile")
     set -e
   fi
+
+  rm -f "$logfile"
 }
 
 # Disposable ref under refs/heads/pre-push-gate/. Includes the local sha so
@@ -174,39 +194,74 @@ gate_failed() {
   exit 1
 }
 
-echo "[pre-push] Running dashboard tests on remote (branch: $staging_branch)..."
-# Dashboard tests used to run locally, but local CPU contention with the
-# live TORQUE server (factory loops, stall watchers, event bus) caused
-# waitFor-timeout flakes (seen on ErrorBoundary.test under factory load).
-# Remote has consistent headroom and already runs the server suite — match
-# that path so both test runs share an env.
+echo "[pre-push] Running dashboard + server tests in parallel on remote (branch: $staging_branch)..."
+# Both phases run inside ONE torque-remote SSH session so the (~1-3 min)
+# git fetch+checkout+reset sync only happens once instead of twice. Inside
+# that session, dashboard and server tests run as background jobs in
+# parallel — dashboard finishes in ~1m, server in ~2.5m, so wall time is
+# bounded by the server run. Each phase is wrapped in `timeout` so a hung
+# vitest process can't stall the gate forever.
 #
-# IMPORTANT: torque-remote runs commands from the remote's project root,
-# not the local cwd. Embed `cd dashboard &&` inside the quoted command
-# so the remote shell changes dir before running the test runner;
-# otherwise vitest picks up the server suite too.
+# Output is line-prefixed [dash]/[serv] so the interleaved stream stays
+# legible; tee in run_with_flake_retry streams it live to the user so the
+# gate doesn't look frozen during long phases.
+#
+# IMPORTANT: each phase cd's into its own subdirectory before invoking
+# vitest so the tuned per-package config is picked up
+# (server/vitest.config.js: pool=threads, retry=1 — the root config has
+# pool=forks with no retry which reproducibly produces cross-file flakes;
+# dashboard/vitest.config.js: jsdom + react plugin).
+#
+# Exit code: $((dash_exit + serv_exit)) — non-zero if either failed.
 cd "$REPO_ROOT"
-run_with_flake_retry "Dashboard tests" "torque-remote --branch $staging_branch bash -lc \"cd dashboard && npx vitest run --reporter=dot\""
-dash_output="$RETRIED_OUTPUT"
-dash_exit="$RETRIED_EXIT"
-echo "$dash_output" | tail -5
-if [ "$dash_exit" -ne 0 ] || tests_have_failures "$dash_output"; then
-  gate_failed "Dashboard tests failed (exit $dash_exit)"
+remote_parallel_cmd=$(cat <<EOF
+set -uo pipefail
+DASH_EXIT_FILE=\$(mktemp)
+SERV_EXIT_FILE=\$(mktemp)
+{
+  timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd dashboard && npx vitest run --reporter=dot"
+  echo \$? > "\$DASH_EXIT_FILE"
+} 2>&1 | sed -u "s/^/[dash] /" &
+DASH_PID=\$!
+{
+  timeout ${PHASE_TIMEOUT_SECS} bash -lc "cd server && npx vitest run --reporter=dot"
+  echo \$? > "\$SERV_EXIT_FILE"
+} 2>&1 | sed -u "s/^/[serv] /" &
+SERV_PID=\$!
+wait \$DASH_PID 2>/dev/null
+wait \$SERV_PID 2>/dev/null
+DASH_EXIT=\$(cat "\$DASH_EXIT_FILE" 2>/dev/null || echo "1")
+SERV_EXIT=\$(cat "\$SERV_EXIT_FILE" 2>/dev/null || echo "1")
+rm -f "\$DASH_EXIT_FILE" "\$SERV_EXIT_FILE"
+echo "[gate-end] dash_exit=\$DASH_EXIT serv_exit=\$SERV_EXIT"
+exit \$((DASH_EXIT + SERV_EXIT))
+EOF
+)
+run_with_flake_retry "Test gate" "torque-remote --branch $staging_branch bash -c $(printf %q "$remote_parallel_cmd")"
+combined_output="$RETRIED_OUTPUT"
+combined_exit="$RETRIED_EXIT"
+
+# Split combined output into per-phase streams for failure analysis.
+dash_output=$(echo "$combined_output" | grep '^\[dash\] ' | sed 's/^\[dash\] //')
+server_output=$(echo "$combined_output" | grep '^\[serv\] ' | sed 's/^\[serv\] //')
+
+# The gate-end marker reports per-phase exits even when overall exit code
+# is nonzero from `set -uo pipefail` weirdness. Prefer the marker when
+# present.
+if echo "$combined_output" | grep -q '\[gate-end\] dash_exit='; then
+  dash_exit=$(echo "$combined_output" | grep '\[gate-end\]' | sed -E 's/.*dash_exit=([0-9]+).*/\1/' | tail -1)
+  server_exit=$(echo "$combined_output" | grep '\[gate-end\]' | sed -E 's/.*serv_exit=([0-9]+).*/\1/' | tail -1)
+else
+  dash_exit="$combined_exit"
+  server_exit="$combined_exit"
 fi
 
-echo "[pre-push] Running server tests on remote (branch: $staging_branch)..."
-cd "$REPO_ROOT"
-# IMPORTANT: cd into server/ before invoking vitest so the tuned
-# server/vitest.config.js is picked up instead of the (stale) root
-# vitest.config.js. The server config uses pool=threads and retry=1 —
-# the root config uses pool=forks with no retry, which reproducibly
-# causes ~30–50 cross-file flakes that don't happen from server/.
-# Matches the dashboard pattern above.
-run_with_flake_retry "Server tests" "torque-remote --branch $staging_branch bash -lc \"cd server && npx vitest run --reporter=dot\""
-server_output="$RETRIED_OUTPUT"
-server_exit="$RETRIED_EXIT"
-echo "$server_output" | tail -5
+if [ "$dash_exit" -ne 0 ] || tests_have_failures "$dash_output"; then
+  echo "$dash_output" | tail -10
+  gate_failed "Dashboard tests failed (exit $dash_exit)"
+fi
 if [ "$server_exit" -ne 0 ] || tests_have_failures "$server_output"; then
+  echo "$server_output" | tail -10
   gate_failed "Server tests failed (exit $server_exit)"
 fi
 

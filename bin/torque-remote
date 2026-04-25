@@ -61,10 +61,39 @@ REMOTE_CLEANUP_COMMAND=""
 REMOTE_CLEANUP_REQUIRED="false"
 
 cleanup_temp_dirs() {
-  local dir
+  local dir attempt
   for dir in "${TEMP_DIRS[@]}"; do
-    [[ -n "$dir" && -d "$dir" ]] && rm -rf "$dir"
+    [[ -z "$dir" || ! -d "$dir" ]] && continue
+    # Retry rm -rf up to 3x with backoff. On Windows, Defender (and other
+    # AV/indexers) routinely hold open handles to large files like
+    # local-state.tar (~4GB) and untracked.tar (~4GB) for a few seconds
+    # after the bash process closes them. The first rm -rf often races
+    # those handles and silently leaves the dir on disk — that's how this
+    # script accumulated ~150GB of orphans before this hardening landed.
+    for attempt in 1 2 3; do
+      if rm -rf "$dir" 2>/dev/null; then
+        break
+      fi
+      sleep 1
+    done
+    if [[ -d "$dir" ]]; then
+      # Loud signal so a future operator can grep for these instead of
+      # discovering the leak via "C: drive at 0% free."
+      printf '[torque-remote] WARN: failed to remove temp dir %s — leaked, AV or indexer likely held handles\n' "$dir" >&2
+    fi
   done
+}
+
+# Best-effort sweep of orphans from prior runs that this process did not
+# create. Triggered once per invocation (after our own cleanup) so the
+# disk-pressure failure mode self-heals over time even if a few cleanups
+# leak. Anything older than 1 hour is fair game — fresh dirs may belong to
+# a concurrent torque-remote invocation.
+sweep_old_orphans() {
+  local tmp_root="${TMPDIR:-/tmp}"
+  [[ ! -d "$tmp_root" ]] && return 0
+  find "$tmp_root" -maxdepth 1 -type d -name 'torque-remote.*' -mmin +60 \
+    -exec rm -rf {} + 2>/dev/null || true
 }
 
 make_temp_dir() {
@@ -162,6 +191,7 @@ cleanup_remote_exec() {
 cleanup_on_exit() {
   cleanup_remote_exec
   cleanup_temp_dirs
+  sweep_old_orphans
 }
 
 resolve_sync_ref() {
