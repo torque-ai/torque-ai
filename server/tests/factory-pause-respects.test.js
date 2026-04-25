@@ -272,7 +272,9 @@ describe('factory pause enforcement', () => {
     });
     const taskManager = {
       cancelTask: vi.fn((taskId, _reason, options) => {
-        taskCore.updateTaskStatus(taskId, 'cancelled', { cancel_reason: options.cancel_reason });
+        taskCore.updateTaskStatus(taskId, options.terminal_status || 'cancelled', {
+          cancel_reason: options.cancel_reason,
+        });
         return true;
       }),
     };
@@ -289,12 +291,12 @@ describe('factory pause enforcement', () => {
     expect(taskManager.cancelTask).toHaveBeenCalledWith(
       'task-stale-verify-batch',
       expect.stringContaining('VERIFY stall recovery exhausted'),
-      { cancel_reason: 'factory_verify_unrecoverable' },
+      { cancel_reason: 'factory_verify_unrecoverable', terminal_status: 'failed' },
     );
     expect(resolution.cancelled_tasks).toEqual(['task-stale-verify-batch']);
     expect(taskCore.getTask('task-stale-verify-batch')).toMatchObject({
-      status: 'cancelled',
-      cancel_reason: 'factory_verify_unrecoverable',
+      status: 'failed',
+      cancel_reason: null,
     });
     expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeTruthy();
     expect(factoryIntake.getWorkItem(item.id)).toMatchObject({
@@ -336,7 +338,9 @@ describe('factory pause enforcement', () => {
     });
     const taskManager = {
       cancelTask: vi.fn((taskId, _reason, options) => {
-        taskCore.updateTaskStatus(taskId, 'cancelled', { cancel_reason: options.cancel_reason });
+        taskCore.updateTaskStatus(taskId, options.terminal_status || 'cancelled', {
+          cancel_reason: options.cancel_reason,
+        });
         return true;
       }),
     };

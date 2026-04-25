@@ -833,7 +833,7 @@ function createTaskStartupResourceLifecycle({
   function releaseForPolicyBlock(cancelReason) {
     releaseAcquiredFileLocks();
     try {
-      releaseClaimedSlot('cancelled', { error_output: cancelReason });
+      releaseClaimedSlot('failed', { error_output: cancelReason });
     } catch (releaseErr) {
       logger.info(`[Policy] Failed to release claimed slot for ${taskId}: ${releaseErr.message}`);
     }
@@ -984,9 +984,8 @@ function evaluateClaimedStartupPolicy({
     cancelBlockedTask(taskId, cancelReason, { cancel_reason: 'policy_block' });
   } catch (cancelErr) {
     log.info(`[Policy] Failed to cancel blocked task ${taskId}: ${cancelErr.message}`);
-    updateTaskStatus(taskId, 'cancelled', {
+    updateTaskStatus(taskId, 'failed', {
       error_output: cancelReason,
-      cancel_reason: 'policy_block',
     });
   }
   resourceLifecycle.releaseForPolicyBlock(cancelReason);
@@ -996,7 +995,7 @@ function evaluateClaimedStartupPolicy({
     earlyResult: {
       queued: false,
       blocked: true,
-      cancelled: true,
+      failed: true,
       reason: cancelReason,
       task: getTask(taskId),
     },
@@ -1285,9 +1284,8 @@ function evaluateClaimedPolicyForStartup({
     cancelTask(taskId, cancelReason, { cancel_reason: 'policy_block' });
   } catch (cancelErr) {
     logger.info(`[Governance] Failed to cancel blocked task ${taskId}: ${cancelErr.message}`);
-    safeUpdateTaskStatus(taskId, 'cancelled', {
+    safeUpdateTaskStatus(taskId, 'failed', {
       error_output: cancelReason,
-      cancel_reason: 'policy_block',
     });
   }
   startupResources.releaseForPolicyBlock(cancelReason);
@@ -1296,7 +1294,7 @@ function evaluateClaimedPolicyForStartup({
   return {
     queued: false,
     blocked: true,
-    cancelled: true,
+    failed: true,
     reason: cancelReason,
     task: db.getTask(taskId),
   };

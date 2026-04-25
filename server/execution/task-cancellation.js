@@ -25,6 +25,46 @@ function createCancellationHandler({
     return timeoutPattern.test(String(reason || ''));
   }
 
+  const INTERNAL_FAILURE_CANCEL_REASONS = new Set([
+    'timeout',
+    'stall',
+    'queue_ttl',
+    'policy_block',
+    'host_failover',
+    'factory_verify_unrecoverable',
+    'worktree_reclaim',
+    'workflow_cascade',
+    'fallback_retry_exhausted',
+    'task_not_found',
+  ]);
+
+  function shouldKeepCancelledState(cancelReason) {
+    return !INTERNAL_FAILURE_CANCEL_REASONS.has(cancelReason);
+  }
+
+  function resolveCancellationTerminalState(cancelReason, reason, options = {}) {
+    if (['cancelled', 'failed', 'skipped'].includes(options.terminal_status)) {
+      return options.terminal_status;
+    }
+
+    if (isTimeoutReason(reason)) {
+      return 'failed';
+    }
+
+    if (shouldKeepCancelledState(cancelReason)) {
+      return 'cancelled';
+    }
+
+    return 'failed';
+  }
+
+  function resolveWebhookEvent(reason, terminalStatus) {
+    if (isTimeoutReason(reason)) return 'timeout';
+    if (terminalStatus === 'cancelled') return 'cancelled';
+    if (terminalStatus === 'skipped') return 'skipped';
+    return 'failed';
+  }
+
   function triggerCancellationWebhook(taskId, webhookEvent) {
     safeTriggerWebhook(taskId, webhookEvent);
   }
@@ -44,11 +84,12 @@ function createCancellationHandler({
    * Centralizing avoids drift between the running / retry_scheduled / orphan
    * branches, which historically used three different append conventions.
    */
-  function combineErrorForCancel(priorErrorOutput, reason, extraNote = null) {
+  function combineErrorForCancel(priorErrorOutput, reason, extraNote = null, terminalStatus = 'cancelled') {
     const prior = typeof priorErrorOutput === 'string' ? priorErrorOutput : '';
+    const prefix = terminalStatus === 'cancelled' ? 'cancelled' : terminalStatus;
     const suffix = extraNote ? `${reason}\n${extraNote}` : reason;
     return prior
-      ? `${prior}\n[cancelled] ${suffix}`
+      ? `${prior}\n[${prefix}] ${suffix}`
       : suffix;
   }
 
@@ -72,13 +113,14 @@ function createCancellationHandler({
   function cancelTask(taskId, reason = 'Cancelled by user', options = {}) {
     const isTimeout = isTimeoutReason(reason);
     const cancelReason = options.cancel_reason || (isTimeout ? 'timeout' : 'user');
+    const terminalStatus = resolveCancellationTerminalState(cancelReason, reason, options);
     const fullId = db.resolveTaskId(taskId);
     if (!fullId) {
       throw new Error(`No task found matching ID prefix: ${taskId}`);
     }
 
     const proc = runningProcesses.get(fullId);
-    const webhookEvent = isTimeout ? 'timeout' : 'cancelled';
+    const webhookEvent = resolveWebhookEvent(reason, terminalStatus);
 
     const pendingRetry = pendingRetryTimeouts.get(fullId);
     if (pendingRetry) {
@@ -91,9 +133,9 @@ function createCancellationHandler({
       killProcessGraceful(proc, fullId, 5000);
 
       try {
-        db.updateTaskStatus(fullId, 'cancelled', {
+        db.updateTaskStatus(fullId, terminalStatus, {
           output: sanitizeTaskOutput(proc.output),
-          error_output: combineErrorForCancel(proc.errorOutput, reason),
+          error_output: combineErrorForCancel(proc.errorOutput, reason, null, terminalStatus),
           cancel_reason: cancelReason
         });
       } catch (dbErr) {
@@ -127,8 +169,8 @@ function createCancellationHandler({
     const task = db.getTask(fullId);
     if (task && task.status === 'queued') {
       stallRecoveryAttempts.delete(fullId);
-      db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: combineErrorForCancel(task.error_output, reason),
+      db.updateTaskStatus(fullId, terminalStatus, {
+        error_output: combineErrorForCancel(task.error_output, reason, null, terminalStatus),
         cancel_reason: cancelReason
       });
       releaseFileLocksForCancel(fullId);
@@ -142,8 +184,8 @@ function createCancellationHandler({
 
     if (task && (task.status === 'blocked' || task.status === 'pending' || task.status === 'pending_approval')) {
       stallRecoveryAttempts.delete(fullId);
-      db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: combineErrorForCancel(task.error_output, reason),
+      db.updateTaskStatus(fullId, terminalStatus, {
+        error_output: combineErrorForCancel(task.error_output, reason, null, terminalStatus),
         cancel_reason: cancelReason
       });
       releaseFileLocksForCancel(fullId);
@@ -158,8 +200,8 @@ function createCancellationHandler({
       // pendingRetryTimeouts already cleared above. Preserving task.error_output
       // here keeps the provider's original failure message (which triggered
       // retry_scheduled) visible after cancellation.
-      db.updateTaskStatus(fullId, 'cancelled', {
-        error_output: combineErrorForCancel(task.error_output, reason),
+      db.updateTaskStatus(fullId, terminalStatus, {
+        error_output: combineErrorForCancel(task.error_output, reason, null, terminalStatus),
         cancel_reason: cancelReason
       });
       releaseFileLocksForCancel(fullId);
@@ -172,11 +214,12 @@ function createCancellationHandler({
     if (task && task.status === 'running') {
       stallRecoveryAttempts.delete(fullId);
       safeDecrementHostSlot({ ollamaHostId: task.ollama_host_id });
-      db.updateTaskStatus(fullId, 'cancelled', {
+      db.updateTaskStatus(fullId, terminalStatus, {
         error_output: combineErrorForCancel(
           task.error_output,
           reason,
           'Note: Process was not found in memory (likely exited without cleanup)',
+          terminalStatus,
         ),
         cancel_reason: cancelReason
       });

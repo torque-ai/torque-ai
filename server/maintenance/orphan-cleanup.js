@@ -285,16 +285,9 @@ function checkStaleRunningTasks() {
         const elapsedMin = Math.round(elapsedMs / 60000);
         logger.info(`[Stale Check] Task ${task.id} has been running for ${elapsedMin}min (timeout: ${task.timeout_minutes || 480}min) - failing`);
 
-        // Cancel via cancelTask if process is tracked, otherwise update DB directly
+        // Fail via cancelTask if process is tracked, otherwise update DB directly.
         if (runningProcesses.has(task.id)) {
           cancelTask(task.id, 'Timeout exceeded (stale check)', { cancel_reason: 'timeout' });
-          db.updateTaskStatus(task.id, 'failed', {
-            error_output: `Auto-failed: Task exceeded ${task.timeout_minutes || 480} minute timeout (detected by stale check)`,
-            completed_at: new Date().toISOString(),
-            mcp_instance_id: null,
-            provider: null,
-            ollama_host_id: null,
-          });
         } else {
           // Process not tracked (server restarted) - update DB directly
           db.updateTaskStatus(task.id, 'failed', {
@@ -587,7 +580,7 @@ function checkStalledTasks(autoCancel = false) {
 
 /**
  * Cleanup orphaned tasks when a host goes down mid-task.
- * Marks running tasks on the failed host as cancelled and triggers retry via provider fallback.
+ * Marks running tasks on the failed host as failed and triggers retry via provider fallback.
  * @param {string} hostId - The host ID that went down
  * @param {string} hostName - The host name for logging
  * @returns {void}
@@ -613,15 +606,14 @@ function cleanupOrphanedHostTasks(hostId, hostName) {
         _stallWarningEmitted.delete(task.id);
       }
 
-      // Mark task as cancelled with clear error message
+      // Mark task as failed with clear error message.
       const errorMessage = `Host '${hostName}' became unavailable while task was running`;
-      db.updateTaskStatus(task.id, 'cancelled', {
+      db.updateTaskStatus(task.id, 'failed', {
         error_output: (task.error_output || '') + `\n[HOST FAILOVER] ${errorMessage}\n`,
         completed_at: new Date().toISOString(),
-        cancel_reason: 'host_failover',
       });
 
-      logger.info(`[Host Failover] Task ${task.id} marked as cancelled due to host '${hostName}' going down`);
+      logger.info(`[Host Failover] Task ${task.id} marked as failed due to host '${hostName}' going down`);
 
       // Check if task should be retried via local-first fallback
       try {

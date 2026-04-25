@@ -156,6 +156,10 @@ function appendCancelError(task, reason) {
   return `${prefix}[factory] ${reason}`;
 }
 
+function terminalStatusForFactoryCancel(cancelReason) {
+  return cancelReason === 'factory_closed_work_item' ? 'skipped' : 'failed';
+}
+
 function appendSkippedError(task, reason) {
   const prefix = task?.error_output ? `${task.error_output}\n` : '';
   return `${prefix}${reason}`;
@@ -208,7 +212,10 @@ function cancelFactoryTask(task, reason, { taskCore, taskManager, cancelReason }
 
   try {
     if (taskManager && typeof taskManager.cancelTask === 'function') {
-      const cancelled = taskManager.cancelTask(task.id, reason, { cancel_reason: cancelReason });
+      const cancelled = taskManager.cancelTask(task.id, reason, {
+        cancel_reason: cancelReason,
+        terminal_status: terminalStatusForFactoryCancel(cancelReason),
+      });
       if (cancelled) return { cancelled: true };
     }
   } catch (err) {
@@ -219,9 +226,8 @@ function cancelFactoryTask(task, reason, { taskCore, taskManager, cancelReason }
   }
 
   try {
-    taskCore.updateTaskStatus(task.id, 'cancelled', {
+    taskCore.updateTaskStatus(task.id, terminalStatusForFactoryCancel(cancelReason), {
       error_output: appendCancelError(task, reason),
-      cancel_reason: cancelReason,
     });
     return { cancelled: true, fallback: true };
   } catch (err) {

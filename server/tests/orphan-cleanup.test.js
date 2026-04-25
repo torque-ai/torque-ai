@@ -618,16 +618,15 @@ describe('Orphan Cleanup', () => {
       expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
     });
 
-    it('marks running tasks as cancelled when host goes down', () => {
+    it('marks running tasks as failed when host goes down', () => {
       mockDb.getRunningTasksForHost.mockReturnValue([
         { id: 'task-1', error_output: '' },
       ]);
 
       orphanCleanup.cleanupOrphanedHostTasks('host-1', 'TestHost');
 
-      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-1', 'cancelled', expect.objectContaining({
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('task-1', 'failed', expect.objectContaining({
         error_output: expect.stringContaining('HOST FAILOVER'),
-        cancel_reason: 'host_failover',
       }));
     });
 

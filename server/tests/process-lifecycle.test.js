@@ -1522,7 +1522,7 @@ describe('process-lifecycle', () => {
       expect(deps.cancelTask).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(1);
-      expect(deps.cancelTask).toHaveBeenCalledWith(taskId, 'Timeout exceeded');
+      expect(deps.cancelTask).toHaveBeenCalledWith(taskId, 'Timeout exceeded', { cancel_reason: 'timeout' });
     });
 
     it('falls back to safeUpdateTaskStatus when timeout cancellation throws and enforces the max timeout bound', async () => {
@@ -2015,20 +2015,24 @@ describe('process-lifecycle', () => {
 
       expect(result.earlyResult).toEqual(expect.objectContaining({
         blocked: true,
-        cancelled: true,
+        failed: true,
         reason: '[Policy] blocked by policy',
       }));
-      expect(deps.cancelTask).toHaveBeenCalledWith(taskId, '[Policy] blocked by policy');
+      expect(deps.cancelTask).toHaveBeenCalledWith(
+        taskId,
+        '[Policy] blocked by policy',
+        { cancel_reason: 'policy_block' },
+      );
       expect(deps.db.releaseFileLock).toHaveBeenCalledWith('src/b.js', 'C:/repo', taskId);
       expect(deps.db.releaseFileLock).toHaveBeenCalledWith('src/a.js', 'C:/repo', taskId);
-      expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(taskId, 'cancelled', expect.objectContaining({
+      expect(deps.safeUpdateTaskStatus).toHaveBeenCalledWith(taskId, 'failed', expect.objectContaining({
         error_output: '[Policy] blocked by policy',
         pid: null,
         mcp_instance_id: null,
         ollama_host_id: null,
       }));
       expect(tasks.get(taskId)).toEqual(expect.objectContaining({
-        status: 'cancelled',
+        status: 'failed',
         pid: null,
         mcp_instance_id: null,
         ollama_host_id: null,

@@ -578,7 +578,7 @@ describe('workflow-runtime', () => {
   });
 
   describe('applyFailureAction', () => {
-    it('cancel action cancels task and dependent tasks', () => {
+    it('cancel action fails task and dependent tasks', () => {
       const workflowId = createWorkflow({ name: 'wf-cancel-action' });
       const taskA = createWorkflowTask(workflowId, 'A', 'blocked');
       const taskB = createWorkflowTask(workflowId, 'B', 'pending', { depends_on: [taskA] });
@@ -586,11 +586,11 @@ describe('workflow-runtime', () => {
 
       mod.applyFailureAction(taskA, 'cancel', null, workflowId);
 
-      expect(taskCore.getTask(taskA).status).toBe('cancelled');
-      expect(taskCore.getTask(taskB).status).toBe('cancelled');
-      expect(taskCore.getTask(taskA).error_output).toContain('Cancelled due to dependency failure');
-      expect(taskCore.getTask(taskA).cancel_reason).toBe('workflow_cascade');
-      expect(taskCore.getTask(taskB).cancel_reason).toBe('workflow_cascade');
+      expect(taskCore.getTask(taskA).status).toBe('failed');
+      expect(taskCore.getTask(taskB).status).toBe('failed');
+      expect(taskCore.getTask(taskA).error_output).toContain('Failed due to dependency failure');
+      expect(taskCore.getTask(taskA).cancel_reason).toBeNull();
+      expect(taskCore.getTask(taskB).cancel_reason).toBeNull();
     });
 
     it('continue action unblocks task when all dependencies are terminal', () => {
@@ -641,7 +641,7 @@ describe('workflow-runtime', () => {
   });
 
   describe('cancelDependentTasks', () => {
-    it('recursively cancels pending/blocked/queued dependent tasks', () => {
+    it('recursively fails pending/blocked/queued dependent tasks', () => {
       const workflowId = createWorkflow({ name: 'wf-cancel-dependents' });
       const root = createWorkflowTask(workflowId, 'root', 'failed');
       const d1 = createWorkflowTask(workflowId, 'd1', 'pending', { depends_on: [root] });
@@ -655,13 +655,13 @@ describe('workflow-runtime', () => {
 
       mod.cancelDependentTasks(root, workflowId, 'cascade cancel');
 
-      expect(taskCore.getTask(d1).status).toBe('cancelled');
-      expect(taskCore.getTask(d2).status).toBe('cancelled');
-      expect(taskCore.getTask(d3).status).toBe('cancelled');
+      expect(taskCore.getTask(d1).status).toBe('failed');
+      expect(taskCore.getTask(d2).status).toBe('failed');
+      expect(taskCore.getTask(d3).status).toBe('failed');
       expect(taskCore.getTask(done).status).toBe('completed');
-      expect(taskCore.getTask(d1).cancel_reason).toBe('workflow_cascade');
-      expect(taskCore.getTask(d2).cancel_reason).toBe('workflow_cascade');
-      expect(taskCore.getTask(d3).cancel_reason).toBe('workflow_cascade');
+      expect(taskCore.getTask(d1).cancel_reason).toBeNull();
+      expect(taskCore.getTask(d2).cancel_reason).toBeNull();
+      expect(taskCore.getTask(d3).cancel_reason).toBeNull();
       expect(cancelCalls.length).toBe(0);
     });
 
@@ -1350,7 +1350,7 @@ describe('workflow-runtime', () => {
       expect(['pending', 'queued']).toContain(taskCore.getTask(c).status);
     });
 
-    it('cancel action marks dependent and descendants as cancelled', () => {
+    it('cancel action marks dependent and descendants as failed', () => {
       const wfId = createWorkflow({ name: 'runtime-onfail-cancel' });
       const a = createWorkflowTask(wfId, 'A', 'pending');
       const b = createWorkflowTask(wfId, 'B', 'blocked');
@@ -1362,10 +1362,10 @@ describe('workflow-runtime', () => {
 
       mod.evaluateWorkflowDependencies(a, wfId);
 
-      expect(taskCore.getTask(b).status).toBe('cancelled');
+      expect(taskCore.getTask(b).status).toBe('failed');
       // cancelDependentTasks now uses getTaskDependents (task_dependencies table)
-      // so C is correctly found as a descendant of B and cancelled recursively.
-      expect(taskCore.getTask(c).status).toBe('cancelled');
+      // so C is correctly found as a descendant of B and failed recursively.
+      expect(taskCore.getTask(c).status).toBe('failed');
     });
 
     it('continue action unblocks only when all dependencies are terminal', () => {

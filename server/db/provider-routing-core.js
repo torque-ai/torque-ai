@@ -723,13 +723,12 @@ function cleanupStaleTasks(runningMinutes = 60, queuedMinutes = 1440) {
       AND (started_at < ? OR (started_at IS NULL AND created_at < ?))
   `).run(now, runningCutoff, runningCutoff);
 
-  // Mark very old queued tasks as cancelled (likely abandoned)
+  // Mark very old queued tasks as failed (likely abandoned)
   const staleQueued = db.prepare(`
     UPDATE tasks
-    SET status = 'cancelled',
-        cancel_reason = 'stale_session_cleanup',
+    SET status = 'failed',
         completed_at = ?,
-        error_output = COALESCE(error_output || char(10), '') || 'Task cancelled: queued too long (stale session cleanup)'
+        error_output = COALESCE(error_output || char(10), '') || 'Task marked as failed: queued too long (stale session cleanup)'
     WHERE status = 'queued'
       AND created_at < ?
   `).run(now, queuedCutoff);
