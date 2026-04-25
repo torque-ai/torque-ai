@@ -792,6 +792,15 @@ const MIGRATIONS = [
       'DROP TABLE IF EXISTS workflow_state',
     ].join('; '),
   },
+  {
+    version: 37,
+    name: 'add_task_experiences',
+    up: readSqlMigration('037-task-experiences.sql'),
+    down: [
+      'DROP INDEX IF EXISTS idx_task_experiences_project',
+      'DROP TABLE IF EXISTS task_experiences',
+    ].join('; '),
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {
