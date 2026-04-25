@@ -632,6 +632,75 @@ describe('runLlmTiebreak', () => {
       else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = original;
     }
   });
+
+  it('retries once with strict-JSON suffix when first attempt is invalid_output', async () => {
+    const submit = vi.fn()
+      .mockResolvedValueOnce({ task_id: 't-attempt-1' })
+      .mockResolvedValueOnce({ task_id: 't-attempt-2' });
+    const taskFn = vi.fn()
+      .mockReturnValueOnce({ status: 'completed', output: 'here is your answer: { verdict: maybe }' })
+      .mockReturnValueOnce({ status: 'completed', output: '{"verdict":"go","critique":"failures match the diff"}' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: taskFn,
+    });
+    const { runLlmTiebreak, STRICT_JSON_SUFFIX } = require('../factory/verify-review');
+    const r = await runLlmTiebreak({
+      failingTests: ['tests/foo.py'],
+      modifiedFiles: ['src/bar.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(submit.mock.calls[0][0].task).not.toContain(STRICT_JSON_SUFFIX.trim());
+    expect(submit.mock.calls[1][0].task).toContain('JSON only');
+    expect(r.verdict).toBe('go');
+    expect(r.status).toBe('completed');
+    expect(r.taskId).toBe('t-attempt-2');
+  });
+
+  it('does not retry when first attempt succeeds', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-once' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"no-go","critique":"unrelated baseline"}',
+      }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    await runLlmTiebreak({
+      failingTests: ['tests/foo.py'],
+      modifiedFiles: ['src/bar.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry on terminal non-parse failures (timeout, submit_failed)', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-timeout' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'timeout' }),
+      task: vi.fn().mockReturnValue({
+        status: 'cancelled',
+        output: null,
+        error_output: '[cancelled] Timeout exceeded',
+      }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    const r = await runLlmTiebreak({
+      failingTests: ['tests/foo.py'],
+      modifiedFiles: ['src/bar.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(r.status).toBe('timeout');
+  });
 });
 
 describe('extractVerifyExcerpt', () => {
