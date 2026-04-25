@@ -16,6 +16,6 @@ describe('metric: queue-scheduler-tick', () => {
     const r = await metric.run({ iter: 0 });
     expect(typeof r.value).toBe('number');
     expect(r.value).toBeGreaterThanOrEqual(0);
-    expect(r.value).toBeLessThan(5000);
+    expect(r.value).toBeLessThan(500);
   });
 });

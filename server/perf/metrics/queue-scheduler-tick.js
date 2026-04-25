@@ -16,6 +16,18 @@ const { categorizeQueuedTasks } = require('../../execution/queue-scheduler');
 // The fixture pre-assigns providers on all tasks so the late-bind branch never
 // fires, giving stable, repeatable timings that represent per-tick categorization
 // CPU cost — the first meaningful work in every scheduler tick.
+//
+// Note: categorizeQueuedTasks() sets task._effectiveProvider on input objects.
+// Iterations 1+ run on already-stamped fixtures; this is idempotent because
+// the assigned value is derived from task.provider which we set once at fixture
+// build time.
+//
+// Scope: this metric tracks categorization wall-time only — NOT the full
+// scheduler tick. The promote-tasks side-effecting path is excluded because
+// processQueueInternal mutates state and requires init(). Hot-path-runtime
+// metrics #2 (task-pipeline-create) and #3 (governance-evaluate) cover the
+// I/O-bearing flows that Phase 1 (sync→async) and Phase 2 (N+1) will move.
+// queue-scheduler-tick provides structural coverage of categorization itself.
 
 const PROVIDERS = ['ollama', 'codex', 'groq', 'deepinfra', 'anthropic', 'codex-spark'];
 
@@ -38,12 +50,12 @@ let cachedTasks = null;
 
 function getFixtureTasks() {
   if (!cachedTasks) {
-    cachedTasks = buildTaskFixture(200);
+    cachedTasks = buildTaskFixture(5000);
   }
   return cachedTasks;
 }
 
-async function run() {
+async function run(ctx) {
   const tasks = getFixtureTasks();
   const start = performance.now();
   categorizeQueuedTasks(tasks, /* codexEnabled */ true);
