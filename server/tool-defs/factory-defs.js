@@ -563,6 +563,38 @@ const tools = [
     },
   },
   {
+    name: 'factory_provider_lane_audit',
+    description: 'Audit recent factory tasks for a project by provider/model/template/handoff and flag provider-lane drift, such as Codex running where Ollama Cloud was expected.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID or path' },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 200,
+          default: 50,
+          description: 'Maximum number of recent project-related tasks to inspect.',
+        },
+        expected_provider: {
+          type: 'string',
+          description: 'Expected provider for this project lane, for example ollama-cloud. If omitted, the audit uses project provider_lane_policy or provider_restrictions when present.',
+        },
+        allowed_fallback_providers: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Providers that may appear only as classified fallbacks. Empty means no fallback provider is allowed.',
+        },
+        require_classified_fallback: {
+          type: 'boolean',
+          default: true,
+          description: 'When true, allowed fallback providers still fail the guard unless the task carries handoff/fallback metadata.',
+        },
+      },
+      required: ['project'],
+    },
+  },
+  {
     name: 'list_factory_loop_instances',
     description: 'List factory loop instances for a project. Returns the active instances by default when requested, or the full per-instance loop history for that project.',
     inputSchema: {
