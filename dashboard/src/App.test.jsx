@@ -11,6 +11,15 @@ vi.mock('./api', () => ({
     retry: vi.fn().mockResolvedValue({}),
     cancel: vi.fn().mockResolvedValue({}),
     approveSwitch: vi.fn().mockResolvedValue({}),
+    kanbanSummary: vi.fn().mockResolvedValue({
+      pending_approval: { tasks: [] },
+      queued: { tasks: [] },
+      running: { tasks: [] },
+      pending_provider_switch: { tasks: [] },
+      completed: { tasks: [] },
+      failed: { tasks: [] },
+      cancelled: { tasks: [] },
+    }),
   },
   stats: {
     overview: vi.fn().mockResolvedValue({
