@@ -34,7 +34,13 @@ async function setup() {
 async function run(ctx) {
   const { handleToolCall, taskId } = await setup();
   const start = performance.now();
-  const result = await handleToolCall('task_info', { task_id: taskId });
+  // Use mode:'result' to stay within the task-core.js path (requireTask only).
+  // mode:'status' (the default) calls taskManager.getTaskProgress which pulls
+  // in task-startup.js and requires its init(deps) to have been called first —
+  // a dependency we don't wire in the perf fixture. mode:'result' on a
+  // completed fixture task returns the full result text without touching
+  // task-startup, giving us a clean measure of the MCP dispatch path.
+  const result = await handleToolCall('task_info', { task_id: taskId, mode: 'result' });
   const elapsed = performance.now() - start;
   // Sanity check: result must be success, not an error
   if (result && result.isError) {
