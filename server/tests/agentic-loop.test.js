@@ -195,6 +195,46 @@ describe('runAgenticLoop — no tool calls (single iteration)', () => {
     expect(result.output).not.toContain('unable to create');
     expect(result.toolLog).toHaveLength(1);
   });
+
+  it('proposal mode corrects non-json summaries to file_edits without write-tool nudges', async () => {
+    const adapterCalls = [];
+    const responses = [
+      toolCallResponse('read_file', { path: 'src/main.cs' }),
+      textResponse('I would update src/main.cs to return a typed failure reason.'),
+      textResponse('{"file_edits":[{"file":"src/main.cs","operations":[{"type":"replace","old_text":"return null;","new_text":"return FailureReason.InvalidConfig;"}]}]}'),
+    ];
+    const adapter = {
+      chatCompletion: async (params) => {
+        adapterCalls.push(params);
+        return responses[Math.min(adapterCalls.length - 1, responses.length - 1)];
+      },
+    };
+    const executor = mockToolExecutor({
+      read_file: { result: 'return null;', metadata: {} },
+    });
+
+    const result = await runAgenticLoop({
+      adapter,
+      systemPrompt: 'You are a coding assistant.',
+      taskPrompt: 'Do not modify files. Implement the requested change by returning file_edits JSON.',
+      tools: NOOP_TOOLS,
+      toolExecutor: executor,
+      proposalOutputMode: true,
+    });
+
+    const userPrompts = adapterCalls
+      .flatMap((call) => call.messages || [])
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content)
+      .join('\n');
+
+    expect(result.output).toContain('"file_edits"');
+    expect(result.output).toContain('"src/main.cs"');
+    expect(result.output).not.toContain('I would update');
+    expect(userPrompts).toContain('proposal-apply mode');
+    expect(userPrompts).not.toContain('write_file tool now');
+    expect(result.toolLog).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

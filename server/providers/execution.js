@@ -540,13 +540,25 @@ function shouldUseProposalApplyMode(task, agenticPolicy = null) {
     && proposalModeHasReadOnlyTools(agenticPolicy);
 }
 
-function buildProposalApplyComputePrompt(taskDescription, workingDir) {
+function buildProposalApplyComputePrompt(taskDescription, workingDir, metadata = {}) {
+  const priorProposalFailure = typeof metadata?.proposal_apply_deterministic_failure_reason === 'string'
+    ? metadata.proposal_apply_deterministic_failure_reason
+    : (typeof metadata?.agentic_handoff_reason === 'string' && /proposal apply skipped|deterministic proposal apply failed/i.test(metadata.agentic_handoff_reason)
+      ? metadata.agentic_handoff_reason
+      : (typeof metadata?.fallback_reason === 'string' && /proposal apply skipped|deterministic proposal apply failed/i.test(metadata.fallback_reason)
+        ? metadata.fallback_reason
+        : ''));
+  const priorFailureSection = priorProposalFailure
+    ? `\n\n## Prior Proposal Failure\nThe previous proposal was rejected before apply:\n${priorProposalFailure}\n\nCorrect the proposal. Re-read or use the provided current file contents, and make old_text an exact current substring. Do not repeat an old_text block that was already reported as not found. Prefer one larger containing block around the changed symbol when small snippets are fragile.\n`
+    : '';
+
   return `You are the proposal phase for a repository-writing task.
 
 Do not modify files. Inspect or reason about the requested change, then return exact edit instructions for a separate apply agent.
 
 ## Original Task
 ${taskDescription}
+${priorFailureSection}
 
 ## Output Format
 Output ONLY a JSON object, with no Markdown fence and no explanation:
@@ -583,7 +595,7 @@ Working directory: ${workingDir}`;
 
 function buildAgenticTaskPrompt(task, workingDir, budgetChars, agenticPolicy = null) {
   let taskDescription = shouldUseProposalApplyMode(task, agenticPolicy)
-    ? buildProposalApplyComputePrompt(task.task_description, workingDir)
+    ? buildProposalApplyComputePrompt(task.task_description, workingDir, agenticPolicy?.metadata || normalizeTaskMetadata(task))
     : task.task_description;
   if (agenticPolicy?.readOnly) {
     taskDescription += '\n\nRead-only completion rule: inspect with read tools only, do not create or modify files, and finish by reporting observed facts from the tools. Do not ask what should be created.';
@@ -2244,6 +2256,7 @@ async function runAgenticPipeline({
   const { db, dashboard } = _agenticDeps;
   const taskId = task.id;
   const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
+  const proposalOutputMode = shouldUseProposalApplyMode(task, agenticPolicy);
 
   // Create tool executor
   const executor = createToolExecutor(workingDir, {
@@ -2287,6 +2300,7 @@ async function runAgenticPipeline({
     contextBudget,
     actionlessIterationLimit: agenticPolicy.actionlessIterationLimit,
     requireToolUseBeforeFinal: shouldRequireToolEvidence(adapterOptions?.providerName, task, workingDir),
+    proposalOutputMode,
     onProgress: (iteration, max, lastTool) => {
       const pct = Math.min(85, 10 + Math.floor((iteration / max) * 75));
       try {
@@ -2377,6 +2391,7 @@ async function executeOllamaTaskWithAgentic(task) {
   if (!workingDir) workingDir = process.cwd();
   maybePersistEffectiveAgenticMetadata(task, db, workingDir);
   const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
+  const proposalOutputMode = shouldUseProposalApplyMode(task, agenticPolicy);
 
   const noopPlanningResult = maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy);
   if (noopPlanningResult) {
@@ -2619,6 +2634,7 @@ async function executeOllamaTaskWithAgentic(task) {
       maxIterations,
       contextBudget,
       promptInjectedTools: usePromptInjection,
+      proposalOutputMode,
       commandMode: agenticPolicy.commandMode,
       commandAllowlist: agenticPolicy.commandAllowlist,
       toolAllowlist: agenticPolicy.toolAllowlist,
@@ -2860,6 +2876,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   if (!workingDir) workingDir = process.cwd();
   maybePersistEffectiveAgenticMetadata(task, db, workingDir);
   const agenticPolicy = buildTaskAgenticPolicy(task, workingDir, serverConfig);
+  const proposalOutputMode = shouldUseProposalApplyMode(task, agenticPolicy);
 
   const noopPlanningResult = maybeShortCircuitPlanningTask(task, workingDir, agenticPolicy);
   if (noopPlanningResult) {
@@ -3027,6 +3044,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           maxIterations,
           contextBudget: PROVIDER_CONTEXT_BUDGETS[entry.provider] || contextBudget,
           promptInjectedTools: needsPromptInjection(entry.model || ''),
+          proposalOutputMode,
           requireToolUseBeforeFinal: shouldRequireToolEvidence(entry.provider, task, workingDir),
           commandMode: agenticPolicy.commandMode,
           commandAllowlist: agenticPolicy.commandAllowlist,
@@ -3066,6 +3084,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         maxIterations,
         contextBudget,
         promptInjectedTools: false,
+        proposalOutputMode,
         requireToolUseBeforeFinal: shouldRequireToolEvidence(provider, task, workingDir),
         commandMode: agenticPolicy.commandMode,
         commandAllowlist: agenticPolicy.commandAllowlist,
