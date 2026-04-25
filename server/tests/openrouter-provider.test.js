@@ -373,6 +373,55 @@ describe('OpenRouterProvider', () => {
       ]);
     });
 
+    it('normalizes object-based supported parameters in health discovery', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          data: [
+            {
+              id: 'provider/tools-object:free',
+              pricing: { prompt: '0', completion: '0' },
+              supported_parameters: [{ name: 'tools' }, { name: 'response_format' }],
+            },
+            {
+              id: 'provider/no-tools-object:free',
+              pricing: { prompt: '0', completion: '0' },
+              supported_parameters: [{ name: 'json_schema' }],
+            },
+          ],
+        }),
+      }));
+
+      const health = await provider.checkHealth();
+      expect(health.available).toBe(true);
+      expect(health.models).toEqual([
+        {
+          model_name: 'provider/tools-object:free',
+          id: 'provider/tools-object:free',
+          name: null,
+          owned_by: null,
+          context_window: null,
+          created: null,
+          pricing: { prompt: '0', completion: '0' },
+          supported_parameters: ['tools', 'response_format'],
+          free: true,
+          supports_tools: true,
+        },
+        {
+          model_name: 'provider/no-tools-object:free',
+          id: 'provider/no-tools-object:free',
+          name: null,
+          owned_by: null,
+          context_window: null,
+          created: null,
+          pricing: { prompt: '0', completion: '0' },
+          supported_parameters: ['json_schema'],
+          free: true,
+          supports_tools: false,
+        },
+      ]);
+    });
+
     it('returns unavailable on API error', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: false,
@@ -412,6 +461,36 @@ describe('OpenRouterProvider', () => {
 
       const models = await provider.listModels();
       expect(models).toEqual(['minimax/minimax-m2.5:free', 'free/no-tools:free']);
+    });
+
+    it('accepts object-style supported parameters for filtering', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          data: [
+            {
+              id: 'free/tools-object:free',
+              pricing: { prompt: '0', completion: '0' },
+              supported_parameters: [{ name: 'tools' }],
+            },
+            {
+              id: 'free/no-tools-object:free',
+              pricing: { prompt: '0', completion: '0' },
+              supported_parameters: [{ name: 'response_format' }],
+            },
+            {
+              id: 'paid/tools-object',
+              pricing: { prompt: '0.1', completion: '0.1' },
+              supported_parameters: [{ name: 'tools' }],
+            },
+          ],
+        }),
+      }));
+
+      const models = await provider.listModels();
+      expect(models).toEqual(['free/tools-object:free', 'free/no-tools-object:free']);
+      const discover = await provider.discoverModels({ toolsOnly: true });
+      expect(discover.models.map((m) => m.model_name)).toEqual(['free/tools-object:free']);
     });
   });
 
