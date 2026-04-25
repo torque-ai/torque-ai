@@ -7,7 +7,7 @@
 
 const BaseProvider = require('./base');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
-const { buildErrorMessage } = require('./shared');
+const { buildErrorMessage, buildOpenAIChatBody } = require('./shared');
 
 class DeepInfraProvider extends BaseProvider {
   constructor(config = {}) {
@@ -37,18 +37,10 @@ class DeepInfraProvider extends BaseProvider {
       if (options.signal) options.signal.addEventListener('abort', abortHandler, { once: true });
       if (options.signal?.aborted) controller.abort();
 
-      const body = {
+      const body = buildOpenAIChatBody(task, options, {
         model: selectedModel,
-        messages: [{
-          role: 'user',
-          content: this._buildPrompt(task, options),
-        }],
-        max_tokens: options.maxTokens || 4096,
-      };
-
-      if (options.tuning?.temperature !== undefined) {
-        body.temperature = options.tuning.temperature;
-      }
+        buildPrompt: (t, o) => this._buildPrompt(t, o),
+      });
 
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
@@ -124,16 +116,11 @@ class DeepInfraProvider extends BaseProvider {
       if (options.signal) options.signal.addEventListener('abort', abortHandler, { once: true });
       if (options.signal?.aborted) controller.abort();
 
-      const body = {
-        model: selectedModel,
-        messages: [{ role: 'user', content: this._buildPrompt(task, options) }],
-        max_tokens: options.maxTokens || 4096,
+      const body = buildOpenAIChatBody(task, options, {
         stream: true,
-      };
-
-      if (options.tuning?.temperature !== undefined) {
-        body.temperature = options.tuning.temperature;
-      }
+        model: selectedModel,
+        buildPrompt: (t, o) => this._buildPrompt(t, o),
+      });
 
       const response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: 'POST',
