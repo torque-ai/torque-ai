@@ -540,12 +540,15 @@ Output ONLY a JSON object, with no Markdown fence and no explanation:
 }
 
 Rules:
+- The response must be valid JSON. Escape newlines inside old_text and new_text as \\n, quotes as \\", and backslashes as \\\\.
+- Start the response with {"file_edits":[ and end it at the final }.
+- Return one file_edits entry per file. The operations field must always be an array, even when there is only one operation.
 - Use "type": "create", "old_text": "", and "new_text" equal to the full file content for a new file.
 - Use "type": "replace" for edits to existing files. old_text must be an exact substring when the file exists.
 - Use "type": "delete" and "new_text": "" only for deletions.
 - Deterministic apply processes operations in order. If two edits touch the same method, class, or nearby block, combine them into one larger replace operation instead of returning overlapping old_text snippets.
 - For each replace/delete operation, old_text must be unique in the current file before that operation is applied. Do not reuse old_text from the pre-edit version after an earlier operation has changed the same region.
-- Prefer one complete function/class replacement over many small replacements when changing signatures, properties, enums, or call sites inside the same symbol.
+- Prefer one complete function/class replacement over many small replacements when changing signatures, properties, enums, or call sites inside the same symbol. For multi-site edits in one file, use the smallest exact containing block you can quote once.
 - Keep paths relative to the working directory.
 - Include only the files required by the original task.
 
@@ -638,10 +641,65 @@ function countExactOccurrences(content, searchText) {
   return count;
 }
 
+function normalizeTextEol(text, eol) {
+  const normalized = String(text).replace(/\r\n/g, '\n');
+  return eol === '\r\n' ? normalized.replace(/\n/g, '\r\n') : normalized;
+}
+
+function inferTextEol(text) {
+  return String(text).includes('\r\n') ? '\r\n' : '\n';
+}
+
+function buildLineEndingCandidates(text) {
+  const candidates = [];
+  const seen = new Set();
+  for (const candidate of [
+    String(text),
+    normalizeTextEol(text, '\n'),
+    normalizeTextEol(text, '\r\n'),
+  ]) {
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    candidates.push(candidate);
+  }
+  return candidates;
+}
+
+function findUniqueReplacementMatch(content, oldText) {
+  const exactOccurrences = countExactOccurrences(content, oldText);
+  if (exactOccurrences === 1) {
+    return { matchedText: oldText, eolNormalized: false };
+  }
+  if (exactOccurrences > 1) {
+    return { error: `exact old_text matched ${exactOccurrences} times` };
+  }
+
+  const matches = [];
+  for (const candidate of buildLineEndingCandidates(oldText).slice(1)) {
+    const occurrences = countExactOccurrences(content, candidate);
+    if (occurrences > 1) {
+      return { error: `line-ending-normalized old_text matched ${occurrences} times` };
+    }
+    if (occurrences === 1) {
+      matches.push(candidate);
+    }
+  }
+
+  if (matches.length === 1) {
+    return { matchedText: matches[0], eolNormalized: true };
+  }
+  if (matches.length > 1) {
+    return { error: 'line-ending-normalized old_text matched multiple variants' };
+  }
+
+  return { error: 'exact old_text was not found' };
+}
+
 function applyProposalEditsDeterministically(computeOutput, workingDir) {
   const fs = require('fs');
   const staged = new Map();
   const changedFiles = [];
+  const warnings = [];
   let operationCount = 0;
 
   for (const edit of computeOutput?.file_edits || []) {
@@ -674,15 +732,18 @@ function applyProposalEditsDeterministically(computeOutput, workingDir) {
       }
 
       const replacementText = type === 'delete' ? '' : String(newText);
-      const occurrences = countExactOccurrences(content, String(oldText));
-      if (occurrences === 0) {
-        return { applied: false, reason: `${relativePath}: exact old_text was not found` };
+      const match = findUniqueReplacementMatch(content, String(oldText));
+      if (match.error) {
+        return { applied: false, reason: `${relativePath}: ${match.error}` };
       }
-      if (occurrences > 1) {
-        return { applied: false, reason: `${relativePath}: exact old_text matched ${occurrences} times` };
+      const finalReplacementText = match.eolNormalized
+        ? normalizeTextEol(replacementText, inferTextEol(match.matchedText))
+        : replacementText;
+      if (match.eolNormalized) {
+        warnings.push(`${relativePath}: applied replacement after line-ending normalization`);
       }
 
-      content = content.replace(String(oldText), replacementText);
+      content = content.replace(match.matchedText, finalReplacementText);
       operationCount += 1;
     }
 
@@ -701,7 +762,7 @@ function applyProposalEditsDeterministically(computeOutput, workingDir) {
     return { applied: false, reason: 'proposal edits produced no file changes' };
   }
 
-  return { applied: true, changedFiles, operationCount };
+  return { applied: true, changedFiles, operationCount, warnings };
 }
 
 function buildProposalApplyTaskDescription(computeOutput, workingDir, originalTaskDescription) {
@@ -3041,7 +3102,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
               proposal_apply_parse_status: 'valid',
               proposal_apply_from: sourceProvider,
               proposal_apply_source_model: sourceModel,
-              proposal_apply_warnings: proposalResult.warnings || [],
+              proposal_apply_warnings: mergeUniqueStrings(proposalResult.warnings || [], deterministicApply.warnings || []),
               proposal_apply_operation_count: deterministicApply.operationCount,
               proposal_compute_output: proposalResult.computeOutput,
               original_task_description: normalizeTaskMetadata(currentTask).original_task_description || currentTask?.task_description || '',

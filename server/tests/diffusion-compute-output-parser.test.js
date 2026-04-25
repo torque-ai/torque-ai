@@ -31,6 +31,46 @@ describe('parseComputeOutput', () => {
     expect(result.file_edits[0].file).toBe('b.cs');
   });
 
+  it('extracts conversational JSON when file_edits is not the first key', () => {
+    const output = 'Result:\n{ "notes": "ready", "file_edits": [{ "file": "c.cs", "operations": [{ "type": "replace", "old_text": "x", "new_text": "y" }] }] }\n';
+    const result = parseComputeOutput(output);
+    expect(result).not.toBeNull();
+    expect(result.file_edits[0].file).toBe('c.cs');
+  });
+
+  it('normalizes common single-edit object shapes from LLM output', () => {
+    const output = JSON.stringify({
+      file_edits: {
+        path: 'd.cs',
+        operation: {
+          type: 'replace',
+          oldText: 'old',
+          newText: 'new',
+        },
+      },
+    });
+    const result = parseComputeOutput(output);
+    expect(result).toEqual({
+      file_edits: [{
+        path: 'd.cs',
+        file: 'd.cs',
+        operation: {
+          type: 'replace',
+          oldText: 'old',
+          newText: 'new',
+        },
+        operations: [{
+          type: 'replace',
+          oldText: 'old',
+          newText: 'new',
+          old_text: 'old',
+          new_text: 'new',
+        }],
+      }],
+    });
+    expect(validateComputeSchema(result).valid).toBe(true);
+  });
+
   it('returns null for unparseable output', () => {
     expect(parseComputeOutput('just some text, no json')).toBeNull();
   });

@@ -943,6 +943,99 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 
+  it('applies ollama-cloud proposal replacements across CRLF/LF line-ending differences', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));
+
+    const workingDir = makeTempDir();
+    fs.mkdirSync(path.join(workingDir, 'tools'), { recursive: true });
+    fs.writeFileSync(path.join(workingDir, 'tools/existing.py'), 'def main():\r\n    return "current"\r\n', 'utf-8');
+    const task = {
+      id: 'task-api-proposal-apply-eol',
+      provider: 'ollama-cloud',
+      model: null,
+      task_description: 'Update tools/existing.py',
+      working_directory: workingDir,
+      timeout_minutes: 1,
+      metadata: JSON.stringify({
+        _routing_chain: [
+          { provider: 'ollama-cloud', model: 'kimi-k2:1t' },
+          { provider: 'codex' },
+        ],
+        file_paths: ['tools/existing.py'],
+        ollama_cloud_repo_write_mode: 'proposal_apply',
+        proposal_apply_provider: 'codex',
+        agentic_allowed_tools: ['read_file', 'list_directory', 'search_files'],
+      }),
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: JSON.stringify({
+            file_edits: [
+              {
+                file: 'tools/existing.py',
+                operations: [
+                  {
+                    type: 'replace',
+                    old_text: 'def main():\n    return "current"\n',
+                    new_text: 'def main():\n    return "updated"\n',
+                  },
+                ],
+              },
+            ],
+          }),
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 40 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    await mod.executeApiProvider(task, { name: 'ollama-cloud' });
+
+    const updated = tasks.get(task.id);
+    expect(updated.status).toBe('completed');
+    expect(updated.provider).toBe('ollama-cloud');
+    expect(fs.readFileSync(path.join(workingDir, 'tools/existing.py'), 'utf-8'))
+      .toBe('def main():\r\n    return "updated"\r\n');
+    const completionMetadata = JSON.parse(updated.task_metadata);
+    expect(completionMetadata.proposal_apply_warnings)
+      .toContain('tools/existing.py: applied replacement after line-ending normalization');
+  });
+
   it('falls back to codex proposal apply when exact deterministic apply is unsafe', async () => {
     const { mod, configMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));

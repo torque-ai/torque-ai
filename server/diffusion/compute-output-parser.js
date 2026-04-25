@@ -2,6 +2,149 @@
 
 const logger = require('../logger').child({ component: 'compute-output-parser' });
 
+function hasFileEdits(value) {
+  return !!value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.prototype.hasOwnProperty.call(value, 'file_edits');
+}
+
+function normalizeOperationShape(operation) {
+  if (!operation || typeof operation !== 'object' || Array.isArray(operation)) {
+    return operation;
+  }
+
+  const normalized = { ...operation };
+  if (normalized.old_text === undefined) {
+    normalized.old_text = normalized.oldText
+      ?? normalized.old
+      ?? normalized.search
+      ?? normalized.find;
+  }
+  if (normalized.new_text === undefined) {
+    normalized.new_text = normalized.newText
+      ?? normalized.new
+      ?? normalized.replacement
+      ?? normalized.replace;
+  }
+  if (String(normalized.type || '').trim().toLowerCase() === 'delete' && normalized.new_text === undefined) {
+    normalized.new_text = '';
+  }
+  return normalized;
+}
+
+function normalizeComputeOutputShape(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return data;
+  }
+
+  const normalized = { ...data };
+  if (normalized.file_edits && !Array.isArray(normalized.file_edits) && typeof normalized.file_edits === 'object') {
+    normalized.file_edits = [normalized.file_edits];
+  }
+
+  if (!Array.isArray(normalized.file_edits)) {
+    return normalized;
+  }
+
+  normalized.file_edits = normalized.file_edits.map((edit) => {
+    if (!edit || typeof edit !== 'object' || Array.isArray(edit)) {
+      return edit;
+    }
+
+    const normalizedEdit = { ...edit };
+    if (!normalizedEdit.file) {
+      normalizedEdit.file = normalizedEdit.path
+        ?? normalizedEdit.file_path
+        ?? normalizedEdit.filePath
+        ?? normalizedEdit.filename;
+    }
+
+    if (!normalizedEdit.operations) {
+      normalizedEdit.operations = normalizedEdit.operation
+        ?? normalizedEdit.ops
+        ?? normalizedEdit.edits
+        ?? normalizedEdit.changes;
+    }
+
+    if (!normalizedEdit.operations && (normalizedEdit.old_text !== undefined || normalizedEdit.new_text !== undefined)) {
+      normalizedEdit.operations = [{
+        type: normalizedEdit.type || 'replace',
+        old_text: normalizedEdit.old_text,
+        new_text: normalizedEdit.new_text,
+      }];
+    }
+
+    if (normalizedEdit.operations && !Array.isArray(normalizedEdit.operations) && typeof normalizedEdit.operations === 'object') {
+      normalizedEdit.operations = [normalizedEdit.operations];
+    }
+
+    if (Array.isArray(normalizedEdit.operations)) {
+      normalizedEdit.operations = normalizedEdit.operations.map(normalizeOperationShape);
+    }
+
+    return normalizedEdit;
+  });
+
+  return normalized;
+}
+
+function parseJsonCandidate(candidate) {
+  try {
+    const parsed = JSON.parse(candidate);
+    return hasFileEdits(parsed) ? normalizeComputeOutputShape(parsed) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function extractJsonObjectWithFileEdits(text) {
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (char === '{') {
+      if (depth === 0) start = i;
+      depth += 1;
+      continue;
+    }
+
+    if (char !== '}') continue;
+
+    depth -= 1;
+    if (depth === 0 && start >= 0) {
+      const parsed = parseJsonCandidate(text.slice(start, i + 1));
+      if (parsed) return parsed;
+      start = -1;
+    } else if (depth < 0) {
+      depth = 0;
+      start = -1;
+    }
+  }
+
+  return null;
+}
+
 function parseComputeOutput(output) {
   if (!output || typeof output !== 'string') return null;
 
@@ -9,59 +152,22 @@ function parseComputeOutput(output) {
   if (!trimmed) return null;
 
   // Try 1: Direct JSON parse
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (parsed && parsed.file_edits) return parsed;
-  } catch (_) { /* not clean JSON */ }
+  const direct = parseJsonCandidate(trimmed);
+  if (direct) return direct;
 
   // Try 2: Extract from markdown fences
   const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
   if (fenceMatch) {
-    try {
-      const parsed = JSON.parse(fenceMatch[1].trim());
-      if (parsed && parsed.file_edits) return parsed;
-    } catch (_) { /* fence content not valid JSON */ }
+    const fenced = parseJsonCandidate(fenceMatch[1].trim());
+    if (fenced) return fenced;
   }
 
-  // Try 3: Find JSON object with file_edits key anywhere in output
-  const jsonStart = trimmed.indexOf('{"file_edits"');
-  if (jsonStart === -1) {
-    const altStart = trimmed.indexOf('{\n');
-    if (altStart >= 0) {
-      try {
-        const candidate = trimmed.slice(altStart);
-        let depth = 0;
-        let end = -1;
-        for (let i = 0; i < candidate.length; i++) {
-          if (candidate[i] === '{') depth++;
-          if (candidate[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
-        }
-        if (end > 0) {
-          const parsed = JSON.parse(candidate.slice(0, end));
-          if (parsed && parsed.file_edits) return parsed;
-        }
-      } catch (_) { /* not valid */ }
-    }
-    return null;
+  // Try 3: Find a JSON object with file_edits anywhere in conversational output.
+  const extracted = extractJsonObjectWithFileEdits(trimmed);
+  if (!extracted && trimmed.includes('file_edits')) {
+    logger.info('[ComputeOutputParser] Found file_edits marker but could not parse a valid JSON object');
   }
-
-  try {
-    const candidate = trimmed.slice(jsonStart);
-    let depth = 0;
-    let end = -1;
-    for (let i = 0; i < candidate.length; i++) {
-      if (candidate[i] === '{') depth++;
-      if (candidate[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
-    }
-    if (end > 0) {
-      const parsed = JSON.parse(candidate.slice(0, end));
-      if (parsed && parsed.file_edits) return parsed;
-    }
-  } catch (err) {
-    logger.info(`[ComputeOutputParser] JSON extraction failed: ${err.message}`);
-  }
-
-  return null;
+  return extracted;
 }
 
 function validateComputeSchema(data) {
@@ -172,4 +278,9 @@ function semanticValidateEdits(computeOutput, readFile) {
   return { warnings, file_edits: filteredEdits };
 }
 
-module.exports = { parseComputeOutput, validateComputeSchema, semanticValidateEdits };
+module.exports = {
+  parseComputeOutput,
+  validateComputeSchema,
+  semanticValidateEdits,
+  normalizeComputeOutputShape,
+};
