@@ -5,6 +5,11 @@ import LoadingSkeleton from '../components/LoadingSkeleton';
 
 // ─── Constants ──────────────────────────────────────────────
 
+// Narrowly scoped to providers fit to act as the strategic agent itself
+// (decompose / diagnose / review prompts) — large-context, raw-prompt LLMs.
+// Subscription CLI providers (codex, claude-cli) are deliberately excluded
+// because they spawn a tool-using agent loop instead of returning a single
+// completion, which doesn't fit the strategic-engine call shape.
 const KNOWN_PROVIDERS = [
   null, 'deepinfra', 'hyperbolic', 'ollama', 'ollama-cloud',
 ];
