@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { routingTemplates as api } from '../api';
+import { routingTemplates as api, providers as providersApi } from '../api';
 import { useToast } from '../components/Toast';
 import { PROVIDER_HEX_COLORS } from '../constants';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 
 // ─── Provider Colors (hex for colored dots) ─────────────────────────────────
 
-const KNOWN_PROVIDERS = [
-  'ollama', 'codex', 'claude-cli',
+const PROVIDER_FALLBACK = [
+  'ollama', 'codex', 'codex-spark', 'claude-cli', 'claude-ollama',
   'anthropic', 'deepinfra', 'hyperbolic', 'groq', 'cerebras',
   'google-ai', 'openrouter', 'ollama-cloud',
 ];
@@ -21,9 +21,8 @@ const MODEL_SUGGESTIONS = {
   'ollama-cloud': ['kimi-k2:1t', 'mistral-large-3:675b', 'qwen3-coder:480b',
                    'deepseek-v3.2', 'devstral-2:123b', 'gpt-oss:120b'],
   openrouter: ['nvidia/nemotron-3-nano-30b-a3b:free', 'google/gemma-3-27b-it:free'],
-  ollama: ['qwen2.5-coder:32b', 'codestral:22b'],
-  'hashline-ollama': ['qwen2.5-coder:32b'],
-  'aider-ollama': ['qwen2.5-coder:32b'],
+  ollama: ['qwen3-coder:30b'],
+  'claude-ollama': ['qwen3-coder:30b'],
 };
 
 const PROVIDER_DEFAULT_MODELS = {
@@ -32,12 +31,18 @@ const PROVIDER_DEFAULT_MODELS = {
   'google-ai': 'gemini-2.5-flash',
   'ollama-cloud': 'kimi-k2:1t',
   openrouter: 'nvidia/nemotron-3-nano-30b-a3b:free',
-  ollama: 'qwen2.5-coder:32b',
+  ollama: 'qwen3-coder:30b',
 };
 
 // ─── Provider Dropdown ──────────────────────────────────────────────────────
 
-function ProviderSelect({ value, onChange, allowInherit = false }) {
+function ProviderSelect({ value, onChange, allowInherit = false, availableProviders = PROVIDER_FALLBACK }) {
+  // Ensure the current value is always selectable, even if it's not in the available list
+  // (e.g. legacy template referencing a provider that's been removed from the registry).
+  const options = availableProviders.includes(value) || value === '__inherit__'
+    ? availableProviders
+    : [...availableProviders, value];
+
   return (
     <div className="flex items-center gap-2">
       <span
@@ -51,7 +56,7 @@ function ProviderSelect({ value, onChange, allowInherit = false }) {
         className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500 min-w-[160px]"
       >
         {allowInherit && <option value="__inherit__">(inherit)</option>}
-        {KNOWN_PROVIDERS.map((p) => (
+        {options.map((p) => (
           <option key={p} value={p}>{p}</option>
         ))}
       </select>
@@ -124,7 +129,7 @@ function ChainSummary({ chain }) {
 
 // ─── Chain Editor (expanded chain editing panel) ─────────────────────────────
 
-function ChainEditor({ chain, onChange, readOnly = false }) {
+function ChainEditor({ chain, onChange, readOnly = false, availableProviders = PROVIDER_FALLBACK }) {
   const maxEntries = 7;
 
   function updateEntry(index, field, value) {
@@ -138,7 +143,7 @@ function ChainEditor({ chain, onChange, readOnly = false }) {
     if (chain.length >= maxEntries) return;
     // Pick first provider not already in chain
     const used = new Set(chain.map((e) => e.provider));
-    const next = KNOWN_PROVIDERS.find((p) => !used.has(p)) || 'ollama';
+    const next = availableProviders.find((p) => !used.has(p)) || 'ollama';
     onChange([...chain, { provider: next }]);
   }
 
@@ -163,6 +168,7 @@ function ChainEditor({ chain, onChange, readOnly = false }) {
           <ProviderSelect
             value={entry.provider}
             onChange={(val) => updateEntry(i, 'provider', val)}
+            availableProviders={availableProviders}
           />
           <span className="text-slate-600 text-xs">/</span>
           <ModelInput
@@ -218,6 +224,7 @@ export default function RoutingTemplates() {
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [hasChanges, setHasChanges] = useState(false);
   const [activeTemplateId, setActiveTemplateId] = useState(null);
+  const [availableProviders, setAvailableProviders] = useState(PROVIDER_FALLBACK);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [showConfirm, setShowConfirm] = useState(null);
@@ -244,10 +251,11 @@ export default function RoutingTemplates() {
 
   const loadData = useCallback(async () => {
     try {
-      const [templateData, activeData, categoryData] = await Promise.all([
+      const [templateData, activeData, categoryData, providersResult] = await Promise.all([
         api.list(),
         api.getActive(),
         api.categories(),
+        providersApi.list().catch(() => null),
       ]);
 
       const templateList = Array.isArray(templateData) ? templateData : (templateData?.items || []);
@@ -255,6 +263,14 @@ export default function RoutingTemplates() {
 
       setTemplates(templateList);
       setCategories(categoryList);
+
+      // Authoritative provider list from /api/v2/providers; fall back to hardcoded if fetch failed.
+      if (Array.isArray(providersResult)) {
+        const names = providersResult
+          .map((entry) => entry?.id || entry?.name || entry?.provider)
+          .filter(Boolean);
+        if (names.length > 0) setAvailableProviders(names);
+      }
 
       // Track which template is actively used for routing
       const activeId = activeData?.template?.id || null;
@@ -610,6 +626,7 @@ export default function RoutingTemplates() {
                         <ProviderSelect
                           value={editingRules[cat.key] || 'ollama'}
                           onChange={(val) => setRule(cat.key, val)}
+                          availableProviders={availableProviders}
                         />
                         {!selectedTemplate?.preset && (
                           <button
@@ -635,6 +652,7 @@ export default function RoutingTemplates() {
                             chain={editingRules[cat.key]}
                             onChange={(c) => updateChain(cat.key, c)}
                             readOnly={!!selectedTemplate?.preset}
+                            availableProviders={availableProviders}
                           />
                         </div>
                       )}
@@ -658,6 +676,7 @@ export default function RoutingTemplates() {
                                       value={overrideVal || '__inherit__'}
                                       onChange={(val) => setOverride(cat.key, complexity, val)}
                                       allowInherit
+                                      availableProviders={availableProviders}
                                     />
                                     {!selectedTemplate?.preset && overrideVal && overrideVal !== '__inherit__' && (
                                       <button
@@ -677,6 +696,7 @@ export default function RoutingTemplates() {
                                     chain={overrideVal}
                                     onChange={(c) => updateOverrideChain(cat.key, complexity, c)}
                                     readOnly={!!selectedTemplate?.preset}
+                                    availableProviders={availableProviders}
                                   />
                                 </div>
                               )}
