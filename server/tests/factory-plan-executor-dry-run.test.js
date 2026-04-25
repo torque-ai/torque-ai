@@ -31,6 +31,7 @@ describe('factory plan-executor dry run', () => {
   let planPath;
   let submitMock;
   let awaitMock;
+  let findReusableTask;
   let onDryRunTask;
   let executor;
 
@@ -40,10 +41,12 @@ describe('factory plan-executor dry run', () => {
     fs.writeFileSync(planPath, PLAN);
     submitMock = vi.fn(async () => ({ task_id: 'unexpected-submit' }));
     awaitMock = vi.fn(async () => ({ status: 'completed', verify_status: 'passed' }));
+    findReusableTask = vi.fn(async () => null);
     onDryRunTask = vi.fn(async () => {});
     executor = createPlanExecutor({
       submit: submitMock,
       awaitTask: awaitMock,
+      findReusableTask,
       onDryRunTask,
     });
   });
@@ -99,5 +102,63 @@ describe('factory plan-executor dry run', () => {
       ]),
     });
     expect(fs.readFileSync(planPath, 'utf8')).toBe(before);
+  });
+
+  it('reuses an already-running task for the same plan step instead of resubmitting', async () => {
+    const singleTaskPlan = `# Reuse Plan
+
+## Task 1: ship it
+
+- [ ] **Step 1: edit**
+
+\`\`\`text
+Update src/app.js.
+\`\`\`
+`;
+    fs.writeFileSync(planPath, singleTaskPlan);
+    findReusableTask.mockResolvedValue({ task_id: 'existing-task-1', status: 'running' });
+
+    const result = await executor.execute({
+      plan_path: planPath,
+      project: 'factory-project',
+      working_directory: dir,
+      execution_mode: 'live',
+    });
+
+    expect(result.completed_tasks).toEqual([1]);
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(awaitMock).toHaveBeenCalledWith(expect.objectContaining({
+      task_id: 'existing-task-1',
+    }));
+    expect(fs.readFileSync(planPath, 'utf8')).toContain('[x]');
+  });
+
+  it('skips resubmission when the step already landed in the worktree', async () => {
+    const singleTaskPlan = `# Reuse Completed Plan
+
+## Task 1: add checker
+
+- [ ] **Step 1: add file**
+
+\`\`\`text
+Create tools/checker.js.
+\`\`\`
+`;
+    fs.writeFileSync(planPath, singleTaskPlan);
+    fs.mkdirSync(path.join(dir, 'tools'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'tools', 'checker.js'), 'module.exports = true;\n');
+    findReusableTask.mockResolvedValue({ task_id: 'existing-task-2', status: 'completed' });
+
+    const result = await executor.execute({
+      plan_path: planPath,
+      project: 'factory-project',
+      working_directory: dir,
+      execution_mode: 'live',
+    });
+
+    expect(result.completed_tasks).toEqual([1]);
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(awaitMock).not.toHaveBeenCalled();
+    expect(fs.readFileSync(planPath, 'utf8')).toContain('[x]');
   });
 });
