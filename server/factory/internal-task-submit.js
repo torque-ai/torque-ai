@@ -133,7 +133,7 @@ function resolveInheritedRoutingIntent({
     };
   }
 
-  const routingTemplate = requestedRoutingTemplate
+  const routingTemplate = requestedRoutingTemplate || laneProvider
     ? null
     : normalizeOptionalString(defaults.routing_template_id);
   const defaultProvider = normalizeOptionalString(defaults.default_provider);

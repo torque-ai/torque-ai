@@ -575,7 +575,7 @@ describe('runLlmTiebreak', () => {
     }
   });
 
-  it('defers verify_review provider selection to target project routing when a provider lane is configured', async () => {
+  it('defers verify_review provider selection to the target project provider lane when configured', async () => {
     const submit = vi.fn().mockResolvedValue({ task_id: 't-lane' });
     installMocks({
       submit,

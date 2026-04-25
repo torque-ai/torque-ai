@@ -194,7 +194,7 @@ describe('submitFactoryInternalTask', () => {
     }));
   });
 
-  it('inherits the target project routing template for factory-internal tasks', async () => {
+  it('lets a provider lane expected provider override inherited routing templates for factory-internal tasks', async () => {
     const database = require('../database');
     const projectConfigCore = require('../db/project-config-core');
     vi.spyOn(database, 'getDbInstance').mockReturnValue({
@@ -236,15 +236,17 @@ describe('submitFactoryInternalTask', () => {
 
     const submitted = mockHandleSmartSubmitTask.mock.calls[0][0];
     expect(submitted.project).toBe('factory-plan');
-    expect(submitted.provider).toBeUndefined();
+    expect(submitted.provider).toBe('ollama-cloud');
     expect(submitted.model).toBeUndefined();
-    expect(submitted.routing_template).toBe('preset-ollama-cloud-primary');
+    expect(submitted.routing_template).toBeUndefined();
     expect(submitted.tags).toContain('factory:target_project=DLPhone');
     expect(submitted.task_metadata).toEqual(expect.objectContaining({
       target_project: 'DLPhone',
       target_project_path: 'C:/Projects/DLPhone',
-      inherited_routing_template: 'preset-ollama-cloud-primary',
-      inherited_routing_template_from_project: 'DLPhone',
+      inherited_provider: 'ollama-cloud',
+      inherited_provider_from_project: 'DLPhone',
+      inherited_provider_source: 'provider_lane_policy',
+      user_provider_override: false,
       provider_lane_policy: {
         expected_provider: 'ollama-cloud',
         allowed_fallback_providers: [],
