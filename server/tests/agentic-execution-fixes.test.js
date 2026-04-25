@@ -683,6 +683,106 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 
+  it('orders parser-capable openrouter scored models first for JSON-mode agentic tasks', async () => {
+    const modelRolesMock = {
+      getModelForRole: vi.fn((provider, role) => {
+        if (provider !== 'openrouter') return null;
+        if (role === 'fallback') return 'scouted/fallback:free';
+        return null;
+      }),
+    };
+    const providerModelScoresMock = {
+      init: vi.fn(),
+      getTopModelScores: vi.fn(() => ([
+        { model_name: 'scored/no-parser:free', metadata_json: JSON.stringify({ free: true, supported_parameters: ['tools'] }) },
+        { model_name: 'scored/parser:free', metadata_json: JSON.stringify({ free: true, metadata: { supports_response_format: false }, supported_parameters: ['response_format'] }) },
+      ])),
+      recordModelTaskOutcome: vi.fn(),
+    };
+    const { mod, configMock } = loadSubject({ modelRolesMock, providerModelScoresMock });
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
+    configMock.get.mockImplementation((key) => (
+      key === 'openrouter_agentic_first_response_timeout_seconds' ? '1' : null
+    ));
+
+    const task = {
+      id: 'task-openrouter-json-parser-ordering',
+      provider: 'openrouter',
+      model: 'scouted/default:free',
+      task_description: 'Read-only inspect.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: JSON.stringify({ read_only: true, response_format: 'json_object' }),
+    };
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const next = { ...(tasks.get(taskId) || { id: taskId }), ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+      prepare: vi.fn(),
+    };
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus: vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch)),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    const workerModels = [];
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      const emitter = new EventEmitter();
+      const model = options.workerData.adapterOptions.model;
+      workerModels.push(model);
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn(() => Promise.resolve(1));
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      if (model === 'scored/parser:free') {
+        queueMicrotask(() => emitter.emit('message', {
+          type: 'error',
+          message: '429 Too Many Requests',
+        }));
+      } else if (model === 'scored/no-parser:free') {
+        queueMicrotask(() => emitter.emit('message', {
+          type: 'result',
+          output: 'scored no-parser model completed',
+          toolLog: [],
+          tokenUsage: {},
+          changedFiles: [],
+          iterations: 1,
+        }));
+      } else {
+        queueMicrotask(() => emitter.emit('message', {
+          type: 'error',
+          message: '429 Too Many Requests',
+        }));
+      }
+    });
+
+    await mod.executeApiProvider(task, { name: 'openrouter' });
+
+    expect(workerModels).toEqual([
+      'scouted/default:free',
+      'scouted/fallback:free',
+      'scored/parser:free',
+      'scored/no-parser:free',
+    ]);
+    expect(tasks.get(task.id).status).toBe('completed');
+  });
+
   it('requeues no-op ollama-cloud agentic tasks to codex for button-up', async () => {
     const { mod, configMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));

@@ -43,9 +43,32 @@ function normalizeSupportedParameters(model) {
   return [];
 }
 
+function normalizeSupportedParameterValues(rawParameters) {
+  const list = Array.isArray(rawParameters) ? rawParameters : normalizeSupportedParameters(rawParameters);
+  return Array.isArray(list)
+    ? list
+      .map((value) => {
+        if (typeof value === 'string') return value.trim().toLowerCase();
+        if (value && typeof value === 'object' && typeof value.name === 'string') return value.name.trim().toLowerCase();
+        return '';
+      })
+      .filter(Boolean)
+    : [];
+}
+
+function supportsResponseFormatMetadata(model) {
+  const supportedParameters = normalizeSupportedParameterValues(model?.supported_parameters || model?.supportedParameters);
+  return supportedParameters.some((parameter) => {
+    if (parameter === 'response_format') return true;
+    if (parameter === 'json_schema') return true;
+    if (parameter.includes('response_format')) return true;
+    return false;
+  });
+}
+
 function supportsTools(model) {
   if (model?.supports_tools === true || model?.supportsTools === true) return true;
-  return normalizeSupportedParameters(model).some((parameter) => String(parameter).toLowerCase() === 'tools');
+  return normalizeSupportedParameterValues(model).some((parameter) => parameter === 'tools');
 }
 
 function parseZeroPrice(value) {
@@ -161,7 +184,8 @@ function scoreOpenRouterModel(model) {
       name: model?.name || null,
       owned_by: model?.owned_by || null,
       context_window: contextWindow,
-      supported_parameters: normalizeSupportedParameters(model),
+      supported_parameters: normalizeSupportedParameterValues(model),
+      supports_response_format: supportsResponseFormatMetadata(model),
       free: isFreeModel(model),
     },
   };

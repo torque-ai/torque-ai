@@ -726,6 +726,68 @@ describe('execute-api.js', () => {
       });
     });
 
+    it('prioritizes parser-capable openrouter fallback models for JSON-mode tasks', async () => {
+      const modelRolesMock = {
+        getModelForRole: vi.fn((provider, role) => {
+          const roleMap = {
+            default: null,
+            fallback: null,
+            balanced: null,
+            fast: null,
+            quality: null,
+          };
+          return roleMap[role];
+        }),
+      };
+      const providerModelScoresMock = {
+        init: vi.fn(),
+        getTopModelScores: vi.fn(() => [
+          { model_name: 'top/no-parser:free', metadata_json: JSON.stringify({ free: true, supported_parameters: ['tools'] }) },
+          { model_name: 'top/parser:free', metadata_json: JSON.stringify({ free: true, supported_parameters: ['response_format'] }) },
+        ]),
+      };
+      const { mod } = loadSubject({
+        modelRoles: modelRolesMock,
+        providerModelScores: providerModelScoresMock,
+      });
+      const task = makeTask({
+        model: null,
+        metadata: { response_format: 'json_object', fallbackModels: ['custom/openrouter-fallback:free'] },
+      });
+      const deps = makeDeps([task]);
+      deps.db.prepare = vi.fn();
+      const provider = makeProvider({
+        submit: vi.fn(async () => ({
+          output: 'selected from role',
+          usage: { tokens: 12, prompt_tokens: 8, completion_tokens: 4 },
+        })),
+      });
+
+      mod.init(deps);
+      await mod.executeApiProvider(task, provider);
+
+      expect(provider.submit).toHaveBeenCalledWith(
+        'Write comprehensive tests',
+        'custom/openrouter-fallback:free',
+        expect.objectContaining({
+          fallbackModels: [
+            'custom/openrouter-fallback:free',
+            'top/parser:free',
+            'top/no-parser:free',
+          ],
+        }),
+      );
+      expect(providerModelScoresMock.getTopModelScores).toHaveBeenCalledWith(
+        'openrouter',
+        expect.objectContaining({
+          rateLimited: false,
+          minScore: 0,
+          limit: 8,
+        }),
+      );
+      expect(modelRolesMock.getModelForRole).toHaveBeenCalledTimes(5);
+    });
+
     it('uses submitStream for streaming providers and forwards chunks to the stream store and dashboard', async () => {
       const { mod } = loadSubject();
       const task = makeTask({

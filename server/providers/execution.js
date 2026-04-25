@@ -39,6 +39,7 @@ const {
   isProviderLaneHandoffAllowed,
   providerLaneHandoffBlockReason,
 } = require('../factory/provider-lane-policy');
+const { isJsonModeRequested } = require('./shared');
 
 const { acquireHostLock } = require('./host-mutex');
 const ollamaChatAdapter = require('./adapters/ollama-chat');
@@ -80,6 +81,16 @@ const PROPOSAL_APPLY_MODE = 'proposal_apply';
 const PROPOSAL_MODE_READ_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
 const FACTORY_INTERNAL_STRUCTURED_KINDS = new Set(['architect_cycle', 'plan_generation', 'verify_review']);
 const OPENROUTER_FALLBACK_SCORE_LIMIT = 8;
+function dedupeValues(values) {
+  const seen = new Set();
+  return values.filter((value) => {
+    if (typeof value !== 'string') return false;
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) return false;
+    seen.add(normalized);
+    return true;
+  });
+}
 
 // ── Deps captured at init time for the agentic wrapper ────────────────
 let _agenticDeps = null;
@@ -239,13 +250,74 @@ function resolveProviderRoleModel(provider, role) {
 }
 
 function parseProviderModelMetadata(value) {
-  if (typeof value !== 'string' || !value.trim()) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
+  if (typeof value == null) return {};
+  if (typeof value === 'string') {
+    if (!value.trim()) return {};
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
   }
+  return typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function normalizeSupportedParameters(value) {
+  const metadata = parseProviderModelMetadata(value);
+  const supportedParameters = Array.isArray(metadata?.supported_parameters)
+    ? metadata.supported_parameters
+    : (Array.isArray(metadata?.supportedParameters) ? metadata.supportedParameters : []);
+  return supportedParameters
+    .map((parameter) => {
+      if (typeof parameter === 'string') return parameter.trim().toLowerCase();
+      if (parameter && typeof parameter === 'object' && typeof parameter.name === 'string') return parameter.name.trim().toLowerCase();
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function modelSupportsOpenRouterResponseFormat(metadataJson) {
+  const metadata = parseProviderModelMetadata(metadataJson);
+  if (metadata.supports_response_format === true || metadata.supportsResponseFormat === true) return true;
+  const supportedParameters = normalizeSupportedParameters(metadataJson);
+  return supportedParameters.some((parameter) => {
+    if (parameter === 'response_format') return true;
+    if (parameter === 'json_schema') return true;
+    if (parameter.includes('response_format')) return true;
+    return false;
+  });
+}
+
+function resolveOpenRouterFallbackRows(rows, options = {}) {
+  const preferParser = options.preferParserModels === true;
+  const fallbackLimit = Number.isFinite(Number(options.limit)) ? Math.max(1, Number(options.limit)) : OPENROUTER_FALLBACK_SCORE_LIMIT;
+  const scoredRows = (Array.isArray(rows) ? rows : [])
+    .map((row, sortOrder) => {
+      const model = typeof row?.model_name === 'string' ? row.model_name.trim() : '';
+      if (!model) return null;
+      const metadataJson = row?.metadata_json || row?.metadata;
+      return {
+        model,
+        isFree: isFreeOpenRouterModelCandidate(model, metadataJson),
+        supportsParser: modelSupportsOpenRouterResponseFormat(metadataJson),
+        sortOrder,
+      };
+    })
+    .filter(Boolean);
+
+  if (scoredRows.length === 0) return [];
+
+  const orderedRows = preferParser
+    ? [...scoredRows].sort((a, b) => {
+      if (a.supportsParser !== b.supportsParser) return b.supportsParser - a.supportsParser;
+      return a.sortOrder - b.sortOrder;
+    })
+    : scoredRows;
+
+  const freeRows = orderedRows.filter((row) => row.isFree);
+  const fallbackRows = freeRows.length > 0 ? freeRows : orderedRows;
+  return dedupeValues(fallbackRows.slice(0, fallbackLimit).map((row) => row.model));
 }
 
 function isFreeOpenRouterModelCandidate(modelName, metadataJson) {
@@ -254,7 +326,16 @@ function isFreeOpenRouterModelCandidate(modelName, metadataJson) {
   return metadata.free === true || metadata.free === 1 || metadata.free === '1';
 }
 
-function getTopScoredOpenRouterFallbackModels(limit = OPENROUTER_FALLBACK_SCORE_LIMIT) {
+function getTopScoredOpenRouterFallbackModels(limit = OPENROUTER_FALLBACK_SCORE_LIMIT, options = {}) {
+  if (typeof limit === 'object' && limit !== null && !Array.isArray(limit)) {
+    options = limit;
+    limit = options.limit;
+  }
+  const fallbackLimit = Math.max(1, Number.isFinite(Number(limit)) ? Number(limit) : OPENROUTER_FALLBACK_SCORE_LIMIT);
+  const preferParserModels = isJsonModeRequested({
+    responseFormat: parseProviderModelMetadata(options.taskMetadata)?.response_format,
+  });
+
   const agenticDb = _agenticDeps?.db;
   if (!agenticDb || typeof agenticDb.prepare !== 'function') return [];
   const hasSqliteHandle = typeof agenticDb.exec === 'function';
@@ -274,35 +355,21 @@ function getTopScoredOpenRouterFallbackModels(limit = OPENROUTER_FALLBACK_SCORE_
 
     const topRows = fetchTopModels.call(providerModelScores, 'openrouter', {
       rateLimited: false,
-      limit: Math.max(1, Number.isFinite(Number(limit)) ? Number(limit) : OPENROUTER_FALLBACK_SCORE_LIMIT),
+      limit: fallbackLimit,
     }) || [];
-
-    const scoredRows = topRows
-      .map((row) => ({
-        model: typeof row?.model_name === 'string' ? row.model_name.trim() : '',
-        metadataJson: row?.metadata_json || row?.metadata,
-      }))
-      .filter(({ model }) => model);
-
-    const scoredCandidates = [...new Set(scoredRows.map(({ model }) => model))];
-    if (scoredCandidates.length === 0) return [];
-
-    const freeCandidates = scoredRows
-      .filter(({ model, metadataJson }) => isFreeOpenRouterModelCandidate(model, metadataJson))
-      .map(({ model }) => model);
-
-    const fallbackCandidates = (freeCandidates.length > 0 ? freeCandidates : scoredCandidates);
-    return [...new Set(fallbackCandidates)]
-      .filter((model) => typeof model === 'string' && model.trim())
-      .slice(0, Math.max(1, Number.isFinite(Number(limit)) ? Number(limit) : OPENROUTER_FALLBACK_SCORE_LIMIT))
-      .map((model) => model.trim());
+    const fallbackRows = resolveOpenRouterFallbackRows(topRows, {
+      limit: fallbackLimit,
+      preferParserModels,
+      taskMetadata: options.taskMetadata,
+    });
+    return fallbackRows;
   } catch (err) {
     logger.debug(`[Agentic OpenRouter Fallback] Failed to fetch scored models: ${err.message}`);
     return [];
   }
 }
 
-function buildOpenRouterModelFallbackChain(provider, primaryModel) {
+function buildOpenRouterModelFallbackChain(provider, primaryModel, taskMetadata = null) {
   if (provider !== 'openrouter') return null;
 
   const seen = new Set();
@@ -318,7 +385,7 @@ function buildOpenRouterModelFallbackChain(provider, primaryModel) {
   for (const role of ['fallback', 'balanced', 'fast', 'quality']) {
     add(resolveProviderRoleModel('openrouter', role));
   }
-  for (const model of getTopScoredOpenRouterFallbackModels(OPENROUTER_FALLBACK_SCORE_LIMIT)) {
+  for (const model of getTopScoredOpenRouterFallbackModels(OPENROUTER_FALLBACK_SCORE_LIMIT, { taskMetadata })) {
     add(model);
   }
 
@@ -3040,12 +3107,13 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     const contextBudget = PROVIDER_CONTEXT_BUDGETS[provider] || 16000;
 
     // Check if task has a routing chain (set by smart routing template resolution)
+    let meta = {};
     try {
-      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {});
+      meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata || '{}') : (task.metadata || {});
       chain = meta._routing_chain;
     } catch { /* ignore parse errors */ }
     if (!Array.isArray(chain) || chain.length <= 1) {
-      const openRouterChain = buildOpenRouterModelFallbackChain(provider, model);
+      const openRouterChain = buildOpenRouterModelFallbackChain(provider, model, meta);
       if (openRouterChain) chain = openRouterChain;
     }
 

@@ -17,6 +17,7 @@ const { FREE_PROVIDERS } = require('../execution/queue-scheduler');
 const { safeJsonParse } = require('../utils/json');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
+const { isJsonModeRequested } = require('./shared');
 
 // Phase 2: Proxy support for enterprise environments.
 // When HTTPS_PROXY / HTTP_PROXY env vars are set, all cloud API fetch() calls
@@ -48,13 +49,83 @@ function dedupeValues(values) {
 }
 
 function parseProviderModelMetadata(value) {
-  if (typeof value !== 'string' || !value.trim()) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
+  if (value == null) return {};
+  if (typeof value === 'string') {
+    if (!value.trim()) return {};
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
   }
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function normalizeSupportedParameters(value) {
+  const metadata = parseProviderModelMetadata(value);
+  const supportedParameters = Array.isArray(metadata?.supported_parameters)
+    ? metadata.supported_parameters
+    : (Array.isArray(metadata?.supportedParameters) ? metadata.supportedParameters : []);
+  return supportedParameters
+    .map((parameter) => {
+      if (typeof parameter === 'string') return parameter.trim().toLowerCase();
+      if (parameter && typeof parameter === 'object' && typeof parameter.name === 'string') return parameter.name.trim().toLowerCase();
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function modelSupportsOpenRouterResponseFormat(metadataJson) {
+  const metadata = parseProviderModelMetadata(metadataJson);
+  if (metadata.supports_response_format === true || metadata.supportsResponseFormat === true) return true;
+  const supportedParameters = normalizeSupportedParameters(metadataJson);
+  return supportedParameters.some((parameter) => {
+    if (parameter === 'response_format') return true;
+    if (parameter === 'json_schema') return true;
+    if (parameter.includes('response_format')) return true;
+    return false;
+  });
+}
+
+function resolveOpenRouterFallbackRows(rows, options = {}) {
+  const preferParser = options.preferParserModels === true;
+  const scoredRows = (Array.isArray(rows) ? rows : [])
+    .map((row, sortOrder) => {
+      const model = typeof row?.model_name === 'string' ? row.model_name.trim() : '';
+      if (!model) return null;
+      const metadataJson = row?.metadata_json || row?.metadata;
+      return {
+        model,
+        isFree: isFreeOpenRouterModelCandidate(model, metadataJson),
+        supportsParser: modelSupportsOpenRouterResponseFormat(metadataJson),
+        sortOrder,
+      };
+    })
+    .filter(Boolean);
+
+  if (scoredRows.length === 0) return [];
+
+  const orderedRows = preferParser
+    ? [...scoredRows].sort((a, b) => {
+      if (a.supportsParser !== b.supportsParser) return b.supportsParser - a.supportsParser;
+      return a.sortOrder - b.sortOrder;
+    })
+    : scoredRows;
+
+  const freeRows = orderedRows.filter((row) => row.isFree);
+  const fallbackRows = freeRows.length > 0 ? freeRows : orderedRows;
+  if (!preferParser) return dedupeValues(fallbackRows.map((row) => row.model));
+
+  const parserRows = fallbackRows.filter((row) => row.supportsParser);
+  const nonParserRows = fallbackRows.filter((row) => !row.supportsParser);
+  if (parserRows.length === 0) return dedupeValues(fallbackRows.map((row) => row.model));
+  return dedupeValues([...parserRows, ...nonParserRows].map((row) => row.model));
+}
+
+function isStructuredOpenRouterRequest(metadata = {}) {
+  const responseFormat = metadata.response_format ?? metadata.responseFormat;
+  return isJsonModeRequested({ responseFormat });
 }
 
 function isFreeOpenRouterModelCandidate(modelName, metadataJson) {
@@ -86,19 +157,10 @@ function getTopScoredOpenRouterFallbackModels(options = {}) {
       limit,
       minScore: options.minScore,
     }) || [];
-    const scoredRows = rows
-      .map((row) => ({
-        model: typeof row?.model_name === 'string' ? row.model_name.trim() : '',
-        metadataJson: row?.metadata_json || row?.metadata,
-      }))
-      .filter(({ model }) => typeof model === 'string' && model.length > 0);
-    const scoredCandidates = dedupeValues(scoredRows.map(({ model }) => model));
-    const freeCandidates = dedupeValues(scoredRows
-      .filter(({ model, metadataJson }) => isFreeOpenRouterModelCandidate(model, metadataJson))
-      .map(({ model }) => model));
-
-    if (scoredCandidates.length === 0) return [];
-    const fallbackCandidates = (freeCandidates.length > 0 ? freeCandidates : scoredCandidates);
+    const fallbackCandidates = resolveOpenRouterFallbackRows(rows, {
+      minScore: options.minScore,
+      preferParserModels: isStructuredOpenRouterRequest(options.taskMetadata),
+    });
     return fallbackCandidates.slice(0, limit);
   } catch (err) {
     logger.debug(`openrouter fallback score lookup failed: ${err.message}`);
@@ -354,6 +416,7 @@ function buildProviderExecutionOptions(task, controller, extra = {}) {
     const scoredFallbackModels = getTopScoredOpenRouterFallbackModels({
       limit: OPENROUTER_FALLBACK_SCORE_LIMIT,
       minScore: 0,
+      taskMetadata: metadata,
     });
     const candidateFallbackModels = [
       ...Array.isArray(options.fallbackModels) ? options.fallbackModels : [],

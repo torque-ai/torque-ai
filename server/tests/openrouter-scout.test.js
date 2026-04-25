@@ -76,6 +76,36 @@ describe('openrouter-scout', () => {
     expect(scores[0].score).toBeGreaterThan(scoreOpenRouterModel({ id: 'paid/model' }).score);
   });
 
+  it('captures response_format support in scored model metadata', () => {
+    const scores = scoreOpenRouterModels([
+      {
+        id: 'minimax/minimax-m2.5:free',
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: ['tools'],
+      },
+      {
+        id: 'google/gemini-json:free',
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: [
+          { name: 'response_format' },
+          { name: 'tools' },
+        ],
+      },
+      {
+        id: 'openrouter/legacy:free',
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: ['json_schema'],
+      },
+    ]);
+
+    const parserCapable = scores.filter((row) => row.metadata.supports_response_format).map((row) => row.model_name);
+    expect(parserCapable).toEqual(expect.arrayContaining([
+      'google/gemini-json:free',
+      'openrouter/legacy:free',
+    ]));
+    expect(parserCapable).not.toContain('minimax/minimax-m2.5:free');
+  });
+
   it('upserts scores and assigns OpenRouter roles from approved models with live pass signals', async () => {
     db = makeDb();
     insertApproved(db, 'minimax/minimax-m2.5:free');

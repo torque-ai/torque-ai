@@ -122,8 +122,25 @@ function parseZeroPrice(value) {
 }
 
 function supportsTools(model) {
-  return Array.isArray(model?.supported_parameters)
-    && model.supported_parameters.includes('tools');
+  const supportedParameters = Array.isArray(model?.supported_parameters)
+    ? model.supported_parameters
+    : [];
+  return supportedParameters.some((parameter) => (
+    (typeof parameter === 'string' && parameter === 'tools') ||
+    (parameter && typeof parameter === 'object' && parameter?.name === 'tools')
+  ));
+}
+
+function normalizeSupportedParameters(value) {
+  const values = Array.isArray(value) ? value : [];
+  return values
+    .map((parameter) => {
+      if (typeof parameter === 'string') return parameter;
+      if (parameter && typeof parameter === 'object' && typeof parameter.name === 'string') return parameter.name;
+      return '';
+    })
+    .filter((value) => typeof value === 'string' && value.length > 0)
+    .map((value) => value.trim());
 }
 
 function isFreeOpenRouterModel(model) {
@@ -143,7 +160,7 @@ function normalizeOpenRouterModel(model) {
     context_window: model?.context_length || model?.context_window || null,
     created: model?.created || null,
     pricing: model?.pricing || null,
-    supported_parameters: Array.isArray(model?.supported_parameters) ? model.supported_parameters : [],
+    supported_parameters: normalizeSupportedParameters(model?.supported_parameters),
     free: isFreeOpenRouterModel(model),
     supports_tools: supportsTools(model),
   };
