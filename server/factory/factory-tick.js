@@ -28,7 +28,7 @@ const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const activeTimers = new Map(); // project_id → intervalId
 const ACTIVE_FACTORY_TASK_STATUSES = Object.freeze(['queued', 'running', 'pending', 'blocked', 'retry_scheduled']);
 const CLOSED_FACTORY_WORK_ITEM_STATUSES = new Set(['completed', 'shipped', 'rejected', 'unactionable']);
-const TERMINAL_FACTORY_BATCH_TASK_STATUSES = new Set(['completed', 'shipped', 'cancelled', 'failed']);
+const TERMINAL_FACTORY_BATCH_TASK_STATUSES = new Set(['completed', 'shipped', 'cancelled', 'failed', 'skipped']);
 const DEFAULT_TASK_CANCEL_GRACE_MS = Math.max(
   0,
   Number.parseInt(process.env.TORQUE_FACTORY_VERIFY_CANCEL_GRACE_MS || '5500', 10) || 0,

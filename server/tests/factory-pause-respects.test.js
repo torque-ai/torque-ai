@@ -419,6 +419,57 @@ describe('factory pause enforcement', () => {
     expect(afterTick.paused_at_stage).toBeNull();
   });
 
+  it('auto-clears a VERIFY gate when batch tasks are all skipped', async () => {
+    const decisionLog = require('../factory/decision-log');
+    const factoryDecisions = require('../db/factory-decisions');
+    factoryDecisions.setDb(db);
+
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const batchId = `test-batch-skipped-${Date.now()}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: LOOP_STATES.VERIFY,
+    });
+
+    db.prepare(`
+      INSERT INTO tasks (id, task_description, provider, status, tags, working_directory, created_at)
+      VALUES (?, 'batch-task-1', 'ollama', 'skipped', ?, ?, datetime('now')),
+             (?, 'batch-task-2', 'ollama', 'skipped', ?, ?, datetime('now'))
+    `).run(
+      'skipped-batch-task-1', JSON.stringify([`factory:batch_id=${batchId}`]), project.path,
+      'skipped-batch-task-2', JSON.stringify([`factory:batch_id=${batchId}`]), project.path,
+    );
+
+    decisionLog.logDecision({
+      project_id: project.id,
+      stage: 'verify',
+      actor: 'human',
+      action: 'paused_at_gate',
+      reasoning: 'Loop paused awaiting approval for VERIFY.',
+      outcome: {
+        from_state: 'VERIFY',
+        to_state: 'PAUSED',
+        gate_stage: 'VERIFY',
+        reason: 'batch_tasks_not_terminal',
+      },
+      confidence: 1,
+      batch_id: batchId,
+    });
+
+    const approveSpy = vi.spyOn(loopController, 'approveGateForProject');
+    const staleRunningProject = factoryHealth.getProject(project.id);
+
+    await factoryTick.tickProject(staleRunningProject);
+
+    expect(approveSpy).toHaveBeenCalledWith(project.id, 'VERIFY');
+    const afterTick = factoryLoopInstances.getInstance(instance.id);
+    expect(afterTick.paused_at_stage).toBeNull();
+  });
+
   it('does not treat VERIFY batch waits with retry_scheduled tasks as unrecoverable stalls', async () => {
     const decisionLog = require('../factory/decision-log');
     const factoryDecisions = require('../db/factory-decisions');
