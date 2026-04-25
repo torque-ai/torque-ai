@@ -95,6 +95,8 @@ beforeAll(() => {
 beforeEach(() => {
   db.resetForTest(templateBuffer);
   bindCore();
+  core.setProviderScoring(null);
+  core.setCircuitBreaker(null);
   core.setOllamaHealthy(true);
   // Set test API key so groq routing path is reachable
   process.env.GROQ_API_KEY = 'test-key';
@@ -580,9 +582,9 @@ describe('db/provider-routing-core', () => {
         rules: validTemplateRules({ security: 'codex' }),
       });
 
-      // 'auth' triggers the security category in the classifier
+      // Use a real security keyword; bare 'auth' no longer triggers security classification.
       const result = core.analyzeTaskForRouting(
-        'Review auth token validation',
+        'Review credential validation',
         os.tmpdir(),
         [],
         { taskMetadata: { _routing_template: name } },
