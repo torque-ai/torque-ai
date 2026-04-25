@@ -2,7 +2,6 @@
 
 const Database = require('better-sqlite3');
 const { createTables } = require('../db/schema-tables');
-const { runMigrations } = require('../db/migrations');
 
 // Tiny seedable PRNG so fixtures are deterministic across runs.
 function mulberry32(seed) {
@@ -26,8 +25,10 @@ function buildFixture(opts = {}) {
   const db = new Database(':memory:');
   // Null logger — base schema calls logger.info/warn/debug but we don't need output.
   const nullLogger = { info() {}, warn() {}, error() {}, debug() {}, child() { return nullLogger; } };
+  // createTables already includes all columns we need (tags, project, etc. are in the
+  // base schema). Skipping runMigrations avoids hitting tables (model_family_templates,
+  // model_registry, routing_templates) that only exist in a seeded production DB.
   createTables(db, nullLogger);
-  runMigrations(db);
 
   const insertTask = db.prepare(
     `INSERT INTO tasks (id, project, status, task_description, created_at, tags, files_modified, context)
