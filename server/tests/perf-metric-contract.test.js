@@ -29,9 +29,11 @@ describe('perf metric registry contract', () => {
   it('list() returns a copy — caller mutation does not affect registry', () => {
     r.register({ id: 'a', run: () => 0 });
     const snapshot = r.list();
+    // Array-level: pushing into snapshot must not grow the registry
     snapshot.push({ id: 'rogue', run: () => 0 });
-    snapshot[0].id = 'mutated';
     expect(r.list().length).toBe(1);
+    // Object-level: entries are frozen; mutation in strict mode throws
+    expect(() => { snapshot[0].id = 'mutated'; }).toThrow(TypeError);
     expect(r.list()[0].id).toBe('a');
   });
 });
