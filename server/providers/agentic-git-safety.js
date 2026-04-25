@@ -206,6 +206,27 @@ function captureSnapshot(workingDir) {
   }
 }
 
+function serializeSnapshot(snapshot, workingDir = null) {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  return {
+    isGitRepo: snapshot.isGitRepo === true,
+    _snapshotFailed: snapshot._snapshotFailed === true,
+    dirtyFiles: Array.from(snapshot.dirtyFiles || []),
+    untrackedFiles: Array.from(snapshot.untrackedFiles || []),
+    ...(workingDir ? { working_directory: workingDir } : {}),
+  };
+}
+
+function hydrateSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  return {
+    isGitRepo: snapshot.isGitRepo === true,
+    _snapshotFailed: snapshot._snapshotFailed === true,
+    dirtyFiles: new Set(Array.isArray(snapshot.dirtyFiles) ? snapshot.dirtyFiles : []),
+    untrackedFiles: new Set(Array.isArray(snapshot.untrackedFiles) ? snapshot.untrackedFiles : []),
+  };
+}
+
 /**
  * Check git state against a previously captured snapshot and revert unauthorized changes.
  *
@@ -387,4 +408,70 @@ function revertScopedChanges(workingDir, snapshot, targetFiles) {
   };
 }
 
-module.exports = { captureSnapshot, checkAndRevert, revertScopedChanges };
+function revertChangesSinceSnapshot(workingDir, snapshot) {
+  if (!snapshot?.isGitRepo || snapshot?._snapshotFailed) {
+    return { reverted: [], kept: [], report: '' };
+  }
+
+  let currentDirty = new Set();
+  let currentUntracked = new Set();
+  try {
+    ({ currentDirty, currentUntracked } = captureCurrentGitState(workingDir));
+  } catch {
+    return { reverted: [], kept: [], report: '' };
+  }
+
+  const newlyDirty = [...currentDirty].filter((filePath) => !snapshot.dirtyFiles.has(filePath));
+  const newlyUntrackedEntries = [...currentUntracked].filter((filePath) => !snapshot.untrackedFiles.has(filePath));
+  const newlyUntracked = newlyUntrackedEntries.flatMap((entry) => expandUntrackedEntry(entry, workingDir));
+  const reverted = [];
+  const kept = [];
+
+  for (const filePath of newlyDirty) {
+    try {
+      gitExec(['checkout', '--', filePath], workingDir);
+      reverted.push(filePath);
+    } catch (err) {
+      logger.warn(`[agentic-git-safety] Failed to revert interrupted tracked file ${filePath}: ${err.message}`);
+      kept.push(filePath);
+    }
+  }
+
+  for (const filePath of newlyUntracked) {
+    if (isGitIgnored(filePath, workingDir)) {
+      kept.push(filePath);
+      continue;
+    }
+    const fullPath = path.resolve(workingDir, filePath);
+    try {
+      fs.unlinkSync(fullPath);
+      reverted.push(filePath);
+    } catch (err) {
+      logger.warn(`[agentic-git-safety] Failed to delete interrupted untracked file ${filePath}: ${err.message}`);
+      kept.push(filePath);
+    }
+  }
+
+  const reportParts = [];
+  if (reverted.length > 0) {
+    reportParts.push(`Reverted ${reverted.length} interrupted task change${reverted.length === 1 ? '' : 's'}: ${reverted.join(', ')}`);
+  }
+  if (kept.length > 0) {
+    reportParts.push(`Could not automatically revert ${kept.length} interrupted task change${kept.length === 1 ? '' : 's'}: ${kept.join(', ')}`);
+  }
+
+  return {
+    reverted,
+    kept,
+    report: reportParts.join('\n'),
+  };
+}
+
+module.exports = {
+  captureSnapshot,
+  checkAndRevert,
+  hydrateSnapshot,
+  revertChangesSinceSnapshot,
+  revertScopedChanges,
+  serializeSnapshot,
+};

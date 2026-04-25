@@ -18,6 +18,10 @@ const execFileAsync = promisify(execFile);
 const { killProcessGraceful, killOrphanByPid } = require('../execution/process-lifecycle');
 const serverConfig = require('../config');
 const { parseModelSizeB } = require('../utils/model');
+const {
+  appendRollbackReport,
+  rollbackAgenticTaskChanges,
+} = require('../execution/agentic-orphan-rollback');
 
 // ---- Injected dependencies (set via init()) ----
 let db = null;
@@ -241,10 +245,15 @@ function checkStaleRunningTasks() {
       const retryCount = task.retry_count || 0;
       const maxRetries = task.max_retries != null ? task.max_retries : 2;
       const requeueOrFailDeadOwner = (reason) => {
+        const rollbackResult = rollbackAgenticTaskChanges(task, { logger });
         if (retryCount < maxRetries) {
           logger.info(`[Stale Check] ${reason} - requeueing ${task.id} (attempt ${retryCount + 1}/${maxRetries})`);
+          const errorOutput = appendRollbackReport(
+            `${reason} — requeued for re-execution (attempt ${retryCount + 1}/${maxRetries})`,
+            rollbackResult
+          );
           db.updateTaskStatus(task.id, 'queued', {
-            error_output: `${reason} — requeued for re-execution (attempt ${retryCount + 1}/${maxRetries})`,
+            error_output: errorOutput,
             retry_count: retryCount + 1,
             mcp_instance_id: null,
             provider: null,
@@ -252,8 +261,12 @@ function checkStaleRunningTasks() {
           });
         } else {
           logger.info(`[Stale Check] ${reason} - failing ${task.id} (max retries exhausted: ${retryCount}/${maxRetries})`);
+          const errorOutput = appendRollbackReport(
+            `${reason} (max retries exhausted: ${retryCount}/${maxRetries})`,
+            rollbackResult
+          );
           db.updateTaskStatus(task.id, 'failed', {
-            error_output: `${reason} (max retries exhausted: ${retryCount}/${maxRetries})`,
+            error_output: errorOutput,
             completed_at: new Date().toISOString(),
             mcp_instance_id: null,
             ollama_host_id: null,

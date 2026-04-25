@@ -133,6 +133,13 @@ function loadSubject(overrides = {}) {
     captureSnapshot: vi.fn(() => null),
     checkAndRevert: vi.fn(() => ({ report: '' })),
     revertScopedChanges: vi.fn(() => ({ reverted: [], kept: [], report: '' })),
+    serializeSnapshot: vi.fn((snapshot, workingDir) => (snapshot ? {
+      isGitRepo: snapshot.isGitRepo === true,
+      _snapshotFailed: snapshot._snapshotFailed === true,
+      dirtyFiles: Array.from(snapshot.dirtyFiles || []),
+      untrackedFiles: Array.from(snapshot.untrackedFiles || []),
+      working_directory: workingDir,
+    } : null)),
   };
   const executeApiMock = {
     init: vi.fn(),
@@ -1446,6 +1453,87 @@ describe('providers/execution agentic fixes', () => {
     const metadata = JSON.parse(failureCall[2].task_metadata);
     expect(metadata.agentic_reverted_changes).toEqual(['Modules/Tests/Parser.Vendors.Tests.ps1']);
     expect(metadata.agentic_revert_report).toBe('Reverted Modules/Tests/Parser.Vendors.Tests.ps1');
+  });
+
+  it('persists the agentic git snapshot for restart orphan rollback', async () => {
+    const { mod, gitSafetyMock } = loadSubject();
+    const workerControl = createDeferredWorkerControl();
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const snapshot = {
+      isGitRepo: true,
+      dirtyFiles: new Set(['Logs/Reports/UnusedExports.json']),
+      untrackedFiles: new Set(['.worktrees/']),
+    };
+    gitSafetyMock.captureSnapshot.mockReturnValue(snapshot);
+
+    const runningProcesses = new Map();
+    runningProcesses.stallAttempts = new Map();
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn(),
+      updateTask: vi.fn(),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => ({ id: taskId, status: 'running', metadata: { existing: true } })),
+      addStreamChunk: vi.fn(),
+    };
+    const deps = {
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses,
+      safeUpdateTaskStatus: vi.fn(),
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    };
+
+    mod.init(deps);
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(workerControl.WorkerCtor);
+
+    const taskPromise = mod.executeOllamaTask({
+      id: 'task-ollama-persist-snapshot',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Read the project',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    workerControl.latest().emitMessage({
+      type: 'result',
+      output: 'done',
+      toolLog: [{ name: 'read_file', error: false }],
+      tokenUsage: {},
+      changedFiles: [],
+      iterations: 1,
+      stopReason: 'model_finished',
+    });
+
+    await taskPromise;
+
+    expect(db.updateTask).toHaveBeenCalledWith(
+      'task-ollama-persist-snapshot',
+      {
+        metadata: expect.objectContaining({
+          existing: true,
+          agentic_git_snapshot: expect.objectContaining({
+            isGitRepo: true,
+            dirtyFiles: ['Logs/Reports/UnusedExports.json'],
+            untrackedFiles: ['.worktrees/'],
+            working_directory: 'C:/repo',
+          }),
+        }),
+      },
+    );
   });
 
   it('derives worker policy from task metadata and NEXT_TASK.md', async () => {

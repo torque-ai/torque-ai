@@ -4,6 +4,10 @@ const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const defaultLogger = require('../logger').child({ component: 'startup-task-reconciler' });
+const {
+  appendRollbackReport,
+  rollbackAgenticTaskChanges,
+} = require('./agentic-orphan-rollback');
 
 function getDbHandle(db) {
   if (db && typeof db.getDbInstance === 'function') {
@@ -316,7 +320,11 @@ function reconcileOrphanedTasksOnStartup({
         continue;
       }
 
-      const failedOutput = `${original.error_output || ''}\n[startup-reconciler] task marked failed by server restart`;
+      const rollbackResult = rollbackAgenticTaskChanges(original, { logger });
+      const failedOutput = appendRollbackReport(
+        `${original.error_output || ''}\n[startup-reconciler] task marked failed by server restart`,
+        rollbackResult
+      );
       const completedAt = new Date().toISOString();
       if (original.status === 'cancelled') {
         rawDb.prepare(`

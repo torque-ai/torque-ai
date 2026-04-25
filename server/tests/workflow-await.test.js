@@ -11,6 +11,10 @@ const { mocks } = vi.hoisted(() => {
       executeValidatedCommandSync: vi.fn(),
       safeExecChain: vi.fn(),
       handlePeekUi: vi.fn(),
+      appendRollbackReport: vi.fn((message, result) => (
+        result?.report ? `${message}\n${result.report}` : message
+      )),
+      rollbackAgenticTaskChanges: vi.fn(() => ({ attempted: false, reverted: [], kept: [], report: '' })),
     },
   };
 });
@@ -155,6 +159,10 @@ describe('workflow-await handlers with DB-backed state', () => {
     installCjsModuleMock('../plugins/snapscope/handlers/capture', {
       handlePeekUi: mocks.handlePeekUi,
     });
+    installCjsModuleMock('../execution/agentic-orphan-rollback', {
+      appendRollbackReport: mocks.appendRollbackReport,
+      rollbackAgenticTaskChanges: mocks.rollbackAgenticTaskChanges,
+    });
     mocks.executeValidatedCommandSync.mockReset();
     mocks.executeValidatedCommandSync.mockImplementation((command, args = []) => {
       if (command === 'git' && args[0] === 'rev-parse') return 'abc123\n';
@@ -165,6 +173,12 @@ describe('workflow-await handlers with DB-backed state', () => {
     mocks.safeExecChain.mockReturnValue({ exitCode: 0, output: 'verify ok' });
     mocks.handlePeekUi.mockReset();
     mocks.handlePeekUi.mockResolvedValue({ content: [] });
+    mocks.appendRollbackReport.mockReset();
+    mocks.appendRollbackReport.mockImplementation((message, result) => (
+      result?.report ? `${message}\n${result.report}` : message
+    ));
+    mocks.rollbackAgenticTaskChanges.mockReset();
+    mocks.rollbackAgenticTaskChanges.mockReturnValue({ attempted: false, reverted: [], kept: [], report: '' });
     mocks.taskEvents.removeAllListeners();
     hostMonitoring.hostActivityCache.clear();
     handlers = loadFresh('../handlers/workflow/await');
@@ -175,6 +189,8 @@ describe('workflow-await handlers with DB-backed state', () => {
     mocks.executeValidatedCommandSync.mockReset();
     mocks.safeExecChain.mockReset();
     mocks.handlePeekUi.mockReset();
+    mocks.appendRollbackReport.mockReset();
+    mocks.rollbackAgenticTaskChanges.mockReset();
     mocks.taskEvents.removeAllListeners();
     hostMonitoring.hostActivityCache.clear();
     serverConfig.setEpoch(0);
@@ -296,12 +312,23 @@ describe('workflow-await handlers with DB-backed state', () => {
       const taskId = createTask({ status: 'running', max_retries: 0 });
       taskCore.updateTask(taskId, { output: 'partial orphaned output' });
       serverConfig.setEpoch(2);
+      mocks.rollbackAgenticTaskChanges.mockReturnValue({
+        attempted: true,
+        reverted: ['src/partial.js'],
+        kept: [],
+        report: 'Reverted 1 interrupted task change: src/partial.js',
+      });
 
       const result = await handlers.handleAwaitTask({ task_id: taskId });
       const updatedTask = taskCore.getTask(taskId);
 
       expect(updatedTask.status).toBe('cancelled');
       expect(updatedTask.cancel_reason).toBe('orphan_cleanup');
+      expect(updatedTask.error_output).toContain('Reverted 1 interrupted task change: src/partial.js');
+      expect(mocks.rollbackAgenticTaskChanges).toHaveBeenCalledWith(
+        expect.objectContaining({ id: taskId }),
+        expect.objectContaining({ logger: expect.any(Object) })
+      );
       expect(textOf(result)).toContain('Task Cancelled by Server Restart');
       expect(textOf(result)).toContain('Cancel Reason:** orphan_cleanup');
       expect(textOf(result)).toContain('Server Epoch:** 1 -> 2');

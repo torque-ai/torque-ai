@@ -29,6 +29,10 @@ const { handlePeekUi } = require('../../plugins/snapscope/handlers/capture');
 const logger = require('../../logger').child({ component: 'workflow-await' });
 const { safeJsonParse } = require('../../utils/json');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../../utils/resume-context');
+const {
+  appendRollbackReport,
+  rollbackAgenticTaskChanges,
+} = require('../../execution/agentic-orphan-rollback');
 
 function buildRestartResumeContext(task, errorOutputOverride = null) {
   if (task?.resume_context) return task.resume_context;
@@ -44,6 +48,10 @@ function buildRestartResumeContext(task, errorOutputOverride = null) {
         : 0,
     },
   );
+}
+
+function appendAgenticOrphanRollback(task, message) {
+  return appendRollbackReport(message, rollbackAgenticTaskChanges(task, { logger }));
 }
 
 /**
@@ -811,7 +819,10 @@ async function handleAwaitWorkflow(args) {
         const maxRetries = task.max_retries != null ? task.max_retries : 2;
 
         if (retryCount < maxRetries) {
-          const orphanErrorOutput = `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch}. Requeued.`;
+          const orphanErrorOutput = appendAgenticOrphanRollback(
+            task,
+            `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch}. Requeued.`
+          );
           const resumeContext = buildRestartResumeContext(task, orphanErrorOutput);
           taskCore.updateTaskStatus(task.id, 'queued', {
             error_output: orphanErrorOutput,
@@ -824,8 +835,12 @@ async function handleAwaitWorkflow(args) {
           });
           task.status = 'queued';
         } else {
+          const orphanErrorOutput = appendAgenticOrphanRollback(
+            task,
+            `Task orphaned — epoch ${task.server_epoch} < current ${currentEpoch} (max retries exhausted)`
+          );
           taskCore.updateTaskStatus(task.id, 'cancelled', {
-            error_output: `Task orphaned — epoch ${task.server_epoch} < current ${currentEpoch} (max retries exhausted)`,
+            error_output: orphanErrorOutput,
             cancel_reason: 'orphan_cleanup',
             completed_at: new Date().toISOString(),
           });
@@ -1785,7 +1800,10 @@ async function handleAwaitTask(args) {
       const maxRetries = initialTask.max_retries != null ? initialTask.max_retries : 2;
 
       if (retryCount < maxRetries) {
-        const orphanErrorOutput = `Task orphaned — server epoch ${initialTask.server_epoch} < current ${currentEpoch}. Requeued (attempt ${retryCount + 1}/${maxRetries}).`;
+        const orphanErrorOutput = appendAgenticOrphanRollback(
+          initialTask,
+          `Task orphaned — server epoch ${initialTask.server_epoch} < current ${currentEpoch}. Requeued (attempt ${retryCount + 1}/${maxRetries}).`
+        );
         const resumeContext = buildRestartResumeContext(initialTask, orphanErrorOutput);
         taskCore.updateTaskStatus(taskId, 'queued', {
           error_output: orphanErrorOutput,
@@ -1798,8 +1816,12 @@ async function handleAwaitTask(args) {
         });
         // Continue polling — the requeued task will transition to running then completed
       } else {
+        const orphanErrorOutput = appendAgenticOrphanRollback(
+          initialTask,
+          `Task orphaned — server epoch ${initialTask.server_epoch} < current ${currentEpoch} (max retries exhausted)`
+        );
         taskCore.updateTaskStatus(taskId, 'cancelled', {
-          error_output: `Task orphaned — server epoch ${initialTask.server_epoch} < current ${currentEpoch} (max retries exhausted)`,
+          error_output: orphanErrorOutput,
           cancel_reason: 'orphan_cleanup',
           completed_at: new Date().toISOString(),
         });
@@ -1829,7 +1851,10 @@ async function handleAwaitTask(args) {
         const maxRetries = task.max_retries != null ? task.max_retries : 2;
 
         if (retryCount < maxRetries) {
-          const orphanErrorOutput = `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch}. Requeued (attempt ${retryCount + 1}/${maxRetries}).`;
+          const orphanErrorOutput = appendAgenticOrphanRollback(
+            task,
+            `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch}. Requeued (attempt ${retryCount + 1}/${maxRetries}).`
+          );
           const resumeContext = buildRestartResumeContext(task, orphanErrorOutput);
           taskCore.updateTaskStatus(taskId, 'queued', {
             error_output: orphanErrorOutput,
@@ -1842,8 +1867,12 @@ async function handleAwaitTask(args) {
           });
           // Continue polling — the requeued task will transition to running then completed
         } else {
+          const orphanErrorOutput = appendAgenticOrphanRollback(
+            task,
+            `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch} (max retries exhausted)`
+          );
           taskCore.updateTaskStatus(taskId, 'cancelled', {
-            error_output: `Task orphaned — server epoch ${task.server_epoch} < current ${currentEpoch} (max retries exhausted)`,
+            error_output: orphanErrorOutput,
             cancel_reason: 'orphan_cleanup',
             completed_at: new Date().toISOString(),
           });

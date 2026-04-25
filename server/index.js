@@ -42,6 +42,10 @@ const timerRegistry = require('./timer-registry');
 const eventBus = require('./event-bus');
 const maintenanceScheduler = require('./maintenance/scheduler');
 const { cleanupStaleGitStatusProcesses } = require('./utils/git');
+const {
+  appendRollbackReport,
+  rollbackAgenticTaskChanges,
+} = require('./execution/agentic-orphan-rollback');
 
 // Stored handler ref for shutdown listener deduplication across init() calls
 let _shutdownHandler = null;
@@ -1263,9 +1267,11 @@ function init() {
         || taskHasRunningWorkflow(task);
     };
     const markStartupOrphanFailed = (task, updates) => {
+      const rollbackResult = rollbackAgenticTaskChanges(task, { logger });
+      const errorOutput = appendRollbackReport(updates?.error_output || '', rollbackResult);
       db.updateTaskStatus(task.id, 'failed', {
         ...updates,
-        error_output: `${updates?.error_output || ''}\n[startup-orphan-cleanup] marked failed by restart`,
+        error_output: `${errorOutput}\n[startup-orphan-cleanup] marked failed by restart`,
         cancel_reason: null,
       });
       if (task.ollama_host_id) {
@@ -1294,8 +1300,14 @@ function init() {
         return;
       }
 
+      const rollbackResult = rollbackAgenticTaskChanges(task, { logger });
+      const errorOutput = appendRollbackReport(
+        `${reason} — requeued for re-execution (attempt ${retryCount + 1}/${maxRetries})`,
+        rollbackResult
+      );
+
       db.updateTaskStatus(task.id, 'queued', {
-        error_output: `${reason} — requeued for re-execution (attempt ${retryCount + 1}/${maxRetries})`,
+        error_output: errorOutput,
         retry_count: retryCount + 1,
         mcp_instance_id: null,
         provider: null,
@@ -1349,8 +1361,13 @@ function init() {
           const maxRetries = task.max_retries != null ? task.max_retries : 2;
           if (retryCount < maxRetries) {
             debugLog(`Orphaned task ${task.id} from dead instance ${task.mcp_instance_id} — requeuing (attempt ${retryCount + 1}/${maxRetries})`);
+            const rollbackResult = rollbackAgenticTaskChanges(task, { logger });
+            const errorOutput = appendRollbackReport(
+              `Task requeued — owning instance ${task.mcp_instance_id} is no longer alive (auto-retry ${retryCount + 1}/${maxRetries})`,
+              rollbackResult
+            );
             db.updateTaskStatus(task.id, 'queued', {
-              error_output: `Task requeued — owning instance ${task.mcp_instance_id} is no longer alive (auto-retry ${retryCount + 1}/${maxRetries})`,
+              error_output: errorOutput,
               retry_count: retryCount + 1,
               mcp_instance_id: null, // Clear owner so any instance can pick it up
               provider: null, // Clear provider so routing can re-evaluate

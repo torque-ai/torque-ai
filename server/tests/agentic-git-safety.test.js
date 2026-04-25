@@ -16,7 +16,10 @@ let gitRepos;
 let loggerMock;
 let captureSnapshot;
 let checkAndRevert;
+let hydrateSnapshot;
+let revertChangesSinceSnapshot;
 let revertScopedChanges;
+let serializeSnapshot;
 
 function installMock(modulePath, exportsValue) {
   require.cache[modulePath] = {
@@ -205,7 +208,14 @@ beforeEach(() => {
   installMock(LOGGER_PATH, loggerMock);
   delete require.cache[SUBJECT_PATH];
 
-  ({ captureSnapshot, checkAndRevert, revertScopedChanges } = require('../providers/agentic-git-safety'));
+  ({
+    captureSnapshot,
+    checkAndRevert,
+    hydrateSnapshot,
+    revertChangesSinceSnapshot,
+    revertScopedChanges,
+    serializeSnapshot,
+  } = require('../providers/agentic-git-safety'));
   setupRepo();
 });
 
@@ -425,5 +435,34 @@ describe('revertScopedChanges', () => {
     expect(result.reverted).toContain('failed.tmp');
     expect(fileExists('failed.tmp')).toBe(false);
     expect(fileExists('keep.tmp')).toBe(true);
+  });
+});
+
+describe('restart-safe snapshot rollback', () => {
+  it('serializes and hydrates snapshots for cross-restart rollback', () => {
+    writeFile('preexisting.tmp', 'already here');
+    const snap = captureSnapshot(repoDir);
+    const serialized = serializeSnapshot(snap, repoDir);
+    const hydrated = hydrateSnapshot(serialized);
+
+    expect(serialized.working_directory).toBe(repoDir);
+    expect(serialized.untrackedFiles).toContain('preexisting.tmp');
+    expect(hydrated.isGitRepo).toBe(true);
+    expect(hydrated.untrackedFiles.has('preexisting.tmp')).toBe(true);
+  });
+
+  it('reverts all post-snapshot changes while preserving pre-existing dirt', () => {
+    writeFile('preexisting.tmp', 'already here');
+    const snap = hydrateSnapshot(serializeSnapshot(captureSnapshot(repoDir), repoDir));
+
+    writeFile('main.cs', 'interrupted edit');
+    writeFile('new-output.txt', 'interrupted new file');
+
+    const result = revertChangesSinceSnapshot(repoDir, snap);
+
+    expect(result.reverted).toEqual(expect.arrayContaining(['main.cs', 'new-output.txt']));
+    expect(readFile('main.cs')).toBe('original');
+    expect(fileExists('new-output.txt')).toBe(false);
+    expect(fileExists('preexisting.tmp')).toBe(true);
   });
 });

@@ -28,7 +28,12 @@ const _executeCliModule = require('./execute-cli');
 const { runAgenticLoop } = require('./ollama-agentic');
 const { isAgenticCapable, needsPromptInjection, init: initCapability } = require('./agentic-capability');
 const { createToolExecutor, selectToolsForTask } = require('./ollama-tools');
-const { captureSnapshot, checkAndRevert, revertScopedChanges } = require('./agentic-git-safety');
+const {
+  captureSnapshot,
+  checkAndRevert,
+  revertScopedChanges,
+  serializeSnapshot,
+} = require('./agentic-git-safety');
 const { resolveOllamaModel } = require('./ollama-shared');
 
 const { acquireHostLock } = require('./host-mutex');
@@ -293,6 +298,25 @@ function normalizeTaskMetadata(task) {
   return (task.metadata && typeof task.metadata === 'object' && !Array.isArray(task.metadata))
     ? task.metadata
     : {};
+}
+
+function persistAgenticGitSnapshot(task, workingDir, snapshot) {
+  const serialized = serializeSnapshot(snapshot, workingDir);
+  if (!serialized?.isGitRepo || !task?.id) return;
+
+  const metadata = {
+    ...normalizeTaskMetadata(_agenticDeps?.db?.getTask?.(task.id) || task),
+    agentic_git_snapshot: serialized,
+  };
+
+  try {
+    if (typeof _agenticDeps?.db?.updateTask === 'function') {
+      _agenticDeps.db.updateTask(task.id, { metadata });
+      task.metadata = metadata;
+    }
+  } catch (err) {
+    logger.warn(`[Agentic] Failed to persist git snapshot for task ${task.id}: ${err.message}`);
+  }
 }
 
 function isTruthyMetadataFlag(value) {
@@ -2097,6 +2121,7 @@ async function runAgenticPipeline({
   let snapshot = null;
   try {
     snapshot = captureSnapshot(workingDir);
+    persistAgenticGitSnapshot(task, workingDir, snapshot);
   } catch (e) {
     logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
   }
@@ -2428,6 +2453,7 @@ async function executeOllamaTaskWithAgentic(task) {
     let snapshot = null;
     try {
       snapshot = captureSnapshot(workingDir);
+      persistAgenticGitSnapshot(task, workingDir, snapshot);
     } catch (e) {
       logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
     }
@@ -2833,6 +2859,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     // bug where chain-routed tasks never reverted on failure).
     try {
       snapshot = captureSnapshot(workingDir);
+      persistAgenticGitSnapshot(task, workingDir, snapshot);
     } catch (e) {
       logger.info(`[Agentic] Git snapshot failed (non-git repo?): ${e.message}`);
     }
@@ -3294,7 +3321,10 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
 
   // Capture git snapshot ONCE before any attempts
   let snapshot = null;
-  try { snapshot = captureSnapshot(workingDir); } catch { /* non-git dir */ }
+  try {
+    snapshot = captureSnapshot(workingDir);
+    persistAgenticGitSnapshot(task, workingDir, snapshot);
+  } catch { /* non-git dir */ }
 
   let lastError = null;
 
