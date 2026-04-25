@@ -7,7 +7,7 @@
 
 const BaseProvider = require('./base');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
-const { buildErrorMessage } = require('./shared');
+const { buildErrorMessage, buildOpenAIChatBody, isJsonModeRequested } = require('./shared');
 const logger = require('../logger');
 
 // Models known to be available on Cerebras Cloud (mirrored in listModels).
@@ -48,54 +48,17 @@ class CerebrasProvider extends BaseProvider {
    * everything else goes to the general default.
    */
   _selectDefaultModel(options = {}) {
-    if (this._isJsonModeRequested(options)) return this.structuredModel;
+    if (isJsonModeRequested(options)) return this.structuredModel;
     return this.defaultModel;
   }
 
-  _isJsonModeRequested(options = {}) {
-    const rf = options.responseFormat;
-    if (rf === 'json_object' || rf === 'json') return true;
-    if (rf && typeof rf === 'object' && rf.type === 'json_object') return true;
-    return false;
-  }
-
-  /**
-   * Build the request body shared by submit/submitStream. Centralizes
-   * JSON-mode handling, system-prompt separation, and temperature
-   * defaults so both code paths stay in lockstep.
-   */
+  /** Provider-local wrapper around the shared OpenAI body builder. */
   _buildRequestBody(task, options, { stream = false, model } = {}) {
-    const messages = [];
-    if (typeof options.systemPrompt === 'string' && options.systemPrompt.trim() !== '') {
-      messages.push({ role: 'system', content: options.systemPrompt });
-    }
-    messages.push({ role: 'user', content: this._buildPrompt(task, options) });
-
-    const body = {
+    return buildOpenAIChatBody(task, options, {
+      stream,
       model,
-      messages,
-      max_tokens: options.maxTokens || 4096,
-    };
-    if (stream) body.stream = true;
-
-    const jsonMode = this._isJsonModeRequested(options);
-    if (jsonMode) {
-      body.response_format = { type: 'json_object' };
-    }
-
-    if (options.tuning?.temperature !== undefined) {
-      body.temperature = options.tuning.temperature;
-    } else if (jsonMode) {
-      // JSON-mode default: deterministic. Markdown wrap-around and key
-      // ordering drift come from temperature; for structured verdicts
-      // they're noise, never signal.
-      body.temperature = 0;
-    }
-    if (options.tuning?.top_p !== undefined) {
-      body.top_p = options.tuning.top_p;
-    }
-
-    return body;
+      buildPrompt: (t, o) => this._buildPrompt(t, o),
+    });
   }
 
   async submit(task, model, options = {}) {

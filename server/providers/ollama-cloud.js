@@ -7,6 +7,7 @@
 
 const BaseProvider = require('./base');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
+const { isJsonModeRequested } = require('./shared');
 
 class OllamaCloudProvider extends BaseProvider {
   constructor(config = {}) {
@@ -39,20 +40,37 @@ class OllamaCloudProvider extends BaseProvider {
         if (options.signal.aborted) controller.abort();
       }
 
+      const messages = [];
+      if (typeof options.systemPrompt === 'string' && options.systemPrompt.trim() !== '') {
+        messages.push({ role: 'system', content: options.systemPrompt });
+      }
+      messages.push({ role: 'user', content: this._buildPrompt(task, options) });
+      const jsonMode = isJsonModeRequested(options);
+
       const body = {
         model: selectedModel,
-        messages: [{
-          role: 'user',
-          content: this._buildPrompt(task, options),
-        }],
+        messages,
         stream: false,
       };
 
+      // Ollama uses top-level `format: "json"` for strict JSON output —
+      // not the OpenAI `response_format` object.
+      if (jsonMode) body.format = 'json';
+
+      const ollamaOpts = {};
       if (options.tuning?.temperature !== undefined) {
-        body.options = { temperature: options.tuning.temperature };
+        ollamaOpts.temperature = options.tuning.temperature;
+      } else if (jsonMode) {
+        ollamaOpts.temperature = 0;
       }
       if (options.maxTokens) {
-        body.options = { ...(body.options || {}), num_predict: options.maxTokens };
+        ollamaOpts.num_predict = options.maxTokens;
+      }
+      if (options.tuning?.top_p !== undefined) {
+        ollamaOpts.top_p = options.tuning.top_p;
+      }
+      if (Object.keys(ollamaOpts).length > 0) {
+        body.options = ollamaOpts;
       }
 
       const response = await fetch(`${this.baseUrl}/api/chat`, {
@@ -124,17 +142,35 @@ class OllamaCloudProvider extends BaseProvider {
         if (options.signal.aborted) controller.abort();
       }
 
+      const messages = [];
+      if (typeof options.systemPrompt === 'string' && options.systemPrompt.trim() !== '') {
+        messages.push({ role: 'system', content: options.systemPrompt });
+      }
+      messages.push({ role: 'user', content: this._buildPrompt(task, options) });
+      const jsonMode = isJsonModeRequested(options);
+
       const body = {
         model: selectedModel,
-        messages: [{ role: 'user', content: this._buildPrompt(task, options) }],
+        messages,
         stream: true,
       };
 
+      if (jsonMode) body.format = 'json';
+
+      const ollamaOpts = {};
       if (options.tuning?.temperature !== undefined) {
-        body.options = { temperature: options.tuning.temperature };
+        ollamaOpts.temperature = options.tuning.temperature;
+      } else if (jsonMode) {
+        ollamaOpts.temperature = 0;
       }
       if (options.maxTokens) {
-        body.options = { ...(body.options || {}), num_predict: options.maxTokens };
+        ollamaOpts.num_predict = options.maxTokens;
+      }
+      if (options.tuning?.top_p !== undefined) {
+        ollamaOpts.top_p = options.tuning.top_p;
+      }
+      if (Object.keys(ollamaOpts).length > 0) {
+        body.options = ollamaOpts;
       }
 
       const response = await fetch(`${this.baseUrl}/api/chat`, {

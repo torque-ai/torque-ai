@@ -124,4 +124,29 @@ module.exports = [
     match: { stage: 'execute', action: 'execute_exception' },
     suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
   },
+  {
+    // EXECUTE finished but the worktree was clean — Codex produced no
+    // diff. Common shapes: prompt-output mismatch (plan wasn't actionable
+    // as written), Codex hit a sandbox/quota issue mid-task and bailed
+    // silently, or the model genuinely thinks the change is already in
+    // place. The 2-strikes safety net (`maybeShortCircuitZeroDiffExecute`,
+    // loop-controller.js:6251) eventually rejects the work item, but it
+    // requires consecutive zero-diffs in the SAME batch — projects often
+    // pause at the gate after the first miss and sit there until human
+    // approval. Routing through retry_with_fresh_session gives Codex a
+    // clean context (no stale session state) before falling through to
+    // reject_and_advance, which lets the short-circuit's intent fire
+    // sooner via the same code path it would have used anyway.
+    //
+    // Observed live on StateTrace 2026-04-25: paused at EXECUTE for
+    // ~10min before auto-recovery picked it up as `unknown` and chose
+    // plain `retry`. Naming the rule keeps the decision log honest and
+    // the strategy chain stronger.
+    name: 'execute_auto_commit_skipped_clean',
+    category: 'sandbox_interrupt',
+    priority: 75,
+    confidence: 0.7,
+    match: { stage: 'execute', action: 'auto_commit_skipped_clean' },
+    suggested_strategies: ['retry_with_fresh_session', 'reject_and_advance', 'escalate'],
+  },
 ];

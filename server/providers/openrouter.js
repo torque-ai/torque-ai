@@ -14,6 +14,7 @@
 
 const BaseProvider = require('./base');
 const { MAX_STREAMING_OUTPUT } = require('../constants');
+const { isJsonModeRequested } = require('./shared');
 const logger = require('../logger').child({ component: 'openrouter' });
 
 /**
@@ -278,13 +279,26 @@ class OpenRouterProvider extends BaseProvider {
     }
 
     try {
+      const messages = [];
+      if (typeof options.systemPrompt === 'string' && options.systemPrompt.trim() !== '') {
+        messages.push({ role: 'system', content: options.systemPrompt });
+      }
+      messages.push({ role: 'user', content: prompt });
+      const jsonMode = isJsonModeRequested(options);
+
       const body = {
         model,
-        messages: [{ role: 'user', content: prompt }],
+        messages,
         max_tokens: options.maxTokens || 4096,
       };
+      if (jsonMode) body.response_format = { type: 'json_object' };
       if (options.tuning?.temperature !== undefined) {
         body.temperature = options.tuning.temperature;
+      } else if (jsonMode) {
+        body.temperature = 0;
+      }
+      if (options.tuning?.top_p !== undefined) {
+        body.top_p = options.tuning.top_p;
       }
 
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
@@ -361,14 +375,27 @@ class OpenRouterProvider extends BaseProvider {
     }
 
     try {
+      const messages = [];
+      if (typeof options.systemPrompt === 'string' && options.systemPrompt.trim() !== '') {
+        messages.push({ role: 'system', content: options.systemPrompt });
+      }
+      messages.push({ role: 'user', content: prompt });
+      const jsonMode = isJsonModeRequested(options);
+
       const body = {
         model,
-        messages: [{ role: 'user', content: prompt }],
+        messages,
         max_tokens: options.maxTokens || 4096,
         stream: true,
       };
+      if (jsonMode) body.response_format = { type: 'json_object' };
       if (options.tuning?.temperature !== undefined) {
         body.temperature = options.tuning.temperature;
+      } else if (jsonMode) {
+        body.temperature = 0;
+      }
+      if (options.tuning?.top_p !== undefined) {
+        body.top_p = options.tuning.top_p;
       }
 
       const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {

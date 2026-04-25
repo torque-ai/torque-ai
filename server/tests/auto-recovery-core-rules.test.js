@@ -100,6 +100,19 @@ describe('auto-recovery-core day-one rules', () => {
     expect(r.suggested_strategies).toContain('reject_and_advance');
   });
 
+  it('classifies execute auto_commit_skipped_clean as sandbox_interrupt and prefers a fresh-session retry', () => {
+    const r = classifier.classify({
+      stage: 'execute',
+      action: 'auto_commit_skipped_clean',
+      reasoning: 'Approved plan task completed, but the factory worktree was already clean.',
+      outcome: { batch_id: 'factory-test-1', work_item_id: 42 },
+    });
+    expect(r.matched_rule).toBe('execute_auto_commit_skipped_clean');
+    expect(r.category).toBe('sandbox_interrupt');
+    expect(r.suggested_strategies[0]).toBe('retry_with_fresh_session');
+    expect(r.suggested_strategies).toContain('reject_and_advance');
+  });
+
   it('classifies reviewer timeout pauses as provider overload and prefers a fresh-session retry', () => {
     const r = classifier.classify({
       stage: 'verify',
