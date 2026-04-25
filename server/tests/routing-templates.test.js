@@ -116,6 +116,33 @@ describe('seedPresets', () => {
     expect(largeCodeChain[0].provider).toBe('ollama-cloud');
   });
 
+  it('Ollama Cloud Primary keeps non-ollama providers out of the fallback chain until codex', () => {
+    const tmpl = mod.getTemplateByName('Ollama Cloud Primary');
+    expect(tmpl).not.toBeNull();
+
+    const chains = [];
+    for (const [category, value] of Object.entries(tmpl.rules)) {
+      chains.push({ name: `rules.${category}`, value });
+    }
+    for (const [category, overrides] of Object.entries(tmpl.complexity_overrides || {})) {
+      for (const [complexity, value] of Object.entries(overrides || {})) {
+        chains.push({ name: `complexity_overrides.${category}.${complexity}`, value });
+      }
+    }
+
+    for (const chain of chains) {
+      const entries = Array.isArray(chain.value) ? chain.value : [{ provider: chain.value }];
+      const providers = entries.map((entry) => entry.provider);
+      expect(providers[0], chain.name).toBe('ollama-cloud');
+      expect(providers.at(-1), chain.name).toBe('codex');
+      expect(providers.slice(0, -1), chain.name).toEqual(
+        expect.arrayContaining(['ollama-cloud'])
+      );
+      expect(providers.slice(0, -1).every((provider) => provider === 'ollama-cloud'), chain.name)
+        .toBe(true);
+    }
+  });
+
   it('preset IDs follow preset-<filename> convention', () => {
     const tmpl = mod.getTemplate('preset-system-default');
     expect(tmpl).not.toBeNull();

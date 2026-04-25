@@ -1,15 +1,15 @@
 {
   "name": "Ollama Cloud Primary",
-  "description": "Ollama Cloud first for code and reasoning, free-cloud backups, codex only as a late escape hatch.",
+  "description": "Ollama Cloud first for all categories, with codex only as the late escape hatch.",
   "rules": {
     "security": [
       {"provider": "ollama-cloud", "model": "mistral-large-3:675b"},
-      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
       {"provider": "codex"}
     ],
     "xaml_wpf": [
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
-      {"provider": "google-ai", "model": "gemini-2.5-flash"},
+      {"provider": "ollama-cloud", "model": "mistral-large-3:675b"},
       {"provider": "codex"}
     ],
     "architectural": [
@@ -29,27 +29,27 @@
     ],
     "documentation": [
       {"provider": "ollama-cloud", "model": "mistral-large-3:675b"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"},
-      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
+      {"provider": "codex"}
     ],
     "simple_generation": [
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
-      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "google-ai", "model": "gemini-2.5-flash"}
+      {"provider": "ollama-cloud", "model": "mistral-large-3:675b"},
+      {"provider": "codex"}
     ],
     "plan_generation": [
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
-      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
-      {"provider": "groq", "model": "openai/gpt-oss-120b"}
+      {"provider": "ollama-cloud", "model": "mistral-large-3:675b"},
+      {"provider": "codex"}
     ],
     "targeted_file_edit": [
       {"provider": "ollama-cloud", "model": "qwen3-coder:480b"},
-      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
       {"provider": "codex"}
     ],
     "default": [
       {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
-      {"provider": "cerebras", "model": "qwen-3-235b-a22b-instruct-2507"},
+      {"provider": "ollama-cloud", "model": "mistral-large-3:675b"},
       {"provider": "codex"}
     ]
   },
@@ -57,24 +57,28 @@
     "reasoning": {
       "complex": [
         {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
+        {"provider": "ollama-cloud", "model": "mistral-large-3:675b"},
         {"provider": "codex"}
       ]
     },
     "large_code_gen": {
       "complex": [
         {"provider": "ollama-cloud", "model": "qwen3-coder:480b"},
+        {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
         {"provider": "codex"}
       ]
     },
     "targeted_file_edit": {
       "complex": [
         {"provider": "ollama-cloud", "model": "qwen3-coder:480b"},
+        {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
         {"provider": "codex"}
       ]
     },
     "default": {
       "complex": [
         {"provider": "ollama-cloud", "model": "kimi-k2:1t"},
+        {"provider": "ollama-cloud", "model": "mistral-large-3:675b"},
         {"provider": "codex"}
       ]
     }
