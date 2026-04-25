@@ -50,12 +50,17 @@ describe('pre-push-hook staging-branch invariants', () => {
     expect(src).toMatch(/git\s+push\s+[^\n]*origin\s+"?\$(?:\{)?local_head_sha(?:\})?"?:refs\/heads\/\$(?:\{)?staging_branch/);
   });
 
-  it('invokes torque-remote with --branch $staging_branch for both test suites', () => {
+  it('invokes torque-remote with --branch $staging_branch and exercises both suites', () => {
     const src = readHook();
-    const matches = src.match(/torque-remote\s+--branch\s+\$(?:\{)?staging_branch/g) || [];
-    // Two suites: dashboard + server. The hook must gate both on the
-    // staged ref, not the local HEAD or origin/main.
-    expect(matches.length).toBeGreaterThanOrEqual(2);
+    // Both suites (dashboard + server) must run against the staged ref,
+    // not the local HEAD or origin/main. The current architecture runs
+    // both phases inside a single torque-remote SSH session (one sync,
+    // parallel jobs), so the --branch invocation appears once but the
+    // remote script must reference both `cd dashboard` and `cd server`.
+    const branchMatches = src.match(/torque-remote\s+--branch\s+\$(?:\{)?staging_branch/g) || [];
+    expect(branchMatches.length).toBeGreaterThanOrEqual(1);
+    expect(src).toMatch(/cd\s+dashboard\s+&&\s+npx\s+vitest\s+run/);
+    expect(src).toMatch(/cd\s+server\s+&&\s+npx\s+vitest\s+run/);
   });
 
   it('installs an EXIT trap that deletes the staging ref', () => {
