@@ -3048,6 +3048,15 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     if (handoffTarget) {
       const currentTask = db.getTask(taskId) || task;
       const reason = `Agentic no-op from ${(result?.provider || provider)}/${result?.model || model || 'default'}: ${(result?.toolLog || []).length} tool calls, ${(result?.changedFiles || []).length} files changed${proposalApplySkipReason ? `; proposal apply skipped: ${proposalApplySkipReason}` : ''}`;
+      recordOpenRouterModelTaskOutcome({
+        task: currentTask,
+        provider: result?.provider || provider,
+        model: result?.model || model || null,
+        success: false,
+        result,
+        stopReason: result?.stopReason || 'agentic_noop_handoff',
+        error: reason,
+      });
       requeueAgenticTaskForHandoff(db, taskId, currentTask, handoffTarget.entry, handoffTarget.remainingChain, reason);
       logger.info(`[Agentic] API task ${taskId} requeued to ${handoffTarget.entry.provider}${handoffTarget.entry.model ? `/${handoffTarget.entry.model}` : ''} after no-op result from ${result?.provider || provider}`);
       return;
@@ -3091,6 +3100,15 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       appendAgenticOutputSection(result, 'Framework Session Log', `Failed to append ${sessionLogResult.relativePath}: ${sessionLogResult.error}`);
     }
     if (completionFailure || (sessionLogTarget && sessionLogResult?.error)) {
+      recordOpenRouterModelTaskOutcome({
+        task,
+        provider: result?.provider || provider,
+        model: result?.model || model || null,
+        success: false,
+        result,
+        stopReason: result?.stopReason || 'completion_review_failed',
+        error: failureMessage,
+      });
       safeUpdateTaskStatus(taskId, 'failed', {
         output: result.output || '',
         error_output: failureMessage,
@@ -3119,6 +3137,13 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     }
 
     // Store result + metadata in a single status update (avoid double-complete race)
+    recordOpenRouterModelTaskOutcome({
+      task,
+      provider: result?.provider || provider,
+      model: result?.model || model || null,
+      success: true,
+      result,
+    });
     safeUpdateTaskStatus(taskId, 'completed', {
       output: result.output || '',
       exit_code: 0,
@@ -3242,12 +3267,32 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     if (handoffTarget) {
       const reason = handledError.agenticHandoffReason
         || `Agentic provider ${(handledError.agenticFailedProvider || provider)}/${handledError.agenticFailedModel || model || 'default'} failed: ${handledError.message}`;
+      if (!handledError.agenticFailedProvider) {
+        recordOpenRouterModelTaskOutcome({
+          task: currentTask,
+          provider,
+          model,
+          success: false,
+          error: handledError,
+          stopReason: handledError.name || 'provider_error',
+        });
+      }
       requeueAgenticTaskForHandoff(db, taskId, currentTask, handoffTarget.entry, handoffTarget.remainingChain, reason);
       logger.info(`[Agentic] API task ${taskId} requeued to ${handoffTarget.entry.provider}${handoffTarget.entry.model ? `/${handoffTarget.entry.model}` : ''} after provider failure: ${handledError.message}`);
       return;
     }
 
     logger.info(`[Agentic] API task ${taskId} failed: ${handledError.message}`);
+    if (!handledError.agenticFailedProvider) {
+      recordOpenRouterModelTaskOutcome({
+        task: currentTask,
+        provider,
+        model,
+        success: false,
+        error: handledError,
+        stopReason: handledError.name || 'provider_error',
+      });
+    }
     safeUpdateTaskStatus(taskId, 'failed', {
       error_output: handledError.message,
       exit_code: 1,
@@ -3289,6 +3334,53 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
  */
 function recordProviderOutcome(provider, success) {
   if (_recordProviderOutcome) _recordProviderOutcome(provider, success);
+}
+
+function getTaskDurationMs(task) {
+  const startedAt = task?.started_at ? Date.parse(task.started_at) : NaN;
+  if (!Number.isFinite(startedAt)) return null;
+  return Math.max(0, Date.now() - startedAt);
+}
+
+function recordOpenRouterModelTaskOutcome({
+  task,
+  provider,
+  model,
+  success,
+  result = null,
+  error = null,
+  stopReason = null,
+}) {
+  if (normalizeProviderName(provider) !== 'openrouter') return;
+
+  const modelName = typeof model === 'string' && model.trim()
+    ? model.trim()
+    : (typeof task?.model === 'string' && task.model.trim() ? task.model.trim() : null);
+  if (!modelName) return;
+
+  try {
+    const providerModelScores = require('../db/provider-model-scores');
+    const db = _agenticDeps?.db;
+    if (db && typeof providerModelScores.init === 'function') {
+      providerModelScores.init(db);
+    }
+
+    const metadata = normalizeTaskMetadata(task);
+    const toolLog = Array.isArray(result?.toolLog) ? result.toolLog : [];
+    providerModelScores.recordModelTaskOutcome({
+      provider: 'openrouter',
+      modelName,
+      success,
+      stopReason: stopReason || result?.stopReason || null,
+      toolLog,
+      toolCount: toolLog.length,
+      readOnly: taskExplicitlyReadOnly(task?.task_description || '', metadata),
+      durationMs: getTaskDurationMs(task),
+      error: error ? String(error.message || error).slice(0, 2000) : null,
+    });
+  } catch (err) {
+    logger.info(`[OpenRouterScore] Failed to record model outcome for ${modelName}: ${err.message}`);
+  }
 }
 
 /**
@@ -3387,6 +3479,14 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
 
       // Record failure
       try { recordProviderOutcome(entry.provider, false); } catch { /* non-critical */ }
+      recordOpenRouterModelTaskOutcome({
+        task,
+        provider: entry.provider,
+        model: resolvedModel,
+        success: false,
+        error: handledError,
+        stopReason: handledError.name || 'provider_error',
+      });
 
       const nextEntry = chain[i + 1];
       if (nextEntry && !isAgenticWorkerCompatibleProvider(nextEntry.provider)) {
