@@ -463,6 +463,39 @@ describe('search_files (pure Node.js)', () => {
     expect(res.result).not.toContain('readme.md');
   });
 
+  it('accepts OpenRouter alias arguments for search text, directory, and path-aware glob filters', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'src/cli/parser.ts', 'export const parser = true;\n');
+    writeFile(dir, 'src/cli/parser.js', 'export const parser = false;\n');
+    const { execute } = createToolExecutor(dir);
+
+    const res = execute('search_files', {
+      search: 'parser',
+      directory: '.',
+      glob: 'src/**/*.ts',
+    });
+
+    expect(res.error).not.toBe(true);
+    expect(res.result).toContain('parser.ts:1:');
+    expect(res.result).not.toContain('src/cli/parser.js');
+  });
+
+  it('accepts globs-only directory discovery calls emitted by OpenRouter models', () => {
+    const dir = makeTempDir();
+    writeFile(dir, 'src/engine/event-queue.ts', 'export {}\n');
+    writeFile(dir, 'src/cli/index.ts', 'export {}\n');
+    const { execute } = createToolExecutor(dir);
+
+    const res = execute('search_files', {
+      directory: '.',
+      globs: JSON.stringify(['src/engine', 'src/cli']),
+    });
+
+    expect(res.error).not.toBe(true);
+    expect(res.result).toContain('src/engine/event-queue.ts');
+    expect(res.result).toContain('src/cli/index.ts');
+  });
+
   it('handles regex patterns', () => {
     const dir = makeTempDir();
     writeFile(dir, 'data.txt', 'error: code 404\ninfo: ok\nwarning: code 500\n');
@@ -702,6 +735,32 @@ describe('parseToolCalls', () => {
     };
     const calls = parseToolCalls(message);
     expect(calls[0].arguments).toEqual({ path: 'out.txt', content: 'hi' });
+  });
+
+  it('normalizes structured search_files aliases from OpenRouter models', () => {
+    const message = {
+      tool_calls: [
+        {
+          function: {
+            name: 'search_files',
+            arguments: JSON.stringify({
+              search: 'parser',
+              directory: 'src',
+              globs: ['**/*.ts'],
+            }),
+          },
+        },
+      ],
+    };
+
+    const calls = parseToolCalls(message);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].arguments).toEqual({
+      pattern: 'parser',
+      path: 'src',
+      glob: '**/*.ts',
+    });
   });
 
   it('parses <tool_call> XML tags', () => {

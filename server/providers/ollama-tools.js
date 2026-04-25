@@ -386,10 +386,37 @@ function matchGlob(filename, globPattern) {
   return filename === globPattern;
 }
 
+function normalizeSlashPath(value) {
+  return String(value || '').replace(/\\/g, '/').replace(/^\.\/+/, '');
+}
+
+function matchSearchGlob(filename, fullPath, baseDir, globPattern) {
+  if (!globPattern || globPattern === '*' || globPattern === '*.*') return true;
+  const normalizedGlob = normalizeSlashPath(globPattern);
+  if (normalizedGlob.includes('/') || normalizedGlob.includes('**')) {
+    try {
+      const relativePath = normalizeSlashPath(path.relative(baseDir, fullPath));
+      return globToRegex(normalizedGlob).test(relativePath);
+    } catch {
+      return false;
+    }
+  }
+  return matchGlob(filename, globPattern);
+}
+
 function isLikelyFileGlob(pattern) {
   return typeof pattern === 'string'
     && /[*?]/.test(pattern)
     && /[\\/]|^\*\.[A-Za-z0-9]+$|test|spec|package|config|readme/i.test(pattern);
+}
+
+function normalizePathGlob(pattern) {
+  const normalized = normalizeSlashPath(pattern).replace(/\/+$/, '');
+  if (!normalized) return normalized;
+  if (/[*?]/.test(normalized) || /\.[A-Za-z0-9]+$/.test(path.posix.basename(normalized))) {
+    return normalized;
+  }
+  return `${normalized}/**/*`;
 }
 
 function globToRegex(pattern) {
@@ -463,7 +490,7 @@ function findFilesByGlob(dir, globPattern, results, maxMatches, baseDir = dir, v
  * @param {string[]} results - Accumulator for matches (mutated in place)
  * @param {number} maxMatches - Cap on total matches
  */
-function searchRecursive(dir, regex, globFilter, results, maxMatches, visited = new Set()) {
+function searchRecursive(dir, regex, globFilter, results, maxMatches, visited = new Set(), baseDir = dir) {
   if (results.length >= maxMatches) return;
 
   // Symlink cycle detection: resolve real path and skip if already visited
@@ -486,9 +513,9 @@ function searchRecursive(dir, regex, globFilter, results, maxMatches, visited = 
     if (entry.isDirectory()) {
       // Skip hidden directories and common noise dirs
       if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'bin' || entry.name === 'obj' || entry.name === 'dist' || entry.name === 'build') continue;
-      searchRecursive(fullPath, regex, globFilter, results, maxMatches, visited);
+      searchRecursive(fullPath, regex, globFilter, results, maxMatches, visited, baseDir);
     } else if (entry.isFile()) {
-      if (!matchGlob(entry.name, globFilter)) continue;
+      if (!matchSearchGlob(entry.name, fullPath, baseDir, globFilter)) continue;
 
       let content;
       try {
@@ -508,6 +535,71 @@ function searchRecursive(dir, regex, globFilter, results, maxMatches, visited = 
       }
     }
   }
+}
+
+function normalizeGlobList(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry || '').trim()).filter(Boolean);
+  }
+  if (typeof value !== 'string' || !value.trim()) return [];
+  const trimmed = value.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((entry) => String(entry || '').trim()).filter(Boolean);
+      }
+    } catch {
+      // Fall through to comma splitting.
+    }
+  }
+  return trimmed.split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
+function normalizeSearchFilesArgs(rawArgs) {
+  const args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
+    ? { ...rawArgs }
+    : {};
+
+  if (typeof args.pattern !== 'string') {
+    const aliasPattern = args.query ?? args.search ?? args.text;
+    if (typeof aliasPattern === 'string' && aliasPattern.trim()) {
+      args.pattern = aliasPattern;
+      delete args.query;
+      delete args.search;
+      delete args.text;
+    }
+  }
+
+  if (typeof args.path !== 'string') {
+    const aliasPath = args.directory ?? args.dir ?? args.folder ?? args.root;
+    if (typeof aliasPath === 'string' && aliasPath.trim()) {
+      args.path = aliasPath;
+      delete args.directory;
+      delete args.dir;
+      delete args.folder;
+      delete args.root;
+    }
+  }
+
+  if (typeof args.glob !== 'string') {
+    const globs = normalizeGlobList(args.globs);
+    if (globs.length > 0) {
+      args.glob = globs[0];
+      if (args.pattern) {
+        delete args.globs;
+      }
+    }
+  }
+
+  return args;
+}
+
+function normalizeToolArguments(name, rawArgs) {
+  const args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
+    ? { ...rawArgs }
+    : {};
+  return name === 'search_files' ? normalizeSearchFilesArgs(args) : args;
 }
 
 /**
@@ -1026,6 +1118,7 @@ function createToolExecutor(workingDir, options = {}) {
         }
 
         case 'search_files': {
+          args = normalizeSearchFilesArgs(args);
           const searchPath = args.path || '.';
           const { resolvedPath, allowed } = resolveSafePath(searchPath, workingDir);
           // Block relative paths that escape the working directory via ../
@@ -1046,9 +1139,28 @@ function createToolExecutor(workingDir, options = {}) {
             ? Math.max(1, Math.min(100, Math.trunc(Number(args.max_matches))))
             : 50;
 
+          const requestedGlobs = normalizeGlobList(args.globs);
+          if (!args.pattern && requestedGlobs.length > 0) {
+            const pathMatches = [];
+            for (const globPattern of requestedGlobs) {
+              findFilesByGlob(resolvedPath, normalizePathGlob(globPattern), pathMatches, maxMatches);
+              if (pathMatches.length >= maxMatches) break;
+            }
+            if (pathMatches.length > 0) {
+              return {
+                result: `File path matches for globs:\n${pathMatches.join('\n')}`,
+              };
+            }
+            return { result: 'No file path matches found.' };
+          }
+
+          if (!args.pattern) {
+            return { result: 'Error: search_files requires a pattern, query, search, text, or globs argument.', error: true };
+          }
+
           if (isLikelyFileGlob(args.pattern)) {
             const pathMatches = [];
-            findFilesByGlob(resolvedPath, args.pattern, pathMatches, maxMatches);
+            findFilesByGlob(resolvedPath, normalizePathGlob(args.pattern), pathMatches, maxMatches);
             if (pathMatches.length > 0) {
               return {
                 result: `File path matches for glob-like pattern "${args.pattern}":\n${pathMatches.join('\n')}`,
@@ -1272,13 +1384,7 @@ function normalizeJsonToolCall(parsed) {
   if (!PARSEABLE_TOOL_NAMES.has(name)) return null;
 
   const rawArgs = parsed.arguments ?? parsed.parameters ?? parsed.args ?? parsed.params ?? {};
-  const args = rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)
-    ? rawArgs
-    : {};
-  if (name === 'search_files' && typeof args.pattern !== 'string' && typeof args.query === 'string') {
-    args.pattern = args.query;
-    delete args.query;
-  }
+  const args = normalizeToolArguments(name, rawArgs);
   return { id: parsed.id, name, arguments: args };
 }
 
@@ -1305,9 +1411,12 @@ function parseToolCalls(message) {
     return message.tool_calls.map(tc => ({
       id: tc.id || undefined, // Preserve tool_call_id for OpenAI-compatible APIs
       name: tc.function.name,
-      arguments: typeof tc.function.arguments === 'string'
-        ? JSON.parse(tc.function.arguments)
-        : tc.function.arguments,
+      arguments: normalizeToolArguments(
+        tc.function.name,
+        typeof tc.function.arguments === 'string'
+          ? JSON.parse(tc.function.arguments)
+          : tc.function.arguments,
+      ),
     }));
   }
 
