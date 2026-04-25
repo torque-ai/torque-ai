@@ -128,7 +128,8 @@ function _rankProviderCandidatesByScore(candidates, options = {}) {
   if (!Array.isArray(candidates) || candidates.length <= 1) {
     return { candidates: Array.isArray(candidates) ? [...candidates] : [], applied: false };
   }
-  if (options?.taskMetadata?.user_provider_override || options?.isUserOverride) {
+  const taskMetadata = options?.taskMetadata || {};
+  if (taskMetadata.user_provider_override || taskMetadata._routing_template || options?.isUserOverride) {
     return { candidates: [...candidates], applied: false };
   }
 
@@ -221,7 +222,7 @@ function _applyScoredFallbackChain(result, taskMetadata = {}) {
   if (!result || !Array.isArray(result.chain) || result.chain.length <= 1) {
     return result;
   }
-  if (taskMetadata?.user_provider_override) {
+  if (taskMetadata?.user_provider_override || taskMetadata?._routing_template) {
     return result;
   }
 

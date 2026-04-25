@@ -919,13 +919,14 @@ async function executeOllamaTask(task) {
       ? currentTask.metadata
       : safeJsonParse(currentTask?.metadata || task.metadata, {});
     const userProviderOverride = Boolean(currentMetadata.user_provider_override);
+    const hasExplicitIntent = userProviderOverride || Boolean(currentMetadata._routing_template);
 
     // Invalidate Ollama health cache only on connection/quota failures
     if (isQuotaError) {
       db.invalidateOllamaHealth();
     }
 
-    if (isQuotaError && !userProviderOverride) {
+    if (isQuotaError && !hasExplicitIntent) {
       // Guard: cap failover attempts to prevent infinite provider bounce (TQ-001)
       const MAX_FAILOVERS = 3;
       const failoverCount = (currentTask?.retry_count || 0);

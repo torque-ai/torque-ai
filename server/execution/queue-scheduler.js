@@ -286,11 +286,12 @@ function categorizeQueuedTasks(queuedTasks, codexEnabled) {
 
     if (category === 'codex') {
       if (provider === 'codex' && !codexEnabled) {
-        // When codex is disabled, only keep user-override tasks in queue
+        // When codex is disabled, only keep explicit-intent tasks in queue.
         const meta = normalizeMetadata(task.metadata);
-        if (meta.user_provider_override) {
+        const hasExplicitIntent = meta.user_provider_override || !!meta._routing_template;
+        if (hasExplicitIntent) {
           codexTasks.push(task);
-          logger.info(`[categorize] User-override codex task ${(task.id || '').slice(0,8)} kept in queue despite codex disabled`);
+          logger.info(`[categorize] Explicit-intent codex task ${(task.id || '').slice(0,8)} kept in queue despite codex disabled`);
         }
       } else {
         codexTasks.push(task);
@@ -1085,14 +1086,14 @@ function resolveCodexPendingTasks() {
 
     for (const task of stuck) {
       try {
-        // Check metadata for user_provider_override — respect the original intent
+        // Check metadata for explicit intent — respect the original route.
         const meta = normalizeMetadata(task.metadata);
         const intendedProvider = meta.intended_provider || null;
-        const isUserOverride = !!meta.user_provider_override;
+        const isTemplateIntent = !!meta._routing_template;
+        const hasExplicitIntent = !!meta.user_provider_override || isTemplateIntent;
 
         let targetProvider;
-        if (isUserOverride && intendedProvider) {
-          // User explicitly requested a provider — honour their intent
+        if (hasExplicitIntent && intendedProvider) {
           targetProvider = intendedProvider;
         } else if (codexEnabled) {
           targetProvider = 'codex';
@@ -1113,7 +1114,7 @@ function resolveCodexPendingTasks() {
         if (targetConfig && targetConfig.enabled) {
           db.updateTaskStatus(task.id, 'queued', { provider: targetProvider });
           notifyDashboard(task.id, { status: 'queued', provider: targetProvider });
-          logger.info(`[Scheduler] Re-routed codex-pending task ${task.id} to ${targetProvider}${isUserOverride ? ' (user override)' : ''}`);
+          logger.info(`[Scheduler] Re-routed codex-pending task ${task.id} to ${targetProvider}${hasExplicitIntent ? ' (explicit intent)' : ''}`);
         } else {
           const statusUpdates = {
             error_output: `[codex-pending] Target provider '${targetProvider}' is not available. Task was stuck in codex-pending state with no producer path.`,

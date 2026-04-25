@@ -151,6 +151,53 @@ describe('BUG-001b: workflow node provider override preserved through requeue', 
     expect(meta.intended_provider).toBe('groq');
   });
 
+  it('preserves provider when template-bound task is requeued via updateTaskStatus', () => {
+    const taskId = randomUUID();
+    db.createTask({
+      id: taskId,
+      task_description: 'Template-bound ollama-cloud task that gets requeued',
+      working_directory: testDir,
+      status: 'pending',
+      provider: 'ollama-cloud',
+      metadata: JSON.stringify({
+        _routing_template: 'preset-ollama-cloud-primary',
+        intended_provider: 'ollama-cloud',
+      }),
+    });
+
+    db.updateTaskStatus(taskId, 'queued');
+
+    const task = db.getTask(taskId);
+    expect(task.provider).toBe('ollama-cloud');
+    const meta = parseMeta(task);
+    expect(meta._routing_template).toBe('preset-ollama-cloud-primary');
+    expect(meta.intended_provider).toBe('ollama-cloud');
+  });
+
+  it('preserves provider when template-bound task is requeued after attempted start', () => {
+    const taskId = randomUUID();
+    db.createTask({
+      id: taskId,
+      task_description: 'Template-bound task that could not start yet',
+      working_directory: testDir,
+      status: 'running',
+      provider: 'cerebras',
+      metadata: JSON.stringify({
+        _routing_template: 'preset-ollama-cloud-primary',
+        intended_provider: 'cerebras',
+      }),
+    });
+
+    db.requeueTaskAfterAttemptedStart(taskId);
+
+    const task = db.getTask(taskId);
+    expect(task.status).toBe('queued');
+    expect(task.provider).toBe('cerebras');
+    const meta = parseMeta(task);
+    expect(meta._routing_template).toBe('preset-ollama-cloud-primary');
+    expect(meta.intended_provider).toBe('cerebras');
+  });
+
   it('still clears provider on requeue for smart-routed tasks (no user override)', () => {
     const taskId = randomUUID();
     db.createTask({

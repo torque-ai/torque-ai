@@ -185,6 +185,9 @@ function getPendingApprovalTasksForBatch(batchId) {
 function buildRetryMetadata(task, retryOfTaskId) {
   const taskMetadata = parseTaskMetadata(task);
   const retryMetadata = { retry_of: retryOfTaskId };
+  if (typeof taskMetadata._routing_template === 'string' && taskMetadata._routing_template.trim()) {
+    retryMetadata._routing_template = taskMetadata._routing_template.trim();
+  }
   // Preserve user_provider_override only when the original task was explicitly
   // user-routed. Smart-routed tasks that ended up on a non-default provider
   // should NOT lock to that provider on retry.
@@ -771,7 +774,7 @@ async function handleRetryTask(req, res) {
     const newTaskId = uuidv4();
     const taskMetadata = parseTaskMetadata(task);
     // If original task was smart-routed (no user override), clear provider so smart routing re-evaluates
-    const wasSmartRouted = !taskMetadata?.original_provider && !taskMetadata?.user_provider_override;
+    const wasSmartRouted = !taskMetadata?.original_provider && !taskMetadata?.user_provider_override && !taskMetadata?._routing_template;
     const retryProvider = wasSmartRouted ? null : (
       typeof taskMetadata.original_provider === 'string' && taskMetadata.original_provider.trim()
         ? taskMetadata.original_provider.trim()
@@ -804,6 +807,7 @@ async function handleRetryTask(req, res) {
       return sendError(res, requestId, 'task_blocked', getBlockedPolicyMessage(retryPolicyResult), 403, {}, req);
     }
 
+    const hasTemplateRetryIntent = !!retryMetadata._routing_template;
     taskCore.createTask({
       id: newTaskId,
       status: 'pending',
@@ -812,7 +816,7 @@ async function handleRetryTask(req, res) {
       timeout_minutes: task.timeout_minutes,
       auto_approve: task.auto_approve,
       priority: task.priority || 0,
-      provider: null,  // deferred assignment — set by tryClaimTaskSlot when slot is available
+      provider: hasTemplateRetryIntent ? retryProvider : null,
       model: task.model,
       metadata: JSON.stringify(retryMetadata),
       resume_context: task.resume_context || null,

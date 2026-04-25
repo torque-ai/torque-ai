@@ -378,6 +378,8 @@ function routeByComplexity(taskDescription, files, deps) {
  */
 function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], options = {}) {
   const { skipHealthCheck = false, isUserOverride = false, preferFree = false } = options;
+  const taskMetadata = options?.taskMetadata || {};
+  const hasRoutingTemplateIntent = typeof taskMetadata._routing_template === 'string' && taskMetadata._routing_template.trim() !== '';
 
   const getDatabaseConfig = _deps.getDatabaseConfig;
   const getProvider = _deps.getProvider;
@@ -476,12 +478,11 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
   const isOllamaProvider = (provider) => provider === 'ollama';
 
   const maybeApplyFallback = (result) => {
+    const hasPreservedIntent = isUserOverride || hasRoutingTemplateIntent;
     if (!skipHealthCheck && isOllamaProvider(result.provider) && ollamaHealthy === false) {
-      // TDA-01: Do not silently reroute when the user explicitly chose a provider.
-      // Explicit provider intent is sovereign — let the task queue and fail honestly
-      // rather than silently executing under a different provider identity.
-      if (isUserOverride) {
-        logger.info(`[SmartRouting] Ollama unhealthy but user explicitly requested ${result.provider} — preserving intent (TDA-01)`);
+      // TDA-01: Do not silently reroute when a task has explicit provider intent.
+      if (hasPreservedIntent) {
+        logger.info(`[SmartRouting] Ollama unhealthy but explicit intent requested ${result.provider} — preserving intent (TDA-01)`);
         return applyProviderSafetyNet(result);
       }
       return applyProviderSafetyNet({
@@ -496,7 +497,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
     // Context overflow guard: estimate prompt size and reroute if it would exceed
     // local LLM context window. The desc + file count is a rough proxy for the
     // full prompt that execute-hashline/execute-ollama will build.
-    if (isOllamaProvider(result.provider) && !isUserOverride) {
+    if (isOllamaProvider(result.provider) && !hasPreservedIntent) {
       const descTokens = Math.ceil((taskDescription || '').length / 4);
       const fileCount = (files || []).length;
       // Each referenced file adds ~500–2000 tokens of context (path + relevant content).
@@ -520,7 +521,7 @@ function analyzeTaskForRouting(taskDescription, workingDirectory, files = [], op
 
     // Circuit breaker guard: if selected provider has an open circuit, apply fallback
     const cb = getCircuitBreaker();
-    if (cb && !cb.allowRequest(result.provider) && !isUserOverride) {
+    if (cb && !cb.allowRequest(result.provider) && !hasPreservedIntent) {
       logger.info(`[SmartRouting] Circuit breaker OPEN for ${result.provider} — applying fallback`);
       const fbChain = getFallbackChain(result.provider);
       for (const fb of fbChain) {
@@ -757,7 +758,7 @@ function getProviderFallbackChain(provider, options) {
       'codex':           ['claude-cli', 'deepinfra', 'ollama-cloud', 'ollama'],
       'claude-cli':      ['codex', 'deepinfra', 'ollama-cloud', 'ollama'],
       'groq':            ['ollama-cloud', 'cerebras', 'deepinfra', 'claude-cli', 'ollama'],
-      'ollama-cloud':    ['cerebras', 'deepinfra', 'codex', 'claude-cli'],
+      'ollama-cloud':    ['cerebras', 'deepinfra', 'claude-cli'],
       'cerebras':        ['google-ai', 'ollama-cloud', 'deepinfra', 'codex'],
       'google-ai':       ['openrouter', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],
       'openrouter':      ['google-ai', 'cerebras', 'ollama-cloud', 'deepinfra', 'codex'],

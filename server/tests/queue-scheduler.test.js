@@ -324,6 +324,18 @@ describe('Queue Scheduler', () => {
       expect(result.codexTasks[0].id).toBe('1');
     });
 
+    it('template-bound codex tasks kept in codexTasks when codex disabled', () => {
+      const tasks = [
+        makeTask({ id: '1', provider: 'codex', metadata: JSON.stringify({ _routing_template: 'dlphone-template' }) }),
+        makeTask({ id: '2', provider: 'codex' }),
+      ];
+
+      const result = scheduler.categorizeQueuedTasks(tasks, false);
+
+      expect(result.codexTasks).toHaveLength(1);
+      expect(result.codexTasks[0].id).toBe('1');
+    });
+
     it('codex tasks without user_provider_override are dropped when codex disabled', () => {
       const tasks = [
         makeTask({ id: '1', provider: 'codex', metadata: JSON.stringify({ requested_provider: 'codex' }) }),
@@ -1549,6 +1561,30 @@ describe('Queue Scheduler', () => {
         expect(overflowCalls).toHaveLength(0);
       });
 
+      it('does NOT overflow template-bound Codex tasks', () => {
+        const queuedTask = makeTask({
+          id: 'overflow-template',
+          provider: 'codex',
+          task_description: 'Build template workflow',
+          metadata: JSON.stringify({ complexity: 'normal', _routing_template: 'dlphone-template', smart_routing: true }),
+        });
+
+        setupCodexOverflow({
+          runningCodexCount: 3,
+          queuedTask,
+          hostStatus: 'healthy',
+          hostRunning: 0,
+          hostMaxConcurrent: 4,
+        });
+
+        scheduler.processQueueInternal();
+
+        const overflowCalls = mockDb.updateTaskStatus.mock.calls.filter(
+          (c) => c[0] === 'overflow-template' && (c[2]?.provider === 'ollama' || c[2]?.provider === 'anthropic')
+        );
+        expect(overflowCalls).toHaveLength(0);
+      });
+
       it('DOES overflow default Codex tasks without user_provider_override', () => {
         const queuedTask = makeTask({
           id: 'overflow-default',
@@ -2036,6 +2072,27 @@ describe('Queue Scheduler', () => {
       // Should route to intended_provider 'codex', NOT ollama-cloud
       expect(mockDb.getProvider).toHaveBeenCalledWith('codex');
       expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('pending-2b', 'queued', { provider: 'codex' });
+    });
+
+    it('respects template intent intended_provider when codex is disabled', () => {
+      mockDb.getConfig.mockImplementation((key) => {
+        if (key === 'codex_enabled') return '0';
+        return null;
+      });
+      mockDb.getProvider = vi.fn().mockReturnValue({ enabled: true });
+      mockDb.listTasks.mockImplementation(({ status }) => {
+        if (status === 'queued') return [makeTask({
+          id: 'pending-2c',
+          provider: 'codex-pending',
+          metadata: JSON.stringify({ _routing_template: 'dlphone-template', intended_provider: 'cerebras' }),
+        })];
+        return [];
+      });
+
+      scheduler.resolveCodexPendingTasks();
+
+      expect(mockDb.getProvider).toHaveBeenCalledWith('cerebras');
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith('pending-2c', 'queued', { provider: 'cerebras' });
     });
 
     it('fails stuck codex-pending task when no provider exists', () => {

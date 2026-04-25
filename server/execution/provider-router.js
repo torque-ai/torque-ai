@@ -286,7 +286,6 @@ function resolveProviderRouting(task, taskId) {
   const normalizedRequestedProvider = normalizeProviderOverride(task, requestedProvider, taskId);
   const paidProviders = new Set(['anthropic', 'groq', 'codex', 'claude-cli']);
   const intentInfo = getProviderIntentInfo(taskMeta);
-  const isUserOverride = Boolean(taskMeta.user_provider_override);
   const hasProviderSelectionLock = intentInfo.locked;
 
   // TDA-01 sovereign intent: when the user (or workflow) explicitly specified a provider,
