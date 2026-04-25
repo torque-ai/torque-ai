@@ -298,6 +298,7 @@ function resetMockState() {
     codex: { name: 'codex', enabled: true },
     'claude-cli': { name: 'claude-cli', enabled: true },
     ollama: { name: 'ollama', enabled: true },
+    'ollama-cloud': { name: 'ollama-cloud', enabled: true },
     openrouter: { name: 'openrouter', enabled: true },
     'google-ai': { name: 'google-ai', enabled: true },
   };
@@ -1156,6 +1157,42 @@ describe('integration routing handlers', () => {
         source: 'routing_template_chain',
       });
       expect(mockDb.getProviderFallbackChain).not.toHaveBeenCalled();
+    });
+
+    it('does not health-gate to providers blocked by provider lane policy', async () => {
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'ollama-cloud',
+        complexity: 'normal',
+        reason: "Template 'Ollama Cloud Primary': backend -> ollama-cloud",
+        chain: [
+          { provider: 'ollama-cloud', model: 'mistral-large-3:675b' },
+          { provider: 'codex', model: 'gpt-5.4' },
+        ],
+      }));
+      mockDb.isProviderHealthy.mockImplementation((providerName) => providerName !== 'ollama-cloud');
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'Summarize DLPhone queue state',
+        routing_template: 'preset-ollama-cloud-primary',
+        task_metadata: {
+          provider_lane_policy: {
+            expected_provider: 'ollama-cloud',
+            allowed_fallback_providers: [],
+            enforce_handoffs: true,
+          },
+        },
+      });
+
+      const task = taskFromResult(result);
+      expect(task.provider).toBe('ollama-cloud');
+      expect(task.metadata.routing_health_gate).toBeUndefined();
+      expect(task.metadata._routing_chain).toBeUndefined();
+      expect(task.metadata.provider_lane_policy).toMatchObject({
+        expected_provider: 'ollama-cloud',
+        allowed_fallback_providers: [],
+        enforce_handoffs: true,
+      });
+      expect(textOf(result)).not.toContain('ollama-cloud unhealthy');
     });
 
     it('falls back from enabled API providers that do not have API keys configured', async () => {

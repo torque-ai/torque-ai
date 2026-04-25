@@ -22,6 +22,10 @@ const { resolveOllamaModel } = require('../../providers/ollama-shared');
 const { shouldDecompose, decomposeTask: buildDecomposedTasks, GUIDED_FILE_THRESHOLD, GUIDED_MIN_FUNCTIONS } = require('../../execution/task-decomposition');
 const { enforceVersionIntentForProject } = require('../../versioning/version-intent');
 const { buildOllamaCloudProposalApplyMetadata } = require('../../routing/ollama-cloud-proposal-policy');
+const {
+  getProviderLanePolicyFromMetadata,
+  isProviderAllowedByLanePolicy,
+} = require('../../factory/provider-lane-policy');
 const modelRoles = require('../../db/model-roles');
 const modelCaps = require('../../db/model-capabilities');
 const { getProviderCapabilities } = require('../../db/provider-capabilities');
@@ -666,6 +670,19 @@ async function handleSmartSubmitTask(args) {
   let routingResult;
   let modRoutingReason = null; // P102: Track modification routing reason for response
   let healthGateDecision = null;
+  const providerLanePolicy = getProviderLanePolicyFromMetadata(userTaskMetadata || {});
+  const isProviderAllowedForLane = (providerName) => (
+    isProviderAllowedByLanePolicy(providerLanePolicy, providerName)
+  );
+  const filterRoutingChainForLane = (chain) => {
+    if (!Array.isArray(chain) || !providerLanePolicy?.enforce_handoffs) {
+      return chain;
+    }
+    return chain.filter((entry) => {
+      const providerName = typeof entry === 'string' ? entry : entry?.provider;
+      return isProviderAllowedForLane(providerName);
+    });
+  };
 
   // D2.2: Single source — getProviderHealthScore() now lives in provider-routing-core.js
   const getProviderHealthScore = (providerName) => {
@@ -819,7 +836,7 @@ async function handleSmartSubmitTask(args) {
       return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} is disabled. Enable it or choose a different provider.`);
     }
     const fallbackProvider = resolveSafeSelectedProvider(providerRoutingCore.getDefaultProvider());
-    if (fallbackProvider && fallbackProvider !== selectedProvider) {
+    if (fallbackProvider && fallbackProvider !== selectedProvider && isProviderAllowedForLane(fallbackProvider)) {
       const fallbackReason = providerConfig ? 'original provider disabled' : 'original provider missing';
       selectedProvider = fallbackProvider;
       providerConfig = providerRoutingCore.getProvider(selectedProvider);
@@ -837,7 +854,7 @@ async function handleSmartSubmitTask(args) {
       return makeError(ErrorCodes.PROVIDER_ERROR, `Provider ${selectedProvider} requires an API key before it can be used.`);
     }
     const fallbackProvider = resolveFirstEnabledProvider();
-    if (fallbackProvider && fallbackProvider !== selectedProvider) {
+    if (fallbackProvider && fallbackProvider !== selectedProvider && isProviderAllowedForLane(fallbackProvider)) {
       const prevProvider = selectedProvider;
       selectedProvider = fallbackProvider;
       providerConfig = providerRoutingCore.getProvider(selectedProvider);
@@ -896,6 +913,10 @@ async function handleSmartSubmitTask(args) {
   if (blockedError) {
     return blockedError;
   }
+  const initialRoutingChainForMetadata = filterRoutingChainForLane(routingResult.chain);
+  const initialRoutingChainMetadata = initialRoutingChainForMetadata && initialRoutingChainForMetadata.length > 1
+    ? initialRoutingChainForMetadata
+    : undefined;
 
   // AUTO-DECOMPOSE: Use task-decomposition module to decide whether to split
   // shouldDecompose checks provider class (agentic/guided/prompt-only), complexity,
@@ -981,7 +1002,7 @@ async function handleSmartSubmitTask(args) {
             decomposed_from: task,
             subtask_index: i + 1,
             total_subtasks: subtasks.length,
-            _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
+            _routing_chain: initialRoutingChainMetadata,
             _routing_template: effectiveRoutingTemplate || undefined,
             tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
             mcp_session_id: __sessionId || undefined,
@@ -1166,7 +1187,7 @@ async function handleSmartSubmitTask(args) {
               target_file: largestFile,
               function_names: batch.map(fn => fn.name),
               line_range: { start: startLine, end: endLine },
-              _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
+              _routing_chain: initialRoutingChainMetadata,
               _routing_template: effectiveRoutingTemplate || undefined,
               tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
               mcp_session_id: __sessionId || undefined,
@@ -1368,6 +1389,9 @@ async function handleSmartSubmitTask(args) {
         if (!candidate.providerName || candidate.providerName === selectedProvider) {
           return false;
         }
+        if (!isProviderAllowedForLane(candidate.providerName)) {
+          return false;
+        }
         try {
           return isProviderAvailableForRouting(candidate.providerName);
         } catch {
@@ -1406,6 +1430,10 @@ async function handleSmartSubmitTask(args) {
   const effectiveRoutingReason = modRoutingReason
     ? `${routingResult.reason} [override: ${modRoutingReason}]`
     : routingResult.reason;
+  const routingChainForMetadata = filterRoutingChainForLane(routingResult.chain);
+  const routingChainMetadata = routingChainForMetadata && routingChainForMetadata.length > 1
+    ? routingChainForMetadata
+    : undefined;
 
   const buildRoutingScoreMetadata = (sourceResult, providerName) => {
     if (!sourceResult || !sourceResult.routing_score_applied || sourceResult.provider !== providerName) {
@@ -1420,7 +1448,7 @@ async function handleSmartSubmitTask(args) {
     taskDescription: task,
     files,
     selectedProvider,
-    routingChain: routingResult.chain,
+    routingChain: routingChainForMetadata,
     routingTemplate: effectiveRoutingTemplate,
     userTaskMetadata,
   });
@@ -1474,7 +1502,7 @@ async function handleSmartSubmitTask(args) {
     complexity: complexity,
     routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
     tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
-    _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
+    _routing_chain: routingChainMetadata,
     _routing_template: effectiveRoutingTemplate || undefined,
     mcp_session_id: __sessionId || undefined,
     ...buildRoutingScoreMetadata(tierRoutingResult, slotPullIntendedProvider),
@@ -1530,7 +1558,7 @@ async function handleSmartSubmitTask(args) {
         complexity: complexity,
         routing_mode: codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal'),
         tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
-        _routing_chain: routingResult.chain && routingResult.chain.length > 1 ? routingResult.chain : undefined,
+        _routing_chain: routingChainMetadata,
         _routing_template: effectiveRoutingTemplate || undefined,
         mcp_session_id: __sessionId || undefined,
         ...buildRoutingScoreMetadata(routingResult, selectedProvider),
