@@ -30,6 +30,10 @@ const eventToolDefs = require('./tool-defs/event-defs');
 const EVENT_TOOLS = Array.isArray(eventToolDefs)
   ? eventToolDefs
   : eventToolDefs.EVENT_TOOLS;
+const experienceToolDefs = require('./tool-defs/experience-defs');
+const EXPERIENCE_TOOLS = Array.isArray(experienceToolDefs)
+  ? experienceToolDefs
+  : experienceToolDefs.EXPERIENCE_TOOLS;
 const runArtifactToolDefs = require('./tool-defs/run-artifact-defs');
 const RUN_ARTIFACT_TOOLS = Array.isArray(runArtifactToolDefs)
   ? runArtifactToolDefs
@@ -50,6 +54,7 @@ const TOOLS = [
   ...WORKFLOW_RESUME_TOOLS,
   ...WORKFLOW_SPEC_TOOLS,
   ...EVENT_TOOLS,
+  ...EXPERIENCE_TOOLS,
   ...RUN_ARTIFACT_TOOLS,
   ...require('./tool-defs/baseline-defs'),
   ...require('./tool-defs/checkpoint-defs'),
@@ -208,6 +213,7 @@ const HANDLER_MODULES = [
   require('./handlers/workflow-resume-handlers'),
   require('./handlers/workflow-spec-handlers'),
   require('./handlers/event-handlers'),
+  require('./handlers/experience-handlers'),
   require('./handlers/run-artifact-handlers'),
   require('./handlers/validation'),
   require('./handlers/provider-handlers'),
