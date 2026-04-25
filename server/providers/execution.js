@@ -2281,6 +2281,46 @@ function buildTrackedAgenticCallbacks(taskId, callbacks = {}) {
   };
 }
 
+function createScoutSignalParserForTask(task, taskId) {
+  const meta = normalizeTaskMetadata(task);
+  if (meta.mode !== 'scout') {
+    return null;
+  }
+  try {
+    const { StreamSignalParser } = require('../diffusion/stream-signal-parser');
+    const { processScoutSignal } = require('../factory/scout-signal-consumer');
+    return new StreamSignalParser((type, data) => {
+      logger.info(`[Agentic] Scout signal detected for task ${taskId}: ${type}`);
+      processScoutSignal({ task, taskId, signalType: type, signalData: data, logger });
+    });
+  } catch (err) {
+    logger.info(`[Agentic] Scout parser setup error for task ${taskId}: ${err.message}`);
+    return null;
+  }
+}
+
+function feedScoutSignalParser(parser, text, taskId) {
+  if (!parser || !text) {
+    return;
+  }
+  try {
+    parser.feed(String(text));
+  } catch (err) {
+    logger.info(`[Agentic] Scout signal parser error for task ${taskId}: ${err.message}`);
+  }
+}
+
+function destroyScoutSignalParser(parser, taskId) {
+  if (!parser || typeof parser.destroy !== 'function') {
+    return;
+  }
+  try {
+    parser.destroy();
+  } catch (err) {
+    logger.info(`[Agentic] Scout signal parser cleanup error for task ${taskId}: ${err.message}`);
+  }
+}
+
 const AGENTIC_WORKER_SILENT_HEARTBEAT_MS = 60 * 1000;
 
 function trackAgenticWorkerTask(taskId, {
@@ -2732,6 +2772,7 @@ async function executeOllamaTaskWithAgentic(task) {
   dashboard.notifyTaskUpdated(taskId);
 
   const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
+  const scoutSignalParser = createScoutSignalParserForTask(task, taskId);
   // timeout_minutes === 0 → no enforced timeout (opt-in unbounded). Preserve
   // 0, skip the setTimeout; downstream HTTP client receives timeoutMs=0 which
   // also means "no timeout" for node http.
@@ -2831,6 +2872,7 @@ async function executeOllamaTaskWithAgentic(task) {
         } catch { /* ignore */ }
       },
       onChunk: (msg) => {
+        feedScoutSignalParser(scoutSignalParser, msg.text, taskId);
         try {
           db.addStreamChunk(ollamaStreamId, msg.text, 'stdout');
           dashboard.notifyTaskOutput(taskId, msg.text);
@@ -2983,6 +3025,7 @@ async function executeOllamaTaskWithAgentic(task) {
     if (typeof releaseSelectedHostSlot === 'function') {
       try { releaseSelectedHostSlot(); } catch { /* ignore */ }
     }
+    destroyScoutSignalParser(scoutSignalParser, taskId);
     // Release per-host mutex so the next queued task can proceed
     if (releaseHostLock) releaseHostLock();
     dashboard.notifyTaskUpdated(taskId);
@@ -3099,6 +3142,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   dashboard.notifyTaskUpdated(taskId);
 
   const ollamaStreamId = db.getOrCreateTaskStream(taskId, 'output');
+  const scoutSignalParser = createScoutSignalParserForTask(task, taskId);
   // timeout_minutes === 0 → no enforced timeout (opt-in unbounded). Preserve
   // 0, skip the setTimeout; downstream receives timeoutMs=0 which also means
   // "no timeout" for node http.
@@ -3171,6 +3215,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
         } catch { /* ignore */ }
       },
       onChunk: (msg) => {
+        feedScoutSignalParser(scoutSignalParser, msg.text, taskId);
         try {
           db.addStreamChunk(ollamaStreamId, msg.text, 'stdout');
           dashboard.notifyTaskOutput(taskId, msg.text);
@@ -3684,6 +3729,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     clearTimeout(timeoutHandle);
     if (apiAbortControllers2) apiAbortControllers2.delete(taskId);
     cleanupTrackedWorker?.();
+    destroyScoutSignalParser(scoutSignalParser, taskId);
     dashboard.notifyTaskUpdated(taskId);
     // Workflow termination in both success and failure paths
     if (typeof handleWorkflowTermination === 'function') {

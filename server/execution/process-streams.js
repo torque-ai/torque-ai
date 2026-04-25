@@ -89,19 +89,10 @@ function setupStdoutHandler(child, taskId, streamId) {
       const meta = normalizeMetadata(task?.metadata);
       if (meta.mode === 'scout') {
         const { StreamSignalParser } = require('../diffusion/stream-signal-parser');
-        const { dispatchTaskEvent } = require('../hooks/event-dispatch');
+        const { processScoutSignal } = require('../factory/scout-signal-consumer');
         proc._scoutSignalParser = new StreamSignalParser((type, data) => {
           logger.info(`[Streams] Scout signal detected for task ${taskId}: ${type}`);
-          try {
-            dispatchTaskEvent('scout_signal', {
-              ...(task || {}),
-              id: taskId,
-              status: task?.status || 'running',
-              event_data: { signal_type: type, ...data },
-            });
-          } catch (err) {
-            logger.info(`[Streams] Scout signal dispatch error: ${err.message}`);
-          }
+          processScoutSignal({ task, taskId, signalType: type, signalData: data, logger });
         });
       }
     } catch (err) {

@@ -5,6 +5,7 @@ const {
   collectPatterns,
   createScoutOutputIntake,
   isStarvationRecoveryScoutTask,
+  promoteScoutSignalToIntake,
 } = require('../factory/scout-output-intake');
 
 describe('scout output intake', () => {
@@ -99,6 +100,41 @@ describe('scout output intake', () => {
         type: 'starvation_recovery_scout_pattern',
         task_id: 'task-1',
         pattern_id: 'worktree-cleanup',
+      }),
+    }));
+  });
+
+  it('promotes live patterns_ready scout signals into scout-sourced factory work items', () => {
+    const factoryIntake = {
+      findDuplicates: vi.fn().mockReturnValue([]),
+      createWorkItem: vi.fn((item) => ({ id: 1, ...item })),
+    };
+
+    const result = promoteScoutSignalToIntake({
+      id: 'task-live',
+      metadata: {
+        mode: 'scout',
+        reason: 'factory_starvation_recovery',
+        project_id: 'project-1',
+      },
+    }, 'patterns_ready', {
+      patterns: [{
+        id: 'live-seed',
+        description: 'Seed intake from live scout signals',
+        transformation: 'Promote patterns_ready before task completion',
+        exemplar_files: ['server/factory/scout-output-intake.js'],
+        file_count: 3,
+      }],
+    }, { factoryIntake });
+
+    expect(result.created).toHaveLength(1);
+    expect(factoryIntake.createWorkItem).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: 'project-1',
+      title: 'Scout pattern: Seed intake from live scout signals',
+      origin: expect.objectContaining({
+        type: 'starvation_recovery_scout_pattern',
+        task_id: 'task-live',
+        pattern_id: 'live-seed',
       }),
     }));
   });

@@ -116,7 +116,7 @@ describe('handleSubmitScout', () => {
       scope: 'analyze', working_directory: '/proj', provider: 'deepinfra',
     });
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('filesystem');
+    expect(result.content[0].text).toContain('repository access');
   });
 
   it('accepts codex provider', () => {
@@ -125,6 +125,18 @@ describe('handleSubmitScout', () => {
     });
     expect(result.isError).toBeFalsy();
     expect(result.content[0].text).toContain('Scout Task Submitted');
+  });
+
+  it('accepts ollama-cloud provider for agentic scout repository access', () => {
+    const result = handlers.handleSubmitScout({
+      scope: 'analyze tests', working_directory: '/proj', provider: 'ollama-cloud',
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(mockTaskCore.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'ollama-cloud',
+      metadata: expect.stringContaining('"mode":"scout"'),
+    }));
   });
 
   it('tags starvation recovery scouts with project context', () => {

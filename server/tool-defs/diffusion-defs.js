@@ -4,7 +4,7 @@
 module.exports = [
   {
     name: 'submit_scout',
-    description: 'Submit a scout-mode task that analyzes the codebase without modifying files. The scout produces a structured diffusion plan (patterns, exemplar diffs, file manifest) that can be used with create_diffusion_plan to fan out work across multiple providers. Scouts require filesystem access — only codex and claude-cli providers are supported.',
+    description: 'Submit a scout-mode task that analyzes the codebase without modifying files. The scout produces a structured diffusion plan (patterns, exemplar diffs, file manifest) that can be used with create_diffusion_plan to fan out work across multiple providers. Scouts require repository access through filesystem or agentic tools; codex, codex-spark, claude-cli, and ollama-cloud providers are supported.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -15,7 +15,7 @@ module.exports = [
           items: { type: 'string' },
           description: 'Optional glob patterns to focus analysis (e.g., ["server/tests/**/*.test.js"]). Expanded server-side into a file list.',
         },
-        provider: { type: 'string', description: 'Provider to use (must be filesystem-capable: codex, claude-cli). Default: codex.' },
+        provider: { type: 'string', description: 'Provider to use (must be repository-capable: codex, codex-spark, claude-cli, ollama-cloud). Default: codex.' },
         timeout_minutes: { type: 'number', description: 'Scout timeout in minutes (default: 10)' },
       },
       required: ['scope', 'working_directory'],

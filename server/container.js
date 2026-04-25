@@ -341,6 +341,7 @@ _defaultContainer.register(
   ({ db, logger: log, eventBus }) => {
     const { createStarvationRecovery } = require('./factory/starvation-recovery');
     const { createScoutFindingsIntake } = require('./factory/scout-findings-intake');
+    const { getProviderLanePolicyFromProject } = require('./factory/provider-lane-policy');
     const { handleSubmitScout } = require('./handlers/diffusion-handlers');
     const factoryHealth = require('./db/factory-health');
     const factoryIntake = require('./db/factory-intake');
@@ -349,6 +350,7 @@ _defaultContainer.register(
       ? log.child({ component: 'starvation-recovery' })
       : log;
     const rawDb = unwrapDb(db);
+    const scoutLaneProviders = new Set(['codex', 'codex-spark', 'claude-cli', 'ollama-cloud']);
 
     return createStarvationRecovery({
       logger: recoveryLogger,
@@ -359,9 +361,14 @@ _defaultContainer.register(
         scope: opts.scope,
         working_directory: opts.working_directory || opts.project_path,
         file_patterns: opts.file_patterns,
-        provider: opts.provider || 'codex',
+        provider: opts.provider,
         timeout_minutes: opts.timeout_minutes || 30,
       }),
+      resolveScoutProvider: (project) => {
+        const policy = getProviderLanePolicyFromProject(project || {});
+        const provider = policy?.expected_provider || null;
+        return scoutLaneProviders.has(provider) ? provider : null;
+      },
       countOpenWorkItems: async (projectId) => factoryIntake.listOpenWorkItems({
         project_id: projectId,
         limit: 1,

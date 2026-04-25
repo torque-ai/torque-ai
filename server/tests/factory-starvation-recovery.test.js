@@ -235,7 +235,6 @@ describe('factory starvation recovery', () => {
       project_path: 'C:\\repo',
       working_directory: 'C:\\repo',
       reason: 'factory_starvation_recovery',
-      provider: 'codex',
       timeout_minutes: 30,
     }));
     expect(updateLoopState).toHaveBeenCalledWith('project-1', {
@@ -244,5 +243,37 @@ describe('factory starvation recovery', () => {
       loop_paused_at_stage: null,
       consecutive_empty_cycles: 0,
     });
+  });
+
+  it('uses resolved provider lane provider for recovery scouts', async () => {
+    const submitScout = vi.fn().mockResolvedValue({ task_id: 'task-1' });
+    const updateLoopState = vi.fn().mockResolvedValue({});
+    const countOpenWorkItems = vi.fn().mockResolvedValue(0);
+    const resolveScoutProvider = vi.fn().mockReturnValue('ollama-cloud');
+    const nowMs = Date.parse('2026-04-22T12:30:00.000Z');
+    const recovery = createStarvationRecovery({
+      submitScout,
+      updateLoopState,
+      countOpenWorkItems,
+      resolveScoutProvider,
+      dwellMs: 1000,
+      now: () => nowMs,
+    });
+
+    await recovery.maybeRecover({
+      id: 'project-1',
+      path: 'C:\\repo',
+      loop_state: LOOP_STATES.STARVED,
+      loop_last_action_at: '2026-04-22T12:00:00.000Z',
+    });
+
+    expect(resolveScoutProvider).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'project-1',
+      path: 'C:\\repo',
+    }));
+    expect(submitScout).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: 'project-1',
+      provider: 'ollama-cloud',
+    }));
   });
 });

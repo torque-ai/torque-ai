@@ -33,6 +33,7 @@ function createStarvationRecovery({
   countOpenWorkItems,
   ingestScoutFindings,
   ingestScoutOutputs,
+  resolveScoutProvider,
   dwellMs = DEFAULT_DWELL_MS,
   now = () => Date.now(),
   logger = console,
@@ -182,12 +183,25 @@ function createStarvationRecovery({
       'Use the scout signal format with actionable transformation patterns; avoid meta-work about creating more intake.',
     ].join(' ');
 
+    let scoutProvider = null;
+    if (typeof resolveScoutProvider === 'function') {
+      try {
+        const resolved = await resolveScoutProvider(project);
+        scoutProvider = typeof resolved === 'string' && resolved.trim() ? resolved.trim() : null;
+      } catch (err) {
+        logger.warn?.('Starvation recovery scout provider resolution failed', {
+          project_id: project.id,
+          err: err.message,
+        });
+      }
+    }
+
     const scout = await submitScout({
       project_id: project.id,
       project_path: project.path,
       working_directory: project.path,
       reason: 'factory_starvation_recovery',
-      provider: 'codex',
+      ...(scoutProvider ? { provider: scoutProvider } : {}),
       timeout_minutes: 30,
       scope,
       file_patterns: [

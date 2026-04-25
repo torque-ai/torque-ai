@@ -4,6 +4,11 @@ const { StreamSignalParser } = require('../diffusion/stream-signal-parser');
 
 const STARVATION_RECOVERY_REASON = 'factory_starvation_recovery';
 const MAX_TITLE_LENGTH = 140;
+const SIGNAL_MARKERS = {
+  patterns_ready: ['__PATTERNS_READY__', '__PATTERNS_READY_END__'],
+  scout_discovery: ['__SCOUT_DISCOVERY__', '__SCOUT_DISCOVERY_END__'],
+  scout_complete: ['__SCOUT_COMPLETE__', '__SCOUT_COMPLETE_END__'],
+};
 
 function normalizeMetadata(metadata) {
   if (!metadata) {
@@ -368,11 +373,29 @@ function promoteScoutTaskOutputToIntake(task, deps = {}) {
   return createScoutOutputIntake({ factoryIntake, logger, resolveProjectId }).promoteTask(task);
 }
 
+function promoteScoutSignalToIntake(task, signalType, signalData, deps = {}) {
+  const markers = SIGNAL_MARKERS[signalType];
+  if (!markers) {
+    return { created: [], skipped: [], reason: 'unsupported_scout_signal' };
+  }
+  const [start, end] = markers;
+  const output = [
+    start,
+    JSON.stringify(signalData || {}),
+    end,
+  ].join('\n');
+  return promoteScoutTaskOutputToIntake({
+    ...(task || {}),
+    output,
+  }, deps);
+}
+
 module.exports = {
   STARVATION_RECOVERY_REASON,
   collectConcreteWorkItems,
   collectPatterns,
   createScoutOutputIntake,
   isStarvationRecoveryScoutTask,
+  promoteScoutSignalToIntake,
   promoteScoutTaskOutputToIntake,
 };

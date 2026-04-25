@@ -17,7 +17,7 @@ function workflowEngine() { return _workflowEngine || (_workflowEngine = require
 let _taskManager;
 function taskManager() { return _taskManager || (_taskManager = require('../task-manager')); }
 
-const FILESYSTEM_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli']);
+const FILESYSTEM_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli', 'ollama-cloud']);
 const APPLY_CAPABLE_PROVIDERS = ['ollama', 'codex', 'claude-cli', 'ollama-cloud'];
 const DEFAULT_SCOUT_TIMEOUT = 30;
 const DEFAULT_SCOUT_PROVIDER = 'codex';
@@ -144,7 +144,7 @@ function handleSubmitScout(args) {
   if (!FILESYSTEM_PROVIDERS.has(selectedProvider)) {
     return makeError(
       ErrorCodes.INVALID_PARAM,
-      `Provider "${selectedProvider}" does not have filesystem access. Scout tasks require codex or claude-cli.`
+      `Provider "${selectedProvider}" does not have repository access. Scout tasks require codex, codex-spark, claude-cli, or ollama-cloud.`
     );
   }
 
