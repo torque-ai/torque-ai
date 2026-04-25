@@ -235,6 +235,16 @@ async function submitAndParseTiebreak({ prompt, workingDirectory, project, workI
       // Codex prices for what a fast free model handles in seconds.
       prefer_free: true,
       ...(reviewerProvider ? { provider: reviewerProvider } : {}),
+      // Structured-output hint: the cerebras adapter (and any future
+      // adapter) treats response_format=json_object as a signal to
+      // a) flip on the API's JSON mode, b) prefer the smaller/faster
+      // structured model, and c) clamp temperature to 0. Cuts the
+      // invalid_output retry rate to near zero on JSON-mode-capable
+      // providers.
+      extra_metadata: {
+        response_format: 'json_object',
+        max_tokens: 512,
+      },
     });
     taskId = submitResult?.task_id || null;
   } catch (_e) {
