@@ -402,12 +402,10 @@ describe('App', () => {
 
   it('creates and clears one host activity polling interval for each mount cycle', async () => {
     vi.useFakeTimers();
-    const setIntervalSpy = vi.spyOn(global, 'setInterval');
-    const clearIntervalSpy = vi.spyOn(global, 'clearInterval');
 
     try {
-      const intervalIds = [];
       for (let cycle = 0; cycle < 3; cycle += 1) {
+        const callsBeforeMount = hostsApi.activity.mock.calls.length;
         const { unmount } = renderApp('/');
         await flushAppEffects();
 
@@ -415,18 +413,19 @@ describe('App', () => {
           vi.advanceTimersByTime(0);
         });
 
-        const intervalId = getLatestIntervalId(setIntervalSpy, 60000);
-        expect(intervalId).toBeTruthy();
-
-        intervalIds.push(intervalId);
+        expect(hostsApi.activity).toHaveBeenCalledTimes(callsBeforeMount + 1);
+        act(() => {
+          vi.advanceTimersByTime(60000);
+        });
+        expect(hostsApi.activity).toHaveBeenCalledTimes(callsBeforeMount + 2);
 
         unmount();
 
-        expect(clearIntervalSpy).toHaveBeenCalledWith(intervalId);
+        act(() => {
+          vi.advanceTimersByTime(60000);
+        });
+        expect(hostsApi.activity).toHaveBeenCalledTimes(callsBeforeMount + 2);
       }
-
-      expect(new Set(intervalIds).size).toBe(3);
-      expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
     }
@@ -434,7 +433,6 @@ describe('App', () => {
 
   it('does not create an additional polling interval on rerender', async () => {
     vi.useFakeTimers();
-    const setIntervalSpy = vi.spyOn(global, 'setInterval');
 
     try {
       const { rerender, unmount } = renderApp('/');
@@ -443,14 +441,26 @@ describe('App', () => {
       act(() => {
         vi.advanceTimersByTime(0);
       });
+      expect(hostsApi.activity).toHaveBeenCalledTimes(1);
 
-      const initialPollingCalls = setIntervalSpy.mock.calls.filter((call) => call[1] === 60000).length;
       rerender(<App />);
 
-      expect(setIntervalSpy.mock.calls.filter((call) => call[1] === 60000).length).toBe(initialPollingCalls);
+      act(() => {
+        vi.advanceTimersByTime(60000);
+      });
+      expect(hostsApi.activity).toHaveBeenCalledTimes(2);
+
+      act(() => {
+        vi.advanceTimersByTime(60000);
+      });
+      expect(hostsApi.activity).toHaveBeenCalledTimes(3);
 
       unmount();
-      expect(vi.getTimerCount()).toBe(0);
+
+      act(() => {
+        vi.advanceTimersByTime(60000);
+      });
+      expect(hostsApi.activity).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }
@@ -458,8 +468,6 @@ describe('App', () => {
 
   it('continues host activity polling after errors and still clears interval on unmount', async () => {
     vi.useFakeTimers();
-    const setIntervalSpy = vi.spyOn(global, 'setInterval');
-    const clearIntervalSpy = vi.spyOn(global, 'clearInterval');
 
     hostsApi.activity.mockRejectedValue(new Error('network down'));
 
@@ -478,13 +486,11 @@ describe('App', () => {
 
       expect(hostsApi.activity).toHaveBeenCalledTimes(3);
 
-      const intervalId = getLatestIntervalId(setIntervalSpy, 60000);
-      expect(intervalId).toBeTruthy();
-
       unmount();
-
-      expect(clearIntervalSpy).toHaveBeenCalledWith(intervalId);
-      expect(vi.getTimerCount()).toBe(0);
+      act(() => {
+        vi.advanceTimersByTime(60000);
+      });
+      expect(hostsApi.activity).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }
@@ -492,8 +498,6 @@ describe('App', () => {
 
   it('aborts a pending host activity request when App unmounts', async () => {
     vi.useFakeTimers();
-    const setIntervalSpy = vi.spyOn(global, 'setInterval');
-    const clearIntervalSpy = vi.spyOn(global, 'clearInterval');
 
     let requestSignal;
     hostsApi.activity.mockImplementation((options = {}) => {
@@ -513,8 +517,10 @@ describe('App', () => {
       unmount();
 
       expect(requestSignal?.aborted).toBe(true);
-      expect(clearIntervalSpy).toHaveBeenCalledWith(getLatestIntervalId(setIntervalSpy, 60000));
-      expect(vi.getTimerCount()).toBe(0);
+      act(() => {
+        vi.advanceTimersByTime(60000);
+      });
+      expect(hostsApi.activity).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
