@@ -423,6 +423,8 @@ const FACTORY_V2_ROUTES = [
           ? undefined
           : parseFactoryCsvList(req.query.allowed_fallback_providers),
         require_classified_fallback: coerceFactoryBoolean(req.query?.require_classified_fallback),
+        effective_since: req.query?.effective_since,
+        since: req.query?.since,
       }),
     ),
   },

@@ -1929,6 +1929,8 @@ async function handleFactoryProviderLaneAudit(args) {
     expected_provider: args.expected_provider,
     allowed_fallback_providers: args.allowed_fallback_providers,
     require_classified_fallback: args.require_classified_fallback,
+    effective_since: args.effective_since,
+    since: args.since,
   });
   return jsonResponse(audit);
 }

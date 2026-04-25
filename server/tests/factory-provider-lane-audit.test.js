@@ -196,6 +196,40 @@ describe('provider lane audit', () => {
     expect(permissive.guard.warnings_count).toBe(2);
   });
 
+  it('limits the guard window to tasks after the policy effective timestamp', () => {
+    const db = createDb();
+    const configuredProject = {
+      ...project,
+      config_json: JSON.stringify({
+        provider_lane_policy: {
+          expected_provider: 'ollama-cloud',
+          allowed_fallback_providers: [],
+          effective_since: '2026-04-25T17:02:00.000Z',
+        },
+      }),
+    };
+    insertTask(db, {
+      id: 'pre-policy-codex',
+      provider: 'codex',
+      metadata: { target_project: 'DLPhone', project_id: 'proj-1' },
+      created_at: '2026-04-25T17:01:59.000Z',
+    });
+    insertTask(db, {
+      id: 'post-policy-ollama',
+      provider: 'ollama-cloud',
+      metadata: { target_project: 'DLPhone', project_id: 'proj-1' },
+      created_at: '2026-04-25T17:02:00.000Z',
+    });
+
+    const audit = buildProviderLaneAudit({ db, project: configuredProject });
+
+    expect(audit.policy.effective_since).toBe('2026-04-25T17:02:00.000Z');
+    expect(audit.window.effective_since).toBe('2026-04-25T17:02:00.000Z');
+    expect(audit.summary.total_tasks).toBe(1);
+    expect(audit.tasks.map((task) => task.id)).toEqual(['post-policy-ollama']);
+    expect(audit.guard.status).toBe('pass');
+  });
+
   it('does not let undefined handler options erase project provider-lane config', () => {
     const db = createDb();
     const configuredProject = {

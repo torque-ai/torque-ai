@@ -590,6 +590,10 @@ const tools = [
           default: true,
           description: 'When true, allowed fallback providers still fail the guard unless the task carries handoff/fallback metadata.',
         },
+        effective_since: {
+          type: 'string',
+          description: 'Optional ISO timestamp. When set, only tasks created at or after this time are included. Project provider_lane_policy.effective_since is used when present.',
+        },
       },
       required: ['project'],
     },
