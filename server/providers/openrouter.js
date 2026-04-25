@@ -416,7 +416,6 @@ class OpenRouterProvider extends BaseProvider {
   }
 
   async listModels(options = {}) {
-    if (!this.apiKey) return [];
     try {
       const models = await this._fetchModels({
         timeoutMs: options.timeoutMs || 5000,
@@ -432,7 +431,6 @@ class OpenRouterProvider extends BaseProvider {
   }
 
   async discoverModels(options = {}) {
-    if (!this.apiKey) return { provider: this.name, models: [] };
     try {
       const models = await this._fetchModels({
         timeoutMs: options.timeoutMs || 5000,
@@ -456,10 +454,6 @@ class OpenRouterProvider extends BaseProvider {
   }
 
   async _fetchModels({ timeoutMs = 5000, toolsOnly = false, freeOnly = false, limit = null } = {}) {
-    if (!this.apiKey) {
-      throw new Error('No API key configured');
-    }
-
     const baseUrl = String(this.baseUrl || '').replace(/\/+$/, '');
     const url = new URL(`${baseUrl}/v1/models`);
     if (toolsOnly) url.searchParams.set('supported_parameters', 'tools');
@@ -468,8 +462,9 @@ class OpenRouterProvider extends BaseProvider {
     const timeoutId = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
     try {
+      const headers = this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {};
       const response = await fetch(url.toString(), {
-        headers: { 'Authorization': `Bearer ${this.apiKey}` },
+        headers,
         signal: controller.signal,
       });
       if (!response.ok) {

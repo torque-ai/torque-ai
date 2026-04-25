@@ -214,11 +214,26 @@ describe('OpenRouterProvider', () => {
       );
     });
 
-    it('returns an empty array when the API key is missing', async () => {
+    it('can list public model metadata when the API key is missing', async () => {
       const noKeyProvider = new OpenRouterProvider({ apiKey: '' });
+      fetchMock.mockResolvedValue(jsonResponse({
+        data: [
+          {
+            id: 'minimax/minimax-m2.5:free',
+            pricing: { prompt: '0', completion: '0' },
+            supported_parameters: ['tools'],
+          },
+        ],
+      }));
 
-      await expect(noKeyProvider.listModels()).resolves.toEqual([]);
-      expect(fetchMock).not.toHaveBeenCalled();
+      await expect(noKeyProvider.listModels()).resolves.toEqual(['minimax/minimax-m2.5:free']);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://openrouter.ai/api/v1/models',
+        expect.objectContaining({
+          headers: {},
+          signal: expect.any(AbortSignal),
+        })
+      );
     });
   });
 
