@@ -193,22 +193,48 @@ async function getModifiedFiles(workingDirectory, worktreeBranch, mergeBase) {
   });
 }
 
-async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, workingDirectory, verifyOutput, timeoutMs = LLM_TIMEOUT_MS }) {
+// The reviewer is a structured yes/no judgment ("does this diff explain
+// those failures?"). Cerebras/groq deliver JSON in ~1-3s vs Codex's
+// ~5-10min for the same task. Override via env for ops flexibility:
+// empty string opts back into smart routing (legacy behavior).
+function readReviewerProvider() {
+  const raw = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+  if (raw === undefined) return 'cerebras';
+  const trimmed = String(raw).trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+// Reinforces the JSON-shape contract when the first attempt produced
+// unparseable output. Some models occasionally wrap the verdict in
+// markdown fences or prose. Appending this on retry tightens the spec
+// and usually produces clean JSON without burning a re-route.
+const STRICT_JSON_SUFFIX = '\n\nIMPORTANT: Output JSON only — no markdown, no fences, no commentary outside the JSON object. Exactly: {"verdict":"go" or "no-go","critique":"..."}\n';
+
+async function submitAndParseTiebreak({ prompt, workingDirectory, project, workItem, timeoutMs, reviewerProvider }) {
   const { submitFactoryInternalTask } = require('./internal-task-submit');
   const { handleAwaitTask } = require('../handlers/workflow/await');
   const taskCore = require('../db/task-core');
 
-  const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem, verifyOutput });
-  let taskId;
   const timeoutMinutes = timeoutMinutesForMs(timeoutMs);
+  let taskId;
   try {
     const submitResult = await submitFactoryInternalTask({
       task: prompt,
       working_directory: workingDirectory || project?.path || process.cwd(),
-      kind: 'plan_generation',
+      kind: 'verify_review',
       project_id: project?.id,
       work_item_id: workItem?.id,
       timeout_minutes: timeoutMinutes,
+      // The prompt already contains all needed context (failing tests,
+      // modified files, verify excerpt). Skip context-stuffing so the
+      // model focuses on the verdict instead of re-deriving it from
+      // scanned project files.
+      context_stuff: false,
+      // prefer_free=true gives cerebras → groq → google-ai → openrouter
+      // fallback if the primary provider is unhealthy. Avoids paying
+      // Codex prices for what a fast free model handles in seconds.
+      prefer_free: true,
+      ...(reviewerProvider ? { provider: reviewerProvider } : {}),
     });
     taskId = submitResult?.task_id || null;
   } catch (_e) {
@@ -256,6 +282,26 @@ async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, 
     void _e;
     return buildLlmResult({ status: 'invalid_output', taskId });
   }
+}
+
+async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, workingDirectory, verifyOutput, timeoutMs = LLM_TIMEOUT_MS }) {
+  const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem, verifyOutput });
+  const reviewerProvider = readReviewerProvider();
+  const args = { workingDirectory, project, workItem, timeoutMs, reviewerProvider };
+
+  const first = await module.exports.submitAndParseTiebreak({ ...args, prompt });
+  if (first.status !== 'invalid_output') return first;
+
+  // Retry once with a stricter JSON-only instruction. Without this, a
+  // single malformed response (markdown-wrapped JSON, prose around the
+  // object) sends the project to verify_reviewed_ambiguous_paused with
+  // confidence=low — which then needs auto-recovery + another reviewer
+  // task anyway. One in-process retry costs the same time, returns a
+  // verdict the first attempt almost had, and avoids burning auto-
+  // recovery attempts on a parse-error nuisance.
+  const strictPrompt = `${prompt}${STRICT_JSON_SUFFIX}`;
+  const second = await module.exports.submitAndParseTiebreak({ ...args, prompt: strictPrompt });
+  return second;
 }
 
 const VERIFY_EXCERPT_MAX_CHARS = 3000;
@@ -510,7 +556,9 @@ module.exports = {
   parseFailingTests,
   getModifiedFiles,
   runLlmTiebreak,
+  submitAndParseTiebreak,
   reviewVerifyFailure,
   buildTiebreakPrompt,
   extractVerifyExcerpt,
+  STRICT_JSON_SUFFIX,
 };

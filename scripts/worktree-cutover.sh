@@ -193,6 +193,20 @@ fi
 
 echo "[ok] Merged"
 
+# If the merge updated any tracked hook source under scripts/ (currently
+# scripts/pre-push-hook), refresh the installed copy in .git/hooks/ so the
+# next push gets the new version. Without this, hook source updates land
+# on main but stay dormant until someone manually runs install-git-hooks
+# or creates a new worktree — the symptom is "I shipped a hook fix but
+# the gate is still using the old hook." Idempotent and quiet on no-op.
+if echo "$merge_changed_files" | grep -qE "^scripts/(install-git-hooks\.sh|.*-hook)$"; then
+  if [ -x "${REPO_ROOT}/scripts/install-git-hooks.sh" ]; then
+    echo "  Hook source changed in merge — refreshing .git/hooks/..."
+    bash "${REPO_ROOT}/scripts/install-git-hooks.sh" || \
+      echo "[warn] install-git-hooks failed — .git/hooks may be stale. Run 'bash scripts/install-git-hooks.sh' manually."
+  fi
+fi
+
 # Dashboard bundle is served from dashboard/dist/. Only dist/index.html and
 # dist/vite.svg are tracked — dist/assets/*.js|*.css are gitignored. If a
 # feature branch touched dashboard sources or bumped deps, the committed
@@ -434,7 +448,15 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     else
       echo "  PID record unavailable — falling back to outage + recovery confirmation."
     fi
-    RESTART_WAIT_SECONDS=${CUTOVER_RESTART_WAIT_SECONDS:-240}
+    # 240s was empirically too tight: a contended workstation (multiple
+    # factory tasks running, disk pressure during the orphan-tarball
+    # period, slow pre-startup DB backup hashing a multi-GB sqlite) can
+    # legitimately take 4-7 minutes to come back. The previous default
+    # produced "TORQUE did not come back up" false alarms that triggered
+    # an unnecessary manual `nohup node` and confused the operator into
+    # thinking the cutover failed when it just hadn't finished yet.
+    # Override via CUTOVER_RESTART_WAIT_SECONDS for slow environments.
+    RESTART_WAIT_SECONDS=${CUTOVER_RESTART_WAIT_SECONDS:-480}
     RESTART_DEADLINE=$(( $(date +%s) + RESTART_WAIT_SECONDS ))
     RESTART_CONFIRMED=false
     OUTAGE_OBSERVED=false
@@ -479,7 +501,7 @@ if [ "$TORQUE_RUNNING" = "true" ]; then
     if [ "$RESTART_CONFIRMED" != "true" ]; then
       echo "[warn] TORQUE did not come back up within ${RESTART_WAIT_SECONDS}s. Starting manually..."
       nohup node "${REPO_ROOT}/server/index.js" > /dev/null 2>&1 &
-      MANUAL_WAIT_SECONDS=${CUTOVER_MANUAL_START_WAIT_SECONDS:-120}
+      MANUAL_WAIT_SECONDS=${CUTOVER_MANUAL_START_WAIT_SECONDS:-240}
       MANUAL_DEADLINE=$(( $(date +%s) + MANUAL_WAIT_SECONDS ))
       while [ "$(date +%s)" -lt "$MANUAL_DEADLINE" ]; do
         if torque_api_reachable; then

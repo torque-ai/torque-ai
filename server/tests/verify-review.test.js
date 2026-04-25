@@ -542,6 +542,165 @@ describe('runLlmTiebreak', () => {
     expect(submittedPrompt).toContain('[...truncated...]');
     expect(submittedPrompt.length).toBeLessThan(longDescription.length);
   });
+
+  it('routes verify_review with cerebras + prefer_free + context_stuff:false by default', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-fast' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+    });
+    const original = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      await runLlmTiebreak({
+        failingTests: ['tests/foo.py'],
+        modifiedFiles: ['src/bar.ts'],
+        workItem: { id: 1, title: 'w', description: 'd' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'verify_review',
+        provider: 'cerebras',
+        prefer_free: true,
+        context_stuff: false,
+      }));
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+      else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = original;
+    }
+  });
+
+  it('honors TORQUE_VERIFY_REVIEWER_PROVIDER env override', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-env' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+    });
+    const original = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = 'groq';
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      await runLlmTiebreak({
+        failingTests: ['tests/foo.py'],
+        modifiedFiles: ['src/bar.ts'],
+        workItem: { id: 1, title: 'w', description: 'd' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+        provider: 'groq',
+      }));
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+      else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = original;
+    }
+  });
+
+  it('opts back into smart routing when TORQUE_VERIFY_REVIEWER_PROVIDER is empty', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-empty' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+    });
+    const original = process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+    process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = '';
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      await runLlmTiebreak({
+        failingTests: ['tests/foo.py'],
+        modifiedFiles: ['src/bar.ts'],
+        workItem: { id: 1, title: 'w', description: 'd' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      const call = submit.mock.calls[0][0];
+      expect(call.provider).toBeUndefined();
+      expect(call.prefer_free).toBe(true);
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_PROVIDER;
+      else process.env.TORQUE_VERIFY_REVIEWER_PROVIDER = original;
+    }
+  });
+
+  it('retries once with strict-JSON suffix when first attempt is invalid_output', async () => {
+    const submit = vi.fn()
+      .mockResolvedValueOnce({ task_id: 't-attempt-1' })
+      .mockResolvedValueOnce({ task_id: 't-attempt-2' });
+    const taskFn = vi.fn()
+      .mockReturnValueOnce({ status: 'completed', output: 'here is your answer: { verdict: maybe }' })
+      .mockReturnValueOnce({ status: 'completed', output: '{"verdict":"go","critique":"failures match the diff"}' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: taskFn,
+    });
+    const { runLlmTiebreak, STRICT_JSON_SUFFIX } = require('../factory/verify-review');
+    const r = await runLlmTiebreak({
+      failingTests: ['tests/foo.py'],
+      modifiedFiles: ['src/bar.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(submit.mock.calls[0][0].task).not.toContain(STRICT_JSON_SUFFIX.trim());
+    expect(submit.mock.calls[1][0].task).toContain('JSON only');
+    expect(r.verdict).toBe('go');
+    expect(r.status).toBe('completed');
+    expect(r.taskId).toBe('t-attempt-2');
+  });
+
+  it('does not retry when first attempt succeeds', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-once' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"no-go","critique":"unrelated baseline"}',
+      }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    await runLlmTiebreak({
+      failingTests: ['tests/foo.py'],
+      modifiedFiles: ['src/bar.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry on terminal non-parse failures (timeout, submit_failed)', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-timeout' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'timeout' }),
+      task: vi.fn().mockReturnValue({
+        status: 'cancelled',
+        output: null,
+        error_output: '[cancelled] Timeout exceeded',
+      }),
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    const r = await runLlmTiebreak({
+      failingTests: ['tests/foo.py'],
+      modifiedFiles: ['src/bar.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(r.status).toBe('timeout');
+  });
 });
 
 describe('extractVerifyExcerpt', () => {

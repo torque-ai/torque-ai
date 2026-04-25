@@ -5,6 +5,12 @@ const { buildProviderLaneTaskMetadata } = require('./provider-lane-policy');
 const PROJECT_BY_KIND = Object.freeze({
   architect_cycle: 'factory-architect',
   plan_generation: 'factory-plan',
+  // verify_review is a structured yes/no verdict task (does this diff
+  // explain those test failures?). Lives in factory-plan for billing
+  // grouping but exists as a distinct kind so the verify-review path can
+  // route to a fast/cheap provider (cerebras/groq) instead of inheriting
+  // plan_generation's Codex/xhigh routing.
+  verify_review: 'factory-plan',
 });
 
 function requireWorkingDirectory(working_directory) {
