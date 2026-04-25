@@ -62,7 +62,7 @@ const REGISTRY = {
   adaptive_retry_enabled:  { default: true,  type: 'bool' },
   tsserver_enabled:        { default: false, type: 'bool-optin' },
   openrouter_role_require_live_pass: { default: true, type: 'bool' },
-  openrouter_discovery_smoke_limit:  { default: 3,    type: 'int' },
+  openrouter_discovery_smoke_limit:  { default: 5,    type: 'int' },
 
   // Provider quota auto-scale
   quota_auto_scale_enabled:    { default: false, type: 'bool-optin' },

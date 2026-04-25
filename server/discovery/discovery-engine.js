@@ -60,6 +60,12 @@ function runPostDiscovery(db, provider, syncResult) {
  * @returns {Promise<{ discovered: number, new: number, updated: number, removed: number, roles_assigned: object[], capabilities_set: number }>}
  */
 async function discoverFromAdapter(db, adapter, provider, hostId) {
+  try {
+    if (typeof serverConfig.init === 'function') {
+      serverConfig.init({ db });
+    }
+  } catch { /* config init is best-effort */ }
+
   let discoveryResult;
   try {
     discoveryResult = await adapter.discoverModels();
@@ -98,11 +104,13 @@ async function discoverFromAdapter(db, adapter, provider, hostId) {
   if (provider === 'openrouter') {
     try {
       const { runOpenRouterScout } = require('./openrouter-scout');
+      const apiKey = serverConfig.getApiKey ? serverConfig.getApiKey(provider) : null;
       const smokeLimit = Math.max(0, serverConfig.getInt('openrouter_discovery_smoke_limit', 3));
       const requireLivePass = serverConfig.getBool('openrouter_role_require_live_pass', true);
       scoutResult = await runOpenRouterScout({
         db,
         models,
+        apiKey,
         smokeLimit,
         requireLivePass,
       });

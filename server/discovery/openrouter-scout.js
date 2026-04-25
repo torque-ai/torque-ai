@@ -2,6 +2,7 @@
 
 const logger = require('../logger').child({ component: 'openrouter-scout' });
 const providerModelScores = require('../db/provider-model-scores');
+const { parseToolCalls } = require('../providers/ollama-tools');
 
 const PROVIDER = 'openrouter';
 const DEFAULT_LIMIT = 60;
@@ -289,6 +290,15 @@ function mergeSmokeResult(row, smokeResult) {
   return next;
 }
 
+function messageCallsListDirectory(message) {
+  try {
+    const parsedCalls = parseToolCalls(message || {});
+    return Array.isArray(parsedCalls) && parsedCalls.some((call) => String(call?.name || '').toLowerCase() === 'list_directory');
+  } catch {
+    return false;
+  }
+}
+
 function isRateLimitError(error) {
   const message = String(error?.message || '').toLowerCase();
   return /\b429\b|rate.?limit|quota|too many requests/.test(message);
@@ -323,7 +333,8 @@ async function smokeOneModel({ modelName, apiKey, host, chatCompletion, timeoutM
     });
 
     const toolCalls = Array.isArray(result?.message?.tool_calls) ? result.message.tool_calls : [];
-    const toolCallOk = toolCalls.some((call) => call?.function?.name === 'list_directory');
+    const toolCallOk = toolCalls.some((call) => String(call?.function?.name || '').toLowerCase() === 'list_directory')
+      || messageCallsListDirectory(result.message);
     const content = String(result?.message?.content || '');
     return {
       ok: toolCallOk || content.length > 0,

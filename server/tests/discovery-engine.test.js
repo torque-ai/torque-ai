@@ -429,6 +429,7 @@ describe('discoverFromAdapter', () => {
     const configMock = {
       getInt: vi.fn((key, fallback) => (key === 'openrouter_discovery_smoke_limit' ? 5 : fallback)),
       getBool: vi.fn((key, fallback) => (key === 'openrouter_role_require_live_pass' ? true : fallback)),
+      getApiKey: vi.fn(() => 'mock-openrouter-key'),
     };
     const engine = loadEngine(registryMock, {
       openrouterScout: openrouterScoutMock,
@@ -451,6 +452,7 @@ describe('discoverFromAdapter', () => {
     expect(openrouterScoutMock.runOpenRouterScout).toHaveBeenCalledWith(expect.objectContaining({
       db,
       models,
+      apiKey: 'mock-openrouter-key',
       smokeLimit: 5,
       requireLivePass: true,
     }));

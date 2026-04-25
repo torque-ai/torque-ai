@@ -175,13 +175,133 @@ describe('openrouter-scout', () => {
     const chatCompletion = vi.fn(async () => ({
       message: {
         role: 'assistant',
-        content: '',
-        tool_calls: [{
-          type: 'function',
-          function: { name: 'list_directory', arguments: { path: '.' } },
-        }],
+        content: '<list_directory><path>.</path></list_directory>',
+        tool_calls: [],
       },
       usage: {},
+    }));
+
+    await runOpenRouterScout({
+      db,
+      apiKey: 'openrouter-key',
+      chatCompletion,
+      smokeLimit: 1,
+      models: [{
+        id: 'minimax/minimax-m2.5:free',
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: [],
+      }],
+    });
+
+    const row = db.prepare('SELECT smoke_status, tool_call_ok FROM provider_model_scores WHERE model_name = ?')
+      .get('minimax/minimax-m2.5:free');
+    expect(chatCompletion).toHaveBeenCalledOnce();
+    expect(row).toMatchObject({ smoke_status: 'pass', tool_call_ok: 1 });
+  });
+
+  it('detects OpenRouter pseudo tool-call formats from content', async () => {
+    db = makeDb();
+    insertApproved(db, 'minimax/minimax-m2.5:free');
+
+    const chatCompletion = vi.fn(async () => ({
+      message: {
+        role: 'assistant',
+        content: '<list_directory><path>.</path></list_directory>',
+        tool_calls: [],
+      },
+      usage: {},
+    }));
+
+    await runOpenRouterScout({
+      db,
+      apiKey: 'openrouter-key',
+      chatCompletion,
+      smokeLimit: 1,
+      models: [{
+        id: 'minimax/minimax-m2.5:free',
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: ['tools'],
+      }],
+    });
+
+    const row = db.prepare('SELECT smoke_status, tool_call_ok FROM provider_model_scores WHERE model_name = ?')
+      .get('minimax/minimax-m2.5:free');
+    expect(chatCompletion).toHaveBeenCalledOnce();
+    expect(row).toMatchObject({ smoke_status: 'pass', tool_call_ok: 1 });
+  });
+
+  it('detects bracketed pseudo tool calls from content', async () => {
+    db = makeDb();
+    insertApproved(db, 'minimax/minimax-m2.5:free');
+
+    const chatCompletion = vi.fn(async () => ({
+      message: {
+        role: 'assistant',
+        content: '[TOOL_CALLS]list_directory[ARGS]{"path":"."}',
+        tool_calls: [],
+      },
+      usage: {},
+    }));
+
+    await runOpenRouterScout({
+      db,
+      apiKey: 'openrouter-key',
+      chatCompletion,
+      smokeLimit: 1,
+      models: [{
+        id: 'minimax/minimax-m2.5:free',
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: ['tools'],
+      }],
+    });
+
+    const row = db.prepare('SELECT smoke_status, tool_call_ok FROM provider_model_scores WHERE model_name = ?')
+      .get('minimax/minimax-m2.5:free');
+    expect(chatCompletion).toHaveBeenCalledOnce();
+    expect(row).toMatchObject({ smoke_status: 'pass', tool_call_ok: 1 });
+  });
+
+  it('detects OpenRouter pseudo tool-call formats from content', async () => {
+    db = makeDb();
+    insertApproved(db, 'minimax/minimax-m2.5:free');
+
+    const chatCompletion = vi.fn(async () => ({
+      message: {
+        role: 'assistant',
+        content: '<list_directory><path>.</path></list_directory>',
+        tool_calls: [],
+      },
+      usage: {},
+    }));
+
+    await runOpenRouterScout({
+      db,
+      apiKey: 'openrouter-key',
+      chatCompletion,
+      smokeLimit: 1,
+      models: [{
+        id: 'minimax/minimax-m2.5:free',
+        pricing: { prompt: '0', completion: '0' },
+        supported_parameters: ['tools'],
+      }],
+    });
+
+    const row = db.prepare('SELECT smoke_status, tool_call_ok FROM provider_model_scores WHERE model_name = ?')
+      .get('minimax/minimax-m2.5:free');
+    expect(chatCompletion).toHaveBeenCalledOnce();
+    expect(row).toMatchObject({ smoke_status: 'pass', tool_call_ok: 1 });
+  });
+
+  it('detects bracketed pseudo tool calls from content', async () => {
+    db = makeDb();
+    insertApproved(db, 'minimax/minimax-m2.5:free');
+
+    const chatCompletion = vi.fn(async () => ({ message: {
+      role: 'assistant',
+      content: '[TOOL_CALLS]list_directory[ARGS]{"path":"."}',
+      tool_calls: [],
+    },
+    usage: {},
     }));
 
     await runOpenRouterScout({
