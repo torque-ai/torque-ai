@@ -63,6 +63,23 @@ function logDecision(db, { project_id, stage, action, reasoning, outcome, confid
          new Date().toISOString());
 }
 
+function isTerminalRealDecision(decision) {
+  if (!decision) return false;
+  const action = String(decision.action || '').toLowerCase();
+  const outcome = decision.outcome && typeof decision.outcome === 'object' ? decision.outcome : {};
+  const status = String(outcome.status || outcome.work_item_status || '').toLowerCase();
+
+  if (action.includes('terminal') && (
+    action.includes('rejection')
+    || action.includes('terminated')
+    || action.includes('completed')
+  )) {
+    return true;
+  }
+
+  return ['rejected', 'closed', 'completed', 'shipped'].includes(status);
+}
+
 function listProjectsToRearm(db) {
   return db.prepare(`
     SELECT id, name, status, loop_state, loop_batch_id, loop_paused_at_stage, auto_recovery_last_action_at
@@ -145,6 +162,24 @@ function createAutoRecoveryEngine({
 
   async function recoverOne(project) {
     const decision = latestRelevantDecisionForProject(db, project);
+    if (isTerminalRealDecision(decision)) {
+      logDecision(db, {
+        project_id: project.id,
+        stage: decision?.stage || 'verify',
+        action: 'auto_recovery_skipped_terminal',
+        reasoning: `Latest real decision ${decision.action} is terminal; auto-recovery will not retry a stopped loop.`,
+        outcome: {
+          latest_decision_action: decision.action,
+          latest_decision_stage: decision.stage || null,
+          latest_decision_outcome: decision.outcome || null,
+        },
+        confidence: 1,
+        batch_id: decision?.batch_id || null,
+      });
+      markExhausted(project.id, 'terminal_decision');
+      return { attempted: false, strategy: null, skipped: 'terminal_decision' };
+    }
+
     const classifyInput = decision
       ? decision
       : { action: 'never_started', stage: 'plan', outcome: {} };

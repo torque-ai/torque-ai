@@ -92,6 +92,59 @@ describe('auto-recovery engine.tick', () => {
     expect(failed.n).toBe(1);
   });
 
+  it('does not retry terminal real decisions after the loop has stopped', async () => {
+    db.prepare(`INSERT INTO factory_projects
+                (id, status, loop_state, loop_last_action_at, auto_recovery_attempts)
+                VALUES ('p-terminal', 'paused', 'IDLE', NULL, 0)`).run();
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, reasoning, batch_id, created_at, outcome_json)
+                VALUES ('p-terminal', 'verify', 'verifier', 'verify_terminal_rejection_terminated',
+                        'VERIFY reached a terminal outcome.', 'batch-893', '2026-04-21T03:00:00Z',
+                        '{"status":"rejected","reason":"baseline_broken"}')`).run();
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{ name: 'any', category: 'unknown', priority: 1, match: {}, suggested_strategies: ['retry'] }],
+      strategies: [{
+        name: 'retry',
+        applicable_categories: ['unknown', 'any'],
+        async run(ctx) {
+          ran.push(ctx.project.id);
+          return { success: true, next_action: 'retry' };
+        },
+      }],
+      nowMs: () => Date.parse('2026-04-21T13:00:00Z'),
+    });
+
+    const summary = await engine.tick();
+
+    expect(summary).toEqual(expect.objectContaining({ candidates: 1, attempts: 0 }));
+    expect(ran).toEqual([]);
+
+    const project = db.prepare(`
+      SELECT auto_recovery_attempts, auto_recovery_exhausted, auto_recovery_last_strategy
+      FROM factory_projects
+      WHERE id = 'p-terminal'
+    `).get();
+    expect(project).toEqual({
+      auto_recovery_attempts: 0,
+      auto_recovery_exhausted: 1,
+      auto_recovery_last_strategy: null,
+    });
+
+    const actions = db.prepare(`
+      SELECT action
+      FROM factory_decisions
+      WHERE actor = 'auto-recovery'
+      ORDER BY id
+    `).all().map((row) => row.action);
+    expect(actions).toEqual([
+      'auto_recovery_skipped_terminal',
+      'auto_recovery_exhausted',
+    ]);
+  });
+
   it('marks exhausted after MAX_ATTEMPTS and logs _exhausted', async () => {
     db.prepare(`INSERT INTO factory_projects
                 (id, status, loop_state, loop_paused_at_stage, loop_last_action_at, auto_recovery_attempts)
