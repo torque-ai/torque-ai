@@ -20,6 +20,11 @@ function createCancellationHandler({
   handleWorkflowTermination,
   processQueue
 }) {
+  function isTimeoutReason(reason) {
+    const timeoutPattern = /\b(?:timeout|timed\s*out|timing\s*out|time\s*out|timed-out|timedout)\b/i;
+    return timeoutPattern.test(String(reason || ''));
+  }
+
   function triggerCancellationWebhook(taskId, webhookEvent) {
     safeTriggerWebhook(taskId, webhookEvent);
   }
@@ -65,15 +70,14 @@ function createCancellationHandler({
   }
 
   function cancelTask(taskId, reason = 'Cancelled by user', options = {}) {
-    const reasonText = String(reason || '').toLowerCase();
-    const cancelReason = options.cancel_reason || (reasonText.includes('timeout') ? 'timeout' : 'user');
+    const isTimeout = isTimeoutReason(reason);
+    const cancelReason = options.cancel_reason || (isTimeout ? 'timeout' : 'user');
     const fullId = db.resolveTaskId(taskId);
     if (!fullId) {
       throw new Error(`No task found matching ID prefix: ${taskId}`);
     }
 
     const proc = runningProcesses.get(fullId);
-    const isTimeout = reason?.toLowerCase().includes('timeout') ?? false;
     const webhookEvent = isTimeout ? 'timeout' : 'cancelled';
 
     const pendingRetry = pendingRetryTimeouts.get(fullId);

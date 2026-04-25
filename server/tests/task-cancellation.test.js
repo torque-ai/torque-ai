@@ -230,6 +230,27 @@ describe('task-cancellation', () => {
       expect(mockDispatchTaskEvent).toHaveBeenCalledWith('timeout', expect.any(Object));
     });
 
+    it.each([
+      ['timed out while generating output', 'timeout'],
+      ['timing out when running command', 'timeout'],
+      ['command timed out unexpectedly', 'timeout'],
+      ['operation time out', 'timeout'],
+    ])('maps reason "%s" to webhook "%s"', (reasonText, expectedWebhook) => {
+      const fullId = `timeout-variant-${reasonText.replace(/\W+/g, '-')}`;
+      deps.db.resolveTaskId.mockReturnValue(fullId);
+      deps.db.getTask.mockReturnValue({ id: fullId, status: 'queued' });
+
+      handler.cancelTask(fullId, reasonText);
+
+      expect(deps.db.updateTaskStatus).toHaveBeenCalledWith(
+        fullId,
+        'cancelled',
+        expect.objectContaining({ cancel_reason: 'timeout' })
+      );
+      expect(deps.safeTriggerWebhook).toHaveBeenCalledWith(fullId, expectedWebhook);
+      expect(mockDispatchTaskEvent).toHaveBeenCalledWith(expectedWebhook, expect.any(Object));
+    });
+
     it('cancels queued tasks without process kill', () => {
       const fullId = 'queued-task';
       deps.db.resolveTaskId.mockReturnValue(fullId);
