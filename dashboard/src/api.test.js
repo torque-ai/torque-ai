@@ -332,6 +332,27 @@ describe('api.js', () => {
         })
       );
     });
+
+    it('setLimit() sends POST to /api/v2/concurrency/limit', async () => {
+      globalThis.fetch = mockFetch({ body: {} });
+      await concurrency.setLimit({ key_pattern: 'tenant:*', max_concurrent: 2 });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/concurrency/limit',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ key_pattern: 'tenant:*', max_concurrent: 2 }),
+        })
+      );
+    });
+
+    it('removeLimit() sends DELETE to encoded /api/v2/concurrency/limit/:pattern', async () => {
+      globalThis.fetch = mockFetch({ body: {} });
+      await concurrency.removeLimit('tenant:test');
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/concurrency/limit/tenant%3Atest',
+        expect.objectContaining({ method: 'DELETE' })
+      );
+    });
   });
 
   describe('workstations', () => {

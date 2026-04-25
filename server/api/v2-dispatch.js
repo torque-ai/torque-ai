@@ -186,6 +186,22 @@ function throwToolResultError(result) {
   throw error;
 }
 
+function sendCpError(res, req, ctx, message, status = 400, code = 'validation_error') {
+  sendJson(
+    res,
+    {
+      error: {
+        code,
+        message,
+        request_id: ctx.requestId,
+      },
+      meta: { request_id: ctx.requestId },
+    },
+    status,
+    req,
+  );
+}
+
 // ─── Handler Lookup ──────────────────────────────────────────────────────────
 
 const V2_CP_HANDLER_LOOKUP = {
@@ -201,6 +217,40 @@ const V2_CP_HANDLER_LOOKUP = {
     const result = concurrencyHandlers.handleSetConcurrencyLimit(body);
     const text = result?.content?.[0]?.text || '';
     sendJson(res, { data: { message: text }, meta: { request_id: ctx.requestId } }, 200, req);
+  },
+  handleV2CpSetConcurrencyKeyLimit: async (req, res, ctx) => {
+    try {
+      const body = await readJsonBody(req);
+      const result = concurrencyHandlers.setConcurrencyKeyLimit(body);
+      sendJson(res, { data: result, meta: { request_id: ctx.requestId } }, 200, req);
+    } catch (err) {
+      const status = Number.isInteger(err?.status) ? err.status : 500;
+      sendCpError(
+        res,
+        req,
+        ctx,
+        err?.message || 'Failed to set concurrency key limit',
+        status,
+        status === 400 ? 'validation_error' : 'concurrency_limit_error',
+      );
+    }
+  },
+  handleV2CpRemoveConcurrencyKeyLimit: (req, res, ctx, pattern) => {
+    try {
+      const keyPattern = ctx?.params?.key_pattern || pattern;
+      const result = concurrencyHandlers.removeConcurrencyKeyLimit(keyPattern);
+      sendJson(res, { data: result, meta: { request_id: ctx.requestId } }, 200, req);
+    } catch (err) {
+      const status = Number.isInteger(err?.status) ? err.status : 500;
+      sendCpError(
+        res,
+        req,
+        ctx,
+        err?.message || 'Failed to remove concurrency key limit',
+        status,
+        status === 400 ? 'validation_error' : 'concurrency_limit_error',
+      );
+    }
   },
   // Economy mode removed — use routing templates instead
   handleV2CpGetEconomyStatus: (_req, res, ctx) => {

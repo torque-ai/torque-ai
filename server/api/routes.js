@@ -1411,6 +1411,8 @@ const routes = [
   // Concurrency limits
   { method: 'GET', path: '/api/v2/concurrency', tool: 'get_concurrency_limits', handlerName: 'handleV2CpGetConcurrencyLimits', middleware: buildV2Middleware() },
   { method: 'POST', path: '/api/v2/concurrency/set', tool: 'set_concurrency_limit', handlerName: 'handleV2CpSetConcurrencyLimit', middleware: buildV2Middleware() },
+  { method: 'POST', path: '/api/v2/concurrency/limit', handlerName: 'handleV2CpSetConcurrencyKeyLimit', middleware: buildV2Middleware() },
+  { method: 'DELETE', path: /^\/api\/v2\/concurrency\/limit\/([^/]+)$/, handlerName: 'handleV2CpRemoveConcurrencyKeyLimit', mapParams: ['key_pattern'], middleware: buildV2Middleware({ params: validateDecodedParamField('key_pattern', 'key pattern') }) },
   // Economy mode removed — use routing templates (Cost Saver, Free Agentic) instead
 
   // Routing templates

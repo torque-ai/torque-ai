@@ -310,6 +310,13 @@ export const concurrency = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+  setLimit: (data) => requestV2('/concurrency/limit', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  removeLimit: (pattern) => requestV2(`/concurrency/limit/${encodeURIComponent(pattern)}`, {
+    method: 'DELETE',
+  }),
 };
 
 export const workstations = {

@@ -195,6 +195,8 @@ installCjsModuleMock('../plugins/remote-agents/handlers', {
 installCjsModuleMock('../handlers/concurrency-handlers', {
   handleGetConcurrencyLimits: vi.fn(() => toolResultJson({ limits: [] })),
   handleSetConcurrencyLimit: vi.fn(() => toolResultText('ok')),
+  setConcurrencyKeyLimit: vi.fn(() => ({ ok: true, key_pattern: 'tenant:*', max_concurrent: 2 })),
+  removeConcurrencyKeyLimit: vi.fn(() => ({ ok: true, key_pattern: 'tenant:*' })),
 });
 installCjsModuleMock('../handlers/routing-template-handlers', {
   handleListRoutingTemplates: vi.fn(() => toolResultJson([])),
