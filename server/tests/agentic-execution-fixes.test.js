@@ -1576,7 +1576,7 @@ describe('providers/execution agentic fixes', () => {
       .toBe('print("current")\n');
   });
 
-  it('does not fall back to codex proposal apply when provider lane forbids fallback', async () => {
+  it('requeues proposal apply to the lane provider when codex apply is forbidden', async () => {
     const { mod, configMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'ollama-cloud' ? 'cloud-key' : null));
 
@@ -1665,9 +1665,19 @@ describe('providers/execution agentic fixes', () => {
     await mod.executeApiProvider(task, { name: 'ollama-cloud' });
 
     const updated = tasks.get(task.id);
-    expect(updated.status).toBe('failed');
+    expect(updated.status).toBe('queued');
     expect(updated.provider).toBe('ollama-cloud');
-    expect(updated.error_output).toContain('provider lane policy blocked handoff to codex');
+    expect(updated.metadata.proposal_apply).toBe(true);
+    expect(updated.metadata.proposal_apply_mode).toBe('provider_handoff');
+    expect(updated.metadata.agentic_handoff_mode).toBe('proposal_apply');
+    expect(updated.metadata.agentic_handoff_to).toBe('ollama-cloud');
+    expect(updated.metadata.proposal_apply_provider).toBe('ollama-cloud');
+    expect(updated.metadata.proposal_apply_deterministic_apply_failed).toBe(true);
+    expect(updated.metadata.proposal_apply_deterministic_failure_reason)
+      .toContain('exact old_text was not found');
+    expect(updated.metadata.ollama_cloud_repo_write_mode).toBeUndefined();
+    expect(updated.metadata.agentic_allowed_tools).toBeUndefined();
+    expect(updated.task_description).toContain('Apply the following repository edits drafted by the proposal phase.');
     expect(fs.readFileSync(path.join(workingDir, 'tools/existing.py'), 'utf-8'))
       .toBe('print("current")\n');
   });

@@ -36,6 +36,7 @@ const {
 } = require('./agentic-git-safety');
 const { resolveOllamaModel } = require('./ollama-shared');
 const {
+  getProviderLanePolicyFromMetadata,
   isProviderLaneHandoffAllowed,
   providerLaneHandoffBlockReason,
 } = require('../factory/provider-lane-policy');
@@ -250,7 +251,7 @@ function resolveProviderRoleModel(provider, role) {
 }
 
 function parseProviderModelMetadata(value) {
-  if (typeof value == null) return {};
+  if (value == null) return {};
   if (typeof value === 'string') {
     if (!value.trim()) return {};
     try {
@@ -1099,32 +1100,68 @@ function requeueAgenticTaskForHandoff(db, taskId, task, targetEntry, remainingCh
   return db.updateTaskStatus(taskId, 'queued', patch);
 }
 
+function resolveProviderLaneProposalApplyTarget(task, metadata) {
+  const policy = getProviderLanePolicyFromMetadata(metadata);
+  const laneProvider = normalizeProviderName(policy?.expected_provider);
+  if (!policy?.enforce_handoffs || !laneProvider) {
+    return null;
+  }
+  if (!isAgenticWorkerCompatibleProvider(laneProvider)) {
+    return null;
+  }
+  if (!isProviderLaneHandoffAllowed(metadata, laneProvider)) {
+    return null;
+  }
+
+  const laneModel = normalizeOptionalModel(metadata.proposal_apply_lane_model)
+    || normalizeOptionalModel(task?.model)
+    || normalizeOptionalModel(metadata.requested_model);
+  const entry = {
+    provider: laneProvider,
+    ...(laneModel ? { model: laneModel } : {}),
+  };
+  return {
+    entry,
+    remainingChain: [entry],
+  };
+}
+
 function resolveProposalApplyTarget(task, db) {
   const metadata = normalizeTaskMetadata(task);
   const preferredProvider = normalizeProviderName(metadata.proposal_apply_provider || 'codex') || 'codex';
   const preferredModel = normalizeOptionalModel(metadata.proposal_apply_model);
   if (preferredProvider && isProviderEnabledAndHealthyForHandoff(db, preferredProvider)) {
-    return enforceProviderLaneForHandoff(task, {
+    const preferredTarget = enforceProviderLaneForHandoff(task, {
       entry: { provider: preferredProvider, model: preferredModel },
       remainingChain: [{ provider: preferredProvider, ...(preferredModel ? { model: preferredModel } : {}) }],
     });
+    if (preferredTarget?.entry?.provider) {
+      return preferredTarget;
+    }
   }
 
-  return resolveAgenticHandoffTarget({
+  const chainTarget = resolveAgenticHandoffTarget({
     task,
     chain: metadata._routing_chain,
     db,
     currentProvider: task?.provider,
     currentModel: task?.model || null,
   });
+  if (chainTarget?.entry?.provider) {
+    return chainTarget;
+  }
+
+  return resolveProviderLaneProposalApplyTarget(task, metadata);
 }
 
 function buildProposalApplyHandoffPatch(task, targetEntry, remainingChain, reason, proposalResult, sourceResult) {
   const patch = buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason, { mode: 'proposal_apply' });
   const originalMetadata = normalizeTaskMetadata(task);
+  const targetProvider = normalizeProviderName(targetEntry?.provider) || targetEntry?.provider || null;
   const metadata = {
     ...patch.metadata,
     proposal_apply: true,
+    proposal_apply_provider: targetProvider,
     proposal_apply_parse_status: 'valid',
     proposal_apply_from: sourceResult?.provider || task?.provider || null,
     proposal_apply_source_model: sourceResult?.model || task?.model || null,
