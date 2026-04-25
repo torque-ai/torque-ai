@@ -8,9 +8,16 @@ const { buildFixture } = require('../fixtures');
 //
 // Injection path: setDb() — sets the module-scoped db handle in task-core.js.
 //
-// The fixture DB is built with createTables (base schema). The server_epoch
-// column is migration-added and not in the base schema, so we add it via
-// ALTER TABLE before wiring the DB into task-core.
+// CAUTION: taskCore.setDb is module-global. Only one metric per perf-run
+// process may own it. If a future metric also needs taskCore (e.g.,
+// db-list-tasks Task 13), either it must reuse this metric's fixture or the
+// metrics need a per-instance taskCore factory. The driver runs metrics
+// sequentially in one process, so within a run setDb-using metrics will see
+// the LAST handle wired in. For Phase 0 v0 only this metric uses setDb.
+//
+// The fixture DB is built with buildFixture (base schema + server_epoch patch).
+// The server_epoch column is migration-added and not in the base schema;
+// fixtures.js applies the ALTER TABLE idempotently so all metrics benefit.
 //
 // Excludes:
 //   - working_directory stat (no working_directory passed)
@@ -23,15 +30,15 @@ let cached = null;
 
 function lazyLoad() {
   if (cached) return cached;
-
   const fx = buildFixture({ tasks: 0 });
-
-  // Add migration-only column that createTask's INSERT references.
-  try { fx.db.exec('ALTER TABLE tasks ADD COLUMN server_epoch INTEGER'); } catch { /* already exists */ }
-
   const taskCore = require('../../db/task-core');
-  taskCore.setDb(fx.db);
-
+  if (typeof taskCore.setDb === 'function') {
+    taskCore.setDb(fx.db);
+  } else if (typeof taskCore.createTaskCore === 'function') {
+    taskCore.createTaskCore({ db: fx.db });
+  } else {
+    throw new Error('task-core: no injection path found');
+  }
   cached = { fx, taskCore };
   return cached;
 }

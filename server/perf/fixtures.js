@@ -1,5 +1,12 @@
 'use strict';
 
+// NOTE for metric authors: db modules that hold module-scope handles
+// (e.g., db/task-core.js setDb) are GLOBAL — two metrics calling setDb
+// in the same perf-run process will collide. Either share fixtures or
+// arrange teardown explicitly. Phase 0 v0 metrics that touch task-core
+// (#2 task-core-create, #9 db-list-tasks if it lands using listTasks's
+// module-scope path) coordinate via lazy-load + cached singleton.
+
 const Database = require('better-sqlite3');
 const { createTables } = require('../db/schema-tables');
 
@@ -29,6 +36,15 @@ function buildFixture(opts = {}) {
   // base schema). Skipping runMigrations avoids hitting tables (model_family_templates,
   // model_registry, routing_templates) that only exist in a seeded production DB.
   createTables(db, nullLogger);
+
+  // Patch tasks table for migration-added columns that aren't in the base
+  // CREATE TABLE statement. createTask requires these. Wrapped in try/catch so
+  // we silently no-op if the base schema already includes them in the future.
+  try {
+    db.exec('ALTER TABLE tasks ADD COLUMN server_epoch INTEGER');
+  } catch (_e) {
+    // column already exists — fine
+  }
 
   const insertTask = db.prepare(
     `INSERT INTO tasks (id, project, status, task_description, created_at, tags, files_modified, context)
