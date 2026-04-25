@@ -1,7 +1,7 @@
 'use strict';
 
-// Path B: dispatch-only measurement. We register an in-process fake session
-// that captures pushed events, then call pushNotification and time the
+// Path B: dispatch-only measurement. We register 100 in-process fake sessions
+// that capture pushed events, then call pushNotification and time the
 // dispatch. This excludes HTTP framing and SSE wire-format encoding over a
 // real socket, but captures the session-iteration, event-filter evaluation,
 // JSON serialisation, res.write(), pending-event queuing, dedup, and
@@ -13,14 +13,14 @@
 // already satisfied by the running TORQUE instance, making the perf test
 // non-isolated and fragile across process restarts).
 //
-// Session cleanup: the fake session is removed from the sessions Map and the
-// taskSubscriptions index in a process 'exit' listener so it never leaks into
-// the production server even if run() is called multiple times.
+// Session cleanup: the 100 fake sessions are removed from the sessions Map and
+// the taskSubscriptions index in a process 'exit' listener so they never leak
+// into the production server even if run() is called multiple times.
 
 const { performance } = require('perf_hooks');
 const sessionMod = require('../../transports/sse/session');
 
-const { sessions, addSessionToTaskSubscriptions } = sessionMod;
+const { sessions, addSessionToTaskSubscriptions, aggregationBuffers } = sessionMod;
 const pushNotification = sessionMod.pushNotification;
 
 // Build a fake in-process session that satisfies the checks in
@@ -33,11 +33,12 @@ const pushNotification = sessionMod.pushNotification;
 // We also need session._sessionId so addSessionToTaskSubscriptions wires it
 // into taskSubscriptions under ALL_TASKS_SUBSCRIPTION_KEY.
 
-const FAKE_SESSION_ID = `perf-sse-dispatch-${process.pid}`;
+const SESSION_ID_PREFIX = `perf-sse-dispatch-${process.pid}`;
+const SESSION_COUNT = 100;
 
 let cached = null;
 
-function buildFakeSession() {
+function buildFakeSession(id) {
   const writes = [];
   // Minimal mock res: notifySubscribedSessions guards on .writableEnded and
   // calls _sendSseEvent which calls res.write().
@@ -47,7 +48,7 @@ function buildFakeSession() {
   };
 
   const session = {
-    _sessionId: FAKE_SESSION_ID,
+    _sessionId: id,
     res,
     // Accept all event types
     eventFilter: new Set(['*']),
@@ -68,43 +69,62 @@ function buildFakeSession() {
 function lazyLoad() {
   if (cached) return cached;
 
-  const session = buildFakeSession();
-  sessions.set(FAKE_SESSION_ID, session);
-  // Subscribe to all tasks (ALL_TASKS_SUBSCRIPTION_KEY) so that the
-  // subscriberSessionIds set is populated even when taskId is null.
-  addSessionToTaskSubscriptions(FAKE_SESSION_ID, session.taskFilter);
-
-  // Cleanup on process exit so the fake session never leaks into a running
-  // TORQUE server if this module is accidentally loaded in that context.
-  process.once('exit', () => {
-    sessions.delete(FAKE_SESSION_ID);
-    sessionMod.purgeSessionFromTaskSubscriptions(FAKE_SESSION_ID);
+  // Fix 1: Inject sendSseEvent so res.write actually fires.
+  // Without this, _sendSseEvent is null and res.write() is never called.
+  sessionMod.injectSendHelpers({
+    sendSseEvent: (session, event, data) => session.res.write(data),
+    sendJsonRpcNotification: () => {}, // no-op
   });
 
-  cached = { session };
+  // Fix 2: Register 100 fake sessions so dispatch fans out 100x, pushing
+  // median well above performance.now() resolution on Windows (~0.4ms+ range).
+  const fakeSessions = [];
+  for (let i = 0; i < SESSION_COUNT; i++) {
+    const id = `${SESSION_ID_PREFIX}-${i}`;
+    const session = buildFakeSession(id);
+    sessions.set(id, session);
+    addSessionToTaskSubscriptions(id, session.taskFilter);
+    fakeSessions.push(session);
+  }
+
+  // Fix 3: Cleanup on process exit — remove sessions, task subscriptions,
+  // and aggregation buffer timers to prevent leaks.
+  process.once('exit', () => {
+    for (let i = 0; i < SESSION_COUNT; i++) {
+      const id = `${SESSION_ID_PREFIX}-${i}`;
+      sessions.delete(id);
+      sessionMod.purgeSessionFromTaskSubscriptions(id);
+      const aggBuf = aggregationBuffers.get(id);
+      if (aggBuf?.timer) clearTimeout(aggBuf.timer);
+      aggregationBuffers.delete(id);
+    }
+  });
+
+  cached = { fakeSessions };
   return cached;
 }
 
 async function run(ctx) {
-  const { session } = lazyLoad();
+  const { fakeSessions } = lazyLoad();
 
-  const beforePending = session.pendingEvents.length;
-  const beforeWrites = session.writes.length;
+  const first = fakeSessions[0];
+  const beforePending = first.pendingEvents.length;
+  const beforeWrites = first.writes.length;
 
   const start = performance.now();
   pushNotification({ type: 'completed', data: { taskId: `perf-task-${ctx.iter}`, status: 'completed', duration: 1 } });
   const elapsed = performance.now() - start;
 
-  // Sanity: the session must have received either a write (SSE frame) or a
+  // Sanity: the first session must have received either a write (SSE frame) or a
   // pending event. If neither happened the fake session was not reached by
-  // the dispatch path (wrong subscription wiring).
-  const receivedWrite = session.writes.length > beforeWrites;
-  const receivedEvent = session.pendingEvents.length > beforePending;
+  // the dispatch path (wrong subscription wiring or missing sendSseEvent inject).
+  const receivedWrite = first.writes.length > beforeWrites;
+  const receivedEvent = first.pendingEvents.length > beforePending;
 
   if (!receivedWrite && !receivedEvent) {
     throw new Error(
-      'sse-dispatch: pushNotification did not deliver to fake session ' +
-      `(writes ${session.writes.length}, events ${session.pendingEvents.length})`
+      'sse-dispatch: pushNotification did not deliver to fake session[0] ' +
+      `(writes ${first.writes.length}, events ${first.pendingEvents.length})`
     );
   }
 
@@ -113,7 +133,7 @@ async function run(ctx) {
 
 module.exports = {
   id: 'sse-dispatch',
-  name: 'SSE notification dispatch (path B: in-process fake session)',
+  name: 'SSE notification dispatch (path B: in-process fake session x100)',
   category: 'request-latency',
   units: 'ms',
   warmup: 5,

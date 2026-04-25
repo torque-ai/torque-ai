@@ -14,6 +14,6 @@ describe('metric: sse-dispatch', () => {
     const r = await metric.run({ iter: 0 });
     expect(typeof r.value).toBe('number');
     expect(r.value).toBeGreaterThan(0);
-    expect(r.value).toBeLessThan(2000);
+    expect(r.value).toBeLessThan(100);
   }, 30000);
 });
