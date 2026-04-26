@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { setupTestDbModule, teardownTestDb, rawDb, resetTables } = require('./vitest-setup');
+const { assertMaxPrepares } = require('./perf-test-helpers.test');
 
 let db, mod, testDir;
 let auditCalls;
@@ -701,5 +702,26 @@ describe('task-metadata module', () => {
     expect(full[6].data.exit_code).toBe(5);
     expect(limited).toHaveLength(4);
     expect(limited[3].type).toBe('comment');
+  });
+
+  describe('prepare-in-loop regressions', () => {
+    it('getAllTags issues exactly 1 prepare regardless of task count', async () => {
+      mkTask({ tags: ['x', 'y'] });
+      mkTask({ tags: ['y', 'z'] });
+      mkTask({ tags: ['z', 'x'] });
+      const count = await assertMaxPrepares(rawDb(), 1, () => {
+        mod.getAllTags();
+      });
+      expect(count).toBe(1);
+    });
+
+    it('getTagStats issues exactly 1 prepare regardless of task count', async () => {
+      mkTask({ tags: ['a', 'b'] });
+      mkTask({ tags: ['b', 'c'] });
+      const count = await assertMaxPrepares(rawDb(), 1, () => {
+        mod.getTagStats();
+      });
+      expect(count).toBe(1);
+    });
   });
 });
