@@ -15,10 +15,10 @@ const Database = require('better-sqlite3');
  */
 async function assertMaxPrepares(db, max, fn) {
   let count = 0;
-  const original = db.prepare.bind(db);
+  const original = db.prepare;
   db.prepare = function(...args) {
     count++;
-    return original(...args);
+    return original.apply(db, args);
   };
   try {
     await fn();
