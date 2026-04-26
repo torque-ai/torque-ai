@@ -3739,11 +3739,28 @@ function createTables(db, logger) {
     END
   `);
 
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS provider_circuit_breaker (
+        provider_id        TEXT PRIMARY KEY,
+        state              TEXT NOT NULL DEFAULT 'CLOSED',
+        tripped_at         TEXT,
+        untripped_at       TEXT,
+        trip_reason        TEXT,
+        last_canary_at     TEXT,
+        last_canary_status TEXT
+      )
+    `);
+  } catch (e) {
+    logger.debug(`Schema migration (provider_circuit_breaker): ${e.message}`);
+  }
+
   const peekFixtureCatalog = require('./peek-fixture-catalog');
   peekFixtureCatalog.setDb(db);
   peekFixtureCatalog.seedDefaultFixtures();
 }
 
 const ensureAllTables = createTables;
+const ensureSchema = createTables;
 
-module.exports = { createTables, ensureAllTables, ensureAuditLogChainColumns, ensureTableColumns };
+module.exports = { createTables, ensureAllTables, ensureSchema, ensureAuditLogChainColumns, ensureTableColumns };
