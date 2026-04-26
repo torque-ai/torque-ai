@@ -166,11 +166,13 @@ function lookupCache(taskDescription, workingDirectory, context, similarityThres
     };
   }
 
-  // Try semantic similarity match
+  // Try semantic similarity match — cap at 500 most-recently-hit entries
   const queryEmbedding = computeEmbedding(taskDescription);
   const candidates = db.prepare(`
     SELECT * FROM task_cache
     WHERE expires_at IS NULL OR expires_at > datetime('now')
+    ORDER BY last_hit_at DESC NULLS LAST
+    LIMIT 500
   `).all();
 
   let bestMatch = null;
