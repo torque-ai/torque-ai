@@ -195,6 +195,29 @@ function createVirtualFs(initialEntries = {}) {
     __getFile: (filePath) => files.get(normalizeFsPath(filePath)),
     __writes: writes,
   };
+  // fs.promises shim — handleGenerateTestTasks/scanDirectory went async in
+  // commit e2f186c2 and now call fs.promises.readdir/readFile/stat. Wrap the
+  // existing sync mocks so virtual-fs fixtures keep working.
+  fsMock.promises = {
+    readdir: vi.fn(async (dirPath, options = undefined) => fsMock.readdirSync(dirPath, options)),
+    readFile: vi.fn(async (filePath, encoding = undefined) => {
+      const buf = fsMock.readFileSync(filePath);
+      return typeof encoding === 'string' || (encoding && encoding.encoding) ? String(buf) : buf;
+    }),
+    stat: vi.fn(async (filePath) => {
+      const resolved = normalizeFsPath(filePath);
+      if (files.has(resolved)) {
+        return { size: Buffer.byteLength(files.get(resolved), 'utf8'), isFile: () => true, isDirectory: () => false };
+      }
+      if (dirs.has(resolved)) {
+        return { size: 0, isFile: () => false, isDirectory: () => true };
+      }
+      const error = new Error(`ENOENT: no such file or directory, stat '${filePath}'`);
+      error.code = 'ENOENT';
+      throw error;
+    }),
+    writeFile: vi.fn(async (filePath, content) => fsMock.writeFileSync(filePath, content)),
+  };
 
   return fsMock;
 }
@@ -816,19 +839,19 @@ describe('automation-handlers main unit suite', () => {
   });
 
   describe('handleGenerateTestTasks', () => {
-    it('returns a missing parameter error when working_directory is absent', () => {
+    it('returns a missing parameter error when working_directory is absent', async () => {
       const { handlers } = loadAutomationModule();
 
-      const result = handlers.handleGenerateTestTasks({});
+      const result = await handlers.handleGenerateTestTasks({});
 
       expect(result.isError).toBe(true);
       expect(getText(result)).toContain('working_directory is required');
     });
 
-    it('rejects non-string source_dirs values', () => {
+    it('rejects non-string source_dirs values', async () => {
       const { handlers } = loadAutomationModule();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: 'C:\\repo',
         source_dirs: ['src', 7],
       });
@@ -837,7 +860,7 @@ describe('automation-handlers main unit suite', () => {
       expect(getText(result)).toContain('source_dirs must be an array of strings or a string');
     });
 
-    it('reports when no suitable untested files remain after filtering', () => {
+    it('reports when no suitable untested files remain after filtering', async () => {
       const workingDir = 'C:\\repo';
       const fsMock = createVirtualFs({
         [path.join(workingDir, 'src', 'main.ts')]: buildLines(30, 'main'),
@@ -845,14 +868,14 @@ describe('automation-handlers main unit suite', () => {
       });
       const { handlers } = loadAutomationModule({ fs: fsMock });
 
-      const result = handlers.handleGenerateTestTasks({ working_directory: workingDir });
+      const result = await handlers.handleGenerateTestTasks({ working_directory: workingDir });
       const text = getText(result);
 
       expect(text).toContain('Test Gap Analysis');
       expect(text).toContain('No suitable untested files found.');
     });
 
-    it('reuses an existing related test file outside __tests__ when generating tasks', () => {
+    it('reuses an existing related test file outside __tests__ when generating tasks', async () => {
       const workingDir = 'C:\\repo';
       const fsMock = createVirtualFs({
         [path.join(workingDir, 'src', 'handlers', 'task-pipeline.js')]: buildLines(40, 'pipeline'),
@@ -860,7 +883,7 @@ describe('automation-handlers main unit suite', () => {
       });
       const { handlers } = loadAutomationModule({ fs: fsMock });
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         source_dirs: ['src/handlers', 'tests'],
         test_pattern: '.test.js',
@@ -874,7 +897,7 @@ describe('automation-handlers main unit suite', () => {
       expect(json[0].task).toContain('Extend the existing test file tests/handler-task-pipeline.test.js');
     });
 
-    it('auto-submits generated tasks and starts the task manager', () => {
+    it('auto-submits generated tasks and starts the task manager', async () => {
       const workingDir = 'C:\\repo';
       const fsMock = createVirtualFs({
         [path.join(workingDir, 'src', 'systems', 'QueueSystem.ts')]: buildLines(32, 'queue-system'),
@@ -883,7 +906,7 @@ describe('automation-handlers main unit suite', () => {
       db.createTask.mockReturnValue({ id: 'testtask1-abcdef' });
       const { handlers, mocks } = loadAutomationModule({ fs: fsMock, db });
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         auto_submit: true,
         provider: 'claude-cli',

@@ -96,7 +96,7 @@ function createVirtualFs(initialEntries = {}) {
     }
   }
 
-  return {
+  const api = {
     existsSync: vi.fn((targetPath) => {
       const resolved = normalizePath(targetPath);
       return dirs.has(resolved) || files.has(resolved);
@@ -176,6 +176,23 @@ function createVirtualFs(initialEntries = {}) {
     __getFile: (filePath) => files.get(normalizePath(filePath)),
     __writes: writes,
   };
+  // fs.promises shim — the production code converted scanDirectory and
+  // handleGenerateTestTasks to async (commit e2f186c2), so these handlers
+  // now call fs.promises.readdir/readFile/stat. Wrap the sync mocks so
+  // virtual-fs tests keep working without rewriting fixture setup.
+  api.promises = {
+    readdir: vi.fn(async (dirPath, options = undefined) => api.readdirSync(dirPath, options)),
+    readFile: vi.fn(async (filePath, encoding = undefined) => {
+      const buf = api.readFileSync(filePath);
+      // production callers pass 'utf8' and expect a string; mirror that.
+      return typeof encoding === 'string' || (encoding && encoding.encoding) ? String(buf) : buf;
+    }),
+    stat: vi.fn(async (filePath) => api.statSync(filePath)),
+    lstat: vi.fn(async (filePath) => api.lstatSync(filePath)),
+    writeFile: vi.fn(async (filePath, content) => api.writeFileSync(filePath, content)),
+    realpath: vi.fn(async (filePath) => api.realpathSync(filePath)),
+  };
+  return api;
 }
 
 function createErrorCodes() {
@@ -1262,20 +1279,20 @@ describe('Task Project Handlers', () => {
   });
 
   describe('handleGenerateTestTasks', () => {
-    it('returns a missing parameter error when working_directory is absent', () => {
+    it('returns a missing parameter error when working_directory is absent', async () => {
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({});
+      const result = await handlers.handleGenerateTestTasks({});
 
       expect(result.isError).toBe(true);
       expect(result.error_code).toBe(mockShared.ErrorCodes.MISSING_REQUIRED_PARAM.code);
       expect(textOf(result)).toContain('working_directory is required');
     });
 
-    it('rejects non-string source_dirs values', () => {
+    it('rejects non-string source_dirs values', async () => {
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: 'C:\\repo',
         source_dirs: ['src', 7],
       });
@@ -1285,14 +1302,14 @@ describe('Task Project Handlers', () => {
       expect(textOf(result)).toContain('source_dirs must be an array of strings or a string');
     });
 
-    it('accepts a single source_dirs string and scans that directory', () => {
+    it('accepts a single source_dirs string and scans that directory', async () => {
       const workingDir = 'C:\\repo';
       addVirtualFiles({
         [actualPath.join(workingDir, 'app', 'Feature.ts')]: buildLines(24, 'feature'),
       });
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         source_dirs: 'app',
         count: 1,
@@ -1304,7 +1321,7 @@ describe('Task Project Handlers', () => {
       expect(text).toContain('| app/Feature.ts | 24 |');
     });
 
-    it('reports when no suitable untested files remain after filtering', () => {
+    it('reports when no suitable untested files remain after filtering', async () => {
       const workingDir = 'C:\\repo';
       addVirtualFiles({
         [actualPath.join(workingDir, 'src', 'main.ts')]: buildLines(30, 'main'),
@@ -1312,14 +1329,14 @@ describe('Task Project Handlers', () => {
       });
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({ working_directory: workingDir });
+      const result = await handlers.handleGenerateTestTasks({ working_directory: workingDir });
       const text = textOf(result);
 
       expect(text).toContain('Test Gap Analysis');
       expect(text).toContain('No suitable untested files found.');
     });
 
-    it('selects the largest untested files first and respects count', () => {
+    it('selects the largest untested files first and respects count', async () => {
       const workingDir = 'C:\\repo';
       addVirtualFiles({
         [actualPath.join(workingDir, 'src', 'systems', 'BigSystem.ts')]: buildLines(60, 'big'),
@@ -1328,7 +1345,7 @@ describe('Task Project Handlers', () => {
       });
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         count: 2,
       });
@@ -1343,7 +1360,7 @@ describe('Task Project Handlers', () => {
       expect(json[1].node_id).toBe('test-mediumsystem');
     });
 
-    it('reuses an existing related test file outside __tests__ when generating tasks', () => {
+    it('reuses an existing related test file outside __tests__ when generating tasks', async () => {
       const workingDir = 'C:\\repo';
       addVirtualFiles({
         [actualPath.join(workingDir, 'src', 'handlers', 'task-pipeline.js')]: buildLines(40, 'pipeline'),
@@ -1351,7 +1368,7 @@ describe('Task Project Handlers', () => {
       });
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         source_dirs: ['src/handlers', 'tests'],
         test_pattern: '.test.js',
@@ -1365,7 +1382,7 @@ describe('Task Project Handlers', () => {
       expect(json[0].task).toContain('Extend the existing test file tests/handler-task-pipeline.test.js');
     });
 
-    it('respects exclude_patterns and min_lines when selecting candidates', () => {
+    it('respects exclude_patterns and min_lines when selecting candidates', async () => {
       const workingDir = 'C:\\repo';
       addVirtualFiles({
         [actualPath.join(workingDir, 'src', 'BootScene.ts')]: buildLines(80, 'boot'),
@@ -1374,7 +1391,7 @@ describe('Task Project Handlers', () => {
       });
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         exclude_patterns: ['BootScene'],
         min_lines: 20,
@@ -1388,7 +1405,7 @@ describe('Task Project Handlers', () => {
       expect(json).toHaveLength(1);
     });
 
-    it('recognizes .spec.js tests even when test_pattern is .test.js', () => {
+    it('recognizes .spec.js tests even when test_pattern is .test.js', async () => {
       const workingDir = 'C:\\repo';
       addVirtualFiles({
         [actualPath.join(workingDir, 'src', 'Widget.js')]: buildLines(28, 'widget'),
@@ -1396,7 +1413,7 @@ describe('Task Project Handlers', () => {
       });
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         test_pattern: '.test.js',
       });
@@ -1407,14 +1424,14 @@ describe('Task Project Handlers', () => {
       expect(text).toContain('| src/Widget.js | 28 | src/__tests__/Widget.test.js |');
     });
 
-    it('auto-submits generated tasks and starts the task manager', () => {
+    it('auto-submits generated tasks and starts the task manager', async () => {
       const workingDir = 'C:\\repo';
       addVirtualFiles({
         [actualPath.join(workingDir, 'src', 'systems', 'QueueSystem.ts')]: buildLines(32, 'queue-system'),
       });
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         auto_submit: true,
         provider: 'claude-cli',
@@ -1433,7 +1450,7 @@ describe('Task Project Handlers', () => {
       expect(text).toContain('Submitted 1 test tasks to claude-cli.');
     });
 
-    it('reports auto-submit failures inline', () => {
+    it('reports auto-submit failures inline', async () => {
       const workingDir = 'C:\\repo';
       addVirtualFiles({
         [actualPath.join(workingDir, 'src', 'systems', 'QueueSystem.ts')]: buildLines(32, 'queue-system'),
@@ -1443,7 +1460,7 @@ describe('Task Project Handlers', () => {
       });
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         auto_submit: true,
         count: 1,
@@ -1455,7 +1472,7 @@ describe('Task Project Handlers', () => {
       expect(text).toContain('Submitted 0 test tasks to codex.');
     });
 
-    it('applies custom category templates and the custom default template', () => {
+    it('applies custom category templates and the custom default template', async () => {
       const workingDir = 'C:\\repo';
       addVirtualFiles({
         [actualPath.join(workingDir, 'src', 'ui', 'Dialog.ts')]: buildLines(28, 'dialog'),
@@ -1463,7 +1480,7 @@ describe('Task Project Handlers', () => {
       });
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
         count: 2,
         category_templates: {
@@ -1479,7 +1496,7 @@ describe('Task Project Handlers', () => {
       ]);
     });
 
-    it('ignores node_modules, build, coverage, and __mocks__ directories', () => {
+    it('ignores node_modules, build, coverage, and __mocks__ directories', async () => {
       const workingDir = 'C:\\repo';
       addVirtualFiles({
         [actualPath.join(workingDir, 'src', 'Feature.ts')]: buildLines(26, 'feature'),
@@ -1490,7 +1507,7 @@ describe('Task Project Handlers', () => {
       });
       const handlers = loadAutomationHandlers();
 
-      const result = handlers.handleGenerateTestTasks({
+      const result = await handlers.handleGenerateTestTasks({
         working_directory: workingDir,
       });
       const text = textOf(result);
