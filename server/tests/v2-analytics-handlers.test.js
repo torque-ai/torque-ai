@@ -1611,27 +1611,33 @@ describe('api/v2-analytics-handlers', () => {
   });
 
   describe('handleQuotaStatus', () => {
-    it('returns empty providers and a status message', async () => {
+    it('returns an uninitialized message when no quota tracker is wired', async () => {
       const res = createMockRes();
 
       await handlers.handleQuotaStatus(createReq(), res);
 
       expect(expectSuccess(res)).toEqual({
         providers: {},
-        message: 'Free-tier status',
+        message: 'FreeQuotaTracker not initialized',
       });
     });
 
-    it('returns 200 even when called with extra query params', async () => {
+    it('returns quota tracker provider status when wired', async () => {
       const res = createMockRes();
+      handlers.setQuotaTrackerGetter(() => ({
+        getStatus: () => ({
+          cerebras: { cooldown_remaining_seconds: 0 },
+          'ollama-cloud': { cooldown_remaining_seconds: 300 },
+        }),
+      }));
 
-      await handlers.handleQuotaStatus(
-        createReq({ query: { extra: 'ignored' } }),
-        res,
-      );
+      await handlers.handleQuotaStatus(createReq({ query: { extra: 'ignored' } }), res);
 
       expect(expectSuccess(res)).toEqual({
-        providers: {},
+        providers: {
+          cerebras: { cooldown_remaining_seconds: 0 },
+          'ollama-cloud': { cooldown_remaining_seconds: 300 },
+        },
         message: 'Free-tier status',
       });
     });
