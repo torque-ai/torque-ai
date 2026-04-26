@@ -3140,12 +3140,18 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
 
   // Tasks that need raw chat-completion output, not agentic tool-calling:
   //   - Diffusion compute tasks (compute→apply pipeline).
-  //   - verify_review tiebreak tasks: yes/no JSON verdicts. The prompt
-  //     explicitly tells the model not to use tools. Wrapping them in
-  //     the agentic loop adds a system prompt demanding tool calls,
-  //     which conflicts with the verdict prompt — observed live on
-  //     StateTrace 2026-04-26 04:35-04:45 with cerebras/zai-glm-4.7
-  //     killed first by `missing_tool_evidence`, then `empty_toolless_result`.
+  //   - Factory-internal structured kinds (architect_cycle, plan_generation,
+  //     verify_review): all three are treated as "no file actions" by
+  //     taskLikelyRequiresFileChanges (see FACTORY_INTERNAL_STRUCTURED_KINDS
+  //     above). Their prompts produce structured text — a plan, a verdict,
+  //     an architect cycle JSON — directly from the model. Wrapping them
+  //     in the agentic loop adds a system prompt demanding tool calls,
+  //     which conflicts with the structured-output prompt and produces
+  //     `0 tool calls, 0 files changed` no-ops or `empty_toolless_result`
+  //     kills. Observed live: verify_review on StateTrace 2026-04-26
+  //     04:35-04:45 (cerebras/zai-glm-4.7), then 11 plan_generation
+  //     tasks 2026-04-26 with the verdict prompt mis-labeled as
+  //     plan_generation kind on ollama/qwen3-coder:30b.
   //   - Any task that explicitly requested response_format=json_object:
   //     by definition a structured-output call, not exploration.
   try {
@@ -3154,7 +3160,14 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       logger.info(`[API-WRAP] Compute task ${task.id} — bypassing agentic loop for raw text output`);
       return _executeApiModule.executeApiProvider(task, providerInstance);
     }
-    if (taskMeta.kind === 'verify_review') {
+    const kind = String(taskMeta.kind || '').trim().toLowerCase();
+    if (taskMeta.factory_internal === true && FACTORY_INTERNAL_STRUCTURED_KINDS.has(kind)) {
+      logger.info(`[API-WRAP] ${kind} task ${task.id} — bypassing agentic loop for structured-output prompt`);
+      return _executeApiModule.executeApiProvider(task, providerInstance);
+    }
+    // Bare kind === 'verify_review' as a fallback for non-factory-internal
+    // verify_review tasks that bbd5fd71 already covered (preserve that path).
+    if (kind === 'verify_review') {
       logger.info(`[API-WRAP] verify_review task ${task.id} — bypassing agentic loop for JSON-mode chat completion`);
       return _executeApiModule.executeApiProvider(task, providerInstance);
     }
