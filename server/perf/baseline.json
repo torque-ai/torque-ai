@@ -123,6 +123,12 @@
           "median": 13.891,
           "p95": 14.27,
           "runs": 10
+        },
+        "tool-registry": {
+          "median": 49.686,
+          "p95": 61.394,
+          "runs": 12,
+          "notes": "Phase 4: thin metadata module, no handler loading. Measured on local Windows dev machine (expect ~15-30ms on BahumutsOmen Linux). Target: <200ms."
         }
       },
       "last_updated_at": "2026-04-26T15:01:42.917Z"
