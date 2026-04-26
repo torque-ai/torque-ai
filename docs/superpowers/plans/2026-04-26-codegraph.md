@@ -8,7 +8,7 @@
 
 **Tech Stack:**
 - Runtime: Node.js (TORQUE server process), `worker_threads` for the indexer
-- Parsing: `web-tree-sitter@^0.26.8` + grammars from `tree-sitter-wasms@^0.1.13` (already installed)
+- Parsing: native `tree-sitter@^0.21.1` + per-grammar packages `tree-sitter-javascript@^0.21.4` and `tree-sitter-typescript@^0.23.2` (synchronous N-API bindings — same toolchain as `better-sqlite3`). The earlier draft used `web-tree-sitter` + `tree-sitter-wasms`, but those two pinned versions are mutually incompatible (web-tree-sitter ≥0.25 requires the new `dylink.0` custom-section header; the wasms in tree-sitter-wasms@0.1.13 still emit the old `dylink`). Native bindings sidestep the wasm ABI churn entirely.
 - Storage: `better-sqlite3@^12.8.0` via container `db` service (already installed)
 - Plugin contract: `server/plugins/plugin-contract.js` (`name`, `version`, `install`, `uninstall`, `mcpTools`, `middleware`, `eventHandlers`, `configSchema`)
 - Subprocess: `execFileSync` only — never `execSync`/`exec` (no shell, no injection surface)
@@ -467,48 +467,36 @@ Expected: FAIL — `Cannot find module '../parser'`
 // server/plugins/codegraph/parser.js
 'use strict';
 
-const path = require('path');
-const Parser = require('web-tree-sitter');
+const Parser = require('tree-sitter');
+const JavaScript = require('tree-sitter-javascript');
+const TypeScript = require('tree-sitter-typescript');
 
-const GRAMMAR_FILES = {
-  javascript: 'tree-sitter-javascript.wasm',
-  typescript: 'tree-sitter-typescript.wasm',
-  tsx: 'tree-sitter-tsx.wasm',
+const GRAMMARS = {
+  javascript: JavaScript,
+  typescript: TypeScript.typescript,
+  tsx:        TypeScript.tsx,
 };
 
 const cache = new Map();
-let parserInitPromise = null;
-
-function ensureParserInit() {
-  if (!parserInitPromise) {
-    parserInitPromise = Parser.init();
-  }
-  return parserInitPromise;
-}
-
-function grammarPath(language) {
-  const file = GRAMMAR_FILES[language];
-  if (!file) throw new Error(`unsupported language: ${language}`);
-  return path.join(__dirname, '..', '..', '..', 'node_modules', 'tree-sitter-wasms', 'out', file);
-}
 
 async function getParser(language) {
-  if (!GRAMMAR_FILES[language]) throw new Error(`unsupported language: ${language}`);
+  const grammar = GRAMMARS[language];
+  if (!grammar) throw new Error(`unsupported language: ${language}`);
   if (cache.has(language)) return cache.get(language);
-  await ensureParserInit();
-  const lang = await Parser.Language.load(grammarPath(language));
   const parser = new Parser();
-  parser.setLanguage(lang);
+  parser.setLanguage(grammar);
   cache.set(language, parser);
   return parser;
 }
 
 function supportedLanguages() {
-  return Object.keys(GRAMMAR_FILES);
+  return Object.keys(GRAMMARS);
 }
 
 module.exports = { getParser, supportedLanguages };
 ```
+
+Note: `getParser` returns a Promise even though the native bindings are synchronous, so downstream callers (extractor, indexer) can keep their `await getParser(...)` calls unchanged. Underneath, the work is sync — there's no `Parser.init()` step like web-tree-sitter required, no wasm load, no async I/O.
 
 - [ ] **Step 4: Run, verify pass**
 
