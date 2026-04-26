@@ -1,0 +1,15 @@
+'use strict';
+
+require('../metrics').register(require('./queue-scheduler-tick'));
+require('../metrics').register(require('./task-core-create'));
+require('../metrics').register(require('./governance-evaluate'));
+require('../metrics').register(require('./handler-project-stats'));
+require('../metrics').register(require('./mcp-task-info'));
+require('../metrics').register(require('./sse-dispatch'));
+require('../metrics').register(require('./db-factory-cost-summary'));
+require('../metrics').register(require('./db-project-stats'));
+require('../metrics').register(require('./db-list-tasks'));
+require('../metrics').register(require('./db-budget-threshold'));
+require('../metrics').register(require('./cold-import'));
+require('../metrics').register(require('./worktree-lifecycle'));
+require('../metrics').register(require('./restart-barrier'));
