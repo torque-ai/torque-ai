@@ -295,6 +295,21 @@ async function generatePipelineDocumentation(pipelineId, finalStatus) {
       return;
     }
 
+    // Create the reports directory synchronously up front so callers (and
+    // tests) can observe the directory immediately after invoking this
+    // function — generation is fire-and-forget, but the existence of the
+    // output directory is part of the contract that the pipeline ran.
+    try {
+      const earlyOutputDir = pipeline.working_directory || process.cwd();
+      const earlyTorqueDir = path.join(earlyOutputDir, '.torque', 'pipeline-reports');
+      fs.mkdirSync(earlyTorqueDir, { recursive: true });
+    } catch (_mkdirErr) {
+      // Non-fatal — the async mkdir below will retry. Tests that probe
+      // the directory will see it as long as the working_directory is
+      // writable, which is the realistic case.
+      void _mkdirErr;
+    }
+
     const steps = db.getPipelineSteps(pipelineId);
     const startTime = pipeline.started_at ? new Date(pipeline.started_at) : null;
     const endTime = new Date();

@@ -86,6 +86,51 @@ function normalizeVerifyOutput(verifyOutput) {
   };
 }
 
+// Detect compile/build failures. Distinct from environment_failure (no tool
+// installed, permission denied, timeout) and from ambiguous (tests ran and
+// failed for unclear reasons). A build failure means the verify command exited
+// non-zero before any tests could run — exactly the case where failingTests=[]
+// is *more* certain, not less. Routing this through the auto-retry path
+// (instead of the ambiguous-pause path) is what catches "code doesn't compile"
+// regressions like SpudgetBooks f9cf2275 (missing `using`, variable shadow).
+function detectBuildFailure(verifyOutput) {
+  const normalized = normalizeVerifyOutput(verifyOutput);
+  const exit = normalized.exitCode;
+  if (typeof exit === 'number' && exit === 0) {
+    return { detected: false, signals: [] };
+  }
+  const combined = normalized.combined || '';
+  const signals = [];
+
+  // .NET / C#: roslyn emits "error CS\d+:" and trailing "Build FAILED.\n N Error(s)".
+  if (/\berror CS\d{3,5}:/.test(combined)) signals.push('csharp_compile_error');
+  if (/^\s*Build FAILED\.\s*$/m.test(combined)) signals.push('dotnet_build_failed_marker');
+  const dotnetErrCount = combined.match(/\b([1-9]\d*)\s+Error\(s\)\b/);
+  if (dotnetErrCount) signals.push(`dotnet_error_count_${dotnetErrCount[1]}`);
+
+  // TypeScript / tsc: "error TS\d+:" or watch-mode "Found N error(s)".
+  if (/\berror TS\d+:/.test(combined)) signals.push('ts_compile_error');
+  if (/Found\s+[1-9]\d*\s+errors?\.\b/.test(combined)) signals.push('tsc_found_errors');
+
+  // Java javac
+  if (/^.+\.java:\d+:\s+error:/m.test(combined)) signals.push('javac_error');
+
+  // GCC / clang
+  if (/^.+:\d+:\d+:\s+error:/m.test(combined)) signals.push('cc_error');
+
+  // make / gmake
+  if (/make(?:\[\d+\])?:\s+\*\*\*\s+\[.+\]\s+Error\s+\d+/.test(combined)) signals.push('make_error');
+
+  // Rust cargo: "error[E####]:" with non-zero exit + "could not compile"
+  if (/\berror\[E\d{4,5}\]:/.test(combined)) signals.push('rust_compile_error');
+  if (/error: could not compile/.test(combined)) signals.push('cargo_could_not_compile');
+
+  // Go: "<file>.go:<line>:<col>: <message>" + non-zero exit when no tests ran.
+  if (/^.+\.go:\d+:\d+:\s+/m.test(combined) && !/PASS|FAIL/.test(combined)) signals.push('go_compile_error');
+
+  return { detected: signals.length > 0, signals };
+}
+
 function detectEnvironmentFailure(verifyOutput) {
   const normalized = normalizeVerifyOutput(verifyOutput);
   const signals = [];
@@ -497,6 +542,27 @@ async function reviewVerifyFailure({
     };
   }
 
+  // Build failure: non-zero exit with compiler-error signatures and no
+  // failingTests parsed (because the verify command never reached the test
+  // runner). Route to the auto-retry path with high confidence — build
+  // failures are MORE certain than test ambiguity, not less. This is the
+  // gap that let f9cf2275 ship past verify on 2026-04-23.
+  const buildFail = detectBuildFailure(verifyOutput);
+  if (buildFail.detected) {
+    return {
+      classification: 'build_failure',
+      confidence: 'high',
+      modifiedFiles: [],
+      failingTests: [],
+      intersection: [],
+      environmentSignals: [],
+      buildSignals: buildFail.signals,
+      llmVerdict: null,
+      llmCritique: null,
+      suggestedRejectReason: 'verify_failed_build_error',
+    };
+  }
+
   // Missing-dependency classification: adapters detect common patterns
   // (ModuleNotFoundError, Cannot find module, etc.), LLM maps module→package.
   try {
@@ -674,6 +740,7 @@ module.exports = {
   ENVIRONMENT_STDERR_PATTERNS,
   normalizeVerifyOutput,
   detectEnvironmentFailure,
+  detectBuildFailure,
   parseFailingTests,
   getModifiedFiles,
   runLlmTiebreak,
