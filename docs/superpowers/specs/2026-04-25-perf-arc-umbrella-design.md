@@ -306,7 +306,7 @@ Each phase's "write child spec → review → plan → execute → cutover" cycl
 
 | Phase | Child spec | Status | Cutover commit |
 |---|---|---|---|
-| 0 — Baseline + gate | (umbrella §2) | planned | — |
+| 0 — Baseline + gate | (umbrella §2) | shipped | 6527b360 |
 | 1 — Sync I/O | (written when phase starts, after Phase 0 cutover) | planned | — |
 | 4 — Test infra | (written when phase starts, after Phase 0 cutover) | planned | — |
 | 2 — N+1 + indexes | (written when phase starts, after Phases 1+4 verified live) | planned | — |
