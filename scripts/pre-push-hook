@@ -272,4 +272,45 @@ if [ "$server_exit" -ne 0 ] || tests_have_failures "$server_output"; then
   gate_failed "Server tests failed (exit $server_exit)"
 fi
 
+# ---------------------------------------------------------------------------
+# Perf regression gate: runs after tests pass on main pushes, before allowing
+# the push. Uses the same staging-branch ref as the test gate so the perf
+# measurement runs against the exact code being pushed.
+# ---------------------------------------------------------------------------
+echo "[pre-push] Running perf regression gate against $staging_branch..."
+
+set +e
+PERF_OUT=$(torque-remote --branch "$staging_branch" bash -c "cd server && node perf/run-perf.js" 2>&1)
+PERF_STATUS=$?
+set -e
+
+echo "$PERF_OUT"
+
+if [ "$PERF_STATUS" -ne 0 ]; then
+  if [ "${PERF_GATE_BYPASS:-0}" = "1" ]; then
+    echo "[pre-push] PERF_GATE_BYPASS=1 set — perf regressions logged but push allowed"
+    AUDIT_LINE="[$(date -Iseconds 2>/dev/null || date)] BYPASS sha=$(git rev-parse HEAD) reason=PERF_GATE_BYPASS user=$(git config user.email 2>/dev/null || echo unknown)"
+    mkdir -p "$REPO_ROOT/server/perf"
+    echo "$AUDIT_LINE" >> "$REPO_ROOT/server/perf/bypass-audit.log"
+  else
+    echo "[pre-push] BLOCKED: perf regression gate failed (exit $PERF_STATUS)"
+    echo "[pre-push] To bypass for incident response: PERF_GATE_BYPASS=1 git push"
+    exit 1
+  fi
+fi
+
+# perf-baseline trailer enforcement: any commit in the push that touches
+# server/perf/baseline.json must carry a perf-baseline: trailer.
+if git rev-parse --verify origin/main >/dev/null 2>&1; then
+  remote_main_sha=$(git rev-parse origin/main)
+  for sha in $(git rev-list "$remote_main_sha..$local_head_sha" 2>/dev/null); do
+    if git show --name-only --format= "$sha" | grep -q '^server/perf/baseline\.json$'; then
+      if ! node "$REPO_ROOT/scripts/perf-baseline-trailer.js" "$sha"; then
+        echo "[pre-push] BLOCKED: commit $sha modifies server/perf/baseline.json without a valid perf-baseline: trailer"
+        exit 1
+      fi
+    fi
+  done
+fi
+
 echo "[pre-push] All tests passed — git will now push refs/heads/main."
