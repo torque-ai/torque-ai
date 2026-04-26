@@ -44,6 +44,12 @@ const RESULT_PREVIEW_MAX = 500;
 const READ_ONLY_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
 const ACTION_TOOLS = new Set(['write_file', 'edit_file', 'replace_lines', 'run_command']);
 const DEFAULT_MAX_READ_ONLY_ITERATIONS = envPositiveInt('TORQUE_AGENTIC_MAX_READ_ONLY_ITERATIONS', 5);
+// Cap tool calls per single model response. qwen3-coder:30b returned 22
+// parallel read-only calls in iteration 1 of DLPhone task 07af7b77 on
+// 2026-04-26 — exhausted exploration budget before any edit, then went
+// silent. Capping forces the model to interleave reading with reasoning
+// across multiple iterations. Override via TORQUE_AGENTIC_MAX_TOOL_CALLS_PER_TURN.
+const MAX_TOOL_CALLS_PER_TURN = envPositiveInt('TORQUE_AGENTIC_MAX_TOOL_CALLS_PER_TURN', 8);
 
 function buildProposalOutputCorrectionPrompt() {
   return [
@@ -368,6 +374,16 @@ async function runAgenticLoop({
 
     // Parse tool calls (handles structured + JSON + XML/pseudo-call formats)
     const toolCalls = parseToolCalls(assistantMessage);
+    // Cap parallel tool calls per response — see MAX_TOOL_CALLS_PER_TURN above.
+    // The dropped calls are logged so the operator can spot models that
+    // dump huge bursts. The model gets all results we kept in this turn,
+    // then sees fresh information on the next turn — that's the intended
+    // forcing function.
+    if (toolCalls.length > MAX_TOOL_CALLS_PER_TURN) {
+      const dropped = toolCalls.length - MAX_TOOL_CALLS_PER_TURN;
+      logger.warn(`[Agentic] Iteration ${iterations + 1}: model returned ${toolCalls.length} tool calls, capping at ${MAX_TOOL_CALLS_PER_TURN} (dropped ${dropped})`);
+      toolCalls.length = MAX_TOOL_CALLS_PER_TURN;
+    }
     const nativeToolCalls = Array.isArray(assistantMessage.tool_calls)
       ? assistantMessage.tool_calls
       : [];

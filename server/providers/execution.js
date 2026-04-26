@@ -3804,6 +3804,14 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     // blocked. This complements close-phases.js's failover hook (which only
     // fires for non-agentic tasks) by covering the agentic-API path that
     // bypasses close-phases on failure.
+    //
+    // Relationship to recordOpenRouterModelTaskOutcome (called below): the
+    // OpenRouter outcome tracker is persistent stats for ranking-style
+    // model selection (success rate over time, used by the OpenRouter
+    // adapter's model picker). This blocklist is short-term unreachability
+    // (1h TTL, in-memory). They serve different purposes — keep both:
+    //   - OpenRouter outcome tracker → "this model is statistically worse"
+    //   - model-blocklist → "this model isn't callable right now, skip it"
     try {
       const failedProvider = handledError.agenticFailedProvider || provider;
       const failedModel = handledError.agenticFailedModel || model || null;
