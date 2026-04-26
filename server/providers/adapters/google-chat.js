@@ -44,7 +44,7 @@ const https = require('https');
  *   usage:   { prompt_tokens: number, completion_tokens: number }
  * }>}
  */
-function chatCompletion({ host, apiKey, model, messages, tools, options: _options, timeoutMs, onChunk, signal }) {
+function chatCompletion({ host, apiKey, model, messages, tools, options: _options, timeoutMs, onChunk, signal, requireToolUseBeforeFinal }) {
   if (!apiKey) {
     return Promise.reject(new Error('API key required for Google AI provider'));
   }
@@ -157,6 +157,14 @@ function chatCompletion({ host, apiKey, model, messages, tools, options: _option
     }
     if (geminiTools) {
       body.tools = geminiTools;
+    }
+    const hasPriorToolResult = Array.isArray(messages) && messages.some((msg) => msg?.role === 'tool');
+    if (requireToolUseBeforeFinal && geminiTools && !hasPriorToolResult) {
+      body.toolConfig = {
+        functionCallingConfig: {
+          mode: 'ANY',
+        },
+      };
     }
 
     const requestBody = JSON.stringify(body);

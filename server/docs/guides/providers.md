@@ -17,7 +17,7 @@ TORQUE routes tasks across multiple execution providers, balancing cost, speed, 
 | **DeepInfra** | `deepinfra` | OpenAI-compatible Cloud API | Paid | High-throughput batch model routing |
 | **Hyperbolic** | `hyperbolic` | OpenAI-compatible Cloud API | Paid | High-capacity 70B–405B inference |
 | **Ollama Cloud** | `ollama-cloud` | Cloud HTTP | Paid | Remote Ollama-compatible endpoint |
-| **OpenRouter** | `openrouter` | Cloud HTTP | Paid | Multi-model gateway |
+| **OpenRouter** | `openrouter` | Cloud HTTP | Free + paid | Multi-model gateway |
 
 ## Smart Routing
 

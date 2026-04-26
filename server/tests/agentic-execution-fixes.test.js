@@ -122,7 +122,7 @@ function loadSubject(overrides = {}) {
         ollama_model: TEST_MODELS.DEFAULT,
         ollama_agentic_enabled: '1',
         ollama_host: 'http://localhost:11434',
-        agentic_max_iterations: '15',
+        agentic_max_iterations: '25',
         agentic_command_mode: 'unrestricted',
         agentic_command_allowlist: '',
         agentic_git_safety: 'on',
@@ -297,6 +297,141 @@ describe('providers/execution agentic fixes', () => {
 
     expect(gitSafetyMock.checkAndRevert).toHaveBeenCalled();
     expect(gitSafetyMock.checkAndRevert.mock.calls.every(([, , description]) => description === task.task_description)).toBe(true);
+  });
+
+  it('falls back when a free agentic provider returns missing tool evidence', async () => {
+    const { mod } = loadSubject();
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'Task stopped: model answered without using required repository tools.',
+          stopReason: 'missing_tool_evidence',
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 10 },
+          changedFiles: [],
+          iterations: 2,
+        },
+        {
+          type: 'result',
+          output: 'Verified from package.json.',
+          stopReason: 'model_finished',
+          toolLog: [{ name: 'read_file', error: false }],
+          tokenUsage: { prompt_tokens: 30, completion_tokens: 12 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    const task = {
+      id: 'task-missing-tool-evidence-fallback',
+      task_description: 'Inspect repository configuration and report facts only.',
+      working_directory: 'C:/repo',
+      metadata: JSON.stringify({ plan_task_title: 'Verify repository configuration' }),
+    };
+    const chain = [
+      { provider: 'cerebras', model: 'qwen-3-coder' },
+      { provider: 'google-ai', model: 'gemini-2.5-flash' },
+    ];
+
+    const result = await mod.executeWithFallback(task, chain, buildWorkerConfig, {});
+
+    expect(result.provider).toBe('google-ai');
+    expect(result.model).toBe('gemini-2.5-flash');
+    expect(result.chainPosition).toBe(2);
+    expect(result.output).toBe('Verified from package.json.');
+  });
+
+  it('falls back when a free agentic provider returns an empty toolless result', async () => {
+    const { mod } = loadSubject();
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: '',
+          stopReason: 'model_finished',
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 0 },
+          changedFiles: [],
+          iterations: 2,
+        },
+        {
+          type: 'result',
+          output: 'Verified from package.json.',
+          stopReason: 'model_finished',
+          toolLog: [{ name: 'read_file', error: false }],
+          tokenUsage: { prompt_tokens: 30, completion_tokens: 12 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    const task = {
+      id: 'task-empty-result-fallback',
+      task_description: 'Inspect repository configuration and report facts only.',
+      working_directory: 'C:/repo',
+      metadata: JSON.stringify({ plan_task_title: 'Verify repository configuration' }),
+    };
+    const chain = [
+      { provider: 'cerebras', model: 'qwen-3-coder' },
+      { provider: 'google-ai', model: 'gemini-2.5-flash' },
+    ];
+
+    const result = await mod.executeWithFallback(task, chain, buildWorkerConfig, {});
+
+    expect(result.provider).toBe('google-ai');
+    expect(result.model).toBe('gemini-2.5-flash');
+    expect(result.chainPosition).toBe(2);
+    expect(result.output).toBe('Verified from package.json.');
+  });
+
+  it('falls back when a free agentic provider returns tool logs without a final answer', async () => {
+    const { mod } = loadSubject();
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'Task stopped: model did not produce a final answer after repository tool use.\n\n--- Tool Execution Log (1 calls) ---\n[1] list_directory({"path":"."}) -> OK',
+          stopReason: 'empty_final_output',
+          toolLog: [{ name: 'list_directory', error: false }],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 0 },
+          changedFiles: [],
+          iterations: 3,
+        },
+        {
+          type: 'result',
+          output: 'Generated the requested Markdown plan.',
+          stopReason: 'model_finished',
+          toolLog: [{ name: 'read_file', error: false }],
+          tokenUsage: { prompt_tokens: 30, completion_tokens: 12 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    const task = {
+      id: 'task-empty-final-output-fallback',
+      task_description: 'Generate an execution plan for DLPhone.',
+      working_directory: 'C:/repo',
+      metadata: JSON.stringify({ plan_task_title: 'Plan DLPhone typed failure coverage' }),
+    };
+    const chain = [
+      { provider: 'cerebras', model: 'qwen-3-coder' },
+      { provider: 'google-ai', model: 'gemini-2.5-flash' },
+    ];
+
+    const result = await mod.executeWithFallback(task, chain, buildWorkerConfig, {});
+
+    expect(result.provider).toBe('google-ai');
+    expect(result.model).toBe('gemini-2.5-flash');
+    expect(result.chainPosition).toBe(2);
+    expect(result.output).toBe('Generated the requested Markdown plan.');
   });
 
   it('falls back when an OpenRouter agentic attempt produces no first response', async () => {
@@ -1113,6 +1248,150 @@ describe('providers/execution agentic fixes', () => {
       success: false,
       stopReason: 'missing_tool_evidence',
     }));
+  });
+
+  it('requires repository tool evidence for free cloud providers beyond openrouter', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'google-ai' ? 'google-key' : null));
+
+    const task = {
+      id: 'task-google-tool-evidence',
+      provider: 'google-ai',
+      model: 'gemini-2.5-flash',
+      task_description: 'Inspect the repository and report facts from the tools.',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    let capturedWorkerData = null;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker(_filename, options) {
+      capturedWorkerData = options.workerData;
+      const emitter = new EventEmitter();
+      this.postMessage = vi.fn();
+      this.terminate = vi.fn();
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      setImmediate(() => emitter.emit('message', {
+        type: 'result',
+        output: 'Observed files from repository tools.',
+        stopReason: 'model_finished',
+        toolLog: [{ name: 'list_directory', error: false }],
+        tokenUsage: { prompt_tokens: 12, completion_tokens: 8 },
+        changedFiles: [],
+        iterations: 1,
+      }));
+    });
+
+    await mod.executeApiProvider(task, { name: 'google-ai' });
+
+    expect(capturedWorkerData.requireToolUseBeforeFinal).toBe(true);
+  });
+
+  it('does not fail explicit verification plan tasks just because no files changed', async () => {
+    const { mod, configMock } = loadSubject();
+    configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
+
+    const task = {
+      id: 'task-verify-readonly-plan-title',
+      provider: 'openrouter',
+      model: 'openrouter/free',
+      task_description: [
+        'Plan Task 1: Verify LanStartupCoordinator typed failure implementation',
+        'Read the implementation and tests, then report whether they match the plan.',
+        'Step 5: git commit -m "docs: verify typed lan startup failure reasons implementation"',
+        'After making the edits, stop.',
+      ].join('\n'),
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+      metadata: {
+        plan_task_title: 'Verify LanStartupCoordinator typed failure implementation',
+        plan_task_number: 1,
+      },
+    };
+
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const db = {
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const current = tasks.get(taskId) || { id: taskId };
+        const next = { ...current, ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      addStreamChunk: vi.fn(),
+      updateTask: vi.fn(),
+      getProvider: vi.fn(() => ({ enabled: true })),
+      isProviderHealthy: vi.fn(() => true),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+      runningProcesses: Object.assign(new Map(), { stallAttempts: new Map() }),
+    });
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([{
+        type: 'result',
+        output: 'Verified the implementation from read_file results. No edits were made.',
+        stopReason: 'model_finished',
+        toolLog: [{ name: 'read_file', error: false }],
+        tokenUsage: { prompt_tokens: 12, completion_tokens: 8 },
+        changedFiles: [],
+        iterations: 1,
+      }])
+    );
+
+    await mod.executeApiProvider(task, { name: 'openrouter' });
+
+    expect(safeUpdateTaskStatus).toHaveBeenCalledWith(
+      task.id,
+      'completed',
+      expect.objectContaining({
+        exit_code: 0,
+      }),
+    );
+    expect(safeUpdateTaskStatus).not.toHaveBeenCalledWith(
+      task.id,
+      'failed',
+      expect.anything(),
+    );
   });
 
   it('fails read-only openrouter reports when the agentic loop stops for consecutive tool errors', async () => {

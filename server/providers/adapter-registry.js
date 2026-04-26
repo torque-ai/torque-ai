@@ -32,6 +32,7 @@ const DEFAULT_CAPABILITIES = {
   supportsAsync: false,
   supportsCancellation: false,
 };
+const DISCOVERABLE_WITHOUT_API_KEY = new Set(['openrouter']);
 
 const adapterDefinitions = new Map();
 const adapterCache = new Map();
@@ -161,14 +162,14 @@ function registerApiAdapter(providerId, ProviderClass, capabilities = {}) {
         return providerInstance.checkHealth();
       },
 
-      async listModels() {
+      async listModels(options = {}) {
         const providerInstance = resolveProvider();
-        return providerInstance.listModels();
+        return providerInstance.listModels(options);
       },
 
-      async discoverModels() {
+      async discoverModels(options = {}) {
         const providerInstance = resolveProvider();
-        return providerInstance.discoverModels();
+        return providerInstance.discoverModels(options);
       },
 
       getDefaultTuning(model) {
@@ -275,8 +276,8 @@ async function discoverAllModels(db) {
     const adapter = getProviderAdapter(providerId);
     if (!adapter) continue;
 
-    // Skip cloud providers without API keys; local Ollama variants always run
-    if (!LOCAL_PROVIDERS.has(providerId)) {
+    // Skip cloud providers without API keys; local Ollama variants always run.
+    if (!LOCAL_PROVIDERS.has(providerId) && !DISCOVERABLE_WITHOUT_API_KEY.has(providerId)) {
       try {
         const hasKey = serverConfig.getApiKey(providerId);
         if (!hasKey) continue;
@@ -304,4 +305,5 @@ module.exports = {
   getProviderCapabilityMatrix,
   invalidateAdapterCache,
   discoverAllModels,
+  DISCOVERABLE_WITHOUT_API_KEY,
 };

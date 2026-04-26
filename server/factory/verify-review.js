@@ -245,13 +245,37 @@ function resolveReviewerProvider(project) {
   return 'cerebras';
 }
 
+// The reviewer is a yes/no JSON verdict task — it does not need a 235B
+// MoE model. Empirically, qwen-3-235b returns null output for short
+// structured prompts even with JSON mode (observed on StateTrace
+// 2026-04-26: cerebras task `6ff68746-...` completed with output=null).
+// Pin a smaller/faster model that handles JSON-mode well by default.
+// Override via env for ops flexibility; empty string opts back into
+// whatever model the routing template/provider chooses.
+function readReviewerModelOverride() {
+  const raw = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+  if (raw === undefined) return undefined;
+  const trimmed = String(raw).trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveReviewerModel() {
+  const envOverride = readReviewerModelOverride();
+  if (envOverride !== undefined) return envOverride;
+  // llama3.1-8b is the smallest cerebras model that's reliably available
+  // on the free tier and handles JSON-mode short verdicts cleanly.
+  // zai-glm-4.7 and gpt-oss-120b appear in /v1/models but 404 on chat
+  // completions for tier-1 keys.
+  return 'llama3.1-8b';
+}
+
 // Reinforces the JSON-shape contract when the first attempt produced
 // unparseable output. Some models occasionally wrap the verdict in
 // markdown fences or prose. Appending this on retry tightens the spec
 // and usually produces clean JSON without burning a re-route.
 const STRICT_JSON_SUFFIX = '\n\nIMPORTANT: Output JSON only — no markdown, no fences, no commentary outside the JSON object. Exactly: {"verdict":"go" or "no-go","critique":"..."}\n';
 
-async function submitAndParseTiebreak({ prompt, workingDirectory, project, workItem, timeoutMs, reviewerProvider }) {
+async function submitAndParseTiebreak({ prompt, workingDirectory, project, workItem, timeoutMs, reviewerProvider, reviewerModel }) {
   const { submitFactoryInternalTask } = require('./internal-task-submit');
   const { handleAwaitTask } = require('../handlers/workflow/await');
   const taskCore = require('../db/task-core');
@@ -276,6 +300,12 @@ async function submitAndParseTiebreak({ prompt, workingDirectory, project, workI
       // Codex prices for what a fast free model handles in seconds.
       prefer_free: true,
       ...(reviewerProvider ? { provider: reviewerProvider } : {}),
+      // Pin the reviewer model — the routing template's free-agentic
+      // preset specifies qwen-3-235b for plan_generation, which would
+      // override the cerebras adapter's structured-output model
+      // selection. llama3.1-8b handles short JSON-mode prompts in <1s
+      // and is reliably available on tier-1 cerebras keys.
+      ...(reviewerModel ? { model: reviewerModel } : {}),
       // Structured-output hint: the cerebras adapter (and any future
       // adapter) treats response_format=json_object as a signal to
       // a) flip on the API's JSON mode, b) prefer the smaller/faster
@@ -335,21 +365,31 @@ async function submitAndParseTiebreak({ prompt, workingDirectory, project, workI
   }
 }
 
+// Statuses that warrant an in-process retry: the first attempt produced
+// no usable verdict and the failure mode is something a stricter prompt
+// might fix. `invalid_output` (bad JSON) and `empty_output` (cerebras
+// returned a null output, observed live with qwen-3-235b on JSON-mode
+// short prompts) both qualify. Other null-verdict statuses (timeout,
+// submit_failed, await_failed, missing_task, not_completed) are
+// terminal — no point retrying them in this loop.
+const RETRYABLE_TIEBREAK_STATUSES = new Set(['invalid_output', 'empty_output']);
+
 async function runLlmTiebreak({ failingTests, modifiedFiles, workItem, project, workingDirectory, verifyOutput, timeoutMs = LLM_TIMEOUT_MS }) {
   const prompt = buildTiebreakPrompt({ failingTests, modifiedFiles, workItem, verifyOutput });
   const reviewerProvider = resolveReviewerProvider(project);
-  const args = { workingDirectory, project, workItem, timeoutMs, reviewerProvider };
+  const reviewerModel = resolveReviewerModel();
+  const args = { workingDirectory, project, workItem, timeoutMs, reviewerProvider, reviewerModel };
 
   const first = await module.exports.submitAndParseTiebreak({ ...args, prompt });
-  if (first.status !== 'invalid_output') return first;
+  if (!RETRYABLE_TIEBREAK_STATUSES.has(first.status)) return first;
 
   // Retry once with a stricter JSON-only instruction. Without this, a
-  // single malformed response (markdown-wrapped JSON, prose around the
-  // object) sends the project to verify_reviewed_ambiguous_paused with
-  // confidence=low — which then needs auto-recovery + another reviewer
-  // task anyway. One in-process retry costs the same time, returns a
-  // verdict the first attempt almost had, and avoids burning auto-
-  // recovery attempts on a parse-error nuisance.
+  // single malformed/empty response sends the project to
+  // verify_reviewed_ambiguous_paused with confidence=low — which then
+  // needs auto-recovery + another reviewer task anyway. One in-process
+  // retry costs the same time, often returns a verdict the first
+  // attempt almost had, and avoids burning auto-recovery attempts on a
+  // parse-error or null-output nuisance.
   const strictPrompt = `${prompt}${STRICT_JSON_SUFFIX}`;
   const second = await module.exports.submitAndParseTiebreak({ ...args, prompt: strictPrompt });
   return second;

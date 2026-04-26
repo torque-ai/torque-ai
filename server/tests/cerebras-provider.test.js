@@ -129,7 +129,7 @@ describe('CerebrasProvider', () => {
       expect(envProvider.apiKey).toBe('env-cerebras-key');
       expect(envProvider.baseUrl).toBe('https://api.cerebras.ai');
       expect(envProvider.defaultModel).toBe('qwen-3-235b-a22b-instruct-2507');
-      expect(envProvider.structuredModel).toBe('zai-glm-4.7');
+      expect(envProvider.structuredModel).toBe('llama3.1-8b');
       expect(envProvider.supportsStreaming).toBe(true);
     });
 
@@ -178,7 +178,7 @@ describe('CerebrasProvider', () => {
       });
 
       const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
-      expect(body.model).toBe('zai-glm-4.7');
+      expect(body.model).toBe('llama3.1-8b');
       expect(body.response_format).toEqual({ type: 'json_object' });
       expect(body.temperature).toBe(0);
     });
@@ -195,7 +195,7 @@ describe('CerebrasProvider', () => {
 
       const body = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
       expect(body.response_format).toEqual({ type: 'json_object' });
-      expect(body.model).toBe('zai-glm-4.7');
+      expect(body.model).toBe('llama3.1-8b');
     });
 
     it('honors an explicit model override even when JSON mode is requested', async () => {

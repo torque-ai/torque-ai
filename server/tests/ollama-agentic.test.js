@@ -350,7 +350,7 @@ describe('ollama-agentic', () => {
     ).rejects.toThrow('Task cancelled at iteration 1');
   });
 
-  it('MAX_ITERATIONS constant equals 15', () => {
-    expect(MAX_ITERATIONS).toBe(15);
+  it('MAX_ITERATIONS constant equals the free-agentic default', () => {
+    expect(MAX_ITERATIONS).toBe(25);
   });
 });

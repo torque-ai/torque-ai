@@ -23,6 +23,12 @@ const {
   resolveRequestId,
 } = require('./v2-control-plane');
 
+let quotaTrackerGetter = null;
+
+function setQuotaTrackerGetter(getter) {
+  quotaTrackerGetter = typeof getter === 'function' ? getter : null;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function clampInt(value, min, max, fallback) {
@@ -561,9 +567,10 @@ async function handleProviderHealth(req, res) {
 async function handleQuotaStatus(req, res) {
   const requestId = resolveRequestId(req);
   try {
-    // Free-tier tracker may not be initialized
-    const providers = {};
-    sendSuccess(res, requestId, { providers, message: 'Free-tier status' }, 200, req);
+    const tracker = quotaTrackerGetter ? quotaTrackerGetter() : null;
+    const providers = tracker && typeof tracker.getStatus === 'function' ? tracker.getStatus() : {};
+    const message = tracker ? 'Free-tier status' : 'FreeQuotaTracker not initialized';
+    sendSuccess(res, requestId, { providers, message }, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
   }
@@ -700,6 +707,7 @@ module.exports = {
   handleRoutingDecisions,
   handleProviderHealth,
   // Free-Tier
+  setQuotaTrackerGetter,
   handleQuotaStatus,
   handleQuotaHistory,
   handleQuotaAutoScale,

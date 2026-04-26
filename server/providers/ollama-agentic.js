@@ -333,6 +333,7 @@ async function runAgenticLoop({
           timeoutMs: timeoutMs || 120000,
           signal,
           onChunk,
+          requireToolUseBeforeFinal,
           ...(options || {}),
         });
         break; // success
@@ -428,11 +429,21 @@ async function runAgenticLoop({
         emptySummaryRetried = true;
         continue; // one retry
       }
+      if (!content.trim() && toolLog.length > 0 && emptySummaryRetried) {
+        finalOutput = 'Task stopped: model did not produce a final answer after repository tool use.';
+        stopReason = 'empty_final_output';
+        logger.warn('[Agentic] Empty final answer after tool use and summary retry — stopping');
+        break;
+      }
 
-      if (requireToolUseBeforeFinal && toolLog.length === 0 && content.trim()) {
+      if (requireToolUseBeforeFinal && toolLog.length === 0) {
         if (!toolEvidenceRetried) {
-          logger.info('[Agentic] Final answer without tool evidence — injecting evidence requirement');
-          messages.push({ role: 'assistant', content });
+          logger.info(content.trim()
+            ? '[Agentic] Final answer without tool evidence — injecting evidence requirement'
+            : '[Agentic] Empty final response without tool evidence — injecting evidence requirement');
+          if (content.trim()) {
+            messages.push({ role: 'assistant', content });
+          }
           messages.push({
             role: 'user',
             content: 'You answered without using the available repository tools. For this task, first call at least one read-only tool such as list_directory with {"path":"."}, read_file, or search_files, then give a final answer based only on the tool results. Do not answer from memory or assumptions.',

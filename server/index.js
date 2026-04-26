@@ -1451,6 +1451,12 @@ function init() {
     apiServerCore.setQuotaTrackerGetter(taskManager.getFreeQuotaTracker);
   }
   try {
+    const v2AnalyticsHandlers = require('./api/v2-analytics-handlers');
+    if (v2AnalyticsHandlers.setQuotaTrackerGetter && taskManager.getFreeQuotaTracker) {
+      v2AnalyticsHandlers.setQuotaTrackerGetter(taskManager.getFreeQuotaTracker);
+    }
+  } catch (_e) { void _e; }
+  try {
     const analyticsRoutes = require('./dashboard/routes/analytics');
     if (analyticsRoutes.setQuotaTrackerGetter && taskManager.getFreeQuotaTracker) {
       analyticsRoutes.setQuotaTrackerGetter(taskManager.getFreeQuotaTracker);

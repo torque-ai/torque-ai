@@ -770,6 +770,92 @@ describe('runLlmTiebreak', () => {
     expect(submit).toHaveBeenCalledTimes(1);
   });
 
+  it('retries once with strict-JSON suffix when first attempt is empty_output', async () => {
+    const submit = vi.fn()
+      .mockResolvedValueOnce({ task_id: 't-empty-1' })
+      .mockResolvedValueOnce({ task_id: 't-empty-2' });
+    // First task returns null/empty output (qwen-3-235b empty-output bug);
+    // second task returns a real verdict.
+    const taskFn = vi.fn()
+      .mockReturnValueOnce({ status: 'completed', output: null })
+      .mockReturnValueOnce({ status: 'completed', output: '{"verdict":"go","critique":"diff explains the fail"}' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: taskFn,
+    });
+    const { runLlmTiebreak } = require('../factory/verify-review');
+    const r = await runLlmTiebreak({
+      failingTests: ['tests/foo.py'],
+      modifiedFiles: ['src/bar.ts'],
+      workItem: { id: 1, title: 'w', description: 'd' },
+      project: { id: 'p', path: '/tmp/p' },
+    });
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(submit.mock.calls[1][0].task).toContain('JSON only');
+    expect(r.verdict).toBe('go');
+    expect(r.status).toBe('completed');
+    expect(r.taskId).toBe('t-empty-2');
+  });
+
+  it('passes a reviewerModel override (default llama3.1-8b) into the submit', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-model' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+    });
+    const original = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+    delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      await runLlmTiebreak({
+        failingTests: ['tests/foo.py'],
+        modifiedFiles: ['src/bar.ts'],
+        workItem: { id: 1, title: 'w', description: 'd' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'llama3.1-8b',
+      }));
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+      else process.env.TORQUE_VERIFY_REVIEWER_MODEL = original;
+    }
+  });
+
+  it('honors TORQUE_VERIFY_REVIEWER_MODEL env override', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-model-env' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+    });
+    const original = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+    process.env.TORQUE_VERIFY_REVIEWER_MODEL = 'llama3.1-8b';
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      await runLlmTiebreak({
+        failingTests: ['tests/foo.py'],
+        modifiedFiles: ['src/bar.ts'],
+        workItem: { id: 1, title: 'w', description: 'd' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'llama3.1-8b',
+      }));
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+      else process.env.TORQUE_VERIFY_REVIEWER_MODEL = original;
+    }
+  });
+
   it('does not retry on terminal non-parse failures (timeout, submit_failed)', async () => {
     const submit = vi.fn().mockResolvedValue({ task_id: 't-timeout' });
     installMocks({

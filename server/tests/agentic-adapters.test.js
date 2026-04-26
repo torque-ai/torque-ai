@@ -388,6 +388,45 @@ describe('openai-chat adapter — chatCompletion', () => {
     expect(result.usage.completion_tokens).toBe(25);
   });
 
+  it('uses required tool choice on the first repository-evidence request', async () => {
+    requestHandler = (req, res) => {
+      const body = req._parsedBody;
+      expect(body.tool_choice).toBe('required');
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_required',
+              type: 'function',
+              function: { name: 'list_directory', arguments: '{"path":"."}' },
+            }],
+          },
+        }],
+        usage: { prompt_tokens: 12, completion_tokens: 4 },
+      }));
+    };
+
+    await openaiChatCompletion({
+      host,
+      apiKey: 'sk-test-key',
+      model: 'free-tool-model',
+      messages: [{ role: 'user', content: 'Inspect this repo' }],
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'list_directory',
+          description: 'List files',
+          parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+        },
+      }],
+      requireToolUseBeforeFinal: true,
+    });
+  });
+
   it('sends request with SSE streaming when options.stream=true', async () => {
     requestHandler = (req, res) => {
       const body = req._parsedBody;
@@ -692,6 +731,44 @@ describe('google-chat adapter — chatCompletion', () => {
     expect(result.message.tool_calls[0].function.arguments).toEqual({ path: '.' });
     expect(result.usage.prompt_tokens).toBe(80);
     expect(result.usage.completion_tokens).toBe(15);
+  });
+
+  it('uses Gemini ANY function-calling mode on the first repository-evidence request', async () => {
+    requestHandler = (req, res) => {
+      const body = req._parsedBody;
+      expect(body.toolConfig).toEqual({
+        functionCallingConfig: {
+          mode: 'ANY',
+        },
+      });
+
+      writeGeminiJson(res, {
+        candidates: [{
+          content: {
+            parts: [{ functionCall: { name: 'list_directory', args: { path: '.' } } }],
+            role: 'model',
+          },
+          finishReason: 'STOP',
+        }],
+        usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 5 },
+      });
+    };
+
+    await googleChatCompletion({
+      host,
+      apiKey: 'test-api-key',
+      model: 'gemini-2.5-flash',
+      messages: [{ role: 'user', content: 'Inspect this repo' }],
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'list_directory',
+          description: 'List files',
+          parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+        },
+      }],
+      requireToolUseBeforeFinal: true,
+    });
   });
 
   // -------------------------------------------------------------------------

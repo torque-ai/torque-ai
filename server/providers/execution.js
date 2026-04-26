@@ -78,10 +78,13 @@ const PROVIDER_DEFAULT_MODEL = {
 
 const AGENTIC_WORKER_UNSUPPORTED_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk']);
 const AGENTIC_CLOUD_TO_CODEX_FALLBACKS = new Set(['google-ai', 'groq', 'openrouter', 'ollama-cloud', 'cerebras']);
+const FREE_AGENTIC_TOOL_EVIDENCE_PROVIDERS = new Set(['cerebras', 'google-ai', 'groq', 'openrouter', 'ollama-cloud', 'ollama']);
 const PROPOSAL_APPLY_MODE = 'proposal_apply';
 const PROPOSAL_MODE_READ_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
 const FACTORY_INTERNAL_STRUCTURED_KINDS = new Set(['architect_cycle', 'plan_generation', 'verify_review']);
 const OPENROUTER_FALLBACK_SCORE_LIMIT = 8;
+const READ_ONLY_PLAN_TITLE_RE = /^(?:verify|confirm|inspect|audit|review|scout|survey|check)\b/i;
+const MUTATING_PLAN_TITLE_RE = /\b(?:fix|repair|recover|retry|implement|update|change|modify|edit|add|create|write|replace|remove|delete|refactor)\b/i;
 function dedupeValues(values) {
   const seen = new Set();
   return values.filter((value) => {
@@ -113,6 +116,7 @@ function init(deps) {
     processQueue: deps.processQueue,
     handleWorkflowTermination: deps.handleWorkflowTermination,
     apiAbortControllers: deps.apiAbortControllers,
+    getFreeQuotaTracker: deps.getFreeQuotaTracker,
   };
 
   // Import recordProviderOutcome from provider-routing-core if available
@@ -201,6 +205,12 @@ function selectAdapter(provider) {
     return openaiChatAdapter;
   }
   return null;
+}
+
+function resolveAgenticAdapterType(provider) {
+  if (provider === 'ollama' || provider === 'ollama-cloud') return 'ollama';
+  if (provider === 'google-ai') return 'google';
+  return 'openai';
 }
 
 /**
@@ -465,11 +475,29 @@ function isTruthyMetadataFlag(value) {
 }
 
 function taskExplicitlyReadOnly(taskDescription, metadata) {
+  const safeMetadata = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? metadata
+    : {};
   if (
-    isTruthyMetadataFlag(metadata.read_only)
-    || isTruthyMetadataFlag(metadata.readOnly)
-    || isTruthyMetadataFlag(metadata.agentic_read_only)
+    isTruthyMetadataFlag(safeMetadata.read_only)
+    || isTruthyMetadataFlag(safeMetadata.readOnly)
+    || isTruthyMetadataFlag(safeMetadata.agentic_read_only)
   ) {
+    return true;
+  }
+
+  const mode = String(safeMetadata.mode || safeMetadata.task_mode || '').trim().toLowerCase();
+  if (mode === 'scout') {
+    return true;
+  }
+
+  const planTitle = String(
+    safeMetadata.plan_task_title
+    || safeMetadata.task_title
+    || safeMetadata.title
+    || ''
+  ).trim();
+  if (READ_ONLY_PLAN_TITLE_RE.test(planTitle) && !MUTATING_PLAN_TITLE_RE.test(planTitle)) {
     return true;
   }
 
@@ -580,11 +608,22 @@ const NON_CONVERGED_AGENTIC_STOP_REASONS = new Set([
 
 const HARD_FAIL_AGENTIC_STOP_REASONS = new Set([
   'consecutive_tool_errors',
+  'empty_final_output',
   'missing_tool_evidence',
 ]);
 
 function inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, result) {
   const stopReason = String(result?.stopReason || '').trim();
+  const toolCount = Array.isArray(result?.toolLog) ? result.toolLog.length : 0;
+  const output = String(result?.output || '').trim();
+  if (!output && toolCount === 0 && (!stopReason || stopReason === 'model_finished')) {
+    return {
+      message: 'Agentic task returned no output and no repository tool evidence (empty_toolless_result).',
+      stopReason: 'empty_toolless_result',
+      verificationCommand: resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
+    };
+  }
+
   if (!HARD_FAIL_AGENTIC_STOP_REASONS.has(stopReason)) {
     return null;
   }
@@ -592,10 +631,13 @@ function inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, resul
   const taskKind = taskLikelyRequiresFileChanges(task) ? 'modification' : 'inspection';
   const reason = stopReason === 'missing_tool_evidence'
     ? 'stopped without required repository tool evidence'
-    : 'stopped after repeated tool execution errors';
+    : stopReason === 'empty_final_output'
+      ? 'stopped without a final answer after repository tool use'
+      : 'stopped after repeated tool execution errors';
 
   return {
     message: `Agentic ${taskKind} task ${reason} (${stopReason}).`,
+    stopReason,
     verificationCommand: resolveTaskVerificationCommand(task, workingDir, agenticPolicy),
   };
 }
@@ -740,9 +782,24 @@ function buildAgenticTaskPrompt(task, workingDir, budgetChars, agenticPolicy = n
 }
 
 function shouldRequireToolEvidence(provider, task, workingDir) {
-  return provider === 'openrouter'
-    && !!workingDir
-    && !!String(task?.task_description || '').trim();
+  if (!FREE_AGENTIC_TOOL_EVIDENCE_PROVIDERS.has(normalizeProviderName(provider))) return false;
+  if (!workingDir) return false;
+  if (!String(task?.task_description || '').trim()) return false;
+
+  // Structured-output tasks (JSON mode) deliberately answer from the
+  // prompt alone — they're verdict/classification calls, not exploration.
+  // Forcing them to call repository tools first stops the model with
+  // missing_tool_evidence even though the model behaved correctly.
+  // Observed live on StateTrace 2026-04-26: cerebras/zai-glm-4.7 verify
+  // reviewer task killed for "missing_tool_evidence" because the JSON
+  // prompt told it not to use tools.
+  const metadata = normalizeTaskMetadata(task);
+  if (metadata.kind === 'verify_review') return false;
+  const rf = metadata.response_format;
+  if (rf === 'json_object' || rf === 'json' || (rf && typeof rf === 'object' && rf.type === 'json_object')) {
+    return false;
+  }
+  return true;
 }
 
 function isSafeRelativeProposalPath(workingDir, filePath) {
@@ -2810,7 +2867,7 @@ async function executeOllamaTaskWithAgentic(task) {
     logger.info(`[Agentic] Starting Ollama task ${taskId} with model ${resolvedModel} on ${ollamaHost}`);
 
     // Category-aware max iterations: complex tasks get more room
-    const baseMaxIter = parseInt(serverConfig.get('agentic_max_iterations') || '15', 10);
+    const baseMaxIter = parseInt(serverConfig.get('agentic_max_iterations') || '25', 10);
     const taskComplexity = task.complexity || 'normal';
     const defaultMaxIterations = taskComplexity === 'complex' ? Math.max(baseMaxIter, 20) : baseMaxIter;
     const maxIterations = agenticPolicy.maxIterations || defaultMaxIterations;
@@ -3060,13 +3117,29 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     return _executeApiModule.executeApiProvider(task, providerInstance);
   }
 
-  // Diffusion compute tasks need raw text output, not agentic tool-calling.
-  // Bypass the agentic loop and use the legacy API path which returns the
-  // LLM response as plain text — exactly what the compute→apply pipeline needs.
+  // Tasks that need raw chat-completion output, not agentic tool-calling:
+  //   - Diffusion compute tasks (compute→apply pipeline).
+  //   - verify_review tiebreak tasks: yes/no JSON verdicts. The prompt
+  //     explicitly tells the model not to use tools. Wrapping them in
+  //     the agentic loop adds a system prompt demanding tool calls,
+  //     which conflicts with the verdict prompt — observed live on
+  //     StateTrace 2026-04-26 04:35-04:45 with cerebras/zai-glm-4.7
+  //     killed first by `missing_tool_evidence`, then `empty_toolless_result`.
+  //   - Any task that explicitly requested response_format=json_object:
+  //     by definition a structured-output call, not exploration.
   try {
     const taskMeta = task.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
     if (taskMeta.diffusion_role === 'compute') {
       logger.info(`[API-WRAP] Compute task ${task.id} — bypassing agentic loop for raw text output`);
+      return _executeApiModule.executeApiProvider(task, providerInstance);
+    }
+    if (taskMeta.kind === 'verify_review') {
+      logger.info(`[API-WRAP] verify_review task ${task.id} — bypassing agentic loop for JSON-mode chat completion`);
+      return _executeApiModule.executeApiProvider(task, providerInstance);
+    }
+    const rf = taskMeta.response_format;
+    if (rf === 'json_object' || rf === 'json' || (rf && typeof rf === 'object' && rf.type === 'json_object')) {
+      logger.info(`[API-WRAP] JSON-mode task ${task.id} — bypassing agentic loop for structured output`);
       return _executeApiModule.executeApiProvider(task, providerInstance);
     }
   } catch (_e) { /* non-fatal — continue to agentic */ }
@@ -3175,7 +3248,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     logger.info(`[Agentic] Starting API task ${taskId} with provider ${provider}, model ${model}`);
 
     // Category-aware max iterations: complex tasks get more room
-    const baseMaxIter2 = parseInt(serverConfig.get('agentic_max_iterations') || '15', 10);
+    const baseMaxIter2 = parseInt(serverConfig.get('agentic_max_iterations') || '25', 10);
     const taskComplexity2 = task.complexity || 'normal';
     const defaultMaxIterations = taskComplexity2 === 'complex' ? Math.max(baseMaxIter2, 20) : baseMaxIter2;
     const maxIterations = agenticPolicy.maxIterations || defaultMaxIterations;
@@ -3245,16 +3318,17 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       logger.info(`[Agentic] API task ${taskId} using fallback chain (${chain.length} entries): ${chain.map(e => e.provider).join(' -> ')}`);
 
       const buildConfig = (entry) => {
-        const entryAdapterType = entry.provider === 'ollama-cloud' ? 'ollama'
-          : entry.provider === 'google-ai' ? 'google'
-          : 'openai';
+        const localOllamaTarget = entry.provider === 'ollama'
+          ? resolveLocalOllamaAgenticTarget(task, entry.model)
+          : null;
+        const entryModel = localOllamaTarget?.model || resolveApiProviderModel(entry.provider, entry.model);
         return {
-          adapterType: entryAdapterType,
+          adapterType: resolveAgenticAdapterType(entry.provider),
           adapterOptions: {
-            host: PROVIDER_HOST_MAP[entry.provider] || '',
-            apiKey: resolveApiKey(entry.provider),
+            host: localOllamaTarget?.host || PROVIDER_HOST_MAP[entry.provider] || '',
+            apiKey: entry.provider === 'ollama' ? null : resolveApiKey(entry.provider),
             providerName: entry.provider,
-            model: resolveApiProviderModel(entry.provider, entry.model),
+            model: entryModel,
             temperature: 0.3,
           },
           systemPrompt,
@@ -3263,7 +3337,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           timeoutMs,
           maxIterations,
           contextBudget: PROVIDER_CONTEXT_BUDGETS[entry.provider] || contextBudget,
-          promptInjectedTools: needsPromptInjection(entry.model || ''),
+          promptInjectedTools: needsPromptInjection(entryModel || ''),
           proposalOutputMode,
           requireToolUseBeforeFinal: shouldRequireToolEvidence(entry.provider, task, workingDir),
           commandMode: agenticPolicy.commandMode,
@@ -3282,9 +3356,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     } else {
       // Single-provider path (no chain or single-entry chain)
       // Resolve adapter type for the worker
-      const adapterType = provider === 'ollama-cloud' ? 'ollama'
-        : provider === 'google-ai' ? 'google'
-        : 'openai';
+      const adapterType = resolveAgenticAdapterType(provider);
 
       // Spawn worker thread for the agentic loop
       logger.debug(`[WORKER-DEBUG] Spawning worker for API task ${taskId}, provider=${provider}, model=${model}, adapterType=${adapterType}`);
@@ -3663,6 +3735,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   } catch (error) {
     const handledError = normalizeAgenticWorkerError(error, cleanupTrackedWorker);
     const currentTask = db.getTask(taskId) || task;
+    recordAgenticRateLimit(handledError.agenticFailedProvider || provider, handledError);
     const handoffTarget = resolveAgenticHandoffTarget({
       task: currentTask,
       chain,
@@ -3823,6 +3896,114 @@ function isRetryableError(error) {
   return /\b429\b|\b503\b|timeout|timed out|econnrefused|econnreset|quota|rate.?limit|overloaded|provider returned error|failed to fetch/.test(msg);
 }
 
+function isQuotaOrRateLimitError(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return /\b429\b|quota|rate.?limit|usage limit|too many requests/.test(msg);
+}
+
+function parseRetryAfterSeconds(value) {
+  if (value == null) return null;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getRetryAfterSeconds(error) {
+  const direct = parseRetryAfterSeconds(error?.retryAfterSeconds ?? error?.retry_after_seconds ?? error?.retryAfter);
+  if (direct) return direct;
+
+  const headers = error?.response?.headers || error?.headers;
+  const headerValue = typeof headers?.get === 'function'
+    ? headers.get('retry-after')
+    : (headers?.['retry-after'] || headers?.['Retry-After']);
+  const fromHeader = parseRetryAfterSeconds(headerValue);
+  if (fromHeader) return fromHeader;
+
+  const msg = String(error?.message || '');
+  const match = msg.match(/retry[-\s]?after[:=\s]+(\d+)/i);
+  return match ? parseRetryAfterSeconds(match[1]) : null;
+}
+
+function getAgenticFreeQuotaTracker() {
+  try {
+    return typeof _agenticDeps?.getFreeQuotaTracker === 'function'
+      ? _agenticDeps.getFreeQuotaTracker()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isAgenticProviderInQuotaCooldown(provider) {
+  if (!provider) return false;
+  const tracker = getAgenticFreeQuotaTracker();
+  if (!tracker || typeof tracker.getStatus !== 'function' || typeof tracker.canSubmit !== 'function') return false;
+
+  try {
+    const status = tracker.getStatus();
+    if (!status || !Object.prototype.hasOwnProperty.call(status, provider)) return false;
+    return !tracker.canSubmit(provider);
+  } catch {
+    return false;
+  }
+}
+
+function recordAgenticRateLimit(provider, error) {
+  if (!provider || !isQuotaOrRateLimitError(error)) return;
+  const tracker = getAgenticFreeQuotaTracker();
+  if (!tracker || typeof tracker.recordRateLimit !== 'function') return;
+
+  try {
+    tracker.recordRateLimit(provider, getRetryAfterSeconds(error));
+    logger.info(`[Routing] Recorded quota cooldown for ${provider} after agentic failure`);
+  } catch (err) {
+    logger.debug(`[Routing] Failed to record quota cooldown for ${provider}: ${err.message}`);
+  }
+}
+
+function resolveLocalOllamaAgenticTarget(task, requestedModel = null) {
+  const serverConfig = require('../config');
+  const db = _agenticDeps?.db;
+  const ollamaShared = require('./ollama-shared');
+
+  let model = resolveApiProviderModel('ollama', requestedModel)
+    || resolveOllamaModel(task, null)
+    || '';
+
+  if (model && typeof ollamaShared.hasModelOnAnyHost === 'function' && !ollamaShared.hasModelOnAnyHost(model)) {
+    const best = typeof ollamaShared.findBestAvailableModel === 'function'
+      ? ollamaShared.findBestAvailableModel()
+      : null;
+    if (best) model = best;
+  }
+
+  if (!model) {
+    try {
+      const modelRoles = require('../db/model-roles');
+      model = modelRoles.getModelForRole('ollama', 'default') || '';
+    } catch { /* ignore */ }
+  }
+
+  let host = null;
+  if (model && db && typeof db.listOllamaHosts === 'function') {
+    const hosts = db.listOllamaHosts();
+    if (hosts.length > 0 && typeof db.selectOllamaHostForModel === 'function') {
+      const selection = db.selectOllamaHostForModel(model);
+      if (selection?.host?.url) host = selection.host.url;
+    }
+  }
+
+  if (!host) {
+    host = serverConfig.get('ollama_host') || process.env.OLLAMA_HOST || 'http://localhost:11434';
+  }
+
+  if (!model) {
+    throw new Error('No local Ollama model is configured or discoverable for agentic fallback');
+  }
+
+  return { host, model };
+}
+
 /**
  * Execute a task against a provider chain, falling back to the next entry
  * whenever a retryable error occurs.
@@ -3852,14 +4033,22 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
 
   for (let i = 0; i < chain.length; i++) {
     const entry = chain[i];
-    const config = buildWorkerConfig(entry);
-    const resolvedModel = config?.adapterOptions?.model || entry.model || null;
+    if (isAgenticProviderInQuotaCooldown(entry.provider)) {
+      lastError = new Error(`Provider ${entry.provider} is in quota cooldown`);
+      logger.info(`[Routing] Skipping ${entry.provider}: quota cooldown is active (${i + 1}/${chain.length})`);
+      continue;
+    }
 
-    logger.info(`[Routing] Trying ${entry.provider}/${resolvedModel || 'default'} (${i + 1}/${chain.length})`);
+    let config;
+    let resolvedModel = entry.model || null;
 
     let workerHandle;
     let cleanupTrackedWorker = null;
     try {
+      config = buildWorkerConfig(entry);
+      resolvedModel = config?.adapterOptions?.model || entry.model || null;
+      logger.info(`[Routing] Trying ${entry.provider}/${resolvedModel || 'default'} (${i + 1}/${chain.length})`);
+
       workerHandle = spawnAgenticWorker(config, buildTrackedAgenticCallbacks(task.id, callbacks));
       cleanupTrackedWorker = trackAgenticWorkerTask(task.id, {
         workerHandle,
@@ -3871,6 +4060,47 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
       });
       const result = await workerHandle.promise;
       let gitReport = null;
+      const resultFailure = inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, result)
+        || buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, config?.maxIterations, entry.provider, resolvedModel);
+      if (resultFailure) {
+        const stopReason = resultFailure.stopReason || result?.stopReason || 'completion_review_failed';
+        const resultError = new Error(resultFailure.message);
+        resultError.name = stopReason;
+        lastError = resultError;
+
+        if (snapshot && snapshot.isGitRepo) {
+          try { checkAndRevert(workingDir, snapshot, task.task_description, 'enforce', buildGitSafetyOptions(agenticPolicy)); } catch { /* ignore */ }
+        }
+
+        try { recordProviderOutcome(entry.provider, false); } catch { /* non-critical */ }
+        recordOpenRouterModelTaskOutcome({
+          task,
+          provider: entry.provider,
+          model: resolvedModel,
+          success: false,
+          result,
+          error: resultFailure.message,
+          stopReason,
+        });
+
+        const nextEntry = chain[i + 1];
+        if (nextEntry && !isAgenticWorkerCompatibleProvider(nextEntry.provider)) {
+          const handoffError = new Error(`Provider ${entry.provider}/${resolvedModel || 'default'} stopped with ${stopReason}; handoff to ${nextEntry.provider} is required`);
+          handoffError.agenticHandoffTarget = nextEntry;
+          handoffError.agenticHandoffReason = `Provider ${entry.provider}/${resolvedModel || 'default'} stopped with ${stopReason}: ${resultFailure.message}`;
+          handoffError.agenticChainPosition = i + 1;
+          handoffError.agenticFailedProvider = entry.provider;
+          handoffError.agenticFailedModel = resolvedModel;
+          throw handoffError;
+        }
+
+        if (i === chain.length - 1) {
+          return { ...result, provider: entry.provider, model: resolvedModel, chainPosition: i + 1, gitReport };
+        }
+
+        logger.info(`[Routing] Fallback: ${entry.provider}/${resolvedModel || 'default'} stopped with ${stopReason}, trying next (${i + 2}/${chain.length})`);
+        continue;
+      }
 
       // Success — run git safety and return
       if (snapshot && snapshot.isGitRepo) {
@@ -3900,6 +4130,7 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
 
       // Record failure
       try { recordProviderOutcome(entry.provider, false); } catch { /* non-critical */ }
+      recordAgenticRateLimit(entry.provider, handledError);
       recordOpenRouterModelTaskOutcome({
         task,
         provider: entry.provider,
@@ -3920,7 +4151,8 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
         throw handoffError;
       }
 
-      if (!isRetryableError(handledError) || i === chain.length - 1) {
+      const providerSetupFailure = !workerHandle;
+      if ((!providerSetupFailure && !isRetryableError(handledError)) || i === chain.length - 1) {
         handledError.agenticChainPosition = i + 1;
         handledError.agenticFailedProvider = entry.provider;
         handledError.agenticFailedModel = resolvedModel;
@@ -3962,4 +4194,6 @@ module.exports = {
   spawnAndTrackProcess: _executeCliModule.spawnAndTrackProcess,
   // Legacy backward compat
   runAgenticPipeline,
+  // Exported for tests
+  shouldRequireToolEvidence,
 };

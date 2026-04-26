@@ -24,6 +24,7 @@ const PROVIDER_TRAITS = {
   hyperbolic:  { speed: 6,  tokenCapacity: 7 },
   anthropic:   { speed: 5,  tokenCapacity: 8 },
   'ollama-cloud': { speed: 4, tokenCapacity: 6 },
+  ollama:       { speed: 3,  tokenCapacity: 3 },
 };
 
 // Free providers are scan-only: they can read context-stuffed files but cannot produce code.
