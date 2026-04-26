@@ -232,6 +232,21 @@ _defaultContainer.register('providerScoring', ['db'], ({ db }) => {
   const { createProviderScoring } = require('./db/provider-scoring');
   return createProviderScoring({ db: unwrapDb(db) });
 });
+_defaultContainer.register('providerCircuitBreakerStore', ['db'], ({ db }) => {
+  const { createProviderCircuitBreakerStore } = require('./db/provider-circuit-breaker-store');
+  return createProviderCircuitBreakerStore({ db: unwrapDb(db) });
+});
+_defaultContainer.register(
+  'circuitBreaker',
+  ['eventBus', 'providerCircuitBreakerStore'],
+  ({ eventBus, providerCircuitBreakerStore }) => {
+    const { createCircuitBreaker } = require('./execution/circuit-breaker');
+    return createCircuitBreaker({
+      eventBus,
+      store: providerCircuitBreakerStore,
+    });
+  }
+);
 _defaultContainer.register('checkpointStore', ['db'], ({ db }) => {
   const { createCheckpointStore } = require('./workflow-state/checkpoint-store');
   return createCheckpointStore({ db: unwrapDb(db) });
