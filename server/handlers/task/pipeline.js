@@ -181,7 +181,7 @@ async function execGit(gitArgs, cwd) {
     return { success: false, error: 'execGit requires an array of arguments, not a string' };
   }
   try {
-    const { stdout } = await execFileAsync('git', gitArgs, {
+    const result = await execFileAsync('git', gitArgs, {
       cwd,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
@@ -189,6 +189,9 @@ async function execGit(gitArgs, cwd) {
       windowsHide: true,
       env: { ...process.env, ...GIT_SAFE_ENV },
     });
+    // result is { stdout, stderr } when using Node's built-in execFile (custom promisify symbol),
+    // or a plain string when using a stub without the custom symbol (test environment).
+    const stdout = (result && typeof result === 'object' && 'stdout' in result) ? result.stdout : result;
     return { success: true, output: stdout };
   } catch (error) {
     if (gitArgs[0] === 'status') cleanupStaleGitStatusProcesses({ force: true });
@@ -206,12 +209,13 @@ async function execGit(gitArgs, cwd) {
 
 async function execGitCommit(message, cwd) {
   try {
-    const { stdout } = await execFileAsync('git', ['commit', '-m', message], {
+    const result = await execFileAsync('git', ['commit', '-m', message], {
       cwd,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
       windowsHide: true,
     });
+    const stdout = (result && typeof result === 'object' && 'stdout' in result) ? result.stdout : result;
     return { success: true, output: stdout };
   } catch (error) {
     const stderr = error.stderr

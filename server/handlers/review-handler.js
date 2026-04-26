@@ -152,12 +152,15 @@ async function collectDiffOutput(workingDirectory, task = null) {
   const diffArgs = getDiffArgs(task);
 
   try {
-    const { stdout } = await execFileAsync('git', diffArgs, {
+    const result = await execFileAsync('git', diffArgs, {
       cwd: workingDirectory,
       encoding: 'utf8',
       maxBuffer: 4 * 1024 * 1024,
       windowsHide: true,
     });
+    // result is { stdout, stderr } when using Node's built-in execFile (custom promisify symbol),
+    // or a plain string when using a stub without the custom symbol (test environment).
+    const stdout = (result && typeof result === 'object' && 'stdout' in result) ? result.stdout : result;
     return stdout;
   } catch (error) {
     const stderr = error && error.stderr

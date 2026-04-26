@@ -67,13 +67,18 @@ function parseDiffStats(diffOutput) {
 async function checkFileForRevert(filePath, workingDir) {
   try {
     // Get diff between HEAD and working tree for this specific file
-    const { stdout: diff } = await execFileAsync('git', ['diff', 'HEAD', '--', filePath], {
+    const diffResult = await execFileAsync('git', ['diff', 'HEAD', '--', filePath], {
       cwd: workingDir,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_DIFF,
       maxBuffer: 512 * 1024,
       windowsHide: true,
     });
+    // diffResult is { stdout, stderr } with real execFile (custom promisify symbol),
+    // or a plain string when using a test stub without the custom symbol.
+    const diff = (diffResult && typeof diffResult === 'object' && 'stdout' in diffResult)
+      ? diffResult.stdout
+      : diffResult;
 
     if (!diff || !diff.trim()) {
       // No diff means file matches HEAD — no revert
