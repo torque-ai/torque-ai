@@ -4015,6 +4015,47 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
       });
       const result = await workerHandle.promise;
       let gitReport = null;
+      const resultFailure = inspectHardFailAgenticStopReason(task, workingDir, agenticPolicy, result)
+        || buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, config?.maxIterations, entry.provider, resolvedModel);
+      if (resultFailure) {
+        const stopReason = result?.stopReason || 'completion_review_failed';
+        const resultError = new Error(resultFailure.message);
+        resultError.name = stopReason;
+        lastError = resultError;
+
+        if (snapshot && snapshot.isGitRepo) {
+          try { checkAndRevert(workingDir, snapshot, task.task_description, 'enforce', buildGitSafetyOptions(agenticPolicy)); } catch { /* ignore */ }
+        }
+
+        try { recordProviderOutcome(entry.provider, false); } catch { /* non-critical */ }
+        recordOpenRouterModelTaskOutcome({
+          task,
+          provider: entry.provider,
+          model: resolvedModel,
+          success: false,
+          result,
+          error: resultFailure.message,
+          stopReason,
+        });
+
+        const nextEntry = chain[i + 1];
+        if (nextEntry && !isAgenticWorkerCompatibleProvider(nextEntry.provider)) {
+          const handoffError = new Error(`Provider ${entry.provider}/${resolvedModel || 'default'} stopped with ${stopReason}; handoff to ${nextEntry.provider} is required`);
+          handoffError.agenticHandoffTarget = nextEntry;
+          handoffError.agenticHandoffReason = `Provider ${entry.provider}/${resolvedModel || 'default'} stopped with ${stopReason}: ${resultFailure.message}`;
+          handoffError.agenticChainPosition = i + 1;
+          handoffError.agenticFailedProvider = entry.provider;
+          handoffError.agenticFailedModel = resolvedModel;
+          throw handoffError;
+        }
+
+        if (i === chain.length - 1) {
+          return { ...result, provider: entry.provider, model: resolvedModel, chainPosition: i + 1, gitReport };
+        }
+
+        logger.info(`[Routing] Fallback: ${entry.provider}/${resolvedModel || 'default'} stopped with ${stopReason}, trying next (${i + 2}/${chain.length})`);
+        continue;
+      }
 
       // Success — run git safety and return
       if (snapshot && snapshot.isGitRepo) {

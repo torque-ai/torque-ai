@@ -299,6 +299,51 @@ describe('providers/execution agentic fixes', () => {
     expect(gitSafetyMock.checkAndRevert.mock.calls.every(([, , description]) => description === task.task_description)).toBe(true);
   });
 
+  it('falls back when a free agentic provider returns missing tool evidence', async () => {
+    const { mod } = loadSubject();
+
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(
+      createWorkerCtor([
+        {
+          type: 'result',
+          output: 'Task stopped: model answered without using required repository tools.',
+          stopReason: 'missing_tool_evidence',
+          toolLog: [],
+          tokenUsage: { prompt_tokens: 20, completion_tokens: 10 },
+          changedFiles: [],
+          iterations: 2,
+        },
+        {
+          type: 'result',
+          output: 'Verified from package.json.',
+          stopReason: 'model_finished',
+          toolLog: [{ name: 'read_file', error: false }],
+          tokenUsage: { prompt_tokens: 30, completion_tokens: 12 },
+          changedFiles: [],
+          iterations: 1,
+        },
+      ])
+    );
+
+    const task = {
+      id: 'task-missing-tool-evidence-fallback',
+      task_description: 'Inspect repository configuration and report facts only.',
+      working_directory: 'C:/repo',
+      metadata: JSON.stringify({ plan_task_title: 'Verify repository configuration' }),
+    };
+    const chain = [
+      { provider: 'cerebras', model: 'qwen-3-coder' },
+      { provider: 'google-ai', model: 'gemini-2.5-flash' },
+    ];
+
+    const result = await mod.executeWithFallback(task, chain, buildWorkerConfig, {});
+
+    expect(result.provider).toBe('google-ai');
+    expect(result.model).toBe('gemini-2.5-flash');
+    expect(result.chainPosition).toBe(2);
+    expect(result.output).toBe('Verified from package.json.');
+  });
+
   it('falls back when an OpenRouter agentic attempt produces no first response', async () => {
     vi.useFakeTimers();
 
