@@ -12,6 +12,7 @@ describe('Prompt tier integration', () => {
   let mockDb;
 
   beforeEach(() => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- requires prompts module fresh each run
     vi.resetModules();
     prompts = require('../providers/prompts');
     mockDb = {

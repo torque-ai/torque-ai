@@ -116,6 +116,7 @@ function createToolExecutor(handler = () => ({ result: 'ok' })) {
 beforeEach(async () => {
   vi.restoreAllMocks();
   vi.useRealTimers();
+  // eslint-disable-next-line torque/no-reset-modules-in-each -- dynamic import re-loads ollama-agentic fresh each run
   vi.resetModules();
 
   const mod = await import('../providers/ollama-agentic.js');

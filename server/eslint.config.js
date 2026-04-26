@@ -131,7 +131,7 @@ module.exports = [
       },
     },
     rules: {
-      'torque/no-reset-modules-in-each': 'warn',
+      'torque/no-reset-modules-in-each': 'error',
       'torque/no-heavy-test-imports': ['error', {
         allowlist: [
           'api-server.test.js',

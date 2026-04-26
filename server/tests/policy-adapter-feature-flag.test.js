@@ -197,6 +197,7 @@ function collectSingleFile(options = {}) {
 
 beforeEach(() => {
   clearModuleCaches();
+  // eslint-disable-next-line torque/no-reset-modules-in-each -- installMock pattern requires fresh module registry each run
   vi.resetModules();
   vi.clearAllMocks();
   vi.restoreAllMocks();

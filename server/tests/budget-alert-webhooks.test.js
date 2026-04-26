@@ -33,6 +33,7 @@ describe('RB-045: budget alert webhook targeting', () => {
   }
 
   beforeEach(() => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- loadIndex() re-requires server modules fresh each run
     vi.resetModules();
     vi.restoreAllMocks();
     loadIndex();

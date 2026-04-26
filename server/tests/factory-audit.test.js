@@ -105,6 +105,7 @@ function loadHandlersWithMockedFactoryHealth(project) {
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock('../db/factory-health');
+  // eslint-disable-next-line torque/no-reset-modules-in-each -- re-requires factory-audit and factory-health fresh each run
   vi.resetModules();
 
   db = new Database(':memory:');

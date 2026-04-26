@@ -108,6 +108,7 @@ function createDependencies(overrides = {}) {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // eslint-disable-next-line torque/no-reset-modules-in-each -- loadAutoRelease() re-requires module fresh each run
   vi.resetModules();
   clearCjsModule(MODULE_PATH);
   clearCjsModule(VERSION_INTENT_MODULE);

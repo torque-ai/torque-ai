@@ -14,6 +14,7 @@ describe('Orphan Cleanup', () => {
   let serverConfig;
 
   beforeEach(() => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- requires orphan-cleanup and config fresh each run
     vi.resetModules();
     orphanCleanup = require('../maintenance/orphan-cleanup');
     serverConfig = require('../config');

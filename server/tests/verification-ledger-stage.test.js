@@ -4,6 +4,7 @@ describe('verification-ledger-stage', () => {
   let mockProjectConfig;
 
   beforeEach(() => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- requires verification-ledger-stage fresh each run
     vi.resetModules();
 
     mockLedger = {

@@ -703,6 +703,7 @@ async function dispatchRequest({
 }
 
 beforeEach(() => {
+  // eslint-disable-next-line torque/no-reset-modules-in-each -- loadModules() re-requires routes fresh each run
   vi.resetModules();
   clearLoadedModules();
   createModules();

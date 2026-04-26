@@ -73,6 +73,7 @@ describe('Provider Registry', () => {
   let originalEnv;
 
   beforeEach(() => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- loadRegistry() re-requires provider registry fresh each run
     vi.resetModules();
     restoreModuleCache();
 

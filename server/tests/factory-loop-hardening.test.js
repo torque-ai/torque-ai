@@ -9,6 +9,7 @@ describe('buildVerifyFixPrompt', () => {
   let loopController;
 
   beforeEach(() => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- requires loop-controller fresh each run
     vi.resetModules();
     loopController = require('../factory/loop-controller');
   });
@@ -82,6 +83,7 @@ describe('isProjectStatusPaused', () => {
   let factoryHealth;
 
   beforeEach(() => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- requires factory-health and loop-controller fresh each run
     vi.resetModules();
     factoryHealth = require('../db/factory-health');
     loopController = require('../factory/loop-controller');
@@ -128,6 +130,7 @@ describe('countPriorVerifyRetryTasksForBatch', () => {
   let taskCore;
 
   beforeEach(() => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- requires task-core and loop-controller fresh each run
     vi.resetModules();
     taskCore = require('../db/task-core');
     loopController = require('../factory/loop-controller');

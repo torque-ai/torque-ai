@@ -27,6 +27,7 @@ describe('restart_server barrier mode', () => {
     resetTables('tasks');
     delete process._torqueRestartPending;
     process.env.TORQUE_RESTART_COOLDOWN_MS = '0';
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- vi.doMock requires fresh registry; re-requires task-core and tools
     vi.resetModules();
     vi.doMock('../event-bus', () => ({
       emitShutdown: vi.fn(),
