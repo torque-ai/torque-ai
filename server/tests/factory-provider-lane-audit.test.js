@@ -260,4 +260,48 @@ describe('provider lane audit', () => {
     expect(audit.guard.status).toBe('warn');
     expect(audit.guard.violations_count).toBe(0);
   });
+
+  it('uses provider_lane_policy allowed_providers as the provider allowlist', () => {
+    const db = createDb();
+    const configuredProject = {
+      ...project,
+      config_json: JSON.stringify({
+        provider_lane_policy: {
+          allowed_providers: ['cerebras', 'google-ai', 'openrouter', 'groq', 'ollama-cloud', 'ollama'],
+          require_classified_fallback: false,
+        },
+      }),
+    };
+    insertTask(db, {
+      id: 'free-provider',
+      provider: 'google-ai',
+      model: 'gemini-2.5-flash',
+      original_provider: 'groq',
+      metadata: {
+        target_project: 'DLPhone',
+        project_id: 'proj-1',
+        agentic_handoff: true,
+        agentic_handoff_from: 'groq',
+        agentic_handoff_to: 'google-ai',
+        agentic_handoff_reason: 'Free provider fallback after quota pressure',
+      },
+      created_at: '2026-04-25T17:03:00.000Z',
+    });
+    insertTask(db, {
+      id: 'codex-provider',
+      provider: 'codex',
+      metadata: { target_project: 'DLPhone', project_id: 'proj-1' },
+      created_at: '2026-04-25T17:02:00.000Z',
+    });
+
+    const audit = buildProviderLaneAudit({ db, project: configuredProject });
+
+    expect(audit.policy.expected_provider).toBeNull();
+    expect(audit.policy.allowed_providers).toEqual(['cerebras', 'google-ai', 'openrouter', 'groq', 'ollama-cloud', 'ollama']);
+    expect(audit.guard.status).toBe('fail');
+    expect(audit.guard.warnings_count).toBe(0);
+    expect(audit.guard.violations).toEqual([
+      expect.objectContaining({ task_id: 'codex-provider', type: 'provider_not_allowed' }),
+    ]);
+  });
 });

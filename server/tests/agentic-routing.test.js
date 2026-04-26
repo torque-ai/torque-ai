@@ -309,7 +309,7 @@ describe('validateTemplate — chain format', () => {
 // isRetryableError
 // ---------------------------------------------------------------------------
 
-const { isRetryableError, executeWithFallback } = require('../providers/execution');
+const { isRetryableError, executeWithFallback, init: initExecution } = require('../providers/execution');
 
 describe('isRetryableError', () => {
   it('returns true for "429 Too Many Requests"', () => {
@@ -412,6 +412,7 @@ describe('executeWithFallback', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    initExecution({});
   });
 
   it('first provider succeeds → returns result with chainPosition=1', async () => {
@@ -455,6 +456,69 @@ describe('executeWithFallback', () => {
     expect(result.provider).toBe('ollama');
     expect(result.output).toBe('fallback output');
     expect(callCount).toBe(2);
+  });
+
+  it('records agentic rate limits in the free quota tracker', async () => {
+    let callCount = 0;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function FakeWorker() {
+      callCount++;
+      const em = new EventEmitter();
+      this.postMessage = () => {};
+      this.terminate = vi.fn();
+      this.on = (ev, h) => em.on(ev, h);
+      const msg = callCount === 1
+        ? { type: 'error', message: 'Ollama chat API error (429): session usage limit' }
+        : { type: 'result', output: 'fallback output', toolLog: [], tokenUsage: {} };
+      setImmediate(() => em.emit('message', msg));
+    });
+    const tracker = {
+      getStatus: vi.fn(() => ({ 'ollama-cloud': {}, cerebras: {} })),
+      canSubmit: vi.fn(() => true),
+      recordRateLimit: vi.fn(),
+    };
+    initExecution({ getFreeQuotaTracker: () => tracker });
+
+    const chain = [
+      { provider: 'ollama-cloud', model: 'kimi-k2:1t' },
+      { provider: 'cerebras', model: 'qwen-3-235b-a22b-instruct-2507' },
+    ];
+    const task = { id: 'test-rate-limit-record', task_description: 'test task', working_directory: null };
+
+    const result = await executeWithFallback(task, chain, simpleBuildWorkerConfig, {});
+
+    expect(result.provider).toBe('cerebras');
+    expect(tracker.recordRateLimit).toHaveBeenCalledWith('ollama-cloud', null);
+  });
+
+  it('skips providers already in free quota cooldown', async () => {
+    let callCount = 0;
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function FakeWorker() {
+      callCount++;
+      const em = new EventEmitter();
+      this.postMessage = () => {};
+      this.terminate = vi.fn();
+      this.on = (ev, h) => em.on(ev, h);
+      setImmediate(() => em.emit('message', { type: 'result', output: 'fresh provider output', toolLog: [], tokenUsage: {} }));
+    });
+    const tracker = {
+      getStatus: vi.fn(() => ({ 'ollama-cloud': { cooldown_remaining_seconds: 30 }, cerebras: {} })),
+      canSubmit: vi.fn((provider) => provider !== 'ollama-cloud'),
+      recordRateLimit: vi.fn(),
+    };
+    initExecution({ getFreeQuotaTracker: () => tracker });
+
+    const chain = [
+      { provider: 'ollama-cloud', model: 'kimi-k2:1t' },
+      { provider: 'cerebras', model: 'qwen-3-235b-a22b-instruct-2507' },
+    ];
+    const task = { id: 'test-cooldown-skip', task_description: 'test task', working_directory: null };
+
+    const result = await executeWithFallback(task, chain, simpleBuildWorkerConfig, {});
+
+    expect(result.chainPosition).toBe(2);
+    expect(result.provider).toBe('cerebras');
+    expect(callCount).toBe(1);
+    expect(tracker.recordRateLimit).not.toHaveBeenCalled();
   });
 
   it('first provider fails (400, non-retryable) → throws immediately without trying next', async () => {
