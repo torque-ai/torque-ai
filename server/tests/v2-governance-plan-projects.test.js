@@ -766,7 +766,11 @@ describe('api/v2-governance-handlers.handleImportPlan', () => {
   });
 
   it('returns 500 when writing the temp file fails', async () => {
-    vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {
+    // handleImportPlan switched from fs.writeFileSync to fs.promises.writeFile
+    // (async). The earlier sync spy never matched, so the handler proceeded
+    // past the disk-full simulation and returned 200. Mock the async path
+    // the handler actually calls.
+    const writeSpy = vi.spyOn(fs.promises, 'writeFile').mockImplementation(async () => {
       throw new Error('disk full');
     });
 
@@ -777,13 +781,17 @@ describe('api/v2-governance-handlers.handleImportPlan', () => {
     });
     const res = createMockRes();
 
-    await handlers.handleImportPlan(req, res);
+    try {
+      await handlers.handleImportPlan(req, res);
 
-    expectErrorResponse(res, {
-      status: 500,
-      code: 'operation_failed',
-      message: 'disk full',
-    });
-    expect(mockTools.handleToolCall).not.toHaveBeenCalled();
+      expectErrorResponse(res, {
+        status: 500,
+        code: 'operation_failed',
+        message: 'disk full',
+      });
+      expect(mockTools.handleToolCall).not.toHaveBeenCalled();
+    } finally {
+      writeSpy.mockRestore();
+    }
   });
 });

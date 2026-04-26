@@ -116,18 +116,23 @@ function detectBuildFailure(verifyOutput) {
   // .NET / C#: roslyn emits "error CS\d+:" and trailing "Build FAILED.\n N Error(s)".
   if (/\berror CS\d{3,5}:/.test(combined)) signals.push('csharp_compile_error');
   if (/^\s*Build FAILED\.\s*$/m.test(combined)) signals.push('dotnet_build_failed_marker');
-  const dotnetErrCount = combined.match(/\b([1-9]\d*)\s+Error\(s\)\b/);
+  // The trailing `\b` after `\)` would never match (`)` is non-word and the
+  // following char is whitespace or end-of-line, also non-word). Anchor on
+  // the leading `\b` and a non-greedy whitespace/EOL terminator instead.
+  const dotnetErrCount = combined.match(/\b([1-9]\d*)\s+Error\(s\)/);
   if (dotnetErrCount) signals.push(`dotnet_error_count_${dotnetErrCount[1]}`);
 
   // TypeScript / tsc: "error TS\d+:" or watch-mode "Found N error(s)".
+  // Same trailing-\b fix here — `.` followed by whitespace doesn't transition.
   if (/\berror TS\d+:/.test(combined)) signals.push('ts_compile_error');
-  if (/Found\s+[1-9]\d*\s+errors?\.\b/.test(combined)) signals.push('tsc_found_errors');
+  if (/Found\s+[1-9]\d*\s+errors?\./.test(combined)) signals.push('tsc_found_errors');
 
   // Java javac
   if (/^.+\.java:\d+:\s+error:/m.test(combined)) signals.push('javac_error');
 
-  // GCC / clang
-  if (/^.+:\d+:\d+:\s+error:/m.test(combined)) signals.push('cc_error');
+  // GCC / clang: file:line:col: error: <description>. Anchored to known C-family
+  // extensions to avoid matching python tracebacks like `Module.py:10:5: error:`.
+  if (/^.+\.(?:c|cc|cpp|cxx|c\+\+|h|hpp|hh|m|mm):\d+:\d+:\s+error:/m.test(combined)) signals.push('cc_error');
 
   // make / gmake
   if (/make(?:\[\d+\])?:\s+\*\*\*\s+\[.+\]\s+Error\s+\d+/.test(combined)) signals.push('make_error');
@@ -136,8 +141,15 @@ function detectBuildFailure(verifyOutput) {
   if (/\berror\[E\d{4,5}\]:/.test(combined)) signals.push('rust_compile_error');
   if (/error: could not compile/.test(combined)) signals.push('cargo_could_not_compile');
 
-  // Go: "<file>.go:<line>:<col>: <message>" + non-zero exit when no tests ran.
-  if (/^.+\.go:\d+:\d+:\s+/m.test(combined) && !/PASS|FAIL/.test(combined)) signals.push('go_compile_error');
+  // Go: lines like "./pkg/foo.go:42:13: undefined: Bar" before the test
+  // runner emits PASS/FAIL summaries. Earlier rev gated this on the entire
+  // output being free of PASS/FAIL anywhere, which suppressed detection
+  // whenever any sibling package reported PASS. Anchor instead to the
+  // go-compile-error idiom: `cannot find` / `undefined:` / `expected` etc.
+  // following the file:line:col, which test-runtime panics don't emit.
+  if (/^.+\.go:\d+:\d+:\s+(?:undefined:|cannot find|expected\s|syntax error|imported and not used\b|undeclared name\b)/m.test(combined)) {
+    signals.push('go_compile_error');
+  }
 
   return { detected: signals.length > 0, signals };
 }
