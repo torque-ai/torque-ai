@@ -2,6 +2,7 @@
 
 const PLUGIN_NAME = 'codegraph';
 const PLUGIN_VERSION = '0.1.0';
+const { ensureSchema } = require('./schema');
 
 function isFeatureEnabled() {
   return process.env.TORQUE_CODEGRAPH_ENABLED === '1';
@@ -31,6 +32,7 @@ function createCodegraphPlugin() {
     if (!isFeatureEnabled()) return;
     const dbService = getContainerService(container, 'db');
     db = resolveRawDb(dbService);
+    ensureSchema(db);
     installed = true;
     toolList = [];
   }
