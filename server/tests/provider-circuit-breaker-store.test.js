@@ -2,14 +2,14 @@
 /* global describe, it, expect, beforeEach */
 
 const Database = require('better-sqlite3');
-const { ensureSchema } = require('../db/schema-tables');
+const { createTables: ensureSchema } = require('../db/schema-tables');
 
 describe('provider_circuit_breaker schema', () => {
   let db;
 
   beforeEach(() => {
     db = new Database(':memory:');
-    ensureSchema(db);
+    ensureSchema(db, { debug() {}, info() {}, warn() {}, error() {} });
   });
 
   it('creates provider_circuit_breaker table with expected columns', () => {

@@ -3761,6 +3761,5 @@ function createTables(db, logger) {
 }
 
 const ensureAllTables = createTables;
-const ensureSchema = createTables;
 
-module.exports = { createTables, ensureAllTables, ensureSchema, ensureAuditLogChainColumns, ensureTableColumns };
+module.exports = { createTables, ensureAllTables, ensureAuditLogChainColumns, ensureTableColumns };
