@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { routeMap } = require('../tools');
+const { routeMap } = require('../tool-registry');
 const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 
 const INTERNAL_ONLY_ROUTES = new Set([

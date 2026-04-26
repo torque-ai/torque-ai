@@ -3,7 +3,7 @@ const Database = require('better-sqlite3');
 const {
   listRecoveryStrategies, getRecoveryHistory, clearAutoRecovery, triggerAutoRecovery,
 } = require('../handlers/auto-recovery-handlers');
-const { routeMap } = require('../tools');
+const { routeMap } = require('../tool-registry');
 
 function seedDb() {
   const db = new Database(':memory:');

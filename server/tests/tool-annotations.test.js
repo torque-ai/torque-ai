@@ -22,7 +22,7 @@ const INTERNAL_ONLY_ROUTE_NAMES = new Set([
 ]);
 
 function getExposedToolNames() {
-  const { TOOLS, routeMap } = require('../tools');
+  const { TOOLS, routeMap } = require('../tool-registry');
   const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
   const modelFreshnessToolDefs = require('../plugins/model-freshness/tool-defs');
   const coreToolNames = TOOLS.map((tool) => tool.name);

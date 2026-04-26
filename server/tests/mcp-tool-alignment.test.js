@@ -6,7 +6,7 @@ const acorn = require('acorn');
 
 const { validateCoverage } = require('../tool-annotations');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('../core-tools');
-const { TOOLS, routeMap, schemaMap } = require('../tools');
+const { TOOLS, routeMap, schemaMap } = require('../tool-registry');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const SERVER_ROOT = path.join(REPO_ROOT, 'server');
