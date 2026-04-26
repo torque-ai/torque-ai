@@ -269,19 +269,24 @@ describe('factory loop-controller EXECUTE modes', () => {
   function registerPlanProject({ config } = {}) {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const planPath = path.join(tempDir, `plan-${Date.now()}-${Math.random().toString(16).slice(2)}.md`);
+    // Plan body must satisfy the plan-quality-gate that runs on pre-written
+    // plans in executePlanStage: each task body needs >=100 chars of concrete
+    // instruction, a file path reference, an acceptance criterion, and no
+    // vague verbs ("update") without object detail. Same pattern as the fix
+    // in factory-execute-to-verify-gate.
     fs.writeFileSync(planPath, `# Simulated plan
 
 **Tech Stack:** Node.js, vitest.
 
 ## Task 1: Simulated task
 
-- [ ] **Step 1: Update files**
+- [ ] **Step 1: Implement the helper in plan-executor.js**
 
-    Edit server/factory/plan-executor.js.
+    Edit server/factory/plan-executor.js to add a \`runSimulatedFactoryStep(input)\` helper that returns \`{ ok: true, payload: input }\`. The helper must be exported alongside the existing public helpers without disturbing call sites. Acceptance criterion: \`expect(runSimulatedFactoryStep('seed').ok).toBe(true)\` in a colocated unit test.
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 2: Commit the helper change**
 
-    git commit -m "feat: simulated task"
+    Run \`git add server/factory/plan-executor.js && git commit -m "feat: simulated task"\` after the helper lands. Acceptance criterion: \`git log -1 --format=%s\` reports the conventional-commit subject and the working tree is clean.
 `);
 
     const projectRow = factoryHealth.registerProject({
@@ -550,8 +555,8 @@ describe('factory loop-controller EXECUTE modes', () => {
       batch_id: expect.any(String),
     });
     const updatedPlan = fs.readFileSync(planPath, 'utf8');
-    expect(updatedPlan).toContain('- [x] **Step 1: Update files**');
-    expect(updatedPlan).toContain('- [x] **Step 2: Commit**');
+    expect(updatedPlan).toContain('- [x] **Step 1: Implement the helper in plan-executor.js**');
+    expect(updatedPlan).toContain('- [x] **Step 2: Commit the helper change**');
 
     const decisions = listDecisionRows(db, project.id);
     expect(decisions.find((row) => row.action === 'dry_run_task')).toBeUndefined();
