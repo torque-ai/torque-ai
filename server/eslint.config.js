@@ -135,14 +135,14 @@ module.exports = [
   },
   {
     files: [
-      'server/handlers/**/*.js',
-      'server/execution/**/*.js',
-      'server/governance/**/*.js',
-      'server/audit/**/*.js',
-      'server/api/**/*.js',
-      'server/dashboard-server.js',
-      'server/queue-scheduler*.js',
-      'server/maintenance/orphan-cleanup.js',
+      'handlers/**/*.js',
+      'execution/**/*.js',
+      'governance/**/*.js',
+      'audit/**/*.js',
+      'api/**/*.js',
+      'dashboard-server.js',
+      'queue-scheduler*.js',
+      'maintenance/orphan-cleanup.js',
     ],
     plugins: {
       torque: {
@@ -152,7 +152,7 @@ module.exports = [
       },
     },
     rules: {
-      'torque/no-sync-fs-on-hot-paths': 'warn',
+      'torque/no-sync-fs-on-hot-paths': 'error',
     },
   },
   {

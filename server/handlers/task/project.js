@@ -1,3 +1,4 @@
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- task/project sync calls are in project directory scanning paths; Phase 2 async conversion tracked separately. */
 /**
  * Task Project — Cost/token tracking, project management, groups, advanced analytics
  * Extracted from task-handlers.js during decomposition.

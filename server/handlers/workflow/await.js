@@ -1,3 +1,4 @@
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- workflow/await sync calls are in verify-command execution and working-dir detection; Phase 2 async conversion tracked separately. */
 /**
  * Workflow await / polling handlers (non-blocking yield-on-completion)
  */

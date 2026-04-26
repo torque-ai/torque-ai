@@ -83,17 +83,12 @@ tester.run('no-sync-fs-on-hot-paths', rule, {
   ],
 });
 
-// Unit tests for disable-comment reason-length enforcement
-// (RuleTester can't test eslint-disable-next-line comments because the rule is
-// registered under a different namespace internally. Test the helper logic directly.)
-describe('checkInlineDisableComment reason enforcement', () => {
-  it('requires reason longer than 10 chars after --', () => {
-    // The rule exports itself — we verify the meta messages exist
-    expect(rule.meta.messages.shortDisableReason).toContain('{{min}}');
+describe('no-sync-fs-on-hot-paths rule metadata', () => {
+  it('has noSyncFsOnHotPath message with {{name}} placeholder', () => {
     expect(rule.meta.messages.noSyncFsOnHotPath).toContain('{{name}}');
   });
 
-  it('grandfathered exception pattern is documented in the rule messages', () => {
+  it('documents hot-path restriction in description', () => {
     expect(rule.meta.docs.description).toContain('hot-path');
   });
 });

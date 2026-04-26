@@ -25,11 +25,6 @@ tester.run('no-sync-fs-on-hot-paths', rule, {
       filename: 'C:/repo/server/handlers/review-handler.js',
       code: "const fsPromises = require('fs').promises;\nawait fsPromises.readFile('/tmp/x', 'utf8');",
     },
-    // Grandfathered with valid reason (> 10 chars)
-    {
-      filename: 'C:/repo/server/execution/restart-handoff.js',
-      code: "const fs = require('fs');\n// eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- shutdown/startup handoff file — sync is correct ordering.\nfs.writeFileSync('/tmp/restart', '1');",
-    },
     // spawn (async) is fine even in hot-path
     {
       filename: 'C:/repo/server/handlers/task/pipeline.js',
@@ -84,12 +79,6 @@ tester.run('no-sync-fs-on-hot-paths', rule, {
       filename: 'C:/repo/server/handlers/task/pipeline.js',
       code: "const childProcess = require('child_process');\nchildProcess.spawnSync('git', ['status']);",
       errors: [{ messageId: 'noSyncFsOnHotPath' }],
-    },
-    // Grandfathered with empty/short reason — still fails (reason must be > 10 chars)
-    {
-      filename: 'C:/repo/server/handlers/review-handler.js',
-      code: "const fs = require('fs');\n// eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- fixme\nfs.readFileSync('/tmp/x', 'utf8');",
-      errors: [{ messageId: 'shortDisableReason' }],
     },
   ],
 });

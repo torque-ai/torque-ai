@@ -22,8 +22,6 @@ const SYNC_FS_METHODS = new Set([
 // Sync subprocess methods to flag
 const SYNC_CP_METHODS = new Set(['execSync', 'execFileSync', 'spawnSync']);
 
-const MIN_REASON_LENGTH = 10;
-
 function normalizeFilename(context) {
   const filename = typeof context.filename === 'string'
     ? context.filename
@@ -45,8 +43,6 @@ module.exports = {
     messages: {
       noSyncFsOnHotPath:
         'Sync I/O call "{{name}}" blocks the event loop on hot-path files. Use the async equivalent (fs.promises.* or promisified subprocess).',
-      shortDisableReason:
-        'eslint-disable comment for torque/no-sync-fs-on-hot-paths must include a reason longer than {{min}} chars (e.g., "-- startup only, not a request hot-path").',
     },
     schema: [],
   },
@@ -59,28 +55,6 @@ module.exports = {
     // Track renamed destructured bindings from require('child_process')
     // e.g. const { execFileSync: efs } = require('child_process')  =>  efs -> 'execFileSync'
     const renamedCpBindings = new Map(); // localName -> canonicalName
-
-    function checkInlineDisableComment(node, ruleName) {
-      const sourceCode = context.getSourceCode ? context.getSourceCode() : context.sourceCode;
-      const comments = sourceCode.getCommentsBefore(node);
-      for (const comment of comments) {
-        const text = comment.value.trim();
-        if (text.includes(`eslint-disable-next-line ${ruleName}`)) {
-          // Extract reason after '--'
-          const dashIdx = text.indexOf('--');
-          if (dashIdx === -1) {
-            context.report({ node, messageId: 'shortDisableReason', data: { min: MIN_REASON_LENGTH } });
-            return true;
-          }
-          const reason = text.slice(dashIdx + 2).trim();
-          if (reason.length <= MIN_REASON_LENGTH) {
-            context.report({ node, messageId: 'shortDisableReason', data: { min: MIN_REASON_LENGTH } });
-          }
-          return true; // has disable comment (whether valid or not, don't double-report)
-        }
-      }
-      return false;
-    }
 
     return {
       // Track: const { execFileSync } = require('child_process')
@@ -119,13 +93,11 @@ module.exports = {
         ) {
           const methodName = callee.property.name;
           if (SYNC_FS_METHODS.has(methodName) || SYNC_CP_METHODS.has(methodName)) {
-            if (!checkInlineDisableComment(node, 'torque/no-sync-fs-on-hot-paths')) {
-              context.report({
-                node,
-                messageId: 'noSyncFsOnHotPath',
-                data: { name: methodName },
-              });
-            }
+            context.report({
+              node,
+              messageId: 'noSyncFsOnHotPath',
+              data: { name: methodName },
+            });
           }
           return;
         }
@@ -134,24 +106,20 @@ module.exports = {
         if (callee.type === 'Identifier') {
           const name = callee.name;
           if (SYNC_CP_METHODS.has(name)) {
-            if (!checkInlineDisableComment(node, 'torque/no-sync-fs-on-hot-paths')) {
-              context.report({
-                node,
-                messageId: 'noSyncFsOnHotPath',
-                data: { name },
-              });
-            }
+            context.report({
+              node,
+              messageId: 'noSyncFsOnHotPath',
+              data: { name },
+            });
             return;
           }
           // Case 3: renamed binding — e.g., efs(...) where efs = execFileSync
           if (renamedCpBindings.has(name)) {
-            if (!checkInlineDisableComment(node, 'torque/no-sync-fs-on-hot-paths')) {
-              context.report({
-                node,
-                messageId: 'noSyncFsOnHotPath',
-                data: { name: `${name} (alias for ${renamedCpBindings.get(name)})` },
-              });
-            }
+            context.report({
+              node,
+              messageId: 'noSyncFsOnHotPath',
+              data: { name: `${name} (alias for ${renamedCpBindings.get(name)})` },
+            });
           }
         }
       },

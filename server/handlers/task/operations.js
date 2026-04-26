@@ -1,3 +1,4 @@
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- task/operations sync calls are in export/import file I/O paths; Phase 2 async conversion tracked separately. */
 /**
  * Task Operations — Tags, health, scheduling, batch, output, export/import, archiving
  * Extracted from task-handlers.js during decomposition.

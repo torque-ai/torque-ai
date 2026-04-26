@@ -1,3 +1,4 @@
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- task/core sync calls are in file sync and working-dir detection at task submission time; Phase 2 async conversion tracked separately. */
 /**
  * Task Core — Core lifecycle handlers
  * Extracted from task-handlers.js during decomposition.

@@ -113,8 +113,8 @@ function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '') {
   if (process.platform === 'win32') {
     if (Number.isFinite(pid) && pid > 0) {
       try {
-        // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- Windows process kill — runs in setTimeout during graceful shutdown, not request hot-path.
         const { execFileSync } = require('child_process');
+        // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- Windows process kill — runs in setTimeout during graceful shutdown, not request hot-path.
         execFileSync('taskkill', ['/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
       } catch (err) {
         logTaskkillFailureIfAlive(pid, `${prefix}Failed to send taskkill /T to task ${taskId}: ${err.message}`);
@@ -132,8 +132,8 @@ function killProcessGraceful(proc, taskId, killDelayMs = 5000, label = '') {
     const forceHandle = setTimeout(() => {
       if (Number.isFinite(pid) && pid > 0) {
         try {
-          // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- Windows process kill — runs in setTimeout during graceful shutdown, not request hot-path.
           const { execFileSync } = require('child_process');
+          // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- Windows process kill — runs in setTimeout during graceful shutdown, not request hot-path.
           execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
           return;
         } catch (err) {
@@ -199,8 +199,8 @@ function killOrphanByPid(pid, taskId, killDelayMs = 5000, label = '') {
 
   if (process.platform === 'win32') {
     try {
-      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- Windows process kill — runs in setTimeout during graceful shutdown, not request hot-path.
       const { execFileSync } = require('child_process');
+      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- Windows process kill — runs in setTimeout during graceful shutdown, not request hot-path.
       execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
       logger.info(`${prefix}Killed orphan PID ${pid} (task ${taskId}) via taskkill`);
     } catch (err) {
@@ -250,8 +250,8 @@ function pauseProcess(proc, taskId, label = '') {
   if (process.platform === 'win32') {
     // Windows: SIGSTOP not supported. Kill process tree — resumeTask will restart from DB.
     try {
-      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- Windows process kill — runs in setTimeout during graceful shutdown, not request hot-path.
       const { execFileSync } = require('child_process');
+      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- Windows process kill — runs in setTimeout during graceful shutdown, not request hot-path.
       execFileSync('taskkill', ['/F', '/T', '/PID', String(proc.process.pid)], { timeout: 5000, windowsHide: true, stdio: 'ignore' });
     } catch {
       try {

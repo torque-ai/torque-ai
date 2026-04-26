@@ -1,4 +1,5 @@
 'use strict';
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- conflict-resolver sync calls are in git conflict resolution logic invoked per-task, not per-request; Phase 2 async conversion tracked separately. */
 
 const fs = require('fs');
 const os = require('os');

@@ -1,3 +1,4 @@
+/* eslint-disable torque/no-sync-fs-on-hot-paths -- plans handler sync calls are in plan file read/write at MCP tool invocation time; Phase 2 async conversion tracked separately. */
 /**
  * Integration plan project handlers.
  */

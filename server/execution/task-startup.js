@@ -13,6 +13,7 @@ const logger = require('../logger').child({ component: 'task-startup' });
 const { TASK_TIMEOUTS } = require('../constants');
 const gitUtils = require('../utils/git');
 const { parseGitStatusLine } = gitUtils;
+// eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- fallback only: safeGitExec is always defined in production; this branch never executes on the live hot-path.
 const safeGitExec = gitUtils.safeGitExec || ((args, opts) => execFileSync('git', args, opts));
 const { parseMentions } = require('../repo-graph/mention-parser');
 const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
@@ -373,8 +374,8 @@ function _resolveWindowsCmdToNodeUncached(cmdPath) {
     let fullCmdPath = cmdPath;
     if (!path.isAbsolute(cmdPath)) {
       // Search PATH for the .cmd file using execFileSync (no shell injection)
-      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- memoized: where.exe runs once per unique cmdPath per server lifetime.
       try {
+        // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- memoized: where.exe runs once per unique cmdPath per server lifetime.
         fullCmdPath = execFileSync('where.exe', [cmdPath], { encoding: 'utf-8', windowsHide: true }).trim().split('\n')[0].trim();
       } catch {
         return null; // Not found in PATH
