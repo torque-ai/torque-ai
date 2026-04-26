@@ -946,6 +946,39 @@ async function handleReassignTaskProvider(req, res) {
     // Item 14: Clear stale overflow metadata since operator reassigned explicitly
     delete metadata.quota_overflow;
     delete metadata.original_provider;
+    // Populate a routing chain so chain-failover has somewhere to go when the
+    // chosen provider's primary model fails. Without this, the chain on a
+    // PATCH-reassigned task is empty: the executor has no fallback when the
+    // chosen provider/model fails (1d686cbb 2026-04-26 — google-ai returned
+    // HTTP 500 INTERNAL for an unreachable model, no chain to fall back to,
+    // task died). The user's "I picked this provider" intent is preserved by
+    // making it FIRST in the chain; subsequent entries are sibling enabled
+    // providers in the same category (api → api, ollama → ollama, etc.) so
+    // a 5xx or model-not-found falls over to a healthy peer instead of the
+    // task dying.
+    try {
+      const chain = [{ provider, model: null }];
+      const category = providerRegistry.getCategory(provider);
+      if (category && providerRegistry.getProvidersInCategory) {
+        const siblings = providerRegistry.getProvidersInCategory(category)
+          .filter((p) => p !== provider);
+        for (const sib of siblings) {
+          // Only add enabled providers — querying the live config keeps the
+          // chain honest about what can actually run.
+          try {
+            const provCfg = providerRoutingCore.getProvider?.(sib);
+            if (provCfg && provCfg.enabled) {
+              chain.push({ provider: sib, model: null });
+            }
+          } catch { /* skip on lookup error */ }
+        }
+      }
+      metadata._routing_chain = chain;
+    } catch (e) {
+      // Fall back to single-entry chain if registry probing fails — better
+      // than the previous behavior of leaving _routing_chain undefined.
+      metadata._routing_chain = [{ provider, model: null }];
+    }
 
     const updateFields = { provider, metadata };
     if (familyChanged) {

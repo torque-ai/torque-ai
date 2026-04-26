@@ -303,7 +303,33 @@ function handleProviderFailover(ctx) {
   const MAX_FAILOVERS = 3;
   const failoverCount = task?.retry_count || 0;
   const errorOutput = proc?.errorOutput || '';
-  if (ctx.status === 'failed' && providerActuallyFailed && task && failoverCount < MAX_FAILOVERS && db.isProviderQuotaError(task.provider || 'codex', errorOutput)) {
+  // Combined errorOutput + tail of proc.output so model-not-found errors that
+  // landed on stdout (some adapters mix the two) are still classified.
+  const errorPayload = errorOutput + '\n' + String(proc?.output || '').slice(-2000);
+  // Detect model-related failures so we can both blocklist the (provider, model)
+  // pair and trigger the same failover path as quota errors. The patterns
+  // are intentionally narrow — we want "the model isn't callable on this key"
+  // shape, not generic application errors.
+  const isModelMissing = /\bdoes not exist\b|\bmodel_not_found\b|\bmodel\b[^\n]{0,40}\bnot found\b|\bmodel\b[^\n]{0,40}\bnot supported\b|\bdeprecated\b/i.test(errorPayload);
+  // 5xx detection: persistent 5xx for the same model is a failover signal,
+  // but a single 5xx is often transient. Combine with the in-memory blocklist
+  // counter — recordFailure increments per call, marks unreachable at threshold.
+  const is5xxApi = /(?:HTTP|status|code)[\s:=]*5\d{2}\b/i.test(errorPayload) || /\bINTERNAL\b\s*$/m.test(errorPayload);
+  if (task?.provider && task?.model && (isModelMissing || is5xxApi)) {
+    try {
+      const modelBlocklist = require('../providers/model-blocklist');
+      const reason = isModelMissing ? 'model_missing' : 'persistent_5xx';
+      modelBlocklist.recordFailure(task.provider, task.model, reason);
+    } catch (e) {
+      logger.debug(`[Model Blocklist] recordFailure failed: ${e.message}`);
+    }
+  }
+  const isQuotaErr = db.isProviderQuotaError(task?.provider || 'codex', errorPayload);
+  // Failover triggers on quota errors OR model-missing errors. Generic 5xx
+  // alone does NOT trigger failover — too risky (transient 500s would loop).
+  // The blocklist will catch a model with consecutive 5xx via the threshold.
+  const shouldFailover = isQuotaErr || isModelMissing;
+  if (ctx.status === 'failed' && providerActuallyFailed && task && failoverCount < MAX_FAILOVERS && shouldFailover) {
     const currentProvider = task.provider || 'codex';
     const fallbackProvider = db.getNextFallbackProvider(taskId);
 

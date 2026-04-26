@@ -603,6 +603,14 @@ async function executeApiProvider(task, provider) {
     // Persist resolved model so performance tracking works (model may be null on the task
     // if smart routing didn't set it — the provider resolves a default internally)
     const resolvedModelFromProvider = provider.defaultModel ? provider.defaultModel : null;
+    // Skip blocklisted models — fall through to provider's default. The blocklist
+    // is populated by the close-handler when a model returns model-not-found /
+    // persistent 5xx, so we don't keep retrying a known-bad combo.
+    const modelBlocklist = require('./model-blocklist');
+    if (model && modelBlocklist.isBlocked(provider.name, model)) {
+      logger.warn(`[execute-api] Task ${taskId}: ${provider.name}/${model} is on the model blocklist — falling back to provider default ${resolvedModelFromProvider || '(none)'}`);
+      model = null;
+    }
     let resolvedModel = model || resolvedModelFromProvider;
     db.updateTaskStatus(taskId, 'running', {
       started_at: new Date().toISOString(),
