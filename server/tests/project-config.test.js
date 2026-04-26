@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
 const { setupTestDbModule, teardownTestDb, rawDb, resetTables: _resetTables } = require('./vitest-setup');
+const { assertMaxPrepares } = require('./perf-test-helpers.test');
 
 let testDir;
 let mod;
@@ -711,6 +712,20 @@ describe('project-config module', () => {
       expect(() => mod.timedQuery('boom', () => {
         throw new Error('query failed');
       })).toThrow('query failed');
+    });
+  });
+
+  describe('prepare-in-loop regressions', () => {
+    it('getProjectStats issues at most 7 prepares on first call and 0 on second', async () => {
+      createTask({ project: 'perf-proj', status: 'completed', tags: ['a', 'b'] });
+      createTask({ project: 'perf-proj', status: 'failed', tags: ['b', 'c'] });
+      // First call populates the cache
+      mod.getProjectStats('perf-proj');
+      // Second call must use 0 prepares
+      const count = await assertMaxPrepares(rawDb(), 0, () => {
+        mod.getProjectStats('perf-proj');
+      });
+      expect(count).toBe(0);
     });
   });
 });

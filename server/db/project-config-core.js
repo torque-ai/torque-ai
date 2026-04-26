@@ -31,8 +31,10 @@ let _getTask = null;
 let _recordEvent = null;
 const _dbFunctions = {};
 let _projectConfigRoutingTemplateEnsured = false;
+const _projectStatsStmts = {};
 
 function setDb(dbInstance) {
+  if (dbInstance !== db) { Object.keys(_projectStatsStmts).forEach((k) => delete _projectStatsStmts[k]); }
   db = dbInstance;
   _projectConfigRoutingTemplateEnsured = false;
   // Forward to cache + validation sub-modules
@@ -480,96 +482,47 @@ function listProjects() {
  * Get detailed stats for a specific project
  */
 function getProjectStats(project) {
-  // Task counts by status
-  const taskStmt = db.prepare(`
-    SELECT
-      status,
-      COUNT(*) as count
-    FROM tasks
-    WHERE project = ?
-    GROUP BY status
-  `);
-
-  const tasksByStatus = {};
-  for (const row of taskStmt.all(project)) {
-    tasksByStatus[row.status] = row.count;
+  if (!_projectStatsStmts.tasksByStatus) {
+    _projectStatsStmts.tasksByStatus = db.prepare(
+      'SELECT status, COUNT(*) as count FROM tasks WHERE project = ? GROUP BY status'
+    );
+    _projectStatsStmts.recentTasks = db.prepare(
+      'SELECT id, status, task_description, created_at, completed_at FROM tasks WHERE project = ? ORDER BY created_at DESC LIMIT 10'
+    );
+    _projectStatsStmts.costSummary = db.prepare(
+      'SELECT COALESCE(SUM(input_tokens), 0) as total_input_tokens, COALESCE(SUM(output_tokens), 0) as total_output_tokens, COALESCE(SUM(total_tokens), 0) as total_tokens, COALESCE(SUM(estimated_cost_usd), 0) as total_cost FROM token_usage WHERE project = ?'
+    );
+    _projectStatsStmts.pipelineCount = db.prepare(
+      'SELECT COUNT(*) as count FROM pipelines WHERE project = ?'
+    );
+    _projectStatsStmts.scheduledCount = db.prepare(
+      'SELECT COUNT(*) as count FROM scheduled_tasks WHERE project = ?'
+    );
+    _projectStatsStmts.topTemplates = db.prepare(
+      'SELECT template_name, COUNT(*) as count FROM tasks WHERE project = ? AND template_name IS NOT NULL GROUP BY template_name ORDER BY count DESC LIMIT 5'
+    );
+    _projectStatsStmts.topTags = db.prepare(
+      'SELECT je.value AS tag, COUNT(*) AS count FROM tasks, json_each(tasks.tags) AS je WHERE tasks.project = ? AND tasks.tags IS NOT NULL AND json_valid(tasks.tags) GROUP BY je.value ORDER BY count DESC LIMIT 10'
+    );
   }
 
-  // Total tasks
-  const totalTasks = Object.values(tasksByStatus).reduce((a, b) => a + b, 0);
-
-  // Recent tasks
-  const recentStmt = db.prepare(`
-    SELECT id, status, task_description, created_at, completed_at
-    FROM tasks
-    WHERE project = ?
-    ORDER BY created_at DESC
-    LIMIT 10
-  `);
-  const recentTasks = recentStmt.all(project);
-
-  // Cost summary
-  const costStmt = db.prepare(`
-    SELECT
-      COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-      COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-      COALESCE(SUM(total_tokens), 0) as total_tokens,
-      COALESCE(SUM(estimated_cost_usd), 0) as total_cost
-    FROM token_usage
-    WHERE project = ?
-  `);
-  const costSummary = costStmt.get(project);
-
-  // Pipelines count
-  const pipelineStmt = db.prepare(`
-    SELECT COUNT(*) as count FROM pipelines WHERE project = ?
-  `);
-  const pipelineCount = pipelineStmt.get(project)?.count || 0;
-
-  // Scheduled tasks count
-  const scheduledStmt = db.prepare(`
-    SELECT COUNT(*) as count FROM scheduled_tasks WHERE project = ?
-  `);
-  const scheduledCount = scheduledStmt.get(project)?.count || 0;
-
-  // Templates used
-  const templateStmt = db.prepare(`
-    SELECT template_name, COUNT(*) as count
-    FROM tasks
-    WHERE project = ? AND template_name IS NOT NULL
-    GROUP BY template_name
-    ORDER BY count DESC
-    LIMIT 5
-  `);
-  const topTemplates = templateStmt.all(project);
-
-  // Tags used
-  const tagStmt = db.prepare(`
-    SELECT tags FROM tasks WHERE project = ? AND tags IS NOT NULL
-  `);
-  const tagCounts = {};
-  for (const row of tagStmt.all(project)) {
-    try {
-      const tags = JSON.parse(row.tags);
-      for (const tag of tags) {
-        tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-      }
-    } catch { /* ignore */ }
+  const tasksByStatus = {};
+  let totalTasks = 0;
+  for (const row of _projectStatsStmts.tasksByStatus.all(project)) {
+    tasksByStatus[row.status] = row.count;
+    totalTasks += row.count;
   }
 
   return {
     project,
     total_tasks: totalTasks,
     tasks_by_status: tasksByStatus,
-    pipelines: pipelineCount,
-    scheduled_tasks: scheduledCount,
-    cost: costSummary,
-    top_templates: topTemplates,
-    top_tags: Object.entries(tagCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([tag, count]) => ({ tag, count })),
-    recent_tasks: recentTasks
+    pipelines: _projectStatsStmts.pipelineCount.get(project)?.count || 0,
+    scheduled_tasks: _projectStatsStmts.scheduledCount.get(project)?.count || 0,
+    cost: _projectStatsStmts.costSummary.get(project),
+    top_templates: _projectStatsStmts.topTemplates.all(project),
+    top_tags: _projectStatsStmts.topTags.all(project),
+    recent_tasks: _projectStatsStmts.recentTasks.all(project),
   };
 }
 
