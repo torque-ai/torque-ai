@@ -285,6 +285,44 @@ class CircuitBreaker {
 
     return result;
   }
+
+  trip(provider, reason) {
+    const normalizedProvider = normalizeProvider(provider);
+    const entry = this._getStateEntry(normalizedProvider);
+    entry.state = STATES.OPEN;
+    entry.trippedAt = Date.now();
+    entry.lastFailureCategory = entry.lastFailureCategory || 'manual';
+    this._emit('circuit:tripped', {
+      provider: normalizedProvider,
+      category: entry.lastFailureCategory,
+      consecutiveFailures: entry.consecutiveFailures,
+      recoveryTimeoutMs: entry.recoveryTimeoutMs,
+      reason: reason || 'manual',
+    });
+    this._persist(normalizedProvider, {
+      state: 'OPEN',
+      trippedAt: new Date(entry.trippedAt).toISOString(),
+      tripReason: reason || 'manual',
+    });
+  }
+
+  untrip(provider, reason) {
+    const normalizedProvider = normalizeProvider(provider);
+    const entry = this._getStateEntry(normalizedProvider);
+    entry.state = STATES.CLOSED;
+    entry.consecutiveFailures = 0;
+    entry.lastFailureCategory = null;
+    entry.recoveryTimeoutMs = this._config.baseRecoveryTimeoutMs;
+    entry.currentProbeAllowed = false;
+    this._emit('circuit:recovered', {
+      provider: normalizedProvider,
+      reason: reason || 'manual',
+    });
+    this._persist(normalizedProvider, {
+      state: 'CLOSED',
+      untrippedAt: new Date().toISOString(),
+    });
+  }
 }
 
 function createCircuitBreaker({ eventBus, config, store } = {}) {

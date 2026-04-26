@@ -331,4 +331,44 @@ describe('circuit-breaker', () => {
       expect(breaker.getState('codex').state).toBe(STATES.OPEN);
     });
   });
+
+  describe('manual trip/untrip', () => {
+    it('trip() forces OPEN state with reason', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      breaker.trip('codex', 'manual_disabled');
+      expect(breaker.getState('codex').state).toBe(STATES.OPEN);
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'circuit:tripped',
+        expect.objectContaining({ provider: 'codex', reason: 'manual_disabled' })
+      );
+    });
+
+    it('untrip() forces CLOSED state and resets counters', () => {
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG });
+      tripCircuit(breaker, 'codex');
+      breaker.untrip('codex', 'operator_override');
+      const state = breaker.getState('codex');
+      expect(state.state).toBe(STATES.CLOSED);
+      expect(state.consecutiveFailures).toBe(0);
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        'circuit:recovered',
+        expect.objectContaining({ provider: 'codex', reason: 'operator_override' })
+      );
+    });
+
+    it('trip() persists reason via store', () => {
+      const persisted = new Map();
+      const store = {
+        getState: vi.fn((id) => persisted.get(id) ?? null),
+        persist: vi.fn((id, patch) => persisted.set(id, { ...persisted.get(id), ...patch })),
+        listAll: vi.fn(() => []),
+      };
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
+      breaker.trip('codex', 'manual_disabled');
+      expect(store.persist).toHaveBeenCalledWith('codex', expect.objectContaining({
+        state: 'OPEN',
+        tripReason: 'manual_disabled',
+      }));
+    });
+  });
 });
