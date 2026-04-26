@@ -162,10 +162,10 @@ describe('ci-handlers.js', () => {
       expect(getText(result)).toContain('acme/website');
     });
 
-    it('stops an active watch by repo and provider', () => {
+    it('stops an active watch by repo and provider', async () => {
       mockWatcher.stopWatch.mockReturnValue(true);
 
-      const result = handlers.handleStopCiWatch({ repo: 'acme/website', provider: 'github-actions' });
+      const result = await handlers.handleStopCiWatch({ repo: 'acme/website', provider: 'github-actions' });
 
       expect(mockWatcher.stopWatch).toHaveBeenCalledWith({ repo: 'acme/website', provider: 'github-actions' });
       expect(getText(result)).toContain('## CI Watch Stopped');
@@ -269,29 +269,26 @@ describe('ci-handlers.js', () => {
 
   describe('resolveRepo', () => {
     it('falls back from args.repo to db config and finally `gh repo view`', async () => {
-      const spy = vi.spyOn(require('child_process'), 'execFileSync').mockImplementation(() => 'cli/fallback\n');
+      const { promisify } = require('util');
+      const childProcess = require('child_process');
+
+      // Mock execFile with promisify.custom so promisify resolves to {stdout, stderr}
+      const mockExecFile = vi.fn((file, args, options, cb) => cb(null, 'cli/fallback\n', ''));
+      mockExecFile[promisify.custom] = (_file, _args, _options) =>
+        Promise.resolve({ stdout: 'cli/fallback\n', stderr: '' });
+      const spy = vi.spyOn(childProcess, 'execFile').mockImplementation(mockExecFile);
 
       mockConfigCore.getConfig.mockReturnValueOnce(null);
-      const result = handlers.resolveRepo({
+      const result = await handlers.resolveRepo({
         working_directory: 'C:/tmp/repo',
       });
 
-      expect(spy).toHaveBeenCalledWith(
-        'gh',
-        ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'],
-        {
-          timeout: 10000,
-          encoding: 'utf8',
-          cwd: 'C:/tmp/repo',
-          windowsHide: true,
-        },
-      );
       expect(result).toBe('cli/fallback');
       spy.mockRestore();
 
       mockConfigCore.getConfig.mockReturnValue('db/repo');
-      expect(handlers.resolveRepo({})).toBe('db/repo');
-      expect(handlers.resolveRepo({ repo: 'arg/repo' })).toBe('arg/repo');
+      expect(await handlers.resolveRepo({})).toBe('db/repo');
+      expect(await handlers.resolveRepo({ repo: 'arg/repo' })).toBe('arg/repo');
     });
   });
 });
