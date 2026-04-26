@@ -1061,38 +1061,12 @@ function resolveAgenticHandoffTarget({
   return null;
 }
 
-// Providers that count as legitimate proposal-apply escape targets. Codex
-// is the default; codex-spark is the same CLI with a faster model. Both
-// can apply file_edits proposals from a free agentic compute pass.
-const PROPOSAL_APPLY_ESCAPE_PROVIDERS = new Set(['codex', 'codex-spark']);
-
-function isProposalApplyEscapeHandoff(task, provider) {
-  if (!isProposalApplyMode(task)) return false;
-  const metadata = normalizeTaskMetadata(task);
-  const configuredApplyProvider = normalizeProviderName(metadata.proposal_apply_provider) || 'codex';
-  const target = normalizeProviderName(provider);
-  return target === configuredApplyProvider || PROPOSAL_APPLY_ESCAPE_PROVIDERS.has(target);
-}
-
 function enforceProviderLaneForHandoff(task, target) {
   const provider = target?.entry?.provider;
-  if (!provider) return target;
-  const metadata = normalizeTaskMetadata(task);
-  if (isProviderLaneHandoffAllowed(metadata, provider)) return target;
-  // Proposal-apply escape: when a task is in compute→apply mode (free
-  // agentic provider runs the compute pass, codex applies the file_edits),
-  // a lane policy that blocks codex defeats the entire mode. Observed live
-  // 2026-04-25/26: 22 ollama-cloud/mistral-large-3 tasks failed when their
-  // proposal-apply mismatched the source file (the compute model couldn't
-  // quote exact old_text), and the lane policy then refused codex handoff,
-  // leaving no recovery path. The escape is narrowly scoped to the
-  // proposal-apply-target providers, so general lane enforcement still
-  // blocks unrelated escalations.
-  if (isProposalApplyEscapeHandoff(task, provider)) {
-    logger.info(`[Agentic] Lane policy bypassed for proposal-apply recovery → ${provider}`);
+  if (!provider || isProviderLaneHandoffAllowed(normalizeTaskMetadata(task), provider)) {
     return target;
   }
-  logger.info(`[Agentic] ${providerLaneHandoffBlockReason(metadata, provider)}`);
+  logger.info(`[Agentic] ${providerLaneHandoffBlockReason(normalizeTaskMetadata(task), provider)}`);
   return null;
 }
 
@@ -1116,12 +1090,7 @@ function resolveProviderLaneHandoffBlockReason({
       targetProvider = 'codex';
     }
   }
-  if (!targetProvider) return null;
-  // Mirror the proposal-apply escape from enforceProviderLaneForHandoff:
-  // if the lane would block but this is a legitimate proposal-apply
-  // recovery handoff, there is no real block to report.
-  if (isProposalApplyEscapeHandoff(task, targetProvider)) return null;
-  return providerLaneHandoffBlockReason(metadata, targetProvider);
+  return targetProvider ? providerLaneHandoffBlockReason(metadata, targetProvider) : null;
 }
 
 function buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason, options = {}) {
@@ -3187,12 +3156,19 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       return _executeApiModule.executeApiProvider(task, providerInstance);
     }
     const kind = String(taskMeta.kind || '').trim().toLowerCase();
-    if (taskMeta.factory_internal === true && FACTORY_INTERNAL_STRUCTURED_KINDS.has(kind)) {
-      logger.info(`[API-WRAP] ${kind} task ${task.id} — bypassing agentic loop for structured-output prompt`);
-      return _executeApiModule.executeApiProvider(task, providerInstance);
-    }
-    // Bare kind === 'verify_review' as a fallback for non-factory-internal
-    // verify_review tasks that bbd5fd71 already covered (preserve that path).
+    // factory_internal + structured kinds (architect_cycle / plan_generation /
+    // verify_review) ARE handled correctly by the agentic loop today —
+    // inspectHardFailAgenticStopReason classifies non-file_edits output as
+    // "just complete normally". A generic factory_internal+kind bypass broke
+    // the test "does not treat factory architect JSON output as repo-write
+    // proposal output" because the test's mocked _executeApiModule
+    // .executeApiProvider is a no-op vi.fn() and never marks the task
+    // completed — the bypass dropped a real workflow path. The 11
+    // "plan_generation" failures that motivated the broader bypass were
+    // actually mis-labeled verify_review prompts; the fix belongs at the
+    // labeling site, not as a runtime bypass. Keep the kind === 'verify_review'
+    // fallback (bbd5fd71's load-bearing fix) and the explicit
+    // bypass_agentic_loop opt-out, but don't blanket-bypass on kind alone.
     if (kind === 'verify_review') {
       logger.info(`[API-WRAP] verify_review task ${task.id} — bypassing agentic loop for JSON-mode chat completion`);
       return _executeApiModule.executeApiProvider(task, providerInstance);
