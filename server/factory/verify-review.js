@@ -51,6 +51,17 @@ function timeoutMinutesForMs(timeoutMs) {
   return Math.max(1, Math.ceil(numeric / 60_000));
 }
 
+// Strip SGR (color) escape codes. Vitest 4 emits ANSI markup even when stdout
+// is redirected to a non-TTY file, and the embedded ESC[xxm bytes break
+// regexes that anchor on `\s+` between marker and path. Stripping here keeps
+// every downstream parser (vitest 3, vitest 4, dotnet, pester, pytest)
+// working against clean text.
+// eslint-disable-next-line no-control-regex -- intentional: matches the SGR ESC byte vitest 4 emits.
+const ANSI_CSI_RE = /\x1b\[[0-9;]*m/g;
+function stripAnsi(s) {
+  return String(s || '').replace(ANSI_CSI_RE, '');
+}
+
 function normalizeVerifyOutput(verifyOutput) {
   if (!verifyOutput || typeof verifyOutput !== 'object') {
     return {
@@ -72,7 +83,7 @@ function normalizeVerifyOutput(verifyOutput) {
     }
   }
   const combined = [stdout, stderr, output]
-    .map((part) => part.trim())
+    .map((part) => stripAnsi(part).trim())
     .filter(Boolean)
     .join('\n');
   return {
@@ -146,9 +157,21 @@ function parseFailingTests(verifyOutput) {
     paths.add(m[1]);
   }
 
-  // Vitest arrow pointer: "❯ src/foo.test.ts:line:col"
+  // Vitest arrow pointer (stack trace): "❯ src/foo.test.ts:line:col"
   const vitestPointerRe = /❯\s+([A-Za-z0-9_./\\-]+?\.(?:ts|tsx|js|jsx|mjs|cjs)):\d+/g;
   for (const m of combined.matchAll(vitestPointerRe)) {
+    paths.add(m[1]);
+  }
+  // Vitest 4 file-level pointer: "❯ src/foo.test.ts (1 test | 1 failed) 338ms"
+  // Vitest 4 emits a per-file summary on its own line — the pointer is followed
+  // by a parenthesized "(N test[s] | M failed)" rather than the colon-line-col
+  // pair from a stack trace. Without this, projects whose only signal is the
+  // file-level summary (the FAIL header is wrapped in ANSI background colors
+  // that even after stripping leave an unusual whitespace prefix) get no path
+  // matches and parseFailingTests returns []. Live regression: torque-public
+  // 2026-04-25.
+  const vitest4FileRe = /❯\s+([A-Za-z0-9_./\\-]+?\.(?:ts|tsx|js|jsx|mjs|cjs))\s+\([^)]*\bfailed\b[^)]*\)/g;
+  for (const m of combined.matchAll(vitest4FileRe)) {
     paths.add(m[1]);
   }
   // Vitest FAIL header: "FAIL  src/foo.test.ts > describe > it"
