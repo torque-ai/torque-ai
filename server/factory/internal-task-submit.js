@@ -169,6 +169,7 @@ async function submitFactoryInternalTask({
   project_id,
   work_item_id,
   provider,
+  model,
   routing_template,
   prefer_free,
   context_stuff,
@@ -193,7 +194,12 @@ async function submitFactoryInternalTask({
   });
   const effectiveProvider = requestedProvider || inheritedIntent.provider;
   const effectiveRoutingTemplate = requestedRoutingTemplate || inheritedIntent.routingTemplate;
-  const effectiveModel = inheritedIntent.model;
+  // Caller-provided model wins over inherited. Used by the verify-review
+  // path to pin a small/fast model (zai-glm-4.7) instead of inheriting
+  // the routing template's heavy model (qwen-3-235b returns null output
+  // on short structured prompts).
+  const requestedModel = normalizeOptionalString(model);
+  const effectiveModel = requestedModel || inheritedIntent.model;
   const tags = [
     'factory:internal',
     `factory:${resolvedKind}`,
