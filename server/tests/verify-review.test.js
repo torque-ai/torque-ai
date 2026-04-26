@@ -1145,3 +1145,149 @@ describe('reviewVerifyFailure orchestrator', () => {
     diffSpy.mockRestore();
   });
 });
+
+describe('detectBuildFailure', () => {
+  const { detectBuildFailure } = require('../factory/verify-review');
+
+  it('returns detected:false for exit-code 0 even with error-looking text', () => {
+    const r = detectBuildFailure({
+      exitCode: 0,
+      stdout: 'this output mentions error CS1234: but the build still succeeded',
+      stderr: '',
+      output: '',
+    });
+    expect(r.detected).toBe(false);
+    expect(r.signals).toEqual([]);
+  });
+
+  it('detects the f9cf2275 SpudgetBooks pattern (CS errors + Build FAILED + Error count)', () => {
+    // Synthetic version of the actual `dotnet test` output that should have
+    // tripped the gate on 2026-04-23 but didn't. failingTests=[] (because
+    // the build failed before tests could run), exit 1, plus all three
+    // dotnet build-failure signals.
+    const r = detectBuildFailure({
+      exitCode: 1,
+      stdout: [
+        '  Restored Domain.csproj',
+        '  Restored Application.csproj',
+        '  Restored Infrastructure.csproj',
+        "ApiEndpointRouteBuilderExtensions.Banking.cs(61,24): error CS0103: The name 'PaginationHelper' does not exist in the current context",
+        "ApiEndpointRouteBuilderExtensions.Banking.cs(147,13): error CS0128: A local variable named 'result' is already defined in this scope",
+        '',
+        'Build FAILED.',
+        '',
+        '    8 Error(s)',
+      ].join('\n'),
+      stderr: '',
+      output: '',
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('csharp_compile_error');
+    expect(r.signals).toContain('dotnet_build_failed_marker');
+    expect(r.signals).toContain('dotnet_error_count_8');
+  });
+
+  it('detects TypeScript tsc compile errors', () => {
+    const r = detectBuildFailure({
+      exitCode: 2,
+      stdout: 'src/foo.ts(10,5): error TS2304: Cannot find name "Bar".',
+      stderr: '',
+      output: '',
+    });
+    expect(r.detected).toBe(true);
+    expect(r.signals).toContain('ts_compile_error');
+  });
+
+  it('detects tsc watch-mode "Found N errors"', () => {
+    const r = detectBuildFailure({
+      exitCode: 1,
+      stdout: 'Found 3 errors. Watching for file changes.',
+      stderr: '',
+      output: '',
+    });
+    expect(r.signals).toContain('tsc_found_errors');
+  });
+
+  it('detects gcc/clang errors (anchored to C-family extensions, not python)', () => {
+    const cErr = detectBuildFailure({
+      exitCode: 1,
+      stdout: 'src/main.c:42:13: error: \'foo\' undeclared',
+      stderr: '',
+      output: '',
+    });
+    expect(cErr.signals).toContain('cc_error');
+
+    // Regression: an earlier rev's `^.+:\d+:\d+:\s+error:` matched python
+    // tracebacks like "Module.py:10:5: error: ...". The new anchored
+    // pattern requires a C-family extension, so this should NOT trip cc_error.
+    const pythonish = detectBuildFailure({
+      exitCode: 1,
+      stdout: 'tests/Module.py:10:5: error: invalid syntax',
+      stderr: '',
+      output: '',
+    });
+    expect(pythonish.signals).not.toContain('cc_error');
+  });
+
+  it('detects rust cargo compile errors', () => {
+    const r = detectBuildFailure({
+      exitCode: 101,
+      stdout: 'error[E0425]: cannot find value `x` in this scope\nerror: could not compile `mycrate`',
+      stderr: '',
+      output: '',
+    });
+    expect(r.signals).toContain('rust_compile_error');
+    expect(r.signals).toContain('cargo_could_not_compile');
+  });
+
+  it('detects go compile errors via the compile-idiom anchor (not by absence of PASS/FAIL)', () => {
+    // The earlier rev gated go detection on the absence of PASS/FAIL anywhere.
+    // That suppressed detection in the common case where one package has a
+    // compile error but a sibling package PASSes earlier in the same output.
+    const r = detectBuildFailure({
+      exitCode: 1,
+      stdout: [
+        'ok      example.com/sibling     0.123s',
+        'PASS',
+        '',
+        '# example.com/broken',
+        './pkg/foo.go:42:13: undefined: Bar',
+        'FAIL    example.com/broken      [build failed]',
+      ].join('\n'),
+      stderr: '',
+      output: '',
+    });
+    expect(r.signals).toContain('go_compile_error');
+  });
+
+  it('detects javac and make errors', () => {
+    const javaR = detectBuildFailure({
+      exitCode: 1,
+      stdout: 'src/com/example/Foo.java:42: error: cannot find symbol',
+      stderr: '',
+      output: '',
+    });
+    expect(javaR.signals).toContain('javac_error');
+
+    const makeR = detectBuildFailure({
+      exitCode: 2,
+      stdout: 'make[1]: *** [Makefile:42: target] Error 1',
+      stderr: '',
+      output: '',
+    });
+    expect(makeR.signals).toContain('make_error');
+  });
+
+  it('returns detected:false on bare non-zero exit with no compile signatures', () => {
+    // A test failure (non-zero exit, but tests ran) should NOT be classified
+    // as build_failure — that path is handled elsewhere by the test-failure
+    // classifier. detectBuildFailure stays out of the way.
+    const r = detectBuildFailure({
+      exitCode: 1,
+      stdout: 'FAIL  src/foo.test.ts > does the thing\n  AssertionError: expected 1 to be 2',
+      stderr: '',
+      output: '',
+    });
+    expect(r.detected).toBe(false);
+  });
+});

@@ -4125,7 +4125,16 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
           workItem.id,
           'pre_written_plan_rejected_by_quality_gate',
         );
-      } catch (_rejectErr) { void _rejectErr; }
+      } catch (rejectErr) {
+        // Don't swallow silently — if rejection fails (DB lock, REJECT_REASONS
+        // gap, etc.) the work item stays prioritized and PRIORITIZE will pick
+        // it again next tick. Logging makes the regression detectable.
+        logger.warn('pre-written plan rejection failed; loop may re-pick item', {
+          project_id: project.id,
+          work_item_id: workItem.id,
+          err: rejectErr.message,
+        });
+      }
       safeLogDecision({
         project_id: project.id,
         stage: LOOP_STATES.PLAN,
@@ -4136,7 +4145,9 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
           plan_path: workItem.origin.plan_path,
         },
         outcome: {
-          architect_skipped: false,
+          // architect_skipped is false here — neither architect nor the
+          // executor ran; the gate caught the plan early and we're bailing.
+          gate_only_evaluated: true,
           rule_violations: preWrittenGateVerdict.hardFails,
           plan_path: workItem.origin.plan_path,
           ...getWorkItemDecisionContext(workItem),
@@ -4148,7 +4159,10 @@ async function executePlanStage(project, instance, selectedWorkItem = null) {
         reason: 'pre-written plan rejected by quality gate',
         work_item: factoryIntake.getWorkItem(workItem.id) || workItem,
         stop_execution: true,
-        next_state: LOOP_STATES.SENSE,
+        // Match the convention at line 4039 (architect-side rejection):
+        // PRIORITIZE picks the next work item next tick rather than re-running
+        // SENSE's full plan-file scan.
+        next_state: LOOP_STATES.PRIORITIZE,
         stage_result: {
           status: 'rejected',
           reason: 'pre_written_plan_rejected_by_quality_gate',
@@ -7709,6 +7723,10 @@ async function executeVerifyStage(project_id, batch_id, instance = null) {
               modifiedFiles: review.modifiedFiles,
               failingTests: review.failingTests,
               intersection: review.intersection,
+              // Surface build_failure detector signals (e.g.
+              // ['csharp_compile_error', 'dotnet_error_count_8']) when present
+              // so triage can identify the language/tool that emitted them.
+              buildSignals: review.buildSignals || null,
               llmVerdict: review.llmVerdict || null,
               llmCritique: review.llmCritique || null,
               llmStatus: review.llmStatus || null,

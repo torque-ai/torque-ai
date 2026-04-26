@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('fs');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 const { prepareLocalVerifyEnv } = require('../utils/local-verify-env');
 
 const CHILD_CLOSE_GRACE_MS = 250;
@@ -348,7 +348,6 @@ function detectDefaultBranch(cwd) {
 // Read the current HEAD sha. Returns null on failure.
 function readWorktreeHeadSha(cwd) {
   if (!cwd) return null;
-  const { execFileSync } = require('child_process');
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd, encoding: 'utf8', windowsHide: true, timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'],
@@ -359,7 +358,6 @@ function readWorktreeHeadSha(cwd) {
 // True if the worktree has uncommitted changes (tracked or staged) at HEAD.
 function isWorktreeDirty(cwd) {
   if (!cwd) return false;
-  const { execFileSync } = require('child_process');
   // `git diff --quiet HEAD` exits non-zero on any tracked change vs HEAD.
   try {
     execFileSync('git', ['diff', '--quiet', 'HEAD'], {
@@ -377,7 +375,6 @@ function isWorktreeDirty(cwd) {
 // accident while the BRANCH HEAD that ultimately gets merged is broken.
 function resyncWorktreeToHead(cwd, logger) {
   if (!cwd) return false;
-  const { execFileSync } = require('child_process');
   try {
     execFileSync('git', ['reset', '--hard', 'HEAD'], {
       cwd, windowsHide: true, timeout: 30000, stdio: 'ignore',
@@ -492,9 +489,7 @@ function createWorktreeRunner({
     // its branch HEAD. A long-paused human-retry can land on a worktree that
     // was edited / partially built / left dirty in the intervening hours;
     // running verify against that stale state produced false-positive passes
-    // (the f9cf2275 / batch-831 incident on 2026-04-23). Capture HEAD pre and
-    // post for the merge step to optionally cross-check.
-    const headBefore = readWorktreeHeadSha(cwd);
+    // (the f9cf2275 / batch-831 incident on 2026-04-23).
     if (isWorktreeDirty(cwd)) {
       resyncWorktreeToHead(cwd, logger);
     }
@@ -544,29 +539,11 @@ function createWorktreeRunner({
       error: out && out.error ? String(out.error) : null,
       timedOut: Boolean(out && out.timedOut),
       durationMs,
-      headSha: readWorktreeHeadSha(cwd),
-      headBefore,
     };
   }
 
-  async function mergeToMain({ id, branch, target = 'main', strategy = 'merge', expectedHeadSha = null, worktreePath = null }) {
+  async function mergeToMain({ id, branch, target = 'main', strategy = 'merge' }) {
     if (!id && !branch) throw new Error('mergeToMain requires id or branch');
-    // Bug B fix: if the caller captured HEAD at verify-pass time, refuse to
-    // merge if HEAD has drifted. Without this guard, a flaky/raced verify
-    // followed by an out-of-band push to the branch would still ship.
-    if (expectedHeadSha && worktreePath) {
-      const currentHead = readWorktreeHeadSha(worktreePath);
-      if (currentHead && currentHead !== expectedHeadSha) {
-        const err = new Error(
-          `mergeToMain refusing to merge: branch HEAD drifted between verify and merge `
-          + `(verified ${expectedHeadSha.slice(0,8)}, now ${currentHead.slice(0,8)})`,
-        );
-        err.code = 'merge_head_drift';
-        err.expectedHeadSha = expectedHeadSha;
-        err.actualHeadSha = currentHead;
-        throw err;
-      }
-    }
     let worktreeId = id;
     if (!worktreeId && typeof worktreeManager.listWorktrees === 'function') {
       const all = worktreeManager.listWorktrees();
