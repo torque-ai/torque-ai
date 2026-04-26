@@ -2,7 +2,7 @@
 
 const { describe, it, expect } = require('vitest');
 const { RuleTester } = require('eslint');
-const rule = require('../eslint-rules/no-prepare-in-loop');
+const rule = require('./no-prepare-in-loop');
 
 const tester = new RuleTester({
   languageOptions: {
