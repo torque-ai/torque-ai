@@ -1078,12 +1078,38 @@ function resolveAgenticHandoffTarget({
   return null;
 }
 
+// Providers that count as legitimate proposal-apply escape targets. Codex
+// is the default; codex-spark is the same CLI with a faster model. Both
+// can apply file_edits proposals from a free agentic compute pass.
+const PROPOSAL_APPLY_ESCAPE_PROVIDERS = new Set(['codex', 'codex-spark']);
+
+function isProposalApplyEscapeHandoff(task, provider) {
+  if (!isProposalApplyMode(task)) return false;
+  const metadata = normalizeTaskMetadata(task);
+  const configuredApplyProvider = normalizeProviderName(metadata.proposal_apply_provider) || 'codex';
+  const target = normalizeProviderName(provider);
+  return target === configuredApplyProvider || PROPOSAL_APPLY_ESCAPE_PROVIDERS.has(target);
+}
+
 function enforceProviderLaneForHandoff(task, target) {
   const provider = target?.entry?.provider;
-  if (!provider || isProviderLaneHandoffAllowed(normalizeTaskMetadata(task), provider)) {
+  if (!provider) return target;
+  const metadata = normalizeTaskMetadata(task);
+  if (isProviderLaneHandoffAllowed(metadata, provider)) return target;
+  // Proposal-apply escape: when a task is in compute→apply mode (free
+  // agentic provider runs the compute pass, codex applies the file_edits),
+  // a lane policy that blocks codex defeats the entire mode. Observed live
+  // 2026-04-25/26: 22 ollama-cloud/mistral-large-3 tasks failed when their
+  // proposal-apply mismatched the source file (the compute model couldn't
+  // quote exact old_text), and the lane policy then refused codex handoff,
+  // leaving no recovery path. The escape is narrowly scoped to the
+  // proposal-apply-target providers, so general lane enforcement still
+  // blocks unrelated escalations.
+  if (isProposalApplyEscapeHandoff(task, provider)) {
+    logger.info(`[Agentic] Lane policy bypassed for proposal-apply recovery → ${provider}`);
     return target;
   }
-  logger.info(`[Agentic] ${providerLaneHandoffBlockReason(normalizeTaskMetadata(task), provider)}`);
+  logger.info(`[Agentic] ${providerLaneHandoffBlockReason(metadata, provider)}`);
   return null;
 }
 
@@ -1107,7 +1133,12 @@ function resolveProviderLaneHandoffBlockReason({
       targetProvider = 'codex';
     }
   }
-  return targetProvider ? providerLaneHandoffBlockReason(metadata, targetProvider) : null;
+  if (!targetProvider) return null;
+  // Mirror the proposal-apply escape from enforceProviderLaneForHandoff:
+  // if the lane would block but this is a legitimate proposal-apply
+  // recovery handoff, there is no real block to report.
+  if (isProposalApplyEscapeHandoff(task, targetProvider)) return null;
+  return providerLaneHandoffBlockReason(metadata, targetProvider);
 }
 
 function buildAgenticHandoffPatch(task, targetEntry, remainingChain, reason, options = {}) {
