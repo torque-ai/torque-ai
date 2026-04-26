@@ -96,7 +96,7 @@ function getUnassignedQueuedTasks(limit = 200) {
 function findBestTaskForProvider(provider, excludeIds) {
   const band = capabilities.getQualityBand(provider);
   if (band === 'D') return null;
-  const providerCaps = new Set(capabilities.getProviderCapabilities(provider));
+  const providerCaps = capabilities.getProviderCapabilitySet(provider);
   const tasks = getUnassignedQueuedTasks();
   for (const task of tasks) {
     if (excludeIds && excludeIds.has(task.id)) continue;

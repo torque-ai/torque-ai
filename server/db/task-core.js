@@ -16,6 +16,7 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'task-core' });
 const { safeJsonParse } = require('../utils/json');
+const perfCounters = require('../operations-perf-counters');
 const { normalizeMetadata: normalizeMetadataObject } = require('../utils/normalize-metadata');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { buildTaskFilterConditions, appendWhereClause } = require('./query-filters');
@@ -969,12 +970,18 @@ function listTasks(options = {}) {
   // Post-processing is projection-aware: only transform columns that were selected.
   // When a caller opts into projection, columns they didn't request stay absent
   // rather than being reintroduced as `undefined` or wrong-typed defaults.
+  // When options.raw === true, callers receive raw JSON strings for tags/files_modified/context
+  // and handle parsing themselves — saving ~3 JSON.parse calls per row.
+  const skipJsonParse = options && options.raw;
+  perfCounters.increment(skipJsonParse ? 'listTasksRaw' : 'listTasksParsed');
   return rows.map(row => {
     const out = { ...row };
     if ('auto_approve' in row) out.auto_approve = Boolean(row.auto_approve);
-    if ('context' in row) out.context = safeJsonParse(row.context, null);
-    if ('files_modified' in row) out.files_modified = safeJsonParse(row.files_modified, []);
-    if ('tags' in row) out.tags = safeJsonParse(row.tags, []);
+    if (!skipJsonParse) {
+      if ('context' in row) out.context = safeJsonParse(row.context, null);
+      if ('files_modified' in row) out.files_modified = safeJsonParse(row.files_modified, []);
+      if ('tags' in row) out.tags = safeJsonParse(row.tags, []);
+    }
     return out;
   });
 }

@@ -1808,9 +1808,17 @@ function createV2GovernanceHandlers(_deps) {
   };
 }
 
+function handleGetPerfCounters(req, res) {
+  const perfCounters = require('../operations-perf-counters');
+  const reset = req.query && req.query.reset === 'true';
+  res.json({ ok: true, counters: perfCounters.getSnapshot(reset) });
+}
+
 module.exports = {
   init,
   createV2GovernanceHandlers,
+  // Perf
+  handleGetPerfCounters,
   // Approvals
   handleListApprovals,
   handleApprovalDecision,

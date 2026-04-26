@@ -1,5 +1,7 @@
 'use strict';
 
+const perfCounters = require('../operations-perf-counters');
+
 const DEFAULT_WARNING_PERCENT = 80;
 const DEFAULT_DOWNGRADE_PERCENT = 90;
 const DEFAULT_HARD_STOP_PERCENT = 100;
@@ -13,6 +15,10 @@ let globalState = {
   db: null,
   eventBus: NOOP_EVENT_BUS,
 };
+
+// Cache for hasThresholdConfigColumn results keyed by db instance.
+// WeakMap so entries are GC'd when the db instance is no longer referenced.
+const _hasThresholdConfigColumnCache = new WeakMap();
 
 function init(dbInstance, eventBus) {
   globalState = {
@@ -158,8 +164,18 @@ function getPeriodWindow(period, referenceTime = new Date()) {
 }
 
 function hasThresholdConfigColumn(database) {
+  if (_hasThresholdConfigColumnCache.has(database)) {
+    return _hasThresholdConfigColumnCache.get(database);
+  }
   const columns = database.prepare('PRAGMA table_info(cost_budgets)').all();
-  return columns.some((column) => column.name === 'threshold_config');
+  const result = columns.some((column) => column.name === 'threshold_config');
+  perfCounters.increment('pragmaCostBudgets');
+  // Only cache true results — the column may be added via DDL (ensureThresholdConfigStorage)
+  // after an initial false check, so caching false would return stale data.
+  if (result) {
+    _hasThresholdConfigColumnCache.set(database, result);
+  }
+  return result;
 }
 
 function hasBudgetThresholdActionsTable(database) {
@@ -530,6 +546,7 @@ function createBudgetWatcher({ db: dbInstance, eventBus } = {}) {
 module.exports = {
   createBudgetWatcher,
   init,
+  hasThresholdConfigColumn,
   checkBudgetThresholds: (provider) => createBudgetWatcher({}).checkBudgetThresholds(provider),
   getActiveBudgets: () => createBudgetWatcher({}).getActiveBudgets(),
   configureBudgetAction: (budgetId, config) => createBudgetWatcher({}).configureBudgetAction(budgetId, config),

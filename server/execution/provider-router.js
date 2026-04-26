@@ -15,6 +15,9 @@ const execFile = promisify(execFileCb);
 const logger = require('../logger').child({ component: 'provider-router' });
 const { getEffectiveGlobalMaxConcurrent: sharedGetEffective } = require('./effective-concurrency');
 
+// Module-level constant: never re-allocated per routing call
+const PAID_PROVIDERS = new Set(['anthropic', 'groq', 'codex', 'claude-cli']);
+
 let _db = null;
 let _serverConfig = null;
 let _providerRegistry = null;
@@ -284,7 +287,6 @@ function resolveProviderRouting(task, taskId) {
   const taskMeta = _parseTaskMetadata(task.metadata);
   const requestedProvider = task.provider || taskMeta.intended_provider || _db.getDefaultProvider() || 'codex';
   const normalizedRequestedProvider = normalizeProviderOverride(task, requestedProvider, taskId);
-  const paidProviders = new Set(['anthropic', 'groq', 'codex', 'claude-cli']);
   const intentInfo = getProviderIntentInfo(taskMeta);
   const hasProviderSelectionLock = intentInfo.locked;
 
@@ -302,7 +304,7 @@ function resolveProviderRouting(task, taskId) {
     reason: hasProviderSelectionLock ? intentInfo.reason : 'Requested/default provider',
     cause: hasProviderSelectionLock ? intentInfo.cause : 'requested_provider',
   }];
-  if (!hasProviderSelectionLock && paidProviders.has(normalizedRequestedProvider)) {
+  if (!hasProviderSelectionLock && PAID_PROVIDERS.has(normalizedRequestedProvider)) {
     const budgetStatus = _db.isBudgetExceeded(normalizedRequestedProvider);
     if (budgetStatus.exceeded) {
       const ollamaHosts = _db.listOllamaHosts().filter(h => h.enabled && h.status === 'healthy');
@@ -516,6 +518,7 @@ function createProviderRouter(_deps) {
 }
 
 module.exports = {
+  PAID_PROVIDERS,
   init,
   safeConfigInt,
   tryReserveHostSlotWithFallback,

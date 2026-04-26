@@ -13,6 +13,15 @@
 const logger = require('../logger').child({ component: 'queue-scheduler' });
 const { getEffectiveGlobalMaxConcurrent: sharedGetEffective } = require('./effective-concurrency');
 const { classifyTaskType } = require('../db/model-capabilities');
+
+// Module-level constants: invariant Sets that should not be re-allocated per scheduler tick.
+// Providers that share the same GPU — running count must be unified
+const GPU_SHARING_PROVIDERS = new Set(['ollama']);
+// GPU-sharing providers for Ollama unified GPU oversubscription check.
+// Issue #10 fix: all Ollama tasks share the same GPU.
+// The explicit set documents which providers share the GPU constraint and guards
+// against future category mapping changes.
+const OLLAMA_GPU_PROVIDERS = new Set(['ollama']);
 const providerRegistry = require('../providers/registry');
 const serverConfig = require('../config');
 const gpuMetrics = require('../scripts/gpu-metrics-server');
@@ -434,9 +443,6 @@ function createProviderRuntimeState(runningAll = []) {
     return runningCount;
   }
 
-  // Providers that share the same GPU — running count must be unified
-  const _gpuSharingProviders = new Set(['ollama']);
-
   function getProviderCapacity(provider, fallbackLimit = null) {
     const normalizedProvider = typeof provider === 'string' ? provider.trim().toLowerCase() : '';
     const limit = getProviderLimit(normalizedProvider, fallbackLimit);
@@ -444,9 +450,9 @@ function createProviderRuntimeState(runningAll = []) {
 
     // GPU-sharing providers: count running tasks across ALL providers that share the GPU
     let running;
-    if (_gpuSharingProviders.has(normalizedProvider)) {
+    if (GPU_SHARING_PROVIDERS.has(normalizedProvider)) {
       running = 0;
-      for (const gp of _gpuSharingProviders) {
+      for (const gp of GPU_SHARING_PROVIDERS) {
         running += getProviderRunningCount(gp) + (providerStartedCounts.get(gp) || 0);
       }
     } else {
@@ -836,11 +842,10 @@ function processQueueInternal(options = {}) {
   // Try to start Ollama tasks — limited only by per-host capacity (independent of Codex/API)
   // Issue #10 fix: all Ollama tasks share the same GPU.
   // providerCounts.ollama aggregates both via providerRegistry.getCategory(), making
-  // runningOllama a unified GPU total. The explicit set below documents the provider
-  // that shares the GPU constraint and guards against future category mapping changes.
-  const _ollamaGpuProviders = new Set(['ollama']);
+  // runningOllama a unified GPU total. OLLAMA_GPU_PROVIDERS (module-level constant) documents
+  // the provider that shares the GPU constraint and guards against future category mapping changes.
   // Unified GPU oversubscription check: count all running tasks across GPU-sharing providers
-  const totalOllamaRunning = runningAll.filter(t => _ollamaGpuProviders.has(t.provider)).length;
+  const totalOllamaRunning = runningAll.filter(t => OLLAMA_GPU_PROVIDERS.has(t.provider)).length;
   const runningOllama = totalOllamaRunning; // alias — providerCounts.ollama equals this
   logger.debug(`processQueue: ollamaTasks=${ollamaTasks.length} codexTasks=${codexTasks.length} apiTasks=${apiTasks.length} codexEnabled=${codexEnabled} runningOllama=${runningOllama}`);
   for (const task of ollamaTasks) {
@@ -1160,6 +1165,8 @@ function createQueueScheduler(_deps) {
 module.exports = {
   FREE_PROVIDERS,
   COST_FREE_PROVIDERS,
+  GPU_SHARING_PROVIDERS,
+  OLLAMA_GPU_PROVIDERS,
   init,
   normalizeTaskStartOutcome,
   attemptTaskStart,

@@ -457,6 +457,8 @@ const V2_CP_HANDLER_LOOKUP = {
   handleV2CpPauseWorkflow: v2WorkflowHandlers.handlePauseWorkflow,
   handleV2CpResumeWorkflow: v2WorkflowHandlers.handleResumeWorkflow,
   handleV2CpGetWorkflowTasks: v2WorkflowHandlers.handleGetWorkflowTasks,
+  // Perf counters
+  handleV2CpGetPerfCounters: v2GovernanceHandlers.handleGetPerfCounters,
   // Governance
   handleV2CpListApprovals: v2GovernanceHandlers.handleListApprovals,
   handleV2CpApprovalDecision: v2GovernanceHandlers.handleApprovalDecision,
