@@ -1,7 +1,7 @@
 'use strict';
 // Verify that the routing decisions handler passes raw:true to listTasks.
 
-test('getRoutingDecisions passes raw:true to listTasks', () => {
+test('handleRoutingDecisions passes raw:true to listTasks', () => {
   let capturedOpts = null;
   // Intercept the taskCore require before loading the handler
   const Module = require('module');
@@ -11,16 +11,17 @@ test('getRoutingDecisions passes raw:true to listTasks', () => {
       return {
         listTasks: (opts) => { capturedOpts = opts; return []; },
         TASK_ROUTING_DECISION_COLUMNS: ['id', 'provider', 'metadata'],
+        TASK_LIST_COLUMNS: ['id', 'status'],
       };
     }
     return origLoad.apply(this, arguments);
   };
   delete require.cache[require.resolve('../api/v2-analytics-handlers')];
-  const { getRoutingDecisions } = require('../api/v2-analytics-handlers');
+  const { handleRoutingDecisions } = require('../api/v2-analytics-handlers');
   Module._load = origLoad;
   const req = { query: { limit: '10' } };
   const res = { json: () => {} };
-  getRoutingDecisions(req, res);
+  handleRoutingDecisions(req, res);
   expect(capturedOpts).not.toBeNull();
   expect(capturedOpts.raw).toBe(true);
 });
