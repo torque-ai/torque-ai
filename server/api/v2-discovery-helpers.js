@@ -16,6 +16,7 @@ const { getProviderStats } = require('../db/file-tracking');
 const { PROVIDER_DEFAULT_TIMEOUTS, PROVIDER_DEFAULTS } = require('../constants');
 const { getProviderHealthStatus } = require('../utils/provider-health-status');
 const {
+  getProviderAdapter,
   getProviderCapabilityMatrix,
 } = require('../providers/adapter-registry');
 const { parseModelSizeB } = require('../utils/model');
@@ -448,9 +449,17 @@ function normalizeProviderModels(models) {
       if (value) uniqueModels.add(value);
       continue;
     }
-    if (model && typeof model === 'object' && typeof model.name === 'string') {
-      const value = model.name.trim();
-      if (value) uniqueModels.add(value);
+    if (model && typeof model === 'object') {
+      const value = (
+        (typeof model.model_name === 'string' && model.model_name)
+        || (typeof model.name === 'string' && model.name)
+        || (typeof model.model === 'string' && model.model)
+        || (typeof model.id === 'string' && model.id)
+      );
+      if (typeof value === 'string') {
+        const trimmedValue = value.trim();
+        if (trimmedValue) uniqueModels.add(trimmedValue);
+      }
     }
   }
 
@@ -460,6 +469,37 @@ function normalizeProviderModels(models) {
 function getV2ProviderModelSource(providerId) {
   if (PROVIDER_LOCAL_IDS.has(providerId)) return 'runtime';
   return PROVIDER_MODELS[providerId]?.source || 'static';
+}
+
+async function getDiscoveredProviderModels(providerId) {
+  const adapter = typeof getProviderAdapter === 'function'
+    ? getProviderAdapter(providerId)
+    : null;
+  if (!adapter) {
+    return null;
+  }
+
+  if (typeof adapter.discoverModels === 'function') {
+    try {
+      const discovery = await adapter.discoverModels();
+      if (discovery && Array.isArray(discovery.models)) {
+        return normalizeProviderModels(discovery.models);
+      }
+    } catch {
+      // No-op: discoverModels failures are non-fatal; fallback to static/configured models.
+    }
+  }
+
+  if (typeof adapter.listModels === 'function') {
+    try {
+      const models = await adapter.listModels();
+      return normalizeProviderModels(models);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 function getConfiguredProviderModels(providerId) {
@@ -683,8 +723,21 @@ async function getV2ProviderModels(providerId) {
 
   const refreshedAt = new Date().toISOString();
   const source = getV2ProviderModelSource(providerId);
+  let modelNames = getConfiguredProviderModels(providerId);
+
+  if (source === 'provider_api') {
+    try {
+      const discoveredModelNames = await getDiscoveredProviderModels(providerId);
+      if (discoveredModelNames && discoveredModelNames.length > 0) {
+        modelNames = discoveredModelNames;
+      }
+    } catch {
+      // Keep static/configured models as fallback when discovery fails.
+    }
+  }
+
   const modelDescriptors = mergeV2ModelDescriptors(
-    getConfiguredProviderModels(providerId)
+    modelNames
       .map((model) => buildV2ModelDescriptor(providerId, model, source, refreshedAt))
       .filter(Boolean),
   );

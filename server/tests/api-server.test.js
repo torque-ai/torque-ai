@@ -619,6 +619,82 @@ describe('API Server endpoints', () => {
     },
   );
 
+  it('GET /api/v2/providers/ollama-cloud/models uses adapter-discovered models when available', async () => {
+    const providers = buildTestProviderMap({
+      'ollama-cloud': { provider: 'ollama-cloud', enabled: true, max_concurrent: 4 },
+    });
+    setProviderLookup((providerId) => providers[providerId] || null);
+
+    const discoverModels = vi.fn().mockResolvedValue({
+      provider: 'ollama-cloud',
+      models: [
+        'qwen3-coder:480b',
+        { model_name: 'devstral-2:123b', sizeBytes: 1024 },
+      ],
+    });
+
+    getProviderAdapterDefaultSpy.mockImplementation((providerId) => {
+      if (providerId === 'ollama-cloud') {
+        return {
+          ...mockV2Adapter({
+            providerId: 'ollama-cloud',
+            submitResult: {
+              output: 'placeholder',
+              status: 'completed',
+              usage: {
+                input_tokens: 0,
+                output_tokens: 0,
+                total_tokens: 0,
+                duration_ms: 0,
+                model: 'ollama-cloud-model',
+              },
+            },
+          }),
+          discoverModels,
+        };
+      }
+
+      if (providerId === 'codex') {
+        return {
+          ...mockV2Adapter({
+            providerId: 'codex',
+            submitResult: {
+              output: 'placeholder',
+              status: 'completed',
+              usage: {
+                input_tokens: 0,
+                output_tokens: 0,
+                total_tokens: 0,
+                duration_ms: 0,
+                model: 'codex-model',
+              },
+            },
+          }),
+          submit: inferenceSubmitSpy,
+        };
+      }
+
+      return null;
+    });
+
+    const response = await dispatchRequest(requestHandler, {
+      method: 'GET',
+      url: '/api/v2/providers/ollama-cloud/models',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = JSON.parse(response.body);
+
+    expect(payload.request_id).toBeDefined();
+    expect(payload.meta.request_id).toBeDefined();
+    expect(payload.provider_id).toBe('ollama-cloud');
+    expect(payload.source).toBe('provider_api');
+    expect(payload.models).toEqual(['devstral-2:123b', 'qwen3-coder:480b']);
+    expect(payload.data.models.map((model) => model.id)).toEqual(['devstral-2:123b', 'qwen3-coder:480b']);
+    expect(payload.model_count).toBe(2);
+    expect(discoverModels).toHaveBeenCalledTimes(1);
+  });
+
   it('GET /api/v2/providers/{provider_id}/models returns runtime source models for ollama hosts', async () => {
     listOllamaHostsSpy.mockReturnValue([
       {
