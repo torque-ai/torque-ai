@@ -562,6 +562,39 @@ function init() {
   }
 
   const attemptInit = () => {
+    // Pre-flight: refuse a write-mode init() if another live TORQUE instance
+    // already holds the startup lock. Without this guard, a debug script that
+    // accidentally `require('./server/database')` and calls .init() while
+    // TORQUE is running will open a writer connection, lock the WAL, and
+    // prevent the next legitimate restart from switching journal_mode. Read
+    // tools should open SQLite directly with { readonly: true } instead.
+    // Opt out via TORQUE_DB_INIT_BYPASS_LOCK_CHECK=1 (e.g. for unit tests
+    // that drive init() under the lock-holder pid themselves).
+    if (process.env.TORQUE_DB_INIT_BYPASS_LOCK_CHECK !== '1') {
+      try {
+        const lockPath = path.join(DATA_DIR, 'torque.lock');
+        if (fs.existsSync(lockPath)) {
+          const raw = fs.readFileSync(lockPath, 'utf8').trim();
+          const lockPid = parseInt(raw, 10);
+          if (lockPid && lockPid !== process.pid) {
+            let alive = false;
+            try { process.kill(lockPid, 0); alive = true; } catch (_) { /* dead */ }
+            if (alive) {
+              const message = `[DB] Refusing write-mode init() — another TORQUE instance is running (pid ${lockPid}, lock file ${lockPath}).\n  - If you are running a read-only debug script, open SQLite directly: new Database(dbPath, { readonly: true, fileMustExist: true }).\n  - If you intend to start a second TORQUE instance, that's not supported; stop the first one (cancel its restart barrier or run scripts/stop-torque.sh) and try again.\n  - To override (CI/tests only), set TORQUE_DB_INIT_BYPASS_LOCK_CHECK=1.`;
+              throw new Error(message);
+            }
+          }
+        }
+      } catch (err) {
+        // Re-throw the explicit refusal; swallow any best-effort fs error
+        // (missing data dir, unreadable lock file) so we don't break legitimate
+        // first-time startup before the lock file exists.
+        if (err && err.message && err.message.startsWith('[DB] Refusing write-mode init()')) {
+          throw err;
+        }
+      }
+    }
+
     configCore.clearConfigCache();
     dbClosed = false;
     db = new Database(DB_PATH);
@@ -584,12 +617,66 @@ function init() {
       }
     }
 
-    // Enable WAL mode for better concurrent access
-    db.pragma('journal_mode = WAL');
-
-    // Allow concurrent writers to wait up to 30s instead of immediately failing with SQLITE_BUSY
-    // Increased from 5s to handle burst scenarios (26+ concurrent task submissions)
+    // Set busy_timeout BEFORE the journal_mode switch so SQLite waits on
+    // contended locks instead of failing immediately. 30s is generous; the
+    // common case (no other process holding the DB) returns in <10ms.
     db.pragma('busy_timeout = 30000');
+
+    // Enable WAL mode for better concurrent access. If another process is
+    // already holding a writer lock (e.g. an orphaned debug script that
+    // called database.js init() before being killed, or a previous TORQUE
+    // instance that hasn't fully released its handles), the journal_mode
+    // switch fails synchronously. Retry with backoff and surface a clear,
+    // actionable error if the lock persists — without this, a single
+    // zombie node process can prevent TORQUE from ever restarting.
+    const WAL_SWITCH_MAX_ATTEMPTS = 6;
+    const WAL_SWITCH_BACKOFF_MS = 1000;
+    let walSwitched = false;
+    let walLastError = null;
+    for (let attempt = 1; attempt <= WAL_SWITCH_MAX_ATTEMPTS; attempt++) {
+      try {
+        const result = db.pragma('journal_mode = WAL');
+        const mode = Array.isArray(result) && result[0] && result[0].journal_mode;
+        if (mode && String(mode).toLowerCase() === 'wal') {
+          walSwitched = true;
+          if (attempt > 1) {
+            logger.info(`[DB] journal_mode=WAL acquired after ${attempt} attempt(s)`);
+          }
+          break;
+        }
+        // pragma returned without throwing but mode is still not WAL — another
+        // process is holding the lock. Treat as soft failure and retry.
+        walLastError = new Error(`journal_mode pragma returned ${JSON.stringify(result)}`);
+      } catch (err) {
+        walLastError = err;
+      }
+      if (attempt < WAL_SWITCH_MAX_ATTEMPTS) {
+        logger.warn(`[DB] journal_mode=WAL attempt ${attempt}/${WAL_SWITCH_MAX_ATTEMPTS} failed (${walLastError && walLastError.message}); retrying in ${WAL_SWITCH_BACKOFF_MS}ms...`);
+        // better-sqlite3 is synchronous; use Atomics.wait for a portable sleep
+        // that doesn't drag in async/await here (init() is itself synchronous).
+        const sab = new SharedArrayBuffer(4);
+        Atomics.wait(new Int32Array(sab), 0, 0, WAL_SWITCH_BACKOFF_MS);
+      }
+    }
+    if (!walSwitched) {
+      // Final diagnostics before giving up: try to identify the lock holder
+      // so the operator can clean up. The TORQUE pid file is the most likely
+      // suspect; if it points to a still-running process, that's the holder.
+      const pidFile = path.join(DATA_DIR, 'torque.pid');
+      let pidHint = '';
+      try {
+        if (fs.existsSync(pidFile)) {
+          const raw = fs.readFileSync(pidFile, 'utf8');
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.pid) {
+            pidHint = `\n  - Existing PID file at ${pidFile} reports pid=${parsed.pid} (started ${parsed.startedAt || 'unknown'}). If that process is still running, this instance cannot start until it exits.`;
+          }
+        }
+      } catch (_) { /* best-effort hint only */ }
+      const message = `[DB] Could not switch journal_mode to WAL after ${WAL_SWITCH_MAX_ATTEMPTS} attempts (last error: ${walLastError && walLastError.message}). Another process is holding a writer lock on ${DB_PATH}.${pidHint}\n  - Check for orphan node processes that called server/database.js init(): \`tasklist | grep node.exe\` (Windows) or \`ps -ef | grep node\` (POSIX).\n  - Read-only debug scripts MUST open SQLite directly with { readonly: true, fileMustExist: true } and avoid calling database.init() while TORQUE is running.`;
+      logger.error(message);
+      throw new Error(message);
+    }
 
     // Checkpoint any stale WAL data from a previous unclean shutdown.
     // If the last shutdown's wal_checkpoint(TRUNCATE) failed, data is stuck in the WAL.
