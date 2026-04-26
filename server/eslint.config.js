@@ -4,6 +4,7 @@ const noSpawnSyncInFactoryRule = require('./eslint-rules/no-spawn-sync-in-factor
 const noVitestRequireRule = require('./eslint-rules/no-vitest-require');
 const noSyncFsOnHotPathsRule = require('./eslint-rules/no-sync-fs-on-hot-paths');
 const noHeavyTestImportsRule = require('./eslint-rules/no-heavy-test-imports');
+const noResetModulesInEachRule = require('./eslint-rules/no-reset-modules-in-each');
 
 const vitestGlobals = {
   describe: 'readonly',
@@ -125,10 +126,12 @@ module.exports = [
       torque: {
         rules: {
           'no-heavy-test-imports': noHeavyTestImportsRule,
+          'no-reset-modules-in-each': noResetModulesInEachRule,
         },
       },
     },
     rules: {
+      'torque/no-reset-modules-in-each': 'warn',
       'torque/no-heavy-test-imports': ['error', {
         allowlist: [
           'api-server.test.js',
