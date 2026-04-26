@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 
-// eslint-disable-next-line torque/no-heavy-test-imports -- needs populated routeMap with handler routes; tool-registry.routeMap is empty until tools.js loads
 const { routeMap } = require('../tools');
 const remoteAgentToolDefs = require('../plugins/remote-agents/tool-defs');
 

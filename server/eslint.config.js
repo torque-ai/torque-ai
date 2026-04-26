@@ -3,6 +3,7 @@ const noHardcodedFactoryProviderRule = require('./eslint-rules/no-hardcoded-fact
 const noSpawnSyncInFactoryRule = require('./eslint-rules/no-spawn-sync-in-factory');
 const noVitestRequireRule = require('./eslint-rules/no-vitest-require');
 const noSyncFsOnHotPathsRule = require('./eslint-rules/no-sync-fs-on-hot-paths');
+const noHeavyTestImportsRule = require('./eslint-rules/no-heavy-test-imports');
 
 const vitestGlobals = {
   describe: 'readonly',
@@ -116,6 +117,36 @@ module.exports = [
     },
     rules: {
       'local/no-vitest-require': 'error',
+    },
+  },
+  {
+    files: ['tests/**/*.js', '**/*.test.js'],
+    plugins: {
+      torque: {
+        rules: {
+          'no-heavy-test-imports': noHeavyTestImportsRule,
+        },
+      },
+    },
+    rules: {
+      'torque/no-heavy-test-imports': ['error', {
+        allowlist: [
+          'api-server.test.js',
+          'auto-recovery-mcp-tools.test.js',
+          'eval-mcp-tools.test.js',
+          'mcp-factory-loop-tools.test.js',
+          'mcp-sse.test.js',
+          'mcp-streamable-http.test.js',
+          'mcp-tools-plan-file.test.js',
+          'p2-orphaned-tools.test.js',
+          'p2-workflow-subscribe.test.js',
+          'p3-dead-routes.test.js',
+          'restart-server-tool.test.js',
+          'test-hardening.test.js',
+          'tool-schema-validation.test.js',
+          'tools-aggregator.test.js',
+        ],
+      }],
     },
   },
   {

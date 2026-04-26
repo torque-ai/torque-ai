@@ -3,7 +3,6 @@ const Database = require('better-sqlite3');
 const {
   listRecoveryStrategies, getRecoveryHistory, clearAutoRecovery, triggerAutoRecovery,
 } = require('../handlers/auto-recovery-handlers');
-// eslint-disable-next-line torque/no-heavy-test-imports -- needs populated routeMap with handler routes; tool-registry.routeMap is empty until tools.js loads
 const { routeMap } = require('../tools');
 
 function seedDb() {
