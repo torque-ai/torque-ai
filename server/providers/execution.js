@@ -3117,13 +3117,29 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     return _executeApiModule.executeApiProvider(task, providerInstance);
   }
 
-  // Diffusion compute tasks need raw text output, not agentic tool-calling.
-  // Bypass the agentic loop and use the legacy API path which returns the
-  // LLM response as plain text — exactly what the compute→apply pipeline needs.
+  // Tasks that need raw chat-completion output, not agentic tool-calling:
+  //   - Diffusion compute tasks (compute→apply pipeline).
+  //   - verify_review tiebreak tasks: yes/no JSON verdicts. The prompt
+  //     explicitly tells the model not to use tools. Wrapping them in
+  //     the agentic loop adds a system prompt demanding tool calls,
+  //     which conflicts with the verdict prompt — observed live on
+  //     StateTrace 2026-04-26 04:35-04:45 with cerebras/zai-glm-4.7
+  //     killed first by `missing_tool_evidence`, then `empty_toolless_result`.
+  //   - Any task that explicitly requested response_format=json_object:
+  //     by definition a structured-output call, not exploration.
   try {
     const taskMeta = task.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
     if (taskMeta.diffusion_role === 'compute') {
       logger.info(`[API-WRAP] Compute task ${task.id} — bypassing agentic loop for raw text output`);
+      return _executeApiModule.executeApiProvider(task, providerInstance);
+    }
+    if (taskMeta.kind === 'verify_review') {
+      logger.info(`[API-WRAP] verify_review task ${task.id} — bypassing agentic loop for JSON-mode chat completion`);
+      return _executeApiModule.executeApiProvider(task, providerInstance);
+    }
+    const rf = taskMeta.response_format;
+    if (rf === 'json_object' || rf === 'json' || (rf && typeof rf === 'object' && rf.type === 'json_object')) {
+      logger.info(`[API-WRAP] JSON-mode task ${task.id} — bypassing agentic loop for structured output`);
       return _executeApiModule.executeApiProvider(task, providerInstance);
     }
   } catch (_e) { /* non-fatal — continue to agentic */ }
