@@ -318,9 +318,14 @@ fi
 # ---- Project root detection ----
 
 find_project_root() {
+  # Walk up looking for .git. In a normal checkout, .git is a directory.
+  # In a git worktree, .git is a *file* containing `gitdir: <path>`. Use
+  # `-e` so worktrees stop at their own root instead of walking up to the
+  # parent main checkout (where branch-detection then misreports the
+  # worktree as being on `main`).
   local dir="$PWD"
   while [[ "$dir" != "/" && "$dir" != "" ]]; do
-    if [[ -d "$dir/.git" ]]; then
+    if [[ -e "$dir/.git" ]]; then
       echo "$dir"
       return
     fi
@@ -380,6 +385,13 @@ REMOTE_PROJECT_PATH=""
 # via .torque-remote.local.json:
 #   { "remote_test_worktree_subdir": ".worktrees/torque-remote-tests" }
 REMOTE_TEST_WORKTREE_SUBDIR=""
+# When set (absolute path), torque-remote registers the test worktree at
+# <ROOT>\<PROJECT_NAME> instead of nesting it inside the project. Saves
+# ~70 chars of MAX_PATH headroom on Windows and avoids collisions when the
+# project itself has a `.worktrees/` directory. Takes precedence over
+# REMOTE_TEST_WORKTREE_SUBDIR when both are set. Opt in via:
+#   { "remote_test_worktree_root": "C:/trt" }
+REMOTE_TEST_WORKTREE_ROOT=""
 
 # Global local config
 GLOBAL_LOCAL="$HOME/.torque-remote.local.json"
@@ -389,6 +401,7 @@ if [[ -f "$GLOBAL_LOCAL" ]]; then
   SSH_KEY_PATH=$(json_get "$GLOBAL_LOCAL" '.key_path')
   DEFAULT_PROJECT_PATH=$(json_get "$GLOBAL_LOCAL" '.default_project_path')
   v=$(json_get "$GLOBAL_LOCAL" '.remote_test_worktree_subdir'); [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_SUBDIR="$v"
+  v=$(json_get "$GLOBAL_LOCAL" '.remote_test_worktree_root');    [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_ROOT="$v"
 fi
 
 # Per-project local override
@@ -399,6 +412,7 @@ if [[ -f "$PROJECT_LOCAL" ]]; then
   v=$(json_get "$PROJECT_LOCAL" '.key_path');                   [[ -n "$v" ]] && SSH_KEY_PATH="$v"
   v=$(json_get "$PROJECT_LOCAL" '.remote_project_path');        [[ -n "$v" ]] && REMOTE_PROJECT_PATH="$v"
   v=$(json_get "$PROJECT_LOCAL" '.remote_test_worktree_subdir'); [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_SUBDIR="$v"
+  v=$(json_get "$PROJECT_LOCAL" '.remote_test_worktree_root');   [[ -n "$v" ]] && REMOTE_TEST_WORKTREE_ROOT="$v"
 fi
 
 # Derive remote project path if not explicitly set
@@ -406,15 +420,26 @@ if [[ -z "$REMOTE_PROJECT_PATH" && -n "$DEFAULT_PROJECT_PATH" ]]; then
   REMOTE_PROJECT_PATH="${DEFAULT_PROJECT_PATH}\\${PROJECT_NAME}"
 fi
 
-# When REMOTE_TEST_WORKTREE_SUBDIR is configured, all sync/test/cleanup
-# operations run in the worktree at <REMOTE_PROJECT_PATH>/<SUBDIR> instead
-# of the main checkout. Codex sessions running directly on the remote
-# workstation can keep their main checkout (with WIP commits, stashes,
-# working-tree edits) without being clobbered by torque-remote's
-# `git reset --hard`. The bootstrap step in the sync block creates the
-# worktree if missing.
+# When a test worktree is configured, all sync/test/cleanup operations run
+# in the dedicated worktree instead of the main checkout. Codex sessions
+# running directly on the remote workstation can keep their main checkout
+# (with WIP commits, stashes, working-tree edits) without being clobbered
+# by torque-remote's `git reset --hard`.
+#
+# REMOTE_TEST_WORKTREE_ROOT (absolute path) takes precedence and gives the
+# shortest path: <ROOT>\<PROJECT_NAME>. REMOTE_TEST_WORKTREE_SUBDIR (legacy)
+# nests under the project: <REMOTE_PROJECT_PATH>\<SUBDIR>. The bootstrap
+# step in the sync block creates the worktree if missing.
 EFFECTIVE_REMOTE_PROJECT_PATH="$REMOTE_PROJECT_PATH"
-if [[ -n "$REMOTE_TEST_WORKTREE_SUBDIR" && -n "$REMOTE_PROJECT_PATH" ]]; then
+if [[ -n "$REMOTE_TEST_WORKTREE_ROOT" ]]; then
+  # Normalize forward slashes to backslashes so Windows-style joining works
+  # whether the user writes "C:/trt" or "C:\\trt" in JSON.
+  ROOT_NORM="${REMOTE_TEST_WORKTREE_ROOT//\//\\}"
+  case "$ROOT_NORM" in
+    *\\) EFFECTIVE_REMOTE_PROJECT_PATH="${ROOT_NORM}${PROJECT_NAME}" ;;
+    *)   EFFECTIVE_REMOTE_PROJECT_PATH="${ROOT_NORM}\\${PROJECT_NAME}" ;;
+  esac
+elif [[ -n "$REMOTE_TEST_WORKTREE_SUBDIR" && -n "$REMOTE_PROJECT_PATH" ]]; then
   case "$REMOTE_PROJECT_PATH" in
     *\\) EFFECTIVE_REMOTE_PROJECT_PATH="${REMOTE_PROJECT_PATH}${REMOTE_TEST_WORKTREE_SUBDIR}" ;;
     *)   EFFECTIVE_REMOTE_PROJECT_PATH="${REMOTE_PROJECT_PATH}\\${REMOTE_TEST_WORKTREE_SUBDIR}" ;;
@@ -524,18 +549,51 @@ case "$TRANSPORT" in
       # entirely inside the worktree, leaving the main checkout's HEAD,
       # stash, and working-tree edits untouched.
       SYNC_BOOTSTRAP=""
-      if [[ -n "$REMOTE_TEST_WORKTREE_SUBDIR" ]]; then
+      # In worktree mode, the named branch (e.g. master) is owned by the
+      # main checkout, so `git checkout --force <branch>` would fail with
+      # "already used by worktree at <main path>". Use detached HEAD on the
+      # remote ref instead — branch identity isn't needed for build/test.
+      if [[ "$EFFECTIVE_REMOTE_PROJECT_PATH" != "$REMOTE_PROJECT_PATH" ]]; then
         # CMD-compatible bootstrap. The ssh command runs in CMD on Windows
         # (no grep, no test, no posix). Use CMD's `if not exist DIR (...)`
         # to short-circuit when the worktree already exists; first run does
         # the `git worktree add` from main checkout. `2>nul` swallows any
         # "already used" message in the rare case dir exists but git's
-        # metadata is stale.
-        SYNC_BOOTSTRAP="if not exist \"$EFFECTIVE_REMOTE_PROJECT_PATH\\.git\" (cd \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>nul) && "
+        # metadata is stale. `cd /d` is required for ROOT-mode worktrees that
+        # may live on a different drive than the project.
+        # `git config core.longpaths=true` runs every sync (idempotent) so
+        # that nested project tooling (StateTrace's own .worktrees, Unity
+        # build outputs, etc.) doesn't trip Windows MAX_PATH=260. Git uses
+        # the \\?\-prefixed Win32 API when this is on, raising the ceiling
+        # to ~32K characters.
+        SYNC_BOOTSTRAP="if not exist \"$EFFECTIVE_REMOTE_PROJECT_PATH\\.git\" (cd /d \"$REMOTE_PROJECT_PATH\" && git worktree add --force \"$EFFECTIVE_REMOTE_PROJECT_PATH\" $SYNC_REF 2>nul) && cd /d \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git config core.longpaths true && "
+        SYNC_CHECKOUT="git checkout --force --detach $SYNC_REF"
+      else
+        SYNC_CHECKOUT="git checkout --force $SYNC_BRANCH"
       fi
+      # Filter sync output through grep but tolerate empty input (grep
+      # returns 1 with no matches; we don't want that to look like sync
+      # failure). Track ssh's actual exit status via PIPESTATUS.
+      # `git clean -fd` removes untracked files so subsequent patch overlays
+      # apply cleanly — without it, files left behind by a killed prior run
+      # cause `git apply` to fail with "already exists in working directory".
+      # Best-effort `|| true` keeps clean failures (e.g. permission-denied
+      # subdirs) from masquerading as sync failures.
+      #
+      # Drift check: on Windows, file locks held by Defender/Search-indexer/
+      # antivirus can cause `git checkout --force` and `git reset --hard` to
+      # silently leave individual files at their old content while still
+      # exiting 0. A subsequent `git diff --quiet HEAD` catches that drift
+      # — if any tracked file diverged from the new HEAD, exit 99 so the
+      # outer sync_status check fires and surfaces the failure instead of
+      # quietly running tests against half-updated code.
+      sync_status=0
       ssh "${SSH_OPTS[@]}" "$SSH_USER@$SSH_HOST" \
-        "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git fetch origin && git checkout --force $SYNC_BRANCH && git reset --hard $SYNC_REF" \
-        2>&1 | tee -a /tmp/torque-remote-sync.log | grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || warn "Sync failed — remote may have stale code (see /tmp/torque-remote-sync.log)"
+        "${SYNC_BOOTSTRAP}cd \"$EFFECTIVE_REMOTE_PROJECT_PATH\" && git fetch origin && $SYNC_CHECKOUT && git reset --hard $SYNC_REF && (git clean -fdx || true) && (git diff --quiet HEAD || (echo \"[torque-remote-sync] drift after reset — file locks (Defender/Search/AV) may have prevented checkout from updating tracked files\" 1>&2 && exit 99))" \
+        2>&1 | tee -a /tmp/torque-remote-sync.log | (grep -v 'Unable to persist credentials\|credential store\|aka.ms/gcm' || true) || sync_status="${PIPESTATUS[0]}"
+      if [[ "$sync_status" -ne 0 ]]; then
+        warn "Sync failed — remote may have stale code (see /tmp/torque-remote-sync.log)"
+      fi
     fi
 
     GIT_BASH='C:\progra~1\Git\bin\bash.exe'
@@ -560,11 +618,11 @@ cleanup() {
 }
 trap cleanup EXIT
 if [[ -s "\$BUNDLE_DIR/committed.patch" ]]; then
-  git apply --binary "\$BUNDLE_DIR/committed.patch"
+  git apply --binary --3way "\$BUNDLE_DIR/committed.patch"
   APPLIED_LOCAL_STATE="true"
 fi
 if [[ -s "\$BUNDLE_DIR/worktree.patch" ]]; then
-  git apply --binary "\$BUNDLE_DIR/worktree.patch"
+  git apply --binary --3way "\$BUNDLE_DIR/worktree.patch"
   APPLIED_LOCAL_STATE="true"
 fi
 if [[ -f "\$BUNDLE_DIR/untracked.tar" ]]; then
