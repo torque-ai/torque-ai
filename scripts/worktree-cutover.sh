@@ -195,6 +195,28 @@ echo "[ok] Merged"
 
 merge_changed_files=$(git diff --name-only HEAD@{1} HEAD 2>/dev/null || true)
 
+# Refresh node_modules when the merge bumped runtime deps. Without this, a
+# feature branch that adds (e.g.) `ajv` to server/package.json silently lands
+# on main while node_modules stays stale; the next restart then crashes with
+# `Cannot find module 'X'` and the queue is wedged until someone notices and
+# runs `npm install` by hand. Gate on the merge diff so server-only or
+# dashboard-only cutovers don't pay for the other side. --no-audit/--no-fund
+# trim the install to the minimum chatter needed for the gate.
+if echo "$merge_changed_files" | grep -qE "^server/package(-lock)?\.json$"; then
+  if [ -d "${REPO_ROOT}/server" ]; then
+    echo "  Server deps changed — running npm install..."
+    (cd "${REPO_ROOT}/server" && npm install --silent --no-audit --no-fund 2>&1 | tail -3) \
+      || echo "[warn] server npm install failed — restart may crash with 'Cannot find module'. Run 'cd server && npm install' manually."
+  fi
+fi
+if echo "$merge_changed_files" | grep -qE "^dashboard/package(-lock)?\.json$"; then
+  if [ -d "${REPO_ROOT}/dashboard" ]; then
+    echo "  Dashboard deps changed — running npm install..."
+    (cd "${REPO_ROOT}/dashboard" && npm install --silent --no-audit --no-fund 2>&1 | tail -3) \
+      || echo "[warn] dashboard npm install failed — vite build will likely fail. Run 'cd dashboard && npm install' manually."
+  fi
+fi
+
 # If the merge updated any tracked hook source under scripts/ (currently
 # scripts/pre-push-hook), refresh the installed copy in .git/hooks/ so the
 # next push gets the new version. Without this, hook source updates land
