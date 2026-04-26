@@ -101,8 +101,9 @@ class CircuitBreaker {
     if (!this._store) return;
     try {
       this._store.persist(provider, patch);
-    } catch (_err) {
-      // Persistence errors must not break the breaker.
+    } catch (err) {
+      // Persistence errors must not break the breaker, but they should be visible.
+      console.error('[circuit-breaker] persist failed for', provider, err.message);
     }
   }
 

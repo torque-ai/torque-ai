@@ -285,5 +285,22 @@ describe('circuit-breaker', () => {
       const breaker2 = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store });
       expect(breaker2.getState('codex').state).toBe(STATES.OPEN);
     });
+
+    it('logs but does not throw when store.persist fails', () => {
+      const erroringStore = {
+        getState: vi.fn(() => null),
+        persist: vi.fn(() => { throw new Error('DB locked'); }),
+        listAll: vi.fn(() => []),
+      };
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const breaker = createCircuitBreaker({ eventBus, config: TEST_CONFIG, store: erroringStore });
+      expect(() => tripCircuit(breaker, 'codex')).not.toThrow();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('persist failed'),
+        'codex',
+        'DB locked'
+      );
+      errorSpy.mockRestore();
+    });
   });
 });
