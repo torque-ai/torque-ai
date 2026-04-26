@@ -310,7 +310,7 @@ Each phase's "write child spec → review → plan → execute → cutover" cycl
 | 1 — Sync I/O | docs/superpowers/specs/2026-04-25-perf-1-sync-io-design.md | shipped | 4a1c5624 |
 | 4 — Test infra | docs/superpowers/specs/2026-04-25-perf-4-test-infra-design.md | shipped | 4f7477b8 |
 | 2 — N+1 + indexes | docs/superpowers/specs/2026-04-25-perf-2-nplusone-design.md | shipped | af52cbfd |
-| 3 — Repeated work | (written when phase starts, after Phase 2 verified live) | planned | — |
+| 3 — Repeated work | docs/superpowers/specs/2026-04-25-perf-3-repeated-work-design.md | shipped | 49dfc4f8 |
 
 Status values: `planned` → `scout-complete` → `spec-written` → `plan-approved` → `in-progress` → `shipped` (with cutover commit hash) → `closed` (after post-merge scout returns clean).
 
@@ -339,3 +339,17 @@ Status values: `planned` → `scout-complete` → `spec-written` → `plan-appro
 - **Phase closure** — meeting all four §3.5 criteria. Must happen before cutover.
 - **Cutover** — `scripts/worktree-cutover.sh` run for the phase's worktree.
 - **Post-merge re-scout** — fresh scout against main *after* cutover, validating closure criterion 4.
+
+---
+
+## Arc closure (2026-04-26)
+
+All 5 sub-projects shipped. The perf hunt arc is formally complete:
+
+- Phase 0 — Baseline + gate: shipped (commit 6527b360)
+- Phase 1 — Sync I/O: shipped (commit 4a1c5624)
+- Phase 4 — Test infra: shipped (commit 4f7477b8)
+- Phase 2 — N+1 + indexes: shipped (commit af52cbfd)
+- Phase 3 — Repeated work: shipped (commit 49dfc4f8)
+
+Three discipline ESLint rules + one test invariant + one pre-push audit + one cold-import threshold wrapper now constrain the patterns the arc swept. The regression gate enforces baseline drift; the trailer protocol forces deliberate baseline changes; the v0.1 follow-ups (per-metric thresholds, lazy-load tools.js, listTasks-with-projection metric, vi.resetModules audit, etc.) are documented in memory.
