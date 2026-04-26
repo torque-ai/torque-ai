@@ -113,6 +113,7 @@ function init(deps) {
     processQueue: deps.processQueue,
     handleWorkflowTermination: deps.handleWorkflowTermination,
     apiAbortControllers: deps.apiAbortControllers,
+    getFreeQuotaTracker: deps.getFreeQuotaTracker,
   };
 
   // Import recordProviderOutcome from provider-routing-core if available
@@ -201,6 +202,12 @@ function selectAdapter(provider) {
     return openaiChatAdapter;
   }
   return null;
+}
+
+function resolveAgenticAdapterType(provider) {
+  if (provider === 'ollama' || provider === 'ollama-cloud') return 'ollama';
+  if (provider === 'google-ai') return 'google';
+  return 'openai';
 }
 
 /**
@@ -3245,16 +3252,17 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       logger.info(`[Agentic] API task ${taskId} using fallback chain (${chain.length} entries): ${chain.map(e => e.provider).join(' -> ')}`);
 
       const buildConfig = (entry) => {
-        const entryAdapterType = entry.provider === 'ollama-cloud' ? 'ollama'
-          : entry.provider === 'google-ai' ? 'google'
-          : 'openai';
+        const localOllamaTarget = entry.provider === 'ollama'
+          ? resolveLocalOllamaAgenticTarget(task, entry.model)
+          : null;
+        const entryModel = localOllamaTarget?.model || resolveApiProviderModel(entry.provider, entry.model);
         return {
-          adapterType: entryAdapterType,
+          adapterType: resolveAgenticAdapterType(entry.provider),
           adapterOptions: {
-            host: PROVIDER_HOST_MAP[entry.provider] || '',
-            apiKey: resolveApiKey(entry.provider),
+            host: localOllamaTarget?.host || PROVIDER_HOST_MAP[entry.provider] || '',
+            apiKey: entry.provider === 'ollama' ? null : resolveApiKey(entry.provider),
             providerName: entry.provider,
-            model: resolveApiProviderModel(entry.provider, entry.model),
+            model: entryModel,
             temperature: 0.3,
           },
           systemPrompt,
@@ -3263,7 +3271,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
           timeoutMs,
           maxIterations,
           contextBudget: PROVIDER_CONTEXT_BUDGETS[entry.provider] || contextBudget,
-          promptInjectedTools: needsPromptInjection(entry.model || ''),
+          promptInjectedTools: needsPromptInjection(entryModel || ''),
           proposalOutputMode,
           requireToolUseBeforeFinal: shouldRequireToolEvidence(entry.provider, task, workingDir),
           commandMode: agenticPolicy.commandMode,
@@ -3282,9 +3290,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     } else {
       // Single-provider path (no chain or single-entry chain)
       // Resolve adapter type for the worker
-      const adapterType = provider === 'ollama-cloud' ? 'ollama'
-        : provider === 'google-ai' ? 'google'
-        : 'openai';
+      const adapterType = resolveAgenticAdapterType(provider);
 
       // Spawn worker thread for the agentic loop
       logger.debug(`[WORKER-DEBUG] Spawning worker for API task ${taskId}, provider=${provider}, model=${model}, adapterType=${adapterType}`);
@@ -3663,6 +3669,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   } catch (error) {
     const handledError = normalizeAgenticWorkerError(error, cleanupTrackedWorker);
     const currentTask = db.getTask(taskId) || task;
+    recordAgenticRateLimit(handledError.agenticFailedProvider || provider, handledError);
     const handoffTarget = resolveAgenticHandoffTarget({
       task: currentTask,
       chain,
@@ -3823,6 +3830,114 @@ function isRetryableError(error) {
   return /\b429\b|\b503\b|timeout|timed out|econnrefused|econnreset|quota|rate.?limit|overloaded|provider returned error|failed to fetch/.test(msg);
 }
 
+function isQuotaOrRateLimitError(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return /\b429\b|quota|rate.?limit|usage limit|too many requests/.test(msg);
+}
+
+function parseRetryAfterSeconds(value) {
+  if (value == null) return null;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function getRetryAfterSeconds(error) {
+  const direct = parseRetryAfterSeconds(error?.retryAfterSeconds ?? error?.retry_after_seconds ?? error?.retryAfter);
+  if (direct) return direct;
+
+  const headers = error?.response?.headers || error?.headers;
+  const headerValue = typeof headers?.get === 'function'
+    ? headers.get('retry-after')
+    : (headers?.['retry-after'] || headers?.['Retry-After']);
+  const fromHeader = parseRetryAfterSeconds(headerValue);
+  if (fromHeader) return fromHeader;
+
+  const msg = String(error?.message || '');
+  const match = msg.match(/retry[-\s]?after[:=\s]+(\d+)/i);
+  return match ? parseRetryAfterSeconds(match[1]) : null;
+}
+
+function getAgenticFreeQuotaTracker() {
+  try {
+    return typeof _agenticDeps?.getFreeQuotaTracker === 'function'
+      ? _agenticDeps.getFreeQuotaTracker()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isAgenticProviderInQuotaCooldown(provider) {
+  if (!provider) return false;
+  const tracker = getAgenticFreeQuotaTracker();
+  if (!tracker || typeof tracker.getStatus !== 'function' || typeof tracker.canSubmit !== 'function') return false;
+
+  try {
+    const status = tracker.getStatus();
+    if (!status || !Object.prototype.hasOwnProperty.call(status, provider)) return false;
+    return !tracker.canSubmit(provider);
+  } catch {
+    return false;
+  }
+}
+
+function recordAgenticRateLimit(provider, error) {
+  if (!provider || !isQuotaOrRateLimitError(error)) return;
+  const tracker = getAgenticFreeQuotaTracker();
+  if (!tracker || typeof tracker.recordRateLimit !== 'function') return;
+
+  try {
+    tracker.recordRateLimit(provider, getRetryAfterSeconds(error));
+    logger.info(`[Routing] Recorded quota cooldown for ${provider} after agentic failure`);
+  } catch (err) {
+    logger.debug(`[Routing] Failed to record quota cooldown for ${provider}: ${err.message}`);
+  }
+}
+
+function resolveLocalOllamaAgenticTarget(task, requestedModel = null) {
+  const serverConfig = require('../config');
+  const db = _agenticDeps?.db;
+  const ollamaShared = require('./ollama-shared');
+
+  let model = resolveApiProviderModel('ollama', requestedModel)
+    || resolveOllamaModel(task, null)
+    || '';
+
+  if (model && typeof ollamaShared.hasModelOnAnyHost === 'function' && !ollamaShared.hasModelOnAnyHost(model)) {
+    const best = typeof ollamaShared.findBestAvailableModel === 'function'
+      ? ollamaShared.findBestAvailableModel()
+      : null;
+    if (best) model = best;
+  }
+
+  if (!model) {
+    try {
+      const modelRoles = require('../db/model-roles');
+      model = modelRoles.getModelForRole('ollama', 'default') || '';
+    } catch { /* ignore */ }
+  }
+
+  let host = null;
+  if (model && db && typeof db.listOllamaHosts === 'function') {
+    const hosts = db.listOllamaHosts();
+    if (hosts.length > 0 && typeof db.selectOllamaHostForModel === 'function') {
+      const selection = db.selectOllamaHostForModel(model);
+      if (selection?.host?.url) host = selection.host.url;
+    }
+  }
+
+  if (!host) {
+    host = serverConfig.get('ollama_host') || process.env.OLLAMA_HOST || 'http://localhost:11434';
+  }
+
+  if (!model) {
+    throw new Error('No local Ollama model is configured or discoverable for agentic fallback');
+  }
+
+  return { host, model };
+}
+
 /**
  * Execute a task against a provider chain, falling back to the next entry
  * whenever a retryable error occurs.
@@ -3852,14 +3967,22 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
 
   for (let i = 0; i < chain.length; i++) {
     const entry = chain[i];
-    const config = buildWorkerConfig(entry);
-    const resolvedModel = config?.adapterOptions?.model || entry.model || null;
+    if (isAgenticProviderInQuotaCooldown(entry.provider)) {
+      lastError = new Error(`Provider ${entry.provider} is in quota cooldown`);
+      logger.info(`[Routing] Skipping ${entry.provider}: quota cooldown is active (${i + 1}/${chain.length})`);
+      continue;
+    }
 
-    logger.info(`[Routing] Trying ${entry.provider}/${resolvedModel || 'default'} (${i + 1}/${chain.length})`);
+    let config;
+    let resolvedModel = entry.model || null;
 
     let workerHandle;
     let cleanupTrackedWorker = null;
     try {
+      config = buildWorkerConfig(entry);
+      resolvedModel = config?.adapterOptions?.model || entry.model || null;
+      logger.info(`[Routing] Trying ${entry.provider}/${resolvedModel || 'default'} (${i + 1}/${chain.length})`);
+
       workerHandle = spawnAgenticWorker(config, buildTrackedAgenticCallbacks(task.id, callbacks));
       cleanupTrackedWorker = trackAgenticWorkerTask(task.id, {
         workerHandle,
@@ -3900,6 +4023,7 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
 
       // Record failure
       try { recordProviderOutcome(entry.provider, false); } catch { /* non-critical */ }
+      recordAgenticRateLimit(entry.provider, handledError);
       recordOpenRouterModelTaskOutcome({
         task,
         provider: entry.provider,
@@ -3920,7 +4044,8 @@ async function executeWithFallback(task, chain, buildWorkerConfig, callbacks, ag
         throw handoffError;
       }
 
-      if (!isRetryableError(handledError) || i === chain.length - 1) {
+      const providerSetupFailure = !workerHandle;
+      if ((!providerSetupFailure && !isRetryableError(handledError)) || i === chain.length - 1) {
         handledError.agenticChainPosition = i + 1;
         handledError.agenticFailedProvider = entry.provider;
         handledError.agenticFailedModel = resolvedModel;

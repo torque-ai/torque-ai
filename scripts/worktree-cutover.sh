@@ -193,6 +193,8 @@ fi
 
 echo "[ok] Merged"
 
+merge_changed_files=$(git diff --name-only HEAD@{1} HEAD 2>/dev/null || true)
+
 # If the merge updated any tracked hook source under scripts/ (currently
 # scripts/pre-push-hook), refresh the installed copy in .git/hooks/ so the
 # next push gets the new version. Without this, hook source updates land
@@ -214,7 +216,6 @@ fi
 # anyone else's disk until they rebuild. Do the rebuild now so the live
 # TORQUE server (which serves from dashboard/dist) won't 404 the bundle
 # after restart. Gate on the merge diff so server-only cutovers stay quiet.
-merge_changed_files=$(git diff --name-only HEAD@{1} HEAD 2>/dev/null || true)
 if echo "$merge_changed_files" | grep -qE "^dashboard/(src/|package(-lock)?\.json$|vite\.config\.)"; then
   echo "  Dashboard sources changed — rebuilding bundle..."
   if [ -d "${REPO_ROOT}/dashboard" ]; then

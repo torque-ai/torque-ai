@@ -910,6 +910,7 @@ _executionModule.init({
   shellEscape,
   processQueue,
   handleWorkflowTermination,
+  getFreeQuotaTracker,
   isLargeModelBlockedOnHost,
   buildFileContext,
   helpers: {

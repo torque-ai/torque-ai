@@ -250,7 +250,9 @@ function resolveLanePolicy(project, options = {}) {
   const projectPolicy = parseJsonObject(config.policy);
   const expectedFromRequest = normalizeProvider(options.expected_provider || options.expectedProvider);
   const expectedFromConfig = normalizeProvider(laneConfig.expected_provider || laneConfig.expectedProvider);
-  const policyProviders = normalizeProviderList(projectPolicy.provider_restrictions);
+  const laneAllowedProviders = normalizeProviderList(laneConfig.allowed_providers || laneConfig.allowedProviders);
+  const restrictionProviders = normalizeProviderList(projectPolicy.provider_restrictions);
+  const policyProviders = normalizeProviderList([...laneAllowedProviders, ...restrictionProviders]);
   const hasAllowedFallbackOverride = (
     Object.prototype.hasOwnProperty.call(options, 'allowed_fallback_providers')
     && options.allowed_fallback_providers !== undefined
@@ -287,7 +289,9 @@ function resolveLanePolicy(project, options = {}) {
   let source = expectedProvider ? (expectedFromRequest ? 'request' : 'project_config') : 'unconfigured';
   if (!expectedProvider && policyProviders.length === 1) {
     expectedProvider = policyProviders[0];
-    source = 'project_policy.provider_restrictions';
+    source = laneAllowedProviders.length > 0 ? 'project_config.provider_lane_policy.allowed_providers' : 'project_policy.provider_restrictions';
+  } else if (!expectedProvider && policyProviders.length > 1) {
+    source = laneAllowedProviders.length > 0 ? 'project_config.provider_lane_policy.allowed_providers' : 'project_policy.provider_restrictions';
   }
 
   return {
@@ -313,13 +317,13 @@ function evaluateGuard(tasks, policy) {
         type: 'provider_not_allowed',
         provider: task.provider,
         expected_provider: policy.expected_provider,
-        reason: `Provider "${task.provider}" is outside project provider_restrictions`,
+        reason: `Provider "${task.provider}" is outside the configured provider lane`,
       });
       continue;
     }
 
     if (!policy.expected_provider) {
-      if (task.handoff.active) {
+      if (task.handoff.active && policy.allowed_providers.length === 0) {
         warnings.push({
           task_id: task.id,
           type: 'fallback_without_expected_provider',
