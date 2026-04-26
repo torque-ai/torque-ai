@@ -498,18 +498,25 @@ async function runAgenticLoop({
         continue;
       }
 
-      // Incomplete task nudge: if the task asks to create/add/write files but the model
+      // Incomplete task nudge: if the task asks to modify files but the model
       // only called read-only tools (list_directory, read_file, search_files) and is now
       // declaring itself "done" with a text response, nudge it to actually complete the work.
-      // This catches the pattern where cheap LLMs describe what they would do instead of doing it.
-      const hasWriteTools = toolLog.some(t => ['write_file', 'edit_file', 'run_command'].includes(t.name));
-      const taskMentionsCreation = /\b(create|add|write|implement|generate)\b/i.test(taskPrompt);
-      if (!proposalOutputMode && !hasWriteTools && taskMentionsCreation && toolLog.length > 0 && toolLog.length <= 3 && !emptySummaryRetried) {
-        logger.info(`[Agentic] Task mentions file creation but only read-only tools used (${toolLog.length} calls) — nudging to complete`);
+      // This catches the explore-without-write pattern: model gathers context exhaustively
+      // then "summarizes" instead of editing. Observed live 2026-04-26 on qwen3-coder:30b
+      // — a DLPhone task did 24 read-only calls, then went silent for 13 min, finished
+      // with 0 files changed. The previous version of this nudge had a `<= 3` cap that
+      // skipped exactly this case.
+      const WRITE_TOOLS = ['write_file', 'edit_file', 'replace_lines', 'run_command'];
+      const hasWriteTools = toolLog.some(t => WRITE_TOOLS.includes(t.name));
+      // Broaden the verb match — modification verbs beyond pure creation. The
+      // `taskExpectsModification` regex above already covers this set; reuse it
+      // to avoid drift between detectors.
+      if (!proposalOutputMode && !hasWriteTools && taskExpectsModification && toolLog.length > 0 && !emptySummaryRetried) {
+        logger.info(`[Agentic] Task expects modification but only read-only tools used (${toolLog.length} calls) — nudging to complete`);
         messages.push({ role: 'assistant', content });
         messages.push({
           role: 'user',
-          content: 'You described what you would create but did not actually create the files. Use the write_file tool now to create the files as described. Do not just describe them — actually write them.',
+          content: 'You have read enough context. The task description told you what to change; use edit_file or replace_lines now to make the changes. If you read a file once, do NOT re-read it — make the edit. Do not describe what you would do — call the write tool.',
         });
         emptySummaryRetried = true; // reuse flag to prevent infinite nudge loop
         continue;
@@ -689,6 +696,20 @@ async function runAgenticLoop({
     // Read-only spin detection: only for tasks that expect file modification.
     // Pure analysis/search tasks are allowed unlimited read-only iterations.
     // Only reset on SUCCESSFUL write/edit — failed edits don't count as progress.
+    //
+    // Also count iterations where the model returned ZERO tool calls but had
+    // already accumulated read-only calls without any writes. Without this,
+    // the "model gives up after exploring" case (24 reads then text-only
+    // replies for 18 iterations) freezes readOnlyIterations at 1-2 and never
+    // reaches the nudge threshold. Observed live 2026-04-26 on qwen3-coder:30b.
+    const explorationStallNudge = !earlyStop
+      && taskExpectsModification
+      && toolCalls.length === 0
+      && toolLog.length > 0
+      && !hasSuccessfulWrite;
+    if (explorationStallNudge) {
+      readOnlyIterations++;
+    }
     if (!earlyStop && taskExpectsModification && toolCalls.length > 0) {
       if (parsedActionlessLimit !== null && parsedActionlessLimit > 0) {
         if (hadActionAttempt) {
