@@ -503,10 +503,13 @@ export default function Strategic() {
 
   useEffect(() => {
     loadData();
+    // Routing config + provider health drift on minutes-scale, not seconds —
+    // 15s was overkill (4 req/min). 60s keeps the view fresh without spamming
+    // the API; the visibility check still pauses polling when the tab hides.
     const interval = setInterval(() => {
       if (document.hidden) return;
       loadData();
-    }, 15000);
+    }, 60000);
     return () => clearInterval(interval);
   }, [loadData]);
 
