@@ -259,14 +259,44 @@ function readReviewerModelOverride() {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+// Models that show up in cerebras /v1/models but 404 on chat/completions
+// for tier-1 keys. Observed live 2026-04-26: 4 verify_review tasks died
+// with `Cerebras streaming API error (404): Model zai-glm-4.7 does not
+// exist or you do not have access to it`. The reviewer prompt is JSON-mode,
+// short, and any of {llama3.1-8b, qwen-3-235b} satisfies it — there's no
+// reason to push the reviewer toward tier-restricted models, even if an
+// operator picks one via env override or a routing template hands it down.
+// llama3.1-8b is the safe default; substitute when an unreachable choice
+// arrives so the reviewer never burns 30s on a doomed 404.
+const REVIEWER_TIER_RESTRICTED_MODELS = new Set([
+  'zai-glm-4.7',
+  'gpt-oss-120b',
+]);
+const REVIEWER_FALLBACK_MODEL = 'llama3.1-8b';
+
+function isReviewerModelReachable(model) {
+  if (!model || typeof model !== 'string') return true;
+  return !REVIEWER_TIER_RESTRICTED_MODELS.has(model.trim());
+}
+
 function resolveReviewerModel() {
   const envOverride = readReviewerModelOverride();
-  if (envOverride !== undefined) return envOverride;
+  // Empty string env value opts back into the routing template's choice
+  // (envOverride === null) — preserve that escape hatch.
+  if (envOverride === null) return null;
   // llama3.1-8b is the smallest cerebras model that's reliably available
   // on the free tier and handles JSON-mode short verdicts cleanly.
   // zai-glm-4.7 and gpt-oss-120b appear in /v1/models but 404 on chat
   // completions for tier-1 keys.
-  return 'llama3.1-8b';
+  if (envOverride === undefined) return REVIEWER_FALLBACK_MODEL;
+  if (!isReviewerModelReachable(envOverride)) {
+    // Don't honor env overrides that are known to 404 for the typical
+    // free-tier key. Operators on paid tiers who actually want
+    // zai-glm-4.7/gpt-oss-120b can set it via a routing template
+    // (where the per-task choice happens after this guard).
+    return REVIEWER_FALLBACK_MODEL;
+  }
+  return envOverride;
 }
 
 // Reinforces the JSON-shape contract when the first attempt produced
@@ -652,4 +682,9 @@ module.exports = {
   buildTiebreakPrompt,
   extractVerifyExcerpt,
   STRICT_JSON_SUFFIX,
+  // Exported for tests
+  resolveReviewerModel,
+  isReviewerModelReachable,
+  REVIEWER_TIER_RESTRICTED_MODELS,
+  REVIEWER_FALLBACK_MODEL,
 };

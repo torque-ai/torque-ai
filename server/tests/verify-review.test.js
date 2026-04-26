@@ -827,6 +827,70 @@ describe('runLlmTiebreak', () => {
     }
   });
 
+  it('substitutes tier-restricted env override with the safe fallback model', async () => {
+    // zai-glm-4.7 / gpt-oss-120b appear in /v1/models but 404 on
+    // chat/completions for tier-1 cerebras keys. If an operator (or a
+    // routing template handed down via env) names one, swap to
+    // llama3.1-8b instead of burning 30s on a doomed request.
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-model-restricted' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+    });
+    const original = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+    process.env.TORQUE_VERIFY_REVIEWER_MODEL = 'zai-glm-4.7';
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      await runLlmTiebreak({
+        failingTests: ['tests/foo.py'],
+        modifiedFiles: ['src/bar.ts'],
+        workItem: { id: 1, title: 'w', description: 'd' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'llama3.1-8b',
+      }));
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+      else process.env.TORQUE_VERIFY_REVIEWER_MODEL = original;
+    }
+  });
+
+  it('opts back into routing-template choice when env override is empty', async () => {
+    const submit = vi.fn().mockResolvedValue({ task_id: 't-model-empty' });
+    installMocks({
+      submit,
+      await: vi.fn().mockResolvedValue({ status: 'completed' }),
+      task: vi.fn().mockReturnValue({
+        status: 'completed',
+        output: '{"verdict":"go","critique":"ok"}',
+      }),
+    });
+    const original = process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+    process.env.TORQUE_VERIFY_REVIEWER_MODEL = '';
+    try {
+      const { runLlmTiebreak } = require('../factory/verify-review');
+      await runLlmTiebreak({
+        failingTests: ['tests/foo.py'],
+        modifiedFiles: ['src/bar.ts'],
+        workItem: { id: 1, title: 'w', description: 'd' },
+        project: { id: 'p', path: '/tmp/p' },
+      });
+      // model: null → submitFactoryInternalTask omits the model arg
+      // entirely, leaving routing template to pick. Spec preserves
+      // bbd5fd71's existing escape hatch.
+      const submitArgs = submit.mock.calls[0][0];
+      expect('model' in submitArgs ? submitArgs.model : null).toBeNull();
+    } finally {
+      if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;
+      else process.env.TORQUE_VERIFY_REVIEWER_MODEL = original;
+    }
+  });
+
   it('honors TORQUE_VERIFY_REVIEWER_MODEL env override', async () => {
     const submit = vi.fn().mockResolvedValue({ task_id: 't-model-env' });
     installMocks({
