@@ -502,7 +502,7 @@ async function handleRoutingDecisions(req, res) {
   // Narrow projection — we only read routing metadata + a short description slice,
   // never output/error_output.
   const rawTasks = taskCore.listTasks
-    ? taskCore.listTasks({ limit: limit * 3, order: 'desc', columns: taskCore.TASK_ROUTING_DECISION_COLUMNS })
+    ? taskCore.listTasks({ limit: limit * 3, order: 'desc', columns: taskCore.TASK_ROUTING_DECISION_COLUMNS, raw: true })
     : [];
   const taskList = Array.isArray(rawTasks) ? rawTasks : (rawTasks.tasks || []);
 
