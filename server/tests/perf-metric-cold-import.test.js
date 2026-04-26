@@ -9,6 +9,7 @@ describe('metric: cold-import', () => {
     expect(metric.units).toBe('ms');
     expect(metric.variants).toEqual(['tools', 'task-manager', 'database', 'db-task-core']);
     expect(metric.runs).toBeGreaterThanOrEqual(5);
+    expect(metric.warmup).toBeGreaterThanOrEqual(0);
   });
 
   it('run({variant: "database"}) returns positive ms', async () => {

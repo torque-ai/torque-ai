@@ -21,7 +21,9 @@ async function run(ctx) {
   const target = VARIANT_PATHS[ctx.variant];
   if (!target) throw new Error(`unknown variant ${ctx.variant}`);
   // Spawn a fresh node process so each run gets a cold module cache.
-  // The child prints the elapsed ms on stdout.
+  // The child writes the elapsed ms to stderr via an `ELAPSED:` sentinel,
+  // avoiding contamination from modules that print to stdout during import
+  // (e.g., database.js writes a `[data-dir] Resolved:` banner).
   const child = cp.spawnSync(process.execPath, ['-e', `
     const start = process.hrtime.bigint();
     require(${JSON.stringify(target)});
