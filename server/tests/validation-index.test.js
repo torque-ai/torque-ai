@@ -204,25 +204,25 @@ describe('validation handler index', () => {
   });
 
   describe('handleValidateTaskOutput', () => {
-    it('passes clean staged code', () => {
+    it('passes clean staged code', async () => {
       seedValidationRules();
       stageRepoFile('src/app.js', 'module.exports = 42;\n');
       const task = createTask();
 
-      const result = validationModule.handleValidateTaskOutput({ task_id: task.id });
+      const result = await validationModule.handleValidateTaskOutput({ task_id: task.id });
 
       expect(result.isError).toBeFalsy();
       expect(getText(result)).toContain('Validation Passed');
       expect(getText(result)).toContain(task.id);
     });
 
-    it('does not diff against HEAD~1 when the repo has no parent commit', () => {
+    it('does not diff against HEAD~1 when the repo has no parent commit', async () => {
       seedValidationRules();
       stageRepoFile('src/app.js', 'module.exports = 42;\n');
       const task = createTask();
       const execSpy = vi.spyOn(childProcess, 'execFileSync');
 
-      const result = validationModule.handleValidateTaskOutput({ task_id: task.id });
+      const result = await validationModule.handleValidateTaskOutput({ task_id: task.id });
 
       expect(result.isError).toBeFalsy();
       expect(execSpy.mock.calls.some((call) => (
@@ -249,12 +249,12 @@ describe('validation handler index', () => {
         content: 'x=1\n',
         expectedRule: 'Minimum JS file size',
       },
-    ])('fails validation for $title', ({ content, expectedRule }) => {
+    ])('fails validation for $title', async ({ content, expectedRule }) => {
       seedValidationRules();
       stageRepoFile('src/app.js', content);
       const task = createTask();
 
-      const result = validationModule.handleValidateTaskOutput({ task_id: task.id });
+      const result = await validationModule.handleValidateTaskOutput({ task_id: task.id });
       const text = getText(result);
 
       expect(result.isError).toBeFalsy();
