@@ -47,8 +47,11 @@ describe('hashline handler workspace path scoping', () => {
     return { __taskId: taskId };
   }
 
-  it('rejects reads outside the task workspace root', () => {
-    const result = handleHashlineRead({
+  // hashline_read/edit became `async` in the perf-2 sync-io migration. The
+  // path-traversal check returns its error object before any await, but the
+  // function itself is `async` so the return is wrapped in a Promise.
+  it('rejects reads outside the task workspace root', async () => {
+    const result = await handleHashlineRead({
       file_path: outsideFilePath,
       ...createTaskArgs(),
     });
@@ -57,8 +60,8 @@ describe('hashline handler workspace path scoping', () => {
     expect(getText(result)).toContain('file_path is outside workspace root');
   });
 
-  it('rejects edits outside the task workspace root', () => {
-    const result = handleHashlineEdit({
+  it('rejects edits outside the task workspace root', async () => {
+    const result = await handleHashlineEdit({
       file_path: outsideFilePath,
       edits: [{ start_line: 1, start_hash: 'xx', new_content: 'blocked' }],
       ...createTaskArgs(),

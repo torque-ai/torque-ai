@@ -542,20 +542,22 @@ describe('automation-batch-orchestration handlers', () => {
   });
 
 
+  // handleGenerateTestTasks became `async` in e2f186c2 (perf(sync-io):
+  // async scanDirectory + Promise.all). Tests must await.
   describe('handleGenerateTestTasks', () => {
-    it('returns error when working_directory is missing', () => {
-      const result = automationHandlers.handleGenerateTestTasks({});
+    it('returns error when working_directory is missing', async () => {
+      const result = await automationHandlers.handleGenerateTestTasks({});
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toMatch(/working_directory/i);
     });
 
-    it('generates test task descriptions for untested js files', () => {
+    it('generates test task descriptions for untested js files', async () => {
       const workingDir = createTempDir();
       createJsSource(workingDir, 'core/order-service.js', 24);
       createJsSource(workingDir, 'core/validation.js', 30);
       createJsSource(workingDir, 'core/format.js', 32);
 
-      const result = automationHandlers.handleGenerateTestTasks({ working_directory: workingDir });
+      const result = await automationHandlers.handleGenerateTestTasks({ working_directory: workingDir });
       const json = extractJsonBlock(result.content[0].text);
 
       expect(result.isError).toBeFalsy();
@@ -566,12 +568,12 @@ describe('automation-batch-orchestration handlers', () => {
       expect(json[1].task).toContain('test');
     });
 
-    it('respects source file exclusion by line count', () => {
+    it('respects source file exclusion by line count', async () => {
       const workingDir = createTempDir();
       createJsSource(workingDir, 'core/tiny.js', 3);
       createJsSource(workingDir, 'core/large.js', 30);
 
-      const result = automationHandlers.handleGenerateTestTasks({
+      const result = await automationHandlers.handleGenerateTestTasks({
         working_directory: workingDir,
         min_lines: 20,
       });
@@ -583,13 +585,13 @@ describe('automation-batch-orchestration handlers', () => {
       expect(json[0].task).toContain('large');
     });
 
-    it('respects requested count limit', () => {
+    it('respects requested count limit', async () => {
       const workingDir = createTempDir();
       createJsSource(workingDir, 'core/alpha.js', 30);
       createJsSource(workingDir, 'core/beta.js', 30);
       createJsSource(workingDir, 'core/gamma.js', 30);
 
-      const result = automationHandlers.handleGenerateTestTasks({
+      const result = await automationHandlers.handleGenerateTestTasks({
         working_directory: workingDir,
         count: 2,
       });
@@ -601,12 +603,12 @@ describe('automation-batch-orchestration handlers', () => {
       expect(json[0].node_id).not.toBe(json[1].node_id);
     });
 
-    it('auto-submits test tasks and starts task manager when requested', () => {
+    it('auto-submits test tasks and starts task manager when requested', async () => {
       const workingDir = createTempDir();
       createJsSource(workingDir, 'core/submit-me.js', 25);
 
       taskCore.createTask.mockImplementation((task) => ({ ...task, id: 'test-task-1' }));
-      const result = automationHandlers.handleGenerateTestTasks({
+      const result = await automationHandlers.handleGenerateTestTasks({
         working_directory: workingDir,
         auto_submit: true,
         count: 1,
@@ -622,7 +624,7 @@ describe('automation-batch-orchestration handlers', () => {
       expect(result.content[0].text).toContain('`test-tas`');
     });
 
-    it('does not include duplicate tasks when matching test files exist', () => {
+    it('does not include duplicate tasks when matching test files exist', async () => {
       const workingDir = createTempDir();
       createJsSource(workingDir, 'core/existing.js', 40);
       createJsSource(workingDir, 'core/only-source.js', 40);
@@ -631,7 +633,7 @@ describe('automation-batch-orchestration handlers', () => {
       fs.mkdirSync(path.join(workingDir, 'src', 'core', '__tests__'), { recursive: true });
       fs.writeFileSync(path.join(workingDir, 'src', 'core', '__tests__', 'existing.test.ts'), 'export {}');
 
-      const result = automationHandlers.handleGenerateTestTasks({
+      const result = await automationHandlers.handleGenerateTestTasks({
         working_directory: workingDir,
         source_dirs: ['src'],
         count: 5,
@@ -645,14 +647,14 @@ describe('automation-batch-orchestration handlers', () => {
       expect(json[0].testPath).toBeUndefined();
     });
 
-    it('extends an existing related test file outside __tests__ instead of creating a new one', () => {
+    it('extends an existing related test file outside __tests__ instead of creating a new one', async () => {
       const workingDir = createTempDir();
       createJsSource(workingDir, 'handlers/task-pipeline.js', 40);
 
       fs.mkdirSync(path.join(workingDir, 'tests'), { recursive: true });
       fs.writeFileSync(path.join(workingDir, 'tests', 'handler-task-pipeline.test.js'), 'export {};');
 
-      const result = automationHandlers.handleGenerateTestTasks({
+      const result = await automationHandlers.handleGenerateTestTasks({
         working_directory: workingDir,
         source_dirs: ['src/handlers', 'tests'],
         test_pattern: '.test.js',
@@ -665,11 +667,11 @@ describe('automation-batch-orchestration handlers', () => {
       expect(text).not.toContain('Create tests/handler-task-pipeline.test.js');
     });
 
-    it('returns ready-to-use json when auto_submit is false', () => {
+    it('returns ready-to-use json when auto_submit is false', async () => {
       const workingDir = createTempDir();
       createJsSource(workingDir, 'core/manual-review.js', 40);
 
-      const result = automationHandlers.handleGenerateTestTasks({
+      const result = await automationHandlers.handleGenerateTestTasks({
         working_directory: workingDir,
         auto_submit: false,
       });

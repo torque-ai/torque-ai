@@ -58,9 +58,13 @@ describe('Path traversal hardening', () => {
     }
   });
 
+  // automation-ts-tools handlers became `async` in 759acf79 (perf(sync-io):
+  // async readModifyWrite helper). Path-traversal checks return their error
+  // object before any await, but because the function itself is `async` the
+  // return is wrapped in a Promise — tests must await.
   describe('automation-ts-tools', () => {
-    it('rejects path traversal in handleAddTsInterfaceMembers', () => {
-      const result = automationTsTools.handleAddTsInterfaceMembers({
+    it('rejects path traversal in handleAddTsInterfaceMembers', async () => {
+      const result = await automationTsTools.handleAddTsInterfaceMembers({
         file_path: '../../../etc/passwd',
         interface_name: 'Config',
         members: [{ name: 'foo', type_definition: 'string' }],
@@ -68,8 +72,8 @@ describe('Path traversal hardening', () => {
       expectInvalidParam(result);
     });
 
-    it('rejects Windows traversal in handleInjectClassDependency', () => {
-      const result = automationTsTools.handleInjectClassDependency({
+    it('rejects Windows traversal in handleInjectClassDependency', async () => {
+      const result = await automationTsTools.handleInjectClassDependency({
         file_path: '..\\\\..\\\\',
         import_statement: 'import { Foo } from "./Foo";',
         field_declaration: 'private foo!: Foo;',
@@ -78,8 +82,8 @@ describe('Path traversal hardening', () => {
       expectInvalidParam(result);
     });
 
-    it('rejects null-byte file path in handleAddTsUnionMembers', () => {
-      const result = automationTsTools.handleAddTsUnionMembers({
+    it('rejects null-byte file path in handleAddTsUnionMembers', async () => {
+      const result = await automationTsTools.handleAddTsUnionMembers({
         file_path: 'file\x00.ts',
         type_name: 'EventType',
         members: ['test_event'],
@@ -87,8 +91,8 @@ describe('Path traversal hardening', () => {
       expectInvalidParam(result);
     });
 
-    it('rejects path traversal in handleAddTsEnumMembers', () => {
-      const result = automationTsTools.handleAddTsEnumMembers({
+    it('rejects path traversal in handleAddTsEnumMembers', async () => {
+      const result = await automationTsTools.handleAddTsEnumMembers({
         file_path: '../../../etc/passwd',
         enum_name: 'EventState',
         members: [{ name: 'bad', value: 1 }],
@@ -96,16 +100,16 @@ describe('Path traversal hardening', () => {
       expectInvalidParam(result);
     });
 
-    it('rejects traversal in handleNormalizeInterfaceFormatting', () => {
-      const result = automationTsTools.handleNormalizeInterfaceFormatting({
+    it('rejects traversal in handleNormalizeInterfaceFormatting', async () => {
+      const result = await automationTsTools.handleNormalizeInterfaceFormatting({
         file_path: '../../../etc/passwd',
         interface_name: 'Config',
       });
       expectInvalidParam(result);
     });
 
-    it('rejects traversal in handleAddTsMethodToClass', () => {
-      const result = automationTsTools.handleAddTsMethodToClass({
+    it('rejects traversal in handleAddTsMethodToClass', async () => {
+      const result = await automationTsTools.handleAddTsMethodToClass({
         file_path: '../../../etc/passwd',
         class_name: 'AppService',
         method_code: 'public test() {}',
@@ -113,8 +117,8 @@ describe('Path traversal hardening', () => {
       expectInvalidParam(result);
     });
 
-    it('rejects traversal in handleReplaceTsMethodBody', () => {
-      const result = automationTsTools.handleReplaceTsMethodBody({
+    it('rejects traversal in handleReplaceTsMethodBody', async () => {
+      const result = await automationTsTools.handleReplaceTsMethodBody({
         file_path: '..\\\\..\\\\',
         class_name: 'AppService',
         method_name: 'setup',
@@ -123,8 +127,8 @@ describe('Path traversal hardening', () => {
       expectInvalidParam(result);
     });
 
-    it('rejects path traversal in handleAddImportStatement', () => {
-      const result = automationTsTools.handleAddImportStatement({
+    it('rejects path traversal in handleAddImportStatement', async () => {
+      const result = await automationTsTools.handleAddImportStatement({
         file_path: '../../../etc/passwd',
         import_statement: 'import { Foo } from "./Foo";',
       });
