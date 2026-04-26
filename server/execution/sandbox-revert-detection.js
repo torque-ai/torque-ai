@@ -16,7 +16,9 @@
  * and auto_validation.
  */
 
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 const logger = require('../logger').child({ component: 'sandbox-revert-detection' });
 const { TASK_TIMEOUTS } = require('../constants');
 
@@ -62,10 +64,10 @@ function parseDiffStats(diffOutput) {
  * @param {string} workingDir - Git repo working directory
  * @returns {{ reverted: boolean, added: number, removed: number, diff: string } | null}
  */
-function checkFileForRevert(filePath, workingDir) {
+async function checkFileForRevert(filePath, workingDir) {
   try {
     // Get diff between HEAD and working tree for this specific file
-    const diff = execFileSync('git', ['diff', 'HEAD', '--', filePath], {
+    const { stdout: diff } = await execFileAsync('git', ['diff', 'HEAD', '--', filePath], {
       cwd: workingDir,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_DIFF,
@@ -110,7 +112,7 @@ function checkFileForRevert(filePath, workingDir) {
  *
  * @param {object} ctx - Finalization context
  */
-function detectSandboxReverts(ctx) {
+async function detectSandboxReverts(ctx) {
   // Only applies to Codex providers
   const provider = ctx.proc?.provider || ctx.task?.provider;
   if (!isCodexProvider(provider)) return;
@@ -128,15 +130,19 @@ function detectSandboxReverts(ctx) {
   if (!Array.isArray(files) || files.length === 0) return;
 
   const workingDir = ctx.task?.working_directory || process.cwd();
+
+  // Parallelise per-file diff checks
+  const validFiles = files.filter((f) => f && typeof f === 'string');
+  const results = await Promise.all(
+    validFiles.map((filePath) => checkFileForRevert(filePath, workingDir))
+  );
+
   const reverted = [];
-
-  for (const filePath of files) {
-    if (!filePath || typeof filePath !== 'string') continue;
-
-    const result = checkFileForRevert(filePath, workingDir);
+  for (let i = 0; i < validFiles.length; i++) {
+    const result = results[i];
     if (result && result.reverted) {
       reverted.push({
-        file: filePath,
+        file: validFiles[i],
         added: result.added,
         removed: result.removed,
       });
@@ -162,7 +168,7 @@ function detectSandboxReverts(ctx) {
   const restored = [];
   for (const r of reverted) {
     try {
-      execFileSync('git', ['checkout', 'HEAD', '--', r.file], {
+      await execFileAsync('git', ['checkout', 'HEAD', '--', r.file], {
         cwd: workingDir,
         encoding: 'utf8',
         timeout: TASK_TIMEOUTS.GIT_DIFF,

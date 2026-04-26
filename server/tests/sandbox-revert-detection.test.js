@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 // Importing git-test-utils restores real git — required for production code
-// (sandbox-revert-detection.js) that calls execFileSync('git') directly.
+// (sandbox-revert-detection.js) that calls execFile('git') directly.
 const { gitSync, cleanupRepo } = require('./git-test-utils');
 
 const {
@@ -173,15 +173,23 @@ describe('parseDiffStats', () => {
 // ─── checkFileForRevert ──────────────────────────────────────────────────
 
 describe('checkFileForRevert', () => {
-  it('returns null when file matches HEAD (no diff)', () => {
+  it('returns a Promise (async conversion confirmed)', async () => {
+    const dir = createGitRepo();
+    commitFile(dir, 'clean.js', 'const x = 1;\n');
+    const result = checkFileForRevert('clean.js', dir);
+    expect(result).toBeInstanceOf(Promise);
+    await result;
+  });
+
+  it('returns null when file matches HEAD (no diff)', async () => {
     const dir = createGitRepo();
     commitFile(dir, 'clean.js', 'const x = 1;\n');
 
-    const result = checkFileForRevert('clean.js', dir);
+    const result = await checkFileForRevert('clean.js', dir);
     expect(result).toBeNull();
   });
 
-  it('detects a revert when lines are removed from HEAD', () => {
+  it('detects a revert when lines are removed from HEAD', async () => {
     const dir = createGitRepo();
     // Initial commit with substantial content
     const originalContent = Array.from({ length: 20 }, (_, i) => `function fn${i}() { return ${i}; }`).join('\n');
@@ -191,14 +199,14 @@ describe('checkFileForRevert', () => {
     const staleContent = Array.from({ length: 5 }, (_, i) => `function fn${i}() { return ${i}; }`).join('\n');
     fs.writeFileSync(path.join(dir, 'module.js'), staleContent);
 
-    const result = checkFileForRevert('module.js', dir);
+    const result = await checkFileForRevert('module.js', dir);
     expect(result).not.toBeNull();
     expect(result.reverted).toBe(true);
     expect(result.removed).toBeGreaterThanOrEqual(5);
     expect(result.removed).toBeGreaterThan(result.added);
   });
 
-  it('does not flag additions-only changes as a revert', () => {
+  it('does not flag additions-only changes as a revert', async () => {
     const dir = createGitRepo();
     commitFile(dir, 'grow.js', 'const x = 1;\n');
 
@@ -206,12 +214,12 @@ describe('checkFileForRevert', () => {
     const newContent = 'const x = 1;\nconst y = 2;\nconst z = 3;\n';
     fs.writeFileSync(path.join(dir, 'grow.js'), newContent);
 
-    const result = checkFileForRevert('grow.js', dir);
+    const result = await checkFileForRevert('grow.js', dir);
     expect(result).not.toBeNull();
     expect(result.reverted).toBe(false);
   });
 
-  it('does not flag small removals (< 5 lines) as a revert', () => {
+  it('does not flag small removals (< 5 lines) as a revert', async () => {
     const dir = createGitRepo();
     const content = 'line1\nline2\nline3\nline4\nline5\n';
     commitFile(dir, 'small.js', content);
@@ -219,22 +227,22 @@ describe('checkFileForRevert', () => {
     // Remove 3 lines — below threshold
     fs.writeFileSync(path.join(dir, 'small.js'), 'line1\nline2\n');
 
-    const result = checkFileForRevert('small.js', dir);
+    const result = await checkFileForRevert('small.js', dir);
     expect(result).not.toBeNull();
     // removed=3, but threshold is 5
     expect(result.reverted).toBe(false);
   });
 
-  it('returns null for non-existent files', () => {
+  it('returns null for non-existent files', async () => {
     const dir = createGitRepo();
     commitFile(dir, 'exists.js', 'x');
 
-    const result = checkFileForRevert('nonexistent.js', dir);
+    const result = await checkFileForRevert('nonexistent.js', dir);
     // git diff on a non-tracked file returns empty or errors — both produce null
     expect(result).toBeNull();
   });
 
-  it('truncates large diffs', () => {
+  it('truncates large diffs', async () => {
     const dir = createGitRepo();
     // Create a file with lots of lines
     const bigContent = Array.from({ length: 200 }, (_, i) => `// line ${i}`).join('\n') + '\n';
@@ -243,7 +251,7 @@ describe('checkFileForRevert', () => {
     // "Revert" to a much smaller version
     fs.writeFileSync(path.join(dir, 'big.js'), '// stub\n');
 
-    const result = checkFileForRevert('big.js', dir);
+    const result = await checkFileForRevert('big.js', dir);
     expect(result).not.toBeNull();
     expect(result.reverted).toBe(true);
     // The diff text should be present (truncated or not)
@@ -255,42 +263,49 @@ describe('checkFileForRevert', () => {
 // ─── detectSandboxReverts (pipeline stage) ───────────────────────────────
 
 describe('detectSandboxReverts', () => {
-  it('skips non-codex providers', () => {
+  it('returns a Promise (async conversion confirmed)', async () => {
     const ctx = makeCtx({ provider: 'ollama', filesModified: ['file.js'] });
-    detectSandboxReverts(ctx);
+    const result = detectSandboxReverts(ctx);
+    expect(result).toBeInstanceOf(Promise);
+    await result;
+  });
+
+  it('skips non-codex providers', async () => {
+    const ctx = makeCtx({ provider: 'ollama', filesModified: ['file.js'] });
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeUndefined();
   });
 
-  it('skips failed tasks', () => {
+  it('skips failed tasks', async () => {
     const ctx = makeCtx({ status: 'failed', filesModified: ['file.js'] });
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeUndefined();
   });
 
-  it('skips tasks with no files modified', () => {
+  it('skips tasks with no files modified', async () => {
     const ctx = makeCtx({ filesModified: [] });
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeUndefined();
   });
 
-  it('skips tasks with undefined filesModified', () => {
+  it('skips tasks with undefined filesModified', async () => {
     const ctx = makeCtx({});
     ctx.filesModified = undefined;
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeUndefined();
   });
 
-  it('skips direct codex runs without worktree isolation', () => {
+  it('skips direct codex runs without worktree isolation', async () => {
     const ctx = makeCtx({
       filesModified: ['file.js'],
       proc: { worktreeInfo: null },
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeUndefined();
   });
 
-  it('does not flag clean files (no revert)', () => {
+  it('does not flag clean files (no revert)', async () => {
     const dir = createGitRepo();
     commitFile(dir, 'clean.js', 'const x = 1;\n');
 
@@ -300,12 +315,12 @@ describe('detectSandboxReverts', () => {
       task: { working_directory: dir },
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeUndefined();
     expect(ctx.errorOutput).toBe('');
   });
 
-  it('detects reverted files and sets ctx.sandboxReverts', () => {
+  it('detects reverted files and sets ctx.sandboxReverts', async () => {
     const dir = createGitRepo();
     const original = Array.from({ length: 20 }, (_, i) => `export function f${i}() {}`).join('\n') + '\n';
     commitFile(dir, 'system.ts', original);
@@ -320,14 +335,14 @@ describe('detectSandboxReverts', () => {
       task: { working_directory: dir },
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeDefined();
     expect(ctx.sandboxReverts).toHaveLength(1);
     expect(ctx.sandboxReverts[0].file).toBe('system.ts');
     expect(ctx.sandboxReverts[0].removed).toBeGreaterThan(ctx.sandboxReverts[0].added);
   });
 
-  it('appends warning to errorOutput', () => {
+  it('appends warning to errorOutput', async () => {
     const dir = createGitRepo();
     const original = Array.from({ length: 20 }, (_, i) => `line${i}`).join('\n') + '\n';
     commitFile(dir, 'data.ts', original);
@@ -341,14 +356,14 @@ describe('detectSandboxReverts', () => {
       errorOutput: 'existing error',
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.errorOutput).toContain('[SANDBOX REVERT]');
     expect(ctx.errorOutput).toContain('data.ts');
     expect(ctx.errorOutput).toContain('existing error');
     expect(ctx.errorOutput).toContain('auto-restored from HEAD');
   });
 
-  it('does not change ctx.status (advisory only)', () => {
+  it('does not change ctx.status (advisory only)', async () => {
     const dir = createGitRepo();
     const original = Array.from({ length: 20 }, (_, i) => `line${i}`).join('\n') + '\n';
     commitFile(dir, 'keep.ts', original);
@@ -361,12 +376,12 @@ describe('detectSandboxReverts', () => {
       task: { working_directory: dir },
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.status).toBe('completed');
     expect(ctx.earlyExit).toBe(false);
   });
 
-  it('handles mixed reverted and clean files', () => {
+  it('handles mixed reverted and clean files', async () => {
     const dir = createGitRepo();
     const bigContent = Array.from({ length: 20 }, (_, i) => `fn${i}`).join('\n') + '\n';
     commitFile(dir, 'reverted.js', bigContent);
@@ -382,12 +397,12 @@ describe('detectSandboxReverts', () => {
       task: { working_directory: dir },
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toHaveLength(1);
     expect(ctx.sandboxReverts[0].file).toBe('reverted.js');
   });
 
-  it('handles multiple reverted files', () => {
+  it('handles multiple reverted files', async () => {
     const dir = createGitRepo();
     const bigContent = Array.from({ length: 20 }, (_, i) => `line${i}`).join('\n') + '\n';
     commitFile(dir, 'a.ts', bigContent);
@@ -402,12 +417,12 @@ describe('detectSandboxReverts', () => {
       task: { working_directory: dir },
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toHaveLength(2);
     expect(ctx.errorOutput).toContain('2 file(s)');
   });
 
-  it('accepts codex-spark as a codex provider', () => {
+  it('accepts codex-spark as a codex provider', async () => {
     const dir = createGitRepo();
     const bigContent = Array.from({ length: 20 }, (_, i) => `line${i}`).join('\n') + '\n';
     commitFile(dir, 'file.ts', bigContent);
@@ -420,12 +435,12 @@ describe('detectSandboxReverts', () => {
       task: { provider: 'codex-spark', working_directory: dir },
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeDefined();
     expect(ctx.sandboxReverts).toHaveLength(1);
   });
 
-  it('skips null/invalid entries in filesModified', () => {
+  it('skips null/invalid entries in filesModified', async () => {
     const dir = createGitRepo();
     const bigContent = Array.from({ length: 20 }, (_, i) => `line${i}`).join('\n') + '\n';
     commitFile(dir, 'real.ts', bigContent);
@@ -437,12 +452,12 @@ describe('detectSandboxReverts', () => {
       task: { working_directory: dir },
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toHaveLength(1);
     expect(ctx.sandboxReverts[0].file).toBe('real.ts');
   });
 
-  it('uses proc.provider over task.provider', () => {
+  it('uses proc.provider over task.provider', async () => {
     const ctx = makeCtx({
       provider: 'ollama',
       filesModified: ['file.js'],
@@ -451,11 +466,11 @@ describe('detectSandboxReverts', () => {
     ctx.proc.provider = 'codex';
     ctx.task.provider = 'ollama';
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     expect(ctx.sandboxReverts).toBeUndefined(); // no reverts detected (diff fails = null)
   });
 
-  it('auto-restores reverted files from HEAD', () => {
+  it('auto-restores reverted files from HEAD', async () => {
     const dir = createGitRepo();
     const original = Array.from({ length: 20 }, (_, i) => `line${i}`).join('\n') + '\n';
     commitFile(dir, 'restored.ts', original);
@@ -469,7 +484,7 @@ describe('detectSandboxReverts', () => {
       task: { working_directory: dir },
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
 
     // File should be restored to HEAD content (normalize line endings for Windows)
     const content = fs.readFileSync(path.join(dir, 'restored.ts'), 'utf8').replace(/\r\n/g, '\n');
@@ -480,7 +495,7 @@ describe('detectSandboxReverts', () => {
     expect(ctx.errorOutput).toContain('auto-restored from HEAD');
   });
 
-  it('preserves non-reverted files in filesModified after auto-restore', () => {
+  it('preserves non-reverted files in filesModified after auto-restore', async () => {
     const dir = createGitRepo();
     const bigContent = Array.from({ length: 20 }, (_, i) => `fn${i}`).join('\n') + '\n';
     commitFile(dir, 'reverted.js', bigContent);
@@ -496,7 +511,7 @@ describe('detectSandboxReverts', () => {
       task: { working_directory: dir },
     });
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
 
     // reverted.js should be auto-restored and removed from filesModified
     expect(ctx.filesModified).not.toContain('reverted.js');
@@ -504,14 +519,14 @@ describe('detectSandboxReverts', () => {
     expect(ctx.filesModified).toContain('newfile.js');
   });
 
-  it('falls back to task.provider when proc.provider is missing', () => {
+  it('falls back to task.provider when proc.provider is missing', async () => {
     const ctx = makeCtx({
       filesModified: ['file.js'],
     });
     ctx.proc.provider = null;
     ctx.task.provider = 'codex';
 
-    detectSandboxReverts(ctx);
+    await detectSandboxReverts(ctx);
     // Should have attempted detection (not skipped)
     expect(ctx.sandboxReverts).toBeUndefined();
   });
