@@ -124,7 +124,7 @@ describe('DeepInfraProvider', () => {
         }),
       });
 
-      const result = await provider.submit('test task', null, {});
+      const result = await provider.submit('test task', 'test-model-stub', {});
       expect(result.status).toBe('completed');
       expect(result.output).toBe('response text');
       expect(result.usage.tokens).toBe(150);
@@ -135,7 +135,7 @@ describe('DeepInfraProvider', () => {
       abortErr.name = 'AbortError';
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(abortErr);
 
-      const result = await provider.submit('test task', null, {});
+      const result = await provider.submit('test task', 'test-model-stub', {});
       expect(result.status).toBe('timeout');
     });
 
@@ -149,7 +149,7 @@ describe('DeepInfraProvider', () => {
         }),
       });
 
-      await provider.submit('test task', null, { timeout: 3 });
+      await provider.submit('test task', 'test-model-stub', { timeout: 3 });
       expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 3 * 60 * 1000);
     });
 
@@ -165,7 +165,7 @@ describe('DeepInfraProvider', () => {
         });
       });
 
-      const resultPromise = provider.submit('test task', null, { signal: abortController.signal });
+      const resultPromise = provider.submit('test task', 'test-model-stub', { signal: abortController.signal });
       await Promise.resolve();
       abortController.abort();
 
@@ -183,7 +183,7 @@ describe('DeepInfraProvider', () => {
         }),
       });
 
-      const result = await provider.submit('test', null, {});
+      const result = await provider.submit('test', 'test-model-stub', {});
       expect(result.usage.tokens).toBe(0);
       expect(result.usage.input_tokens).toBe(0);
       expect(result.usage.output_tokens).toBe(0);
@@ -200,7 +200,7 @@ describe('DeepInfraProvider', () => {
         text: async () => 'Rate limited',
       });
 
-      await expect(provider.submit('task', null, {})).rejects.toThrow(/retry_after_seconds=8/);
+      await expect(provider.submit('task', 'test-model-stub', {})).rejects.toThrow(/retry_after_seconds=8/);
     });
 
     it('removes external abort listener after successful submit', async () => {
@@ -217,7 +217,7 @@ describe('DeepInfraProvider', () => {
         }),
       });
 
-      await provider.submit('test task', null, { signal });
+      await provider.submit('test task', 'test-model-stub', { signal });
 
       expect(signal.addEventListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
       const abortHandler = signal.addEventListener.mock.calls[0][1];
