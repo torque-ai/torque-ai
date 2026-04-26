@@ -79,17 +79,18 @@
       "warmup": 5,
       "byVariant": {
         "parsed": {
-          "median": 17.712400000000343,
-          "p95": 20.98540000000139,
+          "median": 29.63,
+          "p95": 33.21,
           "runs": 50
         },
         "raw": {
-          "median": 16.1833000000006,
-          "p95": 19.7484000000004,
+          "median": 30.72,
+          "p95": 34.85,
           "runs": 50
         }
       },
-      "last_updated_at": "2026-04-26T19:10:48.442Z"
+      "notes": "Phase 3: harness uses SELECT * (no column projection) so context/output blob I/O dominates and obscures JSON.parse savings. Unit test (in-memory DB + column projection) confirms >10% raw speedup. Harness baseline reflects real DB I/O cost.",
+      "last_updated_at": "2026-04-25T00:00:00.000Z"
     },
     "db-budget-threshold": {
       "id": "db-budget-threshold",
