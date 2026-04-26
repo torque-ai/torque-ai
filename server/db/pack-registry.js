@@ -4,17 +4,21 @@ const crypto = require('crypto');
 const { safeJsonParse } = require('../utils/json');
 
 let db;
+let _packRegistryColumnInfoCache = null;
 
 function setDb(dbInstance) {
   db = dbInstance;
+  _packRegistryColumnInfoCache = null;
 }
 
 
 function getPackRegistryColumnInfo() {
   if (!db) return [];
+  if (_packRegistryColumnInfoCache !== null) return _packRegistryColumnInfoCache;
 
   try {
-    return db.prepare('PRAGMA table_info(pack_registry)').all();
+    _packRegistryColumnInfoCache = db.prepare('PRAGMA table_info(pack_registry)').all();
+    return _packRegistryColumnInfoCache;
   } catch {
     return [];
   }
@@ -362,6 +366,7 @@ function createPackRegistry({ db: dbInst }) {
 
 module.exports = {
   setDb,
+  getPackRegistryColumnInfo,
   createPackRegistry,
   safeJsonParse,
   mapPackRow,
