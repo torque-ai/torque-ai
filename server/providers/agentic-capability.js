@@ -55,6 +55,7 @@ const WHITELIST_PREFIXES = [
 // in the system prompt, and results come back as [TOOL_RESULTS] user messages.
 const PROMPT_INJECTION_PREFIXES = [
   'codestral',
+  'gpt-oss',
   // Note: mistral-large-3 supports native tools on ollama-cloud (tested 2026-03-18)
 ];
 
@@ -182,7 +183,10 @@ function isAgenticCapable(provider, model) {
 function needsPromptInjection(model) {
   if (!model) return false;
   const modelLower = model.toLowerCase();
-  return PROMPT_INJECTION_PREFIXES.some(prefix => modelLower.startsWith(prefix.toLowerCase()));
+  return PROMPT_INJECTION_PREFIXES.some((prefix) => {
+    const normalizedPrefix = prefix.toLowerCase();
+    return modelLower.startsWith(normalizedPrefix) || modelLower.includes(`/${normalizedPrefix}`);
+  });
 }
 
 module.exports = { init, isAgenticCapable, needsPromptInjection, EXCLUDED_PROVIDERS, CLOUD_TOOL_CAPABLE, WHITELIST_PREFIXES, PROMPT_INJECTION_PREFIXES };

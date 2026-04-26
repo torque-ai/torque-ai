@@ -170,6 +170,7 @@ async function main() {
       toolLog: result.toolLog,
       changedFiles: result.changedFiles,
       iterations: result.iterations,
+      stopReason: result.stopReason,
       tokenUsage: result.tokenUsage,
     });
     // Don't process.exit(0) — let the event loop drain so the message is delivered.

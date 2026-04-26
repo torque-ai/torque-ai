@@ -62,7 +62,7 @@ function recordProvider429(providerName) {
  *   usage:   { prompt_tokens: number, completion_tokens: number }
  * }>}
  */
-function chatCompletion({ host, apiKey, model, providerName: _providerName, messages, tools, options, timeoutMs, onChunk, signal }) {
+function chatCompletion({ host, apiKey, model, providerName: _providerName, messages, tools, options, timeoutMs, onChunk, signal, requireToolUseBeforeFinal }) {
   // providerName may be top-level (direct call) or nested in options (worker thread path)
   const providerName = _providerName || options?.providerName || '';
   if (!apiKey) {
@@ -87,6 +87,10 @@ function chatCompletion({ host, apiKey, model, providerName: _providerName, mess
     };
     if (tools && tools.length > 0) {
       body.tools = tools;
+    }
+    const hasPriorToolResult = Array.isArray(messages) && messages.some((msg) => msg?.role === 'tool');
+    if (requireToolUseBeforeFinal && body.tools && !hasPriorToolResult) {
+      body.tool_choice = 'required';
     }
     if (options && options.temperature !== undefined) {
       body.temperature = options.temperature;

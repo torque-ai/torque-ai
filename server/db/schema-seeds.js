@@ -518,7 +518,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
 
   // Agentic tool-calling pipeline defaults
   setConfigDefault('agentic_enabled', '1');
-  setConfigDefault('agentic_max_iterations', '15');
+  setConfigDefault('agentic_max_iterations', '25');
   setConfigDefault('agentic_command_mode', 'unrestricted');
   setConfigDefault('agentic_git_safety', 'on');
 

@@ -78,10 +78,13 @@ const PROVIDER_DEFAULT_MODEL = {
 
 const AGENTIC_WORKER_UNSUPPORTED_PROVIDERS = new Set(['codex', 'codex-spark', 'claude-cli', 'claude-code-sdk']);
 const AGENTIC_CLOUD_TO_CODEX_FALLBACKS = new Set(['google-ai', 'groq', 'openrouter', 'ollama-cloud', 'cerebras']);
+const FREE_AGENTIC_TOOL_EVIDENCE_PROVIDERS = new Set(['cerebras', 'google-ai', 'groq', 'openrouter', 'ollama-cloud', 'ollama']);
 const PROPOSAL_APPLY_MODE = 'proposal_apply';
 const PROPOSAL_MODE_READ_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
 const FACTORY_INTERNAL_STRUCTURED_KINDS = new Set(['architect_cycle', 'plan_generation', 'verify_review']);
 const OPENROUTER_FALLBACK_SCORE_LIMIT = 8;
+const READ_ONLY_PLAN_TITLE_RE = /^(?:verify|confirm|inspect|audit|review|scout|survey|check)\b/i;
+const MUTATING_PLAN_TITLE_RE = /\b(?:fix|repair|recover|retry|implement|update|change|modify|edit|add|create|write|replace|remove|delete|refactor)\b/i;
 function dedupeValues(values) {
   const seen = new Set();
   return values.filter((value) => {
@@ -472,11 +475,29 @@ function isTruthyMetadataFlag(value) {
 }
 
 function taskExplicitlyReadOnly(taskDescription, metadata) {
+  const safeMetadata = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? metadata
+    : {};
   if (
-    isTruthyMetadataFlag(metadata.read_only)
-    || isTruthyMetadataFlag(metadata.readOnly)
-    || isTruthyMetadataFlag(metadata.agentic_read_only)
+    isTruthyMetadataFlag(safeMetadata.read_only)
+    || isTruthyMetadataFlag(safeMetadata.readOnly)
+    || isTruthyMetadataFlag(safeMetadata.agentic_read_only)
   ) {
+    return true;
+  }
+
+  const mode = String(safeMetadata.mode || safeMetadata.task_mode || '').trim().toLowerCase();
+  if (mode === 'scout') {
+    return true;
+  }
+
+  const planTitle = String(
+    safeMetadata.plan_task_title
+    || safeMetadata.task_title
+    || safeMetadata.title
+    || ''
+  ).trim();
+  if (READ_ONLY_PLAN_TITLE_RE.test(planTitle) && !MUTATING_PLAN_TITLE_RE.test(planTitle)) {
     return true;
   }
 
@@ -747,7 +768,7 @@ function buildAgenticTaskPrompt(task, workingDir, budgetChars, agenticPolicy = n
 }
 
 function shouldRequireToolEvidence(provider, task, workingDir) {
-  return provider === 'openrouter'
+  return FREE_AGENTIC_TOOL_EVIDENCE_PROVIDERS.has(normalizeProviderName(provider))
     && !!workingDir
     && !!String(task?.task_description || '').trim();
 }
@@ -2817,7 +2838,7 @@ async function executeOllamaTaskWithAgentic(task) {
     logger.info(`[Agentic] Starting Ollama task ${taskId} with model ${resolvedModel} on ${ollamaHost}`);
 
     // Category-aware max iterations: complex tasks get more room
-    const baseMaxIter = parseInt(serverConfig.get('agentic_max_iterations') || '15', 10);
+    const baseMaxIter = parseInt(serverConfig.get('agentic_max_iterations') || '25', 10);
     const taskComplexity = task.complexity || 'normal';
     const defaultMaxIterations = taskComplexity === 'complex' ? Math.max(baseMaxIter, 20) : baseMaxIter;
     const maxIterations = agenticPolicy.maxIterations || defaultMaxIterations;
@@ -3182,7 +3203,7 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
     logger.info(`[Agentic] Starting API task ${taskId} with provider ${provider}, model ${model}`);
 
     // Category-aware max iterations: complex tasks get more room
-    const baseMaxIter2 = parseInt(serverConfig.get('agentic_max_iterations') || '15', 10);
+    const baseMaxIter2 = parseInt(serverConfig.get('agentic_max_iterations') || '25', 10);
     const taskComplexity2 = task.complexity || 'normal';
     const defaultMaxIterations = taskComplexity2 === 'complex' ? Math.max(baseMaxIter2, 20) : baseMaxIter2;
     const maxIterations = agenticPolicy.maxIterations || defaultMaxIterations;
