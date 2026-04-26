@@ -1,14 +1,27 @@
 'use strict';
 
-const { loggerMock, uuidMock } = vi.hoisted(() => ({
-  loggerMock: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-  uuidMock: vi.fn(),
-}));
+// Pipeline.js captures `promisify(childProcess.execFile)` at require-time, and
+// vi.mock does not work for Node built-ins in CJS mode (see worker-setup.js
+// header). The reliable pattern — also used by worker-setup itself — is to
+// mutate childProcess.execFile directly before pipeline.js requires the
+// module. vi.hoisted runs before any require() in this file, so by the time
+// pipeline.js does `const cp = require('child_process')` it sees our mock.
+const { loggerMock, uuidMock, execFileMock } = vi.hoisted(() => {
+  // eslint-disable-next-line global-require
+  const childProcess = require('child_process');
+  const execFileMock = vi.fn();
+  childProcess.execFile = execFileMock;
+  return {
+    loggerMock: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+    uuidMock: vi.fn(),
+    execFileMock,
+  };
+});
 
 vi.mock('../db/task-core', () => ({
   createTask() {},
@@ -63,7 +76,6 @@ vi.mock('uuid', () => ({
   v4: uuidMock,
 }));
 
-const childProcess = require('child_process');
 const taskCore = require('../db/task-core');
 const eventTracking = require('../db/event-tracking');
 const schedulingAutomation = require('../db/scheduling-automation');
@@ -86,12 +98,20 @@ function expectError(result, code, snippet) {
   }
 }
 
-function gitResult({ status = 0, stdout = '', stderr = '', error } = {}) {
-  return {
-    status,
-    stdout,
-    stderr,
-    error,
+// Callback-style mock builders for the promisified execFile path.
+// Success: cb(null, stdout, stderr); failure: cb(error) where error
+// carries .stderr/.stdout/.code in the standard child_process shape.
+function execFileOk({ stdout = '', stderr = '' } = {}) {
+  return (_file, _args, _opts, cb) => cb(null, stdout, stderr);
+}
+
+function execFileFail({ stderr = '', stdout = '', code = 1 } = {}) {
+  return (_file, _args, _opts, cb) => {
+    const err = new Error(stderr || `Command failed with code ${code}`);
+    err.stderr = stderr;
+    err.stdout = stdout;
+    err.code = code;
+    cb(err);
   };
 }
 
@@ -191,6 +211,14 @@ function resetDefaults() {
   vi.spyOn(fileTracking, 'createRollback').mockReturnValue('rollback-123');
   vi.spyOn(taskMetadata, 'getTasksWithCommits').mockReturnValue([]);
   vi.spyOn(taskManager, 'startTask').mockReturnValue({});
+  // Default execFile mock: any unmocked git call fails loudly so a missing
+  // mockImplementationOnce queue entry surfaces as a test failure rather
+  // than a hung promise. mockReset() clears queued mockImplementationOnce
+  // entries left over from prior tests (vi.clearAllMocks only clears history).
+  execFileMock.mockReset();
+  execFileMock.mockImplementation((_file, args, _opts, cb) => {
+    cb(new Error(`Unexpected execFile call: git ${JSON.stringify(args)}`));
+  });
   queueUuids('11111111-1111-4111-8111-111111111111');
 }
 
@@ -702,10 +730,7 @@ describe('task-pipeline handlers', () => {
 
     it('returns OPERATION_FAILED when git status fails', async () => {
       taskCore.getTask.mockReturnValue(makeTask({ id: 'task-12345678', working_directory: 'C:/repo' }));
-      vi.spyOn(childProcess, 'spawnSync').mockReturnValue(gitResult({
-        status: 1,
-        stderr: 'not a git repository',
-      }));
+      execFileMock.mockImplementationOnce(execFileFail({ stderr: 'not a git repository' }));
 
       const result = await handlers.handlePreviewDiff({ task_id: 'task-12345678' });
 
@@ -718,18 +743,18 @@ describe('task-pipeline handlers', () => {
         working_directory: 'C:/repo',
         git_after_sha: 'deadbeef1234567890',
       }));
-      const spawnSync = vi.spyOn(childProcess, 'spawnSync')
-        .mockReturnValueOnce(gitResult({ stdout: '' }))
-        .mockReturnValueOnce(gitResult({ stdout: '' }))
-        .mockReturnValueOnce(gitResult({ stdout: '' }))
-        .mockReturnValueOnce(gitResult({ stdout: 'commit summary' }));
+      execFileMock
+        .mockImplementationOnce(execFileOk({ stdout: '' }))
+        .mockImplementationOnce(execFileOk({ stdout: '' }))
+        .mockImplementationOnce(execFileOk({ stdout: '' }))
+        .mockImplementationOnce(execFileOk({ stdout: 'commit summary' }));
 
       const result = await handlers.handlePreviewDiff({ task_id: 'task-12345678' });
 
-      expect(spawnSync).toHaveBeenNthCalledWith(4, 'git', ['show', '--stat', 'deadbeef1234567890'], expect.objectContaining({
+      expect(execFileMock).toHaveBeenNthCalledWith(4, 'git', ['show', '--stat', 'deadbeef1234567890'], expect.objectContaining({
         cwd: 'C:/repo',
         encoding: 'utf8',
-      }));
+      }), expect.any(Function));
       expect(getText(result)).toContain('No uncommitted changes found.');
       expect(getText(result)).toContain('### Committed Changes');
       expect(getText(result)).toContain('commit summary');
@@ -740,10 +765,10 @@ describe('task-pipeline handlers', () => {
         id: 'task-12345678',
         working_directory: 'C:/repo',
       }));
-      vi.spyOn(childProcess, 'spawnSync')
-        .mockReturnValueOnce(gitResult({ stdout: 'M src/app.js\n' }))
-        .mockReturnValueOnce(gitResult({ stdout: 'diff --git a/src/app.js b/src/app.js\n-foo\n+bar\n' }))
-        .mockReturnValueOnce(gitResult({ stdout: 'diff --git a/package.json b/package.json\n-old\n+new\n' }));
+      execFileMock
+        .mockImplementationOnce(execFileOk({ stdout: 'M src/app.js\n' }))
+        .mockImplementationOnce(execFileOk({ stdout: 'diff --git a/src/app.js b/src/app.js\n-foo\n+bar\n' }))
+        .mockImplementationOnce(execFileOk({ stdout: 'diff --git a/package.json b/package.json\n-old\n+new\n' }));
 
       const result = await handlers.handlePreviewDiff({ task_id: 'task-12345678' });
 
@@ -766,9 +791,9 @@ describe('task-pipeline handlers', () => {
         id: 'task-12345678',
         working_directory: 'C:/repo',
       }));
-      vi.spyOn(childProcess, 'spawnSync')
-        .mockReturnValueOnce(gitResult({ stdout: 'before-sha\n' }))
-        .mockReturnValueOnce(gitResult({ status: 1, stderr: 'permission denied' }));
+      execFileMock
+        .mockImplementationOnce(execFileOk({ stdout: 'before-sha\n' }))
+        .mockImplementationOnce(execFileFail({ stderr: 'permission denied' }));
 
       const result = await handlers.handleCommitTask({ task_id: 'task-12345678' });
 
@@ -780,10 +805,10 @@ describe('task-pipeline handlers', () => {
         id: 'task-12345678',
         working_directory: 'C:/repo',
       }));
-      vi.spyOn(childProcess, 'spawnSync')
-        .mockReturnValueOnce(gitResult({ stdout: 'before-sha\n' }))
-        .mockReturnValueOnce(gitResult({ stdout: '' }))
-        .mockReturnValueOnce(gitResult({ status: 0, stdout: '' }));
+      execFileMock
+        .mockImplementationOnce(execFileOk({ stdout: 'before-sha\n' }))
+        .mockImplementationOnce(execFileOk({ stdout: '' }))
+        .mockImplementationOnce(execFileOk({ stdout: '' }));
 
       const result = await handlers.handleCommitTask({ task_id: 'task-12345678' });
 
@@ -797,22 +822,22 @@ describe('task-pipeline handlers', () => {
         task_description: 'Generate pipeline coverage for task handlers',
         working_directory: 'C:/repo',
       }));
-      const spawnSync = vi.spyOn(childProcess, 'spawnSync')
-        .mockReturnValueOnce(gitResult({ stdout: 'before-sha\n' }))
-        .mockReturnValueOnce(gitResult({ stdout: '' }))
-        .mockReturnValueOnce(gitResult({ status: 1, stderr: '' }))
-        .mockReturnValueOnce(gitResult({ stdout: '[main abc1234] Add tests\n' }))
-        .mockReturnValueOnce(gitResult({ stdout: 'after-sha\n' }));
+      execFileMock
+        .mockImplementationOnce(execFileOk({ stdout: 'before-sha\n' }))
+        .mockImplementationOnce(execFileOk({ stdout: '' }))
+        .mockImplementationOnce(execFileFail({ code: 1 }))
+        .mockImplementationOnce(execFileOk({ stdout: '[main abc1234] Add tests\n' }))
+        .mockImplementationOnce(execFileOk({ stdout: 'after-sha\n' }));
 
       const result = await handlers.handleCommitTask({
         task_id: 'task-12345678',
         message: 'Add pipeline handler coverage',
       });
 
-      expect(spawnSync).toHaveBeenNthCalledWith(4, 'git', ['commit', '-m', 'Add pipeline handler coverage'], expect.objectContaining({
+      expect(execFileMock).toHaveBeenNthCalledWith(4, 'git', ['commit', '-m', 'Add pipeline handler coverage'], expect.objectContaining({
         cwd: 'C:/repo',
         encoding: 'utf8',
-      }));
+      }), expect.any(Function));
       expect(taskMetadata.updateTaskGitState).toHaveBeenCalledWith('task-12345678', {
         before_sha: 'before-sha',
         after_sha: 'after-sha',
