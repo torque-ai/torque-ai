@@ -172,15 +172,24 @@ describe('factory selected work item', () => {
       trust_level: 'dark',
     });
     const planPath = path.join(tempDir, 'selected-plan.md');
-    // Plan has one already-completed task with no file references so the
-    // executor treats it as trusted-complete (no submit/await call) without
-    // tripping Fix 1's no_tasks_executed pause for empty plans.
+    // Plan has one already-completed task. The body still has to satisfy
+    // the plan-quality-gate (Bug D fix in executePlanStage): >=100 chars,
+    // a file path reference, an acceptance criterion.
+    //
+    // The file reference must be a BARE filename (no slash) so plan-quality-
+    // gate's FILE_PATH_RE accepts it but plan-executor's stricter
+    // `(seg + slash)+ + seg` extractor returns no paths. With no extracted
+    // paths, verifyCompletedTaskArtifacts returns trust=true (reason
+    // 'no_extractable_paths') and the [x] step is honored as trusted-
+    // complete instead of re-submitted as stale.
     fs.writeFileSync(planPath, [
       '# Selected plan',
       '',
       '## Task 1: noop',
       '',
-      '- [x] **Step 1: already done**',
+      '- [x] **Step 1: already done — completed inline by the test fixture**',
+      '',
+      '    Edit plan-executor.js to wire the noop helper. The step is checked off because the fixture pre-completed it. Acceptance criterion: `expect(plan).toContain("- [x]")` proves the executor sees a trusted-complete task.',
       '',
     ].join('\n'));
 

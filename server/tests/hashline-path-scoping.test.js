@@ -47,8 +47,11 @@ describe('hashline handler workspace path scoping', () => {
     return { __taskId: taskId };
   }
 
-  it('rejects reads outside the task workspace root', () => {
-    const result = handleHashlineRead({
+  // Both handlers became async (fs.promises). The path-traversal check
+  // returns its own error object before any await, but because the function
+  // is `async` the return is wrapped in a Promise — so the test must await.
+  it('rejects reads outside the task workspace root', async () => {
+    const result = await handleHashlineRead({
       file_path: outsideFilePath,
       ...createTaskArgs(),
     });
@@ -57,8 +60,8 @@ describe('hashline handler workspace path scoping', () => {
     expect(getText(result)).toContain('file_path is outside workspace root');
   });
 
-  it('rejects edits outside the task workspace root', () => {
-    const result = handleHashlineEdit({
+  it('rejects edits outside the task workspace root', async () => {
+    const result = await handleHashlineEdit({
       file_path: outsideFilePath,
       edits: [{ start_line: 1, start_hash: 'xx', new_content: 'blocked' }],
       ...createTaskArgs(),

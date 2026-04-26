@@ -205,15 +205,18 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
   function registerPlanProject() {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const planPath = path.join(tempDir, `plan-${Date.now()}-${Math.random().toString(16).slice(2)}.md`);
+    // Plan body must satisfy the plan-quality-gate that runs on pre-written
+    // plans in executePlanStage (Bug D fix). See registerPlanProject in
+    // factory-loop-controller.test.js for the same pattern.
     fs.writeFileSync(planPath, `# Simulated plan
 
 **Tech Stack:** Node.js, vitest.
 
 ## Task 1: Simulated task
 
-- [ ] **Step 1: Update files**
+- [ ] **Step 1: Implement the helper in plan-executor.js**
 
-    Edit server/factory/plan-executor.js.
+    Edit server/factory/plan-executor.js to add a \`runSimulatedFactoryStep(input)\` helper that returns \`{ ok: true, payload: input }\`. The helper must be exported from the module and added to its existing exports object alongside other public helpers. Acceptance criterion: \`expect(runSimulatedFactoryStep('seed').ok).toBe(true)\` in a colocated unit test.
 
 - [ ] **Step 2: Commit**
 

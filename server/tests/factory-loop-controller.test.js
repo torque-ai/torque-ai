@@ -269,15 +269,21 @@ describe('factory loop-controller EXECUTE modes', () => {
   function registerPlanProject({ config } = {}) {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const planPath = path.join(tempDir, `plan-${Date.now()}-${Math.random().toString(16).slice(2)}.md`);
+    // Plan body must satisfy the plan-quality-gate that runs in
+    // executePlanStage on pre-written plans (Bug D fix). Specifically:
+    // - Each task body needs >=100 chars of concrete instruction
+    // - Each task body needs a file path reference
+    // - Each task body needs an acceptance criterion (expect/assert/etc.)
+    // - No vague verbs ("update", "improve", "clean up") without context
     fs.writeFileSync(planPath, `# Simulated plan
 
 **Tech Stack:** Node.js, vitest.
 
 ## Task 1: Simulated task
 
-- [ ] **Step 1: Update files**
+- [ ] **Step 1: Implement the helper in plan-executor.js**
 
-    Edit server/factory/plan-executor.js.
+    Edit server/factory/plan-executor.js to add a \`runSimulatedFactoryStep(input)\` helper that returns \`{ ok: true, payload: input }\`. The helper must be exported from the module and added to its existing exports object alongside other public helpers. Acceptance criterion: \`expect(runSimulatedFactoryStep('seed').ok).toBe(true)\` in a colocated unit test.
 
 - [ ] **Step 2: Commit**
 
@@ -550,7 +556,7 @@ describe('factory loop-controller EXECUTE modes', () => {
       batch_id: expect.any(String),
     });
     const updatedPlan = fs.readFileSync(planPath, 'utf8');
-    expect(updatedPlan).toContain('- [x] **Step 1: Update files**');
+    expect(updatedPlan).toContain('- [x] **Step 1: Implement the helper in plan-executor.js**');
     expect(updatedPlan).toContain('- [x] **Step 2: Commit**');
 
     const decisions = listDecisionRows(db, project.id);

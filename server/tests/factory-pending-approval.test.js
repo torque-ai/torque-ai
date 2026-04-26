@@ -15,31 +15,32 @@ const routingModule = require('../handlers/integration/routing');
 const awaitModule = require('../handlers/workflow/await');
 const taskCore = require('../db/task-core');
 const loopController = require('../factory/loop-controller');
+const planQualityGate = require('../factory/plan-quality-gate');
 const { LOOP_STATES } = require('../factory/loop-states');
 const queueScheduler = require('../execution/queue-scheduler');
 
 const originalHandleSmartSubmitTask = routingModule.handleSmartSubmitTask;
 const originalHandleAwaitTask = awaitModule.handleAwaitTask;
 
+// Plan body must satisfy the plan-quality-gate that runs on pre-written
+// plans in executePlanStage (Bug D fix): each task body needs >=100 chars,
+// a file path reference, an acceptance criterion, and no vague verbs
+// (`update`, `improve`) without object detail.
 const PLAN = `# Pending Approval Plan
 
 **Tech Stack:** Node.js, vitest.
 
 ## Task 1: wire executor
 
-- [ ] **Step 1: update executor**
+- [ ] **Step 1: wire approval helper in executor**
 
-\`\`\`text
-Update server/factory/plan-executor.js.
-\`\`\`
+    Edit server/factory/plan-executor.js to wire the approval-decision callback into the existing executor entry point. Add the new helper alongside the existing exported helpers. Acceptance criterion: \`expect(plan-executor.handleApproval('seed').wired).toBe(true)\` in a colocated unit test.
 
 ## Task 2: add approval test
 
 - [ ] **Step 1: cover approval flow**
 
-\`\`\`text
-Create server/tests/task-approve-handler.test.js.
-\`\`\`
+    Create server/tests/task-approve-handler.test.js with a focused test that constructs a fake task, drives the handler through the pending-approval branch, and asserts the resulting status. Acceptance criterion: \`expect(handler(...).status).toBe('approved')\` covers the happy path and one rejection.
 `;
 
 function registerPlanProject(testDir) {
@@ -126,6 +127,15 @@ describe('factory supervised execute pending approval', () => {
       throw new Error('await should not run for pending approval submissions');
     });
 
+    // Bug D's pre-written-plan gate runs an LLM semantic check that submits
+    // a factory-internal task and awaits it — that path would (a) call the
+    // mocked handleSmartSubmitTask, inflating the expected call count, and
+    // (b) call handleAwaitTask, breaking the "await should not run"
+    // assertion. The gate's deterministic rules are exercised by the
+    // PLAN constant directly; the LLM verdict is informational only, so
+    // skipping it preserves test intent.
+    vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue(null);
+
     safeStartTask = vi.fn(() => ({ started: true }));
     queueScheduler.init({
       db: database,
@@ -189,7 +199,12 @@ describe('factory supervised execute pending approval', () => {
     expect(queuedTasks).toHaveLength(0);
 
     const planContents = fs.readFileSync(planPath, 'utf8');
-    expect(planContents).toContain('- [ ] **Step 1: update executor**');
+    // Match the current PLAN constant — original `update executor` was
+    // replaced with `wire approval helper in executor` to satisfy the
+    // plan-quality-gate's vague-verb rule. The intent of these assertions
+    // is to verify the plan was not flipped to [x] during pending-approval
+    // mode, not the exact step wording.
+    expect(planContents).toContain('- [ ] **Step 1: wire approval helper in executor**');
     expect(planContents).toContain('- [ ] **Step 1: cover approval flow**');
   });
 });

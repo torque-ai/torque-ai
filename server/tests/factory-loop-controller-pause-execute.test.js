@@ -12,25 +12,40 @@ const factoryLoopInstances = require('../db/factory-loop-instances');
 const factoryWorktrees = require('../db/factory-worktrees');
 const routingModule = require('../handlers/integration/routing');
 const loopController = require('../factory/loop-controller');
+const planQualityGate = require('../factory/plan-quality-gate');
 const { LOOP_STATES } = require('../factory/loop-states');
 
 function writeTwoTaskPlan(planPath) {
   fs.mkdirSync(path.dirname(planPath), { recursive: true });
+  // Plan body must satisfy the plan-quality-gate (Bug D fix in
+  // executePlanStage): each task body needs >=100 chars, a file path
+  // reference, an acceptance criterion, and avoid bare vague verbs.
+  //
+  // Task 1 is `[x]` (trusted-complete). Its file reference is a BARE
+  // filename (no slash) so plan-quality-gate's FILE_PATH_RE accepts it
+  // but plan-executor's stricter `(seg + slash)+ + seg` extractor returns
+  // no paths — so verifyCompletedTaskArtifacts honors the [x] instead of
+  // re-submitting it as stale (the project working_directory is a temp
+  // dir, not the real server tree, so any path with a slash would
+  // resolve to a missing file).
+  //
+  // Task 2 is `[ ]` (pending). Its file reference can be any shape —
+  // the trusted-complete check only fires on [x] tasks.
   fs.writeFileSync(planPath, `# Pause Execute Deferral
 
 **Tech Stack:** Node.js, vitest.
 
 ## Task 1: completed setup
 
-- [x] **Step 1: Record setup**
+- [x] **Step 1: Record setup completion in plan-executor.js**
 
-Document that the batch already completed its first plan task.
+    Edit plan-executor.js to record the setup completion entry alongside the existing batch ledger. Already pre-completed by this fixture. Acceptance criterion: \`expect(plan).toContain('- [x]')\` proves the executor saw a trusted-complete task.
 
 ## Task 2: remaining execute work
 
-- [ ] **Step 1: Add paused execute handling**
+- [ ] **Step 1: Add paused execute handling in loop-controller.js**
 
-Edit server/factory/loop-controller.js.
+    Edit server/factory/loop-controller.js to add the paused-EXECUTE deferral path that the resumeProject flow needs. The handling must persist a deferral marker the resume code can pick up. Acceptance criterion: \`expect(deferral.kind).toBe('execute_paused')\` after a fixture run.
 
 - [ ] **Step 2: Commit**
 
@@ -69,6 +84,11 @@ describe('factory loop-controller paused EXECUTE deferral', () => {
     loopController.setWorktreeRunnerForTests(null);
     submitSpy = vi.spyOn(routingModule, 'handleSmartSubmitTask')
       .mockResolvedValue({ task_id: 'execute-task-2' });
+    // Bug D's pre-written-plan gate runs an LLM semantic check that
+    // submits a factory-internal task — that goes through the same
+    // handleSmartSubmitTask spy and would inflate `submitSpy` call counts.
+    // Skip the LLM check; deterministic gate rules still run on the plan.
+    vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue(null);
   });
 
   afterEach(() => {
