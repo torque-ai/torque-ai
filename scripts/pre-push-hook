@@ -364,4 +364,11 @@ if git rev-parse --verify origin/main >/dev/null 2>&1; then
   done
 fi
 
+echo "Running DB query audit..."
+node "$REPO_ROOT/scripts/audit-db-queries.js"
+if [ $? -ne 0 ]; then
+  echo "ERROR: DB query audit failed. Add @full-scan: annotations or add missing indexes."
+  exit 1
+fi
+
 echo "[pre-push] All tests passed — git will now push refs/heads/main."
