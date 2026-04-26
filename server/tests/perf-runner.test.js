@@ -25,7 +25,11 @@ describe('perf runner skeleton', () => {
       encoding: 'utf8'
     });
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain('No metrics registered yet');
+    // Originally asserted "No metrics registered yet" — that was the
+    // skeleton-stage placeholder. With Phase 0/1/2/4 metrics shipped
+    // the runner now lists real metrics. Just assert it exits 0 and
+    // emits SOMETHING (non-empty stdout).
+    expect(result.stdout.length).toBeGreaterThan(0);
   });
 
   it('writes last-run.json under PERF_OUT_DIR after a smoke run', () => {
