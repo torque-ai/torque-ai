@@ -32,3 +32,53 @@ describe('provider_circuit_breaker schema', () => {
     expect(pk.name).toBe('provider_id');
   });
 });
+
+const { createProviderCircuitBreakerStore } = require('../db/provider-circuit-breaker-store');
+
+describe('createProviderCircuitBreakerStore', () => {
+  let db;
+  let store;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    ensureSchema(db, { debug() {}, info() {}, warn() {}, error() {} });
+    store = createProviderCircuitBreakerStore({ db });
+  });
+
+  it('returns null for unknown provider', () => {
+    expect(store.getState('codex')).toBeNull();
+  });
+
+  it('persists tripped state with reason', () => {
+    store.persist('codex', {
+      state: 'OPEN',
+      trippedAt: '2026-04-26T20:00:00.000Z',
+      tripReason: 'manual_disabled',
+    });
+    expect(store.getState('codex')).toEqual({
+      provider_id: 'codex',
+      state: 'OPEN',
+      tripped_at: '2026-04-26T20:00:00.000Z',
+      untripped_at: null,
+      trip_reason: 'manual_disabled',
+      last_canary_at: null,
+      last_canary_status: null,
+    });
+  });
+
+  it('persist is upsert — repeated calls update existing row', () => {
+    store.persist('codex', { state: 'OPEN', trippedAt: '2026-04-26T20:00:00.000Z' });
+    store.persist('codex', { state: 'CLOSED', untrippedAt: '2026-04-26T20:30:00.000Z' });
+    const row = store.getState('codex');
+    expect(row.state).toBe('CLOSED');
+    expect(row.untripped_at).toBe('2026-04-26T20:30:00.000Z');
+  });
+
+  it('listAll returns rows for all known providers', () => {
+    store.persist('codex', { state: 'OPEN' });
+    store.persist('groq', { state: 'CLOSED' });
+    const rows = store.listAll();
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.provider_id).sort()).toEqual(['codex', 'groq']);
+  });
+});
