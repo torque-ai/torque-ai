@@ -224,13 +224,127 @@ function runPhantomSuccessDetection(ctx, options = {}) {
   return detection;
 }
 
+// ── Banner-only failure detection ────────────────────────────────────────────
+// Distinct from phantom-success: these tasks have status='failed' or
+// 'cancelled' (exit_code≠0 or null), but error_output captures only the
+// Codex CLI startup banner and nothing else. Operators see the banner and
+// can't tell why the task died (was it cancelled? timed out? crashed before
+// producing output?). The substitution gives them a more actionable error
+// message while preserving the banner inside (still visible if needed).
+//
+// Banner shape (codex CLI emits this to stderr at startup):
+//   OpenAI Codex v0.125.0 (research preview)
+//   --------
+//   workdir: ...
+//   model: ...
+//   provider: ...
+//   approval: ...
+//   sandbox: ...
+//   reasoning effort: ...
+//   reasoning summaries: ...
+//   session id: ...
+//
+// Live evidence: 3 codex tasks failed in 72h (2026-04-25/26) with
+// error_output starting `OpenAI Codex v0.125.0 (research preview) -------- workdir: ...`
+// and nothing else — the process was killed (stall, timeout, or crash) before
+// producing real work output.
+
+const CODEX_BANNER_OPEN = /OpenAI Codex v\d+\.\d+\.\d+/;
+// Lines that come from the banner. Anything outside this set in stderr means
+// the model actually started doing something — don't reclassify those.
+const CODEX_BANNER_LINE_PATTERNS = [
+  /OpenAI Codex v\d+\.\d+\.\d+/,
+  /^-{4,}\s*$/,
+  /^workdir:\s*/i,
+  /^model:\s*/i,
+  /^provider:\s*/i,
+  /^approval:\s*/i,
+  /^sandbox:\s*/i,
+  /^reasoning (effort|summaries):\s*/i,
+  /^session id:\s*/i,
+  /^\s*$/,
+];
+
+function isCodexBannerLine(line) {
+  return CODEX_BANNER_LINE_PATTERNS.some((re) => re.test(line));
+}
+
+function isBannerOnlyOutput(errorOutput) {
+  if (!errorOutput || typeof errorOutput !== 'string') return false;
+  if (!CODEX_BANNER_OPEN.test(errorOutput)) return false;
+  const lines = errorOutput.split(/\r?\n/);
+  return lines.every(isCodexBannerLine);
+}
+
+function detectCodexBannerOnly(input = {}) {
+  const provider = input.provider;
+  const status = input.status;
+  const errorOutput = input.errorOutput ?? input.error_output;
+  const stdout = input.output ?? input.stdout;
+
+  if (status === 'completed') {
+    return { isBannerOnly: false, reason: null };
+  }
+  if (!isCodexProvider(provider)) {
+    return { isBannerOnly: false, reason: null };
+  }
+  if (!isEmptyOutput(stdout)) {
+    return { isBannerOnly: false, reason: null };
+  }
+  if (!isBannerOnlyOutput(errorOutput)) {
+    return { isBannerOnly: false, reason: null };
+  }
+  if (hasMeaningfulFileProduct(input)) {
+    return { isBannerOnly: false, reason: null };
+  }
+
+  return {
+    isBannerOnly: true,
+    reason: 'codex was killed before producing any work output (banner-only stderr) — likely cancelled mid-startup, timed out, or crashed before model first token',
+  };
+}
+
+function runCodexBannerOnlyDetection(ctx, _options = {}) {
+  if (!ctx) return null;
+  // Only fire on terminal non-success states where error_output ends up surfaced.
+  if (ctx.status !== 'failed' && ctx.status !== 'cancelled') return null;
+
+  const task = ctx.task || {};
+  const detection = detectCodexBannerOnly({
+    provider: task.provider || ctx.proc?.provider,
+    status: ctx.status,
+    output: ctx.output ?? ctx.proc?.output,
+    errorOutput: ctx.errorOutput ?? ctx.proc?.errorOutput,
+    filesModified: ctx.filesModified,
+  });
+
+  if (!detection.isBannerOnly) return detection;
+
+  // Preserve the original banner inside the rewritten message — operators
+  // who want to see the raw codex banner can still find it. Don't drop it
+  // entirely or we destroy diagnostic data.
+  const original = String(ctx.errorOutput || '').trim();
+  const rewritten = original
+    ? `${detection.reason}\n\n--- Original Codex stderr (banner only) ---\n${original}`
+    : detection.reason;
+
+  ctx.errorOutput = rewritten;
+  ctx.codexBannerOnly = detection;
+
+  return detection;
+}
+
 module.exports = {
   detectPhantomSuccess,
   runPhantomSuccessDetection,
+  detectCodexBannerOnly,
+  runCodexBannerOnlyDetection,
+  isBannerOnlyOutput,
   parseFactoryContext,
   hasOverloadSignature,
   isEmptyOutput,
   hasMeaningfulFileProduct,
   PHANTOM_PROVIDERS,
   OVERLOAD_PATTERNS,
+  CODEX_BANNER_LINE_PATTERNS,
 };

@@ -16,7 +16,7 @@ const { smartDiagnosisStage } = require('./smart-diagnosis-stage');
 const { strategicReviewStage } = require('./strategic-review-stage');
 const { createVerificationLedgerStage } = require('./verification-ledger-stage');
 const { createAdversarialReviewStage } = require('./adversarial-review-stage');
-const { runPhantomSuccessDetection } = require('../validation/phantom-success-detector');
+const { runPhantomSuccessDetection, runCodexBannerOnlyDetection } = require('../validation/phantom-success-detector');
 const { parseDiffusionSignal } = require('../diffusion/signal-parser');
 const { parseComputeOutput, validateComputeSchema } = require('../diffusion/compute-output-parser');
 const { expandApplyTaskDescription } = require('../diffusion/planner');
@@ -763,6 +763,13 @@ async function finalizeTask(taskId, options = {}) {
       getRawDb: getRawDbInstance,
       logDecision: deps.logFactoryDecision,
     }), ctx.status === 'completed');
+    // Banner-only detection runs on terminal non-success states. Codex
+    // killed mid-startup leaves error_output as just the CLI banner —
+    // useless for diagnosis. Rewrite to a clearer message while preserving
+    // the original banner for forensics.
+    await runStage(ctx, 'codex_banner_only_detection',
+      (stageCtx) => runCodexBannerOnlyDetection(stageCtx),
+      ctx.status === 'failed' || ctx.status === 'cancelled');
     if (ctx.earlyExit) {
       return {
         finalized: false,
