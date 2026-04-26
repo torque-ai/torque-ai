@@ -14,6 +14,7 @@ LAST_TEST_ENV=""
 RUN_ARGV_LOG=""
 RUN_REMOTE_COMMANDS=""
 RUN_REMOTE_STDIN_SIZE="0"
+RUN_RUNNER_SH=""
 
 SCRIPT_UNDER_TEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)/torque-remote"
 ORIGINAL_PATH="$PATH"
@@ -342,7 +343,7 @@ if [[ "$remote_cmd" == *"git checkout --force "* && "$remote_cmd" == *"git reset
   exit "${SSH_SYNC_EXIT_CODE:-0}"
 fi
 
-if [[ "$remote_cmd" == *"torque-remote-inline-run"* ]]; then
+if [[ "$remote_cmd" == *"torque-remote-inline-run"* || "$remote_cmd" == *"runner.sh"* ]]; then
   if [[ -n "${TORQUE_REMOTE_TEST_REMOTE_STDIN:-}" ]]; then
     cat > "$TORQUE_REMOTE_TEST_REMOTE_STDIN"
   else
@@ -453,6 +454,15 @@ run_torque_remote() {
   RUN_ARGV_LOG="$(slurp_file "$tmp/argv.log")"
   RUN_REMOTE_COMMANDS="$(slurp_file "$tmp/remote-commands.log")"
   RUN_REMOTE_STDIN_SIZE="$(file_size_bytes "$tmp/remote-stdin.bin")"
+  # The new bootstrap is a tiny cmd.exe-safe `tar -xf - | bash runner.sh`
+  # invocation; the actual runner body — including the `# torque-remote-inline-run`
+  # marker, the COMMAND_ARGS array literal, and the user-command invocation —
+  # lives inside the tar bundle delivered over SSH stdin. Extract runner.sh from
+  # the captured tar so tests can grep its contents directly.
+  RUN_RUNNER_SH=""
+  if [[ -s "$tmp/remote-stdin.bin" ]]; then
+    RUN_RUNNER_SH="$(tar -xOf "$tmp/remote-stdin.bin" runner.sh 2>/dev/null || true)"
+  fi
 }
 
 test_default_syncs_main() {
@@ -560,7 +570,9 @@ test_local_state_overlays_worktree_from_fallback_base() {
   expect_file_contains "worktree diff is created" "$tmp/calls.log" "git [diff] [--binary] [HEAD]"
   expect_file_contains "untracked files are inspected" "$tmp/calls.log" "git [ls-files] [--others] [--exclude-standard] [-z]"
   expect_contains "stderr mentions fallback overlay" "$RUN_STDERR" "using main as the remote base and overlaying local worktree state"
-  expect_contains "remote run uses inline execution marker" "$RUN_REMOTE_COMMANDS" "torque-remote-inline-run"
+  # The `# torque-remote-inline-run` marker lives in runner.sh inside the
+  # bundled tar, not on the SSH command line (which is a tiny bootstrap).
+  expect_contains "remote runner.sh uses inline execution marker" "$RUN_RUNNER_SH" "torque-remote-inline-run"
   expect_file_not_contains "no temp-script upload round-trip remains" "$tmp/calls.log" "cat > /tmp/torque-remote-exec-"
 
   finish_test "test_local_state_overlays_worktree_from_fallback_base"
@@ -601,11 +613,13 @@ test_remote_inline_command_preserves_quoted_arguments() {
   run_torque_remote "$tmp" argv-dump "two words" 'semi;ignored'
 
   expect_eq "exit code is 0" "0" "$RUN_EXIT"
-  expect_contains "remote command defines argv array" "$RUN_REMOTE_COMMANDS" "COMMAND_ARGS=("
-  expect_contains "remote command preserves spaced argument" "$RUN_REMOTE_COMMANDS" "two\\ words"
-  expect_contains "remote command preserves semicolon literal" "$RUN_REMOTE_COMMANDS" "semi\\;ignored"
-  expect_contains "remote command executes argv array" "$RUN_REMOTE_COMMANDS" "\"\${COMMAND_ARGS[@]}\""
-  expect_not_contains "remote command does not use eval" "$RUN_REMOTE_COMMANDS" "eval \"\$COMMAND\""
+  # The argv array literal and quoted arguments live in runner.sh inside the
+  # bundled tar (the SSH command line is just `tar -xf - | bash runner.sh`).
+  expect_contains "runner.sh defines argv array" "$RUN_RUNNER_SH" "COMMAND_ARGS=("
+  expect_contains "runner.sh preserves spaced argument" "$RUN_RUNNER_SH" "two\\ words"
+  expect_contains "runner.sh preserves semicolon literal" "$RUN_RUNNER_SH" "semi\\;ignored"
+  expect_contains "runner.sh executes argv array" "$RUN_RUNNER_SH" "\"\${COMMAND_ARGS[@]}\""
+  expect_not_contains "runner.sh does not use eval" "$RUN_RUNNER_SH" "eval \"\$COMMAND\""
 
   finish_test "test_remote_inline_command_preserves_quoted_arguments"
 }
