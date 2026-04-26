@@ -8,6 +8,9 @@ function createProviderCircuitBreakerStore({ db }) {
       (provider_id, state, tripped_at, untripped_at, trip_reason, last_canary_at, last_canary_status)
     VALUES (@provider_id, @state, @tripped_at, @untripped_at, @trip_reason, @last_canary_at, @last_canary_status)
     ON CONFLICT(provider_id) DO UPDATE SET
+      -- COALESCE preserves existing column values when patch fields are null.
+      -- Tradeoff: this store cannot clear a non-null field back to null via persist.
+      -- Acceptable for Phase 1; trip_reason intentionally persists across recovery for forensics.
       state              = COALESCE(excluded.state, provider_circuit_breaker.state),
       tripped_at         = COALESCE(excluded.tripped_at, provider_circuit_breaker.tripped_at),
       untripped_at       = COALESCE(excluded.untripped_at, provider_circuit_breaker.untripped_at),
@@ -23,7 +26,7 @@ function createProviderCircuitBreakerStore({ db }) {
     persist(providerId, patch = {}) {
       upsertStmt.run({
         provider_id: providerId,
-        state: patch.state ?? null,
+        state: patch.state ?? 'CLOSED',
         tripped_at: patch.trippedAt ?? null,
         untripped_at: patch.untrippedAt ?? null,
         trip_reason: patch.tripReason ?? null,

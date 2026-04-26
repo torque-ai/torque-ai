@@ -72,6 +72,14 @@ describe('createProviderCircuitBreakerStore', () => {
     const row = store.getState('codex');
     expect(row.state).toBe('CLOSED');
     expect(row.untripped_at).toBe('2026-04-26T20:30:00.000Z');
+    expect(row.tripped_at).toBe('2026-04-26T20:00:00.000Z');
+    expect(row.trip_reason).toBeNull();
+  });
+
+  it('persist defaults state to CLOSED when not provided in patch', () => {
+    // Should NOT throw NOT NULL constraint error.
+    expect(() => store.persist('codex', { trippedAt: '2026-04-26T20:00:00.000Z' })).not.toThrow();
+    expect(store.getState('codex').state).toBe('CLOSED');
   });
 
   it('listAll returns rows for all known providers', () => {
