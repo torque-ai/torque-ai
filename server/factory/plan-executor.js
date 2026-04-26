@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('../logger').child({ component: 'plan-executor' });
 const { parsePlanFile, extractVerifyCommand } = require('./plan-parser');
+const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 
 const FILE_PATH_RE = /(?:^|[\s"'`(])((?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+)(?=$|[\s"'`),:])/gm;
 const EXECUTION_MODES = new Set(['live', 'suppress', 'pending_approval']);
@@ -142,6 +143,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
     const submitted_tasks = [];
     let failed_task = null;
     let task_count = 0;
+    let violation = null;
 
     for (const task of parsed.tasks) {
       if (task.completed) {
@@ -162,6 +164,32 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
 
       const prompt = buildTaskPrompt(task, parsed.title);
       const file_paths = extractTaskFilePaths(task, planFilePaths);
+
+      // Re-run the heavy-validation guard at materialization. plan-quality-gate
+      // enforces this rule at plan generation, but plans live on disk and can
+      // be re-executed long after the gate ran (or saved through a path that
+      // bypassed it — e.g. authored before the rule shipped). Without this
+      // check the executor would submit a task that the runtime governance
+      // guard at task-startup blocks with no exit code, leaving the failure
+      // attributed to the selected provider rather than the stale plan.
+      // Live mode only — dry runs surface plan structure for inspection.
+      if (mode === 'live') {
+        const detectedCommand = findHeavyLocalValidationCommand(prompt);
+        if (detectedCommand) {
+          failed_task = task.task_number;
+          violation = {
+            rule: 'task_avoids_local_heavy_validation',
+            task_number: task.task_number,
+            detected_command: detectedCommand,
+          };
+          logger.warn(`task ${task.task_number} blocked at materialization — heavy local validation present`, {
+            plan_path,
+            task_number: task.task_number,
+            detected_command: detectedCommand,
+          });
+          break;
+        }
+      }
 
       if (mode === 'suppress') {
         task_count += 1;
@@ -309,6 +337,10 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
       failed_task,
       duration_ms: Date.now() - started,
     };
+
+    if (violation) {
+      result.violation = violation;
+    }
 
     // Fix 1: live mode that produced no completion AND no failure means the
     // plan executor silently no-oped — either the plan parsed to zero tasks

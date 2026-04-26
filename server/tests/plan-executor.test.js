@@ -237,7 +237,10 @@ Modify \`src/already-there.js\`:
 
 - [ ] **Step 1: run the failing test**
 
-Read \`tests/SpudgetBooks.Infrastructure.Tests.csproj\`. Run \`dotnet test tests/SpudgetBooks.Infrastructure.Tests/SpudgetBooks.Infrastructure.Tests.csproj --verbosity normal\` to confirm.
+\`\`\`bash
+# Read tests/SpudgetBooks.Infrastructure.Tests.csproj first
+dotnet test tests/SpudgetBooks.Infrastructure.Tests/SpudgetBooks.Infrastructure.Tests.csproj --verbosity normal
+\`\`\`
 `;
     fs.writeFileSync(planPath, BAD_PLAN);
     const r = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
@@ -259,7 +262,10 @@ Read \`tests/SpudgetBooks.Infrastructure.Tests.csproj\`. Run \`dotnet test tests
 
 - [ ] **Step 1: run the failing test**
 
-Read \`tests/Foo.csproj\`. Run \`torque-remote dotnet test tests/Foo.csproj --verbosity normal\` to confirm.
+\`\`\`bash
+# Read tests/Foo.csproj first
+torque-remote dotnet test tests/Foo.csproj --verbosity normal
+\`\`\`
 `;
     fs.writeFileSync(planPath, GOOD_PLAN);
     await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
@@ -274,7 +280,9 @@ Read \`tests/Foo.csproj\`. Run \`torque-remote dotnet test tests/Foo.csproj --ve
 
 - [ ] **Step 1: compile**
 
-Run \`dotnet build src/Foo.csproj\` and verify it succeeds. Edit \`src/Foo.cs\` if needed.
+\`\`\`bash
+dotnet build src/Foo.csproj
+\`\`\`
 `;
     fs.writeFileSync(planPath, PLAN_BUILD);
     const r1 = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
@@ -288,7 +296,9 @@ Run \`dotnet build src/Foo.csproj\` and verify it succeeds. Edit \`src/Foo.cs\` 
 
 - [ ] **Step 1: compile**
 
-Run \`pwsh scripts/build.ps1\` to compile and verify. Edit \`src/Foo.ps1\` first.
+\`\`\`powershell
+pwsh scripts/build.ps1
+\`\`\`
 `;
     fs.writeFileSync(planPath, PLAN_PS);
     const r2 = await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
@@ -303,7 +313,9 @@ Run \`pwsh scripts/build.ps1\` to compile and verify. Edit \`src/Foo.ps1\` first
 
 - [ ] **Step 1: run**
 
-Run \`dotnet test foo.csproj\` to confirm. Edit \`foo.cs\`.
+\`\`\`bash
+dotnet test foo.csproj
+\`\`\`
 `;
     fs.writeFileSync(planPath, BAD_PLAN);
     const r = await exec.execute({
