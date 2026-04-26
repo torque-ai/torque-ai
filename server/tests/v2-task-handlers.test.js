@@ -1206,15 +1206,16 @@ describe('api/v2-task-handlers.handleReassignTaskProvider', () => {
     await handlers.handleReassignTaskProvider(req, res);
 
     expect(mockDb.getProvider).toHaveBeenCalledWith('ollama');
-    expect(mockDb.updateTask).toHaveBeenCalledWith('task-queued', {
+    expect(mockDb.updateTask).toHaveBeenCalledWith('task-queued', expect.objectContaining({
       provider: 'ollama',
-      metadata: {
+      metadata: expect.objectContaining({
         existing: 'value',
         user_provider_override: true,
-      },
+      }),
       model: null,
       ollama_host_id: null,
-    });
+    }));
+    expect(mockDb.updateTask.mock.calls[0][1].metadata).toHaveProperty('_routing_chain');
     expect(mockTaskLogger.info).toHaveBeenCalledWith(
       'Reassigned queued task task-queued provider from codex to ollama',
     );
@@ -1396,20 +1397,25 @@ describe('api/v2-task-handlers.handleReassignTaskProvider', () => {
       createRes(),
     );
 
-    expect(mockDb.updateTask).toHaveBeenCalledWith('task-queued', {
+    expect(mockDb.updateTask).toHaveBeenCalledWith('task-queued', expect.objectContaining({
       provider: 'codex',
-      metadata: {
+      metadata: expect.objectContaining({
         retry_of: 'task-original',
         custom_flag: true,
         user_provider_override: true,
-      },
+      }),
       ollama_host_id: null,
-    });
-    expect(getLastSuccess().data.metadata).toEqual({
+    }));
+    // handleReassignTaskProvider also writes a `_routing_chain` derived from the
+    // provider's category siblings (see v2-task-handlers.js:976). The exact chain
+    // depends on which providers are enabled in the live config and isn't part
+    // of the metadata-preservation contract this test is asserting.
+    expect(mockDb.updateTask.mock.calls[0][1].metadata).toHaveProperty('_routing_chain');
+    expect(getLastSuccess().data.metadata).toEqual(expect.objectContaining({
       retry_of: 'task-original',
       custom_flag: true,
       user_provider_override: true,
-    });
+    }));
   });
 });
 
