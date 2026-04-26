@@ -202,26 +202,27 @@ fi
 
 echo "[ok] Merged"
 
-# Refresh node_modules when the merge bumped runtime deps. Without this, a
-# feature branch that adds (e.g.) `ajv` to server/package.json silently lands
-# on main while node_modules stays stale; the next restart then crashes with
-# `Cannot find module 'X'` and the queue is wedged until someone notices and
-# runs `npm install` by hand. Gate on the merge diff so server-only or
-# dashboard-only cutovers don't pay for the other side. --no-audit/--no-fund
-# trim the install to the minimum chatter needed for the gate.
-if echo "$merge_changed_files" | grep -qE "^server/package(-lock)?\.json$"; then
-  if [ -d "${REPO_ROOT}/server" ]; then
-    echo "  Server deps changed — running npm install..."
-    (cd "${REPO_ROOT}/server" && npm install --silent --no-audit --no-fund 2>&1 | tail -3) \
-      || echo "[warn] server npm install failed — restart may crash with 'Cannot find module'. Run 'cd server && npm install' manually."
-  fi
+# Refresh node_modules unconditionally — the previous diff-gated form
+# only saw THIS merge's diff (HEAD@{1}..HEAD), so dependency changes
+# from OTHER sessions' commits that landed in main between cutovers
+# went unnoticed. Observed live 2026-04-26 (twice): a previous session
+# added `ajv` to server/package.json in a commit that was already on
+# main when this cutover ran; HEAD@{1}..HEAD didn't include
+# server/package.json so the gate skipped install; the restart-barrier
+# successor crashed with `Cannot find module 'ajv'` and the queue was
+# wedged until the next person ran `npm install` by hand. Running
+# `npm install --prefer-offline` always costs ~2s in the no-op fast
+# path vs minutes of debugging a wedged queue, so the unconditional
+# form is strictly better. --no-audit/--no-fund trim the chatter.
+if [ -d "${REPO_ROOT}/server" ] && [ -f "${REPO_ROOT}/server/package.json" ]; then
+  echo "  Refreshing server node_modules (idempotent)..."
+  (cd "${REPO_ROOT}/server" && npm install --silent --no-audit --no-fund --prefer-offline 2>&1 | tail -3) \
+    || echo "[warn] server npm install failed — restart may crash with 'Cannot find module'. Run 'cd server && npm install' manually."
 fi
-if echo "$merge_changed_files" | grep -qE "^dashboard/package(-lock)?\.json$"; then
-  if [ -d "${REPO_ROOT}/dashboard" ]; then
-    echo "  Dashboard deps changed — running npm install..."
-    (cd "${REPO_ROOT}/dashboard" && npm install --silent --no-audit --no-fund 2>&1 | tail -3) \
-      || echo "[warn] dashboard npm install failed — vite build will likely fail. Run 'cd dashboard && npm install' manually."
-  fi
+if [ -d "${REPO_ROOT}/dashboard" ] && [ -f "${REPO_ROOT}/dashboard/package.json" ]; then
+  echo "  Refreshing dashboard node_modules (idempotent)..."
+  (cd "${REPO_ROOT}/dashboard" && npm install --silent --no-audit --no-fund --prefer-offline 2>&1 | tail -3) \
+    || echo "[warn] dashboard npm install failed — vite build will likely fail. Run 'cd dashboard && npm install' manually."
 fi
 
 # If the merge updated any tracked hook source under scripts/ (currently
