@@ -3165,8 +3165,20 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
   //     04:35-04:45 (cerebras/zai-glm-4.7), then 11 plan_generation
   //     tasks 2026-04-26 with the verdict prompt mis-labeled as
   //     plan_generation kind on ollama/qwen3-coder:30b.
-  //   - Any task that explicitly requested response_format=json_object:
-  //     by definition a structured-output call, not exploration.
+  //   - Tasks with metadata.bypass_agentic_loop=true: explicit operator
+  //     opt-out for the rare case where a non-factory task needs raw
+  //     chat-completion output.
+  //
+  // NOTE: bbd5fd71 originally also bypassed any task with
+  // response_format=json_object. That was too broad — openrouter's
+  // tool-calling models legitimately use both JSON tool-call format AND
+  // response_format=json_object on the same task. They want the agentic
+  // loop. The bare-response_format bypass made the
+  // `orders parser-capable openrouter scored models first for JSON-mode
+  // agentic tasks` test fail (commit 68374fb8). Narrowed to kind-based
+  // gates: verify_review and the other structured kinds always have an
+  // explicit `kind` set, so dropping the response_format gate doesn't
+  // regress them.
   try {
     const taskMeta = task.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
     if (taskMeta.diffusion_role === 'compute') {
@@ -3184,9 +3196,8 @@ async function executeApiProviderWithAgentic(task, providerInstance) {
       logger.info(`[API-WRAP] verify_review task ${task.id} — bypassing agentic loop for JSON-mode chat completion`);
       return _executeApiModule.executeApiProvider(task, providerInstance);
     }
-    const rf = taskMeta.response_format;
-    if (rf === 'json_object' || rf === 'json' || (rf && typeof rf === 'object' && rf.type === 'json_object')) {
-      logger.info(`[API-WRAP] JSON-mode task ${task.id} — bypassing agentic loop for structured output`);
+    if (taskMeta.bypass_agentic_loop === true) {
+      logger.info(`[API-WRAP] task ${task.id} — bypassing agentic loop (explicit metadata opt-out)`);
       return _executeApiModule.executeApiProvider(task, providerInstance);
     }
   } catch (_e) { /* non-fatal — continue to agentic */ }
