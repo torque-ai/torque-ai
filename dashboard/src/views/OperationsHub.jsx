@@ -9,6 +9,7 @@ const Schedules = lazy(() => import('./Schedules'));
 const Budget = lazy(() => import('./Budget'));
 const Governance = lazy(() => import('./Governance'));
 const VersionControl = lazy(() => import('./VersionControl'));
+const OperationsPerf = lazy(() => import('./OperationsPerf'));
 
 const TABS = [
   { id: 'routing', label: 'Routing' },
@@ -16,6 +17,7 @@ const TABS = [
   { id: 'budget', label: 'Budget' },
   { id: 'governance', label: 'Governance' },
   { id: 'version-control', label: 'Version Control' },
+  { id: 'perf', label: 'Perf' },
 ];
 
 const LOADING_FALLBACK = <div className="p-6 text-slate-400">Loading...</div>;
@@ -62,6 +64,12 @@ export default function OperationsHub(props) {
       {tab === 'version-control' && (
         <Suspense fallback={LOADING_FALLBACK}>
           <VersionControl {...props} />
+        </Suspense>
+      )}
+
+      {tab === 'perf' && (
+        <Suspense fallback={LOADING_FALLBACK}>
+          <OperationsPerf />
         </Suspense>
       )}
     </div>
