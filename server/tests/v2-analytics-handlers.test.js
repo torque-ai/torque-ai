@@ -1403,7 +1403,7 @@ describe('api/v2-analytics-handlers', () => {
         res,
       );
 
-      expect(mockDb.listTasks).toHaveBeenCalledWith({ limit: 6, order: 'desc' });
+      expect(mockDb.listTasks).toHaveBeenCalledWith({ limit: 6, order: 'desc', columns: undefined, raw: true });
       expect(expectSuccess(res)).toEqual({
         decisions: [
           {
@@ -1451,7 +1451,7 @@ describe('api/v2-analytics-handlers', () => {
         res,
       );
 
-      expect(mockDb.listTasks).toHaveBeenCalledWith({ limit: 600, order: 'desc' });
+      expect(mockDb.listTasks).toHaveBeenCalledWith({ limit: 600, order: 'desc', columns: undefined, raw: true });
       expect(expectSuccess(res)).toEqual({
         decisions: [{
           task_id: 'task-1',
