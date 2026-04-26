@@ -11,6 +11,8 @@
 
 const { v4: uuidv4 } = require('uuid');
 const childProcess = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(childProcess.execFile);
 const taskCore = require('../../db/task-core');
 const eventTracking = require('../../db/event-tracking');
 const fileTracking = require('../../db/file-tracking');
@@ -174,12 +176,12 @@ function storeResumeContextForFailedTask(task, ctx = null) {
 
 // ── Git utilities ──────────────────────────────────────────
 
-function execGit(gitArgs, cwd) {
+async function execGit(gitArgs, cwd) {
+  if (!Array.isArray(gitArgs)) {
+    return { success: false, error: 'execGit requires an array of arguments, not a string' };
+  }
   try {
-    if (!Array.isArray(gitArgs)) {
-      throw Object.assign(new Error('execGit requires an array of arguments, not a string'), { code: ErrorCodes.INTERNAL_ERROR });
-    }
-    const result = childProcess.spawnSync('git', gitArgs, {
+    const { stdout } = await execFileAsync('git', gitArgs, {
       cwd,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
@@ -187,36 +189,35 @@ function execGit(gitArgs, cwd) {
       windowsHide: true,
       env: { ...process.env, ...GIT_SAFE_ENV },
     });
-    if (result.error) {
-      if (gitArgs[0] === 'status') cleanupStaleGitStatusProcesses({ force: true });
-      return { success: false, error: result.error.message };
-    }
-    if (result.status !== 0) {
-      return { success: false, error: result.stderr || 'Git command failed' };
-    }
-    return { success: true, output: result.stdout };
+    return { success: true, output: stdout };
   } catch (error) {
-    return { success: false, error: error.message };
+    if (gitArgs[0] === 'status') cleanupStaleGitStatusProcesses({ force: true });
+    // execFile throws on non-zero exit; status code 1 (e.g. git diff --quiet) is not an error
+    const stderr = error.stderr
+      ? (Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : String(error.stderr))
+      : '';
+    // exit code 1 means "differences found" for diff --quiet — treat as success with empty output
+    if (error.code === 1 && gitArgs.includes('--quiet')) {
+      return { success: false, output: '' };
+    }
+    return { success: false, error: stderr.trim() || error.message || 'Git command failed' };
   }
 }
 
-function execGitCommit(message, cwd) {
+async function execGitCommit(message, cwd) {
   try {
-    const result = childProcess.spawnSync('git', ['commit', '-m', message], {
+    const { stdout } = await execFileAsync('git', ['commit', '-m', message], {
       cwd,
       encoding: 'utf8',
       timeout: TASK_TIMEOUTS.GIT_ADD_ALL,
       windowsHide: true,
     });
-    if (result.error) {
-      return { success: false, error: result.error.message };
-    }
-    if (result.status !== 0) {
-      return { success: false, error: result.stderr || 'Git commit failed' };
-    }
-    return { success: true, output: result.stdout };
+    return { success: true, output: stdout };
   } catch (error) {
-    return { success: false, error: error.message };
+    const stderr = error.stderr
+      ? (Buffer.isBuffer(error.stderr) ? error.stderr.toString('utf8') : String(error.stderr))
+      : '';
+    return { success: false, error: stderr.trim() || error.message || 'Git commit failed' };
   }
 }
 
@@ -766,24 +767,24 @@ function handleListPipelines(args) {
 /**
  * Preview diff for a task
  */
-function handlePreviewDiff(args) {
+async function handlePreviewDiff(args) {
   const { task, error: taskErr } = requireTask(args.task_id);
   if (taskErr) return taskErr;
 
   const cwd = args.working_directory || task.working_directory || process.cwd();
 
   // Check if in git repo
-  const statusResult = execGit(['status', '--porcelain'], cwd);
+  const statusResult = await execGit(['status', '--porcelain'], cwd);
   if (!statusResult.success) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Not a git repository or git error: ${statusResult.error}`);
   }
 
   // Get diff
-  const diffResult = execGit(['diff'], cwd);
+  const diffResult = await execGit(['diff'], cwd);
   if (!diffResult.success && diffResult.error) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Git diff failed: ${diffResult.error}`);
   }
-  const stagedDiffResult = execGit(['diff', '--staged'], cwd);
+  const stagedDiffResult = await execGit(['diff', '--staged'], cwd);
   if (!stagedDiffResult.success && stagedDiffResult.error) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Git diff --staged failed: ${stagedDiffResult.error}`);
   }
@@ -795,7 +796,7 @@ function handlePreviewDiff(args) {
 
     // Check if there's a commit from this task
     if (task.git_after_sha) {
-      const showResult = execGit(['show', '--stat', task.git_after_sha], cwd);
+      const showResult = await execGit(['show', '--stat', task.git_after_sha], cwd);
       if (showResult.success) {
         result += `\n### Committed Changes\n\n\`\`\`\n${showResult.output.slice(0, 2000)}\n\`\`\``;
       }
@@ -818,24 +819,24 @@ function handlePreviewDiff(args) {
 /**
  * Commit task changes
  */
-function handleCommitTask(args) {
+async function handleCommitTask(args) {
   const { task, error: taskErr2 } = requireTask(args.task_id);
   if (taskErr2) return taskErr2;
 
   const cwd = args.working_directory || task.working_directory || process.cwd();
 
   // Get current HEAD before commit
-  const beforeShaResult = execGit(['rev-parse', 'HEAD'], cwd);
+  const beforeShaResult = await execGit(['rev-parse', 'HEAD'], cwd);
   const beforeSha = beforeShaResult.success ? beforeShaResult.output.trim() : null;
 
   // Stage all changes
-  const addResult = execGit(['add', '-A'], cwd);
+  const addResult = await execGit(['add', '-A'], cwd);
   if (!addResult.success) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Failed to stage changes: ${addResult.error}`);
   }
 
   // Check if there's anything to commit
-  const statusResult = execGit(['diff', '--staged', '--quiet'], cwd);
+  const statusResult = await execGit(['diff', '--staged', '--quiet'], cwd);
   if (statusResult.success) {
     return {
       content: [{ type: 'text', text: `No staged changes to commit.` }]
@@ -845,14 +846,14 @@ function handleCommitTask(args) {
   // Create commit message
   const commitMessage = args.message || `Codex task: ${(task.task_description || '').slice(0, 50)}`;
 
-  // Commit using safe spawn
-  const commitResult = execGitCommit(commitMessage, cwd);
+  // Commit using safe async execFile
+  const commitResult = await execGitCommit(commitMessage, cwd);
   if (!commitResult.success) {
     return makeError(ErrorCodes.OPERATION_FAILED, `Failed to commit: ${commitResult.error}`);
   }
 
   // Get new HEAD
-  const afterShaResult = execGit(['rev-parse', 'HEAD'], cwd);
+  const afterShaResult = await execGit(['rev-parse', 'HEAD'], cwd);
   const afterSha = afterShaResult.success ? afterShaResult.output.trim() : null;
 
   // Update task with git info

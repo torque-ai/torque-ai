@@ -314,36 +314,51 @@ describe('handler:task-pipeline', () => {
     expect(getText(result)).toContain('pipe-a');
   });
 
-  it('handlePreviewDiff returns operation error when git status fails', () => {
+  it('handlePreviewDiff returns operation error when git status fails', async () => {
     vi.spyOn(taskCore, 'getTask').mockReturnValue({ id: 'task-3', working_directory: '/repo' });
-    vi.spyOn(childProcess, 'spawnSync').mockReturnValueOnce({ status: 1, stderr: 'not a git repo', stdout: '' });
+    // Spy on execFile (async) — called via promisify in execGit
+    vi.spyOn(childProcess, 'execFile').mockImplementationOnce((_file, _args, _opts, cb) => {
+      const err = Object.assign(new Error('not a git repo'), { stderr: 'not a git repo', code: 128 });
+      process.nextTick(() => cb(err, '', 'not a git repo'));
+      return { kill: () => {} };
+    });
 
-    const result = handlers.handlePreviewDiff({ task_id: 'task-3' });
+    const result = await handlers.handlePreviewDiff({ task_id: 'task-3' });
 
     expect(result.isError).toBe(true);
     expect(result.error_code).toBe('OPERATION_FAILED');
     expect(getText(result)).toContain('Not a git repository');
   });
 
-  it('handleCommitTask returns no-op message when no staged changes exist', () => {
+  it('handleCommitTask returns no-op message when no staged changes exist', async () => {
     vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-4',
       task_description: 'No-op commit',
       working_directory: '/repo',
     });
 
-    vi.spyOn(childProcess, 'spawnSync')
-      .mockReturnValueOnce({ status: 0, stdout: 'before-sha\n', stderr: '' }) // rev-parse
-      .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' }) // add -A
-      .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' }); // diff --staged --quiet
+    // Spy on execFile (async) — called via promisify in execGit
+    vi.spyOn(childProcess, 'execFile')
+      .mockImplementationOnce((_file, _args, _opts, cb) => { // rev-parse HEAD
+        process.nextTick(() => cb(null, 'before-sha\n', ''));
+        return { kill: () => {} };
+      })
+      .mockImplementationOnce((_file, _args, _opts, cb) => { // add -A
+        process.nextTick(() => cb(null, '', ''));
+        return { kill: () => {} };
+      })
+      .mockImplementationOnce((_file, _args, _opts, cb) => { // diff --staged --quiet (exit 0 = no changes)
+        process.nextTick(() => cb(null, '', ''));
+        return { kill: () => {} };
+      });
 
-    const result = handlers.handleCommitTask({ task_id: 'task-4' });
+    const result = await handlers.handleCommitTask({ task_id: 'task-4' });
 
     expect(result.isError).toBeFalsy();
     expect(getText(result)).toContain('No staged changes to commit');
   });
 
-  it('handleCommitTask creates commit and updates task git state', () => {
+  it('handleCommitTask creates commit and updates task git state', async () => {
     vi.spyOn(taskCore, 'getTask').mockReturnValue({
       id: 'task-5',
       task_description: 'Add feature',
@@ -352,14 +367,32 @@ describe('handler:task-pipeline', () => {
     const updateGitSpy = vi.spyOn(taskMetadata, 'updateTaskGitState').mockReturnValue(undefined);
     const eventSpy = vi.spyOn(eventTracking, 'recordEvent').mockReturnValue(undefined);
 
-    vi.spyOn(childProcess, 'spawnSync')
-      .mockReturnValueOnce({ status: 0, stdout: 'old-sha\n', stderr: '' }) // rev-parse before
-      .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' }) // add -A
-      .mockReturnValueOnce({ status: 1, stdout: '', stderr: '' }) // diff --staged --quiet (has staged changes)
-      .mockReturnValueOnce({ status: 0, stdout: '[main] commit ok\n', stderr: '' }) // commit
-      .mockReturnValueOnce({ status: 0, stdout: 'new-sha\n', stderr: '' }); // rev-parse after
+    // diff --staged --quiet exits with code 1 when there ARE staged changes — execFile rejects
+    const diffError = Object.assign(new Error('diff found'), { code: 1, stdout: '', stderr: '' });
 
-    const result = handlers.handleCommitTask({ task_id: 'task-5', message: 'feat: commit changes' });
+    vi.spyOn(childProcess, 'execFile')
+      .mockImplementationOnce((_file, _args, _opts, cb) => { // rev-parse before
+        process.nextTick(() => cb(null, 'old-sha\n', ''));
+        return { kill: () => {} };
+      })
+      .mockImplementationOnce((_file, _args, _opts, cb) => { // add -A
+        process.nextTick(() => cb(null, '', ''));
+        return { kill: () => {} };
+      })
+      .mockImplementationOnce((_file, _args, _opts, cb) => { // diff --staged --quiet (exit 1 = has staged changes)
+        process.nextTick(() => cb(diffError, '', ''));
+        return { kill: () => {} };
+      })
+      .mockImplementationOnce((_file, _args, _opts, cb) => { // commit
+        process.nextTick(() => cb(null, '[main] commit ok\n', ''));
+        return { kill: () => {} };
+      })
+      .mockImplementationOnce((_file, _args, _opts, cb) => { // rev-parse after
+        process.nextTick(() => cb(null, 'new-sha\n', ''));
+        return { kill: () => {} };
+      });
+
+    const result = await handlers.handleCommitTask({ task_id: 'task-5', message: 'feat: commit changes' });
 
     expect(updateGitSpy).toHaveBeenCalledWith('task-5', {
       before_sha: 'old-sha',
