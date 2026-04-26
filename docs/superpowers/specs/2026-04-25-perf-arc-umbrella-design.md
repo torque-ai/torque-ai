@@ -309,7 +309,7 @@ Each phase's "write child spec → review → plan → execute → cutover" cycl
 | 0 — Baseline + gate | (umbrella §2) | shipped | 6527b360 |
 | 1 — Sync I/O | docs/superpowers/specs/2026-04-25-perf-1-sync-io-design.md | shipped | 4a1c5624 |
 | 4 — Test infra | docs/superpowers/specs/2026-04-25-perf-4-test-infra-design.md | shipped | 4f7477b8 |
-| 2 — N+1 + indexes | (written when phase starts, after Phases 1+4 verified live) | planned | — |
+| 2 — N+1 + indexes | docs/superpowers/specs/2026-04-25-perf-2-nplusone-design.md | shipped | af52cbfd |
 | 3 — Repeated work | (written when phase starts, after Phase 2 verified live) | planned | — |
 
 Status values: `planned` → `scout-complete` → `spec-written` → `plan-approved` → `in-progress` → `shipped` (with cutover commit hash) → `closed` (after post-merge scout returns clean).
