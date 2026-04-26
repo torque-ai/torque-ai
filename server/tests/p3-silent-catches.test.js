@@ -37,8 +37,8 @@ const ALLOWED_SILENT_CATCHES = new Set([
   'automation-handlers.js:86',
   'automation-handlers.js:99',
   'automation-handlers.js:110',
-  // Review handler catch — non-critical
-  'review-handler.js:303',
+  // Review handler catch — non-critical (study-telemetry fall-through)
+  'review-handler.js:309',
 ]);
 
 function getHandlerFiles() {
