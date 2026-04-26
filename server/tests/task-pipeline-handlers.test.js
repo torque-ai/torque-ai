@@ -694,25 +694,25 @@ describe('task-pipeline handlers', () => {
   });
 
   describe('handlePreviewDiff', () => {
-    it('returns TASK_NOT_FOUND when the task does not exist', () => {
-      const result = handlers.handlePreviewDiff({ task_id: 'missing-task' });
+    it('returns TASK_NOT_FOUND when the task does not exist', async () => {
+      const result = await handlers.handlePreviewDiff({ task_id: 'missing-task' });
 
       expectError(result, shared.ErrorCodes.TASK_NOT_FOUND.code, 'Task not found: missing-task');
     });
 
-    it('returns OPERATION_FAILED when git status fails', () => {
+    it('returns OPERATION_FAILED when git status fails', async () => {
       taskCore.getTask.mockReturnValue(makeTask({ id: 'task-12345678', working_directory: 'C:/repo' }));
       vi.spyOn(childProcess, 'spawnSync').mockReturnValue(gitResult({
         status: 1,
         stderr: 'not a git repository',
       }));
 
-      const result = handlers.handlePreviewDiff({ task_id: 'task-12345678' });
+      const result = await handlers.handlePreviewDiff({ task_id: 'task-12345678' });
 
       expectError(result, shared.ErrorCodes.OPERATION_FAILED.code, 'Not a git repository or git error: not a git repository');
     });
 
-    it('shows committed changes when there are no working tree diffs', () => {
+    it('shows committed changes when there are no working tree diffs', async () => {
       taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-12345678',
         working_directory: 'C:/repo',
@@ -724,7 +724,7 @@ describe('task-pipeline handlers', () => {
         .mockReturnValueOnce(gitResult({ stdout: '' }))
         .mockReturnValueOnce(gitResult({ stdout: 'commit summary' }));
 
-      const result = handlers.handlePreviewDiff({ task_id: 'task-12345678' });
+      const result = await handlers.handlePreviewDiff({ task_id: 'task-12345678' });
 
       expect(spawnSync).toHaveBeenNthCalledWith(4, 'git', ['show', '--stat', 'deadbeef1234567890'], expect.objectContaining({
         cwd: 'C:/repo',
@@ -735,7 +735,7 @@ describe('task-pipeline handlers', () => {
       expect(getText(result)).toContain('commit summary');
     });
 
-    it('shows staged and unstaged diffs when present', () => {
+    it('shows staged and unstaged diffs when present', async () => {
       taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-12345678',
         working_directory: 'C:/repo',
@@ -745,7 +745,7 @@ describe('task-pipeline handlers', () => {
         .mockReturnValueOnce(gitResult({ stdout: 'diff --git a/src/app.js b/src/app.js\n-foo\n+bar\n' }))
         .mockReturnValueOnce(gitResult({ stdout: 'diff --git a/package.json b/package.json\n-old\n+new\n' }));
 
-      const result = handlers.handlePreviewDiff({ task_id: 'task-12345678' });
+      const result = await handlers.handlePreviewDiff({ task_id: 'task-12345678' });
 
       expect(getText(result)).toContain('### Staged Changes');
       expect(getText(result)).toContain('package.json');
@@ -755,13 +755,13 @@ describe('task-pipeline handlers', () => {
   });
 
   describe('handleCommitTask', () => {
-    it('returns TASK_NOT_FOUND when the task does not exist', () => {
-      const result = handlers.handleCommitTask({ task_id: 'missing-task' });
+    it('returns TASK_NOT_FOUND when the task does not exist', async () => {
+      const result = await handlers.handleCommitTask({ task_id: 'missing-task' });
 
       expectError(result, shared.ErrorCodes.TASK_NOT_FOUND.code, 'Task not found: missing-task');
     });
 
-    it('returns OPERATION_FAILED when staging changes fails', () => {
+    it('returns OPERATION_FAILED when staging changes fails', async () => {
       taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-12345678',
         working_directory: 'C:/repo',
@@ -770,12 +770,12 @@ describe('task-pipeline handlers', () => {
         .mockReturnValueOnce(gitResult({ stdout: 'before-sha\n' }))
         .mockReturnValueOnce(gitResult({ status: 1, stderr: 'permission denied' }));
 
-      const result = handlers.handleCommitTask({ task_id: 'task-12345678' });
+      const result = await handlers.handleCommitTask({ task_id: 'task-12345678' });
 
       expectError(result, shared.ErrorCodes.OPERATION_FAILED.code, 'Failed to stage changes: permission denied');
     });
 
-    it('returns a no-op response when there is nothing staged to commit', () => {
+    it('returns a no-op response when there is nothing staged to commit', async () => {
       taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-12345678',
         working_directory: 'C:/repo',
@@ -785,13 +785,13 @@ describe('task-pipeline handlers', () => {
         .mockReturnValueOnce(gitResult({ stdout: '' }))
         .mockReturnValueOnce(gitResult({ status: 0, stdout: '' }));
 
-      const result = handlers.handleCommitTask({ task_id: 'task-12345678' });
+      const result = await handlers.handleCommitTask({ task_id: 'task-12345678' });
 
       expect(getText(result)).toContain('No staged changes to commit.');
       expect(taskMetadata.updateTaskGitState).not.toHaveBeenCalled();
     });
 
-    it('commits staged changes, updates git state, and records an event', () => {
+    it('commits staged changes, updates git state, and records an event', async () => {
       taskCore.getTask.mockReturnValue(makeTask({
         id: 'task-12345678',
         task_description: 'Generate pipeline coverage for task handlers',
@@ -804,7 +804,7 @@ describe('task-pipeline handlers', () => {
         .mockReturnValueOnce(gitResult({ stdout: '[main abc1234] Add tests\n' }))
         .mockReturnValueOnce(gitResult({ stdout: 'after-sha\n' }));
 
-      const result = handlers.handleCommitTask({
+      const result = await handlers.handleCommitTask({
         task_id: 'task-12345678',
         message: 'Add pipeline handler coverage',
       });
