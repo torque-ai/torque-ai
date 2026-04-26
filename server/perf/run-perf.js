@@ -60,6 +60,9 @@ async function run() {
   console.log(`wrote ${target}`);
 
   const baseline = report.readBaseline(outDir);
+  if (baseline?.env && payload.env && baseline.env.host_label !== payload.env.host_label) {
+    console.log(`\nNOTICE: baseline captured on ${baseline.env.host_label}, current run on ${payload.env.host_label} — advisory mode (no gate)`);
+  }
   const cmp = report.compareToBaseline(baseline, payload);
   if (cmp.notes.length > 0) console.log(cmp.notes.join('\n'));
   if (cmp.improvements.length > 0) {

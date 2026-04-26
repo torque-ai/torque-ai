@@ -62,3 +62,28 @@ describe('perf reporter compareToBaseline', () => {
     expect(result.notes).toContain('no baseline.json — first run');
   });
 });
+
+const { captureEnv } = require('../perf/report');
+
+describe('perf captureEnv', () => {
+  it('includes cpu_count, total_memory_mb, node_version, platform, host_label', () => {
+    const env = captureEnv();
+    expect(env.cpu_count).toBeGreaterThan(0);
+    expect(env.total_memory_mb).toBeGreaterThan(0);
+    expect(env.node_version).toMatch(/^v/);
+    expect(env.platform).toMatch(/^(win32|linux|darwin)$/);
+    expect(env.host_label).toBeTruthy();
+  });
+
+  it('honors PERF_HOST_LABEL when set', () => {
+    const orig = process.env.PERF_HOST_LABEL;
+    try {
+      process.env.PERF_HOST_LABEL = 'test-host';
+      const env = captureEnv();
+      expect(env.host_label).toBe('test-host');
+    } finally {
+      if (orig === undefined) delete process.env.PERF_HOST_LABEL;
+      else process.env.PERF_HOST_LABEL = orig;
+    }
+  });
+});
