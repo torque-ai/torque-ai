@@ -275,7 +275,7 @@ describe('DeepInfraProvider', () => {
     it('validates the API key before submitting', async () => {
       const noKeyProvider = new DeepInfraProvider({ apiKey: '' });
 
-      await expect(noKeyProvider.submit('task', null, {})).rejects.toThrow(/API key/i);
+      await expect(noKeyProvider.submit('task', 'test-model-stub', {})).rejects.toThrow(/API key/i);
     });
 
     it('formats an OpenAI-compatible request payload and headers', async () => {
@@ -284,7 +284,7 @@ describe('DeepInfraProvider', () => {
         usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
       }));
 
-      await provider.submit('Analyze module', null, {
+      await provider.submit('Analyze module', 'test-model-stub', {
         files: ['src/index.js'],
         working_directory: '/repo',
         maxTokens: 222,
@@ -304,7 +304,7 @@ describe('DeepInfraProvider', () => {
         signal: expect.any(AbortSignal),
       }));
       expect(body).toEqual({
-        model: null,
+        model: 'test-model-stub',
         messages: [{
           role: 'user',
           content: 'Files: src/index.js\n\nWorking directory: /repo\n\nAnalyze module',
@@ -320,10 +320,10 @@ describe('DeepInfraProvider', () => {
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       }));
 
-      await provider.submit('task', null, {});
+      await provider.submit('task', 'test-model-stub', {});
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      expect(body.model).toBeNull();
+      expect(body.model).toBe('test-model-stub');
       expect(body.max_tokens).toBe(4096);
       expect(body.temperature).toBeUndefined();
     });
@@ -357,7 +357,7 @@ describe('DeepInfraProvider', () => {
         choices: [],
       }));
 
-      const result = await provider.submit('task', null, {});
+      const result = await provider.submit('task', 'test-model-stub', {});
 
       expect(result.status).toBe('completed');
       expect(result.output).toBe('');
@@ -365,13 +365,13 @@ describe('DeepInfraProvider', () => {
       expect(result.usage.input_tokens).toBe(0);
       expect(result.usage.output_tokens).toBe(0);
       expect(result.usage.cost).toBe(0);
-      expect(result.usage.model).toBeNull();
+      expect(result.usage.model).toBe('test-model-stub');
     });
 
     it.each([401, 403])('builds an auth-aware error message for %i responses', async (status) => {
       fetchMock.mockResolvedValue(textResponse(status, 'denied'));
 
-      await expect(provider.submit('task', null, {})).rejects.toThrow(
+      await expect(provider.submit('task', 'test-model-stub', {})).rejects.toThrow(
         new RegExp(`DeepInfra API error \\(${status}\\): authentication failed or unauthorized: denied`)
       );
     });
@@ -389,7 +389,7 @@ describe('DeepInfraProvider', () => {
         }
       ));
 
-      await expect(provider.submit('task', null, {})).rejects.toThrow(/retry_after_seconds=8/);
+      await expect(provider.submit('task', 'test-model-stub', {})).rejects.toThrow(/retry_after_seconds=8/);
     });
 
     it('uses the configured timeout minutes when scheduling cancellation', async () => {
@@ -399,7 +399,7 @@ describe('DeepInfraProvider', () => {
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       }));
 
-      await provider.submit('task', null, { timeout: 3 });
+      await provider.submit('task', 'test-model-stub', { timeout: 3 });
 
       expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 3 * 60 * 1000);
     });
@@ -407,7 +407,7 @@ describe('DeepInfraProvider', () => {
     it('returns timeout status when fetch rejects with AbortError', async () => {
       fetchMock.mockRejectedValue(abortError());
 
-      const result = await provider.submit('task', null, {});
+      const result = await provider.submit('task', 'test-model-stub', {});
 
       expect(result.status).toBe('timeout');
       expect(result.output).toBe('');
@@ -426,7 +426,7 @@ describe('DeepInfraProvider', () => {
         });
       });
 
-      const resultPromise = provider.submit('task', null, { signal: abortController.signal });
+      const resultPromise = provider.submit('task', 'test-model-stub', { signal: abortController.signal });
       await requestStarted.promise;
       abortController.abort();
 
@@ -448,7 +448,7 @@ describe('DeepInfraProvider', () => {
         usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
       }));
 
-      await provider.submit('task', null, { signal });
+      await provider.submit('task', 'test-model-stub', { signal });
 
       expect(signal.addEventListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
       expect(signal.removeEventListener).toHaveBeenCalledWith('abort', signal.addEventListener.mock.calls[0][1]);
@@ -466,11 +466,11 @@ describe('DeepInfraProvider', () => {
         .mockImplementationOnce(() => firstFetch.promise)
         .mockImplementationOnce(() => secondFetch.promise);
 
-      const firstPromise = concurrentProvider.submit('first task', null, {});
+      const firstPromise = concurrentProvider.submit('first task', 'test-model-stub', {});
       expect(concurrentProvider.activeTasks).toBe(1);
       expect(concurrentProvider.hasCapacity()).toBe(true);
 
-      const secondPromise = concurrentProvider.submit('second task', null, {});
+      const secondPromise = concurrentProvider.submit('second task', 'test-model-stub', {});
       expect(concurrentProvider.activeTasks).toBe(2);
       expect(concurrentProvider.hasCapacity()).toBe(false);
 
@@ -494,7 +494,7 @@ describe('DeepInfraProvider', () => {
     it('decrements activeTasks after request errors', async () => {
       fetchMock.mockResolvedValue(textResponse(500, 'boom'));
 
-      await expect(provider.submit('task', null, {})).rejects.toThrow(/500/);
+      await expect(provider.submit('task', 'test-model-stub', {})).rejects.toThrow(/500/);
       expect(provider.activeTasks).toBe(0);
     });
   });
@@ -503,7 +503,7 @@ describe('DeepInfraProvider', () => {
     it('validates the API key before streaming', async () => {
       const noKeyProvider = new DeepInfraProvider({ apiKey: '' });
 
-      await expect(noKeyProvider.submitStream('task', null, {})).rejects.toThrow(/API key/i);
+      await expect(noKeyProvider.submitStream('task', 'test-model-stub', {})).rejects.toThrow(/API key/i);
     });
 
     it('formats a streaming request and parses streamed tokens and usage', async () => {
@@ -516,7 +516,7 @@ describe('DeepInfraProvider', () => {
       fetchMock.mockResolvedValue({ ok: true, body });
 
       const chunks = [];
-      const result = await provider.submitStream('task', null, {
+      const result = await provider.submitStream('task', 'test-model-stub', {
         onChunk: (chunk) => chunks.push(chunk),
       });
 
@@ -533,7 +533,7 @@ describe('DeepInfraProvider', () => {
         signal: expect.any(AbortSignal),
       }));
       expect(requestBody).toEqual({
-        model: null,
+        model: 'test-model-stub',
         messages: [{ role: 'user', content: 'task' }],
         max_tokens: 4096,
         stream: true,
@@ -583,7 +583,7 @@ describe('DeepInfraProvider', () => {
       ]);
       fetchMock.mockResolvedValue({ ok: true, body });
 
-      const result = await provider.submitStream('task', null, {});
+      const result = await provider.submitStream('task', 'test-model-stub', {});
 
       expect(result.status).toBe('completed');
       expect(result.output).toBe('Hello!');
@@ -599,7 +599,7 @@ describe('DeepInfraProvider', () => {
       ]);
       fetchMock.mockResolvedValue({ ok: true, body });
 
-      const result = await provider.submitStream('task', null, {});
+      const result = await provider.submitStream('task', 'test-model-stub', {});
 
       expect(result.output).toBe('Hello');
       expect(result.usage.tokens).toBe(0);
@@ -618,7 +618,7 @@ describe('DeepInfraProvider', () => {
       fetchMock.mockResolvedValue({ ok: true, body });
 
       const chunks = [];
-      const result = await provider.submitStream('task', null, {
+      const result = await provider.submitStream('task', 'test-model-stub', {
         onChunk: (chunk) => chunks.push(chunk),
       });
 
@@ -631,7 +631,7 @@ describe('DeepInfraProvider', () => {
     it.each([401, 403])('builds an auth-aware streaming error message for %i responses', async (status) => {
       fetchMock.mockResolvedValue(textResponse(status, 'denied'));
 
-      await expect(provider.submitStream('task', null, {})).rejects.toThrow(
+      await expect(provider.submitStream('task', 'test-model-stub', {})).rejects.toThrow(
         new RegExp(`DeepInfra streaming API error \\(${status}\\): authentication failed or unauthorized: denied`)
       );
     });
@@ -649,7 +649,7 @@ describe('DeepInfraProvider', () => {
         }
       ));
 
-      await expect(provider.submitStream('task', null, {})).rejects.toThrow(/retry_after_seconds=11/);
+      await expect(provider.submitStream('task', 'test-model-stub', {})).rejects.toThrow(/retry_after_seconds=11/);
     });
 
     it('uses the configured timeout minutes when scheduling stream cancellation', async () => {
@@ -660,7 +660,7 @@ describe('DeepInfraProvider', () => {
       ]);
       fetchMock.mockResolvedValue({ ok: true, body });
 
-      await provider.submitStream('task', null, { timeout: 4 });
+      await provider.submitStream('task', 'test-model-stub', { timeout: 4 });
 
       expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 4 * 60 * 1000);
     });
@@ -668,7 +668,7 @@ describe('DeepInfraProvider', () => {
     it('returns timeout when fetch aborts before the stream starts', async () => {
       fetchMock.mockRejectedValue(abortError());
 
-      const result = await provider.submitStream('task', null, {});
+      const result = await provider.submitStream('task', 'test-model-stub', {});
 
       expect(result.status).toBe('timeout');
       expect(result.output).toBe('');
@@ -707,7 +707,7 @@ describe('DeepInfraProvider', () => {
         },
       });
 
-      const resultPromise = provider.submitStream('task', null, { signal: abortController.signal });
+      const resultPromise = provider.submitStream('task', 'test-model-stub', { signal: abortController.signal });
       await secondReadStarted.promise;
       abortController.abort();
 
@@ -730,7 +730,7 @@ describe('DeepInfraProvider', () => {
       ]);
       fetchMock.mockResolvedValue({ ok: true, body });
 
-      await provider.submitStream('task', null, { signal });
+      await provider.submitStream('task', 'test-model-stub', { signal });
 
       expect(signal.addEventListener).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
       expect(signal.removeEventListener).toHaveBeenCalledWith('abort', signal.addEventListener.mock.calls[0][1]);
@@ -749,7 +749,7 @@ describe('DeepInfraProvider', () => {
       );
       fetchMock.mockResolvedValue({ ok: true, body });
 
-      const result = await provider.submitStream('task', null, {});
+      const result = await provider.submitStream('task', 'test-model-stub', {});
 
       expect(result.status).toBe('completed');
       expect(result.output).toBe('ok');
@@ -759,7 +759,7 @@ describe('DeepInfraProvider', () => {
     it('decrements activeTasks after streaming request errors', async () => {
       fetchMock.mockResolvedValue(textResponse(500, 'boom'));
 
-      await expect(provider.submitStream('task', null, {})).rejects.toThrow(/500/);
+      await expect(provider.submitStream('task', 'test-model-stub', {})).rejects.toThrow(/500/);
       expect(provider.activeTasks).toBe(0);
     });
   });
