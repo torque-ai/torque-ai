@@ -10,9 +10,12 @@ const { MAX_STREAMING_OUTPUT } = require('../constants');
 const { buildErrorMessage, buildOpenAIChatBody, isJsonModeRequested } = require('./shared');
 const logger = require('../logger');
 
-// Models known to be available on Cerebras Cloud (mirrored in listModels).
+// Models known to be advertised by Cerebras Cloud (mirrored in listModels).
 // Used to validate operator overrides — invalid values silently fall back
 // to the general default rather than send an unknown model to the API.
+// Note: gpt-oss-120b and zai-glm-4.7 are listed by /v1/models but only
+// reachable via chat/completions on paid tiers, so they're not the
+// out-of-the-box defaults.
 const CEREBRAS_KNOWN_MODELS = new Set([
   'llama3.1-8b',
   'qwen-3-235b-a22b-instruct-2507',
@@ -34,12 +37,13 @@ class CerebrasProvider extends BaseProvider {
       || (envDefault && CEREBRAS_KNOWN_MODELS.has(envDefault) ? envDefault : null)
       || 'qwen-3-235b-a22b-instruct-2507';
     // The structured-output default. Yes/no JSON verdicts and similar
-    // tasks don't need a 235B MoE — a small fast model returns the same
-    // verdict in <1s. Override via CEREBRAS_STRUCTURED_MODEL.
+    // tasks don't need a 235B MoE — llama3.1-8b returns the same verdict
+    // in <1s and is the smallest cerebras model reliably available on
+    // free-tier keys. Override via CEREBRAS_STRUCTURED_MODEL.
     const envStructured = process.env.CEREBRAS_STRUCTURED_MODEL;
     this.structuredModel = config.structuredModel
       || (envStructured && CEREBRAS_KNOWN_MODELS.has(envStructured) ? envStructured : null)
-      || 'zai-glm-4.7';
+      || 'llama3.1-8b';
   }
 
   /**

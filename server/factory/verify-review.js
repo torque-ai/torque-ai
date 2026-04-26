@@ -262,7 +262,11 @@ function readReviewerModelOverride() {
 function resolveReviewerModel() {
   const envOverride = readReviewerModelOverride();
   if (envOverride !== undefined) return envOverride;
-  return 'zai-glm-4.7';
+  // llama3.1-8b is the smallest cerebras model that's reliably available
+  // on the free tier and handles JSON-mode short verdicts cleanly.
+  // zai-glm-4.7 and gpt-oss-120b appear in /v1/models but 404 on chat
+  // completions for tier-1 keys.
+  return 'llama3.1-8b';
 }
 
 // Reinforces the JSON-shape contract when the first attempt produced
@@ -299,8 +303,8 @@ async function submitAndParseTiebreak({ prompt, workingDirectory, project, workI
       // Pin the reviewer model — the routing template's free-agentic
       // preset specifies qwen-3-235b for plan_generation, which would
       // override the cerebras adapter's structured-output model
-      // selection. zai-glm-4.7 handles short JSON-mode prompts reliably
-      // where qwen-3-235b returns null output.
+      // selection. llama3.1-8b handles short JSON-mode prompts in <1s
+      // and is reliably available on tier-1 cerebras keys.
       ...(reviewerModel ? { model: reviewerModel } : {}),
       // Structured-output hint: the cerebras adapter (and any future
       // adapter) treats response_format=json_object as a signal to

@@ -798,7 +798,7 @@ describe('runLlmTiebreak', () => {
     expect(r.taskId).toBe('t-empty-2');
   });
 
-  it('passes a reviewerModel override (default zai-glm-4.7) into the submit', async () => {
+  it('passes a reviewerModel override (default llama3.1-8b) into the submit', async () => {
     const submit = vi.fn().mockResolvedValue({ task_id: 't-model' });
     installMocks({
       submit,
@@ -819,7 +819,7 @@ describe('runLlmTiebreak', () => {
         project: { id: 'p', path: '/tmp/p' },
       });
       expect(submit).toHaveBeenCalledWith(expect.objectContaining({
-        model: 'zai-glm-4.7',
+        model: 'llama3.1-8b',
       }));
     } finally {
       if (original === undefined) delete process.env.TORQUE_VERIFY_REVIEWER_MODEL;

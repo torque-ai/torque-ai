@@ -195,7 +195,7 @@ async function submitFactoryInternalTask({
   const effectiveProvider = requestedProvider || inheritedIntent.provider;
   const effectiveRoutingTemplate = requestedRoutingTemplate || inheritedIntent.routingTemplate;
   // Caller-provided model wins over inherited. Used by the verify-review
-  // path to pin a small/fast model (zai-glm-4.7) instead of inheriting
+  // path to pin a small/fast model (llama3.1-8b) instead of inheriting
   // the routing template's heavy model (qwen-3-235b returns null output
   // on short structured prompts).
   const requestedModel = normalizeOptionalString(model);
