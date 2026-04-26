@@ -36,7 +36,7 @@ describe('provider hyperbolic', () => {
 
   it('validates API key before submit', async () => {
     const provider = new HyperbolicProvider({ apiKey: '' });
-    await expect(provider.submit('task', null, {})).rejects.toThrow(/API key/i);
+    await expect(provider.submit('task', 'test-model-stub', {})).rejects.toThrow(/API key/i);
   });
 
   it('formats OpenAI-compatible submit request with default model', async () => {
@@ -49,7 +49,7 @@ describe('provider hyperbolic', () => {
       }),
     });
 
-    await provider.submit('Review bug', null, {
+    await provider.submit('Review bug', 'test-model-stub', {
       maxTokens: 50,
       tuning: { temperature: 0.3 },
     });
@@ -93,7 +93,7 @@ describe('provider hyperbolic', () => {
       }),
     });
 
-    const result = await provider.submit('task', null, {});
+    const result = await provider.submit('task', 'test-model-stub', {});
     expect(result.status).toBe('completed');
     expect(result.output).toBe('final answer');
     expect(result.usage.tokens).toBe(20);
@@ -109,7 +109,7 @@ describe('provider hyperbolic', () => {
       text: async () => 'denied',
     });
 
-    await expect(provider.submit('task', null, {})).rejects.toThrow(/authentication failed or unauthorized/i);
+    await expect(provider.submit('task', 'test-model-stub', {})).rejects.toThrow(/authentication failed or unauthorized/i);
   });
 
   it('includes retry_after_seconds when rate-limit headers are returned', async () => {
@@ -123,14 +123,14 @@ describe('provider hyperbolic', () => {
       text: async () => 'rate limit',
     });
 
-    await expect(provider.submit('task', null, {})).rejects.toThrow(/retry_after_seconds=6/);
+    await expect(provider.submit('task', 'test-model-stub', {})).rejects.toThrow(/retry_after_seconds=6/);
   });
 
   it('returns timeout status on submit AbortError', async () => {
     const provider = new HyperbolicProvider({ apiKey: 'hyperbolic-key' });
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(abortError());
 
-    const result = await provider.submit('task', null, {});
+    const result = await provider.submit('task', 'test-model-stub', {});
     expect(result.status).toBe('timeout');
     expect(result.output).toBe('');
     expect(result.usage.tokens).toBe(0);
@@ -147,7 +147,7 @@ describe('provider hyperbolic', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, body });
 
     const chunks = [];
-    const result = await provider.submitStream('task', null, { onChunk: (chunk) => chunks.push(chunk) });
+    const result = await provider.submitStream('task', 'test-model-stub', { onChunk: (chunk) => chunks.push(chunk) });
 
     const requestBody = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(requestBody.stream).toBe(true);
@@ -167,7 +167,7 @@ describe('provider hyperbolic', () => {
     ]);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, body });
 
-    const result = await provider.submitStream('task', null, {});
+    const result = await provider.submitStream('task', 'test-model-stub', {});
     expect(result.output).toBe('Hello!');
     expect(result.usage.tokens).toBe(2);
   });
@@ -182,7 +182,7 @@ describe('provider hyperbolic', () => {
     ]);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, body });
 
-    const result = await provider.submitStream('task', null, {});
+    const result = await provider.submitStream('task', 'test-model-stub', {});
     expect(result.output).toContain('[...OUTPUT TRUNCATED...]');
     expect(result.output).not.toContain(`${maxChunk}Z`);
   });
@@ -191,7 +191,7 @@ describe('provider hyperbolic', () => {
     const provider = new HyperbolicProvider({ apiKey: 'hyperbolic-key' });
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(abortError());
 
-    const result = await provider.submitStream('task', null, {});
+    const result = await provider.submitStream('task', 'test-model-stub', {});
     expect(result.status).toBe('timeout');
     expect(result.output).toBe('');
     expect(result.usage.tokens).toBe(0);

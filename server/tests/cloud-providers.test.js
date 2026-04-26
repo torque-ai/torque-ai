@@ -259,7 +259,7 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
       }
 
       expect(p.activeTasks).toBe(0);
-      const result = await p.submit('task', null, {});
+      const result = await p.submit('task', expectedDefaultModel || 'test-model-stub', {});
       expect(p.activeTasks).toBe(0); // decremented after
       expect(result.output).toBe('result');
       expect(result.status).toBe('completed');
@@ -308,7 +308,7 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
         });
       }
 
-      await p.submit('task', null, {});
+      await p.submit('task', expectedDefaultModel || 'test-model-stub', {});
 
       expect(capturedHeaders['Content-Type']).toBe('application/json');
       if (apiFormat === 'openai') {
@@ -332,7 +332,7 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
         return mockResponse;
       });
 
-      await p.submit('task', null, { tuning: { temperature: 0.5 } });
+      await p.submit('task', expectedDefaultModel || 'test-model-stub', { tuning: { temperature: 0.5 } });
       expect(capturedBody.temperature).toBe(0.5);
     });
 
@@ -345,7 +345,7 @@ describe.each(providers)('$name Provider', ({ Class, envKey, expectedName, expec
         throw err;
       });
 
-      const result = await p.submit('task', null, { timeout: 0.001 });
+      const result = await p.submit('task', expectedDefaultModel || 'test-model-stub', { timeout: 0.001 });
       expect(result.status).toBe('timeout');
       expect(result.output).toBe('');
     });
