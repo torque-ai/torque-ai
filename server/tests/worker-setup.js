@@ -193,6 +193,20 @@ childProcess.execFile = function(file, args, options, callback) {
   return _realExecFile.call(this, file, args, options, callback);
 };
 
+// Add Node's custom promisify symbol so that promisify(childProcess.execFile) resolves to
+// { stdout, stderr } — matching the real execFile behaviour. Without this, promisify wraps
+// the stub as a standard 2-arg callback (resolves to stdout string directly), causing
+// destructuring like `const { stdout } = await execFileAsync(...)` to produce undefined.
+const { promisify } = require('util');
+childProcess.execFile[promisify.custom] = function(file, args, options) {
+  return new Promise((resolve, reject) => {
+    childProcess.execFile(file, args, options, (err, stdout, stderr) => {
+      if (err) { err.stdout = stdout; err.stderr = stderr; reject(err); }
+      else resolve({ stdout, stderr });
+    });
+  });
+};
+
 // Patch spawn — block accidental real agent CLIs in tests. Test files that need
 // process behavior should install their own mock spawn; real Codex/Claude runs
 // are too slow and can leak child processes on Windows.
