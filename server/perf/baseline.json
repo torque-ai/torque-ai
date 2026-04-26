@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-04-26T02:15:11.372Z",
+  "captured_at": "2026-04-26T03:19:56.322Z",
   "env": {
     "cpu_count": 20,
     "total_memory_mb": 32630,
@@ -7,71 +7,71 @@
     "platform": "win32",
     "host_label": "BahumutsOmen"
   },
-  "last_updated_at": "2026-04-26T02:16:34.941Z",
+  "last_updated_at": "2026-04-26T03:20:09.056Z",
   "metrics": {
     "queue-scheduler-tick": {
       "id": "queue-scheduler-tick",
-      "median": 0.16020000000000323,
-      "p95": 0.22779999999997358,
+      "median": 0.17040000000000077,
+      "p95": 0.23519999999999186,
       "runs": 1000,
       "warmup": 10,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "task-core-create": {
       "id": "task-core-create",
-      "median": 0.4321999999999946,
-      "p95": 0.5150999999999613,
+      "median": 0.4224999999999852,
+      "p95": 0.5038000000000125,
       "runs": 100,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "governance-evaluate": {
       "id": "governance-evaluate",
-      "median": 144.02890000000025,
-      "p95": 147.77900000000045,
+      "median": 172.63785000000098,
+      "p95": 175.60580000000004,
       "runs": 100,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "handler-project-stats": {
       "id": "handler-project-stats",
-      "median": 1.0131000000001222,
-      "p95": 1.2554000000000087,
+      "median": 1.1745499999997264,
+      "p95": 1.5675999999984924,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "mcp-task-info": {
       "id": "mcp-task-info",
-      "median": 0.28884999999900174,
-      "p95": 0.3368999999984226,
+      "median": 0.26519999999982247,
+      "p95": 0.2960000000020955,
       "runs": 100,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "sse-dispatch": {
       "id": "sse-dispatch",
-      "median": 0.28690000000096916,
-      "p95": 0.42550000000119326,
+      "median": 0.2868999999973312,
+      "p95": 0.42810000000099535,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "db-factory-cost-summary": {
       "id": "db-factory-cost-summary",
-      "median": 0.47260000000096625,
-      "p95": 0.6033999999999651,
+      "median": 0.5571499999987282,
+      "p95": 0.6690999999991618,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "db-project-stats": {
       "id": "db-project-stats",
-      "median": 0.9450500000002648,
-      "p95": 1.1687999999994645,
+      "median": 1.125849999998536,
+      "p95": 1.4681999999993423,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "db-list-tasks": {
       "id": "db-list-tasks",
@@ -79,25 +79,25 @@
       "warmup": 5,
       "byVariant": {
         "parsed": {
-          "median": 13.699850000000879,
-          "p95": 15.194899999998597,
+          "median": 14.923099999999977,
+          "p95": 15.965399999997317,
           "runs": 50
         },
         "raw": {
-          "median": 13.696500000000015,
-          "p95": 14.80739999999787,
+          "median": 14.785799999999654,
+          "p95": 16.037499999998545,
           "runs": 50
         }
       },
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "db-budget-threshold": {
       "id": "db-budget-threshold",
-      "median": 0.14064999999936845,
-      "p95": 0.17510000000038417,
+      "median": 0.1481999999978143,
+      "p95": 0.18179999999847496,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "cold-import": {
       "id": "cold-import",
@@ -105,43 +105,43 @@
       "warmup": 1,
       "byVariant": {
         "tools": {
-          "median": 740.6365000000001,
-          "p95": 747.448,
+          "median": 731.6205,
+          "p95": 732.908,
           "runs": 10
         },
         "task-manager": {
-          "median": 273.312,
-          "p95": 279.79,
+          "median": 284.80600000000004,
+          "p95": 286.76,
           "runs": 10
         },
         "database": {
-          "median": 25.7315,
-          "p95": 26.158,
+          "median": 24.7515,
+          "p95": 26.182,
           "runs": 10
         },
         "db-task-core": {
-          "median": 14.592500000000001,
-          "p95": 14.823,
+          "median": 13.985,
+          "p95": 14.435,
           "runs": 10
         }
       },
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "worktree-lifecycle": {
       "id": "worktree-lifecycle",
-      "median": 131.58299999999872,
-      "p95": 131.78700000000026,
+      "median": 158.1750999999931,
+      "p95": 159.84180000000197,
       "runs": 5,
       "warmup": 1,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     },
     "restart-barrier": {
       "id": "restart-barrier",
-      "median": 0.017389649999999167,
-      "p95": 0.018152199999996812,
+      "median": 0.01808274999999776,
+      "p95": 0.019127500000002327,
       "runs": 50,
       "warmup": 5,
-      "last_updated_at": "2026-04-26T02:16:34.941Z"
+      "last_updated_at": "2026-04-26T03:20:09.056Z"
     }
   }
 }
