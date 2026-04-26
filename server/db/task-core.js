@@ -16,6 +16,7 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../logger').child({ component: 'task-core' });
 const { safeJsonParse } = require('../utils/json');
+const perfCounters = require('../operations-perf-counters');
 const { normalizeMetadata: normalizeMetadataObject } = require('../utils/normalize-metadata');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { buildTaskFilterConditions, appendWhereClause } = require('./query-filters');
@@ -972,6 +973,7 @@ function listTasks(options = {}) {
   // When options.raw === true, callers receive raw JSON strings for tags/files_modified/context
   // and handle parsing themselves — saving ~3 JSON.parse calls per row.
   const skipJsonParse = options && options.raw;
+  perfCounters.increment(skipJsonParse ? 'listTasksRaw' : 'listTasksParsed');
   return rows.map(row => {
     const out = { ...row };
     if ('auto_approve' in row) out.auto_approve = Boolean(row.auto_approve);

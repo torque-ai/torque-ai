@@ -1,6 +1,7 @@
 'use strict';
 
 const { safeJsonParse } = require('../utils/json');
+const perfCounters = require('../operations-perf-counters');
 
 const DEFAULT_CAPABILITIES = {
   codex: { capabilities: ['file_creation', 'file_edit', 'multi_file', 'reasoning'], band: 'A' },
@@ -64,6 +65,7 @@ function getProviderCapabilitySet(provider) {
   if (_capabilitySetCache.has(provider)) return _capabilitySetCache.get(provider);
   const s = new Set(getProviderCapabilities(provider));
   _capabilitySetCache.set(provider, s);
+  perfCounters.increment('capabilitySetBuilt');
   return s;
 }
 

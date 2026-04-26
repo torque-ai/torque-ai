@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { safeJsonParse } = require('../utils/json');
+const perfCounters = require('../operations-perf-counters');
 
 let db;
 let _packRegistryColumnInfoCache = null;
@@ -18,6 +19,7 @@ function getPackRegistryColumnInfo() {
 
   try {
     _packRegistryColumnInfoCache = db.prepare('PRAGMA table_info(pack_registry)').all();
+    perfCounters.increment('pragmaPackRegistry');
     return _packRegistryColumnInfoCache;
   } catch {
     return [];

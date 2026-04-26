@@ -1099,6 +1099,14 @@ const routes = [
     middleware: buildV2Middleware(),
   },
 
+  // Performance counters
+  {
+    method: 'GET',
+    path: '/api/v2/operations/perf',
+    handlerName: 'handleV2CpGetPerfCounters',
+    middleware: buildV2Middleware(),
+  },
+
   // Strategic operations
   {
     method: 'GET',

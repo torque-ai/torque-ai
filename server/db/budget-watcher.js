@@ -1,5 +1,7 @@
 'use strict';
 
+const perfCounters = require('../operations-perf-counters');
+
 const DEFAULT_WARNING_PERCENT = 80;
 const DEFAULT_DOWNGRADE_PERCENT = 90;
 const DEFAULT_HARD_STOP_PERCENT = 100;
@@ -168,6 +170,7 @@ function hasThresholdConfigColumn(database) {
   const columns = database.prepare('PRAGMA table_info(cost_budgets)').all();
   const result = columns.some((column) => column.name === 'threshold_config');
   _hasThresholdConfigColumnCache.set(database, result);
+  perfCounters.increment('pragmaCostBudgets');
   return result;
 }
 
