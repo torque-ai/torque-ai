@@ -91,14 +91,4 @@ function extractTaskId(result) {
   return null;
 }
 
-// Vitest needs at least one test in every matched file
-describe('test-helpers', () => {
-  it('exports utility functions', () => {
-    expect(typeof uniqueId).toBe('function');
-    expect(typeof sleep).toBe('function');
-    expect(typeof extractTaskId).toBe('function');
-    expect(uniqueId('foo')).toMatch(/^foo_/);
-  });
-});
-
 module.exports = { uniqueId, sleep, extractTaskId, TEST_MODELS, TEST_CONFIG_DEFAULTS, createConfigMock };
