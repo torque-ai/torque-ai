@@ -1,9 +1,9 @@
 /**
  * MCP Tools definitions and handlers for TORQUE
  *
- * Tool definitions live in ./tool-defs/ (one file per handler module).
- * Handler implementations live in ./handlers/ modules.
- * Dispatch is auto-built from handler exports via pascalToSnake mapping.
+ * Thin metadata (TOOLS, schemaMap, routeMap, decorateToolDefinition) lives in
+ * ./tool-registry.js and is imported here. Handler modules are loaded below.
+ * Callers that only need metadata should import tool-registry directly.
  */
 
 const path = require('path');
@@ -17,107 +17,21 @@ const reviewHandlers = require('./handlers/review-handler');
 const symbolIndexerHandlers = require('./handlers/symbol-indexer-handlers');
 const templateHandlers = require('./handlers/template-handlers');
 const { CORE_TOOL_NAMES, EXTENDED_TOOL_NAMES } = require('./core-tools');
-const competitiveFeatureDefs = require('./tool-defs/competitive-feature-defs');
-const workflowSpecToolDefs = require('./tool-defs/workflow-spec-defs');
-const WORKFLOW_SPEC_TOOLS = Array.isArray(workflowSpecToolDefs)
-  ? workflowSpecToolDefs
-  : workflowSpecToolDefs.WORKFLOW_SPEC_TOOLS;
-const workflowResumeToolDefs = require('./tool-defs/workflow-resume-defs');
-const WORKFLOW_RESUME_TOOLS = Array.isArray(workflowResumeToolDefs)
-  ? workflowResumeToolDefs
-  : workflowResumeToolDefs.WORKFLOW_RESUME_TOOLS;
-const eventToolDefs = require('./tool-defs/event-defs');
-const EVENT_TOOLS = Array.isArray(eventToolDefs)
-  ? eventToolDefs
-  : eventToolDefs.EVENT_TOOLS;
-const runArtifactToolDefs = require('./tool-defs/run-artifact-defs');
-const RUN_ARTIFACT_TOOLS = Array.isArray(runArtifactToolDefs)
-  ? runArtifactToolDefs
-  : runArtifactToolDefs.RUN_ARTIFACT_TOOLS;
-const { applyBehavioralTags } = require('./tools/behavioral-tags');
+
+// Re-export thin metadata from tool-registry (no handler loading).
+const {
+  TOOLS,
+  schemaMap: _registrySchemaMap,
+  decorateToolDefinition,
+  populateRouteMap,
+} = require('./tool-registry');
+
+// ── Merge MCP tool annotations (Phase: MCP ecosystem improvements) ──
+const { validateCoverage } = require('./tool-annotations');
 
 let _remoteAgentPluginDefs = null;
 let _remoteAgentPluginHandlers = null;
 let _runtimeRegisteredToolDefs = [];
-
-// ── Tool definitions (JSON schemas) ──
-const TOOLS = [
-  ...require('./tool-defs/core-defs'),
-  ...require('./tool-defs/task-submission-defs'),
-  ...require('./tool-defs/task-management-defs'),
-  ...require('./tool-defs/task-defs'),
-  ...require('./tool-defs/workflow-defs'),
-  ...WORKFLOW_RESUME_TOOLS,
-  ...WORKFLOW_SPEC_TOOLS,
-  ...EVENT_TOOLS,
-  ...RUN_ARTIFACT_TOOLS,
-  ...require('./tool-defs/baseline-defs'),
-  ...require('./tool-defs/checkpoint-defs'),
-  ...require('./tool-defs/approval-defs'),
-  ...require('./tool-defs/validation-defs'),
-  ...require('./tool-defs/provider-defs'),
-  ...require('./tool-defs/provider-crud-defs'),
-  ...require('./tool-defs/ci-defs'),
-  ...require('./tool-defs/webhook-defs'),
-  ...require('./tool-defs/intelligence-defs'),
-  ...require('./tool-defs/advanced-defs'),
-  ...require('./tool-defs/integration-defs'),
-  ...require('./tool-defs/automation-defs'),
-  ...require('./tool-defs/comparison-defs'),
-  ...require('./tool-defs/hashline-defs'),
-  ...require('./tool-defs/tsserver-defs'),
-  ...require('./tool-defs/policy-defs'),
-  ...require('./tool-defs/governance-defs'),
-  ...require('./tool-defs/evidence-risk-defs'),
-  ...require('./tool-defs/conflict-resolution-defs'),
-  ...require('./tool-defs/orchestrator-defs'),
-  ...require('./tool-defs/experiment-defs'),
-  ...require('./tool-defs/audit-defs'),
-  ...require('./tool-defs/workstation-defs'),
-  ...require('./tool-defs/concurrency-defs'),
-  ...require('./tool-defs/model-defs'),
-  ...require('./tool-defs/discovery-defs'),
-  ...require('./tool-defs/agent-discovery-defs'),
-  ...require('./tool-defs/circuit-breaker-defs'),
-  ...require('./tool-defs/budget-watcher-defs'),
-  ...require('./tool-defs/provider-scoring-defs'),
-  ...require('./tool-defs/routing-template-defs'),
-  ...require('./tool-defs/strategic-config-defs'),
-  ...require('./tool-defs/context-defs'),
-  ...require('./tool-defs/codebase-study-defs'),
-  ...require('./tool-defs/mcp-defs'),
-  ...require('./tool-defs/managed-oauth-defs'),
-  ...require('./tool-defs/pattern-defs'),
-  ...competitiveFeatureDefs,
-  ...require('./tool-defs/review-defs'),
-  ...require('./tool-defs/symbol-indexer-defs'),
-  ...require('./tool-defs/template-defs'),
-  ...require('./tool-defs/diffusion-defs'),
-  ...require('./tool-defs/factory-defs'),
-];
-
-// ── Merge MCP tool annotations (Phase: MCP ecosystem improvements) ──
-const { getAnnotations, validateCoverage } = require('./tool-annotations');
-
-function toBehavioralAnnotationSnapshot(tool) {
-  return {
-    readOnlyHint: Boolean(tool.readOnlyHint),
-    destructiveHint: Boolean(tool.destructiveHint),
-    idempotentHint: Boolean(tool.idempotentHint),
-    openWorldHint: Boolean(tool.openWorldHint),
-  };
-}
-
-function decorateToolDefinition(tool, hintSource) {
-  if (!tool || !tool.name) {
-    return tool;
-  }
-
-  const hints = hintSource || tool.annotations || getAnnotations(tool.name);
-  const taggedTool = applyBehavioralTags(tool, hints);
-  taggedTool.annotations = toBehavioralAnnotationSnapshot(taggedTool);
-  return taggedTool;
-}
 
 function setRuntimeRegisteredToolDefs(toolDefs = []) {
   _runtimeRegisteredToolDefs = Array.isArray(toolDefs)
@@ -136,12 +50,6 @@ function getRuntimeRegisteredToolDefs() {
 
 function getRuntimeRegisteredToolDef(toolName) {
   return _runtimeRegisteredToolDefs.find((tool) => tool && tool.name === toolName) || null;
-}
-
-for (const tool of TOOLS) {
-  if (tool && tool.name) {
-    Object.assign(tool, decorateToolDefinition(tool));
-  }
 }
 
 function loadStaticPluginToolNamesForCoverage() {
@@ -253,12 +161,8 @@ const HANDLER_MODULES = [
 ];
 
 // ── Schema lookup map (tool name → inputSchema) ──
-const schemaMap = new Map();
-for (const def of TOOLS) {
-  if (def && def.name && def.inputSchema) {
-    schemaMap.set(def.name, def.inputSchema);
-  }
-}
+// Comes from tool-registry.js; re-use directly to avoid rebuilding.
+const schemaMap = _registrySchemaMap;
 
 // ── Centralized JSON Schema validation ──
 
@@ -420,6 +324,10 @@ routeMap.set('detect_project_type', templateHandlers.handleDetectProjectType);
 routeMap.set('get_governance_rules', governanceHandlers.handleGetGovernanceRules);
 routeMap.set('set_governance_rule_mode', governanceHandlers.handleSetGovernanceRuleMode);
 routeMap.set('toggle_governance_rule', governanceHandlers.handleToggleGovernanceRule);
+
+// Sync the populated routeMap back into tool-registry.js so tests that
+// import tool-registry directly (after tools.js has run) see the full table.
+populateRouteMap(routeMap);
 
 function getRemoteAgentPluginDefs() {
   if (!_remoteAgentPluginDefs) {
