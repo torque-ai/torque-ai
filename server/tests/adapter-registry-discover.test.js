@@ -42,17 +42,18 @@ function makeProviderMock(providerId, opts = {}) {
     models: [{ model_name: `${providerId}-model`, family: 'test' }],
     provider: providerId,
   }));
+  const listModels = vi.fn(async () => [`${providerId}-model`]);
   const MockClass = class {
     constructor() {
       this.providerId = providerId;
       this.supportsStreaming = opts.supportsStreaming !== false;
       this.discoverModels = discoverModels;
-      this.listModels = vi.fn(async () => [`${providerId}-model`]);
+      this.listModels = listModels;
       this.checkHealth = vi.fn(async () => ({ available: true }));
       this.submit = vi.fn(async () => ({}));
     }
   };
-  return { MockClass, discoverModels };
+  return { MockClass, discoverModels, listModels };
 }
 
 // ── Install provider mocks so adapter-registry can be loaded ─────────────
@@ -110,9 +111,10 @@ describe('adapter-registry discoverAllModels', () => {
   let registry;
   let discoveryMock;
   let configMock;
+  let providers;
 
   beforeEach(() => {
-    installAllProviderMocks();
+    providers = installAllProviderMocks();
 
     discoveryMock = makeDiscoveryEngineMock();
     installMock('../discovery/discovery-engine', discoveryMock);
@@ -146,7 +148,7 @@ describe('adapter-registry discoverAllModels', () => {
     expect(result).toHaveProperty('ollama-strategic');
   });
 
-  it('skips cloud providers that have no API key configured', async () => {
+  it('skips cloud providers that have no API key configured except public OpenRouter discovery', async () => {
     // configMock returns null for every provider → all cloud providers skipped
     const result = await registry.discoverAllModels(null);
 
@@ -157,8 +159,8 @@ describe('adapter-registry discoverAllModels', () => {
     expect(result).not.toHaveProperty('hyperbolic');
     expect(result).not.toHaveProperty('cerebras');
     expect(result).not.toHaveProperty('google-ai');
-    expect(result).not.toHaveProperty('openrouter');
     expect(result).not.toHaveProperty('ollama-cloud');
+    expect(result).toHaveProperty('openrouter');
   });
 
   it('includes cloud providers when they have API keys', async () => {
@@ -174,6 +176,7 @@ describe('adapter-registry discoverAllModels', () => {
 
     expect(result).toHaveProperty('anthropic');
     expect(result).toHaveProperty('groq');
+    expect(result).toHaveProperty('openrouter');
     // Other cloud providers still absent (no keys)
     expect(result).not.toHaveProperty('deepinfra');
   });
@@ -276,5 +279,27 @@ describe('adapter-registry discoverAllModels', () => {
       new: 1,
       updated: 1,
     });
+  });
+
+  it('forwards options through the adapter discoverModels wrapper', async () => {
+    const adapter = registry.getProviderAdapter('openrouter');
+
+    await adapter.discoverModels({ toolsOnly: true, freeOnly: false });
+
+    expect(providers.openrouter.discoverModels).toHaveBeenCalledWith(expect.objectContaining({
+      toolsOnly: true,
+      freeOnly: false,
+    }));
+  });
+
+  it('forwards options through the adapter listModels wrapper', async () => {
+    const adapter = registry.getProviderAdapter('anthropic');
+
+    await adapter.listModels({ limit: 5, timeoutMs: 1000 });
+
+    expect(providers.anthropic.listModels).toHaveBeenCalledWith(expect.objectContaining({
+      limit: 5,
+      timeoutMs: 1000,
+    }));
   });
 });

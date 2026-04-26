@@ -213,4 +213,39 @@ describe('provider adapter registry', () => {
       supportsCancellation: true,
     });
   });
+
+  it('forwards option arguments through adapter wrapper methods', async () => {
+    const customId = 'unit-options-forward';
+    const listModels = vi.fn(async () => ['m1']);
+    const discoverModels = vi.fn(async () => ({ provider: customId, models: [{ model_name: 'm1' }] }));
+    registerProviderAdapter(customId, () => ({
+      id: customId,
+      capabilities: { supportsStream: false, supportsAsync: false, supportsCancellation: false },
+      supportsStream: false,
+      supportsAsync: false,
+      supportsCancellation: false,
+      submit: async () => ({ output: 'custom', status: 'completed' }),
+      submitAsync: async () => ({ output: 'custom-async', status: 'completed' }),
+      cancel: async () => ({ cancelled: false, provider: customId, supported: false }),
+      normalizeResult: (value) => value,
+      checkHealth: async () => ({ available: true }),
+      listModels,
+      discoverModels,
+    }));
+
+    const adapter = getProviderAdapter(customId);
+    await adapter.listModels({ limit: 11, freeOnly: false });
+    await adapter.discoverModels({ toolsOnly: true, freeOnly: false });
+
+    expect(listModels).toHaveBeenCalledTimes(1);
+    expect(listModels).toHaveBeenCalledWith(expect.objectContaining({
+      limit: 11,
+      freeOnly: false,
+    }));
+    expect(discoverModels).toHaveBeenCalledTimes(1);
+    expect(discoverModels).toHaveBeenCalledWith(expect.objectContaining({
+      toolsOnly: true,
+      freeOnly: false,
+    }));
+  });
 });

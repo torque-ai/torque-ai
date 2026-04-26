@@ -6,6 +6,9 @@ const fileTracking = require('../db/file-tracking');
 const taskCore = require('../db/task-core');
 const providerRoutingCore = require('../db/provider-routing-core');
 const hostManagement = require('../db/host-management');
+const modelRegistry = require('../models/registry');
+const adapterRegistry = require('../providers/adapter-registry');
+const serverConfig = require('../config');
 const { createConfigMock } = require('./test-helpers');
 
 function createMockResponse() {
@@ -128,9 +131,12 @@ describe('v2 provider health and model inventory endpoints', () => {
   let listOllamaHostsSpy;
   let recordHostHealthCheckSpy;
   let countTasksSpy;
+  let getApprovedModelsSpy;
+  let getProviderAdapterSpy;
   let providerRows;
   let configValues;
   let httpGetSpy;
+  let originalGetProviderAdapter;
   const originalEnv = {};
   const cloudEnvKeys = [
     'ANTHROPIC_API_KEY',
@@ -138,6 +144,7 @@ describe('v2 provider health and model inventory endpoints', () => {
     'DEEPINFRA_API_KEY',
     'HYPERBOLIC_API_KEY',
     'OPENAI_API_KEY',
+    'OPENROUTER_API_KEY',
   ];
 
   beforeAll(async () => {
@@ -147,6 +154,7 @@ describe('v2 provider health and model inventory endpoints', () => {
 
     providerRows = new Map();
     configValues = {};
+    originalGetProviderAdapter = adapterRegistry.getProviderAdapter;
     mockServer = {
       on: vi.fn(),
       listen: vi.fn((port, host, cb) => { if (cb) cb(); }),
@@ -175,6 +183,9 @@ describe('v2 provider health and model inventory endpoints', () => {
     vi.spyOn(providerRoutingCore, 'getDefaultProvider').mockReturnValue('codex');
     vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([]);
     vi.spyOn(db, 'getDbInstance').mockReturnValue({});
+    getApprovedModelsSpy = vi.spyOn(modelRegistry, 'getApprovedModels').mockReturnValue([]);
+    getProviderAdapterSpy = vi.spyOn(adapterRegistry, 'getProviderAdapter')
+      .mockImplementation((providerId) => originalGetProviderAdapter(providerId));
 
     createServerSpy = vi.spyOn(http, 'createServer').mockImplementation((handler) => {
       requestHandler = handler;
@@ -206,6 +217,8 @@ describe('v2 provider health and model inventory endpoints', () => {
     listOllamaHostsSpy.mockReturnValue([]);
     recordHostHealthCheckSpy.mockClear();
     countTasksSpy.mockReturnValue(0);
+    getApprovedModelsSpy.mockReturnValue([]);
+    getProviderAdapterSpy.mockImplementation((providerId) => originalGetProviderAdapter(providerId));
 
     if (httpGetSpy) {
       httpGetSpy.mockRestore();
@@ -265,6 +278,91 @@ describe('v2 provider health and model inventory endpoints', () => {
     // Legacy top-level fields stay available for older callers.
     expect(payload.provider_id).toBe('groq');
     expect(payload.models).toEqual([]);
+  });
+
+  it('returns approved OpenRouter registry models before live provider discovery', async () => {
+    setProvider('openrouter');
+    const listModels = vi.fn(async () => ['live/model:free']);
+    getProviderAdapterSpy.mockImplementation((providerId) => (
+      providerId === 'openrouter'
+        ? { listModels }
+        : originalGetProviderAdapter(providerId)
+    ));
+    getApprovedModelsSpy.mockReturnValue([
+      {
+        model_name: 'minimax/minimax-m2.5:free',
+        provider: 'openrouter',
+        family: 'minimax',
+        parameter_size_b: 7,
+        size_bytes: 123456,
+      },
+    ]);
+
+    const response = await dispatchRequest(requestHandler, {
+      method: 'GET',
+      url: '/api/v2/providers/openrouter/models',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = JSON.parse(response.body);
+
+    expect(payload.source).toBe('registry');
+    expect(payload.models).toEqual(['minimax/minimax-m2.5:free']);
+    expect(payload.data.models).toEqual([
+      expect.objectContaining({
+        id: 'minimax/minimax-m2.5:free',
+        provider_id: 'openrouter',
+        source: 'registry',
+        parameters: expect.objectContaining({
+          family: 'minimax',
+          parameter_count_b: 7,
+          size_bytes: 123456,
+        }),
+      }),
+    ]);
+    expect(getApprovedModelsSpy).toHaveBeenCalledWith('openrouter', undefined);
+    expect(listModels).not.toHaveBeenCalled();
+  });
+
+  it('falls back to live OpenRouter free model metadata when no registry models are approved', async () => {
+    setProvider('openrouter');
+    const listModels = vi.fn(async () => [
+      'google/gemma-3-12b-it:free',
+      'qwen/qwen3-coder:free',
+    ]);
+    getProviderAdapterSpy.mockImplementation((providerId) => (
+      providerId === 'openrouter'
+        ? { listModels }
+        : originalGetProviderAdapter(providerId)
+    ));
+
+    const response = await dispatchRequest(requestHandler, {
+      method: 'GET',
+      url: '/api/v2/providers/openrouter/models',
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = JSON.parse(response.body);
+
+    expect(payload.source).toBe('provider_api_live');
+    expect(payload.models).toEqual([
+      'google/gemma-3-12b-it:free',
+      'qwen/qwen3-coder:free',
+    ]);
+    expect(payload.data.models).toEqual([
+      expect.objectContaining({
+        id: 'google/gemma-3-12b-it:free',
+        source: 'provider_api_live',
+      }),
+      expect.objectContaining({
+        id: 'qwen/qwen3-coder:free',
+        source: 'provider_api_live',
+      }),
+    ]);
+    expect(listModels).toHaveBeenCalledWith({
+      freeOnly: true,
+      toolsOnly: false,
+    });
   });
 
   it('queries live Ollama hosts for model inventory and aggregates unique descriptors', async () => {
@@ -394,6 +492,31 @@ describe('v2 provider health and model inventory endpoints', () => {
       last_error: 'No API key configured',
       checked_at: expect.any(String),
     }));
+  });
+
+  it('treats provider-config OpenRouter API keys as configured for health', async () => {
+    setProvider('openrouter');
+    const getApiKeySpy = vi.spyOn(serverConfig, 'getApiKey')
+      .mockImplementation((providerId) => (providerId === 'openrouter' ? 'openrouter-test-key' : null));
+
+    try {
+      const response = await dispatchRequest(requestHandler, {
+        method: 'GET',
+        url: '/api/v2/providers/openrouter/health',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.body);
+
+      expect(getApiKeySpy).toHaveBeenCalledWith('openrouter');
+      expect(payload.data).toEqual(expect.objectContaining({
+        provider_id: 'openrouter',
+        status: 'healthy',
+        last_error: null,
+      }));
+    } finally {
+      getApiKeySpy.mockRestore();
+    }
   });
 
   it('pings Ollama hosts for health and reports measured latency with degraded status on partial failure', async () => {

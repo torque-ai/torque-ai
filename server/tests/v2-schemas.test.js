@@ -1,7 +1,17 @@
 const {
+  MODEL_SOURCES,
   validateInferenceRequest,
   validateProviderQuery,
 } = require('../api/v2-schemas');
+
+describe('MODEL_SOURCES', () => {
+  it('includes registry and live provider API model inventories', () => {
+    expect(MODEL_SOURCES).toEqual(expect.arrayContaining([
+      'provider_api_live',
+      'registry',
+    ]));
+  });
+});
 
 describe('validateInferenceRequest', () => {
   it('accepts a prompt payload and normalizes string fields', () => {
