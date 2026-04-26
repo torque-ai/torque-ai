@@ -384,7 +384,6 @@ function _checkFirstCallCost(measureToken) {
     throw new Error(msg);
   }
   if (elapsed >= warnMs) {
-    // eslint-disable-next-line no-console
     console.warn(
       `[vitest-setup] PERF WARN: ${measureToken.fnName}() first call took ${elapsed}ms` +
       ` (warn threshold: ${warnMs}ms). Consider using setupTestDbOnly() and lazy-requiring heavy modules.`
