@@ -691,6 +691,107 @@ test_remote_overlay_bundle_reaches_run_command() {
   finish_test "test_remote_overlay_bundle_reaches_run_command"
 }
 
+test_worktree_dot_git_file_is_project_root() {
+  local parent worktree
+
+  echo "Test: worktree .git file is detected as project root (not parent main checkout)"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  # Build a nested layout that mimics a real git worktree:
+  #   $parent/             ← main checkout (.git is a directory)
+  #   $parent/.git/
+  #   $parent/.worktrees/feat-x/  ← feature worktree (.git is a FILE)
+  #   $parent/.worktrees/feat-x/.git  ← contains "gitdir: ..."
+  parent="$(mktemp -d)"
+  TEMP_DIRS+=("$parent")
+  worktree="$parent/.worktrees/feat-x"
+  mkdir -p "$parent/.git" "$worktree" "$parent/bin" "$parent/home"
+  printf 'gitdir: %s\n' "$parent/.git/worktrees/feat-x" > "$worktree/.git"
+  : > "$worktree/calls.log"
+  : > "$worktree/argv.log"
+  : > "$worktree/remote-commands.log"
+  : > "$worktree/remote-stdin.bin"
+
+  cat > "$worktree/.torque-remote.json" <<'EOF'
+{
+  "transport": "ssh",
+  "sync_before_run": true,
+  "timeout_seconds": 30
+}
+EOF
+  cat > "$worktree/.torque-remote.local.json" <<'EOF'
+{
+  "host": "fakehost",
+  "user": "fakeuser",
+  "remote_project_path": "/fake"
+}
+EOF
+
+  export GIT_VERIFY_EXISTS="origin/main"
+  export GIT_REV_PARSE_OUTPUT="feat/x"
+
+  write_stub_jq "$parent/bin/jq"
+  write_stub_git "$parent/bin/git"
+  write_stub_ssh "$parent/bin/ssh"
+  write_stub_timeout "$parent/bin/timeout"
+  write_stub_argv_dump "$parent/bin/argv-dump"
+  chmod +x "$parent/bin/jq" "$parent/bin/git" "$parent/bin/ssh" "$parent/bin/timeout" "$parent/bin/argv-dump"
+
+  local stdout_file="$worktree/stdout.log"
+  local stderr_file="$worktree/stderr.log"
+  : > "$stdout_file"
+  : > "$stderr_file"
+  (
+    cd "$worktree" || exit 1
+    HOME="$parent/home" \
+    PATH="$parent/bin:$ORIGINAL_PATH" \
+    TORQUE_REMOTE_TEST_CALLS_LOG="$worktree/calls.log" \
+    TORQUE_REMOTE_TEST_ARGV_LOG="$worktree/argv.log" \
+    TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$worktree/remote-commands.log" \
+    TORQUE_REMOTE_TEST_REMOTE_STDIN="$worktree/remote-stdin.bin" \
+    bash "$SCRIPT_UNDER_TEST" echo hi >"$stdout_file" 2>"$stderr_file"
+  )
+  RUN_EXIT=$?
+  RUN_STDOUT="$(slurp_file "$stdout_file")"
+  RUN_STDERR="$(slurp_file "$stderr_file")"
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  # The worktree's branch is 'feat/x'. If find_project_root walks past the
+  # worktree's .git file up to the parent's .git directory, the local branch
+  # detection runs from the parent (which has no actual git state in this
+  # stubbed test) and the script ends up on a different code path. With the
+  # fix, find_project_root stops at the worktree, so local branch detection
+  # runs there and `git rev-parse --abbrev-ref HEAD` is invoked.
+  expect_file_contains "local branch detection runs from worktree" "$worktree/calls.log" "git [rev-parse] [--abbrev-ref] [HEAD]"
+
+  finish_test "test_worktree_dot_git_file_is_project_root"
+}
+
+test_sync_includes_drift_detection() {
+  local tmp
+
+  echo "Test: sync command includes drift-detection guard"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  make_test_env
+  tmp="$LAST_TEST_ENV"
+  export GIT_REV_PARSE_OUTPUT="main"
+
+  run_torque_remote "$tmp" echo hi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  # The new drift check guards against Windows file-lock failures where
+  # `git checkout --force` and `git reset --hard` exit 0 but silently
+  # leave individual files at their old content. After reset, we run
+  # `git diff --quiet HEAD`; any drift exits 99 so sync_status fires.
+  expect_file_contains "sync command includes git diff --quiet HEAD drift check" "$tmp/calls.log" "git diff --quiet HEAD"
+  expect_file_contains "drift check exits 99 on failure" "$tmp/calls.log" "exit 99"
+
+  finish_test "test_sync_includes_drift_detection"
+}
+
 test_timeout_style_failure_triggers_failsafe_cleanup_round_trip() {
   local tmp
 
@@ -730,6 +831,8 @@ main() {
   test_remote_run_does_not_require_timeout_binary
   test_successful_overlay_skips_failsafe_cleanup_round_trip
   test_remote_overlay_bundle_reaches_run_command
+  test_worktree_dot_git_file_is_project_root
+  test_sync_includes_drift_detection
   test_timeout_style_failure_triggers_failsafe_cleanup_round_trip
 
   echo ""
