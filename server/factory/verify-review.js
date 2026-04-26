@@ -163,6 +163,33 @@ function parseFailingTests(verifyOutput) {
     paths.add(m[1]);
   }
 
+  // Pester (PowerShell). Two stack-trace shapes:
+  //   Pester 5: "at <ScriptBlock>, C:\path\to\Foo.Tests.ps1:42"
+  //   Pester 4: "at line: 42 in C:\path\to\Foo.Tests.ps1"
+  // Both end up with the *.Tests.ps1 path next to a colon-line marker.
+  // Also catch the bare "[-] " failure-marker line which sometimes
+  // includes the script file in the test name (rare but seen with
+  // -OutputFormat Detailed). Without this parser, PowerShell-based
+  // projects (e.g. StateTrace running Invoke-AllChecks.ps1) returned
+  // failingTests=[] forever, and the verify-review tiebreak short-
+  // circuited to ambiguous on every cycle — observed live 2026-04-25.
+  const pesterStackRe = /\.[Tt]ests\.[Pp][Ss]1\b/;
+  if (pesterStackRe.test(combined)) {
+    // Stack-trace forms — extract the .Tests.ps1 path.
+    const pesterPathRe = /(?:at\s+(?:<ScriptBlock>|line:\s*\d+\s+in)[\s,]+)([A-Za-z]:[\\/][^\s,]+?\.[Tt]ests\.[Pp][Ss]1|\.{1,2}[\\/][^\s,]+?\.[Tt]ests\.[Pp][Ss]1|[A-Za-z0-9_][A-Za-z0-9_./\\-]*\.[Tt]ests\.[Pp][Ss]1)/g;
+    for (const m of combined.matchAll(pesterPathRe)) {
+      paths.add(m[1]);
+    }
+    // Failed-test summary line: "Failed: ... <Describe>.<It>" doesn't
+    // include the path; Pester writes the path in the stack trace
+    // immediately below. The pesterPathRe above catches that.
+    // Bare-line backstop for unusual formats: "X [-] ... <path>.Tests.ps1"
+    const pesterMarkerRe = /^[\s✅-]*\[-\][^\n]*?([A-Za-z]:[\\/][^\s,]+?\.[Tt]ests\.[Pp][Ss]1|[A-Za-z0-9_][A-Za-z0-9_./\\-]*\.[Tt]ests\.[Pp][Ss]1)/gm;
+    for (const m of combined.matchAll(pesterMarkerRe)) {
+      paths.add(m[1]);
+    }
+  }
+
   return Array.from(paths);
 }
 

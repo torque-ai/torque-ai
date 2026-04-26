@@ -149,4 +149,31 @@ module.exports = [
     match: { stage: 'execute', action: 'auto_commit_skipped_clean' },
     suggested_strategies: ['retry_with_fresh_session', 'reject_and_advance', 'escalate'],
   },
+  {
+    // VERIFY paused because the reviewer returned an ambiguous (low-
+    // confidence) verdict. Most often this means the failing-tests
+    // parser returned [] AND the modified-files set was [] — the
+    // reviewer's early-exit fires (verify-review.js:393) without
+    // invoking the LLM tiebreak at all, because there is literally
+    // nothing to attribute.
+    //
+    // Observed live on StateTrace 2026-04-25: PowerShell/Pester verify
+    // output wasn't being parsed (parser only handled pytest / vitest /
+    // dotnet at the time), so the loop ran ambiguous→retry→ambiguous→
+    // retry indefinitely. The Pester parser landed alongside this rule —
+    // the parser is the ROOT-cause fix; this rule is the resilience
+    // layer for any future test runner the parser doesn't yet know
+    // about, and it gives the decision log a deterministic category
+    // instead of anonymous `unknown` / `none`.
+    //
+    // Categorized as `transient` so retry is the first move (verify
+    // runs themselves can flake) AND reject_and_advance stays applicable
+    // for the post-MAX_ATTEMPTS path.
+    name: 'verify_reviewer_ambiguous',
+    category: 'transient',
+    priority: 65,
+    confidence: 0.6,
+    match: { stage: 'verify', action: 'verify_reviewed_ambiguous_paused' },
+    suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
+  },
 ];
