@@ -32,8 +32,13 @@ afterAll(() => {
 });
 
 describe('automation ts tool workspace path scoping', () => {
-  it('rejects absolute file paths outside the workspace root', () => {
-    const result = handleAddTsInterfaceMembers({
+  // Implementation went async in 759acf79 (perf(sync-io): async
+  // readModifyWrite helper + 8 handlers). The path-traversal check
+  // returns its own non-Promise error object before reaching the async
+  // path, but the function itself is declared `async`, so its return
+  // value is wrapped in a Promise either way. Test must await.
+  it('rejects absolute file paths outside the workspace root', async () => {
+    const result = await handleAddTsInterfaceMembers({
       file_path: outsideFilePath,
       working_directory: path.resolve(__dirname, '..', '..'),
       interface_name: 'Config',
