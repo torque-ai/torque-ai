@@ -1,14 +1,14 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { listEvents } = require('../events/event-emitter');
 
 let db;
 let testDir;
 
 beforeAll(() => {
-  const setup = setupTestDb('event-replay');
+  const setup = setupTestDbOnly('event-replay');
   db = setup.db;
   testDir = setup.testDir;
 });

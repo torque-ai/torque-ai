@@ -3,6 +3,8 @@ const noHardcodedFactoryProviderRule = require('./eslint-rules/no-hardcoded-fact
 const noSpawnSyncInFactoryRule = require('./eslint-rules/no-spawn-sync-in-factory');
 const noVitestRequireRule = require('./eslint-rules/no-vitest-require');
 const noSyncFsOnHotPathsRule = require('./eslint-rules/no-sync-fs-on-hot-paths');
+const noHeavyTestImportsRule = require('./eslint-rules/no-heavy-test-imports');
+const noResetModulesInEachRule = require('./eslint-rules/no-reset-modules-in-each');
 
 const vitestGlobals = {
   describe: 'readonly',
@@ -116,6 +118,83 @@ module.exports = [
     },
     rules: {
       'local/no-vitest-require': 'error',
+    },
+  },
+  {
+    files: ['tests/**/*.js', '**/*.test.js'],
+    plugins: {
+      torque: {
+        rules: {
+          'no-heavy-test-imports': noHeavyTestImportsRule,
+          'no-reset-modules-in-each': noResetModulesInEachRule,
+        },
+      },
+    },
+    rules: {
+      'torque/no-reset-modules-in-each': 'error',
+      'torque/no-heavy-test-imports': ['error', {
+        allowlist: [
+          // tools.js consumers (routeMap/handleToolCall needed)
+          'api-server.test.js',
+          'auto-recovery-mcp-tools.test.js',
+          'eval-mcp-tools.test.js',
+          'mcp-factory-loop-tools.test.js',
+          'mcp-sse.test.js',
+          'mcp-streamable-http.test.js',
+          'mcp-tools-plan-file.test.js',
+          'p2-orphaned-tools.test.js',
+          'p2-workflow-subscribe.test.js',
+          'p3-dead-routes.test.js',
+          'restart-server-tool.test.js',
+          'test-hardening.test.js',
+          'tool-schema-validation.test.js',
+          'tools-aggregator.test.js',
+          // task-manager consumers (genuine dependency — Task 8 candidates for future lazy-require)
+          'automation-batch-orchestration.test.js',
+          'dashboard-routes-advanced.test.js',
+          'e2e-post-task-validation.test.js',
+          'handler-adv-debugger.test.js',
+          'handler-task-core-extended.test.js',
+          'handler-task-pipeline.test.js',
+          'handler-task-project.test.js',
+          'handler-workflow-advanced.test.js',
+          'handler-workflow-handlers.test.js',
+          'harness-improvements.test.js',
+          'integration-index.test.js',
+          'p1-process-safety.test.js',
+          'policy-task-lifecycle.test.js',
+          'post-tool-hooks.test.js',
+          'task-intelligence-handlers.test.js',
+          'task-intelligence.test.js',
+          'task-operations.test.js',
+          'task-pipeline-handlers.test.js',
+          'workflow-handlers-analysis.test.js',
+          'workflow-handlers-core.test.js',
+          // database direct-import consumers (genuine dependency — pre-existing pattern)
+          'event-dispatch.test.js',
+          'factory-architect-prompt-guide.test.js',
+          'factory-execute-non-plan-file.test.js',
+          'factory-execute-to-verify-gate.test.js',
+          'factory-learn-stage-no-null-db.test.js',
+          'factory-loop-async.test.js',
+          'factory-loop-controller.test.js',
+          'factory-loop-pipeline.test.js',
+          'factory-loop-shipping.test.js',
+          'factory-pending-approval.test.js',
+          'factory-prioritize-score-work-item.test.js',
+          'factory-selected-work-item.test.js',
+          'factory-startup-reconciler.test.js',
+          'factory-worktree-auto-commit.test.js',
+          'loop-controller-decision-log.test.js',
+          'loop-controller-plans-dir.test.js',
+          'p0-cors-csrf.test.js',
+          'p1-infra-fixes.test.js',
+          'v2-health-models.test.js',
+          // Non-test JS files in tests/ (baseline scripts, helpers)
+          'baseline-all-models.js',
+          'baseline-runner.js',
+        ],
+      }],
     },
   },
   {

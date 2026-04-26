@@ -26,6 +26,7 @@ describe('factory provider lane audit route', () => {
   let FACTORY_V2_ROUTES;
 
   beforeEach(() => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- re-requires factory-routes fresh so handlers rebind to mocks
     vi.resetModules();
     try { delete require.cache[require.resolve('../api/routes/factory-routes')]; } catch { /* not loaded */ }
     try { delete require.cache[require.resolve('../handlers/factory-handlers')]; } catch { /* not loaded */ }

@@ -3,7 +3,7 @@
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { setupTestDb, teardownTestDb, getText } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, getText } = require('./vitest-setup');
 const { ErrorCodes } = require('../handlers/shared');
 const { getArtifactConfig } = require('../db/task-metadata');
 const dataDir = require('../data-dir');
@@ -13,7 +13,7 @@ describe('handleConfigureArtifactStorage storage_path boundary', () => {
   let tempDataDir;
 
   beforeEach(() => {
-    setupTestDb('artifact-storage-path');
+    setupTestDbOnly('artifact-storage-path');
     tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-artifact-test-'));
     dataDir.setDataDir(tempDataDir);
   });

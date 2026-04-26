@@ -31,6 +31,7 @@ describe('factory loop instance routes', () => {
   let FACTORY_V2_ROUTES;
 
   beforeEach(() => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- re-requires factory-routes fresh so handlers rebind to mocks
     vi.resetModules();
     // Force factory-routes to reload so it picks up the fresh mock handlers.
     // vi.resetModules() clears vitest's registry but some require.cache entries

@@ -14,7 +14,7 @@ module.exports = {
     // real regressions still fail the gate; one-shot flakes (tool-annotations
     // registry state, auto-fix race, etc.) get a second chance and pass.
     retry: 1,
-    include: ['tests/**/*.test.js', 'plugins/**/tests/**/*.test.js'],
+    include: ['tests/**/*.test.js', 'plugins/**/tests/**/*.test.js', 'eslint-rules/**/*.test.js'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     setupFiles: ['tests/worker-setup.js'],
     // 'threads' gives tighter test isolation than 'forks' on Windows, which

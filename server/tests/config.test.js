@@ -7,6 +7,7 @@ describe('server/config.js — unified config resolution', () => {
 
   beforeEach(() => {
     // Fresh require to reset module state
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- tests config singleton fresh-require isolation
     vi.resetModules();
     config = require('../config');
     mockConfigCore = require('../db/config-core');

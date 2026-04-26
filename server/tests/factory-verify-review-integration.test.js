@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 const factoryArchitect = require('../db/factory-architect');
 const factoryDecisions = require('../db/factory-decisions');
@@ -163,7 +163,7 @@ describe('executeVerifyStage + verify-review integration', () => {
   let dbHandle;
 
   beforeEach(() => {
-    ({ db: dbModule } = setupTestDb('verify-review-e2e'));
+    ({ db: dbModule } = setupTestDbOnly('verify-review-e2e'));
     dbHandle = dbModule.getDbInstance();
     ensureFactoryTables(dbHandle);
     wireFactoryDbModules(dbHandle);

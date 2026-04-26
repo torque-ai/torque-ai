@@ -2,7 +2,7 @@
 
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb, rawDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb, rawDb } = require('./vitest-setup');
 const { buildBundle } = require('../runs/build-bundle');
 const { replayWorkflow } = require('../runs/replay');
 
@@ -11,7 +11,7 @@ let testDir;
 let conn;
 
 beforeAll(() => {
-  const setup = setupTestDb('replay');
+  const setup = setupTestDbOnly('replay');
   db = setup.db;
   testDir = setup.testDir;
   conn = rawDb();

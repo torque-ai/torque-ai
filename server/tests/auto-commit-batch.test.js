@@ -167,6 +167,7 @@ beforeEach(() => {
     hostActivityCache: new Map(),
   };
 
+  // eslint-disable-next-line torque/no-reset-modules-in-each -- installDependencyMocks requires fresh module registry each run
   vi.resetModules();
   clearCjsModules(MOCKED_MODULES);
   installDependencyMocks();

@@ -2,12 +2,12 @@
 
 const fs = require('fs');
 const path = require('path');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { handleRunWorkflowSpec } = require('../handlers/workflow-spec-handlers');
 
 let db, testDir;
 beforeAll(() => {
-  const env = setupTestDb('wf-spec-integration');
+  const env = setupTestDbOnly('wf-spec-integration');
   db = env.db;
   testDir = env.testDir;
 });

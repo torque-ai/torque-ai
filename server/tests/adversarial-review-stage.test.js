@@ -11,6 +11,7 @@ describe('adversarial-review-stage', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- requires module under test fresh each run
     vi.resetModules();
 
     vi.spyOn(childProcess, 'execFile').mockImplementation((_cmd, _args, _opts, cb) => {

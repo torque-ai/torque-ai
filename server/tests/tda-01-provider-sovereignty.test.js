@@ -62,6 +62,7 @@ describe('TDA-01: analyzeTaskForRouting — health fallback sovereignty', () => 
   let analyzeTaskForRouting;
 
   beforeEach(async () => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- dynamic import re-loads provider-routing-core fresh each run
     vi.resetModules();
     // Re-import to get fresh module state
     const routingCore = await import('../../server/db/provider-routing-core.js');
@@ -90,6 +91,7 @@ describe('TDA-01: handleSubmitTask — intent preservation', () => {
   let handleSubmitTask;
 
   beforeEach(async () => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- dynamic import re-loads routing module fresh each run
     vi.resetModules();
     vi.clearAllMocks();
     mockDb.getProvider.mockReturnValue({ enabled: true, max_concurrent: 5 });
@@ -190,6 +192,7 @@ describe('TDA-01: resolveProviderRouting — budget reroute sovereignty', () => 
   let resolveProviderRouting;
 
   beforeEach(async () => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- dynamic import re-loads routing module fresh each run
     vi.resetModules();
     vi.clearAllMocks();
     mockDb.getProvider.mockReturnValue({ enabled: true, max_concurrent: 5 });
@@ -256,6 +259,7 @@ describe('TDA-01: handleSmartSubmitTask — disabled provider sovereignty', () =
   let handleSmartSubmitTask;
 
   beforeEach(async () => {
+    // eslint-disable-next-line torque/no-reset-modules-in-each -- dynamic import re-loads routing fresh each run
     vi.resetModules();
     vi.clearAllMocks();
     mockDb.getDefaultProvider.mockReturnValue('codex');

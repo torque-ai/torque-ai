@@ -175,6 +175,7 @@ describe('auto_routed overflow — proof of integration', () => {
     let mocks;
 
     beforeEach(() => {
+      // eslint-disable-next-line torque/no-reset-modules-in-each -- re-requires queue-scheduler fresh so provider registry mock binds
       vi.resetModules();
       installCjsModuleMock('../providers/registry', mockProviderRegistry);
       installCjsModuleMock('../config', mockServerConfig);

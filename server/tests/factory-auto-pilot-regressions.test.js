@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 const fs = require('fs');
 const path = require('path');
 
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const autoVerifyRetry = require('../validation/auto-verify-retry');
 const architectRunner = require('../factory/architect-runner');
 const loopController = require('../factory/loop-controller');
@@ -189,7 +189,7 @@ function createProject(name) {
 }
 
 beforeAll(() => {
-  ({ db: dbModule, testDir } = setupTestDb('factory-auto-pilot-regressions'));
+  ({ db: dbModule, testDir } = setupTestDbOnly('factory-auto-pilot-regressions'));
   dbHandle = dbModule.getDbInstance();
   ensureFactoryTables(dbHandle);
   wireFactoryDbModules(dbHandle);

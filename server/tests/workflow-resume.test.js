@@ -1,14 +1,14 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const workflowResume = require('../execution/workflow-resume');
 
 let db;
 let rawDb;
 
 beforeAll(() => {
-  db = setupTestDb('wf-resume').db;
+  db = setupTestDbOnly('wf-resume').db;
   rawDb = db.getDbInstance();
   workflowResume.init({
     db,

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { setupTestDb, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 
 const factoryArchitect = require('../db/factory-architect');
 const factoryDecisions = require('../db/factory-decisions');
@@ -99,7 +99,7 @@ describe('executeVerifyStage + dep-resolver integration', () => {
   let dbModule;
   let db;
   beforeEach(() => {
-    ({ db: dbModule } = setupTestDb('dep-resolver-e2e'));
+    ({ db: dbModule } = setupTestDbOnly('dep-resolver-e2e'));
     db = dbModule.getDbInstance();
     ensureFactoryTables(db);
     wireFactoryDbModules(db);
