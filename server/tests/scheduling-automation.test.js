@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const { setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { assertMaxPrepares } = require('./perf-test-helpers.test');
 
 let mod, testDir;
 const projectConfigCore = require('../db/project-config-core');
@@ -825,6 +826,18 @@ describe('scheduling-automation module', () => {
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const recent = mod.getAuditStats({ since });
       expect(recent.total).toBe(2);
+    });
+  });
+
+  describe('prepare-in-loop regressions', () => {
+    it('getAuditLogColumns uses 0 PRAGMA prepares after first call (module-level cache)', async () => {
+      // First call populates the cache
+      mod.getAuditLogColumns();
+      // Second call should hit the cache — 0 new prepares
+      const count = await assertMaxPrepares(rawDb(), 0, () => {
+        mod.getAuditLogColumns();
+      });
+      expect(count).toBe(0);
     });
   });
 });
