@@ -363,12 +363,43 @@ function _initDb(suiteName) {
   return { db, testDir };
 }
 
+let _setupFirstCallRecorded = false;
+
+function _measureFirstCallCost(fnName) {
+  if (_setupFirstCallRecorded) return null;
+  _setupFirstCallRecorded = true;
+  return { start: performance.now(), fnName };
+}
+
+function _checkFirstCallCost(measureToken) {
+  if (!measureToken) return;
+  const elapsed = Math.round(performance.now() - measureToken.start);
+  const warnMs = parseInt(process.env.PERF_TEST_IMPORT_WARN_MS || '250', 10);
+  const failMs = parseInt(process.env.PERF_TEST_IMPORT_FAIL_MS || '500', 10);
+  if (elapsed >= failMs) {
+    const msg =
+      `[vitest-setup] PERF FAIL: ${measureToken.fnName}() first call took ${elapsed}ms` +
+      ` (threshold: ${failMs}ms). A heavy module was likely imported at top level.` +
+      ` Check for top-level require('../tools') or require('../task-manager') in this test file.`;
+    throw new Error(msg);
+  }
+  if (elapsed >= warnMs) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[vitest-setup] PERF WARN: ${measureToken.fnName}() first call took ${elapsed}ms` +
+      ` (warn threshold: ${warnMs}ms). Consider using setupTestDbOnly() and lazy-requiring heavy modules.`
+    );
+  }
+}
+
 /**
  * Full setup with a lazy tools.handleToolCall wrapper — for handler/MCP tool tests.
  */
 function setupTestDb(suiteName) {
+  const perf = _measureFirstCallCost('setupTestDb');
   const result = _initDb(suiteName);
   handleToolCall = lazyHandleToolCall;
+  _checkFirstCallCost(perf);
   return { ...result, handleToolCall };
 }
 
@@ -377,7 +408,10 @@ function setupTestDb(suiteName) {
  * Use for tests that only need the database, not handleToolCall.
  */
 function setupTestDbOnly(suiteName) {
-  return _initDb(suiteName);
+  const perf = _measureFirstCallCost('setupTestDbOnly');
+  const result = _initDb(suiteName);
+  _checkFirstCallCost(perf);
+  return result;
 }
 
 /**
