@@ -335,7 +335,32 @@ find_project_root() {
 }
 
 PROJECT_ROOT="$(find_project_root)"
+
+# When invoked from a git worktree, basename(PROJECT_ROOT) is the worktree dir
+# name (e.g. "feat-x"), not the project name. That breaks any remote path
+# derivation that expects a stable per-project label — <root>\<project> silently
+# becomes <root>\feat-x, which the remote workstation has never created. Use
+# `git rev-parse --git-common-dir` to locate the main repo: it returns ".git"
+# (relative) in a regular checkout and an absolute path to the main .git dir in
+# a worktree, so the parent of that path is the main repo root regardless of
+# which worktree we're invoked from.
 PROJECT_NAME="$(basename "$PROJECT_ROOT")"
+common_dir="$(cd "$PROJECT_ROOT" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null || true)"
+if [[ -n "$common_dir" ]]; then
+  case "$common_dir" in
+    .git|.git/) ;;  # main checkout — keep PROJECT_ROOT's basename
+    *)
+      case "$common_dir" in
+        /*|[A-Za-z]:[\\/]*) main_git_dir="$common_dir" ;;
+        *)                  main_git_dir="$PROJECT_ROOT/$common_dir" ;;
+      esac
+      main_repo_root="$(dirname "$main_git_dir")"
+      if [[ -n "$main_repo_root" && "$main_repo_root" != "/" && "$main_repo_root" != "." ]]; then
+        PROJECT_NAME="$(basename "$main_repo_root")"
+      fi
+      ;;
+  esac
+fi
 
 # ---- Load config ----
 

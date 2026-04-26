@@ -168,6 +168,7 @@ reset_stub_env() {
   unset GIT_LS_FILES_OUTPUT GIT_LS_FILES_EXIT_CODE
   unset SSH_CONNECT_OUTPUT SSH_CONNECT_EXIT_CODE
   unset SSH_WMIC_OUTPUT SSH_WMIC_EXIT_CODE
+  unset GIT_COMMON_DIR_OUTPUT GIT_COMMON_DIR_EXIT_CODE
   unset SSH_BRANCH_EXISTS_OUTPUT SSH_BRANCH_EXISTS_EXIT_CODE
   unset SSH_SYNC_OUTPUT SSH_SYNC_EXIT_CODE
   unset SSH_EXEC_OUTPUT SSH_EXEC_EXIT_CODE
@@ -249,6 +250,15 @@ if [[ "$#" -ge 3 && "$1" == "rev-parse" && "$2" == "--abbrev-ref" && "$3" == "HE
     printf '%s\n' "$GIT_REV_PARSE_OUTPUT"
   fi
   exit "${GIT_REV_PARSE_EXIT_CODE:-0}"
+fi
+
+if [[ "$#" -ge 2 && "$1" == "rev-parse" && "$2" == "--git-common-dir" ]]; then
+  if [[ "${GIT_COMMON_DIR_OUTPUT+x}" == "x" && -n "$GIT_COMMON_DIR_OUTPUT" ]]; then
+    printf '%s\n' "$GIT_COMMON_DIR_OUTPUT"
+  else
+    printf '.git\n'
+  fi
+  exit "${GIT_COMMON_DIR_EXIT_CODE:-0}"
 fi
 
 if [[ "$#" -ge 3 && "$1" == "rev-parse" && "$2" == "--verify" ]]; then
@@ -782,6 +792,91 @@ EOF
   finish_test "test_worktree_dot_git_file_is_project_root"
 }
 
+test_worktree_uses_main_repo_basename_for_project_name() {
+  local parent main worktree
+
+  echo "Test: PROJECT_NAME from a worktree resolves to the main-repo basename, not the worktree dir name"
+  TEST_ERRORS=()
+  reset_stub_env
+
+  # Layout (mirrors a real TORQUE feature worktree):
+  #   $parent/torque-public/                         ← main checkout (.git directory)
+  #   $parent/torque-public/.worktrees/feat-x/        ← worktree (.git is a *file*)
+  parent="$(mktemp -d)"
+  TEMP_DIRS+=("$parent")
+  main="$parent/torque-public"
+  worktree="$main/.worktrees/feat-x"
+  mkdir -p "$main/.git" "$worktree" "$parent/bin" "$parent/home"
+  printf 'gitdir: %s\n' "$main/.git/worktrees/feat-x" > "$worktree/.git"
+  : > "$worktree/calls.log"
+  : > "$worktree/argv.log"
+  : > "$worktree/remote-commands.log"
+  : > "$worktree/remote-stdin.bin"
+
+  cat > "$worktree/.torque-remote.json" <<'EOF'
+{
+  "transport": "ssh",
+  "sync_before_run": true,
+  "timeout_seconds": 30
+}
+EOF
+  cat > "$worktree/.torque-remote.local.json" <<'EOF'
+{
+  "host": "fakehost",
+  "user": "fakeuser",
+  "remote_project_path": "C:\\Users\\kenten\\Projects\\torque-public",
+  "remote_test_worktree_root": "C:/trt"
+}
+EOF
+
+  export GIT_VERIFY_EXISTS="origin/main"
+  export GIT_REV_PARSE_OUTPUT="feat/x"
+  # The fix uses git rev-parse --git-common-dir to detect the main repo from
+  # inside a worktree. Stub returns the absolute path to the parent .git, which
+  # signals worktree mode (as opposed to bare ".git" in a main checkout).
+  export GIT_COMMON_DIR_OUTPUT="$main/.git"
+
+  write_stub_jq "$parent/bin/jq"
+  write_stub_git "$parent/bin/git"
+  write_stub_ssh "$parent/bin/ssh"
+  write_stub_timeout "$parent/bin/timeout"
+  write_stub_argv_dump "$parent/bin/argv-dump"
+  chmod +x "$parent/bin/jq" "$parent/bin/git" "$parent/bin/ssh" "$parent/bin/timeout" "$parent/bin/argv-dump"
+
+  local stdout_file="$worktree/stdout.log"
+  local stderr_file="$worktree/stderr.log"
+  : > "$stdout_file"
+  : > "$stderr_file"
+  (
+    cd "$worktree" || exit 1
+    HOME="$parent/home" \
+    PATH="$parent/bin:$ORIGINAL_PATH" \
+    TORQUE_REMOTE_TEST_CALLS_LOG="$worktree/calls.log" \
+    TORQUE_REMOTE_TEST_ARGV_LOG="$worktree/argv.log" \
+    TORQUE_REMOTE_TEST_REMOTE_COMMANDS="$worktree/remote-commands.log" \
+    TORQUE_REMOTE_TEST_REMOTE_STDIN="$worktree/remote-stdin.bin" \
+    bash "$SCRIPT_UNDER_TEST" echo hi >"$stdout_file" 2>"$stderr_file"
+  )
+  RUN_EXIT=$?
+  RUN_STDOUT="$(slurp_file "$stdout_file")"
+  RUN_STDERR="$(slurp_file "$stderr_file")"
+  RUN_RUNNER_SH=""
+  if [[ -s "$worktree/remote-stdin.bin" ]]; then
+    RUN_RUNNER_SH="$(tar -xOf "$worktree/remote-stdin.bin" runner.sh 2>/dev/null || true)"
+  fi
+
+  expect_eq "exit code is 0" "0" "$RUN_EXIT"
+  # Bug shape: from the worktree, basename(PROJECT_ROOT) = 'feat-x'. Without the
+  # fix, EFFECTIVE_REMOTE_PROJECT_PATH ends up as C:\trt\feat-x, which never
+  # exists on the remote (a fresh feature branch was never set up there). The
+  # fix derives PROJECT_NAME from the main repo so the path stays stable across
+  # branches: C:\trt\torque-public.
+  expect_contains "remote path uses main-repo basename" "$RUN_RUNNER_SH" 'C:\trt\torque-public'
+  expect_not_contains "remote path does NOT use worktree dir name" "$RUN_RUNNER_SH" 'C:\trt\feat-x'
+
+  finish_test "test_worktree_uses_main_repo_basename_for_project_name"
+}
+
 test_sync_includes_drift_detection() {
   local tmp
 
@@ -846,6 +941,7 @@ main() {
   test_successful_overlay_skips_failsafe_cleanup_round_trip
   test_remote_overlay_bundle_reaches_run_command
   test_worktree_dot_git_file_is_project_root
+  test_worktree_uses_main_repo_basename_for_project_name
   test_sync_includes_drift_detection
   test_timeout_style_failure_triggers_failsafe_cleanup_round_trip
 
