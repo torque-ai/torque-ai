@@ -185,7 +185,13 @@ run_with_flake_retry_inner() {
     sleep 0.2
     # Fast-exit once the parallel-gate marker is present — it's the only
     # parsing input we strictly need from the tail.
-    grep -q '\[gate-end\] dash_exit=' "$tmp" 2>/dev/null && break
+    # Require digits after `dash_exit=` so this regex doesn't match the
+    # `[torque-remote] Running on ...` source-string log line, which echoes
+    # the literal heredoc body containing `dash_exit=$DASH_EXIT` (no digits).
+    # That false match was triggering fast-exit BEFORE the actual gate-end
+    # marker arrived, then the parser fell back to combined_exit and reported
+    # the wrong phase as failed.
+    grep -qE '\[gate-end\] dash_exit=[0-9]' "$tmp" 2>/dev/null && break
     size_b=$(wc -c < "$tmp" 2>/dev/null || echo 0)
     [ "$size_a" = "$size_b" ] && break
     size_a="$size_b"
@@ -300,7 +306,7 @@ server_output=$(echo "$combined_output" | grep '^\[serv\] ' | sed 's/^\[serv\] /
 # The gate-end marker reports per-phase exits even when overall exit code
 # is nonzero from `set -uo pipefail` weirdness. Prefer the marker when
 # present.
-if echo "$combined_output" | grep -q '\[gate-end\] dash_exit='; then
+if echo "$combined_output" | grep -qE '\[gate-end\] dash_exit=[0-9]'; then
   dash_exit=$(echo "$combined_output" | grep '\[gate-end\]' | sed -E 's/.*dash_exit=([0-9]+).*/\1/' | tail -1)
   server_exit=$(echo "$combined_output" | grep '\[gate-end\]' | sed -E 's/.*serv_exit=([0-9]+).*/\1/' | tail -1)
 else
