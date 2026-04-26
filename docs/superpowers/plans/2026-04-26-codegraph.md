@@ -87,6 +87,10 @@ C#, Python, and PowerShell extractors are explicitly out of scope for this plan.
 
 **Never `execSync` or `exec`.** Both invoke a shell and create injection surface even with hardcoded args (the security hook will block commits). Use `execFileSync(file, args, opts)` everywhere — it `execve`s the binary directly with no shell, and arg arrays are passed as raw argv. Every test that spins up a tiny git repo uses the shared `test-helpers.js` so the discipline is enforced in one place.
 
+## Vitest discipline
+
+**Do not `require('vitest')` or `import { ... } from 'vitest'` in test files.** This project's `server/vitest.config.js` sets `globals: true`, so `describe`, `it`, `expect`, `beforeEach`, `afterEach`, `beforeAll`, `afterAll` are available as globals — exactly the pattern `server/plugins/snapscope/tests/*.test.js` uses. Vitest 4.x rejects `require('vitest')` outright with `Vitest cannot be imported in a CommonJS module using require()`. The code blocks below show explanatory comments where the import would otherwise go; **do not copy those comment lines into the actual test files** — they are plan-reader hints, not file content. Just start the test file with `'use strict';` then the non-vitest requires (`Database`, the module under test, etc.).
+
 ---
 
 ## Task 1: Plugin skeleton + lifecycle test
@@ -101,7 +105,7 @@ C#, Python, and PowerShell extractors are explicitly out of scope for this plan.
 // server/plugins/codegraph/tests/plugin-lifecycle.test.js
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+// vitest globals (describe, it, expect, beforeEach, afterEach) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const Database = require('better-sqlite3');
 const { createCodegraphPlugin } = require('../index');
 
@@ -278,7 +282,7 @@ git commit -m "feat(codegraph): plugin skeleton with feature-flag gate"
 // server/plugins/codegraph/tests/schema.test.js
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+// vitest globals (describe, it, expect, beforeEach, afterEach) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const Database = require('better-sqlite3');
 const { ensureSchema } = require('../schema');
 
@@ -424,7 +428,7 @@ git commit -m "feat(codegraph): cg_files/cg_symbols/cg_references/cg_index_state
 // server/plugins/codegraph/tests/parser.test.js
 'use strict';
 
-const { describe, it, expect } = require('vitest');
+// vitest globals (describe, it, expect) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const { getParser, supportedLanguages } = require('../parser');
 
 describe('codegraph parser pool', () => {
@@ -533,7 +537,7 @@ git commit -m "feat(codegraph): wasm tree-sitter parser pool with caching"
 // server/plugins/codegraph/tests/extractor-javascript.test.js
 'use strict';
 
-const { describe, it, expect } = require('vitest');
+// vitest globals (describe, it, expect) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const { extractFromSource } = require('../extractors/javascript');
 
 describe('javascript extractor', () => {
@@ -751,7 +755,7 @@ module.exports = { beta, delta };
 // server/plugins/codegraph/tests/indexer.test.js
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+// vitest globals (describe, it, expect, beforeEach, afterEach) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const path = require('path');
 const Database = require('better-sqlite3');
 const { ensureSchema } = require('../schema');
@@ -1012,7 +1016,7 @@ git commit -m "test(codegraph): shared test helpers using execFileSync only"
 // server/plugins/codegraph/tests/queries.test.js
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+// vitest globals (describe, it, expect, beforeEach, afterEach) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const path = require('path');
 const Database = require('better-sqlite3');
 const { ensureSchema } = require('../schema');
@@ -1408,7 +1412,7 @@ git commit -m "feat(codegraph): dead_symbols query"
 // server/plugins/codegraph/tests/index-runner.test.js
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+// vitest globals (describe, it, expect, beforeEach, afterEach) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
@@ -1665,7 +1669,7 @@ git commit -m "feat(codegraph): MCP tool descriptors for cg_* tools"
 // server/plugins/codegraph/tests/handlers.test.js
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+// vitest globals (describe, it, expect, beforeEach, afterEach) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const Database = require('better-sqlite3');
 const { ensureSchema } = require('../schema');
 const { createHandlers } = require('../handlers');
@@ -1863,7 +1867,7 @@ git commit -m "feat(codegraph): handlers + lifecycle wiring for all six cg_* too
 // server/plugins/codegraph/tests/rest-passthrough.test.js
 'use strict';
 
-const { describe, it, expect } = require('vitest');
+// vitest globals (describe, it, expect) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const routes = require('../../../api/routes-passthrough');
 
 describe('codegraph REST passthrough routes', () => {
@@ -1945,7 +1949,7 @@ git commit -m "feat(codegraph): REST passthrough routes for all six cg_* tools"
 // server/plugins/codegraph/tests/plugin-registration.test.js
 'use strict';
 
-const { describe, it, expect } = require('vitest');
+// vitest globals (describe, it, expect) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const fs = require('fs');
 const path = require('path');
 
@@ -2003,7 +2007,7 @@ git commit -m "feat(codegraph): register plugin in DEFAULT_PLUGIN_NAMES (gated b
 // server/plugins/codegraph/tests/e2e-rest.test.js
 'use strict';
 
-const { describe, it, expect, beforeAll, afterAll } = require('vitest');
+// vitest globals (describe, it, expect, beforeAll, afterAll) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -2122,7 +2126,7 @@ git commit -m "test(codegraph): e2e REST smoke (CG_E2E=1 gated)"
 // server/plugins/codegraph/tests/indexer-worker.test.js
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+// vitest globals (describe, it, expect, beforeEach, afterEach) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -2279,7 +2283,7 @@ git commit -m "feat(codegraph): worker-thread reindex job + getJobStatus"
 // server/plugins/codegraph/tests/startup-resume.test.js
 'use strict';
 
-const { describe, it, expect, beforeEach, afterEach } = require('vitest');
+// vitest globals (describe, it, expect, beforeEach, afterEach) are enabled via server/vitest.config.js — do not require('vitest') (rejected in vitest 4.x)
 const Database = require('better-sqlite3');
 const { ensureSchema } = require('../schema');
 const { createCodegraphPlugin } = require('../index');
